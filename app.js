@@ -529,6 +529,7 @@ let devUpdateModalCleanup = null;
 let fivemSetupModalCleanup = null;
 let onboardingWelcomeCleanup = null;
 let onboardingWizardCleanup = null;
+let onboardingOpenGeneration = 0;
 let contextualHelpCleanup = null;
 let activeContextualHelpTopic = null;
 let openModalCount = 0;
@@ -707,6 +708,8 @@ let accountPollTimer = null;
 let accountCountdownTimer = null;
 let accountStartInFlight = false;
 let accountStartRetryAfter = 0;
+let accountRestorationResolved = false;
+let accountRefreshGeneration = 0;
 let ownerWorkspaceState = { authorized: false, pages: [], contents: {}, selectedPageId: "overview", apiHistory: [] };
 let ownerAutosaveTimer = null;
 let ownerAnalyticsTimer = null;
@@ -758,6 +761,7 @@ let latestSystemSnapshotNodeId = null;
 let lastLoggedAmpUrlSource = null;
 let latestInstancesSnapshot = null;
 let latestInstancesSnapshotAt = 0;
+let latestInstancesSnapshotNodeId = null;
 let latestInstanceMetrics = null;
 let marketplaceRequestInFlight = false;
 let marketplaceInstallInFlight = false;
@@ -1709,6 +1713,7 @@ function getFriendlyDashboardState() {
   const remoteNodes = (nodesState.nodes || []).filter((node) => node?.kind === "agent");
   const connectedRemoteNodes = remoteNodes.filter((node) => getNodeVisualState(node) === "online");
   const instances = getInstances();
+  const instancesLoaded = isInstancesSnapshotCurrentForSelectedNode();
   const runningInstances = instances.filter(isInstanceRunning);
   const runningContainers = Number(latestDockerSnapshot?.summary?.runningContainers || 0);
   const hasSystemSnapshot = Boolean(latestSystemSnapshot && latestSystemSnapshotNodeId === nodeId);
@@ -1748,7 +1753,12 @@ function getFriendlyDashboardState() {
       detail: "Only this computer is connected. Add another system whenever you are ready.",
     };
 
-  const services = instances.length || runningContainers
+  const services = !instancesLoaded
+    ? {
+      status: "Loading",
+      detail: "Checking installed servers for the selected system.",
+    }
+    : instances.length || runningContainers
     ? {
       status: runningInstances.length || runningContainers ? "Running" : "Ready",
       detail: `${runningInstances.length} servers and ${runningContainers} containers running.`,
@@ -1770,7 +1780,7 @@ function getFriendlyDashboardState() {
     next = { title: "Connect your local Agent", detail: "Open Agent Control to check service state and recovery actions.", action: "agent-control" };
   } else if (!dockerReady) {
     next = { title: "Install Docker", detail: "Docker is optional, but useful for container workloads.", action: "docker" };
-  } else if (!instances.length) {
+  } else if (instancesLoaded && !instances.length) {
     next = { title: "Create your first server", detail: "Browse the Marketplace and install a supported server.", action: "marketplace" };
   } else if (!remoteNodes.length) {
     next = { title: "Add a remote system", detail: "Connect another Windows or Linux system when you are ready.", action: "nodes" };
@@ -1778,7 +1788,7 @@ function getFriendlyDashboardState() {
     next = { title: "Configure public access", detail: "Public Access can make supported services reachable.", action: "playit" };
   }
 
-  return { computer, systems, services, setup, next, metrics, instances, remoteNodes };
+  return { computer, systems, services, setup, next, metrics, instances, instancesLoaded, remoteNodes };
 }
 
 function setSetupHealthField(name, value) {
@@ -1954,7 +1964,7 @@ function renderFriendlyDashboard() {
   if (dashboardNextAction) dashboardNextAction.textContent = state.next.title;
   if (dashboardFriendlyEmpty) {
     dashboardFriendlyEmpty.replaceChildren();
-    if (!state.instances.length) {
+    if (state.instancesLoaded && !state.instances.length) {
       const server = document.createElement("article");
       server.append(createTextElement("strong", "No servers yet"), createTextElement("p", "Install a server from the Marketplace to get started."));
       const button = createTextElement("button", "Browse Marketplace", "inline-action");
@@ -3495,7 +3505,10 @@ function applySettings(settings, options = {}) {
   }
 
   if (options.openDefaultPage) {
-    showPage(readLastPageName() || getSafePageName(settings["general.defaultPage"]));
+    const startupPage = shouldRequireAccountBeforeOnboarding()
+      ? "security"
+      : readLastPageName() || getSafePageName(settings["general.defaultPage"]);
+    showPage(startupPage);
   } else {
     updateTitlebar();
   }
@@ -9197,6 +9210,10 @@ function getInstances() {
   return Array.isArray(latestInstancesSnapshot?.instances) ? latestInstancesSnapshot.instances : [];
 }
 
+function isInstancesSnapshotCurrentForSelectedNode() {
+  return Boolean(latestInstancesSnapshot && latestInstancesSnapshotNodeId === getSelectedNodeId());
+}
+
 function findInstance(instanceId = selectedInstanceId) {
   if (!instanceId) {
     return null;
@@ -11671,6 +11688,7 @@ function renderInstancesSnapshot(snapshot) {
     instances: [...incomingInstances, ...preservedInstances],
   };
   latestInstancesSnapshotAt = Date.now();
+  latestInstancesSnapshotNodeId = getSelectedNodeId();
   instanceRemovalAllowedIds.clear();
   const instances = getInstances();
   const previousSelectedInstanceId = selectedInstanceId;
@@ -11714,6 +11732,7 @@ function renderInstancesSnapshot(snapshot) {
 function renderInstancesUnavailable(message = "AnxOS could not load installed servers for the selected system.") {
   latestInstancesSnapshot = null;
   latestInstancesSnapshotAt = 0;
+  latestInstancesSnapshotNodeId = null;
   latestInstanceMetrics = null;
   selectedInstanceId = null;
   storeLastInstanceId(null);
@@ -25556,7 +25575,7 @@ function renderLocalSetupState() {
   if (!localSetupGate) {
     return;
   }
-  const shouldShow = Boolean(securityState.setupRequired && !isLocalSetupComplete());
+  const shouldShow = Boolean(accountRestorationResolved && securityState.setupRequired && !isLocalSetupComplete());
   localSetupGate.hidden = !shouldShow;
 }
 
@@ -25589,7 +25608,9 @@ function assertAccountResultOk(result, fallback = "AnxOS account request failed.
 function renderAccountState() {
   const signedIn = Boolean(accountState.authenticated);
   const pending = accountState.pending || null;
-  const expired = accountState.sessionStatus === "expired";
+  const restoring = accountState.state === "restoring" || accountState.restorationState === "restoring";
+  const offline = accountState.state === "temporarily-offline" || accountState.restorationState === "temporarily-offline";
+  const expired = accountState.sessionStatus === "expired" || accountState.sessionStatus === "refreshable";
   const account = accountState.account || {};
   const ownerAccount = Boolean(securityState?.user?.account === true && securityState?.user?.role === "Owner" && securityState?.user?.ownerAuthorized === true);
   const device = accountState.currentDevice || pending?.device || {};
@@ -25597,13 +25618,13 @@ function renderAccountState() {
   const remainingMs = Number.isFinite(expiresAt) ? Math.max(0, expiresAt - Date.now()) : 0;
   const remainingText = pending ? `${Math.ceil(remainingMs / 1000)}s remaining` : "";
   if (accountPasswordForm) {
-    accountPasswordForm.hidden = signedIn;
+    accountPasswordForm.hidden = signedIn || restoring || offline;
   }
   if (accountDetailsPanel) {
     accountDetailsPanel.hidden = !signedIn && !pending;
   }
   if (accountStatus) {
-    accountStatus.textContent = ownerAccount ? "Owner" : signedIn ? "Signed in" : pending ? "Waiting" : expired ? "Session expired" : "Using This PC";
+    accountStatus.textContent = ownerAccount ? "Owner" : signedIn ? "Signed in" : restoring ? "Restoring" : offline ? "Offline" : pending ? "Waiting" : expired ? "Session expired" : "Using This PC";
   }
   if (accountOwnerBadge) {
     accountOwnerBadge.hidden = !ownerAccount;
@@ -25622,6 +25643,10 @@ function renderAccountState() {
     else if (key === "device") field.value = device.deviceName || device.platform ? `${device.deviceName || "This PC"} · ${device.platform || "desktop"}` : "";
     else if (key === "session") field.value = signedIn
       ? `Active until ${accountState.expiresAt ? formatDateTime(accountState.expiresAt) : "unknown"}`
+      : restoring
+        ? "Restoring saved session..."
+        : offline
+          ? "Saved session will refresh when account service returns."
       : expired
         ? "Expired. Sign in again."
         : "This PC only";
@@ -25639,8 +25664,8 @@ function renderAccountState() {
     button.toggleAttribute("hidden", !pending);
   });
   document.querySelectorAll('[data-account-action="start"]').forEach((button) => {
-    button.textContent = accountStartInFlight ? "Opening..." : pending ? "Waiting for Browser..." : signedIn ? "Switch AnxOS Account" : "Sign in with AnxOS";
-    button.disabled = accountStartInFlight || (pending && !signedIn) || (!signedIn && Date.now() < accountStartRetryAfter);
+    button.textContent = accountStartInFlight ? "Opening..." : restoring ? "Restoring..." : pending ? "Waiting for Browser..." : signedIn ? "Switch AnxOS Account" : "Sign in with AnxOS";
+    button.disabled = restoring || accountStartInFlight || (pending && !signedIn) || (!signedIn && Date.now() < accountStartRetryAfter);
   });
   if (pending?.userCode) {
     const urlText = pending.verificationUrl ? ` Visit ${pending.verificationUrl}.` : "";
@@ -25649,6 +25674,10 @@ function renderAccountState() {
     setAccountMessage(ownerAccount
       ? `Signed in as ${account.displayName || account.username || "AnxOS Account"} with Owner access.`
       : `Signed in as ${account.displayName || account.username || "AnxOS Account"}.`);
+  } else if (restoring) {
+    setAccountMessage("Restoring your saved AnxOS account session...");
+  } else if (offline) {
+    setAccountMessage(accountState.message || "Saved account session is offline. AnxOS will retry without clearing your credentials.");
   } else if (expired) {
     setAccountMessage(accountState.message || "Your AnxOS account session expired. Sign in again to use cloud and remote features.");
   } else if (accountState.configError) {
@@ -25658,21 +25687,43 @@ function renderAccountState() {
   } else {
     setAccountMessage("Sign in on the AnxOS website to connect this device.");
   }
+  if (shouldBlockOnboardingForAccount()) {
+    onboardingOpenGeneration += 1;
+    setOnboardingWelcomeVisible(false);
+    setOnboardingWizardVisible(false);
+  }
 }
 
-async function refreshAccountState() {
+async function refreshAccountState(options = {}) {
+  const generation = ++accountRefreshGeneration;
   const desktopApiState = getDesktopApiState();
   if (!desktopApiState.hasAccount) {
     accountState = { authenticated: false, account: null, pending: null, configured: false };
+    accountRestorationResolved = true;
     renderAccountState();
+    renderLocalSetupState();
     return;
   }
+  if (options.restore !== false) {
+    accountState = { ...accountState, state: "restoring", restorationState: "restoring" };
+    accountRestorationResolved = false;
+    renderAccountState();
+    renderLocalSetupState();
+  }
   try {
-    accountState = assertAccountResultOk(await desktopApiState.api.account.getStatus(), "AnxOS account status unavailable.");
-    if (accountState.sessionStatus === "expired" && accountState.configured && typeof desktopApiState.api.account.refresh === "function") {
+    const restoreMethod = options.restore !== false && typeof desktopApiState.api.account.restore === "function"
+      ? desktopApiState.api.account.restore
+      : desktopApiState.api.account.getStatus;
+    const nextState = assertAccountResultOk(await restoreMethod(), "AnxOS account status unavailable.");
+    if (generation !== accountRefreshGeneration) return;
+    accountState = nextState;
+    if ((accountState.sessionStatus === "expired" || accountState.sessionStatus === "refreshable") && accountState.configured && typeof desktopApiState.api.account.refresh === "function") {
       try {
-        accountState = assertAccountResultOk(await desktopApiState.api.account.refresh(), "Account session refresh failed. Sign in again.");
+        const refreshedState = assertAccountResultOk(await desktopApiState.api.account.refresh(), "Account session refresh failed. Sign in again.");
+        if (generation !== accountRefreshGeneration) return;
+        accountState = refreshedState;
       } catch (error) {
+        if (generation !== accountRefreshGeneration) return;
         accountState = {
           ...accountState,
           state: "refresh-failed",
@@ -25681,6 +25732,7 @@ async function refreshAccountState() {
       }
     }
   } catch (error) {
+    if (generation !== accountRefreshGeneration) return;
     const message = normalizeIpcErrorMessage(error, "AnxOS account configuration could not be loaded.");
     accountState = {
       authenticated: false,
@@ -25691,7 +25743,10 @@ async function refreshAccountState() {
       message,
     };
   }
+  if (generation !== accountRefreshGeneration) return;
+  accountRestorationResolved = true;
   renderAccountState();
+  renderLocalSetupState();
   if (accountState.pending) {
     startAccountPolling(accountState.pending.intervalMs);
   }
@@ -25767,6 +25822,7 @@ async function startAnxOsAccountLogin() {
     return;
   }
   accountStartInFlight = true;
+  accountRefreshGeneration += 1;
   renderAccountState();
   try {
     accountState = assertAccountResultOk(await desktopApiState.api.account.startDeviceLogin(), "Could not start AnxOS account sign-in.");
@@ -25797,6 +25853,7 @@ async function switchAnxOsAccount() {
     return;
   }
   stopAccountPolling();
+  accountRefreshGeneration += 1;
   accountState = await desktopApiState.api.account.logout().then((result) => assertAccountResultOk(result, "Account sign-out failed.")).catch(() => ({
     authenticated: false,
     account: null,
@@ -25805,8 +25862,10 @@ async function switchAnxOsAccount() {
     state: "signed-out",
   }));
   if (accountPasswordPassword) accountPasswordPassword.value = "";
+  accountRestorationResolved = true;
   await refreshSecurityState();
   renderAccountState();
+  renderLocalSetupState();
   showToast("Choose another AnxOS account to sign in.");
 }
 
@@ -25825,7 +25884,9 @@ async function loginAnxOsAccountWithPassword(event) {
     submit.textContent = "Signing in...";
   }
   try {
+    accountRefreshGeneration += 1;
     accountState = assertAccountResultOk(await desktopApiState.api.account.loginWithPassword({ email, password }), "AnxOS account sign-in failed.");
+    accountRestorationResolved = true;
     if (accountPasswordPassword) accountPasswordPassword.value = "";
     await refreshSecurityState();
     renderAccountState();
@@ -25872,10 +25933,36 @@ async function logoutAnxOsAccount() {
   const desktopApiState = getDesktopApiState();
   if (!desktopApiState.hasAccount) return;
   stopAccountPolling();
+  accountRefreshGeneration += 1;
   accountState = await desktopApiState.api.account.logout().then((result) => assertAccountResultOk(result, "Account sign-out failed.")).catch(() => ({ authenticated: false, account: null, pending: null }));
+  accountRestorationResolved = true;
   renderAccountState();
+  renderLocalSetupState();
   await refreshSecurityState();
   showToast("Signed out of AnxOS account.");
+}
+
+async function bootstrapApplication() {
+  const storedSettings = readStoredSettings();
+  accountState = { ...accountState, state: "restoring", restorationState: "restoring" };
+  accountRestorationResolved = false;
+  renderAccountState();
+  renderLocalSetupState();
+  try {
+    await refreshAccountState({ restore: true });
+  } catch {}
+  try {
+    await refreshSecurityState();
+  } catch {}
+  applySettings(storedSettings, { openDefaultPage: true });
+  refreshNodes();
+  loadAgentSettings();
+  loadMarketplaceSettings();
+  loadRuntimeInfo();
+  setupUpdates();
+  setupDeveloperUpdates();
+  startStartupFallback();
+  refreshDockerStatus();
 }
 
 function renderSecurityState() {
@@ -26035,6 +26122,7 @@ function renderSecurityDashboard() {
   renderSecurityToken(dashboard?.agentToken || null);
   renderSecurityAuthentication(dashboard?.authentication || null);
   renderSecurityEvents();
+  renderSecurityDiagnostics();
 }
 
 function renderSecurityAccountProtection(protection) {
@@ -26187,12 +26275,16 @@ async function handleSecurityRecommendation(id) {
 }
 
 function renderSecuritySessions(sessions) {
-  const tbody = document.querySelector("[data-security-sessions]");
-  if (!tbody) return;
+  const tables = [
+    document.querySelector("[data-security-sessions]"),
+    document.querySelector("[data-security-activations]"),
+  ].filter(Boolean);
+  if (!tables.length) return;
+  tables.forEach((tbody) => {
   tbody.replaceChildren();
   if (!sessions.length) {
     const row = document.createElement("tr");
-    const cell = createTextElement("td", "No active sessions reported.");
+    const cell = createTextElement("td", tbody.matches("[data-security-activations]") ? "No device activations reported." : "No active sessions reported.");
     cell.colSpan = 5;
     row.appendChild(cell);
     tbody.appendChild(row);
@@ -26237,6 +26329,7 @@ function renderSecuritySessions(sessions) {
     }
     row.append(deviceCell, lastActive, created, status, action);
     tbody.appendChild(row);
+  });
   });
 }
 
@@ -26308,12 +26401,12 @@ function renderSecurityRemoteAccess(remote) {
 }
 
 function renderSecurityToken(token) {
-  const status = document.querySelector("[data-security-token-status]");
+  const statusBadges = document.querySelectorAll("[data-security-token-status]");
   const details = document.querySelector("[data-security-token-details]");
-  if (status) {
+  statusBadges.forEach((status) => {
     status.className = securityPillClass(token?.configured ? "Configured" : "Missing");
     status.textContent = token?.configured ? "Configured" : "Missing";
-  }
+  });
   if (details) {
     const fields = [
       ["Fingerprint", token?.fingerprint],
@@ -26329,6 +26422,12 @@ function renderSecurityToken(token) {
     ];
     renderSecuritySummaryGrid(details, fields);
   }
+  renderSecuritySummaryGrid(document.querySelector("[data-security-token-rotation-details]"), [
+    ["Fingerprint", token?.fingerprint],
+    ["Last rotated", formatSecurityTime(token?.lastRotatedAt)],
+    ["Last used", formatSecurityTime(token?.lastUsedAt)],
+    ["Connected agents", token?.connectedAgents ?? "Unavailable"],
+  ]);
 }
 
 function renderSecurityAuthentication(auth) {
@@ -26388,6 +26487,70 @@ function renderSecurityEvents() {
     }
     container.appendChild(details);
   });
+}
+
+function appendSecurityDiagnosticItem(container, { title, message, tone = "ok" } = {}) {
+  if (!container) return;
+  const item = document.createElement("div");
+  item.className = "security-list-item";
+  const row = document.createElement("div");
+  row.className = "security-card-row";
+  const body = document.createElement("div");
+  body.append(
+    createTextElement("strong", title || "Security diagnostic"),
+    createTextElement("p", message || "No detail reported."),
+  );
+  row.append(body, createSecurityBadgeElement(tone, tone));
+  item.appendChild(row);
+  container.appendChild(item);
+}
+
+function renderSecurityDiagnostics() {
+  const summary = document.querySelector("[data-security-diagnostics-summary]");
+  const list = document.querySelector("[data-security-diagnostics-list]");
+  const status = document.querySelector("[data-security-diagnostics-status]");
+  if (!summary && !list && !status) return;
+  const dashboard = securityDashboardState || {};
+  const requestState = dashboard.requestState || "loading";
+  const unauthorized = dashboard.unauthorized === true || requestState === "unauthorized";
+  const unavailable = dashboard.unavailable === true || requestState === "unavailable" || requestState === "bounded-error";
+  const warningEvents = (dashboard.events || []).filter((event) => /warning|critical|failed|error/i.test(`${event.severity || ""} ${event.result || ""}`));
+  if (status) {
+    const label = unauthorized ? "Locked" : unavailable ? "Unavailable" : warningEvents.length ? "Attention" : requestState === "loaded" ? "Healthy" : "Loading";
+    status.className = securityPillClass(label);
+    status.textContent = label;
+  }
+  renderSecuritySummaryGrid(summary, [
+    ["Security service", unauthorized ? "Locked" : unavailable ? "Unavailable" : requestState === "loaded" ? "Loaded" : "Loading"],
+    ["Owner authorization", securityState?.authenticated ? "Authorized" : "Locked"],
+    ["Account session", securityState?.accountAuthenticated ? "Signed in" : "Not signed in"],
+    ["Remembered sessions", securityState?.persistentSessionCount ?? dashboard.overview?.rememberedSessionCount],
+    ["Audit log", securityState?.auditPath ? "Configured" : "Not reported"],
+    ["Warnings", dashboard.overview?.unresolvedWarnings ?? warningEvents.length],
+  ]);
+  if (!list) return;
+  list.replaceChildren();
+  if (unauthorized) {
+    list.appendChild(createEmptyState(dashboard.error || "Local Owner authentication is required to view security diagnostics.", "security-empty-state"));
+    return;
+  }
+  if (unavailable) {
+    list.appendChild(createEmptyState(dashboard.error || "Security diagnostics are unavailable from the current security service.", "security-empty-state"));
+    return;
+  }
+  if (requestState !== "loaded") {
+    list.appendChild(createEmptyState("Security diagnostics are loading.", "security-empty-state"));
+    return;
+  }
+  if (!warningEvents.length) {
+    list.appendChild(createEmptyState("No security diagnostics need attention.", "security-empty-state"));
+    return;
+  }
+  warningEvents.slice(0, 8).forEach((event) => appendSecurityDiagnosticItem(list, {
+    title: securityEventTitle(event.type),
+    message: event.message || "Security event needs review.",
+    tone: event.severity || event.result || "warning",
+  }));
 }
 
 function syncSecurityEventNotifications(events = []) {
@@ -27098,6 +27261,7 @@ function resetNodeScopedRendererState(message = "Loading selected node...") {
   latestDependencyResultAt = 0;
   latestDependencyNodeId = null;
   latestInstancesSnapshot = null;
+  latestInstancesSnapshotNodeId = null;
   latestInstanceMetrics = null;
   marketplaceInstallProgressEvents = [];
   marketplacePendingProgressSteps = null;
@@ -28829,7 +28993,10 @@ function renderNodes() {
       });
       body.append(header, meta, actions);
       item.append(body);
-      item.addEventListener("click", () => openNodeDetails(node.id));
+      item.addEventListener("click", (event) => {
+        if (event.target.closest("[data-node-card-action]")) return;
+        openNodeDetails(node.id);
+      });
       nodeList.append(item);
     });
   }
@@ -29539,7 +29706,8 @@ async function saveSettingsPatch(patch = {}, { statusMessage = null } = {}) {
 }
 
 function shouldShowOnboardingWelcome(settings = getCurrentSettings()) {
-  return settings["onboarding.welcomeGuidance"] !== false &&
+  return !shouldBlockOnboardingForAccount() &&
+    settings["onboarding.welcomeGuidance"] !== false &&
     settings["onboarding.completed"] !== true &&
     settings["onboarding.skipped"] !== true;
 }
@@ -29560,13 +29728,36 @@ function setOnboardingWelcomeVisible(visible) {
 
 function maybeOpenOnboardingWelcome(settings = getCurrentSettings()) {
   if (!shouldShowOnboardingWelcome(settings)) return;
+  const generation = ++onboardingOpenGeneration;
   window.setTimeout(() => {
+    if (generation !== onboardingOpenGeneration || !shouldShowOnboardingWelcome(settings)) return;
     if (settings["onboarding.started"] === true) {
       setOnboardingWizardVisible(true);
     } else {
       setOnboardingWelcomeVisible(true);
     }
   }, 350);
+}
+
+function isAccountRestorationPending() {
+  return !accountRestorationResolved ||
+    accountState.state === "restoring" ||
+    accountState.restorationState === "restoring";
+}
+
+function shouldRequireAccountBeforeOnboarding() {
+  const desktopApiState = getDesktopApiState();
+  if (!desktopApiState.hasAccount) return false;
+  if (isAccountRestorationPending()) return true;
+  if (accountState.authenticated === true) return false;
+  if (accountState.configured === false) return false;
+  return true;
+}
+
+function shouldBlockOnboardingForAccount() {
+  if (shouldRequireAccountBeforeOnboarding()) return true;
+  return accountState.state === "temporarily-offline" ||
+    accountState.restorationState === "temporarily-offline";
 }
 
 function getOnboardingStepIndex(stepId = getCurrentSettings()["onboarding.currentStep"]) {
@@ -30180,10 +30371,7 @@ function setActiveAgentControlSection(section = activeAgentControlSection || "st
 }
 
 const SECURITY_SECTION_ALIASES = {
-  activations: "devices",
-  rotation: "token",
   revocations: "sessions",
-  diagnostics: "status",
 };
 
 let activeSecuritySection = (() => {
@@ -31279,6 +31467,11 @@ function handleUpdateStatus(payload = {}) {
 
   if (payload.type === "downloaded") {
     updateDownloadInFlight = false;
+    if (updateUiState) {
+      updateUiState.status = "downloaded";
+      updateUiState.downloadInFlight = false;
+      updateUiState.downloadedPath = payload.path || updateUiState.downloadedPath || null;
+    }
     downloadedUpdatePath = payload.path || null;
     finishOperation(activeUpdateOperationId, true, "Update downloaded.");
     activeUpdateOperationId = null;
@@ -33049,6 +33242,14 @@ localSetupButtons.forEach((button) => {
     }
     setLocalSetupComplete();
     renderLocalSetupState();
+    startupState.finished = true;
+    if (startupScreen) {
+      startupScreen.hidden = true;
+    }
+    if (appShell) {
+      appShell.hidden = false;
+      appShell.classList.remove("is-loading");
+    }
     showPage("dashboard");
     showToast("Managing this device.");
   });
@@ -33174,6 +33375,8 @@ nodeDetailsModal?.addEventListener("click", async (event) => {
   }
   const actionButton = event.target.closest("[data-node-details-action]");
   if (!actionButton) return;
+  event.preventDefault();
+  event.stopPropagation();
   const action = actionButton.dataset.nodeDetailsAction;
   if (action === "test") await testNodeById(nodeDetailsId);
   else if (action === "select") {
@@ -33331,17 +33534,7 @@ renderOperationsCenter();
 renderNotificationCenter();
 renderMaintenanceCenter();
 renderFriendlyDashboard();
-refreshAccountState();
-refreshSecurityState();
-refreshNodes();
-loadAgentSettings();
-loadMarketplaceSettings();
-applySettings(readStoredSettings(), { openDefaultPage: true });
-loadRuntimeInfo();
-setupUpdates();
-setupDeveloperUpdates();
-startStartupFallback();
-refreshDockerStatus();
+bootstrapApplication();
 
 registerRefreshTask(updateLocalTime, 30000);
 registerRefreshTask(() => {

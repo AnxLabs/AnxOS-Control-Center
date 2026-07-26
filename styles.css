@@ -5917,12 +5917,17 @@ body.is-resizing-files * {
   align-items: stretch;
   gap: 10px;
   min-height: clamp(470px, 55vh, 660px);
+  height: clamp(470px, calc(100vh - 320px), 680px);
+  max-height: calc(100vh - 280px);
   min-width: 0;
+  overflow: hidden;
 }
 
 .instance-file-browser,
 .instance-file-editor {
+  min-height: 0;
   min-width: 0;
+  height: 100%;
   border: 1px solid rgba(185, 148, 255, 0.16);
   border-radius: 8px;
   background: rgba(11, 5, 22, 0.58);
@@ -5931,6 +5936,7 @@ body.is-resizing-files * {
 
 .instance-file-browser {
   overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .instance-files-table {
@@ -6035,7 +6041,8 @@ body.is-resizing-files * {
 
 .instance-file-editor textarea {
   height: 100%;
-  min-height: clamp(410px, 48vh, 590px);
+  min-height: 0;
+  overflow: auto;
   resize: none;
   outline: none;
   tab-size: 2;
@@ -6639,6 +6646,8 @@ body.is-resizing-files * {
 .page[data-page="instances"] .instance-files-grid {
   grid-template-columns: minmax(320px, 0.75fr) minmax(480px, 1.25fr);
   min-height: 360px;
+  height: clamp(360px, calc(100vh - 300px), 620px);
+  max-height: calc(100vh - 260px);
 }
 
 .page[data-page="instances"] .instance-config-form,
@@ -12652,6 +12661,17 @@ button:disabled {
   .instances-details-panel {
     grid-column: 1;
     grid-row: auto;
+  }
+
+  .instance-files-grid,
+  .page[data-page="instances"] .instance-files-grid {
+    height: auto;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .instance-file-browser {
+    max-height: min(430px, 48vh);
   }
 
   .instance-overview-grid,

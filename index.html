@@ -3189,6 +3189,31 @@
               </div>
             </section>
 
+            <section class="settings-section settings-section--security-devices" data-security-section="activations">
+              <div class="settings-section__header">
+                <div>
+                  <h2>Device Activations</h2>
+                  <p>Review device activation and remembered-session activity without changing trusted-device records.</p>
+                </div>
+              </div>
+              <div class="security-table-wrap">
+                <table class="security-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Device</th>
+                      <th scope="col">Last active</th>
+                      <th scope="col">Created</th>
+                      <th scope="col">Trust</th>
+                      <th scope="col">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody data-security-activations aria-live="polite">
+                    <tr><td colspan="5">Loading activations...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
             <section class="settings-section settings-section--security-remote" data-security-section="remote">
               <div class="settings-section__header">
                 <div>
@@ -3247,6 +3272,25 @@
                 <button class="inline-action" type="button" data-security-action="rotate-agent-token">Rotate Token</button>
                 <button class="inline-action" type="button" data-security-action="generate-agent-token">Generate Replacement</button>
                 <button class="inline-action" type="button" data-security-action="revoke-agent-token">Revoke Token</button>
+              </div>
+            </section>
+
+            <section class="settings-section settings-section--security-token" data-security-section="rotation">
+              <div class="settings-section__header">
+                <div>
+                  <h2>Token Rotation</h2>
+                  <p>Rotate the shared Agent token with explicit confirmation. Full token values are never displayed.</p>
+                </div>
+                <span class="status-pill status-pill--planned" data-security-token-status>Loading</span>
+              </div>
+              <div class="security-summary-grid" data-security-token-rotation-details>
+                <div><span>Fingerprint</span><strong>Loading</strong></div>
+                <div><span>Last rotated</span><strong>Loading</strong></div>
+                <div><span>Last used</span><strong>Loading</strong></div>
+                <div><span>Connected agents</span><strong>Loading</strong></div>
+              </div>
+              <div class="settings-actions">
+                <button class="inline-action" type="button" data-security-action="rotate-agent-token">Rotate Token</button>
               </div>
             </section>
 
@@ -3338,6 +3382,25 @@
                 <button class="inline-action" type="button" data-security-action="copy-events">Copy Sanitized Events</button>
                 <button class="inline-action" type="button" data-security-action="open-audit-folder">Open Audit Log Folder</button>
                 <button class="inline-action" type="button" data-security-action="clear-event-display">Clear Local Display</button>
+              </div>
+            </section>
+
+            <section class="settings-section settings-section--security-diagnostics" data-security-section="diagnostics">
+              <div class="settings-section__header">
+                <div>
+                  <h2>Security Diagnostics</h2>
+                  <p>Bounded security-service state, authorization status, and redacted audit health.</p>
+                </div>
+                <span class="status-pill status-pill--planned" data-security-diagnostics-status>Loading</span>
+              </div>
+              <div class="settings-grid" data-security-diagnostics-summary></div>
+              <div class="security-list" data-security-diagnostics-list role="list" aria-live="polite">
+                <div class="security-empty-state">Loading security diagnostics...</div>
+              </div>
+              <div class="settings-actions">
+                <button class="inline-action" type="button" data-security-action="refresh-events">Refresh Security State</button>
+                <button class="inline-action" type="button" data-diagnostics-action="copy">Copy Diagnostics Summary</button>
+                <button class="inline-action" type="button" data-diagnostics-action="export">Export Diagnostics Bundle</button>
               </div>
             </section>
 

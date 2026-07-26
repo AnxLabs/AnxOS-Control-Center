@@ -4,6 +4,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const http = require("http");
 const https = require("https");
+const os = require("os");
 const path = require("path");
 const { openExternalUrl } = require("./externalUrlService");
 const { OFFICIAL_SITE_ORIGIN } = require("../shared/officialSite");
@@ -144,6 +145,10 @@ function createDownloadPath(directory, fileName) {
     if (!fs.existsSync(candidate)) return candidate;
   }
   throw Object.assign(new Error("A unique update download filename could not be allocated."), { code: "UPDATE_DOWNLOAD_NAME_EXHAUSTED" });
+}
+
+function getUpdateDownloadDirectory() {
+  return app?.getPath?.("downloads") || os.tmpdir();
 }
 
 function sha256File(filePath) {
@@ -467,8 +472,14 @@ class UpdateManager extends EventEmitter {
 
   emitStatus(type, payload = {}) {
     const message = { type, state: this.getState(), ...payload };
-    BrowserWindow.getAllWindows().forEach((window) => {
-      if (!window.isDestroyed()) window.webContents.send(UPDATE_STATUS_CHANNEL, message);
+    (BrowserWindow?.getAllWindows?.() || []).forEach((window) => {
+      if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
+        try {
+          window.webContents.send(UPDATE_STATUS_CHANNEL, message);
+        } catch {
+          // The renderer can disappear between the liveness check and send during shutdown or failed launches.
+        }
+      }
     });
     this.emit("status", message);
   }
@@ -789,7 +800,7 @@ class UpdateManager extends EventEmitter {
     this.state.downloadedPath = null;
     this.state.status = "downloading";
     this.state.progress = { receivedBytes: 0, totalBytes: update.asset.size || 0, percent: 0 };
-    const destinationPath = createDownloadPath(app.getPath("downloads"), sanitizeFileName(update.asset.name));
+    const destinationPath = createDownloadPath(getUpdateDownloadDirectory(), sanitizeFileName(update.asset.name));
     this.log("Download started.", { asset: update.asset.name, destinationPath });
     this.emitStatus("download-started", { update, path: destinationPath });
     try {
@@ -802,6 +813,7 @@ class UpdateManager extends EventEmitter {
           this.emitStatus("download-progress", { progress });
         },
       });
+      this.state.downloadInFlight = false;
       this.state.downloadedPath = downloadedPath;
       this.state.status = "downloaded";
       this.state.progress = { ...this.state.progress, percent: 100 };
@@ -809,6 +821,7 @@ class UpdateManager extends EventEmitter {
       this.emitStatus("downloaded", { update, path: downloadedPath });
       return { downloaded: true, path: downloadedPath, update, state: this.getState() };
     } catch (error) {
+      this.state.downloadInFlight = false;
       this.state.status = "error";
       this.state.error = error?.message || "Update download failed.";
       this.log("Download failed.", { code: error?.code || "UPDATE_DOWNLOAD_FAILED", message: this.state.error }, "error");
@@ -821,6 +834,9 @@ class UpdateManager extends EventEmitter {
 
   async install() {
     if (!this.state.downloadedPath) return { installed: false, message: "No downloaded update is ready." };
+    if (this.pendingInstall && ["handoff-pending", "handed-off"].includes(this.pendingInstall.status)) {
+      return { installed: false, alreadyRequested: true, pendingInstall: this.pendingInstall, state: this.getState() };
+    }
     try {
       await verifyUpdateArtifact(this.state.downloadedPath, this.state.latest?.asset);
       const previous = getReleaseInfo();

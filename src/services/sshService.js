@@ -307,6 +307,9 @@ class SshService extends EventEmitter {
     this.sessionIdsByProfileId = new Map();
     this.lastWriteDiagnostic = null;
     this.createClient = typeof options.createClient === "function" ? options.createClient : () => new Client();
+    this.connectTimeoutMs = Number.isFinite(options.connectTimeoutMs)
+      ? Math.max(1, options.connectTimeoutMs)
+      : DEFAULT_CONNECT_TIMEOUT_MS;
     this.shellStartTimeoutMs = Number.isFinite(options.shellStartTimeoutMs)
       ? Math.max(1, options.shellStartTimeoutMs)
       : SHELL_START_TIMEOUT_MS;
@@ -524,6 +527,7 @@ class SshService extends EventEmitter {
       status: "connecting",
       message: "Connecting...",
       didClose: false,
+      connectTimer: null,
       shellStartTimer: null,
     };
 
@@ -531,15 +535,26 @@ class SshService extends EventEmitter {
     this.sessionIdsByProfileId.set(profile.id, sessionId);
     this.emit("session-updated", createSessionSnapshot(session));
 
-    session.shellStartTimer = setTimeout(() => {
-      if (!session.stream && !session.didClose) {
-        this.handleSessionFailure(sessionId, new SshServiceError("SSH shell startup timed out. The connection did not open a terminal in time.", {
-          code: "SSH_SHELL_START_TIMEOUT",
+    session.connectTimer = setTimeout(() => {
+      if (!session.connectedAt && !session.didClose) {
+        this.handleSessionFailure(sessionId, new SshServiceError("Connection timed out. The SSH host did not respond in time.", {
+          code: "SSH_TIMEOUT",
         }));
       }
-    }, this.shellStartTimeoutMs);
+    }, this.connectTimeoutMs);
 
     client.on("ready", () => {
+      if (session.connectTimer) {
+        clearTimeout(session.connectTimer);
+        session.connectTimer = null;
+      }
+      session.shellStartTimer = setTimeout(() => {
+        if (!session.stream && !session.didClose) {
+          this.handleSessionFailure(sessionId, new SshServiceError("SSH shell startup timed out. The connection did not open a terminal in time.", {
+            code: "SSH_SHELL_START_TIMEOUT",
+          }));
+        }
+      }, this.shellStartTimeoutMs);
       client.shell(
         {
           term: "xterm-256color",
@@ -644,6 +659,10 @@ class SshService extends EventEmitter {
     if (session.shellStartTimer) {
       clearTimeout(session.shellStartTimer);
       session.shellStartTimer = null;
+    }
+    if (session.connectTimer) {
+      clearTimeout(session.connectTimer);
+      session.connectTimer = null;
     }
 
     try {

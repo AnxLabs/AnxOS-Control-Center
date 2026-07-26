@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 const assert = require("assert");
 const childProcess = require("child_process");
 const { EventEmitter } = require("events");
@@ -5,9 +6,24 @@ const fs = require("fs");
 const path = require("path");
 
 const telemetry = require("../src/shared/windowsHardwareTemperature");
+const systemService = require("../agent/src/services/systemService");
 
 function sensor(name, value, extra = {}) {
   return { name, value, sensorType: "Temperature", hardware: "Intel CPU", identifier: `/cpu/${name}`, ...extra };
+}
+
+function withPlatform(value, fn) {
+  const descriptor = Object.getOwnPropertyDescriptor(process, "platform");
+  Object.defineProperty(process, "platform", { value });
+  return Promise.resolve()
+    .then(fn)
+    .finally(() => Object.defineProperty(process, "platform", descriptor));
+}
+
+async function readAgentTemperatureWithHardware(payload) {
+  systemService._test.resetCpuTemperatureCacheForTest();
+  systemService._test.setWindowsHardwareTemperatureReaderForTest(async () => payload);
+  return withPlatform("win32", () => systemService._test.getCpuTemperature());
 }
 
 const packageReading = telemetry.classifyPayload({
@@ -44,6 +60,7 @@ const highestCoreReading = telemetry.classifyPayload({
 });
 assert.strictEqual(highestCoreReading.cpu.sensorName, "CPU Core #2", "Highest valid CPU core must be the final CPU fallback.");
 assert.strictEqual(highestCoreReading.gpu.core.temperatureCelsius, 73, "GPU core temperature may be returned separately.");
+
 const gpuReading = telemetry.classifyPayload({
   ok: true,
   sensors: [sensor("CPU Package", 50), sensor("GPU Core", 70, { hardware: "AMD GPU" }), sensor("GPU Hot Spot", 82, { hardware: "AMD GPU" })],
@@ -57,8 +74,10 @@ const invalid = telemetry.classifyPayload({
 });
 assert.strictEqual(invalid.available, false, "Invalid and unrealistic readings must be rejected.");
 assert.strictEqual(invalid.reason, "cpu_sensor_unavailable");
+
 const nonElevated = telemetry.classifyPayload({ ok: true, elevated: false, sensors: [{ name: "GPU Core", hardware: "NVIDIA GPU", value: 55 }] });
 assert.strictEqual(nonElevated.reason, "cpu_sensor_unavailable_requires_elevation_or_driver");
+
 const missingPawnIo = telemetry.classifyPayload({
   ok: true,
   elevated: true,
@@ -75,6 +94,20 @@ assert.strictEqual(telemetry.validCelsius(126), false);
 const unavailable = telemetry.classifyPayload({ ok: false, reason: "access_denied_or_driver_unavailable" });
 assert.strictEqual(unavailable.available, false);
 assert.strictEqual(unavailable.reason, "access_denied_or_driver_unavailable");
+
+async function assertAgentWindowsNormalization() {
+  const reading = await readAgentTemperatureWithHardware(packageReading);
+  assert.strictEqual(reading.temperatureValid, true, "Agent Windows metric path must normalize valid embedded readings.");
+  assert.strictEqual(reading.temperatureCelsius, 55);
+  assert.strictEqual(reading.temperatureSource, telemetry.SOURCE);
+  assert.strictEqual(reading.temperatureSensor, "CPU Package");
+
+  const providerFailure = telemetry.classifyPayload({ ok: false, reason: "provider_timeout" });
+  const failed = await readAgentTemperatureWithHardware(providerFailure);
+  assert.strictEqual(failed.temperatureValid, false, "Agent Windows metric path must preserve unavailable provider state.");
+  assert.strictEqual(failed.temperatureReason, "provider_timeout");
+  systemService._test.setWindowsHardwareTemperatureReaderForTest(null);
+}
 
 async function assertProviderHandlesAreReleased() {
   const originalSpawn = childProcess.spawn;
@@ -141,6 +174,7 @@ Promise.resolve(telemetry.readWindowsHardwareTemperature({ helperPath: path.join
   .then(async (missing) => {
     assert.strictEqual(missing.reason, "provider_missing", "Missing bundled provider must have an explicit reason.");
     await assertProviderHandlesAreReleased();
+    await assertAgentWindowsNormalization();
     const systemSource = fs.readFileSync(path.join(__dirname, "../src/services/systemService.js"), "utf8");
     assert(systemSource.includes('target.type === "agent"') && systemSource.includes("getLocalSystemSnapshot()"), "Selected Agent and Local Application Host metrics must stay routed separately.");
     assert(systemSource.includes("readWindowsHardwareTemperature"), "Local Application Host must use the shared Windows provider.");

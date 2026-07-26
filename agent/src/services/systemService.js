@@ -664,9 +664,12 @@ module.exports = {
     isRejectedTemperatureSensor,
     setCpuTemperatureExecFileForTest(fn) {
       cpuTemperatureExecFile = fn || execFile;
-      windowsHardwareTemperatureReader = fn
-        ? async () => ({ available: false, source: "LibreHardwareMonitor", timestamp: new Date().toISOString(), reason: "provider_unavailable" })
-        : readWindowsHardwareTemperature;
+      windowsHardwareTemperatureReader = readWindowsHardwareTemperature;
+      cpuTemperatureCache = null;
+      cpuTempWarningState.clear();
+    },
+    setWindowsHardwareTemperatureReaderForTest(fn) {
+      windowsHardwareTemperatureReader = fn || readWindowsHardwareTemperature;
       cpuTemperatureCache = null;
       cpuTempWarningState.clear();
     },

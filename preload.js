@@ -151,6 +151,7 @@ const desktopApi = {
   },
   account: {
     getStatus: () => invokeAccount("account:getStatus"),
+    restore: () => invokeAccount("account:restore"),
     startDeviceLogin: () => invokeAccount("account:startDeviceLogin"),
     loginWithPassword: (payload = {}) => invokeAccount("account:loginWithPassword", payload),
     checkDeviceLogin: () => invokeAccount("account:checkDeviceLogin"),

@@ -424,6 +424,23 @@ function getCurrentSession(options = {}) {
   return currentSession;
 }
 
+function getRefreshableSession() {
+  const session = getCurrentSession({ allowExpired: true });
+  return session?.refreshToken ? session : null;
+}
+
+function isTransientAccountError(error) {
+  const code = String(error?.code || "");
+  const message = String(error?.message || "");
+  return /ACCOUNT_(?:NETWORK_UNAVAILABLE|TIMEOUT)|ECONNRESET|ECONNREFUSED|ENOTFOUND|ETIMEDOUT|fetch failed|network|timeout/i.test(`${code} ${message}`);
+}
+
+function isInvalidRefreshError(error) {
+  const code = String(error?.code || "");
+  const message = String(error?.message || "");
+  return /invalid_grant|refresh_token_not_found|refresh_token_revoked|session_not_found|JWT_EXPIRED|HTTP_40[013]|HTTP_404|revoked|invalid refresh|invalid session|refresh token/i.test(`${code} ${message}`);
+}
+
 async function postJson(url, payload, options = {}) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs || 15000);
@@ -572,6 +589,7 @@ function getStatus() {
   const session = getCurrentSession();
   const storedSession = session || getCurrentSession({ allowExpired: true });
   const expired = Boolean(storedSession && !session);
+  const canRefresh = Boolean(storedSession?.refreshToken);
   const config = getAccountConfig();
   const passwordConfigured = Boolean(config.supabaseUrl && config.supabaseAnonKey);
   const apiConfigured = Boolean(config.accountApiUrl);
@@ -583,7 +601,8 @@ function getStatus() {
     authenticated: Boolean(session),
     account: publicAccount(storedSession),
     expiresAt: storedSession ? new Date(storedSession.expiresAt).toISOString() : null,
-    sessionStatus: session ? "active" : expired ? "expired" : "local",
+    sessionStatus: session ? "active" : expired && canRefresh ? "refreshable" : expired ? "expired" : "local",
+    canRefresh,
     accountPath: sessionStore.filePath,
     siteUrl: getWebsiteBaseUrl(),
     currentDevice: getDeviceInfo(),
@@ -790,6 +809,54 @@ async function refreshSession() {
   return { ...getStatus(), state: "refreshed", message: "Account session refreshed." };
 }
 
+async function restoreSession() {
+  const status = getStatus();
+  if (status.authenticated) {
+    return { ...status, state: "authenticated", restorationState: "authenticated", message: "Account session restored." };
+  }
+  const session = getRefreshableSession();
+  if (!session) {
+    return { ...status, state: status.sessionStatus === "expired" ? "signed-out" : "local", restorationState: "signed-out" };
+  }
+  if (!status.configured) {
+    return {
+      ...status,
+      state: "refresh-unavailable",
+      restorationState: "refresh-unavailable",
+      message: "Account session is saved, but account refresh is not configured.",
+    };
+  }
+  try {
+    const refreshed = await refreshSession();
+    return { ...refreshed, restorationState: "authenticated" };
+  } catch (error) {
+    if (isTransientAccountError(error)) {
+      audit({ action: "account.refresh", outcome: "deferred", reason: error.code || "transient" });
+      return {
+        ...getStatus(),
+        authenticated: false,
+        state: "temporarily-offline",
+        restorationState: "temporarily-offline",
+        message: "Account session could not be refreshed because the account service is temporarily unavailable.",
+        refreshErrorCode: error.code || "ACCOUNT_REFRESH_TRANSIENT",
+      };
+    }
+    if (isInvalidRefreshError(error)) {
+      const account = publicAccount(session);
+      clearSession();
+      audit({ action: "account.refresh", outcome: "revoked", target: account?.username || null, reason: error.code || "invalid_refresh" });
+      return {
+        ...getStatus(),
+        state: "signed-out",
+        restorationState: "invalid",
+        message: "Account session is no longer valid. Sign in again.",
+        refreshErrorCode: error.code || "ACCOUNT_REFRESH_INVALID",
+      };
+    }
+    throw error;
+  }
+}
+
 async function openAccountPage() {
   const targetUrl = pendingDeviceLogin?.verificationUrl || buildWebsiteUrl(getCurrentSession() ? "account" : "signin");
   const url = assertApprovedExternalUrl(targetUrl, "account");
@@ -844,6 +911,7 @@ module.exports = {
   listAccountDevices,
   logout,
   openAccountPage,
+  restoreSession,
   refreshSession,
   revokeCurrentDevice,
   loginWithPassword,

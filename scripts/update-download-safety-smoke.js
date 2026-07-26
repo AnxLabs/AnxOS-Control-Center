@@ -188,6 +188,22 @@ async function main() {
       sha256: prereleaseResult.asset.sha256,
     });
     assert.deepStrictEqual(fs.readFileSync(prereleasePath), payload, "prerelease GitHub API digest metadata must download and verify successfully.");
+
+    manager.state.latest = {
+      hasUpdate: true,
+      asset: {
+        name: "state-ready.bin",
+        size: payload.length,
+        sha256,
+        downloadUrl: `http://127.0.0.1:${port}/artifact`,
+      },
+    };
+    const downloadReady = await manager.download();
+    assert.strictEqual(downloadReady.downloaded, true, "successful update downloads must report downloaded=true.");
+    assert.strictEqual(downloadReady.state.status, "downloaded", "late renderer state queries must see install-ready downloaded status.");
+    assert.strictEqual(downloadReady.state.downloadInFlight, false, "download completion must clear in-flight state before downloaded status is emitted.");
+    assert(downloadReady.state.downloadedPath, "downloaded state must include the verified installer path.");
+    fs.rmSync(downloadReady.state.downloadedPath, { force: true });
   } finally {
     if (slowInterval) clearInterval(slowInterval);
     await close(server);

@@ -2031,6 +2031,38 @@ function isStartupScript(value) {
   return /^(?:\.\/)?(?:run|start)\.(?:sh|bat|cmd|ps1)$/i.test(path.basename(String(value || "").trim()));
 }
 
+function getStartupScriptLauncher(scriptPath) {
+  const name = path.basename(String(scriptPath || "").trim()).toLowerCase();
+  if (name.endsWith(".sh")) return { executable: "bash", args: [scriptPath] };
+  if (name.endsWith(".bat") || name.endsWith(".cmd")) return { executable: "cmd.exe", args: ["/c", scriptPath] };
+  if (name.endsWith(".ps1")) return { executable: "powershell.exe", args: ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath] };
+  return null;
+}
+
+async function findStartupScript(config) {
+  const workingDirectory = config.workingDirectory || "data";
+  const root = resolveRelativeManagedPath(config.id, workingDirectory, "data");
+  const args = Array.isArray(config.args) ? config.args : [];
+  const configured = [
+    config.startupScript,
+    config.entrypoint,
+    ...args.filter(isStartupScript),
+  ].map((candidate) => String(candidate || "").replace(/^\.([/\\])/, "").trim()).filter(Boolean);
+  const preferred = process.platform === "win32"
+    ? ["run.bat", "start.bat", "run.cmd", "start.cmd", "run.ps1", "start.ps1", "run.sh", "start.sh"]
+    : ["run.sh", "start.sh", "run.bat", "start.bat", "run.cmd", "start.cmd", "run.ps1", "start.ps1"];
+  for (const candidate of [...configured, ...preferred]) {
+    try {
+      const relative = validateRelativeAssetPath(candidate, "ENTRYPOINT");
+      const target = path.resolve(root, relative);
+      if (isInsideRoot(target, root) && await pathExists(target)) {
+        return relative.replace(/\\/g, "/");
+      }
+    } catch {}
+  }
+  return null;
+}
+
 function hasStartupScriptArgs(config = {}) {
   return (Array.isArray(config.args) ? config.args : []).some(isStartupScript);
 }
@@ -2197,6 +2229,45 @@ async function repairConfiguredServerJar(config) {
   };
   await saveInstanceConfig(repaired);
   await appendLog(config.id, "stdout", `Repaired server JAR command: ${formatCommandForLog(repaired)}`).catch(() => {});
+  return repaired;
+}
+
+async function repairScriptLauncherCommand(config) {
+  const executable = executableName(config.executable);
+  const args = Array.isArray(config.args) ? config.args : [];
+  const javaTryingToRunScript = (executable === "java" || executable === "java.exe") && args.some(isStartupScript);
+  if (!javaTryingToRunScript) {
+    return config;
+  }
+
+  const script = await findStartupScript(config);
+  if (!script) {
+    const error = createInstanceError("STARTUP_SCRIPT_MISSING", 400, {
+      executable: config.executable,
+      args,
+      expected: process.platform === "win32"
+        ? ["run.bat", "start.bat", "run.cmd", "start.cmd", "run.ps1", "start.ps1", "run.sh", "start.sh"]
+        : ["run.sh", "start.sh", "run.bat", "start.bat", "run.cmd", "start.cmd", "run.ps1", "start.ps1"],
+    });
+    error.message = "No valid server launch script was found for this modpack instance.";
+    throw error;
+  }
+
+  const launcher = getStartupScriptLauncher(script);
+  if (!launcher) {
+    throw createInstanceError("STARTUP_SCRIPT_UNSUPPORTED", 400, { script });
+  }
+  const scriptIndex = args.findIndex((arg) => isStartupScript(arg));
+  const extraArgs = scriptIndex >= 0 ? args.slice(scriptIndex + 1) : args.filter((arg) => arg !== "-jar");
+  const repaired = {
+    ...config,
+    executable: launcher.executable,
+    args: [...launcher.args, ...extraArgs],
+    startupScript: script,
+    updatedAt: nowIso(),
+  };
+  await saveInstanceConfig(repaired);
+  await appendLog(config.id, "stdout", `Repaired startup script command: ${formatCommandForLog(repaired)}`).catch(() => {});
   return repaired;
 }
 
@@ -3578,6 +3649,7 @@ async function startInstance(instanceId, options = {}) {
     error.message = "The instance cannot start until installation completes.";
     throw error;
   }
+  config = await repairScriptLauncherCommand(config);
   const runtimeResolvedConfig = resolveInstanceJavaRuntime(config);
   if (runtimeResolvedConfig.executable !== config.executable || JSON.stringify(runtimeResolvedConfig.javaRuntime) !== JSON.stringify(config.javaRuntime)) {
     config = { ...runtimeResolvedConfig, updatedAt: nowIso() };

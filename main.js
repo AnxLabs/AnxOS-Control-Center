@@ -29,6 +29,14 @@ const { openExternalUrl } = require("./src/services/externalUrlService");
 const { getReleaseInfo } = require("./src/shared/releaseConfig");
 const packageJson = require("./package.json");
 const qaMode = process.argv.includes("--qa-mode") || process.env.ANXOS_QA_MODE === "1";
+if (qaMode) {
+  app.disableHardwareAcceleration();
+  app.commandLine.appendSwitch("disable-gpu");
+  app.commandLine.appendSwitch("disable-gpu-compositing");
+  app.commandLine.appendSwitch("disable-gpu-rasterization");
+  app.commandLine.appendSwitch("disable-features", "VizDisplayCompositor");
+  app.commandLine.appendSwitch("in-process-gpu");
+}
 
 const APP_ICON_PATH = process.platform === "win32"
   ? path.join(__dirname, "assets", "icon.ico")
@@ -49,8 +57,23 @@ let appShutdownComplete = false;
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 
 app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required");
+if (qaMode) {
+  app.on("child-process-gone", (_, details = {}) => {
+    console.error("[Desktop] QA child process exited.", {
+      type: details.type || null,
+      reason: details.reason || null,
+      exitCode: details.exitCode ?? null,
+      serviceName: details.serviceName || null,
+      name: details.name || null,
+    });
+  });
+}
 
-configureElectronPaths(app);
+configureElectronPaths(app, qaMode ? {
+  appDataPath: app.getPath("userData"),
+  localAppDataPath: app.getPath("userData"),
+  tempPath: path.join(app.getPath("userData"), "tmp"),
+} : {});
 const diagnostics = require("./src/services/diagnosticsService");
 const { registerDiagnosticsIpc } = require("./src/ipc/diagnosticsIpc");
 const { registerAgentControlIpc } = require("./src/ipc/agentControlIpc");
@@ -338,7 +361,7 @@ function createWindow() {
     titleBarOverlay: false,
     thickFrame: true,
     roundedCorners: true,
-    backgroundMaterial: process.platform === "win32" ? "mica" : "auto",
+    ...(qaMode ? {} : { backgroundMaterial: process.platform === "win32" ? "mica" : "auto" }),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -355,6 +378,14 @@ function createWindow() {
     window.show();
     sendMaximizedState(window);
   });
+  if (qaMode) {
+    window.webContents.once("did-finish-load", () => {
+      if (!window.isDestroyed() && !window.isVisible()) {
+        window.show();
+        sendMaximizedState(window);
+      }
+    });
+  }
   window.on("maximize", () => {
     saveWindowState(window);
     sendMaximizedState(window);
@@ -375,6 +406,23 @@ function createWindow() {
       mainWindow = null;
     }
   });
+  if (qaMode) {
+    window.webContents.on("render-process-gone", (_, details) => {
+      console.error("[Desktop] QA renderer process exited.", {
+        reason: details?.reason || null,
+        exitCode: details?.exitCode ?? null,
+      });
+    });
+    window.webContents.on("did-fail-load", (_, errorCode, errorDescription, validatedUrl, isMainFrame) => {
+      if (isMainFrame) {
+        console.error("[Desktop] QA main window failed to load.", {
+          errorCode,
+          errorDescription,
+          validatedUrl,
+        });
+      }
+    });
+  }
 
   window.loadFile(path.join(__dirname, "index.html"), qaMode ? { search: "?qa-mode=1" } : undefined);
 

@@ -211,6 +211,47 @@ async function assertPalworldSpawnArgvAndLogs() {
   });
 }
 
+async function assertJavaScriptLauncherRepair() {
+  await withTempService(async (instanceService) => {
+    const id = "atm10-script-launcher-repair";
+    await instanceService.createInstance({
+      id,
+      displayName: "ATM10 Script Launcher Repair",
+      type: "java-app",
+      workingDirectory: "data",
+      executable: "java",
+      args: ["run.sh", "nogui"],
+      restartPolicy: "never",
+      game: "minecraft",
+      tags: ["minecraft", "modpack", "curseforge"],
+      startupTimeoutMs: 60000,
+    });
+    await instanceService.writeInstanceFile(id, "run.sh", "#!/usr/bin/env bash\necho 'Done (1.000s)! For help, type \"help\"'\n");
+
+    const originalSpawn = childProcess.spawn;
+    const calls = [];
+    const fakeChild = createFakeChild(701151);
+    childProcess.spawn = (command, args, options) => {
+      calls.push({ command, args: [...args], options });
+      return fakeChild;
+    };
+    try {
+      const started = await instanceService.startInstance(id);
+      assert.strictEqual(started.pid, 701151, "Script launcher repair should still record the wrapper PID.");
+      assert.strictEqual(calls.length, 1, "Script launcher repair should spawn exactly one process.");
+      assert.strictEqual(calls[0].command, "bash", "Linux shell scripts should launch through bash instead of java.");
+      assert.deepStrictEqual(calls[0].args, ["run.sh", "nogui"], "Existing modpack script arguments should be preserved.");
+      const repaired = await instanceService.getStatus(id);
+      assert.strictEqual(repaired.executable, "bash", "Invalid persisted Java launcher should be repaired on start.");
+      assert.deepStrictEqual(repaired.args, ["run.sh", "nogui"], "Repaired launcher argv should be persisted.");
+      fakeChild.emit("exit", 0, null);
+      await wait(20);
+    } finally {
+      childProcess.spawn = originalSpawn;
+    }
+  }, { platform: "linux" });
+}
+
 async function assertRestartBackoffBounds() {
   await withTempService(async (instanceService) => {
     const instanceId = "restart-backoff-smoke";
@@ -542,6 +583,7 @@ async function assertRenameDuplicateAndCrashLifecycle() {
 async function run() {
   await assertPalworldShellCommandNormalization();
   await assertPalworldSpawnArgvAndLogs();
+  await assertJavaScriptLauncherRepair();
   await assertRestartBackoffBounds();
   await assertScheduledRestartCancellation();
   await assertStopDoesNotRestart();

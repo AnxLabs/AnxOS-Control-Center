@@ -129,7 +129,7 @@ async function main() {
   const stage = (name, details = {}) => { lastStage = name; console.error(`[QA][stage] ${name}`, JSON.stringify({ elapsedMs: Date.now() - startedAt, ...details })); };
   const executable = process.env.ANXOS_QA_EXECUTABLE || undefined;
   const userDataDir = fs.mkdtempSync(path.join(require("os").tmpdir(), "anx-qa-profile-"));
-  const launchOptions = { args: [`--user-data-dir=${userDataDir}`, root, "--qa-mode"], env: { ...process.env, ANXOS_QA_MODE: "1" } };
+  const launchOptions = { args: [`--user-data-dir=${userDataDir}`, "--no-sandbox", root, "--qa-mode"], env: { ...process.env, ANXOS_QA_MODE: "1" } };
   if (executable) launchOptions.executablePath = executable;
   stage("electron-launch-start");
   const app = await electron.launch(launchOptions);
