@@ -25,6 +25,7 @@ async function main() {
     const marketplace = require("../src/services/marketplaceInstallService");
     const providerConfig = require("../src/services/providerConfigService");
     const curseforge = require("../src/services/providers/curseforgeProvider");
+    const modrinth = require("../src/services/providers/modrinthProvider");
 
     writeJson(nodes.getNodesPath(), {
       schemaVersion: nodes.NODE_SCHEMA_VERSION,
@@ -62,14 +63,14 @@ async function main() {
     });
     providerConfig.saveMarketplaceConfig({ curseForgeApiKey: "desktop-cf-key" });
     curseforge._test.setRuntimeApiKey();
-    curseforge.getMod = async () => ({ id: 100, provider: "curseforge", providerProjectId: 100, loaders: ["forge"] });
+    curseforge.getMod = async () => ({ id: 100, provider: "curseforge", providerProjectId: 100, loaders: ["forge"], serverCompatible: true });
     curseforge.resolveFile = async () => ({
       id: 1000,
       projectId: 100,
       fileName: "cf-client.zip",
       minecraftVersions: ["1.20.1"],
       loaders: ["forge"],
-      serverPackFileId: 1001,
+      serverCompatible: true,
     });
     curseforge.getFile = async () => ({
       id: 1001,
@@ -85,9 +86,30 @@ async function main() {
         fileName: "cf-client.zip",
         minecraftVersions: ["1.20.1"],
         loaders: ["forge"],
-        serverPackFileId: 1001,
+        serverCompatible: true,
       },
     ];
+    modrinth.getProject = async () => ({
+      id: "mr-pack",
+      providerProjectId: "mr-pack",
+      slug: "mr-pack",
+      title: "MR Pack",
+      projectType: "modpack",
+      serverSide: "required",
+      clientSide: "optional",
+    });
+    modrinth.resolveVersion = async () => ({
+      id: "mr-version",
+      projectId: "mr-pack",
+      name: "MR Version",
+      versionNumber: "1.0.0",
+      minecraftVersions: ["1.20.1"],
+      loaders: ["fabric"],
+      type: "release",
+      primaryFile: { filename: "mr-server.jar", url: "https://mock.local/mr-server.jar", hashes: { sha1: "mr" } },
+      files: [{ filename: "mr-server.jar", url: "https://mock.local/mr-server.jar", hashes: { sha1: "mr" } }],
+      dependencies: [],
+    });
 
     global.fetch = async (url, options = {}) => {
       const endpoint = String(url);
@@ -138,7 +160,7 @@ async function main() {
     assert.strictEqual(target.agentConfig.agentToken, "node-token-anxlab");
 
     await assert.rejects(
-      () => marketplace.installPack({ provider: "curseforge", providerProjectId: "100", nodeId: "anxlab", id: "cf-install", name: "CF Install" }),
+      () => marketplace.installPack({ provider: "curseforge", providerProjectId: "100", nodeId: "anxlab", id: "cf-install", name: "CF Install", minecraftVersion: "1.20.1", loader: "forge" }),
       (error) => error?.code === "DEPENDENCIES_REQUIRED",
       "CurseForge install should reach node-scoped dependency checking before asking for dependency repair.",
     );
@@ -146,7 +168,7 @@ async function main() {
     assert(!records.some((record) => record.auth === "Bearer stale-global-token"), "Anxlab install must never use the stale global Agent token.");
 
     await assert.rejects(
-      () => marketplace.installPack({ provider: "modrinth", providerProjectId: "mr-pack", nodeId: "node-b", id: "mr-install", name: "MR Install" }),
+      () => marketplace.installPack({ provider: "modrinth", providerProjectId: "mr-pack", nodeId: "node-b", id: "mr-install", name: "MR Install", minecraftVersion: "1.20.1", loader: "fabric" }),
       (error) => error?.code === "DEPENDENCIES_REQUIRED",
       "Modrinth install should also use the selected-node dependency path.",
     );
