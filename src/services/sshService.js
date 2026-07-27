@@ -226,6 +226,47 @@ function logSafeSshDebug(message, details = {}) {
   console.info(`[SSH Service] ${message}`, details);
 }
 
+function getSafeNodeSnapshot(nodeId) {
+  const selectedNodeId = trimValue(nodeId || getSelectedNodeId());
+  const nodes = getAllNodesSync();
+  const node = nodes.find((candidate) => candidate.id === selectedNodeId) || null;
+  let agentHost = null;
+  try {
+    agentHost = node?.agentUrl ? new URL(node.agentUrl).hostname : null;
+  } catch {}
+  return {
+    selectedNodeId,
+    selectedNodeName: node?.displayName || node?.name || selectedNodeId || null,
+    selectedNodeHost: agentHost,
+  };
+}
+
+function buildProfileNodeMismatchDetails(profile, nodeId) {
+  const node = getSafeNodeSnapshot(nodeId);
+  const profileHost = trimValue(profile?.host);
+  const canAssignToSelectedNode = Boolean(
+    !profile?.nodeId &&
+    node.selectedNodeId &&
+    profileHost &&
+    node.selectedNodeHost &&
+    profileHost.toLowerCase() === node.selectedNodeHost.toLowerCase()
+  );
+  return {
+    ...node,
+    profileId: profile?.id || null,
+    profileName: profile?.displayName || null,
+    profileNodeId: profile?.nodeId || null,
+    host: profileHost || null,
+    port: normalizePort(profile?.port),
+    username: trimValue(profile?.username) || null,
+    authType: profile?.authType || null,
+    privateKeyPath: profile?.authType === "privateKey" ? Boolean(profile?.privateKeyPath) : null,
+    mismatchBlocked: true,
+    canAssignToSelectedNode,
+    suggestedAction: canAssignToSelectedNode ? "assign-profile-to-selected-node" : "choose-profile-for-selected-node",
+  };
+}
+
 function sanitizeProfile(profile) {
   if (!profile) {
     return null;
@@ -417,6 +458,41 @@ class SshService extends EventEmitter {
     };
   }
 
+  assignProfileToNode(profileId, nodeId) {
+    const config = readProfilesConfig();
+    const selectedNode = getSafeNodeSnapshot(nodeId);
+    if (!selectedNode.selectedNodeId) {
+      throw new SshServiceError("Select a node before assigning this SSH profile.", {
+        code: "SSH_NODE_REQUIRED",
+      });
+    }
+    const profile = config.profiles.find((candidate) => candidate.id === profileId);
+    if (!profile) {
+      throw new SshServiceError("SSH profile not found.", {
+        code: "SSH_PROFILE_NOT_FOUND",
+      });
+    }
+    const servers = config.servers.map((server) => (
+      server.id === profile.serverId ? { ...server, nodeId: selectedNode.selectedNodeId } : server
+    ));
+    const profiles = config.profiles.map((candidate) => (
+      candidate.id === profile.id ? { ...candidate, nodeId: selectedNode.selectedNodeId } : candidate
+    ));
+    writeProfilesConfig({ ...config, servers, profiles });
+    logSafeSshDebug("Profile assigned to selected node.", {
+      selectedNodeId: selectedNode.selectedNodeId,
+      selectedNodeName: selectedNode.selectedNodeName,
+      profileId: profile.id,
+      profileName: profile.displayName,
+      host: profile.host,
+      port: normalizePort(profile.port),
+      username: profile.username,
+      authType: profile.authType,
+      privateKeyPath: profile.authType === "privateKey" ? Boolean(profile.privateKeyPath) : null,
+    });
+    return this.listProfiles();
+  }
+
   getProfile(profileId) {
     const config = readProfilesConfig();
     const profile = config.profiles.find((candidate) => candidate.id === profileId);
@@ -503,8 +579,29 @@ class SshService extends EventEmitter {
 
   connect(options = {}) {
     const profile = this.getProfile(options.profileId);
-    if (!options.nodeId || profile.nodeId !== options.nodeId) {
-      throw new SshServiceError("SSH profile is not assigned to the selected node.", { code: "SSH_NODE_MISMATCH" });
+    const requestedNode = getSafeNodeSnapshot(options.nodeId);
+    logSafeSshDebug("Connection requested.", {
+      selectedNodeId: requestedNode.selectedNodeId,
+      selectedNodeName: requestedNode.selectedNodeName,
+      profileId: profile.id,
+      profileName: profile.displayName,
+      profileNodeId: profile.nodeId || null,
+      host: profile.host,
+      port: normalizePort(profile.port),
+      username: profile.username,
+      authType: profile.authType,
+      privateKeyPath: profile.authType === "privateKey" ? Boolean(profile.privateKeyPath) : null,
+      mismatchBlocked: Boolean(!requestedNode.selectedNodeId || profile.nodeId !== requestedNode.selectedNodeId),
+    });
+    if (!requestedNode.selectedNodeId || profile.nodeId !== requestedNode.selectedNodeId) {
+      const details = buildProfileNodeMismatchDetails(profile, requestedNode.selectedNodeId);
+      logSafeSshDebug("Connection blocked by profile/node mismatch.", details);
+      const error = new SshServiceError(
+        "This SSH profile is not assigned to the selected node. Reassign it to Anxlab or choose another profile.",
+        { code: "SSH_NODE_MISMATCH" },
+      );
+      error.details = details;
+      throw error;
     }
     const existingSessionId = this.sessionIdsByProfileId.get(profile.id);
     const existingSession = existingSessionId ? this.sessions.get(existingSessionId) || null : null;
@@ -785,4 +882,7 @@ module.exports = {
   SSH_PROFILES_PATH: DEV_SSH_PROFILES_PATH,
   SshService,
   SshServiceError,
+  _test: {
+    buildProfileNodeMismatchDetails,
+  },
 };

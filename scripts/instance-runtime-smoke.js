@@ -313,6 +313,55 @@ async function assertInstallerJarWithStartupScriptRepair() {
   }, { platform: "linux" });
 }
 
+async function assertInstallerJarWithScriptArgumentRepair() {
+  await withTempService(async (instanceService) => {
+    const id = "atm10-installer-script-argument-repair";
+    await instanceService.createInstance({
+      id,
+      displayName: "ATM10 Installer Script Argument Repair",
+      type: "java-app",
+      workingDirectory: "data",
+      executable: "java",
+      args: ["-jar", "neoforge-installer.jar", "./startserver.sh"],
+      jar: "neoforge-installer.jar",
+      serverJar: "neoforge-installer.jar",
+      serverJarPath: "neoforge-installer.jar",
+      startJar: "neoforge-installer.jar",
+      startScript: "./startserver.sh",
+      restartPolicy: "never",
+      game: "minecraft",
+      tags: ["minecraft", "modpack", "curseforge", "neoforge"],
+      startupTimeoutMs: 60000,
+    });
+    await instanceService.writeInstanceFile(id, "startserver.sh", "#!/usr/bin/env bash\necho 'Done (1.000s)! For help, type \"help\"'\n");
+    await instanceService.writeInstanceFile(id, "neoforge-installer.jar", "");
+
+    const originalSpawn = childProcess.spawn;
+    const calls = [];
+    const fakeChild = createFakeChild(701154);
+    childProcess.spawn = (command, args, options) => {
+      calls.push({ command, args: [...args], options });
+      return fakeChild;
+    };
+    try {
+      await instanceService.startInstance(id);
+      assert.strictEqual(calls.length, 1, "Bad installer/script command should be repaired before spawn.");
+      assert.strictEqual(calls[0].command, "bash", "Installer jar must be replaced by shell script launch.");
+      assert.deepStrictEqual(calls[0].args, ["./startserver.sh"], "Script path must not be passed as an installer-jar argument.");
+      const launchText = `${calls[0].command} ${calls[0].args.join(" ")}`;
+      assert(!launchText.includes("-jar neoforge-installer.jar"), "Repaired launch must not contain the NeoForge installer jar.");
+      const repaired = await instanceService.getStatus(id);
+      assert.strictEqual(repaired.executable, "bash");
+      assert.deepStrictEqual(repaired.args, ["./startserver.sh"]);
+      assert.strictEqual(repaired.serverJar, null, "Installer jar should not remain configured as the runtime server jar.");
+      fakeChild.emit("exit", 0, null);
+      await wait(20);
+    } finally {
+      childProcess.spawn = originalSpawn;
+    }
+  }, { platform: "linux" });
+}
+
 async function assertRestartBackoffBounds() {
   await withTempService(async (instanceService) => {
     const instanceId = "restart-backoff-smoke";
@@ -669,6 +718,7 @@ async function run() {
   await assertPalworldSpawnArgvAndLogs();
   await assertJavaScriptLauncherRepair();
   await assertInstallerJarWithStartupScriptRepair();
+  await assertInstallerJarWithScriptArgumentRepair();
   await assertRestartBackoffBounds();
   await assertScheduledRestartCancellation();
   await assertStopDoesNotRestart();

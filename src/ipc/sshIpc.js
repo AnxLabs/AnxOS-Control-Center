@@ -83,6 +83,11 @@ function registerSshIpc() {
     audit({ action: "ssh.profile.save", target: payload.id || payload.name || payload.host });
     return sshService.saveProfile(payload);
   });
+  registerSshHandler("ssh:assignProfileToNode", async (_, payload = {}) => {
+    requirePermission("settings:write", payload.profileId || "ssh-profile");
+    audit({ action: "ssh.profile.assign-node", target: payload.profileId || "ssh-profile" });
+    return sshService.assignProfileToNode(payload.profileId, payload.nodeId);
+  });
   registerSshHandler("ssh:connect", async (_, payload = {}) => {
     requirePermission("instance:write", payload.profileId || payload.host || "ssh-session");
     checkRateLimit("ssh-connect", 30, 60 * 1000);

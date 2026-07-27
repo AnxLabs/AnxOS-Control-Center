@@ -14,6 +14,30 @@ fs.writeFileSync(filePath, `${JSON.stringify(legacy)}\n`, { mode: 0o600 });
 assert.strictEqual(service.listProfiles().profiles[0].host, "10.0.0.2");
 assert.strictEqual(JSON.parse(fs.readFileSync(filePath, "utf8")).schemaVersion, SSH_PROFILES_SCHEMA_VERSION);
 assert(fs.existsSync(`${filePath}.schema-v0.backup`), "Legacy SSH profiles should be preserved before migration.");
+assert.throws(
+  () => service.connect({ profileId: "profile-a", nodeId: "anxlab", password: "unused" }),
+  (error) => error?.code === "SSH_NODE_MISMATCH" &&
+    /not assigned to the selected node/i.test(error.message) &&
+    error.details?.mismatchBlocked === true,
+  "Missing nodeId profiles must fail with a clear node assignment error instead of hanging.",
+);
+
+let assigned = service.assignProfileToNode("profile-a", "anxlab");
+assert.strictEqual(assigned.profiles.find((profile) => profile.id === "profile-a")?.nodeId, "anxlab", "Profile assignment should persist the selected node id.");
+
+fs.writeFileSync(filePath, `${JSON.stringify({
+  schemaVersion: SSH_PROFILES_SCHEMA_VERSION,
+  servers: [{ id: "host-b", displayName: "Host B", host: "10.0.0.3", nodeId: "other-node" }],
+  profiles: [{ id: "profile-b", serverId: "host-b", displayName: "Host B", host: "10.0.0.3", port: 22, username: "admin", authType: "password", nodeId: "other-node" }],
+  defaultProfileId: "profile-b",
+})}\n`, { mode: 0o600 });
+assert.throws(
+  () => service.connect({ profileId: "profile-b", nodeId: "anxlab", password: "unused" }),
+  (error) => error?.code === "SSH_NODE_MISMATCH" &&
+    error.details?.profileNodeId === "other-node" &&
+    error.details?.mismatchBlocked === true,
+  "Mismatched nodeId profiles must fail with SSH_NODE_MISMATCH instead of staying in Connecting.",
+);
 
 const future = { ...legacy, schemaVersion: SSH_PROFILES_SCHEMA_VERSION + 1 };
 fs.writeFileSync(filePath, JSON.stringify(future), { mode: 0o600 });

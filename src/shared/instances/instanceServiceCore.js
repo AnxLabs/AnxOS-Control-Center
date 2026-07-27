@@ -136,6 +136,42 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function normalizeRuntimeJarName(value) {
+  return String(value || "").trim().replace(/\\/g, "/").split("/").pop().toLowerCase();
+}
+
+function isInstallerRuntimeJar(value) {
+  const fileName = normalizeRuntimeJarName(value);
+  return Boolean(fileName) && /(?:^|[-_.])(?:neo)?forge[-_.].*installer.*\.jar$|^(?:neo)?forge-installer\.jar$|^neoforge-installer\.jar$/i.test(fileName);
+}
+
+function isScriptPath(value) {
+  return /\.(?:sh|bash|bat|cmd)$/i.test(String(value || "").trim());
+}
+
+function hasScriptRuntimeLaunch(config = {}) {
+  const executable = String(config.executable || config.command || "").trim().toLowerCase();
+  const args = Array.isArray(config.args) ? config.args : [];
+  return isScriptPath(config.startScript || config.startupScript || config.launchScript) ||
+    ((executable === "bash" || executable === "sh" || executable === "cmd.exe" || executable === "cmd") && args.some(isScriptPath)) ||
+    String(config.launchType || "").trim().toLowerCase() === "script";
+}
+
+function clearInstallerRuntimeJarMetadata(config = {}) {
+  if (!hasScriptRuntimeLaunch(config)) {
+    return config;
+  }
+  let changed = false;
+  const next = { ...config };
+  for (const field of ["jar", "serverJar", "serverJarPath", "startJar"]) {
+    if (isInstallerRuntimeJar(next[field])) {
+      next[field] = null;
+      changed = true;
+    }
+  }
+  return changed ? next : config;
+}
+
 function execFile(command, args, options = {}) {
   return new Promise((resolve) => {
     childProcess.execFile(command, args, {
@@ -1080,6 +1116,7 @@ function resolveInstanceJavaRuntime(config) {
 }
 
 function publicConfig(config) {
+  config = clearInstallerRuntimeJarMetadata(config);
   const { installationOperationId: _installationOperationId, ...safeConfig } = config;
   const crashLoop = config.state === INSTANCE_STATES.FAILED && config.failureReason === "CRASH_LOOP";
   const processRunning = [INSTANCE_STATES.STARTING, INSTANCE_STATES.RUNNING, INSTANCE_STATES.STOPPING, INSTANCE_STATES.RESTARTING].includes(config.state);
@@ -2755,6 +2792,7 @@ async function loadInstanceConfig(instanceId) {
 }
 
 async function saveInstanceConfig(config) {
+  config = clearInstallerRuntimeJarMetadata(config);
   await ensureInstanceDirectories(config.id);
   await writeJson(configPath(config.id), { ...config, schemaVersion: INSTANCE_CONFIG_SCHEMA_VERSION });
 }

@@ -352,6 +352,7 @@ const desktopApi = {
   ssh: {
     listProfiles: () => ipcRenderer.invoke("ssh:listProfiles"),
     saveProfile: (payload) => ipcRenderer.invoke("ssh:saveProfile", payload),
+    assignProfileToNode: (payload) => ipcRenderer.invoke("ssh:assignProfileToNode", payload),
     connect: (payload) => ipcRenderer.invoke("ssh:connect", payload),
     disconnect: (sessionId) => ipcRenderer.invoke("ssh:disconnect", { sessionId }),
     write: (sessionId, input) => {
