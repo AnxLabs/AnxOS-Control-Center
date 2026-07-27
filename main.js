@@ -860,12 +860,10 @@ app.on("second-instance", () => {
 
 app.whenReady().then(async () => {
   logWindowLifecycle("app-ready", "Electron app ready; starting desktop initialization.");
-  const instanceRecovery = await localInstanceService.recoverIncompleteInstallations();
-  if (instanceRecovery.repaired.length || instanceRecovery.failures.length) {
-    diagnostics.log("info", "startup", "instance-recovery", "Incomplete local Marketplace installations were repaired.", instanceRecovery, { file: "desktop" });
-  }
   instrumentIpcHandlers();
   registerDiagnosticsIpc();
+  registerAccountAuthIpc();
+  registerSecurityIpc();
   registerAgentControlIpc();
   registerDependenciesIpc();
   diagnostics.captureSnapshot({ applicationRunning: true, providerMode: "initializing" });
@@ -891,7 +889,6 @@ app.whenReady().then(async () => {
   });
   registerUpdatesIpc(updateManager);
   registerDeveloperUpdatesIpc(developerGitUpdater);
-  registerAccountAuthIpc();
   registerActionIpc();
   registerSystemIpc();
   registerAmpIpc();
@@ -906,10 +903,18 @@ app.whenReady().then(async () => {
   registerOwnerWorkspaceIpc();
   registerFilesIpc();
   registerSettingsIpc();
-  registerSecurityIpc();
   registerSshIpc();
   createWindow();
   updateManager.start();
+  localInstanceService.recoverIncompleteInstallations()
+    .then((instanceRecovery) => {
+      if (instanceRecovery.repaired.length || instanceRecovery.failures.length) {
+        diagnostics.log("info", "startup", "instance-recovery", "Incomplete local Marketplace installations were repaired.", instanceRecovery, { file: "desktop" });
+      }
+    })
+    .catch((error) => {
+      diagnostics.logError("startup", "instance-recovery", error, {}, { file: "desktop" });
+    });
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
