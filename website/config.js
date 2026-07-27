@@ -5,18 +5,18 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   siteUrl: "https://anxoscontrolcenter.org",
   logoPath: "/assets/anxos-logo.png",
   latestVersion: "1.8",
-  build: "183",
-  buildNumber: "183",
+  build: "184",
+  buildNumber: "184",
   channel: "Private Alpha",
-  releaseLabel: "Version 1.8 Build 183 Private Alpha",
+  releaseLabel: "Version 1.8 Build 184 Private Alpha",
   releaseDate: "July 27, 2026",
-  releaseTag: "v1.8-build183",
+  releaseTag: "v1.8-build184",
   releaseRepository: {
     owner: "bungopam-byte",
     repo: "AnxOS-Control-Center-Releases",
   },
   repositoryUrl: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases",
-  releaseUrl: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build183",
+  releaseUrl: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build184",
   githubReleasesApiUrl: "https://api.github.com/repos/bungopam-byte/AnxOS-Control-Center-Releases/releases?per_page=20",
   stableDownloadEndpoints: {
     windows: "/api/download/latest/windows",
@@ -26,23 +26,45 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   },
   releaseAssets: [
       {
-          fileName: "AnxOS-Control-Center-Setup-1.8-build183.exe",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build183/AnxOS-Control-Center-Setup-1.8-build183.exe"
+          fileName: "AnxOS-Control-Center-Setup-1.8-build184.exe",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build184/AnxOS-Control-Center-Setup-1.8-build184.exe"
       },
       {
-          fileName: "AnxOS-Control-Center-1.8-build183-portable.exe",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build183/AnxOS-Control-Center-1.8-build183-portable.exe"
+          fileName: "AnxOS-Control-Center-1.8-build184-portable.exe",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build184/AnxOS-Control-Center-1.8-build184-portable.exe"
       },
       {
-          fileName: "AnxOS-Control-Center-1.8-build183.AppImage",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build183/AnxOS-Control-Center-1.8-build183.AppImage"
+          fileName: "AnxOS-Control-Center-1.8-build184.AppImage",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build184/AnxOS-Control-Center-1.8-build184.AppImage"
       },
       {
-          fileName: "AnxOS-Control-Center-1.8-build183.deb",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build183/AnxOS-Control-Center-1.8-build183.deb"
+          fileName: "AnxOS-Control-Center-1.8-build184.deb",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build184/AnxOS-Control-Center-1.8-build184.deb"
       }
   ],
   releaseNotes: [
+      {
+          "version": "1.8",
+          "build": 184,
+          "channel": "Private Alpha",
+          "tag": "v1.8-build184",
+          "date": "July 27, 2026",
+          "datetime": "2026-07-27",
+          "title": "Build 184 Playit public access and runtime readiness fixes",
+          "summary": "Private Alpha v1.8 Build 184 adds Playit service controls, logs, tunnels, and endpoint copy support in Public Access while fixing SSH shell readiness and existing ATM10/NeoForge runtime readiness detection.",
+          "changes": [
+              "Added Playit service controls in Public Access.",
+              "Added Start, Stop, Restart, and Refresh status actions for Playit.",
+              "Added Playit logs viewing inside the app.",
+              "Added Playit tunnel list in Public Access.",
+              "Added copy support for public tunnel endpoints.",
+              "Added tunnel-to-instance matching by local port when available.",
+              "Fixed SSH shell readiness so auth success is not treated as usable shell readiness too early.",
+              "Improved SSH diagnostics for shell timeout, PTY, and command write states.",
+              "Fixed existing ATM10 and NeoForge runtime readiness detection and migrated stale java-app/server.jar metadata when launcher files prove a NeoForge script runtime."
+          ],
+          "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build184"
+      },
       {
           "version": "1.8",
           "build": 183,

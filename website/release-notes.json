@@ -1,6 +1,28 @@
 [
   {
     "version": "1.8",
+    "build": 184,
+    "channel": "Private Alpha",
+    "tag": "v1.8-build184",
+    "date": "July 27, 2026",
+    "datetime": "2026-07-27",
+    "title": "Build 184 Playit public access and runtime readiness fixes",
+    "summary": "Private Alpha v1.8 Build 184 adds Playit service controls, logs, tunnels, and endpoint copy support in Public Access while fixing SSH shell readiness and existing ATM10/NeoForge runtime readiness detection.",
+    "changes": [
+      "Added Playit service controls in Public Access.",
+      "Added Start, Stop, Restart, and Refresh status actions for Playit.",
+      "Added Playit logs viewing inside the app.",
+      "Added Playit tunnel list in Public Access.",
+      "Added copy support for public tunnel endpoints.",
+      "Added tunnel-to-instance matching by local port when available.",
+      "Fixed SSH shell readiness so auth success is not treated as usable shell readiness too early.",
+      "Improved SSH diagnostics for shell timeout, PTY, and command write states.",
+      "Fixed existing ATM10 and NeoForge runtime readiness detection and migrated stale java-app/server.jar metadata when launcher files prove a NeoForge script runtime."
+    ],
+    "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build184"
+  },
+  {
+    "version": "1.8",
     "build": 183,
     "channel": "Private Alpha",
     "tag": "v1.8-build183",
