@@ -331,28 +331,13 @@ async function assertInstallerJarWithScriptArgumentRepair() {
       startJar: "neoforge-installer.jar",
       startScript: "./startserver.sh",
       restartPolicy: "never",
-async function assertNeoForgeRunScriptPreferenceAndRuntimeValidation() {
-  await withTempService(async (instanceService) => {
-    const id = "atm10-run-script-preferred";
-    await instanceService.createInstance({
-      id,
-      displayName: "ATM10 Run Script Preferred",
-      type: "java-app",
-      workingDirectory: "data",
-      executable: "bash",
-      args: ["./startserver.sh"],
-      startupScript: "startserver.sh",
-      restartPolicy: "on-failure",
       game: "minecraft",
       tags: ["minecraft", "modpack", "curseforge", "neoforge"],
       startupTimeoutMs: 60000,
     });
     await instanceService.writeInstanceFile(id, "startserver.sh", "#!/usr/bin/env bash\necho 'Done (1.000s)! For help, type \"help\"'\n");
-    await instanceService.writeInstanceFile(id, "neoforge-installer.jar", "");
-    await instanceService.writeInstanceFile(id, "startserver.sh", "#!/usr/bin/env bash\nexec ./run.sh \"$@\"\n");
-    await instanceService.writeInstanceFile(id, "run.sh", "#!/usr/bin/env bash\nexec java @user_jvm_args.txt @libraries/net/neoforged/neoforge/21.1.228/unix_args.txt \"$@\"\n");
     await instanceService.writeInstanceFile(id, "user_jvm_args.txt", "-Xmx4G\n");
-    await instanceService.writeInstanceFile(id, "libraries/net/neoforged/neoforge/21.1.228/unix_args.txt", "--launchTarget neoforgeserver\n");
+    await instanceService.writeInstanceFile(id, "neoforge-installer.jar", "");
 
     const originalSpawn = childProcess.spawn;
     const calls = [];
@@ -372,6 +357,44 @@ async function assertNeoForgeRunScriptPreferenceAndRuntimeValidation() {
       assert.strictEqual(repaired.executable, "bash");
       assert.deepStrictEqual(repaired.args, ["./startserver.sh"]);
       assert.strictEqual(repaired.serverJar, null, "Installer jar should not remain configured as the runtime server jar.");
+      fakeChild.emit("exit", 0, null);
+      await wait(20);
+    } finally {
+      childProcess.spawn = originalSpawn;
+    }
+  }, { platform: "linux" });
+}
+
+async function assertNeoForgeRunScriptPreferenceAndRuntimeValidation() {
+  await withTempService(async (instanceService) => {
+    const id = "atm10-run-script-preferred";
+    await instanceService.createInstance({
+      id,
+      displayName: "ATM10 Run Script Preferred",
+      type: "java-app",
+      workingDirectory: "data",
+      executable: "bash",
+      args: ["./startserver.sh"],
+      startupScript: "startserver.sh",
+      restartPolicy: "on-failure",
+      game: "minecraft",
+      tags: ["minecraft", "modpack", "curseforge", "neoforge"],
+      startupTimeoutMs: 60000,
+    });
+    await instanceService.writeInstanceFile(id, "startserver.sh", "#!/usr/bin/env bash\nexec ./run.sh \"$@\"\n");
+    await instanceService.writeInstanceFile(id, "run.sh", "#!/usr/bin/env bash\nexec java @user_jvm_args.txt @libraries/net/neoforged/neoforge/21.1.228/unix_args.txt \"$@\"\n");
+    await instanceService.writeInstanceFile(id, "user_jvm_args.txt", "-Xmx4G\n");
+    await instanceService.writeInstanceFile(id, "libraries/net/neoforged/neoforge/21.1.228/unix_args.txt", "--launchTarget neoforgeserver\n");
+
+    const originalSpawn = childProcess.spawn;
+    const calls = [];
+    const fakeChild = createFakeChild(701157);
+    childProcess.spawn = (command, args, options) => {
+      calls.push({ command, args: [...args], options });
+      return fakeChild;
+    };
+    try {
+      await instanceService.startInstance(id);
       assert.strictEqual(calls.length, 1, "Generated run.sh preference should spawn exactly one process.");
       assert.strictEqual(calls[0].command, "bash", "Generated run.sh should launch through bash.");
       assert.deepStrictEqual(calls[0].args, ["./run.sh"], "Generated run.sh should replace bootstrap startserver.sh.");
