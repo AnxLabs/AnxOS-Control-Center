@@ -48,6 +48,10 @@ const DEFAULT_WINDOW_BOUNDS = {
   height: 820,
 };
 const MAIN_WINDOW_SHOW_FALLBACK_MS = 4000;
+const MAIN_WINDOW_WATCHDOG_FIRST_MS = 2500;
+const MAIN_WINDOW_WATCHDOG_RESET_MS = 7000;
+const MAIN_WINDOW_WATCHDOG_RECREATE_MS = 11000;
+const STARTUP_ATTEMPT_STALE_MS = 2 * 60 * 1000;
 const updateManager = new UpdateManager();
 const developerGitUpdater = new DeveloperGitUpdater({ app, appRoot: __dirname });
 let mainWindow = null;
@@ -55,6 +59,8 @@ let addStorageWindow = null;
 let pendingAddStoragePayload = null;
 let appShuttingDown = false;
 let appShutdownComplete = false;
+let activeStartupAttemptId = null;
+let mainWindowWatchdogTimers = [];
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 
 app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required");
@@ -163,6 +169,84 @@ function getWindowStatePath() {
   return path.join(app.getPath("userData"), "config", "window-state.json");
 }
 
+function getStartupRecoveryPath() {
+  return path.join(app.getPath("userData"), "config", "window-startup-recovery.json");
+}
+
+function readStartupRecoveryState() {
+  try {
+    return JSON.parse(fs.readFileSync(getStartupRecoveryPath(), "utf8"));
+  } catch {
+    return { attempts: [] };
+  }
+}
+
+function writeStartupRecoveryState(state = {}) {
+  try {
+    fs.mkdirSync(path.dirname(getStartupRecoveryPath()), { recursive: true });
+    fs.writeFileSync(getStartupRecoveryPath(), JSON.stringify({
+      ...state,
+      attempts: Array.isArray(state.attempts) ? state.attempts.slice(-5) : [],
+    }, null, 2));
+  } catch (error) {
+    logWindowLifecycle("startup-recovery-write-failed", "Could not persist startup recovery state.", { message: error.message }, "warn");
+  }
+}
+
+function startWindowStartupAttempt(reason = "startup") {
+  const now = new Date();
+  const state = readStartupRecoveryState();
+  const attempts = Array.isArray(state.attempts) ? state.attempts : [];
+  const recentUnshown = attempts.filter((attempt) => {
+    const startedAt = Date.parse(attempt.startedAt || "");
+    return Number.isFinite(startedAt)
+      && now.getTime() - startedAt <= STARTUP_ATTEMPT_STALE_MS
+      && attempt.visibleAt == null
+      && attempt.completedAt == null;
+  });
+  const id = `${now.getTime()}-${process.pid}`;
+  activeStartupAttemptId = id;
+  const safeMode = recentUnshown.length >= 1;
+  const next = {
+    ...state,
+    safeModeLastReason: safeMode ? "previous launch did not record a visible main window" : state.safeModeLastReason || null,
+    attempts: [
+      ...attempts.filter((attempt) => {
+        const startedAt = Date.parse(attempt.startedAt || "");
+        return Number.isFinite(startedAt) && now.getTime() - startedAt <= STARTUP_ATTEMPT_STALE_MS;
+      }),
+      { id, pid: process.pid, reason, startedAt: now.toISOString(), visibleAt: null, completedAt: null },
+    ],
+  };
+  writeStartupRecoveryState(next);
+  if (safeMode) {
+    logWindowLifecycle("startup-safe-mode", "Previous launch did not record a visible window; ignoring saved window state.", {
+      attemptCount: recentUnshown.length,
+      reason,
+    }, "warn");
+  }
+  return { id, safeMode };
+}
+
+function completeWindowStartupAttempt(status, context = {}) {
+  if (!activeStartupAttemptId) return;
+  const now = new Date().toISOString();
+  const state = readStartupRecoveryState();
+  const attempts = Array.isArray(state.attempts) ? state.attempts : [];
+  writeStartupRecoveryState({
+    ...state,
+    attempts: attempts.map((attempt) => attempt.id === activeStartupAttemptId
+      ? {
+          ...attempt,
+          visibleAt: status === "visible" ? attempt.visibleAt || now : attempt.visibleAt || null,
+          completedAt: status === "closed" || status === "failed" ? now : attempt.completedAt || null,
+          status,
+          context,
+        }
+      : attempt),
+  });
+}
+
 function readWindowState() {
   try {
     const state = JSON.parse(fs.readFileSync(getWindowStatePath(), "utf8"));
@@ -189,6 +273,15 @@ function readWindowState() {
 function logWindowLifecycle(operation, message, context = {}, severity = "info") {
   diagnostics.log(severity, "desktop-window", operation, message, context, { file: "desktop" });
 }
+
+logWindowLifecycle(
+  "single-instance-lock",
+  gotSingleInstanceLock
+    ? "Single-instance lock acquired."
+    : "Single-instance lock unavailable; duplicate process will exit.",
+  { gotSingleInstanceLock },
+  gotSingleInstanceLock ? "info" : "warn",
+);
 
 function getDefaultWindowBounds() {
   const workArea = screen.getPrimaryDisplay().workArea;
@@ -247,6 +340,29 @@ function normalizeWindowStateForDisplays(state = {}) {
   return normalized;
 }
 
+function isBoundsVisibleOnAnyDisplay(bounds = {}) {
+  if (!bounds || !Number.isFinite(bounds.x) || !Number.isFinite(bounds.y) || !Number.isFinite(bounds.width) || !Number.isFinite(bounds.height)) {
+    return false;
+  }
+  return screen.getAllDisplays().some((display) => getBoundsIntersectionArea(bounds, display.workArea) >= Math.min(20000, bounds.width * bounds.height * 0.2));
+}
+
+function isUsableVisibleWindow(window) {
+  if (!window || window.isDestroyed()) return false;
+  if (!window.isVisible() || window.isMinimized()) return false;
+  return isBoundsVisibleOnAnyDisplay(window.getBounds());
+}
+
+function resetWindowToSafeBounds(window, reason = "safe-bounds-reset") {
+  if (!window || window.isDestroyed()) return false;
+  const bounds = getDefaultWindowBounds();
+  if (window.isMinimized()) window.restore();
+  if (window.isMaximized()) window.unmaximize();
+  window.setBounds(bounds, false);
+  logWindowLifecycle("window-safe-bounds-reset", "Main window bounds reset to a centered visible area.", { reason, bounds }, "warn");
+  return true;
+}
+
 function showAndFocusWindow(window, reason = "show") {
   if (!window || window.isDestroyed()) {
     return false;
@@ -254,24 +370,63 @@ function showAndFocusWindow(window, reason = "show") {
   if (window.isMinimized()) {
     window.restore();
   }
+  if (!isBoundsVisibleOnAnyDisplay(window.getBounds())) {
+    resetWindowToSafeBounds(window, reason);
+  }
   if (!window.isVisible()) {
     window.show();
   }
+  if (process.platform === "darwin") {
+    app.focus({ steal: true });
+  }
   window.focus();
+  if (!isUsableVisibleWindow(window)) {
+    resetWindowToSafeBounds(window, `${reason}:post-show`);
+    window.show();
+    window.focus();
+  }
+  const usable = isUsableVisibleWindow(window);
   logWindowLifecycle("window-show-focus", "Main window shown and focused.", {
     reason,
     visible: window.isVisible(),
     minimized: window.isMinimized(),
     bounds: window.getBounds(),
+    usable,
   });
-  return true;
+  if (usable) {
+    completeWindowStartupAttempt("visible", { reason, bounds: window.getBounds() });
+  }
+  return usable;
 }
 
-function ensureMainWindowVisible(reason = "ensure-visible") {
+function recreateMainWindow(reason = "recreate") {
+  const oldWindow = mainWindow;
+  if (oldWindow && !oldWindow.isDestroyed()) {
+    try {
+      oldWindow.destroy();
+    } catch (error) {
+      logWindowLifecycle("window-destroy-failed", "Could not destroy stale main window before recreation.", { reason, message: error.message }, "warn");
+    }
+  }
+  mainWindow = null;
+  createWindow({ showReason: reason, safeMode: true });
+  return false;
+}
+
+function ensureMainWindowVisible(reason = "ensure-visible", options = {}) {
   if (!mainWindow || mainWindow.isDestroyed()) {
     logWindowLifecycle("window-recreate", "Main window was missing during visibility request; creating a new window.", { reason }, "warn");
     createWindow({ showReason: reason });
     return false;
+  }
+  if (options.recreateIfUnusable && !isUsableVisibleWindow(mainWindow)) {
+    logWindowLifecycle("window-recreate-unusable", "Main window remained unusable after recovery attempt; recreating it.", {
+      reason,
+      visible: mainWindow.isVisible(),
+      minimized: mainWindow.isMinimized(),
+      bounds: mainWindow.getBounds(),
+    }, "warn");
+    return recreateMainWindow(reason);
   }
   return showAndFocusWindow(mainWindow, reason);
 }
@@ -282,6 +437,14 @@ function saveWindowState(window) {
   }
 
   try {
+    if (window.isMinimized() || !window.isVisible() || !isBoundsVisibleOnAnyDisplay(window.getBounds())) {
+      logWindowLifecycle("window-state-save-skipped", "Skipped saving minimized, hidden, or off-screen window state.", {
+        minimized: window.isMinimized(),
+        visible: window.isVisible(),
+        bounds: window.getBounds(),
+      }, "warn");
+      return;
+    }
     const bounds = window.isMaximized() ? window.getNormalBounds() : window.getBounds();
     const state = {
       ...bounds,
@@ -428,10 +591,101 @@ function closeAddStorageWindow() {
   return { closed: false };
 }
 
+function clearMainWindowWatchdogTimers() {
+  for (const timer of mainWindowWatchdogTimers) {
+    clearTimeout(timer);
+  }
+  mainWindowWatchdogTimers = [];
+}
+
+function createStartupDiagnosticWindow(title, detail, context = {}) {
+  logWindowLifecycle("startup-diagnostic-window", "Showing visible startup diagnostic window.", { title, detail, context }, "error");
+  const bounds = getDefaultWindowBounds();
+  const diagnosticWindow = new BrowserWindow({
+    ...bounds,
+    minWidth: 720,
+    minHeight: 460,
+    title,
+    icon: APP_ICON_PATH,
+    backgroundColor: "#160b12",
+    autoHideMenuBar: true,
+    show: true,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  const escapedTitle = String(title || "AnxOS startup problem").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
+  const escapedDetail = String(detail || "The app window could not be opened.").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
+  const escapedContext = JSON.stringify(context || {}, null, 2).replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
+  diagnosticWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>${escapedTitle}</title>
+  <style>
+    body { margin: 0; min-height: 100vh; background: #160b12; color: #f7eef4; font: 14px/1.5 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; display: grid; place-items: center; }
+    main { max-width: 760px; padding: 32px; }
+    h1 { margin: 0 0 12px; font-size: 24px; }
+    p { color: #dccbd4; }
+    pre { overflow: auto; max-height: 220px; padding: 12px; background: #26121e; border: 1px solid #563048; border-radius: 8px; color: #f7d9e8; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>${escapedTitle}</h1>
+    <p>${escapedDetail}</p>
+    <pre>${escapedContext}</pre>
+  </main>
+</body>
+</html>`)}`);
+  return diagnosticWindow;
+}
+
+function startMainWindowWatchdog(window, reason = "startup") {
+  clearMainWindowWatchdogTimers();
+  const schedule = (delay, stage, action) => {
+    const timer = setTimeout(() => {
+      if (!window || window.isDestroyed() || mainWindow !== window) return;
+      if (isUsableVisibleWindow(window)) {
+        completeWindowStartupAttempt("visible", { reason: `watchdog:${stage}`, bounds: window.getBounds() });
+        return;
+      }
+      logWindowLifecycle("startup-watchdog", "Main window was not visibly usable before watchdog deadline.", {
+        reason,
+        stage,
+        delay,
+        visible: window.isVisible(),
+        minimized: window.isMinimized(),
+        bounds: window.getBounds(),
+      }, "warn");
+      action();
+    }, delay);
+    mainWindowWatchdogTimers.push(timer);
+  };
+
+  schedule(MAIN_WINDOW_WATCHDOG_FIRST_MS, "show", () => {
+    showAndFocusWindow(window, "startup-watchdog-show");
+  });
+  schedule(MAIN_WINDOW_WATCHDOG_RESET_MS, "reset-bounds", () => {
+    resetWindowToSafeBounds(window, "startup-watchdog-reset");
+    showAndFocusWindow(window, "startup-watchdog-reset");
+  });
+  schedule(MAIN_WINDOW_WATCHDOG_RECREATE_MS, "recreate", () => {
+    if (!isUsableVisibleWindow(window)) {
+      recreateMainWindow("startup-watchdog-recreate");
+    }
+  });
+}
+
 function createWindow(options = {}) {
-  const windowState = normalizeWindowStateForDisplays(readWindowState());
+  const startupAttempt = startWindowStartupAttempt(options.showReason || "startup");
+  const safeMode = options.safeMode === true || startupAttempt.safeMode;
+  const windowState = safeMode ? { ...getDefaultWindowBounds(), maximized: false } : normalizeWindowStateForDisplays(readWindowState());
   logWindowLifecycle("create-window", "Creating main window.", {
     reason: options.showReason || "startup",
+    safeMode,
     bounds: windowState,
     displayCount: screen.getAllDisplays().length,
   });
@@ -466,15 +720,20 @@ function createWindow(options = {}) {
     },
   });
   mainWindow = window;
+  logWindowLifecycle("create-window-complete", "Main BrowserWindow constructed.", {
+    reason: options.showReason || "startup",
+    bounds: window.getBounds(),
+    id: window.id,
+  });
 
   let shown = false;
   const showMainWindow = (reason) => {
     if (shown || window.isDestroyed()) return;
-    shown = true;
     if (windowState.maximized) {
       window.maximize();
     }
-    showAndFocusWindow(window, reason);
+    const usable = showAndFocusWindow(window, reason);
+    shown = usable;
     sendMaximizedState(window);
   };
   const showFallbackTimer = setTimeout(() => {
@@ -486,6 +745,7 @@ function createWindow(options = {}) {
     }
   }, MAIN_WINDOW_SHOW_FALLBACK_MS);
   window.once("ready-to-show", () => {
+    logWindowLifecycle("ready-to-show", "Main window emitted ready-to-show.", {});
     clearTimeout(showFallbackTimer);
     showMainWindow("ready-to-show");
   });
@@ -507,14 +767,26 @@ function createWindow(options = {}) {
   window.on("move", scheduleWindowStateSave);
   window.on("close", () => {
     clearTimeout(saveWindowStateTimer);
+    completeWindowStartupAttempt("closed", { reason: "window-close" });
     closeAddStorageWindow();
     saveWindowState(window);
   });
   window.on("closed", () => {
     clearTimeout(showFallbackTimer);
+    clearMainWindowWatchdogTimers();
     if (mainWindow === window) {
       mainWindow = null;
     }
+  });
+  window.on("show", () => {
+    logWindowLifecycle("window-show-event", "Main window emitted show.", { bounds: window.getBounds() });
+    if (isUsableVisibleWindow(window)) completeWindowStartupAttempt("visible", { reason: "show-event", bounds: window.getBounds() });
+  });
+  window.on("hide", () => {
+    logWindowLifecycle("window-hide-event", "Main window emitted hide.", { bounds: window.getBounds() }, "warn");
+  });
+  window.on("unresponsive", () => {
+    logWindowLifecycle("window-unresponsive", "Main window became unresponsive during startup or runtime.", { bounds: window.getBounds() }, "error");
   });
   window.webContents.on("render-process-gone", (_, details) => {
     const context = {
@@ -523,18 +795,23 @@ function createWindow(options = {}) {
     };
     logWindowLifecycle("renderer-process-gone", "Main window renderer process exited.", context, "error");
     if (qaMode) console.error("[Desktop] QA renderer process exited.", context);
-    ensureMainWindowVisible("renderer-process-gone");
+    completeWindowStartupAttempt("failed", { reason: "renderer-process-gone", ...context });
+    createStartupDiagnosticWindow("AnxOS Control Center renderer stopped", "The app renderer stopped before the main window became usable. AnxOS is recreating the window with safe bounds.", context);
+    recreateMainWindow("renderer-process-gone");
   });
   window.webContents.on("did-fail-load", (_, errorCode, errorDescription, validatedUrl, isMainFrame) => {
     if (!isMainFrame) return;
     const context = { errorCode, errorDescription, validatedUrl };
     logWindowLifecycle("renderer-fail-load", "Main window failed to load.", context, "error");
     if (qaMode) console.error("[Desktop] QA main window failed to load.", context);
-    showMainWindow("did-fail-load");
+    completeWindowStartupAttempt("failed", { reason: "did-fail-load", ...context });
     dialog.showErrorBox("AnxOS Control Center failed to load", `${errorDescription || "The app window could not load."} (${errorCode})`);
+    createStartupDiagnosticWindow("AnxOS Control Center failed to load", `${errorDescription || "The app window could not load."} (${errorCode})`, context);
   });
 
+  logWindowLifecycle("load-start", "Loading main renderer file.", { file: "index.html", qaMode });
   window.loadFile(path.join(__dirname, "index.html"), qaMode ? { search: "?qa-mode=1" } : undefined);
+  startMainWindowWatchdog(window, options.showReason || "startup");
 
   if (process.env.ANXOS_OPEN_DEVTOOLS === "1" && app.isPackaged === false) {
     window.webContents.once("did-finish-load", () => {
@@ -578,7 +855,7 @@ function createWindow(options = {}) {
 if (gotSingleInstanceLock) {
 app.on("second-instance", () => {
   logWindowLifecycle("second-instance", "Second app launch requested; restoring or recreating main window.");
-  ensureMainWindowVisible("second-instance");
+  ensureMainWindowVisible("second-instance", { recreateIfUnusable: true });
 });
 
 app.whenReady().then(async () => {
@@ -636,7 +913,9 @@ app.whenReady().then(async () => {
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
+      createWindow({ showReason: "activate" });
+    } else {
+      ensureMainWindowVisible("activate", { recreateIfUnusable: true });
     }
   });
 });
