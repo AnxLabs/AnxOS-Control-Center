@@ -1,5 +1,19 @@
 [
   {
+    "version": "1.8",
+    "build": 165,
+    "channel": "Private Alpha",
+    "tag": "v1.8-build165",
+    "date": "July 26, 2026",
+    "datetime": "2026-07-27",
+    "title": "AnxOS Version 1.8",
+    "summary": "Latest AnxOS-Control-Center release.",
+    "changes": [
+      "Updated application build, website metadata, and downloadable release assets."
+    ],
+    "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build165"
+  },
+  {
     "version": "1.7",
     "build": 160,
     "channel": "Private Alpha",

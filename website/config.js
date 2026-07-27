@@ -4,19 +4,19 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   subtitle: "A desktop control center for Minecraft servers, modpacks, remote nodes, and automation.",
   siteUrl: "https://anxoscontrolcenter.org",
   logoPath: "/assets/anxos-logo.png",
-  latestVersion: "1.7",
-  build: "160",
-  buildNumber: "160",
+  latestVersion: "1.8",
+  build: "165",
+  buildNumber: "165",
   channel: "Private Alpha",
-  releaseLabel: "Version 1.7 Build 160 Private Alpha",
-  releaseDate: "July 22, 2026",
-  releaseTag: "v1.7-build160",
+  releaseLabel: "Version 1.8 Build 165 Private Alpha",
+  releaseDate: "July 26, 2026",
+  releaseTag: "v1.8-build165",
   releaseRepository: {
     owner: "bungopam-byte",
     repo: "AnxOS-Control-Center-Releases",
   },
   repositoryUrl: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases",
-  releaseUrl: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.7-build160",
+  releaseUrl: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build165",
   githubReleasesApiUrl: "https://api.github.com/repos/bungopam-byte/AnxOS-Control-Center-Releases/releases?per_page=20",
   stableDownloadEndpoints: {
     windows: "/api/download/latest/windows",
@@ -26,23 +26,37 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   },
   releaseAssets: [
       {
-          fileName: "AnxOS-Control-Center-Setup-1.7-build160.exe",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.7-build160/AnxOS-Control-Center-Setup-1.7-build160.exe"
+          fileName: "AnxOS-Control-Center-Setup-1.8-build165.exe",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build165/AnxOS-Control-Center-Setup-1.8-build165.exe"
       },
       {
-          fileName: "AnxOS-Control-Center-1.7-build160-portable.exe",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.7-build160/AnxOS-Control-Center-1.7-build160-portable.exe"
+          fileName: "AnxOS-Control-Center-1.8-build165-portable.exe",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build165/AnxOS-Control-Center-1.8-build165-portable.exe"
       },
       {
-          fileName: "AnxOS-Control-Center-1.7-build160.AppImage",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.7-build160/AnxOS-Control-Center-1.7-build160.AppImage"
+          fileName: "AnxOS-Control-Center-1.8-build165.AppImage",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build165/AnxOS-Control-Center-1.8-build165.AppImage"
       },
       {
-          fileName: "AnxOS-Control-Center-1.7-build160.deb",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.7-build160/AnxOS-Control-Center-1.7-build160.deb"
+          fileName: "AnxOS-Control-Center-1.8-build165.deb",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build165/AnxOS-Control-Center-1.8-build165.deb"
       }
   ],
   releaseNotes: [
+      {
+          "version": "1.8",
+          "build": 165,
+          "channel": "Private Alpha",
+          "tag": "v1.8-build165",
+          "date": "July 26, 2026",
+          "datetime": "2026-07-27",
+          "title": "AnxOS Version 1.8",
+          "summary": "Latest AnxOS-Control-Center release.",
+          "changes": [
+              "Updated application build, website metadata, and downloadable release assets."
+          ],
+          "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build165"
+      },
       {
           "version": "1.7",
           "build": 160,

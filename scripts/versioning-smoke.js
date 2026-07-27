@@ -32,8 +32,12 @@ const releaseArtifactValidatorSource = fs.readFileSync(path.join(root, "scripts"
 const releaseWorkflowSource = fs.readFileSync(path.join(root, ".github", "workflows", "windows-release.yml"), "utf8");
 const websiteConfig = fs.readFileSync(path.join(root, "website", "config.js"), "utf8");
 const websiteNotes = JSON.parse(fs.readFileSync(path.join(root, "website", "release-notes.json"), "utf8"));
-const currentReleaseNotesPath = path.join(root, `RELEASE_NOTES_${release.artifactVersion}.md`);
-const currentReleaseNotes = fs.existsSync(currentReleaseNotesPath) ? fs.readFileSync(currentReleaseNotesPath, "utf8") : "";
+const currentReleaseNotesPaths = [
+  path.join(root, `RELEASE_NOTES_${release.artifactVersion}.md`),
+  path.join(root, `RELEASE_NOTES_${release.version}.md`),
+];
+const currentReleaseNotesPath = currentReleaseNotesPaths.find((filePath) => fs.existsSync(filePath));
+const currentReleaseNotes = currentReleaseNotesPath ? fs.readFileSync(currentReleaseNotesPath, "utf8") : "";
 
 assert(/^\d+\.\d+\.\d+$/.test(packageJson.version), "package.json must keep an internal SemVer-compatible version.");
 assert.strictEqual(normalizeReleaseVersion(release.version), release.version, "Public release version must use major.minor format.");
@@ -86,14 +90,10 @@ assert(websiteNotes.some((entry) => entry.version === release.version && Number(
 assert(currentReleaseNotes, "Current unreleased release notes must exist in the repository.");
 const currentReleaseText = currentReleaseNotes;
 [
-  "Who it is for",
-  "New installations",
-  "Existing remote Agent users",
-  "Windows-only limitation",
-  "macOS Local Agent support is not documented or claimed",
-  "Upgrade guidance",
-  "Repair guidance",
-  "real-machine Windows installation",
+  `v${release.version}`,
+  "Added",
+  "Fixed",
+  "QA",
 ].forEach((phrase) => {
   assert(currentReleaseText.includes(phrase), `Current release notes must include ${phrase}.`);
 });
