@@ -366,6 +366,13 @@ const publicAccessProviderDetailPill = document.querySelector("[data-public-acce
 const publicAccessProviderDetailSummary = document.querySelector("[data-public-access-provider-detail-summary]");
 const publicAccessProviderActions = document.querySelector("[data-public-access-provider-actions]");
 const publicAccessProviderUnsupported = document.querySelector("[data-public-access-provider-unsupported]");
+const playitServiceStateText = document.querySelector("[data-playit-service-state]");
+const playitServiceMetaText = document.querySelector("[data-playit-service-meta]");
+const playitServiceActions = document.querySelector("[data-playit-service-actions]");
+const playitTunnelList = document.querySelector("[data-playit-tunnel-list]");
+const playitTunnelMessage = document.querySelector("[data-playit-tunnel-message]");
+const playitLogsPanel = document.querySelector("[data-playit-logs-panel]");
+const playitLogsContent = document.querySelector("[data-playit-logs-content]");
 const ampPanelLink = document.querySelector("[data-amp-panel-link]");
 const startupSteps = {
   app: document.querySelector('[data-startup-step="app"]'),
@@ -692,8 +699,11 @@ let systemRequestInFlight = false;
 let ampRequestInFlight = false;
 let playitRequestInFlight = false;
 let latestPublicAccessSnapshot = null;
+let latestPlayitServiceStatus = null;
+let latestPlayitTunnels = [];
 let selectedPublicAccessProviderId = "playit";
 let selectedPublicAccessServiceId = "playit-primary";
+let playitActionInFlight = null;
 let dockerRequestInFlight = false;
 let dockerActionRequestInFlight = false;
 let instancesRequestInFlight = false;
@@ -7362,6 +7372,154 @@ function renderPublicAccessActionButtons(container, actions = [], provider = {})
   });
 }
 
+function getPlayitServiceTone(state) {
+  if (state === "running") return "status-pill--ok";
+  if (state === "failed") return "status-pill--critical";
+  if (["stopped", "service-not-found", "missing"].includes(state)) return "status-pill--warning";
+  return "status-pill--planned";
+}
+
+function getPlayitServiceLabel(state) {
+  if (state === "running") return "Running";
+  if (state === "stopped") return "Stopped";
+  if (state === "failed") return "Failed";
+  if (state === "missing") return "Missing";
+  if (state === "service-not-found") return "Service Not Found";
+  return "Unknown";
+}
+
+function renderPlayitServiceStatus(status = null) {
+  latestPlayitServiceStatus = status;
+  const state = status?.serviceState || status?.service?.state || (status?.running ? "running" : status?.installed ? "stopped" : "missing");
+  if (playitServiceStateText) {
+    playitServiceStateText.className = `status-pill ${getPlayitServiceTone(state)}`;
+    playitServiceStateText.textContent = getPlayitServiceLabel(state);
+  }
+  if (playitServiceMetaText) {
+    const service = status?.service || {};
+    const checked = service.lastCheckedAt || status?.lastCheckedAt;
+    playitServiceMetaText.textContent = service.message || (status?.installed ? "Playit service status is available." : "Install Playit to manage public tunnel service state.");
+    if (checked) {
+      playitServiceMetaText.textContent += ` Last checked ${formatDateTime(checked)}.`;
+    }
+  }
+  renderPlayitServiceActions();
+}
+
+function createPlayitServiceActionButton(action, label, options = {}) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = options.danger ? "inline-action inline-action--danger" : options.primary ? "inline-action inline-action--primary" : "inline-action";
+  button.dataset.publicAccessAction = action;
+  button.textContent = label;
+  button.disabled = Boolean(playitActionInFlight) || options.disabled === true;
+  return button;
+}
+
+function renderPlayitServiceActions() {
+  if (!playitServiceActions) return;
+  playitServiceActions.replaceChildren();
+  const state = latestPlayitServiceStatus?.serviceState || latestPlayitServiceStatus?.service?.state || "unknown";
+  const installed = latestPlayitServiceStatus?.installed !== false && state !== "missing";
+  const running = state === "running";
+  playitServiceActions.append(
+    createPlayitServiceActionButton("playit-refresh-status", "Refresh status", { primary: true }),
+    createPlayitServiceActionButton("playit-refresh-tunnels", "Refresh tunnels"),
+  );
+  if (installed && running) {
+    playitServiceActions.append(
+      createPlayitServiceActionButton("playit-stop", "Stop Playit", { danger: true }),
+      createPlayitServiceActionButton("playit-restart", "Restart Playit"),
+      createPlayitServiceActionButton("playit-logs", "View logs"),
+    );
+  } else if (installed) {
+    playitServiceActions.append(
+      createPlayitServiceActionButton("playit-start", "Start Playit", { primary: true }),
+      createPlayitServiceActionButton("playit-logs", "View logs"),
+    );
+  }
+}
+
+function findInstanceForTunnel(tunnel = {}) {
+  const port = Number(tunnel.localPort);
+  if (!Number.isInteger(port)) return null;
+  return getInstances().find((instance) => Number(getInstancePrimaryPort(instance)) === port || (Array.isArray(instance.ports) && instance.ports.map(Number).includes(port))) || null;
+}
+
+function renderPlayitTunnels(result = {}) {
+  const tunnels = Array.isArray(result?.tunnels) ? result.tunnels : [];
+  latestPlayitTunnels = tunnels.map((tunnel) => {
+    const match = findInstanceForTunnel(tunnel);
+    return {
+      ...tunnel,
+      matchedInstanceId: tunnel.matchedInstanceId || match?.id || null,
+      matchedInstanceName: tunnel.matchedInstanceName || match?.displayName || match?.id || null,
+    };
+  });
+  if (playitTunnelMessage) {
+    playitTunnelMessage.textContent = result?.ok === false
+      ? result.message || "Tunnel listing unavailable for this Playit install."
+      : latestPlayitTunnels.length
+        ? `${latestPlayitTunnels.length} tunnel${latestPlayitTunnels.length === 1 ? "" : "s"} found.`
+        : "No Playit tunnels found.";
+  }
+  if (!playitTunnelList) return;
+  playitTunnelList.replaceChildren();
+  latestPlayitTunnels.forEach((tunnel) => {
+    const item = document.createElement("article");
+    item.className = "playit-tunnel-item";
+    const top = document.createElement("div");
+    top.className = "playit-tunnel-item__top";
+    top.append(createTextElement("strong", tunnel.name || tunnel.id || "Playit tunnel"));
+    const status = createTextElement("span", tunnel.status || "unknown", `status-pill ${tunnel.status === "online" ? "status-pill--ok" : tunnel.status === "offline" ? "status-pill--warning" : "status-pill--planned"}`);
+    top.append(status);
+    const endpoints = document.createElement("div");
+    endpoints.className = "playit-tunnel-item__endpoints";
+    endpoints.append(
+      createTextElement("span", `Local: ${tunnel.localHost || "unknown"}${tunnel.localPort ? `:${tunnel.localPort}` : ""}`),
+      createTextElement("span", `Public: ${tunnel.publicAddress || "unknown"}`),
+    );
+    const badges = document.createElement("div");
+    badges.className = "playit-tunnel-item__badges";
+    [tunnel.protocol, tunnel.type, tunnel.matchedInstanceName].filter(Boolean).forEach((label) => badges.append(createTextElement("span", label, "status-pill status-pill--planned")));
+    if (tunnel.publicAddress) {
+      const copy = createPlayitServiceActionButton(`playit-copy:${tunnel.id}`, "Copy public endpoint");
+      copy.classList.add("playit-tunnel-copy");
+      copy.dataset.publicAddress = tunnel.publicAddress;
+      badges.append(copy);
+    }
+    item.append(top, endpoints, badges);
+    playitTunnelList.append(item);
+  });
+}
+
+function renderPlayitLogs(result = {}) {
+  if (playitLogsPanel) playitLogsPanel.hidden = false;
+  if (!playitLogsContent) return;
+  const lines = Array.isArray(result?.lines) ? result.lines : [];
+  playitLogsContent.textContent = lines.length ? lines.join("\n") : result?.message || "Playit logs are unavailable for this install.";
+}
+
+async function refreshPlayitManagement(payload = getNodeScopedPayload(getNodeRequestContext("playit-management")), requestContext = getNodeRequestContext("playit-management")) {
+  const publicAccessApi = getDesktopApiState().api?.publicAccess;
+  if (!publicAccessApi) return;
+  const [status, tunnels] = await Promise.all([
+    typeof publicAccessApi.getPlayitStatus === "function" ? publicAccessApi.getPlayitStatus(payload).catch((error) => ({ ok: false, error })) : null,
+    typeof publicAccessApi.listPlayitTunnels === "function" ? publicAccessApi.listPlayitTunnels(payload).catch((error) => ({ ok: false, error })) : null,
+  ]);
+  if (!isNodeRequestCurrent(requestContext)) return;
+  if (status?.ok === false && status.error) {
+    renderPlayitServiceStatus({ installed: false, serviceState: "unknown", service: { message: status.error.message || "Playit service status unavailable." } });
+  } else if (status) {
+    renderPlayitServiceStatus(status);
+  }
+  if (tunnels?.ok === false && tunnels.error) {
+    renderPlayitTunnels({ ok: false, message: tunnels.error.message || "Tunnel listing unavailable for this Playit install.", tunnels: [] });
+  } else if (tunnels) {
+    renderPlayitTunnels(tunnels);
+  }
+}
+
 function renderPublicAccessProviderDetails(snapshot = latestPublicAccessSnapshot) {
   const provider = getSelectedPublicAccessProvider(snapshot);
   const service = getSelectedPublicAccessService(snapshot);
@@ -8193,6 +8351,45 @@ async function createProviderAccessService() {
 
 async function runPublicAccessAction(action) {
   if (action === "refresh") return refreshPlayitStatus();
+  if (action === "playit-refresh-status") return refreshPlayitStatus();
+  if (action === "playit-refresh-tunnels") {
+    const payload = getNodeScopedPayload(getNodeRequestContext("playit-tunnels"));
+    const result = await getDesktopApiState().api?.publicAccess?.listPlayitTunnels?.(payload);
+    renderPlayitTunnels(result);
+    return result;
+  }
+  if (action === "playit-logs") {
+    const payload = { ...getNodeScopedPayload(getNodeRequestContext("playit-logs")), limit: 200 };
+    const result = await getDesktopApiState().api?.publicAccess?.getPlayitLogs?.(payload);
+    renderPlayitLogs(result);
+    if (result?.ok === false) showToast(result.message || "Playit logs are unavailable.", "warning");
+    return result;
+  }
+  if (["playit-start", "playit-stop", "playit-restart"].includes(action)) {
+    const control = action.replace(/^playit-/, "");
+    playitActionInFlight = action;
+    renderPlayitServiceActions();
+    try {
+      const result = await getDesktopApiState().api?.publicAccess?.controlPlayit?.({
+        ...getNodeScopedPayload(getNodeRequestContext(`playit-${control}`)),
+        action: control,
+      });
+      if (result?.ok === false) {
+        throw Object.assign(new Error(result.error?.message || `Playit ${control} failed.`), { code: result.error?.code || "PLAYIT_CONTROL_FAILED" });
+      }
+      showToast(`Playit ${control} request completed.`, "success");
+      await refreshPlayitStatus();
+      return result;
+    } finally {
+      playitActionInFlight = null;
+      renderPlayitServiceActions();
+    }
+  }
+  if (String(action || "").startsWith("playit-copy:")) {
+    const tunnelId = String(action).slice("playit-copy:".length);
+    const tunnel = latestPlayitTunnels.find((entry) => String(entry.id) === tunnelId);
+    return copyPublicAccessValue(tunnel?.publicAddress || "", "Playit public endpoint copied.", "No Playit public endpoint is available to copy.");
+  }
   if (action === "open-logs") return runDiagnosticsAction("open");
   if (action === "create-access-service") return createProviderAccessService();
   if (action === "install-dependency") {
@@ -22437,6 +22634,7 @@ async function refreshPlayitStatus() {
     }
     if (desktopApiState.hasPublicAccess) {
       renderPublicAccessSnapshot(snapshot);
+      await refreshPlayitManagement(payload, requestContext);
     } else {
       renderPlayitSnapshot(snapshot);
     }

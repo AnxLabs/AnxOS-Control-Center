@@ -175,6 +175,10 @@ const desktopApi = {
   publicAccess: {
     getSnapshot: (payload = {}) => ipcRenderer.invoke("publicAccess:getSnapshot", payload),
     listServices: (payload = {}) => ipcRenderer.invoke("publicAccess:listServices", payload),
+    getPlayitStatus: (payload = {}) => ipcRenderer.invoke("publicAccess:getPlayitStatus", payload),
+    getPlayitLogs: (payload = {}) => ipcRenderer.invoke("publicAccess:getPlayitLogs", payload),
+    listPlayitTunnels: (payload = {}) => ipcRenderer.invoke("publicAccess:listPlayitTunnels", payload),
+    controlPlayit: (payload = {}) => ipcRenderer.invoke("publicAccess:controlPlayit", payload),
     createService: (payload = {}) => ipcRenderer.invoke("publicAccess:createService", payload),
     deleteService: (payload = {}) => ipcRenderer.invoke("publicAccess:deleteService", payload),
     createFirewallRule: (payload = {}) => ipcRenderer.invoke("publicAccess:createFirewallRule", payload),

@@ -7893,6 +7893,83 @@ dd {
   opacity: 0.72;
 }
 
+.playit-service-card,
+.playit-tunnels-card {
+  min-height: 0;
+}
+
+.playit-service-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.playit-service-actions .inline-action,
+.playit-tunnel-copy {
+  min-height: 28px;
+  padding: 4px 8px;
+  font-size: 0.78rem;
+}
+
+.playit-tunnel-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.playit-tunnel-item {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--anx-radius-sm);
+  background: rgba(17, 21, 31, 0.52);
+}
+
+.playit-tunnel-item__top,
+.playit-tunnel-item__endpoints,
+.playit-tunnel-item__badges {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.playit-tunnel-item__top strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.playit-tunnel-item__endpoints {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.playit-tunnel-item__badges .status-pill {
+  min-height: 20px;
+  padding: 2px 7px;
+  font-size: 0.68rem;
+}
+
+.playit-logs-card {
+  grid-column: 1 / -1;
+}
+
+.playit-log-output {
+  max-height: 220px;
+  margin: 0;
+  padding: 10px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--anx-radius-sm);
+  background: rgba(5, 8, 14, 0.72);
+  color: var(--text);
+  font: 0.78rem/1.45 var(--font-mono);
+  white-space: pre-wrap;
+}
+
 .playit-status-card {
   border-color: var(--line);
   transition: border-color 160ms ease, box-shadow 160ms ease;

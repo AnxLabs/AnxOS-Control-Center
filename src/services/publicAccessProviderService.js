@@ -3,6 +3,14 @@ const path = require("path");
 const { app } = require("electron");
 const agentClient = require("./agentClient");
 const { getPlayitSnapshot } = require("./serviceRouter");
+const {
+  getPlayitLogs,
+  getPlayitStatus,
+  listPlayitTunnels,
+  restartPlayit,
+  startPlayit,
+  stopPlayit,
+} = require("./playitService");
 const { summarizePublicAccessReadiness } = require("./readinessService");
 const { getExecutionTarget, getNode, getSelectedNodeId } = require("./nodeService");
 const {
@@ -269,6 +277,45 @@ async function deletePublicAccessService(payload = {}) {
   };
 }
 
+async function getPlayitServiceStatusForNode(options = {}) {
+  const nodeId = options.nodeId || getSelectedNodeId();
+  const target = getExecutionTarget(nodeId);
+  return target.type === "application-host"
+    ? getPlayitStatus(options)
+    : agentClient.getPublicAccessPlayitStatus(getAgentConfigForPublicAccess(nodeId));
+}
+
+async function controlPlayitService(payload = {}) {
+  const nodeId = payload.nodeId || getSelectedNodeId();
+  const action = String(payload.action || "").trim().toLowerCase();
+  const target = getExecutionTarget(nodeId);
+  if (target.type !== "application-host") {
+    return agentClient.controlPublicAccessPlayit(action, getAgentConfigForPublicAccess(nodeId));
+  }
+  if (action === "start") return startPlayit();
+  if (action === "stop") return stopPlayit();
+  if (action === "restart") return restartPlayit();
+  const error = new Error("Unsupported Playit action.");
+  error.code = "PLAYIT_ACTION_UNSUPPORTED";
+  throw error;
+}
+
+async function getPlayitLogsForNode(options = {}) {
+  const nodeId = options.nodeId || getSelectedNodeId();
+  const target = getExecutionTarget(nodeId);
+  return target.type === "application-host"
+    ? getPlayitLogs(options)
+    : agentClient.getPublicAccessPlayitLogs(options, getAgentConfigForPublicAccess(nodeId));
+}
+
+async function listPlayitTunnelsForNode(options = {}) {
+  const nodeId = options.nodeId || getSelectedNodeId();
+  const target = getExecutionTarget(nodeId);
+  return target.type === "application-host"
+    ? listPlayitTunnels(options)
+    : agentClient.getPublicAccessPlayitTunnels(options, getAgentConfigForPublicAccess(nodeId));
+}
+
 module.exports = {
   PUBLIC_ACCESS_PROVIDERS,
   PlayitProvider: PUBLIC_ACCESS_PROVIDERS[0],
@@ -278,8 +325,12 @@ module.exports = {
   ManualPortForwardingProvider: PUBLIC_ACCESS_PROVIDERS.find((provider) => provider.id === "manual-port-forwarding"),
   createPublicAccessService,
   createWindowsFirewallRule,
+  controlPlayitService,
   deletePublicAccessService,
+  getPlayitLogsForNode,
+  getPlayitServiceStatusForNode,
   getPublicAccessSnapshot,
+  listPlayitTunnelsForNode,
   listPublicAccessServices,
   _test: {
     buildPlayitProviderState,

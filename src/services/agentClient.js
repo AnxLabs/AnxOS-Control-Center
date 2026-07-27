@@ -1740,6 +1740,35 @@ async function getPublicAccessSnapshot(configOverride = null) {
   });
 }
 
+async function getPublicAccessPlayitStatus(configOverride = null) {
+  return requestJson("/api/v1/public-access/playit/status", {
+    config: configOverride,
+  });
+}
+
+async function controlPublicAccessPlayit(action, configOverride = null) {
+  return requestJson(`/api/v1/public-access/playit/${encodeURIComponent(String(action || ""))}`, {
+    config: configOverride,
+    method: "POST",
+    body: {},
+  });
+}
+
+async function getPublicAccessPlayitLogs(payload = {}, configOverride = null) {
+  const query = new URLSearchParams();
+  if (payload.limit) query.set("limit", String(payload.limit));
+  return requestJson(`/api/v1/public-access/playit/logs${query.toString() ? `?${query.toString()}` : ""}`, {
+    config: configOverride,
+  });
+}
+
+async function getPublicAccessPlayitTunnels(payload = {}, configOverride = null) {
+  const query = payload.nodeId ? `?nodeId=${encodeURIComponent(payload.nodeId)}` : "";
+  return requestJson(`/api/v1/public-access/playit/tunnels${query}`, {
+    config: configOverride,
+  });
+}
+
 async function listPublicAccessServices(payload = {}, configOverride = null) {
   const query = payload.nodeId ? `?nodeId=${encodeURIComponent(payload.nodeId)}` : "";
   return requestJson(`/api/v1/public-access/services${query}`, {
@@ -3096,12 +3125,16 @@ module.exports = {
   getMinecraftProperties,
   getPlayitSnapshot,
   getPlayitStatus,
+  getPublicAccessPlayitLogs,
+  getPublicAccessPlayitStatus,
+  getPublicAccessPlayitTunnels,
   getPublicAccessSnapshot,
   isHealthy,
   importBackup,
   installDependencies,
   listBackupSchedules,
   listBackups,
+  controlPublicAccessPlayit,
   listDockerImages,
   listDockerComposeProjects,
   listDockerNetworks,

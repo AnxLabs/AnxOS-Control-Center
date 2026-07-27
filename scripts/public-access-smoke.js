@@ -7,6 +7,8 @@ const root = path.resolve(__dirname, "..");
 const servicePath = path.join(root, "src", "services", "publicAccessProviderService.js");
 const sharedDetectionPath = path.join(root, "src", "shared", "publicAccessProviderDetection.js");
 const agentRoutePath = path.join(root, "agent", "src", "routes", "publicAccess.js");
+const agentPlayitRoutePath = path.join(root, "agent", "src", "routes", "playit.js");
+const agentPlayitServicePath = path.join(root, "agent", "src", "services", "playitService.js");
 const agentServerPath = path.join(root, "agent", "src", "server.js");
 const appPath = path.join(root, "app.js");
 const indexPath = path.join(root, "index.html");
@@ -14,11 +16,14 @@ const preloadPath = path.join(root, "preload.js");
 const ipcPath = path.join(root, "src", "ipc", "publicAccessIpc.js");
 
 const publicAccess = require("../src/services/publicAccessProviderService");
+const agentPlayitService = require("../agent/src/services/playitService");
 const detection = require("../src/shared/publicAccessProviderDetection");
 const registry = require("../src/shared/publicAccessServiceRegistry");
 const serviceSource = fs.readFileSync(servicePath, "utf8");
 const sharedDetectionSource = fs.readFileSync(sharedDetectionPath, "utf8");
 const agentRouteSource = fs.readFileSync(agentRoutePath, "utf8");
+const agentPlayitRouteSource = fs.readFileSync(agentPlayitRoutePath, "utf8");
+const agentPlayitServiceSource = fs.readFileSync(agentPlayitServicePath, "utf8");
 const agentServerSource = fs.readFileSync(agentServerPath, "utf8");
 const appSource = fs.readFileSync(appPath, "utf8");
 const indexSource = fs.readFileSync(indexPath, "utf8");
@@ -412,6 +417,27 @@ assert(serviceSource.includes("summarizePublicAccessReadiness"), "Public Access 
 assert(serviceSource.includes("agentClient.getPublicAccessSnapshot") && agentRouteSource.includes("/api/v1/public-access/snapshot") && agentServerSource.includes("handlePublicAccess"), "Remote Public Access detection must route through the selected Agent.");
 assert(serviceSource.includes("createPublicAccessService") && serviceSource.includes("deletePublicAccessService"), "Desktop Public Access service lifecycle must route through the selected backend.");
 assert(agentRouteSource.includes("/api/v1/public-access/services") && agentServerSource.includes("pathname.startsWith(\"/api/v1/public-access/services/\")"), "Agent must register Public Access service lifecycle routes.");
+assert(agentServerSource.includes("/api/v1/public-access/playit/") && agentPlayitRouteSource.includes("handlePublicAccessPlayit"), "Agent must register narrow Playit management routes under Public Access.");
+[
+  "PLAYIT_NOT_INSTALLED",
+  "PLAYIT_SERVICE_NOT_FOUND",
+  "PLAYIT_START_FAILED",
+  "PLAYIT_STOP_FAILED",
+  "PLAYIT_RESTART_FAILED",
+  "PLAYIT_LOGS_UNAVAILABLE",
+  "PLAYIT_NOT_RUNNING",
+].forEach((needle) => assert(agentPlayitServiceSource.includes(needle) || ipcSource.includes(needle), `Playit management should expose ${needle}.`));
+[
+  "getPlayitServiceStatusForNode",
+  "controlPlayitService",
+  "getPlayitLogsForNode",
+  "listPlayitTunnelsForNode",
+  "agentClient.getPublicAccessPlayitStatus",
+  "agentClient.controlPublicAccessPlayit",
+  "agentClient.getPublicAccessPlayitLogs",
+  "agentClient.getPublicAccessPlayitTunnels",
+].forEach((needle) => assert(serviceSource.includes(needle), `Selected-node Public Access routing should include ${needle}.`));
+assert(!agentPlayitRouteSource.includes("body.command") && !agentPlayitRouteSource.includes("payload.command"), "Playit management must not expose a generic command runner.");
 assert(appSource.includes("function renderPublicAccessProviders") && appSource.includes("Tailnet-only"), "Renderer must show provider capability and exposure scope honestly.");
 assert(appSource.includes("create-firewall-rule") && appSource.includes("Create Firewall Rule"), "Renderer must expose consent-gated Windows Firewall rule creation.");
 assert(appSource.includes("buildTailscalePrivateAddress") && appSource.includes("private-tailnet"), "Renderer must create Tailscale services as private tailnet records.");
@@ -443,6 +469,7 @@ assert(indexSource.includes("data-public-access-providers"), "Public Access work
 assert(indexSource.includes("Expose services through public tunnel providers or securely share them across your private Tailscale network."), "Public Access page copy must distinguish public providers from private tailnet sharing.");
 assert(indexSource.includes('data-public-access-service-card="playit-primary"') && indexSource.includes('role="button"') && indexSource.includes("data-public-access-service-actions"), "Public Access service cards must be clickable and render live actions.");
 assert(indexSource.includes("data-public-access-provider-detail-pill") && indexSource.includes("data-public-access-provider-actions") && indexSource.includes("data-public-access-provider-unsupported"), "Provider Details must expose dynamic actions and unsupported reasons.");
+assert(indexSource.includes("data-playit-service-actions") && indexSource.includes("data-playit-tunnel-list") && indexSource.includes("data-playit-logs-panel"), "Public Access page must include compact Playit service controls, tunnels, and logs surfaces.");
 [
   "publicAccessConnectionHealth",
   "publicAccessReachability",
@@ -475,6 +502,14 @@ assert(indexSource.includes("data-public-access-provider-detail-pill") && indexS
   "tunnel-config",
   "provider-diagnostics",
   "open-logs",
+  "playit-start",
+  "playit-stop",
+  "playit-restart",
+  "playit-refresh-tunnels",
+  "playit-logs",
+  "renderPlayitTunnels",
+  "renderPlayitServiceStatus",
+  "copyPublicAccessValue(tunnel?.publicAddress",
   "entry.reason || \"Unsupported by this provider.\"",
   "article.addEventListener(\"click\"",
   "selectedPublicAccessProviderId",
@@ -499,6 +534,23 @@ assert(preloadSource.includes("publicAccess:getSnapshot") && ipcSource.includes(
 assert(preloadSource.includes("publicAccess:createService") && ipcSource.includes("publicAccess:createService"), "Public Access service creation IPC bridge must remain wired.");
 assert(preloadSource.includes("publicAccess:deleteService") && ipcSource.includes("publicAccess:deleteService"), "Public Access service deletion IPC bridge must remain wired.");
 assert(preloadSource.includes("publicAccess:createFirewallRule") && ipcSource.includes("createWindowsFirewallRule"), "Public Access firewall rule IPC bridge must remain wired.");
+assert(preloadSource.includes("publicAccess:getPlayitStatus") && ipcSource.includes("getPlayitServiceStatusForNode"), "Playit service status IPC bridge must be wired.");
+assert(preloadSource.includes("publicAccess:controlPlayit") && ipcSource.includes("controlPlayitService"), "Playit service control IPC bridge must be wired.");
+assert(preloadSource.includes("publicAccess:listPlayitTunnels") && ipcSource.includes("listPlayitTunnelsForNode"), "Playit tunnel listing IPC bridge must be wired.");
+assert(preloadSource.includes("publicAccess:getPlayitLogs") && ipcSource.includes("getPlayitLogsForNode"), "Playit logs IPC bridge must be wired.");
+
+{
+  const tunnels = agentPlayitService._test.parseTunnelObjectsFromContent(JSON.stringify({
+    tunnels: [
+      { id: "tun-1", name: "Minecraft", display_address: "mc.example.playit.gg:25565", destination: "127.0.0.1:25565", protocol: "tcp" },
+      { tunnel_id: "tun-2", display_address: "voice.example.playit.gg:24454", destination: "127.0.0.1:24454", port_type: "udp" },
+    ],
+  })).map((entry, index) => agentPlayitService._test.normalizeTunnel(entry, "fixture", index));
+  assert.strictEqual(tunnels.length, 2, "Playit tunnel parser should handle multiple tunnels without a real service.");
+  assert.strictEqual(tunnels[0].localPort, 25565, "Playit tunnels should expose local ports.");
+  assert.strictEqual(tunnels[0].publicAddress, "mc.example.playit.gg:25565", "Playit tunnels should expose public endpoints for copy actions.");
+  assert.strictEqual(tunnels[1].protocol, "UDP", "Playit tunnels should normalize protocol metadata.");
+}
 
 assertDetectionCases().then(() => {
   console.log("Public Access smoke checks passed.");

@@ -961,6 +961,35 @@
                 </div>
               </article>
 
+              <article class="status-card playit-service-card">
+                <div class="status-card__top">
+                  <span class="service-icon">SV</span>
+                  <span class="status-pill status-pill--planned" data-playit-service-state>Checking...</span>
+                </div>
+                <h3>Playit Service</h3>
+                <p data-playit-service-meta>Checking Playit service state...</p>
+                <div class="settings-actions playit-service-actions" data-playit-service-actions aria-label="Playit service actions"></div>
+              </article>
+
+              <article class="status-card playit-tunnels-card">
+                <div class="status-card__top">
+                  <span class="service-icon">TN</span>
+                  <span class="status-pill status-pill--planned">Tunnels</span>
+                </div>
+                <h3>Playit Tunnels</h3>
+                <p data-playit-tunnel-message>No Playit tunnels found.</p>
+                <div class="playit-tunnel-list" data-playit-tunnel-list></div>
+              </article>
+
+              <article class="status-card playit-logs-card" data-playit-logs-panel hidden>
+                <div class="status-card__top">
+                  <span class="service-icon">LG</span>
+                  <span class="status-pill status-pill--planned">Logs</span>
+                </div>
+                <h3>Playit Logs</h3>
+                <pre class="playit-log-output" data-playit-logs-content>No logs loaded.</pre>
+              </article>
+
               <article class="status-card public-access-details">
                 <div class="status-card__top">
                   <span class="service-icon">PG</span>
