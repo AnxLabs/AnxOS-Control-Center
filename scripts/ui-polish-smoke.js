@@ -8,6 +8,8 @@ const app = fs.readFileSync(path.join(root, "app.js"), "utf8");
 const styles = fs.readFileSync(path.join(root, "styles.css"), "utf8");
 const main = fs.readFileSync(path.join(root, "main.js"), "utf8");
 const preload = fs.readFileSync(path.join(root, "preload.js"), "utf8");
+const addStorageHtml = fs.readFileSync(path.join(root, "windows", "add-storage.html"), "utf8");
+const addStorageCss = fs.readFileSync(path.join(root, "windows", "add-storage.css"), "utf8");
 
 const expectedPages = ["dashboard", "amp", "playit", "coolpals", "docker", "marketplace", "instances", "ssh", "files", "console", "backups", "operations", "maintenance", "security", "owner-workspace", "agent-control", "nodes", "settings"];
 expectedPages.forEach((page) => assert(index.includes(`data-page="${page}"`), `Missing workspace root: ${page}`));
@@ -106,6 +108,23 @@ assert(main.includes("requestSingleInstanceLock") && main.includes("second-insta
   "AnxOS Control Center failed to load",
 ].forEach((needle) => assert(main.includes(needle), `Main window launch recovery must include ${needle}.`));
 assert(main.includes("show: false") && main.includes("showMainWindow(\"did-finish-load\")") && main.includes("showMainWindow(\"ready-to-show\")"), "Main window must not depend only on ready-to-show before becoming visible.");
+assert(
+  addStorageHtml.indexOf('class="storage-form-body"') < addStorageHtml.indexOf('class="add-storage-actions"') &&
+    addStorageHtml.includes('data-storage-secret="password"') &&
+    addStorageHtml.includes('data-storage-secret="privateKey"') &&
+    addStorageHtml.includes('class="add-storage-actions__primary"'),
+  "SFTP Add Storage modal must keep form fields in a scrollable body before a separate action footer."
+);
+[
+  ".storage-form-body",
+  "grid-template-rows: minmax(0, 1fr) auto",
+  "overflow: hidden",
+  "scrollbar-gutter: stable",
+  ".add-storage-actions__primary",
+  "justify-content: space-between",
+  "@media (max-width: 620px), (max-height: 620px)",
+].forEach((needle) => assert(addStorageCss.includes(needle), `SFTP Add Storage modal polish CSS is missing: ${needle}`));
+assert(main.includes("getCenteredChildBounds(parent, 720, 680)") && main.includes("minWidth: 560"), "Add Storage child window must use a wider desktop layout for SFTP fields.");
 assert(index.includes('data-agent-control-action="start"') && index.includes('data-agent-control-action="installService"'), "Agent Control must expose real lifecycle and service actions.");
 assert(app.includes("Backup was already removed. Refreshed backup list."), "Backup UI must recover cleanly from stale already-deleted backup IDs.");
 assert(fs.readFileSync(path.join(root, "src", "services", "agentControlService.js"), "utf8").includes("Run AnxOS Control Center as Administrator"), "Windows Agent service install failures must explain elevation requirements.");

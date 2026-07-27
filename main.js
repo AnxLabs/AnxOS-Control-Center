@@ -372,10 +372,10 @@ function openAddStorageWindow(payload = {}) {
 
   pendingAddStoragePayload = payload;
   const parent = mainWindow && !mainWindow.isDestroyed() ? mainWindow : BrowserWindow.getFocusedWindow();
-  const bounds = getCenteredChildBounds(parent);
+  const bounds = getCenteredChildBounds(parent, 720, 680);
   addStorageWindow = new BrowserWindow({
     ...bounds,
-    minWidth: 460,
+    minWidth: 560,
     minHeight: 560,
     title: "Add Storage — AnxOS Control Center",
     parent: parent || undefined,

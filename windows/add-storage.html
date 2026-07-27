@@ -30,7 +30,8 @@
       </div>
 
       <form class="storage-form" data-storage-form>
-        <div class="settings-grid">
+        <div class="storage-form-body" data-storage-form-body>
+          <div class="settings-grid">
           <label class="settings-field"><span>Connection Name</span><input type="text" data-storage-field="name" placeholder="Kinetic Survival"></label>
           <label class="settings-field"><span>Host</span><input type="text" data-storage-field="host" placeholder="sftp.kinetichosting.net"></label>
           <label class="settings-field"><span>Port</span><input type="number" min="1" max="65535" data-storage-field="port" value="22"></label>
@@ -40,14 +41,17 @@
           <label class="settings-field" data-storage-secret="password"><span>Password</span><input type="password" data-storage-field="password" autocomplete="new-password" placeholder="Stored securely"></label>
           <label class="settings-field settings-field--wide" data-storage-secret="privateKey" hidden><span>Private Key</span><textarea data-storage-field="privateKey" placeholder="Paste private key"></textarea></label>
           <label class="settings-field" data-storage-secret="passphrase" hidden><span>Passphrase</span><input type="password" data-storage-field="passphrase" autocomplete="new-password" placeholder="Optional"></label>
+          </div>
+          <p class="settings-inline-status" data-storage-message>Credentials are encrypted before being written to disk.</p>
         </div>
 
-        <div class="add-storage-actions">
+        <footer class="add-storage-actions">
           <button class="inline-action" type="button" data-storage-action="cancel">Cancel</button>
-          <button class="inline-action" type="button" data-storage-action="test">Test Connection</button>
-          <button class="inline-action inline-action--primary" type="submit">Save Storage</button>
-        </div>
-        <p class="settings-inline-status" data-storage-message>Credentials are encrypted before being written to disk.</p>
+          <div class="add-storage-actions__primary">
+            <button class="inline-action" type="button" data-storage-action="test">Test Connection</button>
+            <button class="inline-action inline-action--primary" type="submit">Save Storage</button>
+          </div>
+        </footer>
       </form>
     </section>
   </main>
