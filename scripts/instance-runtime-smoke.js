@@ -561,6 +561,30 @@ async function assertLegacyAtm10JavaAppMigratesToScriptLauncher() {
     await instanceService.writeInstanceFile(id, "run.sh", "#!/usr/bin/env bash\nexec java @user_jvm_args.txt @libraries/net/neoforged/neoforge/21.1.228/unix_args.txt \"$@\"\n");
     await instanceService.writeInstanceFile(id, "user_jvm_args.txt", "-Xmx4G\n");
     await instanceService.writeInstanceFile(id, "libraries/net/neoforged/neoforge/21.1.228/unix_args.txt", "--launchTarget neoforgeserver\n");
+    const configFile = path.join(process.env.AGENT_INSTANCE_ROOT, id, "config.json");
+    const staleConfig = JSON.parse(fs.readFileSync(configFile, "utf8"));
+    fs.writeFileSync(configFile, JSON.stringify({
+      ...staleConfig,
+      state: "Failed",
+      failureReason: "SERVER_JAR_MISSING",
+      failureDetails: { missing: ["server.jar"] },
+      readinessState: "failed",
+      healthState: "critical",
+    }, null, 2));
+
+    const listed = await instanceService.listInstances();
+    const listedInstance = listed.instances.find((entry) => entry.id === id);
+    assert(listedInstance, "Legacy ATM10 should remain visible after metadata sync.");
+    assert.strictEqual(listedInstance.type, "custom-command", "Legacy ATM10 should not keep the java-app type in instance lists.");
+    assert.strictEqual(listedInstance.state, "Stopped", "Ready NeoForge runtime files should clear stale missing-server.jar failures.");
+    assert.strictEqual(listedInstance.failureReason, null, "Ready NeoForge runtime files should clear stale server.jar failure reasons.");
+    assert.strictEqual(listedInstance.serverSoftware, "NeoForge", "List view should expose the file-proven NeoForge identity.");
+    assert.strictEqual(listedInstance.softwareVersion, "21.1.228", "List view should expose the file-proven NeoForge runtime version.");
+
+    const statusBeforeStart = await instanceService.getStatus(id);
+    assert.strictEqual(statusBeforeStart.type, "custom-command", "Status should repair existing java-app ATM10 metadata before start.");
+    assert.strictEqual(statusBeforeStart.executable, "bash", "Status should expose the script launcher command before start.");
+    assert.deepStrictEqual(statusBeforeStart.args, ["./run.sh"], "Status should prefer generated run.sh before start.");
 
     const originalSpawn = childProcess.spawn;
     const calls = [];
@@ -621,7 +645,9 @@ async function assertNeoForgeInstallerOnlyDoesNotRequireServerJar() {
       (error) => {
         assert.strictEqual(error.code, "NEOFORGE_RUNTIME_INCOMPLETE", "Installer-only NeoForge runtime must not report SERVER_JAR_MISSING.");
         assert.notStrictEqual(error.code, "SERVER_JAR_MISSING", "NeoForge installer jars must not be treated as generic server jars.");
-        assert.match(String(error.message || ""), /NeoForge runtime files are incomplete/i);
+        assert.match(String(error.message || ""), /NeoForge runtime incomplete/i);
+        assert.strictEqual(error.installerJar, "neoforge-21.1.228-installer.jar", "Bundled versioned NeoForge installer should be offered for runtime repair.");
+        assert.strictEqual(error.repairAction, "repair-neoforge-runtime", "Installer-only NeoForge runtime should expose a repair action.");
         return true;
       },
     );
@@ -660,7 +686,7 @@ async function assertNeoForgeMissingUnixArgsPreflightDoesNotRestart() {
       assert.strictEqual(status.failureReason, "NEOFORGE_RUNTIME_INCOMPLETE", "Missing unix_args.txt should use an actionable failure reason.");
       assert(status.failureDetails?.missing?.includes("libraries/net/neoforged/neoforge/21.1.228/unix_args.txt"), "Missing details should name the unix_args.txt path.");
       const logs = await instanceService.readLogs(id, { stream: "stderr", limit: 20 });
-      assert(logs.entries.some((entry) => /NeoForge runtime files are incomplete/.test(entry.message)), "Missing unix_args.txt should write an actionable error.");
+      assert(logs.entries.some((entry) => /NeoForge runtime incomplete/.test(entry.message)), "Missing unix_args.txt should write an actionable error.");
       await wait(80);
       assert.strictEqual(instanceService._test.getResourceCounts().restartTimers, 0, "Missing unix_args.txt must not schedule auto-restart.");
     } finally {

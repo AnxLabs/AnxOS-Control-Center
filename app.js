@@ -9385,6 +9385,18 @@ function formatInstanceType(value) {
   return formatInstanceValue(value).replace(/-/g, " ");
 }
 
+function getInstanceTypeLabel(instance = null) {
+  const software = normalizeSoftwareName(instance?.serverSoftware || instance?.minecraft?.serverType || "");
+  const loader = String(instance?.loader || "").trim().toLowerCase();
+  const hasNeoForge = software === "NeoForge" || loader === "neoforge";
+  const hasScriptLauncher = ["bash", "sh", "cmd.exe", "cmd", "powershell.exe", "powershell", "pwsh.exe", "pwsh"].includes(String(instance?.executable || "").trim().toLowerCase()) &&
+    (Array.isArray(instance?.args) ? instance.args : []).some((arg) => /\.(?:sh|bat|cmd|ps1)$/i.test(String(arg || "")));
+  if (hasNeoForge && hasScriptLauncher) {
+    return "NeoForge server pack";
+  }
+  return formatInstanceType(instance?.type || "Instance");
+}
+
 function formatInstanceList(value) {
   if (!Array.isArray(value)) {
     return formatInstanceValue(value);
@@ -12068,7 +12080,7 @@ function renderInstanceRows(instances) {
 
     const metrics = getInstanceRowMetrics(instance);
     addInstanceCell(row, buildInstanceNameCell(instance));
-    addInstanceCell(row, formatInstanceType(instance.type));
+    addInstanceCell(row, getInstanceTypeLabel(instance));
     addInstanceCell(row, buildInstanceStatePill(instance));
     addInstanceCell(row, buildInstanceAddressCell(instance));
     addInstanceCell(row, buildInstanceMetricCell(formatInstanceCpuPercent(metrics)));
@@ -12282,7 +12294,7 @@ function setInstanceDetails(instance = null) {
   setInstanceDetail("buildDate", version.buildDate || "Unavailable");
   setInstanceDetail("node", getInstanceNodeLabel(instance));
   setInstanceDetail("created", formatDateTime(instance.createdAt || instance.created || instance.metadata?.createdAt));
-  setInstanceDetail("type", formatInstanceType(instance.type));
+  setInstanceDetail("type", getInstanceTypeLabel(instance));
   setInstanceDetail("command", command || "Unavailable");
   setInstanceDetail("failureReason", getInstanceFailureReason(instance));
   setInstanceDetail("pid", formatInstanceValue(instance.pid));
@@ -24297,7 +24309,7 @@ function renderConsoleSources() {
     const name = document.createElement("strong");
     name.textContent = instance.displayName || instance.id || "Unnamed instance";
     const type = document.createElement("small");
-    type.textContent = formatInstanceType(instance.type);
+    type.textContent = getInstanceTypeLabel(instance);
     copy.append(name, type);
 
     const state = document.createElement("span");

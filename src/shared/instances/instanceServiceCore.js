@@ -2329,9 +2329,14 @@ async function repairConfiguredServerJar(config) {
   const jarPath = jars[0] || null;
   if (!jarPath) {
     if (await hasNeoForgeRuntimeSignal(config)) {
+      const workingDirectory = config.workingDirectory || "data";
+      const dataRoot = resolveRelativeManagedPath(config.id, workingDirectory, "data");
+      const installerJars = await findNeoForgeInstallerJars(dataRoot);
       const error = createInstanceError("NEOFORGE_RUNTIME_INCOMPLETE", 400, {
         missing: ["run.sh or startserver.sh", "libraries/.../unix_args.txt"],
-        suggestion: "Retry server bootstrap or reinstall this instance.",
+        installerJar: installerJars[0]?.name || null,
+        repairAction: "repair-neoforge-runtime",
+        suggestion: "Repair NeoForge runtime using the bundled server-pack installer.",
       });
       error.message = neoforgeRuntimeIncompleteMessage();
       throw error;
@@ -2487,11 +2492,127 @@ async function getExistingNeoForgeUnixArgs(dataRoot) {
   return existing;
 }
 
+function inferNeoForgeInstallerVersion(name = "") {
+  return String(name || "").match(/^neoforge-([0-9][A-Za-z0-9.+_-]*)-installer\.jar$/i)?.[1] || null;
+}
+
+async function findNeoForgeInstallerJars(dataRoot) {
+  const names = await listDirectoryNames(dataRoot);
+  return names
+    .filter((name) => /^neoforge-.*installer\.jar$/i.test(name) || /^neoforge-installer\.jar$/i.test(name))
+    .map((name) => ({
+      name,
+      version: inferNeoForgeInstallerVersion(name),
+      versioned: Boolean(inferNeoForgeInstallerVersion(name)),
+    }))
+    .sort((left, right) => Number(right.versioned) - Number(left.versioned) || String(left.name).localeCompare(String(right.name)));
+}
+
 function neoforgeRuntimeIncompleteMessage(details = {}) {
   if (details.mismatch) {
     return `NeoForge runtime files are incomplete or mismatched. The startup script expects ${details.expectedVersion || "a different NeoForge version"} but generated runtime files are ${details.availableVersions?.join(", ") || "missing"}. Retry server bootstrap or reinstall this instance.`;
   }
-  return "NeoForge runtime files are incomplete. Retry server bootstrap or reinstall this instance.";
+  return "NeoForge runtime incomplete - repair runtime.";
+}
+
+async function inspectNeoForgeScriptRuntime(config = {}) {
+  if (process.platform === "win32" || !await hasNeoForgeRuntimeSignal(config)) {
+    return null;
+  }
+  const workingDirectory = config.workingDirectory || "data";
+  const dataRoot = resolveRelativeManagedPath(config.id, workingDirectory, "data");
+  const script = await findExistingStartupScript(
+    config,
+    process.platform === "win32"
+      ? ["run.bat", "run.cmd", "run.ps1", "startserver.bat", "startserver.cmd", "startserver.ps1", "run.sh", "startserver.sh"]
+      : ["run.sh", "startserver.sh", "start.sh"],
+  );
+  const installerJars = await findNeoForgeInstallerJars(dataRoot);
+  const existingUnixArgs = await getExistingNeoForgeUnixArgs(dataRoot);
+  if (!script) {
+    return {
+      ready: false,
+      script: null,
+      refs: [],
+      existingUnixArgs,
+      installerJars,
+      missing: ["run.sh or startserver.sh"],
+      expectedVersion: installerJars.find((entry) => entry.version)?.version || null,
+      availableVersions: existingUnixArgs.map((entry) => entry.version),
+    };
+  }
+  const scriptAbsolute = path.join(dataRoot, script);
+  const scriptText = await readTextIfExists(scriptAbsolute, 256 * 1024);
+  const refs = extractNeoForgeUnixArgsReferences(scriptText);
+  const missing = [];
+  for (const ref of refs) {
+    if (!await pathExists(path.join(dataRoot, ref.relativePath))) {
+      missing.push(ref.relativePath);
+    }
+  }
+  if (refs.length === 0 && existingUnixArgs.length === 0) {
+    missing.push("libraries/.../unix_args.txt");
+  }
+  const expectedVersion = refs[0]?.version || existingUnixArgs[0]?.version || installerJars.find((entry) => entry.version)?.version || null;
+  const availableVersions = existingUnixArgs.map((entry) => entry.version);
+  return {
+    ready: missing.length === 0,
+    script,
+    refs,
+    existingUnixArgs,
+    installerJars,
+    missing,
+    expectedVersion,
+    availableVersions,
+    runtimeVersion: refs.find((ref) => !missing.includes(ref.relativePath))?.version || existingUnixArgs[0]?.version || expectedVersion,
+  };
+}
+
+function shouldClearRuntimeFailure(config = {}) {
+  return config.state === INSTANCE_STATES.FAILED &&
+    ["NEOFORGE_RUNTIME_INCOMPLETE", "SERVER_JAR_MISSING", "STARTUP_SCRIPT_MISSING"].includes(String(config.failureReason || ""));
+}
+
+async function syncNeoForgeScriptRuntimeConfig(config = {}) {
+  const runtime = await inspectNeoForgeScriptRuntime(config).catch(() => null);
+  if (!runtime) {
+    return config;
+  }
+  const launcher = runtime.script ? getStartupScriptLauncher(runtime.script) : null;
+  const shouldUseScriptLauncher = Boolean(launcher && (runtime.ready || config.type === "java-app" || usesJavaJarCommand(config)));
+  const next = {
+    ...config,
+    type: shouldUseScriptLauncher ? "custom-command" : config.type,
+    executable: shouldUseScriptLauncher ? launcher.executable : config.executable,
+    args: shouldUseScriptLauncher ? launcher.args : config.args,
+    startupScript: runtime.script || config.startupScript || null,
+    serverSoftware: "NeoForge",
+    loader: "neoforge",
+    softwareVersion: runtime.runtimeVersion || config.softwareVersion || null,
+    loaderVersion: runtime.runtimeVersion || config.loaderVersion || null,
+    buildNumber: runtime.runtimeVersion || config.buildNumber || null,
+    serverJar: null,
+    serverJarPath: null,
+    startJar: null,
+    jar: null,
+    failureReason: runtime.ready && shouldClearRuntimeFailure(config) ? null : config.failureReason,
+    failureDetails: runtime.ready && shouldClearRuntimeFailure(config) ? null : config.failureDetails,
+    readinessState: runtime.ready && shouldClearRuntimeFailure(config) ? "stopped" : config.readinessState,
+    healthState: runtime.ready && shouldClearRuntimeFailure(config) ? "unknown" : config.healthState,
+    state: runtime.ready && shouldClearRuntimeFailure(config) ? INSTANCE_STATES.STOPPED : config.state,
+    updatedAt: nowIso(),
+  };
+  const comparable = (value) => {
+    const { updatedAt: _updatedAt, ...rest } = clearInstallerRuntimeJarMetadata(value);
+    return rest;
+  };
+  const changed = JSON.stringify(comparable(next)) !== JSON.stringify(comparable(config));
+  if (changed) {
+    await saveInstanceConfig(next);
+    await appendLog(config.id, "stdout", `Synced NeoForge script launcher runtime: ${formatCommandForLog(next)}`).catch(() => {});
+    return next;
+  }
+  return config;
 }
 
 async function validateNeoForgeRuntimeFiles(config) {
@@ -2536,6 +2657,7 @@ async function validateNeoForgeRuntimeFiles(config) {
   if (missing.length === 0) {
     return null;
   }
+  const installerJars = await findNeoForgeInstallerJars(dataRoot);
   const expectedVersion = refs.find((ref) => missing.includes(ref.relativePath))?.version || refs[0]?.version || null;
   const availableVersions = existingUnixArgs.map((entry) => entry.version);
   const mismatch = Boolean(expectedVersion && availableVersions.length > 0 && !availableVersions.includes(expectedVersion));
@@ -2547,8 +2669,10 @@ async function validateNeoForgeRuntimeFiles(config) {
       missing,
       expectedVersion,
       availableVersions,
+      installerJar: installerJars[0]?.name || null,
+      repairAction: "repair-neoforge-runtime",
       mismatch,
-      suggestion: "Retry server bootstrap or reinstall this instance.",
+      suggestion: "Repair NeoForge runtime using the bundled server-pack installer.",
     },
   };
 }
@@ -3488,6 +3612,7 @@ async function listInstances() {
   for (const id of ids) {
     try {
       let config = await reconcileConfigState(await loadInstanceConfig(id));
+      config = await syncNeoForgeScriptRuntimeConfig(config);
       if (config.installationState === "installing") {
         continue;
       }
@@ -3979,7 +4104,8 @@ async function startInstance(instanceId, options = {}) {
     resetRestartBackoff(instanceId);
   }
 
-  let config = await backfillInstanceVersion(await reconcileConfigState(await loadInstanceConfig(instanceId)), { force: true });
+  let config = await syncNeoForgeScriptRuntimeConfig(await reconcileConfigState(await loadInstanceConfig(instanceId)));
+  config = await backfillInstanceVersion(config, { force: true });
   if (config.installationState === "installing") {
     const error = createInstanceError("INSTANCE_INSTALLATION_INCOMPLETE", 409, { instanceId: config.id });
     error.message = "The instance cannot start until installation completes.";
@@ -4573,6 +4699,7 @@ async function restartInstance(instanceId) {
 
 async function getStatus(instanceId) {
   let config = await reconcileConfigState(await loadInstanceConfig(instanceId));
+  config = await syncNeoForgeScriptRuntimeConfig(config);
   if (isFiveMInstance(config)) {
     config = (await refreshFiveMReadiness(config.id)).config;
   }
