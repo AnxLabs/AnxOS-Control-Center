@@ -762,6 +762,17 @@ function assertAdvertisedProviderSelection(provider, advertised = {}, resolved =
     });
   }
 
+  const advertisedServerPackFileId = String(advertised.providerServerPackFileId || advertised.advertisedProviderServerPackFileId || "").trim();
+  const resolvedServerPackFileId = String(resolved.providerServerPackFileId || resolved.serverPackFileId || "").trim();
+  if (advertisedServerPackFileId && resolvedServerPackFileId && advertisedServerPackFileId !== resolvedServerPackFileId) {
+    throw createProviderAdvertisedMismatchError(provider, {
+      field: "providerServerPackFileId",
+      advertised: advertisedServerPackFileId,
+      resolved: resolvedServerPackFileId,
+      projectId: resolved.projectId || advertised.projectId || null,
+    });
+  }
+
   const advertisedMinecraftVersion = String(advertised.minecraftVersion || advertised.advertisedMinecraftVersion || "").trim();
   const resolvedMinecraftVersions = Array.isArray(resolved.minecraftVersions) ? resolved.minecraftVersions : [];
   if (advertisedMinecraftVersion && advertisedMinecraftVersion !== "latest" && resolvedMinecraftVersions.length > 0 && !resolvedMinecraftVersions.includes(advertisedMinecraftVersion)) {
@@ -1583,6 +1594,197 @@ function isInstallerJarName(value = "") {
     /(?:^|\/)(?:forge|neoforge)-installer\.jar$/i.test(String(value || "").replace(/\\/g, "/"));
 }
 
+function createServerPackRuntimeUnresolvedError(message, details = {}) {
+  return new MarketplaceInstallError(message || "Server-pack runtime could not be resolved safely.", "SERVER_PACK_RUNTIME_UNRESOLVED", {
+    ...details,
+    retryable: false,
+    suggestion: details.suggestion || "Reinstall this instance from a server-compatible pack that includes a valid launch script or server runtime.",
+  });
+}
+
+async function readInstanceText(instanceId, filePath, agentConfig) {
+  try {
+    const result = await agentClient.readInstanceFile(instanceId, filePath, agentConfig);
+    return result?.supported === false ? "" : String(result?.content || "");
+  } catch {
+    return "";
+  }
+}
+
+async function listInstanceDirectoryEntries(instanceId, directoryPath, agentConfig) {
+  try {
+    const result = await agentClient.listInstanceFiles(instanceId, directoryPath, agentConfig);
+    return Array.isArray(result?.entries) ? result.entries : [];
+  } catch {
+    return [];
+  }
+}
+
+async function findRootFileNames(instanceId, agentConfig) {
+  return (await listInstanceDirectoryEntries(instanceId, ".", agentConfig))
+    .filter((entry) => entry.type === "file" || entry.isDirectory === false)
+    .map((entry) => entry.name)
+    .filter(Boolean);
+}
+
+function extractNeoForgeUnixArgsReferences(scriptText = "") {
+  const refs = [];
+  const pattern = /(?:^|[@'"=\s])((?:\.\/)?libraries\/net\/neoforged\/neoforge\/([^\/\s'"`]+)\/unix_args\.txt)\b/gi;
+  let match;
+  while ((match = pattern.exec(String(scriptText || "")))) {
+    refs.push({
+      relativePath: match[1].replace(/^\.\//, ""),
+      version: match[2],
+    });
+  }
+  return refs;
+}
+
+function extractInstallerJarReferences(scriptText = "") {
+  return [...new Set([...String(scriptText || "").matchAll(/(?:^|[\s"'`])((?:\.\/)?(?:forge|neoforge)(?:-[0-9A-Za-z][0-9A-Za-z._+-]*)?-installer\.jar)\b/gi)]
+    .map((match) => match[1].replace(/^\.\//, "")))];
+}
+
+function parseVersionedInstaller(fileName = "") {
+  const name = path.basename(String(fileName || ""));
+  const neoForge = name.match(/^neoforge-([0-9A-Za-z][0-9A-Za-z._+-]*)-installer\.jar$/i);
+  if (neoForge) {
+    return {
+      loader: "neoforge",
+      serverSoftware: "NeoForge",
+      loaderVersion: neoForge[1],
+      minecraftVersion: inferNeoForgeMinecraftVersion(neoForge[1]) || null,
+      fileName: name,
+      versioned: true,
+    };
+  }
+  const forge = name.match(/^forge-([0-9A-Za-z][0-9A-Za-z._+-]*)-installer\.jar$/i);
+  if (forge) {
+    return {
+      loader: "forge",
+      serverSoftware: "Forge",
+      loaderVersion: forge[1],
+      minecraftVersion: String(forge[1]).split("-")[0] || null,
+      fileName: name,
+      versioned: true,
+    };
+  }
+  if (/^neoforge-installer\.jar$/i.test(name)) {
+    return { loader: "neoforge", serverSoftware: "NeoForge", loaderVersion: null, minecraftVersion: null, fileName: name, versioned: false };
+  }
+  if (/^forge-installer\.jar$/i.test(name)) {
+    return { loader: "forge", serverSoftware: "Forge", loaderVersion: null, minecraftVersion: null, fileName: name, versioned: false };
+  }
+  return null;
+}
+
+function selectInstallerCandidate(rootFiles = [], context = {}) {
+  const candidates = rootFiles.map(parseVersionedInstaller).filter(Boolean);
+  const expectedNeoForgeVersion = context.neoForgeVersion || null;
+  const referenced = new Set((context.referencedInstallers || []).map((entry) => path.basename(String(entry || "")).toLowerCase()));
+  return candidates.sort((left, right) => {
+    const score = (candidate) => {
+      let value = 0;
+      if (referenced.has(candidate.fileName.toLowerCase())) value += 1000;
+      if (expectedNeoForgeVersion && candidate.loader === "neoforge" && candidate.loaderVersion === expectedNeoForgeVersion) value += 900;
+      if (candidate.versioned) value += 500;
+      if (candidate.loader === normalizeLoader(context.loader || "")) value += 100;
+      return value;
+    };
+    return score(right) - score(left) || left.fileName.localeCompare(right.fileName);
+  })[0] || null;
+}
+
+function buildRuntimeVersionInfo(runtime = {}, options = {}) {
+  const software = runtime.serverSoftware || (runtime.loader === "neoforge" ? "NeoForge" : runtime.loader === "forge" ? "Forge" : options.loader || options.serverType || "Minecraft");
+  const gameVersion = runtime.minecraftVersion || options.minecraftVersion || options.version || null;
+  const softwareVersion = runtime.loaderVersion || null;
+  return {
+    game: "minecraft",
+    gameVersion,
+    minecraftVersion: gameVersion,
+    software,
+    softwareVersion,
+    displayVersion: [software, gameVersion].filter(Boolean).join(" ") || gameVersion || software || null,
+    displayVersionDetail: softwareVersion ? `${software} ${softwareVersion}` : null,
+  };
+}
+
+async function resolveServerPackRuntime(instanceId, startupTarget = {}, options = {}, agentConfig = {}) {
+  const rootFiles = await findRootFileNames(instanceId, agentConfig);
+  const scriptPath = startupTarget.type === "script" ? startupTarget.path : null;
+  const scriptText = scriptPath ? await readInstanceText(instanceId, scriptPath, agentConfig) : "";
+  const unixRefs = extractNeoForgeUnixArgsReferences(scriptText);
+  const referencedInstallers = extractInstallerJarReferences(scriptText);
+  const expectedNeoForgeVersion = unixRefs[0]?.version || null;
+
+  if (startupTarget.type === "script") {
+    if (/^run\.sh$/i.test(path.basename(scriptPath)) && expectedNeoForgeVersion) {
+      const missing = [];
+      for (const ref of unixRefs) {
+        const exists = await agentClient.instanceFileExists(instanceId, ref.relativePath, agentConfig);
+        if (!exists?.exists) missing.push(ref.relativePath);
+      }
+      if (missing.length > 0) {
+        const availableVersions = (await listInstanceDirectoryEntries(instanceId, "libraries/net/neoforged/neoforge", agentConfig))
+          .filter((entry) => entry.isDirectory || entry.type === "directory")
+          .map((entry) => entry.name)
+          .filter(Boolean);
+        throw createServerPackRuntimeUnresolvedError("Server-pack runtime could not be resolved safely: run.sh references missing NeoForge unix_args.txt.", {
+          instanceId,
+          startupScript: scriptPath,
+          missing,
+          expectedVersion: expectedNeoForgeVersion,
+          availableVersions,
+        });
+      }
+    }
+
+    const installer = selectInstallerCandidate(rootFiles, {
+      loader: options.loader,
+      neoForgeVersion: expectedNeoForgeVersion,
+      referencedInstallers,
+    });
+    const runtime = {
+      type: "script",
+      startupScript: scriptPath,
+      serverJar: installer?.fileName || null,
+      loader: expectedNeoForgeVersion ? "neoforge" : installer?.loader || normalizeLoader(options.loader || options.serverType),
+      serverSoftware: expectedNeoForgeVersion ? "NeoForge" : installer?.serverSoftware || options.loader || options.serverType || "Minecraft",
+      loaderVersion: expectedNeoForgeVersion || installer?.loaderVersion || null,
+      minecraftVersion: expectedNeoForgeVersion ? inferNeoForgeMinecraftVersion(expectedNeoForgeVersion) || options.minecraftVersion || options.version || null : installer?.minecraftVersion || options.minecraftVersion || options.version || null,
+      installerFile: installer?.fileName || null,
+      unixArgsPath: unixRefs[0]?.relativePath || null,
+      serverPackRuntimePreserved: true,
+    };
+    runtime.versionInfo = buildRuntimeVersionInfo(runtime, options);
+    return runtime;
+  }
+
+  const jarCandidates = ["server.jar", "minecraft_server.jar", ...rootFiles.filter((name) => /\.jar$/i.test(name) && !isInstallerJarName(name))];
+  for (const jar of [...new Set(jarCandidates)]) {
+    const exists = await agentClient.instanceFileExists(instanceId, jar, agentConfig);
+    if (exists?.exists) {
+      const runtime = {
+        type: "jar",
+        serverJar: jar,
+        loader: normalizeLoader(options.loader || options.serverType) || "vanilla",
+        serverSoftware: options.loader || options.serverType || "Minecraft",
+        loaderVersion: null,
+        minecraftVersion: options.minecraftVersion || options.version || null,
+        serverPackRuntimePreserved: true,
+      };
+      runtime.versionInfo = buildRuntimeVersionInfo(runtime, options);
+      return runtime;
+    }
+  }
+
+  throw createServerPackRuntimeUnresolvedError("Server-pack runtime could not be resolved safely: no launch script or server jar was found.", {
+    instanceId,
+    rootFiles,
+  });
+}
+
 async function resolveInstalledStartupTarget(instanceId, serverInfo = {}, options = {}, agentConfig = {}) {
   for (const candidate of getPreferredStartupScriptCandidates(options, agentConfig)) {
     const exists = await withRetry(
@@ -1788,6 +1990,17 @@ async function resolveServerJar(options = {}) {
   if (loader === "forge") return resolveForgeInstaller(minecraftVersion);
   if (loader === "neoforge") return resolveNeoForgeInstaller(minecraftVersion);
   return resolveVanillaServerJar(minecraftVersion);
+}
+
+function createDeferredProviderServerInfo(options = {}) {
+  return {
+    url: null,
+    fileName: "",
+    serverJar: null,
+    minecraftVersion: options.minecraftVersion || options.version || null,
+    loaderVersion: options.loaderVersion || null,
+    providerRuntimeDeferred: true,
+  };
 }
 
 function buildInstancePayload(options, serverInfo) {
@@ -2471,7 +2684,20 @@ async function continueProviderPackInstall(context = {}) {
   }, instancePayload.primaryPort, agentConfig);
   const startupTarget = await resolveInstalledStartupTarget(instanceId, serverInfo, options, agentConfig);
   const scriptStartupUsesInstallerJar = startupTarget.type === "script" && isInstallerJarName(serverInfo.serverJar);
-  const runtimeServerInfo = scriptStartupUsesInstallerJar
+  const serverPackRuntime = serverInfo.providerRuntimeDeferred
+    ? await resolveServerPackRuntime(instanceId, startupTarget, options, agentConfig)
+    : null;
+  const runtimeServerInfo = serverPackRuntime
+    ? {
+      ...serverInfo,
+      serverJar: startupTarget.type === "script" ? serverPackRuntime.serverJar || null : serverPackRuntime.serverJar,
+      minecraftVersion: serverPackRuntime.minecraftVersion || serverInfo.minecraftVersion,
+      loaderVersion: serverPackRuntime.loaderVersion || serverInfo.loaderVersion,
+      versionInfo: serverPackRuntime.versionInfo || null,
+      providerRuntimeDeferred: false,
+      serverPackRuntime,
+    }
+    : scriptStartupUsesInstallerJar
     ? { ...serverInfo, serverJar: null }
     : serverInfo;
   const metadata = buildInstallMetadata(options, runtimeServerInfo, {
@@ -2480,14 +2706,18 @@ async function continueProviderPackInstall(context = {}) {
       ...(installRecords.source || {}),
       startupTarget: startupTarget.type,
       startupScript: startupTarget.type === "script" ? startupTarget.path : null,
+      serverPackRuntime: serverPackRuntime || null,
     },
   });
-  await writeText(instanceId, "metadata.json", `${JSON.stringify(metadata, null, 2)}\n`, agentConfig);
-  await writeText(instanceId, "config.json", `${JSON.stringify({ ...instancePayload, status: "stopped", port: instancePayload.primaryPort }, null, 2)}\n`, agentConfig);
-  if (startupTarget.type !== "script") {
-    await validateInstalledServerJar(instanceId, serverInfo, agentConfig);
+  if (serverPackRuntime?.versionInfo) {
+    metadata.versionInfo = serverPackRuntime.versionInfo;
+    metadata.serverSoftware = serverPackRuntime.serverSoftware || metadata.loader;
+    metadata.softwareVersion = serverPackRuntime.loaderVersion || metadata.loaderVersion || null;
+    metadata.displayVersion = serverPackRuntime.versionInfo.displayVersion || null;
+    metadata.displayVersionDetail = serverPackRuntime.versionInfo.displayVersionDetail || null;
   }
-  const activationResult = await agentClient.updateInstance(instanceId, {
+  await writeText(instanceId, "metadata.json", `${JSON.stringify(metadata, null, 2)}\n`, agentConfig);
+  const activationPatch = {
     ...metadata,
     ...(startupTarget.patch || {}),
     jar: runtimeServerInfo.serverJar,
@@ -2495,6 +2725,16 @@ async function continueProviderPackInstall(context = {}) {
     serverJarPath: runtimeServerInfo.serverJar,
     startJar: runtimeServerInfo.serverJar,
     installationState: "active",
+  };
+  const configRecord = serverInfo.providerRuntimeDeferred
+    ? { ...instancePayload, ...activationPatch, status: "stopped", port: instancePayload.primaryPort }
+    : { ...instancePayload, status: "stopped", port: instancePayload.primaryPort };
+  await writeText(instanceId, "config.json", `${JSON.stringify(configRecord, null, 2)}\n`, agentConfig);
+  if (startupTarget.type !== "script") {
+    await validateInstalledServerJar(instanceId, runtimeServerInfo, agentConfig);
+  }
+  const activationResult = await agentClient.updateInstance(instanceId, {
+    ...activationPatch,
   }, agentConfig);
   const activatedInstance = activationResult?.instance || activationResult || {};
   if (options.start) {
@@ -2611,6 +2851,7 @@ async function installPack(payload = {}) {
     assertAdvertisedProviderSelection("CurseForge", {
       projectId: options.providerProjectId,
       providerVersionId: options.advertisedProviderVersionId || options.providerVersionId || options.fileId,
+      providerServerPackFileId: options.advertisedProviderServerPackFileId || options.providerServerPackFileId || options.serverPackFileId,
       minecraftVersion: options.advertisedMinecraftVersion || options.minecraftVersion || options.version,
       loader: options.advertisedLoader || options.loader,
     }, resolvedMetadata);
@@ -2672,7 +2913,10 @@ async function installPack(payload = {}) {
     mount: diskSpaceCheck.mount,
   });
   await ensureProviderPackDependencies({ ...options, nodeId: installNodeId }, agentConfig);
-  const serverInfo = await resolveServerJar(options);
+  const providerRuntimeDeferred = ["modrinth", "curseforge"].includes(provider);
+  const serverInfo = providerRuntimeDeferred
+    ? createDeferredProviderServerInfo(options)
+    : await resolveServerJar(options);
   const instancePayload = buildInstancePayload(options, serverInfo);
   const installContext = validateInstallContext(buildInstallContext(payload, options, instancePayload));
   const instanceId = instancePayload.id;
@@ -2698,10 +2942,12 @@ async function installPack(payload = {}) {
       );
     }
 
-    emitProgress({ nodeId: installNodeId, instanceId, operationId, stage: "downloading", message: "Downloading server runtime...", current: 0, total: 1 });
-    await writeBuffer(instanceId, serverInfo.downloadDestination || serverInfo.serverJar, await fetchBuffer(serverInfo.url, serverInfo.fileName, { signal }), agentConfig);
-    throwIfInstallCancelled(signal);
-    await runServerInstaller(instanceId, serverInfo, agentConfig, operationId, signal, instancePayload.memoryLimit);
+    if (!providerRuntimeDeferred) {
+      emitProgress({ nodeId: installNodeId, instanceId, operationId, stage: "downloading", message: "Downloading server runtime...", current: 0, total: 1 });
+      await writeBuffer(instanceId, serverInfo.downloadDestination || serverInfo.serverJar, await fetchBuffer(serverInfo.url, serverInfo.fileName, { signal }), agentConfig);
+      throwIfInstallCancelled(signal);
+      await runServerInstaller(instanceId, serverInfo, agentConfig, operationId, signal, instancePayload.memoryLimit);
+    }
 
     return await continueProviderPackInstall({
       provider,
@@ -3206,7 +3452,9 @@ module.exports = {
     resolveInstalledStartupTarget,
     resolvePaperServerJar,
     buildStartupScriptPatch,
+    createDeferredProviderServerInfo,
     isInstallerJarName,
+    resolveServerPackRuntime,
     resolveMarketplaceInstallTarget,
     readBoundedResponseBuffer,
     serializeError,

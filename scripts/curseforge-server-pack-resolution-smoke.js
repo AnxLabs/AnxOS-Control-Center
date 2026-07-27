@@ -57,6 +57,8 @@ async function main() {
       getMod: curseforgeProvider.getMod,
       downloadFile: curseforgeProvider.downloadFile,
       instanceFileExists: agentClient.instanceFileExists,
+      listInstanceFiles: agentClient.listInstanceFiles,
+      readInstanceFile: agentClient.readInstanceFile,
       fetch: global.fetch,
     };
   const agentRequests = [];
@@ -160,6 +162,116 @@ async function main() {
       { serverJar: "server.jar" }
     );
 
+    function setRuntimeFiles(files = {}) {
+      const normalized = new Map(Object.entries(files).map(([key, value]) => [key.replace(/\\/g, "/").replace(/^\.\//, ""), value]));
+      agentClient.instanceFileExists = async (instanceId, filePath) => ({
+        exists: normalized.has(String(filePath || "").replace(/\\/g, "/").replace(/^\.\//, "")),
+        path: filePath,
+      });
+      agentClient.readInstanceFile = async (instanceId, filePath) => {
+        const key = String(filePath || "").replace(/\\/g, "/").replace(/^\.\//, "");
+        if (!normalized.has(key)) {
+          const error = new Error("Not found");
+          error.code = "PATH_NOT_FOUND";
+          throw error;
+        }
+        return { supported: true, content: String(normalized.get(key) || "") };
+      };
+      agentClient.listInstanceFiles = async (instanceId, directoryPath = ".") => {
+        const directory = String(directoryPath || ".").replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/$/, "");
+        const prefix = directory === "." ? "" : `${directory}/`;
+        const names = new Map();
+        for (const key of normalized.keys()) {
+          if (!key.startsWith(prefix)) continue;
+          const rest = key.slice(prefix.length);
+          if (!rest) continue;
+          const [name, ...tail] = rest.split("/");
+          if (!name) continue;
+          names.set(name, tail.length > 0 ? "directory" : "file");
+        }
+        return {
+          entries: [...names.entries()].map(([name, type]) => ({
+            name,
+            path: prefix ? `${prefix}${name}` : name,
+            type,
+            isDirectory: type === "directory",
+          })),
+        };
+      };
+    }
+
+    setRuntimeFiles({
+      "startserver.sh": "#!/usr/bin/env bash\njava -jar neoforge-21.1.228-installer.jar --installServer\n",
+      "neoforge-21.1.228-installer.jar": "installer",
+    });
+    const atm10BootstrapRuntime = await marketplace._test.resolveServerPackRuntime(
+      "atm10-runtime-smoke",
+      { type: "script", path: "startserver.sh", patch: marketplace._test.buildStartupScriptPatch("startserver.sh") },
+      { provider: "curseforge", loader: "neoforge", minecraftVersion: "1.21.1" },
+      { platform: "linux" }
+    );
+    assert.strictEqual(atm10BootstrapRuntime.serverJar, "neoforge-21.1.228-installer.jar", "ATM10-style packs should preserve the versioned NeoForge installer from the server pack.");
+    assert.strictEqual(atm10BootstrapRuntime.loaderVersion, "21.1.228", "ATM10-style runtime metadata should use the server-pack NeoForge version.");
+    assert.strictEqual(atm10BootstrapRuntime.versionInfo?.softwareVersion, "21.1.228", "versionInfo should persist the actual server-pack NeoForge version.");
+
+    setRuntimeFiles({
+      "startserver.sh": "#!/usr/bin/env bash\njava -jar neoforge-21.1.228-installer.jar --installServer\n",
+      "neoforge-installer.jar": "generic",
+      "neoforge-21.1.228-installer.jar": "versioned",
+    });
+    const versionedWinsRuntime = await marketplace._test.resolveServerPackRuntime(
+      "atm10-versioned-wins-smoke",
+      { type: "script", path: "startserver.sh", patch: marketplace._test.buildStartupScriptPatch("startserver.sh") },
+      { provider: "curseforge", loader: "neoforge", minecraftVersion: "1.21.1" },
+      { platform: "linux" }
+    );
+    assert.strictEqual(versionedWinsRuntime.serverJar, "neoforge-21.1.228-installer.jar", "Versioned server-pack installer must win over generic neoforge-installer.jar.");
+
+    setRuntimeFiles({
+      "run.sh": "#!/usr/bin/env bash\nexec java @user_jvm_args.txt @libraries/net/neoforged/neoforge/21.1.228/unix_args.txt \"$@\"\n",
+      "user_jvm_args.txt": "-Xmx4G\n",
+      "libraries/net/neoforged/neoforge/21.1.228/unix_args.txt": "--launchTarget neoforgeserver\n",
+      "libraries/net/neoforged/neoforge/26.2.0.35-beta/unix_args.txt": "--launchTarget neoforgeserver\n",
+      "neoforge-installer.jar": "generic",
+      "neoforge-21.1.228-installer.jar": "versioned",
+    });
+    const runScriptRuntime = await marketplace._test.resolveServerPackRuntime(
+      "atm10-run-version-wins-smoke",
+      { type: "script", path: "run.sh", patch: marketplace._test.buildStartupScriptPatch("run.sh") },
+      { provider: "curseforge", loader: "neoforge", minecraftVersion: "1.21.1" },
+      { platform: "linux" }
+    );
+    assert.strictEqual(runScriptRuntime.loaderVersion, "21.1.228", "run.sh unix_args.txt reference must win over newer NeoForge library folders.");
+    assert.strictEqual(runScriptRuntime.unixArgsPath, "libraries/net/neoforged/neoforge/21.1.228/unix_args.txt", "Runtime metadata should persist the actual run.sh unix_args path.");
+    assert.strictEqual(runScriptRuntime.versionInfo?.softwareVersion, "21.1.228", "config/metadata versionInfo should match the run.sh NeoForge version.");
+
+    setRuntimeFiles({
+      "server.jar": "server-runtime",
+    });
+    const jarRuntime = await marketplace._test.resolveServerPackRuntime(
+      "provider-jar-runtime-smoke",
+      { type: "jar", path: "server.jar", patch: {} },
+      { provider: "curseforge", loader: "neoforge", minecraftVersion: "1.21.1", loaderVersion: "26.2.0.35-beta" },
+      { platform: "linux" }
+    );
+    assert.strictEqual(jarRuntime.loaderVersion, null, "Provider server-pack runtime must not inherit generic/latest loaderVersion when the actual runtime path does not prove it.");
+    assert.strictEqual(jarRuntime.versionInfo?.softwareVersion, null, "Provider server-pack versionInfo must not inherit generic/latest softwareVersion.");
+
+    setRuntimeFiles({
+      "run.sh": "#!/usr/bin/env bash\nexec java @user_jvm_args.txt @libraries/net/neoforged/neoforge/21.1.228/unix_args.txt \"$@\"\n",
+      "libraries/net/neoforged/neoforge/26.2.0.35-beta/unix_args.txt": "--launchTarget neoforgeserver\n",
+    });
+    await assert.rejects(
+      () => marketplace._test.resolveServerPackRuntime(
+        "atm10-runtime-mismatch-smoke",
+        { type: "script", path: "run.sh", patch: marketplace._test.buildStartupScriptPatch("run.sh") },
+        { provider: "curseforge", loader: "neoforge", minecraftVersion: "1.21.1" },
+        { platform: "linux" }
+      ),
+      (error) => error?.code === "SERVER_PACK_RUNTIME_UNRESOLVED" && error.details?.expectedVersion === "21.1.228",
+      "Mismatched run.sh/unix_args.txt runtime should fail clearly instead of repairing to a newer loader version.",
+    );
+
     resetScenario({
       selected: file(10, "Client Pack.zip", { serverPackFileId: 11 }),
       files: [file(11, "Client Pack Server Pack.zip")],
@@ -243,6 +355,8 @@ async function main() {
     curseforgeProvider.getMod = original.getMod;
     curseforgeProvider.downloadFile = original.downloadFile;
     agentClient.instanceFileExists = original.instanceFileExists;
+    agentClient.listInstanceFiles = original.listInstanceFiles;
+    agentClient.readInstanceFile = original.readInstanceFile;
     global.fetch = original.fetch;
     fs.rmSync(root, { recursive: true, force: true });
   }

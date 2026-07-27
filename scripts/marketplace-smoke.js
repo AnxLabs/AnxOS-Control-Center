@@ -1764,6 +1764,8 @@ async function assertMarketplaceInstallerSmokeMatrix() {
     "createInstanceFolder",
     "writeInstanceFile",
     "instanceFileExists",
+    "listInstanceFiles",
+    "readInstanceFile",
     "saveMinecraftProperties",
     "updateInstance",
     "beginInstallationSession",
@@ -1879,10 +1881,44 @@ async function assertMarketplaceInstallerSmokeMatrix() {
 
     agentClient.createInstance = async (payload) => {
       instances.set(payload.id, { ...payload, state: "Stopped" });
+      if (["curseforge", "modrinth"].includes(String(payload.provider || "").toLowerCase())) {
+        files.set(`${payload.id}:server.jar`, Buffer.from("provider-server-runtime"));
+      }
       return { instance: instances.get(payload.id) };
     };
     agentClient.createInstanceFolder = async () => ({ ok: true });
     agentClient.instanceFileExists = async (instanceId, filePath) => ({ exists: files.has(`${instanceId}:${filePath}`), path: filePath });
+    agentClient.listInstanceFiles = async (instanceId, directoryPath = ".") => {
+      const directory = String(directoryPath || ".").replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/$/, "");
+      const prefix = directory === "." ? "" : `${directory}/`;
+      const names = new Map();
+      for (const key of files.keys()) {
+        if (!key.startsWith(`${instanceId}:`)) continue;
+        const filePath = key.slice(`${instanceId}:`.length).replace(/\\/g, "/");
+        if (!filePath.startsWith(prefix)) continue;
+        const rest = filePath.slice(prefix.length);
+        if (!rest) continue;
+        const [name, ...tail] = rest.split("/");
+        names.set(name, tail.length > 0 ? "directory" : "file");
+      }
+      return {
+        entries: [...names.entries()].map(([name, type]) => ({
+          name,
+          path: prefix ? `${prefix}${name}` : name,
+          type,
+          isDirectory: type === "directory",
+        })),
+      };
+    };
+    agentClient.readInstanceFile = async (instanceId, filePath) => {
+      const key = `${instanceId}:${filePath}`;
+      if (!files.has(key)) {
+        const error = new Error("Not found");
+        error.code = "PATH_NOT_FOUND";
+        throw error;
+      }
+      return { supported: true, content: String(files.get(key) || "") };
+    };
     agentClient.writeInstanceFile = async (instanceId, filePath, content) => {
       files.set(`${instanceId}:${filePath}`, content);
       return { saved: true, path: filePath };
@@ -3384,6 +3420,20 @@ async function assertProviderInstallSupport() {
     }),
     "Advertised provider metadata should pass when it matches the selected provider version object."
   );
+  assert.doesNotThrow(
+    () => marketplaceInstallService._test.assertAdvertisedProviderSelection("CurseForge", {
+      providerVersionId: "cf-card-file",
+      providerServerPackFileId: "cf-server-pack",
+      minecraftVersion: "1.21.1",
+      loader: "neoforge",
+    }, {
+      providerVersionId: "cf-card-file",
+      providerServerPackFileId: "cf-server-pack",
+      minecraftVersions: ["1.21.1"],
+      loaders: ["neoforge"],
+    }),
+    "CurseForge advertised client file id and serverPackFileId should pass when both match the resolved server pack metadata."
+  );
   assert.throws(
     () => marketplaceInstallService._test.assertAdvertisedProviderSelection("CurseForge", {
       providerVersionId: "cf-card-file",
@@ -3396,6 +3446,21 @@ async function assertProviderInstallSupport() {
     }),
     (error) => error?.code === "PROVIDER_ADVERTISED_METADATA_MISMATCH",
     "Install should fail before provider download when card metadata does not match the resolved file/version."
+  );
+  assert.throws(
+    () => marketplaceInstallService._test.assertAdvertisedProviderSelection("CurseForge", {
+      providerVersionId: "cf-card-file",
+      providerServerPackFileId: "cf-advertised-server-pack",
+      minecraftVersion: "1.21.1",
+      loader: "neoforge",
+    }, {
+      providerVersionId: "cf-card-file",
+      providerServerPackFileId: "cf-resolved-server-pack",
+      minecraftVersions: ["1.21.1"],
+      loaders: ["neoforge"],
+    }),
+    (error) => error?.code === "PROVIDER_ADVERTISED_METADATA_MISMATCH",
+    "Install should fail before provider download when the advertised CurseForge serverPackFileId does not match the resolved server pack."
   );
 
   let progressEvents = 0;

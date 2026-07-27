@@ -2535,7 +2535,13 @@ async function detectFromKnownFiles(config) {
   }
 
   const neoForgeVersions = await listDirectoryNames(path.join(dataRoot, "libraries", "net", "neoforged", "neoforge"));
-  const neoForgeVersion = neoForgeVersions.find((name) => inferNeoForgeMinecraftVersion(name));
+  const neoForgeScriptRefs = [];
+  for (const scriptName of ["run.sh", "startserver.sh"]) {
+    const scriptText = await readTextIfExists(path.join(dataRoot, scriptName), 256 * 1024);
+    neoForgeScriptRefs.push(...extractNeoForgeUnixArgsReferences(scriptText));
+  }
+  const referencedNeoForgeVersion = neoForgeScriptRefs.find((ref) => neoForgeVersions.includes(ref.version))?.version || null;
+  const neoForgeVersion = referencedNeoForgeVersion || neoForgeVersions.find((name) => inferNeoForgeMinecraftVersion(name));
   if (neoForgeVersion) {
     detections.push({ serverSoftware: "NeoForge", minecraftVersion: inferNeoForgeMinecraftVersion(neoForgeVersion), softwareVersion: neoForgeVersion, buildNumber: neoForgeVersion });
   }
@@ -2818,13 +2824,13 @@ async function detectInstanceVersion(config, options = {}) {
       properties.minecraftVersion,
       jar.minecraftVersion,
       logs.minecraftVersion,
-      status.minecraftVersion,
       config.minecraftVersion,
       config.gameVersion,
       config.serverVersion,
       config.versionName,
       config.version,
       config.displayVersion,
+      status.minecraftVersion,
     ].filter(Boolean).join(" ")),
     softwareVersion: cleanVersionValue(known.softwareVersion || jar.softwareVersion || logs.softwareVersion || config.softwareVersion),
     buildNumber: cleanVersionValue(known.buildNumber || known.paperBuild || jar.buildNumber || jar.paperBuild || logs.buildNumber || logs.paperBuild || config.buildNumber || config.paperBuild),
