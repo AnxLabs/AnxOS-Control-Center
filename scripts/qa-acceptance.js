@@ -2,6 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
 const { _electron: electron } = require("playwright-core");
+const { createIsolatedQaEnv } = require("./test-helpers/isolated-qa-env");
 
 const root = path.resolve(__dirname, "..");
 const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
@@ -22,6 +23,8 @@ let electronApp = null;
 let appWindow = null;
 let spawnedPid = null;
 let completed = false;
+let qaEnvironment = null;
+let qaUserDataDir = null;
 const redact = (value) => String(value || "").replace(/(authorization|token|password|secret|api[_-]?key|cookie)\s*[:=]\s*[^\s,;]+/gi, "$1=[redacted]");
 function record(action, target, expected, observed, pass, screenshot = null) {
   const entry = { timestamp: new Date().toISOString(), action, target, expected, observed: redact(observed), pass, screenshot };
@@ -101,12 +104,21 @@ async function cleanupElectron() {
   if (electronApp) {
     await withTimeout(electronApp.close(), CLEANUP_TIMEOUT_MS, "Electron shutdown").catch(() => {});
   }
-  if (!spawnedPid) return;
-  if (process.platform === "win32") {
-    spawnSync("taskkill", ["/PID", String(spawnedPid), "/T", "/F"], { windowsHide: true, stdio: "ignore" });
-  } else {
-    try { process.kill(-spawnedPid, "SIGKILL"); } catch {}
-    try { process.kill(spawnedPid, "SIGKILL"); } catch {}
+  if (spawnedPid) {
+    if (process.platform === "win32") {
+      spawnSync("taskkill", ["/PID", String(spawnedPid), "/T", "/F"], { windowsHide: true, stdio: "ignore" });
+    } else {
+      try { process.kill(-spawnedPid, "SIGKILL"); } catch {}
+      try { process.kill(spawnedPid, "SIGKILL"); } catch {}
+    }
+  }
+  if (qaEnvironment) {
+    qaEnvironment.cleanup();
+    qaEnvironment = null;
+  }
+  if (qaUserDataDir) {
+    fs.rmSync(qaUserDataDir, { recursive: true, force: true });
+    qaUserDataDir = null;
   }
 }
 
@@ -128,8 +140,9 @@ async function main() {
   let lastStage = "launch-start";
   const stage = (name, details = {}) => { lastStage = name; console.error(`[QA][stage] ${name}`, JSON.stringify({ elapsedMs: Date.now() - startedAt, ...details })); };
   const executable = process.env.ANXOS_QA_EXECUTABLE || undefined;
-  const userDataDir = fs.mkdtempSync(path.join(require("os").tmpdir(), "anx-qa-profile-"));
-  const launchOptions = { args: [`--user-data-dir=${userDataDir}`, "--no-sandbox", root, "--qa-mode"], env: { ...process.env, ANXOS_QA_MODE: "1" } };
+  qaUserDataDir = fs.mkdtempSync(path.join(require("os").tmpdir(), "anx-qa-profile-"));
+  qaEnvironment = createIsolatedQaEnv("anx-qa-config-");
+  const launchOptions = { args: [`--user-data-dir=${qaUserDataDir}`, "--no-sandbox", root, "--qa-mode"], env: { ...process.env, ...qaEnvironment.env, ANXOS_QA_MODE: "1" } };
   if (executable) launchOptions.executablePath = executable;
   stage("electron-launch-start");
   const app = await electron.launch(launchOptions);
@@ -250,7 +263,7 @@ async function main() {
   fs.writeFileSync(path.join(artifactDir, "renderer-warnings.log"), rendererWarnings.join("\n"));
   fs.writeFileSync(path.join(artifactDir, "renderer-info.log"), rendererLogs.join("\n"));
   fs.writeFileSync(path.join(artifactDir, "network-errors.json"), "[]\n");
-  fs.writeFileSync(path.join(artifactDir, "environment.json"), JSON.stringify({ platform: process.platform, node: process.version, qaMode: true, executable: executable ? path.basename(executable) : "electron" }, null, 2));
+  fs.writeFileSync(path.join(artifactDir, "environment.json"), JSON.stringify({ platform: process.platform, node: process.version, qaMode: true, executable: executable ? path.basename(executable) : "electron", isolatedConfig: true }, null, 2));
   fs.writeFileSync(path.join(artifactDir, "main-process.log"), mainLogs.join(""));
   const summary = [
     "# QA Acceptance",

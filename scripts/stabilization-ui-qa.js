@@ -4,6 +4,7 @@ const os = require("os");
 const path = require("path");
 const assert = require("assert");
 const { _electron: electron } = require("playwright-core");
+const { createIsolatedQaEnv } = require("./test-helpers/isolated-qa-env");
 
 const root = path.resolve(__dirname, "..");
 const artifactDir = path.join(root, "artifacts", "qa", `stabilization-${new Date().toISOString().replace(/[:.]/g, "-")}`);
@@ -19,6 +20,7 @@ async function visible(page, selector) {
 
 async function main() {
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "anx-stabilization-qa-"));
+  const qaEnvironment = createIsolatedQaEnv("anx-stabilization-config-");
   let app = null;
   const rendererErrors = [];
   const mainLogs = [];
@@ -34,13 +36,13 @@ async function main() {
     app?.close?.().catch(() => {});
     process.exitCode = 1;
   }, 60000);
-  app = await electron.launch({
-    args: [`--user-data-dir=${userDataDir}`, "--no-sandbox", root, "--qa-mode"],
-    env: { ...process.env, ANXOS_QA_MODE: "1" },
-  });
-  app.process().stdout?.on("data", (chunk) => mainLogs.push(redacted(chunk.toString())));
-  app.process().stderr?.on("data", (chunk) => mainLogs.push(redacted(chunk.toString())));
   try {
+    app = await electron.launch({
+      args: [`--user-data-dir=${userDataDir}`, "--no-sandbox", root, "--qa-mode"],
+      env: { ...process.env, ...qaEnvironment.env, ANXOS_QA_MODE: "1" },
+    });
+    app.process().stdout?.on("data", (chunk) => mainLogs.push(redacted(chunk.toString())));
+    app.process().stderr?.on("data", (chunk) => mainLogs.push(redacted(chunk.toString())));
     const page = await app.firstWindow();
     page.setDefaultTimeout(8000);
     page.on("console", (message) => {
@@ -263,8 +265,9 @@ async function main() {
     console.log(JSON.stringify({ pass: true, artifactDir, fileLayout }, null, 2));
   } finally {
     clearTimeout(watchdog);
-    await app.close().catch(() => {});
+    await app?.close?.().catch(() => {});
     fs.rmSync(userDataDir, { recursive: true, force: true });
+    qaEnvironment.cleanup();
   }
 }
 
