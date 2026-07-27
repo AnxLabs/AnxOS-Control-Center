@@ -1,6 +1,27 @@
 [
   {
     "version": "1.8",
+    "build": 187,
+    "channel": "Private Alpha",
+    "tag": "v1.8-build187",
+    "date": "July 27, 2026",
+    "datetime": "2026-07-27",
+    "title": "Build 187 invisible window and SFTP modal hotfix",
+    "summary": "Private Alpha v1.8 Build 187 fixes a launch/update path where the app process could run without a visible window and polishes the Add Storage SFTP modal layout.",
+    "changes": [
+      "Fixed app process running with no visible window after launch or update.",
+      "Validated saved window bounds before restoring them on startup.",
+      "Recovered from hidden, minimized, off-screen, or invalid saved window state.",
+      "Restored or recreated the main window when the app is launched a second time.",
+      "Added clearer renderer load and crash diagnostics for startup failures.",
+      "Polished the Add Storage SFTP modal layout.",
+      "Fixed SFTP modal footer buttons overlapping form fields.",
+      "Improved SFTP modal scrolling, field spacing, and authentication-specific field layout."
+    ],
+    "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build187"
+  },
+  {
+    "version": "1.8",
     "build": 186,
     "channel": "Private Alpha",
     "tag": "v1.8-build186",

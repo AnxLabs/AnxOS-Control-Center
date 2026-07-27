@@ -5,18 +5,18 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   siteUrl: "https://anxoscontrolcenter.org",
   logoPath: "/assets/anxos-logo.png",
   latestVersion: "1.8",
-  build: "186",
-  buildNumber: "186",
+  build: "187",
+  buildNumber: "187",
   channel: "Private Alpha",
-  releaseLabel: "Version 1.8 Build 186 Private Alpha",
+  releaseLabel: "Version 1.8 Build 187 Private Alpha",
   releaseDate: "July 27, 2026",
-  releaseTag: "v1.8-build186",
+  releaseTag: "v1.8-build187",
   releaseRepository: {
     owner: "bungopam-byte",
     repo: "AnxOS-Control-Center-Releases",
   },
   repositoryUrl: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases",
-  releaseUrl: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build186",
+  releaseUrl: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build187",
   githubReleasesApiUrl: "https://api.github.com/repos/bungopam-byte/AnxOS-Control-Center-Releases/releases?per_page=20",
   stableDownloadEndpoints: {
     windows: "/api/download/latest/windows",
@@ -26,23 +26,44 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   },
   releaseAssets: [
       {
-          fileName: "AnxOS-Control-Center-Setup-1.8-build186.exe",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build186/AnxOS-Control-Center-Setup-1.8-build186.exe"
+          fileName: "AnxOS-Control-Center-Setup-1.8-build187.exe",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build187/AnxOS-Control-Center-Setup-1.8-build187.exe"
       },
       {
-          fileName: "AnxOS-Control-Center-1.8-build186-portable.exe",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build186/AnxOS-Control-Center-1.8-build186-portable.exe"
+          fileName: "AnxOS-Control-Center-1.8-build187-portable.exe",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build187/AnxOS-Control-Center-1.8-build187-portable.exe"
       },
       {
-          fileName: "AnxOS-Control-Center-1.8-build186.AppImage",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build186/AnxOS-Control-Center-1.8-build186.AppImage"
+          fileName: "AnxOS-Control-Center-1.8-build187.AppImage",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build187/AnxOS-Control-Center-1.8-build187.AppImage"
       },
       {
-          fileName: "AnxOS-Control-Center-1.8-build186.deb",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build186/AnxOS-Control-Center-1.8-build186.deb"
+          fileName: "AnxOS-Control-Center-1.8-build187.deb",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build187/AnxOS-Control-Center-1.8-build187.deb"
       }
   ],
   releaseNotes: [
+      {
+          "version": "1.8",
+          "build": 187,
+          "channel": "Private Alpha",
+          "tag": "v1.8-build187",
+          "date": "July 27, 2026",
+          "datetime": "2026-07-27",
+          "title": "Build 187 invisible window and SFTP modal hotfix",
+          "summary": "Private Alpha v1.8 Build 187 fixes a launch/update path where the app process could run without a visible window and polishes the Add Storage SFTP modal layout.",
+          "changes": [
+              "Fixed app process running with no visible window after launch or update.",
+              "Validated saved window bounds before restoring them on startup.",
+              "Recovered from hidden, minimized, off-screen, or invalid saved window state.",
+              "Restored or recreated the main window when the app is launched a second time.",
+              "Added clearer renderer load and crash diagnostics for startup failures.",
+              "Polished the Add Storage SFTP modal layout.",
+              "Fixed SFTP modal footer buttons overlapping form fields.",
+              "Improved SFTP modal scrolling, field spacing, and authentication-specific field layout."
+          ],
+          "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build187"
+      },
       {
           "version": "1.8",
           "build": 186,
