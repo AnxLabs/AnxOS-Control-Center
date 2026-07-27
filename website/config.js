@@ -5,18 +5,18 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   siteUrl: "https://anxoscontrolcenter.org",
   logoPath: "/assets/anxos-logo.png",
   latestVersion: "1.8",
-  build: "187",
-  buildNumber: "187",
+  build: "188",
+  buildNumber: "188",
   channel: "Private Alpha",
-  releaseLabel: "Version 1.8 Build 187 Private Alpha",
+  releaseLabel: "Version 1.8 Build 188 Private Alpha",
   releaseDate: "July 27, 2026",
-  releaseTag: "v1.8-build187",
+  releaseTag: "v1.8-build188",
   releaseRepository: {
     owner: "bungopam-byte",
     repo: "AnxOS-Control-Center-Releases",
   },
   repositoryUrl: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases",
-  releaseUrl: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build187",
+  releaseUrl: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build188",
   githubReleasesApiUrl: "https://api.github.com/repos/bungopam-byte/AnxOS-Control-Center-Releases/releases?per_page=20",
   stableDownloadEndpoints: {
     windows: "/api/download/latest/windows",
@@ -26,23 +26,44 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   },
   releaseAssets: [
       {
-          fileName: "AnxOS-Control-Center-Setup-1.8-build187.exe",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build187/AnxOS-Control-Center-Setup-1.8-build187.exe"
+          fileName: "AnxOS-Control-Center-Setup-1.8-build188.exe",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build188/AnxOS-Control-Center-Setup-1.8-build188.exe"
       },
       {
-          fileName: "AnxOS-Control-Center-1.8-build187-portable.exe",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build187/AnxOS-Control-Center-1.8-build187-portable.exe"
+          fileName: "AnxOS-Control-Center-1.8-build188-portable.exe",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build188/AnxOS-Control-Center-1.8-build188-portable.exe"
       },
       {
-          fileName: "AnxOS-Control-Center-1.8-build187.AppImage",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build187/AnxOS-Control-Center-1.8-build187.AppImage"
+          fileName: "AnxOS-Control-Center-1.8-build188.AppImage",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build188/AnxOS-Control-Center-1.8-build188.AppImage"
       },
       {
-          fileName: "AnxOS-Control-Center-1.8-build187.deb",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build187/AnxOS-Control-Center-1.8-build187.deb"
+          fileName: "AnxOS-Control-Center-1.8-build188.deb",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build188/AnxOS-Control-Center-1.8-build188.deb"
       }
   ],
   releaseNotes: [
+      {
+          "version": "1.8",
+          "build": 188,
+          "channel": "Private Alpha",
+          "tag": "v1.8-build188",
+          "date": "July 27, 2026",
+          "datetime": "2026-07-27",
+          "title": "Build 188 Windows Agent MVP node support",
+          "summary": "Private Alpha v1.8 Build 188 adds Windows Agent MVP node support, Windows capability reporting, and safer unsupported-state handling while preserving existing Linux node behavior.",
+          "changes": [
+              "Added Windows Agent MVP node support.",
+              "Added Windows capability reporting from Agent health.",
+              "Added Windows node badges and MVP messaging.",
+              "Normalized Windows OS, hostname, version, and capability data into the node model.",
+              "Improved Windows pairing and test connection compatibility.",
+              "Marked Linux-only or deferred Windows features as unsupported instead of broken.",
+              "Made Docker visibility conditional on Windows Agent capability reporting.",
+              "Preserved existing Linux node behavior."
+          ],
+          "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build188"
+      },
       {
           "version": "1.8",
           "build": 187,

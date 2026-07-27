@@ -1,6 +1,27 @@
 [
   {
     "version": "1.8",
+    "build": 188,
+    "channel": "Private Alpha",
+    "tag": "v1.8-build188",
+    "date": "July 27, 2026",
+    "datetime": "2026-07-27",
+    "title": "Build 188 Windows Agent MVP node support",
+    "summary": "Private Alpha v1.8 Build 188 adds Windows Agent MVP node support, Windows capability reporting, and safer unsupported-state handling while preserving existing Linux node behavior.",
+    "changes": [
+      "Added Windows Agent MVP node support.",
+      "Added Windows capability reporting from Agent health.",
+      "Added Windows node badges and MVP messaging.",
+      "Normalized Windows OS, hostname, version, and capability data into the node model.",
+      "Improved Windows pairing and test connection compatibility.",
+      "Marked Linux-only or deferred Windows features as unsupported instead of broken.",
+      "Made Docker visibility conditional on Windows Agent capability reporting.",
+      "Preserved existing Linux node behavior."
+    ],
+    "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build188"
+  },
+  {
+    "version": "1.8",
     "build": 187,
     "channel": "Private Alpha",
     "tag": "v1.8-build187",
