@@ -6,6 +6,7 @@ const { app } = require("electron");
 const { SecureSessionStore, getDefaultConfigDirectory } = require("./secureSessionStore");
 const { openExternalUrl } = require("./externalUrlService");
 const { OFFICIAL_SITE_HOSTNAME, OFFICIAL_SITE_ORIGIN } = require("../shared/officialSite");
+const authRecovery = require("./authRecoveryState");
 
 const WEBSITE_BASE_URL = OFFICIAL_SITE_ORIGIN;
 const DEFAULT_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -25,6 +26,7 @@ let currentSession = null;
 let pendingDeviceLogin = null;
 let pendingRequestInFlight = false;
 let cachedAccountConfig = null;
+let savedSessionRestoreFailed = false;
 
 const sessionStore = new SecureSessionStore({ fileName: "account.json" });
 
@@ -402,8 +404,13 @@ function normalizeSession(payload = {}) {
 }
 
 function writeSession(session) {
+  if (savedSessionRestoreFailed) {
+    sessionStore.replacePreservingUnreadable(session);
+    savedSessionRestoreFailed = false;
+  } else {
+    sessionStore.write(session);
+  }
   currentSession = session;
-  sessionStore.write(session);
 }
 
 function clearSession() {
@@ -412,8 +419,16 @@ function clearSession() {
 }
 
 function getCurrentSession(options = {}) {
+  if (savedSessionRestoreFailed) return null;
   if (!currentSession) {
-    currentSession = sessionStore.read();
+    try {
+      currentSession = sessionStore.read();
+    } catch (error) {
+      if (!/^SECURE_SESSION_(?:DECRYPT_FAILED|CORRUPT|SCHEMA_INVALID|SCHEMA_UNSUPPORTED)$/.test(String(error?.code || ""))) throw error;
+      savedSessionRestoreFailed = true;
+      authRecovery.enterLockedRecoverable(error, { source: "account-session" });
+      return null;
+    }
   }
   if (!currentSession?.accessToken) {
     return null;
@@ -607,6 +622,10 @@ function getStatus() {
     siteUrl: getWebsiteBaseUrl(),
     currentDevice: getDeviceInfo(),
     pending: publicPending(),
+    authState: authRecovery.getState().state,
+    recoveryRequired: savedSessionRestoreFailed,
+    restorationState: savedSessionRestoreFailed ? "restore_failed" : undefined,
+    message: savedSessionRestoreFailed ? authRecovery.RECOVERY_MESSAGE : undefined,
   };
 }
 
@@ -810,7 +829,11 @@ async function refreshSession() {
 }
 
 async function restoreSession() {
+  authRecovery.enterRestorePending();
   const status = getStatus();
+  if (savedSessionRestoreFailed) {
+    return { ...status, state: "locked_recoverable", restorationState: "restore_failed", message: authRecovery.RECOVERY_MESSAGE };
+  }
   if (status.authenticated) {
     return { ...status, state: "authenticated", restorationState: "authenticated", message: "Account session restored." };
   }
@@ -854,6 +877,29 @@ async function restoreSession() {
       };
     }
     throw error;
+  }
+}
+
+function completeLocalOwnerRecovery() {
+  if (!savedSessionRestoreFailed) return { refreshed: false };
+  try {
+    sessionStore.replacePreservingUnreadable({
+      recoveredLocally: true,
+      createdAt: new Date().toISOString(),
+    });
+    savedSessionRestoreFailed = false;
+    currentSession = null;
+    console.info("[Account] Fresh secure session state written after Local Owner unlock.");
+    return { refreshed: true };
+  } catch (error) {
+    console.warn("[Account] Secure session refresh failed after Local Owner unlock.", {
+      code: error?.code || "SECURE_SESSION_WRITE_FAILED",
+    });
+    return {
+      refreshed: false,
+      warning: "AnxOS unlocked, but the saved session could not be refreshed. You may need to unlock again next time.",
+      errorCode: error?.code || "SECURE_SESSION_WRITE_FAILED",
+    };
   }
 }
 
@@ -904,6 +950,7 @@ async function revokeCurrentDevice() {
 
 module.exports = {
   cancelDeviceLogin,
+  completeLocalOwnerRecovery,
   checkDeviceLogin,
   getCurrentSession,
   getStatus,

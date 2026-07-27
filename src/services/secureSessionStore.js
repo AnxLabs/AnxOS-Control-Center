@@ -129,6 +129,14 @@ class SecureSessionStore {
     atomicWrite(this.filePath, { schemaVersion: SECURE_SESSION_SCHEMA_VERSION, ...encryptPayload(session, this.filePath) });
   }
 
+  replacePreservingUnreadable(session) {
+    if (fs.existsSync(this.filePath)) {
+      const preservedPath = `${this.filePath}.recovery-${Date.now()}.backup`;
+      fs.copyFileSync(this.filePath, preservedPath, fs.constants.COPYFILE_EXCL);
+    }
+    atomicWrite(this.filePath, { schemaVersion: SECURE_SESSION_SCHEMA_VERSION, ...encryptPayload(session, this.filePath) });
+  }
+
   clear() {
     try {
       fs.rmSync(this.filePath, { force: true });

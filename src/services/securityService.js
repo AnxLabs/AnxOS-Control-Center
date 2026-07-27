@@ -11,7 +11,8 @@ const {
   rotateAgentSettingsToken,
 } = require("./agentClient");
 const { tokenFingerprint } = require("../shared/agentTokenStore");
-const { getCurrentSession: getCurrentAccountSession } = require("./accountService");
+const { completeLocalOwnerRecovery, getCurrentSession: getCurrentAccountSession } = require("./accountService");
+const authRecovery = require("./authRecoveryState");
 const {
   getConfiguredOwnerAccounts,
   isOwnerAccount,
@@ -1194,6 +1195,11 @@ function getStatus() {
   }
   const hasAdminUser = state.users.some((entry) => entry.role === "Owner" || entry.role === "Admin");
   const localMode = !hasAdminUser;
+  const recovery = authRecovery.getState();
+  if (!recovery.lockedRecoverable) {
+    authRecovery.enterLocked({ setupRequired: !hasAdminUser });
+    if (user || accountUser) authRecovery.enterUnlocked({ provider: user ? "local-owner" : "account" });
+  }
   return {
     setupRequired: !hasAdminUser,
     localMode,
@@ -1211,6 +1217,9 @@ function getStatus() {
     persistentSessionCount: state.persistentSessions.length,
     securityPath: getSecurityPath(),
     auditPath: getAuditPath(),
+    authState: authRecovery.getState().state,
+    recoveryRequired: authRecovery.getState().lockedRecoverable,
+    recoveryMessage: authRecovery.getState().message,
   };
 }
 
@@ -1251,9 +1260,10 @@ async function setupAdmin(payload = {}) {
 }
 
 async function login(payload = {}) {
+  authRecovery.enterUnlocking();
   const username = normalizeUsername(payload.username);
   const activeUser = getCurrentUser();
-  if (activeUser?.username?.toLowerCase() === username.toLowerCase() && currentSession) {
+  if (activeUser?.username?.toLowerCase() === username.toLowerCase() && currentSession && !authRecovery.getState().lockedRecoverable) {
     console.info("[Security] Login request ignored because the user is already signed in.", {
       username,
       persistent: currentSession.persistent === true,
@@ -1374,12 +1384,16 @@ async function login(payload = {}) {
     currentSession.userSnapshot = publicUser(authenticatedUser);
   }
   audit({ action: "security.login", outcome: "ok", actor: publicUser(authenticatedUser), reason: devFallbackOk ? "DEVELOPMENT_OWNER_FALLBACK" : null });
+  const recovery = completeLocalOwnerRecovery();
+  authRecovery.enterUnlocked({ provider: "local-owner" });
 
   return {
     token: currentSession.token,
     expiresAt: new Date(currentSession.expiresAt).toISOString(),
     persistent: Boolean(persistentSession),
     user: publicUser(authenticatedUser),
+    authState: authRecovery.getState().state,
+    warning: recovery.warning || null,
   };
 }
 
@@ -1422,6 +1436,7 @@ function userHasPermission(user, permission) {
 }
 
 function requirePermission(permission, target = null) {
+  authRecovery.requireUnlocked(target || permission);
   const status = getStatus();
   if (status.accountAuthenticated && status.user?.role === "Owner" && status.user?.ownerAuthorized === true) {
     return {
@@ -1457,6 +1472,7 @@ function requirePermission(permission, target = null) {
 }
 
 function requireOwner(target = "owner-workspace") {
+  authRecovery.requireUnlocked(target);
   const status = getStatus();
   if (!status.user || status.user.role !== "Owner" || (status.user.account === true && status.user.ownerAuthorized !== true)) {
     audit({ action: "security.ownerWorkspace", outcome: "denied", target, reason: "OWNER_REQUIRED" });

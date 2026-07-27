@@ -31,6 +31,9 @@ assert.throws(() => store.read(), (error) => error?.code === "SECURE_SESSION_COR
 assert.throws(() => store.write(session), (error) => error?.code === "SECURE_SESSION_CORRUPT");
 assert.strictEqual(fs.readFileSync(store.filePath, "utf8"), corruptRaw, "Corrupt encrypted session state must not be overwritten.");
 assert(fs.readdirSync(root).some((name) => name.includes(".corrupt-") && name.endsWith(".backup")), "Corrupt encrypted state should be preserved for recovery.");
+store.replacePreservingUnreadable(session);
+assert.deepStrictEqual(store.read(), session, "Explicit recovery replacement should write a fresh readable secure session.");
+assert(fs.readdirSync(root).some((name) => name.includes(".recovery-") && name.endsWith(".backup")), "Recovery replacement must preserve the unreadable encrypted state.");
 assert.strictEqual(fs.readdirSync(root).some((name) => name.endsWith(".tmp")), false, "Atomic session writes should clean temporary files.");
 
 fs.rmSync(root, { recursive: true, force: true });

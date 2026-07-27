@@ -119,6 +119,32 @@ async function main() {
     assert(!fs.existsSync(after.accountPath), "explicit logout must clear the saved session.");
   });
 
+  await withTempService(async (configDir) => {
+    const accountPath = path.join(configDir, "account.json");
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(accountPath, JSON.stringify({
+      schemaVersion: 1,
+      method: "aes-256-gcm",
+      iv: Buffer.alloc(12).toString("base64"),
+      tag: Buffer.alloc(16).toString("base64"),
+      data: Buffer.from("unreadable-session").toString("base64"),
+    }));
+    let service = loadService(configDir);
+    const first = await service.restoreSession();
+    const second = await service.restoreSession();
+    assert.strictEqual(first.state, "locked_recoverable", "decrypt failure must enter the recoverable locked state.");
+    assert.strictEqual(second.state, "locked_recoverable", "recoverable lock must be remembered without retrying the broken session.");
+    assert.strictEqual(first.message, "Your saved session could not be restored. Please unlock AnxOS again.");
+    assert(!first.message.includes("SECURE_SESSION_DECRYPT_FAILED"), "normal account status must not expose the raw decrypt code.");
+    assert.strictEqual(fs.readFileSync(accountPath, "utf8").includes("unreadable-session"), false, "encrypted session contents must not be returned in status.");
+    assert(fs.readdirSync(configDir).some((name) => name.includes(".undecryptable-") && name.endsWith(".backup")), "the unreadable encrypted session must be preserved.");
+
+    global.fetch = async () => fetchResponse(makeSessionResponse());
+    await service.loginWithPassword({ email: "anx@example.invalid", password: "correct horse battery staple" });
+    assert.strictEqual(service.getStatus().authenticated, true, "a successful unlock/sign-in must supersede the broken saved session.");
+    assert(fs.readdirSync(configDir).some((name) => name.includes(".recovery-") && name.endsWith(".backup")), "superseding a broken session must preserve a recovery copy.");
+  });
+
   console.log("Account session restore smoke checks passed.");
 }
 

@@ -2151,7 +2151,28 @@ function normalizeIpcErrorMessage(error, fallback = "Request failed.") {
   while (ipcPrefixPattern.test(message)) {
     message = message.replace(ipcPrefixPattern, "").trim();
   }
+  if (/SECURE_SESSION_(?:DECRYPT_FAILED|CORRUPT|SCHEMA_INVALID|SCHEMA_UNSUPPORTED)/i.test(message)) {
+    return "Your saved session could not be restored. Please unlock AnxOS again.";
+  }
+  if (/AUTH_UNLOCK_REQUIRED|OWNER_REQUIRED|LOGIN_REQUIRED/i.test(message)) {
+    return "Unlock AnxOS to continue.";
+  }
   return message || fallback;
+}
+
+function isAuthRecoveryLocked() {
+  return securityState?.authState === "locked_recoverable" ||
+    securityState?.recoveryRequired === true ||
+    accountState?.state === "locked_recoverable" ||
+    accountState?.authState === "locked_recoverable" ||
+    accountState?.recoveryRequired === true;
+}
+
+function blockProtectedAction(message = "Unlock AnxOS to continue.") {
+  if (!isAuthRecoveryLocked()) return false;
+  if (securityMessage) securityMessage.textContent = "Your saved session could not be restored. Unlock AnxOS to continue.";
+  showToast(message, "warning");
+  return true;
 }
 
 const FRIENDLY_ERROR_DEFINITIONS = [
@@ -5592,6 +5613,10 @@ async function refreshAgentLogs() {
 async function refreshAgentControl({ includeConfig = false } = {}) {
   const api = getDesktopApiState().api?.agentControl;
   if (!api || agentControlBusy || agentControlRefreshInFlight) return;
+  if (isAuthRecoveryLocked()) {
+    if (agentControlMessage) agentControlMessage.textContent = "Unlock AnxOS to manage Agent connections.";
+    return;
+  }
   agentControlRefreshInFlight = true;
   const requestContext = getNodeRequestContext("agent-control");
   try {
@@ -5644,6 +5669,9 @@ function stopAgentControlPolling() {
 async function runAgentControlAction(action) {
   const api = getDesktopApiState().api?.agentControl;
   if (!api || agentControlBusy) return;
+  if (blockProtectedAction(action === "start" || action === "installLocalAgent" || action === "repairAgent"
+    ? "Unlock AnxOS to start the Local Agent."
+    : "Unlock AnxOS to manage Agent connections.")) return;
   const destructive = { stop: ["Stop local Agent?", "Active Agent operations will disconnect."], forceRestart: ["Force restart local Agent?", "The Agent process will be terminated immediately."], repairAgent: ["Repair local Agent?", "Background registration will be reinstalled and the Agent restarted."], stopOldLocalAgentAndRepair: ["Stop Old Local Agent and Repair?", "AnxOS will stop only a verified old AnxOS Local Agent process, recreate local credentials, and repair Windows startup registration."], updateAgent: ["Update Local Agent?", "AnxOS will back up Agent configuration, stop the Local Agent, repair the bundled runtime registration, restart it, and verify health."], uninstallService: ["Uninstall Agent background service?", "Automatic startup will be removed."], resetConfig: ["Reset Agent configuration?", "Current settings will be backed up before defaults are restored."] }[action];
   if (destructive && !(await createSecurityConfirmation({ title: destructive[0], message: destructive[1], confirmLabel: "Continue" }))) return;
   if (action === "refresh") {
@@ -27380,6 +27408,7 @@ function createSecurityActionNotification(action, ok, message = "") {
 async function runSecurityAction(action, payload = {}) {
   const desktopApiState = getDesktopApiState();
   if (!desktopApiState.hasSecurity) return;
+  if (blockProtectedAction("Unlock AnxOS to manage security settings.")) return;
   const operationId = SECURITY_OPERATION_ACTIONS.has(action)
     ? startOperation({
       type: "Security",
@@ -27453,10 +27482,11 @@ async function submitSecurityForm(event) {
         }, 15000);
       }),
     ]);
+    let authResult = null;
     if (securityState.setupRequired) {
-      await runWithTimeout(desktopApiState.api.security.setupAdmin({ username, password, passwordConfirm, staySignedIn }), "Local owner setup");
+      authResult = await runWithTimeout(desktopApiState.api.security.setupAdmin({ username, password, passwordConfirm, staySignedIn }), "Local owner setup");
     } else {
-      await runWithTimeout(desktopApiState.api.security.login({ username, password, staySignedIn }), "Local owner login");
+      authResult = await runWithTimeout(desktopApiState.api.security.login({ username, password, staySignedIn }), "Local owner login");
     }
     if (securityStaySignedIn) {
       securityStaySignedIn.checked = false;
@@ -27466,7 +27496,7 @@ async function submitSecurityForm(event) {
     }
     await refreshSecurityState();
     setLocalSetupComplete();
-    showToast("Signed in.");
+    showToast(authResult?.warning || "Signed in.", authResult?.warning ? "warning" : "success");
   } catch (error) {
     const message = normalizeIpcErrorMessage(error, "Security request failed.");
     if (securityMessage) {
@@ -29609,6 +29639,7 @@ async function saveNodeFromSettings() {
   if (!desktopApiState.hasNodes || nodeFormBusy) {
     return;
   }
+  if (blockProtectedAction("Unlock AnxOS to add nodes.")) return;
   const payload = getNodeFormPayload();
   const errors = validateNodeFormPayload(payload);
   setNodeFormErrors(errors);
@@ -29643,6 +29674,7 @@ async function testNodeFormConnection() {
   if (!desktopApiState.hasNodes || nodeFormBusy) {
     return;
   }
+  if (blockProtectedAction("Unlock AnxOS to test node connections.")) return;
   const payload = getNodeFormPayload();
   const errors = validateNodeFormPayload(payload);
   setNodeFormErrors(errors);
@@ -30191,6 +30223,7 @@ async function saveSettingsPatch(patch = {}, { statusMessage = null } = {}) {
 
 function shouldShowOnboardingWelcome(settings = getCurrentSettings()) {
   return !shouldBlockOnboardingForAccount() &&
+    securityState.setupRequired !== false &&
     settings["onboarding.welcomeGuidance"] !== false &&
     settings["onboarding.completed"] !== true &&
     settings["onboarding.skipped"] !== true;

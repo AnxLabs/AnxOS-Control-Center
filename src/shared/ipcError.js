@@ -4,6 +4,11 @@ const RETRYABLE_CODES = new Set([
   "AGENT_UNAVAILABLE", "ECONNREFUSED", "ENETUNREACH", "ETIMEDOUT", "NETWORK_ERROR",
   "REQUEST_TIMEOUT", "TIMEOUT",
 ]);
+const FRIENDLY_MESSAGES = {
+  AUTH_UNLOCK_REQUIRED: "Unlock AnxOS to continue.",
+  SECURE_SESSION_DECRYPT_FAILED: "Your saved session could not be restored. Please unlock AnxOS again.",
+  SECURE_SESSION_CORRUPT: "Your saved session could not be restored. Please unlock AnxOS again.",
+};
 
 function firstValue(...values) {
   return values.find((value) => value !== undefined && value !== null && value !== "");
@@ -17,6 +22,7 @@ function normalizeIpcError(error = {}, options = {}) {
   const friendlyMessage = String(firstValue(
     error?.friendlyMessage,
     sourceDetails.friendlyMessage,
+    FRIENDLY_MESSAGES[code],
     options.friendlyMessage,
     technicalMessage,
   ));
