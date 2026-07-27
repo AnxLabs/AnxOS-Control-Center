@@ -425,6 +425,11 @@ async function handleInstances(request, url) {
       return result(200, await repairNeoForgeRuntime(neoForgeRepairId, parseJsonBody(request)));
     }
 
+    const neoForgeRepairAliasId = getInstanceIdFromPath(url.pathname, "/repair-neoforge-runtime");
+    if (request.method === "POST" && neoForgeRepairAliasId) {
+      return result(200, await repairNeoForgeRuntime(neoForgeRepairAliasId, parseJsonBody(request)));
+    }
+
     const startId = getInstanceIdFromPath(url.pathname, "/start");
     if (request.method === "POST" && startId) {
       return result(200, {

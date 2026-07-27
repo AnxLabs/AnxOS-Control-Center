@@ -7,7 +7,16 @@ const os = require("os");
 const path = require("path");
 const { PassThrough } = require("stream");
 
+const root = path.resolve(__dirname, "..");
 const servicePath = require.resolve("../agent/src/services/instances/instanceService");
+const agentRouteSource = fs.readFileSync(path.join(root, "agent", "src", "routes", "instances.js"), "utf8");
+const agentClientSource = fs.readFileSync(path.join(root, "src", "services", "agentClient.js"), "utf8");
+const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
+
+assert(agentRouteSource.includes('getInstanceIdFromPath(url.pathname, "/neoforge/repair-runtime")'), "Agent must expose the canonical NeoForge repair endpoint.");
+assert(agentRouteSource.includes('getInstanceIdFromPath(url.pathname, "/repair-neoforge-runtime")'), "Agent must keep a compatibility alias for NeoForge repair routing.");
+assert(agentClientSource.includes("getNeoForgeRepairApiExpectation") && agentClientSource.includes("AGENT_NEOFORGE_REPAIR_UNSUPPORTED"), "Desktop Agent client must classify old-Agent NeoForge repair 404s.");
+assert(appSource.includes("Agent update required for NeoForge repair"), "Renderer must show a friendly update-required message for unsupported NeoForge repair endpoints.");
 
 function clearService() {
   delete require.cache[servicePath];

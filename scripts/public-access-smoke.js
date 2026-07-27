@@ -422,6 +422,8 @@ assert(serviceSource.includes("agentClient.getPublicAccessSnapshot") && agentRou
 assert(serviceSource.includes("createPublicAccessService") && serviceSource.includes("deletePublicAccessService"), "Desktop Public Access service lifecycle must route through the selected backend.");
 assert(agentRouteSource.includes("/api/v1/public-access/services") && agentServerSource.includes("pathname.startsWith(\"/api/v1/public-access/services/\")"), "Agent must register Public Access service lifecycle routes.");
 assert(agentServerSource.includes("/api/v1/public-access/playit/") && agentPlayitRouteSource.includes("handlePublicAccessPlayit"), "Agent must register narrow Playit management routes under Public Access.");
+assert(agentClientSource.includes("getPublicAccessPlayitApiExpectation") && agentClientSource.includes("AGENT_PLAYIT_CONTROLS_UNSUPPORTED"), "Agent client must classify missing Playit Public Access endpoints as an Agent update requirement.");
+assert(ipcSource.includes("AGENT_PLAYIT_CONTROLS_UNSUPPORTED"), "Public Access IPC must treat missing Playit controls on older Agents as a structured expected error.");
 [
   "PLAYIT_NOT_INSTALLED",
   "PLAYIT_SERVICE_NOT_FOUND",
@@ -544,9 +546,21 @@ assert(indexSource.includes("data-playit-service-actions") && indexSource.includ
   "renderPlayitTunnels",
   "renderPlayitServiceStatus",
   "renderPublicAccessUnavailableState",
+  "getPublicAccessRequestUnavailableReason",
   "getPublicAccessUnavailableReason",
   "Playit status unavailable while node is disconnected",
   "Connect to ${name} to refresh Playit tunnels.",
+  "Agent unavailable. Reconnect to ${name} to check Public Access.",
+  "Tunnel status unavailable.",
+  "isPlayitEndpointUnsupported",
+  "getLegacyPlayitAccessFallback",
+  "renderPlayitServiceStatusFromLegacySnapshot",
+  "renderPlayitTunnelsFromLegacySnapshot",
+  "Agent update required for Playit service controls",
+  "Tunnel listing requires an Agent update.",
+  "Tunnel listing unavailable, but Playit public address is configured.",
+  "legacy-public-access",
+  "Public Access status is temporarily unavailable. Reconnect or retry Refresh.",
   "copyPublicAccessValue(tunnel?.publicAddress",
   "entry.reason || \"Unsupported by this provider.\"",
   "article.addEventListener(\"click\"",
@@ -556,6 +570,10 @@ assert(indexSource.includes("data-playit-service-actions") && indexSource.includ
 assert(stylesSource.includes(".share-server-health") && stylesSource.includes(".share-server-diagnostics") && stylesSource.includes(".instance-access-badge--ok"), "Share Server access health and compact instance badges must have CSS.");
 assert(functionBody(appSource, "copyInstanceAccessAddress").includes("getRecommendedShareServerAddress"), "Copy Access should use the recommended healthy address instead of requiring a linked service address.");
 assert(appSource.includes("function buildShareServerInviteText") && appSource.includes("if (!isUsableShareAddress(entry.address)) return \"\";"), "Invite text must not copy empty, placeholder, or Checking addresses.");
+assert(functionBody(appSource, "renderPlayitUnavailable").includes("renderPublicAccessProviderDetails(latestPublicAccessSnapshot)"), "Public Access unavailable rendering must not clear known provider/service configuration.");
+assert(functionBody(appSource, "refreshPlayitStatus").includes("Public Access status is temporarily unavailable. Reconnect or retry Refresh."), "Public Access polling backoff must settle the UI instead of leaving Checking states.");
+assert(functionBody(appSource, "refreshPlayitManagement").includes("renderPlayitServiceStatusFromLegacySnapshot(status.error)") && functionBody(appSource, "refreshPlayitManagement").includes("renderPlayitTunnelsFromLegacySnapshot(tunnels.error)"), "Missing Playit endpoints must fall back to legacy provider data instead of raw NOT_FOUND or false empty tunnel states.");
+assert(functionBody(appSource, "renderPlayitServiceActions").includes("unsupportedControls") && functionBody(appSource, "renderPlayitServiceActions").includes("disabled: unavailable || controlsUnsupported"), "Playit controls must be disabled when the selected Agent lacks Playit management endpoints.");
 assert(agentClientSource.includes("PUBLIC_ACCESS_REQUEST_TIMEOUT_MS") && agentClientSource.includes("timeoutMs: PUBLIC_ACCESS_REQUEST_TIMEOUT_MS"), "Public Access Agent calls must use a bounded timeout.");
 const createProviderBody = functionBody(appSource, "createProviderAccessService");
 assert(!/window\.prompt|prompt\(/.test(createProviderBody), "Create Access Service workflow must not use browser prompt().");

@@ -7425,14 +7425,15 @@ function renderPlayitServiceActions() {
   if (!playitServiceActions) return;
   playitServiceActions.replaceChildren();
   const unavailable = Boolean(publicAccessUnavailableState);
+  const controlsUnsupported = latestPlayitServiceStatus?.unsupportedControls === true;
   const state = latestPlayitServiceStatus?.serviceState || latestPlayitServiceStatus?.service?.state || "unknown";
   const installed = latestPlayitServiceStatus?.installed !== false && state !== "missing";
   const running = state === "running";
   playitServiceActions.append(
     createPlayitServiceActionButton("playit-refresh-status", "Refresh status", { primary: true }),
-    createPlayitServiceActionButton("playit-refresh-tunnels", "Refresh tunnels", { disabled: unavailable }),
+    createPlayitServiceActionButton("playit-refresh-tunnels", "Refresh tunnels", { disabled: unavailable || controlsUnsupported }),
   );
-  if (unavailable) {
+  if (unavailable || controlsUnsupported) {
     return;
   }
   if (installed && running) {
@@ -7453,6 +7454,124 @@ function findInstanceForTunnel(tunnel = {}) {
   const port = Number(tunnel.localPort);
   if (!Number.isInteger(port)) return null;
   return getInstances().find((instance) => Number(getInstancePrimaryPort(instance)) === port || (Array.isArray(instance.ports) && instance.ports.map(Number).includes(port))) || null;
+}
+
+function isPlayitEndpointUnsupported(error = {}) {
+  const code = getAgentErrorCode(error);
+  const text = [
+    code,
+    error?.message,
+    error?.details?.message,
+    error?.payload?.error?.message,
+    error?.payload?.error?.details?.requestedAgentPath,
+    error?.details?.requestedAgentPath,
+  ].filter(Boolean).join(" ");
+  return code === "AGENT_PLAYIT_CONTROLS_UNSUPPORTED"
+    || (/NOT_FOUND|HTTP 404|Request failed/i.test(text) && /public-access\/playit|Playit service controls|getPlayitStatus|listPlayitTunnels/i.test(text));
+}
+
+function getLegacyPlayitAccessFallback(snapshot = latestPublicAccessSnapshot) {
+  const providers = Array.isArray(snapshot?.providers) ? snapshot.providers : [];
+  const services = Array.isArray(snapshot?.services) ? snapshot.services : [];
+  const provider = providers.find((entry) => entry?.id === "playit" || /playit/i.test(String(entry?.name || entry?.provider || ""))) || null;
+  const selectedService = getSelectedPublicAccessService(snapshot);
+  const service = services.find((entry) => entry?.providerId === "playit" || entry?.provider === "playit" || /playit/i.test(String(entry?.providerName || entry?.provider || "")))
+    || (provider?.id === "playit" ? selectedService : null);
+  const playit = snapshot?.playit && typeof snapshot.playit === "object" ? snapshot.playit : latestPlayitSnapshot || {};
+  const publicAddress = service?.publicAddress || provider?.publicAddress || playit.tunnelAddress || playit.tunnelDomain || getConfiguredPlayitAddress() || "";
+  const localPort = service?.localPort || playit.localPort || provider?.localPort || null;
+  const localHost = service?.localHost || service?.localIp || playit.localIp || "127.0.0.1";
+  const protocol = service?.protocol || playit.protocol || "TCP";
+  const lifecycle = String(service?.status || service?.state || provider?.lifecycleState || provider?.health || "");
+  const running = service?.running === true
+    || provider?.running === true
+    || provider?.connected === true
+    || playit.running === true
+    || /running|connected|healthy/i.test(lifecycle);
+  const lastCheckedAt = service?.updatedAt || provider?.lastCheckedAt || playit.lastSuccessfulRefreshAt || snapshot?.checkedAt || new Date().toISOString();
+  const hasLegacyData = Boolean(provider || service || publicAddress || localPort);
+  if (!hasLegacyData) return null;
+  return {
+    provider,
+    service,
+    publicAddress,
+    localHost,
+    localPort,
+    protocol,
+    running,
+    state: running ? "running" : "unknown",
+    lastCheckedAt,
+  };
+}
+
+function renderPlayitServiceStatusFromLegacySnapshot(error = null) {
+  const fallback = getLegacyPlayitAccessFallback();
+  const updateMessage = "Agent update required for Playit service controls.";
+  if (!fallback) {
+    renderPlayitServiceStatus({
+      ok: false,
+      installed: null,
+      unsupportedControls: true,
+      serviceState: "unknown",
+      service: {
+        state: "unknown",
+        message: `${updateMessage} Update or restart the selected Agent, then try again.`,
+        lastCheckedAt: new Date().toISOString(),
+      },
+      error,
+    });
+    return null;
+  }
+  const endpoint = fallback.publicAddress ? ` Legacy Public Access still has ${fallback.publicAddress} configured.` : "";
+  renderPlayitServiceStatus({
+    ok: false,
+    installed: true,
+    running: fallback.running,
+    unsupportedControls: true,
+    serviceState: fallback.state,
+    service: {
+      state: fallback.state,
+      message: `${updateMessage}${endpoint}`,
+      lastCheckedAt: fallback.lastCheckedAt,
+    },
+    error,
+  });
+  return fallback;
+}
+
+function renderPlayitTunnelsFromLegacySnapshot(error = null) {
+  const fallback = getLegacyPlayitAccessFallback();
+  if (fallback?.publicAddress || fallback?.localPort) {
+    renderPlayitTunnels({
+      ok: false,
+      code: "AGENT_PLAYIT_CONTROLS_UNSUPPORTED",
+      message: fallback.publicAddress
+        ? "Tunnel listing unavailable, but Playit public address is configured."
+        : "Tunnel listing requires an Agent update.",
+      tunnels: [{
+        id: "legacy-public-access",
+        name: "Configured Playit address",
+        status: fallback.running ? "online" : "unknown",
+        type: "Playit",
+        protocol: fallback.protocol,
+        localHost: fallback.localHost,
+        localPort: fallback.localPort,
+        publicAddress: fallback.publicAddress,
+        source: "legacy-public-access",
+        updatedAt: fallback.lastCheckedAt,
+      }],
+      error,
+    });
+    return fallback;
+  }
+  renderPlayitTunnels({
+    ok: false,
+    code: "AGENT_PLAYIT_CONTROLS_UNSUPPORTED",
+    message: "Tunnel listing requires an Agent update.",
+    tunnels: [],
+    error,
+  });
+  return null;
 }
 
 function renderPlayitTunnels(result = {}) {
@@ -7528,6 +7647,33 @@ function getPublicAccessUnavailableReason() {
   };
 }
 
+function getPublicAccessRequestUnavailableReason(error = null, fallbackMessage = "Public Access status unavailable.") {
+  const selectedNode = getSelectedNode();
+  const name = selectedNode?.displayName || selectedNode?.name || selectedNode?.id || "the selected node";
+  const code = getAgentErrorCode(error);
+  const disconnected = /AGENT_UNAVAILABLE|ECONNREFUSED|AGENT_TIMEOUT|TIMEOUT|NETWORK_ERROR|NODE_DISCONNECTED|NODE_UNAVAILABLE/i.test(String(code || error?.message || ""));
+  const unauthorized = /UNAUTHORIZED|AUTHENTICATION|AGENT_UNAUTHORIZED/i.test(String(code || error?.message || ""));
+  if (unauthorized) {
+    return {
+      code: "AGENT_UNAUTHORIZED",
+      message: `Agent unauthorized. Repair pairing for ${name} to check Public Access.`,
+      tunnelMessage: `Repair pairing for ${name} to refresh Playit tunnels.`,
+    };
+  }
+  if (disconnected || selectedNode?.kind === "agent") {
+    return {
+      code: disconnected ? "AGENT_UNAVAILABLE" : "PUBLIC_ACCESS_UNAVAILABLE",
+      message: disconnected ? `Agent unavailable. Reconnect to ${name} to check Public Access.` : fallbackMessage,
+      tunnelMessage: disconnected ? `Connect to ${name} to refresh Playit tunnels.` : "Tunnel status unavailable.",
+    };
+  }
+  return {
+    code: "PUBLIC_ACCESS_UNAVAILABLE",
+    message: fallbackMessage,
+    tunnelMessage: "Tunnel status unavailable.",
+  };
+}
+
 function renderPublicAccessUnavailableState(reason = getPublicAccessUnavailableReason(), fallbackMessage = "Public Access status unavailable.") {
   const unavailable = reason || { code: "PUBLIC_ACCESS_UNAVAILABLE", message: fallbackMessage, tunnelMessage: fallbackMessage };
   publicAccessUnavailableState = unavailable;
@@ -7565,12 +7711,23 @@ async function refreshPlayitManagement(payload = getNodeScopedPayload(getNodeReq
   ]);
   if (!isNodeRequestCurrent(requestContext)) return;
   if (status?.ok === false && status.error) {
-    renderPlayitServiceStatus({ ok: false, installed: false, serviceState: "unknown", service: { message: status.error.message || "Playit service status unavailable." } });
+    if (isPlayitEndpointUnsupported(status.error)) {
+      renderPlayitServiceStatusFromLegacySnapshot(status.error);
+    } else {
+      const reason = getPublicAccessRequestUnavailableReason(status.error, "Playit service status unavailable.");
+      renderPublicAccessUnavailableState(reason);
+      renderPlayitServiceStatus({ ok: false, installed: false, serviceState: "unknown", service: { message: reason.message } });
+    }
   } else if (status) {
     renderPlayitServiceStatus(status);
   }
   if (tunnels?.ok === false && tunnels.error) {
-    renderPlayitTunnels({ ok: false, message: tunnels.error.message || "Tunnel listing unavailable for this Playit install.", tunnels: [] });
+    if (isPlayitEndpointUnsupported(tunnels.error)) {
+      renderPlayitTunnelsFromLegacySnapshot(tunnels.error);
+    } else {
+      const reason = getPublicAccessRequestUnavailableReason(tunnels.error, "Tunnel listing unavailable for this Playit install.");
+      renderPlayitTunnels({ ok: false, code: reason.code, message: reason.tunnelMessage || reason.message, tunnels: [] });
+    }
   } else if (tunnels) {
     renderPlayitTunnels(tunnels);
   }
@@ -8821,7 +8978,12 @@ async function runPublicAccessAction(action) {
   if (action === "playit-refresh-tunnels") {
     const payload = getNodeScopedPayload(getNodeRequestContext("playit-tunnels"));
     const result = await getDesktopApiState().api?.publicAccess?.listPlayitTunnels?.(payload);
-    renderPlayitTunnels(result);
+    if (result?.ok === false && isPlayitEndpointUnsupported(result.error || result)) {
+      renderPlayitTunnelsFromLegacySnapshot(result.error || result);
+      showToast("Tunnel listing requires an Agent update.", "warning");
+    } else {
+      renderPlayitTunnels(result);
+    }
     return result;
   }
   if (action === "playit-logs") {
@@ -8841,6 +9003,9 @@ async function runPublicAccessAction(action) {
         action: control,
       });
       if (result?.ok === false) {
+        if (isPlayitEndpointUnsupported(result.error || result)) {
+          renderPlayitServiceStatusFromLegacySnapshot(result.error || result);
+        }
         throw Object.assign(new Error(result.error?.message || `Playit ${control} failed.`), { code: result.error?.code || "PLAYIT_CONTROL_FAILED" });
       }
       showToast(`Playit ${control} request completed.`, "success");
@@ -9112,7 +9277,7 @@ function renderPublicAccessSnapshot(snapshot = {}) {
 }
 
 function renderPlayitUnavailable(message = "Public Access status unavailable.") {
-  latestPublicAccessSnapshot = null;
+  const unavailable = getPublicAccessRequestUnavailableReason(null, message);
   latestPlayitSnapshot = null;
   setPlayitVisualState("missing");
   setField("playitInstalled", "Unavailable");
@@ -9135,8 +9300,8 @@ function renderPlayitUnavailable(message = "Public Access status unavailable.") 
   setField("publicAccessConnectionHealth", "Unavailable");
   setField("publicAccessReachability", message);
   setField("publicAccessProviderCapabilities", "Unavailable");
-  renderPublicAccessProviderDetails(null);
-  renderPublicAccessUnavailableState(getPublicAccessUnavailableReason(), message);
+  renderPublicAccessUnavailableState(getPublicAccessUnavailableReason() || unavailable, message);
+  renderPublicAccessProviderDetails(latestPublicAccessSnapshot);
   renderInstanceNetwork(findInstance());
   renderFriendlyDashboard();
   updateTitlebar();
@@ -13231,6 +13396,8 @@ function getAgentErrorMessage(error, fallback = "Instance request failed.") {
     INSTANCE_VERIFICATION_FAILED: error?.message || "Created instance could not be verified.",
     AGENT_TOKEN_MISSING: "Agent token is missing. Open Agent Control, generate a pairing code, then pair or repair the node connection.",
     UNAUTHORIZED: "Agent token rejected. Open Agent Control and use Repair, Rotate Token, or Pair with Code to refresh the connection.",
+    AGENT_NEOFORGE_REPAIR_UNSUPPORTED: "Agent update required for NeoForge repair. Update or restart the selected Agent, then try Repair Runtime again.",
+    AGENT_PLAYIT_CONTROLS_UNSUPPORTED: "Agent update required for Playit service controls. Update or restart the selected Agent, then try again.",
     NOT_FOUND: "The selected instance no longer exists.",
     INSTANCE_RUNNING: "Stop the instance before deleting it.",
     INSTANCE_DELETE_FAILED: "Instance files could not be deleted.",
@@ -23159,6 +23326,7 @@ async function refreshPlayitStatus() {
   playitRequestInFlight = true;
   const requestContext = getNodeRequestContext("playit");
   if (shouldBackOffAgentPolling("public-access", requestContext)) {
+    renderPlayitUnavailable("Public Access status is temporarily unavailable. Reconnect or retry Refresh.");
     playitRequestInFlight = false;
     return;
   }
@@ -23193,11 +23361,12 @@ async function refreshPlayitStatus() {
       stack: error?.stack || null,
     });
     recordAgentPollingFailure("public-access", requestContext, error);
-    renderPlayitUnavailable(getFriendlyStatusFailureMessage(
+    const message = getFriendlyStatusFailureMessage(
       error,
       "Public Access status could not be refreshed.",
       "Check the selected system or provider setup, then refresh Public Access.",
-    ));
+    );
+    renderPlayitUnavailable(message);
   } finally {
     if (isNodeRequestCurrent(requestContext)) {
       playitRequestInFlight = false;
