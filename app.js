@@ -13806,6 +13806,7 @@ function renderMarketplaceTemplates() {
 
   templates.forEach((template) => {
     const templateState = getMarketplaceStateForTemplate(template);
+    const primaryAction = getMarketplacePrimaryAction(template, templateState);
     const card = document.createElement("article");
     card.className = "marketplace-card";
     card.classList.toggle("is-selected", template.id === marketplaceSelectedTemplateId);
@@ -13837,6 +13838,13 @@ function renderMarketplaceTemplates() {
     meta.textContent = isProviderMarketplaceTemplate(template)
       ? `${template.author || "Unknown"} · ${formatMarketplaceProviderLabel(template)}${downloads}`
       : `${template.author || "Unknown"} · Template v${template.version || "0.0.0"} · ${template.category || "Uncategorized"}`;
+    if (templateState.instances?.length) {
+      const instanceLabel = getMarketplaceInstalledInstanceLabel(templateState.instances[0]);
+      if (instanceLabel) {
+        meta.textContent = `${meta.textContent} · Installed: ${instanceLabel}`;
+        meta.title = meta.textContent;
+      }
+    }
     const stateBadge = document.createElement("span");
     const footerState = getMarketplaceCompactFooterState(template, templateState);
     stateBadge.className = `marketplace-card__state status-pill status-pill--${footerState.tone}`;
@@ -13853,7 +13861,9 @@ function renderMarketplaceTemplates() {
     footer.className = "marketplace-card__footer";
     const versionLine = document.createElement("span");
     versionLine.className = "marketplace-card__version";
-    versionLine.textContent = getMarketplaceCompactPackVersion(template) || (isProviderMarketplaceTemplate(template) ? "Pack version pending" : `Template v${template.version || "0.0.0"}`);
+    const installedVersion = getMarketplaceInstalledInstanceVersion(templateState.instances?.[0]);
+    versionLine.textContent = installedVersion || getMarketplaceCompactPackVersion(template) || (isProviderMarketplaceTemplate(template) ? "Pack version pending" : `Template v${template.version || "0.0.0"}`);
+    versionLine.title = versionLine.textContent;
     footer.append(versionLine, stateBadge, badges);
     body.append(title, description, meta);
     body.append(footer);
@@ -13861,48 +13871,23 @@ function renderMarketplaceTemplates() {
     const install = document.createElement("button");
     install.type = "button";
     install.className = "inline-action";
-    install.textContent = template.comingSoon || template.disabled ? "Coming soon" : templateState.action;
-    install.disabled = Boolean(template.comingSoon || template.disabled || templateState.disabled);
-    install.addEventListener("click", () => {
-      if (templateState.action === "Review recovery") {
-        reviewMarketplaceRecovery(template);
-        return;
-      }
-      if (templateState.instances.length && templateState.action === "Open instance") {
-        openMarketplaceInstance(templateState.instances[0].id);
-        return;
-      }
-      openMarketplaceWizard(template.id);
-    });
+    install.textContent = template.comingSoon || template.disabled ? "Coming soon" : primaryAction.label;
+    install.disabled = Boolean(template.comingSoon || template.disabled || primaryAction.disabled);
+    install.dataset.marketplaceInstalledAction = primaryAction.id;
+    install.addEventListener("click", () => runMarketplaceInstalledAction(template, primaryAction.id));
 
     card.append(icon, body, install);
     card.addEventListener("keydown", (event) => {
       if (event.key !== "Enter" && event.key !== " ") return;
       event.preventDefault();
-      if (templateState.action === "Review recovery") {
-        reviewMarketplaceRecovery(template);
-        return;
-      }
-      if (templateState.instances.length && templateState.action === "Open instance") {
-        openMarketplaceInstance(templateState.instances[0].id);
-        return;
-      }
-      if (!template.comingSoon && !template.disabled) openMarketplaceWizard(template.id);
+      if (!template.comingSoon && !template.disabled && !primaryAction.disabled) runMarketplaceInstalledAction(template, primaryAction.id);
     });
     card.addEventListener("dblclick", () => {
       if (template.comingSoon || template.disabled) {
         setMarketplaceMessage(template.comingSoonMessage || "This template is not ready yet.", "warning");
         return;
       }
-      if (templateState.action === "Review recovery") {
-        reviewMarketplaceRecovery(template);
-        return;
-      }
-      if (templateState.instances.length && templateState.action === "Open instance") {
-        openMarketplaceInstance(templateState.instances[0].id);
-        return;
-      }
-      openMarketplaceWizard(template.id);
+      if (!primaryAction.disabled) runMarketplaceInstalledAction(template, primaryAction.id);
     });
     marketplaceGrid.append(card);
   });
@@ -14333,10 +14318,198 @@ function getMarketplaceTemplateDependencyIds(template = {}) {
 function getMarketplaceTemplateInstances(template = {}) {
   const templateId = template?.id || "";
   if (!templateId) return [];
+  const provider = getMarketplaceProvider(template);
+  const providerProjectId = String(template.providerProjectId || template.projectId || "").trim();
+  const providerFileId = String(template.providerFileId || template.providerVersionId || "").trim();
   return getInstances().filter((instance) => {
     const instanceTemplateId = instance?.templateId || instance?.metadata?.templateId || instance?.marketplace?.templateId;
-    return instanceTemplateId === templateId;
+    if (instanceTemplateId === templateId) return true;
+    if (!isProviderMarketplaceTemplate(template)) return false;
+    const instanceProvider = String(instance?.marketplace?.provider || instance?.metadata?.provider || "").trim().toLowerCase();
+    const instanceProjectId = String(
+      instance?.marketplace?.providerProjectId ||
+        instance?.marketplace?.projectId ||
+        instance?.metadata?.providerProjectId ||
+        instance?.metadata?.projectId ||
+        ""
+    ).trim();
+    const instanceFileId = getMarketplaceInstalledProviderVersionId(instance);
+    return instanceProvider === provider &&
+      Boolean(providerProjectId) &&
+      instanceProjectId === providerProjectId &&
+      (!providerFileId || !instanceFileId || instanceFileId === providerFileId);
   });
+}
+
+function getMarketplaceInstalledInstanceLabel(instance = null) {
+  return String(instance?.displayName || instance?.name || instance?.id || "").trim();
+}
+
+function getMarketplaceInstalledInstanceVersion(instance = null) {
+  if (!instance) return "";
+  const version = getInstanceVersionMetadata(instance);
+  const parts = [
+    version.gameVersion && version.gameVersion !== "Unknown version" ? `Minecraft ${version.gameVersion}` : "",
+    version.software && version.software !== "Minecraft" ? version.software : "",
+    version.softwareVersion && version.softwareVersion !== version.gameVersion ? version.softwareVersion : "",
+  ].filter(Boolean);
+  return parts.join(" · ");
+}
+
+function getMarketplaceInstalledProviderVersionId(instance = null) {
+  return String(
+    instance?.marketplace?.providerVersionId ||
+      instance?.marketplace?.providerFileId ||
+      instance?.marketplace?.serverPackFileId ||
+      instance?.metadata?.providerVersionId ||
+      instance?.metadata?.providerFileId ||
+      instance?.metadata?.serverPackFileId ||
+      instance?.versionInfo?.providerVersionId ||
+      instance?.versionInfo?.providerFileId ||
+      instance?.versionInfo?.serverPackFileId ||
+      ""
+  ).trim();
+}
+
+function getMarketplaceUpdateState(template = {}, instance = null) {
+  if (!instance) return { state: "not-installed", label: "Install to check updates", detail: "No installed instance is linked to this Marketplace item." };
+  const supportsSteamUpdate = instance.installerType === "steamcmd-native" &&
+    Number.isInteger(Number(instance.steamAppId)) &&
+    typeof getDesktopApiState().api?.marketplace?.updateSteamServer === "function";
+  if (supportsSteamUpdate) {
+    return isInstanceRunning(instance)
+      ? { state: "blocked", label: "Stop to update", detail: "Stop the instance before validating or updating server files.", action: "update-steam" }
+      : { state: "available", label: "Update files available", detail: "SteamCMD can validate and update server files while preserving saves, configs, backups, and mods.", action: "update-steam" };
+  }
+
+  const installedProviderVersion = getMarketplaceInstalledProviderVersionId(instance);
+  const advertisedProviderVersion = getMarketplaceProviderFileId(template) || getMarketplaceServerPackFileId(template) || String(template.providerVersionId || "").trim();
+  if (isProviderMarketplaceTemplate(template)) {
+    if (installedProviderVersion && advertisedProviderVersion && installedProviderVersion !== advertisedProviderVersion) {
+      return { state: "available", label: "Update available", detail: "Provider metadata points to a newer selected pack/server-pack file. Review details before updating." };
+    }
+    if (installedProviderVersion && advertisedProviderVersion && installedProviderVersion === advertisedProviderVersion) {
+      return { state: "current", label: "Up to date", detail: "Installed provider file metadata matches the selected Marketplace version." };
+    }
+    return { state: "unavailable", label: "Update check unavailable", detail: "Provider metadata is not complete enough to compare versions safely." };
+  }
+
+  if (template.updateCheck?.type) {
+    return { state: "unavailable", label: "Update check unavailable", detail: "This template declares update metadata, but automatic comparison is not supported for this installed instance yet." };
+  }
+  return { state: "unavailable", label: "Update check unavailable", detail: "This Marketplace item does not expose safe update metadata." };
+}
+
+function getMarketplaceInstalledDiagnostics(template = {}, state = null) {
+  const instance = state?.instances?.[0] || null;
+  if (!instance) {
+    return ["Not installed on the selected node."];
+  }
+  const diagnostics = [];
+  if (isInstanceRunning(instance)) {
+    diagnostics.push("Server is running.");
+  } else if (getInstanceStateClass(instance.state) === "failed") {
+    diagnostics.push(getInstanceFailureReason(instance) || "Server failed. Open Console for logs.");
+  } else {
+    diagnostics.push("Server is installed but stopped.");
+  }
+  if (canRepairNeoForgeRuntime(instance)) {
+    diagnostics.push(isNeoForgeRuntimeFailure(instance)
+      ? "NeoForge runtime incomplete - repair runtime instead of reinstalling."
+      : "NeoForge runtime repair is available if startup files need regeneration.");
+  }
+  const update = getMarketplaceUpdateState(template, instance);
+  diagnostics.push(update.detail || update.label);
+  return diagnostics;
+}
+
+function getMarketplacePrimaryAction(template = {}, state = getMarketplaceStateForTemplate(template)) {
+  const firstInstance = state.instances?.[0] || null;
+  if (template.comingSoon || template.disabled || state.disabled) {
+    return { id: "unavailable", label: state.action || "Unavailable", disabled: true };
+  }
+  if (state.operation?.status === "waiting" || state.action === "Review recovery") {
+    return { id: "review-recovery", label: "Review recovery" };
+  }
+  if (state.operation?.status === "failed") {
+    return { id: "install", label: "Retry" };
+  }
+  if (!firstInstance) {
+    return { id: "install", label: state.action || "Install" };
+  }
+  if (canRepairNeoForgeRuntime(firstInstance) && (isNeoForgeRuntimeFailure(firstInstance) || getInstanceStateClass(firstInstance.state) === "failed")) {
+    return { id: "repair-runtime", label: "Repair Runtime" };
+  }
+  if (getInstanceStateClass(firstInstance.state) === "failed") {
+    return { id: "open-console", label: "Open Console" };
+  }
+  const update = getMarketplaceUpdateState(template, firstInstance);
+  if (update.action === "update-steam" && update.state === "available") {
+    return { id: "update-steam", label: "Update" };
+  }
+  if (isInstanceRunning(firstInstance)) {
+    return { id: "open-instance", label: "Open Instance" };
+  }
+  if (canStartInstance(firstInstance)) {
+    return { id: "start-instance", label: "Start" };
+  }
+  return { id: "open-instance", label: "Open Instance" };
+}
+
+async function runMarketplaceInstalledAction(template = {}, actionId = "open-instance") {
+  const state = getMarketplaceStateForTemplate(template);
+  const instance = state.instances?.[0] || null;
+  if (actionId === "install") {
+    openMarketplaceWizard(template.id);
+    return;
+  }
+  if (actionId === "review-recovery") {
+    reviewMarketplaceRecovery(template);
+    return;
+  }
+  if (!instance?.id) {
+    openMarketplaceWizard(template.id);
+    return;
+  }
+
+  selectedInstanceId = instance.id;
+  selectInstance(instance.id, { refreshMetrics: false });
+  if (actionId === "open-instance") {
+    openMarketplaceInstance(instance.id);
+    return;
+  }
+  if (actionId === "open-console") {
+    showPage("instances");
+    setActiveInstanceTab("console");
+    refreshInstanceLogs({ reset: true });
+    return;
+  }
+  if (actionId === "share-server") {
+    openShareServerModal(instance);
+    return;
+  }
+  if (actionId === "start-instance") {
+    await runInstanceAction("start");
+    renderMarketplaceTemplates();
+    renderMarketplaceInstallSummary(template);
+    return;
+  }
+  if (actionId === "repair-runtime") {
+    await runInstanceAction("repair-neoforge-runtime");
+    renderMarketplaceTemplates();
+    renderMarketplaceInstallSummary(template);
+    return;
+  }
+  if (actionId === "update-steam") {
+    const update = getMarketplaceUpdateState(template, instance);
+    if (update.state === "blocked") {
+      showToast(update.detail, "warning");
+      return;
+    }
+    await runInstanceAction("update-steam");
+    renderMarketplaceTemplates();
+    renderMarketplaceInstallSummary(template);
+  }
 }
 
 function getMarketplaceLocalInstallRecord(template = {}) {
@@ -14367,14 +14540,18 @@ function getMarketplaceStateForTemplate(template = {}) {
   if (localRecord?.status === "failed") {
     return { label: "Failed", tone: "critical", action: "Retry", instances };
   }
+  const repairable = instances.find((instance) => canRepairNeoForgeRuntime(instance) && (isNeoForgeRuntimeFailure(instance) || getInstanceStateClass(instance.state) === "failed"));
+  if (repairable) {
+    return { label: "Repairable", tone: "warning", action: "Repair Runtime", instances, repairable: true };
+  }
   if (instances.some((instance) => getInstanceStateClass(instance.state) === "failed")) {
-    return { label: "Failed", tone: "critical", action: "Open instance", instances };
+    return { label: "Failed", tone: "critical", action: "Open Console", instances };
   }
   if (instances.some(isInstanceRunning)) {
-    return { label: "Running", tone: "ok", action: "Open instance", instances };
+    return { label: "Running", tone: "ok", action: "Open Instance", instances };
   }
   if (instances.length > 0) {
-    return { label: "Installed", tone: "ok", action: "Open instance", instances };
+    return { label: "Installed", tone: "ok", action: "Start", instances };
   }
   return { label: capability.label && isProviderMarketplaceTemplate(template) ? capability.label : "Available", tone: capability.state === "unknown" ? "warning" : "planned", action: "Install", instances, capability };
 }
@@ -14500,15 +14677,34 @@ function renderMarketplaceInstallSummary(template) {
   const providerDetails = isProviderMarketplaceTemplate(template)
     ? getMarketplaceProviderVersionRows(template).map((item) => [item.label, item.value])
     : [];
+  const installedInstance = state.instances[0] || null;
+  const updateState = getMarketplaceUpdateState(template, installedInstance);
   [
     ...baseDetails,
     ...providerDetails,
+    ...(installedInstance ? [
+      ["Installed instance", getMarketplaceInstalledInstanceLabel(installedInstance) || installedInstance.id],
+      ["Installed version", getMarketplaceInstalledInstanceVersion(installedInstance) || "Installed version unavailable"],
+      ["Installed update state", updateState.label],
+    ] : []),
     ["Server compatibility", capability.label || "Compatibility Unknown"],
     ["Server-pack detail", capability.serverPackFileId ? `Resolved server-pack metadata: file ${capability.serverPackFileId}` : capability.detail || "No server-pack metadata available"],
     ["Install path", "Managed by the selected Agent instance data root"],
     ["Data preservation", "Uninstall and backup behavior are managed from the Instances and Backups workspaces."],
   ].forEach(([label, value]) => appendDetailPair(details, label, value, { valueTag: "small" }));
   overview.append(details);
+  if (installedInstance) {
+    const installedHelp = document.createElement("div");
+    installedHelp.className = "marketplace-summary-list";
+    getMarketplaceInstalledDiagnostics(template, state).forEach((message) => {
+      const row = document.createElement("div");
+      row.className = "marketplace-summary-item";
+      row.dataset.state = /repair|stop|unavailable|failed|incomplete/i.test(message) ? "warning" : "ready";
+      row.append(createTextElement("span", "Installed status"), createTextElement("small", message));
+      installedHelp.append(row);
+    });
+    overview.append(installedHelp);
+  }
   if (isProviderMarketplaceTemplate(template) && capability.installable === false) {
     const unsupported = createEmptyState("Client pack only. This version does not provide an official dedicated-server pack on CurseForge.", "security-empty-state");
     const actions = document.createElement("div");
@@ -14563,12 +14759,33 @@ function renderMarketplaceRecoveryActions(template, normalizedError = null) {
 
   const firstInstance = state.instances?.[0] || null;
   if (firstInstance) {
-    const openInstance = document.createElement("button");
-    openInstance.type = "button";
-    openInstance.className = "inline-action";
-    openInstance.textContent = "Open Instance";
-    openInstance.addEventListener("click", () => openMarketplaceInstance(firstInstance.id));
-    actions.append(openInstance);
+    const descriptors = [
+      { id: "open-instance", label: "Open Instance", disabled: false },
+      { id: "start-instance", label: "Start", disabled: !canStartInstance(firstInstance) || isInstanceRunning(firstInstance) },
+      { id: "share-server", label: "Share Server", disabled: !getInstancePrimaryPort(firstInstance) },
+      { id: "open-console", label: "Open Console", disabled: false },
+      { id: "repair-runtime", label: "Repair Runtime", disabled: !canRepairNeoForgeRuntime(firstInstance) },
+    ];
+    const update = getMarketplaceUpdateState(template, firstInstance);
+    if (update.action === "update-steam") {
+      descriptors.push({
+        id: "update-steam",
+        label: update.state === "blocked" ? "Stop to Update" : "Update Server Files",
+        disabled: update.state === "blocked",
+      });
+    }
+    descriptors
+      .filter((descriptor) => !descriptor.disabled || ["repair-runtime", "update-steam"].includes(descriptor.id))
+      .forEach((descriptor) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "inline-action";
+        button.textContent = descriptor.label;
+        button.disabled = Boolean(descriptor.disabled);
+        button.dataset.marketplaceInstalledAction = descriptor.id;
+        button.addEventListener("click", () => runMarketplaceInstalledAction(template, descriptor.id));
+        actions.append(button);
+      });
   }
 
   const relatedOperationId = activeMarketplaceOperationId || state?.operation?.id || null;
@@ -14598,7 +14815,7 @@ function renderMarketplaceRecoveryActions(template, normalizedError = null) {
     const retry = document.createElement("button");
     retry.type = "button";
     retry.className = "inline-action";
-    retry.textContent = "Retry Install";
+    retry.textContent = firstInstance && canRepairNeoForgeRuntime(firstInstance) ? "Reinstall Instead" : "Retry Install";
     retry.addEventListener("click", () => openMarketplaceWizard(template.id));
     actions.append(retry);
   }
