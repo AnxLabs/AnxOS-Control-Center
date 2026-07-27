@@ -11885,17 +11885,53 @@ button:disabled {
 }
 
 .app-modal--node {
-  width: min(720px, calc(100vw - 28px));
+  width: min(860px, calc(100vw - 28px));
   max-height: min(680px, calc(100dvh - var(--titlebar-height) - 28px));
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 14px;
+  overflow: hidden;
+}
+
+.app-modal--node .modal-header {
+  align-items: start;
+  gap: 12px;
+}
+
+.app-modal--node .modal-header .icon-action {
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+
+.node-modal-body {
+  display: grid;
+  gap: 12px;
+  min-height: 0;
   overflow: auto;
+  padding-right: 4px;
 }
 
 .nodes-form-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
 }
 
 .node-form-guidance {
-  margin-bottom: 12px;
+  margin: 0;
+}
+
+.node-pairing-section,
+.node-manual-section {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.node-pairing-section textarea {
+  min-height: 76px;
+}
+
+.node-form-actions {
+  justify-content: flex-end;
 }
 
 .nodes-form-grid .settings-field--wide,
@@ -12263,6 +12299,10 @@ button:disabled {
   .nodes-summary-grid,
   .nodes-form-grid {
     grid-template-columns: 1fr;
+  }
+
+  .app-modal--node {
+    max-height: calc(100dvh - var(--titlebar-height) - 18px);
   }
 
   .app-modal-backdrop--drawer {

@@ -758,6 +758,9 @@ let backupsState = {
   connected: false,
   error: null,
 };
+let backupSummaryRefreshInFlight = false;
+let backupSummaryLastNodeId = null;
+let backupSummaryLastCheckedAt = 0;
 let sshConnectRequestInFlight = false;
 let lastAmpRefreshAt = 0;
 let ampRendererReceiveCount = 0;
@@ -858,6 +861,9 @@ let sshSelectedProfileId = null;
 let sshPasswordPromptVisible = false;
 let sshPendingPasswordProfileId = null;
 let sshTransientStatusMessage = "";
+let sshConnectWatchdogTimer = null;
+let sshConnectStartedAt = 0;
+let sshConnectPhase = "idle";
 let sshProfileFormVisible = false;
 let sshTerminalResizeObserver = null;
 let sshXterm = null;
@@ -1039,6 +1045,13 @@ const STARTUP_MINIMUM_MS = 2000;
 const SSH_OUTPUT_LINE_LIMIT = 1500;
 const SSH_TERMINAL_DEFAULT_COLS = 120;
 const SSH_TERMINAL_DEFAULT_ROWS = 32;
+const SSH_RENDERER_CONNECT_TIMEOUT_MS = 28000;
+const SSH_RENDERER_PHASES = [
+  { at: 0, phase: "connecting", message: "Connecting to SSH host..." },
+  { at: 5000, phase: "authenticating", message: "Authenticating SSH credentials..." },
+  { at: 12000, phase: "waiting-shell", message: "Waiting for remote shell..." },
+];
+const DASHBOARD_BACKUP_SUMMARY_REFRESH_MS = 60000;
 const SECURITY_REQUEST_TIMEOUT_MS = 10000;
 const SETTINGS_STORAGE_KEY = "anxos.settings.v1";
 const SIDEBAR_STATE_STORAGE_KEY = "anxos.sidebar.v1";
@@ -1830,6 +1843,11 @@ function getSetupHealthStatus(ready, label = "Ready") {
     : { label: "Needs attention", tone: "warning" };
 }
 
+function getManagedBackupCount() {
+  const summaryTotal = Number(backupsState.summary?.totalBackups);
+  return Number.isFinite(summaryTotal) ? summaryTotal : backupsState.backups.length;
+}
+
 function createSetupHealthItem(item) {
   const article = document.createElement("article");
   article.className = "setup-health-item";
@@ -1861,7 +1879,7 @@ function getSetupHealthState() {
   const agentSummary = getOnboardingAgentSummary();
   const dependencySummary = summarizeDependencyStatus(latestDependencyResult);
   const hasDependencyScan = Boolean(latestDependencyResult);
-  const backupCount = Number.isFinite(backupsState.summary?.totalBackups) ? backupsState.summary.totalBackups : backupsState.backups.length;
+  const backupCount = getManagedBackupCount();
   const publicAccessServices = Array.isArray(latestPublicAccessSnapshot?.services) ? latestPublicAccessSnapshot.services.length : 0;
   const publicAccessConfigured = Boolean(publicAccessServices || getCurrentSettings()["playit.address"]);
   const agentConnected = agentSummary.status === "Connected";
@@ -2012,6 +2030,9 @@ function renderFriendlyDashboard() {
     dashboardFriendlyEmpty.hidden = dashboardFriendlyEmpty.childElementCount === 0;
   }
   renderSetupHealthCenter();
+  refreshBackupSummaryForSetup().catch((error) => {
+    console.warn("[Backups] Setup backup summary refresh failed.", { message: error?.message || String(error) });
+  });
 }
 
 function ensurePageIntroductions() {
@@ -6979,10 +7000,12 @@ function getCpuTemperatureStatus(value) {
 function renderCpuTemperature(snapshot) {
   const tempC = getSnapshotCpuTempC(snapshot);
   const status = getCpuTemperatureStatus(tempC);
-  const text = Number.isFinite(tempC) ? `${Math.round(tempC)}°C · ${status.label}` : "Unavailable";
   const sensor = snapshot?.cpu?.temperatureSensor || snapshot?.temperatureSensor || null;
   const source = snapshot?.cpu?.temperatureSource || snapshot?.temperatureSource || null;
   const reason = snapshot?.cpu?.temperatureReason || snapshot?.temperatureReason || null;
+  const text = Number.isFinite(tempC)
+    ? `${Math.round(tempC)}°C · ${status.label}`
+    : getCpuTemperatureUnavailableLabel(reason, source);
 
   setField("temperature", text);
   updateFieldAttributes("temperature", (field) => {
@@ -6993,14 +7016,29 @@ function renderCpuTemperature(snapshot) {
     }
     field.title = Number.isFinite(tempC)
       ? `${sensor || "CPU temperature"}${source ? ` — ${source}` : ""}: ${tempC.toFixed(1)}°C (${status.label})`
-      : reason === "provider_missing"
-        ? "CPU temperature unavailable: the bundled LibreHardwareMonitor provider is missing."
-        : reason === "low_level_driver_missing"
-          ? "CPU temperature unavailable: this CPU requires a supported low-level sensor driver that is not installed."
-        : reason === "access_denied_or_driver_unavailable" || reason === "cpu_sensor_unavailable_requires_elevation_or_driver"
-          ? "CPU temperature unavailable: LibreHardwareMonitor could not access the required sensor or driver."
-          : "CPU temperature is not reported by this node.";
+      : getCpuTemperatureUnavailableDetail(reason, source);
   });
+}
+
+function getCpuTemperatureUnavailableLabel(reason = "", source = "") {
+  const text = `${reason || ""} ${source || ""}`.toLowerCase();
+  if (/unsupported|platform/.test(text)) return "Unavailable on this system";
+  if (/provider_missing|provider_unavailable|not_reported|sensor|driver|access_denied|requires_elevation|low_level/.test(text)) {
+    return "Requires sensor support";
+  }
+  return "Not supported by this node";
+}
+
+function getCpuTemperatureUnavailableDetail(reason = "", source = "") {
+  const label = getCpuTemperatureUnavailableLabel(reason, source);
+  if (reason === "provider_missing") return "CPU temperature unavailable: the bundled sensor provider is missing.";
+  if (reason === "low_level_driver_missing") return "CPU temperature unavailable: this CPU requires a supported low-level sensor driver.";
+  if (reason === "access_denied_or_driver_unavailable" || reason === "cpu_sensor_unavailable_requires_elevation_or_driver") {
+    return "CPU temperature unavailable: the node could not access the required sensor or driver.";
+  }
+  if (label === "Unavailable on this system") return "CPU temperature is unavailable on this operating system or hardware.";
+  if (label === "Requires sensor support") return "CPU temperature requires hardware sensor support that this node did not report.";
+  return "CPU temperature is not reported by this node.";
 }
 
 function updateLocalTime() {
@@ -15134,9 +15172,7 @@ function formatBackupScheduleSummary() {
 function renderBackupSummary() {
   const connected = getBackupsConnected();
   const mostRecent = getMostRecentBackup();
-  const totalBackups = Number.isFinite(backupsState.summary?.totalBackups)
-    ? backupsState.summary.totalBackups
-    : backupsState.backups.length;
+  const totalBackups = getManagedBackupCount();
 
   setBackupSummaryField("total", connected ? String(totalBackups) : "Unavailable");
   setBackupSummaryField("last", connected ? (mostRecent?.createdAt ? formatDateTime(mostRecent.createdAt) : "No backups yet") : "Unavailable");
@@ -15228,6 +15264,51 @@ function renderBackups() {
   });
 }
 
+async function refreshBackupSummaryForSetup(options = {}) {
+  const desktopApiState = getDesktopApiState();
+  const nodeId = getSelectedNodeId();
+  const now = Date.now();
+  if (!desktopApiState.hasBackups || backupSummaryRefreshInFlight) return;
+  if (
+    options.force !== true &&
+    backupSummaryLastNodeId === nodeId &&
+    now - backupSummaryLastCheckedAt < DASHBOARD_BACKUP_SUMMARY_REFRESH_MS
+  ) {
+    return;
+  }
+
+  const requestContext = getNodeRequestContext("backup-summary");
+  if (shouldBackOffAgentPolling("backups", requestContext)) return;
+  backupSummaryRefreshInFlight = true;
+  try {
+    const result = await desktopApiState.api.backups.list(getNodeScopedPayload(requestContext));
+    if (!isNodeRequestCurrent(requestContext)) return;
+    backupsState.backups = Array.isArray(result?.backups) ? result.backups : [];
+    backupsState.root = result?.root || result?.diagnostics?.roots?.[0]?.path || null;
+    backupsState.roots = Array.isArray(result?.roots) ? result.roots : [];
+    backupsState.summary = result?.summary || null;
+    backupsState.connected = true;
+    backupsState.error = null;
+    backupSummaryLastNodeId = requestContext.nodeId;
+    backupSummaryLastCheckedAt = Date.now();
+    clearAgentPollingBackoff("backups", requestContext);
+    renderSetupHealthCenter();
+    renderFriendlyDashboard();
+  } catch (error) {
+    if (!isNodeRequestCurrent(requestContext)) return;
+    recordAgentPollingFailure("backups", requestContext, error);
+    backupsState = {
+      ...backupsState,
+      connected: false,
+      error: error?.message || "Backups could not be loaded.",
+    };
+  } finally {
+    if (isNodeRequestCurrent(requestContext)) {
+      backupSummaryRefreshInFlight = false;
+    }
+  }
+}
+
 async function promptBackupText({ title, message, label, initialValue = "", confirmLabel = "Continue" } = {}) {
   return createSecurityTextPrompt({ title, message, label, initialValue, confirmLabel });
 }
@@ -15301,6 +15382,8 @@ async function refreshBackups() {
     backupsState.scheduleSupported = scheduleSupported;
     backupsState.connected = true;
     backupsState.error = null;
+    backupSummaryLastNodeId = requestContext.nodeId;
+    backupSummaryLastCheckedAt = Date.now();
     clearAgentPollingBackoff("backups", requestContext);
     if (!getSelectedBackup()) {
       backupsState.selectedBackupId = backupsState.backups[0]?.id || null;
@@ -25548,7 +25631,64 @@ function getSshSessionStatusLabel(session) {
   return "Disconnected";
 }
 
+function getSshSessionAgeMs(session) {
+  const created = Date.parse(session?.createdAt || "");
+  return Number.isFinite(created) ? Math.max(0, Date.now() - created) : 0;
+}
+
+function getSshConnectingPhase(session = null) {
+  const age = session ? getSshSessionAgeMs(session) : Math.max(0, Date.now() - sshConnectStartedAt);
+  return SSH_RENDERER_PHASES.reduce((selected, phase) => (age >= phase.at ? phase : selected), SSH_RENDERER_PHASES[0]);
+}
+
+function enforceSshRendererTimeouts() {
+  let changed = false;
+  sshSessions.forEach((session) => {
+    if (session.status !== "connecting") return;
+    if (getSshSessionAgeMs(session) <= SSH_RENDERER_CONNECT_TIMEOUT_MS) return;
+    session.status = "error";
+    session.message = "SSH connection timed out before the remote shell became available. Retry or cancel and check the host, credentials, and network path.";
+    sshTransientStatusMessage = session.message;
+    changed = true;
+  });
+  return changed;
+}
+
+function updateSshConnectWatchdog() {
+  if (sshConnectWatchdogTimer) {
+    window.clearTimeout(sshConnectWatchdogTimer);
+    sshConnectWatchdogTimer = null;
+  }
+  const connecting = [...sshSessions.values()].some((session) => session.status === "connecting") || sshConnectRequestInFlight;
+  if (!connecting) {
+    sshConnectPhase = "idle";
+    return;
+  }
+  const phase = getSshConnectingPhase(getActiveSshSession());
+  sshConnectPhase = phase.phase;
+  sshConnectWatchdogTimer = window.setTimeout(() => {
+    sshConnectWatchdogTimer = null;
+    renderSshView();
+  }, 1000);
+}
+
+function clearSshConnectWatchdog() {
+  if (sshConnectWatchdogTimer) {
+    window.clearTimeout(sshConnectWatchdogTimer);
+    sshConnectWatchdogTimer = null;
+  }
+  sshConnectPhase = "idle";
+}
+
 function getSshSessionMessage(session) {
+  if (session?.status === "connecting") {
+    return getSshConnectingPhase(session).message;
+  }
+
+  if (!session && sshConnectRequestInFlight) {
+    return getSshConnectingPhase().message;
+  }
+
   if (sshTransientStatusMessage) {
     return sshTransientStatusMessage;
   }
@@ -25724,6 +25864,10 @@ function renderSshSessionTabs() {
 }
 
 function renderSshView() {
+  const timedOut = enforceSshRendererTimeouts();
+  if (timedOut) {
+    window.requestAnimationFrame(renderSshView);
+  }
   renderSshProfileSelectors();
   renderSshSessionTabs();
 
@@ -25752,6 +25896,7 @@ function renderSshView() {
 
   if (sshDisconnectButton) {
     sshDisconnectButton.disabled = !canDisconnect;
+    sshDisconnectButton.textContent = session?.status === "connecting" ? "Cancel" : "Disconnect";
   }
 
   if (sshCommandInput) {
@@ -25793,6 +25938,7 @@ function renderSshView() {
     sshXterm.options.disableStdin = !canSend;
   }
   updateSshWorkspaceStatus();
+  updateSshConnectWatchdog();
 }
 
 function measureSshTerminalSize() {
@@ -25949,6 +26095,7 @@ function ensureSshEventSubscription() {
 
       if (session.status === "connected") {
         setSshPasswordPromptState(false);
+        clearSshConnectWatchdog();
         window.requestAnimationFrame(focusSshTerminalInput);
       }
 
@@ -25964,7 +26111,8 @@ function ensureSshEventSubscription() {
         session.message = payload.message || "SSH session failed.";
       }
 
-       sshTransientStatusMessage = payload.message || "SSH session failed.";
+      sshTransientStatusMessage = payload.message || "SSH session failed.";
+      clearSshConnectWatchdog();
 
       if (payload?.message) {
         showToast(payload.message);
@@ -25983,6 +26131,7 @@ function ensureSshEventSubscription() {
       }
 
       sshTransientStatusMessage = payload.message || "SSH session disconnected.";
+      clearSshConnectWatchdog();
 
       renderSshView();
     }
@@ -26029,6 +26178,8 @@ async function connectSshSession(options = {}) {
   }
 
   sshConnectRequestInFlight = true;
+  sshConnectStartedAt = Date.now();
+  sshConnectPhase = "connecting";
   sshTransientStatusMessage = `Connecting to ${profile.username}@${profile.host}:${profile.port}...`;
   renderSshView();
 
@@ -26053,6 +26204,9 @@ async function connectSshSession(options = {}) {
     renderSshView();
   } finally {
     sshConnectRequestInFlight = false;
+    if (![...sshSessions.values()].some((session) => session.status === "connecting")) {
+      clearSshConnectWatchdog();
+    }
     renderSshView();
   }
 }
@@ -28079,6 +28233,7 @@ function getNodeConnectionSummary(node) {
 }
 
 const NODE_HEALTH_STALE_MS = 60 * 1000;
+const NODE_HEALTH_ACTIONABLE_DIAGNOSTIC_MS = 15 * 60 * 1000;
 const NODE_HEALTH_RESOURCE_THRESHOLDS = {
   cpuWarningPercent: 90,
   memoryWarningPercent: 90,
@@ -28558,14 +28713,23 @@ function buildOperationsHealth() {
 
 function buildDiagnosticsHealth() {
   const groups = diagnosticsIssueGroups.length ? diagnosticsIssueGroups : groupDiagnosticIssues(agentLogEntries);
-  const critical = groups.filter((group) => getDiagnosticSeverityRank(group.severity) >= 3);
+  const actionable = groups.filter((group) => {
+    const lastSeen = Date.parse(group.lastSeen || group.latest?.timestamp || "");
+    return Number.isFinite(lastSeen) && Date.now() - lastSeen <= NODE_HEALTH_ACTIONABLE_DIAGNOSTIC_MS;
+  });
+  const critical = actionable.filter((group) => getDiagnosticSeverityRank(group.severity) >= 3);
   return buildNodeHealthCategory({
     id: "diagnostics",
     label: "Diagnostics",
-    state: critical.length ? "Degraded" : groups.length ? "Warning" : agentLogEntries.length ? "Healthy" : "Unknown",
-    evidence: `${groups.length} grouped issue${groups.length === 1 ? "" : "s"} from ${agentLogEntries.length} sanitized log entries.`,
+    state: critical.length ? "Degraded" : actionable.length ? "Warning" : groups.length ? "Healthy" : agentLogEntries.length ? "Healthy" : "Unknown",
+    evidence: actionable.length
+      ? `${actionable.length} current actionable grouped issue${actionable.length === 1 ? "" : "s"} from ${agentLogEntries.length} sanitized log entries.`
+      : groups.length
+        ? `${groups.length} historical grouped diagnostic issue${groups.length === 1 ? "" : "s"} from ${agentLogEntries.length} sanitized log entries; no recent actionable issue detected.`
+        : `${groups.length} grouped issue${groups.length === 1 ? "" : "s"} from ${agentLogEntries.length} sanitized log entries.`,
     checkedAt: Date.now(),
-    issueCount: groups.length,
+    issueCount: actionable.length,
+    historicalIssueCount: Math.max(0, groups.length - actionable.length),
     required: false,
     current: agentLogEntries.length > 0,
     workspace: "diagnostics",

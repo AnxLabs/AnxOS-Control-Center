@@ -4378,60 +4378,62 @@
           </div>
           <button class="icon-action" type="button" aria-label="Close node form" data-node-action="close-modal">&times;</button>
         </header>
-        <p class="settings-note node-form-guidance">One machine or server = one independently running AnxOS Agent. Use Pair with Code for automatic setup, or open Advanced Manual Setup for recovery and development.</p>
-        <div class="settings-message" data-node-form-status hidden></div>
-        <section class="settings-section node-pairing-section" data-node-pairing-section>
-          <div class="settings-section__header"><div><h3>Pair with Code</h3><p>Recommended. Enter the temporary pairing code displayed by Agent setup. No manual token setup is required.</p></div><span class="status-pill status-pill--ok">Recommended</span></div>
-          <label class="settings-field settings-field--wide"><span>Pairing code</span><textarea rows="3" data-node-pairing-code placeholder="ANX-4K7P-92DM" autocomplete="off" spellcheck="false"></textarea><small class="settings-field-error" data-node-field-error="pairingCode"></small></label>
-          <div class="settings-actions">
-            <button class="primary-button" type="button" data-node-action="pair-code">Pair Agent</button>
-            <button class="inline-action" type="button" data-node-action="paste-pairing-code">Paste Pairing Code</button>
-          </div>
-          <div class="settings-actions settings-actions--secondary" data-node-pairing-retry hidden>
-            <button class="inline-action" type="button" data-node-action="restart-pairing">Restart Pairing</button>
-            <button class="inline-action" type="button" data-node-action="pairing-retry-help">Generate New Pairing Code</button>
-            <button class="inline-action" type="button" data-node-action="cancel-pairing">Cancel</button>
-          </div>
-        </section>
-        <section class="settings-section node-manual-section" data-node-manual-section>
-          <div class="settings-section__header"><div><h3>Advanced Manual Setup</h3><p>Use direct Agent URL and token only for development, recovery, older Agents, or headless workflows.</p></div><span class="status-pill status-pill--planned">Advanced</span></div>
-        <div class="settings-grid nodes-form-grid">
-          <label class="settings-field"><span>Node name</span><input type="text" data-node-field="displayName" placeholder="Anxlab" maxlength="80"><small class="settings-field-error" data-node-field-error="displayName"></small></label>
-          <label class="settings-field"><span>Agent URL</span><input type="url" data-node-field="agentUrl" placeholder="http://192.168.1.134:47131"><small class="settings-field-error" data-node-field-error="agentUrl"></small></label>
-          <div class="settings-field settings-field--wide node-token-field">
-            <label><span>Agent Token</span><input type="password" data-node-field="agentToken" placeholder="Leave blank to keep the existing token" autocomplete="off"></label>
-            <div class="settings-actions node-token-actions">
-              <button class="inline-action" type="button" data-node-action="generate-token">Generate Token</button>
-              <button class="inline-action" type="button" data-node-action="copy-token" disabled>Copy Token</button>
+        <div class="node-modal-body">
+          <p class="settings-note node-form-guidance">One machine or server = one independently running AnxOS Agent. Use Pair with Code for automatic setup, or open Advanced Manual Setup for recovery and development.</p>
+          <div class="settings-message" data-node-form-status hidden></div>
+          <section class="settings-section node-pairing-section" data-node-pairing-section>
+            <div class="settings-section__header"><div><h3>Pair with Code</h3><p>Recommended. Enter the temporary pairing code displayed by Agent setup. No manual token setup is required.</p></div><span class="status-pill status-pill--ok">Recommended</span></div>
+            <label class="settings-field settings-field--wide"><span>Pairing code</span><textarea rows="3" data-node-pairing-code placeholder="ANX-4K7P-92DM" autocomplete="off" spellcheck="false"></textarea><small class="settings-field-error" data-node-field-error="pairingCode"></small></label>
+            <div class="settings-actions">
+              <button class="primary-button" type="button" data-node-action="pair-code">Pair Agent</button>
+              <button class="inline-action" type="button" data-node-action="paste-pairing-code">Paste Pairing Code</button>
             </div>
-            <small class="settings-note" data-node-token-note>Generate a secure token, copy it to the Agent machine, and configure the same token on both sides.</small>
-            <small class="settings-field-error" data-node-field-error="agentToken"></small>
-          </div>
-          <label class="settings-field settings-field--wide"><span>Description</span><input type="text" data-node-field="description" placeholder="Optional note, rack, owner, or location" maxlength="500"></label>
-          <label class="settings-field settings-field--wide"><span>Tags</span><input type="text" data-node-field="tags" placeholder="windows, minecraft, vps"></label>
-          <label class="settings-check settings-check--toggle"><input type="checkbox" data-node-field="enabled" checked><span>Node enabled</span></label>
-          <label class="settings-check settings-check--toggle"><input type="checkbox" data-node-field="dockerEnabled" checked><span>Docker enabled on this node</span></label>
+            <div class="settings-actions settings-actions--secondary" data-node-pairing-retry hidden>
+              <button class="inline-action" type="button" data-node-action="restart-pairing">Restart Pairing</button>
+              <button class="inline-action" type="button" data-node-action="pairing-retry-help">Generate New Pairing Code</button>
+              <button class="inline-action" type="button" data-node-action="cancel-pairing">Cancel</button>
+            </div>
+          </section>
+          <section class="settings-section node-manual-section" data-node-manual-section>
+            <div class="settings-section__header"><div><h3>Advanced Manual Setup</h3><p>Use direct Agent URL and token only for development, recovery, older Agents, or headless workflows.</p></div><span class="status-pill status-pill--planned">Advanced</span></div>
+            <div class="settings-grid nodes-form-grid">
+              <label class="settings-field"><span>Node name</span><input type="text" data-node-field="displayName" placeholder="Anxlab" maxlength="80"><small class="settings-field-error" data-node-field-error="displayName"></small></label>
+              <label class="settings-field"><span>Agent URL</span><input type="url" data-node-field="agentUrl" placeholder="http://192.168.1.134:47131"><small class="settings-field-error" data-node-field-error="agentUrl"></small></label>
+              <div class="settings-field settings-field--wide node-token-field">
+                <label><span>Agent Token</span><input type="password" data-node-field="agentToken" placeholder="Leave blank to keep the existing token" autocomplete="off"></label>
+                <div class="settings-actions node-token-actions">
+                  <button class="inline-action" type="button" data-node-action="generate-token">Generate Token</button>
+                  <button class="inline-action" type="button" data-node-action="copy-token" disabled>Copy Token</button>
+                </div>
+                <small class="settings-note" data-node-token-note>Generate a secure token, copy it to the Agent machine, and configure the same token on both sides.</small>
+                <small class="settings-field-error" data-node-field-error="agentToken"></small>
+              </div>
+              <label class="settings-field settings-field--wide"><span>Description</span><input type="text" data-node-field="description" placeholder="Optional note, rack, owner, or location" maxlength="500"></label>
+              <label class="settings-field settings-field--wide"><span>Tags</span><input type="text" data-node-field="tags" placeholder="windows, minecraft, vps"></label>
+              <label class="settings-check settings-check--toggle"><input type="checkbox" data-node-field="enabled" checked><span>Node enabled</span></label>
+              <label class="settings-check settings-check--toggle"><input type="checkbox" data-node-field="dockerEnabled" checked><span>Docker enabled on this node</span></label>
+            </div>
+            <div class="settings-actions node-form-actions">
+              <button class="inline-action" type="button" data-node-action="test-form">Test Connection</button>
+              <button class="primary-button" type="button" data-node-action="save">Register Node</button>
+              <button class="inline-action" type="button" data-node-action="close-modal">Cancel</button>
+              <button class="inline-action" type="button" data-node-action="delete">Delete Selected</button>
+            </div>
+            <div class="settings-note node-token-setup" data-node-token-setup hidden>
+              <strong>Token setup</strong>
+              <ol>
+                <li>Copy the generated token.</li>
+                <li>Configure the same token on the Agent machine.</li>
+                <li>Restart the AnxOS Agent.</li>
+                <li>Return to Control Center.</li>
+                <li>Select Test Connection.</li>
+                <li>Save the node after validation succeeds.</li>
+              </ol>
+              <p>For normal setup, open Agent Setup on that machine and use Pair with Code or Repair Connection. Advanced manual token setup is intended for development, recovery, or headless administration.</p>
+              <p>Treat this token like a password. Anyone with it may be able to control this Agent.</p>
+            </div>
+          </section>
         </div>
-        <div class="settings-actions">
-          <button class="inline-action" type="button" data-node-action="test-form">Test Connection</button>
-          <button class="primary-button" type="button" data-node-action="save">Register Node</button>
-          <button class="inline-action" type="button" data-node-action="close-modal">Cancel</button>
-          <button class="inline-action" type="button" data-node-action="delete">Delete Selected</button>
-        </div>
-        <div class="settings-note node-token-setup" data-node-token-setup hidden>
-          <strong>Token setup</strong>
-          <ol>
-            <li>Copy the generated token.</li>
-            <li>Configure the same token on the Agent machine.</li>
-            <li>Restart the AnxOS Agent.</li>
-            <li>Return to Control Center.</li>
-            <li>Select Test Connection.</li>
-            <li>Save the node after validation succeeds.</li>
-          </ol>
-          <p>For normal setup, open Agent Setup on that machine and use Pair with Code or Repair Connection. Advanced manual token setup is intended for development, recovery, or headless administration.</p>
-          <p>Treat this token like a password. Anyone with it may be able to control this Agent.</p>
-        </div>
-        </section>
       </section>
     </div>
 
