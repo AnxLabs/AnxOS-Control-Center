@@ -3,17 +3,17 @@
     "version": "1.8",
     "build": 178,
     "channel": "Private Alpha",
-    "tag": "v1.8-build178",
+    "tag": "v1.8-build179",
     "date": "July 26, 2026",
     "datetime": "2026-07-27",
     "title": "AnxOS Version 1.8",
-    "summary": "Private Alpha v1.8 Build 178 adds remote Minecraft configuration support and fixes CurseForge server-pack startup handling.",
+    "summary": "Private Alpha v1.8 Build 179 adds remote Minecraft configuration support and fixes CurseForge server-pack startup handling.",
     "changes": [
       "Added Minecraft Configuration editor support for remote Agent game-config endpoints and server.properties loading.",
       "Fixed ATM10 and CurseForge server packs so startserver.sh launches through bash instead of the NeoForge installer jar.",
       "Includes stability and QA improvements for v1.8 Private Alpha validation."
     ],
-    "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build178"
+    "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build179"
   },
   {
     "version": "1.7",

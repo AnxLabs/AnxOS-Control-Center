@@ -8,15 +8,15 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   build: "178",
   buildNumber: "178",
   channel: "Private Alpha",
-  releaseLabel: "Version 1.8 Build 178 Private Alpha",
+  releaseLabel: "Version 1.8 Build 179 Private Alpha",
   releaseDate: "July 26, 2026",
-  releaseTag: "v1.8-build178",
+  releaseTag: "v1.8-build179",
   releaseRepository: {
     owner: "bungopam-byte",
     repo: "AnxOS-Control-Center-Releases",
   },
   repositoryUrl: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases",
-  releaseUrl: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build178",
+  releaseUrl: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build179",
   githubReleasesApiUrl: "https://api.github.com/repos/bungopam-byte/AnxOS-Control-Center-Releases/releases?per_page=20",
   stableDownloadEndpoints: {
     windows: "/api/download/latest/windows",
@@ -26,20 +26,20 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   },
   releaseAssets: [
       {
-          fileName: "AnxOS-Control-Center-Setup-1.8-build178.exe",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build178/AnxOS-Control-Center-Setup-1.8-build178.exe"
+          fileName: "AnxOS-Control-Center-Setup-1.8-build179.exe",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build179/AnxOS-Control-Center-Setup-1.8-build179.exe"
       },
       {
-          fileName: "AnxOS-Control-Center-1.8-build178-portable.exe",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build178/AnxOS-Control-Center-1.8-build178-portable.exe"
+          fileName: "AnxOS-Control-Center-1.8-build179-portable.exe",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build179/AnxOS-Control-Center-1.8-build179-portable.exe"
       },
       {
-          fileName: "AnxOS-Control-Center-1.8-build178.AppImage",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build178/AnxOS-Control-Center-1.8-build178.AppImage"
+          fileName: "AnxOS-Control-Center-1.8-build179.AppImage",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build179/AnxOS-Control-Center-1.8-build179.AppImage"
       },
       {
-          fileName: "AnxOS-Control-Center-1.8-build178.deb",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build178/AnxOS-Control-Center-1.8-build178.deb"
+          fileName: "AnxOS-Control-Center-1.8-build179.deb",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build179/AnxOS-Control-Center-1.8-build179.deb"
       }
   ],
   releaseNotes: [
@@ -47,17 +47,17 @@ window.ANXOS_DOWNLOAD_CONFIG = {
           "version": "1.8",
           "build": 178,
           "channel": "Private Alpha",
-          "tag": "v1.8-build178",
+          "tag": "v1.8-build179",
           "date": "July 26, 2026",
           "datetime": "2026-07-27",
           "title": "AnxOS Version 1.8",
-          "summary": "Private Alpha v1.8 Build 178 adds remote Minecraft configuration support and fixes CurseForge server-pack startup handling.",
+          "summary": "Private Alpha v1.8 Build 179 adds remote Minecraft configuration support and fixes CurseForge server-pack startup handling.",
           "changes": [
               "Added Minecraft Configuration editor support for remote Agent game-config endpoints and server.properties loading.",
               "Fixed ATM10 and CurseForge server packs so startserver.sh launches through bash instead of the NeoForge installer jar.",
               "Includes stability and QA improvements for v1.8 Private Alpha validation."
           ],
-          "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build178"
+          "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build179"
       },
       {
           "version": "1.7",
