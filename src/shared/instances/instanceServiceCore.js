@@ -2510,7 +2510,7 @@ async function findNeoForgeInstallerJars(dataRoot) {
 
 function neoforgeRuntimeIncompleteMessage(details = {}) {
   if (details.mismatch) {
-    return `NeoForge runtime files are incomplete or mismatched. The startup script expects ${details.expectedVersion || "a different NeoForge version"} but generated runtime files are ${details.availableVersions?.join(", ") || "missing"}. Retry server bootstrap or reinstall this instance.`;
+    return `NeoForge runtime incomplete - repair runtime. The startup script expects ${details.expectedVersion || "a different NeoForge version"} but generated runtime files are ${details.availableVersions?.join(", ") || "missing"}.`;
   }
   return "NeoForge runtime incomplete - repair runtime.";
 }
@@ -2638,14 +2638,9 @@ async function validateNeoForgeRuntimeFiles(config) {
   }
   const scriptText = await readTextIfExists(scriptAbsolute, 256 * 1024);
   const missing = [];
-  if (!await pathExists(path.join(dataRoot, "user_jvm_args.txt"))) {
-    missing.push("user_jvm_args.txt");
-  }
   const refs = extractNeoForgeUnixArgsReferences(scriptText);
   if (refs.length === 0) {
-    return missing.length
-      ? { ok: false, code: "NEOFORGE_RUNTIME_INCOMPLETE", message: neoforgeRuntimeIncompleteMessage(), details: { missing } }
-      : null;
+    return null;
   }
   const existingUnixArgs = await getExistingNeoForgeUnixArgs(dataRoot);
   for (const ref of refs) {
@@ -2688,9 +2683,103 @@ function classifyNeoForgeRuntimeOutput(text = "") {
     details: {
       missing: [match[1].replace(/^\.\//, "")],
       expectedVersion: match[2] || null,
-      suggestion: "Retry server bootstrap or reinstall this instance.",
+      repairAction: "repair-neoforge-runtime",
+      suggestion: "Repair NeoForge runtime using the bundled server-pack installer.",
     },
   };
+}
+
+async function runBoundedRepairCommand(config, command, timeoutMs) {
+  const workingDirectory = resolveRelativeManagedPath(config.id, config.workingDirectory || "data", "data");
+  let stdout = "";
+  let stderr = "";
+  let timedOut = false;
+  const result = await new Promise((resolve, reject) => {
+    let child;
+    try {
+      child = childProcess.spawn(command.executable, command.args, {
+        cwd: workingDirectory,
+        env: buildSpawnEnvironment(config),
+        detached: false,
+        shell: false,
+        stdio: ["ignore", "pipe", "pipe"],
+        windowsHide: true,
+      });
+    } catch (error) {
+      reject(createInstanceError("NEOFORGE_REPAIR_SPAWN_FAILED", 500, { causeCode: error?.code || null }));
+      return;
+    }
+    child.stdout?.on("data", (chunk) => { stdout = appendBoundedOutput(stdout, chunk); });
+    child.stderr?.on("data", (chunk) => { stderr = appendBoundedOutput(stderr, chunk); });
+    child.once("error", (error) => reject(createInstanceError("NEOFORGE_REPAIR_PROCESS_ERROR", 500, { causeCode: error?.code || null })));
+    child.once("close", (exitCode, signal) => resolve({ exitCode, signal }));
+    const timer = setTimeout(() => {
+      timedOut = true;
+      if (!child.killed) child.kill("SIGKILL");
+    }, timeoutMs);
+    child.once("close", () => clearTimeout(timer));
+  });
+  return { ...result, timedOut, stdout, stderr };
+}
+
+async function repairNeoForgeRuntime(instanceId, options = {}) {
+  let config = await syncNeoForgeScriptRuntimeConfig(await reconcileConfigState(await loadInstanceConfig(instanceId)));
+  const runtime = await inspectNeoForgeScriptRuntime(config);
+  if (!runtime) {
+    throw createInstanceError("NEOFORGE_REPAIR_UNSUPPORTED", 409, { instanceId: config.id });
+  }
+  if (runtime.ready) {
+    const readyConfig = await syncNeoForgeScriptRuntimeConfig(config);
+    return { ok: true, repaired: false, message: "NeoForge runtime ready.", instance: await publicConfigDetailed(readyConfig), runtime };
+  }
+  const workingDirectory = config.workingDirectory || "data";
+  const dataRoot = resolveRelativeManagedPath(config.id, workingDirectory, "data");
+  const installer = runtime.installerJars?.[0] || (await findNeoForgeInstallerJars(dataRoot))[0] || null;
+  if (!installer) {
+    const error = createInstanceError("NEOFORGE_INSTALLER_MISSING", 409, {
+      instanceId: config.id,
+      missing: runtime.missing || ["libraries/.../unix_args.txt"],
+      repairAction: "repair-neoforge-runtime",
+    });
+    error.message = "NeoForge runtime incomplete - bundled installer missing.";
+    throw error;
+  }
+
+  await appendLog(config.id, "stdout", `Repairing NeoForge runtime with ${installer.name}.`).catch(() => {});
+  console.info("[Instances] Repairing NeoForge runtime.", {
+    instanceId: config.id,
+    dataRoot,
+    installerJar: installer.name,
+    detectedVersion: installer.version || runtime.expectedVersion || null,
+    missing: runtime.missing || [],
+  });
+  const timeoutMs = Math.min(INSTALLER_TIMEOUT_MAX_MS, Math.max(INSTALLER_TIMEOUT_MIN_MS, Number(options.timeoutMs) || 300000));
+  const result = await runBoundedRepairCommand(config, {
+    executable: "java",
+    args: ["-jar", installer.name, "--installServer"],
+  }, timeoutMs);
+  await appendLog(config.id, "stdout", result.stdout).catch(() => {});
+  await appendLog(config.id, "stderr", result.stderr).catch(() => {});
+  const details = {
+    installerJar: installer.name,
+    detectedVersion: installer.version || runtime.expectedVersion || null,
+    missing: runtime.missing || [],
+    exitCode: result.exitCode,
+    signal: result.signal || null,
+    timeoutMs,
+  };
+  if (result.timedOut) throw createInstanceError("NEOFORGE_REPAIR_TIMEOUT", 504, details);
+  if (result.exitCode !== 0) throw createInstanceError("NEOFORGE_REPAIR_FAILED", 422, details);
+
+  config = await syncNeoForgeScriptRuntimeConfig(await loadInstanceConfig(config.id));
+  const validation = await validateNeoForgeRuntimeFiles(config);
+  if (validation?.ok === false) {
+    const error = createInstanceError(validation.code, 409, validation.details);
+    error.message = validation.message;
+    throw error;
+  }
+  await appendLog(config.id, "stdout", "NeoForge runtime repair completed. World, config, mods, and backups were preserved.").catch(() => {});
+  return { ok: true, repaired: true, message: "NeoForge runtime repaired.", instance: await publicConfigDetailed(config), runtime: await inspectNeoForgeScriptRuntime(config) };
 }
 
 async function detectFromKnownFiles(config) {
@@ -5372,6 +5461,7 @@ module.exports = {
   readLogs,
   recoverIncompleteInstallations,
   readMinecraftProperties,
+  repairNeoForgeRuntime,
   refreshFiveMReadiness,
   renameInstance,
   renameInstanceFile,

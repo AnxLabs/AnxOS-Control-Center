@@ -268,6 +268,7 @@ const desktopApi = {
     start: (instanceId, payload = {}) => ipcRenderer.invoke("instances:start", { ...payload, instanceId }),
     stop: (instanceId, payload = {}) => ipcRenderer.invoke("instances:stop", { ...payload, instanceId }),
     restart: (instanceId, payload = {}) => ipcRenderer.invoke("instances:restart", { ...payload, instanceId }),
+    repairNeoForgeRuntime: (instanceId, payload = {}) => ipcRenderer.invoke("instances:repairNeoForgeRuntime", { ...payload, instanceId }),
     forceKill: (instanceId, payload = {}) => ipcRenderer.invoke("instances:forceKill", { ...payload, instanceId }),
     delete: (instanceId, payload = {}) => ipcRenderer.invoke("instances:delete", { ...payload, instanceId }),
     forget: (instanceId, payload = {}) => ipcRenderer.invoke("instances:forget", { ...payload, instanceId }),

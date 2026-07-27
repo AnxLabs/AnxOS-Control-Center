@@ -120,6 +120,7 @@ const instanceActionButtons = document.querySelectorAll("[data-instance-action]"
 const instancesRefreshButtons = document.querySelectorAll('[data-instance-action="refresh"]');
 const instancesCreateToggleButton = document.querySelector('[data-instance-action="create"]');
 const instancesStartButtons = document.querySelectorAll('[data-instance-action="start"]');
+const instancesRepairNeoForgeButtons = document.querySelectorAll('[data-instance-action="repair-neoforge-runtime"]');
 const instancesStopButtons = document.querySelectorAll('[data-instance-action="stop"]');
 const instancesRestartButtons = document.querySelectorAll('[data-instance-action="restart"]');
 const instancesDeleteButtons = document.querySelectorAll('[data-instance-action="delete"]');
@@ -701,6 +702,7 @@ let playitRequestInFlight = false;
 let latestPublicAccessSnapshot = null;
 let latestPlayitServiceStatus = null;
 let latestPlayitTunnels = [];
+let publicAccessUnavailableState = null;
 let selectedPublicAccessProviderId = "playit";
 let selectedPublicAccessServiceId = "playit-primary";
 let playitActionInFlight = null;
@@ -7389,6 +7391,9 @@ function getPlayitServiceLabel(state) {
 }
 
 function renderPlayitServiceStatus(status = null) {
+  if (status?.ok !== false) {
+    publicAccessUnavailableState = null;
+  }
   latestPlayitServiceStatus = status;
   const state = status?.serviceState || status?.service?.state || (status?.running ? "running" : status?.installed ? "stopped" : "missing");
   if (playitServiceStateText) {
@@ -7419,13 +7424,17 @@ function createPlayitServiceActionButton(action, label, options = {}) {
 function renderPlayitServiceActions() {
   if (!playitServiceActions) return;
   playitServiceActions.replaceChildren();
+  const unavailable = Boolean(publicAccessUnavailableState);
   const state = latestPlayitServiceStatus?.serviceState || latestPlayitServiceStatus?.service?.state || "unknown";
   const installed = latestPlayitServiceStatus?.installed !== false && state !== "missing";
   const running = state === "running";
   playitServiceActions.append(
     createPlayitServiceActionButton("playit-refresh-status", "Refresh status", { primary: true }),
-    createPlayitServiceActionButton("playit-refresh-tunnels", "Refresh tunnels"),
+    createPlayitServiceActionButton("playit-refresh-tunnels", "Refresh tunnels", { disabled: unavailable }),
   );
+  if (unavailable) {
+    return;
+  }
   if (installed && running) {
     playitServiceActions.append(
       createPlayitServiceActionButton("playit-stop", "Stop Playit", { danger: true }),
@@ -7500,16 +7509,63 @@ function renderPlayitLogs(result = {}) {
   playitLogsContent.textContent = lines.length ? lines.join("\n") : result?.message || "Playit logs are unavailable for this install.";
 }
 
+function getPublicAccessUnavailableReason() {
+  const node = getSelectedNode();
+  if (!node || node.kind !== "agent") {
+    return null;
+  }
+  const connectionState = getNodeConnectionState(node);
+  if (isAgentStatusAuthenticated(connectionState)) {
+    return null;
+  }
+  const name = node.displayName || node.name || node.id || "the selected node";
+  return {
+    code: connectionState.state === "Authentication Required" ? "AGENT_UNAUTHORIZED" : "NODE_DISCONNECTED",
+    message: connectionState.state === "Authentication Required"
+      ? `Agent unauthorized. Repair pairing for ${name} to check Public Access.`
+      : `Connect to ${name} to refresh Public Access.`,
+    tunnelMessage: `Connect to ${name} to refresh Playit tunnels.`,
+  };
+}
+
+function renderPublicAccessUnavailableState(reason = getPublicAccessUnavailableReason(), fallbackMessage = "Public Access status unavailable.") {
+  const unavailable = reason || { code: "PUBLIC_ACCESS_UNAVAILABLE", message: fallbackMessage, tunnelMessage: fallbackMessage };
+  publicAccessUnavailableState = unavailable;
+  renderPlayitServiceStatus({
+    ok: false,
+    installed: null,
+    serviceState: "unknown",
+    service: {
+      state: "unknown",
+      message: unavailable.code === "AGENT_UNAUTHORIZED"
+        ? unavailable.message
+        : `Playit status unavailable while node is disconnected. ${unavailable.message}`,
+      lastCheckedAt: new Date().toISOString(),
+    },
+  });
+  renderPlayitTunnels({
+    ok: false,
+    code: unavailable.code,
+    message: unavailable.tunnelMessage || unavailable.message,
+    tunnels: [],
+  });
+}
+
 async function refreshPlayitManagement(payload = getNodeScopedPayload(getNodeRequestContext("playit-management")), requestContext = getNodeRequestContext("playit-management")) {
   const publicAccessApi = getDesktopApiState().api?.publicAccess;
   if (!publicAccessApi) return;
+  const unavailable = getPublicAccessUnavailableReason();
+  if (unavailable) {
+    renderPublicAccessUnavailableState(unavailable);
+    return;
+  }
   const [status, tunnels] = await Promise.all([
     typeof publicAccessApi.getPlayitStatus === "function" ? publicAccessApi.getPlayitStatus(payload).catch((error) => ({ ok: false, error })) : null,
     typeof publicAccessApi.listPlayitTunnels === "function" ? publicAccessApi.listPlayitTunnels(payload).catch((error) => ({ ok: false, error })) : null,
   ]);
   if (!isNodeRequestCurrent(requestContext)) return;
   if (status?.ok === false && status.error) {
-    renderPlayitServiceStatus({ installed: false, serviceState: "unknown", service: { message: status.error.message || "Playit service status unavailable." } });
+    renderPlayitServiceStatus({ ok: false, installed: false, serviceState: "unknown", service: { message: status.error.message || "Playit service status unavailable." } });
   } else if (status) {
     renderPlayitServiceStatus(status);
   }
@@ -8352,6 +8408,12 @@ async function createProviderAccessService() {
 async function runPublicAccessAction(action) {
   if (action === "refresh") return refreshPlayitStatus();
   if (action === "playit-refresh-status") return refreshPlayitStatus();
+  const unavailable = getPublicAccessUnavailableReason();
+  if (String(action || "").startsWith("playit-") && unavailable) {
+    renderPublicAccessUnavailableState(unavailable);
+    showToast(unavailable.message, "warning");
+    return { ok: false, code: unavailable.code, message: unavailable.message };
+  }
   if (action === "playit-refresh-tunnels") {
     const payload = getNodeScopedPayload(getNodeRequestContext("playit-tunnels"));
     const result = await getDesktopApiState().api?.publicAccess?.listPlayitTunnels?.(payload);
@@ -8670,6 +8732,7 @@ function renderPlayitUnavailable(message = "Public Access status unavailable.") 
   setField("publicAccessReachability", message);
   setField("publicAccessProviderCapabilities", "Unavailable");
   renderPublicAccessProviderDetails(null);
+  renderPublicAccessUnavailableState(getPublicAccessUnavailableReason(), message);
   renderInstanceNetwork(findInstance());
   renderFriendlyDashboard();
   updateTitlebar();
@@ -11801,6 +11864,30 @@ async function hasNeoForgeRuntimeSignalForInstance(instance, context = getNodeRe
   return false;
 }
 
+function canRepairNeoForgeRuntime(instance) {
+  if (!instance || typeof getDesktopApiState().api?.instances?.repairNeoForgeRuntime !== "function") {
+    return false;
+  }
+  const haystack = [
+    instance.loader,
+    instance.serverSoftware,
+    instance.softwareVersion,
+    instance.loaderVersion,
+    instance.templateId,
+    instance.displayName,
+    instance.startupScript,
+    instance.failureReason,
+    ...(Array.isArray(instance.tags) ? instance.tags : []),
+    ...(Array.isArray(instance.args) ? instance.args : []),
+  ].filter(Boolean).join(" ");
+  return /neoforge/i.test(haystack) || String(instance.failureReason || "") === "NEOFORGE_RUNTIME_INCOMPLETE";
+}
+
+function isNeoForgeRuntimeFailure(instance = {}) {
+  return String(instance?.failureReason || "") === "NEOFORGE_RUNTIME_INCOMPLETE" ||
+    String(instance?.failureDetails?.repairAction || "") === "repair-neoforge-runtime";
+}
+
 async function showNeoForgeRuntimeIncompleteHint(instance, context = getNodeRequestContext("neoforge-incomplete")) {
   if (!await hasNeoForgeRuntimeSignalForInstance(instance, context)) {
     return false;
@@ -11811,13 +11898,13 @@ async function showNeoForgeRuntimeIncompleteHint(instance, context = getNodeRequ
     instanceFileEditorName.textContent = "NeoForge runtime incomplete";
   }
   if (instanceFileEditorMeta) {
-    instanceFileEditorMeta.textContent = "Runtime · Run server installer/repair to generate run.sh and unix_args.txt.";
+    instanceFileEditorMeta.textContent = "Runtime · Use Repair Runtime to regenerate launcher metadata and unix_args.txt from the bundled installer.";
   }
   if (instanceFileEditorState) {
     instanceFileEditorState.textContent = "Repair required";
   }
   await refreshInstanceFiles(".");
-  showToast("NeoForge runtime incomplete: run server installer/repair.", "warning");
+  showToast("NeoForge runtime incomplete - repair runtime.", "warning");
   return true;
 }
 
@@ -11981,6 +12068,13 @@ function updateInstanceActionButtons() {
   instancesStartButtons.forEach((button) => {
     button.disabled = busy || !hasInstancesBridge || !canStartInstance(selectedInstance);
     button.textContent = isFiveMSetupRequired(selectedInstance) ? "Configure FiveM" : "Start";
+  });
+
+  instancesRepairNeoForgeButtons.forEach((button) => {
+    const eligible = canRepairNeoForgeRuntime(selectedInstance);
+    button.hidden = !eligible;
+    button.disabled = busy || !hasInstancesBridge || !eligible;
+    button.textContent = instanceActionRequestInFlight ? "Repairing..." : "Repair Runtime";
   });
 
   instancesStopButtons.forEach((button) => {
@@ -16950,6 +17044,33 @@ async function runInstanceAction(actionName) {
     return;
   }
 
+  if (actionName === "repair-neoforge-runtime") {
+    if (!canRepairNeoForgeRuntime(selectedInstance)) {
+      showToast("NeoForge runtime repair is not available for this server.", "warning");
+      updateInstanceActionButtons();
+      return;
+    }
+    instanceActionRequestInFlight = true;
+    updateInstanceActionButtons();
+    try {
+      showToast(`Repairing NeoForge runtime for ${label}...`);
+      const result = await desktopApiState.api.instances.repairNeoForgeRuntime(targetInstanceId, getNodeScopedPayload(requestContext));
+      if (!isNodeActionStillCurrent(requestContext)) return;
+      const repairedInstance = result?.instance || result;
+      if (repairedInstance?.id) updateInstanceSnapshot(targetInstanceId, repairedInstance);
+      showToast(result?.message || "NeoForge runtime repaired.", "success");
+      await refreshInstances({ refreshMetrics: false });
+    } catch (error) {
+      console.warn("[Instances] NeoForge runtime repair failed.", error);
+      showToast(getAgentErrorMessage(error, "NeoForge runtime repair failed."), "warning");
+      await refreshInstances({ refreshMetrics: false });
+    } finally {
+      instanceActionRequestInFlight = false;
+      updateInstanceActionButtons();
+    }
+    return;
+  }
+
   let renameDisplayName = null;
   let duplicateConfig = null;
   if (actionName === "rename") {
@@ -17077,6 +17198,17 @@ async function runInstanceAction(actionName) {
         state: actionResult?.instance?.state || actionResult?.state || null,
         pid: actionResult?.instance?.pid || actionResult?.pid || null,
       });
+    }
+    const resultInstance = actionResult?.instance || actionResult;
+    if ((actionName === "start" || actionName === "restart") && resultInstance?.state === "Failed") {
+      updateInstanceSnapshot(targetInstanceId, resultInstance);
+      if (isNeoForgeRuntimeFailure(resultInstance)) {
+        await showNeoForgeRuntimeIncompleteHint(resultInstance, requestContext);
+      } else {
+        showToast(resultInstance.failureReason || `Instance ${actionName} failed.`, "warning");
+      }
+      await refreshInstances({ refreshMetrics: false });
+      return;
     }
     forgetStaleInstanceId(targetInstanceId);
     showToast(actionName === "delete"
@@ -22608,6 +22740,12 @@ async function refreshPlayitStatus() {
 
   if (!desktopApiState.hasPublicAccess && !desktopApiState.hasPlayit) {
     renderPlayitUnavailable(desktopApiState.hasBridge ? "Public Access IPC bridge unavailable." : "Desktop preload bridge unavailable.");
+    return;
+  }
+
+  const unavailable = getPublicAccessUnavailableReason();
+  if (unavailable) {
+    renderPlayitUnavailable(unavailable.message);
     return;
   }
 
@@ -33734,6 +33872,9 @@ instancesStopButtons.forEach((button) => {
 });
 instancesRestartButtons.forEach((button) => {
   button.addEventListener("click", () => runInstanceAction("restart"));
+});
+instancesRepairNeoForgeButtons.forEach((button) => {
+  button.addEventListener("click", () => runInstanceAction("repair-neoforge-runtime"));
 });
 document.querySelectorAll('[data-instance-action="update-steam"]').forEach((button) => {
   button.addEventListener("click", () => runInstanceAction("update-steam"));

@@ -504,7 +504,6 @@ async function assertNeoForgeRunScriptPreferenceAndRuntimeValidation() {
     });
     await instanceService.writeInstanceFile(id, "startserver.sh", "#!/usr/bin/env bash\nexec ./run.sh \"$@\"\n");
     await instanceService.writeInstanceFile(id, "run.sh", "#!/usr/bin/env bash\nexec java @user_jvm_args.txt @libraries/net/neoforged/neoforge/21.1.228/unix_args.txt \"$@\"\n");
-    await instanceService.writeInstanceFile(id, "user_jvm_args.txt", "-Xmx4G\n");
     await instanceService.writeInstanceFile(id, "libraries/net/neoforged/neoforge/21.1.228/unix_args.txt", "--launchTarget neoforgeserver\n");
 
     const originalSpawn = childProcess.spawn;
@@ -559,7 +558,6 @@ async function assertLegacyAtm10JavaAppMigratesToScriptLauncher() {
     await instanceService.writeInstanceFile(id, "config.json", JSON.stringify({ loader: "neoforge" }));
     await instanceService.writeInstanceFile(id, "neoforge-21.1.228-installer.jar", "");
     await instanceService.writeInstanceFile(id, "run.sh", "#!/usr/bin/env bash\nexec java @user_jvm_args.txt @libraries/net/neoforged/neoforge/21.1.228/unix_args.txt \"$@\"\n");
-    await instanceService.writeInstanceFile(id, "user_jvm_args.txt", "-Xmx4G\n");
     await instanceService.writeInstanceFile(id, "libraries/net/neoforged/neoforge/21.1.228/unix_args.txt", "--launchTarget neoforgeserver\n");
     const configFile = path.join(process.env.AGENT_INSTANCE_ROOT, id, "config.json");
     const staleConfig = JSON.parse(fs.readFileSync(configFile, "utf8"));
@@ -606,6 +604,68 @@ async function assertLegacyAtm10JavaAppMigratesToScriptLauncher() {
       assert.strictEqual(repaired.serverSoftware, "NeoForge", "Legacy ATM10 repair should retain NeoForge runtime identity.");
       fakeChild.emit("exit", 0, null);
       await wait(20);
+    } finally {
+      childProcess.spawn = originalSpawn;
+    }
+  }, { platform: "linux" });
+}
+
+async function assertNeoForgeRepairRuntimePreservesData() {
+  await withTempService(async (instanceService) => {
+    const id = "atm10-repair-runtime-preserves-data";
+    await instanceService.createInstance({
+      id,
+      displayName: "All the Mods 10 - Repair Runtime",
+      type: "java-app",
+      workingDirectory: "data",
+      executable: "java",
+      args: ["-Xmx8G", "-jar", "server.jar", "nogui"],
+      jar: "server.jar",
+      serverJar: "server.jar",
+      serverJarPath: "server.jar",
+      startJar: "server.jar",
+      restartPolicy: "never",
+      game: "minecraft",
+      minecraftVersion: "1.21.1",
+      tags: ["minecraft", "modpack", "curseforge"],
+      startupTimeoutMs: 60000,
+    });
+    await instanceService.writeInstanceFile(id, "metadata.json", JSON.stringify({
+      game: "minecraft",
+      minecraftVersion: "1.21.1",
+      serverSoftware: "NeoForge",
+      softwareVersion: "21.1.228",
+    }));
+    await instanceService.writeInstanceFile(id, "neoforge-latest-installer.jar", "generic");
+    await instanceService.writeInstanceFile(id, "neoforge-21.1.228-installer.jar", "versioned");
+    await instanceService.writeInstanceFile(id, "run.sh", "#!/usr/bin/env bash\nexec java @user_jvm_args.txt @libraries/net/neoforged/neoforge/21.1.228/unix_args.txt \"$@\"\n");
+    await instanceService.writeInstanceFile(id, "world/level.dat", "world");
+    await instanceService.writeInstanceFile(id, "config/server.properties", "config");
+    await instanceService.writeInstanceFile(id, "backups/atm10.zip", "backup");
+
+    const originalSpawn = childProcess.spawn;
+    const calls = [];
+    childProcess.spawn = (command, args, options) => {
+      calls.push({ command, args: [...args], cwd: options.cwd });
+      fs.mkdirSync(path.join(options.cwd, "libraries/net/neoforged/neoforge/21.1.228"), { recursive: true });
+      fs.writeFileSync(path.join(options.cwd, "libraries/net/neoforged/neoforge/21.1.228/unix_args.txt"), "--launchTarget neoforgeserver\n");
+      const child = createFakeChild(701159);
+      process.nextTick(() => child.emit("close", 0, null));
+      return child;
+    };
+    try {
+      const repair = await instanceService.repairNeoForgeRuntime(id);
+      assert.strictEqual(repair.ok, true, "Repair should report success.");
+      assert.strictEqual(repair.repaired, true, "Repair should run when unix_args.txt is missing.");
+      assert.strictEqual(calls.length, 1, "Repair should run one bounded installer process.");
+      assert.strictEqual(calls[0].command, "java", "Repair must use the Java installer.");
+      assert.deepStrictEqual(calls[0].args, ["-jar", "neoforge-21.1.228-installer.jar", "--installServer"], "Repair should prefer the bundled versioned NeoForge installer.");
+      assert.strictEqual(fs.readFileSync(path.join(process.env.AGENT_INSTANCE_ROOT, id, "data/world/level.dat"), "utf8"), "world", "Repair must preserve world data.");
+      assert.strictEqual(fs.readFileSync(path.join(process.env.AGENT_INSTANCE_ROOT, id, "data/config/server.properties"), "utf8"), "config", "Repair must preserve config data.");
+      assert.strictEqual(fs.readFileSync(path.join(process.env.AGENT_INSTANCE_ROOT, id, "data/backups/atm10.zip"), "utf8"), "backup", "Repair must preserve backups.");
+      const status = await instanceService.getStatus(id);
+      assert.strictEqual(status.type, "custom-command", "Repair should migrate stale java-app metadata to a script launcher.");
+      assert.strictEqual(status.softwareVersion, "21.1.228", "Repair should expose detected NeoForge version.");
     } finally {
       childProcess.spawn = originalSpawn;
     }
@@ -759,7 +819,7 @@ async function assertNeoForgeVersionMismatchDetected() {
     assert.strictEqual(status.failureDetails?.expectedVersion, "21.1.228", "Expected NeoForge version should be captured.");
     assert.deepStrictEqual(status.failureDetails?.availableVersions, ["21.1.227"], "Available generated NeoForge versions should be captured.");
     const logs = await instanceService.readLogs(id, { stream: "stderr", limit: 20 });
-    assert(logs.entries.some((entry) => /NeoForge runtime files are incomplete/.test(entry.message)), "Mismatch error should write an actionable runtime-incomplete message.");
+    assert(logs.entries.some((entry) => /NeoForge runtime incomplete - repair runtime/.test(entry.message)), "Mismatch error should write an actionable runtime-incomplete message.");
   }, { platform: "linux" });
 }
 
@@ -1125,6 +1185,7 @@ async function run() {
   await assertInstallerJarWithScriptArgumentRepair();
   await assertNeoForgeRunScriptPreferenceAndRuntimeValidation();
   await assertLegacyAtm10JavaAppMigratesToScriptLauncher();
+  await assertNeoForgeRepairRuntimePreservesData();
   await assertNeoForgeInstallerOnlyDoesNotRequireServerJar();
   await assertNeoForgeMissingUnixArgsPreflightDoesNotRestart();
   await assertNeoForgeMissingUnixArgsStderrDoesNotRestart();

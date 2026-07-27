@@ -20,6 +20,7 @@ const FILE_WRITE_TIMEOUT_MS = FILE_WRITE_REQUEST_TIMEOUT_MS;
 const FILE_WRITE_RETRY_DELAY_MS = 250;
 const TRANSIENT_FILE_WRITE_ERROR_CODES = new Set(["UND_ERR_SOCKET", "ECONNRESET", "EPIPE"]);
 const DOCKER_REQUEST_TIMEOUT_MS = 12000;
+const PUBLIC_ACCESS_REQUEST_TIMEOUT_MS = 12000;
 const VALID_BACKEND_MODES = new Set(["local", "agent", "auto"]);
 
 let environmentLoaded = false;
@@ -1303,6 +1304,10 @@ class NodeAgentClient {
     return this.request(`/instances/${encodeInstanceId(instanceId)}/installation/execute`, { method: "POST", body: payload, timeoutMs });
   }
 
+  repairNeoForgeRuntime(instanceId, payload = {}, timeoutMs = 310000) {
+    return this.request(`/instances/${encodeInstanceId(instanceId)}/neoforge/repair-runtime`, { method: "POST", body: payload, timeoutMs });
+  }
+
   cancelInstallationSession(instanceId, payload = {}) {
     return this.post(`/instances/${encodeInstanceId(instanceId)}/installation/cancel`, payload);
   }
@@ -1737,12 +1742,14 @@ async function getPlayitSnapshot(configOverride = null) {
 async function getPublicAccessSnapshot(configOverride = null) {
   return requestJson("/api/v1/public-access/snapshot", {
     config: configOverride,
+    timeoutMs: PUBLIC_ACCESS_REQUEST_TIMEOUT_MS,
   });
 }
 
 async function getPublicAccessPlayitStatus(configOverride = null) {
   return requestJson("/api/v1/public-access/playit/status", {
     config: configOverride,
+    timeoutMs: PUBLIC_ACCESS_REQUEST_TIMEOUT_MS,
   });
 }
 
@@ -1751,6 +1758,7 @@ async function controlPublicAccessPlayit(action, configOverride = null) {
     config: configOverride,
     method: "POST",
     body: {},
+    timeoutMs: PUBLIC_ACCESS_REQUEST_TIMEOUT_MS,
   });
 }
 
@@ -1759,6 +1767,7 @@ async function getPublicAccessPlayitLogs(payload = {}, configOverride = null) {
   if (payload.limit) query.set("limit", String(payload.limit));
   return requestJson(`/api/v1/public-access/playit/logs${query.toString() ? `?${query.toString()}` : ""}`, {
     config: configOverride,
+    timeoutMs: PUBLIC_ACCESS_REQUEST_TIMEOUT_MS,
   });
 }
 
@@ -1766,6 +1775,7 @@ async function getPublicAccessPlayitTunnels(payload = {}, configOverride = null)
   const query = payload.nodeId ? `?nodeId=${encodeURIComponent(payload.nodeId)}` : "";
   return requestJson(`/api/v1/public-access/playit/tunnels${query}`, {
     config: configOverride,
+    timeoutMs: PUBLIC_ACCESS_REQUEST_TIMEOUT_MS,
   });
 }
 
@@ -2895,6 +2905,18 @@ async function executeInstallationPhase(instanceId, payload = {}, configOverride
   });
 }
 
+async function repairNeoForgeRuntime(instanceId, payload = {}, configOverride = null) {
+  if (shouldUseLocalInstanceService(configOverride)) {
+    return getLocalInstanceService().repairNeoForgeRuntime(instanceId, payload);
+  }
+  return requestJson(`/api/v1/instances/${encodeInstanceId(instanceId)}/neoforge/repair-runtime`, {
+    config: configOverride,
+    method: "POST",
+    body: payload,
+    timeoutMs: Math.min(610000, Math.max(30000, Number(payload.timeoutMs) || 300000) + 10000),
+  });
+}
+
 async function cancelInstallationSession(instanceId, payload = {}, configOverride = null) {
   if (shouldUseLocalInstanceService(configOverride)) {
     return getLocalInstanceService().cancelInstallationSession(instanceId, payload);
@@ -3085,6 +3107,7 @@ module.exports = {
   execDockerContainer,
   executeInstallationPhase,
   executeSteamCmdUpdate,
+  repairNeoForgeRuntime,
   deleteInstance,
   forgetInstance,
   deleteInstanceFile,

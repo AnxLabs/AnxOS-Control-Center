@@ -10,6 +10,7 @@ const agentRoutePath = path.join(root, "agent", "src", "routes", "publicAccess.j
 const agentPlayitRoutePath = path.join(root, "agent", "src", "routes", "playit.js");
 const agentPlayitServicePath = path.join(root, "agent", "src", "services", "playitService.js");
 const agentServerPath = path.join(root, "agent", "src", "server.js");
+const agentClientPath = path.join(root, "src", "services", "agentClient.js");
 const appPath = path.join(root, "app.js");
 const indexPath = path.join(root, "index.html");
 const preloadPath = path.join(root, "preload.js");
@@ -25,6 +26,7 @@ const agentRouteSource = fs.readFileSync(agentRoutePath, "utf8");
 const agentPlayitRouteSource = fs.readFileSync(agentPlayitRoutePath, "utf8");
 const agentPlayitServiceSource = fs.readFileSync(agentPlayitServicePath, "utf8");
 const agentServerSource = fs.readFileSync(agentServerPath, "utf8");
+const agentClientSource = fs.readFileSync(agentClientPath, "utf8");
 const appSource = fs.readFileSync(appPath, "utf8");
 const indexSource = fs.readFileSync(indexPath, "utf8");
 const preloadSource = fs.readFileSync(preloadPath, "utf8");
@@ -509,12 +511,17 @@ assert(indexSource.includes("data-playit-service-actions") && indexSource.includ
   "playit-logs",
   "renderPlayitTunnels",
   "renderPlayitServiceStatus",
+  "renderPublicAccessUnavailableState",
+  "getPublicAccessUnavailableReason",
+  "Playit status unavailable while node is disconnected",
+  "Connect to ${name} to refresh Playit tunnels.",
   "copyPublicAccessValue(tunnel?.publicAddress",
   "entry.reason || \"Unsupported by this provider.\"",
   "article.addEventListener(\"click\"",
   "selectedPublicAccessProviderId",
   "selectedPublicAccessServiceId",
 ].forEach((needle) => assert(appSource.includes(needle), `Public Access UX should include ${needle}.`));
+assert(agentClientSource.includes("PUBLIC_ACCESS_REQUEST_TIMEOUT_MS") && agentClientSource.includes("timeoutMs: PUBLIC_ACCESS_REQUEST_TIMEOUT_MS"), "Public Access Agent calls must use a bounded timeout.");
 const createProviderBody = functionBody(appSource, "createProviderAccessService");
 assert(!/window\.prompt|prompt\(/.test(createProviderBody), "Create Access Service workflow must not use browser prompt().");
 assert(createProviderBody.includes("createPublicAccessServiceModal"), "Create Access Service workflow must open the in-app modal.");

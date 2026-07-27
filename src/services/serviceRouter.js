@@ -862,6 +862,13 @@ async function restartInstance(instanceId, options = {}) {
   return getAgentNodeClient(options).restartInstance(instanceId);
 }
 
+async function repairNeoForgeRuntime(instanceId, options = {}) {
+  if (shouldUseLocalInstances(options)) {
+    return localInstanceService.repairNeoForgeRuntime(instanceId, options);
+  }
+  return getAgentNodeClient(options).repairNeoForgeRuntime(instanceId, options);
+}
+
 async function deleteInstance(instanceId, options = {}) {
   const nodeId = options?.nodeId || getSelectedNodeId();
   if (shouldUseLocalInstances(options)) {
@@ -1065,6 +1072,7 @@ module.exports = {
   listInstances,
   planDependencyPreparation,
   readInstanceFile,
+  repairNeoForgeRuntime,
   renameInstanceFile,
   renameInstance,
   restartInstance,
