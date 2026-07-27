@@ -7714,6 +7714,121 @@ function getInstanceAccessAddress(service = {}) {
   return service.publicAddress || service.privateAddress || service.publicHostname || "";
 }
 
+function normalizeShareAddress(value = "") {
+  return String(value || "").trim().replace(/\.$/, "");
+}
+
+function getShareServerInstructions(instance = findInstance()) {
+  const kind = getInstanceAccessGameKind(instance);
+  if (kind === "minecraft") {
+    return [
+      "Open Multiplayer.",
+      "Add Server or Direct Connect.",
+      "Paste this address.",
+      "Join.",
+    ];
+  }
+  if (kind === "palworld") {
+    return [
+      "Open Join Multiplayer Game.",
+      "Use Direct Connect.",
+      "Paste the address and port.",
+    ];
+  }
+  return ["Use the game's direct connect or server browser and paste this address."];
+}
+
+function getShareInviteGameLabel(instance = findInstance()) {
+  const kind = getInstanceAccessGameKind(instance);
+  if (kind === "minecraft") return "Minecraft";
+  if (kind === "palworld") return "Palworld";
+  if (kind === "terraria") return "Terraria";
+  if (kind === "fivem") return "FiveM";
+  return "server";
+}
+
+function findSharePlayitTunnelMatches(instance = findInstance()) {
+  const port = Number(getInstancePrimaryPort(instance));
+  if (!Number.isInteger(port)) return [];
+  return latestPlayitTunnels.filter((tunnel) => {
+    const tunnelPort = Number(tunnel.localPort);
+    if (tunnel.matchedInstanceId && instance?.id && tunnel.matchedInstanceId !== instance.id) return false;
+    return Number.isInteger(tunnelPort) && tunnelPort === port && tunnel.publicAddress;
+  });
+}
+
+function getShareServerAddresses(instance = findInstance()) {
+  if (!instance) return [];
+  const addresses = [];
+  const port = getInstancePrimaryPort(instance);
+  const localAddress = formatInstanceAddress(instance);
+  if (localAddress && localAddress !== "No port configured") {
+    addresses.push({
+      id: "lan",
+      label: "LAN address",
+      address: localAddress,
+      status: "Available",
+      availability: "lan",
+      detail: "Only people on your local network can use this address.",
+      recommended: false,
+    });
+  }
+
+  const services = getInstanceAccessServices(instance);
+  services.forEach((service) => {
+    const address = normalizeShareAddress(getInstanceAccessAddress(service));
+    if (!address) return;
+    const isTailscale = service.providerId === "tailscale" || service.accessType === "private-tailnet";
+    addresses.push({
+      id: `service:${service.id || service.providerId || address}`,
+      label: isTailscale ? "Tailscale address" : service.providerId === "playit" ? "Playit public address" : getInstanceAccessBadgeLabel(service),
+      address,
+      status: service.status || service.state || "Configured",
+      availability: isTailscale ? "private" : "public",
+      detail: isTailscale
+        ? "People in your Tailscale network can use this address."
+        : "Friends outside your network can use this Playit address.",
+      recommended: service.providerId === "playit",
+      providerId: service.providerId || null,
+    });
+  });
+
+  const playitMatches = findSharePlayitTunnelMatches(instance);
+  playitMatches.forEach((tunnel, index) => {
+    const address = normalizeShareAddress(tunnel.publicAddress);
+    if (!address || addresses.some((entry) => entry.address === address)) return;
+    addresses.push({
+      id: `playit-tunnel:${tunnel.id || index}`,
+      label: playitMatches.length > 1 ? "Multiple matching tunnels" : "Playit public address",
+      address,
+      status: tunnel.status || "Detected",
+      availability: "public",
+      detail: playitMatches.length > 1
+        ? "Multiple Playit tunnels match this port. Choose the correct public endpoint manually."
+        : "Friends outside your network can use this Playit address.",
+      recommended: playitMatches.length === 1,
+      providerId: "playit",
+    });
+  });
+
+  const tailscaleProvider = getInstanceAccessProvider("tailscale");
+  const tailscaleAddress = port && tailscaleProvider ? chooseTailscaleEndpoint(tailscaleProvider, port)?.address : "";
+  if (tailscaleAddress && !addresses.some((entry) => entry.address === normalizeShareAddress(tailscaleAddress))) {
+    addresses.push({
+      id: "tailscale-provider",
+      label: "Tailscale address",
+      address: normalizeShareAddress(tailscaleAddress),
+      status: tailscaleProvider.connected ? "Available" : "Configured, not checked",
+      availability: "private",
+      detail: "People in your Tailscale network can use this address.",
+      recommended: false,
+      providerId: "tailscale",
+    });
+  }
+
+  return addresses.sort((left, right) => Number(right.recommended) - Number(left.recommended));
+}
+
 function getInstanceAccessProvider(providerId, snapshot = latestPublicAccessSnapshot) {
   return (Array.isArray(snapshot?.providers) ? snapshot.providers : [])
     .find((provider) => provider?.id === providerId) || null;
@@ -8338,6 +8453,131 @@ async function copyInstanceAccessAddress(instance = findInstance()) {
     selected = choices.find((entry) => entry.service.id === selectedPublicAccessServiceId) || selected;
   }
   await copyPublicAccessValue(selected.address, "Access address copied.", "No access address is available to copy.");
+}
+
+function createShareServerAddressRow(entry, instance) {
+  const row = document.createElement("article");
+  row.className = `share-server-address share-server-address--${entry.availability || "unknown"}`;
+  const copyButton = document.createElement("button");
+  copyButton.type = "button";
+  copyButton.className = "inline-action";
+  copyButton.textContent = "Copy";
+  copyButton.addEventListener("click", () => copyPublicAccessValue(entry.address, `${entry.label} copied.`, "No address is available to copy."));
+  const top = document.createElement("div");
+  top.className = "share-server-address__top";
+  top.append(
+    createTextElement("strong", entry.label),
+    createTextElement("span", entry.recommended ? "Recommended" : entry.status || "Available", `status-pill ${entry.recommended ? "status-pill--ok" : "status-pill--planned"}`),
+  );
+  const address = createTextElement("code", entry.address || "Unavailable", "share-server-address__value");
+  const detail = createTextElement("p", entry.detail || "Copy this address and send it to friends.");
+  const invite = `Join my ${getShareInviteGameLabel(instance)} server: ${entry.address}`;
+  const inviteButton = document.createElement("button");
+  inviteButton.type = "button";
+  inviteButton.className = "inline-action";
+  inviteButton.textContent = "Copy Invite Text";
+  inviteButton.addEventListener("click", () => copyPublicAccessValue(invite, "Invite text copied.", "No invite text is available to copy."));
+  const actions = document.createElement("div");
+  actions.className = "share-server-address__actions";
+  actions.append(copyButton, inviteButton);
+  row.append(top, address, detail, actions);
+  return row;
+}
+
+function openShareServerModal(instance = findInstance()) {
+  if (!instance) {
+    showToast("Choose a server to share.", "warning");
+    return;
+  }
+  const overlay = document.createElement("div");
+  overlay.className = "app-modal-backdrop";
+  overlay.dataset.shareServerModal = "";
+  const dialog = document.createElement("section");
+  dialog.className = "app-modal app-modal--share-server";
+  dialog.setAttribute("role", "dialog");
+  dialog.setAttribute("aria-modal", "true");
+  dialog.setAttribute("aria-labelledby", "share-server-title");
+  dialog.tabIndex = -1;
+
+  const closeButton = document.createElement("button");
+  closeButton.className = "app-modal__close";
+  closeButton.type = "button";
+  closeButton.dataset.shareServerClose = "";
+  closeButton.setAttribute("aria-label", "Close Share Server");
+  closeButton.textContent = "×";
+
+  const header = document.createElement("div");
+  header.className = "app-modal__header";
+  header.append(
+    createTextElement("p", "Share Server", "app-modal__eyebrow"),
+    Object.assign(createTextElement("h2", instance.displayName || instance.id || "Server"), { id: "share-server-title" }),
+    createTextElement("p", "Copy the right address for friends and keep Public Access setup in one place."),
+  );
+
+  const body = document.createElement("div");
+  body.className = "app-modal__body share-server-body";
+  const addresses = getShareServerAddresses(instance);
+  const publicAddresses = addresses.filter((entry) => entry.availability === "public");
+  const list = document.createElement("div");
+  list.className = "share-server-address-list";
+  if (addresses.length) {
+    addresses.forEach((entry) => list.append(createShareServerAddressRow(entry, instance)));
+  } else {
+    const empty = document.createElement("div");
+    empty.className = "share-server-empty";
+    empty.append(
+      createTextElement("strong", "No public address configured yet"),
+      createTextElement("p", "No LAN or public endpoint is available for this server. Configure a port or open Public Access."),
+    );
+    list.append(empty);
+  }
+
+  if (addresses.length && publicAddresses.length === 0) {
+    const note = createTextElement("p", "No public address configured yet. Open Public Access to add Playit or Tailscale access for friends outside this network.", "share-server-note");
+    list.append(note);
+  }
+
+  const instructions = document.createElement("section");
+  instructions.className = "share-server-instructions";
+  instructions.append(createTextElement("h3", "How Friends Join"));
+  const steps = document.createElement("ol");
+  getShareServerInstructions(instance).forEach((step) => steps.append(createTextElement("li", step)));
+  instructions.append(steps);
+  body.append(list, instructions);
+
+  const footer = document.createElement("div");
+  footer.className = "app-modal__actions";
+  const publicAccessButton = document.createElement("button");
+  publicAccessButton.type = "button";
+  publicAccessButton.className = "inline-action";
+  publicAccessButton.textContent = "Open Public Access";
+  publicAccessButton.addEventListener("click", () => {
+    close();
+    openInstanceAccessManager(instance);
+  });
+  const doneButton = document.createElement("button");
+  doneButton.type = "button";
+  doneButton.className = "inline-action inline-action--primary";
+  doneButton.dataset.shareServerClose = "";
+  doneButton.textContent = "Done";
+  footer.append(publicAccessButton, doneButton);
+
+  const close = () => {
+    document.removeEventListener("keydown", onKeyDown);
+    deactivateModal();
+    overlay.remove();
+  };
+  const onKeyDown = (event) => {
+    if (event.key === "Escape") close();
+  };
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay || event.target.closest("[data-share-server-close]")) close();
+  });
+  document.addEventListener("keydown", onKeyDown);
+  dialog.append(closeButton, header, body, footer);
+  overlay.append(dialog);
+  document.body.append(overlay);
+  const deactivateModal = activateModal(overlay, { initialFocus: () => dialog.querySelector(".inline-action") || closeButton });
 }
 
 function openInstanceAccessManager(instance = findInstance()) {
@@ -12133,6 +12373,10 @@ function updateInstanceActionButtons() {
     button.disabled = busy || !hasInstancesBridge || !selectedInstance || !hasCompatibleSuggestion || !getDesktopApiState().hasPublicAccess;
   });
 
+  document.querySelectorAll('[data-instance-action="share-server"]').forEach((button) => {
+    button.disabled = busy || !hasInstancesBridge || !selectedInstance || !getInstancePrimaryPort(selectedInstance);
+  });
+
   document.querySelectorAll('[data-instance-action="copy-access-address"]').forEach((button) => {
     const hasAddress = getInstanceAccessServices(selectedInstance).some((service) => Boolean(getInstanceAccessAddress(service)));
     button.disabled = busy || !hasInstancesBridge || !selectedInstance || !hasAddress;
@@ -12328,6 +12572,7 @@ function buildInstanceActionCell(instance) {
     { label: "Stop", action: "stop", disabled: !canStopInstance(instance) },
     { label: "Restart", action: "restart", disabled: !canRestartInstance(instance) },
     { label: "Expose", action: "expose-share", disabled: !getInstanceAccessSuggestions(instance).some((suggestion) => suggestion.compatible !== false && suggestion.localPort) },
+    { label: "Share", action: "share-server", disabled: !getInstancePrimaryPort(instance) },
   ];
 
   actions.forEach((item) => {
@@ -17040,6 +17285,12 @@ async function runInstanceAction(actionName) {
 
   if (actionName === "manage-access") {
     openInstanceAccessManager(selectedInstance);
+    updateInstanceActionButtons();
+    return;
+  }
+
+  if (actionName === "share-server") {
+    openShareServerModal(selectedInstance);
     updateInstanceActionButtons();
     return;
   }
@@ -33902,6 +34153,9 @@ document.querySelectorAll('[data-instance-action="configure-fivem"]').forEach((b
 });
 document.querySelectorAll('[data-instance-action="expose-share"]').forEach((button) => {
   button.addEventListener("click", () => runInstanceAction("expose-share"));
+});
+document.querySelectorAll('[data-instance-action="share-server"]').forEach((button) => {
+  button.addEventListener("click", () => runInstanceAction("share-server"));
 });
 document.querySelectorAll('[data-instance-action="copy-access-address"]').forEach((button) => {
   button.addEventListener("click", () => runInstanceAction("copy-access-address"));

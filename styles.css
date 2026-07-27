@@ -8640,6 +8640,80 @@ body.has-open-modal {
   width: min(560px, 100%);
 }
 
+.app-modal--share-server {
+  width: min(680px, 100%);
+}
+
+.share-server-body {
+  display: grid;
+  gap: 16px;
+  max-height: min(62vh, 620px);
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.share-server-address-list {
+  display: grid;
+  gap: 10px;
+}
+
+.share-server-address,
+.share-server-empty {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.share-server-address__top,
+.share-server-address__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.share-server-address__value {
+  display: block;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.22);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.86rem;
+  word-break: break-all;
+}
+
+.share-server-address p,
+.share-server-note,
+.share-server-empty p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.share-server-instructions {
+  display: grid;
+  gap: 8px;
+}
+
+.share-server-instructions h3 {
+  margin: 0;
+  font-size: 0.94rem;
+}
+
+.share-server-instructions ol {
+  margin: 0;
+  padding-left: 20px;
+  color: var(--text);
+  line-height: 1.55;
+}
+
 .public-access-create-form {
   display: grid;
   gap: 12px;
