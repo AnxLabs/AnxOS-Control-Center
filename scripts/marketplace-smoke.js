@@ -1940,6 +1940,10 @@ async function assertMarketplaceInstallerSmokeMatrix() {
     modrinthProvider.resolveVersion = async () => ({
       id: "mr-version",
       name: "Modrinth Smoke",
+      versionNumber: "1.0.0",
+      minecraftVersions: ["1.21.1"],
+      loaders: ["vanilla"],
+      type: "release",
       primaryFile: { filename: "modrinth-smoke.jar", url: "https://mock.local/modrinth-smoke.jar", hashes: { sha1: "mr" } },
       files: [{ filename: "modrinth-smoke.jar", url: "https://mock.local/modrinth-smoke.jar", hashes: { sha1: "mr" } }],
       dependencies: [],
@@ -1989,6 +1993,18 @@ async function assertMarketplaceInstallerSmokeMatrix() {
       assert.strictEqual(metadata.serverJar, configuredJar, `${name} metadata should preserve the configured server jar.`);
       assert.strictEqual(metadata.serverJarPath, configuredJar, `${name} metadata should preserve serverJarPath.`);
       assert.strictEqual(metadata.startJar, configuredJar, `${name} metadata should preserve startJar.`);
+      if (name === "curseforge") {
+        assert.strictEqual(String(metadata.providerVersionId), "200", "CurseForge install metadata should preserve the advertised client file id.");
+        assert.strictEqual(String(metadata.providerFileId), "200", "CurseForge install metadata should write providerFileId.");
+        assert.strictEqual(String(metadata.providerServerPackFileId), "201", "CurseForge install metadata should write providerServerPackFileId.");
+        assert.strictEqual(metadata.minecraftVersion, "1.21.1", "CurseForge install metadata should use the selected file Minecraft version.");
+        assert.strictEqual(metadata.loader, "vanilla", "CurseForge install metadata should use the selected file loader.");
+      }
+      if (name === "modrinth") {
+        assert.strictEqual(metadata.providerVersionId, "mr-version", "Modrinth install metadata should preserve the selected version id.");
+        assert.strictEqual(metadata.minecraftVersion, "1.21.1", "Modrinth install metadata should use the selected version Minecraft version.");
+        assert.strictEqual(metadata.loader, "vanilla", "Modrinth install metadata should use the selected version loader.");
+      }
       assert.strictEqual(instance.primaryPort, selectedPort, `${name} install should store selected custom port on the instance.`);
       assert.deepStrictEqual(instance.ports, [selectedPort], `${name} install should store selected custom port as the instance port list.`);
       assert.strictEqual(JSON.parse(files.get(`${id}:server.properties`))["server-port"], String(selectedPort), `${name} install should write selected custom port to server.properties.`);
@@ -2894,6 +2910,41 @@ async function assertProviderInstallSupport() {
     true,
     "CurseForge normalization should preserve serverCapable."
   );
+  const curseForgeSelectedRelease = curseforgeProvider._test.selectBestFile([
+    curseforgeProvider._test.normalizeFile({
+      id: 301,
+      modId: 925202,
+      fileName: "generic-beta-1.21.1.zip",
+      gameVersions: ["1.21.1", "Fabric"],
+      releaseType: 2,
+    }),
+    curseforgeProvider._test.normalizeFile({
+      id: 302,
+      modId: 925202,
+      fileName: "generic-release-1.20.1.zip",
+      gameVersions: ["1.20.1", "Fabric"],
+      releaseType: 1,
+    }),
+    curseforgeProvider._test.normalizeFile({
+      id: 303,
+      modId: 925202,
+      fileName: "generic-release-1.21.1.zip",
+      gameVersions: ["1.21.1", "Fabric"],
+      releaseType: 1,
+    }),
+  ], { minecraftVersion: "1.21.1", loader: "fabric" });
+  assert.strictEqual(curseForgeSelectedRelease.id, 303, "CurseForge card display version must come from the selected release file that matches the filter.");
+  assert.strictEqual(
+    curseforgeProvider._test.fileMatchesSelection(curseforgeProvider._test.normalizeFile({
+      id: 304,
+      modId: 925202,
+      fileName: "generic-1.20.1.zip",
+      gameVersions: ["1.20.1", "Fabric"],
+      releaseType: 1,
+    }), { minecraftVersion: "1.21.1", loader: "fabric" }),
+    false,
+    "CurseForge version filters should exclude mismatched provider files."
+  );
   assert(
     curseforgeProvider._test.getEnvCandidates().some((candidate) => candidate.endsWith(".env")),
     "CurseForge provider should search deterministic .env candidates."
@@ -2913,6 +2964,46 @@ async function assertProviderInstallSupport() {
     normalizedModrinthProject.projectUrl,
     "https://modrinth.com/modpack/required-pack",
     "Modrinth project metadata should expose the official project page."
+  );
+  const modrinthSelectedVersion = modrinthProvider._test.selectBestVersion([
+    modrinthProvider._test.normalizeVersion({
+      id: "mr-beta-1211",
+      project_id: "generic-pack",
+      version_number: "2.0.0-beta",
+      game_versions: ["1.21.1"],
+      loaders: ["fabric"],
+      version_type: "beta",
+      files: [{ filename: "generic.mrpack", url: "https://mock.local/generic.mrpack", primary: true }],
+    }),
+    modrinthProvider._test.normalizeVersion({
+      id: "mr-release-1201",
+      project_id: "generic-pack",
+      version_number: "1.0.0",
+      game_versions: ["1.20.1"],
+      loaders: ["fabric"],
+      version_type: "release",
+      files: [{ filename: "generic.mrpack", url: "https://mock.local/generic.mrpack", primary: true }],
+    }),
+    modrinthProvider._test.normalizeVersion({
+      id: "mr-release-1211",
+      project_id: "generic-pack",
+      version_number: "2.0.0",
+      game_versions: ["1.21.1"],
+      loaders: ["fabric"],
+      version_type: "release",
+      files: [{ filename: "generic.mrpack", url: "https://mock.local/generic.mrpack", primary: true }],
+    }),
+  ], { minecraftVersion: "1.21.1", loader: "fabric" });
+  assert.strictEqual(modrinthSelectedVersion.id, "mr-release-1211", "Modrinth card display version must come from the selected release version object.");
+  assert.strictEqual(
+    modrinthProvider._test.versionMatches(modrinthProvider._test.normalizeVersion({
+      id: "mr-1201",
+      project_id: "generic-pack",
+      game_versions: ["1.20.1"],
+      loaders: ["fabric"],
+    }), "1.21.1", "fabric"),
+    false,
+    "Modrinth version filters should exclude mismatched version objects."
   );
   const cfSecretRoot = fs.mkdtempSync(path.join(os.tmpdir(), "anxhub-cf-key-"));
   try {
@@ -3281,6 +3372,31 @@ async function assertProviderInstallSupport() {
   assert.strictEqual(metadata.provider, "modrinth", "Metadata should preserve provider.");
   assert.strictEqual(metadata.providerProjectId, "provider-smoke", "Metadata should preserve provider project id.");
   assert.strictEqual(metadata.mods.length, 1, "Metadata should list installed mods.");
+  assert.doesNotThrow(
+    () => marketplaceInstallService._test.assertAdvertisedProviderSelection("Modrinth", {
+      providerVersionId: "version-smoke",
+      minecraftVersion: "1.21.1",
+      loader: "fabric",
+    }, {
+      providerVersionId: "version-smoke",
+      minecraftVersions: ["1.21.1"],
+      loaders: ["fabric"],
+    }),
+    "Advertised provider metadata should pass when it matches the selected provider version object."
+  );
+  assert.throws(
+    () => marketplaceInstallService._test.assertAdvertisedProviderSelection("CurseForge", {
+      providerVersionId: "cf-card-file",
+      minecraftVersion: "1.20.1",
+      loader: "fabric",
+    }, {
+      providerVersionId: "cf-selected-file",
+      minecraftVersions: ["1.21.1"],
+      loaders: ["fabric"],
+    }),
+    (error) => error?.code === "PROVIDER_ADVERTISED_METADATA_MISMATCH",
+    "Install should fail before provider download when card metadata does not match the resolved file/version."
+  );
 
   let progressEvents = 0;
   const listener = () => {

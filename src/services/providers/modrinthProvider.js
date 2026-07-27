@@ -290,9 +290,28 @@ function normalizeVersion(version = {}) {
 }
 
 function versionMatches(version, minecraftVersion, loader) {
+  const gameVersions = Array.isArray(version.game_versions) ? version.game_versions : version.minecraftVersions || [];
   const loaders = (version.loaders || []).map(normalizeLoader);
-  return (!minecraftVersion || (version.game_versions || []).includes(minecraftVersion)) &&
+  return (!minecraftVersion || gameVersions.includes(minecraftVersion)) &&
     (!loader || loaders.includes(normalizeLoader(loader)));
+}
+
+function getVersionReleaseRank(version = {}) {
+  const type = String(version.type || version.version_type || "").trim().toLowerCase();
+  if (type === "release") return 0;
+  if (type === "beta") return 1;
+  if (type === "alpha") return 2;
+  return 3;
+}
+
+function selectBestVersion(versions = [], selection = {}) {
+  return (Array.isArray(versions) ? versions : [])
+    .filter((version) => versionMatches(version, selection.minecraftVersion || selection.version || "", selection.loader || ""))
+    .sort((left, right) => {
+      const rank = getVersionReleaseRank(left) - getVersionReleaseRank(right);
+      if (rank !== 0) return rank;
+      return String(right.datePublished || right.date_published || "").localeCompare(String(left.datePublished || left.date_published || ""));
+    })[0] || null;
 }
 
 function normalizeSearchOptions(queryOrOptions = "", minecraftVersion = "", loader = "") {
@@ -415,9 +434,17 @@ async function resolveVersion(projectIdOrSlug, minecraftVersion = "", loader = "
     if (versionMatches(version.raw || version, minecraftVersion, loader)) {
       return version;
     }
+    throw new ModrinthProviderError("Requested Modrinth version does not match the selected Minecraft version or loader.", "MODRINTH_VERSION_MISMATCH", {
+      projectId: projectIdOrSlug,
+      versionId: requestedVersionId,
+      requestedMinecraftVersion: minecraftVersion || null,
+      requestedLoader: loader || null,
+      versionMinecraftVersions: version.minecraftVersions || [],
+      versionLoaders: version.loaders || [],
+    });
   }
   const versions = await getVersions(projectIdOrSlug, minecraftVersion, loader);
-  const release = versions.find((version) => version.type === "release") || versions[0];
+  const release = selectBestVersion(versions, { minecraftVersion, loader });
   if (!release) {
     throw new ModrinthProviderError("No compatible Modrinth server version was found.", "MODRINTH_VERSION_NOT_FOUND");
   }
@@ -491,6 +518,8 @@ module.exports = {
     normalizeSide,
     normalizeVersion,
     shouldInstallProjectFile,
+    getVersionReleaseRank,
+    selectBestVersion,
     versionMatches,
     withRetry,
   },

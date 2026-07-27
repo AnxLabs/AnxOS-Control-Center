@@ -12757,7 +12757,7 @@ function renderMarketplaceTemplates() {
     [
       formatMarketplaceProviderLabel(template),
       formatMarketplaceLoaderLabel(template),
-      template.minecraftVersion || template.gameVersion || template.serverVersion || "",
+      template.displayMinecraftVersion || template.minecraftVersion || template.gameVersion || template.serverVersion || "",
     ].filter(Boolean).forEach((label) => {
       const badge = document.createElement("span");
       badge.className = "marketplace-card__badge";
@@ -13421,8 +13421,23 @@ function normalizeProviderLoader(project = {}) {
 }
 
 function normalizeProviderMinecraftVersion(project = {}) {
+  if (project.displayMinecraftVersion) return project.displayMinecraftVersion;
+  if (project.minecraftVersion && /^1\.\d+$/.test(String(project.minecraftVersion))) return `${project.minecraftVersion}.x`;
+  if (project.minecraftVersion) return project.minecraftVersion;
   const versions = Array.isArray(project.minecraftVersions) ? project.minecraftVersions : [];
-  return versions.find((version) => /^1\.\d+(?:\.\d+)?$/.test(String(version))) || versions[0] || "";
+  const selected = versions.find((version) => /^1\.\d+\.\d+$/.test(String(version))) ||
+    versions.find((version) => /^1\.\d+$/.test(String(version))) ||
+    versions[0] ||
+    "";
+  return /^1\.\d+$/.test(String(selected)) ? `${selected}.x` : selected;
+}
+
+function selectProviderMinecraftVersionForInstall(project = {}) {
+  if (project.minecraftVersion && !String(project.minecraftVersion).endsWith(".x")) return project.minecraftVersion;
+  const versions = Array.isArray(project.minecraftVersions) ? project.minecraftVersions : [];
+  return versions.find((version) => /^1\.\d+\.\d+$/.test(String(version))) ||
+    versions.find((version) => /^1\.\d+$/.test(String(version))) ||
+    "";
 }
 
 function classifyMarketplaceServerPackCapability(source = {}) {
@@ -13431,7 +13446,7 @@ function classifyMarketplaceServerPackCapability(source = {}) {
   }
   const provider = getMarketplaceProvider(source);
   if (provider === "curseforge") {
-    const serverPackFileId = source.serverPackFileId || source.raw?.serverPackFileId || source.mainFile?.serverPackFileId || source.latestFile?.serverPackFileId || null;
+    const serverPackFileId = source.providerServerPackFileId || source.serverPackFileId || source.raw?.serverPackFileId || source.mainFile?.serverPackFileId || source.latestFile?.serverPackFileId || null;
     if (serverPackFileId) {
       return {
         state: "available",
@@ -13487,7 +13502,15 @@ function buildProviderMarketplaceTemplate(project = {}) {
     game: "minecraft",
     provider,
     providerProjectId,
-    minecraftVersion: normalizeProviderMinecraftVersion(project),
+    providerVersionId: project.providerVersionId || project.providerFileId || "",
+    providerFileId: project.providerFileId || project.providerVersionId || "",
+    providerServerPackFileId: project.providerServerPackFileId || "",
+    selectedProviderFile: project.selectedProviderFile || null,
+    modpackVersion: project.modpackVersion || "",
+    releaseType: project.releaseType || null,
+    serverCompatibilityConfirmed: project.serverCompatibilityConfirmed === true,
+    minecraftVersion: selectProviderMinecraftVersionForInstall(project),
+    displayMinecraftVersion: normalizeProviderMinecraftVersion(project),
     loader: normalizeProviderLoader(project),
     loaders: Array.isArray(project.loaders) ? project.loaders : [],
     minecraftVersions: Array.isArray(project.minecraftVersions) ? project.minecraftVersions : [],
@@ -13495,7 +13518,7 @@ function buildProviderMarketplaceTemplate(project = {}) {
     updatedAt: project.updatedAt || project.dateModified || "",
     serverCapable: serverPackCapability.installable !== false,
     serverPackCapability,
-    serverPackFileId: serverPackCapability.serverPackFileId || project.serverPackFileId || null,
+    serverPackFileId: serverPackCapability.serverPackFileId || project.providerServerPackFileId || project.serverPackFileId || null,
     rawProviderProject: project.raw ? undefined : project,
     defaultRam: "4G",
     defaultPorts: [25565],
@@ -13886,7 +13909,9 @@ function openMarketplaceWizard(templateId) {
   }
   if (versionField) {
     versionField.value = template.minecraftVersion || template.gameVersion || "latest";
-    versionField.dataset.providerVersionId = "";
+    versionField.dataset.providerVersionId = isProviderMarketplaceTemplate(template)
+      ? template.providerVersionId || template.providerFileId || ""
+      : "";
   }
   if (serverTypeField) {
     if (isMinecraftMarketplaceTemplate(template)) {
@@ -14101,7 +14126,7 @@ function collectMarketplaceInstallOptions() {
   return {
     name: getMarketplaceField("name")?.value || "",
     version: getMarketplaceField("version")?.value || "",
-    providerVersionId,
+    providerVersionId: providerVersionId || (isProviderMarketplaceTemplate(template) ? template.providerVersionId || template.providerFileId || "" : ""),
     serverType: isMinecraft ? getMarketplaceField("serverType")?.value || "" : "",
     storageLocation: getMarketplaceField("storageLocation")?.value || "data",
     memory: normalizeMemoryLimit(getMarketplaceField("memory")?.value || ""),
@@ -15495,7 +15520,10 @@ async function maybePrepareMarketplaceDependencies(normalizedError, template, op
       template,
       provider: getMarketplaceProvider(template),
       providerProjectId: template.providerProjectId || template.projectId,
-      providerVersionId: options.providerVersionId || "",
+      providerVersionId: options.providerVersionId || template.providerVersionId || template.providerFileId || "",
+      advertisedProviderVersionId: template.providerVersionId || template.providerFileId || "",
+      advertisedMinecraftVersion: template.minecraftVersion || "",
+      advertisedLoader: template.loader || "",
       minecraftVersion: options.version === "latest" ? template.minecraftVersion || template.gameVersion || "latest" : options.version,
       loader: options.serverType || template.loader || "vanilla",
       loaderVersion: options.loaderVersion || template.loaderVersion || "",
@@ -15594,7 +15622,10 @@ async function installMarketplaceTemplate(event) {
         template,
         provider: getMarketplaceProvider(template),
         providerProjectId: template.providerProjectId || template.projectId,
-        providerVersionId: options.providerVersionId || "",
+        providerVersionId: options.providerVersionId || template.providerVersionId || template.providerFileId || "",
+        advertisedProviderVersionId: template.providerVersionId || template.providerFileId || "",
+        advertisedMinecraftVersion: template.minecraftVersion || "",
+        advertisedLoader: template.loader || "",
         minecraftVersion: options.version === "latest" ? template.minecraftVersion || template.gameVersion || "latest" : options.version,
         loader: options.serverType || template.loader || "vanilla",
         loaderVersion: options.loaderVersion || template.loaderVersion || "",

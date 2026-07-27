@@ -701,14 +701,121 @@ function getCurseForgeLoaders(file = {}) {
   return Array.isArray(file.loaders) ? file.loaders : [];
 }
 
+function normalizeProviderLoaderValue(loader = "") {
+  const normalized = normalizeLoader(loader);
+  if (normalized === "neoforge") return "neoforge";
+  if (normalized === "forge") return "forge";
+  if (normalized === "fabric") return "fabric";
+  if (normalized === "quilt") return "quilt";
+  return normalized || "";
+}
+
+function selectProviderMinecraftVersion(versions = []) {
+  const values = [...new Set((Array.isArray(versions) ? versions : []).map((entry) => String(entry || "").trim()).filter(Boolean))];
+  return values.find((version) => /^1\.\d+\.\d+$/.test(version)) ||
+    values.find((version) => /^1\.\d+$/.test(version)) ||
+    values[0] ||
+    "";
+}
+
+function displayProviderMinecraftVersion(versions = []) {
+  const selected = selectProviderMinecraftVersion(versions);
+  if (!selected) return "Compatibility Unknown";
+  if (/^1\.\d+$/.test(selected)) return `${selected}.x`;
+  return selected;
+}
+
+function selectProviderLoader(loaders = []) {
+  return (Array.isArray(loaders) ? loaders : [])
+    .map(normalizeProviderLoaderValue)
+    .find(Boolean) || "";
+}
+
 function curseForgeFileMatchesSelection(file = {}, selection = {}) {
   const requestedMinecraftVersion = String(selection.minecraftVersion || selection.version || "").trim().toLowerCase();
-  const requestedLoader = String(selection.loader || "").trim().toLowerCase();
+  const requestedLoader = normalizeProviderLoaderValue(selection.loader || "");
   const versions = getCurseForgeVersions(file).map((entry) => String(entry || "").trim().toLowerCase());
-  const loaders = getCurseForgeLoaders(file).map((entry) => String(entry || "").trim().toLowerCase());
+  const loaders = getCurseForgeLoaders(file).map(normalizeProviderLoaderValue);
   const versionMatches = !requestedMinecraftVersion || versions.includes(requestedMinecraftVersion);
   const loaderMatches = !requestedLoader || loaders.length === 0 || loaders.includes(requestedLoader);
   return versionMatches && loaderMatches;
+}
+
+function createProviderAdvertisedMismatchError(provider, context = {}) {
+  return new MarketplaceInstallError(`${provider} install failed: advertised Marketplace metadata does not match the resolved provider file/version.`, "PROVIDER_ADVERTISED_METADATA_MISMATCH", {
+    provider: String(provider || "").toLowerCase(),
+    ...context,
+    retryable: false,
+    suggestion: "Refresh the Marketplace card and retry the install.",
+  });
+}
+
+function assertAdvertisedProviderSelection(provider, advertised = {}, resolved = {}) {
+  const advertisedVersionId = String(advertised.providerVersionId || advertised.advertisedProviderVersionId || "").trim();
+  const resolvedVersionId = String(resolved.providerVersionId || resolved.fileId || resolved.versionId || "").trim();
+  if (advertisedVersionId && resolvedVersionId && advertisedVersionId !== resolvedVersionId) {
+    throw createProviderAdvertisedMismatchError(provider, {
+      field: "providerVersionId",
+      advertised: advertisedVersionId,
+      resolved: resolvedVersionId,
+      projectId: resolved.projectId || advertised.projectId || null,
+    });
+  }
+
+  const advertisedMinecraftVersion = String(advertised.minecraftVersion || advertised.advertisedMinecraftVersion || "").trim();
+  const resolvedMinecraftVersions = Array.isArray(resolved.minecraftVersions) ? resolved.minecraftVersions : [];
+  if (advertisedMinecraftVersion && advertisedMinecraftVersion !== "latest" && resolvedMinecraftVersions.length > 0 && !resolvedMinecraftVersions.includes(advertisedMinecraftVersion)) {
+    throw createProviderAdvertisedMismatchError(provider, {
+      field: "minecraftVersion",
+      advertised: advertisedMinecraftVersion,
+      resolved: resolvedMinecraftVersions,
+      projectId: resolved.projectId || advertised.projectId || null,
+    });
+  }
+
+  const advertisedLoader = normalizeProviderLoaderValue(advertised.loader || advertised.advertisedLoader || "");
+  const resolvedLoaders = (Array.isArray(resolved.loaders) ? resolved.loaders : []).map(normalizeProviderLoaderValue).filter(Boolean);
+  if (advertisedLoader && resolvedLoaders.length > 0 && !resolvedLoaders.includes(advertisedLoader)) {
+    throw createProviderAdvertisedMismatchError(provider, {
+      field: "loader",
+      advertised: advertisedLoader,
+      resolved: resolvedLoaders,
+      projectId: resolved.projectId || advertised.projectId || null,
+    });
+  }
+}
+
+function applyResolvedProviderSelection(options = {}, resolved = {}) {
+  const minecraftVersion = selectProviderMinecraftVersion(resolved.minecraftVersions);
+  const loader = selectProviderLoader(resolved.loaders);
+  if (minecraftVersion) {
+    options.minecraftVersion = minecraftVersion;
+    options.version = minecraftVersion;
+  }
+  if (loader) {
+    options.loader = loader;
+    options.serverType = loader;
+  }
+  if (resolved.providerVersionId) {
+    options.providerVersionId = resolved.providerVersionId;
+  }
+  if (resolved.providerFileId) {
+    options.providerFileId = resolved.providerFileId;
+  }
+  if (resolved.providerServerPackFileId) {
+    options.providerServerPackFileId = resolved.providerServerPackFileId;
+  }
+  if (resolved.modpackVersion) {
+    options.modpackVersion = resolved.modpackVersion;
+  }
+  options.providerResolvedMetadata = {
+    ...(options.providerResolvedMetadata || {}),
+    ...resolved,
+    minecraftVersion,
+    displayMinecraftVersion: displayProviderMinecraftVersion(resolved.minecraftVersions),
+    loader,
+  };
+  return options;
 }
 
 function scoreCurseForgeServerPackCandidate(candidate = {}, selectedFile = {}, selection = {}) {
@@ -1445,7 +1552,7 @@ function isWindowsInstallTarget(options = {}, agentConfig = {}) {
 function getPreferredStartupScriptCandidates(options = {}, agentConfig = {}) {
   return isWindowsInstallTarget(options, agentConfig)
     ? ["startserver.bat", "run.bat", "start.bat", "startserver.cmd", "run.cmd", "start.cmd", "startserver.sh", "run.sh"]
-    : ["startserver.sh", "run.sh", "start.sh", "startserver.bat", "run.bat", "start.bat", "startserver.cmd", "run.cmd", "start.cmd"];
+    : ["run.sh", "startserver.sh", "start.sh", "startserver.bat", "run.bat", "start.bat", "startserver.cmd", "run.cmd", "start.cmd"];
 }
 
 function buildStartupScriptPatch(scriptPath) {
@@ -1698,6 +1805,12 @@ function buildInstancePayload(options, serverInfo) {
     serverSoftware: options.loader || options.serverType || "Minecraft",
     loader: options.loader || options.serverType || "vanilla",
     loaderVersion: serverInfo.loaderVersion || options.loaderVersion || null,
+    provider: options.provider || "marketplace",
+    providerProjectId: options.providerProjectId || options.projectId || "",
+    providerVersionId: options.providerVersionId || options.versionId || "",
+    providerFileId: options.providerFileId || "",
+    providerServerPackFileId: options.providerServerPackFileId || "",
+    modpackVersion: options.modpackVersion || options.providerResolvedMetadata?.modpackVersion || "",
     workingDirectory: "data",
     executable: "java",
     args: [`-Xmx${memory}`, "-jar", serverInfo.serverJar || "server.jar", "nogui"],
@@ -1775,13 +1888,17 @@ async function runServerInstaller(instanceId, serverInfo, agentConfig, operation
 }
 
 function buildInstallMetadata(options, serverInfo, records) {
+  const source = records.source || {};
   return {
     name: displayName(options.instanceName || options.name || options.displayName),
     provider: options.provider || "manual",
     providerProjectId: options.providerProjectId || options.projectId || "",
-    providerVersionId: options.providerVersionId || options.versionId || "",
-    minecraftVersion: serverInfo.minecraftVersion || options.minecraftVersion || options.version || "",
-    loader: options.loader || options.serverType || "vanilla",
+    providerVersionId: source.modrinthVersion || source.curseForgeFileId || options.providerVersionId || options.versionId || "",
+    providerFileId: source.curseForgeFileId || options.providerFileId || "",
+    providerServerPackFileId: source.curseForgeServerPackFileId || options.providerServerPackFileId || "",
+    minecraftVersion: source.minecraftVersion || serverInfo.minecraftVersion || options.minecraftVersion || options.version || "",
+    loader: source.loader || options.loader || options.serverType || "vanilla",
+    modpackVersion: source.modpackVersion || options.modpackVersion || "",
     loaderVersion: serverInfo.loaderVersion || options.loaderVersion || "",
     serverJar: serverInfo.serverJar || "server.jar",
     serverJarPath: serverInfo.serverJar || "server.jar",
@@ -1789,7 +1906,7 @@ function buildInstallMetadata(options, serverInfo, records) {
     installedAt: new Date().toISOString(),
     mods: records.mods || [],
     downloads: records.downloads || [],
-    source: records.source || {},
+    source,
   };
 }
 
@@ -1797,9 +1914,19 @@ async function installModrinthPack(instanceId, payload, agentConfig, progressSta
   const projectId = payload.providerProjectId || payload.projectId;
   ensureProviderProjectId(projectId, "Modrinth");
   emitProgress({ ...progressState, stage: "resolving", message: "Resolving Modrinth version..." });
-  const project = await modrinthProvider.getProject(projectId);
+  const project = payload.modrinthSelectedProject || await modrinthProvider.getProject(projectId);
   ensureModrinthServerCapable(project);
-  const version = await modrinthProvider.resolveVersion(projectId, payload.minecraftVersion || payload.version, payload.loader, payload.providerVersionId || payload.versionId);
+  const version = payload.modrinthSelectedVersion || await modrinthProvider.resolveVersion(projectId, payload.minecraftVersion || payload.version, payload.loader, payload.providerVersionId || payload.versionId);
+  const resolvedMetadata = buildModrinthResolvedMetadata(version, project);
+  logMarketplaceInstallStep("Resolved Modrinth install version.", {
+    provider: "modrinth",
+    projectId,
+    versionId: resolvedMetadata.providerVersionId || null,
+    advertisedMinecraftVersion: resolvedMetadata.minecraftVersion || null,
+    loader: resolvedMetadata.loader || null,
+    releaseType: resolvedMetadata.releaseType || null,
+    serverCompatibilityConfirmed: resolvedMetadata.serverCompatibilityConfirmed,
+  });
   const primary = version.primaryFile || version.files?.[0];
   ensureSupportedModpack(primary?.url, "Modrinth", "selected version does not expose downloadable files");
   const mods = [];
@@ -2013,7 +2140,15 @@ async function installModrinthPack(instanceId, payload, agentConfig, progressSta
   return {
     mods,
     downloads,
-    source: { modrinthVersion: version.id, modrinthVersionName: version.name },
+    source: {
+      modrinthVersion: version.id,
+      modrinthVersionName: version.name,
+      minecraftVersion: resolvedMetadata.minecraftVersion,
+      loader: resolvedMetadata.loader,
+      modpackVersion: resolvedMetadata.modpackVersion,
+      releaseType: resolvedMetadata.releaseType,
+      serverCompatibilityConfirmed: resolvedMetadata.serverCompatibilityConfirmed,
+    },
   };
 }
 
@@ -2032,6 +2167,7 @@ async function installCurseForgePack(instanceId, payload, agentConfig, progressS
   });
   const file = selection.selectedFile;
   const serverFile = selection.serverFile;
+  const resolvedMetadata = buildCurseForgeResolvedMetadata(selection, projectId);
   ensureSupportedModpack(serverFile?.id, "CurseForge", "server pack file could not be resolved");
   logMarketplaceInstallStep("Resolved CurseForge server pack file.", {
     instanceId,
@@ -2040,8 +2176,10 @@ async function installCurseForgePack(instanceId, payload, agentConfig, progressS
     selectedFileName: file.fileName,
     serverPackFileId: serverFile.id,
     serverPackFileName: serverFile.fileName,
-    minecraftVersion: payload.minecraftVersion || payload.version || null,
-    loader: payload.loader || null,
+    advertisedMinecraftVersion: resolvedMetadata.minecraftVersion || null,
+    loader: resolvedMetadata.loader || null,
+    releaseType: resolvedMetadata.releaseType || null,
+    serverCompatibilityConfirmed: resolvedMetadata.serverCompatibilityConfirmed,
     source: selection.source || null,
     serverCompatibility: selection.compatibility || null,
   });
@@ -2115,7 +2253,16 @@ async function installCurseForgePack(instanceId, payload, agentConfig, progressS
       return {
         mods,
         downloads,
-        source: { curseForgeFileId: file.id, curseForgeServerPackFileId: serverFile.id, curseForgeFileName: downloaded.fileName },
+        source: {
+          curseForgeFileId: file.id,
+          curseForgeServerPackFileId: serverFile.id,
+          curseForgeFileName: downloaded.fileName,
+          minecraftVersion: resolvedMetadata.minecraftVersion,
+          loader: resolvedMetadata.loader,
+          modpackVersion: resolvedMetadata.modpackVersion,
+          releaseType: resolvedMetadata.releaseType,
+          serverCompatibilityConfirmed: resolvedMetadata.serverCompatibilityConfirmed,
+        },
       };
     }
     ensureServerFiles(manifestFiles, "CurseForge");
@@ -2282,6 +2429,11 @@ async function installCurseForgePack(instanceId, payload, agentConfig, progressS
       curseForgeFileName: file.fileName,
       curseForgeServerPackFileId: serverFile.id,
       curseForgeServerPackFileName: serverFile.fileName,
+      minecraftVersion: resolvedMetadata.minecraftVersion,
+      loader: resolvedMetadata.loader,
+      modpackVersion: resolvedMetadata.modpackVersion,
+      releaseType: resolvedMetadata.releaseType,
+      serverCompatibilityConfirmed: resolvedMetadata.serverCompatibilityConfirmed,
     },
   };
 }
@@ -2455,6 +2607,14 @@ async function installPack(payload = {}) {
       requestedFileId: options.providerVersionId || options.fileId,
       config: curseForgeBrowseConfig,
     });
+    const resolvedMetadata = buildCurseForgeResolvedMetadata(options.curseForgeServerPackSelection, options.providerProjectId);
+    assertAdvertisedProviderSelection("CurseForge", {
+      projectId: options.providerProjectId,
+      providerVersionId: options.advertisedProviderVersionId || options.providerVersionId || options.fileId,
+      minecraftVersion: options.advertisedMinecraftVersion || options.minecraftVersion || options.version,
+      loader: options.advertisedLoader || options.loader,
+    }, resolvedMetadata);
+    applyResolvedProviderSelection(options, resolvedMetadata);
     logMarketplaceInstallStep("Selected CurseForge server pack before Agent install.", {
       provider,
       projectId: options.providerProjectId || null,
@@ -2462,10 +2622,35 @@ async function installPack(payload = {}) {
       selectedFileName: options.curseForgeServerPackSelection.selectedFile?.fileName || null,
       serverPackFileId: options.curseForgeServerPackSelection.serverFile?.id || null,
       serverPackFileName: options.curseForgeServerPackSelection.serverFile?.fileName || null,
-      minecraftVersion: options.minecraftVersion || options.version || null,
-      loader: options.loader || null,
+      advertisedMinecraftVersion: resolvedMetadata.minecraftVersion || null,
+      loader: resolvedMetadata.loader || null,
+      releaseType: resolvedMetadata.releaseType || null,
+      serverCompatibilityConfirmed: resolvedMetadata.serverCompatibilityConfirmed,
       source: options.curseForgeServerPackSelection.source || null,
       serverCompatibility: options.curseForgeServerPackSelection.compatibility || null,
+    });
+  } else if (provider === "modrinth") {
+    const projectId = options.providerProjectId;
+    const project = await modrinthProvider.getProject(projectId);
+    ensureModrinthServerCapable(project);
+    options.modrinthSelectedProject = project;
+    options.modrinthSelectedVersion = await modrinthProvider.resolveVersion(projectId, options.minecraftVersion || options.version, options.loader, options.providerVersionId || options.versionId);
+    const resolvedMetadata = buildModrinthResolvedMetadata(options.modrinthSelectedVersion, project);
+    assertAdvertisedProviderSelection("Modrinth", {
+      projectId,
+      providerVersionId: options.advertisedProviderVersionId || options.providerVersionId || options.versionId,
+      minecraftVersion: options.advertisedMinecraftVersion || options.minecraftVersion || options.version,
+      loader: options.advertisedLoader || options.loader,
+    }, resolvedMetadata);
+    applyResolvedProviderSelection(options, resolvedMetadata);
+    logMarketplaceInstallStep("Selected Modrinth version before Agent install.", {
+      provider,
+      projectId,
+      versionId: resolvedMetadata.providerVersionId || null,
+      advertisedMinecraftVersion: resolvedMetadata.minecraftVersion || null,
+      loader: resolvedMetadata.loader || null,
+      releaseType: resolvedMetadata.releaseType || null,
+      serverCompatibilityConfirmed: resolvedMetadata.serverCompatibilityConfirmed,
     });
   }
   logMarketplaceInstallStep("Resolved Marketplace install target.", {
@@ -2764,6 +2949,7 @@ async function searchProviderPacks(payload = {}) {
   if (provider === "curseforge") {
     const curseForgeConfig = getCurseForgeBrowseConfig(payload.nodeId);
     result = await curseforgeProvider.searchModpacks({ ...payload, config: curseForgeConfig });
+    result = await enrichCurseForgeSearchResults(result, payload, curseForgeConfig);
     result.diagnostics = {
       ...(result.diagnostics || {}),
       nodeId: curseForgeConfig.agentNodeId,
@@ -2779,6 +2965,7 @@ async function searchProviderPacks(payload = {}) {
     };
   } else if (provider === "modrinth") {
     result = await modrinthProvider.searchModpacks(payload);
+    result = await enrichModrinthSearchResults(result, payload);
   } else {
     result = {
       provider,
@@ -2792,6 +2979,166 @@ async function searchProviderPacks(payload = {}) {
     diagnostics: result?.diagnostics || null,
   });
   return result;
+}
+
+function buildCurseForgeResolvedMetadata(selection = {}, projectId = null) {
+  const selectedFile = selection.selectedFile || {};
+  const serverFile = selection.serverFile || selectedFile;
+  const minecraftVersions = getCurseForgeVersions(serverFile).length ? getCurseForgeVersions(serverFile) : getCurseForgeVersions(selectedFile);
+  const loaders = getCurseForgeLoaders(serverFile).length ? getCurseForgeLoaders(serverFile) : getCurseForgeLoaders(selectedFile);
+  return {
+    projectId,
+    providerVersionId: selectedFile.id ? String(selectedFile.id) : "",
+    providerFileId: selectedFile.id ? String(selectedFile.id) : "",
+    providerServerPackFileId: serverFile.id ? String(serverFile.id) : "",
+    minecraftVersions,
+    minecraftVersion: selectProviderMinecraftVersion(minecraftVersions),
+    displayMinecraftVersion: displayProviderMinecraftVersion(minecraftVersions),
+    loaders,
+    loader: selectProviderLoader(loaders),
+    modpackVersion: selectedFile.name || selectedFile.fileName || "",
+    releaseType: selectedFile.releaseType || null,
+    serverCompatibilityConfirmed: Boolean(serverFile.id && selection.compatibility?.classification !== CLASSIFICATIONS.CLIENT_ONLY),
+    serverCompatibility: selection.compatibility || null,
+    source: selection.source || null,
+  };
+}
+
+function buildModrinthResolvedMetadata(version = {}, project = {}) {
+  const minecraftVersions = Array.isArray(version.minecraftVersions) ? version.minecraftVersions : [];
+  const loaders = Array.isArray(version.loaders) ? version.loaders : [];
+  return {
+    projectId: project.providerProjectId || project.id || version.projectId || null,
+    providerVersionId: version.id ? String(version.id) : "",
+    versionId: version.id ? String(version.id) : "",
+    minecraftVersions,
+    minecraftVersion: selectProviderMinecraftVersion(minecraftVersions),
+    displayMinecraftVersion: displayProviderMinecraftVersion(minecraftVersions),
+    loaders,
+    loader: selectProviderLoader(loaders),
+    modpackVersion: version.versionNumber || version.name || "",
+    releaseType: version.type || null,
+    serverCompatibilityConfirmed: String(project.serverSide || project.raw?.server_side || "").toLowerCase() !== "unsupported",
+    serverSide: project.serverSide || project.raw?.server_side || null,
+  };
+}
+
+function mergeResolvedProviderMetadata(project = {}, metadata = {}) {
+  const minecraftVersion = metadata.minecraftVersion || project.minecraftVersion || "";
+  const loader = metadata.loader || project.loader || "";
+  return {
+    ...project,
+    providerVersionId: metadata.providerVersionId || project.providerVersionId || "",
+    providerFileId: metadata.providerFileId || project.providerFileId || metadata.providerVersionId || "",
+    providerServerPackFileId: metadata.providerServerPackFileId || project.providerServerPackFileId || "",
+    minecraftVersion,
+    displayMinecraftVersion: metadata.displayMinecraftVersion || minecraftVersion || "Compatibility Unknown",
+    minecraftVersions: metadata.minecraftVersions?.length ? metadata.minecraftVersions : project.minecraftVersions || [],
+    loader,
+    loaders: metadata.loaders?.length ? metadata.loaders : project.loaders || [],
+    modpackVersion: metadata.modpackVersion || project.modpackVersion || "",
+    releaseType: metadata.releaseType || project.releaseType || null,
+    serverCompatibilityConfirmed: metadata.serverCompatibilityConfirmed === true,
+    serverCompatibility: metadata.serverCompatibility || project.serverCompatibility || null,
+    selectedProviderFile: metadata,
+  };
+}
+
+async function enrichCurseForgeSearchResults(result = {}, payload = {}, config = {}) {
+  const results = Array.isArray(result.results) ? result.results : [];
+  const enriched = await Promise.all(results.map(async (project) => {
+    const projectId = project.providerProjectId || project.id || project.slug;
+    try {
+      const selection = await resolveCurseForgeServerPackSelection({
+        projectId,
+        minecraftVersion: payload.minecraftVersion || payload.version || "",
+        loader: payload.loader || "",
+        config,
+      });
+      const metadata = buildCurseForgeResolvedMetadata(selection, projectId);
+      console.info("[Marketplace][ProviderVersion] Selected CurseForge card target.", {
+        provider: "curseforge",
+        projectId,
+        selectedFileId: metadata.providerFileId || null,
+        selectedServerPackFileId: metadata.providerServerPackFileId || null,
+        advertisedMinecraftVersion: metadata.minecraftVersion || null,
+        loader: metadata.loader || null,
+        releaseType: metadata.releaseType,
+        serverCompatibilityConfirmed: metadata.serverCompatibilityConfirmed,
+      });
+      return mergeResolvedProviderMetadata(project, metadata);
+    } catch (error) {
+      console.info("[Marketplace][ProviderVersion] CurseForge card compatibility unresolved.", {
+        provider: "curseforge",
+        projectId,
+        minecraftVersion: payload.minecraftVersion || payload.version || "",
+        loader: payload.loader || "",
+        code: error?.code || null,
+        message: error?.message || null,
+      });
+      return {
+        ...project,
+        minecraftVersion: "",
+        displayMinecraftVersion: "Compatibility Unknown",
+        providerVersionId: "",
+        serverCapable: false,
+        serverCompatibility: {
+          state: "unknown",
+          label: "Compatibility Unknown",
+          detail: "No compatible server file/version could be resolved for this card.",
+          installable: false,
+          errorCode: error?.code || null,
+        },
+      };
+    }
+  }));
+  return { ...result, results: enriched };
+}
+
+async function enrichModrinthSearchResults(result = {}, payload = {}) {
+  const results = Array.isArray(result.results) ? result.results : [];
+  const enriched = await Promise.all(results.map(async (project) => {
+    const projectId = project.providerProjectId || project.id || project.slug;
+    try {
+      ensureModrinthServerCapable(project);
+      const version = await modrinthProvider.resolveVersion(projectId, payload.minecraftVersion || payload.version || "", payload.loader || "", "");
+      const metadata = buildModrinthResolvedMetadata(version, project);
+      console.info("[Marketplace][ProviderVersion] Selected Modrinth card target.", {
+        provider: "modrinth",
+        projectId,
+        versionId: metadata.providerVersionId || null,
+        advertisedMinecraftVersion: metadata.minecraftVersion || null,
+        loader: metadata.loader || null,
+        releaseType: metadata.releaseType,
+        serverCompatibilityConfirmed: metadata.serverCompatibilityConfirmed,
+      });
+      return mergeResolvedProviderMetadata(project, metadata);
+    } catch (error) {
+      console.info("[Marketplace][ProviderVersion] Modrinth card compatibility unresolved.", {
+        provider: "modrinth",
+        projectId,
+        minecraftVersion: payload.minecraftVersion || payload.version || "",
+        loader: payload.loader || "",
+        code: error?.code || null,
+        message: error?.message || null,
+      });
+      return {
+        ...project,
+        minecraftVersion: "",
+        displayMinecraftVersion: "Compatibility Unknown",
+        providerVersionId: "",
+        serverSide: "unsupported",
+        serverCompatibility: {
+          state: "unknown",
+          label: "Compatibility Unknown",
+          detail: "No compatible server version could be resolved for this card.",
+          installable: false,
+          errorCode: error?.code || null,
+        },
+      };
+    }
+  }));
+  return { ...result, results: enriched };
 }
 
 async function getProviderPackVersions(payload = {}) {
@@ -2827,7 +3174,11 @@ module.exports = {
     buildInstallContext,
     buildInstallMetadata,
     buildInstancePayload,
+    applyResolvedProviderSelection,
     assertProviderInstallDiskSpace,
+    assertAdvertisedProviderSelection,
+    buildCurseForgeResolvedMetadata,
+    buildModrinthResolvedMetadata,
     cleanupIncompleteInstance,
     createPendingManualInstall,
     createProviderInstallOperation,
@@ -2851,6 +3202,7 @@ module.exports = {
     getCurseForgeManifestFiles,
     isTransientError,
     resolveCurseForgeServerPackSelection,
+    selectProviderMinecraftVersion,
     resolveInstalledStartupTarget,
     resolvePaperServerJar,
     buildStartupScriptPatch,

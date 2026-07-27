@@ -142,6 +142,10 @@ async function main() {
       { type: "script", path: "startserver.sh", command: "bash ./startserver.sh", message: "ATM10-style packs should prefer startserver.sh over the NeoForge installer jar on Linux." }
     );
     await assertStartupTarget(
+      ["startserver.sh", "run.sh", "neoforge-21.1.228-installer.jar"],
+      { type: "script", path: "run.sh", command: "bash ./run.sh", message: "NeoForge bootstrap output should prefer generated run.sh over startserver.sh on Linux." }
+    );
+    await assertStartupTarget(
       ["run.sh", "neoforge-21.1.228-installer.jar"],
       { type: "script", path: "run.sh", command: "bash ./run.sh", message: "CurseForge packs with run.sh should launch through bash." }
     );

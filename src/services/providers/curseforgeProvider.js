@@ -1116,14 +1116,19 @@ function normalizeMod(mod = {}) {
 }
 
 function normalizeFile(file = {}) {
+  const gameVersions = Array.isArray(file.gameVersions)
+    ? file.gameVersions
+    : Array.isArray(file.gameVersion)
+      ? file.gameVersion
+      : [];
   const normalized = {
     id: file.id,
     projectId: file.modId,
     name: file.displayName || file.fileName || String(file.id || ""),
     fileName: file.fileName || file.displayName || `${file.id}.jar`,
     downloadUrl: file.downloadUrl || null,
-    minecraftVersions: file.gameVersions || [],
-    loaders: extractLoaders(file.gameVersions || []),
+    minecraftVersions: gameVersions,
+    loaders: extractLoaders(gameVersions),
     releaseType: file.releaseType || null,
     dependencies: Array.isArray(file.dependencies) ? file.dependencies : [],
     modules: Array.isArray(file.modules) ? file.modules : [],
@@ -1134,6 +1139,47 @@ function normalizeFile(file = {}) {
   };
   normalized.serverCompatibility = classifyServerCompatibility(normalized);
   return normalized;
+}
+
+function getFileMinecraftVersions(file = {}) {
+  return Array.isArray(file.minecraftVersions)
+    ? file.minecraftVersions
+    : Array.isArray(file.gameVersions)
+      ? file.gameVersions
+      : [];
+}
+
+function getFileLoaders(file = {}) {
+  return Array.isArray(file.loaders) ? file.loaders : extractLoaders(getFileMinecraftVersions(file));
+}
+
+function fileMatchesSelection(file = {}, selection = {}) {
+  const requestedMinecraftVersion = String(selection.minecraftVersion || selection.version || "").trim().toLowerCase();
+  const requestedLoader = normalizeModLoaderName(selection.loader || "");
+  const versions = getFileMinecraftVersions(file).map((entry) => String(entry || "").trim().toLowerCase());
+  const loaders = getFileLoaders(file).map(normalizeModLoaderName).filter(Boolean);
+  return (!requestedMinecraftVersion || versions.includes(requestedMinecraftVersion)) &&
+    (!requestedLoader || loaders.length === 0 || loaders.includes(requestedLoader));
+}
+
+function getReleaseTypeRank(releaseType) {
+  const normalized = String(releaseType || "").trim().toLowerCase();
+  if (releaseType === 1 || normalized === "1" || normalized === "release") return 0;
+  if (releaseType === 2 || normalized === "2" || normalized === "beta") return 1;
+  if (releaseType === 3 || normalized === "3" || normalized === "alpha") return 2;
+  return 3;
+}
+
+function selectBestFile(files = [], selection = {}) {
+  const candidates = (Array.isArray(files) ? files : [])
+    .filter((file) => fileMatchesSelection(file, selection));
+  return candidates.sort((left, right) => {
+    const rank = getReleaseTypeRank(left.releaseType) - getReleaseTypeRank(right.releaseType);
+    if (rank !== 0) return rank;
+    return String(right.raw?.fileDate || right.raw?.fileDateUtc || right.raw?.gameVersionsDate || right.raw?.dateCreated || "").localeCompare(
+      String(left.raw?.fileDate || left.raw?.fileDateUtc || left.raw?.gameVersionsDate || left.raw?.dateCreated || "")
+    );
+  })[0] || null;
 }
 
 function normalizeSearchOptions(queryOrOptions = "", minecraftVersion = "", loader = "", config = {}) {
@@ -1285,10 +1331,21 @@ async function getModLoaders(config = {}) {
 
 async function resolveFile(projectId, minecraftVersion = "", loader = "", requestedFileId = "", config = {}) {
   if (requestedFileId && requestedFileId !== "latest") {
-    return getFile(projectId, requestedFileId, config);
+    const file = await getFile(projectId, requestedFileId, config);
+    if (!fileMatchesSelection(file, { minecraftVersion, loader })) {
+      throw new CurseForgeProviderError("Requested CurseForge file does not match the selected Minecraft version or loader.", "CURSEFORGE_FILE_VERSION_MISMATCH", {
+        projectId,
+        fileId: requestedFileId,
+        requestedMinecraftVersion: minecraftVersion || null,
+        requestedLoader: loader || null,
+        fileMinecraftVersions: getFileMinecraftVersions(file),
+        fileLoaders: getFileLoaders(file),
+      });
+    }
+    return file;
   }
   const files = await getFiles(projectId, minecraftVersion, loader, config);
-  const file = files[0];
+  const file = selectBestFile(files, { minecraftVersion, loader });
   if (!file) {
     throw new CurseForgeProviderError("No compatible CurseForge server file was found.", "CURSEFORGE_FILE_NOT_FOUND");
   }
@@ -1381,8 +1438,13 @@ module.exports = {
     isTransientError,
     normalizeMod,
     normalizeFile,
+    fileMatchesSelection,
+    getFileLoaders,
+    getFileMinecraftVersions,
+    getReleaseTypeRank,
     normalizeLoader,
     normalizeMod,
+    selectBestFile,
     requireApiKey,
     setRuntimeApiKey,
     withRetry,

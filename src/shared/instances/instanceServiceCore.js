@@ -2097,6 +2097,12 @@ function getStartupScriptLauncher(scriptPath) {
   return null;
 }
 
+function getConfiguredStartupScriptArg(config = {}) {
+  const args = Array.isArray(config.args) ? config.args : [];
+  const index = args.findIndex((arg) => isStartupScript(arg));
+  return index >= 0 ? { index, path: args[index] } : null;
+}
+
 function buildStartupScriptCommand(executable, args = []) {
   const scriptIndex = args.findIndex((arg) => isStartupScript(arg));
   const scriptPath = scriptIndex >= 0 ? validateRelativeAssetPath(args[scriptIndex], "ENTRYPOINT").replace(/\\/g, "/") : null;
@@ -2124,8 +2130,23 @@ async function findStartupScript(config) {
   ].map((candidate) => String(candidate || "").replace(/^\.([/\\])/, "").trim()).filter(Boolean);
   const preferred = process.platform === "win32"
     ? ["startserver.bat", "run.bat", "start.bat", "startserver.cmd", "run.cmd", "start.cmd", "run.ps1", "start.ps1", "startserver.sh", "run.sh", "start.sh"]
-    : ["startserver.sh", "run.sh", "start.sh", "startserver.bat", "run.bat", "start.bat", "startserver.cmd", "run.cmd", "start.cmd", "run.ps1", "start.ps1"];
+    : ["run.sh", "startserver.sh", "start.sh", "startserver.bat", "run.bat", "start.bat", "startserver.cmd", "run.cmd", "start.cmd", "run.ps1", "start.ps1"];
   for (const candidate of [...configured, ...preferred]) {
+    try {
+      const relative = validateRelativeAssetPath(candidate, "ENTRYPOINT");
+      const target = path.resolve(root, relative);
+      if (isInsideRoot(target, root) && await pathExists(target)) {
+        return relative.replace(/\\/g, "/");
+      }
+    } catch {}
+  }
+  return null;
+}
+
+async function findExistingStartupScript(config, candidates = []) {
+  const workingDirectory = config.workingDirectory || "data";
+  const root = resolveRelativeManagedPath(config.id, workingDirectory, "data");
+  for (const candidate of candidates) {
     try {
       const relative = validateRelativeAssetPath(candidate, "ENTRYPOINT");
       const target = path.resolve(root, relative);
@@ -2309,14 +2330,18 @@ async function repairConfiguredServerJar(config) {
 async function repairScriptLauncherCommand(config) {
   const executable = executableName(config.executable);
   const args = Array.isArray(config.args) ? config.args : [];
+  const configuredScript = getConfiguredStartupScriptArg(config);
+  const configuredScriptName = path.basename(String(configuredScript?.path || config.startupScript || "")).toLowerCase();
   const javaTryingToRunScript = (executable === "java" || executable === "java.exe") && args.some(isStartupScript);
   const javaTryingToRunInstallerJar = (executable === "java" || executable === "java.exe") &&
     args.some((arg) => /(?:^|[/\\])(?:forge|neoforge)(?:-[^/\\]+)?-installer\.jar$/i.test(String(arg || "")));
-  if (!javaTryingToRunScript && !javaTryingToRunInstallerJar) {
+  const generatedRunScript = await findExistingStartupScript(config, process.platform === "win32" ? ["run.bat", "run.cmd", "run.ps1", "run.sh"] : ["run.sh", "run.bat", "run.cmd", "run.ps1"]);
+  const startserverUsingGeneratedRun = generatedRunScript && /^startserver\.(?:sh|bat|cmd|ps1)$/i.test(configuredScriptName);
+  if (!javaTryingToRunScript && !javaTryingToRunInstallerJar && !startserverUsingGeneratedRun) {
     return config;
   }
 
-  const script = await findStartupScript(config);
+  const script = generatedRunScript || await findStartupScript(config);
   if (!script) {
     const error = createInstanceError("STARTUP_SCRIPT_MISSING", 400, {
       executable: config.executable,
@@ -2333,8 +2358,8 @@ async function repairScriptLauncherCommand(config) {
   if (!launcher) {
     throw createInstanceError("STARTUP_SCRIPT_UNSUPPORTED", 400, { script });
   }
-  const scriptIndex = args.findIndex((arg) => isStartupScript(arg));
-  const extraArgs = scriptIndex >= 0 ? args.slice(scriptIndex + 1) : [];
+  const scriptIndex = configuredScript?.index ?? -1;
+  const extraArgs = scriptIndex >= 0 && !javaTryingToRunInstallerJar ? args.slice(scriptIndex + 1) : [];
   const repaired = {
     ...config,
     executable: launcher.executable,
@@ -2348,6 +2373,128 @@ async function repairScriptLauncherCommand(config) {
   await saveInstanceConfig(repaired);
   await appendLog(config.id, "stdout", `Repaired startup script command: ${formatCommandForLog(repaired)}`).catch(() => {});
   return repaired;
+}
+
+function isNeoForgeInstance(config = {}) {
+  return /neoforge/i.test([
+    config.loader,
+    config.serverSoftware,
+    config.softwareVersion,
+    config.loaderVersion,
+    config.templateId,
+    config.displayName,
+    config.startupScript,
+    ...(Array.isArray(config.tags) ? config.tags : []),
+    ...(Array.isArray(config.args) ? config.args : []),
+  ].filter(Boolean).join(" "));
+}
+
+function extractNeoForgeUnixArgsReferences(scriptText = "") {
+  const refs = [];
+  const pattern = /(?:^|[@'"=\s])((?:\.\/)?libraries\/net\/neoforged\/neoforge\/([^\/\s'"`]+)\/unix_args\.txt)\b/gi;
+  let match;
+  while ((match = pattern.exec(String(scriptText || "")))) {
+    refs.push({
+      relativePath: match[1].replace(/^\.\//, ""),
+      version: match[2],
+    });
+  }
+  return refs;
+}
+
+async function getExistingNeoForgeUnixArgs(dataRoot) {
+  const root = path.join(dataRoot, "libraries", "net", "neoforged", "neoforge");
+  const versions = await listDirectoryNames(root);
+  const existing = [];
+  for (const version of versions) {
+    const relativePath = path.join("libraries", "net", "neoforged", "neoforge", version, "unix_args.txt").replace(/\\/g, "/");
+    if (await pathExists(path.join(dataRoot, relativePath))) {
+      existing.push({ version, relativePath });
+    }
+  }
+  return existing;
+}
+
+function neoforgeRuntimeIncompleteMessage(details = {}) {
+  if (details.mismatch) {
+    return `NeoForge runtime files are incomplete or mismatched. The startup script expects ${details.expectedVersion || "a different NeoForge version"} but generated runtime files are ${details.availableVersions?.join(", ") || "missing"}. Retry server bootstrap or reinstall this instance.`;
+  }
+  return "NeoForge runtime files are incomplete. Retry server bootstrap or reinstall this instance.";
+}
+
+async function validateNeoForgeRuntimeFiles(config) {
+  if (process.platform === "win32" || !isNeoForgeInstance(config) || !isScriptBasedCommand(config)) {
+    return null;
+  }
+  const scriptArg = getConfiguredStartupScriptArg(config);
+  const scriptPath = scriptArg?.path || config.startupScript;
+  if (!scriptPath || !/\.sh$/i.test(String(scriptPath))) {
+    return null;
+  }
+  const workingDirectory = config.workingDirectory || "data";
+  const dataRoot = resolveRelativeManagedPath(config.id, workingDirectory, "data");
+  const scriptRelative = validateRelativeAssetPath(String(scriptPath).replace(/^\.\//, ""), "ENTRYPOINT");
+  const scriptAbsolute = path.resolve(dataRoot, scriptRelative);
+  if (!isInsideRoot(scriptAbsolute, dataRoot) || !await pathExists(scriptAbsolute)) {
+    return {
+      ok: false,
+      code: "NEOFORGE_RUNTIME_INCOMPLETE",
+      message: neoforgeRuntimeIncompleteMessage(),
+      details: { missing: [scriptRelative] },
+    };
+  }
+  const scriptText = await readTextIfExists(scriptAbsolute, 256 * 1024);
+  const missing = [];
+  if (!await pathExists(path.join(dataRoot, "user_jvm_args.txt"))) {
+    missing.push("user_jvm_args.txt");
+  }
+  const refs = extractNeoForgeUnixArgsReferences(scriptText);
+  if (refs.length === 0) {
+    return missing.length
+      ? { ok: false, code: "NEOFORGE_RUNTIME_INCOMPLETE", message: neoforgeRuntimeIncompleteMessage(), details: { missing } }
+      : null;
+  }
+  const existingUnixArgs = await getExistingNeoForgeUnixArgs(dataRoot);
+  for (const ref of refs) {
+    const absolute = path.join(dataRoot, ref.relativePath);
+    if (!await pathExists(absolute)) {
+      missing.push(ref.relativePath);
+    }
+  }
+  if (missing.length === 0) {
+    return null;
+  }
+  const expectedVersion = refs.find((ref) => missing.includes(ref.relativePath))?.version || refs[0]?.version || null;
+  const availableVersions = existingUnixArgs.map((entry) => entry.version);
+  const mismatch = Boolean(expectedVersion && availableVersions.length > 0 && !availableVersions.includes(expectedVersion));
+  return {
+    ok: false,
+    code: "NEOFORGE_RUNTIME_INCOMPLETE",
+    message: neoforgeRuntimeIncompleteMessage({ mismatch, expectedVersion, availableVersions }),
+    details: {
+      missing,
+      expectedVersion,
+      availableVersions,
+      mismatch,
+      suggestion: "Retry server bootstrap or reinstall this instance.",
+    },
+  };
+}
+
+function classifyNeoForgeRuntimeOutput(text = "") {
+  const match = String(text || "").match(/(?:could not open|No such file or directory).*?`?((?:\.\/)?libraries\/net\/neoforged\/neoforge\/([^\/\s'`]+)\/unix_args\.txt)'?/i);
+  if (!match) {
+    return null;
+  }
+  return {
+    code: "NEOFORGE_RUNTIME_INCOMPLETE",
+    message: neoforgeRuntimeIncompleteMessage(),
+    details: {
+      missing: [match[1].replace(/^\.\//, "")],
+      expectedVersion: match[2] || null,
+      suggestion: "Retry server bootstrap or reinstall this instance.",
+    },
+  };
 }
 
 async function detectFromKnownFiles(config) {
@@ -3779,6 +3926,22 @@ async function startInstance(instanceId, options = {}) {
   assertExecutableAllowed(config.executable);
   await fs.mkdir(workingDirectory, { recursive: true });
   await assertFiveMCanStart(config);
+  const neoForgeRuntimeValidation = await validateNeoForgeRuntimeFiles(config);
+  if (neoForgeRuntimeValidation?.ok === false) {
+    await appendLog(config.id, "stderr", neoForgeRuntimeValidation.message).catch(() => {});
+    const failedConfig = await updateRuntimeState(config.id, {
+      state: INSTANCE_STATES.FAILED,
+      pid: null,
+      exitCode: null,
+      signal: null,
+      failureReason: neoForgeRuntimeValidation.code,
+      failureDetails: neoForgeRuntimeValidation.details,
+      readinessState: "failed",
+      healthState: "crashed",
+      lastStoppedAt: nowIso(),
+    });
+    return publicConfig(failedConfig);
+  }
   await appendLog(config.id, "stdout", `Starting ${config.displayName}`);
   const commandForLog = formatCommandForLog(config);
   const javaVersion = await getJavaVersionForLog(config.executable).catch((error) => `unavailable: ${error?.code || error?.message || "unknown"}`);
@@ -3810,6 +3973,7 @@ async function startInstance(instanceId, options = {}) {
     exitCode: null,
     signal: null,
     failureReason: null,
+    failureDetails: null,
     readinessState: "starting",
     healthState: "unknown",
     runtimeProcess: null,
@@ -3914,10 +4078,21 @@ async function startInstance(instanceId, options = {}) {
     const text = String(chunk || "");
     appendLog(config.id, "stderr", chunk).catch(() => {});
     appendProcessTail(runningProcesses.get(config.id), "stderr", chunk);
+    const neoForgeRuntimeError = classifyNeoForgeRuntimeOutput(text);
+    if (neoForgeRuntimeError) {
+      const entry = runningProcesses.get(config.id);
+      if (entry) {
+        entry.failureReason = neoForgeRuntimeError.code;
+        entry.failureDetails = neoForgeRuntimeError.details;
+        entry.failureMessage = neoForgeRuntimeError.message;
+        entry.suppressRestart = true;
+      }
+      appendLog(config.id, "stderr", neoForgeRuntimeError.message).catch(() => {});
+    }
     if (/invalid option|usage:|cannot execute|No such file or directory|not found/i.test(text)) {
       const entry = runningProcesses.get(config.id);
       if (entry) {
-        entry.failureReason = "INVALID_COMMAND";
+        entry.failureReason = entry.failureReason || "INVALID_COMMAND";
         if (/invalid option|usage:/i.test(text)) {
           entry.suppressRestart = true;
         }
@@ -3989,6 +4164,7 @@ async function startInstance(instanceId, options = {}) {
       exitCode,
       signal,
       failureReason: resolvedFailureReason,
+      failureDetails: entry?.failureDetails || null,
       readinessState: failed ? "failed" : "stopped",
       healthState: failed ? "crashed" : "unknown",
       lastStoppedAt: nowIso(),
@@ -3999,6 +4175,7 @@ async function startInstance(instanceId, options = {}) {
       }
       const stopReason = earlyCleanExit
         ? "Server exited immediately; this modpack may be client-only or missing server files."
+        : entry?.failureMessage && failed ? entry.failureMessage
         : `Stopped ${updatedConfig.displayName} exitCode=${exitCode ?? "null"} signal=${signal || "null"}`;
       console.info("[Instances] Instance process exited.", {
         instanceId: config.id,
