@@ -5,18 +5,18 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   siteUrl: "https://anxoscontrolcenter.org",
   logoPath: "/assets/anxos-logo.png",
   latestVersion: "1.8",
-  build: "182",
-  buildNumber: "182",
+  build: "183",
+  buildNumber: "183",
   channel: "Private Alpha",
-  releaseLabel: "Version 1.8 Build 182 Private Alpha",
+  releaseLabel: "Version 1.8 Build 183 Private Alpha",
   releaseDate: "July 27, 2026",
-  releaseTag: "v1.8-build182",
+  releaseTag: "v1.8-build183",
   releaseRepository: {
     owner: "bungopam-byte",
     repo: "AnxOS-Control-Center-Releases",
   },
   repositoryUrl: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases",
-  releaseUrl: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build182",
+  releaseUrl: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build183",
   githubReleasesApiUrl: "https://api.github.com/repos/bungopam-byte/AnxOS-Control-Center-Releases/releases?per_page=20",
   stableDownloadEndpoints: {
     windows: "/api/download/latest/windows",
@@ -26,23 +26,44 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   },
   releaseAssets: [
       {
-          fileName: "AnxOS-Control-Center-Setup-1.8-build182.exe",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build182/AnxOS-Control-Center-Setup-1.8-build182.exe"
+          fileName: "AnxOS-Control-Center-Setup-1.8-build183.exe",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build183/AnxOS-Control-Center-Setup-1.8-build183.exe"
       },
       {
-          fileName: "AnxOS-Control-Center-1.8-build182-portable.exe",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build182/AnxOS-Control-Center-1.8-build182-portable.exe"
+          fileName: "AnxOS-Control-Center-1.8-build183-portable.exe",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build183/AnxOS-Control-Center-1.8-build183-portable.exe"
       },
       {
-          fileName: "AnxOS-Control-Center-1.8-build182.AppImage",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build182/AnxOS-Control-Center-1.8-build182.AppImage"
+          fileName: "AnxOS-Control-Center-1.8-build183.AppImage",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build183/AnxOS-Control-Center-1.8-build183.AppImage"
       },
       {
-          fileName: "AnxOS-Control-Center-1.8-build182.deb",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build182/AnxOS-Control-Center-1.8-build182.deb"
+          fileName: "AnxOS-Control-Center-1.8-build183.deb",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build183/AnxOS-Control-Center-1.8-build183.deb"
       }
   ],
   releaseNotes: [
+      {
+          "version": "1.8",
+          "build": 183,
+          "channel": "Private Alpha",
+          "tag": "v1.8-build183",
+          "date": "July 27, 2026",
+          "datetime": "2026-07-27",
+          "title": "Build 183 Marketplace, SSH, node editor, Docker, checklist, Palworld, and NeoForge polish",
+          "summary": "Private Alpha v1.8 Build 183 stabilizes the Build 182 Marketplace UI, SSH input flow, node editor and Docker layouts, checklist readiness, Palworld log classification, and NeoForge runtime validation.",
+          "changes": [
+              "Restored compact Marketplace modpack cards with concise pack version, server-pack status, and provider/runtime badges.",
+              "Cleaned the Marketplace install panel metadata layout so detailed Minecraft, runtime, provider file, and server-pack fields live in the install review.",
+              "Fixed NeoForge and ATM10 runtime validation so script-launcher server packs do not require a generic server.jar.",
+              "Fixed SSH connected state and input handling so commands are only sent when the shell is ready and failures are shown clearly.",
+              "Improved the Edit Node modal layout, close-button placement, manual setup width, and action alignment.",
+              "Improved Docker page layout and checkbox polish for denser container creation, compose, and cleanup panels.",
+              "Fixed Public Access setup checklist readiness when public or private access services are already configured.",
+              "Classified Palworld and Steam stderr noise as non-fatal when the server process remains healthy."
+          ],
+          "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build183"
+      },
       {
           "version": "1.8",
           "build": 182,
