@@ -5,18 +5,18 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   siteUrl: "https://anxoscontrolcenter.org",
   logoPath: "/assets/anxos-logo.png",
   latestVersion: "1.8",
-  build: "180",
-  buildNumber: "180",
+  build: "181",
+  buildNumber: "181",
   channel: "Private Alpha",
-  releaseLabel: "Version 1.8 Build 180 Private Alpha",
+  releaseLabel: "Version 1.8 Build 181 Private Alpha",
   releaseDate: "July 27, 2026",
-  releaseTag: "v1.8-build180",
+  releaseTag: "v1.8-build181",
   releaseRepository: {
     owner: "bungopam-byte",
     repo: "AnxOS-Control-Center-Releases",
   },
   repositoryUrl: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases",
-  releaseUrl: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build180",
+  releaseUrl: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build181",
   githubReleasesApiUrl: "https://api.github.com/repos/bungopam-byte/AnxOS-Control-Center-Releases/releases?per_page=20",
   stableDownloadEndpoints: {
     windows: "/api/download/latest/windows",
@@ -26,23 +26,41 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   },
   releaseAssets: [
       {
-          fileName: "AnxOS-Control-Center-Setup-1.8-build180.exe",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build180/AnxOS-Control-Center-Setup-1.8-build180.exe"
+          fileName: "AnxOS-Control-Center-Setup-1.8-build181.exe",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build181/AnxOS-Control-Center-Setup-1.8-build181.exe"
       },
       {
-          fileName: "AnxOS-Control-Center-1.8-build180-portable.exe",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build180/AnxOS-Control-Center-1.8-build180-portable.exe"
+          fileName: "AnxOS-Control-Center-1.8-build181-portable.exe",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build181/AnxOS-Control-Center-1.8-build181-portable.exe"
       },
       {
-          fileName: "AnxOS-Control-Center-1.8-build180.AppImage",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build180/AnxOS-Control-Center-1.8-build180.AppImage"
+          fileName: "AnxOS-Control-Center-1.8-build181.AppImage",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build181/AnxOS-Control-Center-1.8-build181.AppImage"
       },
       {
-          fileName: "AnxOS-Control-Center-1.8-build180.deb",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build180/AnxOS-Control-Center-1.8-build180.deb"
+          fileName: "AnxOS-Control-Center-1.8-build181.deb",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build181/AnxOS-Control-Center-1.8-build181.deb"
       }
   ],
   releaseNotes: [
+      {
+          "version": "1.8",
+          "build": 181,
+          "channel": "Private Alpha",
+          "tag": "v1.8-build181",
+          "date": "July 27, 2026",
+          "datetime": "2026-07-27",
+          "title": "Build 181 packaged UI font and Marketplace display hotfix",
+          "summary": "Private Alpha v1.8 Build 181 fixes packaged UI font rendering and clarifies Marketplace modpack version metadata after build 180.",
+          "changes": [
+              "Fixed the packaged app global font regression.",
+              "Fixed splash, dashboard, sidebar, buttons, and cards font rendering so normal UI text uses the intended readable sans font.",
+              "Fixed Marketplace version labels to distinguish Minecraft version from runtime, provider, and server-pack metadata.",
+              "Fixed the ATM10 and CurseForge install panel display so Minecraft 1.21.1 is not shown as a generic runtime or server-pack version.",
+              "Includes the previous build 180 Marketplace and runtime fixes for CurseForge and Modrinth version resolution, server-pack runtime preservation, ATM10 and NeoForge runtime repair, selected-node marketplace install smoke hardening, and Windows disk stats EPIPE handling."
+          ],
+          "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build181"
+      },
       {
           "version": "1.8",
           "build": 180,
