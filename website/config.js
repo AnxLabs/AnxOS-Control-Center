@@ -5,8 +5,8 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   siteUrl: "https://anxoscontrolcenter.org",
   logoPath: "/assets/anxos-logo.png",
   latestVersion: "1.8",
-  build: "178",
-  buildNumber: "178",
+  build: "179",
+  buildNumber: "179",
   channel: "Private Alpha",
   releaseLabel: "Version 1.8 Build 179 Private Alpha",
   releaseDate: "July 26, 2026",
@@ -45,7 +45,7 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   releaseNotes: [
       {
           "version": "1.8",
-          "build": 178,
+          "build": 179,
           "channel": "Private Alpha",
           "tag": "v1.8-build179",
           "date": "July 26, 2026",
