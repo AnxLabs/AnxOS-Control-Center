@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, ipcMain, screen } = require("electron");
+const { app, BrowserWindow, Menu, ipcMain, screen, dialog } = require("electron");
 const { execFileSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
@@ -47,6 +47,7 @@ const DEFAULT_WINDOW_BOUNDS = {
   width: 1180,
   height: 820,
 };
+const MAIN_WINDOW_SHOW_FALLBACK_MS = 4000;
 const updateManager = new UpdateManager();
 const developerGitUpdater = new DeveloperGitUpdater({ app, appRoot: __dirname });
 let mainWindow = null;
@@ -183,6 +184,96 @@ function readWindowState() {
       maximized: false,
     };
   }
+}
+
+function logWindowLifecycle(operation, message, context = {}, severity = "info") {
+  diagnostics.log(severity, "desktop-window", operation, message, context, { file: "desktop" });
+}
+
+function getDefaultWindowBounds() {
+  const workArea = screen.getPrimaryDisplay().workArea;
+  const width = Math.min(DEFAULT_WINDOW_BOUNDS.width, Math.max(900, workArea.width));
+  const height = Math.min(DEFAULT_WINDOW_BOUNDS.height, Math.max(640, workArea.height));
+  return {
+    width,
+    height,
+    x: Math.round(workArea.x + (workArea.width - width) / 2),
+    y: Math.round(workArea.y + (workArea.height - height) / 2),
+  };
+}
+
+function getBoundsIntersectionArea(a = {}, b = {}) {
+  const left = Math.max(a.x, b.x);
+  const top = Math.max(a.y, b.y);
+  const right = Math.min(a.x + a.width, b.x + b.width);
+  const bottom = Math.min(a.y + a.height, b.y + b.height);
+  return Math.max(0, right - left) * Math.max(0, bottom - top);
+}
+
+function normalizeWindowStateForDisplays(state = {}) {
+  const displays = screen.getAllDisplays();
+  const fallback = getDefaultWindowBounds();
+  const width = Number.isFinite(state.width) ? Math.max(900, Math.min(state.width, Math.max(...displays.map((display) => display.workArea.width), fallback.width))) : fallback.width;
+  const height = Number.isFinite(state.height) ? Math.max(640, Math.min(state.height, Math.max(...displays.map((display) => display.workArea.height), fallback.height))) : fallback.height;
+  const hasPosition = Number.isFinite(state.x) && Number.isFinite(state.y);
+  const candidate = {
+    width,
+    height,
+    x: hasPosition ? state.x : fallback.x,
+    y: hasPosition ? state.y : fallback.y,
+  };
+  const visible = displays.some((display) => getBoundsIntersectionArea(candidate, display.workArea) >= Math.min(20000, candidate.width * candidate.height * 0.2));
+  if (!visible || state.minimized === true || state.hidden === true || state.visible === false) {
+    logWindowLifecycle("bounds-reset", "Saved window bounds were invalid or invisible; reset to centered default bounds.", {
+      saved: state,
+      fallback,
+      displayCount: displays.length,
+    }, "warn");
+    return {
+      ...fallback,
+      maximized: false,
+    };
+  }
+  const display = screen.getDisplayMatching(candidate);
+  const workArea = display.workArea;
+  const normalized = {
+    width,
+    height,
+    x: Math.min(Math.max(candidate.x, workArea.x), Math.max(workArea.x, workArea.x + workArea.width - width)),
+    y: Math.min(Math.max(candidate.y, workArea.y), Math.max(workArea.y, workArea.y + workArea.height - height)),
+    maximized: state.maximized === true,
+  };
+  logWindowLifecycle("bounds-validated", "Saved window bounds validated for current displays.", { saved: state, normalized });
+  return normalized;
+}
+
+function showAndFocusWindow(window, reason = "show") {
+  if (!window || window.isDestroyed()) {
+    return false;
+  }
+  if (window.isMinimized()) {
+    window.restore();
+  }
+  if (!window.isVisible()) {
+    window.show();
+  }
+  window.focus();
+  logWindowLifecycle("window-show-focus", "Main window shown and focused.", {
+    reason,
+    visible: window.isVisible(),
+    minimized: window.isMinimized(),
+    bounds: window.getBounds(),
+  });
+  return true;
+}
+
+function ensureMainWindowVisible(reason = "ensure-visible") {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    logWindowLifecycle("window-recreate", "Main window was missing during visibility request; creating a new window.", { reason }, "warn");
+    createWindow({ showReason: reason });
+    return false;
+  }
+  return showAndFocusWindow(mainWindow, reason);
 }
 
 function saveWindowState(window) {
@@ -337,8 +428,13 @@ function closeAddStorageWindow() {
   return { closed: false };
 }
 
-function createWindow() {
-  const windowState = readWindowState();
+function createWindow(options = {}) {
+  const windowState = normalizeWindowStateForDisplays(readWindowState());
+  logWindowLifecycle("create-window", "Creating main window.", {
+    reason: options.showReason || "startup",
+    bounds: windowState,
+    displayCount: screen.getAllDisplays().length,
+  });
   let saveWindowStateTimer = null;
   const scheduleWindowStateSave = () => {
     clearTimeout(saveWindowStateTimer);
@@ -371,21 +467,34 @@ function createWindow() {
   });
   mainWindow = window;
 
-  window.once("ready-to-show", () => {
+  let shown = false;
+  const showMainWindow = (reason) => {
+    if (shown || window.isDestroyed()) return;
+    shown = true;
     if (windowState.maximized) {
       window.maximize();
     }
-    window.show();
+    showAndFocusWindow(window, reason);
     sendMaximizedState(window);
+  };
+  const showFallbackTimer = setTimeout(() => {
+    if (!window.isDestroyed() && !window.isVisible()) {
+      logWindowLifecycle("show-fallback", "Main window did not emit ready-to-show in time; forcing visible launch.", {
+        timeoutMs: MAIN_WINDOW_SHOW_FALLBACK_MS,
+      }, "warn");
+      showMainWindow("ready-to-show-timeout");
+    }
+  }, MAIN_WINDOW_SHOW_FALLBACK_MS);
+  window.once("ready-to-show", () => {
+    clearTimeout(showFallbackTimer);
+    showMainWindow("ready-to-show");
   });
-  if (qaMode) {
-    window.webContents.once("did-finish-load", () => {
-      if (!window.isDestroyed() && !window.isVisible()) {
-        window.show();
-        sendMaximizedState(window);
-      }
-    });
-  }
+  window.webContents.once("did-finish-load", () => {
+    logWindowLifecycle("renderer-loaded", "Main window renderer finished loading.", {});
+    if (!window.isDestroyed() && !window.isVisible()) {
+      showMainWindow("did-finish-load");
+    }
+  });
   window.on("maximize", () => {
     saveWindowState(window);
     sendMaximizedState(window);
@@ -402,27 +511,28 @@ function createWindow() {
     saveWindowState(window);
   });
   window.on("closed", () => {
+    clearTimeout(showFallbackTimer);
     if (mainWindow === window) {
       mainWindow = null;
     }
   });
-  if (qaMode) {
-    window.webContents.on("render-process-gone", (_, details) => {
-      console.error("[Desktop] QA renderer process exited.", {
-        reason: details?.reason || null,
-        exitCode: details?.exitCode ?? null,
-      });
-    });
-    window.webContents.on("did-fail-load", (_, errorCode, errorDescription, validatedUrl, isMainFrame) => {
-      if (isMainFrame) {
-        console.error("[Desktop] QA main window failed to load.", {
-          errorCode,
-          errorDescription,
-          validatedUrl,
-        });
-      }
-    });
-  }
+  window.webContents.on("render-process-gone", (_, details) => {
+    const context = {
+      reason: details?.reason || null,
+      exitCode: details?.exitCode ?? null,
+    };
+    logWindowLifecycle("renderer-process-gone", "Main window renderer process exited.", context, "error");
+    if (qaMode) console.error("[Desktop] QA renderer process exited.", context);
+    ensureMainWindowVisible("renderer-process-gone");
+  });
+  window.webContents.on("did-fail-load", (_, errorCode, errorDescription, validatedUrl, isMainFrame) => {
+    if (!isMainFrame) return;
+    const context = { errorCode, errorDescription, validatedUrl };
+    logWindowLifecycle("renderer-fail-load", "Main window failed to load.", context, "error");
+    if (qaMode) console.error("[Desktop] QA main window failed to load.", context);
+    showMainWindow("did-fail-load");
+    dialog.showErrorBox("AnxOS Control Center failed to load", `${errorDescription || "The app window could not load."} (${errorCode})`);
+  });
 
   window.loadFile(path.join(__dirname, "index.html"), qaMode ? { search: "?qa-mode=1" } : undefined);
 
@@ -467,17 +577,12 @@ function createWindow() {
 
 if (gotSingleInstanceLock) {
 app.on("second-instance", () => {
-  if (!mainWindow || mainWindow.isDestroyed()) {
-    return;
-  }
-  if (mainWindow.isMinimized()) {
-    mainWindow.restore();
-  }
-  mainWindow.show();
-  mainWindow.focus();
+  logWindowLifecycle("second-instance", "Second app launch requested; restoring or recreating main window.");
+  ensureMainWindowVisible("second-instance");
 });
 
 app.whenReady().then(async () => {
+  logWindowLifecycle("app-ready", "Electron app ready; starting desktop initialization.");
   const instanceRecovery = await localInstanceService.recoverIncompleteInstallations();
   if (instanceRecovery.repaired.length || instanceRecovery.failures.length) {
     diagnostics.log("info", "startup", "instance-recovery", "Incomplete local Marketplace installations were repaired.", instanceRecovery, { file: "desktop" });

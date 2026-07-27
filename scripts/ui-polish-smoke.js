@@ -92,6 +92,20 @@ assert(preload.includes("developerUpdates") && preload.includes("developerUpdate
 const updatesIpc = fs.readFileSync(path.join(root, "src", "ipc", "updatesIpc.js"), "utf8");
 assert(main.includes("DeveloperGitUpdater") && main.includes("registerDeveloperUpdatesIpc") && updatesIpc.includes("developerUpdates:restart"), "Main process must own developer update detection and restart through trusted IPC.");
 assert(main.includes("requestSingleInstanceLock") && main.includes("second-instance"), "Main process must prevent duplicate desktop instances from fighting over Electron cache paths.");
+[
+  "function normalizeWindowStateForDisplays",
+  "Saved window bounds were invalid or invisible; reset to centered default bounds.",
+  "MAIN_WINDOW_SHOW_FALLBACK_MS",
+  "ready-to-show-timeout",
+  "function ensureMainWindowVisible",
+  "window-recreate",
+  "window-show-focus",
+  "second-instance",
+  "renderer-process-gone",
+  "renderer-fail-load",
+  "AnxOS Control Center failed to load",
+].forEach((needle) => assert(main.includes(needle), `Main window launch recovery must include ${needle}.`));
+assert(main.includes("show: false") && main.includes("showMainWindow(\"did-finish-load\")") && main.includes("showMainWindow(\"ready-to-show\")"), "Main window must not depend only on ready-to-show before becoming visible.");
 assert(index.includes('data-agent-control-action="start"') && index.includes('data-agent-control-action="installService"'), "Agent Control must expose real lifecycle and service actions.");
 assert(app.includes("Backup was already removed. Refreshed backup list."), "Backup UI must recover cleanly from stale already-deleted backup IDs.");
 assert(fs.readFileSync(path.join(root, "src", "services", "agentControlService.js"), "utf8").includes("Run AnxOS Control Center as Administrator"), "Windows Agent service install failures must explain elevation requirements.");
