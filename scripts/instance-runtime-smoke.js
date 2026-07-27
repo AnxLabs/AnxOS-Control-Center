@@ -240,10 +240,71 @@ async function assertJavaScriptLauncherRepair() {
       assert.strictEqual(started.pid, 701151, "Script launcher repair should still record the wrapper PID.");
       assert.strictEqual(calls.length, 1, "Script launcher repair should spawn exactly one process.");
       assert.strictEqual(calls[0].command, "bash", "Linux shell scripts should launch through bash instead of java.");
-      assert.deepStrictEqual(calls[0].args, ["run.sh", "nogui"], "Existing modpack script arguments should be preserved.");
+      assert.deepStrictEqual(calls[0].args, ["./run.sh", "nogui"], "Existing modpack script arguments should be preserved behind the shell launcher.");
+      assert.strictEqual(
+        path.normalize(calls[0].options.cwd),
+        path.join(process.env.AGENT_INSTANCE_ROOT, id, "data"),
+        "Script launch working directory should remain the instance data directory."
+      );
       const repaired = await instanceService.getStatus(id);
       assert.strictEqual(repaired.executable, "bash", "Invalid persisted Java launcher should be repaired on start.");
-      assert.deepStrictEqual(repaired.args, ["run.sh", "nogui"], "Repaired launcher argv should be persisted.");
+      assert.deepStrictEqual(repaired.args, ["./run.sh", "nogui"], "Repaired launcher argv should be persisted.");
+      const logs = await instanceService.readLogs(id, { stream: "stdout", limit: 20 });
+      const launchLine = logs.entries.find((entry) => String(entry.message || "").startsWith("Launch command:"));
+      assert(launchLine, "Script launcher startup logs should include a readable launch command.");
+      assert(launchLine.message.includes("bash ./run.sh nogui"), "Script launcher log must not prefix run.sh with Java.");
+      assert(!launchLine.message.includes("java run.sh"), "Script launcher log must not include java run.sh.");
+      fakeChild.emit("exit", 0, null);
+      await wait(20);
+    } finally {
+      childProcess.spawn = originalSpawn;
+    }
+  }, { platform: "linux" });
+}
+
+async function assertInstallerJarWithStartupScriptRepair() {
+  await withTempService(async (instanceService) => {
+    const id = "atm10-installer-startserver-repair";
+    await instanceService.createInstance({
+      id,
+      displayName: "ATM10 Installer Startserver Repair",
+      type: "java-app",
+      workingDirectory: "data",
+      executable: "java",
+      args: ["-Xmx12G", "-jar", "neoforge-installer.jar", "nogui"],
+      jar: "neoforge-installer.jar",
+      serverJar: "neoforge-installer.jar",
+      serverJarPath: "neoforge-installer.jar",
+      startJar: "neoforge-installer.jar",
+      restartPolicy: "never",
+      game: "minecraft",
+      tags: ["minecraft", "modpack", "curseforge", "neoforge"],
+      startupTimeoutMs: 60000,
+    });
+    await instanceService.writeInstanceFile(id, "startserver.sh", "#!/usr/bin/env bash\necho 'Done (1.000s)! For help, type \"help\"'\n");
+    await instanceService.writeInstanceFile(id, "neoforge-installer.jar", "");
+
+    const originalSpawn = childProcess.spawn;
+    const calls = [];
+    const fakeChild = createFakeChild(701153);
+    childProcess.spawn = (command, args, options) => {
+      calls.push({ command, args: [...args], options });
+      return fakeChild;
+    };
+    try {
+      await instanceService.startInstance(id);
+      assert.strictEqual(calls.length, 1, "Installer-jar repair should spawn exactly one process.");
+      assert.strictEqual(calls[0].command, "bash", "Installer jars must not be used when startserver.sh exists.");
+      assert.deepStrictEqual(calls[0].args, ["./startserver.sh"], "ATM10 startserver.sh should launch through bash without installer jar args.");
+      const repaired = await instanceService.getStatus(id);
+      assert.strictEqual(repaired.executable, "bash");
+      assert.deepStrictEqual(repaired.args, ["./startserver.sh"]);
+      assert.strictEqual(repaired.serverJar, null, "Installer jar should not remain configured as the runtime server jar.");
+      const logs = await instanceService.readLogs(id, { stream: "stdout", limit: 20 });
+      const launchLine = logs.entries.find((entry) => String(entry.message || "").startsWith("Launch command:"));
+      assert(launchLine, "Installer-jar repair startup logs should include a readable launch command.");
+      assert(launchLine.message.includes("bash ./startserver.sh"), "ATM10 launch log should show the shell script command.");
+      assert(!launchLine.message.includes("java -jar neoforge-installer.jar nogui"), "ATM10 launch log must not show the installer jar command.");
       fakeChild.emit("exit", 0, null);
       await wait(20);
     } finally {
@@ -330,7 +391,7 @@ async function assertStopDoesNotRestart() {
 
 async function assertJavaAndArgumentCompatibility() {
   await withTempService(async (instanceService) => {
-    const minecraft = await instanceService.createInstance({
+    const minecraftPayload = {
       id: "minecraft-java-smoke",
       displayName: "Minecraft Java Smoke",
       type: "minecraft-paper",
@@ -340,9 +401,32 @@ async function assertJavaAndArgumentCompatibility() {
       jar: "paper.jar",
       args: ["--nogui-extra"],
       restartPolicy: "never",
-    });
+    };
+    const minecraft = await instanceService.createInstance(minecraftPayload);
     assert.strictEqual(minecraft.executable, "java", "Minecraft startup should still use Java.");
     assert.deepStrictEqual(minecraft.args, ["-Xmx2G", "-jar", "paper.jar", "nogui", "--nogui-extra"], "Minecraft Java args should remain tokenized.");
+    await instanceService.writeInstanceFile(minecraftPayload.id, "paper.jar", "");
+    const originalSpawn = childProcess.spawn;
+    const calls = [];
+    const fakeChild = createFakeChild(701152);
+    childProcess.spawn = (command, args, options) => {
+      calls.push({ command, args: [...args], options });
+      return fakeChild;
+    };
+    try {
+      await instanceService.startInstance(minecraftPayload.id);
+      assert.strictEqual(calls.length, 1, "Jar-based Minecraft start should spawn exactly one process.");
+      assert.strictEqual(calls[0].command, "java", "Jar-based Minecraft start should still use Java.");
+      assert.deepStrictEqual(calls[0].args, ["-Xmx2G", "-jar", "paper.jar", "nogui", "--nogui-extra"], "Jar-based Minecraft launch argv should remain unchanged.");
+      const logs = await instanceService.readLogs(minecraftPayload.id, { stream: "stdout", limit: 20 });
+      const launchLine = logs.entries.find((entry) => String(entry.message || "").startsWith("Launch command:"));
+      assert(launchLine, "Jar-based Minecraft startup logs should include a readable launch command.");
+      assert(launchLine.message.includes("java -Xmx2G -jar paper.jar nogui --nogui-extra"), "Jar-based Minecraft launch log should show Java jar command.");
+      fakeChild.emit("exit", 0, null);
+      await wait(20);
+    } finally {
+      childProcess.spawn = originalSpawn;
+    }
 
     const spaced = await instanceService.createInstance({
       id: "path-space-smoke",
@@ -584,6 +668,7 @@ async function run() {
   await assertPalworldShellCommandNormalization();
   await assertPalworldSpawnArgvAndLogs();
   await assertJavaScriptLauncherRepair();
+  await assertInstallerJarWithStartupScriptRepair();
   await assertRestartBackoffBounds();
   await assertScheduledRestartCancellation();
   await assertStopDoesNotRestart();

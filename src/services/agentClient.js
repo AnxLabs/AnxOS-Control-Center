@@ -550,6 +550,27 @@ function createDockerNotFoundDetails({ method, pathname, requestUrl, expectation
   };
 }
 
+function getGameConfigApiExpectation(pathname, method = "GET") {
+  const normalizedMethod = String(method || "GET").toUpperCase();
+  if (!["GET", "PUT", "PATCH"].includes(normalizedMethod)) {
+    return null;
+  }
+  return /^\/api\/v1\/instances\/[^/]+\/game-config(?:\?|$)/.test(String(pathname || ""))
+    ? "Minecraft Configuration game-config endpoint"
+    : null;
+}
+
+function createGameConfigNotFoundDetails({ method, pathname, requestUrl, expectation }) {
+  return {
+    method,
+    requestedAgentPath: pathname,
+    activeAgentUrl: requestUrl,
+    desktopApiExpectation: expectation,
+    likelyCause: "The selected remote Agent does not include the v1.8 Minecraft Configuration API.",
+    compatibilityEndpoint: "/api/v1/instances/:id/game-config",
+  };
+}
+
 function redactForAgentLog(value, depth = 0) {
   if (depth > 6) {
     return "[truncated]";
@@ -655,23 +676,32 @@ async function requestJson(pathname, options = {}) {
     if (!response.ok) {
       const responseErrorCode = getAgentPayloadErrorCode(payload);
       const dockerExpectation = response.status === 404 ? getDockerApiExpectation(pathname, method) : null;
+      const gameConfigExpectation = response.status === 404 ? getGameConfigApiExpectation(pathname, method) : null;
       const dockerNotFoundDetails = dockerExpectation
         ? createDockerNotFoundDetails({ method, pathname, requestUrl, expectation: dockerExpectation })
         : null;
+      const gameConfigNotFoundDetails = gameConfigExpectation
+        ? createGameConfigNotFoundDetails({ method, pathname, requestUrl, expectation: gameConfigExpectation })
+        : null;
+      const compatibilityDetails = dockerNotFoundDetails || gameConfigNotFoundDetails;
       const message = dockerNotFoundDetails
         ? `Agent Docker endpoint was not found for ${method} ${pathname}. Expected ${dockerExpectation}. This usually means the Desktop and Agent builds are out of sync or the Agent needs a restart.`
+        : gameConfigNotFoundDetails
+          ? `Agent update required for Minecraft Configuration. The selected Agent does not expose ${method} ${pathname}. Update or restart the remote Agent, then try again.`
         : getAgentHttpErrorMessage(response.status, responseErrorCode, payload);
       const error = new AgentClientError(message, {
         status: response.status,
-        code: responseErrorCode,
-        payload: dockerNotFoundDetails && payload && typeof payload === "object" && !Array.isArray(payload)
+        code: gameConfigNotFoundDetails ? "AGENT_GAME_CONFIG_UNSUPPORTED" : responseErrorCode,
+        payload: compatibilityDetails && payload && typeof payload === "object" && !Array.isArray(payload)
           ? {
               ...payload,
               error: {
                 ...(payload.error || {}),
+                code: gameConfigNotFoundDetails ? "AGENT_GAME_CONFIG_UNSUPPORTED" : (payload.error?.code || responseErrorCode),
+                message,
                 details: {
                   ...(payload.error?.details || {}),
-                  ...dockerNotFoundDetails,
+                  ...compatibilityDetails,
                 },
               },
             }

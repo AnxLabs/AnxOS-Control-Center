@@ -10,6 +10,7 @@ const nodeService = require("../src/services/nodeService");
 const credentials = require("../src/services/nodeCredentialStore");
 const providerConfig = require("../src/services/providerConfigService");
 const curseforgeProvider = require("../src/services/providers/curseforgeProvider");
+const agentClient = require("../src/services/agentClient");
 const marketplace = require("../src/services/marketplaceInstallService");
 
 function writeJson(filePath, value) {
@@ -36,19 +37,28 @@ async function main() {
     [],
     "Official CurseForge server packs may be complete server archives without a client manifest.json.",
   );
-  assert.throws(
-    () => marketplace._test.getCurseForgeManifestFiles(null, { isDedicatedServerPack: false }),
-    (error) => error?.code === "UNSUPPORTED_MODPACK",
-    "Unverified client archives must still require CurseForge manifest metadata.",
-  );
-  const original = {
-    resolveFile: curseforgeProvider.resolveFile,
-    getFile: curseforgeProvider.getFile,
-    getFiles: curseforgeProvider.getFiles,
-    getMod: curseforgeProvider.getMod,
-    downloadFile: curseforgeProvider.downloadFile,
-    fetch: global.fetch,
-  };
+    assert.throws(
+      () => marketplace._test.getCurseForgeManifestFiles(null, { isDedicatedServerPack: false }),
+      (error) => error?.code === "UNSUPPORTED_MODPACK",
+      "Unverified client archives must still require CurseForge manifest metadata.",
+    );
+    assert.strictEqual(marketplace._test.isCurseForgeServerSignalPath("startserver.sh"), true, "CurseForge server signal detection should include ATM10 startserver.sh.");
+    assert.deepStrictEqual(marketplace._test.buildStartupScriptPatch("startserver.sh"), {
+      executable: "bash",
+      args: ["./startserver.sh"],
+      startupArguments: ["./startserver.sh"],
+      startupScript: "startserver.sh",
+    }, "Linux shell startup scripts should launch through bash with an explicit relative path.");
+    assert.strictEqual(marketplace._test.isInstallerJarName("neoforge-21.1.228-installer.jar"), true, "Versioned NeoForge installer jars should be recognized as installers, not runtime jars.");
+    const original = {
+      resolveFile: curseforgeProvider.resolveFile,
+      getFile: curseforgeProvider.getFile,
+      getFiles: curseforgeProvider.getFiles,
+      getMod: curseforgeProvider.getMod,
+      downloadFile: curseforgeProvider.downloadFile,
+      instanceFileExists: agentClient.instanceFileExists,
+      fetch: global.fetch,
+    };
   const agentRequests = [];
   const filesById = new Map();
   let selectedFile = null;
@@ -109,6 +119,42 @@ async function main() {
       agentRequests.push({ url: String(url), auth: options.headers?.Authorization || "" });
       throw new Error(`Unexpected Agent request before server-pack validation: ${url}`);
     };
+
+    async function assertStartupTarget(files, expected, options = {}) {
+      const available = new Set(files);
+      agentClient.instanceFileExists = async (instanceId, filePath) => ({ exists: available.has(filePath), path: filePath });
+      const target = await marketplace._test.resolveInstalledStartupTarget(
+        "atm10-startup-smoke",
+        { serverJar: options.serverJar || "neoforge-21.1.228-installer.jar" },
+        options,
+        { platform: options.platform || "linux" }
+      );
+      assert.strictEqual(target.type, expected.type, expected.message);
+      assert.strictEqual(target.path, expected.path, expected.message);
+      if (expected.command) {
+        assert.strictEqual(`${target.patch.executable} ${target.patch.args.join(" ")}`, expected.command, expected.message);
+        assert(!`${target.patch.executable} ${target.patch.args.join(" ")}`.includes("java"), "Script startup target must not include Java.");
+      }
+    }
+
+    await assertStartupTarget(
+      ["startserver.sh", "startserver.bat", "neoforge-21.1.228-installer.jar"],
+      { type: "script", path: "startserver.sh", command: "bash ./startserver.sh", message: "ATM10-style packs should prefer startserver.sh over the NeoForge installer jar on Linux." }
+    );
+    await assertStartupTarget(
+      ["run.sh", "neoforge-21.1.228-installer.jar"],
+      { type: "script", path: "run.sh", command: "bash ./run.sh", message: "CurseForge packs with run.sh should launch through bash." }
+    );
+    await assertStartupTarget(
+      ["startserver.bat", "startserver.sh", "neoforge-21.1.228-installer.jar"],
+      { type: "script", path: "startserver.bat", command: "cmd.exe /c ./startserver.bat", message: "Windows Agents should prefer startserver.bat when present." },
+      { platform: "win32" }
+    );
+    await assertStartupTarget(
+      ["server.jar"],
+      { type: "jar", path: "server.jar", message: "Jar fallback should remain available when no startup script exists." },
+      { serverJar: "server.jar" }
+    );
 
     resetScenario({
       selected: file(10, "Client Pack.zip", { serverPackFileId: 11 }),
@@ -192,6 +238,7 @@ async function main() {
     curseforgeProvider.getFiles = original.getFiles;
     curseforgeProvider.getMod = original.getMod;
     curseforgeProvider.downloadFile = original.downloadFile;
+    agentClient.instanceFileExists = original.instanceFileExists;
     global.fetch = original.fetch;
     fs.rmSync(root, { recursive: true, force: true });
   }

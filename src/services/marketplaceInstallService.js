@@ -639,7 +639,7 @@ function isCurseForgeServerSignalPath(entryPath = "") {
   const normalized = String(entryPath || "").replace(/\\/g, "/").replace(/^overrides\//, "").toLowerCase();
   return normalized === "server.properties" ||
     normalized === "eula.txt" ||
-    /^start(\.(sh|bat|cmd))?$/.test(normalized) ||
+    /^start(?:server)?(\.(sh|bat|cmd))?$/.test(normalized) ||
     /^run\.(sh|bat|cmd)$/.test(normalized) ||
     /^minecraft_server.*\.jar$/.test(normalized) ||
     /^forge-.*\.jar$/.test(normalized) ||
@@ -1430,6 +1430,77 @@ async function validateInstalledServerJar(instanceId, serverInfo, agentConfig) {
   };
 }
 
+function isWindowsInstallTarget(options = {}, agentConfig = {}) {
+  const platform = String(
+    options.platform ||
+      options.agentPlatform ||
+      agentConfig.platform ||
+      agentConfig.operatingSystem ||
+      agentConfig.nodePlatform ||
+      ""
+  ).toLowerCase();
+  return platform.includes("win");
+}
+
+function getPreferredStartupScriptCandidates(options = {}, agentConfig = {}) {
+  return isWindowsInstallTarget(options, agentConfig)
+    ? ["startserver.bat", "run.bat", "start.bat", "startserver.cmd", "run.cmd", "start.cmd", "startserver.sh", "run.sh"]
+    : ["startserver.sh", "run.sh", "start.sh", "startserver.bat", "run.bat", "start.bat", "startserver.cmd", "run.cmd", "start.cmd"];
+}
+
+function buildStartupScriptPatch(scriptPath) {
+  const script = String(scriptPath || "").trim().replace(/\\/g, "/");
+  const basename = path.basename(script).toLowerCase();
+  const relative = script.startsWith("./") ? script : `./${script}`;
+  if (basename.endsWith(".sh")) {
+    return {
+      executable: "bash",
+      args: [relative],
+      startupArguments: [relative],
+      startupScript: script,
+    };
+  }
+  if (basename.endsWith(".bat") || basename.endsWith(".cmd")) {
+    return {
+      executable: "cmd.exe",
+      args: ["/c", relative],
+      startupArguments: ["/c", relative],
+      startupScript: script,
+    };
+  }
+  return null;
+}
+
+function isInstallerJarName(value = "") {
+  return /(?:^|\/)(?:forge|neoforge)(?:-[^/]+)?-installer\.jar$/i.test(String(value || "").replace(/\\/g, "/")) ||
+    /(?:^|\/)(?:forge|neoforge)-installer\.jar$/i.test(String(value || "").replace(/\\/g, "/"));
+}
+
+async function resolveInstalledStartupTarget(instanceId, serverInfo = {}, options = {}, agentConfig = {}) {
+  for (const candidate of getPreferredStartupScriptCandidates(options, agentConfig)) {
+    const exists = await withRetry(
+      () => agentClient.instanceFileExists(instanceId, candidate, agentConfig),
+      { label: "detect startup script", attempts: 3 }
+    );
+    if (exists?.exists) {
+      const patch = buildStartupScriptPatch(candidate);
+      if (patch) {
+        return {
+          type: "script",
+          path: candidate,
+          patch,
+        };
+      }
+    }
+  }
+
+  return {
+    type: "jar",
+    path: serverInfo.serverJar || "server.jar",
+    patch: null,
+  };
+}
+
 async function resolveVanillaServerJar(minecraftVersion) {
   const manifest = await fetchJson("https://piston-meta.mojang.com/mc/game/version_manifest_v2.json", "Mojang version manifest");
   const versionId = minecraftVersion && minecraftVersion !== "latest"
@@ -1631,9 +1702,9 @@ function buildInstancePayload(options, serverInfo) {
     executable: "java",
     args: [`-Xmx${memory}`, "-jar", serverInfo.serverJar || "server.jar", "nogui"],
     jar: serverInfo.serverJar || "server.jar",
-    serverJar: serverInfo.serverJar || "server.jar",
-    serverJarPath: serverInfo.serverJar || "server.jar",
-    startJar: serverInfo.serverJar || "server.jar",
+    serverJar: serverInfo.serverJar || null,
+    serverJarPath: serverInfo.serverJar || null,
+    startJar: serverInfo.serverJar || null,
     restartPolicy: "on-failure",
     startupTimeoutMs: 60000,
     shutdownTimeoutMs: 15000,
@@ -2246,16 +2317,31 @@ async function continueProviderPackInstall(context = {}) {
     ...options,
     name: instancePayload.displayName,
   }, instancePayload.primaryPort, agentConfig);
-  const metadata = buildInstallMetadata(options, serverInfo, installRecords);
+  const startupTarget = await resolveInstalledStartupTarget(instanceId, serverInfo, options, agentConfig);
+  const scriptStartupUsesInstallerJar = startupTarget.type === "script" && isInstallerJarName(serverInfo.serverJar);
+  const runtimeServerInfo = scriptStartupUsesInstallerJar
+    ? { ...serverInfo, serverJar: null }
+    : serverInfo;
+  const metadata = buildInstallMetadata(options, runtimeServerInfo, {
+    ...installRecords,
+    source: {
+      ...(installRecords.source || {}),
+      startupTarget: startupTarget.type,
+      startupScript: startupTarget.type === "script" ? startupTarget.path : null,
+    },
+  });
   await writeText(instanceId, "metadata.json", `${JSON.stringify(metadata, null, 2)}\n`, agentConfig);
   await writeText(instanceId, "config.json", `${JSON.stringify({ ...instancePayload, status: "stopped", port: instancePayload.primaryPort }, null, 2)}\n`, agentConfig);
-  await validateInstalledServerJar(instanceId, serverInfo, agentConfig);
+  if (startupTarget.type !== "script") {
+    await validateInstalledServerJar(instanceId, serverInfo, agentConfig);
+  }
   const activationResult = await agentClient.updateInstance(instanceId, {
     ...metadata,
-    jar: serverInfo.serverJar,
-    serverJar: serverInfo.serverJar,
-    serverJarPath: serverInfo.serverJar,
-    startJar: serverInfo.serverJar,
+    ...(startupTarget.patch || {}),
+    jar: runtimeServerInfo.serverJar,
+    serverJar: runtimeServerInfo.serverJar,
+    serverJarPath: runtimeServerInfo.serverJar,
+    startJar: runtimeServerInfo.serverJar,
     installationState: "active",
   }, agentConfig);
   const activatedInstance = activationResult?.instance || activationResult || {};
@@ -2354,6 +2440,9 @@ async function installPack(payload = {}) {
   }
   const installTarget = resolveMarketplaceInstallTarget({ nodeId: payload.nodeId, operation: `${provider}-install` });
   const agentConfig = installTarget.agentConfig;
+  if (installTarget.platform && agentConfig && typeof agentConfig === "object") {
+    agentConfig.platform = installTarget.platform;
+  }
   const installNodeId = installTarget.nodeId;
   const curseForgeConfig = provider === "curseforge" ? getCurseForgeAgentConfig(installTarget.nodeId) : null;
   const curseForgeBrowseConfig = provider === "curseforge" ? getCurseForgeBrowseConfig(installTarget.nodeId) : null;
@@ -2762,7 +2851,10 @@ module.exports = {
     getCurseForgeManifestFiles,
     isTransientError,
     resolveCurseForgeServerPackSelection,
+    resolveInstalledStartupTarget,
     resolvePaperServerJar,
+    buildStartupScriptPatch,
+    isInstallerJarName,
     resolveMarketplaceInstallTarget,
     readBoundedResponseBuffer,
     serializeError,

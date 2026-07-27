@@ -895,6 +895,10 @@ function buildTypeCommand(type, payload) {
   if (type === "java-app") {
     const executable = validateExecutable(payload.executable || (rawArgs.some(isStartupScript) ? "bash" : "java"));
     const args = normalizeShellWrapperArgs(executable, rawArgs);
+    const scriptCommand = buildStartupScriptCommand(executable, args);
+    if (scriptCommand) {
+      return scriptCommand;
+    }
     if (isScriptExecutable(executable) || args.some(isStartupScript)) {
       const scriptArgs = args.length > 0
         ? args
@@ -1052,6 +1056,7 @@ function javaRuntimeMetadata(config) {
 
 function resolveInstanceJavaRuntime(config) {
   if (!isMinecraftJavaInstance(config)) return config;
+  if (isScriptBasedCommand(config)) return config;
   const requirement = javaRuntimeResolver.getRequiredJavaMajor(javaRuntimeMetadata(config));
   if (!requirement) return config;
   const persisted = config.javaRuntime?.executable
@@ -2035,15 +2040,40 @@ function isScriptExecutable(executable) {
 }
 
 function isStartupScript(value) {
-  return /^(?:\.\/)?(?:run|start)\.(?:sh|bat|cmd|ps1)$/i.test(path.basename(String(value || "").trim()));
+  return /^(?:\.\/)?(?:run|start|startserver)\.(?:sh|bat|cmd|ps1)$/i.test(path.basename(String(value || "").trim()));
+}
+
+function normalizeScriptLauncherPath(scriptPath) {
+  const normalized = String(scriptPath || "").trim().replace(/\\/g, "/");
+  if (!normalized || normalized.startsWith("./") || normalized.startsWith("../") || path.isAbsolute(normalized)) {
+    return normalized;
+  }
+  return normalized.includes("/") ? normalized : `./${normalized}`;
 }
 
 function getStartupScriptLauncher(scriptPath) {
-  const name = path.basename(String(scriptPath || "").trim()).toLowerCase();
-  if (name.endsWith(".sh")) return { executable: "bash", args: [scriptPath] };
-  if (name.endsWith(".bat") || name.endsWith(".cmd")) return { executable: "cmd.exe", args: ["/c", scriptPath] };
-  if (name.endsWith(".ps1")) return { executable: "powershell.exe", args: ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath] };
+  const script = normalizeScriptLauncherPath(scriptPath);
+  const name = path.basename(script).toLowerCase();
+  if (name.endsWith(".sh")) return { executable: "bash", args: [script] };
+  if (name.endsWith(".bat") || name.endsWith(".cmd")) return { executable: "cmd.exe", args: ["/c", script] };
+  if (name.endsWith(".ps1")) return { executable: "powershell.exe", args: ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script] };
   return null;
+}
+
+function buildStartupScriptCommand(executable, args = []) {
+  const scriptIndex = args.findIndex((arg) => isStartupScript(arg));
+  const scriptPath = scriptIndex >= 0 ? validateRelativeAssetPath(args[scriptIndex], "ENTRYPOINT").replace(/\\/g, "/") : null;
+  const launcher = scriptPath ? getStartupScriptLauncher(scriptPath) : null;
+  if (!launcher) {
+    return null;
+  }
+  if (!isScriptExecutable(executable) && !/^java(?:\.exe)?$/i.test(executableName(executable))) {
+    return null;
+  }
+  return {
+    executable: launcher.executable,
+    args: [...launcher.args, ...args.slice(scriptIndex + 1)],
+  };
 }
 
 async function findStartupScript(config) {
@@ -2056,8 +2086,8 @@ async function findStartupScript(config) {
     ...args.filter(isStartupScript),
   ].map((candidate) => String(candidate || "").replace(/^\.([/\\])/, "").trim()).filter(Boolean);
   const preferred = process.platform === "win32"
-    ? ["run.bat", "start.bat", "run.cmd", "start.cmd", "run.ps1", "start.ps1", "run.sh", "start.sh"]
-    : ["run.sh", "start.sh", "run.bat", "start.bat", "run.cmd", "start.cmd", "run.ps1", "start.ps1"];
+    ? ["startserver.bat", "run.bat", "start.bat", "startserver.cmd", "run.cmd", "start.cmd", "run.ps1", "start.ps1", "startserver.sh", "run.sh", "start.sh"]
+    : ["startserver.sh", "run.sh", "start.sh", "startserver.bat", "run.bat", "start.bat", "startserver.cmd", "run.cmd", "start.cmd", "run.ps1", "start.ps1"];
   for (const candidate of [...configured, ...preferred]) {
     try {
       const relative = validateRelativeAssetPath(candidate, "ENTRYPOINT");
@@ -2243,7 +2273,9 @@ async function repairScriptLauncherCommand(config) {
   const executable = executableName(config.executable);
   const args = Array.isArray(config.args) ? config.args : [];
   const javaTryingToRunScript = (executable === "java" || executable === "java.exe") && args.some(isStartupScript);
-  if (!javaTryingToRunScript) {
+  const javaTryingToRunInstallerJar = (executable === "java" || executable === "java.exe") &&
+    args.some((arg) => /(?:^|[/\\])(?:forge|neoforge)(?:-[^/\\]+)?-installer\.jar$/i.test(String(arg || "")));
+  if (!javaTryingToRunScript && !javaTryingToRunInstallerJar) {
     return config;
   }
 
@@ -2253,8 +2285,8 @@ async function repairScriptLauncherCommand(config) {
       executable: config.executable,
       args,
       expected: process.platform === "win32"
-        ? ["run.bat", "start.bat", "run.cmd", "start.cmd", "run.ps1", "start.ps1", "run.sh", "start.sh"]
-        : ["run.sh", "start.sh", "run.bat", "start.bat", "run.cmd", "start.cmd", "run.ps1", "start.ps1"],
+        ? ["startserver.bat", "run.bat", "start.bat", "startserver.cmd", "run.cmd", "start.cmd", "run.ps1", "start.ps1", "startserver.sh", "run.sh", "start.sh"]
+        : ["startserver.sh", "run.sh", "start.sh", "startserver.bat", "run.bat", "start.bat", "startserver.cmd", "run.cmd", "start.cmd", "run.ps1", "start.ps1"],
     });
     error.message = "No valid server launch script was found for this modpack instance.";
     throw error;
@@ -2265,12 +2297,15 @@ async function repairScriptLauncherCommand(config) {
     throw createInstanceError("STARTUP_SCRIPT_UNSUPPORTED", 400, { script });
   }
   const scriptIndex = args.findIndex((arg) => isStartupScript(arg));
-  const extraArgs = scriptIndex >= 0 ? args.slice(scriptIndex + 1) : args.filter((arg) => arg !== "-jar");
+  const extraArgs = scriptIndex >= 0 ? args.slice(scriptIndex + 1) : [];
   const repaired = {
     ...config,
     executable: launcher.executable,
     args: [...launcher.args, ...extraArgs],
     startupScript: script,
+    serverJar: javaTryingToRunInstallerJar ? null : config.serverJar,
+    serverJarPath: javaTryingToRunInstallerJar ? null : config.serverJarPath,
+    startJar: javaTryingToRunInstallerJar ? null : config.startJar,
     updatedAt: nowIso(),
   };
   await saveInstanceConfig(repaired);

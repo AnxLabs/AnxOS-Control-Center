@@ -371,7 +371,7 @@ async function handleInstances(request, url) {
       }));
     }
 
-    if (request.method === "PUT" && gameConfigId) {
+    if ((request.method === "PUT" || request.method === "PATCH") && gameConfigId) {
       return result(200, await writeGameServerConfig(gameConfigId, parseJsonBody(request)));
     }
 
