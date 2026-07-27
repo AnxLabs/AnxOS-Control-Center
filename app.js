@@ -11405,10 +11405,45 @@ async function saveInstanceTextFile() {
 }
 
 function isJavaJarInstance(instance) {
+  if (isScriptLauncherInstance(instance)) {
+    return false;
+  }
   const args = Array.isArray(instance?.args) ? instance.args : [];
   return instance?.type === "java-app" ||
     instance?.type === "minecraft-paper" ||
     (String(instance?.executable || "").toLowerCase().includes("java") && args.includes("-jar"));
+}
+
+function isStartupScriptPath(value) {
+  return /^(?:\.\/)?(?:run|start|startserver)\.(?:sh|bat|cmd|ps1)$/i.test(String(value || "").trim().split(/[\\/]/).pop() || "");
+}
+
+function normalizeStartupScriptPath(scriptPath) {
+  const normalized = String(scriptPath || "").trim().replace(/\\/g, "/");
+  if (!normalized || normalized.startsWith("./") || normalized.startsWith("../") || normalized.includes("/")) {
+    return normalized;
+  }
+  return `./${normalized}`;
+}
+
+function getStartupScriptLauncherForRenderer(scriptPath) {
+  const script = normalizeStartupScriptPath(scriptPath);
+  const name = script.toLowerCase();
+  if (name.endsWith(".sh")) return { executable: "bash", args: [script], startupScript: script.replace(/^\.\//, "") };
+  if (name.endsWith(".bat") || name.endsWith(".cmd")) return { executable: "cmd.exe", args: ["/c", script], startupScript: script.replace(/^\.\//, "") };
+  if (name.endsWith(".ps1")) return { executable: "powershell.exe", args: ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script], startupScript: script.replace(/^\.\//, "") };
+  return null;
+}
+
+function getConfiguredStartupScriptPath(instance = {}) {
+  const args = Array.isArray(instance?.args) ? instance.args : [];
+  return args.find(isStartupScriptPath) || instance?.startupScript || instance?.entrypoint || "";
+}
+
+function isScriptLauncherInstance(instance = {}) {
+  const executable = String(instance?.executable || "").trim().toLowerCase().split(/[\\/]/).pop();
+  return ["bash", "sh", "cmd", "cmd.exe", "powershell", "powershell.exe", "pwsh", "pwsh.exe"].includes(executable) ||
+    Boolean(getConfiguredStartupScriptPath(instance));
 }
 
 function getConfiguredJarPath(instance) {
@@ -11464,6 +11499,57 @@ async function findExistingServerJar(instance, preferredJar = "", context = getN
     }
   }
   return "";
+}
+
+async function findExistingStartupScriptForInstance(instance, context = getNodeRequestContext("script-find")) {
+  const candidates = [
+    getConfiguredStartupScriptPath(instance),
+    "run.sh",
+    "startserver.sh",
+    "start.sh",
+    "startserver.bat",
+    "run.bat",
+    "start.bat",
+    "startserver.cmd",
+    "run.cmd",
+    "start.cmd",
+    "run.ps1",
+    "start.ps1",
+  ].map((candidate) => String(candidate || "").replace(/^\.\//, "").trim()).filter(Boolean);
+  for (const candidate of [...new Set(candidates)]) {
+    try {
+      if (!isNodeRequestCurrent(context)) return "";
+      await getDesktopApiState().api.instances.readFile(instance.id, candidate, getNodeScopedPayload(context));
+      return candidate;
+    } catch (error) {
+      if (getAgentErrorCode(error) !== "PATH_NOT_FOUND") {
+        throw error;
+      }
+    }
+  }
+  return "";
+}
+
+async function repairInstanceStartupScript(instance, scriptPath, context = getNodeRequestContext("script-repair")) {
+  const launcher = getStartupScriptLauncherForRenderer(scriptPath);
+  if (!launcher || !isNodeRequestCurrent(context)) return false;
+  const scriptIndex = Array.isArray(instance?.args) ? instance.args.findIndex(isStartupScriptPath) : -1;
+  const extraArgs = scriptIndex >= 0 ? instance.args.slice(scriptIndex + 1) : [];
+  const patch = {
+    executable: launcher.executable,
+    args: [...launcher.args, ...extraArgs],
+    startupScript: launcher.startupScript,
+    serverJar: null,
+    serverJarPath: null,
+    startJar: null,
+  };
+  await getDesktopApiState().api.instances.update(instance.id, patch, getNodeScopedPayload(context));
+  const index = instances.findIndex((entry) => entry.id === instance.id);
+  if (index >= 0) {
+    instances[index] = { ...instances[index], ...patch };
+  }
+  showToast(`Repaired script launcher metadata: ${launcher.startupScript}`);
+  return true;
 }
 
 async function repairInstanceServerJar(instance, jarPath, context = getNodeRequestContext("jar-repair")) {
@@ -11540,6 +11626,11 @@ async function verifyJavaJarBeforeLaunch(instance, context = getNodeRequestConte
     }
 
     if (getAgentErrorCode(error) === "PATH_NOT_FOUND") {
+      const startupScript = await findExistingStartupScriptForInstance(instance, context);
+      if (startupScript && await repairInstanceStartupScript(instance, startupScript, context)) {
+        showToast("NeoForge runtime ready.");
+        return true;
+      }
       const repairedJar = await findExistingServerJar(instance, jarPath, context);
       if (repairedJar) {
         await repairInstanceServerJar(instance, repairedJar, context);
@@ -12794,20 +12885,13 @@ function renderMarketplaceTemplates() {
       : templateState.label;
     const badges = document.createElement("div");
     badges.className = "marketplace-card__badges";
-    [
-      formatMarketplaceProviderLabel(template),
-      formatMarketplaceLoaderLabel(template),
-      isProviderMarketplaceTemplate(template) ? "" : template.displayMinecraftVersion || template.minecraftVersion || template.gameVersion || template.serverVersion || "",
-    ].filter(Boolean).forEach((label) => {
+    getMarketplaceCompactCardBadges(template).forEach((label) => {
       const badge = document.createElement("span");
       badge.className = "marketplace-card__badge";
       badge.textContent = label;
       badges.append(badge);
     });
     body.append(title, description, meta);
-    if (isProviderMarketplaceTemplate(template)) {
-      body.append(createMarketplaceCardFacts(template));
-    }
     body.append(stateBadge, badges);
 
     const install = document.createElement("button");
@@ -13095,6 +13179,28 @@ function getMarketplaceProviderVersionRows(template = {}) {
     rows.push({ label: "Server pack", value: capability.label, state: capability.state === "client-only" ? "unsupported" : capability.state === "unknown" ? "unknown" : "ready" });
   }
   return rows;
+}
+
+function getMarketplaceCompactCardBadges(template = {}) {
+  const badges = [];
+  const add = (label) => {
+    const text = String(label || "").trim();
+    if (text && !badges.includes(text) && badges.length < 4) badges.push(text);
+  };
+  const minecraftVersion = getMarketplaceDisplayMinecraftVersion(template);
+  const loader = normalizeMarketplaceServerRuntime(formatMarketplaceLoaderLabel(template)) || formatMarketplaceLoaderLabel(template);
+  const capability = template.serverPackCapability || classifyMarketplaceServerPackCapability(template);
+
+  if (minecraftVersion) add(`Minecraft ${minecraftVersion}`);
+  if (loader) add(loader);
+  if (isProviderMarketplaceTemplate(template)) {
+    if (getMarketplaceServerPackFileId(template)) add("Official Server Pack");
+    else if (capability?.label) add(capability.label);
+  } else {
+    add(formatMarketplaceProviderLabel(template));
+    add(template.displayMinecraftVersion || template.minecraftVersion || template.gameVersion || template.serverVersion || "");
+  }
+  return badges;
 }
 
 function createMarketplaceCardFacts(template = {}) {
@@ -24840,6 +24946,11 @@ async function verifyConsoleJavaJarBeforeLaunch(instance, context = getNodeReque
     return true;
   } catch (error) {
     if (getAgentErrorCode(error) === "PATH_NOT_FOUND") {
+      const startupScript = await findExistingStartupScriptForInstance(instance, context);
+      if (startupScript && await repairInstanceStartupScript(instance, startupScript, context)) {
+        showToast("NeoForge runtime ready.");
+        return true;
+      }
       const repairedJar = await findExistingServerJar(instance, jarPath, context);
       if (repairedJar) {
         await repairInstanceServerJar(instance, repairedJar, context);

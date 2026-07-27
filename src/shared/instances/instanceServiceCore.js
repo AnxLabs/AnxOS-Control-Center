@@ -2158,6 +2158,32 @@ async function findExistingStartupScript(config, candidates = []) {
   return null;
 }
 
+async function configuredJarExists(config = {}) {
+  const workingDirectory = config.workingDirectory || "data";
+  const dataRoot = resolveRelativeManagedPath(config.id, workingDirectory, "data");
+  const candidates = [
+    config.serverJar,
+    config.serverJarPath,
+    config.startJar,
+    config.jar,
+  ];
+  const args = Array.isArray(config.args) ? config.args : [];
+  const jarIndex = args.findIndex((arg) => arg === "-jar");
+  if (jarIndex >= 0 && args[jarIndex + 1]) {
+    candidates.push(args[jarIndex + 1]);
+  }
+  for (const candidate of [...new Set(candidates.map((entry) => String(entry || "").trim()).filter(Boolean))]) {
+    try {
+      const relative = validateRelativeAssetPath(candidate, "JAR");
+      const absolute = path.resolve(dataRoot, relative);
+      if (isInsideRoot(absolute, dataRoot) && await pathExists(absolute)) {
+        return true;
+      }
+    } catch {}
+  }
+  return false;
+}
+
 function hasStartupScriptArgs(config = {}) {
   return (Array.isArray(config.args) ? config.args : []).some(isStartupScript);
 }
@@ -2337,11 +2363,16 @@ async function repairScriptLauncherCommand(config) {
     args.some((arg) => /(?:^|[/\\])(?:forge|neoforge)(?:-[^/\\]+)?-installer\.jar$/i.test(String(arg || "")));
   const generatedRunScript = await findExistingStartupScript(config, process.platform === "win32" ? ["run.bat", "run.cmd", "run.ps1", "run.sh"] : ["run.sh", "run.bat", "run.cmd", "run.ps1"]);
   const startserverUsingGeneratedRun = generatedRunScript && /^startserver\.(?:sh|bat|cmd|ps1)$/i.test(configuredScriptName);
-  if (!javaTryingToRunScript && !javaTryingToRunInstallerJar && !startserverUsingGeneratedRun) {
+  const script = generatedRunScript || await findStartupScript(config);
+  const javaTryingToRunMissingJarWithScript = (executable === "java" || executable === "java.exe") &&
+    args.includes("-jar") &&
+    Boolean(script) &&
+    !await configuredJarExists(config) &&
+    await hasNeoForgeRuntimeSignal(config, script);
+  if (!javaTryingToRunScript && !javaTryingToRunInstallerJar && !startserverUsingGeneratedRun && !javaTryingToRunMissingJarWithScript) {
     return config;
   }
 
-  const script = generatedRunScript || await findStartupScript(config);
   if (!script) {
     const error = createInstanceError("STARTUP_SCRIPT_MISSING", 400, {
       executable: config.executable,
@@ -2362,12 +2393,15 @@ async function repairScriptLauncherCommand(config) {
   const extraArgs = scriptIndex >= 0 && !javaTryingToRunInstallerJar ? args.slice(scriptIndex + 1) : [];
   const repaired = {
     ...config,
+    type: config.type === "java-app" && javaTryingToRunMissingJarWithScript ? "custom-command" : config.type,
     executable: launcher.executable,
     args: [...launcher.args, ...extraArgs],
     startupScript: script,
-    serverJar: javaTryingToRunInstallerJar ? null : config.serverJar,
-    serverJarPath: javaTryingToRunInstallerJar ? null : config.serverJarPath,
-    startJar: javaTryingToRunInstallerJar ? null : config.startJar,
+    serverSoftware: config.serverSoftware || (javaTryingToRunMissingJarWithScript ? "NeoForge" : null),
+    loader: config.loader || (javaTryingToRunMissingJarWithScript ? "neoforge" : null),
+    serverJar: javaTryingToRunInstallerJar || javaTryingToRunMissingJarWithScript ? null : config.serverJar,
+    serverJarPath: javaTryingToRunInstallerJar || javaTryingToRunMissingJarWithScript ? null : config.serverJarPath,
+    startJar: javaTryingToRunInstallerJar || javaTryingToRunMissingJarWithScript ? null : config.startJar,
     updatedAt: nowIso(),
   };
   await saveInstanceConfig(repaired);
@@ -2387,6 +2421,34 @@ function isNeoForgeInstance(config = {}) {
     ...(Array.isArray(config.tags) ? config.tags : []),
     ...(Array.isArray(config.args) ? config.args : []),
   ].filter(Boolean).join(" "));
+}
+
+async function hasNeoForgeRuntimeSignal(config = {}, scriptPath = "") {
+  if (isNeoForgeInstance(config)) {
+    return true;
+  }
+  const workingDirectory = config.workingDirectory || "data";
+  const dataRoot = resolveRelativeManagedPath(config.id, workingDirectory, "data");
+  const scripts = [
+    scriptPath,
+    "run.sh",
+    "startserver.sh",
+  ].map((entry) => String(entry || "").replace(/^\.\//, "").trim()).filter(Boolean);
+  for (const script of [...new Set(scripts)]) {
+    try {
+      const relative = validateRelativeAssetPath(script, "ENTRYPOINT");
+      const text = await readTextIfExists(path.join(dataRoot, relative), 256 * 1024);
+      if (/neoforge/i.test(text) || extractNeoForgeUnixArgsReferences(text).length > 0) {
+        return true;
+      }
+    } catch {}
+  }
+  const rootNames = await listDirectoryNames(dataRoot);
+  if (rootNames.some((name) => /^neoforge-.*installer\.jar$/i.test(name))) {
+    return true;
+  }
+  const neoForgeVersions = await listDirectoryNames(path.join(dataRoot, "libraries", "net", "neoforged", "neoforge"));
+  return neoForgeVersions.length > 0;
 }
 
 function extractNeoForgeUnixArgsReferences(scriptText = "") {

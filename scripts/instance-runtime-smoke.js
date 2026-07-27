@@ -409,6 +409,64 @@ async function assertNeoForgeRunScriptPreferenceAndRuntimeValidation() {
   }, { platform: "linux" });
 }
 
+async function assertLegacyAtm10JavaAppMigratesToScriptLauncher() {
+  await withTempService(async (instanceService) => {
+    const id = "atm10-legacy-java-app-server-jar";
+    await instanceService.createInstance({
+      id,
+      displayName: "All the Mods 10 - ATM10",
+      type: "java-app",
+      workingDirectory: "data",
+      executable: "java",
+      args: ["-Xmx8G", "-jar", "server.jar", "nogui"],
+      jar: "server.jar",
+      serverJar: "server.jar",
+      serverJarPath: "server.jar",
+      startJar: "server.jar",
+      restartPolicy: "never",
+      game: "minecraft",
+      minecraftVersion: "1.21.1",
+      tags: ["minecraft", "modpack", "curseforge"],
+      startupTimeoutMs: 60000,
+    });
+    await instanceService.writeInstanceFile(id, "metadata.json", JSON.stringify({
+      game: "minecraft",
+      minecraftVersion: "1.21.1",
+      serverSoftware: "NeoForge",
+      softwareVersion: "21.1.228",
+    }));
+    await instanceService.writeInstanceFile(id, "config.json", JSON.stringify({ loader: "neoforge" }));
+    await instanceService.writeInstanceFile(id, "neoforge-21.1.228-installer.jar", "");
+    await instanceService.writeInstanceFile(id, "run.sh", "#!/usr/bin/env bash\nexec java @user_jvm_args.txt @libraries/net/neoforged/neoforge/21.1.228/unix_args.txt \"$@\"\n");
+    await instanceService.writeInstanceFile(id, "user_jvm_args.txt", "-Xmx4G\n");
+    await instanceService.writeInstanceFile(id, "libraries/net/neoforged/neoforge/21.1.228/unix_args.txt", "--launchTarget neoforgeserver\n");
+
+    const originalSpawn = childProcess.spawn;
+    const calls = [];
+    const fakeChild = createFakeChild(701158);
+    childProcess.spawn = (command, args, options) => {
+      calls.push({ command, args: [...args], options });
+      return fakeChild;
+    };
+    try {
+      await instanceService.startInstance(id);
+      assert.strictEqual(calls.length, 1, "Legacy ATM10 java-app records should start through a repaired script launcher.");
+      assert.strictEqual(calls[0].command, "bash", "Legacy ATM10 records must not keep java -jar server.jar.");
+      assert.deepStrictEqual(calls[0].args, ["./run.sh"], "Legacy ATM10 should prefer generated run.sh.");
+      const repaired = await instanceService.getStatus(id);
+      assert.strictEqual(repaired.type, "custom-command", "Legacy script-launcher modpacks should no longer appear as generic java-app records.");
+      assert.strictEqual(repaired.executable, "bash");
+      assert.deepStrictEqual(repaired.args, ["./run.sh"]);
+      assert.strictEqual(repaired.serverJar, null, "Legacy ATM10 repair must clear stale server.jar metadata.");
+      assert.strictEqual(repaired.serverSoftware, "NeoForge", "Legacy ATM10 repair should retain NeoForge runtime identity.");
+      fakeChild.emit("exit", 0, null);
+      await wait(20);
+    } finally {
+      childProcess.spawn = originalSpawn;
+    }
+  }, { platform: "linux" });
+}
+
 async function assertNeoForgeMissingUnixArgsPreflightDoesNotRestart() {
   await withTempService(async (instanceService) => {
     const id = "atm10-missing-unix-args-preflight";
@@ -876,6 +934,7 @@ async function run() {
   await assertInstallerJarWithStartupScriptRepair();
   await assertInstallerJarWithScriptArgumentRepair();
   await assertNeoForgeRunScriptPreferenceAndRuntimeValidation();
+  await assertLegacyAtm10JavaAppMigratesToScriptLauncher();
   await assertNeoForgeMissingUnixArgsPreflightDoesNotRestart();
   await assertNeoForgeMissingUnixArgsStderrDoesNotRestart();
   await assertNeoForgeVersionMismatchDetected();

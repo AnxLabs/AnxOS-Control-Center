@@ -2739,6 +2739,9 @@ async function assertProviderInstallSupport() {
   assert(appSource.includes("fetchedCount"), "Renderer should log provider fetched/filtered/rendered counts.");
   assert(appSource.includes("function getMarketplaceProviderVersionRows"), "Renderer should render provider Minecraft/runtime/provider-file rows separately.");
   assert(appSource.includes("Runtime version\", value: runtimeVersion || \"Resolved after install\""), "Renderer should not display Minecraft version as a pre-install runtime version.");
+  assert(appSource.includes("function getMarketplaceCompactCardBadges"), "Renderer should keep Marketplace provider cards compact with badge summaries.");
+  assert(appSource.includes("badges.length < 4"), "Marketplace cards should cap provider metadata badges.");
+  assert(!appSource.includes("body.append(createMarketplaceCardFacts(template))"), "Marketplace cards must not render the verbose provider metadata stack.");
   assert(appSource.includes("Template v") && !appSource.includes(" · v${template.version"), "Marketplace provider cards should not show provider metadata as a generic version.");
   assert(agentRouteSource.includes('getInstanceIdFromPath(url.pathname, "/exists")'), "Agent should expose an explicit instance file exists endpoint.");
   assert(agentClientSource.includes("async function instanceFileExists"), "Desktop agent client should expose instanceFileExists.");
