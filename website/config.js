@@ -4,19 +4,19 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   subtitle: "A desktop control center for Minecraft servers, modpacks, remote nodes, and automation.",
   siteUrl: "https://anxoscontrolcenter.org",
   logoPath: "/assets/anxos-logo.png",
-  latestVersion: "1.8",
-  build: "189",
-  buildNumber: "189",
+  latestVersion: "1.9",
+  build: "190",
+  buildNumber: "190",
   channel: "Private Alpha",
-  releaseLabel: "Version 1.8 Build 189 Private Alpha",
+  releaseLabel: "Version 1.9 Build 190 Private Alpha",
   releaseDate: "July 27, 2026",
-  releaseTag: "v1.8-build189",
+  releaseTag: "v1.9-build190",
   releaseRepository: {
     owner: "bungopam-byte",
     repo: "AnxOS-Control-Center-Releases",
   },
   repositoryUrl: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases",
-  releaseUrl: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build189",
+  releaseUrl: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.9-build190",
   githubReleasesApiUrl: "https://api.github.com/repos/bungopam-byte/AnxOS-Control-Center-Releases/releases?per_page=20",
   stableDownloadEndpoints: {
     windows: "/api/download/latest/windows",
@@ -26,23 +26,45 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   },
   releaseAssets: [
       {
-          fileName: "AnxOS-Control-Center-Setup-1.8-build189.exe",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build189/AnxOS-Control-Center-Setup-1.8-build189.exe"
+          fileName: "AnxOS-Control-Center-Setup-1.9-build190.exe",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.9-build190/AnxOS-Control-Center-Setup-1.9-build190.exe"
       },
       {
-          fileName: "AnxOS-Control-Center-1.8-build189-portable.exe",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build189/AnxOS-Control-Center-1.8-build189-portable.exe"
+          fileName: "AnxOS-Control-Center-1.9-build190-portable.exe",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.9-build190/AnxOS-Control-Center-1.9-build190-portable.exe"
       },
       {
-          fileName: "AnxOS-Control-Center-1.8-build189.AppImage",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build189/AnxOS-Control-Center-1.8-build189.AppImage"
+          fileName: "AnxOS-Control-Center-1.9-build190.AppImage",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.9-build190/AnxOS-Control-Center-1.9-build190.AppImage"
       },
       {
-          fileName: "AnxOS-Control-Center-1.8-build189.deb",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build189/AnxOS-Control-Center-1.8-build189.deb"
+          fileName: "AnxOS-Control-Center-1.9-build190.deb",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.9-build190/AnxOS-Control-Center-1.9-build190.deb"
       }
   ],
   releaseNotes: [
+      {
+          "version": "1.9",
+          "build": 190,
+          "channel": "Private Alpha",
+          "tag": "v1.9-build190",
+          "date": "July 27, 2026",
+          "datetime": "2026-07-27",
+          "title": "Build 190 local login fix and v1.9 UI refresh",
+          "summary": "Private Alpha v1.9 Build 190 fixes local security and account IPC startup, restores browser authentication, and introduces the first CasaOS/HTNetwork-inspired AnxOS interface refresh.",
+          "changes": [
+              "Fixed local security login IPC registration race.",
+              "Registered account and local-security IPC before renderer creation or recovery.",
+              "Made incomplete-instance recovery non-blocking.",
+              "Fixed Continue in Browser to use canonical /signin/, /account/, and /activate/ URLs.",
+              "Added safe external URL handling.",
+              "Started the v1.9 CasaOS/HTNetwork-inspired UI refresh.",
+              "Added a compact v1.9 dashboard launchpad.",
+              "Refreshed the sidebar, page headers, status cards, Nodes, Instances, Public Access, and Marketplace surfaces.",
+              "Preserved Marketplace, Share Server, Playit, NeoForge, Windows Agent, SFTP, and updater behavior."
+          ],
+          "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.9-build190"
+      },
       {
           "version": "1.8",
           "build": 189,
