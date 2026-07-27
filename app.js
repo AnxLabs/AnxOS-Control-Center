@@ -23720,6 +23720,10 @@ function getDockerFastFailure() {
   if (selectedNode.docker?.enabled === false) {
     return createTimeoutError("Docker is disabled for this node.", "DOCKER_UNAVAILABLE");
   }
+  const capabilities = getNodeCapabilities(selectedNode);
+  if (isWindowsAgentNode(selectedNode) && capabilities.supportsDocker === false) {
+    return createTimeoutError("Docker is not supported by this Windows Agent. Install or enable Docker Desktop, restart the Agent, then test the node again.", "WINDOWS_DOCKER_UNSUPPORTED");
+  }
   return null;
 }
 
@@ -29976,6 +29980,9 @@ function buildNodeHealthModel(node = getSelectedNode()) {
     if (applicability.agentNode && ["updates", "maintenance"].includes(category.id)) {
       return { ...category, state: "Unavailable", applicable: false, current: false, issueCount: 0, evidence: `${category.label} is local-host-only and does not apply to remote Agent nodes.` };
     }
+    if (isWindowsAgentNode(selectedNode) && getNodeCapabilities(selectedNode).supportsGameServers !== true && category.id === "marketplace-instances") {
+      return { ...category, state: "Unavailable", applicable: false, current: false, issueCount: 0, evidence: "Windows Agent MVP does not enable game-server hosting yet. Health, files, Public Access, and Docker detection remain available." };
+    }
     if (!ownsActiveRendererContext && ["resources", "storage", "dependencies", "marketplace-instances", "files", "operations", "diagnostics"].includes(category.id)) {
       return { ...category, current: false, issueCount: 0, evidence: `${category.label} evidence belongs to the active node and is not applied to ${selectedNode.displayName || selectedNode.id}.` };
     }
@@ -30321,6 +30328,28 @@ function getNodeIdentity(node = {}) {
   return normalizedNode.kind === "application-host" ? normalizedNode.applicationHost || {} : normalizedNode.agentIdentity || {};
 }
 
+function getNodeCapabilities(node = {}) {
+  return node?.capabilities && typeof node.capabilities === "object" ? node.capabilities : {};
+}
+
+function isWindowsAgentNode(node = {}) {
+  const identity = getNodeIdentity(node);
+  const capabilities = getNodeCapabilities(node);
+  return node?.kind === "agent" && (capabilities.windowsMvp === true || capabilities.os === "windows" || identity.platform === "win32" || node.platform === "win32");
+}
+
+function getWindowsAgentMvpSummary(node = {}) {
+  if (!isWindowsAgentNode(node)) return "";
+  const capabilities = getNodeCapabilities(node);
+  const docker = capabilities.supportsDocker === true
+    ? "Docker supported"
+    : capabilities.supportsDocker === false
+      ? "Docker unavailable"
+      : "Docker checked from Docker page";
+  const files = capabilities.supportsFileRoots === false ? "file roots unavailable" : "safe file roots";
+  return `Windows Agent MVP: health, ${files}, Public Access, and ${docker}. Game-server hosting comes later.`;
+}
+
 function formatNodeLastSeen(node = {}) {
   const value = node.connection?.lastSeen || node.updatedAt || node.createdAt;
   return value ? formatDateTime(value) : "Never";
@@ -30346,6 +30375,7 @@ function formatNodeAgentContext(node = {}) {
 
 function getNodeTypeLabel(node = {}) {
   if (node.kind === "application-host") return node.nodeTypeLabel || "Application Host";
+  if (isWindowsAgentNode(node)) return node.localAgent ? "Windows Local Agent Node" : "Windows Agent Node";
   return node.modeLabel || (node.localAgent ? "Registered Local Agent Node" : "Registered Remote Agent Node");
 }
 
@@ -30382,6 +30412,14 @@ function formatNodeStorage(node = {}) {
 function getNodeUnsupportedFeatureSummary(node = {}) {
   if (node.kind === "application-host") {
     return "Remote Agent APIs, Agent token management, and remote Docker controls require an Agent node. Local desktop files and dashboard metrics remain available.";
+  }
+  if (isWindowsAgentNode(node)) {
+    const capabilities = getNodeCapabilities(node);
+    return [
+      getWindowsAgentMvpSummary(node),
+      capabilities.unsupportedActions?.ssh || "SSH is unavailable for Windows Agent MVP nodes unless configured separately.",
+      capabilities.unsupportedActions?.gameServers || "SteamCMD and game-server hosting are coming later for Windows nodes.",
+    ].filter(Boolean).join(" ");
   }
   return "Desktop uptime, Electron version, and local developer-mode fields apply only to the application host.";
 }
@@ -30640,10 +30678,16 @@ function openNodeDetails(nodeId) {
     nodeDetailsSummary.textContent = `${getNodeTypeLabel(node)} · ${connectionState.label} · ${health.issueCount} health issue${health.issueCount === 1 ? "" : "s"}`;
   }
   if (nodeDetailsBadges) {
-    nodeDetailsBadges.replaceChildren(
-      createNodeBadge(getNodeStatusLabel(node), visualState),
-    );
+    const badges = [createNodeBadge(getNodeStatusLabel(node), visualState)];
+    if (isWindowsAgentNode(node)) {
+      badges.push(createNodeBadge("Windows node", "planned"));
+      if (getNodeCapabilities(node).supportsGameServers !== true) {
+        badges.push(createNodeBadge("Hosting later", "warning"));
+      }
+    }
+    nodeDetailsBadges.replaceChildren(...badges);
   }
+  const capabilities = getNodeCapabilities(node);
   const values = {
     hostname: identity.hostname || node.displayName || "Unavailable",
     os: formatNodePlatform(node),
@@ -30656,7 +30700,17 @@ function openNodeDetails(nodeId) {
     appVersion: node.kind === "application-host" ? identity.appVersion || runtimeInfoState?.releaseLabel || runtimeInfoState?.appVersion || "Unavailable" : "Unavailable: app version belongs to the desktop shell.",
     developerMode: node.kind === "application-host" ? (identity.developerMode || runtimeInfoState?.developmentMode ? "Enabled" : "Disabled") : "Unavailable: developer mode belongs to the desktop shell.",
     runningState: node.kind === "application-host" ? identity.runningState || "running" : node.connection?.connected ? "Agent connected" : "Agent unavailable",
-    docker: node.kind === "application-host" ? "Unsupported here: Docker workspace controls require an Agent node." : node.docker?.enabled === false ? "Disabled" : "Enabled",
+    docker: node.kind === "application-host"
+      ? "Unsupported here: Docker workspace controls require an Agent node."
+      : node.docker?.enabled === false
+        ? "Disabled"
+        : capabilities.supportsDocker === true
+          ? "Enabled: Docker support reported by Agent."
+          : capabilities.supportsDocker === false
+            ? "Not supported on this Windows node."
+            : isWindowsAgentNode(node)
+              ? "Conditional: refresh Docker to detect Docker Desktop or Docker Engine."
+              : "Enabled",
     lastSeen: formatNodeLastSeen(node),
     connection: getNodeConnectionSummary(node),
     url: node.kind === "application-host" ? "Local Application" : node.agentUrl || "Unavailable",
@@ -30932,15 +30986,20 @@ function renderNodes() {
       titleGroup.append(title, detail);
       const badges = document.createElement("div");
       badges.className = "node-card__badges";
-      badges.append(
-        createNodeBadge(getNodeStatusLabel(node), state),
-      );
+      badges.append(createNodeBadge(getNodeStatusLabel(node), state));
+      if (isWindowsAgentNode(node)) {
+        badges.append(createNodeBadge("Windows", "planned"));
+        if (getNodeCapabilities(node).supportsGameServers !== true) {
+          badges.append(createNodeBadge("MVP", "warning"));
+        }
+      }
       header.append(titleGroup, badges);
       const meta = document.createElement("dl");
       meta.className = "node-card__meta";
       [
         ["Context", node.kind === "application-host" ? "Local Application Host" : `${getNodeTypeLabel(node)} · ${node.agentUrl || "Unavailable"}`],
         ["Connection", `${connectionState.primary} - ${connectionState.secondary}`],
+        ...(isWindowsAgentNode(node) ? [["Windows MVP", getWindowsAgentMvpSummary(node)]] : []),
         ["Last seen", formatNodeLastSeen(node)],
         ["Health", `${health.state} · ${health.issueCount} issue${health.issueCount === 1 ? "" : "s"}`],
       ].forEach(([label, value]) => {

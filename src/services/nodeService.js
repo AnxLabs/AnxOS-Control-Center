@@ -176,6 +176,58 @@ function buildLocalNodeProfile({ node = {}, health = null, stats = null, instanc
   };
 }
 
+function normalizeAgentCapabilitiesMetadata(value = null, fallback = {}) {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return {
+      ...value,
+      os: value.os || fallback.os || null,
+      supportsSystemMetrics: value.supportsSystemMetrics !== false,
+      supportsDocker: value.supportsDocker === true ? true : value.supportsDocker === false ? false : null,
+      supportsSsh: value.supportsSsh === true,
+      supportsGameServers: value.supportsGameServers === true,
+      supportsServiceControl: value.supportsServiceControl === true,
+      supportsFileRoots: value.supportsFileRoots !== false,
+      supportsPublicAccess: value.supportsPublicAccess !== false,
+      supportsPlayit: value.supportsPlayit !== false,
+      unsupportedActions: value.unsupportedActions && typeof value.unsupportedActions === "object" && !Array.isArray(value.unsupportedActions)
+        ? value.unsupportedActions
+        : {},
+    };
+  }
+  const entries = Array.isArray(value) ? new Set(value.map((entry) => String(entry || "").trim()).filter(Boolean)) : new Set();
+  return {
+    os: fallback.os || null,
+    supportsSystemMetrics: true,
+    supportsDocker: entries.has("docker") ? true : null,
+    supportsSsh: entries.has("ssh"),
+    supportsGameServers: entries.has("gameServers") || entries.has("instances"),
+    supportsServiceControl: entries.has("serviceControl"),
+    supportsFileRoots: true,
+    supportsPublicAccess: true,
+    supportsPlayit: true,
+    unsupportedActions: {},
+  };
+}
+
+function normalizeRawCapabilitiesMetadata(value) {
+  if (Array.isArray(value)) {
+    return value.map((entry) => String(entry || "").trim()).filter(Boolean);
+  }
+  if (value && typeof value === "object") {
+    return value;
+  }
+  return null;
+}
+
+function getNodeReportedCapabilities(node = {}) {
+  const platform = node.platform || node.connection?.platform || node.agentIdentity?.platform || "";
+  const fallbackOs = platform === "win32" ? "windows" : platform || null;
+  return normalizeAgentCapabilitiesMetadata(
+    node.connection?.capabilities || node.agentIdentity?.capabilities || node.capabilitiesMetadata || null,
+    { os: fallbackOs },
+  );
+}
+
 function buildNodeCapabilities(node = {}) {
   if (node.kind === "application-host") {
     return {
@@ -199,26 +251,47 @@ function buildNodeCapabilities(node = {}) {
     };
   }
   const localAgent = isExplicitLocalAgentNode(node);
+  const reported = getNodeReportedCapabilities(node);
+  const platform = node.platform || node.connection?.platform || node.agentIdentity?.platform || "";
+  const windows = reported.os === "windows" || platform === "win32";
+  const unsupportedActions = {
+    ...(reported.unsupportedActions || {}),
+    ...(localAgent
+      ? {}
+      : {
+          localServiceInstall: "Local Agent service controls only apply to This PC.",
+          localPairingRepair: "Automatic local pairing is only available for This PC.",
+        }),
+    ...(windows && reported.supportsGameServers !== true
+      ? { gameServers: "Windows game-server hosting is coming later. Health, files, Public Access, and Docker detection are available for this MVP." }
+      : {}),
+    ...(windows && reported.supportsSsh !== true
+      ? { ssh: "SSH controls are unavailable for Windows Agent MVP nodes unless configured separately." }
+      : {}),
+  };
   return {
     applicationHost: false,
     agentApi: true,
     localAgent,
     remoteAgent: !localAgent,
     serviceControls: localAgent,
-    windowsServiceControls: localAgent,
-    filesystem: true,
-    marketplace: true,
-    instances: true,
-    backups: true,
-    docker: node.docker?.enabled !== false,
+    windowsServiceControls: localAgent && (process.platform === "win32" || platform === "win32"),
+    filesystem: reported.supportsFileRoots !== false,
+    marketplace: !windows || reported.supportsGameServers === true,
+    instances: !windows || reported.supportsGameServers === true,
+    backups: !windows || reported.supportsGameServers === true,
+    docker: node.docker?.enabled !== false && reported.supportsDocker !== false,
     publicAccess: true,
     dependencyManagement: true,
-    unsupportedActions: localAgent
-      ? {}
-      : {
-          localServiceInstall: "Local Agent service controls only apply to This PC.",
-          localPairingRepair: "Automatic local pairing is only available for This PC.",
-        },
+    os: reported.os || (windows ? "windows" : platform || null),
+    windowsMvp: windows,
+    supportsSystemMetrics: reported.supportsSystemMetrics !== false,
+    supportsDocker: reported.supportsDocker,
+    supportsSsh: reported.supportsSsh === true,
+    supportsGameServers: reported.supportsGameServers === true,
+    supportsServiceControl: reported.supportsServiceControl === true,
+    supportsFileRoots: reported.supportsFileRoots !== false,
+    unsupportedActions,
   };
 }
 
@@ -425,7 +498,9 @@ function buildConnectionPatch({ state, message = "", latencyMs = null, checkedAt
     operatingSystem,
     architecture,
     hostname,
-    capabilities: Array.isArray(health?.capabilities) ? health.capabilities : previous?.capabilities || null,
+    capabilities: normalizeAgentCapabilitiesMetadata(health?.capabilities || identity.capabilities || previous?.capabilities || null, {
+      os: (identity.platform || health?.platform || previous?.platform) === "win32" ? "windows" : identity.platform || health?.platform || previous?.platform || null,
+    }),
   };
 }
 
@@ -452,6 +527,21 @@ function normalizeAgentNode(node = {}) {
     : isGenericNodeDisplayName(requestedDisplayName) && identityHostname
     ? identityHostname
     : requestedDisplayName || identityHostname || "Agent Node";
+  const capabilityFallback = { os: identity.platform === "win32" ? "windows" : identity.platform || node.platform || node.connection?.platform || null };
+  const capabilitiesMetadata = normalizeRawCapabilitiesMetadata(node.capabilitiesMetadata || node.connection?.capabilities || identity.capabilities || node.capabilities || null);
+  const normalizedCapabilitiesMetadata = normalizeAgentCapabilitiesMetadata(capabilitiesMetadata, capabilityFallback);
+  const normalizedIdentity = {
+    agentInstallationId,
+    agentIdentityId,
+    deviceId,
+    hostname: identity.hostname || "",
+    operatingSystem: identity.operatingSystem || "",
+    platform: identity.platform || "",
+    architecture: identity.architecture || "",
+    agentVersion: identity.agentVersion || "",
+    apiVersion: identity.apiVersion || "",
+    capabilities: normalizeAgentCapabilitiesMetadata(identity.capabilities || normalizedCapabilitiesMetadata, capabilityFallback),
+  };
   return {
     id: nodeId,
     kind: "agent",
@@ -472,10 +562,10 @@ function normalizeAgentNode(node = {}) {
     apiVersion: node.apiVersion || node.connection?.apiVersion || identity.apiVersion || "",
     platform: node.platform || node.connection?.platform || identity.platform || "",
     hostname: node.hostname || node.connection?.hostname || identity.hostname || "",
-    capabilitiesMetadata: Array.isArray(node.capabilitiesMetadata) ? node.capabilitiesMetadata : Array.isArray(node.connection?.capabilities) ? node.connection.capabilities : [],
+    capabilitiesMetadata,
     agentInstallationId,
     agentIdentityId,
-    agentIdentity: { agentInstallationId, agentIdentityId, deviceId, hostname: identity.hostname || "", operatingSystem: identity.operatingSystem || "", platform: identity.platform || "", architecture: identity.architecture || "", agentVersion: identity.agentVersion || "", apiVersion: identity.apiVersion || "" },
+    agentIdentity: normalizedIdentity,
     docker: { enabled: node.docker?.enabled !== false, runtime: node.docker?.runtime || "docker" },
     ownerMachine: Boolean(node.ownerMachine),
     localAgent,
@@ -485,7 +575,7 @@ function normalizeAgentNode(node = {}) {
     builtIn: false,
     removable: true,
     profile: localAgent ? node.profile || buildLocalNodeProfile({ node: { ...node, displayName }, health: { identity } }) : node.profile || null,
-    capabilities: buildNodeCapabilities({ ...node, kind: "agent", agentUrl, localAgent }),
+    capabilities: buildNodeCapabilities({ ...node, kind: "agent", agentUrl, localAgent, agentIdentity: normalizedIdentity, capabilitiesMetadata }),
     connection: node.connection && typeof node.connection === "object" ? {
       connected: node.connection.connected === true,
       reachable: node.connection.reachable === true || node.connection.connected === true || ["online", "authentication_failed", "agent_incompatible"].includes(normalizeConnectionState(node.connection.status)),
@@ -509,7 +599,7 @@ function normalizeAgentNode(node = {}) {
       operatingSystem: node.connection.operatingSystem || identity.operatingSystem || null,
       architecture: node.connection.architecture || identity.architecture || null,
       hostname: node.connection.hostname || identity.hostname || null,
-      capabilities: Array.isArray(node.connection.capabilities) ? node.connection.capabilities : null,
+      capabilities: normalizeAgentCapabilitiesMetadata(node.connection.capabilities || identity.capabilities || normalizedCapabilitiesMetadata, capabilityFallback),
     } : null,
     createdAt: node.createdAt || new Date().toISOString(),
     updatedAt: node.updatedAt || new Date().toISOString(),
@@ -542,7 +632,7 @@ function mergeAgentNodes(nodes) {
       apiVersion: current.apiVersion || raw.apiVersion || "",
       platform: current.platform || raw.platform || "",
       hostname: current.hostname || raw.hostname || "",
-      capabilitiesMetadata: current.capabilitiesMetadata?.length ? current.capabilitiesMetadata : raw.capabilitiesMetadata || [],
+      capabilitiesMetadata: current.capabilitiesMetadata || raw.capabilitiesMetadata || null,
       agentInstallationId: current.agentInstallationId || raw.agentInstallationId || "",
       agentIdentityId: current.agentIdentityId || raw.agentIdentityId || "",
       agentIdentity: { ...raw.agentIdentity, ...Object.fromEntries(Object.entries(current.agentIdentity).filter(([, value]) => value)) },
@@ -823,6 +913,9 @@ function applyHealthPatchToNode(node, patch = {}) {
     compatibility: patch.compatibility || null,
   });
   const identity = patch.health?.identity || node.agentIdentity || {};
+  const rawCapabilitiesMetadata = normalizeRawCapabilitiesMetadata(
+    patch.health?.capabilities || identity.capabilities || node.capabilitiesMetadata || null,
+  );
   const lastSuccessfulHealthCheck = state === "online" ? checkedAt : node.lastSuccessfulHealthCheck || previousConnection.lastSeen || null;
   return normalizeAgentNode({
     ...node,
@@ -835,7 +928,7 @@ function applyHealthPatchToNode(node, patch = {}) {
     apiVersion: connection.apiVersion || node.apiVersion || "",
     platform: connection.platform || node.platform || "",
     hostname: connection.hostname || node.hostname || "",
-    capabilitiesMetadata: Array.isArray(connection.capabilities) ? connection.capabilities : node.capabilitiesMetadata || [],
+    capabilitiesMetadata: rawCapabilitiesMetadata || connection.capabilities || node.capabilitiesMetadata || null,
     agentIdentity: {
       ...node.agentIdentity,
       ...identity,
@@ -1249,9 +1342,11 @@ async function saveNode(payload = {}) {
   const agentToken = agentTokenInput || existingById?.agentToken || "";
   if (!displayName || displayName.length > 80) throw Object.assign(new Error("Enter a node name up to 80 characters."), { code: "INVALID_NODE_NAME" });
   if (!/^https?:\/\/[^ ]+$/i.test(agentUrl)) throw Object.assign(new Error("Enter a valid Agent URL."), { code: "INVALID_NODE_URL" });
+  let healthResponse;
   let identity;
   try {
-    identity = (await getHealth(normalizeAgentSettings({ backendMode: "agent", agentUrl, agentToken }))).identity;
+    healthResponse = await getHealth(normalizeAgentSettings({ backendMode: "agent", agentUrl, agentToken }));
+    identity = healthResponse.identity;
   } catch (error) {
     const wrapped = Object.assign(new Error(`Could not read Agent identity: ${error.message}`), {
       code: error?.code || "AGENT_IDENTITY_UNAVAILABLE",
@@ -1271,7 +1366,18 @@ async function saveNode(payload = {}) {
   }
   const nodeId = existing?.id || nodeIdForDevice(identity.deviceId);
   if (agentTokenInput) setNodeToken(nodeId, agentTokenInput);
-  const node = normalizeAgentNode({ ...existing, ...payload, id: nodeId, displayName, agentUrl, agentToken: agentToken || existing?.agentToken, agentIdentity: identity });
+  const node = normalizeAgentNode({
+    ...existing,
+    ...payload,
+    id: nodeId,
+    displayName,
+    agentUrl,
+    agentToken: agentToken || existing?.agentToken,
+    agentIdentity: {
+      ...identity,
+      capabilities: normalizeAgentCapabilitiesMetadata(identity.capabilities || healthResponse.capabilities || null, { os: identity.platform === "win32" ? "windows" : identity.platform || null }),
+    },
+  });
   const nodes = mergeAgentNodes([...state.nodes.filter((entry) => entry.id !== node.id && entry.agentIdentity.deviceId !== identity.deviceId), node]);
   writeNodeState({ ...state, removedLocalAgents: clearLocalAgentRemovalMarkersForNode(state, node), nodes });
   return { node: publicNode(node), ...(await listNodes({ refreshIdentity: false })) };
@@ -1370,7 +1476,7 @@ async function pairNodeFromCode(payload = {}) {
       agentInstallationId: identity.agentInstallationId || paired.agentInstallationId || null,
       agentIdentityId: identity.agentIdentityId || paired.agentIdentityId || null,
       apiVersion: identity.apiVersion || health.apiVersion || null,
-      capabilities: Array.isArray(identity.capabilities) ? identity.capabilities : Array.isArray(health.capabilities) ? health.capabilities : [],
+      capabilities: normalizeAgentCapabilitiesMetadata(identity.capabilities || health.capabilities || null, { os: identity.platform === "win32" ? "windows" : identity.platform || null }),
     },
     lastConnectionState: "online",
     connection: {
@@ -1378,6 +1484,7 @@ async function pairNodeFromCode(payload = {}) {
       status: "online",
       message: "Agent paired successfully.",
       lastSeen: new Date().toISOString(),
+      capabilities: normalizeAgentCapabilitiesMetadata(identity.capabilities || health.capabilities || null, { os: identity.platform === "win32" ? "windows" : identity.platform || null }),
     },
   });
   const nodes = mergeAgentNodes([...state.nodes.filter((entry) => entry.id !== node.id && entry.agentIdentity?.deviceId !== identity.deviceId), node]);
@@ -1424,8 +1531,23 @@ async function testNodeConnectionPayload(payload = {}) {
     protocolVersion: identity.protocolVersion ?? health.protocolVersion ?? null,
     compatibility,
     platform: identity.platform || health.platform || null,
-    capabilities: Array.isArray(health.capabilities) ? health.capabilities : [],
-    node: publicNode(normalizeAgentNode({ ...existing, displayName, agentUrl, agentToken, agentIdentity: identity })),
+    capabilities: normalizeAgentCapabilitiesMetadata(health.capabilities || identity.capabilities || null, { os: identity.platform === "win32" ? "windows" : identity.platform || null }),
+    node: publicNode(normalizeAgentNode({
+      ...existing,
+      displayName,
+      agentUrl,
+      agentToken,
+      agentIdentity: {
+        ...identity,
+        capabilities: normalizeAgentCapabilitiesMetadata(identity.capabilities || health.capabilities || null, { os: identity.platform === "win32" ? "windows" : identity.platform || null }),
+      },
+      connection: {
+        ...(existing?.connection || {}),
+        connected: compatible,
+        status: compatible ? "online" : "agent_incompatible",
+        capabilities: normalizeAgentCapabilitiesMetadata(identity.capabilities || health.capabilities || null, { os: identity.platform === "win32" ? "windows" : identity.platform || null }),
+      },
+    })),
   };
 }
 
@@ -1452,4 +1574,4 @@ function deleteNode(nodeId) {
 async function selectNode(nodeId) { getNode(nodeId); const state = readNodeState(); writeNodeState({ ...state, selectedNodeId: nodeId || APPLICATION_HOST_NODE_ID }); return listNodes({ discoverLocalAgent: false, refreshIdentity: false }); }
 async function testNode(nodeId) { return checkNodeHealth(nodeId || getSelectedNodeId(), { timeoutMs: 8000 }); }
 
-module.exports = { APPLICATION_HOST_NODE_ID, HEALTH_STATES, NODE_SCHEMA_VERSION, checkAllNodeHealth, checkNodeHealth, deleteNode, getAllNodesSync, getExecutionTarget, getNode, getNodeAgentConfig, getNodeCredentialStatus, getNodeCredentialsPath, getNodesPath, getSelectedNodeId, listNodes, mergeAgentNodes, migrateState, pairNodeFromCode, recordAuthenticatedNodeHealth, repairNodeCredential, resolveNodeForAgentIdentity, saveNode, selectNode, testNode, testNodeConnectionPayload, updateNodeHealthState, _test: { formatAgentCompatibilityMessage, getAgentCompatibilityReport, normalizeAgentApiMajor, normalizeAgentProtocolVersion, postPairingComplete } };
+module.exports = { APPLICATION_HOST_NODE_ID, HEALTH_STATES, NODE_SCHEMA_VERSION, checkAllNodeHealth, checkNodeHealth, deleteNode, getAllNodesSync, getExecutionTarget, getNode, getNodeAgentConfig, getNodeCredentialStatus, getNodeCredentialsPath, getNodesPath, getSelectedNodeId, listNodes, mergeAgentNodes, migrateState, pairNodeFromCode, recordAuthenticatedNodeHealth, repairNodeCredential, resolveNodeForAgentIdentity, saveNode, selectNode, testNode, testNodeConnectionPayload, updateNodeHealthState, _test: { buildNodeCapabilities, formatAgentCompatibilityMessage, getAgentCompatibilityReport, getNodeReportedCapabilities, normalizeAgentApiMajor, normalizeAgentCapabilitiesMetadata, normalizeAgentProtocolVersion, postPairingComplete } };

@@ -6,6 +6,8 @@ const root = path.resolve(__dirname, "..");
 const index = fs.readFileSync(path.join(root, "index.html"), "utf8");
 const app = fs.readFileSync(path.join(root, "app.js"), "utf8");
 const styles = fs.readFileSync(path.join(root, "styles.css"), "utf8");
+const nodeService = fs.readFileSync(path.join(root, "src", "services", "nodeService.js"), "utf8");
+const agentHealth = fs.readFileSync(path.join(root, "agent", "src", "routes", "health.js"), "utf8");
 
 function requireIndex(needle, message) {
   assert(index.includes(needle), message || `index.html is missing ${needle}`);
@@ -71,6 +73,21 @@ function requireApp(needle, message) {
   "function buildUpdatesHealth",
   "function buildMaintenanceHealth",
 ].forEach((needle) => requireApp(needle, `Node health model should include ${needle}.`));
+
+[
+  "function buildAgentCapabilities",
+  "supportsGameServers",
+  "supportsFileRoots",
+  "Windows game-server hosting is planned for a later build.",
+].forEach((needle) => assert(agentHealth.includes(needle), `Agent health must report Windows MVP capabilities with ${needle}.`));
+
+[
+  "function normalizeAgentCapabilitiesMetadata",
+  "function getNodeReportedCapabilities",
+  "windowsMvp",
+  "Windows game-server hosting is coming later.",
+  "Windows Agent MVP nodes unless configured separately.",
+].forEach((needle) => assert(nodeService.includes(needle), `Node service must preserve Windows Agent MVP capabilities with ${needle}.`));
 
 [
   'new Set(["Healthy", "Warning", "Degraded", "Unknown", "Unavailable", "Not Tested"])',
