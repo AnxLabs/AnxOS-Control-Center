@@ -5365,11 +5365,23 @@ body.is-resizing-files * {
 
 .instance-game-config {
   display: grid;
+  grid-column: 1 / -1;
+  align-self: start;
+  align-content: start;
   gap: 12px;
   padding: 12px;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   background: rgba(255, 255, 255, 0.035);
+}
+
+.instance-auto-start-toggle {
+  grid-column: 1 / -1;
+  justify-self: start;
+  align-self: start;
+  width: auto;
+  height: 36px;
+  max-width: max-content;
 }
 
 .instance-game-config[hidden] {
@@ -5425,6 +5437,8 @@ body.is-resizing-files * {
 .instance-game-config-fields {
   display: grid;
   gap: 8px;
+  align-content: start;
+  justify-items: stretch;
 }
 
 .instance-game-config-section {
@@ -5446,10 +5460,33 @@ body.is-resizing-files * {
 .instance-game-config-field {
   display: grid;
   gap: 6px;
+  align-self: start;
   padding: 10px;
   border: 1px solid rgba(185, 171, 200, 0.18);
   border-radius: var(--radius-sm);
   background: rgba(0, 0, 0, 0.12);
+}
+
+.instance-game-config-field.is-boolean {
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: start;
+}
+
+.instance-game-config-field.is-boolean .instance-game-config-field-label {
+  grid-column: 2;
+  grid-row: 1;
+  min-height: 22px;
+}
+
+.instance-game-config-field.is-boolean input[type="checkbox"] {
+  grid-column: 1;
+  grid-row: 1;
+  margin-top: 2px;
+}
+
+.instance-game-config-field.is-boolean .instance-game-config-description,
+.instance-game-config-field.is-boolean .instance-game-config-error {
+  grid-column: 2;
 }
 
 .instance-game-config-field.is-modified {
@@ -6206,6 +6243,7 @@ body.is-resizing-files * {
 .instance-advanced-panel {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
   gap: 14px;
 }
 

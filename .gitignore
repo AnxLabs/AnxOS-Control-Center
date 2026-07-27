@@ -8,6 +8,8 @@ Thumbs.db
 
 dist-verify/
 
+artifacts/
+
 dist/
 
 .npm-cache/
@@ -30,6 +32,7 @@ config/agent.json
 config/owner-accounts.json
 config/node-agent-credentials.json
 config/long-operations.json
+config/*.backup
 agent/.env
 agent/config/
 *.env

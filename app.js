@@ -10366,6 +10366,7 @@ function renderGameConfigPanel() {
 function createGameConfigField(field) {
   const wrapper = document.createElement("label");
   wrapper.className = "instance-game-config-field";
+  wrapper.classList.toggle("is-boolean", field.type === "boolean");
   wrapper.classList.toggle("is-modified", Object.prototype.hasOwnProperty.call(getChangedGameConfigValues(), field.key));
   if (field.restartRequired) wrapper.dataset.restartRequired = "true";
 
@@ -10390,6 +10391,17 @@ function createGameConfigField(field) {
 
   wrapper.append(header, input, description, error);
   return wrapper;
+}
+
+function getActiveGameConfigFields() {
+  if (!gameConfigState.model?.supported) return [];
+  const query = gameConfigState.query.trim().toLowerCase();
+  return (gameConfigState.model.fields || []).filter((field) => {
+    if (field.advanced && !gameConfigState.showAdvanced) return false;
+    if (gameConfigState.activeCategory && field.category !== gameConfigState.activeCategory) return false;
+    if (!query) return true;
+    return [field.label, field.description, field.key, field.category].join(" ").toLowerCase().includes(query);
+  });
 }
 
 function createGameConfigInput(field) {
@@ -10444,9 +10456,11 @@ function updateGameConfigField(field, input) {
 
 function resetGameConfigToCurrent() {
   if (!gameConfigState.model?.supported) return;
-  gameConfigState.values = { ...(gameConfigState.model.values || {}) };
-  gameConfigState.fieldErrors = {};
-  gameConfigState.touchedSecrets = new Set();
+  getActiveGameConfigFields().forEach((field) => {
+    gameConfigState.values[field.key] = gameConfigState.model.values?.[field.key] ?? field.currentValue ?? field.defaultValue;
+    delete gameConfigState.fieldErrors[field.key];
+    if (field.sensitive) gameConfigState.touchedSecrets.delete(field.key);
+  });
   renderGameConfigPanel();
 }
 
