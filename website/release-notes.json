@@ -12,6 +12,8 @@
       "Fixed local security login IPC registration race.",
       "Registered account and local-security IPC before renderer creation or recovery.",
       "Made incomplete-instance recovery non-blocking.",
+      "Fixed stale onboarding flags forcing upgraded installations back into First Launch.",
+      "Restored owner, session, and node state before deciding whether setup is genuinely required.",
       "Fixed Continue in Browser to use canonical /signin/, /account/, and /activate/ URLs.",
       "Added safe external URL handling.",
       "Started the v1.9 CasaOS/HTNetwork-inspired UI refresh.",

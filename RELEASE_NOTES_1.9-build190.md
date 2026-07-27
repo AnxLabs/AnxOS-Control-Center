@@ -7,6 +7,8 @@ Build 190 fixes local unlock and browser-authentication startup paths, then begi
 - Fixed the local security login IPC registration race.
 - Registered account and local-security IPC before renderer creation or recovery.
 - Made incomplete-instance recovery non-blocking.
+- Fixed stale onboarding flags forcing upgraded installations back into First Launch.
+- Restored owner, session, and node state before deciding whether setup is genuinely required.
 - Fixed Continue in Browser to use the canonical `/signin/`, `/account/`, and `/activate/` URLs.
 - Added allowlisted external URL handling so browser authentication cannot silently fail or open an unsafe destination.
 
