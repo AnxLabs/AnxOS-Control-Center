@@ -56,7 +56,8 @@ assert(index.includes("dashboard-context-strip") && index.includes('data-dashboa
 assert(index.includes("Setup Health") && index.includes("data-setup-health-center") && index.includes("Core setup") && index.includes("Optional features"), "Dashboard must include a setup health checklist with separate core and optional progress.");
 assert(app.includes("function renderFriendlyDashboard") && app.includes("getFriendlyDashboardState") && app.includes("runDashboardFriendlyAction"), "Dashboard friendly overview must be wired to real renderer state and actions.");
 assert(app.includes("const activeTarget = resolveActiveManagementTarget()") && app.includes("selectedSystemStatus: activeTarget.connectionState.label") && app.includes("const nodeHealth = getSharedNodeHealthModel(selectedNode)") && app.includes('setDashboardFriendlyField("nodeHealth"'), "Dashboard context must reuse selected target and node health state.");
-assert(app.includes("function getSetupHealthState") && app.includes("optionalItems") && app.includes("setupHealthActionState"), "Setup Health must derive from existing readiness state and keep optional features separate.");
+assert(app.includes("function getSetupHealthState") && app.includes("getPublicAccessSetupReadiness") && app.includes("setupHealthActionState"), "Setup Health must derive from existing readiness state and keep optional features separate.");
+assert(app.includes('setSetupHealthField("optionalProgress", `${optionalComplete}/${state.optional.length} complete`)'), "Setup Health optional progress must count the Optional group separately from Recommended items.");
 assert(app.includes("first-server-guide-title") && app.includes("first-server-guide-description"), "First-server guide modal must have accessible title and description bindings.");
 assert(styles.includes(".dashboard-welcome") && styles.includes(".dashboard-context-strip") && styles.includes(".dashboard-friendly-grid") && styles.includes(".dashboard-next-step"), "Dashboard friendly overview CSS must exist.");
 assert(styles.includes(".dashboard-setup-health") && styles.includes(".setup-health-groups"), "Setup Health CSS must exist.");
@@ -68,6 +69,11 @@ assert(index.includes("Help and Learning") && index.includes("data-contextual-he
 assert(app.includes("CONTEXTUAL_HELP_TOPICS") && app.includes("openContextualHelp") && app.includes("dismissContextualHelpTip"), "Contextual help must render through the reusable renderer component.");
 assert(index.includes("[data-node-list]") || index.includes("data-node-list"), "Nodes workspace must expose the node card list.");
 assert(index.includes("data-node-modal") && index.includes('data-node-action="open-add"'), "Nodes registration form must live in an Add Node modal.");
+assert(index.includes("node-modal-layout") && index.indexOf("node-pairing-section") < index.indexOf("node-manual-section"), "Node editor modal must use a balanced pairing/manual setup layout.");
+assert(index.indexOf("node-manual-section") < index.indexOf("node-form-actions"), "Node editor action buttons must stay aligned with the manual setup form.");
+assert(styles.includes(".node-modal-layout") && styles.includes("grid-template-columns: minmax(260px, 0.86fr) minmax(420px, 1.4fr)"), "Node editor modal must keep a balanced two-column desktop layout.");
+assert(styles.includes(".app-modal--node .modal-header .icon-action") && styles.includes("position: absolute") && styles.includes("right: 0"), "Node editor close button must stay aligned in the modal header.");
+assert(styles.includes("@media (max-width: 900px)") && styles.includes(".node-modal-layout") && styles.includes("grid-template-columns: minmax(0, 1fr)"), "Node editor modal must collapse cleanly on smaller windows.");
 assert(index.includes("data-node-details-modal") && index.includes("node-details-drawer"), "Nodes workspace must include a details drawer.");
 assert(app.includes('setAttribute("aria-busy"'), "Async workspace loading must expose aria-busy.");
 assert(app.includes("isNodeSwitching() || document.hidden"), "Background polling must pause while the document is hidden.");

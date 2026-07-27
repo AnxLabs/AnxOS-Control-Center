@@ -23,11 +23,11 @@ requireSource("bindSshXtermInput(sshXterm);", "Renderer must bind input immediat
 requireSource("if (sshXterm) {\n    bindSshXtermInput(sshXterm);", "Renderer must rebind input when reusing an existing xterm instance.");
 requireSource("bindSshXtermInput(terminal);", "Renderer must rebind input when synchronizing a session after rerender or reconnect.");
 requireSource("sshXtermSessionId !== session.id", "Renderer must reject stale session input.");
-requireSource("terminal.options.disableStdin = !(session && session.status === \"connected\")", "Renderer must enable input only for connected sessions.");
+requireSource("terminal.options.disableStdin = !(session && session.status === \"connected\" && session.shellReady !== false)", "Renderer must enable input only for shell-ready connected sessions.");
 requireSource("window.requestAnimationFrame(focusSshTerminalInput);", "Renderer must focus the terminal after a successful connection.");
 requireSource("sshTerminalWindow?.addEventListener(\"click\", () => {", "Renderer must listen for terminal surface clicks.");
-requireSource("if (getActiveSshSession()?.status === \"connected\") {\n    focusSshTerminalInput();", "Clicking inside a connected terminal must request xterm focus.");
-requireSource("lastWriteRejectedCategory: \"stale_or_inactive_session\"", "Renderer diagnostics must identify stale or inactive session writes.");
+requireSource("if (getActiveSshSession()?.status === \"connected\" && getActiveSshSession()?.shellReady !== false) {\n    focusSshTerminalInput();", "Clicking inside a shell-ready connected terminal must request xterm focus.");
+requireSource("lastWriteRejectedCategory: session?.status === \"connected\" && session.shellReady === false ? \"shell_not_ready\" : \"stale_or_inactive_session\"", "Renderer diagnostics must identify shell-not-ready and stale or inactive session writes.");
 requireSource("lastWriteAccepted: true", "Renderer diagnostics must mark successful writes.");
 
 assert(preloadSource.includes("return ipcRenderer.invoke(\"ssh:write\", { sessionId, input });"), "Preload must forward exact xterm data to main IPC.");

@@ -34,7 +34,9 @@ requireSource(appSource, "sshCommandSendButton?.addEventListener(\"click\", asyn
 requireSource(appSource, "await sendSshCommandFromBar(\"button\");", "Send button must call the shared command bar submit function.");
 
 assert(!appSource.includes("sshKeyboardMode"), "Command bar submission must not be blocked by stale keyboard-mode state.");
-requireSource(appSource, "showToast(!command ? \"Enter a command before sending.\" : \"Connect SSH before sending commands.\");", "Disconnected and empty command paths must show a friendly in-app error.");
+requireSource(appSource, "category === \"shell_not_ready\"", "Command bar must distinguish connected transport from an unready SSH shell.");
+requireSource(appSource, "Command could not be sent because the SSH shell is not ready.", "Unready SSH shells must show a bounded command-send error.");
+requireSource(appSource, "Waiting for shell...", "Renderer must expose a waiting-for-shell state before enabling command input.");
 requireSource(appSource, "commandBarSubmitReceived: true", "Command bar diagnostics must record submit receipt.");
 requireSource(appSource, "commandBarCommandLength: command.length", "Command bar diagnostics must record command length only.");
 requireSource(appSource, "commandBarSource: source", "Command bar diagnostics must record source without command contents.");
@@ -46,8 +48,10 @@ requireSource(preloadSource, "return ipcRenderer.invoke(\"ssh:write\", { session
 requireSource(ipcSource, 'registerSshHandler("ssh:write"', "Main process must receive SSH writes through the shared authorized handler.");
 requireSource(ipcSource, "sessionPresent: Boolean(payload.sessionId)", "Main IPC diagnostics must record session presence.");
 requireSource(serviceSource, "sessionFound: Boolean(session)", "SSH service diagnostics must record session lookup.");
+requireSource(serviceSource, "shellReady: Boolean(session?.shellReady)", "SSH service diagnostics must record shell readiness.");
 requireSource(serviceSource, "streamWritable: session.stream.writable !== false", "SSH service diagnostics must record PTY writability.");
 requireSource(serviceSource, "session.stream.write(data);", "SSH service must write to the active PTY stream.");
+requireSource(serviceSource, "SSH_SHELL_NOT_READY", "SSH service must reject writes before shell readiness.");
 
 [
   ["enter", "npm", "npm\r"],

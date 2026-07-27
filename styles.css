@@ -4248,6 +4248,7 @@ body.is-resizing-files * {
 
 .docker-resource-panel {
   display: grid;
+  align-content: start;
   gap: 12px;
   min-width: 0;
   padding: 14px;
@@ -4277,7 +4278,7 @@ body.is-resizing-files * {
 }
 
 .docker-inline-form input,
-.docker-create-grid input,
+.docker-create-grid input:not([type="checkbox"]),
 .docker-create-grid select,
 .docker-compose-form input,
 .docker-compose-form textarea,
@@ -4294,11 +4295,35 @@ body.is-resizing-files * {
 }
 
 .docker-compose-form textarea {
-  min-height: 220px;
+  min-height: 160px;
   resize: vertical;
   font-family: var(--mono-font);
   line-height: 1.45;
   tab-size: 2;
+}
+
+.docker-check-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--anx-radius-sm);
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--text);
+  font-size: 0.86rem;
+  line-height: 1.25;
+}
+
+.docker-check-option input[type="checkbox"] {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
+  min-height: 16px;
+  margin: 0;
+  accent-color: var(--primary);
 }
 
 .docker-resource-list {
@@ -4345,6 +4370,7 @@ body.is-resizing-files * {
 }
 
 .docker-output {
+  min-height: 96px;
   max-height: 320px;
   margin: 0;
   padding: 12px;
@@ -4356,6 +4382,15 @@ body.is-resizing-files * {
   font-family: var(--mono-font);
   font-size: 0.82rem;
   white-space: pre-wrap;
+}
+
+.docker-resource-panel--compose .docker-output,
+.docker-resource-panel--cleanup .docker-output {
+  max-height: 180px;
+}
+
+.docker-resource-panel--cleanup .docker-actions {
+  justify-content: flex-start;
 }
 
 .docker-table-panel,
@@ -9224,8 +9259,8 @@ body.has-open-modal {
 .marketplace-card__body p {
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4;
-  line-clamp: 4;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
   overflow: hidden;
   margin: 0;
   color: var(--muted);
@@ -9238,38 +9273,38 @@ body.has-open-modal {
   font-size: 0.78rem;
 }
 
-.marketplace-card__facts {
+.marketplace-card__footer {
   display: grid;
-  gap: 4px;
-  margin-top: 2px;
+  gap: 7px;
+  justify-items: center;
+  margin-top: auto;
+  padding-top: 2px;
+  min-width: 0;
+}
+
+.marketplace-card__version {
+  max-width: 100%;
+  color: rgba(216, 203, 238, 0.72);
   font-size: 0.76rem;
-}
-
-.marketplace-card__facts > span {
-  display: grid;
-  grid-template-columns: minmax(88px, auto) minmax(0, 1fr);
-  gap: 6px;
-  min-width: 0;
-  color: rgba(216, 203, 238, 0.76);
-}
-
-.marketplace-card__facts strong {
-  min-width: 0;
-  color: rgba(239, 232, 255, 0.92);
-  font-size: inherit;
   font-weight: 800;
-  overflow-wrap: anywhere;
+  line-height: 1.2;
+  overflow: hidden;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .marketplace-card__state {
   width: fit-content;
   max-width: 100%;
+  justify-self: center;
 }
 
 .marketplace-card__badges {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  justify-content: center;
 }
 
 .marketplace-card__badge {
@@ -11885,29 +11920,47 @@ button:disabled {
 }
 
 .app-modal--node {
-  width: min(860px, calc(100vw - 28px));
-  max-height: min(680px, calc(100dvh - var(--titlebar-height) - 28px));
+  width: min(1080px, calc(100vw - 28px));
+  max-height: min(760px, calc(100dvh - var(--titlebar-height) - 28px));
   grid-template-rows: auto minmax(0, 1fr);
   gap: 14px;
   overflow: hidden;
 }
 
 .app-modal--node .modal-header {
-  align-items: start;
+  align-items: flex-start;
   gap: 12px;
+  padding-right: 38px;
+  position: relative;
 }
 
 .app-modal--node .modal-header .icon-action {
-  margin-left: auto;
-  flex: 0 0 auto;
+  position: absolute;
+  top: 0;
+  right: 0;
 }
 
 .node-modal-body {
   display: grid;
   gap: 12px;
+  grid-template-rows: auto minmax(0, 1fr);
   min-height: 0;
   overflow: auto;
   padding-right: 4px;
+}
+
+.node-modal-intro {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.node-modal-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.86fr) minmax(420px, 1.4fr);
+  gap: 14px;
+  align-items: stretch;
+  min-height: 0;
 }
 
 .nodes-form-grid {
@@ -11923,20 +11976,55 @@ button:disabled {
 .node-manual-section {
   display: grid;
   gap: 12px;
+  align-content: start;
   padding: 14px;
+  min-width: 0;
+}
+
+.node-pairing-section {
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+}
+
+.node-manual-section {
+  grid-template-rows: auto minmax(0, auto) auto auto;
 }
 
 .node-pairing-section textarea {
   min-height: 76px;
 }
 
+.node-pairing-actions,
+.node-form-actions {
+  align-self: end;
+}
+
 .node-form-actions {
   justify-content: flex-end;
+  padding-top: 2px;
 }
 
 .nodes-form-grid .settings-field--wide,
 .nodes-form-grid .settings-check--toggle {
   grid-column: 1 / -1;
+}
+
+.node-token-setup {
+  max-height: 180px;
+  overflow: auto;
+}
+
+@media (max-width: 900px) {
+  .app-modal--node {
+    width: min(720px, calc(100vw - 24px));
+  }
+
+  .node-modal-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .node-pairing-section {
+    grid-template-rows: auto;
+  }
 }
 
 .app-modal-backdrop--drawer {

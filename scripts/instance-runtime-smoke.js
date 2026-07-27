@@ -212,6 +212,127 @@ async function assertPalworldSpawnArgvAndLogs() {
   });
 }
 
+async function assertPalworldStderrNoiseIsNonFatalWhileRunning() {
+  await withTempService(async (instanceService) => {
+    const payload = palworldPayload("palworld-stderr-noise");
+    await instanceService.createInstance({
+      ...payload,
+      restartPolicy: "never",
+      startupTimeoutMs: 60000,
+    });
+    await instanceService.writeInstanceFile(payload.id, "server/PalServer.sh", "#!/usr/bin/env bash\n");
+    instanceService._test.setProcessInspectionProvider(() => ({ processes: [], ports: [] }));
+    instanceService._test.setProcessAliveProvider((pid) => Number(pid) === 701102);
+
+    const originalSpawn = childProcess.spawn;
+    const fakeChild = createFakeChild(701102);
+    childProcess.spawn = () => fakeChild;
+    try {
+      await instanceService.startInstance(payload.id);
+      fakeChild.stdout.emit("data", "Server started\n");
+      fakeChild.stderr.emit("data", [
+        "[S_API] SteamAPI_Init(): Loaded local 'steamclient.so' OK.",
+        "Setting breakpad minidump AppID = 2394010",
+        "[S_API FAIL] Tried to access Steam interface SteamUser021 before SteamAPI_Init succeeded.",
+        "[S_API FAIL] Tried to access Steam interface SteamFriends017 before SteamAPI_Init succeeded.",
+        "curl: https://o1291919.ingest.us.sentry.io/api/000/envelope/ HTTP/2 200",
+      ].join("\n"));
+      await wait(20);
+      const status = await instanceService.getStatus(payload.id);
+      assert.strictEqual(status.state, "Running", "Palworld Steam/Sentry stderr noise must not change a healthy process to Failed.");
+      assert.strictEqual(status.failureReason, null, "Palworld Steam/Sentry stderr noise must not seed a failure reason.");
+      assert.strictEqual(instanceService._test.getResourceCounts().restartTimers, 0, "Palworld stderr noise must not schedule restart while process is running.");
+      assert.strictEqual(
+        instanceService._test.isBenignPalworldStderrOutput(payload, "[S_API FAIL] Tried to access Steam interface STEAMAPPS_INTERFACE_VERSION008 before SteamAPI_Init succeeded.\n"),
+        true,
+        "Steam API interface warnings should be classified as benign Palworld stderr."
+      );
+      fakeChild.emit("exit", 0, null);
+      await wait(20);
+    } finally {
+      childProcess.spawn = originalSpawn;
+    }
+  });
+}
+
+async function assertPalworldRequestedSigterm143DoesNotRestart() {
+  await withTempService(async (instanceService) => {
+    const payload = palworldPayload("palworld-requested-sigterm");
+    await instanceService.createInstance({
+      ...payload,
+      restartPolicy: "always",
+      startupTimeoutMs: 60000,
+      shutdownTimeoutMs: 1000,
+    });
+    await instanceService.writeInstanceFile(payload.id, "server/PalServer.sh", "#!/usr/bin/env bash\n");
+    instanceService._test.setProcessInspectionProvider(() => ({ processes: [], ports: [] }));
+
+    const originalSpawn = childProcess.spawn;
+    const originalKill = process.kill;
+    const fakeChild = createFakeChild(701103);
+    const alive = new Set([701103]);
+    let spawnCount = 0;
+    childProcess.spawn = () => {
+      spawnCount += 1;
+      return fakeChild;
+    };
+    process.kill = (pid, signal) => {
+      if (Number(pid) === 701103 && signal === "SIGTERM") {
+        alive.delete(701103);
+        setImmediate(() => {
+          fakeChild.stderr.emit("data", "Exiting abnormally (error code: 143)\n");
+          fakeChild.emit("exit", 143, "SIGTERM");
+        });
+        return true;
+      }
+      return originalKill(pid, signal);
+    };
+    instanceService._test.setProcessAliveProvider((pid) => alive.has(Number(pid)));
+    try {
+      await instanceService.startInstance(payload.id);
+      fakeChild.stdout.emit("data", "Server started\n");
+      const stopped = await instanceService.stopInstance(payload.id);
+      assert.strictEqual(stopped.state, "Stopped", "Requested Palworld SIGTERM/143 should be reported as Stopped.");
+      assert.strictEqual(stopped.failureReason, null, "Requested Palworld SIGTERM/143 must not persist a crash failure.");
+      await wait(1200);
+      assert.strictEqual(spawnCount, 1, "Requested Palworld SIGTERM/143 must not schedule an automatic restart.");
+      assert.strictEqual(instanceService._test.getResourceCounts().restartTimers, 0, "Requested Palworld stop must not leave a restart timer.");
+    } finally {
+      childProcess.spawn = originalSpawn;
+      process.kill = originalKill;
+    }
+  });
+}
+
+async function assertPalworldUnexpectedNonzeroExitStillFails() {
+  await withTempService(async (instanceService) => {
+    const payload = palworldPayload("palworld-unexpected-exit");
+    await instanceService.createInstance({
+      ...payload,
+      restartPolicy: "never",
+      startupTimeoutMs: 60000,
+    });
+    await instanceService.writeInstanceFile(payload.id, "server/PalServer.sh", "#!/usr/bin/env bash\n");
+    instanceService._test.setProcessInspectionProvider(() => ({ processes: [], ports: [] }));
+    instanceService._test.setProcessAliveProvider((pid) => Number(pid) !== 701104);
+
+    const originalSpawn = childProcess.spawn;
+    const fakeChild = createFakeChild(701104);
+    childProcess.spawn = () => fakeChild;
+    try {
+      await instanceService.startInstance(payload.id);
+      fakeChild.stderr.emit("data", "[S_API FAIL] Tried to access Steam interface SteamNetworkingUtils004 before SteamAPI_Init succeeded.\n");
+      fakeChild.emit("exit", 1, null);
+      await wait(20);
+      const status = await instanceService.getStatus(payload.id);
+      assert.strictEqual(status.state, "Failed", "Unexpected Palworld nonzero exit should remain a failure.");
+      assert.strictEqual(status.failureReason, "PROCESS_EXITED", "Benign stderr should not replace the real unexpected exit reason.");
+    } finally {
+      childProcess.spawn = originalSpawn;
+    }
+  });
+}
+
 async function assertJavaScriptLauncherRepair() {
   await withTempService(async (instanceService) => {
     const id = "atm10-script-launcher-repair";
@@ -464,6 +585,46 @@ async function assertLegacyAtm10JavaAppMigratesToScriptLauncher() {
     } finally {
       childProcess.spawn = originalSpawn;
     }
+  }, { platform: "linux" });
+}
+
+async function assertNeoForgeInstallerOnlyDoesNotRequireServerJar() {
+  await withTempService(async (instanceService) => {
+    const id = "atm10-installer-only-runtime-incomplete";
+    await instanceService.createInstance({
+      id,
+      displayName: "All the Mods 10 - Installer Only",
+      type: "java-app",
+      workingDirectory: "data",
+      executable: "java",
+      args: ["-Xmx8G", "-jar", "server.jar", "nogui"],
+      jar: "server.jar",
+      serverJar: "server.jar",
+      serverJarPath: "server.jar",
+      startJar: "server.jar",
+      restartPolicy: "never",
+      game: "minecraft",
+      minecraftVersion: "1.21.1",
+      tags: ["minecraft", "modpack", "curseforge"],
+      startupTimeoutMs: 60000,
+    });
+    await instanceService.writeInstanceFile(id, "metadata.json", JSON.stringify({
+      game: "minecraft",
+      minecraftVersion: "1.21.1",
+      serverSoftware: "NeoForge",
+      softwareVersion: "21.1.228",
+    }));
+    await instanceService.writeInstanceFile(id, "neoforge-21.1.228-installer.jar", "");
+
+    await assert.rejects(
+      () => instanceService.startInstance(id),
+      (error) => {
+        assert.strictEqual(error.code, "NEOFORGE_RUNTIME_INCOMPLETE", "Installer-only NeoForge runtime must not report SERVER_JAR_MISSING.");
+        assert.notStrictEqual(error.code, "SERVER_JAR_MISSING", "NeoForge installer jars must not be treated as generic server jars.");
+        assert.match(String(error.message || ""), /NeoForge runtime files are incomplete/i);
+        return true;
+      },
+    );
   }, { platform: "linux" });
 }
 
@@ -930,11 +1091,15 @@ async function assertRenameDuplicateAndCrashLifecycle() {
 async function run() {
   await assertPalworldShellCommandNormalization();
   await assertPalworldSpawnArgvAndLogs();
+  await assertPalworldStderrNoiseIsNonFatalWhileRunning();
+  await assertPalworldRequestedSigterm143DoesNotRestart();
+  await assertPalworldUnexpectedNonzeroExitStillFails();
   await assertJavaScriptLauncherRepair();
   await assertInstallerJarWithStartupScriptRepair();
   await assertInstallerJarWithScriptArgumentRepair();
   await assertNeoForgeRunScriptPreferenceAndRuntimeValidation();
   await assertLegacyAtm10JavaAppMigratesToScriptLauncher();
+  await assertNeoForgeInstallerOnlyDoesNotRequireServerJar();
   await assertNeoForgeMissingUnixArgsPreflightDoesNotRestart();
   await assertNeoForgeMissingUnixArgsStderrDoesNotRestart();
   await assertNeoForgeVersionMismatchDetected();

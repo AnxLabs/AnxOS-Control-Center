@@ -1848,6 +1848,35 @@ function getManagedBackupCount() {
   return Number.isFinite(summaryTotal) ? summaryTotal : backupsState.backups.length;
 }
 
+function getPublicAccessSetupReadiness(snapshot = latestPublicAccessSnapshot) {
+  const services = Array.isArray(snapshot?.services) ? snapshot.services : [];
+  const persistedServices = Array.isArray(snapshot?.persistedServices) ? snapshot.persistedServices : [];
+  const configuredCount = services.length || persistedServices.length;
+  if (configuredCount > 0) {
+    const checked = Boolean(snapshot?.checkedAt || services.some((service) => service.lastCheckedAt));
+    return {
+      configured: true,
+      status: checked ? "Ready" : "Configured, not checked",
+      tone: "ok",
+      detail: `${configuredCount} public or private access service${configuredCount === 1 ? "" : "s"} configured${checked ? "." : ", but live validation has not completed yet."}`,
+    };
+  }
+  if (getCurrentSettings()["playit.address"]) {
+    return {
+      configured: true,
+      status: "Configured, not checked",
+      tone: "ok",
+      detail: "A legacy Playit address is saved, but live Public Access validation has not completed yet.",
+    };
+  }
+  return {
+    configured: false,
+    status: "Optional",
+    tone: "planned",
+    detail: "Configure Public Access only for services you want reachable outside the local system.",
+  };
+}
+
 function createSetupHealthItem(item) {
   const article = document.createElement("article");
   article.className = "setup-health-item";
@@ -1880,8 +1909,7 @@ function getSetupHealthState() {
   const dependencySummary = summarizeDependencyStatus(latestDependencyResult);
   const hasDependencyScan = Boolean(latestDependencyResult);
   const backupCount = getManagedBackupCount();
-  const publicAccessServices = Array.isArray(latestPublicAccessSnapshot?.services) ? latestPublicAccessSnapshot.services.length : 0;
-  const publicAccessConfigured = Boolean(publicAccessServices || getCurrentSettings()["playit.address"]);
+  const publicAccessReadiness = getPublicAccessSetupReadiness();
   const agentConnected = agentSummary.status === "Connected";
   const serviceConfigured = Boolean(agentControlState?.local?.service?.installed || agentControlState?.local?.service?.enabled);
   const core = [
@@ -1950,10 +1978,10 @@ function getSetupHealthState() {
     },
     {
       title: "Public access configured",
-      detail: publicAccessConfigured ? "At least one public or private access address is configured." : "Configure Public Access only for services you want reachable outside the local system.",
-      complete: publicAccessConfigured,
-      status: publicAccessConfigured ? "Ready" : "Optional",
-      tone: publicAccessConfigured ? "ok" : "planned",
+      detail: publicAccessReadiness.detail,
+      complete: publicAccessReadiness.configured,
+      status: publicAccessReadiness.status,
+      tone: publicAccessReadiness.tone,
       action: "playit",
     },
     {
@@ -1974,10 +2002,9 @@ function renderSetupHealthCenter() {
   if (!setupHealthCenter || !setupHealthGroups) return;
   const state = getSetupHealthState();
   const coreComplete = state.core.filter((item) => item.complete).length;
-  const optionalItems = [...state.recommended, ...state.optional];
-  const optionalComplete = optionalItems.filter((item) => item.complete).length;
+  const optionalComplete = state.optional.filter((item) => item.complete).length;
   setSetupHealthField("coreProgress", `${coreComplete}/${state.core.length} complete`);
-  setSetupHealthField("optionalProgress", `${optionalComplete}/${optionalItems.length} complete`);
+  setSetupHealthField("optionalProgress", `${optionalComplete}/${state.optional.length} complete`);
   setupHealthActionState = { action: state.continueAction };
   if (setupHealthContinueButton) {
     setupHealthContinueButton.textContent = state.continueAction === "dashboard" ? "Open Dashboard" : "Continue Setup";
@@ -8418,6 +8445,7 @@ function renderPublicAccessSnapshot(snapshot = {}) {
   renderPublicAccessProviderDetails(snapshot);
   renderInstanceRows(getInstances());
   renderInstanceNetwork(findInstance());
+  renderFriendlyDashboard();
 }
 
 function renderPlayitUnavailable(message = "Public Access status unavailable.") {
@@ -8446,6 +8474,7 @@ function renderPlayitUnavailable(message = "Public Access status unavailable.") 
   setField("publicAccessProviderCapabilities", "Unavailable");
   renderPublicAccessProviderDetails(null);
   renderInstanceNetwork(findInstance());
+  renderFriendlyDashboard();
   updateTitlebar();
 }
 
@@ -11460,8 +11489,6 @@ const commonServerJarCandidates = [
   "paper.jar",
   "purpur.jar",
   "fabric-server.jar",
-  "forge-installer.jar",
-  "neoforge-installer.jar",
 ];
 
 function buildArgsWithJar(instance, jarPath) {
@@ -11528,6 +11555,61 @@ async function findExistingStartupScriptForInstance(instance, context = getNodeR
     }
   }
   return "";
+}
+
+async function hasInstanceFile(instance, filePath, context) {
+  try {
+    if (!isNodeRequestCurrent(context)) return false;
+    await getDesktopApiState().api.instances.readFile(instance.id, filePath, getNodeScopedPayload(context));
+    return true;
+  } catch (error) {
+    if (getAgentErrorCode(error) === "PATH_NOT_FOUND") return false;
+    throw error;
+  }
+}
+
+async function hasNeoForgeRuntimeSignalForInstance(instance, context = getNodeRequestContext("neoforge-signal")) {
+  const searchable = [
+    instance?.loader,
+    instance?.serverSoftware,
+    instance?.softwareVersion,
+    instance?.loaderVersion,
+    instance?.templateId,
+    instance?.displayName,
+    ...(Array.isArray(instance?.tags) ? instance.tags : []),
+    ...(Array.isArray(instance?.args) ? instance.args : []),
+  ].filter(Boolean).join(" ");
+  if (/neoforge/i.test(searchable)) return true;
+  if (await hasInstanceFile(instance, "metadata.json", context)) {
+    try {
+      const metadata = await getDesktopApiState().api.instances.readFile(instance.id, "metadata.json", getNodeScopedPayload(context));
+      if (/neoforge/i.test(String(metadata?.content || ""))) return true;
+    } catch {}
+  }
+  for (const installer of ["neoforge-21.1.228-installer.jar", "neoforge-installer.jar"]) {
+    if (await hasInstanceFile(instance, installer, context)) return true;
+  }
+  return false;
+}
+
+async function showNeoForgeRuntimeIncompleteHint(instance, context = getNodeRequestContext("neoforge-incomplete")) {
+  if (!await hasNeoForgeRuntimeSignalForInstance(instance, context)) {
+    return false;
+  }
+  setActiveInstanceTab("files");
+  instanceCurrentFilePath = ".";
+  if (instanceFileEditorName) {
+    instanceFileEditorName.textContent = "NeoForge runtime incomplete";
+  }
+  if (instanceFileEditorMeta) {
+    instanceFileEditorMeta.textContent = "Runtime · Run server installer/repair to generate run.sh and unix_args.txt.";
+  }
+  if (instanceFileEditorState) {
+    instanceFileEditorState.textContent = "Repair required";
+  }
+  await refreshInstanceFiles(".");
+  showToast("NeoForge runtime incomplete: run server installer/repair.", "warning");
+  return true;
 }
 
 async function repairInstanceStartupScript(instance, scriptPath, context = getNodeRequestContext("script-repair")) {
@@ -11610,6 +11692,9 @@ async function verifyJavaJarBeforeLaunch(instance, context = getNodeRequestConte
       await repairInstanceServerJar(instance, repairedJar, context);
       return true;
     }
+    if (await showNeoForgeRuntimeIncompleteHint(instance, context)) {
+      return false;
+    }
     showToast("No server JAR is configured. Upload a server JAR in Files or install this server from the Marketplace.", "warning");
     await focusMissingJarInFiles(instance, "server.jar");
     return false;
@@ -11630,6 +11715,9 @@ async function verifyJavaJarBeforeLaunch(instance, context = getNodeRequestConte
       if (startupScript && await repairInstanceStartupScript(instance, startupScript, context)) {
         showToast("NeoForge runtime ready.");
         return true;
+      }
+      if (await showNeoForgeRuntimeIncompleteHint(instance, context)) {
+        return false;
       }
       const repairedJar = await findExistingServerJar(instance, jarPath, context);
       if (repairedJar) {
@@ -12879,10 +12967,9 @@ function renderMarketplaceTemplates() {
       ? `${template.author || "Unknown"} · ${formatMarketplaceProviderLabel(template)}${downloads}`
       : `${template.author || "Unknown"} · Template v${template.version || "0.0.0"} · ${template.category || "Uncategorized"}`;
     const stateBadge = document.createElement("span");
-    stateBadge.className = `marketplace-card__state status-pill status-pill--${templateState.tone}`;
-    stateBadge.textContent = templateState.instances.length > 1
-      ? `${templateState.label} (${templateState.instances.length})`
-      : templateState.label;
+    const footerState = getMarketplaceCompactFooterState(template, templateState);
+    stateBadge.className = `marketplace-card__state status-pill status-pill--${footerState.tone}`;
+    stateBadge.textContent = footerState.label;
     const badges = document.createElement("div");
     badges.className = "marketplace-card__badges";
     getMarketplaceCompactCardBadges(template).forEach((label) => {
@@ -12891,8 +12978,14 @@ function renderMarketplaceTemplates() {
       badge.textContent = label;
       badges.append(badge);
     });
+    const footer = document.createElement("div");
+    footer.className = "marketplace-card__footer";
+    const versionLine = document.createElement("span");
+    versionLine.className = "marketplace-card__version";
+    versionLine.textContent = getMarketplaceCompactPackVersion(template) || (isProviderMarketplaceTemplate(template) ? "Pack version pending" : `Template v${template.version || "0.0.0"}`);
+    footer.append(versionLine, stateBadge, badges);
     body.append(title, description, meta);
-    body.append(stateBadge, badges);
+    body.append(footer);
 
     const install = document.createElement("button");
     install.type = "button";
@@ -13185,22 +13278,48 @@ function getMarketplaceCompactCardBadges(template = {}) {
   const badges = [];
   const add = (label) => {
     const text = String(label || "").trim();
-    if (text && !badges.includes(text) && badges.length < 4) badges.push(text);
+    if (text && !badges.includes(text) && badges.length < 2) badges.push(text);
   };
-  const minecraftVersion = getMarketplaceDisplayMinecraftVersion(template);
   const loader = normalizeMarketplaceServerRuntime(formatMarketplaceLoaderLabel(template)) || formatMarketplaceLoaderLabel(template);
-  const capability = template.serverPackCapability || classifyMarketplaceServerPackCapability(template);
 
-  if (minecraftVersion) add(`Minecraft ${minecraftVersion}`);
-  if (loader) add(loader);
   if (isProviderMarketplaceTemplate(template)) {
-    if (getMarketplaceServerPackFileId(template)) add("Official Server Pack");
-    else if (capability?.label) add(capability.label);
+    add(formatMarketplaceProviderLabel(template));
+    add(loader);
   } else {
     add(formatMarketplaceProviderLabel(template));
-    add(template.displayMinecraftVersion || template.minecraftVersion || template.gameVersion || template.serverVersion || "");
+    add(loader || template.displayMinecraftVersion || template.minecraftVersion || template.gameVersion || template.serverVersion || "");
   }
   return badges;
+}
+
+function getMarketplaceCompactFooterState(template = {}, templateState = {}) {
+  if (isProviderMarketplaceTemplate(template)) {
+    const capability = template.serverPackCapability || classifyMarketplaceServerPackCapability(template);
+    if (getMarketplaceServerPackFileId(template)) {
+      return { label: "Official Server Pack", tone: "planned" };
+    }
+    if (capability?.label) {
+      return {
+        label: capability.label,
+        tone: capability.state === "unknown" ? "warning" : capability.state === "client-only" ? "critical" : "planned",
+      };
+    }
+  }
+  return {
+    label: templateState.instances?.length > 1 ? `${templateState.label} (${templateState.instances.length})` : templateState.label || "Available",
+    tone: templateState.tone || "planned",
+  };
+}
+
+function getMarketplaceCompactPackVersion(template = {}) {
+  const raw = getMarketplaceModpackVersionLabel(template) || template.version || "";
+  const text = String(raw || "").trim();
+  if (!text) return "";
+  const fileBase = text.replace(/\.(?:zip|jar|mrpack)$/i, "");
+  const trailingVersion = fileBase.match(/(?:^|[-_\s])v?(\d+(?:\.\d+){0,3}(?:[-+][A-Za-z0-9.-]+)?)$/i)?.[1];
+  if (trailingVersion) return trailingVersion;
+  const version = fileBase.match(/\bv?(\d+(?:\.\d+){1,3}(?:[-+][A-Za-z0-9.-]+)?)\b/i)?.[1];
+  return version || fileBase.slice(0, 28);
 }
 
 function createMarketplaceCardFacts(template = {}) {
@@ -14157,10 +14276,10 @@ function renderMarketplaceWizardSteps(template) {
 
 function formatMarketplaceSelectedMeta(template = {}) {
   if (isProviderMarketplaceTemplate(template)) {
-    return getMarketplaceProviderVersionRows(template)
-      .slice(0, 4)
-      .map((item) => `${item.label}: ${item.value}`)
-      .join(" · ") || `${formatMarketplaceProviderLabel(template)} modpack`;
+    const capability = template.serverPackCapability || classifyMarketplaceServerPackCapability(template);
+    const status = getMarketplaceServerPackFileId(template) ? "Official Server Pack" : capability?.label || "";
+    const loader = normalizeMarketplaceServerRuntime(formatMarketplaceLoaderLabel(template)) || formatMarketplaceLoaderLabel(template);
+    return [formatMarketplaceProviderLabel(template), status || loader].filter(Boolean).join(" · ") || `${formatMarketplaceProviderLabel(template)} modpack`;
   }
   return `${template.category || "Template"} · ${template.instanceType || "custom-command"} · ${template.startupType || "runtime"}`;
 }
@@ -24935,6 +25054,9 @@ async function verifyConsoleJavaJarBeforeLaunch(instance, context = getNodeReque
       await repairInstanceServerJar(instance, repairedJar, context);
       return true;
     }
+    if (await showNeoForgeRuntimeIncompleteHint(instance, context)) {
+      return false;
+    }
     showToast("No server JAR is configured. Upload a server JAR in Files or install this server from the Marketplace.", "warning");
     await focusMissingJarInFiles(instance, "server.jar");
     return false;
@@ -24950,6 +25072,9 @@ async function verifyConsoleJavaJarBeforeLaunch(instance, context = getNodeReque
       if (startupScript && await repairInstanceStartupScript(instance, startupScript, context)) {
         showToast("NeoForge runtime ready.");
         return true;
+      }
+      if (await showNeoForgeRuntimeIncompleteHint(instance, context)) {
+        return false;
       }
       const repairedJar = await findExistingServerJar(instance, jarPath, context);
       if (repairedJar) {
@@ -25441,12 +25566,12 @@ function bindSshXtermInput(terminal = sshXterm) {
     updateSshInputDiagnostics({
       onDataEvents: sshInputDiagnostics.onDataEvents + 1,
       lastInputByteLength: getSshInputByteLength(data),
-      activeSessionPresent: Boolean(session && session.status === "connected"),
+      activeSessionPresent: Boolean(session && session.status === "connected" && session.shellReady !== false),
     });
-    if (!session || session.status !== "connected" || sshXtermSessionId !== session.id) {
+    if (!session || session.status !== "connected" || session.shellReady === false || sshXtermSessionId !== session.id) {
       updateSshInputDiagnostics({
         lastWriteAccepted: false,
-        lastWriteRejectedCategory: "stale_or_inactive_session",
+        lastWriteRejectedCategory: session?.status === "connected" && session.shellReady === false ? "shell_not_ready" : "stale_or_inactive_session",
       });
       return;
     }
@@ -25506,11 +25631,11 @@ function focusSshTerminalInput() {
   const terminal = ensureSshXterm();
   if (terminal) {
     const session = getActiveSshSession();
-    terminal.options.disableStdin = !(session && session.status === "connected");
+    terminal.options.disableStdin = !(session && session.status === "connected" && session.shellReady !== false);
     terminal.focus();
     updateSshInputDiagnostics({
       focusRequested: true,
-      activeSessionPresent: Boolean(session && session.status === "connected"),
+      activeSessionPresent: Boolean(session && session.status === "connected" && session.shellReady !== false),
     });
     return true;
   }
@@ -25526,7 +25651,7 @@ function syncSshXtermSession(session) {
 
   const size = measureSshTerminalSize();
   terminal.resize?.(size.cols, size.rows);
-  terminal.options.disableStdin = !(session && session.status === "connected");
+  terminal.options.disableStdin = !(session && session.status === "connected" && session.shellReady !== false);
   bindSshXtermInput(terminal);
 
   if (sshXtermSessionId !== (session?.id || null)) {
@@ -25661,7 +25786,7 @@ async function pasteSshText(text) {
   const session = getActiveSshSession();
   const pastedText = typeof text === "string" ? text : "";
 
-  if (!session || session.status !== "connected" || !pastedText) {
+  if (!session || session.status !== "connected" || session.shellReady === false || !pastedText) {
     return false;
   }
 
@@ -25728,7 +25853,7 @@ function getSshSessionStatusLabel(session) {
   }
 
   if (session.status === "connected") {
-    return "Connected";
+    return session.shellReady === false ? "Waiting for shell" : "Connected";
   }
 
   if (session.status === "connecting") {
@@ -25806,6 +25931,10 @@ function getSshSessionMessage(session) {
 
   if (!session) {
     return "Select a saved SSH profile, connect, then run commands against that server from this terminal.";
+  }
+
+  if (session.status === "connected" && session.shellReady === false) {
+    return "Waiting for shell...";
   }
 
   return session.message || (session.status === "connected" ? `Connected to ${session.label}.` : "SSH session is disconnected.");
@@ -25986,7 +26115,7 @@ function renderSshView() {
   const hasProfiles = sshProfilesState.profiles.length > 0;
   const canConnect = hasProfiles && !sshConnectRequestInFlight && (!session || (session.status !== "connected" && session.status !== "connecting"));
   const canDisconnect = Boolean(session && (session.status === "connected" || session.status === "connecting"));
-  const canSend = Boolean(session && session.status === "connected");
+  const canSend = Boolean(session && session.status === "connected" && session.shellReady !== false);
   const hasOutput = getSshRenderableRows(session).length > 0;
 
   if (sshServerSelect) {
@@ -26015,7 +26144,9 @@ function renderSshView() {
     sshCommandInput.readOnly = false;
     sshCommandInput.placeholder = canSend
       ? "Click the terminal to type, or enter one command here"
-      : "Connect to enable command input";
+      : session?.status === "connected" && session.shellReady === false
+        ? "Waiting for shell..."
+        : "Connect to enable command input";
 
   }
 
@@ -26045,9 +26176,7 @@ function renderSshView() {
 
   setSshStatus(getSshSessionStatusLabel(session), getSshSessionMessage(session));
   renderSshOutput(session);
-  if (sshXterm) {
-    sshXterm.options.disableStdin = !canSend;
-  }
+  if (sshXterm) sshXterm.options.disableStdin = !canSend;
   updateSshWorkspaceStatus();
   updateSshConnectWatchdog();
 }
@@ -26204,7 +26333,7 @@ function ensureSshEventSubscription() {
         activeSshSessionId = session.id;
       }
 
-      if (session.status === "connected") {
+      if (session.status === "connected" && session.shellReady !== false) {
         setSshPasswordPromptState(false);
         clearSshConnectWatchdog();
         window.requestAnimationFrame(focusSshTerminalInput);
@@ -26346,7 +26475,7 @@ async function sendSshCommandFromBar(source = "submit") {
   const desktopApiState = getDesktopApiState();
   const session = getActiveSshSession();
   const command = typeof sshCommandInput?.value === "string" ? sshCommandInput.value : "";
-  const connected = Boolean(session && session.status === "connected");
+  const connected = Boolean(session && session.status === "connected" && session.shellReady !== false);
 
   updateSshInputDiagnostics({
     commandBarSubmitReceived: true,
@@ -26357,12 +26486,16 @@ async function sendSshCommandFromBar(source = "submit") {
   });
 
   if (!desktopApiState.hasSsh || !session || !connected || !command) {
-    const category = !desktopApiState.hasSsh ? "bridge_unavailable" : !session ? "missing_session" : !connected ? "session_not_connected" : "empty_command";
+    const category = !desktopApiState.hasSsh ? "bridge_unavailable" : !session ? "missing_session" : session?.status === "connected" && session.shellReady === false ? "shell_not_ready" : !connected ? "session_not_connected" : "empty_command";
     updateSshInputDiagnostics({
       commandBarWriteAccepted: false,
       commandBarFailureCategory: category,
     });
-    showToast(!command ? "Enter a command before sending." : "Connect SSH before sending commands.");
+    showToast(!command
+      ? "Enter a command before sending."
+      : category === "shell_not_ready"
+        ? "Command could not be sent because the SSH shell is not ready."
+        : "Connect SSH before sending commands.");
     sshCommandInput?.focus();
     return false;
   }
@@ -26386,13 +26519,16 @@ async function writeSshInput(input) {
   const data = typeof input === "string" ? input : "";
   const byteLength = getSshInputByteLength(data);
 
-  if (!desktopApiState.hasSsh || !session || session.status !== "connected" || !data) {
+  if (!desktopApiState.hasSsh || !session || session.status !== "connected" || session.shellReady === false || !data) {
     updateSshInputDiagnostics({
       lastInputByteLength: byteLength,
-      activeSessionPresent: Boolean(session && session.status === "connected"),
+      activeSessionPresent: Boolean(session && session.status === "connected" && session.shellReady !== false),
       lastWriteAccepted: false,
-      lastWriteRejectedCategory: !desktopApiState.hasSsh ? "bridge_unavailable" : !session ? "missing_session" : session.status !== "connected" ? "session_not_connected" : "empty_data",
+      lastWriteRejectedCategory: !desktopApiState.hasSsh ? "bridge_unavailable" : !session ? "missing_session" : session.status === "connected" && session.shellReady === false ? "shell_not_ready" : session.status !== "connected" ? "session_not_connected" : "empty_data",
     });
+    if (session?.status === "connected" && session.shellReady === false) {
+      showToast("Command could not be sent because the SSH shell is not ready.");
+    }
     return false;
   }
 
@@ -26447,7 +26583,7 @@ async function handleSshClipboardShortcut(event) {
 async function handleSshTerminalInputKeydown(event) {
   const session = getActiveSshSession();
 
-  if (!session || session.status !== "connected") {
+  if (!session || session.status !== "connected" || session.shellReady === false) {
     return false;
   }
 
@@ -32860,7 +32996,7 @@ sshPasswordInput?.addEventListener("keydown", (event) => {
   }
 });
 sshTerminalWindow?.addEventListener("click", () => {
-  if (getActiveSshSession()?.status === "connected") {
+  if (getActiveSshSession()?.status === "connected" && getActiveSshSession()?.shellReady !== false) {
     focusSshTerminalInput();
   }
 });

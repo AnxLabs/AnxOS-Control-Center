@@ -2054,14 +2054,16 @@ function getJarCandidates(config) {
     "purpur.jar",
     "folia.jar",
     "fabric-server.jar",
-    "forge-installer.jar",
-    "neoforge-installer.jar",
     "velocity.jar",
     "waterfall.jar",
     "bungeecord.jar",
     "sponge.jar"
   );
   return [...new Set(candidates.map((candidate) => String(candidate || "").trim()).filter(Boolean))];
+}
+
+function isServerInstallerJarName(value = "") {
+  return /(?:^|[/\\])(?:forge|neoforge|quilt)(?:-[^/\\]+)?-installer\.jar$/i.test(String(value || ""));
 }
 
 function replaceJarArg(args = [], jarPath = "server.jar") {
@@ -2309,7 +2311,7 @@ async function findJarPaths(config) {
       } catch {}
     }
     const names = await listDirectoryNames(root);
-    for (const name of names.filter((entry) => /\.jar$/i.test(entry))) {
+    for (const name of names.filter((entry) => /\.jar$/i.test(entry) && !isServerInstallerJarName(entry))) {
       paths.push(path.join(root, name));
     }
   }
@@ -2326,6 +2328,14 @@ async function repairConfiguredServerJar(config) {
   const jars = await findJarPaths(config);
   const jarPath = jars[0] || null;
   if (!jarPath) {
+    if (await hasNeoForgeRuntimeSignal(config)) {
+      const error = createInstanceError("NEOFORGE_RUNTIME_INCOMPLETE", 400, {
+        missing: ["run.sh or startserver.sh", "libraries/.../unix_args.txt"],
+        suggestion: "Retry server bootstrap or reinstall this instance.",
+      });
+      error.message = neoforgeRuntimeIncompleteMessage();
+      throw error;
+    }
     const error = createInstanceError("SERVER_JAR_MISSING", 400);
     error.message = "No server JAR is configured for this instance. Upload a server JAR to the data folder or install this server from the Marketplace.";
     throw error;
@@ -3200,6 +3210,37 @@ function isPalworldRuntimeCandidate(config = {}) {
       ...(Array.isArray(config.args) ? config.args : []),
       ...(Array.isArray(config.tags) ? config.tags : []),
     ].join(" "));
+}
+
+function isBenignPalworldStderrLine(line = "", options = {}) {
+  const text = String(line || "").trim();
+  if (!text) {
+    return true;
+  }
+  if (/^\[S_API\]\s+SteamAPI_Init\(\):\s+Loaded local ['"]steamclient\.so['"] OK\.?$/i.test(text)) {
+    return true;
+  }
+  if (/^Setting breakpad minidump AppID\s*=\s*\d+$/i.test(text)) {
+    return true;
+  }
+  if (/^\[S_API FAIL\]\s+Tried to access Steam interface\s+\S+\s+before SteamAPI_Init succeeded\.?$/i.test(text)) {
+    return true;
+  }
+  if (/o1291919\.ingest\.us\.sentry\.io/i.test(text) && /\b(HTTP\/2\s+200|200\b|successful|uploaded)\b/i.test(text)) {
+    return true;
+  }
+  if (options.requestedStop && /Exiting abnormally\s*\(error code:\s*143\)|\bSIGTERM\b/i.test(text)) {
+    return true;
+  }
+  return false;
+}
+
+function isBenignPalworldStderrOutput(config = {}, text = "", options = {}) {
+  if (!isPalworldRuntimeCandidate(config)) {
+    return false;
+  }
+  const lines = String(text || "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  return lines.length > 0 && lines.every((line) => isBenignPalworldStderrLine(line, options));
 }
 
 function configuredRuntimePorts(config = {}) {
@@ -4145,10 +4186,13 @@ async function startInstance(instanceId, options = {}) {
   child.stderr.on("data", (chunk) => {
     const text = String(chunk || "");
     appendLog(config.id, "stderr", chunk).catch(() => {});
-    appendProcessTail(runningProcesses.get(config.id), "stderr", chunk);
+    const entry = runningProcesses.get(config.id);
+    appendProcessTail(entry, "stderr", chunk);
+    const benignPalworldStderr = isBenignPalworldStderrOutput(config, text, {
+      requestedStop: Boolean(entry?.requestedStop),
+    });
     const neoForgeRuntimeError = classifyNeoForgeRuntimeOutput(text);
-    if (neoForgeRuntimeError) {
-      const entry = runningProcesses.get(config.id);
+    if (neoForgeRuntimeError && !benignPalworldStderr) {
       if (entry) {
         entry.failureReason = neoForgeRuntimeError.code;
         entry.failureDetails = neoForgeRuntimeError.details;
@@ -4157,8 +4201,7 @@ async function startInstance(instanceId, options = {}) {
       }
       appendLog(config.id, "stderr", neoForgeRuntimeError.message).catch(() => {});
     }
-    if (/invalid option|usage:|cannot execute|No such file or directory|not found/i.test(text)) {
-      const entry = runningProcesses.get(config.id);
+    if (!benignPalworldStderr && /invalid option|usage:|cannot execute|No such file or directory|not found/i.test(text)) {
       if (entry) {
         entry.failureReason = entry.failureReason || "INVALID_COMMAND";
         if (/invalid option|usage:/i.test(text)) {
@@ -5153,6 +5196,7 @@ module.exports = {
     parseTpsFromMessages,
     normalizeShellWrapperArgs,
     formatCommandForLog,
+    isBenignPalworldStderrOutput,
     getRestartBackoffDecision,
     getResourceCounts() {
       return {
