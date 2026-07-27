@@ -152,6 +152,17 @@ const instanceConfigSaveButton = document.querySelector("[data-instance-config-s
 const instanceConfigCancelButton = document.querySelector("[data-instance-config-cancel]");
 const instanceConfigDirtyLabel = document.querySelector("[data-instance-config-dirty]");
 const instanceMinecraftSettings = document.querySelector("[data-instance-minecraft-settings]");
+const instanceGameConfigManager = document.querySelector("[data-game-config-manager]");
+const gameConfigTitle = document.querySelector("[data-game-config-title]");
+const gameConfigMeta = document.querySelector("[data-game-config-meta]");
+const gameConfigStatus = document.querySelector("[data-game-config-status]");
+const gameConfigSearchInput = document.querySelector("[data-game-config-search]");
+const gameConfigAdvancedInput = document.querySelector("[data-game-config-advanced]");
+const gameConfigSections = document.querySelector("[data-game-config-sections]");
+const gameConfigFields = document.querySelector("[data-game-config-fields]");
+const gameConfigResetCurrentButton = document.querySelector("[data-game-config-reset-current]");
+const gameConfigResetDefaultButton = document.querySelector("[data-game-config-reset-default]");
+const gameConfigSaveRestartButton = document.querySelector("[data-game-config-save-restart]");
 const instanceMinecraftSummary = document.querySelector("[data-instance-minecraft-summary]");
 const instanceMinecraftSummaryFields = document.querySelectorAll("[data-minecraft-summary]");
 const instanceAppProfile = document.querySelector("[data-instance-app-profile]");
@@ -809,6 +820,20 @@ let activeInstanceTab = "overview";
 let latestMinecraftProperties = {};
 let instanceConfigSnapshot = "";
 let instanceMinecraftSnapshot = "";
+let gameConfigState = {
+  loading: false,
+  loaded: false,
+  supported: false,
+  error: "",
+  model: null,
+  values: {},
+  snapshot: "",
+  query: "",
+  showAdvanced: false,
+  activeCategory: "",
+  fieldErrors: {},
+  touchedSecrets: new Set(),
+};
 let instanceCurrentFilePath = ".";
 let selectedInstanceFilePath = null;
 let openedInstanceFilePath = null;
@@ -1478,6 +1503,8 @@ function getDesktopApiState() {
       typeof api?.instances?.deleteFile === "function" &&
       typeof api?.instances?.createFolder === "function" &&
       typeof api?.instances?.renameFile === "function" &&
+      typeof api?.instances?.getGameServerConfig === "function" &&
+      typeof api?.instances?.saveGameServerConfig === "function" &&
       typeof api?.instances?.getMinecraftProperties === "function" &&
       typeof api?.instances?.saveMinecraftProperties === "function" &&
       typeof api?.instances?.getFiveMReadiness === "function" &&
@@ -10075,7 +10102,7 @@ function setActiveInstanceTab(tabName) {
     refreshInstanceFiles();
   } else if (activeInstanceTab === "settings") {
     stopInstanceConsolePolling();
-    loadMinecraftProperties();
+    loadGameServerConfig();
   } else {
     stopInstanceConsolePolling();
   }
@@ -10173,6 +10200,267 @@ function collectMinecraftProperties() {
   }, {});
 }
 
+function getGameConfigField(key) {
+  return (gameConfigState.model?.fields || []).find((field) => field.key === key) || null;
+}
+
+function normalizeGameConfigInputValue(field, element) {
+  if (!field || !element) return "";
+  if (field.type === "boolean") return Boolean(element.checked);
+  if (field.type === "multi-select") {
+    return Array.from(element.selectedOptions || []).map((option) => option.value);
+  }
+  if (["integer", "port"].includes(field.type)) {
+    const value = element.value.trim();
+    return value === "" ? "" : Number.parseInt(value, 10);
+  }
+  if (field.type === "decimal") {
+    const value = element.value.trim();
+    return value === "" ? "" : Number(value);
+  }
+  return element.value;
+}
+
+function normalizeGameConfigSnapshotValue(field, value) {
+  if (!field) return value;
+  if (field.type === "boolean") return Boolean(value);
+  if (field.type === "multi-select") return Array.isArray(value) ? value.map(String) : [];
+  if (["integer", "port"].includes(field.type)) return value === "" ? "" : Number.parseInt(value, 10);
+  if (field.type === "decimal") return value === "" ? "" : Number(value);
+  return String(value ?? "");
+}
+
+function snapshotGameConfigValues(values = {}) {
+  const output = {};
+  for (const field of gameConfigState.model?.fields || []) {
+    output[field.key] = normalizeGameConfigSnapshotValue(field, values[field.key]);
+  }
+  return JSON.stringify(output);
+}
+
+function collectGameConfigValues() {
+  const values = { ...(gameConfigState.values || {}) };
+  gameConfigFields?.querySelectorAll("[data-game-config-field]").forEach((element) => {
+    const field = getGameConfigField(element.dataset.gameConfigField);
+    if (!field) return;
+    values[field.key] = normalizeGameConfigInputValue(field, element);
+  });
+  return values;
+}
+
+function getChangedGameConfigValues() {
+  if (!gameConfigState.model?.supported) return {};
+  const current = collectGameConfigValues();
+  const original = gameConfigState.model.values || {};
+  return (gameConfigState.model.fields || []).reduce((changed, field) => {
+    const currentValue = normalizeGameConfigSnapshotValue(field, current[field.key]);
+    const originalValue = normalizeGameConfigSnapshotValue(field, original[field.key]);
+    if (field.sensitive && !gameConfigState.touchedSecrets.has(field.key)) {
+      return changed;
+    }
+    if (JSON.stringify(currentValue) !== JSON.stringify(originalValue)) {
+      changed[field.key] = currentValue;
+    }
+    return changed;
+  }, {});
+}
+
+function isGameConfigDirty() {
+  return Boolean(gameConfigState.model?.supported) && JSON.stringify(getChangedGameConfigValues()) !== "{}";
+}
+
+function setGameConfigStatus(message, isError = false) {
+  if (gameConfigStatus) {
+    gameConfigStatus.textContent = message || "";
+    gameConfigStatus.classList.toggle("is-error", Boolean(isError));
+  }
+}
+
+function extractGameConfigValidationErrors(error) {
+  return error?.validation ||
+    error?.payload?.error?.validation ||
+    error?.payload?.error?.details?.fieldErrors ||
+    error?.details?.diagnostics?.fieldErrors ||
+    null;
+}
+
+function renderGameConfigPanel() {
+  if (!instanceGameConfigManager || !gameConfigFields || !gameConfigSections) return;
+  const selectedInstance = findInstance();
+  const model = gameConfigState.model;
+  instanceGameConfigManager.hidden = !selectedInstance;
+  gameConfigFields.replaceChildren();
+  gameConfigSections.replaceChildren();
+
+  if (!selectedInstance) {
+    setGameConfigStatus("Select an instance to view game settings.");
+    return;
+  }
+
+  if (gameConfigTitle) gameConfigTitle.textContent = model?.label ? `${model.label} Configuration` : "Game Configuration";
+  if (gameConfigSearchInput && gameConfigSearchInput.value !== gameConfigState.query) {
+    gameConfigSearchInput.value = gameConfigState.query;
+  }
+  if (gameConfigAdvancedInput) {
+    gameConfigAdvancedInput.checked = Boolean(gameConfigState.showAdvanced);
+  }
+  if (gameConfigMeta) {
+    gameConfigMeta.textContent = gameConfigState.loading
+      ? "Loading game configuration..."
+      : model?.supported
+      ? `${model.filePath || "configuration file"}${model.missing ? " · will be created on save" : ""}`
+      : "No supported game adapter for this instance.";
+  }
+
+  if (gameConfigState.loading) {
+    setGameConfigStatus("Loading game settings...");
+    return;
+  }
+
+  if (gameConfigState.error) {
+    setGameConfigStatus(gameConfigState.error, true);
+    return;
+  }
+
+  if (!model?.supported) {
+    setGameConfigStatus(model?.message || "Game configuration is not supported for this instance yet.");
+    syncInstanceConfigDirtyState();
+    return;
+  }
+
+  const fields = model.fields || [];
+  const query = gameConfigState.query.trim().toLowerCase();
+  const visibleFields = fields.filter((field) => {
+    if (field.advanced && !gameConfigState.showAdvanced) return false;
+    if (!query) return true;
+    return [field.label, field.description, field.key, field.category].join(" ").toLowerCase().includes(query);
+  });
+  const categories = [...new Set(visibleFields.map((field) => field.category))];
+  if (!categories.includes(gameConfigState.activeCategory)) {
+    gameConfigState.activeCategory = categories[0] || "";
+  }
+
+  categories.forEach((category) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "instance-game-config-section";
+    button.classList.toggle("is-active", category === gameConfigState.activeCategory);
+    button.textContent = category;
+    button.addEventListener("click", () => {
+      gameConfigState.activeCategory = category;
+      renderGameConfigPanel();
+    });
+    gameConfigSections.append(button);
+  });
+
+  visibleFields
+    .filter((field) => !gameConfigState.activeCategory || field.category === gameConfigState.activeCategory)
+    .forEach((field) => gameConfigFields.append(createGameConfigField(field)));
+
+  const dirty = isGameConfigDirty();
+  const restartRequired = (model.fields || []).some((field) => field.restartRequired && Object.prototype.hasOwnProperty.call(getChangedGameConfigValues(), field.key));
+  setGameConfigStatus(dirty ? (restartRequired ? "Unsaved changes · restart required" : "Unsaved changes") : "Saved");
+  syncInstanceConfigDirtyState();
+}
+
+function createGameConfigField(field) {
+  const wrapper = document.createElement("label");
+  wrapper.className = "instance-game-config-field";
+  wrapper.classList.toggle("is-modified", Object.prototype.hasOwnProperty.call(getChangedGameConfigValues(), field.key));
+  if (field.restartRequired) wrapper.dataset.restartRequired = "true";
+
+  const header = document.createElement("span");
+  header.className = "instance-game-config-field-label";
+  header.textContent = field.label;
+  if (field.required) {
+    const required = document.createElement("small");
+    required.textContent = "Required";
+    header.append(required);
+  }
+
+  const input = createGameConfigInput(field);
+  const description = document.createElement("span");
+  description.className = "instance-game-config-description";
+  description.textContent = field.description || field.key;
+
+  const error = document.createElement("span");
+  error.className = "instance-game-config-error";
+  error.textContent = gameConfigState.fieldErrors[field.key] || "";
+  error.hidden = !error.textContent;
+
+  wrapper.append(header, input, description, error);
+  return wrapper;
+}
+
+function createGameConfigInput(field) {
+  const value = Object.prototype.hasOwnProperty.call(gameConfigState.values || {}, field.key)
+    ? gameConfigState.values[field.key]
+    : field.currentValue ?? field.defaultValue;
+  let input;
+  if (field.type === "boolean") {
+    input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = Boolean(value);
+  } else if (field.type === "select" || field.type === "multi-select") {
+    input = document.createElement("select");
+    input.multiple = field.type === "multi-select";
+    (field.allowedValues || []).forEach((allowedValue) => {
+      const option = document.createElement("option");
+      option.value = String(allowedValue);
+      option.textContent = String(allowedValue);
+      option.selected = field.type === "multi-select"
+        ? Array.isArray(value) && value.map(String).includes(String(allowedValue))
+        : String(value) === String(allowedValue);
+      input.append(option);
+    });
+  } else if (field.type === "multiline") {
+    input = document.createElement("textarea");
+    input.rows = 3;
+    input.value = value ?? "";
+  } else {
+    input = document.createElement("input");
+    input.type = field.type === "secret" ? "password" : ["integer", "decimal", "port"].includes(field.type) ? "number" : "text";
+    if (field.min !== null && field.min !== undefined) input.min = field.min;
+    if (field.max !== null && field.max !== undefined) input.max = field.max;
+    input.value = field.sensitive && !gameConfigState.touchedSecrets.has(field.key) ? "" : value ?? "";
+    if (field.sensitive && field.hasCurrentValue && !gameConfigState.touchedSecrets.has(field.key)) {
+      input.placeholder = "Saved password";
+    }
+  }
+  input.dataset.gameConfigField = field.key;
+  input.addEventListener("input", () => updateGameConfigField(field, input));
+  input.addEventListener("change", () => updateGameConfigField(field, input));
+  return input;
+}
+
+function updateGameConfigField(field, input) {
+  if (field.sensitive) {
+    gameConfigState.touchedSecrets.add(field.key);
+  }
+  gameConfigState.values = collectGameConfigValues();
+  delete gameConfigState.fieldErrors[field.key];
+  renderGameConfigPanel();
+}
+
+function resetGameConfigToCurrent() {
+  if (!gameConfigState.model?.supported) return;
+  gameConfigState.values = { ...(gameConfigState.model.values || {}) };
+  gameConfigState.fieldErrors = {};
+  gameConfigState.touchedSecrets = new Set();
+  renderGameConfigPanel();
+}
+
+function resetGameConfigToDefaults() {
+  if (!gameConfigState.model?.supported) return;
+  gameConfigState.values = (gameConfigState.model.fields || []).reduce((values, field) => {
+    values[field.key] = field.defaultValue;
+    if (field.sensitive) gameConfigState.touchedSecrets.add(field.key);
+    return values;
+  }, {});
+  gameConfigState.fieldErrors = {};
+  renderGameConfigPanel();
+}
+
 function collectInstanceConfigPayload() {
   const selectedInstance = findInstance();
   const args = parseArgs(getInstanceConfigValue("args"));
@@ -10224,7 +10512,8 @@ function syncInstanceConfigDirtyState() {
     configDirty = true;
   }
   const minecraftDirty = JSON.stringify(collectMinecraftProperties()) !== instanceMinecraftSnapshot;
-  const dirty = configDirty || minecraftDirty;
+  const gameConfigDirty = isGameConfigDirty();
+  const dirty = configDirty || minecraftDirty || gameConfigDirty;
 
   if (instanceConfigSaveButton) {
     instanceConfigSaveButton.disabled = !dirty || !selectedInstanceId || instanceActionRequestInFlight;
@@ -10232,6 +10521,18 @@ function syncInstanceConfigDirtyState() {
 
   if (instanceConfigCancelButton) {
     instanceConfigCancelButton.disabled = !dirty || !selectedInstanceId || instanceActionRequestInFlight;
+  }
+
+  if (gameConfigResetCurrentButton) {
+    gameConfigResetCurrentButton.disabled = !gameConfigState.model?.supported || !gameConfigDirty || instanceActionRequestInFlight;
+  }
+
+  if (gameConfigResetDefaultButton) {
+    gameConfigResetDefaultButton.disabled = !gameConfigState.model?.supported || instanceActionRequestInFlight;
+  }
+
+  if (gameConfigSaveRestartButton) {
+    gameConfigSaveRestartButton.disabled = !gameConfigDirty || !selectedInstanceId || instanceActionRequestInFlight;
   }
 
   if (instanceConfigDirtyLabel) {
@@ -10261,7 +10562,7 @@ function populateInstanceConfigForm(instance) {
   instanceConfigSnapshot = JSON.stringify(collectInstanceConfigPayload());
 
   if (instanceMinecraftSettings) {
-    instanceMinecraftSettings.hidden = !isMinecraftInstance(instance);
+    instanceMinecraftSettings.hidden = true;
   }
 
   if (instanceMinecraftSummary) {
@@ -10286,6 +10587,7 @@ function populateInstanceConfigForm(instance) {
   }
 
   syncInstanceConfigDirtyState();
+  renderGameConfigPanel();
 }
 
 function populateMinecraftProperties(properties = {}) {
@@ -10426,17 +10728,29 @@ async function saveInstanceConfiguration(event) {
     if (!isNodeActionStillCurrent(requestContext)) return;
     await desktopApiState.api.instances.update(selectedInstance.id, collectInstanceConfigPayload(), getNodeScopedPayload(requestContext));
 
-    if (isMinecraftInstance(selectedInstance)) {
+    if (gameConfigState.model?.supported && isGameConfigDirty()) {
+      const changedValues = getChangedGameConfigValues();
+      if (!isNodeActionStillCurrent(requestContext)) return;
+      await desktopApiState.api.instances.saveGameServerConfig(selectedInstance.id, {
+        adapterId: gameConfigState.model.adapterId,
+        sourceHash: gameConfigState.model.sourceHash,
+        values: changedValues,
+      }, getNodeScopedPayload(requestContext));
+    } else if (isMinecraftInstance(selectedInstance)) {
       if (!isNodeActionStillCurrent(requestContext)) return;
       await desktopApiState.api.instances.saveMinecraftProperties(selectedInstance.id, collectMinecraftProperties(), getNodeScopedPayload(requestContext));
     }
 
     showToast("Instance configuration saved.");
     await refreshInstances();
-    await loadMinecraftProperties();
+    await loadGameServerConfig();
   } catch (error) {
     if (isInstanceNotFoundError(error)) {
       await handleMissingSelectedInstance(error, selectedInstance.id);
+    } else if (extractGameConfigValidationErrors(error)) {
+      gameConfigState.fieldErrors = extractGameConfigValidationErrors(error) || {};
+      renderGameConfigPanel();
+      showToast("Review the highlighted settings.");
     } else {
       console.warn("[Instances] Configuration save failed.", error);
       showToast(getAgentErrorMessage(error, "Configuration save failed."));
@@ -10447,29 +10761,148 @@ async function saveInstanceConfiguration(event) {
   }
 }
 
-async function loadMinecraftProperties() {
+async function loadGameServerConfig() {
   const selectedInstance = findInstance();
   const desktopApiState = getDesktopApiState();
 
-  if (!selectedInstance || !isMinecraftInstance(selectedInstance) || !desktopApiState.hasInstances) {
+  if (!selectedInstance || !desktopApiState.hasInstances) {
+    gameConfigState = {
+      ...gameConfigState,
+      loading: false,
+      loaded: false,
+      supported: false,
+      error: "",
+      model: null,
+      values: {},
+      snapshot: "",
+      fieldErrors: {},
+      touchedSecrets: new Set(),
+    };
+    renderGameConfigPanel();
     populateMinecraftProperties({});
     return;
   }
 
+  gameConfigState = {
+    ...gameConfigState,
+    loading: true,
+    loaded: false,
+    supported: false,
+    error: "",
+    model: null,
+    values: {},
+    snapshot: "",
+    fieldErrors: {},
+    touchedSecrets: new Set(),
+  };
+  renderGameConfigPanel();
+
   try {
-    const requestContext = getNodeRequestContext("minecraft-properties");
-    const payload = await desktopApiState.api.instances.getMinecraftProperties(selectedInstance.id, getNodeScopedPayload(requestContext));
+    const requestContext = getNodeRequestContext("game-server-config");
+    const payload = typeof desktopApiState.api.instances.getGameServerConfig === "function"
+      ? await desktopApiState.api.instances.getGameServerConfig(selectedInstance.id, getNodeScopedPayload(requestContext))
+      : await desktopApiState.api.instances.getMinecraftProperties(selectedInstance.id, getNodeScopedPayload(requestContext));
     if (!isNodeRequestCurrent(requestContext) || selectedInstance.id !== selectedInstanceId) {
       return;
     }
-    populateMinecraftProperties(payload?.properties || {});
+    if (payload?.supported) {
+      gameConfigState = {
+        ...gameConfigState,
+        loading: false,
+        loaded: true,
+        supported: true,
+        error: "",
+        model: payload,
+        values: { ...(payload.values || {}) },
+        snapshot: JSON.stringify(payload.values || {}),
+        fieldErrors: {},
+        touchedSecrets: new Set(),
+      };
+      if (payload.adapterId === "minecraft") {
+        populateMinecraftProperties(payload.values || {});
+      } else {
+        populateMinecraftProperties({});
+      }
+    } else {
+      gameConfigState = {
+        ...gameConfigState,
+        loading: false,
+        loaded: true,
+        supported: false,
+        error: "",
+        model: payload || null,
+        values: {},
+        snapshot: "",
+        fieldErrors: {},
+        touchedSecrets: new Set(),
+      };
+      populateMinecraftProperties({});
+    }
+    renderGameConfigPanel();
   } catch (error) {
     if (isInstanceNotFoundError(error)) {
       await handleMissingSelectedInstance(error, selectedInstance.id);
       return;
     }
-    console.warn("[Instances] Minecraft properties unavailable.", error);
+    console.warn("[Instances] Game configuration unavailable.", error);
+    const code = String(error?.code || error?.payload?.error?.code || "").toUpperCase();
+    const message = code === "NOT_FOUND"
+      ? "Selected node Agent does not support game configuration yet. Update the Agent, then retry."
+      : getAgentErrorMessage(error, "Game configuration unavailable.");
+    gameConfigState = {
+      ...gameConfigState,
+      loading: false,
+      loaded: true,
+      supported: false,
+      error: message,
+      model: null,
+      values: {},
+      snapshot: "",
+      fieldErrors: {},
+      touchedSecrets: new Set(),
+    };
+    renderGameConfigPanel();
     populateMinecraftProperties({});
+  }
+}
+
+async function saveGameConfigAndRestart() {
+  const selectedInstance = findInstance();
+  const desktopApiState = getDesktopApiState();
+  const requestContext = createNodeActionContext("instance-save-game-config-restart");
+
+  if (!selectedInstance || !desktopApiState.hasInstances || !gameConfigState.model?.supported || !isGameConfigDirty()) {
+    return;
+  }
+
+  instanceActionRequestInFlight = true;
+  syncInstanceConfigDirtyState();
+
+  try {
+    if (!isNodeActionStillCurrent(requestContext)) return;
+    await desktopApiState.api.instances.saveGameServerConfig(selectedInstance.id, {
+      adapterId: gameConfigState.model.adapterId,
+      sourceHash: gameConfigState.model.sourceHash,
+      values: getChangedGameConfigValues(),
+      restart: true,
+    }, getNodeScopedPayload(requestContext));
+    showToast("Game configuration saved and restart requested.");
+    await refreshInstances();
+    await loadGameServerConfig();
+  } catch (error) {
+    if (isInstanceNotFoundError(error)) {
+      await handleMissingSelectedInstance(error, selectedInstance.id);
+    } else if (extractGameConfigValidationErrors(error)) {
+      gameConfigState.fieldErrors = extractGameConfigValidationErrors(error) || {};
+      renderGameConfigPanel();
+      showToast("Review the highlighted settings.");
+    } else {
+      console.warn("[Instances] Game configuration save and restart failed.", error);
+      showToast(getAgentErrorMessage(error, "Game configuration save failed."));
+    }
+  } finally {
+    instanceActionRequestInFlight = false;
+    syncInstanceConfigDirtyState();
   }
 }
 
@@ -25806,6 +26239,12 @@ function startAccountPolling(intervalMs = 3000) {
 }
 
 window.addEventListener("beforeunload", stopAccountPolling);
+window.addEventListener("beforeunload", (event) => {
+  if (isGameConfigDirty()) {
+    event.preventDefault();
+    event.returnValue = "";
+  }
+});
 
 async function startAnxOsAccountLogin() {
   const desktopApiState = getDesktopApiState();
@@ -32535,6 +32974,7 @@ instanceConfigForm?.addEventListener("submit", saveInstanceConfiguration);
 instanceConfigCancelButton?.addEventListener("click", () => {
   populateInstanceConfigForm(findInstance());
   populateMinecraftProperties(latestMinecraftProperties);
+  resetGameConfigToCurrent();
 });
 instanceConfigInputs.forEach((input) => {
   input.addEventListener("input", syncInstanceConfigDirtyState);
@@ -32544,6 +32984,17 @@ minecraftPropertyInputs.forEach((input) => {
   input.addEventListener("input", syncInstanceConfigDirtyState);
   input.addEventListener("change", syncInstanceConfigDirtyState);
 });
+gameConfigSearchInput?.addEventListener("input", () => {
+  gameConfigState.query = gameConfigSearchInput.value || "";
+  renderGameConfigPanel();
+});
+gameConfigAdvancedInput?.addEventListener("change", () => {
+  gameConfigState.showAdvanced = Boolean(gameConfigAdvancedInput.checked);
+  renderGameConfigPanel();
+});
+gameConfigResetCurrentButton?.addEventListener("click", resetGameConfigToCurrent);
+gameConfigResetDefaultButton?.addEventListener("click", resetGameConfigToDefaults);
+gameConfigSaveRestartButton?.addEventListener("click", saveGameConfigAndRestart);
 document.querySelectorAll('[data-instance-form="memoryLimit"], [data-instance-config="memoryLimit"], [data-marketplace-field="memory"]').forEach((input) => {
   input.addEventListener("blur", () => {
     try {

@@ -5358,8 +5358,154 @@ body.is-resizing-files * {
 .instance-config-form,
 .instance-advanced-panel,
 .instance-minecraft-summary,
-.instance-minecraft-settings {
+.instance-minecraft-settings,
+.instance-game-config {
   grid-template-columns: 1fr;
+}
+
+.instance-game-config {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.instance-game-config[hidden] {
+  display: none;
+}
+
+.instance-game-config-header,
+.instance-game-config-toolbar,
+.instance-game-config-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.instance-game-config-header h4 {
+  margin: 0;
+}
+
+.instance-game-config-header span,
+.instance-game-config-description,
+.instance-game-config-status {
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.instance-game-config-search {
+  flex: 1 1 240px;
+}
+
+.instance-game-config-status {
+  min-height: 24px;
+  padding: 6px 8px;
+  border: 1px solid rgba(185, 171, 200, 0.18);
+  border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.instance-game-config-status.is-error {
+  border-color: rgba(255, 107, 138, 0.34);
+  color: var(--danger);
+}
+
+.instance-game-config-layout {
+  display: grid;
+  grid-template-columns: minmax(130px, 180px) minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.instance-game-config-sections,
+.instance-game-config-fields {
+  display: grid;
+  gap: 8px;
+}
+
+.instance-game-config-section {
+  min-height: 34px;
+  padding: 7px 9px;
+  border: 1px solid rgba(185, 171, 200, 0.2);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  text-align: left;
+}
+
+.instance-game-config-section.is-active,
+.instance-game-config-section:focus-visible {
+  border-color: rgba(93, 214, 255, 0.5);
+  background: rgba(93, 214, 255, 0.12);
+}
+
+.instance-game-config-field {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid rgba(185, 171, 200, 0.18);
+  border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.instance-game-config-field.is-modified {
+  border-color: rgba(245, 196, 81, 0.42);
+  background: rgba(245, 196, 81, 0.08);
+}
+
+.instance-game-config-field[data-restart-required="true"] .instance-game-config-field-label::after {
+  content: "Restart";
+  margin-left: 8px;
+  color: #f5c451;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.instance-game-config-field-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font-weight: 700;
+}
+
+.instance-game-config-field-label small {
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+}
+
+.instance-game-config-field input,
+.instance-game-config-field select,
+.instance-game-config-field textarea {
+  width: 100%;
+}
+
+.instance-game-config-field input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+}
+
+.instance-game-config-error {
+  color: var(--danger);
+  font-size: 0.82rem;
+}
+
+@media (max-width: 760px) {
+  .instance-game-config-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .instance-game-config-sections {
+    grid-auto-flow: column;
+    grid-auto-columns: max-content;
+    overflow-x: auto;
+  }
 }
 
 .instance-files-grid {

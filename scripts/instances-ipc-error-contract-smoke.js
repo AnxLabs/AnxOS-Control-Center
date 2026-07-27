@@ -10,9 +10,9 @@ const originalError = Object.assign(new Error("The instance is in a crash loop."
 const serviceNames = [
   "clearInstanceLogs", "createInstance", "createInstanceFolder", "deleteInstance", "deleteInstanceFile",
   "duplicateInstance", "forgetInstance", "forceKillInstance", "getInstanceLogs", "getInstanceMetrics",
-  "getInstanceStatus", "getFiveMReadiness", "getMinecraftProperties", "listInstanceFiles", "listInstances",
+  "getInstanceStatus", "getFiveMReadiness", "getGameServerConfig", "getMinecraftProperties", "listInstanceFiles", "listInstances",
   "openInstanceFolder", "readInstanceFile", "renameInstance", "renameInstanceFile", "restartInstance",
-  "saveMinecraftProperties", "saveFiveMLicenseKey", "sendInstanceCommand", "startInstance", "stopInstance",
+  "saveGameServerConfig", "saveMinecraftProperties", "saveFiveMLicenseKey", "sendInstanceCommand", "startInstance", "stopInstance",
   "updateInstance", "writeInstanceFile",
 ];
 const serviceRouter = Object.fromEntries(serviceNames.map((name) => [name, async () => ({})]));

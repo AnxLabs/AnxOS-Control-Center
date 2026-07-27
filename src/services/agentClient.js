@@ -1233,6 +1233,17 @@ class NodeAgentClient {
     return this.get(`/instances/${encodeInstanceId(instanceId)}/minecraft/properties`);
   }
 
+  getGameServerConfig(instanceId, options = {}) {
+    const query = new URLSearchParams();
+    if (options.adapterId) query.set("adapterId", options.adapterId);
+    const suffix = query.toString() ? `?${query.toString()}` : "";
+    return this.get(`/instances/${encodeInstanceId(instanceId)}/game-config${suffix}`);
+  }
+
+  saveGameServerConfig(instanceId, payload = {}) {
+    return this.put(`/instances/${encodeInstanceId(instanceId)}/game-config`, payload);
+  }
+
   saveMinecraftProperties(instanceId, properties = {}) {
     return this.put(`/instances/${encodeInstanceId(instanceId)}/minecraft/properties`, { properties });
   }
@@ -2725,6 +2736,27 @@ async function getMinecraftProperties(instanceId, configOverride = null) {
   return requestJson(`/api/v1/instances/${encodeInstanceId(instanceId)}/minecraft/properties`, { config: configOverride });
 }
 
+async function getGameServerConfig(instanceId, options = {}, configOverride = null) {
+  if (shouldUseLocalInstanceService(configOverride)) {
+    return getLocalInstanceService().readGameServerConfig(instanceId, options);
+  }
+  const query = new URLSearchParams();
+  if (options?.adapterId) query.set("adapterId", options.adapterId);
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return requestJson(`/api/v1/instances/${encodeInstanceId(instanceId)}/game-config${suffix}`, { config: configOverride });
+}
+
+async function saveGameServerConfig(instanceId, payload = {}, configOverride = null) {
+  if (shouldUseLocalInstanceService(configOverride)) {
+    return getLocalInstanceService().writeGameServerConfig(instanceId, payload);
+  }
+  return requestJson(`/api/v1/instances/${encodeInstanceId(instanceId)}/game-config`, {
+    config: configOverride,
+    method: "PUT",
+    body: payload,
+  });
+}
+
 async function saveMinecraftProperties(instanceId, properties = {}, configOverride = null) {
   if (shouldUseLocalInstanceService(configOverride)) {
     return getLocalInstanceService().writeMinecraftProperties(instanceId, properties);
@@ -3029,6 +3061,7 @@ module.exports = {
   getInstanceMetrics,
   getInstanceStatus,
   getFiveMReadiness,
+  getGameServerConfig,
   instanceFileExists,
   getMinecraftProperties,
   getPlayitSnapshot,
@@ -3073,6 +3106,7 @@ module.exports = {
   saveAgentSettings,
   saveBackupSchedule,
   saveFiveMLicenseKey,
+  saveGameServerConfig,
   saveMinecraftProperties,
   sendInstanceCommand,
   startDockerContainer,

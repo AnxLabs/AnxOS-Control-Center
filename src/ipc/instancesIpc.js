@@ -8,6 +8,7 @@ const {
   duplicateInstance,
   forgetInstance,
   forceKillInstance,
+  getGameServerConfig,
   getInstanceLogs,
   getInstanceMetrics,
   getInstanceStatus,
@@ -20,6 +21,7 @@ const {
   renameInstance,
   renameInstanceFile,
   restartInstance,
+  saveGameServerConfig,
   saveMinecraftProperties,
   saveFiveMLicenseKey,
   sendInstanceCommand,
@@ -48,11 +50,15 @@ async function invokeInstanceOperation(operation) {
   try {
     return await operation();
   } catch (error) {
-    throw createIpcError(error, {
+    const wrapped = createIpcError(error, {
       code: "INSTANCE_REQUEST_FAILED",
       fallbackMessage: getInstanceErrorMessage(error),
       suggestion: "Review the instance status and diagnostics, correct the reported problem, then retry.",
     });
+    if (error?.validation) {
+      wrapped.validation = error.validation;
+    }
+    throw wrapped;
   }
 }
 
@@ -157,6 +163,18 @@ function registerInstancesIpc() {
     return renameInstanceFile(payload.instanceId, payload.oldPath, payload.newPath, payload);
   }));
   registerInstanceHandler("instances:getMinecraftProperties", async (_, payload = {}) => invokeInstanceOperation(() => { requirePermission("instance:read", payload.instanceId); return getMinecraftProperties(payload.instanceId, payload); }));
+  registerInstanceHandler("instances:getGameServerConfig", async (_, payload = {}) => invokeInstanceOperation(() => {
+    requirePermission("instance:read", payload.instanceId);
+    return getGameServerConfig(payload.instanceId, payload);
+  }));
+  registerInstanceHandler("instances:saveGameServerConfig", async (_, payload = {}) => invokeInstanceOperation(() => {
+    requirePermission("files:write", `${payload.instanceId}:game-config`);
+    if (payload.restart === true) {
+      requirePermission("instance:lifecycle", payload.instanceId);
+    }
+    audit({ action: payload.restart === true ? "instance.game-config.write-restart" : "instance.game-config.write", target: payload.instanceId });
+    return saveGameServerConfig(payload.instanceId, payload, payload);
+  }));
   registerInstanceHandler("instances:saveMinecraftProperties", async (_, payload = {}) => invokeInstanceOperation(() => {
     requirePermission("files:write", `${payload.instanceId}:server.properties`);
     audit({ action: "instance.minecraft.properties.write", target: payload.instanceId });

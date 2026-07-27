@@ -119,6 +119,98 @@ async function main() {
     assert(/auto|scroll/.test(fileLayout.browserOverflowY), "Instance file browser must own vertical scrolling.");
     assert(/auto|scroll/.test(fileLayout.editorOverflowY), "Instance file editor must own vertical scrolling.");
 
+    await page.evaluate(() => {
+      const qaInstance = {
+        id: "qa-minecraft-config",
+        displayName: "QA Minecraft Config",
+        type: "minecraft-paper",
+        state: "Stopped",
+        workingDirectory: "data",
+        executable: "java",
+        args: ["-jar", "server.jar", "nogui"],
+        tags: ["minecraft"],
+        game: "minecraft",
+        ports: [25565],
+      };
+      const qaModel = {
+        id: qaInstance.id,
+        supported: true,
+        adapterId: "minecraft",
+        gameId: "minecraft",
+        label: "Minecraft",
+        format: "properties",
+        filePath: "server.properties",
+        sourceHash: "qa-source-hash",
+        fields: [
+          { key: "server-port", label: "Server Port", description: "TCP port.", category: "Network", type: "port", defaultValue: "25565", currentValue: 25565, required: true, min: 1, max: 65535, allowedValues: null, validation: null, advanced: false, sensitive: false, restartRequired: true, persistence: { key: "server-port" } },
+          { key: "max-players", label: "Max Players", description: "Player limit.", category: "Players", type: "integer", defaultValue: "20", currentValue: 20, required: true, min: 1, max: 1000, allowedValues: null, validation: null, advanced: false, sensitive: false, restartRequired: true, persistence: { key: "max-players" } },
+          { key: "difficulty", label: "Difficulty", description: "World difficulty.", category: "Gameplay", type: "select", defaultValue: "easy", currentValue: "easy", required: false, min: null, max: null, allowedValues: ["peaceful", "easy", "normal", "hard"], validation: null, advanced: false, sensitive: false, restartRequired: true, persistence: { key: "difficulty" } },
+          { key: "enable-command-block", label: "Command Blocks", description: "Allow command blocks.", category: "Advanced", type: "boolean", defaultValue: "false", currentValue: false, required: false, min: null, max: null, allowedValues: null, validation: null, advanced: true, sensitive: false, restartRequired: true, persistence: { key: "enable-command-block" } },
+          { key: "resource-pack", label: "Resource Pack URL", description: "Resource pack URL.", category: "Resource Pack", type: "text", defaultValue: "", currentValue: "", required: false, min: null, max: null, allowedValues: null, validation: null, advanced: true, sensitive: false, restartRequired: false, persistence: { key: "resource-pack" } },
+        ],
+        categories: ["Network", "Players", "Gameplay", "Advanced", "Resource Pack"],
+        values: {
+          "server-port": 25565,
+          "max-players": 20,
+          difficulty: "easy",
+          "enable-command-block": false,
+          "resource-pack": "",
+        },
+        capabilities: { save: true, saveAndRestart: true, rawFilePath: "server.properties" },
+      };
+      return window.eval(`
+        latestInstancesSnapshot = { instances: [${JSON.stringify(qaInstance)}] };
+        selectedInstanceId = "qa-minecraft-config";
+        gameConfigState = {
+          loading: false,
+          loaded: true,
+          supported: true,
+          error: "",
+          model: ${JSON.stringify(qaModel)},
+          values: { ...${JSON.stringify(qaModel.values)} },
+          snapshot: JSON.stringify(${JSON.stringify(qaModel.values)}),
+          query: "",
+          showAdvanced: false,
+          activeCategory: "",
+          fieldErrors: {},
+          touchedSecrets: new Set(),
+        };
+        showPage("instances");
+        activeInstanceTab = "settings";
+        instanceTabs.forEach((button) => {
+          const active = button.dataset.instanceTab === activeInstanceTab;
+          button.classList.toggle("is-active", active);
+          button.setAttribute("aria-selected", active ? "true" : "false");
+        });
+        instanceTabPanels.forEach((panel) => {
+          panel.classList.toggle("is-active", panel.dataset.instancePanel === activeInstanceTab);
+        });
+        populateInstanceConfigForm(${JSON.stringify(qaInstance)});
+        renderGameConfigPanel();
+      `);
+    });
+    await page.waitForSelector("[data-game-config-manager]:not([hidden])");
+    await page.locator("[data-game-config-title]").waitFor({ state: "visible" });
+    assert(/Minecraft Configuration/i.test(await page.locator("[data-game-config-title]").textContent()), "Game config title must identify the adapter.");
+    await page.locator("[data-game-config-search]").fill("players");
+    await page.waitForTimeout(100);
+    assert.strictEqual(await page.locator('[data-game-config-field="max-players"]').isVisible(), true, "Search must keep matching settings visible.");
+    await page.locator("[data-game-config-search]").fill("");
+    await page.locator("[data-game-config-advanced]").check();
+    await page.waitForTimeout(100);
+    await page.getByRole("button", { name: "Resource Pack" }).click();
+    await page.waitForTimeout(100);
+    assert.strictEqual(await page.locator('[data-game-config-field="resource-pack"]').isVisible(), true, "Advanced mode must reveal advanced settings.");
+    await page.getByRole("button", { name: "Network" }).click();
+    await page.waitForTimeout(100);
+    await page.locator('[data-game-config-field="server-port"]').fill("25566");
+    await page.waitForTimeout(100);
+    assert.strictEqual(await page.locator("[data-game-config-save-restart]").isEnabled(), true, "Save and Restart must enable after a restart-required change.");
+    assert(/restart required/i.test(await page.locator("[data-game-config-status]").textContent()), "Restart-required changes must be visible.");
+    await page.locator("[data-game-config-reset-current]").click();
+    await page.waitForTimeout(100);
+    assert.strictEqual(await page.locator("[data-game-config-save-restart]").isDisabled(), true, "Reset Current must clear modified game settings.");
+
     await page.evaluate(() => window.showPage?.("dashboard"));
     await page.waitForTimeout(250);
     const dashboardText = await page.locator("[data-dashboard-friendly-empty]").textContent().catch(() => "");

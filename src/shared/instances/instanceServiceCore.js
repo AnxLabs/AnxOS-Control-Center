@@ -7,6 +7,13 @@ const os = require("os");
 const path = require("path");
 const zlib = require("zlib");
 const javaRuntimeResolver = require("../minecraftJavaRuntime");
+const {
+  buildConfigModel,
+  getAdapter,
+  hashContent,
+  mergeSubmittedValues,
+  serializeDocument,
+} = require("../gameServerConfigManager");
 
 let runtimeConfigProvider = () => ({
   instanceRoot: process.env.AGENT_INSTANCE_ROOT || path.join(process.cwd(), "instances"),
@@ -4476,41 +4483,225 @@ function serializeProperties(properties) {
 }
 
 async function readMinecraftProperties(instanceId) {
-  const id = validateInstanceId(instanceId);
-  for (const requestedPath of ["server.properties", "server/server.properties"]) {
-    try {
-      const file = await readInstanceFile(id, requestedPath);
-      return {
-        id: file.id,
-        path: file.path,
-        properties: parseProperties(file.content),
-      };
-    } catch (error) {
-      if (error?.code !== "PATH_NOT_FOUND") {
-        throw error;
-      }
-    }
-  }
+  const config = await readGameServerConfig(instanceId, { adapterId: "minecraft" });
   return {
-    id,
-    path: "server.properties",
-    properties: {},
+    id: validateInstanceId(instanceId),
+    path: config.filePath || "server.properties",
+    properties: stringifyProperties(config.values || {}),
+    sourceHash: config.sourceHash,
   };
 }
 
 async function writeMinecraftProperties(instanceId, properties) {
   const existing = await readMinecraftProperties(instanceId);
-  const next = {
-    ...existing.properties,
-    ...(properties && typeof properties === "object" && !Array.isArray(properties) ? properties : {}),
-  };
+  const saved = await writeGameServerConfig(instanceId, {
+    adapterId: "minecraft",
+    sourceHash: existing.sourceHash,
+    values: properties && typeof properties === "object" && !Array.isArray(properties) ? properties : {},
+  });
 
-  await writeInstanceFile(instanceId, "server.properties", `${serializeProperties(next)}\n`);
   return {
     id: validateInstanceId(instanceId),
-    path: "server.properties",
-    properties: next,
+    path: saved.filePath || "server.properties",
+    properties: stringifyProperties(saved.values || {}),
     saved: true,
+  };
+}
+
+function stringifyProperties(properties = {}) {
+  return Object.entries(properties).reduce((output, [key, value]) => {
+    output[key] = Array.isArray(value) ? value.join(",") : String(value ?? "");
+    return output;
+  }, {});
+}
+
+function normalizeInstanceDataRelativePath(value, fallback) {
+  const raw = String(value || fallback || "").replace(/\\/g, "/").replace(/^\/+/, "");
+  return raw.replace(/^data\/+/i, "").replace(/\/+$/, "") || ".";
+}
+
+function toApiRelativePath(value) {
+  return String(value || "").replace(/\\/g, "/");
+}
+
+function getPalworldInstallDirectory(config = {}) {
+  const explicit = config.steamInstallDir || config.installDir || config.serverInstallDir;
+  if (explicit) return normalizeInstanceDataRelativePath(explicit, "server");
+
+  const workingDirectory = normalizeInstanceDataRelativePath(config.workingDirectory, "");
+  if (workingDirectory && workingDirectory !== ".") return workingDirectory;
+
+  const argText = Array.isArray(config.args) ? config.args.join(" ") : "";
+  const match = argText.match(/(?:^|\s)(?:\.\/)?([^"'`\s]+)\/PalServer\.(?:sh|exe)\b/i);
+  if (match) return normalizeInstanceDataRelativePath(match[1], "server");
+
+  return "server";
+}
+
+function getPalworldPlatformOrder(config = {}) {
+  const searchable = [
+    config.platform,
+    config.os,
+    config.executable,
+    ...(Array.isArray(config.args) ? config.args : []),
+  ].join(" ").toLowerCase();
+
+  if (searchable.includes("window") || searchable.includes(".exe")) {
+    return ["WindowsServer", "LinuxServer"];
+  }
+  return ["LinuxServer", "WindowsServer"];
+}
+
+function getPalworldConfigCandidates(config = {}) {
+  const installDirectory = getPalworldInstallDirectory(config);
+  return getPalworldPlatformOrder(config).map((platformName) => (
+    normalizeInstanceDataRelativePath(`${installDirectory}/Pal/Saved/Config/${platformName}/PalWorldSettings.ini`)
+  ));
+}
+
+async function resolveExistingGameConfigPath(config, adapterId) {
+  if (adapterId === "minecraft") {
+    for (const requestedPath of ["server.properties", "server/server.properties"]) {
+      const resolved = resolveInstanceDataPath(config.id, requestedPath);
+      await assertNoInstanceDataEscape(resolved);
+      const stats = await fs.stat(resolved.path).catch(() => null);
+      if (stats?.isFile()) {
+        return { ...resolved, exists: true, candidates: ["server.properties", "server/server.properties"] };
+      }
+    }
+    return { ...resolveInstanceDataPath(config.id, "server.properties"), exists: false, candidates: ["server.properties", "server/server.properties"] };
+  }
+
+  if (adapterId === "palworld") {
+    const candidates = getPalworldConfigCandidates(config);
+    for (const requestedPath of candidates) {
+      const resolved = resolveInstanceDataPath(config.id, requestedPath);
+      await assertNoInstanceDataEscape(resolved);
+      const stats = await fs.stat(resolved.path).catch(() => null);
+      if (stats?.isFile()) {
+        return { ...resolved, exists: true, candidates };
+      }
+    }
+    return { ...resolveInstanceDataPath(config.id, candidates[0]), exists: false, candidates };
+  }
+
+  throw createInstanceError("UNSUPPORTED_GAME_CONFIG", 404);
+}
+
+function inferConfigAdapterId(config = {}, requestedAdapterId = null) {
+  if (requestedAdapterId && getAdapter(requestedAdapterId)) return requestedAdapterId;
+  const family = inferGameFamily(config);
+  if (family === "minecraft") return "minecraft";
+  if (family === "palworld") return "palworld";
+  return null;
+}
+
+function getDefaultGameConfigContent(adapter) {
+  if (!adapter) return "";
+  const values = adapter.fields.reduce((output, fieldMeta) => {
+    output[fieldMeta.key] = fieldMeta.defaultValue;
+    return output;
+  }, {});
+  const document = adapter.format === "palworld-options"
+    ? { prefix: "[/Script/Pal.PalGameWorldSettings]\nOptionSettings=(", suffix: ")\n", entries: [] }
+    : { entries: [], trailingNewline: true };
+  return serializeDocument(adapter, document, values);
+}
+
+async function readGameServerConfig(instanceId, options = {}) {
+  const config = await loadInstanceConfig(instanceId);
+  const adapterId = inferConfigAdapterId(config, options.adapterId);
+  const adapter = getAdapter(adapterId);
+
+  if (!adapter) {
+    return {
+      id: config.id,
+      supported: false,
+      reason: "unsupported_game",
+      message: "This instance does not have a supported game configuration adapter yet.",
+    };
+  }
+
+  const resolved = await resolveExistingGameConfigPath(config, adapter.id);
+  await assertNoInstanceDataEscape(resolved, { forWrite: true });
+  const stats = resolved.exists ? await fs.stat(resolved.path) : null;
+  const content = resolved.exists
+    ? await fs.readFile(resolved.path, "utf8")
+    : getDefaultGameConfigContent(adapter);
+  return {
+    id: config.id,
+    ...buildConfigModel(adapter.id, content, {
+      filePath: toApiRelativePath(resolved.relativePath),
+      modifiedAt: stats?.mtime?.toISOString?.() || null,
+      missing: !resolved.exists,
+    }),
+    candidates: resolved.candidates,
+  };
+}
+
+async function createGameConfigBackup(config, resolved) {
+  const stats = await fs.stat(resolved.path).catch(() => null);
+  if (!stats?.isFile()) return null;
+
+  const backupRoot = resolveInstanceDataPath(config.id, ".anxos-config-backups");
+  await assertNoInstanceDataEscape(backupRoot, { forWrite: true });
+  await fs.mkdir(backupRoot.path, { recursive: true });
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const safeName = resolved.relativePath.replace(/[\\/]+/g, "__").replace(/[^a-z0-9_.-]/gi, "_");
+  const backupRelativePath = normalizeInstanceDataRelativePath(`.anxos-config-backups/${safeName}.${stamp}.bak`);
+  const backup = resolveInstanceDataPath(config.id, backupRelativePath);
+  await assertNoInstanceDataEscape(backup, { forWrite: true });
+  await fs.copyFile(resolved.path, backup.path);
+  return backup.relativePath;
+}
+
+async function writeGameServerConfig(instanceId, payload = {}) {
+  const config = await loadInstanceConfig(instanceId);
+  const adapterId = inferConfigAdapterId(config, payload.adapterId);
+  const adapter = getAdapter(adapterId);
+
+  if (!adapter) {
+    throw createInstanceError("UNSUPPORTED_GAME_CONFIG", 404);
+  }
+
+  const resolved = await resolveExistingGameConfigPath(config, adapter.id);
+  await assertNoInstanceDataEscape(resolved, { forWrite: true });
+  const exists = Boolean(await fs.stat(resolved.path).catch(() => null));
+  const currentContent = exists ? await fs.readFile(resolved.path, "utf8") : getDefaultGameConfigContent(adapter);
+  const currentHash = hashContent(currentContent);
+
+  if (payload.sourceHash && payload.sourceHash !== currentHash) {
+    throw createInstanceError("CONFIG_MODIFIED_EXTERNALLY", 409);
+  }
+
+  const merged = mergeSubmittedValues(adapter, currentContent, payload.values || {});
+  if (!merged.validation.ok) {
+    const error = createInstanceError("CONFIG_VALIDATION_FAILED", 400);
+    error.validation = merged.validation.errors;
+    throw error;
+  }
+
+  const backupPath = await createGameConfigBackup(config, resolved);
+  const nextContent = serializeDocument(adapter, merged.document, merged.values);
+  await fs.mkdir(path.dirname(resolved.path), { recursive: true });
+  await atomicWriteManagedFile(resolved.path, nextContent, { encoding: "utf8" });
+
+  let restartResult = null;
+  if (payload.restart === true) {
+    restartResult = await restartInstance(config.id);
+  }
+
+  return {
+    id: config.id,
+    adapterId: adapter.id,
+    filePath: toApiRelativePath(resolved.relativePath),
+    saved: true,
+    backupPath: backupPath ? toApiRelativePath(backupPath) : null,
+    sourceHash: hashContent(nextContent),
+    restartRequired: adapter.fields.some((fieldMeta) => fieldMeta.restartRequired && Object.prototype.hasOwnProperty.call(payload.values || {}, fieldMeta.key)),
+    restarted: Boolean(restartResult),
+    restartResult,
+    values: buildConfigModel(adapter.id, nextContent, { filePath: toApiRelativePath(resolved.relativePath) }).values,
   };
 }
 
@@ -4635,8 +4826,11 @@ module.exports = {
     discoverDetachedRuntime,
     evaluateFiveMReadiness,
     findUnrelatedPortConflicts,
+    getPalworldConfigCandidates,
     getFiveMLicenseReason,
     updateFiveMLicenseInConfig,
+    inferConfigAdapterId,
+    resolveExistingGameConfigPath,
     parseRandomSeedFromLevelDat,
     parseTpsFromMessages,
     normalizeShellWrapperArgs,
@@ -4678,6 +4872,7 @@ module.exports = {
   deleteInstanceFile,
   forceKillInstance,
   getMetrics,
+  readGameServerConfig,
   getStatus,
   executeInstallationPhase,
   executeSteamCmdUpdate,
@@ -4697,6 +4892,7 @@ module.exports = {
   stopInstance,
   updateInstance,
   writeInstanceFile,
+  writeGameServerConfig,
   writeInstanceInput,
   writeMinecraftProperties,
 };

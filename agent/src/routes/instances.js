@@ -14,6 +14,7 @@ const {
   executeSteamCmdUpdate,
   forgetInstance,
   forceKillInstance,
+  readGameServerConfig,
   getMetrics,
   getStatus,
   instanceFileExists,
@@ -27,6 +28,7 @@ const {
   renameInstanceFile,
   restartInstance,
   saveFiveMLicenseKey,
+  writeGameServerConfig,
   startInstance,
   stopInstance,
   updateInstance,
@@ -144,6 +146,13 @@ function getRuntimeErrorDetails(error) {
 }
 
 function getValidationErrorDetails(error) {
+  if (error?.validation && typeof error.validation === "object") {
+    return {
+      fieldErrors: error.validation,
+      userMessage: "Review the highlighted settings.",
+      suggestion: "Correct the invalid game configuration values, then retry.",
+    };
+  }
   const code = error?.code || "INSTANCE_REQUEST_FAILED";
   const numericFieldMessages = {
     startupTimeoutMs: "Startup timeout must be a whole number within the allowed installer timeout range.",
@@ -353,6 +362,17 @@ async function handleInstances(request, url) {
 
     if (request.method === "PUT" && minecraftPropertiesId) {
       return result(200, await writeMinecraftProperties(minecraftPropertiesId, parseJsonBody(request).properties));
+    }
+
+    const gameConfigId = getInstanceIdFromPath(url.pathname, "/game-config");
+    if (request.method === "GET" && gameConfigId) {
+      return result(200, await readGameServerConfig(gameConfigId, {
+        adapterId: url.searchParams.get("adapterId") || null,
+      }));
+    }
+
+    if (request.method === "PUT" && gameConfigId) {
+      return result(200, await writeGameServerConfig(gameConfigId, parseJsonBody(request)));
     }
 
     const installationSessionId = getInstanceIdFromPath(url.pathname, "/installation/session");

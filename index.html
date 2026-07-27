@@ -1955,22 +1955,27 @@
                     <label class="ssh-field"><span>Startup Timeout</span><input type="number" data-instance-config="startupTimeoutMs"></label>
                     <label class="ssh-field"><span>Shutdown Timeout</span><input type="number" data-instance-config="shutdownTimeoutMs"></label>
                     <label class="console-toggle"><input type="checkbox" data-instance-config="autoStart"><span>Auto Start</span></label>
-                    <section class="instance-minecraft-settings" data-instance-minecraft-settings hidden>
-                      <h4>Minecraft Settings</h4>
-                      <label class="ssh-field"><span>Server Port</span><input data-minecraft-property="server-port"></label>
-                      <label class="ssh-field"><span>MOTD</span><input data-minecraft-property="motd"></label>
-                      <label class="ssh-field"><span>Max Players</span><input data-minecraft-property="max-players"></label>
-                      <label class="ssh-field"><span>Difficulty</span><input data-minecraft-property="difficulty"></label>
-                      <label class="ssh-field"><span>Gamemode</span><input data-minecraft-property="gamemode"></label>
-                      <label class="ssh-field"><span>View Distance</span><input data-minecraft-property="view-distance"></label>
-                      <label class="ssh-field"><span>Simulation Distance</span><input data-minecraft-property="simulation-distance"></label>
-                      <label class="ssh-field"><span>Online Mode</span><select data-minecraft-property="online-mode"><option>true</option><option>false</option></select></label>
-                      <label class="ssh-field"><span>Allow Flight</span><select data-minecraft-property="allow-flight"><option>false</option><option>true</option></select></label>
-                      <label class="ssh-field"><span>Spawn Protection</span><input data-minecraft-property="spawn-protection"></label>
-                      <label class="ssh-field"><span>PVP</span><select data-minecraft-property="pvp"><option>true</option><option>false</option></select></label>
-                      <label class="ssh-field"><span>Whitelist</span><select data-minecraft-property="white-list"><option>false</option><option>true</option></select></label>
-                      <label class="ssh-field"><span>Generate Structures</span><select data-minecraft-property="generate-structures"><option>true</option><option>false</option></select></label>
-                      <label class="ssh-field"><span>Seed</span><input data-minecraft-property="level-seed"></label>
+                    <section class="instance-game-config" data-game-config-manager hidden>
+                      <div class="instance-game-config-header">
+                        <div>
+                          <h4 data-game-config-title>Game Configuration</h4>
+                          <span data-game-config-meta>Loading settings...</span>
+                        </div>
+                        <div class="instance-game-config-actions">
+                          <button class="inline-action" type="button" data-game-config-reset-current disabled>Reset Current</button>
+                          <button class="inline-action" type="button" data-game-config-reset-default disabled>Reset Defaults</button>
+                          <button class="inline-action" type="button" data-game-config-save-restart disabled>Save and Restart</button>
+                        </div>
+                      </div>
+                      <div class="instance-game-config-toolbar">
+                        <label class="ssh-field instance-game-config-search"><span>Search Settings</span><input data-game-config-search autocomplete="off"></label>
+                        <label class="console-toggle"><input type="checkbox" data-game-config-advanced><span>Advanced</span></label>
+                      </div>
+                      <div class="instance-game-config-status" data-game-config-status role="status">No game configuration loaded.</div>
+                      <div class="instance-game-config-layout">
+                        <nav class="instance-game-config-sections" data-game-config-sections aria-label="Configuration sections"></nav>
+                        <div class="instance-game-config-fields" data-game-config-fields></div>
+                      </div>
                     </section>
                     <div class="ssh-connection-actions"><button class="inline-action" type="submit" data-instance-config-save disabled>Save</button><button class="inline-action" type="button" data-instance-config-cancel disabled>Cancel</button><span data-instance-config-dirty>Saved</span></div>
                   </form>

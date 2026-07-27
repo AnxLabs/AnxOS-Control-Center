@@ -6,9 +6,9 @@ let serviceInvoked = false;
 const serviceNames = [
   "clearInstanceLogs", "createInstance", "createInstanceFolder", "deleteInstance", "deleteInstanceFile",
   "duplicateInstance", "forgetInstance", "forceKillInstance", "getInstanceLogs", "getInstanceMetrics",
-  "getInstanceStatus", "getFiveMReadiness", "getMinecraftProperties", "listInstanceFiles", "listInstances",
+  "getInstanceStatus", "getFiveMReadiness", "getGameServerConfig", "getMinecraftProperties", "listInstanceFiles", "listInstances",
   "openInstanceFolder", "readInstanceFile", "renameInstance", "renameInstanceFile", "restartInstance",
-  "saveMinecraftProperties", "saveFiveMLicenseKey", "sendInstanceCommand", "startInstance", "stopInstance",
+  "saveGameServerConfig", "saveMinecraftProperties", "saveFiveMLicenseKey", "sendInstanceCommand", "startInstance", "stopInstance",
   "updateInstance", "writeInstanceFile",
 ];
 const serviceRouter = Object.fromEntries(serviceNames.map((name) => [name, async () => {
@@ -48,6 +48,7 @@ async function main() {
     "instances:getLogs",
     "instances:listFiles",
     "instances:readFile",
+    "instances:getGameServerConfig",
     "instances:getMinecraftProperties",
     "instances:getFiveMReadiness",
     "instances:create",

@@ -273,6 +273,8 @@ const desktopApi = {
     deleteFile: (instanceId, path, options = {}) => ipcRenderer.invoke("instances:deleteFile", { ...options, instanceId, path }),
     createFolder: (instanceId, path, options = {}) => ipcRenderer.invoke("instances:createFolder", { ...options, instanceId, path }),
     renameFile: (instanceId, oldPath, newPath, options = {}) => ipcRenderer.invoke("instances:renameFile", { ...options, instanceId, oldPath, newPath }),
+    getGameServerConfig: (instanceId, options = {}) => ipcRenderer.invoke("instances:getGameServerConfig", { ...options, instanceId }),
+    saveGameServerConfig: (instanceId, payload = {}, options = {}) => ipcRenderer.invoke("instances:saveGameServerConfig", { ...options, ...payload, instanceId }),
     getMinecraftProperties: (instanceId, options = {}) => ipcRenderer.invoke("instances:getMinecraftProperties", { ...options, instanceId }),
     saveMinecraftProperties: (instanceId, properties, options = {}) => ipcRenderer.invoke("instances:saveMinecraftProperties", { ...options, instanceId, properties }),
     getFiveMReadiness: (instanceId, options = {}) => ipcRenderer.invoke("instances:getFiveMReadiness", { ...options, instanceId }),

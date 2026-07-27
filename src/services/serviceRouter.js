@@ -705,6 +705,20 @@ async function getMinecraftProperties(instanceId, options = {}) {
   return getAgentNodeClient(options).getMinecraftProperties(instanceId);
 }
 
+async function getGameServerConfig(instanceId, options = {}) {
+  if (shouldUseLocalInstances(options)) {
+    return localInstanceService.readGameServerConfig(instanceId, options);
+  }
+  return getAgentNodeClient(options).getGameServerConfig(instanceId, options);
+}
+
+async function saveGameServerConfig(instanceId, payload = {}, options = {}) {
+  if (shouldUseLocalInstances(options)) {
+    return localInstanceService.writeGameServerConfig(instanceId, payload);
+  }
+  return getAgentNodeClient(options).saveGameServerConfig(instanceId, payload);
+}
+
 async function saveMinecraftProperties(instanceId, properties, options = {}) {
   if (shouldUseLocalInstances(options)) {
     return localInstanceService.writeMinecraftProperties(instanceId, properties);
@@ -1026,6 +1040,7 @@ module.exports = {
   getInstanceLogs,
   getInstanceMetrics,
   getInstanceStatus,
+  getGameServerConfig,
   openInstanceFolder,
   getFiveMReadiness,
   getMinecraftProperties,
@@ -1060,6 +1075,7 @@ module.exports = {
   runDockerCleanup,
   restoreBackup,
   saveFiveMLicenseKey,
+  saveGameServerConfig,
   saveMinecraftProperties,
   saveBackupSchedule,
   sendInstanceCommand,
