@@ -13,6 +13,7 @@ const agentServerPath = path.join(root, "agent", "src", "server.js");
 const agentClientPath = path.join(root, "src", "services", "agentClient.js");
 const appPath = path.join(root, "app.js");
 const indexPath = path.join(root, "index.html");
+const stylesPath = path.join(root, "styles.css");
 const preloadPath = path.join(root, "preload.js");
 const ipcPath = path.join(root, "src", "ipc", "publicAccessIpc.js");
 
@@ -29,6 +30,7 @@ const agentServerSource = fs.readFileSync(agentServerPath, "utf8");
 const agentClientSource = fs.readFileSync(agentClientPath, "utf8");
 const appSource = fs.readFileSync(appPath, "utf8");
 const indexSource = fs.readFileSync(indexPath, "utf8");
+const stylesSource = fs.readFileSync(stylesPath, "utf8");
 const preloadSource = fs.readFileSync(preloadPath, "utf8");
 const ipcSource = fs.readFileSync(ipcPath, "utf8");
 
@@ -504,7 +506,26 @@ assert(indexSource.includes("data-playit-service-actions") && indexSource.includ
   "share-server",
   "openShareServerModal",
   "getShareServerAddresses",
+  "getShareServerAccessHealth",
+  "getRecommendedShareServerAddress",
+  "getShareServerDiagnosticMessages",
+  "getInstanceAccessBadges",
   "getShareServerInstructions",
+  "buildShareServerInviteText",
+  "Join my Minecraft server:",
+  "Join my Palworld server using Direct Connect:",
+  "Join my server:",
+  "Only works on the same local network.",
+  "Works outside my network through Playit.",
+  "Requires Tailscale access.",
+  "Access Health",
+  "Friend can’t join?",
+  "Public access ready",
+  "Port not listening",
+  "Playit stopped",
+  "No tunnel matched",
+  "Multiple tunnels matched",
+  "Node disconnected",
   "Copy Invite Text",
   "How Friends Join",
   "Only people on your local network can use this address.",
@@ -532,6 +553,9 @@ assert(indexSource.includes("data-playit-service-actions") && indexSource.includ
   "selectedPublicAccessProviderId",
   "selectedPublicAccessServiceId",
 ].forEach((needle) => assert(appSource.includes(needle), `Public Access UX should include ${needle}.`));
+assert(stylesSource.includes(".share-server-health") && stylesSource.includes(".share-server-diagnostics") && stylesSource.includes(".instance-access-badge--ok"), "Share Server access health and compact instance badges must have CSS.");
+assert(functionBody(appSource, "copyInstanceAccessAddress").includes("getRecommendedShareServerAddress"), "Copy Access should use the recommended healthy address instead of requiring a linked service address.");
+assert(appSource.includes("function buildShareServerInviteText") && appSource.includes("if (!isUsableShareAddress(entry.address)) return \"\";"), "Invite text must not copy empty, placeholder, or Checking addresses.");
 assert(agentClientSource.includes("PUBLIC_ACCESS_REQUEST_TIMEOUT_MS") && agentClientSource.includes("timeoutMs: PUBLIC_ACCESS_REQUEST_TIMEOUT_MS"), "Public Access Agent calls must use a bounded timeout.");
 const createProviderBody = functionBody(appSource, "createProviderAccessService");
 assert(!/window\.prompt|prompt\(/.test(createProviderBody), "Create Access Service workflow must not use browser prompt().");

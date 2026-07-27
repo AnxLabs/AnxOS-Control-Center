@@ -5285,6 +5285,33 @@ body.is-resizing-files * {
   white-space: nowrap;
 }
 
+.instance-access-badges {
+  gap: 4px;
+}
+
+.instance-tags-cell .instance-access-badge {
+  max-width: 124px;
+  font-size: 0.7rem;
+}
+
+.instance-access-badge--ok {
+  border-color: rgba(69, 224, 143, 0.22);
+  background: rgba(69, 224, 143, 0.12);
+  color: rgba(186, 255, 219, 0.9);
+}
+
+.instance-access-badge--warning {
+  border-color: rgba(245, 196, 81, 0.22);
+  background: rgba(245, 196, 81, 0.12);
+  color: rgba(255, 231, 179, 0.9);
+}
+
+.instance-access-badge--critical {
+  border-color: rgba(255, 107, 138, 0.24);
+  background: rgba(255, 107, 138, 0.12);
+  color: rgba(255, 214, 224, 0.92);
+}
+
 .instance-row-actions {
   display: flex;
   gap: 6px;
@@ -8657,6 +8684,81 @@ body.has-open-modal {
   gap: 10px;
 }
 
+.share-server-health {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.share-server-health h3 {
+  margin: 0;
+  font-size: 0.94rem;
+}
+
+.share-server-health__status {
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.share-server-health__status--public-access-ready,
+.share-server-health__status--ready {
+  color: var(--success);
+}
+
+.share-server-health__status--server-failed,
+.share-server-health__status--port-not-listening {
+  color: var(--danger);
+}
+
+.share-server-health__grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.share-server-health__grid div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.share-server-health__grid span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+}
+
+.share-server-health__grid strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 0.8rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.share-server-diagnostics {
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.share-server-diagnostics summary {
+  cursor: pointer;
+  color: var(--text);
+  font-weight: 700;
+}
+
+.share-server-diagnostics ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
 .share-server-address,
 .share-server-empty {
   display: grid;
@@ -8712,6 +8814,12 @@ body.has-open-modal {
   padding-left: 20px;
   color: var(--text);
   line-height: 1.55;
+}
+
+@media (max-width: 720px) {
+  .share-server-health__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .public-access-create-form {

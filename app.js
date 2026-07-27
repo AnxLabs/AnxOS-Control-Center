@@ -7718,6 +7718,14 @@ function normalizeShareAddress(value = "") {
   return String(value || "").trim().replace(/\.$/, "");
 }
 
+function isUsableShareAddress(value = "") {
+  const address = normalizeShareAddress(value);
+  if (!address) return false;
+  if (/^(?:checking|unknown|unavailable|none|null|undefined)$/i.test(address)) return false;
+  if (/\b(?:example\.com|example\.invalid|example\.playit|placeholder)\b/i.test(address)) return false;
+  return /[a-z0-9\]](?::\d{1,5})?$/i.test(address);
+}
+
 function getShareServerInstructions(instance = findInstance()) {
   const kind = getInstanceAccessGameKind(instance);
   if (kind === "minecraft") {
@@ -7745,6 +7753,25 @@ function getShareInviteGameLabel(instance = findInstance()) {
   if (kind === "terraria") return "Terraria";
   if (kind === "fivem") return "FiveM";
   return "server";
+}
+
+function getShareServerInvitePrefix(instance = findInstance()) {
+  const kind = getInstanceAccessGameKind(instance);
+  if (kind === "minecraft") return "Join my Minecraft server:";
+  if (kind === "palworld") return "Join my Palworld server using Direct Connect:";
+  return "Join my server:";
+}
+
+function buildShareServerInviteText(instance = findInstance(), entry = {}) {
+  if (!isUsableShareAddress(entry.address)) return "";
+  const suffix = entry.providerId === "playit" || entry.availability === "public"
+    ? " Works outside my network through Playit."
+    : entry.providerId === "tailscale" || entry.availability === "private"
+      ? " Requires Tailscale access."
+      : entry.availability === "lan"
+        ? " Only works on the same local network."
+        : "";
+  return `${getShareServerInvitePrefix(instance)} ${normalizeShareAddress(entry.address)}${suffix}`;
 }
 
 function findSharePlayitTunnelMatches(instance = findInstance()) {
@@ -7827,6 +7854,118 @@ function getShareServerAddresses(instance = findInstance()) {
   }
 
   return addresses.sort((left, right) => Number(right.recommended) - Number(left.recommended));
+}
+
+function getInstanceProcessAccessState(instance = {}) {
+  const state = String(instance?.state || instance?.status || "").toLowerCase();
+  if (isInstanceRunning(instance)) return "running";
+  if (state.includes("fail")) return "failed";
+  if (state.includes("stop")) return "stopped";
+  return "unknown";
+}
+
+function getInstanceListeningPorts(instance = {}) {
+  const runtimePorts = [
+    ...(Array.isArray(instance?.runtimeProcess?.ports) ? instance.runtimeProcess.ports : []),
+    ...(Array.isArray(instance?.runtime?.ports) ? instance.runtime.ports : []),
+    ...(Array.isArray(instance?.metrics?.ports) ? instance.metrics.ports : []),
+  ];
+  return runtimePorts
+    .map((entry) => Number(typeof entry === "object" ? entry.port : entry))
+    .filter((port) => Number.isInteger(port) && port > 0);
+}
+
+function getShareServerAccessHealth(instance = findInstance()) {
+  const port = Number(getInstancePrimaryPort(instance));
+  const processState = getInstanceProcessAccessState(instance);
+  const listeningPorts = getInstanceListeningPorts(instance);
+  const portState = processState === "running"
+    ? Number.isInteger(port) && listeningPorts.length
+      ? listeningPorts.includes(port) ? "listening" : "not-listening"
+      : "unknown"
+    : processState === "stopped" || processState === "failed" ? "not-listening" : "unknown";
+  const nodeUnavailable = getPublicAccessUnavailableReason();
+  const playitState = nodeUnavailable
+    ? "unavailable"
+    : latestPlayitServiceStatus?.serviceState || latestPlayitServiceStatus?.service?.state || (latestPlayitServiceStatus?.running ? "running" : latestPlayitServiceStatus?.installed ? "stopped" : "unknown");
+  const playitMatches = findSharePlayitTunnelMatches(instance);
+  const services = getInstanceAccessServices(instance);
+  const tailscaleProvider = getInstanceAccessProvider("tailscale");
+  const addresses = getShareServerAddresses(instance);
+  const usablePublic = addresses.some((entry) => entry.availability === "public" && isUsableShareAddress(entry.address));
+  const usableLan = addresses.some((entry) => entry.availability === "lan" && isUsableShareAddress(entry.address));
+  const usableTailscale = addresses.some((entry) => entry.availability === "private" && isUsableShareAddress(entry.address));
+  let tunnelMatch = "unknown";
+  if (nodeUnavailable) tunnelMatch = "unknown";
+  else if (playitMatches.length > 1) tunnelMatch = "multiple";
+  else if (playitMatches.length === 1 || services.some((service) => service.providerId === "playit" && isUsableShareAddress(getInstanceAccessAddress(service)))) tunnelMatch = "matched";
+  else tunnelMatch = "not-matched";
+
+  let status = "Unknown";
+  if (nodeUnavailable) status = "Node disconnected";
+  else if (processState === "failed") status = "Server failed";
+  else if (processState === "stopped") status = "Server stopped";
+  else if (portState === "not-listening") status = "Port not listening";
+  else if (usablePublic && playitState === "running" && tunnelMatch === "matched") status = "Public access ready";
+  else if (usablePublic && tunnelMatch === "multiple") status = "Multiple tunnels matched";
+  else if (playitState === "stopped" && !usablePublic) status = "Playit stopped";
+  else if (tunnelMatch === "not-matched" && !usablePublic) status = usableLan || usableTailscale ? "Local only" : "No tunnel matched";
+  else if (usableLan || usableTailscale) status = "Local only";
+  else if (processState === "running") status = "Ready";
+
+  return {
+    status,
+    processState,
+    portState,
+    lan: usableLan ? "available" : "unavailable",
+    playitState,
+    tunnelMatch,
+    publicAddress: usablePublic ? "available" : "unavailable",
+    tailscale: usableTailscale || tailscaleProvider?.connected ? "available" : tailscaleProvider ? "configured" : "unavailable",
+    nodeState: nodeUnavailable ? "disconnected" : "available",
+    lastCheckedAt: new Date().toISOString(),
+  };
+}
+
+function getRecommendedShareServerAddress(instance = findInstance()) {
+  const addresses = getShareServerAddresses(instance).filter((entry) => isUsableShareAddress(entry.address));
+  const healthyPlayit = addresses.find((entry) => entry.providerId === "playit" && entry.availability === "public" && entry.recommended);
+  if (healthyPlayit) return healthyPlayit;
+  const anyPlayit = addresses.find((entry) => entry.providerId === "playit" && entry.availability === "public");
+  if (anyPlayit) return anyPlayit;
+  const tailscale = addresses.find((entry) => entry.providerId === "tailscale" || entry.availability === "private");
+  if (tailscale) return tailscale;
+  return addresses.find((entry) => entry.availability === "lan") || addresses[0] || null;
+}
+
+function getShareServerDiagnosticMessages(instance = findInstance(), health = getShareServerAccessHealth(instance)) {
+  if (health.nodeState === "disconnected") return ["Reconnect to the node to refresh access health."];
+  if (health.processState === "stopped") return ["Start the server first."];
+  if (health.processState === "failed") return ["The server failed to start. Check console logs."];
+  if (health.portState === "not-listening") return ["The game port is not listening yet."];
+  if (health.playitState === "stopped") return ["Start Playit in Public Access."];
+  if (health.tunnelMatch === "not-matched") return ["Create or select a Playit tunnel for this server port."];
+  if (health.tunnelMatch === "multiple") return ["Multiple tunnels match this port. Pick the correct public address manually."];
+  const recommended = getRecommendedShareServerAddress(instance);
+  if (recommended?.availability === "lan") return ["Only people on your local network can join with this address."];
+  return ["Access looks ready. Ask your friend to paste the copied address exactly."];
+}
+
+function getInstanceAccessBadges(instance = findInstance()) {
+  if (!instance) return [];
+  const health = getShareServerAccessHealth(instance);
+  const badges = [];
+  if (health.nodeState === "disconnected") badges.push({ label: "Node disconnected", tone: "planned" });
+  else if (health.processState === "failed") badges.push({ label: "Server failed", tone: "critical" });
+  else if (health.processState === "stopped") badges.push({ label: "Server stopped", tone: "planned" });
+  else if (health.portState === "not-listening") badges.push({ label: "Port not listening", tone: "warning" });
+  if (health.status === "Public access ready") badges.push({ label: "Public access ready", tone: "ok" });
+  else if (health.tunnelMatch === "multiple") badges.push({ label: "Multiple tunnels", tone: "warning" });
+  else if (health.playitState === "running" && health.tunnelMatch === "matched") badges.push({ label: "Playit online", tone: "ok" });
+  else if (health.tailscale === "available") badges.push({ label: "Tailscale available", tone: "planned" });
+  else if (health.lan === "available") badges.push({ label: "Local only", tone: "planned" });
+  if (badges.length === 0 && getInstancePrimaryPort(instance)) badges.push({ label: "No public access", tone: "planned" });
+  return badges.slice(0, 3);
 }
 
 function getInstanceAccessProvider(providerId, snapshot = latestPublicAccessSnapshot) {
@@ -8436,23 +8575,12 @@ async function createAccessServiceForInstance(instance = findInstance(), preferr
 }
 
 async function copyInstanceAccessAddress(instance = findInstance()) {
-  const services = getInstanceAccessServices(instance);
-  if (services.length === 0) {
-    showToast("No access service is linked to this instance yet.", "warning");
+  const selected = getRecommendedShareServerAddress(instance);
+  if (!selected || !isUsableShareAddress(selected.address)) {
+    showToast("No usable access address is available yet.", "warning");
     return;
   }
-  const choices = services
-    .map((service) => ({ service, address: getInstanceAccessAddress(service) }))
-    .filter((entry) => entry.address);
-  if (choices.length === 0) {
-    showToast("Linked access services do not have a copyable address yet.", "warning");
-    return;
-  }
-  let selected = choices[0];
-  if (choices.length > 1) {
-    selected = choices.find((entry) => entry.service.id === selectedPublicAccessServiceId) || selected;
-  }
-  await copyPublicAccessValue(selected.address, "Access address copied.", "No access address is available to copy.");
+  await copyPublicAccessValue(selected.address, `${selected.label} copied.`, "No usable access address is available to copy.");
 }
 
 function createShareServerAddressRow(entry, instance) {
@@ -8462,6 +8590,7 @@ function createShareServerAddressRow(entry, instance) {
   copyButton.type = "button";
   copyButton.className = "inline-action";
   copyButton.textContent = "Copy";
+  copyButton.disabled = !isUsableShareAddress(entry.address);
   copyButton.addEventListener("click", () => copyPublicAccessValue(entry.address, `${entry.label} copied.`, "No address is available to copy."));
   const top = document.createElement("div");
   top.className = "share-server-address__top";
@@ -8471,11 +8600,12 @@ function createShareServerAddressRow(entry, instance) {
   );
   const address = createTextElement("code", entry.address || "Unavailable", "share-server-address__value");
   const detail = createTextElement("p", entry.detail || "Copy this address and send it to friends.");
-  const invite = `Join my ${getShareInviteGameLabel(instance)} server: ${entry.address}`;
+  const invite = buildShareServerInviteText(instance, entry);
   const inviteButton = document.createElement("button");
   inviteButton.type = "button";
   inviteButton.className = "inline-action";
   inviteButton.textContent = "Copy Invite Text";
+  inviteButton.disabled = !invite;
   inviteButton.addEventListener("click", () => copyPublicAccessValue(invite, "Invite text copied.", "No invite text is available to copy."));
   const actions = document.createElement("div");
   actions.className = "share-server-address__actions";
@@ -8516,8 +8646,42 @@ function openShareServerModal(instance = findInstance()) {
 
   const body = document.createElement("div");
   body.className = "app-modal__body share-server-body";
+  const health = getShareServerAccessHealth(instance);
   const addresses = getShareServerAddresses(instance);
   const publicAddresses = addresses.filter((entry) => entry.availability === "public");
+  const recommended = getRecommendedShareServerAddress(instance);
+  addresses.forEach((entry) => {
+    entry.recommended = Boolean(recommended && entry.id === recommended.id);
+  });
+  const healthSection = document.createElement("section");
+  healthSection.className = "share-server-health";
+  healthSection.append(
+    createTextElement("h3", "Access Health"),
+    createTextElement("strong", health.status, `share-server-health__status share-server-health__status--${String(health.status).toLowerCase().replace(/[^a-z0-9]+/g, "-")}`),
+  );
+  const healthGrid = document.createElement("div");
+  healthGrid.className = "share-server-health__grid";
+  [
+    ["Server", health.processState],
+    ["Port", health.portState],
+    ["LAN", health.lan],
+    ["Playit", health.playitState],
+    ["Tunnel", health.tunnelMatch],
+    ["Public", health.publicAddress],
+    ["Tailscale", health.tailscale],
+    ["Checked", formatDateTime(health.lastCheckedAt)],
+  ].forEach(([label, value]) => {
+    const item = document.createElement("div");
+    item.append(createTextElement("span", label), createTextElement("strong", value || "unknown"));
+    healthGrid.append(item);
+  });
+  const diagnostics = document.createElement("details");
+  diagnostics.className = "share-server-diagnostics";
+  diagnostics.append(createTextElement("summary", "Friend can’t join?"));
+  const diagnosticList = document.createElement("ul");
+  getShareServerDiagnosticMessages(instance, health).forEach((message) => diagnosticList.append(createTextElement("li", message)));
+  diagnostics.append(diagnosticList);
+  healthSection.append(healthGrid, diagnostics);
   const list = document.createElement("div");
   list.className = "share-server-address-list";
   if (addresses.length) {
@@ -8543,7 +8707,7 @@ function openShareServerModal(instance = findInstance()) {
   const steps = document.createElement("ol");
   getShareServerInstructions(instance).forEach((step) => steps.append(createTextElement("li", step)));
   instructions.append(steps);
-  body.append(list, instructions);
+  body.append(healthSection, list, instructions);
 
   const footer = document.createElement("div");
   footer.className = "app-modal__actions";
@@ -12378,7 +12542,7 @@ function updateInstanceActionButtons() {
   });
 
   document.querySelectorAll('[data-instance-action="copy-access-address"]').forEach((button) => {
-    const hasAddress = getInstanceAccessServices(selectedInstance).some((service) => Boolean(getInstanceAccessAddress(service)));
+    const hasAddress = Boolean(getRecommendedShareServerAddress(selectedInstance));
     button.disabled = busy || !hasInstancesBridge || !selectedInstance || !hasAddress;
   });
 
@@ -12448,24 +12612,16 @@ function buildInstanceNameCell(instance) {
   const meta = document.createElement("span");
   meta.textContent = instance?.id || "missing-id";
   wrapper.append(title, meta);
-  const accessServices = getInstanceAccessServices(instance);
-  if (accessServices.length > 0) {
+  const accessBadges = getInstanceAccessBadges(instance);
+  if (accessBadges.length > 0) {
     const badges = document.createElement("div");
     badges.className = "instance-tags-cell instance-access-badges";
-    accessServices.slice(0, 3).forEach((service) => {
+    accessBadges.forEach((entry) => {
       const badge = document.createElement("span");
-      badge.textContent = getInstanceAccessBadgeLabel(service);
-      const address = getInstanceAccessAddress(service);
-      if (address) {
-        badge.title = address;
-      }
+      badge.className = `instance-access-badge instance-access-badge--${entry.tone || "planned"}`;
+      badge.textContent = entry.label;
       badges.appendChild(badge);
     });
-    if (accessServices.length > 3) {
-      const more = document.createElement("span");
-      more.textContent = `+${accessServices.length - 3}`;
-      badges.appendChild(more);
-    }
     wrapper.appendChild(badges);
   }
   return wrapper;
