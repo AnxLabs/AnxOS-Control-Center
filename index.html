@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-ui-generation="v1.9">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -91,7 +91,7 @@
             <span class="app-titlebar__brand-mark"><img src="src/assets/anxos-logo.png" alt="" aria-hidden="true"></span>
             <div class="app-titlebar__brand-copy">
               <strong data-app-name>AnxOS Control Center</strong>
-              <span>AnxOS Desktop Shell</span>
+              <span>Home Server Control</span>
             </div>
           </div>
 
@@ -491,17 +491,17 @@
         <section class="page is-active" data-page="dashboard">
           <header class="page-header">
             <div>
-              <p class="eyebrow">Overview</p>
+              <p class="eyebrow">Home</p>
               <h1>Dashboard</h1>
-              <p class="lede">Live system metrics from the selected system.</p>
+              <p class="lede">Your systems, services, and access in one place.</p>
             </div>
           </header>
 
           <section class="dashboard-welcome" aria-labelledby="dashboard-overview-title">
             <div class="dashboard-welcome__header">
               <div>
-                <p class="eyebrow">Your AnxOS Overview</p>
-                <h2 id="dashboard-overview-title">See what is connected, what is running, and anything that needs your attention.</h2>
+                <p class="eyebrow">Control Center</p>
+                <h2 id="dashboard-overview-title">Everything running across your AnxOS network.</h2>
               </div>
             </div>
             <div class="dashboard-context-strip" aria-label="Selected system summary">
@@ -553,12 +553,14 @@
               <button class="primary-button" type="button" data-dashboard-next-action>Open Dashboard</button>
             </div>
             <div class="dashboard-quick-actions" aria-label="Dashboard quick actions">
-              <button class="inline-action" type="button" data-dashboard-action="create-server">Create a Server</button>
-              <button class="inline-action" type="button" data-dashboard-action="instances">View Instances</button>
-              <button class="inline-action" type="button" data-dashboard-action="files">Open Files</button>
-              <button class="inline-action" type="button" data-dashboard-action="docker">Manage Docker</button>
-              <button class="inline-action" type="button" data-dashboard-action="nodes">Add Remote System</button>
-              <button class="inline-action" type="button" data-dashboard-action="public-access">Configure Public Access</button>
+              <button class="inline-action dashboard-launcher dashboard-launcher--primary" type="button" data-dashboard-action="create-server"><span>Create</span><strong>New Instance</strong></button>
+              <button class="inline-action dashboard-launcher" type="button" data-dashboard-action="instances"><span>Manage</span><strong>Instances</strong></button>
+              <button class="inline-action dashboard-launcher" type="button" data-dashboard-action="share-server"><span>Invite</span><strong>Share Server</strong></button>
+              <button class="inline-action dashboard-launcher" type="button" data-dashboard-action="public-access"><span>Connect</span><strong>Public Access</strong></button>
+              <button class="inline-action dashboard-launcher" type="button" data-dashboard-action="backups"><span>Protect</span><strong>Backups</strong></button>
+              <button class="inline-action dashboard-launcher" type="button" data-dashboard-action="marketplace"><span>Browse</span><strong>Marketplace</strong></button>
+              <button class="inline-action dashboard-launcher" type="button" data-dashboard-action="docker"><span>Operate</span><strong>Docker</strong></button>
+              <button class="inline-action dashboard-launcher" type="button" data-dashboard-action="nodes"><span>Connect</span><strong>Add Node</strong></button>
             </div>
             <div class="dashboard-friendly-empty" data-dashboard-friendly-empty hidden></div>
           </section>

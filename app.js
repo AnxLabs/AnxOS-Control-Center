@@ -35049,6 +35049,13 @@ function runDashboardFriendlyAction(action) {
   if (action === "create-server") return openFirstServerGuide();
   if (action === "marketplace") return showPage("marketplace");
   if (action === "instances") return showPage("instances");
+  if (action === "share-server") {
+    const instance = findInstance();
+    if (instance) return openShareServerModal(instance);
+    showToast("Create or select an instance before sharing a server.", "info");
+    return showPage("instances");
+  }
+  if (action === "backups") return showPage("backups");
   if (action === "files") return showPage("files");
   if (action === "docker") return showPage("docker");
   if (action === "nodes") {

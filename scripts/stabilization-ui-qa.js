@@ -250,6 +250,11 @@ async function main() {
 
     await page.evaluate(() => window.showPage?.("dashboard"));
     await page.waitForTimeout(250);
+    await page.evaluate(() => {
+      const main = document.querySelector(".main-content");
+      if (main) main.scrollTop = 0;
+      window.scrollTo(0, 0);
+    });
     const dashboardText = await page.locator("[data-dashboard-friendly-empty]").textContent().catch(() => "");
     const instanceCount = await page.evaluate(() => Array.isArray(window.latestInstancesSnapshot?.instances) ? window.latestInstancesSnapshot.instances.length : null).catch(() => null);
     if (instanceCount && instanceCount > 0) {
@@ -257,6 +262,31 @@ async function main() {
     }
 
     await page.screenshot({ path: path.join(artifactDir, "stabilization-1182x821.png") });
+    for (const workspace of ["instances", "playit", "marketplace", "nodes"]) {
+      await page.evaluate((pageName) => {
+        window.showPage?.(pageName);
+        const main = document.querySelector(".main-content");
+        if (main) main.scrollTop = 0;
+      }, workspace);
+      await page.waitForTimeout(150);
+      const horizontalLayout = await page.evaluate(() => {
+        const main = document.querySelector(".main-content");
+        if (!main) return { overflow: 0, offenders: [] };
+        const right = main.getBoundingClientRect().right;
+        const offenders = Array.from(main.querySelectorAll("*"))
+          .map((element) => ({ element, box: element.getBoundingClientRect() }))
+          .filter(({ box }) => box.width > 0 && box.right > right + 2)
+          .slice(0, 8)
+          .map(({ element, box }) => ({
+            className: String(element.className || "").slice(0, 100),
+            tagName: element.tagName,
+            overflow: Math.round(box.right - right),
+          }));
+        return { overflow: main.scrollWidth - main.clientWidth, offenders };
+      });
+      assert(horizontalLayout.overflow <= 8, `${workspace} workspace must not introduce page-level horizontal overflow beyond its native scrollbar gutter: ${JSON.stringify(horizontalLayout)}`);
+      await page.screenshot({ path: path.join(artifactDir, `v19-${workspace}-1182x821.png`) });
+    }
     if (rendererErrors.length) {
       writeArtifacts({ pass: false, rendererErrors, fileLayout });
       throw new Error(`Renderer errors were reported: ${rendererErrors.join("; ")}`);
