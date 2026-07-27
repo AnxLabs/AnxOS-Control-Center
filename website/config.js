@@ -5,18 +5,18 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   siteUrl: "https://anxoscontrolcenter.org",
   logoPath: "/assets/anxos-logo.png",
   latestVersion: "1.8",
-  build: "181",
-  buildNumber: "181",
+  build: "182",
+  buildNumber: "182",
   channel: "Private Alpha",
-  releaseLabel: "Version 1.8 Build 181 Private Alpha",
+  releaseLabel: "Version 1.8 Build 182 Private Alpha",
   releaseDate: "July 27, 2026",
-  releaseTag: "v1.8-build181",
+  releaseTag: "v1.8-build182",
   releaseRepository: {
     owner: "bungopam-byte",
     repo: "AnxOS-Control-Center-Releases",
   },
   repositoryUrl: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases",
-  releaseUrl: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build181",
+  releaseUrl: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build182",
   githubReleasesApiUrl: "https://api.github.com/repos/bungopam-byte/AnxOS-Control-Center-Releases/releases?per_page=20",
   stableDownloadEndpoints: {
     windows: "/api/download/latest/windows",
@@ -26,23 +26,43 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   },
   releaseAssets: [
       {
-          fileName: "AnxOS-Control-Center-Setup-1.8-build181.exe",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build181/AnxOS-Control-Center-Setup-1.8-build181.exe"
+          fileName: "AnxOS-Control-Center-Setup-1.8-build182.exe",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build182/AnxOS-Control-Center-Setup-1.8-build182.exe"
       },
       {
-          fileName: "AnxOS-Control-Center-1.8-build181-portable.exe",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build181/AnxOS-Control-Center-1.8-build181-portable.exe"
+          fileName: "AnxOS-Control-Center-1.8-build182-portable.exe",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build182/AnxOS-Control-Center-1.8-build182-portable.exe"
       },
       {
-          fileName: "AnxOS-Control-Center-1.8-build181.AppImage",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build181/AnxOS-Control-Center-1.8-build181.AppImage"
+          fileName: "AnxOS-Control-Center-1.8-build182.AppImage",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build182/AnxOS-Control-Center-1.8-build182.AppImage"
       },
       {
-          fileName: "AnxOS-Control-Center-1.8-build181.deb",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build181/AnxOS-Control-Center-1.8-build181.deb"
+          fileName: "AnxOS-Control-Center-1.8-build182.deb",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build182/AnxOS-Control-Center-1.8-build182.deb"
       }
   ],
   releaseNotes: [
+      {
+          "version": "1.8",
+          "build": 182,
+          "channel": "Private Alpha",
+          "tag": "v1.8-build182",
+          "date": "July 27, 2026",
+          "datetime": "2026-07-27",
+          "title": "Build 182 node health, SSH, setup checklist, and storage polish",
+          "summary": "Private Alpha v1.8 Build 182 stabilizes post-build-181 SSH, node health, dashboard setup, and storage modal polish.",
+          "changes": [
+              "Added bounded SSH connection states for connecting, authenticating, waiting for shell, timed out, and failed flows with clearer retry and cancel behavior.",
+              "Clarified node health diagnostics so historical sanitized log groups do not make an otherwise healthy node look degraded unless they are current and actionable.",
+              "Changed unavailable CPU temperature display to friendly bounded states such as unavailable on this system, not supported by this node, or requires sensor support.",
+              "Fixed Dashboard setup checklist backup detection so Backup created becomes Ready when real managed backups exist for the selected node.",
+              "Polished the Edit Node modal layout, section balance, close alignment, and manual setup readability.",
+              "Polished the SFTP Add Storage modal spacing, provider selection, button placement, and scroll behavior.",
+              "Restored packaged desktop config asset inclusion so marketplace templates and agent examples are present in app.asar validation."
+          ],
+          "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build182"
+      },
       {
           "version": "1.8",
           "build": 181,
