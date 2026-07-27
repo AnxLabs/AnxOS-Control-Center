@@ -133,6 +133,15 @@ function stopWindowsHardwareTemperatureProvider() {
   }
 }
 
+function settlePendingRead(reason) {
+  if (!pendingRead) return false;
+  const current = pendingRead;
+  pendingRead = null;
+  clearTimeout(current.timer);
+  current.resolve(unavailable(reason));
+  return true;
+}
+
 function ensureProvider(helperPath) {
   if (providerProcess && providerPath === helperPath && !providerProcess.killed) return providerProcess;
   stopWindowsHardwareTemperatureProvider();
@@ -143,6 +152,11 @@ function ensureProvider(helperPath) {
   unrefProviderHandle(providerProcess.stdout);
   unrefProviderHandle(providerProcess.stderr);
   providerProcess.stdout.setEncoding("utf8");
+  if (typeof providerProcess.stdin?.on === "function") {
+    providerProcess.stdin.on("error", (error) => {
+      settlePendingRead(error?.code === "EPIPE" ? "provider_pipe_closed" : "provider_stdin_failed");
+    });
+  }
   providerProcess.stdout.on("data", (chunk) => {
     providerBuffer += chunk;
     const newline = providerBuffer.indexOf("\n");
@@ -159,21 +173,12 @@ function ensureProvider(helperPath) {
     }
   });
   providerProcess.on("error", (error) => {
-    if (!pendingRead) return;
-    const current = pendingRead;
-    pendingRead = null;
-    clearTimeout(current.timer);
-    current.resolve(unavailable(error.code === "EACCES" ? "access_denied_or_driver_unavailable" : "provider_failed"));
+    settlePendingRead(error.code === "EACCES" ? "access_denied_or_driver_unavailable" : "provider_failed");
   });
   providerProcess.on("exit", () => {
     providerProcess = null;
     providerPath = null;
-    if (pendingRead) {
-      const current = pendingRead;
-      pendingRead = null;
-      clearTimeout(current.timer);
-      current.resolve(unavailable("provider_exited"));
-    }
+    settlePendingRead("provider_exited");
   });
   if (!shutdownHooksRegistered) {
     shutdownHooksRegistered = true;
@@ -193,7 +198,15 @@ function runHelper(helperPath, options = {}) {
       stopWindowsHardwareTemperatureProvider();
     }, options.timeoutMs || 8000);
     pendingRead = { resolve, timer };
-    provider.stdin.write("read\n");
+    if (!provider.stdin || provider.stdin.destroyed || provider.stdin.writableEnded) {
+      settlePendingRead("provider_pipe_closed");
+      return;
+    }
+    provider.stdin.write("read\n", (error) => {
+      if (error) {
+        settlePendingRead(error.code === "EPIPE" ? "provider_pipe_closed" : "provider_write_failed");
+      }
+    });
   });
 }
 

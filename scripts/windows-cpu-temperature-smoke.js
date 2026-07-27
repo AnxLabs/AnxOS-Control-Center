@@ -188,7 +188,7 @@ Promise.resolve(telemetry.readWindowsHardwareTemperature({ helperPath: path.join
     const builderSource = fs.readFileSync(path.join(__dirname, "run-electron-builder.js"), "utf8");
     assert(builderSource.includes("build-windows-hardware-telemetry.js"), "Windows packaging must build the embedded helper before electron-builder.");
     const providerSource = fs.readFileSync(path.join(__dirname, "../src/shared/windowsHardwareTemperature.js"), "utf8");
-    assert(providerSource.includes("ensureProvider") && providerSource.includes('provider.stdin.write("read\\n")'), "Hardware provider must be initialized once and reused.");
+    assert(providerSource.includes("ensureProvider") && providerSource.includes('provider.stdin.write("read\\n"'), "Hardware provider must be initialized once and reused.");
     assert(providerSource.includes("stopWindowsHardwareTemperatureProvider"), "Hardware provider must be disposed on shutdown.");
     console.log("Windows CPU temperature smoke checks passed.");
   })
