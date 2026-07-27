@@ -732,6 +732,7 @@ let accountCountdownTimer = null;
 let accountStartInFlight = false;
 let accountStartRetryAfter = 0;
 let accountRestorationResolved = false;
+let setupDetectionResolved = false;
 let accountRefreshGeneration = 0;
 let ownerWorkspaceState = { authorized: false, pages: [], contents: {}, selectedPageId: "overview", apiHistory: [] };
 let ownerAutosaveTimer = null;
@@ -28142,9 +28143,9 @@ async function logoutAnxOsAccount() {
 }
 
 async function bootstrapApplication() {
-  const storedSettings = readStoredSettings();
   accountState = { ...accountState, state: "restoring", restorationState: "restoring" };
   accountRestorationResolved = false;
+  setupDetectionResolved = false;
   renderAccountState();
   renderLocalSetupState();
   try {
@@ -28153,8 +28154,14 @@ async function bootstrapApplication() {
   try {
     await refreshSecurityState();
   } catch {}
+  try {
+    await refreshNodes();
+  } catch {}
+  setupDetectionResolved = true;
+  let storedSettings = await loadSettings({ openOnboarding: false });
+  storedSettings = await reconcileOnboardingForExistingSetup(storedSettings);
   applySettings(storedSettings, { openDefaultPage: true });
-  refreshNodes();
+  maybeOpenOnboardingWelcome(storedSettings);
   loadAgentSettings();
   loadMarketplaceSettings();
   loadRuntimeInfo();
@@ -31970,10 +31977,65 @@ async function saveSettingsPatch(patch = {}, { statusMessage = null } = {}) {
 }
 
 function shouldShowOnboardingWelcome(settings = getCurrentSettings()) {
-  return !shouldBlockOnboardingForAccount() &&
+  return setupDetectionResolved &&
+    !shouldBlockOnboardingForAccount() &&
     settings["onboarding.welcomeGuidance"] !== false &&
     settings["onboarding.completed"] !== true &&
     settings["onboarding.skipped"] !== true;
+}
+
+function getExistingSetupEvidence() {
+  const configuredNodes = (nodesState.nodes || []).filter((node) => (
+    node && node.kind !== "application-host" && node.id !== "application-host"
+  ));
+  const savedAccount = accountState.account || {};
+  return {
+    localOwnerConfigured: securityState.setupRequired === false,
+    localSetupComplete: isLocalSetupComplete(),
+    rememberedLocalSession: securityState.persistentSession === true ||
+      Number(securityState.persistentSessionCount || 0) > 0,
+    savedAccountSession: accountState.authenticated === true ||
+      accountState.canRefresh === true ||
+      Boolean(savedAccount.id || savedAccount.email),
+    configuredNodeCount: configuredNodes.length,
+  };
+}
+
+function shouldRepairOnboardingForExistingSetup(settings = getCurrentSettings(), evidence = getExistingSetupEvidence()) {
+  if (!setupDetectionResolved) return false;
+  if (settings["onboarding.completed"] === true || settings["onboarding.skipped"] === true) return false;
+  return evidence.localOwnerConfigured ||
+    evidence.localSetupComplete ||
+    evidence.rememberedLocalSession ||
+    evidence.savedAccountSession ||
+    evidence.configuredNodeCount > 0;
+}
+
+async function reconcileOnboardingForExistingSetup(settings = getCurrentSettings()) {
+  const evidence = getExistingSetupEvidence();
+  if (!shouldRepairOnboardingForExistingSetup(settings, evidence)) return settings;
+  const patch = {
+    "onboarding.started": true,
+    "onboarding.completed": true,
+    "onboarding.skipped": false,
+    "onboarding.currentStep": "complete",
+    "onboarding.version": DEFAULT_SETTINGS["onboarding.version"],
+  };
+  console.info("[Onboarding] Repaired stale first-launch state for an existing setup.", {
+    localOwnerConfigured: evidence.localOwnerConfigured,
+    localSetupComplete: evidence.localSetupComplete,
+    rememberedLocalSession: evidence.rememberedLocalSession,
+    savedAccountSession: evidence.savedAccountSession,
+    configuredNodeCount: evidence.configuredNodeCount,
+  });
+  try {
+    return await saveSettingsPatch(patch);
+  } catch (error) {
+    console.warn("[Onboarding] Could not persist upgraded setup state; using the repaired state for this launch.", {
+      code: error?.code || "ONBOARDING_REPAIR_FAILED",
+    });
+    return { ...settings, ...patch };
+  }
 }
 
 function setOnboardingWelcomeVisible(visible) {
@@ -32853,7 +32915,7 @@ function renderSettingsSearch() {
   });
 }
 
-async function loadSettings() {
+async function loadSettings(options = {}) {
   const desktopApiState = getDesktopApiState();
   await refreshSettingsPermissions();
   let settings = readStoredSettings();
@@ -32875,7 +32937,10 @@ async function loadSettings() {
   const storedCategory = (() => { try { return window.sessionStorage.getItem("anxos-settings-category"); } catch { return null; } })();
   const routeCategory = readRequestedSettingsCategoryFromLocation();
   setActiveSettingsCategory(routeCategory || storedCategory || activeSettingsCategory || "general");
-  maybeOpenOnboardingWelcome(settings);
+  if (options.openOnboarding !== false) {
+    maybeOpenOnboardingWelcome(settings);
+  }
+  return settings;
 }
 
 async function saveSettings() {
@@ -35818,7 +35883,6 @@ windowMaximizedUnsubscribe = getDesktopWindowApi()?.onMaximizedChanged?.((isMaxi
 syncTitlebarWindowState();
 configurePrimaryNavigation();
 ensurePageIntroductions();
-loadSettings();
 renderOperationsCenter();
 renderNotificationCenter();
 renderMaintenanceCenter();

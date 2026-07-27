@@ -108,6 +108,9 @@ try {
     "Finish Setup",
     "shouldShowOnboardingWelcome",
     "maybeOpenOnboardingWelcome",
+    "getExistingSetupEvidence",
+    "shouldRepairOnboardingForExistingSetup",
+    "reconcileOnboardingForExistingSetup",
     "setOnboardingWizardVisible",
     "renderOnboardingWizard",
     "renderOnboardingSetupTypeStep",
@@ -184,6 +187,12 @@ try {
   assert(app.includes("Object.entries(patch || {}).filter(([key]) => isSettingKeyAuthorized(key))"), "Onboarding preference saves should send only the requested patch so pre-sign-in writes remain narrowly scoped.");
   assert(app.includes("No dependency check has completed yet"), "Wizard dependency step should not invent dependency results.");
   assert(app.includes("settings[\"onboarding.started\"] === true"), "Interrupted onboarding should resume the saved wizard step.");
+  assert(app.includes("setupDetectionResolved &&"), "First Launch must stay hidden while existing setup detection is pending.");
+  assert(app.includes("securityState.setupRequired === false"), "An existing local owner must bypass stale First Launch state.");
+  assert(app.includes("securityState.persistentSession === true"), "A remembered local session must count as existing setup evidence.");
+  assert(app.includes("accountState.canRefresh === true"), "A restorable account session must count as existing setup evidence.");
+  assert(app.includes("configuredNodeCount > 0"), "Persisted nodes must count as existing setup evidence.");
+  assert(app.includes('"onboarding.currentStep": "complete"'), "Upgrade reconciliation must persist a completed onboarding state.");
   assert(app.includes("No servers yet") && app.includes("Only this computer is connected"), "Dashboard empty states should give clear first steps.");
   assert(app.includes("The Agent is not responding.") && app.includes("Check that the Agent is running, then try again."), "Common backend errors should have friendly mappings.");
   assert(app.includes("copyNotificationDetails") && app.includes("notification.technicalDetails"), "Copied technical details should use the structured notification details path.");
