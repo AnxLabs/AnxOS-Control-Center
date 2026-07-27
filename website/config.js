@@ -5,18 +5,18 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   siteUrl: "https://anxoscontrolcenter.org",
   logoPath: "/assets/anxos-logo.png",
   latestVersion: "1.8",
-  build: "184",
-  buildNumber: "184",
+  build: "185",
+  buildNumber: "185",
   channel: "Private Alpha",
-  releaseLabel: "Version 1.8 Build 184 Private Alpha",
+  releaseLabel: "Version 1.8 Build 185 Private Alpha",
   releaseDate: "July 27, 2026",
-  releaseTag: "v1.8-build184",
+  releaseTag: "v1.8-build185",
   releaseRepository: {
     owner: "bungopam-byte",
     repo: "AnxOS-Control-Center-Releases",
   },
   repositoryUrl: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases",
-  releaseUrl: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build184",
+  releaseUrl: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build185",
   githubReleasesApiUrl: "https://api.github.com/repos/bungopam-byte/AnxOS-Control-Center-Releases/releases?per_page=20",
   stableDownloadEndpoints: {
     windows: "/api/download/latest/windows",
@@ -26,23 +26,44 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   },
   releaseAssets: [
       {
-          fileName: "AnxOS-Control-Center-Setup-1.8-build184.exe",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build184/AnxOS-Control-Center-Setup-1.8-build184.exe"
+          fileName: "AnxOS-Control-Center-Setup-1.8-build185.exe",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build185/AnxOS-Control-Center-Setup-1.8-build185.exe"
       },
       {
-          fileName: "AnxOS-Control-Center-1.8-build184-portable.exe",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build184/AnxOS-Control-Center-1.8-build184-portable.exe"
+          fileName: "AnxOS-Control-Center-1.8-build185-portable.exe",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build185/AnxOS-Control-Center-1.8-build185-portable.exe"
       },
       {
-          fileName: "AnxOS-Control-Center-1.8-build184.AppImage",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build184/AnxOS-Control-Center-1.8-build184.AppImage"
+          fileName: "AnxOS-Control-Center-1.8-build185.AppImage",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build185/AnxOS-Control-Center-1.8-build185.AppImage"
       },
       {
-          fileName: "AnxOS-Control-Center-1.8-build184.deb",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build184/AnxOS-Control-Center-1.8-build184.deb"
+          fileName: "AnxOS-Control-Center-1.8-build185.deb",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build185/AnxOS-Control-Center-1.8-build185.deb"
       }
   ],
   releaseNotes: [
+      {
+          "version": "1.8",
+          "build": 185,
+          "channel": "Private Alpha",
+          "tag": "v1.8-build185",
+          "date": "July 27, 2026",
+          "datetime": "2026-07-27",
+          "title": "Build 185 NeoForge repair, Public Access stability, and Share Server UX",
+          "summary": "Private Alpha v1.8 Build 185 fixes remaining ATM10 and NeoForge runtime repair/start reporting, prevents Public Access from staying stuck on Checking when a node is unavailable, and adds a friend-ready Share Server flow.",
+          "changes": [
+              "Fixed NeoForge and ATM10 runtime readiness so valid script-launcher packs with unix_args.txt can start without server.jar.",
+              "Added a bounded NeoForge runtime repair action that uses the bundled versioned server-pack installer in place while preserving world, config, mods, and backups.",
+              "Fixed instance start reporting so immediate runtime failure is shown as a repairable failure instead of a successful start request.",
+              "Fixed Public Access and Playit cards so disconnected or slow selected Agents resolve to clear unavailable states instead of staying on Checking.",
+              "Disabled Playit Start, Stop, Restart, Logs, and tunnel refresh actions while the selected node is disconnected or unauthorized.",
+              "Added Share Server and How Friends Join UX with copyable LAN, Playit, and Tailscale addresses.",
+              "Added copyable invite text and game-specific friend instructions for Minecraft, Palworld, and generic servers.",
+              "Matched Playit tunnels to instances by local port when safe and handled multiple matching tunnels without guessing."
+          ],
+          "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build185"
+      },
       {
           "version": "1.8",
           "build": 184,
