@@ -5,18 +5,18 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   siteUrl: "https://anxoscontrolcenter.org",
   logoPath: "/assets/anxos-logo.png",
   latestVersion: "1.8",
-  build: "188",
-  buildNumber: "188",
+  build: "189",
+  buildNumber: "189",
   channel: "Private Alpha",
-  releaseLabel: "Version 1.8 Build 188 Private Alpha",
+  releaseLabel: "Version 1.8 Build 189 Private Alpha",
   releaseDate: "July 27, 2026",
-  releaseTag: "v1.8-build188",
+  releaseTag: "v1.8-build189",
   releaseRepository: {
     owner: "bungopam-byte",
     repo: "AnxOS-Control-Center-Releases",
   },
   repositoryUrl: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases",
-  releaseUrl: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build188",
+  releaseUrl: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build189",
   githubReleasesApiUrl: "https://api.github.com/repos/bungopam-byte/AnxOS-Control-Center-Releases/releases?per_page=20",
   stableDownloadEndpoints: {
     windows: "/api/download/latest/windows",
@@ -26,23 +26,47 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   },
   releaseAssets: [
       {
-          fileName: "AnxOS-Control-Center-Setup-1.8-build188.exe",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build188/AnxOS-Control-Center-Setup-1.8-build188.exe"
+          fileName: "AnxOS-Control-Center-Setup-1.8-build189.exe",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build189/AnxOS-Control-Center-Setup-1.8-build189.exe"
       },
       {
-          fileName: "AnxOS-Control-Center-1.8-build188-portable.exe",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build188/AnxOS-Control-Center-1.8-build188-portable.exe"
+          fileName: "AnxOS-Control-Center-1.8-build189-portable.exe",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build189/AnxOS-Control-Center-1.8-build189-portable.exe"
       },
       {
-          fileName: "AnxOS-Control-Center-1.8-build188.AppImage",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build188/AnxOS-Control-Center-1.8-build188.AppImage"
+          fileName: "AnxOS-Control-Center-1.8-build189.AppImage",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build189/AnxOS-Control-Center-1.8-build189.AppImage"
       },
       {
-          fileName: "AnxOS-Control-Center-1.8-build188.deb",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build188/AnxOS-Control-Center-1.8-build188.deb"
+          fileName: "AnxOS-Control-Center-1.8-build189.deb",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build189/AnxOS-Control-Center-1.8-build189.deb"
       }
   ],
   releaseNotes: [
+      {
+          "version": "1.8",
+          "build": 189,
+          "channel": "Private Alpha",
+          "tag": "v1.8-build189",
+          "date": "July 27, 2026",
+          "datetime": "2026-07-27",
+          "title": "Build 189 visible-window hotfix and Marketplace repair polish",
+          "summary": "Private Alpha v1.8 Build 189 fixes persistent invisible-window launch after update or install and polishes Marketplace installed-state, repair, and update flows.",
+          "changes": [
+              "Fixed persistent invisible-window launch after update or install.",
+              "Added stronger window show and focus recovery.",
+              "Added saved-bounds rejection and safe-mode startup recovery.",
+              "Added startup watchdog reset and recreate behavior.",
+              "Improved second-instance window recovery.",
+              "Added visible renderer failure diagnostics.",
+              "Polished Marketplace installed-state handling.",
+              "Added compact installed pack actions: Open, Start, Open Console, Share, and Repair Runtime.",
+              "Added guarded SteamCMD update action.",
+              "Added honest update states: update available, up to date, update unavailable, and stop-before-update.",
+              "Made NeoForge repair discoverable from Marketplace without making reinstall the primary action."
+          ],
+          "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build189"
+      },
       {
           "version": "1.8",
           "build": 188,
