@@ -12746,7 +12746,9 @@ function renderMarketplaceTemplates() {
     const meta = document.createElement("span");
     meta.className = "marketplace-card__meta";
     const downloads = template.category === "Modpacks" ? ` · ${formatProviderDownloads(template.downloads)} downloads` : "";
-    meta.textContent = `${template.author || "Unknown"} · v${template.version || "0.0.0"} · ${template.category || "Uncategorized"}${downloads}`;
+    meta.textContent = isProviderMarketplaceTemplate(template)
+      ? `${template.author || "Unknown"} · ${formatMarketplaceProviderLabel(template)}${downloads}`
+      : `${template.author || "Unknown"} · Template v${template.version || "0.0.0"} · ${template.category || "Uncategorized"}`;
     const stateBadge = document.createElement("span");
     stateBadge.className = `marketplace-card__state status-pill status-pill--${templateState.tone}`;
     stateBadge.textContent = templateState.instances.length > 1
@@ -12757,14 +12759,18 @@ function renderMarketplaceTemplates() {
     [
       formatMarketplaceProviderLabel(template),
       formatMarketplaceLoaderLabel(template),
-      template.displayMinecraftVersion || template.minecraftVersion || template.gameVersion || template.serverVersion || "",
+      isProviderMarketplaceTemplate(template) ? "" : template.displayMinecraftVersion || template.minecraftVersion || template.gameVersion || template.serverVersion || "",
     ].filter(Boolean).forEach((label) => {
       const badge = document.createElement("span");
       badge.className = "marketplace-card__badge";
       badge.textContent = label;
       badges.append(badge);
     });
-    body.append(title, description, meta, stateBadge, badges);
+    body.append(title, description, meta);
+    if (isProviderMarketplaceTemplate(template)) {
+      body.append(createMarketplaceCardFacts(template));
+    }
+    body.append(stateBadge, badges);
 
     const install = document.createElement("button");
     install.type = "button";
@@ -12961,6 +12967,138 @@ function formatMarketplaceProviderLabel(template) {
 
 function formatMarketplaceLoaderLabel(template) {
   return String(template?.loader || template?.serverType || template?.instanceType || "").replace(/^minecraft-/i, "") || "";
+}
+
+function formatMarketplaceRuntimeFamilyLabel(template = {}) {
+  const normalized = normalizeMarketplaceServerRuntime(formatMarketplaceLoaderLabel(template));
+  return normalized ? `${normalized} runtime` : "";
+}
+
+function getMarketplaceResolvedRuntimeVersion(source = {}) {
+  return String(
+    source.loaderVersion ||
+      source.softwareVersion ||
+      source.versionInfo?.softwareVersion ||
+      source.versionInfo?.loaderVersion ||
+      source.versionInfo?.buildNumber ||
+      source.selectedProviderFile?.loaderVersion ||
+      source.selectedProviderFile?.softwareVersion ||
+      source.selectedProviderFile?.versionInfo?.softwareVersion ||
+      ""
+  ).trim();
+}
+
+function getMarketplaceProviderFileId(source = {}) {
+  return String(
+    source.providerFileId ||
+      source.selectedProviderFile?.providerFileId ||
+      source.selectedProviderFile?.providerVersionId ||
+      source.selectedProviderFile?.id ||
+      source.providerVersionId ||
+      source.versionId ||
+      ""
+  ).trim();
+}
+
+function getMarketplaceServerPackFileId(source = {}) {
+  return String(
+    source.providerServerPackFileId ||
+      source.serverPackFileId ||
+      source.serverPackCapability?.serverPackFileId ||
+      source.selectedProviderFile?.providerServerPackFileId ||
+      source.selectedProviderFile?.serverPackFileId ||
+      ""
+  ).trim();
+}
+
+function getMarketplaceModpackVersionLabel(source = {}) {
+  return String(
+    source.modpackVersion ||
+      source.selectedProviderFile?.modpackVersion ||
+      source.selectedProviderFile?.versionNumber ||
+      source.selectedProviderFile?.name ||
+      source.selectedProviderFile?.fileName ||
+      ""
+  ).trim();
+}
+
+function getMarketplaceDisplayMinecraftVersion(source = {}) {
+  return String(
+    source.displayMinecraftVersion ||
+      source.minecraftVersion ||
+      source.gameVersion ||
+      source.selectedProviderFile?.displayMinecraftVersion ||
+      source.selectedProviderFile?.minecraftVersion ||
+      (Array.isArray(source.minecraftVersions) ? source.minecraftVersions[0] : "") ||
+      ""
+  ).trim();
+}
+
+function getMarketplaceProviderVersionRows(template = {}) {
+  const rows = [];
+  const minecraftVersion = getMarketplaceDisplayMinecraftVersion(template);
+  const runtimeFamily = formatMarketplaceRuntimeFamilyLabel(template);
+  const runtimeVersion = getMarketplaceResolvedRuntimeVersion(template);
+  const modpackVersion = getMarketplaceModpackVersionLabel(template);
+  const providerFileId = getMarketplaceProviderFileId(template);
+  const serverPackFileId = getMarketplaceServerPackFileId(template);
+  const capability = template.serverPackCapability || classifyMarketplaceServerPackCapability(template);
+
+  if (minecraftVersion) rows.push({ label: "Minecraft version", value: minecraftVersion });
+  if (runtimeFamily) rows.push({ label: "Runtime", value: runtimeFamily });
+  if (runtimeFamily || runtimeVersion) {
+    rows.push({ label: "Runtime version", value: runtimeVersion || "Resolved after install", state: runtimeVersion ? "ready" : "unknown" });
+  }
+  if (modpackVersion) rows.push({ label: "Pack version", value: modpackVersion });
+  if (providerFileId) rows.push({ label: "Provider file", value: providerFileId });
+  if (serverPackFileId) {
+    rows.push({ label: "Server pack", value: `Official server pack file ${serverPackFileId}`, state: "ready" });
+  } else if (capability?.label) {
+    rows.push({ label: "Server pack", value: capability.label, state: capability.state === "client-only" ? "unsupported" : capability.state === "unknown" ? "unknown" : "ready" });
+  }
+  return rows;
+}
+
+function createMarketplaceCardFacts(template = {}) {
+  const facts = document.createElement("div");
+  facts.className = "marketplace-card__facts";
+  getMarketplaceProviderVersionRows(template).slice(0, 4).forEach((item) => {
+    const row = document.createElement("span");
+    row.append(createTextElement("span", item.label), createTextElement("strong", item.value));
+    facts.append(row);
+  });
+  return facts;
+}
+
+function applyMarketplaceProviderVersionSelection(template, entry = {}) {
+  if (!isProviderMarketplaceTemplate(template)) return;
+  const minecraftVersion = entry.minecraftVersions?.[0] || template.minecraftVersion || "";
+  template.providerVersionId = entry.id || template.providerVersionId || "";
+  template.providerFileId = entry.providerFileId || entry.id || template.providerFileId || "";
+  template.providerServerPackFileId = entry.providerServerPackFileId || entry.serverPackFileId || "";
+  template.serverPackFileId = template.providerServerPackFileId || "";
+  template.selectedProviderFile = {
+    providerVersionId: template.providerVersionId,
+    providerFileId: template.providerFileId,
+    providerServerPackFileId: template.providerServerPackFileId,
+    serverPackFileId: template.serverPackFileId,
+    minecraftVersions: entry.minecraftVersions || [],
+    minecraftVersion,
+    displayMinecraftVersion: normalizeProviderMinecraftVersion({ minecraftVersion, minecraftVersions: entry.minecraftVersions || [] }),
+    loaders: entry.loaders || [],
+    loader: normalizeProviderLoader({ loaders: entry.loaders || [] }),
+    modpackVersion: entry.modpackVersion || entry.label || entry.fileName || "",
+    name: entry.label || "",
+    fileName: entry.fileName || "",
+    loaderVersion: entry.loaderVersion || "",
+    softwareVersion: entry.softwareVersion || "",
+  };
+  template.modpackVersion = template.selectedProviderFile.modpackVersion || template.modpackVersion || "";
+  template.minecraftVersion = minecraftVersion || template.minecraftVersion || "";
+  template.displayMinecraftVersion = template.selectedProviderFile.displayMinecraftVersion || template.displayMinecraftVersion || "";
+  template.loaders = entry.loaders || template.loaders || [];
+  template.loader = normalizeProviderLoader({ loaders: template.loaders }) || template.loader || "";
+  template.serverPackCapability = classifyMarketplaceServerPackCapability(template);
 }
 
 const MARKETPLACE_DEPENDENCY_LABELS = {
@@ -13219,11 +13357,18 @@ function renderMarketplaceInstallSummary(template) {
   overview.append(createTextElement("strong", "Install review"));
   const details = document.createElement("div");
   details.className = "marketplace-summary-details";
-  [
+  const baseDetails = [
     ["Template", template.displayName || template.id || "Unknown"],
     ["Selected node", formatMarketplaceSelectedNodeLabel()],
-    ["Version", template.version ? `Template v${template.version}` : "Version metadata unavailable"],
+    [isProviderMarketplaceTemplate(template) ? "Provider" : "Template version", isProviderMarketplaceTemplate(template) ? formatMarketplaceProviderLabel(template) : template.version ? `Template v${template.version}` : "Version metadata unavailable"],
     ["Instance state", state.instances.length ? `${state.instances.length} installed · ${state.label}` : state.label],
+  ];
+  const providerDetails = isProviderMarketplaceTemplate(template)
+    ? getMarketplaceProviderVersionRows(template).map((item) => [item.label, item.value])
+    : [];
+  [
+    ...baseDetails,
+    ...providerDetails,
     ["Server compatibility", capability.label || "Compatibility Unknown"],
     ["Server-pack detail", capability.serverPackFileId ? `Resolved server-pack metadata: file ${capability.serverPackFileId}` : capability.detail || "No server-pack metadata available"],
     ["Install path", "Managed by the selected Agent instance data root"],
@@ -13507,6 +13652,8 @@ function buildProviderMarketplaceTemplate(project = {}) {
     providerServerPackFileId: project.providerServerPackFileId || "",
     selectedProviderFile: project.selectedProviderFile || null,
     modpackVersion: project.modpackVersion || "",
+    loaderVersion: project.loaderVersion || project.softwareVersion || "",
+    softwareVersion: project.softwareVersion || "",
     releaseType: project.releaseType || null,
     serverCompatibilityConfirmed: project.serverCompatibilityConfirmed === true,
     minecraftVersion: selectProviderMinecraftVersionForInstall(project),
@@ -13737,8 +13884,13 @@ function renderMarketplaceVersionList() {
         versionField.dispatchEvent(new Event("input", { bubbles: true }));
         versionField.focus();
       }
+      applyMarketplaceProviderVersionSelection(template, entry);
       if (isMinecraftMarketplaceTemplate(template) && Array.isArray(entry.loaders) && entry.loaders.length > 0) {
         configureMarketplaceRuntimeField(template, { ...template, loaders: entry.loaders });
+      }
+      renderMarketplaceInstallSummary(template);
+      if (marketplaceSelectedMeta) {
+        marketplaceSelectedMeta.textContent = formatMarketplaceSelectedMeta(template);
       }
       renderMarketplaceVersionList();
       setMarketplaceVersionPanelOpen(false);
@@ -13809,6 +13961,13 @@ async function loadMarketplaceVersions(template) {
           label: version.name || version.versionNumber || version.fileName || String(version.id),
           details: [version.fileName, Array.isArray(version.minecraftVersions) ? version.minecraftVersions.slice(0, 3).join(", ") : "", Array.isArray(version.loaders) ? version.loaders.join(", ") : ""].filter(Boolean).join(" · "),
           category: "releases",
+          fileName: version.fileName || "",
+          providerFileId: version.providerFileId || version.id || "",
+          providerServerPackFileId: version.providerServerPackFileId || version.serverPackFileId || "",
+          serverPackFileId: version.serverPackFileId || "",
+          modpackVersion: version.versionNumber || version.name || version.fileName || "",
+          loaderVersion: version.loaderVersion || "",
+          softwareVersion: version.softwareVersion || "",
           minecraftVersions: version.minecraftVersions || [],
           loaders: version.loaders || [],
         })),
@@ -13842,7 +14001,7 @@ function renderMarketplaceWizardSteps(template) {
 
   const isMinecraft = isMinecraftMarketplaceTemplate(template);
   const steps = isMinecraft
-    ? ["Server Name", "Version", "Server Runtime", "Memory", "Port", "Public Access", "Accept EULA"]
+    ? ["Server Name", "Minecraft version", "Server Runtime", "Memory", "Port", "Public Access", "Accept EULA"]
     : ["Name", "Storage Location", "Port", "Memory"];
   marketplaceWizardSteps.replaceChildren();
   steps.forEach((step, index) => {
@@ -13850,6 +14009,16 @@ function renderMarketplaceWizardSteps(template) {
     item.textContent = `${index + 1}. ${step}`;
     marketplaceWizardSteps.append(item);
   });
+}
+
+function formatMarketplaceSelectedMeta(template = {}) {
+  if (isProviderMarketplaceTemplate(template)) {
+    return getMarketplaceProviderVersionRows(template)
+      .slice(0, 4)
+      .map((item) => `${item.label}: ${item.value}`)
+      .join(" · ") || `${formatMarketplaceProviderLabel(template)} modpack`;
+  }
+  return `${template.category || "Template"} · ${template.instanceType || "custom-command"} · ${template.startupType || "runtime"}`;
 }
 
 function syncMarketplaceWizardFields(template) {
@@ -13890,7 +14059,7 @@ function openMarketplaceWizard(templateId) {
     marketplaceSelectedName.textContent = template.displayName || template.id;
   }
   if (marketplaceSelectedMeta) {
-    marketplaceSelectedMeta.textContent = `${template.category || "Template"} · ${template.instanceType || "custom-command"} · ${template.startupType || "runtime"}`;
+    marketplaceSelectedMeta.textContent = formatMarketplaceSelectedMeta(template);
   }
   renderMarketplaceInstallSummary(template);
   renderMarketplaceRecoveryActions(template);
@@ -13945,7 +14114,7 @@ function openMarketplaceWizard(templateId) {
   syncMarketplaceWizardFields(template);
   renderMarketplaceWizardSteps(template);
   resetMarketplaceVersionPicker();
-  if (template.category === "Minecraft") {
+  if (isMinecraftMarketplaceTemplate(template)) {
     loadMarketplaceVersions(template);
   }
   renderMarketplaceTemplates();

@@ -241,6 +241,12 @@ function assertRuntimeTemperatureRendering() {
       styleSource.includes('[data-field="temperature"][data-temperature-state="critical"]'),
     "Runtime temperature should have dashboard styling for cool/warm/hot/critical states."
   );
+  assert(
+    styleSource.includes('--anx-font-sans: "Segoe UI", Roboto') &&
+      styleSource.includes(".startup-screen") &&
+      styleSource.includes("font-family: var(--anx-font-sans);"),
+    "Packaged renderer and startup surfaces should force the desktop UI font stack."
+  );
 }
 
 function assertDashboardRuntimeFallbacks() {
@@ -2713,6 +2719,8 @@ async function assertProviderInstallSupport() {
   assert(indexSource.includes("data-marketplace-manual-open"), "Marketplace manual recovery screen should expose an official provider page action.");
   assert(indexSource.includes("data-marketplace-manual-import"), "Marketplace manual recovery screen should expose an import action.");
   assert(indexSource.includes("data-marketplace-manual-resume"), "Marketplace manual recovery screen should expose a resume action.");
+  assert(indexSource.includes("<span>Minecraft version</span>"), "Marketplace install form should label the version field as Minecraft version.");
+  assert(indexSource.includes("<span>Provider version</span>"), "Manual recovery should distinguish provider version metadata.");
   assert(marketplaceErrorSource.includes("PROVIDER_IMPORT_FILE_NAME_MISMATCH"), "Shared Marketplace error normalization should cover import filename mismatches.");
   assert(marketplaceErrorSource.includes("PROVIDER_MANUAL_FILE_NOT_IMPORTED"), "Shared Marketplace error normalization should cover resume preconditions.");
   assert(indexSource.includes("data-marketplace-provider-browser"), "Marketplace should include the dynamic provider browser.");
@@ -2729,6 +2737,9 @@ async function assertProviderInstallSupport() {
   assert(appSource.includes("[Marketplace][Renderer] Provider refresh requested."), "Renderer should log provider refresh diagnostics.");
   assert(appSource.includes("[Marketplace][Renderer] Provider IPC request."), "Renderer should log provider IPC payloads.");
   assert(appSource.includes("fetchedCount"), "Renderer should log provider fetched/filtered/rendered counts.");
+  assert(appSource.includes("function getMarketplaceProviderVersionRows"), "Renderer should render provider Minecraft/runtime/provider-file rows separately.");
+  assert(appSource.includes("Runtime version\", value: runtimeVersion || \"Resolved after install\""), "Renderer should not display Minecraft version as a pre-install runtime version.");
+  assert(appSource.includes("Template v") && !appSource.includes(" · v${template.version"), "Marketplace provider cards should not show provider metadata as a generic version.");
   assert(agentRouteSource.includes('getInstanceIdFromPath(url.pathname, "/exists")'), "Agent should expose an explicit instance file exists endpoint.");
   assert(agentClientSource.includes("async function instanceFileExists"), "Desktop agent client should expose instanceFileExists.");
 

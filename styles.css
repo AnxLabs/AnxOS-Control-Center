@@ -59,6 +59,7 @@ body {
   overflow: hidden;
   background: var(--anx-bg-app);
   color: var(--text);
+  font-family: var(--anx-font-sans);
 }
 
 a {
@@ -79,6 +80,7 @@ input,
 select,
 textarea {
   font: inherit;
+  font-family: var(--anx-font-sans);
 }
 
 button {
@@ -123,6 +125,7 @@ a:focus-visible,
     var(--anx-bg-app);
   opacity: 1;
   transition: opacity 220ms ease, visibility 220ms ease;
+  font-family: var(--anx-font-sans);
 }
 
 .startup-screen.is-exiting {
@@ -9233,6 +9236,29 @@ body.has-open-modal {
   margin-top: auto;
   color: rgba(216, 203, 238, 0.72);
   font-size: 0.78rem;
+}
+
+.marketplace-card__facts {
+  display: grid;
+  gap: 4px;
+  margin-top: 2px;
+  font-size: 0.76rem;
+}
+
+.marketplace-card__facts > span {
+  display: grid;
+  grid-template-columns: minmax(88px, auto) minmax(0, 1fr);
+  gap: 6px;
+  min-width: 0;
+  color: rgba(216, 203, 238, 0.76);
+}
+
+.marketplace-card__facts strong {
+  min-width: 0;
+  color: rgba(239, 232, 255, 0.92);
+  font-size: inherit;
+  font-weight: 800;
+  overflow-wrap: anywhere;
 }
 
 .marketplace-card__state {
