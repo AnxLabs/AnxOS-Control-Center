@@ -51,9 +51,11 @@ window.ANXOS_DOWNLOAD_CONFIG = {
           "date": "July 26, 2026",
           "datetime": "2026-07-27",
           "title": "AnxOS Version 1.8",
-          "summary": "Latest AnxOS-Control-Center release.",
+          "summary": "Private Alpha v1.8 Build 165 adds remote Minecraft configuration support and fixes CurseForge server-pack startup handling.",
           "changes": [
-              "Updated application build, website metadata, and downloadable release assets."
+              "Added Minecraft Configuration editor support for remote Agent game-config endpoints and server.properties loading.",
+              "Fixed ATM10 and CurseForge server packs so startserver.sh launches through bash instead of the NeoForge installer jar.",
+              "Includes stability and QA improvements for v1.8 Private Alpha validation."
           ],
           "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build165"
       },
