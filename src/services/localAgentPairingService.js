@@ -97,7 +97,7 @@ function readLocalCredential() {
       agentToken,
       reason: "legacy-config-recovery",
     });
-    store.write(recovered);
+    store.replacePreservingUnreadable(recovered);
     credentialRecovery = {
       recovered: true,
       state: "recovered",

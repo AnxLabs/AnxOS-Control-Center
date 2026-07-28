@@ -11,7 +11,7 @@ const source = fs.readFileSync(
 assert(source.includes('error?.code !== "SECURE_SESSION_DECRYPT_FAILED"'));
 assert(source.includes("readAgentSettings()"));
 assert(source.includes('reason: "legacy-config-recovery"'));
-assert(source.includes("store.write(recovered)"));
+assert(source.includes("store.replacePreservingUnreadable(recovered)"));
 assert(source.includes("credentialRecovery"));
 
 console.log("Local Agent credential recovery smoke checks passed.");
