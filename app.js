@@ -23831,6 +23831,7 @@ async function refreshDashboard() {
 
 async function refreshPlayitStatus() {
   if (playitRequestInFlight) {
+    document.querySelector("[data-public-access-loading]")?.setAttribute("hidden", "");
     return;
   }
 
@@ -23871,7 +23872,12 @@ async function refreshPlayitStatus() {
     }
     if (desktopApiState.hasPublicAccess) {
       renderPublicAccessSnapshot(snapshot);
-      await refreshPlayitManagement(payload, requestContext);
+      refreshPlayitManagement(payload, requestContext).catch((error) => {
+        console.warn("[Public Access] Management status refresh failed.", {
+          message: error?.message || String(error),
+          stack: error?.stack || null,
+        });
+      });
     } else {
       renderPlayitSnapshot(snapshot);
     }
@@ -23893,6 +23899,7 @@ async function refreshPlayitStatus() {
     renderPlayitUnavailable(message);
   } finally {
     if (isNodeRequestCurrent(requestContext)) {
+      document.querySelector("[data-public-access-loading]")?.setAttribute("hidden", "");
       playitRequestInFlight = false;
     }
   }
