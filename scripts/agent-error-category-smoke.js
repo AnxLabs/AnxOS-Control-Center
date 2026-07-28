@@ -95,7 +95,7 @@ async function main() {
   assert(appSource.includes("Authentication failed.") && appSource.includes("Re-pair the Agent or repair the connection."), "Renderer must expose authentication-failed recovery copy.");
   assert(appSource.includes('id: "agent-url"') && appSource.includes("Correct the Agent URL"), "Renderer must provide wrong-URL recovery guidance.");
   assert(appSource.includes('id: "agent-tls"') && appSource.includes("certificate validity, and trust chain"), "Renderer must provide TLS-specific recovery guidance.");
-  assert(appSource.includes('id: "agent-incompatible"') && appSource.includes("Update the older component"), "Renderer must provide version-compatibility recovery guidance.");
+  assert(appSource.includes('id: "agent-incompatible"') && appSource.includes("Agent update required.") && appSource.includes("Update the Agent on this node"), "Renderer must provide plain-language version-compatibility recovery guidance.");
   assert(appSource.includes('id: "agent-duplicate"') && appSource.includes("instead of creating a duplicate identity"), "Renderer must provide duplicate-identity recovery guidance.");
   const tlsMessage = agentClient._test.getAgentTransportErrorMessage("CERT_HAS_EXPIRED", "https://agent.example.test:47131");
   assert(/TLS verification failed/.test(tlsMessage) && /certificate validity/.test(tlsMessage), "TLS failures must provide certificate-specific guided recovery.");

@@ -14608,3 +14608,77 @@ html[data-ui-generation="v1.9"] .inline-action {
     transition-duration: 0.01ms !important;
   }
 }
+.agent-compatibility-card {
+  border-color: color-mix(in srgb, var(--caution) 45%, var(--border));
+  background: linear-gradient(145deg, color-mix(in srgb, var(--panel-strong) 92%, #7f4cff 8%), var(--panel-strong));
+}
+
+.agent-compatibility-card[data-state="compatible"] {
+  border-color: color-mix(in srgb, var(--success) 45%, var(--border));
+}
+
+.agent-compatibility-card__header,
+.agent-compatibility-card__versions {
+  display: grid;
+  gap: 1rem;
+}
+
+.agent-compatibility-card__header {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+
+.agent-compatibility-card__header h2,
+.agent-compatibility-card__header p {
+  margin: 0;
+}
+
+.agent-compatibility-card__header p:not(.eyebrow) {
+  margin-top: 0.45rem;
+  color: var(--muted);
+}
+
+.agent-compatibility-card__versions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 1rem;
+}
+
+.agent-compatibility-card__versions > div {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--anx-radius-md);
+  background: color-mix(in srgb, var(--panel) 86%, transparent);
+}
+
+.agent-compatibility-card__versions span,
+.agent-compatibility-card__details span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.agent-compatibility-card__actions {
+  margin-top: 1rem;
+}
+
+.agent-compatibility-card__details {
+  margin-top: 0.8rem;
+}
+
+.agent-compatibility-card__details summary {
+  width: max-content;
+  cursor: pointer;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.agent-compatibility-card__details[open] .agent-section-grid {
+  margin-top: 0.8rem;
+}
+
+@media (max-width: 720px) {
+  .agent-compatibility-card__versions {
+    grid-template-columns: 1fr;
+  }
+}

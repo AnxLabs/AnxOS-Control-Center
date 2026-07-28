@@ -3668,6 +3668,37 @@
                 <div><span>Platform</span><strong data-agent-control-field="platform">Unavailable</strong></div>
               </div>
             </section>
+            <section class="settings-section settings-section--wide agent-compatibility-card" data-agent-compatibility-card data-agent-control-section="status" tabindex="-1" hidden>
+              <div class="agent-compatibility-card__header">
+                <div>
+                  <p class="eyebrow" data-agent-compatibility-eyebrow>Compatibility</p>
+                  <h2 data-agent-compatibility-title>Checking Agent compatibility</h2>
+                  <p data-agent-compatibility-message>Waiting for the connected Agent to report its version and capabilities.</p>
+                </div>
+                <span class="status-pill status-pill--planned" data-agent-compatibility-status>Checking</span>
+              </div>
+              <div class="agent-compatibility-card__versions">
+                <div><span>Control Center</span><strong data-agent-compatibility-field="controlCenter">Unavailable</strong></div>
+                <div><span>Connected Agent</span><strong data-agent-compatibility-field="agent">Unavailable</strong></div>
+              </div>
+              <div class="settings-actions agent-compatibility-card__actions">
+                <button class="primary-button" type="button" data-agent-compatibility-action="update">Update Agent</button>
+                <button class="inline-action" type="button" data-agent-compatibility-action="retry">Retry Connection</button>
+                <button class="inline-action" type="button" data-agent-compatibility-action="refresh">Refresh Version</button>
+                <button class="inline-action" type="button" data-agent-compatibility-action="dismiss">Dismiss</button>
+              </div>
+              <details class="agent-compatibility-card__details">
+                <summary>Details</summary>
+                <div class="agent-section-grid">
+                  <div><span>Control Center Version</span><strong data-agent-compatibility-field="controlCenterDetail">Unavailable</strong></div>
+                  <div><span>Agent Version</span><strong data-agent-compatibility-field="agentDetail">Unavailable</strong></div>
+                  <div><span>Compatibility Status</span><strong data-agent-compatibility-field="status">Unknown</strong></div>
+                  <div><span>Minimum Supported Version</span><strong data-agent-compatibility-field="minimum">Not specified</strong></div>
+                  <div><span>Connected Node</span><strong data-agent-compatibility-field="node">Unavailable</strong></div>
+                  <div><span>Compatibility Reason</span><strong data-agent-compatibility-field="reason">Waiting for version information.</strong></div>
+                </div>
+              </details>
+            </section>
             <section class="settings-section settings-section--wide agent-beginner-summary" data-agent-beginner-summary data-agent-control-section="status">
               <div class="settings-section__header"><div><h2>Agent Control Summary</h2><p>Plain-language status for this computer, the local Agent, connected systems, and diagnostics.</p></div></div>
               <div class="agent-summary-grid">

@@ -527,6 +527,8 @@ let agentControlBusy = false;
 let agentControlRefreshInFlight = false;
 let agentControlPollTimer = null;
 let agentControlLastRuntimeSnapshot = null;
+let agentCompatibilityDismissedKey = "";
+let agentCompatibilityNoticeKey = "";
 let activeAgentPairingCode = "";
 let activeAgentPairingExpiresAt = "";
 let activeAgentPairingExpiryTimer = null;
@@ -2277,9 +2279,9 @@ const FRIENDLY_ERROR_DEFINITIONS = [
     id: "agent-incompatible",
     codes: ["AGENT_INCOMPATIBLE", "AGENT_VERSION_INCOMPATIBLE", "AGENT_PROTOCOL_INCOMPATIBLE"],
     pattern: /agent.*(incompatible|update required)|unsupported.*(api|protocol).*version/i,
-    message: "The Agent version is not compatible with this Control Center.",
-    suggestion: "Update the older component to a compatible version, restart the Agent, then retry.",
-    actions: ["Open Agent Control", "View Diagnostics"],
+    message: "Agent update required.",
+    suggestion: "Your connected Agent is older than this version of AnxOS Control Center. Update the Agent on this node before using protected Agent features.",
+    actions: ["Update Agent", "Retry Connection", "View Diagnostics"],
   },
   {
     id: "agent-duplicate",
@@ -4315,6 +4317,138 @@ function formatAgentProcess(runtime, fallbackState) {
   return "Unknown";
 }
 
+const INCOMPATIBLE_AGENT_PROTECTED_ACTIONS = new Set([
+  "repairAgent",
+  "stopOldLocalAgentAndRepair",
+  "rotateToken",
+  "runDiagnostics",
+  "installService",
+  "uninstallService",
+  "enableAutoStart",
+  "disableAutoStart",
+  "start",
+  "stop",
+  "restart",
+  "forceRestart",
+]);
+
+function getAgentCompatibilityView(target = getAgentControlOverviewTarget(agentControlState), runtime = getAgentRuntime(target || {})) {
+  const selectedNode = getSelectedNode();
+  const report = target?.compatibility || runtime?.compatibility || selectedNode?.connection?.compatibility || null;
+  const connectionState = String(target?.state || selectedNode?.connection?.status || "").toLowerCase();
+  const incompatible = report?.compatible === false
+    || /update required|incompatible/i.test(String(report?.status || ""))
+    || connectionState === "agent_incompatible";
+  const compatible = report?.compatible === true
+    || (!incompatible && /compatible/i.test(String(report?.status || "")))
+    || (!incompatible && selectedNode?.connection?.versionCompatibility === "compatible");
+  const nodeId = target?.nodeId || selectedNode?.id || "agent";
+  const agentVersion = report?.reportedAgentVersion
+    || runtime?.version
+    || target?.agentVersion
+    || target?.identity?.agentVersion
+    || selectedNode?.connection?.agentVersion
+    || "Not reported";
+  const minimum = report?.minimumAgentVersion
+    || (report?.minProtocolVersion
+      ? `API ${report.supportedApi || "v1"} · Protocol ${report.minProtocolVersion}${report.maxProtocolVersion && report.maxProtocolVersion !== report.minProtocolVersion ? `-${report.maxProtocolVersion}` : ""}`
+      : "Not specified");
+  const reason = {
+    "agent-version-below-minimum": "The connected Agent version is older than the minimum supported version.",
+    "protocol-below-minimum": "The Agent API protocol is older than required for protected operations.",
+    "protocol-above-maximum": "The Agent API protocol is newer than this Control Center supports.",
+    "unsupported-api-major": "The Agent API version is not supported by this Control Center.",
+    "missing-or-malformed-api-version": "The Agent did not report a usable API version.",
+    "missing-or-malformed-protocol-version": "The Agent did not report a usable protocol version.",
+    "agent-reported-incompatible": "The Agent reported that its API is not compatible with protected operations.",
+    compatible: "The Agent API and protocol satisfy this Control Center's compatibility requirements.",
+  }[report?.reason] || (incompatible
+    ? "The connected Agent must be updated before protected operations can run."
+    : "The Agent API and protocol are compatible.");
+  const controlCenter = [
+    runtimeInfoState?.version || (runtimeInfoState?.releaseVersion ? `Version ${runtimeInfoState.releaseVersion}` : ""),
+    runtimeInfoState?.build || (runtimeInfoState?.buildNumber !== undefined ? `Build ${runtimeInfoState.buildNumber}` : ""),
+  ].filter(Boolean).join(" ") || runtimeInfoState?.releaseLabel || runtimeInfoState?.appVersion || "Current version";
+  return {
+    report,
+    incompatible,
+    compatible,
+    state: incompatible ? "update-required" : compatible ? "compatible" : "unknown",
+    key: `${nodeId}:${incompatible ? "update-required" : compatible ? "compatible" : "unknown"}:${agentVersion}:${report?.reportedApi || ""}:${report?.reportedProtocol || ""}`,
+    nodeId,
+    nodeName: target?.name || selectedNode?.displayName || selectedNode?.name || "Connected Agent",
+    agentVersion,
+    minimum,
+    reason,
+    controlCenter,
+    local: isAgentTargetLocal(target || {}),
+  };
+}
+
+function isSelectedAgentIncompatible() {
+  return getAgentCompatibilityView().incompatible;
+}
+
+function renderAgentCompatibilityCard(target, runtime) {
+  const card = document.querySelector("[data-agent-compatibility-card]");
+  if (!card) return;
+  const view = getAgentCompatibilityView(target, runtime);
+  const dismissed = agentCompatibilityDismissedKey === view.key && view.incompatible;
+  card.dataset.compatibilityVisible = view.state === "unknown" || dismissed ? "false" : "true";
+  card.hidden = activeAgentControlSection !== "status" || card.dataset.compatibilityVisible !== "true";
+  card.dataset.state = view.state;
+  if (view.compatible) {
+    agentCompatibilityDismissedKey = "";
+    agentCompatibilityNoticeKey = "";
+  }
+  const values = {
+    controlCenter: view.controlCenter,
+    controlCenterDetail: view.controlCenter,
+    agent: view.agentVersion === "Not reported" ? view.agentVersion : `Version ${String(view.agentVersion).replace(/^Version\s+/i, "")}`,
+    agentDetail: view.agentVersion,
+    status: view.incompatible ? "Update Required" : view.compatible ? "Compatible" : "Unknown",
+    minimum: view.minimum,
+    node: view.nodeName,
+    reason: view.reason,
+  };
+  card.querySelectorAll("[data-agent-compatibility-field]").forEach((field) => {
+    field.textContent = values[field.dataset.agentCompatibilityField] || "Unavailable";
+  });
+  const title = card.querySelector("[data-agent-compatibility-title]");
+  const message = card.querySelector("[data-agent-compatibility-message]");
+  const status = card.querySelector("[data-agent-compatibility-status]");
+  const update = card.querySelector('[data-agent-compatibility-action="update"]');
+  const dismiss = card.querySelector('[data-agent-compatibility-action="dismiss"]');
+  if (title) title.textContent = view.incompatible ? "Agent Update Required" : "Agent Compatible";
+  if (message) message.textContent = view.incompatible
+    ? "Your connected Agent is older than this version of AnxOS Control Center. Update the Agent on this node before using protected Agent features."
+    : "All protected Agent features are available.";
+  if (status) {
+    status.textContent = view.incompatible ? "Update Required" : "Compatible";
+    status.className = `status-pill ${view.incompatible ? "status-pill--warning" : "status-pill--ok"}`;
+  }
+  if (update) {
+    update.hidden = !view.incompatible;
+    update.textContent = "Update Agent";
+  }
+  if (dismiss) dismiss.hidden = !view.incompatible;
+}
+
+function blockIncompatibleAgentAction(action) {
+  if (!INCOMPATIBLE_AGENT_PROTECTED_ACTIONS.has(action)) return false;
+  const view = getAgentCompatibilityView();
+  if (!view.incompatible) return false;
+  agentCompatibilityDismissedKey = "";
+  renderAgentCompatibilityCard(getAgentControlOverviewTarget(agentControlState));
+  setActiveAgentControlSection("status");
+  document.querySelector("[data-agent-compatibility-card]")?.focus?.();
+  if (agentCompatibilityNoticeKey !== view.key) {
+    agentCompatibilityNoticeKey = view.key;
+    showToast("Agent update required. Update the connected Agent before using protected Agent features.", "warning");
+  }
+  return true;
+}
+
 function renderAgentControlState(payload = agentControlState) {
   const local = getAgentControlOverviewTarget(payload);
   if (!local) return;
@@ -4335,6 +4469,7 @@ function renderAgentControlState(payload = agentControlState) {
   const capabilities = runtime?.capabilities || {};
   const lifecycleSupported = capabilities.lifecycle === true || (isLocalTarget && local.lifecycleSupported !== false);
   const repairSupported = capabilities.repair === true || lifecycleSupported;
+  const compatibilityView = getAgentCompatibilityView(local, runtime);
   const state = local.state || "Unavailable";
   const targetLabel = getAgentTargetLabel(local);
   const service = local.service || {};
@@ -4368,9 +4503,11 @@ function renderAgentControlState(payload = agentControlState) {
   setAgentControlField("platform", `${local.operatingSystem || "Unknown"} · ${local.architecture || "Unknown"}`);
   setAgentControlField("protocol", `${local.apiVersion || "v1"} / ${local.protocolVersion || 1}`);
   setAgentControlField("heartbeat", local.lastHeartbeat ? formatDateTime(local.lastHeartbeat) : "Unavailable");
+  renderAgentCompatibilityCard(local, runtime);
   agentControlButtons.forEach((button) => {
     const action = button.dataset.agentControlAction;
     const disabled = busy
+      || (compatibilityView.incompatible && INCOMPATIBLE_AGENT_PROTECTED_ACTIONS.has(action))
       || (action === "start" && (!lifecycleSupported || running))
       || (["stop", "restart", "forceRestart"].includes(action) && (!lifecycleSupported || !running))
       || (action === "repairAgent" && (!repairSupported || serviceNeedsElevation))
@@ -4380,18 +4517,26 @@ function renderAgentControlState(payload = agentControlState) {
       || (action === "enableAutoStart" && (!lifecycleSupported || service.enabled || serviceNeedsElevation))
       || (action === "disableAutoStart" && (!lifecycleSupported || !service.enabled || serviceNeedsElevation))
       || (action === "rotateToken" && !isLocalTarget)
+      || (action === "updateAgent" && !isLocalTarget)
       || (action === "generateToken" && typeof getDesktopApiState().api?.nodes?.generateToken !== "function")
       || (action === "copyToken" && !activeAgentGeneratedToken)
       || (action === "openDataFolder" && !isLocalTarget)
       || (action === "copyUrl" && !local.agentUrl)
       || (action === "copyId" && !local.identity?.deviceId);
     button.disabled = disabled;
-    if (["repairAgent", "installService", "uninstallService", "enableAutoStart", "disableAutoStart"].includes(action) && serviceNeedsElevation) {
+    if (compatibilityView.incompatible && INCOMPATIBLE_AGENT_PROTECTED_ACTIONS.has(action)) {
+      button.title = "Requires an updated Agent.";
+      button.setAttribute("aria-description", "Requires an updated Agent.");
+    } else if (action === "updateAgent" && !isLocalTarget) {
+      button.title = "Automatic updating is available only for the Local Agent. Update this remote Agent on its node, then refresh its version.";
+      button.setAttribute("aria-description", button.title);
+    } else if (["repairAgent", "installService", "uninstallService", "enableAutoStart", "disableAutoStart"].includes(action) && serviceNeedsElevation) {
       button.title = "Run AnxOS Control Center as Administrator, then retry this Agent service action.";
     } else if (action === "stopOldLocalAgentAndRepair" && serviceNeedsElevation) {
       button.title = "Windows will show an administrator prompt if service repair requires elevation.";
     } else {
       button.removeAttribute("title");
+      button.removeAttribute("aria-description");
     }
   });
   if (agentLocalInstallerStatus) {
@@ -5734,6 +5879,7 @@ function stopAgentControlPolling() {
 async function runAgentControlAction(action) {
   const api = getDesktopApiState().api?.agentControl;
   if (!api || agentControlBusy) return;
+  if (blockIncompatibleAgentAction(action)) return;
   if (blockProtectedAction(action === "start" || action === "installLocalAgent" || action === "repairAgent"
     ? "Unlock AnxOS to start the Local Agent."
     : "Unlock AnxOS to manage Agent connections.")) return;
@@ -5886,6 +6032,38 @@ async function runAgentControlAction(action) {
     showToast("Agent operation completed.", "success");
   } catch (error) { const message = normalizeIpcErrorMessage(error, "Agent operation failed."); finishOperation(operationId, false, message); if (action === "installLocalAgent") { if (agentLocalInstallerStatus) { agentLocalInstallerStatus.textContent = "Needs attention"; agentLocalInstallerStatus.className = "status-pill status-pill--warning"; } if (Array.isArray(error?.steps)) renderLocalAgentInstallerSteps(error.steps); } showToast(message, "error"); if (agentControlMessage) agentControlMessage.textContent = message; }
   finally { agentControlBusy = false; await refreshAgentControl(); }
+}
+
+async function runAgentCompatibilityAction(action) {
+  const view = getAgentCompatibilityView();
+  if (action === "dismiss") {
+    agentCompatibilityDismissedKey = view.key;
+    renderAgentCompatibilityCard(getAgentControlOverviewTarget(agentControlState));
+    return;
+  }
+  if (action === "update") {
+    if (view.local) {
+      await runAgentControlAction("updateAgent");
+      return;
+    }
+    setActiveAgentControlSection("updates");
+    const updateButton = document.querySelector('[data-agent-control-action="updateAgent"]');
+    updateButton?.focus();
+    if (agentControlMessage) {
+      agentControlMessage.textContent = "Automatic updates are available for the Local Agent. For this remote node, use its existing Agent install/update workflow, then choose Refresh Version.";
+    }
+    return;
+  }
+  if (action === "retry") {
+    if (view.nodeId && view.nodeId !== "application-host") await testSelectedNode();
+    else await testAgentConnection({ silent: false });
+    await refreshAgentControl({ includeConfig: false });
+    return;
+  }
+  if (action === "refresh") {
+    await refreshNodes();
+    await refreshAgentControl({ includeConfig: false });
+  }
 }
 
 function getOwnerApiField(name) {
@@ -12675,8 +12853,16 @@ function updateInstanceActionButtons() {
   instancesRepairNeoForgeButtons.forEach((button) => {
     const eligible = canRepairNeoForgeRuntime(selectedInstance);
     button.hidden = !eligible;
-    button.disabled = busy || !hasInstancesBridge || !eligible;
+    const requiresAgentUpdate = isSelectedAgentIncompatible();
+    button.disabled = busy || !hasInstancesBridge || !eligible || requiresAgentUpdate;
     button.textContent = instanceActionRequestInFlight ? "Repairing..." : "Repair Runtime";
+    if (requiresAgentUpdate) {
+      button.title = "Requires an updated Agent.";
+      button.setAttribute("aria-description", "Requires an updated Agent.");
+    } else {
+      button.removeAttribute("title");
+      button.removeAttribute("aria-description");
+    }
   });
 
   instancesStopButtons.forEach((button) => {
@@ -17869,6 +18055,12 @@ async function runInstanceAction(actionName) {
   }
 
   if (actionName === "repair-neoforge-runtime") {
+    if (isSelectedAgentIncompatible()) {
+      showPage("agent-control");
+      blockIncompatibleAgentAction("repairAgent");
+      updateInstanceActionButtons();
+      return;
+    }
     if (!canRepairNeoForgeRuntime(selectedInstance)) {
       showToast("NeoForge runtime repair is not available for this server.", "warning");
       updateInstanceActionButtons();
@@ -32822,7 +33014,9 @@ function setActiveAgentControlSection(section = activeAgentControlSection || "st
   activeAgentControlSection = requested;
   try { window.sessionStorage.setItem("anxos-agent-control-section", requested); } catch {}
   agentControlSections.forEach((panel) => {
-    panel.hidden = panel.dataset.agentControlSection !== normalized;
+    const compatibilityHidden = panel.matches("[data-agent-compatibility-card]")
+      && panel.dataset.compatibilityVisible !== "true";
+    panel.hidden = panel.dataset.agentControlSection !== normalized || compatibilityHidden;
   });
   agentControlSectionButtons.forEach((button) => {
     const target = button.dataset.agentControlSectionTarget || "status";
@@ -35899,6 +36093,10 @@ nodeDetailsModal?.addEventListener("click", async (event) => {
   }
 });
 agentControlButtons.forEach((button) => button.addEventListener("click", () => runAgentControlAction(button.dataset.agentControlAction)));
+document.querySelector("[data-agent-compatibility-card]")?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-agent-compatibility-action]");
+  if (button) runAgentCompatibilityAction(button.dataset.agentCompatibilityAction);
+});
 agentDeveloperButtons.forEach((button) => button.addEventListener("click", () => runAgentDeveloperAction(button.dataset.agentDeveloperAction)));
 agentControlSectionButtons.forEach((button) => {
   button.addEventListener("click", () => setActiveAgentControlSection(button.dataset.agentControlSectionTarget || "status"));

@@ -25,6 +25,9 @@ assert.strictEqual(_test.normalizeAgentApiMajor(1), 1, "Numeric API 1 should nor
 assert.strictEqual(_test.normalizeAgentApiMajor("1"), 1, "String API 1 should normalize to major 1.");
 assert.strictEqual(_test.normalizeAgentProtocolVersion(1), 1, "Numeric protocol 1 should normalize.");
 assert.strictEqual(_test.normalizeAgentProtocolVersion("1"), 1, "String protocol 1 should normalize.");
+assert.strictEqual(_test.compareAgentVersions("1.9 Build 190", "1.9 Build 191"), -1, "Older Agent builds should compare below the minimum.");
+assert.strictEqual(_test.compareAgentVersions("1.9 Build 191", "1.9 Build 191"), 0, "Matching Agent builds should compare equal.");
+assert.strictEqual(_test.compareAgentVersions("1.9 Build 192", "1.9 Build 191"), 1, "Newer Agent builds should remain compatible.");
 
 assert.strictEqual(report({ ok: true, apiVersion: "v1", protocolVersion: 1, identity: { agentVersion: "0.1.0" } }).compatible, true, "Live Anxlab payload should be compatible.");
 assert.strictEqual(report({ ok: true, apiVersion: "v1", protocolVersion: "1", identity: { agentVersion: "0.1.0" } }).compatible, true, "Protocol string 1 should be compatible.");
@@ -33,6 +36,16 @@ assert.strictEqual(report({ ok: true, apiVersion: "bogus", protocolVersion: 1 })
 assert.strictEqual(report({ ok: true, apiVersion: "v2", protocolVersion: 1 }).compatible, false, "Unsupported API major should be incompatible.");
 assert.strictEqual(report({ ok: true, apiVersion: "v1", protocolVersion: 3 }).compatible, false, "Unsupported protocol should be incompatible.");
 assert.strictEqual(report({ ok: true, apiVersion: "v1" }).compatible, false, "Missing protocol should be incompatible.");
+assert.strictEqual(report({ ok: true, apiVersion: "v1", protocolVersion: 1, agentVersion: "1.9 Build 190", minimumAgentVersion: "1.9 Build 191" }).compatible, false, "An explicitly older Agent build should require an update.");
+assert.strictEqual(report({ ok: true, apiVersion: "v1", protocolVersion: 1, agentVersion: "1.9 Build 191", minimumAgentVersion: "1.9 Build 191" }).compatible, true, "A matching Agent build should be compatible.");
+assert.strictEqual(report({ ok: true, apiVersion: "v1", protocolVersion: 1, agentVersion: "1.9 Build 192", minimumAgentVersion: "1.9 Build 191" }).compatible, true, "A newer Agent build should be compatible.");
+
+const appSource = fs.readFileSync(path.join(__dirname, "..", "app.js"), "utf8");
+const htmlSource = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
+assert(htmlSource.includes("data-agent-compatibility-card") && htmlSource.includes("Update Agent") && htmlSource.includes("Retry Connection") && htmlSource.includes("Refresh Version"), "Agent Control should expose the guided compatibility card and recovery actions.");
+assert(appSource.includes("INCOMPATIBLE_AGENT_PROTECTED_ACTIONS") && appSource.includes("Requires an updated Agent."), "Protected Agent actions should be gated with an accessible explanation.");
+assert(appSource.includes("agentCompatibilityNoticeKey") && appSource.includes("blockIncompatibleAgentAction"), "Compatibility warnings should be deduplicated before Operations are created.");
+assert(appSource.includes("await refreshNodes();") && appSource.includes("await refreshAgentControl({ includeConfig: false });"), "Compatibility refresh should re-probe node and Agent capability state.");
 
 function listen(server) {
   return new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve(server.address().port)));

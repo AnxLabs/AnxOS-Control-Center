@@ -485,11 +485,30 @@ function normalizeAgentProtocolVersion(value) {
   return Number.isInteger(version) && version > 0 ? version : null;
 }
 
+function parseComparableAgentVersion(value) {
+  const match = String(value ?? "").trim().match(/(?:^|\s)v?(\d+)\.(\d+)(?:\.(\d+))?(?:\s+Build\s+(\d+))?/i);
+  if (!match) return null;
+  return [match[1], match[2], match[3] || 0, match[4] || 0].map((part) => Number.parseInt(part, 10));
+}
+
+function compareAgentVersions(left, right) {
+  const a = parseComparableAgentVersion(left);
+  const b = parseComparableAgentVersion(right);
+  if (!a || !b) return null;
+  for (let index = 0; index < Math.max(a.length, b.length); index += 1) {
+    if ((a[index] || 0) !== (b[index] || 0)) return (a[index] || 0) > (b[index] || 0) ? 1 : -1;
+  }
+  return 0;
+}
+
 function getAgentCompatibilityReport(health = {}) {
   const reportedApiVersion = health.apiVersion ?? health.identity?.apiVersion ?? null;
   const reportedProtocolVersion = health.protocolVersion ?? health.identity?.protocolVersion ?? null;
   const apiMajor = normalizeAgentApiMajor(reportedApiVersion);
   const protocolVersion = normalizeAgentProtocolVersion(reportedProtocolVersion);
+  const reportedAgentVersion = health.agentVersion ?? health.identity?.agentVersion ?? null;
+  const minimumAgentVersion = health.minimumAgentVersion ?? health.identity?.minimumAgentVersion ?? health.compatibility?.minimumAgentVersion ?? null;
+  const agentVersionComparison = minimumAgentVersion ? compareAgentVersions(reportedAgentVersion, minimumAgentVersion) : null;
   const supportedApi = Array.from(SUPPORTED_AGENT_API_MAJOR_VERSIONS).map((major) => `v${major}`).join(", ");
   const supportedProtocol = MIN_AGENT_PROTOCOL_VERSION === MAX_AGENT_PROTOCOL_VERSION
     ? String(SUPPORTED_AGENT_PROTOCOL_VERSION)
@@ -514,6 +533,9 @@ function getAgentCompatibilityReport(health = {}) {
   } else if (protocolVersion > MAX_AGENT_PROTOCOL_VERSION) {
     compatible = false;
     reason = "protocol-above-maximum";
+  } else if (agentVersionComparison !== null && agentVersionComparison < 0) {
+    compatible = false;
+    reason = "agent-version-below-minimum";
   }
   return {
     compatible,
@@ -527,6 +549,9 @@ function getAgentCompatibilityReport(health = {}) {
     reportedApiMajor: apiMajor,
     reportedProtocol: reportedProtocolVersion ?? null,
     reportedProtocolVersion: protocolVersion,
+    reportedAgentVersion,
+    minimumAgentVersion,
+    agentVersionComparison,
     status: compatible ? "Compatible" : "Update Required",
   };
 }
@@ -1739,4 +1764,4 @@ function deleteNode(nodeId) {
 async function selectNode(nodeId) { getNode(nodeId); const state = readNodeState(); writeNodeState({ ...state, selectedNodeId: nodeId || APPLICATION_HOST_NODE_ID }); return listNodes({ discoverLocalAgent: false, refreshIdentity: false }); }
 async function testNode(nodeId) { return checkNodeHealth(nodeId || getSelectedNodeId(), { timeoutMs: 8000 }); }
 
-module.exports = { APPLICATION_HOST_NODE_ID, HEALTH_STATES, NODE_SCHEMA_VERSION, checkAllNodeHealth, checkNodeHealth, deleteNode, getAllNodesSync, getExecutionTarget, getNode, getNodeAgentConfig, getNodeCredentialStatus, getNodeCredentialsPath, getNodesPath, getSelectedNodeId, listNodes, mergeAgentNodes, migrateState, pairNodeFromCode, recordAuthenticatedNodeHealth, repairNodeCredential, resolveNodeForAgentIdentity, saveNode, selectNode, testNode, testNodeConnectionPayload, updateNodeHealthState, _test: { buildNodeCapabilities, formatAgentCompatibilityMessage, getAgentCompatibilityReport, getNodeReportedCapabilities, normalizeAgentApiMajor, normalizeAgentCapabilitiesMetadata, normalizeAgentProtocolVersion, postPairingComplete } };
+module.exports = { APPLICATION_HOST_NODE_ID, HEALTH_STATES, NODE_SCHEMA_VERSION, checkAllNodeHealth, checkNodeHealth, deleteNode, getAllNodesSync, getExecutionTarget, getNode, getNodeAgentConfig, getNodeCredentialStatus, getNodeCredentialsPath, getNodesPath, getSelectedNodeId, listNodes, mergeAgentNodes, migrateState, pairNodeFromCode, recordAuthenticatedNodeHealth, repairNodeCredential, resolveNodeForAgentIdentity, saveNode, selectNode, testNode, testNodeConnectionPayload, updateNodeHealthState, _test: { buildNodeCapabilities, compareAgentVersions, formatAgentCompatibilityMessage, getAgentCompatibilityReport, getNodeReportedCapabilities, normalizeAgentApiMajor, normalizeAgentCapabilitiesMetadata, normalizeAgentProtocolVersion, parseComparableAgentVersion, postPairingComplete } };
