@@ -20,6 +20,7 @@ const FILE_WRITE_TIMEOUT_MS = FILE_WRITE_REQUEST_TIMEOUT_MS;
 const FILE_WRITE_RETRY_DELAY_MS = 250;
 const TRANSIENT_FILE_WRITE_ERROR_CODES = new Set(["UND_ERR_SOCKET", "ECONNRESET", "EPIPE"]);
 const DOCKER_REQUEST_TIMEOUT_MS = 12000;
+const PUBLIC_ACCESS_REQUEST_TIMEOUT_MS = 12000;
 const VALID_BACKEND_MODES = new Set(["local", "agent", "auto"]);
 
 let environmentLoaded = false;
@@ -571,6 +572,51 @@ function createGameConfigNotFoundDetails({ method, pathname, requestUrl, expecta
   };
 }
 
+function getNeoForgeRepairApiExpectation(pathname, method = "GET") {
+  const normalizedMethod = String(method || "GET").toUpperCase();
+  if (normalizedMethod !== "POST") {
+    return null;
+  }
+  return /^\/api\/v1\/instances\/[^/]+\/neoforge\/repair-runtime$/.test(String(pathname || ""))
+    ? "NeoForge runtime repair endpoint"
+    : null;
+}
+
+function createNeoForgeRepairNotFoundDetails({ method, pathname, requestUrl, expectation }) {
+  return {
+    method,
+    requestedAgentPath: pathname,
+    activeAgentUrl: requestUrl,
+    desktopApiExpectation: expectation,
+    likelyCause: "The selected remote Agent does not include the v1.8 NeoForge runtime repair API or needs to be restarted after update.",
+    compatibilityEndpoint: "/api/v1/instances/:id/neoforge/repair-runtime",
+  };
+}
+
+function getPublicAccessPlayitApiExpectation(pathname, method = "GET") {
+  const normalizedMethod = String(method || "GET").toUpperCase();
+  const path = String(pathname || "");
+  const expectations = [
+    ["GET", /^\/api\/v1\/public-access\/playit\/status$/, "Playit service status endpoint"],
+    ["GET", /^\/api\/v1\/public-access\/playit\/logs(?:\?|$)/, "Playit service logs endpoint"],
+    ["GET", /^\/api\/v1\/public-access\/playit\/tunnels(?:\?|$)/, "Playit tunnel listing endpoint"],
+    ["POST", /^\/api\/v1\/public-access\/playit\/(?:start|stop|restart)$/, "Playit service control endpoint"],
+  ];
+  const match = expectations.find(([expectedMethod, pattern]) => expectedMethod === normalizedMethod && pattern.test(path));
+  return match?.[2] || null;
+}
+
+function createPublicAccessPlayitNotFoundDetails({ method, pathname, requestUrl, expectation }) {
+  return {
+    method,
+    requestedAgentPath: pathname,
+    activeAgentUrl: requestUrl,
+    desktopApiExpectation: expectation,
+    likelyCause: "The selected remote Agent does not include the v1.8 Playit Public Access controls API or needs to be restarted after update.",
+    compatibilityEndpoint: "/api/v1/public-access/playit/status",
+  };
+}
+
 function redactForAgentLog(value, depth = 0) {
   if (depth > 6) {
     return "[truncated]";
@@ -677,27 +723,46 @@ async function requestJson(pathname, options = {}) {
       const responseErrorCode = getAgentPayloadErrorCode(payload);
       const dockerExpectation = response.status === 404 ? getDockerApiExpectation(pathname, method) : null;
       const gameConfigExpectation = response.status === 404 ? getGameConfigApiExpectation(pathname, method) : null;
+      const neoForgeRepairExpectation = response.status === 404 ? getNeoForgeRepairApiExpectation(pathname, method) : null;
+      const publicAccessPlayitExpectation = response.status === 404 ? getPublicAccessPlayitApiExpectation(pathname, method) : null;
       const dockerNotFoundDetails = dockerExpectation
         ? createDockerNotFoundDetails({ method, pathname, requestUrl, expectation: dockerExpectation })
         : null;
       const gameConfigNotFoundDetails = gameConfigExpectation
         ? createGameConfigNotFoundDetails({ method, pathname, requestUrl, expectation: gameConfigExpectation })
         : null;
-      const compatibilityDetails = dockerNotFoundDetails || gameConfigNotFoundDetails;
+      const neoForgeRepairNotFoundDetails = neoForgeRepairExpectation
+        ? createNeoForgeRepairNotFoundDetails({ method, pathname, requestUrl, expectation: neoForgeRepairExpectation })
+        : null;
+      const publicAccessPlayitNotFoundDetails = publicAccessPlayitExpectation
+        ? createPublicAccessPlayitNotFoundDetails({ method, pathname, requestUrl, expectation: publicAccessPlayitExpectation })
+        : null;
+      const compatibilityDetails = dockerNotFoundDetails || gameConfigNotFoundDetails || neoForgeRepairNotFoundDetails || publicAccessPlayitNotFoundDetails;
       const message = dockerNotFoundDetails
         ? `Agent Docker endpoint was not found for ${method} ${pathname}. Expected ${dockerExpectation}. This usually means the Desktop and Agent builds are out of sync or the Agent needs a restart.`
         : gameConfigNotFoundDetails
           ? `Agent update required for Minecraft Configuration. The selected Agent does not expose ${method} ${pathname}. Update or restart the remote Agent, then try again.`
-        : getAgentHttpErrorMessage(response.status, responseErrorCode, payload);
+          : neoForgeRepairNotFoundDetails
+            ? `Agent update required for NeoForge repair. The selected Agent does not expose ${method} ${pathname}. Update or restart the remote Agent, then try again.`
+            : publicAccessPlayitNotFoundDetails
+              ? `Agent update required for Playit service controls. The selected Agent does not expose ${method} ${pathname}. Update or restart the remote Agent, then try again.`
+              : getAgentHttpErrorMessage(response.status, responseErrorCode, payload);
+      const compatibilityCode = gameConfigNotFoundDetails
+        ? "AGENT_GAME_CONFIG_UNSUPPORTED"
+        : neoForgeRepairNotFoundDetails
+          ? "AGENT_NEOFORGE_REPAIR_UNSUPPORTED"
+          : publicAccessPlayitNotFoundDetails
+            ? "AGENT_PLAYIT_CONTROLS_UNSUPPORTED"
+            : responseErrorCode;
       const error = new AgentClientError(message, {
         status: response.status,
-        code: gameConfigNotFoundDetails ? "AGENT_GAME_CONFIG_UNSUPPORTED" : responseErrorCode,
+        code: compatibilityCode,
         payload: compatibilityDetails && payload && typeof payload === "object" && !Array.isArray(payload)
           ? {
               ...payload,
               error: {
                 ...(payload.error || {}),
-                code: gameConfigNotFoundDetails ? "AGENT_GAME_CONFIG_UNSUPPORTED" : (payload.error?.code || responseErrorCode),
+                code: compatibilityCode,
                 message,
                 details: {
                   ...(payload.error?.details || {}),
@@ -1303,6 +1368,10 @@ class NodeAgentClient {
     return this.request(`/instances/${encodeInstanceId(instanceId)}/installation/execute`, { method: "POST", body: payload, timeoutMs });
   }
 
+  repairNeoForgeRuntime(instanceId, payload = {}, timeoutMs = 310000) {
+    return this.request(`/instances/${encodeInstanceId(instanceId)}/neoforge/repair-runtime`, { method: "POST", body: payload, timeoutMs });
+  }
+
   cancelInstallationSession(instanceId, payload = {}) {
     return this.post(`/instances/${encodeInstanceId(instanceId)}/installation/cancel`, payload);
   }
@@ -1737,6 +1806,40 @@ async function getPlayitSnapshot(configOverride = null) {
 async function getPublicAccessSnapshot(configOverride = null) {
   return requestJson("/api/v1/public-access/snapshot", {
     config: configOverride,
+    timeoutMs: PUBLIC_ACCESS_REQUEST_TIMEOUT_MS,
+  });
+}
+
+async function getPublicAccessPlayitStatus(configOverride = null) {
+  return requestJson("/api/v1/public-access/playit/status", {
+    config: configOverride,
+    timeoutMs: PUBLIC_ACCESS_REQUEST_TIMEOUT_MS,
+  });
+}
+
+async function controlPublicAccessPlayit(action, configOverride = null) {
+  return requestJson(`/api/v1/public-access/playit/${encodeURIComponent(String(action || ""))}`, {
+    config: configOverride,
+    method: "POST",
+    body: {},
+    timeoutMs: PUBLIC_ACCESS_REQUEST_TIMEOUT_MS,
+  });
+}
+
+async function getPublicAccessPlayitLogs(payload = {}, configOverride = null) {
+  const query = new URLSearchParams();
+  if (payload.limit) query.set("limit", String(payload.limit));
+  return requestJson(`/api/v1/public-access/playit/logs${query.toString() ? `?${query.toString()}` : ""}`, {
+    config: configOverride,
+    timeoutMs: PUBLIC_ACCESS_REQUEST_TIMEOUT_MS,
+  });
+}
+
+async function getPublicAccessPlayitTunnels(payload = {}, configOverride = null) {
+  const query = payload.nodeId ? `?nodeId=${encodeURIComponent(payload.nodeId)}` : "";
+  return requestJson(`/api/v1/public-access/playit/tunnels${query}`, {
+    config: configOverride,
+    timeoutMs: PUBLIC_ACCESS_REQUEST_TIMEOUT_MS,
   });
 }
 
@@ -2866,6 +2969,18 @@ async function executeInstallationPhase(instanceId, payload = {}, configOverride
   });
 }
 
+async function repairNeoForgeRuntime(instanceId, payload = {}, configOverride = null) {
+  if (shouldUseLocalInstanceService(configOverride)) {
+    return getLocalInstanceService().repairNeoForgeRuntime(instanceId, payload);
+  }
+  return requestJson(`/api/v1/instances/${encodeInstanceId(instanceId)}/neoforge/repair-runtime`, {
+    config: configOverride,
+    method: "POST",
+    body: payload,
+    timeoutMs: Math.min(610000, Math.max(30000, Number(payload.timeoutMs) || 300000) + 10000),
+  });
+}
+
 async function cancelInstallationSession(instanceId, payload = {}, configOverride = null) {
   if (shouldUseLocalInstanceService(configOverride)) {
     return getLocalInstanceService().cancelInstallationSession(instanceId, payload);
@@ -3056,6 +3171,7 @@ module.exports = {
   execDockerContainer,
   executeInstallationPhase,
   executeSteamCmdUpdate,
+  repairNeoForgeRuntime,
   deleteInstance,
   forgetInstance,
   deleteInstanceFile,
@@ -3096,12 +3212,16 @@ module.exports = {
   getMinecraftProperties,
   getPlayitSnapshot,
   getPlayitStatus,
+  getPublicAccessPlayitLogs,
+  getPublicAccessPlayitStatus,
+  getPublicAccessPlayitTunnels,
   getPublicAccessSnapshot,
   isHealthy,
   importBackup,
   installDependencies,
   listBackupSchedules,
   listBackups,
+  controlPublicAccessPlayit,
   listDockerImages,
   listDockerComposeProjects,
   listDockerNetworks,

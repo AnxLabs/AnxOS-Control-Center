@@ -249,6 +249,9 @@ async function main() {
   ].forEach((needle) => assert(dockerServiceSource.includes(needle), `Docker service guard missing: ${needle}`));
   assert(styleSource.includes(".docker-empty-actions"), "Docker empty state actions must have stable layout.");
   assert(styleSource.includes(".docker-resource-grid") && styleSource.includes(".docker-warning"), "Docker resource panels must have stable styling.");
+  assert(indexSource.includes("docker-check-option") && styleSource.includes(".docker-check-option input[type=\"checkbox\"]"), "Docker create checkboxes must use compact scoped controls.");
+  assert(styleSource.includes(".docker-create-grid input:not([type=\"checkbox\"])"), "Docker text-field styling must not enlarge create-container checkboxes.");
+  assert(styleSource.includes(".docker-resource-panel--cleanup .docker-actions") && styleSource.includes("justify-content: flex-start"), "Docker cleanup actions must stay close to their section copy.");
 
   const snapshot = await dockerService.getDockerSnapshot();
 

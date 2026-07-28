@@ -175,6 +175,10 @@ const desktopApi = {
   publicAccess: {
     getSnapshot: (payload = {}) => ipcRenderer.invoke("publicAccess:getSnapshot", payload),
     listServices: (payload = {}) => ipcRenderer.invoke("publicAccess:listServices", payload),
+    getPlayitStatus: (payload = {}) => ipcRenderer.invoke("publicAccess:getPlayitStatus", payload),
+    getPlayitLogs: (payload = {}) => ipcRenderer.invoke("publicAccess:getPlayitLogs", payload),
+    listPlayitTunnels: (payload = {}) => ipcRenderer.invoke("publicAccess:listPlayitTunnels", payload),
+    controlPlayit: (payload = {}) => ipcRenderer.invoke("publicAccess:controlPlayit", payload),
     createService: (payload = {}) => ipcRenderer.invoke("publicAccess:createService", payload),
     deleteService: (payload = {}) => ipcRenderer.invoke("publicAccess:deleteService", payload),
     createFirewallRule: (payload = {}) => ipcRenderer.invoke("publicAccess:createFirewallRule", payload),
@@ -264,6 +268,7 @@ const desktopApi = {
     start: (instanceId, payload = {}) => ipcRenderer.invoke("instances:start", { ...payload, instanceId }),
     stop: (instanceId, payload = {}) => ipcRenderer.invoke("instances:stop", { ...payload, instanceId }),
     restart: (instanceId, payload = {}) => ipcRenderer.invoke("instances:restart", { ...payload, instanceId }),
+    repairNeoForgeRuntime: (instanceId, payload = {}) => ipcRenderer.invoke("instances:repairNeoForgeRuntime", { ...payload, instanceId }),
     forceKill: (instanceId, payload = {}) => ipcRenderer.invoke("instances:forceKill", { ...payload, instanceId }),
     delete: (instanceId, payload = {}) => ipcRenderer.invoke("instances:delete", { ...payload, instanceId }),
     forget: (instanceId, payload = {}) => ipcRenderer.invoke("instances:forget", { ...payload, instanceId }),

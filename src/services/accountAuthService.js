@@ -200,8 +200,8 @@ function buildWebsiteUrl(route = "account", params = {}) {
       search.set(key, String(value));
     }
   });
-  if (normalizedRoute === "activate") {
-    url.pathname = `${url.pathname.replace(/\/+$/, "")}/activate/`.replace(/^\/?/, "/");
+  if (["account", "activate", "signin"].includes(normalizedRoute)) {
+    url.pathname = `${url.pathname.replace(/\/+$/, "")}/${normalizedRoute}/`.replace(/^\/?/, "/");
     url.search = search.toString();
     url.hash = "";
     return url.toString();

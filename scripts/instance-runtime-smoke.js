@@ -7,7 +7,16 @@ const os = require("os");
 const path = require("path");
 const { PassThrough } = require("stream");
 
+const root = path.resolve(__dirname, "..");
 const servicePath = require.resolve("../agent/src/services/instances/instanceService");
+const agentRouteSource = fs.readFileSync(path.join(root, "agent", "src", "routes", "instances.js"), "utf8");
+const agentClientSource = fs.readFileSync(path.join(root, "src", "services", "agentClient.js"), "utf8");
+const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
+
+assert(agentRouteSource.includes('getInstanceIdFromPath(url.pathname, "/neoforge/repair-runtime")'), "Agent must expose the canonical NeoForge repair endpoint.");
+assert(agentRouteSource.includes('getInstanceIdFromPath(url.pathname, "/repair-neoforge-runtime")'), "Agent must keep a compatibility alias for NeoForge repair routing.");
+assert(agentClientSource.includes("getNeoForgeRepairApiExpectation") && agentClientSource.includes("AGENT_NEOFORGE_REPAIR_UNSUPPORTED"), "Desktop Agent client must classify old-Agent NeoForge repair 404s.");
+assert(appSource.includes("Agent update required for NeoForge repair"), "Renderer must show a friendly update-required message for unsupported NeoForge repair endpoints.");
 
 function clearService() {
   delete require.cache[servicePath];
@@ -212,6 +221,127 @@ async function assertPalworldSpawnArgvAndLogs() {
   });
 }
 
+async function assertPalworldStderrNoiseIsNonFatalWhileRunning() {
+  await withTempService(async (instanceService) => {
+    const payload = palworldPayload("palworld-stderr-noise");
+    await instanceService.createInstance({
+      ...payload,
+      restartPolicy: "never",
+      startupTimeoutMs: 60000,
+    });
+    await instanceService.writeInstanceFile(payload.id, "server/PalServer.sh", "#!/usr/bin/env bash\n");
+    instanceService._test.setProcessInspectionProvider(() => ({ processes: [], ports: [] }));
+    instanceService._test.setProcessAliveProvider((pid) => Number(pid) === 701102);
+
+    const originalSpawn = childProcess.spawn;
+    const fakeChild = createFakeChild(701102);
+    childProcess.spawn = () => fakeChild;
+    try {
+      await instanceService.startInstance(payload.id);
+      fakeChild.stdout.emit("data", "Server started\n");
+      fakeChild.stderr.emit("data", [
+        "[S_API] SteamAPI_Init(): Loaded local 'steamclient.so' OK.",
+        "Setting breakpad minidump AppID = 2394010",
+        "[S_API FAIL] Tried to access Steam interface SteamUser021 before SteamAPI_Init succeeded.",
+        "[S_API FAIL] Tried to access Steam interface SteamFriends017 before SteamAPI_Init succeeded.",
+        "curl: https://o1291919.ingest.us.sentry.io/api/000/envelope/ HTTP/2 200",
+      ].join("\n"));
+      await wait(20);
+      const status = await instanceService.getStatus(payload.id);
+      assert.strictEqual(status.state, "Running", "Palworld Steam/Sentry stderr noise must not change a healthy process to Failed.");
+      assert.strictEqual(status.failureReason, null, "Palworld Steam/Sentry stderr noise must not seed a failure reason.");
+      assert.strictEqual(instanceService._test.getResourceCounts().restartTimers, 0, "Palworld stderr noise must not schedule restart while process is running.");
+      assert.strictEqual(
+        instanceService._test.isBenignPalworldStderrOutput(payload, "[S_API FAIL] Tried to access Steam interface STEAMAPPS_INTERFACE_VERSION008 before SteamAPI_Init succeeded.\n"),
+        true,
+        "Steam API interface warnings should be classified as benign Palworld stderr."
+      );
+      fakeChild.emit("exit", 0, null);
+      await wait(20);
+    } finally {
+      childProcess.spawn = originalSpawn;
+    }
+  });
+}
+
+async function assertPalworldRequestedSigterm143DoesNotRestart() {
+  await withTempService(async (instanceService) => {
+    const payload = palworldPayload("palworld-requested-sigterm");
+    await instanceService.createInstance({
+      ...payload,
+      restartPolicy: "always",
+      startupTimeoutMs: 60000,
+      shutdownTimeoutMs: 1000,
+    });
+    await instanceService.writeInstanceFile(payload.id, "server/PalServer.sh", "#!/usr/bin/env bash\n");
+    instanceService._test.setProcessInspectionProvider(() => ({ processes: [], ports: [] }));
+
+    const originalSpawn = childProcess.spawn;
+    const originalKill = process.kill;
+    const fakeChild = createFakeChild(701103);
+    const alive = new Set([701103]);
+    let spawnCount = 0;
+    childProcess.spawn = () => {
+      spawnCount += 1;
+      return fakeChild;
+    };
+    process.kill = (pid, signal) => {
+      if (Number(pid) === 701103 && signal === "SIGTERM") {
+        alive.delete(701103);
+        setImmediate(() => {
+          fakeChild.stderr.emit("data", "Exiting abnormally (error code: 143)\n");
+          fakeChild.emit("exit", 143, "SIGTERM");
+        });
+        return true;
+      }
+      return originalKill(pid, signal);
+    };
+    instanceService._test.setProcessAliveProvider((pid) => alive.has(Number(pid)));
+    try {
+      await instanceService.startInstance(payload.id);
+      fakeChild.stdout.emit("data", "Server started\n");
+      const stopped = await instanceService.stopInstance(payload.id);
+      assert.strictEqual(stopped.state, "Stopped", "Requested Palworld SIGTERM/143 should be reported as Stopped.");
+      assert.strictEqual(stopped.failureReason, null, "Requested Palworld SIGTERM/143 must not persist a crash failure.");
+      await wait(1200);
+      assert.strictEqual(spawnCount, 1, "Requested Palworld SIGTERM/143 must not schedule an automatic restart.");
+      assert.strictEqual(instanceService._test.getResourceCounts().restartTimers, 0, "Requested Palworld stop must not leave a restart timer.");
+    } finally {
+      childProcess.spawn = originalSpawn;
+      process.kill = originalKill;
+    }
+  });
+}
+
+async function assertPalworldUnexpectedNonzeroExitStillFails() {
+  await withTempService(async (instanceService) => {
+    const payload = palworldPayload("palworld-unexpected-exit");
+    await instanceService.createInstance({
+      ...payload,
+      restartPolicy: "never",
+      startupTimeoutMs: 60000,
+    });
+    await instanceService.writeInstanceFile(payload.id, "server/PalServer.sh", "#!/usr/bin/env bash\n");
+    instanceService._test.setProcessInspectionProvider(() => ({ processes: [], ports: [] }));
+    instanceService._test.setProcessAliveProvider((pid) => Number(pid) !== 701104);
+
+    const originalSpawn = childProcess.spawn;
+    const fakeChild = createFakeChild(701104);
+    childProcess.spawn = () => fakeChild;
+    try {
+      await instanceService.startInstance(payload.id);
+      fakeChild.stderr.emit("data", "[S_API FAIL] Tried to access Steam interface SteamNetworkingUtils004 before SteamAPI_Init succeeded.\n");
+      fakeChild.emit("exit", 1, null);
+      await wait(20);
+      const status = await instanceService.getStatus(payload.id);
+      assert.strictEqual(status.state, "Failed", "Unexpected Palworld nonzero exit should remain a failure.");
+      assert.strictEqual(status.failureReason, "PROCESS_EXITED", "Benign stderr should not replace the real unexpected exit reason.");
+    } finally {
+      childProcess.spawn = originalSpawn;
+    }
+  });
+}
+
 async function assertJavaScriptLauncherRepair() {
   await withTempService(async (instanceService) => {
     const id = "atm10-script-launcher-repair";
@@ -383,7 +513,6 @@ async function assertNeoForgeRunScriptPreferenceAndRuntimeValidation() {
     });
     await instanceService.writeInstanceFile(id, "startserver.sh", "#!/usr/bin/env bash\nexec ./run.sh \"$@\"\n");
     await instanceService.writeInstanceFile(id, "run.sh", "#!/usr/bin/env bash\nexec java @user_jvm_args.txt @libraries/net/neoforged/neoforge/21.1.228/unix_args.txt \"$@\"\n");
-    await instanceService.writeInstanceFile(id, "user_jvm_args.txt", "-Xmx4G\n");
     await instanceService.writeInstanceFile(id, "libraries/net/neoforged/neoforge/21.1.228/unix_args.txt", "--launchTarget neoforgeserver\n");
 
     const originalSpawn = childProcess.spawn;
@@ -406,6 +535,191 @@ async function assertNeoForgeRunScriptPreferenceAndRuntimeValidation() {
     } finally {
       childProcess.spawn = originalSpawn;
     }
+  }, { platform: "linux" });
+}
+
+async function assertLegacyAtm10JavaAppMigratesToScriptLauncher() {
+  await withTempService(async (instanceService) => {
+    const id = "atm10-legacy-java-app-server-jar";
+    await instanceService.createInstance({
+      id,
+      displayName: "All the Mods 10 - ATM10",
+      type: "java-app",
+      workingDirectory: "data",
+      executable: "java",
+      args: ["-Xmx8G", "-jar", "server.jar", "nogui"],
+      jar: "server.jar",
+      serverJar: "server.jar",
+      serverJarPath: "server.jar",
+      startJar: "server.jar",
+      restartPolicy: "never",
+      game: "minecraft",
+      minecraftVersion: "1.21.1",
+      tags: ["minecraft", "modpack", "curseforge"],
+      startupTimeoutMs: 60000,
+    });
+    await instanceService.writeInstanceFile(id, "metadata.json", JSON.stringify({
+      game: "minecraft",
+      minecraftVersion: "1.21.1",
+      serverSoftware: "NeoForge",
+      softwareVersion: "21.1.228",
+    }));
+    await instanceService.writeInstanceFile(id, "config.json", JSON.stringify({ loader: "neoforge" }));
+    await instanceService.writeInstanceFile(id, "neoforge-21.1.228-installer.jar", "");
+    await instanceService.writeInstanceFile(id, "run.sh", "#!/usr/bin/env bash\nexec java @user_jvm_args.txt @libraries/net/neoforged/neoforge/21.1.228/unix_args.txt \"$@\"\n");
+    await instanceService.writeInstanceFile(id, "libraries/net/neoforged/neoforge/21.1.228/unix_args.txt", "--launchTarget neoforgeserver\n");
+    const configFile = path.join(process.env.AGENT_INSTANCE_ROOT, id, "config.json");
+    const staleConfig = JSON.parse(fs.readFileSync(configFile, "utf8"));
+    fs.writeFileSync(configFile, JSON.stringify({
+      ...staleConfig,
+      state: "Failed",
+      failureReason: "SERVER_JAR_MISSING",
+      failureDetails: { missing: ["server.jar"] },
+      readinessState: "failed",
+      healthState: "critical",
+    }, null, 2));
+
+    const listed = await instanceService.listInstances();
+    const listedInstance = listed.instances.find((entry) => entry.id === id);
+    assert(listedInstance, "Legacy ATM10 should remain visible after metadata sync.");
+    assert.strictEqual(listedInstance.type, "custom-command", "Legacy ATM10 should not keep the java-app type in instance lists.");
+    assert.strictEqual(listedInstance.state, "Stopped", "Ready NeoForge runtime files should clear stale missing-server.jar failures.");
+    assert.strictEqual(listedInstance.failureReason, null, "Ready NeoForge runtime files should clear stale server.jar failure reasons.");
+    assert.strictEqual(listedInstance.serverSoftware, "NeoForge", "List view should expose the file-proven NeoForge identity.");
+    assert.strictEqual(listedInstance.softwareVersion, "21.1.228", "List view should expose the file-proven NeoForge runtime version.");
+
+    const statusBeforeStart = await instanceService.getStatus(id);
+    assert.strictEqual(statusBeforeStart.type, "custom-command", "Status should repair existing java-app ATM10 metadata before start.");
+    assert.strictEqual(statusBeforeStart.executable, "bash", "Status should expose the script launcher command before start.");
+    assert.deepStrictEqual(statusBeforeStart.args, ["./run.sh"], "Status should prefer generated run.sh before start.");
+
+    const originalSpawn = childProcess.spawn;
+    const calls = [];
+    const fakeChild = createFakeChild(701158);
+    childProcess.spawn = (command, args, options) => {
+      calls.push({ command, args: [...args], options });
+      return fakeChild;
+    };
+    try {
+      await instanceService.startInstance(id);
+      assert.strictEqual(calls.length, 1, "Legacy ATM10 java-app records should start through a repaired script launcher.");
+      assert.strictEqual(calls[0].command, "bash", "Legacy ATM10 records must not keep java -jar server.jar.");
+      assert.deepStrictEqual(calls[0].args, ["./run.sh"], "Legacy ATM10 should prefer generated run.sh.");
+      const repaired = await instanceService.getStatus(id);
+      assert.strictEqual(repaired.type, "custom-command", "Legacy script-launcher modpacks should no longer appear as generic java-app records.");
+      assert.strictEqual(repaired.executable, "bash");
+      assert.deepStrictEqual(repaired.args, ["./run.sh"]);
+      assert.strictEqual(repaired.serverJar, null, "Legacy ATM10 repair must clear stale server.jar metadata.");
+      assert.strictEqual(repaired.serverSoftware, "NeoForge", "Legacy ATM10 repair should retain NeoForge runtime identity.");
+      fakeChild.emit("exit", 0, null);
+      await wait(20);
+    } finally {
+      childProcess.spawn = originalSpawn;
+    }
+  }, { platform: "linux" });
+}
+
+async function assertNeoForgeRepairRuntimePreservesData() {
+  await withTempService(async (instanceService) => {
+    const id = "atm10-repair-runtime-preserves-data";
+    await instanceService.createInstance({
+      id,
+      displayName: "All the Mods 10 - Repair Runtime",
+      type: "java-app",
+      workingDirectory: "data",
+      executable: "java",
+      args: ["-Xmx8G", "-jar", "server.jar", "nogui"],
+      jar: "server.jar",
+      serverJar: "server.jar",
+      serverJarPath: "server.jar",
+      startJar: "server.jar",
+      restartPolicy: "never",
+      game: "minecraft",
+      minecraftVersion: "1.21.1",
+      tags: ["minecraft", "modpack", "curseforge"],
+      startupTimeoutMs: 60000,
+    });
+    await instanceService.writeInstanceFile(id, "metadata.json", JSON.stringify({
+      game: "minecraft",
+      minecraftVersion: "1.21.1",
+      serverSoftware: "NeoForge",
+      softwareVersion: "21.1.228",
+    }));
+    await instanceService.writeInstanceFile(id, "neoforge-latest-installer.jar", "generic");
+    await instanceService.writeInstanceFile(id, "neoforge-21.1.228-installer.jar", "versioned");
+    await instanceService.writeInstanceFile(id, "run.sh", "#!/usr/bin/env bash\nexec java @user_jvm_args.txt @libraries/net/neoforged/neoforge/21.1.228/unix_args.txt \"$@\"\n");
+    await instanceService.writeInstanceFile(id, "world/level.dat", "world");
+    await instanceService.writeInstanceFile(id, "config/server.properties", "config");
+    await instanceService.writeInstanceFile(id, "backups/atm10.zip", "backup");
+
+    const originalSpawn = childProcess.spawn;
+    const calls = [];
+    childProcess.spawn = (command, args, options) => {
+      calls.push({ command, args: [...args], cwd: options.cwd });
+      fs.mkdirSync(path.join(options.cwd, "libraries/net/neoforged/neoforge/21.1.228"), { recursive: true });
+      fs.writeFileSync(path.join(options.cwd, "libraries/net/neoforged/neoforge/21.1.228/unix_args.txt"), "--launchTarget neoforgeserver\n");
+      const child = createFakeChild(701159);
+      process.nextTick(() => child.emit("close", 0, null));
+      return child;
+    };
+    try {
+      const repair = await instanceService.repairNeoForgeRuntime(id);
+      assert.strictEqual(repair.ok, true, "Repair should report success.");
+      assert.strictEqual(repair.repaired, true, "Repair should run when unix_args.txt is missing.");
+      assert.strictEqual(calls.length, 1, "Repair should run one bounded installer process.");
+      assert.strictEqual(calls[0].command, "java", "Repair must use the Java installer.");
+      assert.deepStrictEqual(calls[0].args, ["-jar", "neoforge-21.1.228-installer.jar", "--installServer"], "Repair should prefer the bundled versioned NeoForge installer.");
+      assert.strictEqual(fs.readFileSync(path.join(process.env.AGENT_INSTANCE_ROOT, id, "data/world/level.dat"), "utf8"), "world", "Repair must preserve world data.");
+      assert.strictEqual(fs.readFileSync(path.join(process.env.AGENT_INSTANCE_ROOT, id, "data/config/server.properties"), "utf8"), "config", "Repair must preserve config data.");
+      assert.strictEqual(fs.readFileSync(path.join(process.env.AGENT_INSTANCE_ROOT, id, "data/backups/atm10.zip"), "utf8"), "backup", "Repair must preserve backups.");
+      const status = await instanceService.getStatus(id);
+      assert.strictEqual(status.type, "custom-command", "Repair should migrate stale java-app metadata to a script launcher.");
+      assert.strictEqual(status.softwareVersion, "21.1.228", "Repair should expose detected NeoForge version.");
+    } finally {
+      childProcess.spawn = originalSpawn;
+    }
+  }, { platform: "linux" });
+}
+
+async function assertNeoForgeInstallerOnlyDoesNotRequireServerJar() {
+  await withTempService(async (instanceService) => {
+    const id = "atm10-installer-only-runtime-incomplete";
+    await instanceService.createInstance({
+      id,
+      displayName: "All the Mods 10 - Installer Only",
+      type: "java-app",
+      workingDirectory: "data",
+      executable: "java",
+      args: ["-Xmx8G", "-jar", "server.jar", "nogui"],
+      jar: "server.jar",
+      serverJar: "server.jar",
+      serverJarPath: "server.jar",
+      startJar: "server.jar",
+      restartPolicy: "never",
+      game: "minecraft",
+      minecraftVersion: "1.21.1",
+      tags: ["minecraft", "modpack", "curseforge"],
+      startupTimeoutMs: 60000,
+    });
+    await instanceService.writeInstanceFile(id, "metadata.json", JSON.stringify({
+      game: "minecraft",
+      minecraftVersion: "1.21.1",
+      serverSoftware: "NeoForge",
+      softwareVersion: "21.1.228",
+    }));
+    await instanceService.writeInstanceFile(id, "neoforge-21.1.228-installer.jar", "");
+
+    await assert.rejects(
+      () => instanceService.startInstance(id),
+      (error) => {
+        assert.strictEqual(error.code, "NEOFORGE_RUNTIME_INCOMPLETE", "Installer-only NeoForge runtime must not report SERVER_JAR_MISSING.");
+        assert.notStrictEqual(error.code, "SERVER_JAR_MISSING", "NeoForge installer jars must not be treated as generic server jars.");
+        assert.match(String(error.message || ""), /NeoForge runtime incomplete/i);
+        assert.strictEqual(error.installerJar, "neoforge-21.1.228-installer.jar", "Bundled versioned NeoForge installer should be offered for runtime repair.");
+        assert.strictEqual(error.repairAction, "repair-neoforge-runtime", "Installer-only NeoForge runtime should expose a repair action.");
+        return true;
+      },
+    );
   }, { platform: "linux" });
 }
 
@@ -441,7 +755,7 @@ async function assertNeoForgeMissingUnixArgsPreflightDoesNotRestart() {
       assert.strictEqual(status.failureReason, "NEOFORGE_RUNTIME_INCOMPLETE", "Missing unix_args.txt should use an actionable failure reason.");
       assert(status.failureDetails?.missing?.includes("libraries/net/neoforged/neoforge/21.1.228/unix_args.txt"), "Missing details should name the unix_args.txt path.");
       const logs = await instanceService.readLogs(id, { stream: "stderr", limit: 20 });
-      assert(logs.entries.some((entry) => /NeoForge runtime files are incomplete/.test(entry.message)), "Missing unix_args.txt should write an actionable error.");
+      assert(logs.entries.some((entry) => /NeoForge runtime incomplete/.test(entry.message)), "Missing unix_args.txt should write an actionable error.");
       await wait(80);
       assert.strictEqual(instanceService._test.getResourceCounts().restartTimers, 0, "Missing unix_args.txt must not schedule auto-restart.");
     } finally {
@@ -514,7 +828,7 @@ async function assertNeoForgeVersionMismatchDetected() {
     assert.strictEqual(status.failureDetails?.expectedVersion, "21.1.228", "Expected NeoForge version should be captured.");
     assert.deepStrictEqual(status.failureDetails?.availableVersions, ["21.1.227"], "Available generated NeoForge versions should be captured.");
     const logs = await instanceService.readLogs(id, { stream: "stderr", limit: 20 });
-    assert(logs.entries.some((entry) => /NeoForge runtime files are incomplete/.test(entry.message)), "Mismatch error should write an actionable runtime-incomplete message.");
+    assert(logs.entries.some((entry) => /NeoForge runtime incomplete - repair runtime/.test(entry.message)), "Mismatch error should write an actionable runtime-incomplete message.");
   }, { platform: "linux" });
 }
 
@@ -872,10 +1186,16 @@ async function assertRenameDuplicateAndCrashLifecycle() {
 async function run() {
   await assertPalworldShellCommandNormalization();
   await assertPalworldSpawnArgvAndLogs();
+  await assertPalworldStderrNoiseIsNonFatalWhileRunning();
+  await assertPalworldRequestedSigterm143DoesNotRestart();
+  await assertPalworldUnexpectedNonzeroExitStillFails();
   await assertJavaScriptLauncherRepair();
   await assertInstallerJarWithStartupScriptRepair();
   await assertInstallerJarWithScriptArgumentRepair();
   await assertNeoForgeRunScriptPreferenceAndRuntimeValidation();
+  await assertLegacyAtm10JavaAppMigratesToScriptLauncher();
+  await assertNeoForgeRepairRuntimePreservesData();
+  await assertNeoForgeInstallerOnlyDoesNotRequireServerJar();
   await assertNeoForgeMissingUnixArgsPreflightDoesNotRestart();
   await assertNeoForgeMissingUnixArgsStderrDoesNotRestart();
   await assertNeoForgeVersionMismatchDetected();

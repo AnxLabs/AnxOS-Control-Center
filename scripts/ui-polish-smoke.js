@@ -8,6 +8,8 @@ const app = fs.readFileSync(path.join(root, "app.js"), "utf8");
 const styles = fs.readFileSync(path.join(root, "styles.css"), "utf8");
 const main = fs.readFileSync(path.join(root, "main.js"), "utf8");
 const preload = fs.readFileSync(path.join(root, "preload.js"), "utf8");
+const addStorageHtml = fs.readFileSync(path.join(root, "windows", "add-storage.html"), "utf8");
+const addStorageCss = fs.readFileSync(path.join(root, "windows", "add-storage.css"), "utf8");
 
 const expectedPages = ["dashboard", "amp", "playit", "coolpals", "docker", "marketplace", "instances", "ssh", "files", "console", "backups", "operations", "maintenance", "security", "owner-workspace", "agent-control", "nodes", "settings"];
 expectedPages.forEach((page) => assert(index.includes(`data-page="${page}"`), `Missing workspace root: ${page}`));
@@ -51,12 +53,13 @@ assert(main.includes("registerSettingsIpc"), "Main process must register setting
 assert(index.includes("nodes-summary-grid") && index.includes('data-node-summary="online"'), "Nodes workspace must expose a compact dashboard summary.");
 assert(index.includes("Switch System / Node") && index.includes("Choose a system to manage.") && index.includes("selected system"), "New-user language should consistently teach system/node terminology.");
 assert(index.includes("This PC is always available.") && app.includes("This PC is ready. Add a remote Agent node") && !index.includes("This Device is always available."), "Local system copy should consistently use This PC in the desktop shell.");
-assert(index.includes("Your AnxOS Overview") && index.includes("data-dashboard-friendly-grid") && index.includes("data-dashboard-next-action"), "Dashboard must include the beginner-friendly overview and next-step action.");
+assert((index.includes("Your AnxOS Overview") || index.includes("Control Center")) && index.includes("data-dashboard-friendly-grid") && index.includes("data-dashboard-next-action"), "Dashboard must include the beginner-friendly overview and next-step action.");
 assert(index.includes("dashboard-context-strip") && index.includes('data-dashboard-friendly="selectedSystem"') && index.includes('data-dashboard-friendly="metricsUpdated"'), "Dashboard must show selected system and metrics freshness context.");
 assert(index.includes("Setup Health") && index.includes("data-setup-health-center") && index.includes("Core setup") && index.includes("Optional features"), "Dashboard must include a setup health checklist with separate core and optional progress.");
 assert(app.includes("function renderFriendlyDashboard") && app.includes("getFriendlyDashboardState") && app.includes("runDashboardFriendlyAction"), "Dashboard friendly overview must be wired to real renderer state and actions.");
 assert(app.includes("const activeTarget = resolveActiveManagementTarget()") && app.includes("selectedSystemStatus: activeTarget.connectionState.label") && app.includes("const nodeHealth = getSharedNodeHealthModel(selectedNode)") && app.includes('setDashboardFriendlyField("nodeHealth"'), "Dashboard context must reuse selected target and node health state.");
-assert(app.includes("function getSetupHealthState") && app.includes("optionalItems") && app.includes("setupHealthActionState"), "Setup Health must derive from existing readiness state and keep optional features separate.");
+assert(app.includes("function getSetupHealthState") && app.includes("getPublicAccessSetupReadiness") && app.includes("setupHealthActionState"), "Setup Health must derive from existing readiness state and keep optional features separate.");
+assert(app.includes('setSetupHealthField("optionalProgress", `${optionalComplete}/${state.optional.length} complete`)'), "Setup Health optional progress must count the Optional group separately from Recommended items.");
 assert(app.includes("first-server-guide-title") && app.includes("first-server-guide-description"), "First-server guide modal must have accessible title and description bindings.");
 assert(styles.includes(".dashboard-welcome") && styles.includes(".dashboard-context-strip") && styles.includes(".dashboard-friendly-grid") && styles.includes(".dashboard-next-step"), "Dashboard friendly overview CSS must exist.");
 assert(styles.includes(".dashboard-setup-health") && styles.includes(".setup-health-groups"), "Setup Health CSS must exist.");
@@ -68,6 +71,11 @@ assert(index.includes("Help and Learning") && index.includes("data-contextual-he
 assert(app.includes("CONTEXTUAL_HELP_TOPICS") && app.includes("openContextualHelp") && app.includes("dismissContextualHelpTip"), "Contextual help must render through the reusable renderer component.");
 assert(index.includes("[data-node-list]") || index.includes("data-node-list"), "Nodes workspace must expose the node card list.");
 assert(index.includes("data-node-modal") && index.includes('data-node-action="open-add"'), "Nodes registration form must live in an Add Node modal.");
+assert(index.includes("node-modal-layout") && index.indexOf("node-pairing-section") < index.indexOf("node-manual-section"), "Node editor modal must use a balanced pairing/manual setup layout.");
+assert(index.indexOf("node-manual-section") < index.indexOf("node-form-actions"), "Node editor action buttons must stay aligned with the manual setup form.");
+assert(styles.includes(".node-modal-layout") && styles.includes("grid-template-columns: minmax(260px, 0.86fr) minmax(420px, 1.4fr)"), "Node editor modal must keep a balanced two-column desktop layout.");
+assert(styles.includes(".app-modal--node .modal-header .icon-action") && styles.includes("position: absolute") && styles.includes("right: 0"), "Node editor close button must stay aligned in the modal header.");
+assert(styles.includes("@media (max-width: 900px)") && styles.includes(".node-modal-layout") && styles.includes("grid-template-columns: minmax(0, 1fr)"), "Node editor modal must collapse cleanly on smaller windows.");
 assert(index.includes("data-node-details-modal") && index.includes("node-details-drawer"), "Nodes workspace must include a details drawer.");
 assert(app.includes('setAttribute("aria-busy"'), "Async workspace loading must expose aria-busy.");
 assert(app.includes("isNodeSwitching() || document.hidden"), "Background polling must pause while the document is hidden.");
@@ -86,6 +94,47 @@ assert(preload.includes("developerUpdates") && preload.includes("developerUpdate
 const updatesIpc = fs.readFileSync(path.join(root, "src", "ipc", "updatesIpc.js"), "utf8");
 assert(main.includes("DeveloperGitUpdater") && main.includes("registerDeveloperUpdatesIpc") && updatesIpc.includes("developerUpdates:restart"), "Main process must own developer update detection and restart through trusted IPC.");
 assert(main.includes("requestSingleInstanceLock") && main.includes("second-instance"), "Main process must prevent duplicate desktop instances from fighting over Electron cache paths.");
+[
+  "function normalizeWindowStateForDisplays",
+  "Saved window bounds were invalid or invisible; reset to centered default bounds.",
+  "MAIN_WINDOW_SHOW_FALLBACK_MS",
+  "MAIN_WINDOW_WATCHDOG_RECREATE_MS",
+  "ready-to-show-timeout",
+  "startup-watchdog",
+  "startup-safe-mode",
+  "function ensureMainWindowVisible",
+  "function startMainWindowWatchdog",
+  "function recreateMainWindow",
+  "function createStartupDiagnosticWindow",
+  "window-recreate",
+  "window-recreate-unusable",
+  "window-show-focus",
+  "window-state-save-skipped",
+  "window-startup-recovery.json",
+  "recreateIfUnusable",
+  "second-instance",
+  "renderer-process-gone",
+  "renderer-fail-load",
+  "AnxOS Control Center failed to load",
+].forEach((needle) => assert(main.includes(needle), `Main window launch recovery must include ${needle}.`));
+assert(main.includes("show: false") && main.includes("showMainWindow(\"did-finish-load\")") && main.includes("showMainWindow(\"ready-to-show\")"), "Main window must not depend only on ready-to-show before becoming visible.");
+assert(
+  addStorageHtml.indexOf('class="storage-form-body"') < addStorageHtml.indexOf('class="add-storage-actions"') &&
+    addStorageHtml.includes('data-storage-secret="password"') &&
+    addStorageHtml.includes('data-storage-secret="privateKey"') &&
+    addStorageHtml.includes('class="add-storage-actions__primary"'),
+  "SFTP Add Storage modal must keep form fields in a scrollable body before a separate action footer."
+);
+[
+  ".storage-form-body",
+  "grid-template-rows: minmax(0, 1fr) auto",
+  "overflow: hidden",
+  "scrollbar-gutter: stable",
+  ".add-storage-actions__primary",
+  "justify-content: space-between",
+  "@media (max-width: 620px), (max-height: 620px)",
+].forEach((needle) => assert(addStorageCss.includes(needle), `SFTP Add Storage modal polish CSS is missing: ${needle}`));
+assert(main.includes("getCenteredChildBounds(parent, 720, 680)") && main.includes("minWidth: 560"), "Add Storage child window must use a wider desktop layout for SFTP fields.");
 assert(index.includes('data-agent-control-action="start"') && index.includes('data-agent-control-action="installService"'), "Agent Control must expose real lifecycle and service actions.");
 assert(app.includes("Backup was already removed. Refreshed backup list."), "Backup UI must recover cleanly from stale already-deleted backup IDs.");
 assert(fs.readFileSync(path.join(root, "src", "services", "agentControlService.js"), "utf8").includes("Run AnxOS Control Center as Administrator"), "Windows Agent service install failures must explain elevation requirements.");
@@ -120,6 +169,9 @@ assert(app.includes("No security issues found."), "Security Center empty state m
 assert(app.includes("function getFriendlyStatusFailureMessage") && app.includes("AMP status could not be refreshed.") && app.includes("Public Access status could not be refreshed."), "Workspace status failures must use friendly contextual messages.");
 assert(app.includes("SSH profiles could not be loaded.") && app.includes("Maintenance could not inspect this item.") && app.includes("Operation stopped before a final result was reported."), "Loading, error, and failed-operation states must avoid vague Unknown error fallbacks.");
 assert(styles.includes(".node-card__actions") && styles.includes(".node-details-drawer") && styles.includes("@keyframes nodeDrawerIn"), "Nodes polish CSS must include compact cards, drawer, and subtle animation.");
+assert(app.includes("function isWindowsAgentNode") && app.includes("Windows Agent MVP") && app.includes("Hosting later"), "Windows Agent MVP nodes must render compact Windows badges and clear deferred-hosting copy.");
+assert(app.includes("Docker Desktop or Docker Engine") && app.includes("WINDOWS_DOCKER_UNSUPPORTED"), "Windows Agent Docker controls must be conditional on supported Docker detection.");
+assert(app.includes("Windows Agent MVP does not enable game-server hosting yet"), "Windows MVP nodes must not show unsupported game-server hosting as a scary health failure.");
 assert(pageMarkup("operations").includes("data-operation-list") && pageMarkup("operations").includes('data-operation-filter="running"'), "Operations Center must expose filterable operation history.");
 assert(pageMarkup("operations").includes('data-operation-action="clear-completed"') && pageMarkup("operations").includes("data-operation-detail"), "Operations Center must expose history cleanup and details.");
 assert(app.includes("function startOperation") && app.includes("function updateOperation") && app.includes("function renderOperationsCenter"), "Renderer must own centralized operation tracking.");

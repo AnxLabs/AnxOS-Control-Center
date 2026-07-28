@@ -5,9 +5,12 @@ const net = require("net");
 const { getPlayitSnapshot: getBasePlayitSnapshot } = require("../../../src/services/playitService");
 
 const COMMAND_TIMEOUT_MS = 2200;
+const CONTROL_COMMAND_TIMEOUT_MS = 15000;
 const SOCKET_TIMEOUT_MS = 500;
 const PLAYIT_IPC_VERSION = 2;
 const MAX_METADATA_FILE_BYTES = 256 * 1024;
+const MAX_LOG_BYTES = 128 * 1024;
+const PLAYIT_SERVICE_CANDIDATES = ["playit", "playit-agent"];
 const PLAYIT_DOMAIN_PATTERN = /\b[a-z0-9][a-z0-9.-]*\.(?:playit\.(?:gg|cloud|fan)|ply\.gg)\b/gi;
 const LOCAL_TARGET_PATTERN = /\b(?:127\.0\.0\.1|localhost|0\.0\.0\.0|\d{1,3}(?:\.\d{1,3}){3}):\d{1,5}\b/i;
 const PLAYIT_IPC_PERMISSION_CODES = new Set(["EACCES", "EPERM"]);
@@ -25,9 +28,9 @@ const PLAYIT_IPC_UNAVAILABLE_TUNNEL_FIELDS = {
   },
 };
 
-function exec(command, args) {
+function exec(command, args, options = {}) {
   return new Promise((resolve) => {
-    execFile(command, args, { timeout: COMMAND_TIMEOUT_MS, windowsHide: true }, (error, stdout, stderr) => {
+    execFile(command, args, { timeout: options.timeout || COMMAND_TIMEOUT_MS, windowsHide: true }, (error, stdout, stderr) => {
       resolve({
         ok: !error,
         errorCode: error?.code || error?.name || null,
@@ -1048,6 +1051,10 @@ function pickTunnelValue(currentValue, discoveredValue, currentTunnelAddress) {
   return isPlayitControlEndpoint(currentTunnelAddress || currentValue) ? discoveredValue || null : pickValue(currentValue, discoveredValue);
 }
 
+function createPlayitError(code, message, details = {}) {
+  return Object.assign(new Error(message), { code, statusCode: details.statusCode || 400, ...details });
+}
+
 async function getPlayitSnapshot() {
   const baseSnapshot = await getBasePlayitSnapshot();
 
@@ -1135,18 +1142,353 @@ async function getPlayitVersion(binaryPath) {
 async function getPlayitStatus() {
   const snapshot = await getPlayitSnapshot();
   const version = await getPlayitVersion(snapshot.diagnostics?.binaryPath);
+  const service = await getPlayitServiceStatusFromSnapshot(snapshot);
 
   return {
     ...snapshot,
     version: version.version,
+    service,
+    serviceState: service.state,
+    lastCheckedAt: service.lastCheckedAt,
     diagnostics: {
       ...snapshot.diagnostics,
       version: version.diagnostics,
+      service: service.diagnostics,
     },
+  };
+}
+
+function normalizeServiceState(value, runningFallback = false) {
+  const text = String(value || "").trim().toLowerCase();
+  if (/^(active|running)$/.test(text)) return "running";
+  if (/^(failed|error)$/.test(text)) return "failed";
+  if (/^(inactive|stopped|dead)$/.test(text)) return "stopped";
+  if (/not[-_\s]?found|could not be found|no such/i.test(text)) return "service-not-found";
+  return runningFallback ? "running" : "unknown";
+}
+
+async function inspectSystemdService(name, user = false) {
+  if (process.platform === "win32") {
+    return null;
+  }
+  const prefix = user ? ["--user"] : [];
+  const [active, enabled] = await Promise.all([
+    exec("systemctl", [...prefix, "is-active", name], { timeout: CONTROL_COMMAND_TIMEOUT_MS }),
+    exec("systemctl", [...prefix, "is-enabled", name], { timeout: CONTROL_COMMAND_TIMEOUT_MS }),
+  ]);
+  const rawState = active.stdout || active.stderr || "";
+  const state = normalizeServiceState(rawState);
+  const found = active.ok || enabled.ok || !/not-found|not loaded|could not be found|no such/i.test(`${active.stdout}\n${active.stderr}\n${enabled.stdout}\n${enabled.stderr}`);
+  return {
+    manager: user ? "systemd-user" : "systemd",
+    name,
+    found,
+    state: found ? state : "service-not-found",
+    enabled: enabled.ok ? enabled.stdout.split(/\r?\n/)[0] || "enabled" : null,
+    diagnostics: {
+      active: { ok: active.ok, errorCode: active.errorCode, output: sanitizeCommandLine(rawState) },
+      enabled: { ok: enabled.ok, errorCode: enabled.errorCode, output: sanitizeCommandLine(enabled.stdout || enabled.stderr) },
+    },
+  };
+}
+
+async function inspectWindowsService(name) {
+  if (process.platform !== "win32") {
+    return null;
+  }
+  const script = `Get-Service -Name ${JSON.stringify(name)} -ErrorAction SilentlyContinue | Select-Object -First 1 Name,Status | ConvertTo-Json -Compress`;
+  const result = await exec("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script], { timeout: CONTROL_COMMAND_TIMEOUT_MS });
+  let parsed = null;
+  try { parsed = result.stdout ? JSON.parse(result.stdout) : null; } catch {}
+  return {
+    manager: "windows-service",
+    name,
+    found: Boolean(parsed?.Name),
+    state: parsed?.Status ? normalizeServiceState(parsed.Status) : "service-not-found",
+    enabled: null,
+    diagnostics: {
+      query: { ok: result.ok, errorCode: result.errorCode, hasOutput: Boolean(result.stdout), stderr: sanitizeCommandLine(result.stderr) },
+    },
+  };
+}
+
+async function detectPlayitService() {
+  const checks = [];
+  if (process.platform === "win32") {
+    for (const name of PLAYIT_SERVICE_CANDIDATES) {
+      const check = await inspectWindowsService(name);
+      checks.push(check);
+      if (check?.found) return { selected: check, checks };
+    }
+    return { selected: null, checks };
+  }
+  for (const user of [false, true]) {
+    for (const name of PLAYIT_SERVICE_CANDIDATES) {
+      const check = await inspectSystemdService(name, user);
+      checks.push(check);
+      if (check?.found) return { selected: check, checks };
+    }
+  }
+  return { selected: null, checks };
+}
+
+async function getPlayitServiceStatusFromSnapshot(snapshot = null) {
+  const checkedAt = new Date().toISOString();
+  const current = snapshot || await getPlayitSnapshot();
+  const detected = await detectPlayitService();
+  const selected = detected.selected;
+  const installed = Boolean(current.installed);
+  const fallbackState = current.running ? "running" : installed ? "stopped" : "missing";
+  const state = selected?.found ? normalizeServiceState(selected.state, current.running) : fallbackState;
+  return {
+    installed,
+    running: state === "running" || current.running === true,
+    state,
+    serviceName: selected?.name || null,
+    manager: selected?.manager || null,
+    lastCheckedAt: checkedAt,
+    message: !installed
+      ? "Playit is not installed on this node."
+      : selected?.found
+        ? `Playit service is ${state}.`
+        : current.running
+          ? "Playit process is running; no managed service was found."
+          : "Playit is installed, but no managed service was found.",
+    diagnostics: {
+      checks: detected.checks,
+      fallbackProcessRunning: current.running === true,
+    },
+  };
+}
+
+async function runServiceControl(action) {
+  if (!["start", "stop", "restart"].includes(action)) {
+    throw createPlayitError("PLAYIT_ACTION_UNSUPPORTED", "Unsupported Playit action.", { statusCode: 400 });
+  }
+  const snapshot = await getPlayitSnapshot();
+  if (!snapshot.installed) {
+    throw createPlayitError("PLAYIT_NOT_INSTALLED", "Playit is not installed on this node.", { statusCode: 404 });
+  }
+  const detected = await detectPlayitService();
+  const selected = detected.selected;
+  if (!selected?.found) {
+    throw createPlayitError("PLAYIT_SERVICE_NOT_FOUND", "No managed Playit service was found for this node.", {
+      statusCode: 404,
+      diagnostics: { checks: detected.checks },
+    });
+  }
+  let result;
+  if (selected.manager === "windows-service") {
+    const verb = action === "start" ? "Start-Service" : action === "stop" ? "Stop-Service" : "Restart-Service";
+    result = await exec("powershell.exe", [
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-Command",
+      `${verb} -Name ${JSON.stringify(selected.name)} -ErrorAction Stop`,
+    ], { timeout: CONTROL_COMMAND_TIMEOUT_MS });
+  } else {
+    const prefix = selected.manager === "systemd-user" ? ["--user"] : [];
+    result = await exec("systemctl", [...prefix, action, selected.name], { timeout: CONTROL_COMMAND_TIMEOUT_MS });
+  }
+  if (!result.ok) {
+    const code = action === "start" ? "PLAYIT_START_FAILED" : action === "stop" ? "PLAYIT_STOP_FAILED" : "PLAYIT_RESTART_FAILED";
+    throw createPlayitError(code, `Playit ${action} failed.`, {
+      statusCode: 500,
+      diagnostics: { service: selected, errorCode: result.errorCode, stderr: sanitizeCommandLine(result.stderr), stdout: sanitizeCommandLine(result.stdout) },
+    });
+  }
+  return {
+    ok: true,
+    action,
+    service: selected,
+    status: await getPlayitStatus(),
+  };
+}
+
+async function startPlayit() {
+  return runServiceControl("start");
+}
+
+async function stopPlayit() {
+  return runServiceControl("stop");
+}
+
+async function restartPlayit() {
+  return runServiceControl("restart");
+}
+
+async function readTail(content, maxBytes = MAX_LOG_BYTES) {
+  const text = String(content || "");
+  return text.length > maxBytes ? text.slice(-maxBytes) : text;
+}
+
+async function getPlayitLogs(options = {}) {
+  const snapshot = await getPlayitSnapshot();
+  const logPaths = unique([
+    ...(snapshot.diagnostics?.daemonRuntimePaths?.logPaths || []),
+    process.env.PLAYIT_LOG_PATH,
+    process.platform === "win32" ? null : "/var/log/playit/playit.log",
+  ]);
+  const sources = await Promise.all(logPaths.map((filePath) => readMetadataFile(filePath, filePath)));
+  const journal = await readJournal();
+  const content = await readTail([...sources, journal].map((source) => source.content).filter(Boolean).join("\n"));
+  if (!content) {
+    return {
+      ok: false,
+      code: "PLAYIT_LOGS_UNAVAILABLE",
+      message: "Playit logs are unavailable for this install.",
+      lines: [],
+      diagnostics: { sources: [...sources, journal].map((source) => source.diagnostics) },
+    };
+  }
+  const limit = Number.parseInt(options.limit, 10);
+  const maxLines = Number.isInteger(limit) && limit > 0 ? Math.min(limit, 400) : 200;
+  return {
+    ok: true,
+    lines: content.split(/\r?\n/).filter(Boolean).slice(-maxLines).map(sanitizeCommandLine),
+    lastCheckedAt: new Date().toISOString(),
+  };
+}
+
+function publicEndpointParts(value) {
+  const text = String(value || "").trim();
+  const hostPort = text.replace(/^[a-z][a-z0-9+.-]*:\/\//i, "").split(/[/?#]/)[0];
+  const parts = splitHostPort(hostPort);
+  return {
+    publicHost: parts.ip || (hostPort || null),
+    publicPort: parts.port,
+  };
+}
+
+function normalizeTunnel(raw = {}, source = "playit", index = 0) {
+  const metadata = parsePlayitStateObject(raw, {});
+  const publicAddress = raw.display_address || raw.displayAddress || raw.assigned_domain || raw.assignedDomain || raw.public_address || raw.publicAddress || metadata.tunnelAddress || null;
+  const publicParts = publicEndpointParts(publicAddress);
+  const localTarget = raw.destination || raw.target || raw.local || raw.origin || metadata.localTarget || null;
+  const localParts = splitHostPort(localTarget);
+  const localHost = raw.localHost || raw.localIp || metadata.localIp || localParts.ip || null;
+  const localPort = raw.localPort || raw.local_port || metadata.localPort || localParts.port || null;
+  const protocol = normalizeProtocol(raw.protocol || raw.proto || raw.port_type || raw.portType || metadata.protocol) || null;
+  const id = String(raw.tunnel_id || raw.tunnelId || raw.id || metadata.tunnelId || `${source}-${publicAddress || localTarget || index}`).replace(/\s+/g, "-");
+  const disabled = raw.is_disabled === true || raw.disabled === true;
+  return {
+    id,
+    name: raw.name || raw.tunnel_name || raw.tunnelName || publicAddress || id,
+    status: disabled ? "offline" : publicAddress || localPort ? "online" : "unknown",
+    type: raw.tunnel_type || raw.tunnelType || raw.type || (/minecraft/i.test(String(raw.name || "")) ? "Minecraft" : protocol || "custom"),
+    protocol,
+    localHost,
+    localPort: localPort ? Number(localPort) : null,
+    publicHost: publicParts.publicHost,
+    publicPort: publicParts.publicPort ? Number(publicParts.publicPort) : null,
+    publicAddress,
+    source,
+    matchedInstanceId: null,
+    matchedInstanceName: null,
+    updatedAt: raw.updated_at || raw.updatedAt || raw.last_updated || null,
+  };
+}
+
+function collectTunnelObjects(value, output = [], seen = new Set()) {
+  if (!value || typeof value !== "object") return output;
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectTunnelObjects(item, output, seen));
+    return output;
+  }
+  if (hasTunnelMetadataFields(value)) {
+    const key = JSON.stringify(value).slice(0, 500);
+    if (!seen.has(key)) {
+      seen.add(key);
+      output.push(value);
+    }
+    return output;
+  }
+  for (const rawValue of Object.values(value)) {
+    if (rawValue && typeof rawValue === "object") collectTunnelObjects(rawValue, output, seen);
+  }
+  return output;
+}
+
+function parseTunnelObjectsFromContent(content) {
+  const objects = [];
+  const frames = parseIpcFrames(content);
+  for (const frame of frames) {
+    objects.push(...collectTunnelObjects(frame));
+  }
+  const trimmed = String(content || "").trim();
+  if (frames.length === 0 && /^[{[]/.test(trimmed)) {
+    try {
+      objects.push(...collectTunnelObjects(JSON.parse(trimmed)));
+    } catch {}
+  }
+  if (objects.length === 0) {
+    const parsed = parseTunnelMetadata(content);
+    if (parsed.tunnelAddress || parsed.localTarget || parsed.tunnelId) {
+      objects.push({
+        display_address: parsed.tunnelAddress,
+        destination: parsed.localTarget,
+        tunnel_id: parsed.tunnelId,
+        protocol: parsed.protocol,
+      });
+    }
+  }
+  return objects;
+}
+
+function dedupeTunnels(tunnels = []) {
+  const seen = new Set();
+  return tunnels.filter((tunnel) => {
+    const key = `${tunnel.id}|${tunnel.publicAddress}|${tunnel.localHost}:${tunnel.localPort}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+async function listPlayitTunnels() {
+  const snapshot = await getPlayitStatus();
+  if (!snapshot.installed) {
+    return { ok: false, code: "PLAYIT_NOT_INSTALLED", message: "Playit is not installed on this node.", tunnels: [], lastCheckedAt: snapshot.lastCheckedAt };
+  }
+  if (!snapshot.running && snapshot.serviceState !== "running") {
+    return { ok: false, code: "PLAYIT_NOT_RUNNING", message: "Start Playit to refresh tunnel status.", tunnels: [], lastCheckedAt: snapshot.lastCheckedAt };
+  }
+  const sources = snapshot.diagnostics?.tunnelMetadataSources || [];
+  const tunnels = [];
+  sources.forEach((source, sourceIndex) => {
+    parseTunnelObjectsFromContent(source.content || "").forEach((raw, index) => {
+      tunnels.push(normalizeTunnel(raw, source.name || `source-${sourceIndex}`, index));
+    });
+  });
+  if (snapshot.tunnelAddress || snapshot.localPort || snapshot.tunnelId) {
+    tunnels.push(normalizeTunnel({
+      display_address: snapshot.tunnelAddress || snapshot.tunnelDomain,
+      destination: snapshot.localTarget || (snapshot.localPort ? `${snapshot.localIp || "127.0.0.1"}:${snapshot.localPort}` : null),
+      tunnel_id: snapshot.tunnelId,
+      protocol: snapshot.protocol,
+    }, "snapshot", 0));
+  }
+  return {
+    ok: true,
+    tunnels: dedupeTunnels(tunnels),
+    lastCheckedAt: new Date().toISOString(),
+    message: tunnels.length ? "Playit tunnels refreshed." : "No Playit tunnels found.",
   };
 }
 
 module.exports = {
   getPlayitSnapshot,
   getPlayitStatus,
+  getPlayitServiceStatus: getPlayitStatus,
+  getPlayitLogs,
+  listPlayitTunnels,
+  restartPlayit,
+  startPlayit,
+  stopPlayit,
+  _test: {
+    collectTunnelObjects,
+    normalizeTunnel,
+    parseTunnelObjectsFromContent,
+  },
 };

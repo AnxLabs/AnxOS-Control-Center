@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-ui-generation="v1.9">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -91,7 +91,7 @@
             <span class="app-titlebar__brand-mark"><img src="src/assets/anxos-logo.png" alt="" aria-hidden="true"></span>
             <div class="app-titlebar__brand-copy">
               <strong data-app-name>AnxOS Control Center</strong>
-              <span>AnxOS Desktop Shell</span>
+              <span>Home Server Control</span>
             </div>
           </div>
 
@@ -491,17 +491,17 @@
         <section class="page is-active" data-page="dashboard">
           <header class="page-header">
             <div>
-              <p class="eyebrow">Overview</p>
+              <p class="eyebrow">Home</p>
               <h1>Dashboard</h1>
-              <p class="lede">Live system metrics from the selected system.</p>
+              <p class="lede">Your systems, services, and access in one place.</p>
             </div>
           </header>
 
           <section class="dashboard-welcome" aria-labelledby="dashboard-overview-title">
             <div class="dashboard-welcome__header">
               <div>
-                <p class="eyebrow">Your AnxOS Overview</p>
-                <h2 id="dashboard-overview-title">See what is connected, what is running, and anything that needs your attention.</h2>
+                <p class="eyebrow">Control Center</p>
+                <h2 id="dashboard-overview-title">Everything running across your AnxOS network.</h2>
               </div>
             </div>
             <div class="dashboard-context-strip" aria-label="Selected system summary">
@@ -553,12 +553,14 @@
               <button class="primary-button" type="button" data-dashboard-next-action>Open Dashboard</button>
             </div>
             <div class="dashboard-quick-actions" aria-label="Dashboard quick actions">
-              <button class="inline-action" type="button" data-dashboard-action="create-server">Create a Server</button>
-              <button class="inline-action" type="button" data-dashboard-action="instances">View Instances</button>
-              <button class="inline-action" type="button" data-dashboard-action="files">Open Files</button>
-              <button class="inline-action" type="button" data-dashboard-action="docker">Manage Docker</button>
-              <button class="inline-action" type="button" data-dashboard-action="nodes">Add Remote System</button>
-              <button class="inline-action" type="button" data-dashboard-action="public-access">Configure Public Access</button>
+              <button class="inline-action dashboard-launcher dashboard-launcher--primary" type="button" data-dashboard-action="create-server"><span>Create</span><strong>New Instance</strong></button>
+              <button class="inline-action dashboard-launcher" type="button" data-dashboard-action="instances"><span>Manage</span><strong>Instances</strong></button>
+              <button class="inline-action dashboard-launcher" type="button" data-dashboard-action="share-server"><span>Invite</span><strong>Share Server</strong></button>
+              <button class="inline-action dashboard-launcher" type="button" data-dashboard-action="public-access"><span>Connect</span><strong>Public Access</strong></button>
+              <button class="inline-action dashboard-launcher" type="button" data-dashboard-action="backups"><span>Protect</span><strong>Backups</strong></button>
+              <button class="inline-action dashboard-launcher" type="button" data-dashboard-action="marketplace"><span>Browse</span><strong>Marketplace</strong></button>
+              <button class="inline-action dashboard-launcher" type="button" data-dashboard-action="docker"><span>Operate</span><strong>Docker</strong></button>
+              <button class="inline-action dashboard-launcher" type="button" data-dashboard-action="nodes"><span>Connect</span><strong>Add Node</strong></button>
             </div>
             <div class="dashboard-friendly-empty" data-dashboard-friendly-empty hidden></div>
           </section>
@@ -961,6 +963,35 @@
                 </div>
               </article>
 
+              <article class="status-card playit-service-card">
+                <div class="status-card__top">
+                  <span class="service-icon">SV</span>
+                  <span class="status-pill status-pill--planned" data-playit-service-state>Checking...</span>
+                </div>
+                <h3>Playit Service</h3>
+                <p data-playit-service-meta>Checking Playit service state...</p>
+                <div class="settings-actions playit-service-actions" data-playit-service-actions aria-label="Playit service actions"></div>
+              </article>
+
+              <article class="status-card playit-tunnels-card">
+                <div class="status-card__top">
+                  <span class="service-icon">TN</span>
+                  <span class="status-pill status-pill--planned">Tunnels</span>
+                </div>
+                <h3>Playit Tunnels</h3>
+                <p data-playit-tunnel-message>No Playit tunnels found.</p>
+                <div class="playit-tunnel-list" data-playit-tunnel-list></div>
+              </article>
+
+              <article class="status-card playit-logs-card" data-playit-logs-panel hidden>
+                <div class="status-card__top">
+                  <span class="service-icon">LG</span>
+                  <span class="status-pill status-pill--planned">Logs</span>
+                </div>
+                <h3>Playit Logs</h3>
+                <pre class="playit-log-output" data-playit-logs-content>No logs loaded.</pre>
+              </article>
+
               <article class="status-card public-access-details">
                 <div class="status-card__top">
                   <span class="service-icon">PG</span>
@@ -1325,7 +1356,7 @@
             </div>
 
             <div class="docker-resource-grid" aria-label="Docker resources">
-              <section class="docker-resource-panel">
+              <section class="docker-resource-panel docker-resource-panel--compose">
                 <div class="panel-heading">
                   <h3>Images</h3>
                   <button class="inline-action" type="button" data-docker-resource-action="refresh-images">Refresh</button>
@@ -1338,7 +1369,7 @@
                 <div class="docker-resource-list" data-docker-images-list></div>
               </section>
 
-              <section class="docker-resource-panel">
+              <section class="docker-resource-panel docker-resource-panel--create">
                 <div class="panel-heading">
                   <h3>Volumes</h3>
                   <button class="inline-action" type="button" data-docker-resource-action="refresh-volumes">Refresh</button>
@@ -1410,14 +1441,14 @@
                   <input type="text" placeholder="CPU limit, e.g. 1.5" data-docker-create="cpus">
                   <input type="text" placeholder="Memory, e.g. 512m" data-docker-create="memory">
                   <input type="text" placeholder="Labels: key=value" data-docker-create="labels">
-                  <label><input type="checkbox" data-docker-create="privileged"> Privileged mode</label>
-                  <label><input type="checkbox" data-docker-create="autoRemove"> Auto-remove</label>
-                  <label><input type="checkbox" data-docker-create="start"> Start after create</label>
+                  <label class="docker-check-option"><input type="checkbox" data-docker-create="privileged"> <span>Privileged mode</span></label>
+                  <label class="docker-check-option"><input type="checkbox" data-docker-create="autoRemove"> <span>Auto-remove</span></label>
+                  <label class="docker-check-option"><input type="checkbox" data-docker-create="start"> <span>Start after create</span></label>
                 </div>
                 <p class="docker-warning">Privileged mode, host networking, Docker socket mounts, and host filesystem mounts are dangerous. Review mappings before creating.</p>
               </section>
 
-              <section class="docker-resource-panel">
+              <section class="docker-resource-panel docker-resource-panel--cleanup">
                 <div class="panel-heading">
                   <h3>Cleanup</h3>
                   <button class="inline-action" type="button" data-docker-resource-action="cleanup-preview">Preview</button>
@@ -1536,7 +1567,7 @@
                   <div class="marketplace-manual-meta">
                     <div><span>File</span><strong data-marketplace-manual-file>Unknown file</strong></div>
                     <div><span>Mod</span><strong data-marketplace-manual-mod>Unknown mod</strong></div>
-                    <div><span>Version</span><strong data-marketplace-manual-version>Unknown version</strong></div>
+                    <div><span>Provider version</span><strong data-marketplace-manual-version>Unknown version</strong></div>
                     <div><span>Provider</span><strong data-marketplace-manual-provider>Provider</strong></div>
                     <div class="marketplace-manual-meta__wide"><span>Details</span><strong data-marketplace-manual-detail></strong></div>
                   </div>
@@ -1555,7 +1586,7 @@
                   <div class="marketplace-wizard-steps" data-marketplace-wizard-steps></div>
                   <label class="ssh-field"><span>Name</span><input type="text" data-marketplace-field="name" placeholder="My Server"></label>
                   <div class="ssh-field marketplace-version-field" data-marketplace-field-wrap="version">
-                    <span>Version</span>
+                    <span>Minecraft version</span>
                     <div class="marketplace-version-input-row">
                       <input type="text" data-marketplace-field="version" placeholder="latest or 1.21.4" autocomplete="off">
                       <button class="inline-action marketplace-version-toggle" type="button" data-marketplace-version-toggle>Browse</button>
@@ -2035,6 +2066,7 @@
               <div class="instance-quick-actions" aria-label="Selected instance actions">
                 <button class="inline-action" type="button" data-instance-action="refresh" disabled>Refresh</button>
                 <button class="inline-action" type="button" data-instance-action="start" disabled>Start</button>
+                <button class="inline-action" type="button" data-instance-action="repair-neoforge-runtime" hidden disabled>Repair Runtime</button>
                 <button class="inline-action" type="button" data-instance-action="stop" disabled>Stop</button>
                 <button class="inline-action" type="button" data-instance-action="restart" disabled>Restart</button>
                 <button class="inline-action" type="button" data-instance-action="update-steam" hidden disabled>Update Server Files</button>
@@ -2042,6 +2074,7 @@
                 <button class="inline-action" type="button" data-instance-action="duplicate" disabled>Duplicate</button>
                 <button class="inline-action" type="button" data-instance-action="open-folder" disabled>Open Folder</button>
                 <button class="inline-action" type="button" data-instance-action="expose-share" disabled>Expose / Share</button>
+                <button class="inline-action" type="button" data-instance-action="share-server" disabled>Share Server</button>
                 <button class="inline-action" type="button" data-instance-action="copy-access-address" disabled>Copy Access</button>
                 <button class="inline-action" type="button" data-instance-action="manage-access" disabled>Manage Access</button>
                 <button class="inline-action" type="button" data-instance-action="configure-fivem" hidden>Configure FiveM</button>
@@ -4378,60 +4411,66 @@
           </div>
           <button class="icon-action" type="button" aria-label="Close node form" data-node-action="close-modal">&times;</button>
         </header>
-        <p class="settings-note node-form-guidance">One machine or server = one independently running AnxOS Agent. Use Pair with Code for automatic setup, or open Advanced Manual Setup for recovery and development.</p>
-        <div class="settings-message" data-node-form-status hidden></div>
-        <section class="settings-section node-pairing-section" data-node-pairing-section>
-          <div class="settings-section__header"><div><h3>Pair with Code</h3><p>Recommended. Enter the temporary pairing code displayed by Agent setup. No manual token setup is required.</p></div><span class="status-pill status-pill--ok">Recommended</span></div>
-          <label class="settings-field settings-field--wide"><span>Pairing code</span><textarea rows="3" data-node-pairing-code placeholder="ANX-4K7P-92DM" autocomplete="off" spellcheck="false"></textarea><small class="settings-field-error" data-node-field-error="pairingCode"></small></label>
-          <div class="settings-actions">
-            <button class="primary-button" type="button" data-node-action="pair-code">Pair Agent</button>
-            <button class="inline-action" type="button" data-node-action="paste-pairing-code">Paste Pairing Code</button>
+        <div class="node-modal-body">
+          <div class="node-modal-intro">
+            <p class="settings-note node-form-guidance">One machine or server = one independently running AnxOS Agent. Use Pair with Code for automatic setup, or open Advanced Manual Setup for recovery and development.</p>
+            <div class="settings-message" data-node-form-status hidden></div>
           </div>
-          <div class="settings-actions settings-actions--secondary" data-node-pairing-retry hidden>
-            <button class="inline-action" type="button" data-node-action="restart-pairing">Restart Pairing</button>
-            <button class="inline-action" type="button" data-node-action="pairing-retry-help">Generate New Pairing Code</button>
-            <button class="inline-action" type="button" data-node-action="cancel-pairing">Cancel</button>
+          <div class="node-modal-layout">
+            <section class="settings-section node-pairing-section" data-node-pairing-section>
+              <div class="settings-section__header"><div><h3>Pair with Code</h3><p>Recommended. Enter the temporary pairing code displayed by Agent setup. No manual token setup is required.</p></div><span class="status-pill status-pill--ok">Recommended</span></div>
+              <label class="settings-field settings-field--wide"><span>Pairing code</span><textarea rows="3" data-node-pairing-code placeholder="ANX-4K7P-92DM" autocomplete="off" spellcheck="false"></textarea><small class="settings-field-error" data-node-field-error="pairingCode"></small></label>
+              <div class="settings-actions node-pairing-actions">
+                <button class="primary-button" type="button" data-node-action="pair-code">Pair Agent</button>
+                <button class="inline-action" type="button" data-node-action="paste-pairing-code">Paste Pairing Code</button>
+              </div>
+              <div class="settings-actions settings-actions--secondary" data-node-pairing-retry hidden>
+                <button class="inline-action" type="button" data-node-action="restart-pairing">Restart Pairing</button>
+                <button class="inline-action" type="button" data-node-action="pairing-retry-help">Generate New Pairing Code</button>
+                <button class="inline-action" type="button" data-node-action="cancel-pairing">Cancel</button>
+              </div>
+            </section>
+            <section class="settings-section node-manual-section" data-node-manual-section>
+              <div class="settings-section__header"><div><h3>Advanced Manual Setup</h3><p>Use direct Agent URL and token only for development, recovery, older Agents, or headless workflows.</p></div><span class="status-pill status-pill--planned">Advanced</span></div>
+              <div class="settings-grid nodes-form-grid">
+                <label class="settings-field"><span>Node name</span><input type="text" data-node-field="displayName" placeholder="Anxlab" maxlength="80"><small class="settings-field-error" data-node-field-error="displayName"></small></label>
+                <label class="settings-field"><span>Agent URL</span><input type="url" data-node-field="agentUrl" placeholder="http://192.168.1.134:47131"><small class="settings-field-error" data-node-field-error="agentUrl"></small></label>
+                <div class="settings-field settings-field--wide node-token-field">
+                  <label><span>Agent Token</span><input type="password" data-node-field="agentToken" placeholder="Leave blank to keep the existing token" autocomplete="off"></label>
+                  <div class="settings-actions node-token-actions">
+                    <button class="inline-action" type="button" data-node-action="generate-token">Generate Token</button>
+                    <button class="inline-action" type="button" data-node-action="copy-token" disabled>Copy Token</button>
+                  </div>
+                  <small class="settings-note" data-node-token-note>Generate a secure token, copy it to the Agent machine, and configure the same token on both sides.</small>
+                  <small class="settings-field-error" data-node-field-error="agentToken"></small>
+                </div>
+                <label class="settings-field settings-field--wide"><span>Description</span><input type="text" data-node-field="description" placeholder="Optional note, rack, owner, or location" maxlength="500"></label>
+                <label class="settings-field settings-field--wide"><span>Tags</span><input type="text" data-node-field="tags" placeholder="windows, minecraft, vps"></label>
+                <label class="settings-check settings-check--toggle"><input type="checkbox" data-node-field="enabled" checked><span>Node enabled</span></label>
+                <label class="settings-check settings-check--toggle"><input type="checkbox" data-node-field="dockerEnabled" checked><span>Docker enabled on this node</span></label>
+              </div>
+              <div class="settings-note node-token-setup" data-node-token-setup hidden>
+                <strong>Token setup</strong>
+                <ol>
+                  <li>Copy the generated token.</li>
+                  <li>Configure the same token on the Agent machine.</li>
+                  <li>Restart the AnxOS Agent.</li>
+                  <li>Return to Control Center.</li>
+                  <li>Select Test Connection.</li>
+                  <li>Save the node after validation succeeds.</li>
+                </ol>
+                <p>For normal setup, open Agent Setup on that machine and use Pair with Code or Repair Connection. Advanced manual token setup is intended for development, recovery, or headless administration.</p>
+                <p>Treat this token like a password. Anyone with it may be able to control this Agent.</p>
+              </div>
+              <div class="settings-actions node-form-actions">
+                <button class="inline-action" type="button" data-node-action="test-form">Test Connection</button>
+                <button class="primary-button" type="button" data-node-action="save">Register Node</button>
+                <button class="inline-action" type="button" data-node-action="close-modal">Cancel</button>
+                <button class="inline-action" type="button" data-node-action="delete">Delete Selected</button>
+              </div>
+            </section>
           </div>
-        </section>
-        <section class="settings-section node-manual-section" data-node-manual-section>
-          <div class="settings-section__header"><div><h3>Advanced Manual Setup</h3><p>Use direct Agent URL and token only for development, recovery, older Agents, or headless workflows.</p></div><span class="status-pill status-pill--planned">Advanced</span></div>
-        <div class="settings-grid nodes-form-grid">
-          <label class="settings-field"><span>Node name</span><input type="text" data-node-field="displayName" placeholder="Anxlab" maxlength="80"><small class="settings-field-error" data-node-field-error="displayName"></small></label>
-          <label class="settings-field"><span>Agent URL</span><input type="url" data-node-field="agentUrl" placeholder="http://192.168.1.134:47131"><small class="settings-field-error" data-node-field-error="agentUrl"></small></label>
-          <div class="settings-field settings-field--wide node-token-field">
-            <label><span>Agent Token</span><input type="password" data-node-field="agentToken" placeholder="Leave blank to keep the existing token" autocomplete="off"></label>
-            <div class="settings-actions node-token-actions">
-              <button class="inline-action" type="button" data-node-action="generate-token">Generate Token</button>
-              <button class="inline-action" type="button" data-node-action="copy-token" disabled>Copy Token</button>
-            </div>
-            <small class="settings-note" data-node-token-note>Generate a secure token, copy it to the Agent machine, and configure the same token on both sides.</small>
-            <small class="settings-field-error" data-node-field-error="agentToken"></small>
-          </div>
-          <label class="settings-field settings-field--wide"><span>Description</span><input type="text" data-node-field="description" placeholder="Optional note, rack, owner, or location" maxlength="500"></label>
-          <label class="settings-field settings-field--wide"><span>Tags</span><input type="text" data-node-field="tags" placeholder="windows, minecraft, vps"></label>
-          <label class="settings-check settings-check--toggle"><input type="checkbox" data-node-field="enabled" checked><span>Node enabled</span></label>
-          <label class="settings-check settings-check--toggle"><input type="checkbox" data-node-field="dockerEnabled" checked><span>Docker enabled on this node</span></label>
         </div>
-        <div class="settings-actions">
-          <button class="inline-action" type="button" data-node-action="test-form">Test Connection</button>
-          <button class="primary-button" type="button" data-node-action="save">Register Node</button>
-          <button class="inline-action" type="button" data-node-action="close-modal">Cancel</button>
-          <button class="inline-action" type="button" data-node-action="delete">Delete Selected</button>
-        </div>
-        <div class="settings-note node-token-setup" data-node-token-setup hidden>
-          <strong>Token setup</strong>
-          <ol>
-            <li>Copy the generated token.</li>
-            <li>Configure the same token on the Agent machine.</li>
-            <li>Restart the AnxOS Agent.</li>
-            <li>Return to Control Center.</li>
-            <li>Select Test Connection.</li>
-            <li>Save the node after validation succeeds.</li>
-          </ol>
-          <p>For normal setup, open Agent Setup on that machine and use Pair with Code or Repair Connection. Advanced manual token setup is intended for development, recovery, or headless administration.</p>
-          <p>Treat this token like a password. Anyone with it may be able to control this Agent.</p>
-        </div>
-        </section>
       </section>
     </div>
 

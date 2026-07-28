@@ -4,19 +4,19 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   subtitle: "A desktop control center for Minecraft servers, modpacks, remote nodes, and automation.",
   siteUrl: "https://anxoscontrolcenter.org",
   logoPath: "/assets/anxos-logo.png",
-  latestVersion: "1.8",
-  build: "180",
-  buildNumber: "180",
+  latestVersion: "1.9",
+  build: "190",
+  buildNumber: "190",
   channel: "Private Alpha",
-  releaseLabel: "Version 1.8 Build 180 Private Alpha",
+  releaseLabel: "Version 1.9 Build 190 Private Alpha",
   releaseDate: "July 27, 2026",
-  releaseTag: "v1.8-build180",
+  releaseTag: "v1.9-build190",
   releaseRepository: {
     owner: "bungopam-byte",
     repo: "AnxOS-Control-Center-Releases",
   },
   repositoryUrl: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases",
-  releaseUrl: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build180",
+  releaseUrl: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.9-build190",
   githubReleasesApiUrl: "https://api.github.com/repos/bungopam-byte/AnxOS-Control-Center-Releases/releases?per_page=20",
   stableDownloadEndpoints: {
     windows: "/api/download/latest/windows",
@@ -26,23 +26,238 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   },
   releaseAssets: [
       {
-          fileName: "AnxOS-Control-Center-Setup-1.8-build180.exe",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build180/AnxOS-Control-Center-Setup-1.8-build180.exe"
+          fileName: "AnxOS-Control-Center-Setup-1.9-build190.exe",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.9-build190/AnxOS-Control-Center-Setup-1.9-build190.exe"
       },
       {
-          fileName: "AnxOS-Control-Center-1.8-build180-portable.exe",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build180/AnxOS-Control-Center-1.8-build180-portable.exe"
+          fileName: "AnxOS-Control-Center-1.9-build190-portable.exe",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.9-build190/AnxOS-Control-Center-1.9-build190-portable.exe"
       },
       {
-          fileName: "AnxOS-Control-Center-1.8-build180.AppImage",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build180/AnxOS-Control-Center-1.8-build180.AppImage"
+          fileName: "AnxOS-Control-Center-1.9-build190.AppImage",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.9-build190/AnxOS-Control-Center-1.9-build190.AppImage"
       },
       {
-          fileName: "AnxOS-Control-Center-1.8-build180.deb",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.8-build180/AnxOS-Control-Center-1.8-build180.deb"
+          fileName: "AnxOS-Control-Center-1.9-build190.deb",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.9-build190/AnxOS-Control-Center-1.9-build190.deb"
       }
   ],
   releaseNotes: [
+      {
+          "version": "1.9",
+          "build": 190,
+          "channel": "Private Alpha",
+          "tag": "v1.9-build190",
+          "date": "July 27, 2026",
+          "datetime": "2026-07-27",
+          "title": "Build 190 local login fix and v1.9 UI refresh",
+          "summary": "Private Alpha v1.9 Build 190 fixes local security and account IPC startup, restores browser authentication, and introduces the first CasaOS/HTNetwork-inspired AnxOS interface refresh.",
+          "changes": [
+              "Fixed local security login IPC registration race.",
+              "Registered account and local-security IPC before renderer creation or recovery.",
+              "Made incomplete-instance recovery non-blocking.",
+              "Fixed stale onboarding flags forcing upgraded installations back into First Launch.",
+              "Restored owner, session, and node state before deciding whether setup is genuinely required.",
+              "Fixed Continue in Browser to use canonical /signin/, /account/, and /activate/ URLs.",
+              "Added safe external URL handling.",
+              "Started the v1.9 CasaOS/HTNetwork-inspired UI refresh.",
+              "Added a compact v1.9 dashboard launchpad.",
+              "Refreshed the sidebar, page headers, status cards, Nodes, Instances, Public Access, and Marketplace surfaces.",
+              "Preserved Marketplace, Share Server, Playit, NeoForge, Windows Agent, SFTP, and updater behavior."
+          ],
+          "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.9-build190"
+      },
+      {
+          "version": "1.8",
+          "build": 189,
+          "channel": "Private Alpha",
+          "tag": "v1.8-build189",
+          "date": "July 27, 2026",
+          "datetime": "2026-07-27",
+          "title": "Build 189 visible-window hotfix and Marketplace repair polish",
+          "summary": "Private Alpha v1.8 Build 189 fixes persistent invisible-window launch after update or install and polishes Marketplace installed-state, repair, and update flows.",
+          "changes": [
+              "Fixed persistent invisible-window launch after update or install.",
+              "Added stronger window show and focus recovery.",
+              "Added saved-bounds rejection and safe-mode startup recovery.",
+              "Added startup watchdog reset and recreate behavior.",
+              "Improved second-instance window recovery.",
+              "Added visible renderer failure diagnostics.",
+              "Polished Marketplace installed-state handling.",
+              "Added compact installed pack actions: Open, Start, Open Console, Share, and Repair Runtime.",
+              "Added guarded SteamCMD update action.",
+              "Added honest update states: update available, up to date, update unavailable, and stop-before-update.",
+              "Made NeoForge repair discoverable from Marketplace without making reinstall the primary action."
+          ],
+          "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build189"
+      },
+      {
+          "version": "1.8",
+          "build": 188,
+          "channel": "Private Alpha",
+          "tag": "v1.8-build188",
+          "date": "July 27, 2026",
+          "datetime": "2026-07-27",
+          "title": "Build 188 Windows Agent MVP node support",
+          "summary": "Private Alpha v1.8 Build 188 adds Windows Agent MVP node support, Windows capability reporting, and safer unsupported-state handling while preserving existing Linux node behavior.",
+          "changes": [
+              "Added Windows Agent MVP node support.",
+              "Added Windows capability reporting from Agent health.",
+              "Added Windows node badges and MVP messaging.",
+              "Normalized Windows OS, hostname, version, and capability data into the node model.",
+              "Improved Windows pairing and test connection compatibility.",
+              "Marked Linux-only or deferred Windows features as unsupported instead of broken.",
+              "Made Docker visibility conditional on Windows Agent capability reporting.",
+              "Preserved existing Linux node behavior."
+          ],
+          "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build188"
+      },
+      {
+          "version": "1.8",
+          "build": 187,
+          "channel": "Private Alpha",
+          "tag": "v1.8-build187",
+          "date": "July 27, 2026",
+          "datetime": "2026-07-27",
+          "title": "Build 187 invisible window and SFTP modal hotfix",
+          "summary": "Private Alpha v1.8 Build 187 fixes a launch/update path where the app process could run without a visible window and polishes the Add Storage SFTP modal layout.",
+          "changes": [
+              "Fixed app process running with no visible window after launch or update.",
+              "Validated saved window bounds before restoring them on startup.",
+              "Recovered from hidden, minimized, off-screen, or invalid saved window state.",
+              "Restored or recreated the main window when the app is launched a second time.",
+              "Added clearer renderer load and crash diagnostics for startup failures.",
+              "Polished the Add Storage SFTP modal layout.",
+              "Fixed SFTP modal footer buttons overlapping form fields.",
+              "Improved SFTP modal scrolling, field spacing, and authentication-specific field layout."
+          ],
+          "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build187"
+      },
+      {
+          "version": "1.8",
+          "build": 186,
+          "channel": "Private Alpha",
+          "tag": "v1.8-build186",
+          "date": "July 27, 2026",
+          "datetime": "2026-07-27",
+          "title": "Build 186 Share Server access health and Public Access compatibility",
+          "summary": "Private Alpha v1.8 Build 186 polishes Share Server access health, diagnostics, copy behavior, and invite text while improving NeoForge repair and Playit/Public Access compatibility with older or restarted Agents.",
+          "changes": [
+              "Added Share Server access health checks for instance state, local port listening, LAN availability, Playit service state, tunnel matching, public address availability, Tailscale availability, and last checked time.",
+              "Added compact friend-can’t-join diagnostics for stopped or failed servers, non-listening ports, stopped Playit, missing or duplicate tunnel matches, disconnected nodes, and ready access.",
+              "Improved Copy Access recommendation behavior so healthy Playit addresses are preferred, then Tailscale, then LAN, without copying placeholder or Checking values.",
+              "Improved invite text templates for Minecraft, Palworld, generic servers, LAN-only sharing, Playit public sharing, and Tailscale access.",
+              "Added compact instance access badges for local-only, Playit online, Tailscale available, no public access, port not listening, public access ready, multiple tunnels, node disconnected, stopped, and failed states.",
+              "Fixed NeoForge Repair Runtime routing and Agent HTTP 404 handling so unsupported remote Agents show a clear update-required message instead of raw errors.",
+              "Fixed Public Access cards getting stuck on Checking and preserved known provider/service configuration when selected Agent state is unavailable.",
+              "Fixed Playit service and tunnel route mismatch behavior for older or still-running Agents by falling back to legacy Public Access provider/service data when new Playit Agent endpoints are unavailable.",
+              "Disabled unsupported Playit controls until the selected Agent is updated or restarted.",
+              "Prevented raw NOT_FOUND IPC errors and false empty tunnel states when Playit management endpoints are unavailable."
+          ],
+          "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build186"
+      },
+      {
+          "version": "1.8",
+          "build": 185,
+          "channel": "Private Alpha",
+          "tag": "v1.8-build185",
+          "date": "July 27, 2026",
+          "datetime": "2026-07-27",
+          "title": "Build 185 NeoForge repair, Public Access stability, and Share Server UX",
+          "summary": "Private Alpha v1.8 Build 185 fixes remaining ATM10 and NeoForge runtime repair/start reporting, prevents Public Access from staying stuck on Checking when a node is unavailable, and adds a friend-ready Share Server flow.",
+          "changes": [
+              "Fixed NeoForge and ATM10 runtime readiness so valid script-launcher packs with unix_args.txt can start without server.jar.",
+              "Added a bounded NeoForge runtime repair action that uses the bundled versioned server-pack installer in place while preserving world, config, mods, and backups.",
+              "Fixed instance start reporting so immediate runtime failure is shown as a repairable failure instead of a successful start request.",
+              "Fixed Public Access and Playit cards so disconnected or slow selected Agents resolve to clear unavailable states instead of staying on Checking.",
+              "Disabled Playit Start, Stop, Restart, Logs, and tunnel refresh actions while the selected node is disconnected or unauthorized.",
+              "Added Share Server and How Friends Join UX with copyable LAN, Playit, and Tailscale addresses.",
+              "Added copyable invite text and game-specific friend instructions for Minecraft, Palworld, and generic servers.",
+              "Matched Playit tunnels to instances by local port when safe and handled multiple matching tunnels without guessing."
+          ],
+          "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build185"
+      },
+      {
+          "version": "1.8",
+          "build": 184,
+          "channel": "Private Alpha",
+          "tag": "v1.8-build184",
+          "date": "July 27, 2026",
+          "datetime": "2026-07-27",
+          "title": "Build 184 Playit public access and runtime readiness fixes",
+          "summary": "Private Alpha v1.8 Build 184 adds Playit service controls, logs, tunnels, and endpoint copy support in Public Access while fixing SSH shell readiness and existing ATM10/NeoForge runtime readiness detection.",
+          "changes": [
+              "Added Playit service controls in Public Access.",
+              "Added Start, Stop, Restart, and Refresh status actions for Playit.",
+              "Added Playit logs viewing inside the app.",
+              "Added Playit tunnel list in Public Access.",
+              "Added copy support for public tunnel endpoints.",
+              "Added tunnel-to-instance matching by local port when available.",
+              "Fixed SSH shell readiness so auth success is not treated as usable shell readiness too early.",
+              "Improved SSH diagnostics for shell timeout, PTY, and command write states.",
+              "Fixed existing ATM10 and NeoForge runtime readiness detection and migrated stale java-app/server.jar metadata when launcher files prove a NeoForge script runtime."
+          ],
+          "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build184"
+      },
+      {
+          "version": "1.8",
+          "build": 183,
+          "channel": "Private Alpha",
+          "tag": "v1.8-build183",
+          "date": "July 27, 2026",
+          "datetime": "2026-07-27",
+          "title": "Build 183 Marketplace, SSH, node editor, Docker, checklist, Palworld, and NeoForge polish",
+          "summary": "Private Alpha v1.8 Build 183 stabilizes the Build 182 Marketplace UI, SSH input flow, node editor and Docker layouts, checklist readiness, Palworld log classification, and NeoForge runtime validation.",
+          "changes": [
+              "Restored compact Marketplace modpack cards with concise pack version, server-pack status, and provider/runtime badges.",
+              "Cleaned the Marketplace install panel metadata layout so detailed Minecraft, runtime, provider file, and server-pack fields live in the install review.",
+              "Fixed NeoForge and ATM10 runtime validation so script-launcher server packs do not require a generic server.jar.",
+              "Fixed SSH connected state and input handling so commands are only sent when the shell is ready and failures are shown clearly.",
+              "Improved the Edit Node modal layout, close-button placement, manual setup width, and action alignment.",
+              "Improved Docker page layout and checkbox polish for denser container creation, compose, and cleanup panels.",
+              "Fixed Public Access setup checklist readiness when public or private access services are already configured.",
+              "Classified Palworld and Steam stderr noise as non-fatal when the server process remains healthy."
+          ],
+          "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build183"
+      },
+      {
+          "version": "1.8",
+          "build": 182,
+          "channel": "Private Alpha",
+          "tag": "v1.8-build182",
+          "date": "July 27, 2026",
+          "datetime": "2026-07-27",
+          "title": "Build 182 node health, SSH, setup checklist, and storage polish",
+          "summary": "Private Alpha v1.8 Build 182 stabilizes post-build-181 SSH, node health, dashboard setup, and storage modal polish.",
+          "changes": [
+              "Added bounded SSH connection states for connecting, authenticating, waiting for shell, timed out, and failed flows with clearer retry and cancel behavior.",
+              "Clarified node health diagnostics so historical sanitized log groups do not make an otherwise healthy node look degraded unless they are current and actionable.",
+              "Changed unavailable CPU temperature display to friendly bounded states such as unavailable on this system, not supported by this node, or requires sensor support.",
+              "Fixed Dashboard setup checklist backup detection so Backup created becomes Ready when real managed backups exist for the selected node.",
+              "Polished the Edit Node modal layout, section balance, close alignment, and manual setup readability.",
+              "Polished the SFTP Add Storage modal spacing, provider selection, button placement, and scroll behavior.",
+              "Restored packaged desktop config asset inclusion so marketplace templates and agent examples are present in app.asar validation."
+          ],
+          "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build182"
+      },
+      {
+          "version": "1.8",
+          "build": 181,
+          "channel": "Private Alpha",
+          "tag": "v1.8-build181",
+          "date": "July 27, 2026",
+          "datetime": "2026-07-27",
+          "title": "Build 181 packaged UI font and Marketplace display hotfix",
+          "summary": "Private Alpha v1.8 Build 181 fixes packaged UI font rendering and clarifies Marketplace modpack version metadata after build 180.",
+          "changes": [
+              "Fixed the packaged app global font regression.",
+              "Fixed splash, dashboard, sidebar, buttons, and cards font rendering so normal UI text uses the intended readable sans font.",
+              "Fixed Marketplace version labels to distinguish Minecraft version from runtime, provider, and server-pack metadata.",
+              "Fixed the ATM10 and CurseForge install panel display so Minecraft 1.21.1 is not shown as a generic runtime or server-pack version.",
+              "Includes the previous build 180 Marketplace and runtime fixes for CurseForge and Modrinth version resolution, server-pack runtime preservation, ATM10 and NeoForge runtime repair, selected-node marketplace install smoke hardening, and Windows disk stats EPIPE handling."
+          ],
+          "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build181"
+      },
       {
           "version": "1.8",
           "build": 180,

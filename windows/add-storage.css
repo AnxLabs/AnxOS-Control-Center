@@ -14,10 +14,12 @@ body {
 .add-storage-shell {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  gap: 14px;
+  gap: 12px;
   height: 100dvh;
-  padding: 18px;
-  overflow: auto;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 16px;
+  overflow: hidden;
   overscroll-behavior: contain;
   background:
     radial-gradient(circle at 16% 0%, rgba(182, 108, 255, 0.18), transparent 34%),
@@ -41,40 +43,137 @@ body {
 
 .add-storage-card {
   display: grid;
-  gap: 16px;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 12px;
   min-height: 0;
-  padding: 16px;
+  padding: 14px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: rgba(17, 21, 31, 0.82);
   box-shadow: var(--shadow-soft);
+  overflow: hidden;
 }
 
 .add-storage-card .settings-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.storage-provider-picker {
+  align-items: stretch;
+  gap: 10px;
+}
+
+.storage-provider-option {
+  min-height: 70px;
+  border-radius: 8px;
+  padding: 11px 12px;
+}
+
+.storage-provider-option strong,
+.storage-provider-option span {
+  overflow-wrap: anywhere;
+}
+
+.storage-form {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 10px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.storage-form-body {
+  min-height: 0;
+  overflow: auto;
+  padding: 2px 5px 4px 0;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+}
+
+.storage-form textarea {
+  min-height: 112px;
+  resize: vertical;
+}
+
+.storage-form [data-storage-secret="privateKey"] {
+  grid-column: 1 / -1;
+}
+
+.storage-form [data-storage-secret="passphrase"] {
+  grid-column: 1 / -1;
+  max-width: min(100%, 360px);
 }
 
 .add-storage-actions {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0;
+  padding: 12px 0 0;
+  border-top: 1px solid rgba(190, 170, 220, 0.12);
+  background: linear-gradient(180deg, rgba(17, 21, 31, 0), rgba(17, 21, 31, 0.96) 24%);
+}
+
+.add-storage-actions__primary {
+  display: flex;
   justify-content: flex-end;
   gap: 8px;
   flex-wrap: wrap;
-  margin-top: 14px;
 }
 
 .add-storage-card .settings-inline-status {
   display: block;
   margin: 10px 0 0;
+  padding-right: 8px;
+  line-height: 1.35;
 }
 
-@media (max-width: 520px) {
+@media (max-width: 620px), (max-height: 620px) {
   .add-storage-shell {
-    padding: 14px;
+    padding: 12px;
+    max-width: none;
+  }
+
+  .add-storage-header h1 {
+    font-size: 1.32rem;
+  }
+
+  .add-storage-header p:not(.eyebrow) {
+    display: none;
   }
 
   .add-storage-card .settings-grid,
   .storage-provider-picker {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .add-storage-card {
+    padding: 12px;
+  }
+
+  .storage-provider-option {
+    min-height: auto;
+  }
+
+  .storage-form [data-storage-secret="passphrase"] {
+    max-width: none;
+  }
+
+  .add-storage-actions {
+    align-items: stretch;
+  }
+
+  .add-storage-actions__primary {
+    flex: 1 1 100%;
+  }
+
+  .add-storage-actions > .inline-action {
+    flex: 1 1 120px;
+    justify-content: center;
   }
 
   .add-storage-actions .inline-action {

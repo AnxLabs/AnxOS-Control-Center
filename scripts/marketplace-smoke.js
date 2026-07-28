@@ -241,6 +241,12 @@ function assertRuntimeTemperatureRendering() {
       styleSource.includes('[data-field="temperature"][data-temperature-state="critical"]'),
     "Runtime temperature should have dashboard styling for cool/warm/hot/critical states."
   );
+  assert(
+    styleSource.includes('--anx-font-sans: "Segoe UI", Roboto') &&
+      styleSource.includes(".startup-screen") &&
+      styleSource.includes("font-family: var(--anx-font-sans);"),
+    "Packaged renderer and startup surfaces should force the desktop UI font stack."
+  );
 }
 
 function assertDashboardRuntimeFallbacks() {
@@ -2713,6 +2719,8 @@ async function assertProviderInstallSupport() {
   assert(indexSource.includes("data-marketplace-manual-open"), "Marketplace manual recovery screen should expose an official provider page action.");
   assert(indexSource.includes("data-marketplace-manual-import"), "Marketplace manual recovery screen should expose an import action.");
   assert(indexSource.includes("data-marketplace-manual-resume"), "Marketplace manual recovery screen should expose a resume action.");
+  assert(indexSource.includes("<span>Minecraft version</span>"), "Marketplace install form should label the version field as Minecraft version.");
+  assert(indexSource.includes("<span>Provider version</span>"), "Manual recovery should distinguish provider version metadata.");
   assert(marketplaceErrorSource.includes("PROVIDER_IMPORT_FILE_NAME_MISMATCH"), "Shared Marketplace error normalization should cover import filename mismatches.");
   assert(marketplaceErrorSource.includes("PROVIDER_MANUAL_FILE_NOT_IMPORTED"), "Shared Marketplace error normalization should cover resume preconditions.");
   assert(indexSource.includes("data-marketplace-provider-browser"), "Marketplace should include the dynamic provider browser.");
@@ -2729,6 +2737,17 @@ async function assertProviderInstallSupport() {
   assert(appSource.includes("[Marketplace][Renderer] Provider refresh requested."), "Renderer should log provider refresh diagnostics.");
   assert(appSource.includes("[Marketplace][Renderer] Provider IPC request."), "Renderer should log provider IPC payloads.");
   assert(appSource.includes("fetchedCount"), "Renderer should log provider fetched/filtered/rendered counts.");
+  assert(appSource.includes("function getMarketplaceProviderVersionRows"), "Renderer should render provider Minecraft/runtime/provider-file rows separately.");
+  assert(appSource.includes("Runtime version\", value: runtimeVersion || \"Resolved after install\""), "Renderer should not display Minecraft version as a pre-install runtime version.");
+  assert(appSource.includes("function getMarketplaceCompactCardBadges"), "Renderer should keep Marketplace provider cards compact with badge summaries.");
+  assert(appSource.includes("badges.length < 2"), "Marketplace cards should cap provider/runtime badges to the compact footer row.");
+  assert(appSource.includes("marketplace-card__footer"), "Marketplace cards should render compact footer content.");
+  assert(appSource.includes("marketplace-card__version"), "Marketplace cards should show pack version as one compact footer line.");
+  assert(appSource.includes("function getMarketplaceCompactFooterState"), "Marketplace cards should show one compact compatibility status pill.");
+  assert(!appSource.includes("body.append(createMarketplaceCardFacts(template))"), "Marketplace cards must not render the verbose provider metadata stack.");
+  const selectedMetaFunction = appSource.match(/function formatMarketplaceSelectedMeta[\s\S]*?\n}\n\nfunction syncMarketplaceWizardFields/)?.[0] || "";
+  assert(selectedMetaFunction && !selectedMetaFunction.includes("getMarketplaceProviderVersionRows"), "Install panel header must not duplicate the detailed metadata review rows.");
+  assert(appSource.includes("Template v") && !appSource.includes(" · v${template.version"), "Marketplace provider cards should not show provider metadata as a generic version.");
   assert(agentRouteSource.includes('getInstanceIdFromPath(url.pathname, "/exists")'), "Agent should expose an explicit instance file exists endpoint.");
   assert(agentClientSource.includes("async function instanceFileExists"), "Desktop agent client should expose instanceFileExists.");
 
@@ -3494,16 +3513,27 @@ function assertMarketplaceProductionPolishRendererContracts() {
   assert(appSource.includes('getMarketplaceField("port")?.addEventListener("invalid"'), "Marketplace port field should override generic browser validation.");
   assert(appSource.includes("function getMarketplaceTemplateInstances"), "Renderer should derive installed state from real instance template metadata.");
   assert(appSource.includes("metadata?.templateId"), "Installed-state detection should use persisted instance metadata.");
+  assert(appSource.includes("providerProjectId") && appSource.includes("getMarketplaceInstalledProviderVersionId"), "Provider-installed modpacks should match existing instances by provider project/file metadata.");
   assert(appSource.includes("function getMarketplaceTemplateDependencyIds"), "Renderer should present dependency requirements from template metadata.");
   assert(appSource.includes("function formatDependencyPreparationPlan") && appSource.includes("getDependencyPreparationPlan"), "Marketplace dependency recovery should show a structured preparation plan before installing.");
   assert(appSource.includes("Commands:\\n") && appSource.includes("Packages:\\n"), "Dependency preparation confirmations should include package and command previews.");
   assert(appSource.includes("Compatibility unknown"), "Renderer must show unknown compatibility honestly when metadata is absent.");
   assert(appSource.includes("Install path\", \"Managed by the selected Agent instance data root"), "Install review should avoid exposing or inventing raw filesystem paths.");
   assert(appSource.includes("Data preservation\", \"Uninstall and backup behavior are managed"), "Install review should not imply unsupported uninstall/data-preservation choices.");
+  assert(appSource.includes("function getMarketplaceUpdateState"), "Marketplace installed-state polish should render update available/current/unavailable states deliberately.");
+  assert(appSource.includes("Stop the instance before validating or updating server files."), "Marketplace updates should be blocked while the installed instance is running.");
+  assert(appSource.includes("Provider metadata is not complete enough to compare versions safely."), "Marketplace provider update checks must not guess when metadata is ambiguous.");
+  assert(appSource.includes("function getMarketplaceInstalledDiagnostics"), "Marketplace should explain failed, repairable, and update-unavailable installed states.");
+  assert(appSource.includes("NeoForge runtime incomplete - repair runtime instead of reinstalling."), "Marketplace repair guidance should prefer runtime repair over reinstall for NeoForge server packs.");
+  assert(appSource.includes("runMarketplaceInstalledAction(template, descriptor.id)"), "Marketplace repair/update buttons should route through installed instance actions.");
+  assert(appSource.includes("runInstanceAction(\"repair-neoforge-runtime\")"), "Marketplace Repair Runtime should reuse the existing trusted NeoForge repair IPC path.");
+  assert(appSource.includes("runInstanceAction(\"update-steam\")"), "Marketplace update action should reuse the existing guarded SteamCMD update path.");
   assert(appSource.includes("Retry Install"), "Failed Marketplace installs should expose a guarded retry action.");
+  assert(appSource.includes("Reinstall Instead"), "Marketplace should avoid making reinstall the primary action when repair is available.");
   assert(appSource.includes("Open Operations"), "Marketplace recovery should link to the existing Operations Center.");
   assert(appSource.includes("Open Dependency Check"), "Dependency failures should route to the existing dependency preparation surface.");
-  assert(appSource.includes("templateState.action === \"Open instance\""), "Installed Marketplace cards should open the existing instance instead of showing duplicate install actions.");
+  assert(appSource.includes("function getMarketplacePrimaryAction"), "Installed Marketplace cards should choose Install/Open/Start/Repair/Update actions from real state.");
+  assert(appSource.includes("marketplaceInstalledAction"), "Marketplace installed actions should be explicit and source-testable.");
   assert(!appSource.includes("fake compatibility"), "Marketplace polish must not add fake compatibility claims.");
   assert(styleSource.includes(".marketplace-summary-item[data-state=\"unsupported\"]"), "Requirement and compatibility summaries should use non-color-only state structure.");
   assert(styleSource.includes("overflow-wrap: anywhere"), "Marketplace long metadata should wrap safely.");

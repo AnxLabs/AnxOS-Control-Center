@@ -120,6 +120,7 @@ const instanceActionButtons = document.querySelectorAll("[data-instance-action]"
 const instancesRefreshButtons = document.querySelectorAll('[data-instance-action="refresh"]');
 const instancesCreateToggleButton = document.querySelector('[data-instance-action="create"]');
 const instancesStartButtons = document.querySelectorAll('[data-instance-action="start"]');
+const instancesRepairNeoForgeButtons = document.querySelectorAll('[data-instance-action="repair-neoforge-runtime"]');
 const instancesStopButtons = document.querySelectorAll('[data-instance-action="stop"]');
 const instancesRestartButtons = document.querySelectorAll('[data-instance-action="restart"]');
 const instancesDeleteButtons = document.querySelectorAll('[data-instance-action="delete"]');
@@ -366,6 +367,13 @@ const publicAccessProviderDetailPill = document.querySelector("[data-public-acce
 const publicAccessProviderDetailSummary = document.querySelector("[data-public-access-provider-detail-summary]");
 const publicAccessProviderActions = document.querySelector("[data-public-access-provider-actions]");
 const publicAccessProviderUnsupported = document.querySelector("[data-public-access-provider-unsupported]");
+const playitServiceStateText = document.querySelector("[data-playit-service-state]");
+const playitServiceMetaText = document.querySelector("[data-playit-service-meta]");
+const playitServiceActions = document.querySelector("[data-playit-service-actions]");
+const playitTunnelList = document.querySelector("[data-playit-tunnel-list]");
+const playitTunnelMessage = document.querySelector("[data-playit-tunnel-message]");
+const playitLogsPanel = document.querySelector("[data-playit-logs-panel]");
+const playitLogsContent = document.querySelector("[data-playit-logs-content]");
 const ampPanelLink = document.querySelector("[data-amp-panel-link]");
 const startupSteps = {
   app: document.querySelector('[data-startup-step="app"]'),
@@ -692,8 +700,12 @@ let systemRequestInFlight = false;
 let ampRequestInFlight = false;
 let playitRequestInFlight = false;
 let latestPublicAccessSnapshot = null;
+let latestPlayitServiceStatus = null;
+let latestPlayitTunnels = [];
+let publicAccessUnavailableState = null;
 let selectedPublicAccessProviderId = "playit";
 let selectedPublicAccessServiceId = "playit-primary";
+let playitActionInFlight = null;
 let dockerRequestInFlight = false;
 let dockerActionRequestInFlight = false;
 let instancesRequestInFlight = false;
@@ -720,6 +732,7 @@ let accountCountdownTimer = null;
 let accountStartInFlight = false;
 let accountStartRetryAfter = 0;
 let accountRestorationResolved = false;
+let setupDetectionResolved = false;
 let accountRefreshGeneration = 0;
 let ownerWorkspaceState = { authorized: false, pages: [], contents: {}, selectedPageId: "overview", apiHistory: [] };
 let ownerAutosaveTimer = null;
@@ -758,6 +771,9 @@ let backupsState = {
   connected: false,
   error: null,
 };
+let backupSummaryRefreshInFlight = false;
+let backupSummaryLastNodeId = null;
+let backupSummaryLastCheckedAt = 0;
 let sshConnectRequestInFlight = false;
 let lastAmpRefreshAt = 0;
 let ampRendererReceiveCount = 0;
@@ -858,6 +874,9 @@ let sshSelectedProfileId = null;
 let sshPasswordPromptVisible = false;
 let sshPendingPasswordProfileId = null;
 let sshTransientStatusMessage = "";
+let sshConnectWatchdogTimer = null;
+let sshConnectStartedAt = 0;
+let sshConnectPhase = "idle";
 let sshProfileFormVisible = false;
 let sshTerminalResizeObserver = null;
 let sshXterm = null;
@@ -1039,6 +1058,13 @@ const STARTUP_MINIMUM_MS = 2000;
 const SSH_OUTPUT_LINE_LIMIT = 1500;
 const SSH_TERMINAL_DEFAULT_COLS = 120;
 const SSH_TERMINAL_DEFAULT_ROWS = 32;
+const SSH_RENDERER_CONNECT_TIMEOUT_MS = 28000;
+const SSH_RENDERER_PHASES = [
+  { at: 0, phase: "connecting", message: "Connecting to SSH host..." },
+  { at: 5000, phase: "authenticating", message: "Authenticating SSH credentials..." },
+  { at: 12000, phase: "waiting-shell", message: "Waiting for remote shell..." },
+];
+const DASHBOARD_BACKUP_SUMMARY_REFRESH_MS = 60000;
 const SECURITY_REQUEST_TIMEOUT_MS = 10000;
 const SETTINGS_STORAGE_KEY = "anxos.settings.v1";
 const SIDEBAR_STATE_STORAGE_KEY = "anxos.sidebar.v1";
@@ -1830,6 +1856,40 @@ function getSetupHealthStatus(ready, label = "Ready") {
     : { label: "Needs attention", tone: "warning" };
 }
 
+function getManagedBackupCount() {
+  const summaryTotal = Number(backupsState.summary?.totalBackups);
+  return Number.isFinite(summaryTotal) ? summaryTotal : backupsState.backups.length;
+}
+
+function getPublicAccessSetupReadiness(snapshot = latestPublicAccessSnapshot) {
+  const services = Array.isArray(snapshot?.services) ? snapshot.services : [];
+  const persistedServices = Array.isArray(snapshot?.persistedServices) ? snapshot.persistedServices : [];
+  const configuredCount = services.length || persistedServices.length;
+  if (configuredCount > 0) {
+    const checked = Boolean(snapshot?.checkedAt || services.some((service) => service.lastCheckedAt));
+    return {
+      configured: true,
+      status: checked ? "Ready" : "Configured, not checked",
+      tone: "ok",
+      detail: `${configuredCount} public or private access service${configuredCount === 1 ? "" : "s"} configured${checked ? "." : ", but live validation has not completed yet."}`,
+    };
+  }
+  if (getCurrentSettings()["playit.address"]) {
+    return {
+      configured: true,
+      status: "Configured, not checked",
+      tone: "ok",
+      detail: "A legacy Playit address is saved, but live Public Access validation has not completed yet.",
+    };
+  }
+  return {
+    configured: false,
+    status: "Optional",
+    tone: "planned",
+    detail: "Configure Public Access only for services you want reachable outside the local system.",
+  };
+}
+
 function createSetupHealthItem(item) {
   const article = document.createElement("article");
   article.className = "setup-health-item";
@@ -1861,9 +1921,8 @@ function getSetupHealthState() {
   const agentSummary = getOnboardingAgentSummary();
   const dependencySummary = summarizeDependencyStatus(latestDependencyResult);
   const hasDependencyScan = Boolean(latestDependencyResult);
-  const backupCount = Number.isFinite(backupsState.summary?.totalBackups) ? backupsState.summary.totalBackups : backupsState.backups.length;
-  const publicAccessServices = Array.isArray(latestPublicAccessSnapshot?.services) ? latestPublicAccessSnapshot.services.length : 0;
-  const publicAccessConfigured = Boolean(publicAccessServices || getCurrentSettings()["playit.address"]);
+  const backupCount = getManagedBackupCount();
+  const publicAccessReadiness = getPublicAccessSetupReadiness();
   const agentConnected = agentSummary.status === "Connected";
   const serviceConfigured = Boolean(agentControlState?.local?.service?.installed || agentControlState?.local?.service?.enabled);
   const core = [
@@ -1932,10 +1991,10 @@ function getSetupHealthState() {
     },
     {
       title: "Public access configured",
-      detail: publicAccessConfigured ? "At least one public or private access address is configured." : "Configure Public Access only for services you want reachable outside the local system.",
-      complete: publicAccessConfigured,
-      status: publicAccessConfigured ? "Ready" : "Optional",
-      tone: publicAccessConfigured ? "ok" : "planned",
+      detail: publicAccessReadiness.detail,
+      complete: publicAccessReadiness.configured,
+      status: publicAccessReadiness.status,
+      tone: publicAccessReadiness.tone,
       action: "playit",
     },
     {
@@ -1956,10 +2015,9 @@ function renderSetupHealthCenter() {
   if (!setupHealthCenter || !setupHealthGroups) return;
   const state = getSetupHealthState();
   const coreComplete = state.core.filter((item) => item.complete).length;
-  const optionalItems = [...state.recommended, ...state.optional];
-  const optionalComplete = optionalItems.filter((item) => item.complete).length;
+  const optionalComplete = state.optional.filter((item) => item.complete).length;
   setSetupHealthField("coreProgress", `${coreComplete}/${state.core.length} complete`);
-  setSetupHealthField("optionalProgress", `${optionalComplete}/${optionalItems.length} complete`);
+  setSetupHealthField("optionalProgress", `${optionalComplete}/${state.optional.length} complete`);
   setupHealthActionState = { action: state.continueAction };
   if (setupHealthContinueButton) {
     setupHealthContinueButton.textContent = state.continueAction === "dashboard" ? "Open Dashboard" : "Continue Setup";
@@ -2012,6 +2070,9 @@ function renderFriendlyDashboard() {
     dashboardFriendlyEmpty.hidden = dashboardFriendlyEmpty.childElementCount === 0;
   }
   renderSetupHealthCenter();
+  refreshBackupSummaryForSetup().catch((error) => {
+    console.warn("[Backups] Setup backup summary refresh failed.", { message: error?.message || String(error) });
+  });
 }
 
 function ensurePageIntroductions() {
@@ -7007,10 +7068,12 @@ function getCpuTemperatureStatus(value) {
 function renderCpuTemperature(snapshot) {
   const tempC = getSnapshotCpuTempC(snapshot);
   const status = getCpuTemperatureStatus(tempC);
-  const text = Number.isFinite(tempC) ? `${Math.round(tempC)}°C · ${status.label}` : "Unavailable";
   const sensor = snapshot?.cpu?.temperatureSensor || snapshot?.temperatureSensor || null;
   const source = snapshot?.cpu?.temperatureSource || snapshot?.temperatureSource || null;
   const reason = snapshot?.cpu?.temperatureReason || snapshot?.temperatureReason || null;
+  const text = Number.isFinite(tempC)
+    ? `${Math.round(tempC)}°C · ${status.label}`
+    : getCpuTemperatureUnavailableLabel(reason, source);
 
   setField("temperature", text);
   updateFieldAttributes("temperature", (field) => {
@@ -7021,14 +7084,29 @@ function renderCpuTemperature(snapshot) {
     }
     field.title = Number.isFinite(tempC)
       ? `${sensor || "CPU temperature"}${source ? ` — ${source}` : ""}: ${tempC.toFixed(1)}°C (${status.label})`
-      : reason === "provider_missing"
-        ? "CPU temperature unavailable: the bundled LibreHardwareMonitor provider is missing."
-        : reason === "low_level_driver_missing"
-          ? "CPU temperature unavailable: this CPU requires a supported low-level sensor driver that is not installed."
-        : reason === "access_denied_or_driver_unavailable" || reason === "cpu_sensor_unavailable_requires_elevation_or_driver"
-          ? "CPU temperature unavailable: LibreHardwareMonitor could not access the required sensor or driver."
-          : "CPU temperature is not reported by this node.";
+      : getCpuTemperatureUnavailableDetail(reason, source);
   });
+}
+
+function getCpuTemperatureUnavailableLabel(reason = "", source = "") {
+  const text = `${reason || ""} ${source || ""}`.toLowerCase();
+  if (/unsupported|platform/.test(text)) return "Unavailable on this system";
+  if (/provider_missing|provider_unavailable|not_reported|sensor|driver|access_denied|requires_elevation|low_level/.test(text)) {
+    return "Requires sensor support";
+  }
+  return "Not supported by this node";
+}
+
+function getCpuTemperatureUnavailableDetail(reason = "", source = "") {
+  const label = getCpuTemperatureUnavailableLabel(reason, source);
+  if (reason === "provider_missing") return "CPU temperature unavailable: the bundled sensor provider is missing.";
+  if (reason === "low_level_driver_missing") return "CPU temperature unavailable: this CPU requires a supported low-level sensor driver.";
+  if (reason === "access_denied_or_driver_unavailable" || reason === "cpu_sensor_unavailable_requires_elevation_or_driver") {
+    return "CPU temperature unavailable: the node could not access the required sensor or driver.";
+  }
+  if (label === "Unavailable on this system") return "CPU temperature is unavailable on this operating system or hardware.";
+  if (label === "Requires sensor support") return "CPU temperature requires hardware sensor support that this node did not report.";
+  return "CPU temperature is not reported by this node.";
 }
 
 function updateLocalTime() {
@@ -7325,6 +7403,365 @@ function renderPublicAccessActionButtons(container, actions = [], provider = {})
   });
 }
 
+function getPlayitServiceTone(state) {
+  if (state === "running") return "status-pill--ok";
+  if (state === "failed") return "status-pill--critical";
+  if (["stopped", "service-not-found", "missing"].includes(state)) return "status-pill--warning";
+  return "status-pill--planned";
+}
+
+function getPlayitServiceLabel(state) {
+  if (state === "running") return "Running";
+  if (state === "stopped") return "Stopped";
+  if (state === "failed") return "Failed";
+  if (state === "missing") return "Missing";
+  if (state === "service-not-found") return "Service Not Found";
+  return "Unknown";
+}
+
+function renderPlayitServiceStatus(status = null) {
+  if (status?.ok !== false) {
+    publicAccessUnavailableState = null;
+  }
+  latestPlayitServiceStatus = status;
+  const state = status?.serviceState || status?.service?.state || (status?.running ? "running" : status?.installed ? "stopped" : "missing");
+  if (playitServiceStateText) {
+    playitServiceStateText.className = `status-pill ${getPlayitServiceTone(state)}`;
+    playitServiceStateText.textContent = getPlayitServiceLabel(state);
+  }
+  if (playitServiceMetaText) {
+    const service = status?.service || {};
+    const checked = service.lastCheckedAt || status?.lastCheckedAt;
+    playitServiceMetaText.textContent = service.message || (status?.installed ? "Playit service status is available." : "Install Playit to manage public tunnel service state.");
+    if (checked) {
+      playitServiceMetaText.textContent += ` Last checked ${formatDateTime(checked)}.`;
+    }
+  }
+  renderPlayitServiceActions();
+}
+
+function createPlayitServiceActionButton(action, label, options = {}) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = options.danger ? "inline-action inline-action--danger" : options.primary ? "inline-action inline-action--primary" : "inline-action";
+  button.dataset.publicAccessAction = action;
+  button.textContent = label;
+  button.disabled = Boolean(playitActionInFlight) || options.disabled === true;
+  return button;
+}
+
+function renderPlayitServiceActions() {
+  if (!playitServiceActions) return;
+  playitServiceActions.replaceChildren();
+  const unavailable = Boolean(publicAccessUnavailableState);
+  const controlsUnsupported = latestPlayitServiceStatus?.unsupportedControls === true;
+  const state = latestPlayitServiceStatus?.serviceState || latestPlayitServiceStatus?.service?.state || "unknown";
+  const installed = latestPlayitServiceStatus?.installed !== false && state !== "missing";
+  const running = state === "running";
+  playitServiceActions.append(
+    createPlayitServiceActionButton("playit-refresh-status", "Refresh status", { primary: true }),
+    createPlayitServiceActionButton("playit-refresh-tunnels", "Refresh tunnels", { disabled: unavailable || controlsUnsupported }),
+  );
+  if (unavailable || controlsUnsupported) {
+    return;
+  }
+  if (installed && running) {
+    playitServiceActions.append(
+      createPlayitServiceActionButton("playit-stop", "Stop Playit", { danger: true }),
+      createPlayitServiceActionButton("playit-restart", "Restart Playit"),
+      createPlayitServiceActionButton("playit-logs", "View logs"),
+    );
+  } else if (installed) {
+    playitServiceActions.append(
+      createPlayitServiceActionButton("playit-start", "Start Playit", { primary: true }),
+      createPlayitServiceActionButton("playit-logs", "View logs"),
+    );
+  }
+}
+
+function findInstanceForTunnel(tunnel = {}) {
+  const port = Number(tunnel.localPort);
+  if (!Number.isInteger(port)) return null;
+  return getInstances().find((instance) => Number(getInstancePrimaryPort(instance)) === port || (Array.isArray(instance.ports) && instance.ports.map(Number).includes(port))) || null;
+}
+
+function isPlayitEndpointUnsupported(error = {}) {
+  const code = getAgentErrorCode(error);
+  const text = [
+    code,
+    error?.message,
+    error?.details?.message,
+    error?.payload?.error?.message,
+    error?.payload?.error?.details?.requestedAgentPath,
+    error?.details?.requestedAgentPath,
+  ].filter(Boolean).join(" ");
+  return code === "AGENT_PLAYIT_CONTROLS_UNSUPPORTED"
+    || (/NOT_FOUND|HTTP 404|Request failed/i.test(text) && /public-access\/playit|Playit service controls|getPlayitStatus|listPlayitTunnels/i.test(text));
+}
+
+function getLegacyPlayitAccessFallback(snapshot = latestPublicAccessSnapshot) {
+  const providers = Array.isArray(snapshot?.providers) ? snapshot.providers : [];
+  const services = Array.isArray(snapshot?.services) ? snapshot.services : [];
+  const provider = providers.find((entry) => entry?.id === "playit" || /playit/i.test(String(entry?.name || entry?.provider || ""))) || null;
+  const selectedService = getSelectedPublicAccessService(snapshot);
+  const service = services.find((entry) => entry?.providerId === "playit" || entry?.provider === "playit" || /playit/i.test(String(entry?.providerName || entry?.provider || "")))
+    || (provider?.id === "playit" ? selectedService : null);
+  const playit = snapshot?.playit && typeof snapshot.playit === "object" ? snapshot.playit : latestPlayitSnapshot || {};
+  const publicAddress = service?.publicAddress || provider?.publicAddress || playit.tunnelAddress || playit.tunnelDomain || getConfiguredPlayitAddress() || "";
+  const localPort = service?.localPort || playit.localPort || provider?.localPort || null;
+  const localHost = service?.localHost || service?.localIp || playit.localIp || "127.0.0.1";
+  const protocol = service?.protocol || playit.protocol || "TCP";
+  const lifecycle = String(service?.status || service?.state || provider?.lifecycleState || provider?.health || "");
+  const running = service?.running === true
+    || provider?.running === true
+    || provider?.connected === true
+    || playit.running === true
+    || /running|connected|healthy/i.test(lifecycle);
+  const lastCheckedAt = service?.updatedAt || provider?.lastCheckedAt || playit.lastSuccessfulRefreshAt || snapshot?.checkedAt || new Date().toISOString();
+  const hasLegacyData = Boolean(provider || service || publicAddress || localPort);
+  if (!hasLegacyData) return null;
+  return {
+    provider,
+    service,
+    publicAddress,
+    localHost,
+    localPort,
+    protocol,
+    running,
+    state: running ? "running" : "unknown",
+    lastCheckedAt,
+  };
+}
+
+function renderPlayitServiceStatusFromLegacySnapshot(error = null) {
+  const fallback = getLegacyPlayitAccessFallback();
+  const updateMessage = "Agent update required for Playit service controls.";
+  if (!fallback) {
+    renderPlayitServiceStatus({
+      ok: false,
+      installed: null,
+      unsupportedControls: true,
+      serviceState: "unknown",
+      service: {
+        state: "unknown",
+        message: `${updateMessage} Update or restart the selected Agent, then try again.`,
+        lastCheckedAt: new Date().toISOString(),
+      },
+      error,
+    });
+    return null;
+  }
+  const endpoint = fallback.publicAddress ? ` Legacy Public Access still has ${fallback.publicAddress} configured.` : "";
+  renderPlayitServiceStatus({
+    ok: false,
+    installed: true,
+    running: fallback.running,
+    unsupportedControls: true,
+    serviceState: fallback.state,
+    service: {
+      state: fallback.state,
+      message: `${updateMessage}${endpoint}`,
+      lastCheckedAt: fallback.lastCheckedAt,
+    },
+    error,
+  });
+  return fallback;
+}
+
+function renderPlayitTunnelsFromLegacySnapshot(error = null) {
+  const fallback = getLegacyPlayitAccessFallback();
+  if (fallback?.publicAddress || fallback?.localPort) {
+    renderPlayitTunnels({
+      ok: false,
+      code: "AGENT_PLAYIT_CONTROLS_UNSUPPORTED",
+      message: fallback.publicAddress
+        ? "Tunnel listing unavailable, but Playit public address is configured."
+        : "Tunnel listing requires an Agent update.",
+      tunnels: [{
+        id: "legacy-public-access",
+        name: "Configured Playit address",
+        status: fallback.running ? "online" : "unknown",
+        type: "Playit",
+        protocol: fallback.protocol,
+        localHost: fallback.localHost,
+        localPort: fallback.localPort,
+        publicAddress: fallback.publicAddress,
+        source: "legacy-public-access",
+        updatedAt: fallback.lastCheckedAt,
+      }],
+      error,
+    });
+    return fallback;
+  }
+  renderPlayitTunnels({
+    ok: false,
+    code: "AGENT_PLAYIT_CONTROLS_UNSUPPORTED",
+    message: "Tunnel listing requires an Agent update.",
+    tunnels: [],
+    error,
+  });
+  return null;
+}
+
+function renderPlayitTunnels(result = {}) {
+  const tunnels = Array.isArray(result?.tunnels) ? result.tunnels : [];
+  latestPlayitTunnels = tunnels.map((tunnel) => {
+    const match = findInstanceForTunnel(tunnel);
+    return {
+      ...tunnel,
+      matchedInstanceId: tunnel.matchedInstanceId || match?.id || null,
+      matchedInstanceName: tunnel.matchedInstanceName || match?.displayName || match?.id || null,
+    };
+  });
+  if (playitTunnelMessage) {
+    playitTunnelMessage.textContent = result?.ok === false
+      ? result.message || "Tunnel listing unavailable for this Playit install."
+      : latestPlayitTunnels.length
+        ? `${latestPlayitTunnels.length} tunnel${latestPlayitTunnels.length === 1 ? "" : "s"} found.`
+        : "No Playit tunnels found.";
+  }
+  if (!playitTunnelList) return;
+  playitTunnelList.replaceChildren();
+  latestPlayitTunnels.forEach((tunnel) => {
+    const item = document.createElement("article");
+    item.className = "playit-tunnel-item";
+    const top = document.createElement("div");
+    top.className = "playit-tunnel-item__top";
+    top.append(createTextElement("strong", tunnel.name || tunnel.id || "Playit tunnel"));
+    const status = createTextElement("span", tunnel.status || "unknown", `status-pill ${tunnel.status === "online" ? "status-pill--ok" : tunnel.status === "offline" ? "status-pill--warning" : "status-pill--planned"}`);
+    top.append(status);
+    const endpoints = document.createElement("div");
+    endpoints.className = "playit-tunnel-item__endpoints";
+    endpoints.append(
+      createTextElement("span", `Local: ${tunnel.localHost || "unknown"}${tunnel.localPort ? `:${tunnel.localPort}` : ""}`),
+      createTextElement("span", `Public: ${tunnel.publicAddress || "unknown"}`),
+    );
+    const badges = document.createElement("div");
+    badges.className = "playit-tunnel-item__badges";
+    [tunnel.protocol, tunnel.type, tunnel.matchedInstanceName].filter(Boolean).forEach((label) => badges.append(createTextElement("span", label, "status-pill status-pill--planned")));
+    if (tunnel.publicAddress) {
+      const copy = createPlayitServiceActionButton(`playit-copy:${tunnel.id}`, "Copy public endpoint");
+      copy.classList.add("playit-tunnel-copy");
+      copy.dataset.publicAddress = tunnel.publicAddress;
+      badges.append(copy);
+    }
+    item.append(top, endpoints, badges);
+    playitTunnelList.append(item);
+  });
+}
+
+function renderPlayitLogs(result = {}) {
+  if (playitLogsPanel) playitLogsPanel.hidden = false;
+  if (!playitLogsContent) return;
+  const lines = Array.isArray(result?.lines) ? result.lines : [];
+  playitLogsContent.textContent = lines.length ? lines.join("\n") : result?.message || "Playit logs are unavailable for this install.";
+}
+
+function getPublicAccessUnavailableReason() {
+  const node = getSelectedNode();
+  if (!node || node.kind !== "agent") {
+    return null;
+  }
+  const connectionState = getNodeConnectionState(node);
+  if (isAgentStatusAuthenticated(connectionState)) {
+    return null;
+  }
+  const name = node.displayName || node.name || node.id || "the selected node";
+  return {
+    code: connectionState.state === "Authentication Required" ? "AGENT_UNAUTHORIZED" : "NODE_DISCONNECTED",
+    message: connectionState.state === "Authentication Required"
+      ? `Agent unauthorized. Repair pairing for ${name} to check Public Access.`
+      : `Connect to ${name} to refresh Public Access.`,
+    tunnelMessage: `Connect to ${name} to refresh Playit tunnels.`,
+  };
+}
+
+function getPublicAccessRequestUnavailableReason(error = null, fallbackMessage = "Public Access status unavailable.") {
+  const selectedNode = getSelectedNode();
+  const name = selectedNode?.displayName || selectedNode?.name || selectedNode?.id || "the selected node";
+  const code = getAgentErrorCode(error);
+  const disconnected = /AGENT_UNAVAILABLE|ECONNREFUSED|AGENT_TIMEOUT|TIMEOUT|NETWORK_ERROR|NODE_DISCONNECTED|NODE_UNAVAILABLE/i.test(String(code || error?.message || ""));
+  const unauthorized = /UNAUTHORIZED|AUTHENTICATION|AGENT_UNAUTHORIZED/i.test(String(code || error?.message || ""));
+  if (unauthorized) {
+    return {
+      code: "AGENT_UNAUTHORIZED",
+      message: `Agent unauthorized. Repair pairing for ${name} to check Public Access.`,
+      tunnelMessage: `Repair pairing for ${name} to refresh Playit tunnels.`,
+    };
+  }
+  if (disconnected || selectedNode?.kind === "agent") {
+    return {
+      code: disconnected ? "AGENT_UNAVAILABLE" : "PUBLIC_ACCESS_UNAVAILABLE",
+      message: disconnected ? `Agent unavailable. Reconnect to ${name} to check Public Access.` : fallbackMessage,
+      tunnelMessage: disconnected ? `Connect to ${name} to refresh Playit tunnels.` : "Tunnel status unavailable.",
+    };
+  }
+  return {
+    code: "PUBLIC_ACCESS_UNAVAILABLE",
+    message: fallbackMessage,
+    tunnelMessage: "Tunnel status unavailable.",
+  };
+}
+
+function renderPublicAccessUnavailableState(reason = getPublicAccessUnavailableReason(), fallbackMessage = "Public Access status unavailable.") {
+  const unavailable = reason || { code: "PUBLIC_ACCESS_UNAVAILABLE", message: fallbackMessage, tunnelMessage: fallbackMessage };
+  publicAccessUnavailableState = unavailable;
+  renderPlayitServiceStatus({
+    ok: false,
+    installed: null,
+    serviceState: "unknown",
+    service: {
+      state: "unknown",
+      message: unavailable.code === "AGENT_UNAUTHORIZED"
+        ? unavailable.message
+        : `Playit status unavailable while node is disconnected. ${unavailable.message}`,
+      lastCheckedAt: new Date().toISOString(),
+    },
+  });
+  renderPlayitTunnels({
+    ok: false,
+    code: unavailable.code,
+    message: unavailable.tunnelMessage || unavailable.message,
+    tunnels: [],
+  });
+}
+
+async function refreshPlayitManagement(payload = getNodeScopedPayload(getNodeRequestContext("playit-management")), requestContext = getNodeRequestContext("playit-management")) {
+  const publicAccessApi = getDesktopApiState().api?.publicAccess;
+  if (!publicAccessApi) return;
+  const unavailable = getPublicAccessUnavailableReason();
+  if (unavailable) {
+    renderPublicAccessUnavailableState(unavailable);
+    return;
+  }
+  const [status, tunnels] = await Promise.all([
+    typeof publicAccessApi.getPlayitStatus === "function" ? publicAccessApi.getPlayitStatus(payload).catch((error) => ({ ok: false, error })) : null,
+    typeof publicAccessApi.listPlayitTunnels === "function" ? publicAccessApi.listPlayitTunnels(payload).catch((error) => ({ ok: false, error })) : null,
+  ]);
+  if (!isNodeRequestCurrent(requestContext)) return;
+  if (status?.ok === false && status.error) {
+    if (isPlayitEndpointUnsupported(status.error)) {
+      renderPlayitServiceStatusFromLegacySnapshot(status.error);
+    } else {
+      const reason = getPublicAccessRequestUnavailableReason(status.error, "Playit service status unavailable.");
+      renderPublicAccessUnavailableState(reason);
+      renderPlayitServiceStatus({ ok: false, installed: false, serviceState: "unknown", service: { message: reason.message } });
+    }
+  } else if (status) {
+    renderPlayitServiceStatus(status);
+  }
+  if (tunnels?.ok === false && tunnels.error) {
+    if (isPlayitEndpointUnsupported(tunnels.error)) {
+      renderPlayitTunnelsFromLegacySnapshot(tunnels.error);
+    } else {
+      const reason = getPublicAccessRequestUnavailableReason(tunnels.error, "Tunnel listing unavailable for this Playit install.");
+      renderPlayitTunnels({ ok: false, code: reason.code, message: reason.tunnelMessage || reason.message, tunnels: [] });
+    }
+  } else if (tunnels) {
+    renderPlayitTunnels(tunnels);
+  }
+}
+
 function renderPublicAccessProviderDetails(snapshot = latestPublicAccessSnapshot) {
   const provider = getSelectedPublicAccessProvider(snapshot);
   const service = getSelectedPublicAccessService(snapshot);
@@ -7461,6 +7898,260 @@ function getInstanceAccessBadgeLabel(service = {}) {
 
 function getInstanceAccessAddress(service = {}) {
   return service.publicAddress || service.privateAddress || service.publicHostname || "";
+}
+
+function normalizeShareAddress(value = "") {
+  return String(value || "").trim().replace(/\.$/, "");
+}
+
+function isUsableShareAddress(value = "") {
+  const address = normalizeShareAddress(value);
+  if (!address) return false;
+  if (/^(?:checking|unknown|unavailable|none|null|undefined)$/i.test(address)) return false;
+  if (/\b(?:example\.com|example\.invalid|example\.playit|placeholder)\b/i.test(address)) return false;
+  return /[a-z0-9\]](?::\d{1,5})?$/i.test(address);
+}
+
+function getShareServerInstructions(instance = findInstance()) {
+  const kind = getInstanceAccessGameKind(instance);
+  if (kind === "minecraft") {
+    return [
+      "Open Multiplayer.",
+      "Add Server or Direct Connect.",
+      "Paste this address.",
+      "Join.",
+    ];
+  }
+  if (kind === "palworld") {
+    return [
+      "Open Join Multiplayer Game.",
+      "Use Direct Connect.",
+      "Paste the address and port.",
+    ];
+  }
+  return ["Use the game's direct connect or server browser and paste this address."];
+}
+
+function getShareInviteGameLabel(instance = findInstance()) {
+  const kind = getInstanceAccessGameKind(instance);
+  if (kind === "minecraft") return "Minecraft";
+  if (kind === "palworld") return "Palworld";
+  if (kind === "terraria") return "Terraria";
+  if (kind === "fivem") return "FiveM";
+  return "server";
+}
+
+function getShareServerInvitePrefix(instance = findInstance()) {
+  const kind = getInstanceAccessGameKind(instance);
+  if (kind === "minecraft") return "Join my Minecraft server:";
+  if (kind === "palworld") return "Join my Palworld server using Direct Connect:";
+  return "Join my server:";
+}
+
+function buildShareServerInviteText(instance = findInstance(), entry = {}) {
+  if (!isUsableShareAddress(entry.address)) return "";
+  const suffix = entry.providerId === "playit" || entry.availability === "public"
+    ? " Works outside my network through Playit."
+    : entry.providerId === "tailscale" || entry.availability === "private"
+      ? " Requires Tailscale access."
+      : entry.availability === "lan"
+        ? " Only works on the same local network."
+        : "";
+  return `${getShareServerInvitePrefix(instance)} ${normalizeShareAddress(entry.address)}${suffix}`;
+}
+
+function findSharePlayitTunnelMatches(instance = findInstance()) {
+  const port = Number(getInstancePrimaryPort(instance));
+  if (!Number.isInteger(port)) return [];
+  return latestPlayitTunnels.filter((tunnel) => {
+    const tunnelPort = Number(tunnel.localPort);
+    if (tunnel.matchedInstanceId && instance?.id && tunnel.matchedInstanceId !== instance.id) return false;
+    return Number.isInteger(tunnelPort) && tunnelPort === port && tunnel.publicAddress;
+  });
+}
+
+function getShareServerAddresses(instance = findInstance()) {
+  if (!instance) return [];
+  const addresses = [];
+  const port = getInstancePrimaryPort(instance);
+  const localAddress = formatInstanceAddress(instance);
+  if (localAddress && localAddress !== "No port configured") {
+    addresses.push({
+      id: "lan",
+      label: "LAN address",
+      address: localAddress,
+      status: "Available",
+      availability: "lan",
+      detail: "Only people on your local network can use this address.",
+      recommended: false,
+    });
+  }
+
+  const services = getInstanceAccessServices(instance);
+  services.forEach((service) => {
+    const address = normalizeShareAddress(getInstanceAccessAddress(service));
+    if (!address) return;
+    const isTailscale = service.providerId === "tailscale" || service.accessType === "private-tailnet";
+    addresses.push({
+      id: `service:${service.id || service.providerId || address}`,
+      label: isTailscale ? "Tailscale address" : service.providerId === "playit" ? "Playit public address" : getInstanceAccessBadgeLabel(service),
+      address,
+      status: service.status || service.state || "Configured",
+      availability: isTailscale ? "private" : "public",
+      detail: isTailscale
+        ? "People in your Tailscale network can use this address."
+        : "Friends outside your network can use this Playit address.",
+      recommended: service.providerId === "playit",
+      providerId: service.providerId || null,
+    });
+  });
+
+  const playitMatches = findSharePlayitTunnelMatches(instance);
+  playitMatches.forEach((tunnel, index) => {
+    const address = normalizeShareAddress(tunnel.publicAddress);
+    if (!address || addresses.some((entry) => entry.address === address)) return;
+    addresses.push({
+      id: `playit-tunnel:${tunnel.id || index}`,
+      label: playitMatches.length > 1 ? "Multiple matching tunnels" : "Playit public address",
+      address,
+      status: tunnel.status || "Detected",
+      availability: "public",
+      detail: playitMatches.length > 1
+        ? "Multiple Playit tunnels match this port. Choose the correct public endpoint manually."
+        : "Friends outside your network can use this Playit address.",
+      recommended: playitMatches.length === 1,
+      providerId: "playit",
+    });
+  });
+
+  const tailscaleProvider = getInstanceAccessProvider("tailscale");
+  const tailscaleAddress = port && tailscaleProvider ? chooseTailscaleEndpoint(tailscaleProvider, port)?.address : "";
+  if (tailscaleAddress && !addresses.some((entry) => entry.address === normalizeShareAddress(tailscaleAddress))) {
+    addresses.push({
+      id: "tailscale-provider",
+      label: "Tailscale address",
+      address: normalizeShareAddress(tailscaleAddress),
+      status: tailscaleProvider.connected ? "Available" : "Configured, not checked",
+      availability: "private",
+      detail: "People in your Tailscale network can use this address.",
+      recommended: false,
+      providerId: "tailscale",
+    });
+  }
+
+  return addresses.sort((left, right) => Number(right.recommended) - Number(left.recommended));
+}
+
+function getInstanceProcessAccessState(instance = {}) {
+  const state = String(instance?.state || instance?.status || "").toLowerCase();
+  if (isInstanceRunning(instance)) return "running";
+  if (state.includes("fail")) return "failed";
+  if (state.includes("stop")) return "stopped";
+  return "unknown";
+}
+
+function getInstanceListeningPorts(instance = {}) {
+  const runtimePorts = [
+    ...(Array.isArray(instance?.runtimeProcess?.ports) ? instance.runtimeProcess.ports : []),
+    ...(Array.isArray(instance?.runtime?.ports) ? instance.runtime.ports : []),
+    ...(Array.isArray(instance?.metrics?.ports) ? instance.metrics.ports : []),
+  ];
+  return runtimePorts
+    .map((entry) => Number(typeof entry === "object" ? entry.port : entry))
+    .filter((port) => Number.isInteger(port) && port > 0);
+}
+
+function getShareServerAccessHealth(instance = findInstance()) {
+  const port = Number(getInstancePrimaryPort(instance));
+  const processState = getInstanceProcessAccessState(instance);
+  const listeningPorts = getInstanceListeningPorts(instance);
+  const portState = processState === "running"
+    ? Number.isInteger(port) && listeningPorts.length
+      ? listeningPorts.includes(port) ? "listening" : "not-listening"
+      : "unknown"
+    : processState === "stopped" || processState === "failed" ? "not-listening" : "unknown";
+  const nodeUnavailable = getPublicAccessUnavailableReason();
+  const playitState = nodeUnavailable
+    ? "unavailable"
+    : latestPlayitServiceStatus?.serviceState || latestPlayitServiceStatus?.service?.state || (latestPlayitServiceStatus?.running ? "running" : latestPlayitServiceStatus?.installed ? "stopped" : "unknown");
+  const playitMatches = findSharePlayitTunnelMatches(instance);
+  const services = getInstanceAccessServices(instance);
+  const tailscaleProvider = getInstanceAccessProvider("tailscale");
+  const addresses = getShareServerAddresses(instance);
+  const usablePublic = addresses.some((entry) => entry.availability === "public" && isUsableShareAddress(entry.address));
+  const usableLan = addresses.some((entry) => entry.availability === "lan" && isUsableShareAddress(entry.address));
+  const usableTailscale = addresses.some((entry) => entry.availability === "private" && isUsableShareAddress(entry.address));
+  let tunnelMatch = "unknown";
+  if (nodeUnavailable) tunnelMatch = "unknown";
+  else if (playitMatches.length > 1) tunnelMatch = "multiple";
+  else if (playitMatches.length === 1 || services.some((service) => service.providerId === "playit" && isUsableShareAddress(getInstanceAccessAddress(service)))) tunnelMatch = "matched";
+  else tunnelMatch = "not-matched";
+
+  let status = "Unknown";
+  if (nodeUnavailable) status = "Node disconnected";
+  else if (processState === "failed") status = "Server failed";
+  else if (processState === "stopped") status = "Server stopped";
+  else if (portState === "not-listening") status = "Port not listening";
+  else if (usablePublic && playitState === "running" && tunnelMatch === "matched") status = "Public access ready";
+  else if (usablePublic && tunnelMatch === "multiple") status = "Multiple tunnels matched";
+  else if (playitState === "stopped" && !usablePublic) status = "Playit stopped";
+  else if (tunnelMatch === "not-matched" && !usablePublic) status = usableLan || usableTailscale ? "Local only" : "No tunnel matched";
+  else if (usableLan || usableTailscale) status = "Local only";
+  else if (processState === "running") status = "Ready";
+
+  return {
+    status,
+    processState,
+    portState,
+    lan: usableLan ? "available" : "unavailable",
+    playitState,
+    tunnelMatch,
+    publicAddress: usablePublic ? "available" : "unavailable",
+    tailscale: usableTailscale || tailscaleProvider?.connected ? "available" : tailscaleProvider ? "configured" : "unavailable",
+    nodeState: nodeUnavailable ? "disconnected" : "available",
+    lastCheckedAt: new Date().toISOString(),
+  };
+}
+
+function getRecommendedShareServerAddress(instance = findInstance()) {
+  const addresses = getShareServerAddresses(instance).filter((entry) => isUsableShareAddress(entry.address));
+  const healthyPlayit = addresses.find((entry) => entry.providerId === "playit" && entry.availability === "public" && entry.recommended);
+  if (healthyPlayit) return healthyPlayit;
+  const anyPlayit = addresses.find((entry) => entry.providerId === "playit" && entry.availability === "public");
+  if (anyPlayit) return anyPlayit;
+  const tailscale = addresses.find((entry) => entry.providerId === "tailscale" || entry.availability === "private");
+  if (tailscale) return tailscale;
+  return addresses.find((entry) => entry.availability === "lan") || addresses[0] || null;
+}
+
+function getShareServerDiagnosticMessages(instance = findInstance(), health = getShareServerAccessHealth(instance)) {
+  if (health.nodeState === "disconnected") return ["Reconnect to the node to refresh access health."];
+  if (health.processState === "stopped") return ["Start the server first."];
+  if (health.processState === "failed") return ["The server failed to start. Check console logs."];
+  if (health.portState === "not-listening") return ["The game port is not listening yet."];
+  if (health.playitState === "stopped") return ["Start Playit in Public Access."];
+  if (health.tunnelMatch === "not-matched") return ["Create or select a Playit tunnel for this server port."];
+  if (health.tunnelMatch === "multiple") return ["Multiple tunnels match this port. Pick the correct public address manually."];
+  const recommended = getRecommendedShareServerAddress(instance);
+  if (recommended?.availability === "lan") return ["Only people on your local network can join with this address."];
+  return ["Access looks ready. Ask your friend to paste the copied address exactly."];
+}
+
+function getInstanceAccessBadges(instance = findInstance()) {
+  if (!instance) return [];
+  const health = getShareServerAccessHealth(instance);
+  const badges = [];
+  if (health.nodeState === "disconnected") badges.push({ label: "Node disconnected", tone: "planned" });
+  else if (health.processState === "failed") badges.push({ label: "Server failed", tone: "critical" });
+  else if (health.processState === "stopped") badges.push({ label: "Server stopped", tone: "planned" });
+  else if (health.portState === "not-listening") badges.push({ label: "Port not listening", tone: "warning" });
+  if (health.status === "Public access ready") badges.push({ label: "Public access ready", tone: "ok" });
+  else if (health.tunnelMatch === "multiple") badges.push({ label: "Multiple tunnels", tone: "warning" });
+  else if (health.playitState === "running" && health.tunnelMatch === "matched") badges.push({ label: "Playit online", tone: "ok" });
+  else if (health.tailscale === "available") badges.push({ label: "Tailscale available", tone: "planned" });
+  else if (health.lan === "available") badges.push({ label: "Local only", tone: "planned" });
+  if (badges.length === 0 && getInstancePrimaryPort(instance)) badges.push({ label: "No public access", tone: "planned" });
+  return badges.slice(0, 3);
 }
 
 function getInstanceAccessProvider(providerId, snapshot = latestPublicAccessSnapshot) {
@@ -8070,23 +8761,173 @@ async function createAccessServiceForInstance(instance = findInstance(), preferr
 }
 
 async function copyInstanceAccessAddress(instance = findInstance()) {
-  const services = getInstanceAccessServices(instance);
-  if (services.length === 0) {
-    showToast("No access service is linked to this instance yet.", "warning");
+  const selected = getRecommendedShareServerAddress(instance);
+  if (!selected || !isUsableShareAddress(selected.address)) {
+    showToast("No usable access address is available yet.", "warning");
     return;
   }
-  const choices = services
-    .map((service) => ({ service, address: getInstanceAccessAddress(service) }))
-    .filter((entry) => entry.address);
-  if (choices.length === 0) {
-    showToast("Linked access services do not have a copyable address yet.", "warning");
+  await copyPublicAccessValue(selected.address, `${selected.label} copied.`, "No usable access address is available to copy.");
+}
+
+function createShareServerAddressRow(entry, instance) {
+  const row = document.createElement("article");
+  row.className = `share-server-address share-server-address--${entry.availability || "unknown"}`;
+  const copyButton = document.createElement("button");
+  copyButton.type = "button";
+  copyButton.className = "inline-action";
+  copyButton.textContent = "Copy";
+  copyButton.disabled = !isUsableShareAddress(entry.address);
+  copyButton.addEventListener("click", () => copyPublicAccessValue(entry.address, `${entry.label} copied.`, "No address is available to copy."));
+  const top = document.createElement("div");
+  top.className = "share-server-address__top";
+  top.append(
+    createTextElement("strong", entry.label),
+    createTextElement("span", entry.recommended ? "Recommended" : entry.status || "Available", `status-pill ${entry.recommended ? "status-pill--ok" : "status-pill--planned"}`),
+  );
+  const address = createTextElement("code", entry.address || "Unavailable", "share-server-address__value");
+  const detail = createTextElement("p", entry.detail || "Copy this address and send it to friends.");
+  const invite = buildShareServerInviteText(instance, entry);
+  const inviteButton = document.createElement("button");
+  inviteButton.type = "button";
+  inviteButton.className = "inline-action";
+  inviteButton.textContent = "Copy Invite Text";
+  inviteButton.disabled = !invite;
+  inviteButton.addEventListener("click", () => copyPublicAccessValue(invite, "Invite text copied.", "No invite text is available to copy."));
+  const actions = document.createElement("div");
+  actions.className = "share-server-address__actions";
+  actions.append(copyButton, inviteButton);
+  row.append(top, address, detail, actions);
+  return row;
+}
+
+function openShareServerModal(instance = findInstance()) {
+  if (!instance) {
+    showToast("Choose a server to share.", "warning");
     return;
   }
-  let selected = choices[0];
-  if (choices.length > 1) {
-    selected = choices.find((entry) => entry.service.id === selectedPublicAccessServiceId) || selected;
+  const overlay = document.createElement("div");
+  overlay.className = "app-modal-backdrop";
+  overlay.dataset.shareServerModal = "";
+  const dialog = document.createElement("section");
+  dialog.className = "app-modal app-modal--share-server";
+  dialog.setAttribute("role", "dialog");
+  dialog.setAttribute("aria-modal", "true");
+  dialog.setAttribute("aria-labelledby", "share-server-title");
+  dialog.tabIndex = -1;
+
+  const closeButton = document.createElement("button");
+  closeButton.className = "app-modal__close";
+  closeButton.type = "button";
+  closeButton.dataset.shareServerClose = "";
+  closeButton.setAttribute("aria-label", "Close Share Server");
+  closeButton.textContent = "×";
+
+  const header = document.createElement("div");
+  header.className = "app-modal__header";
+  header.append(
+    createTextElement("p", "Share Server", "app-modal__eyebrow"),
+    Object.assign(createTextElement("h2", instance.displayName || instance.id || "Server"), { id: "share-server-title" }),
+    createTextElement("p", "Copy the right address for friends and keep Public Access setup in one place."),
+  );
+
+  const body = document.createElement("div");
+  body.className = "app-modal__body share-server-body";
+  const health = getShareServerAccessHealth(instance);
+  const addresses = getShareServerAddresses(instance);
+  const publicAddresses = addresses.filter((entry) => entry.availability === "public");
+  const recommended = getRecommendedShareServerAddress(instance);
+  addresses.forEach((entry) => {
+    entry.recommended = Boolean(recommended && entry.id === recommended.id);
+  });
+  const healthSection = document.createElement("section");
+  healthSection.className = "share-server-health";
+  healthSection.append(
+    createTextElement("h3", "Access Health"),
+    createTextElement("strong", health.status, `share-server-health__status share-server-health__status--${String(health.status).toLowerCase().replace(/[^a-z0-9]+/g, "-")}`),
+  );
+  const healthGrid = document.createElement("div");
+  healthGrid.className = "share-server-health__grid";
+  [
+    ["Server", health.processState],
+    ["Port", health.portState],
+    ["LAN", health.lan],
+    ["Playit", health.playitState],
+    ["Tunnel", health.tunnelMatch],
+    ["Public", health.publicAddress],
+    ["Tailscale", health.tailscale],
+    ["Checked", formatDateTime(health.lastCheckedAt)],
+  ].forEach(([label, value]) => {
+    const item = document.createElement("div");
+    item.append(createTextElement("span", label), createTextElement("strong", value || "unknown"));
+    healthGrid.append(item);
+  });
+  const diagnostics = document.createElement("details");
+  diagnostics.className = "share-server-diagnostics";
+  diagnostics.append(createTextElement("summary", "Friend can’t join?"));
+  const diagnosticList = document.createElement("ul");
+  getShareServerDiagnosticMessages(instance, health).forEach((message) => diagnosticList.append(createTextElement("li", message)));
+  diagnostics.append(diagnosticList);
+  healthSection.append(healthGrid, diagnostics);
+  const list = document.createElement("div");
+  list.className = "share-server-address-list";
+  if (addresses.length) {
+    addresses.forEach((entry) => list.append(createShareServerAddressRow(entry, instance)));
+  } else {
+    const empty = document.createElement("div");
+    empty.className = "share-server-empty";
+    empty.append(
+      createTextElement("strong", "No public address configured yet"),
+      createTextElement("p", "No LAN or public endpoint is available for this server. Configure a port or open Public Access."),
+    );
+    list.append(empty);
   }
-  await copyPublicAccessValue(selected.address, "Access address copied.", "No access address is available to copy.");
+
+  if (addresses.length && publicAddresses.length === 0) {
+    const note = createTextElement("p", "No public address configured yet. Open Public Access to add Playit or Tailscale access for friends outside this network.", "share-server-note");
+    list.append(note);
+  }
+
+  const instructions = document.createElement("section");
+  instructions.className = "share-server-instructions";
+  instructions.append(createTextElement("h3", "How Friends Join"));
+  const steps = document.createElement("ol");
+  getShareServerInstructions(instance).forEach((step) => steps.append(createTextElement("li", step)));
+  instructions.append(steps);
+  body.append(healthSection, list, instructions);
+
+  const footer = document.createElement("div");
+  footer.className = "app-modal__actions";
+  const publicAccessButton = document.createElement("button");
+  publicAccessButton.type = "button";
+  publicAccessButton.className = "inline-action";
+  publicAccessButton.textContent = "Open Public Access";
+  publicAccessButton.addEventListener("click", () => {
+    close();
+    openInstanceAccessManager(instance);
+  });
+  const doneButton = document.createElement("button");
+  doneButton.type = "button";
+  doneButton.className = "inline-action inline-action--primary";
+  doneButton.dataset.shareServerClose = "";
+  doneButton.textContent = "Done";
+  footer.append(publicAccessButton, doneButton);
+
+  const close = () => {
+    document.removeEventListener("keydown", onKeyDown);
+    deactivateModal();
+    overlay.remove();
+  };
+  const onKeyDown = (event) => {
+    if (event.key === "Escape") close();
+  };
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay || event.target.closest("[data-share-server-close]")) close();
+  });
+  document.addEventListener("keydown", onKeyDown);
+  dialog.append(closeButton, header, body, footer);
+  overlay.append(dialog);
+  document.body.append(overlay);
+  const deactivateModal = activateModal(overlay, { initialFocus: () => dialog.querySelector(".inline-action") || closeButton });
 }
 
 function openInstanceAccessManager(instance = findInstance()) {
@@ -8156,6 +8997,59 @@ async function createProviderAccessService() {
 
 async function runPublicAccessAction(action) {
   if (action === "refresh") return refreshPlayitStatus();
+  if (action === "playit-refresh-status") return refreshPlayitStatus();
+  const unavailable = getPublicAccessUnavailableReason();
+  if (String(action || "").startsWith("playit-") && unavailable) {
+    renderPublicAccessUnavailableState(unavailable);
+    showToast(unavailable.message, "warning");
+    return { ok: false, code: unavailable.code, message: unavailable.message };
+  }
+  if (action === "playit-refresh-tunnels") {
+    const payload = getNodeScopedPayload(getNodeRequestContext("playit-tunnels"));
+    const result = await getDesktopApiState().api?.publicAccess?.listPlayitTunnels?.(payload);
+    if (result?.ok === false && isPlayitEndpointUnsupported(result.error || result)) {
+      renderPlayitTunnelsFromLegacySnapshot(result.error || result);
+      showToast("Tunnel listing requires an Agent update.", "warning");
+    } else {
+      renderPlayitTunnels(result);
+    }
+    return result;
+  }
+  if (action === "playit-logs") {
+    const payload = { ...getNodeScopedPayload(getNodeRequestContext("playit-logs")), limit: 200 };
+    const result = await getDesktopApiState().api?.publicAccess?.getPlayitLogs?.(payload);
+    renderPlayitLogs(result);
+    if (result?.ok === false) showToast(result.message || "Playit logs are unavailable.", "warning");
+    return result;
+  }
+  if (["playit-start", "playit-stop", "playit-restart"].includes(action)) {
+    const control = action.replace(/^playit-/, "");
+    playitActionInFlight = action;
+    renderPlayitServiceActions();
+    try {
+      const result = await getDesktopApiState().api?.publicAccess?.controlPlayit?.({
+        ...getNodeScopedPayload(getNodeRequestContext(`playit-${control}`)),
+        action: control,
+      });
+      if (result?.ok === false) {
+        if (isPlayitEndpointUnsupported(result.error || result)) {
+          renderPlayitServiceStatusFromLegacySnapshot(result.error || result);
+        }
+        throw Object.assign(new Error(result.error?.message || `Playit ${control} failed.`), { code: result.error?.code || "PLAYIT_CONTROL_FAILED" });
+      }
+      showToast(`Playit ${control} request completed.`, "success");
+      await refreshPlayitStatus();
+      return result;
+    } finally {
+      playitActionInFlight = null;
+      renderPlayitServiceActions();
+    }
+  }
+  if (String(action || "").startsWith("playit-copy:")) {
+    const tunnelId = String(action).slice("playit-copy:".length);
+    const tunnel = latestPlayitTunnels.find((entry) => String(entry.id) === tunnelId);
+    return copyPublicAccessValue(tunnel?.publicAddress || "", "Playit public endpoint copied.", "No Playit public endpoint is available to copy.");
+  }
   if (action === "open-logs") return runDiagnosticsAction("open");
   if (action === "create-access-service") return createProviderAccessService();
   if (action === "install-dependency") {
@@ -8408,10 +9302,11 @@ function renderPublicAccessSnapshot(snapshot = {}) {
   renderPublicAccessProviderDetails(snapshot);
   renderInstanceRows(getInstances());
   renderInstanceNetwork(findInstance());
+  renderFriendlyDashboard();
 }
 
 function renderPlayitUnavailable(message = "Public Access status unavailable.") {
-  latestPublicAccessSnapshot = null;
+  const unavailable = getPublicAccessRequestUnavailableReason(null, message);
   latestPlayitSnapshot = null;
   setPlayitVisualState("missing");
   setField("playitInstalled", "Unavailable");
@@ -8434,8 +9329,10 @@ function renderPlayitUnavailable(message = "Public Access status unavailable.") 
   setField("publicAccessConnectionHealth", "Unavailable");
   setField("publicAccessReachability", message);
   setField("publicAccessProviderCapabilities", "Unavailable");
-  renderPublicAccessProviderDetails(null);
+  renderPublicAccessUnavailableState(getPublicAccessUnavailableReason() || unavailable, message);
+  renderPublicAccessProviderDetails(latestPublicAccessSnapshot);
   renderInstanceNetwork(findInstance());
+  renderFriendlyDashboard();
   updateTitlebar();
 }
 
@@ -9344,6 +10241,18 @@ function formatInstanceValue(value) {
 
 function formatInstanceType(value) {
   return formatInstanceValue(value).replace(/-/g, " ");
+}
+
+function getInstanceTypeLabel(instance = null) {
+  const software = normalizeSoftwareName(instance?.serverSoftware || instance?.minecraft?.serverType || "");
+  const loader = String(instance?.loader || "").trim().toLowerCase();
+  const hasNeoForge = software === "NeoForge" || loader === "neoforge";
+  const hasScriptLauncher = ["bash", "sh", "cmd.exe", "cmd", "powershell.exe", "powershell", "pwsh.exe", "pwsh"].includes(String(instance?.executable || "").trim().toLowerCase()) &&
+    (Array.isArray(instance?.args) ? instance.args : []).some((arg) => /\.(?:sh|bat|cmd|ps1)$/i.test(String(arg || "")));
+  if (hasNeoForge && hasScriptLauncher) {
+    return "NeoForge server pack";
+  }
+  return formatInstanceType(instance?.type || "Instance");
 }
 
 function formatInstanceList(value) {
@@ -11395,10 +12304,45 @@ async function saveInstanceTextFile() {
 }
 
 function isJavaJarInstance(instance) {
+  if (isScriptLauncherInstance(instance)) {
+    return false;
+  }
   const args = Array.isArray(instance?.args) ? instance.args : [];
   return instance?.type === "java-app" ||
     instance?.type === "minecraft-paper" ||
     (String(instance?.executable || "").toLowerCase().includes("java") && args.includes("-jar"));
+}
+
+function isStartupScriptPath(value) {
+  return /^(?:\.\/)?(?:run|start|startserver)\.(?:sh|bat|cmd|ps1)$/i.test(String(value || "").trim().split(/[\\/]/).pop() || "");
+}
+
+function normalizeStartupScriptPath(scriptPath) {
+  const normalized = String(scriptPath || "").trim().replace(/\\/g, "/");
+  if (!normalized || normalized.startsWith("./") || normalized.startsWith("../") || normalized.includes("/")) {
+    return normalized;
+  }
+  return `./${normalized}`;
+}
+
+function getStartupScriptLauncherForRenderer(scriptPath) {
+  const script = normalizeStartupScriptPath(scriptPath);
+  const name = script.toLowerCase();
+  if (name.endsWith(".sh")) return { executable: "bash", args: [script], startupScript: script.replace(/^\.\//, "") };
+  if (name.endsWith(".bat") || name.endsWith(".cmd")) return { executable: "cmd.exe", args: ["/c", script], startupScript: script.replace(/^\.\//, "") };
+  if (name.endsWith(".ps1")) return { executable: "powershell.exe", args: ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script], startupScript: script.replace(/^\.\//, "") };
+  return null;
+}
+
+function getConfiguredStartupScriptPath(instance = {}) {
+  const args = Array.isArray(instance?.args) ? instance.args : [];
+  return args.find(isStartupScriptPath) || instance?.startupScript || instance?.entrypoint || "";
+}
+
+function isScriptLauncherInstance(instance = {}) {
+  const executable = String(instance?.executable || "").trim().toLowerCase().split(/[\\/]/).pop();
+  return ["bash", "sh", "cmd", "cmd.exe", "powershell", "powershell.exe", "pwsh", "pwsh.exe"].includes(executable) ||
+    Boolean(getConfiguredStartupScriptPath(instance));
 }
 
 function getConfiguredJarPath(instance) {
@@ -11415,8 +12359,6 @@ const commonServerJarCandidates = [
   "paper.jar",
   "purpur.jar",
   "fabric-server.jar",
-  "forge-installer.jar",
-  "neoforge-installer.jar",
 ];
 
 function buildArgsWithJar(instance, jarPath) {
@@ -11454,6 +12396,136 @@ async function findExistingServerJar(instance, preferredJar = "", context = getN
     }
   }
   return "";
+}
+
+async function findExistingStartupScriptForInstance(instance, context = getNodeRequestContext("script-find")) {
+  const candidates = [
+    getConfiguredStartupScriptPath(instance),
+    "run.sh",
+    "startserver.sh",
+    "start.sh",
+    "startserver.bat",
+    "run.bat",
+    "start.bat",
+    "startserver.cmd",
+    "run.cmd",
+    "start.cmd",
+    "run.ps1",
+    "start.ps1",
+  ].map((candidate) => String(candidate || "").replace(/^\.\//, "").trim()).filter(Boolean);
+  for (const candidate of [...new Set(candidates)]) {
+    try {
+      if (!isNodeRequestCurrent(context)) return "";
+      await getDesktopApiState().api.instances.readFile(instance.id, candidate, getNodeScopedPayload(context));
+      return candidate;
+    } catch (error) {
+      if (getAgentErrorCode(error) !== "PATH_NOT_FOUND") {
+        throw error;
+      }
+    }
+  }
+  return "";
+}
+
+async function hasInstanceFile(instance, filePath, context) {
+  try {
+    if (!isNodeRequestCurrent(context)) return false;
+    await getDesktopApiState().api.instances.readFile(instance.id, filePath, getNodeScopedPayload(context));
+    return true;
+  } catch (error) {
+    if (getAgentErrorCode(error) === "PATH_NOT_FOUND") return false;
+    throw error;
+  }
+}
+
+async function hasNeoForgeRuntimeSignalForInstance(instance, context = getNodeRequestContext("neoforge-signal")) {
+  const searchable = [
+    instance?.loader,
+    instance?.serverSoftware,
+    instance?.softwareVersion,
+    instance?.loaderVersion,
+    instance?.templateId,
+    instance?.displayName,
+    ...(Array.isArray(instance?.tags) ? instance.tags : []),
+    ...(Array.isArray(instance?.args) ? instance.args : []),
+  ].filter(Boolean).join(" ");
+  if (/neoforge/i.test(searchable)) return true;
+  if (await hasInstanceFile(instance, "metadata.json", context)) {
+    try {
+      const metadata = await getDesktopApiState().api.instances.readFile(instance.id, "metadata.json", getNodeScopedPayload(context));
+      if (/neoforge/i.test(String(metadata?.content || ""))) return true;
+    } catch {}
+  }
+  for (const installer of ["neoforge-21.1.228-installer.jar", "neoforge-installer.jar"]) {
+    if (await hasInstanceFile(instance, installer, context)) return true;
+  }
+  return false;
+}
+
+function canRepairNeoForgeRuntime(instance) {
+  if (!instance || typeof getDesktopApiState().api?.instances?.repairNeoForgeRuntime !== "function") {
+    return false;
+  }
+  const haystack = [
+    instance.loader,
+    instance.serverSoftware,
+    instance.softwareVersion,
+    instance.loaderVersion,
+    instance.templateId,
+    instance.displayName,
+    instance.startupScript,
+    instance.failureReason,
+    ...(Array.isArray(instance.tags) ? instance.tags : []),
+    ...(Array.isArray(instance.args) ? instance.args : []),
+  ].filter(Boolean).join(" ");
+  return /neoforge/i.test(haystack) || String(instance.failureReason || "") === "NEOFORGE_RUNTIME_INCOMPLETE";
+}
+
+function isNeoForgeRuntimeFailure(instance = {}) {
+  return String(instance?.failureReason || "") === "NEOFORGE_RUNTIME_INCOMPLETE" ||
+    String(instance?.failureDetails?.repairAction || "") === "repair-neoforge-runtime";
+}
+
+async function showNeoForgeRuntimeIncompleteHint(instance, context = getNodeRequestContext("neoforge-incomplete")) {
+  if (!await hasNeoForgeRuntimeSignalForInstance(instance, context)) {
+    return false;
+  }
+  setActiveInstanceTab("files");
+  instanceCurrentFilePath = ".";
+  if (instanceFileEditorName) {
+    instanceFileEditorName.textContent = "NeoForge runtime incomplete";
+  }
+  if (instanceFileEditorMeta) {
+    instanceFileEditorMeta.textContent = "Runtime · Use Repair Runtime to regenerate launcher metadata and unix_args.txt from the bundled installer.";
+  }
+  if (instanceFileEditorState) {
+    instanceFileEditorState.textContent = "Repair required";
+  }
+  await refreshInstanceFiles(".");
+  showToast("NeoForge runtime incomplete - repair runtime.", "warning");
+  return true;
+}
+
+async function repairInstanceStartupScript(instance, scriptPath, context = getNodeRequestContext("script-repair")) {
+  const launcher = getStartupScriptLauncherForRenderer(scriptPath);
+  if (!launcher || !isNodeRequestCurrent(context)) return false;
+  const scriptIndex = Array.isArray(instance?.args) ? instance.args.findIndex(isStartupScriptPath) : -1;
+  const extraArgs = scriptIndex >= 0 ? instance.args.slice(scriptIndex + 1) : [];
+  const patch = {
+    executable: launcher.executable,
+    args: [...launcher.args, ...extraArgs],
+    startupScript: launcher.startupScript,
+    serverJar: null,
+    serverJarPath: null,
+    startJar: null,
+  };
+  await getDesktopApiState().api.instances.update(instance.id, patch, getNodeScopedPayload(context));
+  const index = instances.findIndex((entry) => entry.id === instance.id);
+  if (index >= 0) {
+    instances[index] = { ...instances[index], ...patch };
+  }
+  showToast(`Repaired script launcher metadata: ${launcher.startupScript}`);
+  return true;
 }
 
 async function repairInstanceServerJar(instance, jarPath, context = getNodeRequestContext("jar-repair")) {
@@ -11514,6 +12586,9 @@ async function verifyJavaJarBeforeLaunch(instance, context = getNodeRequestConte
       await repairInstanceServerJar(instance, repairedJar, context);
       return true;
     }
+    if (await showNeoForgeRuntimeIncompleteHint(instance, context)) {
+      return false;
+    }
     showToast("No server JAR is configured. Upload a server JAR in Files or install this server from the Marketplace.", "warning");
     await focusMissingJarInFiles(instance, "server.jar");
     return false;
@@ -11530,6 +12605,14 @@ async function verifyJavaJarBeforeLaunch(instance, context = getNodeRequestConte
     }
 
     if (getAgentErrorCode(error) === "PATH_NOT_FOUND") {
+      const startupScript = await findExistingStartupScriptForInstance(instance, context);
+      if (startupScript && await repairInstanceStartupScript(instance, startupScript, context)) {
+        showToast("NeoForge runtime ready.");
+        return true;
+      }
+      if (await showNeoForgeRuntimeIncompleteHint(instance, context)) {
+        return false;
+      }
       const repairedJar = await findExistingServerJar(instance, jarPath, context);
       if (repairedJar) {
         await repairInstanceServerJar(instance, repairedJar, context);
@@ -11583,6 +12666,13 @@ function updateInstanceActionButtons() {
   instancesStartButtons.forEach((button) => {
     button.disabled = busy || !hasInstancesBridge || !canStartInstance(selectedInstance);
     button.textContent = isFiveMSetupRequired(selectedInstance) ? "Configure FiveM" : "Start";
+  });
+
+  instancesRepairNeoForgeButtons.forEach((button) => {
+    const eligible = canRepairNeoForgeRuntime(selectedInstance);
+    button.hidden = !eligible;
+    button.disabled = busy || !hasInstancesBridge || !eligible;
+    button.textContent = instanceActionRequestInFlight ? "Repairing..." : "Repair Runtime";
   });
 
   instancesStopButtons.forEach((button) => {
@@ -11641,8 +12731,12 @@ function updateInstanceActionButtons() {
     button.disabled = busy || !hasInstancesBridge || !selectedInstance || !hasCompatibleSuggestion || !getDesktopApiState().hasPublicAccess;
   });
 
+  document.querySelectorAll('[data-instance-action="share-server"]').forEach((button) => {
+    button.disabled = busy || !hasInstancesBridge || !selectedInstance || !getInstancePrimaryPort(selectedInstance);
+  });
+
   document.querySelectorAll('[data-instance-action="copy-access-address"]').forEach((button) => {
-    const hasAddress = getInstanceAccessServices(selectedInstance).some((service) => Boolean(getInstanceAccessAddress(service)));
+    const hasAddress = Boolean(getRecommendedShareServerAddress(selectedInstance));
     button.disabled = busy || !hasInstancesBridge || !selectedInstance || !hasAddress;
   });
 
@@ -11712,24 +12806,16 @@ function buildInstanceNameCell(instance) {
   const meta = document.createElement("span");
   meta.textContent = instance?.id || "missing-id";
   wrapper.append(title, meta);
-  const accessServices = getInstanceAccessServices(instance);
-  if (accessServices.length > 0) {
+  const accessBadges = getInstanceAccessBadges(instance);
+  if (accessBadges.length > 0) {
     const badges = document.createElement("div");
     badges.className = "instance-tags-cell instance-access-badges";
-    accessServices.slice(0, 3).forEach((service) => {
+    accessBadges.forEach((entry) => {
       const badge = document.createElement("span");
-      badge.textContent = getInstanceAccessBadgeLabel(service);
-      const address = getInstanceAccessAddress(service);
-      if (address) {
-        badge.title = address;
-      }
+      badge.className = `instance-access-badge instance-access-badge--${entry.tone || "planned"}`;
+      badge.textContent = entry.label;
       badges.appendChild(badge);
     });
-    if (accessServices.length > 3) {
-      const more = document.createElement("span");
-      more.textContent = `+${accessServices.length - 3}`;
-      badges.appendChild(more);
-    }
     wrapper.appendChild(badges);
   }
   return wrapper;
@@ -11836,6 +12922,7 @@ function buildInstanceActionCell(instance) {
     { label: "Stop", action: "stop", disabled: !canStopInstance(instance) },
     { label: "Restart", action: "restart", disabled: !canRestartInstance(instance) },
     { label: "Expose", action: "expose-share", disabled: !getInstanceAccessSuggestions(instance).some((suggestion) => suggestion.compatible !== false && suggestion.localPort) },
+    { label: "Share", action: "share-server", disabled: !getInstancePrimaryPort(instance) },
   ];
 
   actions.forEach((item) => {
@@ -11879,7 +12966,7 @@ function renderInstanceRows(instances) {
 
     const metrics = getInstanceRowMetrics(instance);
     addInstanceCell(row, buildInstanceNameCell(instance));
-    addInstanceCell(row, formatInstanceType(instance.type));
+    addInstanceCell(row, getInstanceTypeLabel(instance));
     addInstanceCell(row, buildInstanceStatePill(instance));
     addInstanceCell(row, buildInstanceAddressCell(instance));
     addInstanceCell(row, buildInstanceMetricCell(formatInstanceCpuPercent(metrics)));
@@ -12093,7 +13180,7 @@ function setInstanceDetails(instance = null) {
   setInstanceDetail("buildDate", version.buildDate || "Unavailable");
   setInstanceDetail("node", getInstanceNodeLabel(instance));
   setInstanceDetail("created", formatDateTime(instance.createdAt || instance.created || instance.metadata?.createdAt));
-  setInstanceDetail("type", formatInstanceType(instance.type));
+  setInstanceDetail("type", getInstanceTypeLabel(instance));
   setInstanceDetail("command", command || "Unavailable");
   setInstanceDetail("failureReason", getInstanceFailureReason(instance));
   setInstanceDetail("pid", formatInstanceValue(instance.pid));
@@ -12338,6 +13425,8 @@ function getAgentErrorMessage(error, fallback = "Instance request failed.") {
     INSTANCE_VERIFICATION_FAILED: error?.message || "Created instance could not be verified.",
     AGENT_TOKEN_MISSING: "Agent token is missing. Open Agent Control, generate a pairing code, then pair or repair the node connection.",
     UNAUTHORIZED: "Agent token rejected. Open Agent Control and use Repair, Rotate Token, or Pair with Code to refresh the connection.",
+    AGENT_NEOFORGE_REPAIR_UNSUPPORTED: "Agent update required for NeoForge repair. Update or restart the selected Agent, then try Repair Runtime again.",
+    AGENT_PLAYIT_CONTROLS_UNSUPPORTED: "Agent update required for Playit service controls. Update or restart the selected Agent, then try again.",
     NOT_FOUND: "The selected instance no longer exists.",
     INSTANCE_RUNNING: "Stop the instance before deleting it.",
     INSTANCE_DELETE_FAILED: "Instance files could not be deleted.",
@@ -12746,6 +13835,7 @@ function renderMarketplaceTemplates() {
 
   templates.forEach((template) => {
     const templateState = getMarketplaceStateForTemplate(template);
+    const primaryAction = getMarketplacePrimaryAction(template, templateState);
     const card = document.createElement("article");
     card.className = "marketplace-card";
     card.classList.toggle("is-selected", template.id === marketplaceSelectedTemplateId);
@@ -12774,71 +13864,59 @@ function renderMarketplaceTemplates() {
     const meta = document.createElement("span");
     meta.className = "marketplace-card__meta";
     const downloads = template.category === "Modpacks" ? ` · ${formatProviderDownloads(template.downloads)} downloads` : "";
-    meta.textContent = `${template.author || "Unknown"} · v${template.version || "0.0.0"} · ${template.category || "Uncategorized"}${downloads}`;
+    meta.textContent = isProviderMarketplaceTemplate(template)
+      ? `${template.author || "Unknown"} · ${formatMarketplaceProviderLabel(template)}${downloads}`
+      : `${template.author || "Unknown"} · Template v${template.version || "0.0.0"} · ${template.category || "Uncategorized"}`;
+    if (templateState.instances?.length) {
+      const instanceLabel = getMarketplaceInstalledInstanceLabel(templateState.instances[0]);
+      if (instanceLabel) {
+        meta.textContent = `${meta.textContent} · Installed: ${instanceLabel}`;
+        meta.title = meta.textContent;
+      }
+    }
     const stateBadge = document.createElement("span");
-    stateBadge.className = `marketplace-card__state status-pill status-pill--${templateState.tone}`;
-    stateBadge.textContent = templateState.instances.length > 1
-      ? `${templateState.label} (${templateState.instances.length})`
-      : templateState.label;
+    const footerState = getMarketplaceCompactFooterState(template, templateState);
+    stateBadge.className = `marketplace-card__state status-pill status-pill--${footerState.tone}`;
+    stateBadge.textContent = footerState.label;
     const badges = document.createElement("div");
     badges.className = "marketplace-card__badges";
-    [
-      formatMarketplaceProviderLabel(template),
-      formatMarketplaceLoaderLabel(template),
-      template.displayMinecraftVersion || template.minecraftVersion || template.gameVersion || template.serverVersion || "",
-    ].filter(Boolean).forEach((label) => {
+    getMarketplaceCompactCardBadges(template).forEach((label) => {
       const badge = document.createElement("span");
       badge.className = "marketplace-card__badge";
       badge.textContent = label;
       badges.append(badge);
     });
-    body.append(title, description, meta, stateBadge, badges);
+    const footer = document.createElement("div");
+    footer.className = "marketplace-card__footer";
+    const versionLine = document.createElement("span");
+    versionLine.className = "marketplace-card__version";
+    const installedVersion = getMarketplaceInstalledInstanceVersion(templateState.instances?.[0]);
+    versionLine.textContent = installedVersion || getMarketplaceCompactPackVersion(template) || (isProviderMarketplaceTemplate(template) ? "Pack version pending" : `Template v${template.version || "0.0.0"}`);
+    versionLine.title = versionLine.textContent;
+    footer.append(versionLine, stateBadge, badges);
+    body.append(title, description, meta);
+    body.append(footer);
 
     const install = document.createElement("button");
     install.type = "button";
     install.className = "inline-action";
-    install.textContent = template.comingSoon || template.disabled ? "Coming soon" : templateState.action;
-    install.disabled = Boolean(template.comingSoon || template.disabled || templateState.disabled);
-    install.addEventListener("click", () => {
-      if (templateState.action === "Review recovery") {
-        reviewMarketplaceRecovery(template);
-        return;
-      }
-      if (templateState.instances.length && templateState.action === "Open instance") {
-        openMarketplaceInstance(templateState.instances[0].id);
-        return;
-      }
-      openMarketplaceWizard(template.id);
-    });
+    install.textContent = template.comingSoon || template.disabled ? "Coming soon" : primaryAction.label;
+    install.disabled = Boolean(template.comingSoon || template.disabled || primaryAction.disabled);
+    install.dataset.marketplaceInstalledAction = primaryAction.id;
+    install.addEventListener("click", () => runMarketplaceInstalledAction(template, primaryAction.id));
 
     card.append(icon, body, install);
     card.addEventListener("keydown", (event) => {
       if (event.key !== "Enter" && event.key !== " ") return;
       event.preventDefault();
-      if (templateState.action === "Review recovery") {
-        reviewMarketplaceRecovery(template);
-        return;
-      }
-      if (templateState.instances.length && templateState.action === "Open instance") {
-        openMarketplaceInstance(templateState.instances[0].id);
-        return;
-      }
-      if (!template.comingSoon && !template.disabled) openMarketplaceWizard(template.id);
+      if (!template.comingSoon && !template.disabled && !primaryAction.disabled) runMarketplaceInstalledAction(template, primaryAction.id);
     });
     card.addEventListener("dblclick", () => {
       if (template.comingSoon || template.disabled) {
         setMarketplaceMessage(template.comingSoonMessage || "This template is not ready yet.", "warning");
         return;
       }
-      if (templateState.action === "Review recovery") {
-        reviewMarketplaceRecovery(template);
-        return;
-      }
-      if (templateState.instances.length && templateState.action === "Open instance") {
-        openMarketplaceInstance(templateState.instances[0].id);
-        return;
-      }
-      openMarketplaceWizard(template.id);
+      if (!primaryAction.disabled) runMarketplaceInstalledAction(template, primaryAction.id);
     });
     marketplaceGrid.append(card);
   });
@@ -12991,6 +14069,186 @@ function formatMarketplaceLoaderLabel(template) {
   return String(template?.loader || template?.serverType || template?.instanceType || "").replace(/^minecraft-/i, "") || "";
 }
 
+function formatMarketplaceRuntimeFamilyLabel(template = {}) {
+  const normalized = normalizeMarketplaceServerRuntime(formatMarketplaceLoaderLabel(template));
+  return normalized ? `${normalized} runtime` : "";
+}
+
+function getMarketplaceResolvedRuntimeVersion(source = {}) {
+  return String(
+    source.loaderVersion ||
+      source.softwareVersion ||
+      source.versionInfo?.softwareVersion ||
+      source.versionInfo?.loaderVersion ||
+      source.versionInfo?.buildNumber ||
+      source.selectedProviderFile?.loaderVersion ||
+      source.selectedProviderFile?.softwareVersion ||
+      source.selectedProviderFile?.versionInfo?.softwareVersion ||
+      ""
+  ).trim();
+}
+
+function getMarketplaceProviderFileId(source = {}) {
+  return String(
+    source.providerFileId ||
+      source.selectedProviderFile?.providerFileId ||
+      source.selectedProviderFile?.providerVersionId ||
+      source.selectedProviderFile?.id ||
+      source.providerVersionId ||
+      source.versionId ||
+      ""
+  ).trim();
+}
+
+function getMarketplaceServerPackFileId(source = {}) {
+  return String(
+    source.providerServerPackFileId ||
+      source.serverPackFileId ||
+      source.serverPackCapability?.serverPackFileId ||
+      source.selectedProviderFile?.providerServerPackFileId ||
+      source.selectedProviderFile?.serverPackFileId ||
+      ""
+  ).trim();
+}
+
+function getMarketplaceModpackVersionLabel(source = {}) {
+  return String(
+    source.modpackVersion ||
+      source.selectedProviderFile?.modpackVersion ||
+      source.selectedProviderFile?.versionNumber ||
+      source.selectedProviderFile?.name ||
+      source.selectedProviderFile?.fileName ||
+      ""
+  ).trim();
+}
+
+function getMarketplaceDisplayMinecraftVersion(source = {}) {
+  return String(
+    source.displayMinecraftVersion ||
+      source.minecraftVersion ||
+      source.gameVersion ||
+      source.selectedProviderFile?.displayMinecraftVersion ||
+      source.selectedProviderFile?.minecraftVersion ||
+      (Array.isArray(source.minecraftVersions) ? source.minecraftVersions[0] : "") ||
+      ""
+  ).trim();
+}
+
+function getMarketplaceProviderVersionRows(template = {}) {
+  const rows = [];
+  const minecraftVersion = getMarketplaceDisplayMinecraftVersion(template);
+  const runtimeFamily = formatMarketplaceRuntimeFamilyLabel(template);
+  const runtimeVersion = getMarketplaceResolvedRuntimeVersion(template);
+  const modpackVersion = getMarketplaceModpackVersionLabel(template);
+  const providerFileId = getMarketplaceProviderFileId(template);
+  const serverPackFileId = getMarketplaceServerPackFileId(template);
+  const capability = template.serverPackCapability || classifyMarketplaceServerPackCapability(template);
+
+  if (minecraftVersion) rows.push({ label: "Minecraft version", value: minecraftVersion });
+  if (runtimeFamily) rows.push({ label: "Runtime", value: runtimeFamily });
+  if (runtimeFamily || runtimeVersion) {
+    rows.push({ label: "Runtime version", value: runtimeVersion || "Resolved after install", state: runtimeVersion ? "ready" : "unknown" });
+  }
+  if (modpackVersion) rows.push({ label: "Pack version", value: modpackVersion });
+  if (providerFileId) rows.push({ label: "Provider file", value: providerFileId });
+  if (serverPackFileId) {
+    rows.push({ label: "Server pack", value: `Official server pack file ${serverPackFileId}`, state: "ready" });
+  } else if (capability?.label) {
+    rows.push({ label: "Server pack", value: capability.label, state: capability.state === "client-only" ? "unsupported" : capability.state === "unknown" ? "unknown" : "ready" });
+  }
+  return rows;
+}
+
+function getMarketplaceCompactCardBadges(template = {}) {
+  const badges = [];
+  const add = (label) => {
+    const text = String(label || "").trim();
+    if (text && !badges.includes(text) && badges.length < 2) badges.push(text);
+  };
+  const loader = normalizeMarketplaceServerRuntime(formatMarketplaceLoaderLabel(template)) || formatMarketplaceLoaderLabel(template);
+
+  if (isProviderMarketplaceTemplate(template)) {
+    add(formatMarketplaceProviderLabel(template));
+    add(loader);
+  } else {
+    add(formatMarketplaceProviderLabel(template));
+    add(loader || template.displayMinecraftVersion || template.minecraftVersion || template.gameVersion || template.serverVersion || "");
+  }
+  return badges;
+}
+
+function getMarketplaceCompactFooterState(template = {}, templateState = {}) {
+  if (isProviderMarketplaceTemplate(template)) {
+    const capability = template.serverPackCapability || classifyMarketplaceServerPackCapability(template);
+    if (getMarketplaceServerPackFileId(template)) {
+      return { label: "Official Server Pack", tone: "planned" };
+    }
+    if (capability?.label) {
+      return {
+        label: capability.label,
+        tone: capability.state === "unknown" ? "warning" : capability.state === "client-only" ? "critical" : "planned",
+      };
+    }
+  }
+  return {
+    label: templateState.instances?.length > 1 ? `${templateState.label} (${templateState.instances.length})` : templateState.label || "Available",
+    tone: templateState.tone || "planned",
+  };
+}
+
+function getMarketplaceCompactPackVersion(template = {}) {
+  const raw = getMarketplaceModpackVersionLabel(template) || template.version || "";
+  const text = String(raw || "").trim();
+  if (!text) return "";
+  const fileBase = text.replace(/\.(?:zip|jar|mrpack)$/i, "");
+  const trailingVersion = fileBase.match(/(?:^|[-_\s])v?(\d+(?:\.\d+){0,3}(?:[-+][A-Za-z0-9.-]+)?)$/i)?.[1];
+  if (trailingVersion) return trailingVersion;
+  const version = fileBase.match(/\bv?(\d+(?:\.\d+){1,3}(?:[-+][A-Za-z0-9.-]+)?)\b/i)?.[1];
+  return version || fileBase.slice(0, 28);
+}
+
+function createMarketplaceCardFacts(template = {}) {
+  const facts = document.createElement("div");
+  facts.className = "marketplace-card__facts";
+  getMarketplaceProviderVersionRows(template).slice(0, 4).forEach((item) => {
+    const row = document.createElement("span");
+    row.append(createTextElement("span", item.label), createTextElement("strong", item.value));
+    facts.append(row);
+  });
+  return facts;
+}
+
+function applyMarketplaceProviderVersionSelection(template, entry = {}) {
+  if (!isProviderMarketplaceTemplate(template)) return;
+  const minecraftVersion = entry.minecraftVersions?.[0] || template.minecraftVersion || "";
+  template.providerVersionId = entry.id || template.providerVersionId || "";
+  template.providerFileId = entry.providerFileId || entry.id || template.providerFileId || "";
+  template.providerServerPackFileId = entry.providerServerPackFileId || entry.serverPackFileId || "";
+  template.serverPackFileId = template.providerServerPackFileId || "";
+  template.selectedProviderFile = {
+    providerVersionId: template.providerVersionId,
+    providerFileId: template.providerFileId,
+    providerServerPackFileId: template.providerServerPackFileId,
+    serverPackFileId: template.serverPackFileId,
+    minecraftVersions: entry.minecraftVersions || [],
+    minecraftVersion,
+    displayMinecraftVersion: normalizeProviderMinecraftVersion({ minecraftVersion, minecraftVersions: entry.minecraftVersions || [] }),
+    loaders: entry.loaders || [],
+    loader: normalizeProviderLoader({ loaders: entry.loaders || [] }),
+    modpackVersion: entry.modpackVersion || entry.label || entry.fileName || "",
+    name: entry.label || "",
+    fileName: entry.fileName || "",
+    loaderVersion: entry.loaderVersion || "",
+    softwareVersion: entry.softwareVersion || "",
+  };
+  template.modpackVersion = template.selectedProviderFile.modpackVersion || template.modpackVersion || "";
+  template.minecraftVersion = minecraftVersion || template.minecraftVersion || "";
+  template.displayMinecraftVersion = template.selectedProviderFile.displayMinecraftVersion || template.displayMinecraftVersion || "";
+  template.loaders = entry.loaders || template.loaders || [];
+  template.loader = normalizeProviderLoader({ loaders: template.loaders }) || template.loader || "";
+  template.serverPackCapability = classifyMarketplaceServerPackCapability(template);
+}
+
 const MARKETPLACE_DEPENDENCY_LABELS = {
   java: "Java runtime",
   "dotnet-runtime": ".NET runtime",
@@ -13089,10 +14347,198 @@ function getMarketplaceTemplateDependencyIds(template = {}) {
 function getMarketplaceTemplateInstances(template = {}) {
   const templateId = template?.id || "";
   if (!templateId) return [];
+  const provider = getMarketplaceProvider(template);
+  const providerProjectId = String(template.providerProjectId || template.projectId || "").trim();
+  const providerFileId = String(template.providerFileId || template.providerVersionId || "").trim();
   return getInstances().filter((instance) => {
     const instanceTemplateId = instance?.templateId || instance?.metadata?.templateId || instance?.marketplace?.templateId;
-    return instanceTemplateId === templateId;
+    if (instanceTemplateId === templateId) return true;
+    if (!isProviderMarketplaceTemplate(template)) return false;
+    const instanceProvider = String(instance?.marketplace?.provider || instance?.metadata?.provider || "").trim().toLowerCase();
+    const instanceProjectId = String(
+      instance?.marketplace?.providerProjectId ||
+        instance?.marketplace?.projectId ||
+        instance?.metadata?.providerProjectId ||
+        instance?.metadata?.projectId ||
+        ""
+    ).trim();
+    const instanceFileId = getMarketplaceInstalledProviderVersionId(instance);
+    return instanceProvider === provider &&
+      Boolean(providerProjectId) &&
+      instanceProjectId === providerProjectId &&
+      (!providerFileId || !instanceFileId || instanceFileId === providerFileId);
   });
+}
+
+function getMarketplaceInstalledInstanceLabel(instance = null) {
+  return String(instance?.displayName || instance?.name || instance?.id || "").trim();
+}
+
+function getMarketplaceInstalledInstanceVersion(instance = null) {
+  if (!instance) return "";
+  const version = getInstanceVersionMetadata(instance);
+  const parts = [
+    version.gameVersion && version.gameVersion !== "Unknown version" ? `Minecraft ${version.gameVersion}` : "",
+    version.software && version.software !== "Minecraft" ? version.software : "",
+    version.softwareVersion && version.softwareVersion !== version.gameVersion ? version.softwareVersion : "",
+  ].filter(Boolean);
+  return parts.join(" · ");
+}
+
+function getMarketplaceInstalledProviderVersionId(instance = null) {
+  return String(
+    instance?.marketplace?.providerVersionId ||
+      instance?.marketplace?.providerFileId ||
+      instance?.marketplace?.serverPackFileId ||
+      instance?.metadata?.providerVersionId ||
+      instance?.metadata?.providerFileId ||
+      instance?.metadata?.serverPackFileId ||
+      instance?.versionInfo?.providerVersionId ||
+      instance?.versionInfo?.providerFileId ||
+      instance?.versionInfo?.serverPackFileId ||
+      ""
+  ).trim();
+}
+
+function getMarketplaceUpdateState(template = {}, instance = null) {
+  if (!instance) return { state: "not-installed", label: "Install to check updates", detail: "No installed instance is linked to this Marketplace item." };
+  const supportsSteamUpdate = instance.installerType === "steamcmd-native" &&
+    Number.isInteger(Number(instance.steamAppId)) &&
+    typeof getDesktopApiState().api?.marketplace?.updateSteamServer === "function";
+  if (supportsSteamUpdate) {
+    return isInstanceRunning(instance)
+      ? { state: "blocked", label: "Stop to update", detail: "Stop the instance before validating or updating server files.", action: "update-steam" }
+      : { state: "available", label: "Update files available", detail: "SteamCMD can validate and update server files while preserving saves, configs, backups, and mods.", action: "update-steam" };
+  }
+
+  const installedProviderVersion = getMarketplaceInstalledProviderVersionId(instance);
+  const advertisedProviderVersion = getMarketplaceProviderFileId(template) || getMarketplaceServerPackFileId(template) || String(template.providerVersionId || "").trim();
+  if (isProviderMarketplaceTemplate(template)) {
+    if (installedProviderVersion && advertisedProviderVersion && installedProviderVersion !== advertisedProviderVersion) {
+      return { state: "available", label: "Update available", detail: "Provider metadata points to a newer selected pack/server-pack file. Review details before updating." };
+    }
+    if (installedProviderVersion && advertisedProviderVersion && installedProviderVersion === advertisedProviderVersion) {
+      return { state: "current", label: "Up to date", detail: "Installed provider file metadata matches the selected Marketplace version." };
+    }
+    return { state: "unavailable", label: "Update check unavailable", detail: "Provider metadata is not complete enough to compare versions safely." };
+  }
+
+  if (template.updateCheck?.type) {
+    return { state: "unavailable", label: "Update check unavailable", detail: "This template declares update metadata, but automatic comparison is not supported for this installed instance yet." };
+  }
+  return { state: "unavailable", label: "Update check unavailable", detail: "This Marketplace item does not expose safe update metadata." };
+}
+
+function getMarketplaceInstalledDiagnostics(template = {}, state = null) {
+  const instance = state?.instances?.[0] || null;
+  if (!instance) {
+    return ["Not installed on the selected node."];
+  }
+  const diagnostics = [];
+  if (isInstanceRunning(instance)) {
+    diagnostics.push("Server is running.");
+  } else if (getInstanceStateClass(instance.state) === "failed") {
+    diagnostics.push(getInstanceFailureReason(instance) || "Server failed. Open Console for logs.");
+  } else {
+    diagnostics.push("Server is installed but stopped.");
+  }
+  if (canRepairNeoForgeRuntime(instance)) {
+    diagnostics.push(isNeoForgeRuntimeFailure(instance)
+      ? "NeoForge runtime incomplete - repair runtime instead of reinstalling."
+      : "NeoForge runtime repair is available if startup files need regeneration.");
+  }
+  const update = getMarketplaceUpdateState(template, instance);
+  diagnostics.push(update.detail || update.label);
+  return diagnostics;
+}
+
+function getMarketplacePrimaryAction(template = {}, state = getMarketplaceStateForTemplate(template)) {
+  const firstInstance = state.instances?.[0] || null;
+  if (template.comingSoon || template.disabled || state.disabled) {
+    return { id: "unavailable", label: state.action || "Unavailable", disabled: true };
+  }
+  if (state.operation?.status === "waiting" || state.action === "Review recovery") {
+    return { id: "review-recovery", label: "Review recovery" };
+  }
+  if (state.operation?.status === "failed") {
+    return { id: "install", label: "Retry" };
+  }
+  if (!firstInstance) {
+    return { id: "install", label: state.action || "Install" };
+  }
+  if (canRepairNeoForgeRuntime(firstInstance) && (isNeoForgeRuntimeFailure(firstInstance) || getInstanceStateClass(firstInstance.state) === "failed")) {
+    return { id: "repair-runtime", label: "Repair Runtime" };
+  }
+  if (getInstanceStateClass(firstInstance.state) === "failed") {
+    return { id: "open-console", label: "Open Console" };
+  }
+  const update = getMarketplaceUpdateState(template, firstInstance);
+  if (update.action === "update-steam" && update.state === "available") {
+    return { id: "update-steam", label: "Update" };
+  }
+  if (isInstanceRunning(firstInstance)) {
+    return { id: "open-instance", label: "Open Instance" };
+  }
+  if (canStartInstance(firstInstance)) {
+    return { id: "start-instance", label: "Start" };
+  }
+  return { id: "open-instance", label: "Open Instance" };
+}
+
+async function runMarketplaceInstalledAction(template = {}, actionId = "open-instance") {
+  const state = getMarketplaceStateForTemplate(template);
+  const instance = state.instances?.[0] || null;
+  if (actionId === "install") {
+    openMarketplaceWizard(template.id);
+    return;
+  }
+  if (actionId === "review-recovery") {
+    reviewMarketplaceRecovery(template);
+    return;
+  }
+  if (!instance?.id) {
+    openMarketplaceWizard(template.id);
+    return;
+  }
+
+  selectedInstanceId = instance.id;
+  selectInstance(instance.id, { refreshMetrics: false });
+  if (actionId === "open-instance") {
+    openMarketplaceInstance(instance.id);
+    return;
+  }
+  if (actionId === "open-console") {
+    showPage("instances");
+    setActiveInstanceTab("console");
+    refreshInstanceLogs({ reset: true });
+    return;
+  }
+  if (actionId === "share-server") {
+    openShareServerModal(instance);
+    return;
+  }
+  if (actionId === "start-instance") {
+    await runInstanceAction("start");
+    renderMarketplaceTemplates();
+    renderMarketplaceInstallSummary(template);
+    return;
+  }
+  if (actionId === "repair-runtime") {
+    await runInstanceAction("repair-neoforge-runtime");
+    renderMarketplaceTemplates();
+    renderMarketplaceInstallSummary(template);
+    return;
+  }
+  if (actionId === "update-steam") {
+    const update = getMarketplaceUpdateState(template, instance);
+    if (update.state === "blocked") {
+      showToast(update.detail, "warning");
+      return;
+    }
+    await runInstanceAction("update-steam");
+    renderMarketplaceTemplates();
+    renderMarketplaceInstallSummary(template);
+  }
 }
 
 function getMarketplaceLocalInstallRecord(template = {}) {
@@ -13123,14 +14569,18 @@ function getMarketplaceStateForTemplate(template = {}) {
   if (localRecord?.status === "failed") {
     return { label: "Failed", tone: "critical", action: "Retry", instances };
   }
+  const repairable = instances.find((instance) => canRepairNeoForgeRuntime(instance) && (isNeoForgeRuntimeFailure(instance) || getInstanceStateClass(instance.state) === "failed"));
+  if (repairable) {
+    return { label: "Repairable", tone: "warning", action: "Repair Runtime", instances, repairable: true };
+  }
   if (instances.some((instance) => getInstanceStateClass(instance.state) === "failed")) {
-    return { label: "Failed", tone: "critical", action: "Open instance", instances };
+    return { label: "Failed", tone: "critical", action: "Open Console", instances };
   }
   if (instances.some(isInstanceRunning)) {
-    return { label: "Running", tone: "ok", action: "Open instance", instances };
+    return { label: "Running", tone: "ok", action: "Open Instance", instances };
   }
   if (instances.length > 0) {
-    return { label: "Installed", tone: "ok", action: "Open instance", instances };
+    return { label: "Installed", tone: "ok", action: "Start", instances };
   }
   return { label: capability.label && isProviderMarketplaceTemplate(template) ? capability.label : "Available", tone: capability.state === "unknown" ? "warning" : "planned", action: "Install", instances, capability };
 }
@@ -13247,17 +14697,43 @@ function renderMarketplaceInstallSummary(template) {
   overview.append(createTextElement("strong", "Install review"));
   const details = document.createElement("div");
   details.className = "marketplace-summary-details";
-  [
+  const baseDetails = [
     ["Template", template.displayName || template.id || "Unknown"],
     ["Selected node", formatMarketplaceSelectedNodeLabel()],
-    ["Version", template.version ? `Template v${template.version}` : "Version metadata unavailable"],
+    [isProviderMarketplaceTemplate(template) ? "Provider" : "Template version", isProviderMarketplaceTemplate(template) ? formatMarketplaceProviderLabel(template) : template.version ? `Template v${template.version}` : "Version metadata unavailable"],
     ["Instance state", state.instances.length ? `${state.instances.length} installed · ${state.label}` : state.label],
+  ];
+  const providerDetails = isProviderMarketplaceTemplate(template)
+    ? getMarketplaceProviderVersionRows(template).map((item) => [item.label, item.value])
+    : [];
+  const installedInstance = state.instances[0] || null;
+  const updateState = getMarketplaceUpdateState(template, installedInstance);
+  [
+    ...baseDetails,
+    ...providerDetails,
+    ...(installedInstance ? [
+      ["Installed instance", getMarketplaceInstalledInstanceLabel(installedInstance) || installedInstance.id],
+      ["Installed version", getMarketplaceInstalledInstanceVersion(installedInstance) || "Installed version unavailable"],
+      ["Installed update state", updateState.label],
+    ] : []),
     ["Server compatibility", capability.label || "Compatibility Unknown"],
     ["Server-pack detail", capability.serverPackFileId ? `Resolved server-pack metadata: file ${capability.serverPackFileId}` : capability.detail || "No server-pack metadata available"],
     ["Install path", "Managed by the selected Agent instance data root"],
     ["Data preservation", "Uninstall and backup behavior are managed from the Instances and Backups workspaces."],
   ].forEach(([label, value]) => appendDetailPair(details, label, value, { valueTag: "small" }));
   overview.append(details);
+  if (installedInstance) {
+    const installedHelp = document.createElement("div");
+    installedHelp.className = "marketplace-summary-list";
+    getMarketplaceInstalledDiagnostics(template, state).forEach((message) => {
+      const row = document.createElement("div");
+      row.className = "marketplace-summary-item";
+      row.dataset.state = /repair|stop|unavailable|failed|incomplete/i.test(message) ? "warning" : "ready";
+      row.append(createTextElement("span", "Installed status"), createTextElement("small", message));
+      installedHelp.append(row);
+    });
+    overview.append(installedHelp);
+  }
   if (isProviderMarketplaceTemplate(template) && capability.installable === false) {
     const unsupported = createEmptyState("Client pack only. This version does not provide an official dedicated-server pack on CurseForge.", "security-empty-state");
     const actions = document.createElement("div");
@@ -13312,12 +14788,33 @@ function renderMarketplaceRecoveryActions(template, normalizedError = null) {
 
   const firstInstance = state.instances?.[0] || null;
   if (firstInstance) {
-    const openInstance = document.createElement("button");
-    openInstance.type = "button";
-    openInstance.className = "inline-action";
-    openInstance.textContent = "Open Instance";
-    openInstance.addEventListener("click", () => openMarketplaceInstance(firstInstance.id));
-    actions.append(openInstance);
+    const descriptors = [
+      { id: "open-instance", label: "Open Instance", disabled: false },
+      { id: "start-instance", label: "Start", disabled: !canStartInstance(firstInstance) || isInstanceRunning(firstInstance) },
+      { id: "share-server", label: "Share Server", disabled: !getInstancePrimaryPort(firstInstance) },
+      { id: "open-console", label: "Open Console", disabled: false },
+      { id: "repair-runtime", label: "Repair Runtime", disabled: !canRepairNeoForgeRuntime(firstInstance) },
+    ];
+    const update = getMarketplaceUpdateState(template, firstInstance);
+    if (update.action === "update-steam") {
+      descriptors.push({
+        id: "update-steam",
+        label: update.state === "blocked" ? "Stop to Update" : "Update Server Files",
+        disabled: update.state === "blocked",
+      });
+    }
+    descriptors
+      .filter((descriptor) => !descriptor.disabled || ["repair-runtime", "update-steam"].includes(descriptor.id))
+      .forEach((descriptor) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "inline-action";
+        button.textContent = descriptor.label;
+        button.disabled = Boolean(descriptor.disabled);
+        button.dataset.marketplaceInstalledAction = descriptor.id;
+        button.addEventListener("click", () => runMarketplaceInstalledAction(template, descriptor.id));
+        actions.append(button);
+      });
   }
 
   const relatedOperationId = activeMarketplaceOperationId || state?.operation?.id || null;
@@ -13347,7 +14844,7 @@ function renderMarketplaceRecoveryActions(template, normalizedError = null) {
     const retry = document.createElement("button");
     retry.type = "button";
     retry.className = "inline-action";
-    retry.textContent = "Retry Install";
+    retry.textContent = firstInstance && canRepairNeoForgeRuntime(firstInstance) ? "Reinstall Instead" : "Retry Install";
     retry.addEventListener("click", () => openMarketplaceWizard(template.id));
     actions.append(retry);
   }
@@ -13535,6 +15032,8 @@ function buildProviderMarketplaceTemplate(project = {}) {
     providerServerPackFileId: project.providerServerPackFileId || "",
     selectedProviderFile: project.selectedProviderFile || null,
     modpackVersion: project.modpackVersion || "",
+    loaderVersion: project.loaderVersion || project.softwareVersion || "",
+    softwareVersion: project.softwareVersion || "",
     releaseType: project.releaseType || null,
     serverCompatibilityConfirmed: project.serverCompatibilityConfirmed === true,
     minecraftVersion: selectProviderMinecraftVersionForInstall(project),
@@ -13765,8 +15264,13 @@ function renderMarketplaceVersionList() {
         versionField.dispatchEvent(new Event("input", { bubbles: true }));
         versionField.focus();
       }
+      applyMarketplaceProviderVersionSelection(template, entry);
       if (isMinecraftMarketplaceTemplate(template) && Array.isArray(entry.loaders) && entry.loaders.length > 0) {
         configureMarketplaceRuntimeField(template, { ...template, loaders: entry.loaders });
+      }
+      renderMarketplaceInstallSummary(template);
+      if (marketplaceSelectedMeta) {
+        marketplaceSelectedMeta.textContent = formatMarketplaceSelectedMeta(template);
       }
       renderMarketplaceVersionList();
       setMarketplaceVersionPanelOpen(false);
@@ -13837,6 +15341,13 @@ async function loadMarketplaceVersions(template) {
           label: version.name || version.versionNumber || version.fileName || String(version.id),
           details: [version.fileName, Array.isArray(version.minecraftVersions) ? version.minecraftVersions.slice(0, 3).join(", ") : "", Array.isArray(version.loaders) ? version.loaders.join(", ") : ""].filter(Boolean).join(" · "),
           category: "releases",
+          fileName: version.fileName || "",
+          providerFileId: version.providerFileId || version.id || "",
+          providerServerPackFileId: version.providerServerPackFileId || version.serverPackFileId || "",
+          serverPackFileId: version.serverPackFileId || "",
+          modpackVersion: version.versionNumber || version.name || version.fileName || "",
+          loaderVersion: version.loaderVersion || "",
+          softwareVersion: version.softwareVersion || "",
           minecraftVersions: version.minecraftVersions || [],
           loaders: version.loaders || [],
         })),
@@ -13870,7 +15381,7 @@ function renderMarketplaceWizardSteps(template) {
 
   const isMinecraft = isMinecraftMarketplaceTemplate(template);
   const steps = isMinecraft
-    ? ["Server Name", "Version", "Server Runtime", "Memory", "Port", "Public Access", "Accept EULA"]
+    ? ["Server Name", "Minecraft version", "Server Runtime", "Memory", "Port", "Public Access", "Accept EULA"]
     : ["Name", "Storage Location", "Port", "Memory"];
   marketplaceWizardSteps.replaceChildren();
   steps.forEach((step, index) => {
@@ -13878,6 +15389,16 @@ function renderMarketplaceWizardSteps(template) {
     item.textContent = `${index + 1}. ${step}`;
     marketplaceWizardSteps.append(item);
   });
+}
+
+function formatMarketplaceSelectedMeta(template = {}) {
+  if (isProviderMarketplaceTemplate(template)) {
+    const capability = template.serverPackCapability || classifyMarketplaceServerPackCapability(template);
+    const status = getMarketplaceServerPackFileId(template) ? "Official Server Pack" : capability?.label || "";
+    const loader = normalizeMarketplaceServerRuntime(formatMarketplaceLoaderLabel(template)) || formatMarketplaceLoaderLabel(template);
+    return [formatMarketplaceProviderLabel(template), status || loader].filter(Boolean).join(" · ") || `${formatMarketplaceProviderLabel(template)} modpack`;
+  }
+  return `${template.category || "Template"} · ${template.instanceType || "custom-command"} · ${template.startupType || "runtime"}`;
 }
 
 function syncMarketplaceWizardFields(template) {
@@ -13918,7 +15439,7 @@ function openMarketplaceWizard(templateId) {
     marketplaceSelectedName.textContent = template.displayName || template.id;
   }
   if (marketplaceSelectedMeta) {
-    marketplaceSelectedMeta.textContent = `${template.category || "Template"} · ${template.instanceType || "custom-command"} · ${template.startupType || "runtime"}`;
+    marketplaceSelectedMeta.textContent = formatMarketplaceSelectedMeta(template);
   }
   renderMarketplaceInstallSummary(template);
   renderMarketplaceRecoveryActions(template);
@@ -13973,7 +15494,7 @@ function openMarketplaceWizard(templateId) {
   syncMarketplaceWizardFields(template);
   renderMarketplaceWizardSteps(template);
   resetMarketplaceVersionPicker();
-  if (template.category === "Minecraft") {
+  if (isMinecraftMarketplaceTemplate(template)) {
     loadMarketplaceVersions(template);
   }
   renderMarketplaceTemplates();
@@ -14993,9 +16514,7 @@ function formatBackupScheduleSummary() {
 function renderBackupSummary() {
   const connected = getBackupsConnected();
   const mostRecent = getMostRecentBackup();
-  const totalBackups = Number.isFinite(backupsState.summary?.totalBackups)
-    ? backupsState.summary.totalBackups
-    : backupsState.backups.length;
+  const totalBackups = getManagedBackupCount();
 
   setBackupSummaryField("total", connected ? String(totalBackups) : "Unavailable");
   setBackupSummaryField("last", connected ? (mostRecent?.createdAt ? formatDateTime(mostRecent.createdAt) : "No backups yet") : "Unavailable");
@@ -15087,6 +16606,51 @@ function renderBackups() {
   });
 }
 
+async function refreshBackupSummaryForSetup(options = {}) {
+  const desktopApiState = getDesktopApiState();
+  const nodeId = getSelectedNodeId();
+  const now = Date.now();
+  if (!desktopApiState.hasBackups || backupSummaryRefreshInFlight) return;
+  if (
+    options.force !== true &&
+    backupSummaryLastNodeId === nodeId &&
+    now - backupSummaryLastCheckedAt < DASHBOARD_BACKUP_SUMMARY_REFRESH_MS
+  ) {
+    return;
+  }
+
+  const requestContext = getNodeRequestContext("backup-summary");
+  if (shouldBackOffAgentPolling("backups", requestContext)) return;
+  backupSummaryRefreshInFlight = true;
+  try {
+    const result = await desktopApiState.api.backups.list(getNodeScopedPayload(requestContext));
+    if (!isNodeRequestCurrent(requestContext)) return;
+    backupsState.backups = Array.isArray(result?.backups) ? result.backups : [];
+    backupsState.root = result?.root || result?.diagnostics?.roots?.[0]?.path || null;
+    backupsState.roots = Array.isArray(result?.roots) ? result.roots : [];
+    backupsState.summary = result?.summary || null;
+    backupsState.connected = true;
+    backupsState.error = null;
+    backupSummaryLastNodeId = requestContext.nodeId;
+    backupSummaryLastCheckedAt = Date.now();
+    clearAgentPollingBackoff("backups", requestContext);
+    renderSetupHealthCenter();
+    renderFriendlyDashboard();
+  } catch (error) {
+    if (!isNodeRequestCurrent(requestContext)) return;
+    recordAgentPollingFailure("backups", requestContext, error);
+    backupsState = {
+      ...backupsState,
+      connected: false,
+      error: error?.message || "Backups could not be loaded.",
+    };
+  } finally {
+    if (isNodeRequestCurrent(requestContext)) {
+      backupSummaryRefreshInFlight = false;
+    }
+  }
+}
+
 async function promptBackupText({ title, message, label, initialValue = "", confirmLabel = "Continue" } = {}) {
   return createSecurityTextPrompt({ title, message, label, initialValue, confirmLabel });
 }
@@ -15160,6 +16724,8 @@ async function refreshBackups() {
     backupsState.scheduleSupported = scheduleSupported;
     backupsState.connected = true;
     backupsState.error = null;
+    backupSummaryLastNodeId = requestContext.nodeId;
+    backupSummaryLastCheckedAt = Date.now();
     clearAgentPollingBackoff("backups", requestContext);
     if (!getSelectedBackup()) {
       backupsState.selectedBackupId = backupsState.backups[0]?.id || null;
@@ -16292,6 +17858,39 @@ async function runInstanceAction(actionName) {
     return;
   }
 
+  if (actionName === "share-server") {
+    openShareServerModal(selectedInstance);
+    updateInstanceActionButtons();
+    return;
+  }
+
+  if (actionName === "repair-neoforge-runtime") {
+    if (!canRepairNeoForgeRuntime(selectedInstance)) {
+      showToast("NeoForge runtime repair is not available for this server.", "warning");
+      updateInstanceActionButtons();
+      return;
+    }
+    instanceActionRequestInFlight = true;
+    updateInstanceActionButtons();
+    try {
+      showToast(`Repairing NeoForge runtime for ${label}...`);
+      const result = await desktopApiState.api.instances.repairNeoForgeRuntime(targetInstanceId, getNodeScopedPayload(requestContext));
+      if (!isNodeActionStillCurrent(requestContext)) return;
+      const repairedInstance = result?.instance || result;
+      if (repairedInstance?.id) updateInstanceSnapshot(targetInstanceId, repairedInstance);
+      showToast(result?.message || "NeoForge runtime repaired.", "success");
+      await refreshInstances({ refreshMetrics: false });
+    } catch (error) {
+      console.warn("[Instances] NeoForge runtime repair failed.", error);
+      showToast(getAgentErrorMessage(error, "NeoForge runtime repair failed."), "warning");
+      await refreshInstances({ refreshMetrics: false });
+    } finally {
+      instanceActionRequestInFlight = false;
+      updateInstanceActionButtons();
+    }
+    return;
+  }
+
   let renameDisplayName = null;
   let duplicateConfig = null;
   if (actionName === "rename") {
@@ -16419,6 +18018,17 @@ async function runInstanceAction(actionName) {
         state: actionResult?.instance?.state || actionResult?.state || null,
         pid: actionResult?.instance?.pid || actionResult?.pid || null,
       });
+    }
+    const resultInstance = actionResult?.instance || actionResult;
+    if ((actionName === "start" || actionName === "restart") && resultInstance?.state === "Failed") {
+      updateInstanceSnapshot(targetInstanceId, resultInstance);
+      if (isNeoForgeRuntimeFailure(resultInstance)) {
+        await showNeoForgeRuntimeIncompleteHint(resultInstance, requestContext);
+      } else {
+        showToast(resultInstance.failureReason || `Instance ${actionName} failed.`, "warning");
+      }
+      await refreshInstances({ refreshMetrics: false });
+      return;
     }
     forgetStaleInstanceId(targetInstanceId);
     showToast(actionName === "delete"
@@ -21953,9 +23563,16 @@ async function refreshPlayitStatus() {
     return;
   }
 
+  const unavailable = getPublicAccessUnavailableReason();
+  if (unavailable) {
+    renderPlayitUnavailable(unavailable.message);
+    return;
+  }
+
   playitRequestInFlight = true;
   const requestContext = getNodeRequestContext("playit");
   if (shouldBackOffAgentPolling("public-access", requestContext)) {
+    renderPlayitUnavailable("Public Access status is temporarily unavailable. Reconnect or retry Refresh.");
     playitRequestInFlight = false;
     return;
   }
@@ -21976,6 +23593,7 @@ async function refreshPlayitStatus() {
     }
     if (desktopApiState.hasPublicAccess) {
       renderPublicAccessSnapshot(snapshot);
+      await refreshPlayitManagement(payload, requestContext);
     } else {
       renderPlayitSnapshot(snapshot);
     }
@@ -21989,11 +23607,12 @@ async function refreshPlayitStatus() {
       stack: error?.stack || null,
     });
     recordAgentPollingFailure("public-access", requestContext, error);
-    renderPlayitUnavailable(getFriendlyStatusFailureMessage(
+    const message = getFriendlyStatusFailureMessage(
       error,
       "Public Access status could not be refreshed.",
       "Check the selected system or provider setup, then refresh Public Access.",
-    ));
+    );
+    renderPlayitUnavailable(message);
   } finally {
     if (isNodeRequestCurrent(requestContext)) {
       playitRequestInFlight = false;
@@ -22346,6 +23965,10 @@ function getDockerFastFailure() {
   }
   if (selectedNode.docker?.enabled === false) {
     return createTimeoutError("Docker is disabled for this node.", "DOCKER_UNAVAILABLE");
+  }
+  const capabilities = getNodeCapabilities(selectedNode);
+  if (isWindowsAgentNode(selectedNode) && capabilities.supportsDocker === false) {
+    return createTimeoutError("Docker is not supported by this Windows Agent. Install or enable Docker Desktop, restart the Agent, then test the node again.", "WINDOWS_DOCKER_UNSUPPORTED");
   }
   return null;
 }
@@ -23848,7 +25471,7 @@ function renderConsoleSources() {
     const name = document.createElement("strong");
     name.textContent = instance.displayName || instance.id || "Unnamed instance";
     const type = document.createElement("small");
-    type.textContent = formatInstanceType(instance.type);
+    type.textContent = getInstanceTypeLabel(instance);
     copy.append(name, type);
 
     const state = document.createElement("span");
@@ -24605,6 +26228,9 @@ async function verifyConsoleJavaJarBeforeLaunch(instance, context = getNodeReque
       await repairInstanceServerJar(instance, repairedJar, context);
       return true;
     }
+    if (await showNeoForgeRuntimeIncompleteHint(instance, context)) {
+      return false;
+    }
     showToast("No server JAR is configured. Upload a server JAR in Files or install this server from the Marketplace.", "warning");
     await focusMissingJarInFiles(instance, "server.jar");
     return false;
@@ -24616,6 +26242,14 @@ async function verifyConsoleJavaJarBeforeLaunch(instance, context = getNodeReque
     return true;
   } catch (error) {
     if (getAgentErrorCode(error) === "PATH_NOT_FOUND") {
+      const startupScript = await findExistingStartupScriptForInstance(instance, context);
+      if (startupScript && await repairInstanceStartupScript(instance, startupScript, context)) {
+        showToast("NeoForge runtime ready.");
+        return true;
+      }
+      if (await showNeoForgeRuntimeIncompleteHint(instance, context)) {
+        return false;
+      }
       const repairedJar = await findExistingServerJar(instance, jarPath, context);
       if (repairedJar) {
         await repairInstanceServerJar(instance, repairedJar, context);
@@ -25106,12 +26740,12 @@ function bindSshXtermInput(terminal = sshXterm) {
     updateSshInputDiagnostics({
       onDataEvents: sshInputDiagnostics.onDataEvents + 1,
       lastInputByteLength: getSshInputByteLength(data),
-      activeSessionPresent: Boolean(session && session.status === "connected"),
+      activeSessionPresent: Boolean(session && session.status === "connected" && session.shellReady !== false),
     });
-    if (!session || session.status !== "connected" || sshXtermSessionId !== session.id) {
+    if (!session || session.status !== "connected" || session.shellReady === false || sshXtermSessionId !== session.id) {
       updateSshInputDiagnostics({
         lastWriteAccepted: false,
-        lastWriteRejectedCategory: "stale_or_inactive_session",
+        lastWriteRejectedCategory: session?.status === "connected" && session.shellReady === false ? "shell_not_ready" : "stale_or_inactive_session",
       });
       return;
     }
@@ -25171,11 +26805,11 @@ function focusSshTerminalInput() {
   const terminal = ensureSshXterm();
   if (terminal) {
     const session = getActiveSshSession();
-    terminal.options.disableStdin = !(session && session.status === "connected");
+    terminal.options.disableStdin = !(session && session.status === "connected" && session.shellReady !== false);
     terminal.focus();
     updateSshInputDiagnostics({
       focusRequested: true,
-      activeSessionPresent: Boolean(session && session.status === "connected"),
+      activeSessionPresent: Boolean(session && session.status === "connected" && session.shellReady !== false),
     });
     return true;
   }
@@ -25191,7 +26825,7 @@ function syncSshXtermSession(session) {
 
   const size = measureSshTerminalSize();
   terminal.resize?.(size.cols, size.rows);
-  terminal.options.disableStdin = !(session && session.status === "connected");
+  terminal.options.disableStdin = !(session && session.status === "connected" && session.shellReady !== false);
   bindSshXtermInput(terminal);
 
   if (sshXtermSessionId !== (session?.id || null)) {
@@ -25326,7 +26960,7 @@ async function pasteSshText(text) {
   const session = getActiveSshSession();
   const pastedText = typeof text === "string" ? text : "";
 
-  if (!session || session.status !== "connected" || !pastedText) {
+  if (!session || session.status !== "connected" || session.shellReady === false || !pastedText) {
     return false;
   }
 
@@ -25393,7 +27027,7 @@ function getSshSessionStatusLabel(session) {
   }
 
   if (session.status === "connected") {
-    return "Connected";
+    return session.shellReady === false ? "Waiting for shell" : "Connected";
   }
 
   if (session.status === "connecting") {
@@ -25407,13 +27041,74 @@ function getSshSessionStatusLabel(session) {
   return "Disconnected";
 }
 
+function getSshSessionAgeMs(session) {
+  const created = Date.parse(session?.createdAt || "");
+  return Number.isFinite(created) ? Math.max(0, Date.now() - created) : 0;
+}
+
+function getSshConnectingPhase(session = null) {
+  const age = session ? getSshSessionAgeMs(session) : Math.max(0, Date.now() - sshConnectStartedAt);
+  return SSH_RENDERER_PHASES.reduce((selected, phase) => (age >= phase.at ? phase : selected), SSH_RENDERER_PHASES[0]);
+}
+
+function enforceSshRendererTimeouts() {
+  let changed = false;
+  sshSessions.forEach((session) => {
+    if (session.status !== "connecting") return;
+    if (getSshSessionAgeMs(session) <= SSH_RENDERER_CONNECT_TIMEOUT_MS) return;
+    session.status = "error";
+    session.message = "SSH connection timed out before the remote shell became available. Retry or cancel and check the host, credentials, and network path.";
+    sshTransientStatusMessage = session.message;
+    changed = true;
+  });
+  return changed;
+}
+
+function updateSshConnectWatchdog() {
+  if (sshConnectWatchdogTimer) {
+    window.clearTimeout(sshConnectWatchdogTimer);
+    sshConnectWatchdogTimer = null;
+  }
+  const connecting = [...sshSessions.values()].some((session) => session.status === "connecting") || sshConnectRequestInFlight;
+  if (!connecting) {
+    sshConnectPhase = "idle";
+    return;
+  }
+  const phase = getSshConnectingPhase(getActiveSshSession());
+  sshConnectPhase = phase.phase;
+  sshConnectWatchdogTimer = window.setTimeout(() => {
+    sshConnectWatchdogTimer = null;
+    renderSshView();
+  }, 1000);
+}
+
+function clearSshConnectWatchdog() {
+  if (sshConnectWatchdogTimer) {
+    window.clearTimeout(sshConnectWatchdogTimer);
+    sshConnectWatchdogTimer = null;
+  }
+  sshConnectPhase = "idle";
+}
+
 function getSshSessionMessage(session) {
+  if (session?.status === "connecting") {
+    return getSshConnectingPhase(session).message;
+  }
+
+  if (!session && sshConnectRequestInFlight) {
+    return getSshConnectingPhase().message;
+  }
+
   if (sshTransientStatusMessage) {
     return sshTransientStatusMessage;
   }
 
   if (!session) {
     return "Select a saved SSH profile, connect, then run commands against that server from this terminal.";
+  }
+
+  if (session.status === "connected" && session.shellReady === false) {
+    return "Waiting for shell...";
   }
 
   return session.message || (session.status === "connected" ? `Connected to ${session.label}.` : "SSH session is disconnected.");
@@ -25583,6 +27278,10 @@ function renderSshSessionTabs() {
 }
 
 function renderSshView() {
+  const timedOut = enforceSshRendererTimeouts();
+  if (timedOut) {
+    window.requestAnimationFrame(renderSshView);
+  }
   renderSshProfileSelectors();
   renderSshSessionTabs();
 
@@ -25590,7 +27289,7 @@ function renderSshView() {
   const hasProfiles = sshProfilesState.profiles.length > 0;
   const canConnect = hasProfiles && !sshConnectRequestInFlight && (!session || (session.status !== "connected" && session.status !== "connecting"));
   const canDisconnect = Boolean(session && (session.status === "connected" || session.status === "connecting"));
-  const canSend = Boolean(session && session.status === "connected");
+  const canSend = Boolean(session && session.status === "connected" && session.shellReady !== false);
   const hasOutput = getSshRenderableRows(session).length > 0;
 
   if (sshServerSelect) {
@@ -25611,6 +27310,7 @@ function renderSshView() {
 
   if (sshDisconnectButton) {
     sshDisconnectButton.disabled = !canDisconnect;
+    sshDisconnectButton.textContent = session?.status === "connecting" ? "Cancel" : "Disconnect";
   }
 
   if (sshCommandInput) {
@@ -25618,7 +27318,9 @@ function renderSshView() {
     sshCommandInput.readOnly = false;
     sshCommandInput.placeholder = canSend
       ? "Click the terminal to type, or enter one command here"
-      : "Connect to enable command input";
+      : session?.status === "connected" && session.shellReady === false
+        ? "Waiting for shell..."
+        : "Connect to enable command input";
 
   }
 
@@ -25648,10 +27350,9 @@ function renderSshView() {
 
   setSshStatus(getSshSessionStatusLabel(session), getSshSessionMessage(session));
   renderSshOutput(session);
-  if (sshXterm) {
-    sshXterm.options.disableStdin = !canSend;
-  }
+  if (sshXterm) sshXterm.options.disableStdin = !canSend;
   updateSshWorkspaceStatus();
+  updateSshConnectWatchdog();
 }
 
 function measureSshTerminalSize() {
@@ -25806,8 +27507,9 @@ function ensureSshEventSubscription() {
         activeSshSessionId = session.id;
       }
 
-      if (session.status === "connected") {
+      if (session.status === "connected" && session.shellReady !== false) {
         setSshPasswordPromptState(false);
+        clearSshConnectWatchdog();
         window.requestAnimationFrame(focusSshTerminalInput);
       }
 
@@ -25823,7 +27525,8 @@ function ensureSshEventSubscription() {
         session.message = payload.message || "SSH session failed.";
       }
 
-       sshTransientStatusMessage = payload.message || "SSH session failed.";
+      sshTransientStatusMessage = payload.message || "SSH session failed.";
+      clearSshConnectWatchdog();
 
       if (payload?.message) {
         showToast(payload.message);
@@ -25842,6 +27545,7 @@ function ensureSshEventSubscription() {
       }
 
       sshTransientStatusMessage = payload.message || "SSH session disconnected.";
+      clearSshConnectWatchdog();
 
       renderSshView();
     }
@@ -25888,6 +27592,8 @@ async function connectSshSession(options = {}) {
   }
 
   sshConnectRequestInFlight = true;
+  sshConnectStartedAt = Date.now();
+  sshConnectPhase = "connecting";
   sshTransientStatusMessage = `Connecting to ${profile.username}@${profile.host}:${profile.port}...`;
   renderSshView();
 
@@ -25912,6 +27618,9 @@ async function connectSshSession(options = {}) {
     renderSshView();
   } finally {
     sshConnectRequestInFlight = false;
+    if (![...sshSessions.values()].some((session) => session.status === "connecting")) {
+      clearSshConnectWatchdog();
+    }
     renderSshView();
   }
 }
@@ -25940,7 +27649,7 @@ async function sendSshCommandFromBar(source = "submit") {
   const desktopApiState = getDesktopApiState();
   const session = getActiveSshSession();
   const command = typeof sshCommandInput?.value === "string" ? sshCommandInput.value : "";
-  const connected = Boolean(session && session.status === "connected");
+  const connected = Boolean(session && session.status === "connected" && session.shellReady !== false);
 
   updateSshInputDiagnostics({
     commandBarSubmitReceived: true,
@@ -25951,12 +27660,16 @@ async function sendSshCommandFromBar(source = "submit") {
   });
 
   if (!desktopApiState.hasSsh || !session || !connected || !command) {
-    const category = !desktopApiState.hasSsh ? "bridge_unavailable" : !session ? "missing_session" : !connected ? "session_not_connected" : "empty_command";
+    const category = !desktopApiState.hasSsh ? "bridge_unavailable" : !session ? "missing_session" : session?.status === "connected" && session.shellReady === false ? "shell_not_ready" : !connected ? "session_not_connected" : "empty_command";
     updateSshInputDiagnostics({
       commandBarWriteAccepted: false,
       commandBarFailureCategory: category,
     });
-    showToast(!command ? "Enter a command before sending." : "Connect SSH before sending commands.");
+    showToast(!command
+      ? "Enter a command before sending."
+      : category === "shell_not_ready"
+        ? "Command could not be sent because the SSH shell is not ready."
+        : "Connect SSH before sending commands.");
     sshCommandInput?.focus();
     return false;
   }
@@ -25980,13 +27693,16 @@ async function writeSshInput(input) {
   const data = typeof input === "string" ? input : "";
   const byteLength = getSshInputByteLength(data);
 
-  if (!desktopApiState.hasSsh || !session || session.status !== "connected" || !data) {
+  if (!desktopApiState.hasSsh || !session || session.status !== "connected" || session.shellReady === false || !data) {
     updateSshInputDiagnostics({
       lastInputByteLength: byteLength,
-      activeSessionPresent: Boolean(session && session.status === "connected"),
+      activeSessionPresent: Boolean(session && session.status === "connected" && session.shellReady !== false),
       lastWriteAccepted: false,
-      lastWriteRejectedCategory: !desktopApiState.hasSsh ? "bridge_unavailable" : !session ? "missing_session" : session.status !== "connected" ? "session_not_connected" : "empty_data",
+      lastWriteRejectedCategory: !desktopApiState.hasSsh ? "bridge_unavailable" : !session ? "missing_session" : session.status === "connected" && session.shellReady === false ? "shell_not_ready" : session.status !== "connected" ? "session_not_connected" : "empty_data",
     });
+    if (session?.status === "connected" && session.shellReady === false) {
+      showToast("Command could not be sent because the SSH shell is not ready.");
+    }
     return false;
   }
 
@@ -26041,7 +27757,7 @@ async function handleSshClipboardShortcut(event) {
 async function handleSshTerminalInputKeydown(event) {
   const session = getActiveSshSession();
 
-  if (!session || session.status !== "connected") {
+  if (!session || session.status !== "connected" || session.shellReady === false) {
     return false;
   }
 
@@ -26455,9 +28171,9 @@ async function logoutAnxOsAccount() {
 }
 
 async function bootstrapApplication() {
-  const storedSettings = readStoredSettings();
   accountState = { ...accountState, state: "restoring", restorationState: "restoring" };
   accountRestorationResolved = false;
+  setupDetectionResolved = false;
   renderAccountState();
   renderLocalSetupState();
   try {
@@ -26466,8 +28182,14 @@ async function bootstrapApplication() {
   try {
     await refreshSecurityState();
   } catch {}
+  try {
+    await refreshNodes();
+  } catch {}
+  setupDetectionResolved = true;
+  let storedSettings = await loadSettings({ openOnboarding: false });
+  storedSettings = await reconcileOnboardingForExistingSetup(storedSettings);
   applySettings(storedSettings, { openDefaultPage: true });
-  refreshNodes();
+  maybeOpenOnboardingWelcome(storedSettings);
   loadAgentSettings();
   loadMarketplaceSettings();
   loadRuntimeInfo();
@@ -27940,6 +29662,7 @@ function getNodeConnectionSummary(node) {
 }
 
 const NODE_HEALTH_STALE_MS = 60 * 1000;
+const NODE_HEALTH_ACTIONABLE_DIAGNOSTIC_MS = 15 * 60 * 1000;
 const NODE_HEALTH_RESOURCE_THRESHOLDS = {
   cpuWarningPercent: 90,
   memoryWarningPercent: 90,
@@ -28419,14 +30142,23 @@ function buildOperationsHealth() {
 
 function buildDiagnosticsHealth() {
   const groups = diagnosticsIssueGroups.length ? diagnosticsIssueGroups : groupDiagnosticIssues(agentLogEntries);
-  const critical = groups.filter((group) => getDiagnosticSeverityRank(group.severity) >= 3);
+  const actionable = groups.filter((group) => {
+    const lastSeen = Date.parse(group.lastSeen || group.latest?.timestamp || "");
+    return Number.isFinite(lastSeen) && Date.now() - lastSeen <= NODE_HEALTH_ACTIONABLE_DIAGNOSTIC_MS;
+  });
+  const critical = actionable.filter((group) => getDiagnosticSeverityRank(group.severity) >= 3);
   return buildNodeHealthCategory({
     id: "diagnostics",
     label: "Diagnostics",
-    state: critical.length ? "Degraded" : groups.length ? "Warning" : agentLogEntries.length ? "Healthy" : "Unknown",
-    evidence: `${groups.length} grouped issue${groups.length === 1 ? "" : "s"} from ${agentLogEntries.length} sanitized log entries.`,
+    state: critical.length ? "Degraded" : actionable.length ? "Warning" : groups.length ? "Healthy" : agentLogEntries.length ? "Healthy" : "Unknown",
+    evidence: actionable.length
+      ? `${actionable.length} current actionable grouped issue${actionable.length === 1 ? "" : "s"} from ${agentLogEntries.length} sanitized log entries.`
+      : groups.length
+        ? `${groups.length} historical grouped diagnostic issue${groups.length === 1 ? "" : "s"} from ${agentLogEntries.length} sanitized log entries; no recent actionable issue detected.`
+        : `${groups.length} grouped issue${groups.length === 1 ? "" : "s"} from ${agentLogEntries.length} sanitized log entries.`,
     checkedAt: Date.now(),
-    issueCount: groups.length,
+    issueCount: actionable.length,
+    historicalIssueCount: Math.max(0, groups.length - actionable.length),
     required: false,
     current: agentLogEntries.length > 0,
     workspace: "diagnostics",
@@ -28501,6 +30233,9 @@ function buildNodeHealthModel(node = getSelectedNode()) {
   const categories = rawCategories.map((category) => {
     if (applicability.agentNode && ["updates", "maintenance"].includes(category.id)) {
       return { ...category, state: "Unavailable", applicable: false, current: false, issueCount: 0, evidence: `${category.label} is local-host-only and does not apply to remote Agent nodes.` };
+    }
+    if (isWindowsAgentNode(selectedNode) && getNodeCapabilities(selectedNode).supportsGameServers !== true && category.id === "marketplace-instances") {
+      return { ...category, state: "Unavailable", applicable: false, current: false, issueCount: 0, evidence: "Windows Agent MVP does not enable game-server hosting yet. Health, files, Public Access, and Docker detection remain available." };
     }
     if (!ownsActiveRendererContext && ["resources", "storage", "dependencies", "marketplace-instances", "files", "operations", "diagnostics"].includes(category.id)) {
       return { ...category, current: false, issueCount: 0, evidence: `${category.label} evidence belongs to the active node and is not applied to ${selectedNode.displayName || selectedNode.id}.` };
@@ -28847,6 +30582,28 @@ function getNodeIdentity(node = {}) {
   return normalizedNode.kind === "application-host" ? normalizedNode.applicationHost || {} : normalizedNode.agentIdentity || {};
 }
 
+function getNodeCapabilities(node = {}) {
+  return node?.capabilities && typeof node.capabilities === "object" ? node.capabilities : {};
+}
+
+function isWindowsAgentNode(node = {}) {
+  const identity = getNodeIdentity(node);
+  const capabilities = getNodeCapabilities(node);
+  return node?.kind === "agent" && (capabilities.windowsMvp === true || capabilities.os === "windows" || identity.platform === "win32" || node.platform === "win32");
+}
+
+function getWindowsAgentMvpSummary(node = {}) {
+  if (!isWindowsAgentNode(node)) return "";
+  const capabilities = getNodeCapabilities(node);
+  const docker = capabilities.supportsDocker === true
+    ? "Docker supported"
+    : capabilities.supportsDocker === false
+      ? "Docker unavailable"
+      : "Docker checked from Docker page";
+  const files = capabilities.supportsFileRoots === false ? "file roots unavailable" : "safe file roots";
+  return `Windows Agent MVP: health, ${files}, Public Access, and ${docker}. Game-server hosting comes later.`;
+}
+
 function formatNodeLastSeen(node = {}) {
   const value = node.connection?.lastSeen || node.updatedAt || node.createdAt;
   return value ? formatDateTime(value) : "Never";
@@ -28872,6 +30629,7 @@ function formatNodeAgentContext(node = {}) {
 
 function getNodeTypeLabel(node = {}) {
   if (node.kind === "application-host") return node.nodeTypeLabel || "Application Host";
+  if (isWindowsAgentNode(node)) return node.localAgent ? "Windows Local Agent Node" : "Windows Agent Node";
   return node.modeLabel || (node.localAgent ? "Registered Local Agent Node" : "Registered Remote Agent Node");
 }
 
@@ -28908,6 +30666,14 @@ function formatNodeStorage(node = {}) {
 function getNodeUnsupportedFeatureSummary(node = {}) {
   if (node.kind === "application-host") {
     return "Remote Agent APIs, Agent token management, and remote Docker controls require an Agent node. Local desktop files and dashboard metrics remain available.";
+  }
+  if (isWindowsAgentNode(node)) {
+    const capabilities = getNodeCapabilities(node);
+    return [
+      getWindowsAgentMvpSummary(node),
+      capabilities.unsupportedActions?.ssh || "SSH is unavailable for Windows Agent MVP nodes unless configured separately.",
+      capabilities.unsupportedActions?.gameServers || "SteamCMD and game-server hosting are coming later for Windows nodes.",
+    ].filter(Boolean).join(" ");
   }
   return "Desktop uptime, Electron version, and local developer-mode fields apply only to the application host.";
 }
@@ -29166,10 +30932,16 @@ function openNodeDetails(nodeId) {
     nodeDetailsSummary.textContent = `${getNodeTypeLabel(node)} · ${connectionState.label} · ${health.issueCount} health issue${health.issueCount === 1 ? "" : "s"}`;
   }
   if (nodeDetailsBadges) {
-    nodeDetailsBadges.replaceChildren(
-      createNodeBadge(getNodeStatusLabel(node), visualState),
-    );
+    const badges = [createNodeBadge(getNodeStatusLabel(node), visualState)];
+    if (isWindowsAgentNode(node)) {
+      badges.push(createNodeBadge("Windows node", "planned"));
+      if (getNodeCapabilities(node).supportsGameServers !== true) {
+        badges.push(createNodeBadge("Hosting later", "warning"));
+      }
+    }
+    nodeDetailsBadges.replaceChildren(...badges);
   }
+  const capabilities = getNodeCapabilities(node);
   const values = {
     hostname: identity.hostname || node.displayName || "Unavailable",
     os: formatNodePlatform(node),
@@ -29182,7 +30954,17 @@ function openNodeDetails(nodeId) {
     appVersion: node.kind === "application-host" ? identity.appVersion || runtimeInfoState?.releaseLabel || runtimeInfoState?.appVersion || "Unavailable" : "Unavailable: app version belongs to the desktop shell.",
     developerMode: node.kind === "application-host" ? (identity.developerMode || runtimeInfoState?.developmentMode ? "Enabled" : "Disabled") : "Unavailable: developer mode belongs to the desktop shell.",
     runningState: node.kind === "application-host" ? identity.runningState || "running" : node.connection?.connected ? "Agent connected" : "Agent unavailable",
-    docker: node.kind === "application-host" ? "Unsupported here: Docker workspace controls require an Agent node." : node.docker?.enabled === false ? "Disabled" : "Enabled",
+    docker: node.kind === "application-host"
+      ? "Unsupported here: Docker workspace controls require an Agent node."
+      : node.docker?.enabled === false
+        ? "Disabled"
+        : capabilities.supportsDocker === true
+          ? "Enabled: Docker support reported by Agent."
+          : capabilities.supportsDocker === false
+            ? "Not supported on this Windows node."
+            : isWindowsAgentNode(node)
+              ? "Conditional: refresh Docker to detect Docker Desktop or Docker Engine."
+              : "Enabled",
     lastSeen: formatNodeLastSeen(node),
     connection: getNodeConnectionSummary(node),
     url: node.kind === "application-host" ? "Local Application" : node.agentUrl || "Unavailable",
@@ -29458,15 +31240,20 @@ function renderNodes() {
       titleGroup.append(title, detail);
       const badges = document.createElement("div");
       badges.className = "node-card__badges";
-      badges.append(
-        createNodeBadge(getNodeStatusLabel(node), state),
-      );
+      badges.append(createNodeBadge(getNodeStatusLabel(node), state));
+      if (isWindowsAgentNode(node)) {
+        badges.append(createNodeBadge("Windows", "planned"));
+        if (getNodeCapabilities(node).supportsGameServers !== true) {
+          badges.append(createNodeBadge("MVP", "warning"));
+        }
+      }
       header.append(titleGroup, badges);
       const meta = document.createElement("dl");
       meta.className = "node-card__meta";
       [
         ["Context", node.kind === "application-host" ? "Local Application Host" : `${getNodeTypeLabel(node)} · ${node.agentUrl || "Unavailable"}`],
         ["Connection", `${connectionState.primary} - ${connectionState.secondary}`],
+        ...(isWindowsAgentNode(node) ? [["Windows MVP", getWindowsAgentMvpSummary(node)]] : []),
         ["Last seen", formatNodeLastSeen(node)],
         ["Health", `${health.state} · ${health.issueCount} issue${health.issueCount === 1 ? "" : "s"}`],
       ].forEach(([label, value]) => {
@@ -30222,11 +32009,65 @@ async function saveSettingsPatch(patch = {}, { statusMessage = null } = {}) {
 }
 
 function shouldShowOnboardingWelcome(settings = getCurrentSettings()) {
-  return !shouldBlockOnboardingForAccount() &&
-    securityState.setupRequired !== false &&
+  return setupDetectionResolved &&
+    !shouldBlockOnboardingForAccount() &&
     settings["onboarding.welcomeGuidance"] !== false &&
     settings["onboarding.completed"] !== true &&
     settings["onboarding.skipped"] !== true;
+}
+
+function getExistingSetupEvidence() {
+  const configuredNodes = (nodesState.nodes || []).filter((node) => (
+    node && node.kind !== "application-host" && node.id !== "application-host"
+  ));
+  const savedAccount = accountState.account || {};
+  return {
+    localOwnerConfigured: securityState.setupRequired === false,
+    localSetupComplete: isLocalSetupComplete(),
+    rememberedLocalSession: securityState.persistentSession === true ||
+      Number(securityState.persistentSessionCount || 0) > 0,
+    savedAccountSession: accountState.authenticated === true ||
+      accountState.canRefresh === true ||
+      Boolean(savedAccount.id || savedAccount.email),
+    configuredNodeCount: configuredNodes.length,
+  };
+}
+
+function shouldRepairOnboardingForExistingSetup(settings = getCurrentSettings(), evidence = getExistingSetupEvidence()) {
+  if (!setupDetectionResolved) return false;
+  if (settings["onboarding.completed"] === true || settings["onboarding.skipped"] === true) return false;
+  return evidence.localOwnerConfigured ||
+    evidence.localSetupComplete ||
+    evidence.rememberedLocalSession ||
+    evidence.savedAccountSession ||
+    evidence.configuredNodeCount > 0;
+}
+
+async function reconcileOnboardingForExistingSetup(settings = getCurrentSettings()) {
+  const evidence = getExistingSetupEvidence();
+  if (!shouldRepairOnboardingForExistingSetup(settings, evidence)) return settings;
+  const patch = {
+    "onboarding.started": true,
+    "onboarding.completed": true,
+    "onboarding.skipped": false,
+    "onboarding.currentStep": "complete",
+    "onboarding.version": DEFAULT_SETTINGS["onboarding.version"],
+  };
+  console.info("[Onboarding] Repaired stale first-launch state for an existing setup.", {
+    localOwnerConfigured: evidence.localOwnerConfigured,
+    localSetupComplete: evidence.localSetupComplete,
+    rememberedLocalSession: evidence.rememberedLocalSession,
+    savedAccountSession: evidence.savedAccountSession,
+    configuredNodeCount: evidence.configuredNodeCount,
+  });
+  try {
+    return await saveSettingsPatch(patch);
+  } catch (error) {
+    console.warn("[Onboarding] Could not persist upgraded setup state; using the repaired state for this launch.", {
+      code: error?.code || "ONBOARDING_REPAIR_FAILED",
+    });
+    return { ...settings, ...patch };
+  }
 }
 
 function setOnboardingWelcomeVisible(visible) {
@@ -31106,7 +32947,7 @@ function renderSettingsSearch() {
   });
 }
 
-async function loadSettings() {
+async function loadSettings(options = {}) {
   const desktopApiState = getDesktopApiState();
   await refreshSettingsPermissions();
   let settings = readStoredSettings();
@@ -31128,7 +32969,10 @@ async function loadSettings() {
   const storedCategory = (() => { try { return window.sessionStorage.getItem("anxos-settings-category"); } catch { return null; } })();
   const routeCategory = readRequestedSettingsCategoryFromLocation();
   setActiveSettingsCategory(routeCategory || storedCategory || activeSettingsCategory || "general");
-  maybeOpenOnboardingWelcome(settings);
+  if (options.openOnboarding !== false) {
+    maybeOpenOnboardingWelcome(settings);
+  }
+  return settings;
 }
 
 async function saveSettings() {
@@ -32449,7 +34293,7 @@ sshPasswordInput?.addEventListener("keydown", (event) => {
   }
 });
 sshTerminalWindow?.addEventListener("click", () => {
-  if (getActiveSshSession()?.status === "connected") {
+  if (getActiveSshSession()?.status === "connected" && getActiveSshSession()?.shellReady !== false) {
     focusSshTerminalInput();
   }
 });
@@ -32978,6 +34822,9 @@ instancesStopButtons.forEach((button) => {
 instancesRestartButtons.forEach((button) => {
   button.addEventListener("click", () => runInstanceAction("restart"));
 });
+instancesRepairNeoForgeButtons.forEach((button) => {
+  button.addEventListener("click", () => runInstanceAction("repair-neoforge-runtime"));
+});
 document.querySelectorAll('[data-instance-action="update-steam"]').forEach((button) => {
   button.addEventListener("click", () => runInstanceAction("update-steam"));
 });
@@ -33004,6 +34851,9 @@ document.querySelectorAll('[data-instance-action="configure-fivem"]').forEach((b
 });
 document.querySelectorAll('[data-instance-action="expose-share"]').forEach((button) => {
   button.addEventListener("click", () => runInstanceAction("expose-share"));
+});
+document.querySelectorAll('[data-instance-action="share-server"]').forEach((button) => {
+  button.addEventListener("click", () => runInstanceAction("share-server"));
 });
 document.querySelectorAll('[data-instance-action="copy-access-address"]').forEach((button) => {
   button.addEventListener("click", () => runInstanceAction("copy-access-address"));
@@ -33296,6 +35146,13 @@ function runDashboardFriendlyAction(action) {
   if (action === "create-server") return openFirstServerGuide();
   if (action === "marketplace") return showPage("marketplace");
   if (action === "instances") return showPage("instances");
+  if (action === "share-server") {
+    const instance = findInstance();
+    if (instance) return openShareServerModal(instance);
+    showToast("Create or select an instance before sharing a server.", "info");
+    return showPage("instances");
+  }
+  if (action === "backups") return showPage("backups");
   if (action === "files") return showPage("files");
   if (action === "docker") return showPage("docker");
   if (action === "nodes") {
@@ -34058,7 +35915,6 @@ windowMaximizedUnsubscribe = getDesktopWindowApi()?.onMaximizedChanged?.((isMaxi
 syncTitlebarWindowState();
 configurePrimaryNavigation();
 ensurePageIntroductions();
-loadSettings();
 renderOperationsCenter();
 renderNotificationCenter();
 renderMaintenanceCenter();

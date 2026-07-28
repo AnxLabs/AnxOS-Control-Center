@@ -20,7 +20,7 @@ const { handleHealth } = require("./routes/health");
 const { handleInstances } = require("./routes/instances");
 const { handlePairing } = require("./routes/pairing");
 const { authorizeApiPermission } = require("./permissions");
-const { handlePlayitSnapshot, handlePlayitStatus } = require("./routes/playit");
+const { handlePlayitSnapshot, handlePlayitStatus, handlePublicAccessPlayit } = require("./routes/playit");
 const { handlePublicAccess } = require("./routes/publicAccess");
 const { handleStats, handleSystemSummary } = require("./routes/system");
 
@@ -240,6 +240,10 @@ async function routeRequest(request, url) {
 
   if (pathname === "/api/v1/public-access/snapshot" || pathname === "/api/v1/public-access/services" || pathname.startsWith("/api/v1/public-access/services/")) {
     return handlePublicAccess(request, url);
+  }
+
+  if (pathname.startsWith("/api/v1/public-access/playit/")) {
+    return handlePublicAccessPlayit(request, url);
   }
 
   if (pathname === "/api/v1/marketplace/curseforge/status" || pathname === "/api/v1/marketplace/curseforge/api" || pathname === "/api/v1/marketplace/curseforge/download" || pathname.startsWith("/api/v1/marketplace/curseforge/")) {

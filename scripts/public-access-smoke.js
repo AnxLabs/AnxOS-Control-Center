@@ -7,21 +7,30 @@ const root = path.resolve(__dirname, "..");
 const servicePath = path.join(root, "src", "services", "publicAccessProviderService.js");
 const sharedDetectionPath = path.join(root, "src", "shared", "publicAccessProviderDetection.js");
 const agentRoutePath = path.join(root, "agent", "src", "routes", "publicAccess.js");
+const agentPlayitRoutePath = path.join(root, "agent", "src", "routes", "playit.js");
+const agentPlayitServicePath = path.join(root, "agent", "src", "services", "playitService.js");
 const agentServerPath = path.join(root, "agent", "src", "server.js");
+const agentClientPath = path.join(root, "src", "services", "agentClient.js");
 const appPath = path.join(root, "app.js");
 const indexPath = path.join(root, "index.html");
+const stylesPath = path.join(root, "styles.css");
 const preloadPath = path.join(root, "preload.js");
 const ipcPath = path.join(root, "src", "ipc", "publicAccessIpc.js");
 
 const publicAccess = require("../src/services/publicAccessProviderService");
+const agentPlayitService = require("../agent/src/services/playitService");
 const detection = require("../src/shared/publicAccessProviderDetection");
 const registry = require("../src/shared/publicAccessServiceRegistry");
 const serviceSource = fs.readFileSync(servicePath, "utf8");
 const sharedDetectionSource = fs.readFileSync(sharedDetectionPath, "utf8");
 const agentRouteSource = fs.readFileSync(agentRoutePath, "utf8");
+const agentPlayitRouteSource = fs.readFileSync(agentPlayitRoutePath, "utf8");
+const agentPlayitServiceSource = fs.readFileSync(agentPlayitServicePath, "utf8");
 const agentServerSource = fs.readFileSync(agentServerPath, "utf8");
+const agentClientSource = fs.readFileSync(agentClientPath, "utf8");
 const appSource = fs.readFileSync(appPath, "utf8");
 const indexSource = fs.readFileSync(indexPath, "utf8");
+const stylesSource = fs.readFileSync(stylesPath, "utf8");
 const preloadSource = fs.readFileSync(preloadPath, "utf8");
 const ipcSource = fs.readFileSync(ipcPath, "utf8");
 
@@ -412,6 +421,29 @@ assert(serviceSource.includes("summarizePublicAccessReadiness"), "Public Access 
 assert(serviceSource.includes("agentClient.getPublicAccessSnapshot") && agentRouteSource.includes("/api/v1/public-access/snapshot") && agentServerSource.includes("handlePublicAccess"), "Remote Public Access detection must route through the selected Agent.");
 assert(serviceSource.includes("createPublicAccessService") && serviceSource.includes("deletePublicAccessService"), "Desktop Public Access service lifecycle must route through the selected backend.");
 assert(agentRouteSource.includes("/api/v1/public-access/services") && agentServerSource.includes("pathname.startsWith(\"/api/v1/public-access/services/\")"), "Agent must register Public Access service lifecycle routes.");
+assert(agentServerSource.includes("/api/v1/public-access/playit/") && agentPlayitRouteSource.includes("handlePublicAccessPlayit"), "Agent must register narrow Playit management routes under Public Access.");
+assert(agentClientSource.includes("getPublicAccessPlayitApiExpectation") && agentClientSource.includes("AGENT_PLAYIT_CONTROLS_UNSUPPORTED"), "Agent client must classify missing Playit Public Access endpoints as an Agent update requirement.");
+assert(ipcSource.includes("AGENT_PLAYIT_CONTROLS_UNSUPPORTED"), "Public Access IPC must treat missing Playit controls on older Agents as a structured expected error.");
+[
+  "PLAYIT_NOT_INSTALLED",
+  "PLAYIT_SERVICE_NOT_FOUND",
+  "PLAYIT_START_FAILED",
+  "PLAYIT_STOP_FAILED",
+  "PLAYIT_RESTART_FAILED",
+  "PLAYIT_LOGS_UNAVAILABLE",
+  "PLAYIT_NOT_RUNNING",
+].forEach((needle) => assert(agentPlayitServiceSource.includes(needle) || ipcSource.includes(needle), `Playit management should expose ${needle}.`));
+[
+  "getPlayitServiceStatusForNode",
+  "controlPlayitService",
+  "getPlayitLogsForNode",
+  "listPlayitTunnelsForNode",
+  "agentClient.getPublicAccessPlayitStatus",
+  "agentClient.controlPublicAccessPlayit",
+  "agentClient.getPublicAccessPlayitLogs",
+  "agentClient.getPublicAccessPlayitTunnels",
+].forEach((needle) => assert(serviceSource.includes(needle), `Selected-node Public Access routing should include ${needle}.`));
+assert(!agentPlayitRouteSource.includes("body.command") && !agentPlayitRouteSource.includes("payload.command"), "Playit management must not expose a generic command runner.");
 assert(appSource.includes("function renderPublicAccessProviders") && appSource.includes("Tailnet-only"), "Renderer must show provider capability and exposure scope honestly.");
 assert(appSource.includes("create-firewall-rule") && appSource.includes("Create Firewall Rule"), "Renderer must expose consent-gated Windows Firewall rule creation.");
 assert(appSource.includes("buildTailscalePrivateAddress") && appSource.includes("private-tailnet"), "Renderer must create Tailscale services as private tailnet records.");
@@ -443,6 +475,7 @@ assert(indexSource.includes("data-public-access-providers"), "Public Access work
 assert(indexSource.includes("Expose services through public tunnel providers or securely share them across your private Tailscale network."), "Public Access page copy must distinguish public providers from private tailnet sharing.");
 assert(indexSource.includes('data-public-access-service-card="playit-primary"') && indexSource.includes('role="button"') && indexSource.includes("data-public-access-service-actions"), "Public Access service cards must be clickable and render live actions.");
 assert(indexSource.includes("data-public-access-provider-detail-pill") && indexSource.includes("data-public-access-provider-actions") && indexSource.includes("data-public-access-provider-unsupported"), "Provider Details must expose dynamic actions and unsupported reasons.");
+assert(indexSource.includes("data-playit-service-actions") && indexSource.includes("data-playit-tunnel-list") && indexSource.includes("data-playit-logs-panel"), "Public Access page must include compact Playit service controls, tunnels, and logs surfaces.");
 [
   "publicAccessConnectionHealth",
   "publicAccessReachability",
@@ -472,14 +505,76 @@ assert(indexSource.includes("data-public-access-provider-detail-pill") && indexS
   "cloudflared installed successfully. Authenticate Cloudflare",
   "copy-public-address",
   "copy-local-endpoint",
+  "share-server",
+  "openShareServerModal",
+  "getShareServerAddresses",
+  "getShareServerAccessHealth",
+  "getRecommendedShareServerAddress",
+  "getShareServerDiagnosticMessages",
+  "getInstanceAccessBadges",
+  "getShareServerInstructions",
+  "buildShareServerInviteText",
+  "Join my Minecraft server:",
+  "Join my Palworld server using Direct Connect:",
+  "Join my server:",
+  "Only works on the same local network.",
+  "Works outside my network through Playit.",
+  "Requires Tailscale access.",
+  "Access Health",
+  "Friend can’t join?",
+  "Public access ready",
+  "Port not listening",
+  "Playit stopped",
+  "No tunnel matched",
+  "Multiple tunnels matched",
+  "Node disconnected",
+  "Copy Invite Text",
+  "How Friends Join",
+  "Only people on your local network can use this address.",
+  "Friends outside your network can use this Playit address.",
+  "No public address configured yet",
+  "Multiple matching tunnels",
+  "findSharePlayitTunnelMatches",
   "tunnel-config",
   "provider-diagnostics",
   "open-logs",
+  "playit-start",
+  "playit-stop",
+  "playit-restart",
+  "playit-refresh-tunnels",
+  "playit-logs",
+  "renderPlayitTunnels",
+  "renderPlayitServiceStatus",
+  "renderPublicAccessUnavailableState",
+  "getPublicAccessRequestUnavailableReason",
+  "getPublicAccessUnavailableReason",
+  "Playit status unavailable while node is disconnected",
+  "Connect to ${name} to refresh Playit tunnels.",
+  "Agent unavailable. Reconnect to ${name} to check Public Access.",
+  "Tunnel status unavailable.",
+  "isPlayitEndpointUnsupported",
+  "getLegacyPlayitAccessFallback",
+  "renderPlayitServiceStatusFromLegacySnapshot",
+  "renderPlayitTunnelsFromLegacySnapshot",
+  "Agent update required for Playit service controls",
+  "Tunnel listing requires an Agent update.",
+  "Tunnel listing unavailable, but Playit public address is configured.",
+  "legacy-public-access",
+  "Public Access status is temporarily unavailable. Reconnect or retry Refresh.",
+  "copyPublicAccessValue(tunnel?.publicAddress",
   "entry.reason || \"Unsupported by this provider.\"",
   "article.addEventListener(\"click\"",
   "selectedPublicAccessProviderId",
   "selectedPublicAccessServiceId",
 ].forEach((needle) => assert(appSource.includes(needle), `Public Access UX should include ${needle}.`));
+assert(stylesSource.includes(".share-server-health") && stylesSource.includes(".share-server-diagnostics") && stylesSource.includes(".instance-access-badge--ok"), "Share Server access health and compact instance badges must have CSS.");
+assert(functionBody(appSource, "copyInstanceAccessAddress").includes("getRecommendedShareServerAddress"), "Copy Access should use the recommended healthy address instead of requiring a linked service address.");
+assert(appSource.includes("function buildShareServerInviteText") && appSource.includes("if (!isUsableShareAddress(entry.address)) return \"\";"), "Invite text must not copy empty, placeholder, or Checking addresses.");
+assert(functionBody(appSource, "renderPlayitUnavailable").includes("renderPublicAccessProviderDetails(latestPublicAccessSnapshot)"), "Public Access unavailable rendering must not clear known provider/service configuration.");
+assert(functionBody(appSource, "refreshPlayitStatus").includes("Public Access status is temporarily unavailable. Reconnect or retry Refresh."), "Public Access polling backoff must settle the UI instead of leaving Checking states.");
+assert(functionBody(appSource, "refreshPlayitManagement").includes("renderPlayitServiceStatusFromLegacySnapshot(status.error)") && functionBody(appSource, "refreshPlayitManagement").includes("renderPlayitTunnelsFromLegacySnapshot(tunnels.error)"), "Missing Playit endpoints must fall back to legacy provider data instead of raw NOT_FOUND or false empty tunnel states.");
+assert(functionBody(appSource, "renderPlayitServiceActions").includes("unsupportedControls") && functionBody(appSource, "renderPlayitServiceActions").includes("disabled: unavailable || controlsUnsupported"), "Playit controls must be disabled when the selected Agent lacks Playit management endpoints.");
+assert(agentClientSource.includes("PUBLIC_ACCESS_REQUEST_TIMEOUT_MS") && agentClientSource.includes("timeoutMs: PUBLIC_ACCESS_REQUEST_TIMEOUT_MS"), "Public Access Agent calls must use a bounded timeout.");
 const createProviderBody = functionBody(appSource, "createProviderAccessService");
 assert(!/window\.prompt|prompt\(/.test(createProviderBody), "Create Access Service workflow must not use browser prompt().");
 assert(createProviderBody.includes("createPublicAccessServiceModal"), "Create Access Service workflow must open the in-app modal.");
@@ -499,6 +594,23 @@ assert(preloadSource.includes("publicAccess:getSnapshot") && ipcSource.includes(
 assert(preloadSource.includes("publicAccess:createService") && ipcSource.includes("publicAccess:createService"), "Public Access service creation IPC bridge must remain wired.");
 assert(preloadSource.includes("publicAccess:deleteService") && ipcSource.includes("publicAccess:deleteService"), "Public Access service deletion IPC bridge must remain wired.");
 assert(preloadSource.includes("publicAccess:createFirewallRule") && ipcSource.includes("createWindowsFirewallRule"), "Public Access firewall rule IPC bridge must remain wired.");
+assert(preloadSource.includes("publicAccess:getPlayitStatus") && ipcSource.includes("getPlayitServiceStatusForNode"), "Playit service status IPC bridge must be wired.");
+assert(preloadSource.includes("publicAccess:controlPlayit") && ipcSource.includes("controlPlayitService"), "Playit service control IPC bridge must be wired.");
+assert(preloadSource.includes("publicAccess:listPlayitTunnels") && ipcSource.includes("listPlayitTunnelsForNode"), "Playit tunnel listing IPC bridge must be wired.");
+assert(preloadSource.includes("publicAccess:getPlayitLogs") && ipcSource.includes("getPlayitLogsForNode"), "Playit logs IPC bridge must be wired.");
+
+{
+  const tunnels = agentPlayitService._test.parseTunnelObjectsFromContent(JSON.stringify({
+    tunnels: [
+      { id: "tun-1", name: "Minecraft", display_address: "mc.example.playit.gg:25565", destination: "127.0.0.1:25565", protocol: "tcp" },
+      { tunnel_id: "tun-2", display_address: "voice.example.playit.gg:24454", destination: "127.0.0.1:24454", port_type: "udp" },
+    ],
+  })).map((entry, index) => agentPlayitService._test.normalizeTunnel(entry, "fixture", index));
+  assert.strictEqual(tunnels.length, 2, "Playit tunnel parser should handle multiple tunnels without a real service.");
+  assert.strictEqual(tunnels[0].localPort, 25565, "Playit tunnels should expose local ports.");
+  assert.strictEqual(tunnels[0].publicAddress, "mc.example.playit.gg:25565", "Playit tunnels should expose public endpoints for copy actions.");
+  assert.strictEqual(tunnels[1].protocol, "UDP", "Playit tunnels should normalize protocol metadata.");
+}
 
 assertDetectionCases().then(() => {
   console.log("Public Access smoke checks passed.");

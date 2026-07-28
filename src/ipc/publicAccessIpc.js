@@ -2,8 +2,12 @@ const { ipcMain } = require("electron");
 const {
   createPublicAccessService,
   createWindowsFirewallRule,
+  controlPlayitService,
   deletePublicAccessService,
+  getPlayitLogsForNode,
+  getPlayitServiceStatusForNode,
   getPublicAccessSnapshot,
+  listPlayitTunnelsForNode,
   listPublicAccessServices,
 } = require("../services/publicAccessProviderService");
 const { audit, requirePermission } = require("../services/securityService");
@@ -18,12 +22,26 @@ const EXPECTED_PUBLIC_ACCESS_ERROR_CODES = new Set([
   "NODE_DISABLED",
   "NODE_NOT_FOUND",
   "NODE_REQUIRED",
+  "AGENT_PLAYIT_CONTROLS_UNSUPPORTED",
   "AGENT_TIMEOUT",
   "TIMEOUT",
   "NETWORK_ERROR",
   "ECONNREFUSED",
   "ENOTFOUND",
   "ETIMEDOUT",
+  "PLAYIT_NOT_INSTALLED",
+  "PLAYIT_SERVICE_NOT_FOUND",
+  "PLAYIT_START_FAILED",
+  "PLAYIT_STOP_FAILED",
+  "PLAYIT_RESTART_FAILED",
+  "PLAYIT_STATUS_UNKNOWN",
+  "PLAYIT_LOGS_UNAVAILABLE",
+  "PLAYIT_TUNNELS_UNAVAILABLE",
+  "PLAYIT_NOT_RUNNING",
+  "PLAYIT_CONFIG_NOT_FOUND",
+  "PLAYIT_TUNNEL_PARSE_FAILED",
+  "NODE_UNSUPPORTED",
+  "AGENT_UNAUTHORIZED",
 ]);
 const expectedPublicAccessLogState = new Map();
 const EXPECTED_PUBLIC_ACCESS_LOG_INTERVAL_MS = 60 * 1000;
@@ -109,6 +127,9 @@ function wrapPublicAccessOperation(operation) {
 function registerPublicAccessIpc() {
   ipcMain.handle("publicAccess:getSnapshot", async (_, payload = {}) => invokePublicAccessRead("publicAccess:getSnapshot", () => { requirePermission("public-access:read", payload.nodeId); return getPublicAccessSnapshot(requireNodeContext(payload, "Public Access snapshot")); }));
   ipcMain.handle("publicAccess:listServices", async (_, payload = {}) => invokePublicAccessRead("publicAccess:listServices", () => { requirePermission("public-access:read", payload.nodeId); return listPublicAccessServices(requireNodeContext(payload, "Public Access services")); }));
+  ipcMain.handle("publicAccess:getPlayitStatus", async (_, payload = {}) => invokePublicAccessRead("publicAccess:getPlayitStatus", () => { requirePermission("public-access:read", payload.nodeId); return getPlayitServiceStatusForNode(requireNodeContext(payload, "Playit status")); }));
+  ipcMain.handle("publicAccess:getPlayitLogs", async (_, payload = {}) => invokePublicAccessRead("publicAccess:getPlayitLogs", () => { requirePermission("public-access:read", payload.nodeId); return getPlayitLogsForNode(requireNodeContext(payload, "Playit logs")); }));
+  ipcMain.handle("publicAccess:listPlayitTunnels", async (_, payload = {}) => invokePublicAccessRead("publicAccess:listPlayitTunnels", () => { requirePermission("public-access:read", payload.nodeId); return listPlayitTunnelsForNode(requireNodeContext(payload, "Playit tunnels")); }));
   ipcMain.handle("publicAccess:createService", async (_, payload = {}) => wrapPublicAccessOperation(() => {
     requireNodeContext(payload, "Public Access service creation");
     requirePermission("instance:write", "public-access");
@@ -126,6 +147,12 @@ function registerPublicAccessIpc() {
     requirePermission("instance:write", "public-access-firewall");
     audit({ action: "publicAccess.createFirewallRule", target: `${payload.protocol || "tcp"}:${payload.localPort || payload.port || ""}` });
     return createWindowsFirewallRule(payload);
+  }));
+  ipcMain.handle("publicAccess:controlPlayit", async (_, payload = {}) => wrapPublicAccessOperation(() => {
+    requireNodeContext(payload, "Playit service control");
+    requirePermission("instance:write", "public-access-playit");
+    audit({ action: "publicAccess.controlPlayit", target: payload.action || "playit" });
+    return controlPlayitService(payload);
   }));
 }
 

@@ -18,6 +18,7 @@ const {
   listInstances,
   openInstanceFolder,
   readInstanceFile,
+  repairNeoForgeRuntime,
   renameInstance,
   renameInstanceFile,
   restartInstance,
@@ -123,6 +124,11 @@ function registerInstancesIpc() {
     requirePermission("instance:lifecycle", payload.instanceId);
     audit({ action: "instance.restart", target: payload.instanceId });
     return restartInstance(payload.instanceId, payload);
+  }));
+  registerInstanceHandler("instances:repairNeoForgeRuntime", async (_, payload = {}) => invokeInstanceOperation(() => {
+    requirePermission("instance:lifecycle", payload.instanceId);
+    audit({ action: "instance.neoforge.repairRuntime", target: payload.instanceId });
+    return repairNeoForgeRuntime(payload.instanceId, payload);
   }));
   registerInstanceHandler("instances:forceKill", async (_, payload = {}) => invokeInstanceOperation(() => {
     requirePermission("instance:lifecycle", payload.instanceId);

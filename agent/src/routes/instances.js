@@ -23,6 +23,7 @@ const {
   readInstanceFile,
   readLogs,
   readMinecraftProperties,
+  repairNeoForgeRuntime,
   refreshFiveMReadiness,
   renameInstance,
   renameInstanceFile,
@@ -417,6 +418,16 @@ async function handleInstances(request, url) {
     const fivemLicenseId = getInstanceIdFromPath(url.pathname, "/fivem/license-key");
     if (request.method === "PUT" && fivemLicenseId) {
       return result(200, await saveFiveMLicenseKey(fivemLicenseId, parseJsonBody(request).licenseKey));
+    }
+
+    const neoForgeRepairId = getInstanceIdFromPath(url.pathname, "/neoforge/repair-runtime");
+    if (request.method === "POST" && neoForgeRepairId) {
+      return result(200, await repairNeoForgeRuntime(neoForgeRepairId, parseJsonBody(request)));
+    }
+
+    const neoForgeRepairAliasId = getInstanceIdFromPath(url.pathname, "/repair-neoforge-runtime");
+    if (request.method === "POST" && neoForgeRepairAliasId) {
+      return result(200, await repairNeoForgeRuntime(neoForgeRepairAliasId, parseJsonBody(request)));
     }
 
     const startId = getInstanceIdFromPath(url.pathname, "/start");

@@ -323,6 +323,18 @@ function mapConnectionError(error) {
   });
 }
 
+function mapShellOpenError(error) {
+  if (error) {
+    const mapped = mapConnectionError(error);
+    if (mapped.code && !/^SSH_CONNECTION/i.test(mapped.code)) {
+      return mapped;
+    }
+  }
+  return new SshServiceError("SSH connected, but remote shell could not be opened.", {
+    code: "SSH_SHELL_OPEN_FAILED",
+  });
+}
+
 function createSessionSnapshot(session) {
   return {
     id: session.id,
@@ -336,8 +348,14 @@ function createSessionSnapshot(session) {
     status: session.status,
     message: session.message || "",
     connected: session.status === "connected",
+    shellReady: Boolean(session.shellReady),
     createdAt: session.createdAt,
     connectedAt: session.connectedAt || null,
+    shellReadyAt: session.shellReadyAt || null,
+    diagnostics: {
+      phase: session.phase || session.status,
+      failureCode: session.failureCode || null,
+    },
   };
 }
 
@@ -621,9 +639,13 @@ class SshService extends EventEmitter {
       label: createSessionLabel(profile),
       createdAt: new Date().toISOString(),
       connectedAt: null,
+      shellReadyAt: null,
       status: "connecting",
       message: "Connecting...",
+      shellReady: false,
       didClose: false,
+      phase: "tcp-connect",
+      failureCode: null,
       connectTimer: null,
       shellStartTimer: null,
     };
@@ -645,9 +667,13 @@ class SshService extends EventEmitter {
         clearTimeout(session.connectTimer);
         session.connectTimer = null;
       }
+      session.phase = "waiting-shell";
+      session.connectedAt = new Date().toISOString();
+      session.message = "Waiting for remote shell...";
+      this.emit("session-updated", createSessionSnapshot(session));
       session.shellStartTimer = setTimeout(() => {
-        if (!session.stream && !session.didClose) {
-          this.handleSessionFailure(sessionId, new SshServiceError("SSH shell startup timed out. The connection did not open a terminal in time.", {
+        if (!session.shellReady && !session.didClose) {
+          this.handleSessionFailure(sessionId, new SshServiceError("SSH connection timed out before the remote shell became available.", {
             code: "SSH_SHELL_START_TIMEOUT",
           }));
         }
@@ -672,16 +698,17 @@ class SshService extends EventEmitter {
             return;
           }
           if (error) {
-            this.handleSessionFailure(sessionId, mapConnectionError(error));
+            this.handleSessionFailure(sessionId, mapShellOpenError(error));
+            return;
+          }
+          if (!stream || stream.writable === false) {
+            this.handleSessionFailure(sessionId, new SshServiceError("SSH connected, but remote shell could not be opened.", {
+              code: "SSH_SHELL_OPEN_FAILED",
+            }));
             return;
           }
 
           session.stream = stream;
-          session.status = "connected";
-          session.connectedAt = new Date().toISOString();
-          session.message = `Connected to ${session.label}.`;
-          this.emit("session-updated", createSessionSnapshot(session));
-
           stream.on("data", (chunk) => {
             this.emit("session-output", {
               sessionId,
@@ -692,6 +719,17 @@ class SshService extends EventEmitter {
           stream.on("close", () => {
             this.handleSessionClosed(sessionId, "SSH session closed.");
           });
+
+          session.status = "connected";
+          session.phase = "shell-ready";
+          session.shellReady = true;
+          session.connectedAt = session.connectedAt || new Date().toISOString();
+          session.shellReadyAt = new Date().toISOString();
+          session.message = `Connected to ${session.label}. Shell ready.`;
+          this.emit("session-updated", createSessionSnapshot(session));
+          try {
+            if (stream.writable !== false) stream.write("\r");
+          } catch {}
         },
       );
     });
@@ -717,6 +755,8 @@ class SshService extends EventEmitter {
     }
 
     session.status = "error";
+    session.phase = "failed";
+    session.failureCode = error.code || "SSH_CONNECTION_FAILED";
     session.message = redactString(error.message || "SSH connection failed.");
     this.emit("session-updated", createSessionSnapshot(session));
     this.emit("session-error", {
@@ -798,18 +838,21 @@ class SshService extends EventEmitter {
     const data = typeof input === "string" ? input : "";
     const byteLength = Buffer.byteLength(data, "utf8");
 
-    if (!session || session.status !== "connected" || !session.stream) {
+    if (!session || session.status !== "connected" || !session.stream || !session.shellReady) {
       this.recordWriteDiagnostic({
         ipcReceived: true,
         sessionFound: Boolean(session),
         streamExists: Boolean(session?.stream),
+        shellReady: Boolean(session?.shellReady),
         streamWritable: false,
         byteLength,
         accepted: false,
-        rejectedCategory: "SSH_SESSION_NOT_CONNECTED",
+        rejectedCategory: session && session.status === "connected" && !session.shellReady ? "SSH_SHELL_NOT_READY" : "SSH_SESSION_NOT_CONNECTED",
       });
-      throw new SshServiceError("SSH session is not connected.", {
-        code: "SSH_SESSION_NOT_CONNECTED",
+      throw new SshServiceError(session && session.status === "connected"
+        ? "Command could not be sent because the SSH shell is not ready."
+        : "SSH session is not connected.", {
+        code: session && session.status === "connected" ? "SSH_SHELL_NOT_READY" : "SSH_SESSION_NOT_CONNECTED",
       });
     }
 
@@ -818,6 +861,7 @@ class SshService extends EventEmitter {
         ipcReceived: true,
         sessionFound: true,
         streamExists: true,
+        shellReady: true,
         streamWritable: false,
         byteLength,
         accepted: false,
@@ -833,6 +877,7 @@ class SshService extends EventEmitter {
         ipcReceived: true,
         sessionFound: true,
         streamExists: true,
+        shellReady: true,
         streamWritable: session.stream.writable !== false,
         byteLength,
         accepted: false,
@@ -846,6 +891,7 @@ class SshService extends EventEmitter {
       ipcReceived: true,
       sessionFound: true,
       streamExists: true,
+      shellReady: true,
       streamWritable: session.stream.writable !== false,
       byteLength,
       accepted: true,

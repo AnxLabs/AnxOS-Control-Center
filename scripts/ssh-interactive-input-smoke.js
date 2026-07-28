@@ -47,7 +47,7 @@ assert(!/String\.fromCharCode\(event\.key\.toUpperCase\(\)\.charCodeAt\(0\)\s*-\
 
 assert(appSource.includes("sshXtermInputDisposable?.dispose?.();") && appSource.includes("sshXtermInputDisposable = terminal.onData"), "Reopening SSH must replace the input subscription without duplicate listeners.");
 assert(appSource.includes("sshXtermSessionId !== session.id"), "xterm input must reject stale SSH session bindings.");
-assert(appSource.includes("terminal.options.disableStdin = !(session && session.status === \"connected\")"), "Disconnected sessions must disable terminal input safely.");
+assert(appSource.includes("terminal.options.disableStdin = !(session && session.status === \"connected\" && session.shellReady !== false)"), "Disconnected and shell-not-ready sessions must disable terminal input safely.");
 assert(serviceSource.includes("SSH_STREAM_NOT_WRITABLE"), "SSH service must reject input when the PTY stream is no longer writable.");
 
 console.log("SSH interactive input smoke checks passed.");

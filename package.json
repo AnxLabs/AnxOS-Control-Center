@@ -220,9 +220,6 @@
     "productName": "AnxOS Control Center",
     "copyright": "Copyright © 2026 Anx",
     "afterPack": "scripts/normalize-package-permissions.js",
-    "asarUnpack": [
-      "src/shared/**/*"
-    ],
     "files": [
       "main.js",
       "preload.js",
@@ -233,10 +230,16 @@
       "styles.css",
       "windows/**/*",
       "assets/**/*",
-      "config/agent.example.json",
-      "config/marketplace-templates.json",
-      "config/marketplace-server-certifications.json",
-      "config/ssh-profiles.json",
+      {
+        "from": "config",
+        "to": "config",
+        "filter": [
+          "agent.example.json",
+          "marketplace-templates.json",
+          "marketplace-server-certifications.json",
+          "ssh-profiles.json"
+        ]
+      },
       "website/anxos-design-system.css",
       "website/account-config.js",
       "src/**/*",
@@ -248,7 +251,14 @@
           "!**/*.map"
         ]
       },
-      "src/shared/**/*",
+      {
+        "from": "src/shared",
+        "to": "src/shared",
+        "filter": [
+          "**/*.js",
+          "!**/*.map"
+        ]
+      },
       "agent/package.json",
       "agent/src/**/*",
       "package.json",
