@@ -15,7 +15,7 @@ assert(source.includes("const SHELL_START_TIMEOUT_MS = 15000;"), "SSH shell star
 assert(source.includes("const DEFAULT_SHELL_START_ATTEMPTS = 2;"), "A slow shell startup must receive one bounded automatic retry.");
 assert(source.includes("const DEFAULT_CONNECT_TIMEOUT_MS = 10000;"), "SSH connection establishment must have a bounded timeout.");
 assert(source.indexOf("session.connectTimer = setTimeout") < source.indexOf('client.on("ready"'), "SSH connect timeout must cover pre-ready stalls.");
-assert(source.indexOf("session.shellStartTimer = setTimeout") > source.indexOf('client.on("ready"'), "SSH shell startup timeout must begin after the transport is ready.");
+assert(source.indexOf("const attemptTimer = setTimeout") > source.indexOf('client.on("ready"'), "SSH shell startup timeout must begin after the transport is ready.");
 assert(source.includes("SSH_TIMEOUT"), "SSH connection timeout must use a structured error code.");
 assert(source.includes("SSH_SHELL_START_TIMEOUT"), "SSH shell startup timeout must use a structured error code.");
 assert(source.includes("SSH_SHELL_OPEN_FAILED"), "SSH PTY failures must use a structured shell-open error code.");
@@ -23,6 +23,8 @@ assert(source.includes("SSH_HOST_KEY_MISMATCH"), "SSH host-key failures must hav
 assert(source.includes("SSH_PERMISSION_DENIED"), "SSH permission failures must have a distinct error code.");
 assert(source.includes("SSH_AGENT_UNAVAILABLE"), "SSH agent failures must have a distinct error code.");
 assert(source.includes("Waiting for remote shell..."), "SSH auth success must report waiting-for-shell separately.");
+assert(source.includes("shellDeadlineTimer"), "SSH shell startup must keep an independent absolute deadline.");
+assert(source.includes("session.shellStartTimer === attemptTimer"), "Late shell callbacks must not clear a newer retry timer.");
 assert(source.includes("shellReady: Boolean(session.shellReady)"), "SSH snapshots must expose shell readiness separately from connection state.");
 assert(source.includes("SSH_SHELL_NOT_READY"), "SSH write failures must distinguish a connected transport from an unready shell.");
 assert(source.indexOf('stream.on("data"') < source.indexOf('session.status = "connected"'), "SSH output listeners must attach before broadcasting shell readiness.");

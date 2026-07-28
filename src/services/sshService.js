@@ -681,6 +681,7 @@ class SshService extends EventEmitter {
       failureCode: null,
       connectTimer: null,
       shellStartTimer: null,
+      shellDeadlineTimer: null,
       shellStartAttempt: 0,
     };
 
@@ -705,6 +706,13 @@ class SshService extends EventEmitter {
       session.connectedAt = new Date().toISOString();
       session.message = "Authenticated. Starting remote shell...";
       this.emit("session-updated", createSessionSnapshot(session));
+      session.shellDeadlineTimer = setTimeout(() => {
+        session.shellDeadlineTimer = null;
+        if (session.shellReady || session.didClose) return;
+        this.handleSessionFailure(sessionId, new SshServiceError("SSH authentication succeeded, but the remote shell did not start in time.", {
+          code: "SSH_SHELL_START_TIMEOUT",
+        }));
+      }, this.shellStartTimeoutMs * DEFAULT_SHELL_START_ATTEMPTS);
       const openShell = () => {
         session.shellStartAttempt += 1;
         session.phase = session.shellStartAttempt > 1 ? "retrying-shell" : "waiting-shell";
@@ -712,8 +720,10 @@ class SshService extends EventEmitter {
           ? "Remote shell was slow to start. Retrying automatically..."
           : "Waiting for remote shell...";
         this.emit("session-updated", createSessionSnapshot(session));
-        session.shellStartTimer = setTimeout(() => {
-          session.shellStartTimer = null;
+        const attemptTimer = setTimeout(() => {
+          if (session.shellStartTimer === attemptTimer) {
+            session.shellStartTimer = null;
+          }
           if (session.shellReady || session.didClose) return;
           if (session.shellStartAttempt < DEFAULT_SHELL_START_ATTEMPTS) {
             openShell();
@@ -723,6 +733,7 @@ class SshService extends EventEmitter {
             code: "SSH_SHELL_START_TIMEOUT",
           }));
         }, this.shellStartTimeoutMs);
+        session.shellStartTimer = attemptTimer;
         client.shell(
         {
           term: "xterm-256color",
@@ -730,8 +741,8 @@ class SshService extends EventEmitter {
           rows: Number.isFinite(options.rows) ? options.rows : DEFAULT_SHELL_ROWS,
         },
         (error, stream) => {
-          if (session.shellStartTimer) {
-            clearTimeout(session.shellStartTimer);
+          if (session.shellStartTimer === attemptTimer) {
+            clearTimeout(attemptTimer);
             session.shellStartTimer = null;
           }
           if (session.didClose || !this.sessions.has(sessionId)) {
@@ -771,6 +782,10 @@ class SshService extends EventEmitter {
           session.connectedAt = session.connectedAt || new Date().toISOString();
           session.shellReadyAt = new Date().toISOString();
           session.message = `Connected to ${session.label}. Shell ready.`;
+          if (session.shellDeadlineTimer) {
+            clearTimeout(session.shellDeadlineTimer);
+            session.shellDeadlineTimer = null;
+          }
           this.emit("session-updated", createSessionSnapshot(session));
           try {
             if (stream.writable !== false) stream.write("\r");
@@ -843,6 +858,10 @@ class SshService extends EventEmitter {
     if (session.shellStartTimer) {
       clearTimeout(session.shellStartTimer);
       session.shellStartTimer = null;
+    }
+    if (session.shellDeadlineTimer) {
+      clearTimeout(session.shellDeadlineTimer);
+      session.shellDeadlineTimer = null;
     }
     if (session.connectTimer) {
       clearTimeout(session.connectTimer);
