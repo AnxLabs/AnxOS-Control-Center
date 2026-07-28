@@ -46,8 +46,28 @@ function palworldPayload(id, port = 8211, queryPort = 27015) {
 async function withTempService(fn, options = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "anxos-instance-runtime-smoke-"));
   const previousRoot = process.env.AGENT_INSTANCE_ROOT;
+  const previousJavaRuntimeRoots = process.env.ANXOS_JAVA_RUNTIME_ROOTS;
   const originalPlatformDescriptor = Object.getOwnPropertyDescriptor(process, "platform");
+  const originalSpawnSync = childProcess.spawnSync;
   process.env.AGENT_INSTANCE_ROOT = path.join(root, "instances");
+  if (options.javaRuntimeMajor) {
+    const runtimeRoot = path.join(root, "java-runtimes");
+    const javaExecutable = path.join(runtimeRoot, `jdk-${options.javaRuntimeMajor}`, "bin", options.platform === "win32" ? "java.exe" : "java");
+    fs.mkdirSync(path.dirname(javaExecutable), { recursive: true });
+    fs.writeFileSync(javaExecutable, "");
+    fs.chmodSync(javaExecutable, 0o755);
+    process.env.ANXOS_JAVA_RUNTIME_ROOTS = runtimeRoot;
+    childProcess.spawnSync = (command, args, spawnOptions) => {
+      if (path.resolve(String(command)) === path.resolve(javaExecutable) && args?.[0] === "-version") {
+        return {
+          status: 0,
+          stdout: "",
+          stderr: `openjdk version "${options.javaRuntimeMajor}.0.0"`,
+        };
+      }
+      return originalSpawnSync(command, args, spawnOptions);
+    };
+  }
   clearService();
   if (options.platform) {
     Object.defineProperty(process, "platform", {
@@ -67,6 +87,12 @@ async function withTempService(fn, options = {}) {
     } else {
       process.env.AGENT_INSTANCE_ROOT = previousRoot;
     }
+    if (previousJavaRuntimeRoots === undefined) {
+      delete process.env.ANXOS_JAVA_RUNTIME_ROOTS;
+    } else {
+      process.env.ANXOS_JAVA_RUNTIME_ROOTS = previousJavaRuntimeRoots;
+    }
+    childProcess.spawnSync = originalSpawnSync;
     clearService();
     if (options.platform) {
       Object.defineProperty(process, "platform", originalPlatformDescriptor);
@@ -720,7 +746,7 @@ async function assertNeoForgeInstallerOnlyDoesNotRequireServerJar() {
         return true;
       },
     );
-  }, { platform: "linux" });
+  }, { platform: "linux", javaRuntimeMajor: 21 });
 }
 
 async function assertNeoForgeMissingUnixArgsPreflightDoesNotRestart() {
