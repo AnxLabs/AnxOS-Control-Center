@@ -118,6 +118,42 @@ function writeStore(store) {
   cachedStore = { filePath, raw, store: cloneStore(store) };
 }
 
+function replaceUnreadableStore(nodes = {}) {
+  const filePath = getNodeCredentialsPath();
+  const recoveredNodes = Object.fromEntries(
+    Object.entries(nodes)
+      .map(([nodeId, credential]) => [
+        normalizeNodeId(nodeId),
+        {
+          agentToken: trimValue(credential?.agentToken),
+          updatedAt: credential?.updatedAt || new Date().toISOString(),
+        },
+      ])
+      .filter(([nodeId, credential]) => Boolean(nodeId && credential.agentToken)),
+  );
+  if (!Object.keys(recoveredNodes).length) {
+    throw new NodeCredentialStoreError(
+      "Saved node credentials could not be recovered because no existing credential source was available.",
+      "NODE_CREDENTIAL_RECOVERY_SOURCE_MISSING",
+    );
+  }
+  try {
+    readStore();
+    throw new NodeCredentialStoreError(
+      "Saved node credentials are readable and do not require recovery.",
+      "NODE_CREDENTIAL_RECOVERY_NOT_REQUIRED",
+    );
+  } catch (error) {
+    if (error?.code !== "NODE_CREDENTIAL_DECRYPT_FAILED") throw error;
+  }
+
+  const preservedPath = `${filePath}.undecryptable-${Date.now()}.backup`;
+  fs.copyFileSync(filePath, preservedPath, fs.constants.COPYFILE_EXCL);
+  const store = { schemaVersion: NODE_CREDENTIAL_SCHEMA_VERSION, nodes: recoveredNodes };
+  writeStore(store);
+  return { recovered: true, preservedPath, recoveredNodeCount: Object.keys(recoveredNodes).length };
+}
+
 function getNodeToken(nodeId) {
   const id = normalizeNodeId(nodeId);
   if (!id) return "";
@@ -160,5 +196,6 @@ module.exports = {
   getNodeCredentialsPath,
   getNodeToken,
   hasNodeToken,
+  replaceUnreadableStore,
   setNodeToken,
 };

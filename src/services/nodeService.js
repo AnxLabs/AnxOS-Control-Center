@@ -10,6 +10,7 @@ const {
   getNodeCredentialsPath,
   getNodeToken: getStoredNodeToken,
   hasNodeToken: hasStoredNodeToken,
+  replaceUnreadableStore,
   setNodeToken: setStoredNodeToken,
 } = require("./nodeCredentialStore");
 const authRecovery = require("./authRecoveryState");
@@ -933,10 +934,29 @@ function readNodeState() {
 function writeNodeState(state) {
   requireNodeCredentialWrite("node-config-write", "Unlock AnxOS to manage nodes.");
   ensureConfigDirectory();
-  const nodes = state.nodes.map((node) => {
-    if (node.kind === "agent" && node.id && node.agentToken && getNodeToken(node.id) !== node.agentToken) {
-      setNodeToken(node.id, node.agentToken);
+  const recoverableCredentials = Object.fromEntries(
+    state.nodes
+      .filter((node) => node.kind === "agent" && node.id && node.agentToken)
+      .map((node) => [node.id, { agentToken: node.agentToken }]),
+  );
+  if (Object.keys(recoverableCredentials).length) {
+    try {
+      for (const node of state.nodes.filter((entry) => entry.kind === "agent" && entry.id && entry.agentToken)) {
+        if (getNodeToken(node.id) !== node.agentToken) {
+          setNodeToken(node.id, node.agentToken);
+        }
+      }
+    } catch (error) {
+      if (error?.code !== "NODE_CREDENTIAL_DECRYPT_FAILED") throw error;
+      const recovery = replaceUnreadableStore(recoverableCredentials);
+      nodeCredentialRecovery = null;
+      console.info("[Nodes] Recovered the protected node credential store from existing configured credentials.", {
+        recoveredNodeCount: recovery.recoveredNodeCount,
+        preserved: true,
+      });
     }
+  }
+  const nodes = state.nodes.map((node) => {
     return toPersistentNode(node);
   });
   const target = getNodesPath();

@@ -96,6 +96,17 @@ assert.throws(
 );
 assert.strictEqual(fs.readFileSync(credentialPath, "utf8"), unreadableCredential, "Locked credential classification must not rewrite encrypted credentials.");
 
+const recovered = credentialStore.replaceUnreadableStore({
+  "existing-node": { agentToken: "existing-configured-token" },
+});
+assert.strictEqual(recovered.recovered, true, "An unreadable store should be recoverable from an existing credential source.");
+assert.strictEqual(recovered.recoveredNodeCount, 1, "Recovery should report the number of existing credentials migrated.");
+assert.strictEqual(credentialStore.getNodeToken("existing-node"), "existing-configured-token", "Recovered credentials should be readable from the canonical store.");
+assert(
+  fs.readdirSync(process.env.ANXHUB_CONFIG_DIR).some((name) => name.startsWith("node-agent-credentials.json.undecryptable-") && name.endsWith(".backup")),
+  "Credential recovery must preserve the unreadable ciphertext before replacing the canonical store.",
+);
+
 assert(securitySource.includes("localOwnerAuthenticated"), "Security status must expose local Owner authentication separately.");
 assert(securitySource.includes("enterLocalCredentialsLocked"), "Authorized account identity must enter a local-credentials-locked state.");
 assert(nodeServiceSource.includes("if (!localCredentialsUnlocked())") && nodeServiceSource.includes("credentialsLocked: true"), "Locked node listing must avoid decrypt and remain visible.");
