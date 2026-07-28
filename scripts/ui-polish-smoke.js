@@ -174,6 +174,7 @@ assert(app.includes("Docker Desktop or Docker Engine") && app.includes("WINDOWS_
 assert(app.includes("Windows Agent MVP does not enable game-server hosting yet"), "Windows MVP nodes must not show unsupported game-server hosting as a scary health failure.");
 assert(pageMarkup("operations").includes("data-operation-list") && pageMarkup("operations").includes('data-operation-filter="running"'), "Operations Center must expose filterable operation history.");
 assert(pageMarkup("operations").includes('data-operation-action="clear-completed"') && pageMarkup("operations").includes("data-operation-detail"), "Operations Center must expose history cleanup and details.");
+assert(app.includes("SECURE_SESSION_DECRYPT_FAILED|SECURE_SESSION_CORRUPT") && app.includes("seenLockedRecoveryFailures"), "Operations Center must normalize legacy recovery errors and collapse duplicate locked-action failures.");
 assert(app.includes("function startOperation") && app.includes("function updateOperation") && app.includes("function renderOperationsCenter"), "Renderer must own centralized operation tracking.");
 assert(app.includes("updateMarketplaceOperationFromEvent") && app.includes("activeMarketplaceOperationId"), "Marketplace installs must feed the Operations Center from real progress events.");
 assert(styles.includes(".marketplace-readiness-strip") && styles.includes(".marketplace-readiness-strip strong"), "Marketplace readiness strip CSS must exist.");
