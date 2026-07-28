@@ -88,6 +88,12 @@ fs.writeFileSync(path.join(process.env.ANXHUB_CONFIG_DIR, "nodes.json"), `${JSON
     agentIdentity: { deviceId: "preserved-device" },
   }],
 }, null, 2)}\n`);
+fs.writeFileSync(path.join(process.env.ANXHUB_CONFIG_DIR, "agent.json"), `${JSON.stringify({
+  schemaVersion: 1,
+  backendMode: "agent",
+  agentUrl: "http://127.0.0.1:47131",
+  agentToken: "existing-configured-token",
+}, null, 2)}\n`);
 const lockedNodeService = require("../src/services/nodeService");
 assert.throws(
   () => lockedNodeService.getNodeAgentConfig("preserved-node"),
@@ -126,10 +132,17 @@ assert(appSource.includes("securityState?.localOwnerAuthenticated !== true") && 
 assert(appSource.includes("refreshProtectedStateAfterLocalOwnerAuthentication") && appSource.includes("refreshNodes({ forceHealthRefresh: true })") && appSource.includes("loadMarketplaceSettings()"), "Successful unlock must retry protected state through the deduplicated coordinator.");
 assert(appSource.includes("Saved node credentials could not be restored. Unlock AnxOS to continue."), "Renderer errors and Operations history must use friendly credential recovery text.");
 
+fs.writeFileSync(credentialPath, unreadableCredential, { mode: 0o600 });
 recovery.enterUnlocking();
 recovery.enterUnlocked({ provider: "local-owner" });
 assert.strictEqual(recovery.getState().authenticated, true);
 assert.doesNotThrow(() => recovery.requireLocalCredentialsUnlocked("nodes:save"));
+assert.doesNotThrow(() => lockedNodeService.getAllNodesSync(), "Unlock must migrate the existing configured token to the selected legacy node.");
+assert.strictEqual(
+  credentialStore.getNodeToken("preserved-node"),
+  "existing-configured-token",
+  "The selected legacy node must recover from the existing configured Agent token even when its saved URL differs.",
+);
 
 fs.rmSync(temporaryRoot, { recursive: true, force: true });
 console.log("Node credential recovery smoke checks passed.");

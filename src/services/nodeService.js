@@ -948,7 +948,15 @@ function writeNodeState(state) {
       }
     } catch (error) {
       if (error?.code !== "NODE_CREDENTIAL_DECRYPT_FAILED") throw error;
-      const recovery = replaceUnreadableStore(recoverableCredentials);
+      const selectedNode = state.nodes.find((node) => node.id === state.selectedNodeId && node.kind === "agent");
+      const legacy = getEffectiveAgentSettings();
+      const emergencyCredentials = {
+        ...recoverableCredentials,
+        ...(selectedNode && !selectedNode.agentToken && legacy.backendMode === "agent" && legacy.agentToken
+          ? { [selectedNode.id]: { agentToken: legacy.agentToken } }
+          : {}),
+      };
+      const recovery = replaceUnreadableStore(emergencyCredentials);
       nodeCredentialRecovery = null;
       console.info("[Nodes] Recovered the protected node credential store from existing configured credentials.", {
         recoveredNodeCount: recovery.recoveredNodeCount,
