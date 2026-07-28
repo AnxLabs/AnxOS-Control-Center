@@ -27925,9 +27925,11 @@ async function disconnectSshSession() {
 
   try {
     await desktopApiState.api.ssh.disconnect(session.id);
-    session.status = "disconnected";
-    session.message = "SSH session disconnected.";
-    sshTransientStatusMessage = "SSH session disconnected.";
+    if (session.failureCode !== "SSH_SHELL_START_TIMEOUT") {
+      session.status = "disconnected";
+      session.message = "SSH session disconnected.";
+      sshTransientStatusMessage = "SSH session disconnected.";
+    }
     renderSshView();
   } catch (error) {
     sshTransientStatusMessage = error?.message || "SSH disconnect failed.";

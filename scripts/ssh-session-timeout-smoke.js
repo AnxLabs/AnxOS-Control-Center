@@ -30,6 +30,10 @@ assert(rendererSource.includes("const SSH_RENDERER_CONNECT_DEADLINE_MS = 35000;"
 assert(rendererSource.includes('activeSession.failureCode = "SSH_SHELL_START_TIMEOUT";'), "The renderer watchdog must expose a structured shell-start timeout.");
 assert(rendererSource.includes("getDesktopApiState().api.ssh.disconnect(activeSession.id)"), "The renderer watchdog must clean up the stalled backend session.");
 assert(rendererSource.includes('session.failureCode !== "SSH_SHELL_START_TIMEOUT"'), "Backend cleanup must preserve the renderer timeout error state.");
+assert(
+  rendererSource.match(/await desktopApiState\.api\.ssh\.disconnect\(session\.id\);\s+if \(session\.failureCode !== "SSH_SHELL_START_TIMEOUT"\)/),
+  "Explicit SSH disconnect cleanup must preserve the renderer timeout error state.",
+);
 assert(source.includes("shellReady: Boolean(session.shellReady)"), "SSH snapshots must expose shell readiness separately from connection state.");
 assert(source.includes("SSH_SHELL_NOT_READY"), "SSH write failures must distinguish a connected transport from an unready shell.");
 assert(source.indexOf('stream.on("data"') < source.indexOf('session.status = "connected"'), "SSH output listeners must attach before broadcasting shell readiness.");
