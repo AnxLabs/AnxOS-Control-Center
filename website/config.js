@@ -5,18 +5,18 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   siteUrl: "https://anxoscontrolcenter.org",
   logoPath: "/assets/anxos-logo.png",
   latestVersion: "1.9",
-  build: "190",
-  buildNumber: "190",
+  build: "191",
+  buildNumber: "191",
   channel: "Private Alpha",
-  releaseLabel: "Version 1.9 Build 190 Private Alpha",
-  releaseDate: "July 27, 2026",
-  releaseTag: "v1.9-build190",
+  releaseLabel: "Version 1.9 Build 191 Private Alpha",
+  releaseDate: "July 28, 2026",
+  releaseTag: "v1.9-build191",
   releaseRepository: {
     owner: "bungopam-byte",
     repo: "AnxOS-Control-Center-Releases",
   },
   repositoryUrl: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases",
-  releaseUrl: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.9-build190",
+  releaseUrl: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.9-build191",
   githubReleasesApiUrl: "https://api.github.com/repos/bungopam-byte/AnxOS-Control-Center-Releases/releases?per_page=20",
   stableDownloadEndpoints: {
     windows: "/api/download/latest/windows",
@@ -26,23 +26,41 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   },
   releaseAssets: [
       {
-          fileName: "AnxOS-Control-Center-Setup-1.9-build190.exe",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.9-build190/AnxOS-Control-Center-Setup-1.9-build190.exe"
+          fileName: "AnxOS-Control-Center-Setup-1.9-build191.exe",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.9-build191/AnxOS-Control-Center-Setup-1.9-build191.exe"
       },
       {
-          fileName: "AnxOS-Control-Center-1.9-build190-portable.exe",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.9-build190/AnxOS-Control-Center-1.9-build190-portable.exe"
+          fileName: "AnxOS-Control-Center-1.9-build191-portable.exe",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.9-build191/AnxOS-Control-Center-1.9-build191-portable.exe"
       },
       {
-          fileName: "AnxOS-Control-Center-1.9-build190.AppImage",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.9-build190/AnxOS-Control-Center-1.9-build190.AppImage"
+          fileName: "AnxOS-Control-Center-1.9-build191.AppImage",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.9-build191/AnxOS-Control-Center-1.9-build191.AppImage"
       },
       {
-          fileName: "AnxOS-Control-Center-1.9-build190.deb",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.9-build190/AnxOS-Control-Center-1.9-build190.deb"
+          fileName: "AnxOS-Control-Center-1.9-build191.deb",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.9-build191/AnxOS-Control-Center-1.9-build191.deb"
       }
   ],
   releaseNotes: [
+      {
+          "version": "1.9",
+          "build": 191,
+          "channel": "Private Alpha",
+          "tag": "v1.9-build191",
+          "date": "July 28, 2026",
+          "datetime": "2026-07-28",
+          "title": "Build 191 secure session recovery hotfix",
+          "summary": "Emergency hotfix for secure session recovery, protected-action authorization, and bounded recovery guidance after the v1.9 update.",
+          "changes": [
+              "Added a locked_recoverable authentication state after saved-session decrypt failure.",
+              "Replaced raw secure-session errors with friendly Local Owner unlock guidance.",
+              "Prevented repeated decrypt retries and duplicate blocked Operations.",
+              "Preserved unreadable encrypted sessions and existing owner, node, and configuration data.",
+              "Required fresh Local Owner verification before protected actions resume."
+          ],
+          "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.9-build191"
+      },
       {
           "version": "1.9",
           "build": 190,
