@@ -895,7 +895,7 @@ function toPersistentState(state) {
 }
 
 function needsCredentialWrite(state) {
-  if (!localCredentialsUnlocked() || nodeCredentialRecovery?.degraded) return false;
+  if (!localCredentialsUnlocked()) return false;
   return state.nodes.some((node) => node.kind === "agent" && node.id && node.agentToken && getNodeToken(node.id) !== node.agentToken);
 }
 

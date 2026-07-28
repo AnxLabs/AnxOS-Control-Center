@@ -113,6 +113,10 @@ assert(nodeServiceSource.includes("if (!localCredentialsUnlocked())") && nodeSer
 assert(nodeServiceSource.includes("preserveDecryptionError: true"), "Authenticated credential-backed operations must preserve decrypt-failure classification.");
 assert(nodeServiceSource.includes("Unlock AnxOS to access saved node credentials."), "Credential-backed node operations must distinguish local lock from a genuinely missing credential.");
 assert(nodeServiceSource.includes("nodeCredentialRecovery?.degraded") && nodeServiceSource.includes("credentialRecovery: nodeCredentialRecovery"), "Unreadable encrypted node credentials must degrade only credential-backed node paths.");
+assert(
+  /function needsCredentialWrite\(state\)\s*\{\s*if \(!localCredentialsUnlocked\(\)\) return false;/.test(nodeServiceSource),
+  "An unreadable-store marker must not suppress migration from an existing configured credential.",
+);
 assert(nodeServiceSource.includes("requireNodeCredentialWrite(\"node-config-write\""), "Node configuration writes must require local credential authentication.");
 assert(nodeIpcSource.includes("requireLocalOwnerAuthenticated(\"nodes:save\""), "Node saves must require local Owner authentication.");
 assert(nodeIpcSource.includes("requireLocalOwnerAuthenticated(\"nodes:test-connection\""), "Node connection tests must require local Owner authentication.");
