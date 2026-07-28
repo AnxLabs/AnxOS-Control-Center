@@ -1,6 +1,24 @@
 [
   {
     "version": "1.9",
+    "build": 191,
+    "channel": "Private Alpha",
+    "tag": "v1.9-build191",
+    "date": "July 28, 2026",
+    "datetime": "2026-07-28",
+    "title": "Build 191 secure session recovery hotfix",
+    "summary": "Emergency hotfix for secure session recovery, protected-action authorization, and bounded recovery guidance after the v1.9 update.",
+    "changes": [
+      "Added a locked_recoverable authentication state after saved-session decrypt failure.",
+      "Replaced raw secure-session errors with friendly Local Owner unlock guidance.",
+      "Prevented repeated decrypt retries and duplicate blocked Operations.",
+      "Preserved unreadable encrypted sessions and existing owner, node, and configuration data.",
+      "Required fresh Local Owner verification before protected actions resume."
+    ],
+    "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.9-build191"
+  },
+  {
+    "version": "1.9",
     "build": 190,
     "channel": "Private Alpha",
     "tag": "v1.9-build190",
