@@ -5248,6 +5248,18 @@ body.is-resizing-files * {
   font-size: 0.94rem;
 }
 
+.page[data-page="instances"] .instances-table th:first-child,
+.page[data-page="instances"] .instances-table td:first-child {
+  width: 180px;
+  min-width: 180px;
+}
+
+.page[data-page="instances"] .instance-name-cell strong,
+.page[data-page="instances"] .instance-name-cell span {
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
 .instance-metric-cell {
   display: inline-flex;
   align-items: center;
