@@ -9,6 +9,7 @@ process.env.ANXHUB_CONFIG_DIR = root;
 process.env.ANXOS_SELECTED_NODE_ID = "timeout-node";
 
 const source = fs.readFileSync(path.join(__dirname, "..", "src", "services", "sshService.js"), "utf8");
+const rendererSource = fs.readFileSync(path.join(__dirname, "..", "app.js"), "utf8");
 const { SshService } = require("../src/services/sshService");
 
 assert(source.includes("const SHELL_START_TIMEOUT_MS = 15000;"), "SSH shell startup must have a bounded timeout.");
@@ -25,6 +26,10 @@ assert(source.includes("SSH_AGENT_UNAVAILABLE"), "SSH agent failures must have a
 assert(source.includes("Waiting for remote shell..."), "SSH auth success must report waiting-for-shell separately.");
 assert(source.includes("shellDeadlineTimer"), "SSH shell startup must keep an independent absolute deadline.");
 assert(source.includes("session.shellStartTimer === attemptTimer"), "Late shell callbacks must not clear a newer retry timer.");
+assert(rendererSource.includes("const SSH_RENDERER_CONNECT_DEADLINE_MS = 35000;"), "The renderer watchdog must enforce an independent terminal deadline.");
+assert(rendererSource.includes('activeSession.failureCode = "SSH_SHELL_START_TIMEOUT";'), "The renderer watchdog must expose a structured shell-start timeout.");
+assert(rendererSource.includes("getDesktopApiState().api.ssh.disconnect(activeSession.id)"), "The renderer watchdog must clean up the stalled backend session.");
+assert(rendererSource.includes('session.failureCode !== "SSH_SHELL_START_TIMEOUT"'), "Backend cleanup must preserve the renderer timeout error state.");
 assert(source.includes("shellReady: Boolean(session.shellReady)"), "SSH snapshots must expose shell readiness separately from connection state.");
 assert(source.includes("SSH_SHELL_NOT_READY"), "SSH write failures must distinguish a connected transport from an unready shell.");
 assert(source.indexOf('stream.on("data"') < source.indexOf('session.status = "connected"'), "SSH output listeners must attach before broadcasting shell readiness.");

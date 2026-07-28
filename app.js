@@ -1061,6 +1061,7 @@ const STARTUP_MINIMUM_MS = 2000;
 const SSH_OUTPUT_LINE_LIMIT = 1500;
 const SSH_TERMINAL_DEFAULT_COLS = 120;
 const SSH_TERMINAL_DEFAULT_ROWS = 32;
+const SSH_RENDERER_CONNECT_DEADLINE_MS = 35000;
 const SSH_RENDERER_PHASES = [
   { at: 0, phase: "connecting", message: "Connecting to SSH host..." },
   { at: 5000, phase: "authenticating", message: "Authenticating SSH credentials..." },
@@ -27347,6 +27348,18 @@ function updateSshConnectWatchdog() {
   }
   const phase = getSshConnectingPhase(getActiveSshSession());
   sshConnectPhase = phase.phase;
+  const activeSession = getActiveSshSession();
+  if (activeSession?.status === "connecting" && getSshSessionAgeMs(activeSession) >= SSH_RENDERER_CONNECT_DEADLINE_MS) {
+    activeSession.status = "error";
+    activeSession.failureCode = "SSH_SHELL_START_TIMEOUT";
+    activeSession.message = "SSH authentication succeeded, but the remote shell did not start in time.";
+    sshTransientStatusMessage = activeSession.message;
+    showToast(activeSession.message);
+    Promise.resolve(getDesktopApiState().api.ssh.disconnect(activeSession.id))
+      .catch(() => {})
+      .finally(() => renderSshView());
+    return;
+  }
   sshConnectWatchdogTimer = window.setTimeout(() => {
     sshConnectWatchdogTimer = null;
     renderSshView();
@@ -27813,11 +27826,15 @@ function ensureSshEventSubscription() {
       const session = sshSessions.get(payload.sessionId);
 
       if (session) {
-        session.status = "disconnected";
-        session.message = payload.message || "SSH session disconnected.";
+        if (session.failureCode !== "SSH_SHELL_START_TIMEOUT") {
+          session.status = "disconnected";
+          session.message = payload.message || "SSH session disconnected.";
+        }
       }
 
-      sshTransientStatusMessage = payload.message || "SSH session disconnected.";
+      sshTransientStatusMessage = session?.failureCode === "SSH_SHELL_START_TIMEOUT"
+        ? session.message
+        : payload.message || "SSH session disconnected.";
       clearSshConnectWatchdog();
 
       renderSshView();
