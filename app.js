@@ -27808,6 +27808,7 @@ function ensureSshEventSubscription() {
 
       if (session) {
         session.status = "error";
+        session.failureCode = payload.code || session.failureCode || null;
         session.message = payload.message || "SSH session failed.";
       }
 
@@ -27826,13 +27827,13 @@ function ensureSshEventSubscription() {
       const session = sshSessions.get(payload.sessionId);
 
       if (session) {
-        if (session.failureCode !== "SSH_SHELL_START_TIMEOUT") {
+        if (session.status !== "error") {
           session.status = "disconnected";
           session.message = payload.message || "SSH session disconnected.";
         }
       }
 
-      sshTransientStatusMessage = session?.failureCode === "SSH_SHELL_START_TIMEOUT"
+      sshTransientStatusMessage = session?.status === "error"
         ? session.message
         : payload.message || "SSH session disconnected.";
       clearSshConnectWatchdog();
