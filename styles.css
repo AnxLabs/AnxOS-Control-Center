@@ -11956,6 +11956,21 @@ button:disabled {
   padding: 9px 12px;
 }
 
+.settings-check--toggle > input[type="checkbox"] {
+  grid-row: 1 / span 2;
+}
+
+.settings-check--toggle > span,
+.settings-check--toggle > small {
+  grid-column: 2;
+  min-width: 0;
+}
+
+.settings-check--toggle > span {
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
 .settings-check--toggle input[type="checkbox"] {
   appearance: none;
   position: relative;
