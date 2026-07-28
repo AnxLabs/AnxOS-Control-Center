@@ -13,6 +13,7 @@ const DEFAULT_LOCAL_AGENT_URL = "http://127.0.0.1:47131";
 const LOCAL_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
 
 const store = new SecureSessionStore({ fileName: "local-agent-credentials.json" });
+let credentialRecovery = null;
 
 function normalizeLocalAgentUrl(value = DEFAULT_LOCAL_AGENT_URL) {
   let parsed;
@@ -74,12 +75,47 @@ function sanitizeCredentialRecord(record = null) {
   };
 }
 
+function readLocalCredential() {
+  try {
+    const record = store.read();
+    credentialRecovery = null;
+    return record;
+  } catch (error) {
+    if (error?.code !== "SECURE_SESSION_DECRYPT_FAILED") throw error;
+    const current = readAgentSettings();
+    const agentToken = String(current?.agentToken || "").trim();
+    if (!agentToken) {
+      credentialRecovery = {
+        degraded: true,
+        state: "unavailable",
+        message: "Local Agent credentials could not be restored. Pair the Local Agent again.",
+      };
+      return null;
+    }
+    const recovered = buildCredentialRecord({
+      agentUrl: normalizeLocalAgentUrl(current.agentUrl || DEFAULT_LOCAL_AGENT_URL),
+      agentToken,
+      reason: "legacy-config-recovery",
+    });
+    store.write(recovered);
+    credentialRecovery = {
+      recovered: true,
+      state: "recovered",
+      message: "Local Agent credentials were recovered from the existing device configuration.",
+    };
+    return recovered;
+  }
+}
+
 function readLocalAgentPairingStatus() {
-  return sanitizeCredentialRecord(store.read());
+  return {
+    ...sanitizeCredentialRecord(readLocalCredential()),
+    credentialRecovery,
+  };
 }
 
 function snapshotLocalAgentCredential() {
-  return store.read();
+  return readLocalCredential();
 }
 
 function restoreLocalAgentCredential(record = null) {
