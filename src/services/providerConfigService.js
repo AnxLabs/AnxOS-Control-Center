@@ -7,6 +7,14 @@ const MARKETPLACE_CONFIG_SCHEMA_VERSION = 2;
 const DEFAULT_MARKETPLACE_CONFIG = {
   curseForgeApiKey: "",
 };
+const MARKETPLACE_CONFIG_RECOVERY_MESSAGE =
+  "Marketplace provider settings could not be restored. Marketplace providers that require saved credentials are temporarily disabled.";
+
+let recoveryState = {
+  degraded: false,
+  errorCode: null,
+  preservedPath: null,
+};
 
 function getElectronApp() {
   try {
@@ -47,6 +55,41 @@ function createMarketplaceConfigError(code, message, details = {}) {
   return Object.assign(new Error(message), { code, details });
 }
 
+function getMarketplaceConfigRecoveryState() {
+  return {
+    degraded: recoveryState.degraded,
+    errorCode: recoveryState.errorCode,
+    message: recoveryState.degraded ? MARKETPLACE_CONFIG_RECOVERY_MESSAGE : null,
+    preserved: Boolean(recoveryState.preservedPath),
+  };
+}
+
+function enterMarketplaceConfigRecovery(errorCode, configPath) {
+  if (!recoveryState.degraded) {
+    const preservedPath = `${configPath}.decrypt-failed.backup`;
+    try {
+      if (!fs.existsSync(preservedPath)) {
+        fs.copyFileSync(configPath, preservedPath, fs.constants.COPYFILE_EXCL);
+      }
+      recoveryState.preservedPath = preservedPath;
+    } catch {}
+    console.warn("[Marketplace] Provider config decrypt failed; encrypted config preserved and Marketplace entered degraded state.", {
+      errorCode,
+      preserved: Boolean(recoveryState.preservedPath),
+    });
+  }
+  recoveryState.degraded = true;
+  recoveryState.errorCode = errorCode;
+}
+
+function clearMarketplaceConfigRecoveryState() {
+  recoveryState = {
+    degraded: false,
+    errorCode: null,
+    preservedPath: null,
+  };
+}
+
 function writeEncryptedConfig(filePath, config) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
@@ -60,7 +103,18 @@ function writeEncryptedConfig(filePath, config) {
 function readMarketplaceConfig(options = {}) {
   const configPath = getMarketplaceConfigPath();
   if (!fs.existsSync(configPath)) {
+    clearMarketplaceConfigRecoveryState();
     return options.includeSecrets ? { ...DEFAULT_MARKETPLACE_CONFIG } : { hasCurseForgeApiKey: false };
+  }
+  if (recoveryState.degraded && options.retry !== true) {
+    throw createMarketplaceConfigError(
+      recoveryState.errorCode || "MARKETPLACE_CONFIG_DECRYPT_FAILED",
+      MARKETPLACE_CONFIG_RECOVERY_MESSAGE,
+      { preserved: Boolean(recoveryState.preservedPath), retrySuppressed: true },
+    );
+  }
+  if (options.retry === true) {
+    clearMarketplaceConfigRecoveryState();
   }
   let parsed;
   try {
@@ -87,10 +141,11 @@ function readMarketplaceConfig(options = {}) {
     try {
       normalized = normalizeMarketplaceConfig(decryptPayload(parsed.encrypted, configPath));
     } catch (error) {
+      enterMarketplaceConfigRecovery("MARKETPLACE_CONFIG_DECRYPT_FAILED", configPath);
       throw createMarketplaceConfigError(
         "MARKETPLACE_CONFIG_DECRYPT_FAILED",
-        "Marketplace provider configuration could not be decrypted on this device.",
-        { causeCode: error?.code || "DECRYPT_FAILED" },
+        MARKETPLACE_CONFIG_RECOVERY_MESSAGE,
+        { causeCode: error?.code || "DECRYPT_FAILED", preserved: Boolean(recoveryState.preservedPath) },
       );
     }
   } else {
@@ -99,9 +154,31 @@ function readMarketplaceConfig(options = {}) {
     if (!fs.existsSync(backupPath)) writeEncryptedConfig(backupPath, normalized);
     writeEncryptedConfig(configPath, normalized);
   }
+  clearMarketplaceConfigRecoveryState();
   return options.includeSecrets
     ? normalized
     : { hasCurseForgeApiKey: Boolean(normalized.curseForgeApiKey) };
+}
+
+function readMarketplaceConfigSafe(options = {}) {
+  try {
+    return {
+      config: readMarketplaceConfig(options),
+      recovery: getMarketplaceConfigRecoveryState(),
+    };
+  } catch (error) {
+    if (!["MARKETPLACE_CONFIG_DECRYPT_FAILED", "MARKETPLACE_CONFIG_CORRUPT"].includes(error?.code)) {
+      throw error;
+    }
+    return {
+      config: options.includeSecrets ? { ...DEFAULT_MARKETPLACE_CONFIG } : { hasCurseForgeApiKey: false },
+      recovery: getMarketplaceConfigRecoveryState(),
+    };
+  }
+}
+
+function retryMarketplaceConfig(options = {}) {
+  return readMarketplaceConfig({ ...options, retry: true });
 }
 
 function saveMarketplaceConfig(config = {}) {
@@ -117,7 +194,11 @@ function saveMarketplaceConfig(config = {}) {
 
 module.exports = {
   MARKETPLACE_CONFIG_SCHEMA_VERSION,
+  MARKETPLACE_CONFIG_RECOVERY_MESSAGE,
   getMarketplaceConfigPath,
+  getMarketplaceConfigRecoveryState,
   readMarketplaceConfig,
+  readMarketplaceConfigSafe,
+  retryMarketplaceConfig,
   saveMarketplaceConfig,
 };

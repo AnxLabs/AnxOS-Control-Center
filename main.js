@@ -871,7 +871,6 @@ app.whenReady().then(async () => {
     const severity = /error|failed/i.test(payload.type || payload.state?.status || "") ? "error" : "info";
     diagnostics.log(severity, "updater", payload.type || "status", payload.message || `Updater state: ${payload.type || payload.state?.status || "unknown"}`, { status: payload.state?.status || null, version: payload.update?.latestVersion || payload.state?.latest?.latestVersion || null }, { file: "updater", errorCode: payload.error?.code || null });
   });
-  logCurseForgeStartupStatus();
   ipcMain.handle("app:getRuntimeInfo", () => getRuntimeInfo());
   registerWindowIpc();
   registerStorageWindowIpc({
@@ -905,6 +904,13 @@ app.whenReady().then(async () => {
   registerSettingsIpc();
   registerSshIpc();
   createWindow();
+  try {
+    logCurseForgeStartupStatus();
+  } catch (error) {
+    diagnostics.logError("startup", "marketplace-provider-degraded", error, {
+      message: "Marketplace provider settings could not be restored. Credential-dependent providers are temporarily disabled.",
+    }, { file: "desktop" });
+  }
   updateManager.start();
   localInstanceService.recoverIncompleteInstallations()
     .then((instanceRecovery) => {

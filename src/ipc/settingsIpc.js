@@ -13,7 +13,7 @@ const {
 const { getExecutionTarget, getNode, getSelectedNodeId } = require("../services/nodeService");
 const {
   getMarketplaceConfigPath,
-  readMarketplaceConfig,
+  readMarketplaceConfigSafe,
   saveMarketplaceConfig,
 } = require("../services/providerConfigService");
 const {
@@ -87,7 +87,8 @@ function isOnboardingPreferenceUpdate(settings = {}) {
 }
 
 function getMarketplaceSettingsPayload() {
-  const stored = readMarketplaceConfig();
+  const safeStored = readMarketplaceConfigSafe();
+  const stored = safeStored.config;
   const status = curseforgeProvider._test.getApiKeyStatus();
   const diagnostics = curseforgeProvider._test.getConfigurationDiagnostics();
   const selectedNodeId = getSelectedNodeId();
@@ -95,12 +96,15 @@ function getMarketplaceSettingsPayload() {
 
   return {
     stored,
+    recovery: safeStored.recovery,
     configPath: getMarketplaceConfigPath(),
     curseForge: {
       configured: diagnostics.configured,
       source: status.source,
       diagnostics: {
         ...diagnostics,
+        degraded: safeStored.recovery.degraded || diagnostics.degraded === true,
+        recoveryMessage: safeStored.recovery.message || diagnostics.recoveryMessage || null,
         selectedAgentName: selectedNode?.displayName || selectedNodeId,
         selectedAgentId: selectedNodeId,
       },

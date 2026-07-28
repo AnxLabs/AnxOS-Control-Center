@@ -31923,28 +31923,34 @@ function renderAgentSettings(settingsPayload) {
 function renderMarketplaceSettings(settingsPayload) {
   const configured = Boolean(settingsPayload?.curseForge?.configured || settingsPayload?.stored?.hasCurseForgeApiKey);
   const diagnostics = settingsPayload?.curseForge?.diagnostics || {};
+  const degraded = settingsPayload?.recovery?.degraded === true || diagnostics.degraded === true;
   const mode = diagnostics.mode || (configured ? "owner-local" : "unavailable");
   const fingerprint = diagnostics.keyFingerprint ? ` fingerprint ${diagnostics.keyFingerprint}` : "";
 
   if (marketplaceConfigInput) {
     marketplaceConfigInput.value = "";
+    marketplaceConfigInput.disabled = degraded;
     marketplaceConfigInput.placeholder = configured ? "Temporary owner key saved - enter a new key to replace" : "Temporary owner/private-alpha key";
   }
 
   if (marketplaceConfigPill) {
-    marketplaceConfigPill.textContent = configured ? "Configured" : "Unavailable";
+    marketplaceConfigPill.textContent = degraded ? "Degraded" : configured ? "Configured" : "Unavailable";
     marketplaceConfigPill.classList.toggle("is-connected", configured);
     marketplaceConfigPill.classList.toggle("is-disconnected", !configured);
   }
 
   if (marketplaceConfigMessage) {
-    marketplaceConfigMessage.textContent = configured
+    marketplaceConfigMessage.textContent = degraded
+      ? "Marketplace provider settings could not be restored. Marketplace providers that require saved credentials are temporarily disabled."
+      : configured
       ? `CurseForge configuration mode: ${mode}.${fingerprint ? ` Key${fingerprint}.` : ""}`
       : "CurseForge is unavailable until a hosted proxy, Agent configuration, or temporary owner/private-alpha key is configured.";
   }
 
   if (marketplaceConfigSource) {
-    marketplaceConfigSource.textContent = `Source: ${diagnostics.keySource || mode}. Proxy: ${diagnostics.hostedProxyConfigured ? "configured" : "not configured"}. Agent proxy: ${diagnostics.agentProxyEligible ? "eligible" : "not active"}.`;
+    marketplaceConfigSource.textContent = degraded
+      ? "Saved provider credentials were preserved. Unlock AnxOS or reset Marketplace provider settings to use this provider again."
+      : `Source: ${diagnostics.keySource || mode}. Proxy: ${diagnostics.hostedProxyConfigured ? "configured" : "not configured"}. Agent proxy: ${diagnostics.agentProxyEligible ? "eligible" : "not active"}.`;
   }
   renderCurseForgeDiagnostics(diagnostics);
 }

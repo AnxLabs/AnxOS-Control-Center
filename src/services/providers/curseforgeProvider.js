@@ -3,7 +3,13 @@ const path = require("path");
 const dotenv = require("dotenv");
 const crypto = require("crypto");
 const agentClient = require("../agentClient");
-const { getMarketplaceConfigPath, readMarketplaceConfig, saveMarketplaceConfig } = require("../providerConfigService");
+const {
+  MARKETPLACE_CONFIG_RECOVERY_MESSAGE,
+  getMarketplaceConfigPath,
+  readMarketplaceConfig,
+  readMarketplaceConfigSafe,
+  saveMarketplaceConfig,
+} = require("../providerConfigService");
 const { classifyServerCompatibility } = require("../../shared/marketplaceServerCompatibility");
 
 const CURSEFORGE_API = "https://api.curseforge.com/v1";
@@ -423,7 +429,16 @@ function migrateLegacyApiKeyToConfig() {
 }
 
 function readStoredApiKeyWithMigration(options = {}) {
-  const stored = readMarketplaceConfig({ includeSecrets: true });
+  const safeResult = readMarketplaceConfigSafe({ includeSecrets: true });
+  const stored = safeResult.config;
+  if (safeResult.recovery.degraded) {
+    return {
+      key: "",
+      migrated: false,
+      degraded: true,
+      errorCode: safeResult.recovery.errorCode,
+    };
+  }
   const storedDirect = firstSecretValue(stored, API_KEY_FIELDS, []);
   if (storedDirect) {
     return {
@@ -492,7 +507,8 @@ function getApiKeyStatus(config = {}) {
   const fileEnvName = API_KEY_FILE_ENV.find((envName) => cleanSecretValue(process.env[envName]));
   const envFallbackDisabled = process.env.ANXHUB_DISABLE_CURSEFORGE_ENV_FALLBACK === "1";
   const storedKey = readStoredApiKeyWithMigration({ migrate: false });
-  const stored = readMarketplaceConfig({ includeSecrets: true });
+  const safeStored = readMarketplaceConfigSafe({ includeSecrets: true });
+  const stored = safeStored.config;
   const storedConfigField = storedKey.key
     ? API_KEY_FIELDS.find((field) => cleanSecretValue(stored[field])) || "curseForgeApiKey"
     : null;
@@ -524,6 +540,8 @@ function getApiKeyStatus(config = {}) {
     hostedProxyConfigured: Boolean(getHostedProxyUrl(config)),
     agentProxyEligible: shouldUseAgentProxy(config),
     fingerprint: getApiKeyFingerprint(config),
+    degraded: safeStored.recovery.degraded || storedKey.degraded === true,
+    recoveryMessage: safeStored.recovery.message,
   };
 }
 
@@ -555,11 +573,20 @@ function getConfigurationDiagnostics(config = {}) {
     hostedProxyConfigured: status.hostedProxyConfigured,
     agentProxyEligible: status.agentProxyEligible,
     errorCode: status.errorCode,
+    degraded: status.degraded,
+    recoveryMessage: status.recoveryMessage,
   };
 }
 
 function ensureConfigured(config = {}) {
   const diagnostics = getConfigurationDiagnostics(config);
+  if (diagnostics.degraded) {
+    throw new CurseForgeProviderError(
+      MARKETPLACE_CONFIG_RECOVERY_MESSAGE,
+      "CURSEFORGE_PROVIDER_SETTINGS_UNAVAILABLE",
+      { provider: "curseforge", degraded: true },
+    );
+  }
   if (diagnostics.hostedProxyConfigured || diagnostics.agentProxyEligible) {
     return true;
   }
@@ -604,7 +631,18 @@ function logStartupStatus() {
   }
 
   startupStatusLogged = true;
-  const status = getApiKeyStatus();
+  let status;
+  try {
+    status = getApiKeyStatus();
+  } catch (error) {
+    status = {
+      loaded: false,
+      source: null,
+      degraded: true,
+      errorCode: error?.code || "MARKETPLACE_CONFIG_UNAVAILABLE",
+      env: loadEnv(),
+    };
+  }
 
   console.info("[Marketplace][CurseForge] API key status.", {
     loaded: status.loaded,
@@ -613,6 +651,7 @@ function logStartupStatus() {
     envLoaded: status.env.envLoaded,
     envLoadErrorCode: status.env.envLoadErrorCode,
     apiKeyErrorCode: status.errorCode,
+    degraded: status.degraded === true,
     resolvedEnvPath: status.env.resolvedEnvPath,
     cwd: status.env.cwd,
   });

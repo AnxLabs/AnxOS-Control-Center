@@ -347,6 +347,43 @@ async function main() {
     );
     assert(fs.readdirSync(path.dirname(configPath)).some((name) => name.startsWith(`${path.basename(configPath)}.corrupt-`)), "Corrupt Marketplace config should be preserved.");
 
+    const unreadableEncryptedState = {
+      schemaVersion: providerConfig.MARKETPLACE_CONFIG_SCHEMA_VERSION,
+      encrypted: { method: "safeStorage", data: "not-valid-encrypted-data" },
+    };
+    writeJson(configPath, unreadableEncryptedState);
+    const unreadableRaw = fs.readFileSync(configPath, "utf8");
+    const degraded = providerConfig.readMarketplaceConfigSafe({ includeSecrets: true });
+    assert.strictEqual(degraded.config.curseForgeApiKey, "", "Unreadable Marketplace credentials must not be exposed or reused.");
+    assert.strictEqual(degraded.recovery.degraded, true, "Unreadable Marketplace credentials should enter a bounded degraded state.");
+    assert.strictEqual(degraded.recovery.preserved, true, "Unreadable encrypted Marketplace configuration should be preserved.");
+    assert(!degraded.recovery.message.includes("MARKETPLACE_CONFIG_DECRYPT_FAILED"), "Normal recovery guidance must not expose the raw decrypt error code.");
+    assert.strictEqual(fs.readFileSync(configPath, "utf8"), unreadableRaw, "Degraded recovery must not modify the unreadable encrypted config.");
+    const preservedBackups = fs.readdirSync(path.dirname(configPath)).filter((name) => name === `${path.basename(configPath)}.decrypt-failed.backup`);
+    providerConfig.readMarketplaceConfigSafe({ includeSecrets: true });
+    assert.strictEqual(
+      fs.readdirSync(path.dirname(configPath)).filter((name) => name === `${path.basename(configPath)}.decrypt-failed.backup`).length,
+      preservedBackups.length,
+      "Repeated reads in degraded state must not retry decryption or create backup spam.",
+    );
+    const degradedStatus = curseforgeProvider._test.getApiKeyStatus();
+    assert.strictEqual(degradedStatus.degraded, true, "CurseForge status should report saved provider credentials as degraded.");
+    assert.doesNotThrow(() => curseforgeProvider.logStartupStatus(), "Marketplace decrypt failure must not escape the optional startup status probe.");
+    assert.throws(
+      () => curseforgeProvider.ensureConfigured({}),
+      (error) => error?.code === "CURSEFORGE_PROVIDER_SETTINGS_UNAVAILABLE" && !error.message.includes("MARKETPLACE_CONFIG_DECRYPT_FAILED"),
+      "Credential-dependent CurseForge actions should fail with friendly degraded guidance.",
+    );
+    const mainSource = fs.readFileSync(path.join(__dirname, "..", "main.js"), "utf8");
+    assert(
+      mainSource.indexOf("createWindow();") < mainSource.indexOf("logCurseForgeStartupStatus();"),
+      "The main window must be created before the optional CurseForge startup status probe.",
+    );
+    assert(
+      mainSource.includes('diagnostics.logError("startup", "marketplace-provider-degraded"'),
+      "Marketplace startup degradation should be bounded by desktop diagnostics.",
+    );
+
     console.log("CurseForge server-pack resolution smoke checks passed.");
   } finally {
     curseforgeProvider.resolveFile = original.resolveFile;
