@@ -29,8 +29,10 @@ assert(source.includes("session.shellStartTimer === attemptTimer"), "Late shell 
 assert(rendererSource.includes("const SSH_RENDERER_CONNECT_DEADLINE_MS = 35000;"), "The renderer watchdog must enforce an independent terminal deadline.");
 assert(rendererSource.includes('activeSession.failureCode = "SSH_SHELL_START_TIMEOUT";'), "The renderer watchdog must expose a structured shell-start timeout.");
 assert(rendererSource.includes("getDesktopApiState().api.ssh.disconnect(activeSession.id)"), "The renderer watchdog must clean up the stalled backend session.");
-assert(rendererSource.includes("session.failureCode = payload.code || session.failureCode || null;"), "Renderer session errors must retain their structured backend code.");
-assert(rendererSource.includes('session.status !== "error"'), "Backend cleanup must preserve any structured renderer error state.");
+assert(rendererSource.includes("const sshSessionFailures = new Map();"), "Renderer failures must survive later session snapshot replacement.");
+assert(rendererSource.includes("sshSessionFailures.set(payload.sessionId, failure);"), "Renderer session errors must retain their structured backend failure.");
+assert(rendererSource.includes("const retainedFailure = sshSessionFailures.get(sessionSnapshot.id);"), "Session snapshot merges must restore retained failures.");
+assert(rendererSource.includes("const retainedFailure = sshSessionFailures.get(payload.sessionId);"), "Backend cleanup must restore retained failures.");
 assert(
   rendererSource.match(/await desktopApiState\.api\.ssh\.disconnect\(session\.id\);\s+if \(session\.failureCode !== "SSH_SHELL_START_TIMEOUT"\)/),
   "Explicit SSH disconnect cleanup must preserve the renderer timeout error state.",

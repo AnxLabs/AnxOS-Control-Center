@@ -1048,6 +1048,7 @@ const filesConnectionState = {
   message: "No remote filesystem connected.",
 };
 const sshSessions = new Map();
+const sshSessionFailures = new Map();
 const AMP_REFRESH_INTERVAL_MS = 2000;
 const DOCKER_STATS_REFRESH_INTERVAL_MS = 5000;
 const CONSOLE_LOG_REFRESH_INTERVAL_MS = 2000;
@@ -27273,12 +27274,21 @@ function createLocalSshSession(sessionSnapshot) {
 
 function mergeSshSessionSnapshot(sessionSnapshot) {
   const existing = sshSessions.get(sessionSnapshot.id);
+  const retainedFailure = sshSessionFailures.get(sessionSnapshot.id);
   const nextValue = existing
     ? {
         ...existing,
         ...sessionSnapshot,
       }
     : createLocalSshSession(sessionSnapshot);
+
+  if (retainedFailure) {
+    nextValue.status = "error";
+    nextValue.failureCode = retainedFailure.code;
+    nextValue.message = retainedFailure.message;
+  } else if (nextValue.status === "connected" && nextValue.shellReady !== false) {
+    sshSessionFailures.delete(sessionSnapshot.id);
+  }
 
   sshSessions.set(sessionSnapshot.id, nextValue);
   return nextValue;
@@ -27353,6 +27363,10 @@ function updateSshConnectWatchdog() {
     activeSession.status = "error";
     activeSession.failureCode = "SSH_SHELL_START_TIMEOUT";
     activeSession.message = "SSH authentication succeeded, but the remote shell did not start in time.";
+    sshSessionFailures.set(activeSession.id, {
+      code: activeSession.failureCode,
+      message: activeSession.message,
+    });
     sshTransientStatusMessage = activeSession.message;
     showToast(activeSession.message);
     Promise.resolve(getDesktopApiState().api.ssh.disconnect(activeSession.id))
@@ -27805,19 +27819,23 @@ function ensureSshEventSubscription() {
 
     if (payload?.type === "session-error") {
       const session = sshSessions.get(payload.sessionId);
+      const failure = {
+        code: payload.code || session?.failureCode || "SSH_CONNECTION_FAILED",
+        message: payload.message || "SSH session failed.",
+      };
+
+      sshSessionFailures.set(payload.sessionId, failure);
 
       if (session) {
         session.status = "error";
-        session.failureCode = payload.code || session.failureCode || null;
-        session.message = payload.message || "SSH session failed.";
+        session.failureCode = failure.code;
+        session.message = failure.message;
       }
 
-      sshTransientStatusMessage = payload.message || "SSH session failed.";
+      sshTransientStatusMessage = failure.message;
       clearSshConnectWatchdog();
 
-      if (payload?.message) {
-        showToast(payload.message);
-      }
+      showToast(failure.message);
 
       renderSshView();
       return;
@@ -27825,16 +27843,23 @@ function ensureSshEventSubscription() {
 
     if (payload?.type === "session-closed") {
       const session = sshSessions.get(payload.sessionId);
+      const retainedFailure = sshSessionFailures.get(payload.sessionId);
 
       if (session) {
-        if (session.status !== "error") {
+        if (retainedFailure) {
+          session.status = "error";
+          session.failureCode = retainedFailure.code;
+          session.message = retainedFailure.message;
+        } else if (session.status !== "error") {
           session.status = "disconnected";
           session.message = payload.message || "SSH session disconnected.";
         }
       }
 
-      sshTransientStatusMessage = session?.status === "error"
-        ? session.message
+      sshTransientStatusMessage = retainedFailure
+        ? retainedFailure.message
+        : session?.status === "error"
+          ? session.message
         : payload.message || "SSH session disconnected.";
       clearSshConnectWatchdog();
 
