@@ -24,8 +24,33 @@ async function main() {
   assert.strictEqual(migrated.users[0].passwordHash, passwordHash, "Migration must preserve the existing password hash exactly.");
   assert(fs.existsSync(legacyPath), "Migration must not delete or modify the legacy owner store.");
 
-  await security.login({ username: "Anx", password, staySignedIn: true });
+  const signedIn = await security.login({ username: "Anx", password, staySignedIn: true });
+  assert.strictEqual(signedIn.ownerAuthorized, true, "Successful Local Owner sign-in must authorize the Owner.");
+  assert.strictEqual(signedIn.localOwnerAuthenticated, true, "Successful Local Owner sign-in must establish local authentication.");
+  assert.strictEqual(signedIn.localCredentialContextAvailable, true, "Credential context must be available before login resolves.");
+  assert.strictEqual(signedIn.authState, "unlocked", "Successful Local Owner sign-in must finish in the unlocked state.");
+  let status = security.getStatus();
+  assert.strictEqual(status.localOwnerAuthenticated, true, "Authoritative security status must report the Local Owner as authenticated.");
+  assert.strictEqual(status.localCredentialContextAvailable, true, "Authoritative security status must report the credential context as available.");
+
+  const recovery = require("../src/services/authRecoveryState");
+  recovery.enterLockedRecoverable(Object.assign(new Error("simulated account-session recovery race"), {
+    code: "SECURE_SESSION_DECRYPT_FAILED",
+  }), { source: "account-session" });
+  status = security.getStatus();
+  assert.strictEqual(status.localOwnerAuthenticated, true, "An account-session recovery update must not reset an active Local Owner session.");
+  assert.strictEqual(status.localCredentialContextAvailable, true, "The local credential context must survive unrelated account recovery state.");
+
+  const appSource = fs.readFileSync(path.join(__dirname, "..", "app.js"), "utf8");
+  assert(appSource.includes("refreshProtectedStateAfterLocalOwnerAuthentication"), "Renderer must use one canonical protected-state refresh coordinator.");
+  assert(appSource.includes("authResult.localOwnerAuthenticated !== true"), "Renderer must reject an early sign-in success without local authentication.");
+  assert(appSource.includes("authResult.localCredentialContextAvailable !== true"), "Renderer must reject an early sign-in success without credential context.");
+  assert.strictEqual((appSource.match(/refreshProtectedStateAfterLocalOwnerAuthentication\(authResult\)/g) || []).length, 1, "Local Owner form submission must invoke the protected refresh coordinator exactly once.");
+
   security.logoutAllSessions();
+  status = security.getStatus();
+  assert.strictEqual(status.localOwnerAuthenticated, false, "Signing out all local sessions must clear local authentication.");
+  assert.strictEqual(status.localCredentialContextAvailable, false, "Signing out all local sessions must clear the credential context.");
   const afterLogout = JSON.parse(fs.readFileSync(path.join(activeConfig, "security.json"), "utf8"));
   assert.strictEqual(afterLogout.users.length, 1, "Log out all sessions must preserve local Owner accounts.");
   assert.strictEqual(afterLogout.users[0].passwordHash, passwordHash, "Log out all sessions must preserve password hashes.");
@@ -51,6 +76,9 @@ async function main() {
   assert.strictEqual(diagnostic?.hashFormat, "bcrypt", "Diagnostics should classify the hash format without logging it.");
   assert(!JSON.stringify(messages).includes(passwordHash), "Diagnostics must not contain password hashes.");
   assert(!JSON.stringify(messages).includes("incorrect password"), "Diagnostics must not contain passwords.");
+  const failedStatus = security.getStatus();
+  assert.strictEqual(failedStatus.localOwnerAuthenticated, false, "Incorrect credentials must not authenticate the Local Owner.");
+  assert.strictEqual(failedStatus.localCredentialContextAvailable, false, "Incorrect credentials must not establish credential context.");
   console.log("Local Owner authentication smoke checks passed.");
 }
 

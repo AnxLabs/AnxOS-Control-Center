@@ -15,7 +15,7 @@ assert.throws(
 
 recovery.enterUnlocking();
 assert.strictEqual(recovery.getState().state, "unlocking");
-assert.throws(() => recovery.requireLocalCredentialsUnlocked("security:rotate-token"), (error) => error?.code === "AUTH_UNLOCK_REQUIRED");
+assert.throws(() => recovery.requireLocalCredentialsUnlocked("security:rotate-token"), (error) => error?.code === "LOCAL_AUTHENTICATION_REQUIRED");
 
 recovery.enterUnlocked({ provider: "local-owner" });
 assert.strictEqual(recovery.getState().state, "unlocked");

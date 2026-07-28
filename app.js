@@ -726,6 +726,7 @@ let developerUpdateBusy = false;
 let activeSettingsCategory = "general";
 let settingsSaveInFlight = false;
 let securityState = { setupRequired: false, authenticated: false, user: null };
+let localOwnerProtectedRefreshPromise = null;
 let accountState = { authenticated: false, account: null, pending: null, configured: false };
 let accountPollTimer = null;
 let accountCountdownTimer = null;
@@ -28903,11 +28904,51 @@ async function refreshSecurityState() {
     accountSignedIn: securityState?.accountAuthenticated === true,
     ownerAuthorized: securityState?.ownerWorkspaceAvailable === true,
     localOwnerAuthenticated: securityState?.localOwnerAuthenticated === true,
+    localCredentialContextAvailable: securityState?.localCredentialContextAvailable === true,
     rememberedSessionCount: securityState?.persistentSessionCount || 0,
     authenticationProvider: securityState?.user?.account ? "cloud-account" : securityState?.authenticated ? "local-owner" : "none",
   }).catch(() => {});
   if (isOwnerWorkspaceAuthorized() && (!ownerWorkspaceState.pages || ownerWorkspaceState.pages.length === 0)) {
     refreshOwnerWorkspace().catch(() => {});
+  }
+}
+
+async function refreshProtectedStateAfterLocalOwnerAuthentication(authResult = {}) {
+  if (localOwnerProtectedRefreshPromise) return localOwnerProtectedRefreshPromise;
+  localOwnerProtectedRefreshPromise = (async () => {
+    if (
+      authResult.localOwnerAuthenticated !== true
+      || authResult.localCredentialContextAvailable !== true
+    ) {
+      const error = new Error("Local Owner sign-in did not establish the protected local credential context.");
+      error.code = "LOCAL_AUTHENTICATION_FINALIZATION_FAILED";
+      throw error;
+    }
+
+    await refreshSecurityState();
+    if (
+      securityState.localOwnerAuthenticated !== true
+      || securityState.localCredentialContextAvailable !== true
+    ) {
+      const error = new Error("Local Owner sign-in could not be confirmed by the trusted security service.");
+      error.code = "LOCAL_AUTHENTICATION_FINALIZATION_FAILED";
+      throw error;
+    }
+
+    await Promise.allSettled([
+      refreshNodes({ forceHealthRefresh: true }),
+      loadAgentSettings(),
+      loadMarketplaceSettings(),
+      refreshInstances({ refreshMetrics: false }),
+      refreshDockerStatus(),
+      refreshBackups(),
+    ]);
+    syncAgentConnectionDisplayWithSelectedNode();
+  })();
+  try {
+    await localOwnerProtectedRefreshPromise;
+  } finally {
+    localOwnerProtectedRefreshPromise = null;
   }
 }
 
@@ -29231,10 +29272,7 @@ async function submitSecurityForm(event) {
     if (securityMessage) {
       securityMessage.textContent = "";
     }
-    await refreshSecurityState();
-    await refreshNodes({ forceHealthRefresh: true });
-    await loadMarketplaceSettings();
-    await loadAgentSettings();
+    await refreshProtectedStateAfterLocalOwnerAuthentication(authResult);
     setLocalSetupComplete();
     showToast(authResult?.warning || "Signed in.", authResult?.warning ? "warning" : "success");
   } catch (error) {

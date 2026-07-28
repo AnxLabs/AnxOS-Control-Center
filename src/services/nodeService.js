@@ -31,15 +31,23 @@ const inFlightHealthChecks = new Map();
 const nodeHealthGenerations = new Map();
 let nodeCredentialRecovery = null;
 
+function hasConfiguredLocalOwner() {
+  const securityPath = path.join(getConfigDirectory(), "security.json");
+  if (!fs.existsSync(securityPath)) return false;
+  try {
+    const state = JSON.parse(fs.readFileSync(securityPath, "utf8"));
+    return Array.isArray(state?.users)
+      && state.users.some((user) => user?.role === "Owner" || user?.role === "Admin");
+  } catch {
+    return true;
+  }
+}
+
 function localCredentialsUnlocked() {
   const authState = authRecovery.getState().state;
-  return authRecovery.getState().authenticated === true || ![
-    authRecovery.AUTH_STATES.LOCAL_CREDENTIALS_LOCKED,
-    authRecovery.AUTH_STATES.LOCKED_RECOVERABLE,
-    authRecovery.AUTH_STATES.UNLOCKING,
-    authRecovery.AUTH_STATES.RESTORE_PENDING,
-    authRecovery.AUTH_STATES.RESTORE_FAILED,
-  ].includes(authState);
+  return authRecovery.getState().authenticated === true
+    || authState === authRecovery.AUTH_STATES.FRESH_SETUP_REQUIRED
+    || (authState === authRecovery.AUTH_STATES.LOCKED && !hasConfiguredLocalOwner());
 }
 
 function requireNodeCredentialWrite(target, message) {
@@ -47,7 +55,7 @@ function requireNodeCredentialWrite(target, message) {
   authRecovery.requireLocalCredentialsUnlocked(target, message);
 }
 
-function getNodeToken(nodeId) {
+function getNodeToken(nodeId, options = {}) {
   if (!localCredentialsUnlocked()) return "";
   try {
     const token = getStoredNodeToken(nodeId);
@@ -60,6 +68,7 @@ function getNodeToken(nodeId) {
       reason: "node_credentials_unavailable",
       message: "Saved node credentials could not be restored. Unlock AnxOS to continue.",
     };
+    if (options.preserveDecryptionError === true) throw error;
     return "";
   }
 }
@@ -1326,11 +1335,17 @@ function resolveNodeForAgentIdentity(payload = {}) {
 function getSelectedNodeId() { return readNodeState().selectedNodeId; }
 function getAllNodesSync() { const state = readNodeState(); return [getApplicationHostNode(), ...state.nodes]; }
 function getNodeAgentConfigFromNode(node) {
+  if (!localCredentialsUnlocked()) {
+    authRecovery.requireLocalCredentialsUnlocked(
+      `node-credential:${node.id}`,
+      "Unlock AnxOS to access saved node credentials.",
+    );
+  }
   return {
     ...normalizeAgentSettings({
     backendMode: "agent",
     agentUrl: node.baseUrl || node.agentUrl,
-    agentToken: getNodeToken(node.id),
+    agentToken: getNodeToken(node.id, { preserveDecryptionError: true }),
     }),
     nodeId: node.id,
     agentNodeId: node.id,
@@ -1353,7 +1368,7 @@ async function getNodeCredentialStatus(nodeId) {
   const node = getNode(nodeId || getSelectedNodeId());
   if (node.kind !== "agent") throw Object.assign(new Error("Selected node is not an Agent."), { code: "NODE_NOT_AGENT" });
   const endpoint = normalizeUrl(node.agentUrl || node.baseUrl || "");
-  const storedToken = getNodeToken(node.id);
+  const storedToken = getNodeToken(node.id, { preserveDecryptionError: true });
   const storedFingerprint = tokenFingerprint(storedToken);
   const configured = getConfiguredAgentTokenForNode(node);
   let health = null;

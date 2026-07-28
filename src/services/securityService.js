@@ -1196,11 +1196,13 @@ function getStatus() {
   const hasAdminUser = state.users.some((entry) => entry.role === "Owner" || entry.role === "Admin");
   const localMode = !hasAdminUser;
   const recovery = authRecovery.getState();
-  if (!recovery.lockedRecoverable) {
+  if (user) {
+    if (!recovery.authenticated) {
+      authRecovery.enterUnlocked({ provider: "local-owner-session" });
+    }
+  } else if (!recovery.lockedRecoverable) {
     authRecovery.enterLocked({ setupRequired: !hasAdminUser });
-    if (user) {
-      authRecovery.enterUnlocked({ provider: "local-owner" });
-    } else if (accountUser && hasAdminUser) {
+    if (accountUser && hasAdminUser) {
       authRecovery.enterLocalCredentialsLocked({ reason: "node_credentials_unavailable" });
     }
   }
@@ -1213,6 +1215,7 @@ function getStatus() {
     user: user || accountUser,
     accountAuthenticated: Boolean(accountUser),
     localOwnerAuthenticated,
+    localCredentialContextAvailable: localOwnerAuthenticated,
     roles: Object.keys(ROLE_PERMISSIONS),
     permissions: (user || accountUser) ? ROLE_PERMISSIONS[(user || accountUser).role] || [] : localMode ? ["local:*"] : [],
     ownerWorkspaceAvailable: Boolean((user || accountUser)?.role === "Owner" && (user || accountUser)?.ownerAuthorized !== false),
@@ -1266,11 +1269,68 @@ async function setupAdmin(payload = {}) {
   return login({ username, password, staySignedIn: payload.staySignedIn });
 }
 
+function finalizeLocalOwnerAuthentication({
+  authenticatedUser,
+  expiresAt,
+  persistentSession = null,
+  developmentOwner = false,
+} = {}) {
+  if (!authenticatedUser?.id || !Number.isFinite(expiresAt)) {
+    const error = new Error("Local Owner authentication could not establish a valid runtime session.");
+    error.code = "LOCAL_AUTHENTICATION_FINALIZATION_FAILED";
+    throw error;
+  }
+
+  try {
+    createRuntimeSession(authenticatedUser, expiresAt, Boolean(persistentSession), persistentSession?.id || null);
+    if (developmentOwner) {
+      currentSession.developmentOwner = true;
+      currentSession.userSnapshot = publicUser(authenticatedUser);
+    }
+    const recovery = completeLocalOwnerRecovery();
+    authRecovery.enterUnlocked({ provider: "local-owner" });
+    const activeUser = getCurrentUser();
+    const status = getStatus();
+    if (
+      !activeUser
+      || activeUser.id !== authenticatedUser.id
+      || status.localOwnerAuthenticated !== true
+      || status.localCredentialContextAvailable !== true
+    ) {
+      const error = new Error("Local Owner credentials were verified, but the protected local session could not be established.");
+      error.code = "LOCAL_AUTHENTICATION_FINALIZATION_FAILED";
+      throw error;
+    }
+    diagnostics.log("info", "authentication", "local-owner-finalized", "Local Owner authentication finalization completed", {
+      userId: authenticatedUser.id,
+      ownerAuthorized: status.ownerWorkspaceAvailable === true,
+      localOwnerAuthenticated: true,
+      localCredentialContextAvailable: true,
+    }, { file: "auth" });
+    return { recovery, status };
+  } catch (error) {
+    currentSession = null;
+    authRecovery.enterLocalCredentialsLocked({ reason: "credential_context_initialization_failed" });
+    diagnostics.log("error", "authentication", "local-owner-finalization-failed", "Local Owner authentication finalization failed", {
+      userId: authenticatedUser?.id || null,
+      localOwnerAuthenticated: false,
+      localCredentialContextAvailable: false,
+    }, { file: "auth", errorCode: error?.code || "LOCAL_AUTHENTICATION_FINALIZATION_FAILED" });
+    throw error;
+  }
+}
+
 async function login(payload = {}) {
   authRecovery.enterUnlocking();
   const username = normalizeUsername(payload.username);
   const activeUser = getCurrentUser();
-  if (activeUser?.username?.toLowerCase() === username.toLowerCase() && currentSession && !authRecovery.getState().lockedRecoverable) {
+  const activeStatus = getStatus();
+  if (
+    activeUser?.username?.toLowerCase() === username.toLowerCase()
+    && currentSession
+    && activeStatus.localOwnerAuthenticated === true
+    && activeStatus.localCredentialContextAvailable === true
+  ) {
     console.info("[Security] Login request ignored because the user is already signed in.", {
       username,
       persistent: currentSession.persistent === true,
@@ -1280,6 +1340,10 @@ async function login(payload = {}) {
       expiresAt: new Date(currentSession.expiresAt).toISOString(),
       persistent: currentSession.persistent === true,
       user: activeUser,
+      ownerAuthorized: activeStatus.ownerWorkspaceAvailable === true,
+      localOwnerAuthenticated: true,
+      localCredentialContextAvailable: true,
+      authState: activeStatus.authState,
     };
   }
 
@@ -1385,22 +1449,24 @@ async function login(payload = {}) {
   const expiresAt = persistentSession
     ? Date.parse(persistentSession.expiresAt)
     : Date.now() + (state.settings.sessionTtlMs || SESSION_TTL_MS);
-  createRuntimeSession(authenticatedUser, expiresAt, Boolean(persistentSession), persistentSession?.id || null);
-  if (devFallbackOk) {
-    currentSession.developmentOwner = true;
-    currentSession.userSnapshot = publicUser(authenticatedUser);
-  }
+  const finalized = finalizeLocalOwnerAuthentication({
+    authenticatedUser,
+    expiresAt,
+    persistentSession,
+    developmentOwner: devFallbackOk,
+  });
   audit({ action: "security.login", outcome: "ok", actor: publicUser(authenticatedUser), reason: devFallbackOk ? "DEVELOPMENT_OWNER_FALLBACK" : null });
-  const recovery = completeLocalOwnerRecovery();
-  authRecovery.enterUnlocked({ provider: "local-owner" });
 
   return {
     token: currentSession.token,
     expiresAt: new Date(currentSession.expiresAt).toISOString(),
     persistent: Boolean(persistentSession),
     user: publicUser(authenticatedUser),
-    authState: authRecovery.getState().state,
-    warning: recovery.warning || null,
+    ownerAuthorized: finalized.status.ownerWorkspaceAvailable === true,
+    localOwnerAuthenticated: true,
+    localCredentialContextAvailable: true,
+    authState: finalized.status.authState,
+    warning: finalized.recovery.warning || null,
   };
 }
 
@@ -1743,6 +1809,7 @@ module.exports = {
   SECURITY_SCHEMA_VERSION,
   _test: {
     encryptLocalSession,
+    finalizeLocalOwnerAuthentication,
     getPasswordHashFormat,
     migrateLegacyOwnerUsers,
     normalizeSecurityState,

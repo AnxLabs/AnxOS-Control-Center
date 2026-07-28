@@ -27,8 +27,16 @@ assert.strictEqual(locked.reason, "node_credentials_unavailable");
 assert.match(locked.message, /Saved node credentials could not be restored/);
 assert.throws(
   () => recovery.requireLocalCredentialsUnlocked("nodes:save", "Unlock AnxOS to manage nodes."),
-  (error) => error?.code === "AUTH_UNLOCK_REQUIRED" && !error.message.includes("NODE_CREDENTIAL_DECRYPT_FAILED"),
+  (error) => error?.code === "LOCAL_AUTHENTICATION_REQUIRED" && !error.message.includes("NODE_CREDENTIAL_DECRYPT_FAILED"),
 );
+
+const lockedCredentialError = createIpcError(
+  Object.assign(new Error("Unlock AnxOS to access saved node credentials."), {
+    code: "LOCAL_AUTHENTICATION_REQUIRED",
+  }),
+);
+assert.strictEqual(lockedCredentialError.code, "LOCAL_AUTHENTICATION_REQUIRED");
+assert(!lockedCredentialError.message.includes("NODE_CREDENTIAL_MISSING"), "Locked local authentication must not be misclassified as a missing node credential.");
 
 const wrapped = createIpcError(
   Object.assign(new Error("Saved node credentials could not be decrypted on this device."), {
@@ -65,9 +73,34 @@ assert.throws(
 );
 assert.strictEqual(fs.readFileSync(credentialPath, "utf8"), unreadableCredential, "Unreadable encrypted node credentials must remain byte-for-byte intact.");
 
+fs.writeFileSync(path.join(process.env.ANXHUB_CONFIG_DIR, "security.json"), `${JSON.stringify({
+  users: [{ id: "owner-1", username: "Anx", role: "Owner", passwordHash: "test-only-hash" }],
+  persistentSessions: [],
+}, null, 2)}\n`);
+fs.writeFileSync(path.join(process.env.ANXHUB_CONFIG_DIR, "nodes.json"), `${JSON.stringify({
+  schemaVersion: 3,
+  selectedNodeId: "preserved-node",
+  nodes: [{
+    id: "preserved-node",
+    kind: "agent",
+    displayName: "Preserved Node",
+    agentUrl: "http://127.0.0.1:47131",
+    agentIdentity: { deviceId: "preserved-device" },
+  }],
+}, null, 2)}\n`);
+const lockedNodeService = require("../src/services/nodeService");
+assert.throws(
+  () => lockedNodeService.getNodeAgentConfig("preserved-node"),
+  (error) => error?.code === "LOCAL_AUTHENTICATION_REQUIRED",
+  "Encrypted credential state plus a locked Local Owner session must be classified as local authentication required.",
+);
+assert.strictEqual(fs.readFileSync(credentialPath, "utf8"), unreadableCredential, "Locked credential classification must not rewrite encrypted credentials.");
+
 assert(securitySource.includes("localOwnerAuthenticated"), "Security status must expose local Owner authentication separately.");
 assert(securitySource.includes("enterLocalCredentialsLocked"), "Authorized account identity must enter a local-credentials-locked state.");
 assert(nodeServiceSource.includes("if (!localCredentialsUnlocked())") && nodeServiceSource.includes("credentialsLocked: true"), "Locked node listing must avoid decrypt and remain visible.");
+assert(nodeServiceSource.includes("preserveDecryptionError: true"), "Authenticated credential-backed operations must preserve decrypt-failure classification.");
+assert(nodeServiceSource.includes("Unlock AnxOS to access saved node credentials."), "Credential-backed node operations must distinguish local lock from a genuinely missing credential.");
 assert(nodeServiceSource.includes("nodeCredentialRecovery?.degraded") && nodeServiceSource.includes("credentialRecovery: nodeCredentialRecovery"), "Unreadable encrypted node credentials must degrade only credential-backed node paths.");
 assert(nodeServiceSource.includes("requireNodeCredentialWrite(\"node-config-write\""), "Node configuration writes must require local credential authentication.");
 assert(nodeIpcSource.includes("requireLocalOwnerAuthenticated(\"nodes:save\""), "Node saves must require local Owner authentication.");
@@ -75,7 +108,7 @@ assert(nodeIpcSource.includes("requireLocalOwnerAuthenticated(\"nodes:test-conne
 assert(agentControlIpcSource.includes("requireLocalOwnerAuthenticated("), "Local Agent actions must require local Owner authentication.");
 assert(appSource.includes("Unlock AnxOS to start the Application Host."), "Application Host must show explicit unlock guidance.");
 assert(appSource.includes("securityState?.localOwnerAuthenticated !== true") && appSource.includes("loadMarketplaceSettings"), "Marketplace settings must remain degraded without requesting protected credentials.");
-assert(appSource.includes("await refreshNodes({ forceHealthRefresh: true });") && appSource.includes("await loadMarketplaceSettings();"), "Successful unlock must retry protected state once.");
+assert(appSource.includes("refreshProtectedStateAfterLocalOwnerAuthentication") && appSource.includes("refreshNodes({ forceHealthRefresh: true })") && appSource.includes("loadMarketplaceSettings()"), "Successful unlock must retry protected state through the deduplicated coordinator.");
 assert(appSource.includes("Saved node credentials could not be restored. Unlock AnxOS to continue."), "Renderer errors and Operations history must use friendly credential recovery text.");
 
 recovery.enterUnlocking();

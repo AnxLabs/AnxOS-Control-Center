@@ -111,7 +111,7 @@ function requireLocalCredentialsUnlocked(target = "protected-local-action", mess
     log("info", "protected-action-blocked", "Protected action blocked until local Owner unlock", { target, deduplicated: last > 0 });
   }
   const error = new Error(message);
-  error.code = "AUTH_UNLOCK_REQUIRED";
+  error.code = "LOCAL_AUTHENTICATION_REQUIRED";
   error.friendlyMessage = message;
   error.details = { friendlyMessage: message, authState: state, reason: recoveryReason || "local_credentials_locked" };
   throw error;
