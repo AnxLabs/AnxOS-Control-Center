@@ -19246,8 +19246,20 @@ function clampPercent(value) {
 function redactOperationText(value) {
   return String(value ?? "")
     .replace(
+      /\b(?:SECURE_SESSION_DECRYPT_FAILED|SECURE_SESSION_CORRUPT)\b(?::\s*Encrypted session state could not be decrypted and was preserved for recovery\.?)?/gi,
+      "Your saved session could not be restored. Please unlock AnxOS again.",
+    )
+    .replace(
       /\bNODE_CREDENTIAL_DECRYPT_FAILED\b(?::\s*Saved node credentials could not be decrypted on this device\.?)?/gi,
       "Saved node credentials could not be restored. Unlock AnxOS to continue.",
+    )
+    .replace(
+      /\bNODE_CREDENTIAL_MISSING\b(?::\s*[^.\n]*(?:\.)?)?/gi,
+      "This system does not have a saved connection credential. Re-pair it to continue.",
+    )
+    .replace(
+      /\b(?:LOCAL_AUTHENTICATION_REQUIRED|AUTH_UNLOCK_REQUIRED)\b(?::\s*[^.\n]*(?:\.)?)?/gi,
+      "Unlock AnxOS to continue.",
     )
     .replace(/(Bearer|token|password|api[_-]?key|secret)=?\s*[^\s,;]+/gi, "$1=[redacted]")
     .replace(/(Authorization:\s*)[^\n]+/gi, "$1[redacted]")
@@ -19324,9 +19336,10 @@ function loadOperationHistory() {
   try {
     const parsed = JSON.parse(window.localStorage.getItem(OPERATIONS_STORAGE_KEY) || "[]");
     if (!Array.isArray(parsed)) return;
+    const seenLockedRecoveryFailures = new Set();
     parsed.slice(0, 80).forEach((entry) => {
       if (!entry?.id || !entry?.title) return;
-      operationsState.items.set(entry.id, {
+      const operation = {
         id: String(entry.id),
         type: redactOperationText(entry.type || "Operation"),
         title: redactOperationText(entry.title),
@@ -19339,8 +19352,19 @@ function loadOperationHistory() {
         completedAt: Number(entry.completedAt) || null,
         error: entry.error ? redactOperationText(entry.error) : "",
         logs: Array.isArray(entry.logs) ? entry.logs.slice(-12).map(redactOperationText) : [],
-      });
+      };
+      const recoveryText = `${operation.step} ${operation.error} ${operation.logs.join(" ")}`;
+      if (
+        operation.status === "failed" &&
+        /saved session could not be restored|unlock AnxOS to (?:continue|access saved)/i.test(recoveryText)
+      ) {
+        const recoveryKey = `${operation.title}\n${operation.step}\n${operation.error}`;
+        if (seenLockedRecoveryFailures.has(recoveryKey)) return;
+        seenLockedRecoveryFailures.add(recoveryKey);
+      }
+      operationsState.items.set(entry.id, operation);
     });
+    persistOperationHistory();
   } catch {
     window.localStorage.removeItem(OPERATIONS_STORAGE_KEY);
   }
