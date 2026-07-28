@@ -896,7 +896,14 @@ function toPersistentState(state) {
 
 function needsCredentialWrite(state) {
   if (!localCredentialsUnlocked()) return false;
-  return state.nodes.some((node) => node.kind === "agent" && node.id && node.agentToken && getNodeToken(node.id) !== node.agentToken);
+  if (state.nodes.some((node) => node.kind === "agent" && node.id && node.agentToken && getNodeToken(node.id) !== node.agentToken)) {
+    return true;
+  }
+  const selectedNode = state.nodes.find((node) => node.id === state.selectedNodeId && node.kind === "agent");
+  const legacy = getEffectiveAgentSettings();
+  if (!selectedNode || legacy.backendMode !== "agent" || !legacy.agentToken) return false;
+  getNodeToken(selectedNode.id);
+  return nodeCredentialRecovery?.degraded === true;
 }
 
 function readNodeState() {
@@ -939,6 +946,21 @@ function writeNodeState(state) {
       .filter((node) => node.kind === "agent" && node.id && node.agentToken)
       .map((node) => [node.id, { agentToken: node.agentToken }]),
   );
+  if (nodeCredentialRecovery?.degraded) {
+    const selectedNode = state.nodes.find((node) => node.id === state.selectedNodeId && node.kind === "agent");
+    const legacy = getEffectiveAgentSettings();
+    if (selectedNode && legacy.backendMode === "agent" && legacy.agentToken) {
+      const recovery = replaceUnreadableStore({
+        ...recoverableCredentials,
+        [selectedNode.id]: { agentToken: legacy.agentToken },
+      });
+      nodeCredentialRecovery = null;
+      console.info("[Nodes] Recovered the protected node credential store from existing configured credentials.", {
+        recoveredNodeCount: recovery.recoveredNodeCount,
+        preserved: true,
+      });
+    }
+  }
   if (Object.keys(recoverableCredentials).length) {
     try {
       for (const node of state.nodes.filter((entry) => entry.kind === "agent" && entry.id && entry.agentToken)) {
