@@ -131,9 +131,20 @@ function readPersistedSelectedNodeId() {
   }
 }
 
-async function restorePersistedActiveNode() {
+async function restorePersistedActiveNode(options = {}) {
   const persistedNodeId = readPersistedSelectedNodeId();
   if (persistedNodeId && persistedNodeId !== APPLICATION_HOST_NODE_ID && !getAllNodesSync().some((node) => node.id === persistedNodeId)) {
+    if (options.readOnly === true) {
+      return {
+        ...(await listNodes({ discoverLocalAgent: false, refreshIdentity: false })),
+        restored: true,
+        recovered: true,
+        readOnly: true,
+        selectedNodeId: APPLICATION_HOST_NODE_ID,
+        node: getNode(APPLICATION_HOST_NODE_ID),
+        requiresSelection: true,
+      };
+    }
     return clearInvalidSelection({ reason: "startup-recovery", force: true });
   }
   const validation = validateActiveNode();
@@ -152,6 +163,17 @@ async function restorePersistedActiveNode() {
       selectedNodeId: validation.nodeId,
       node: validation.node,
       ...(await listNodes({ discoverLocalAgent: false, refreshIdentity: false })),
+    };
+  }
+  if (options.readOnly === true) {
+    return {
+      ...(await listNodes({ discoverLocalAgent: false, refreshIdentity: false })),
+      restored: true,
+      recovered: true,
+      readOnly: true,
+      selectedNodeId: APPLICATION_HOST_NODE_ID,
+      node: getNode(APPLICATION_HOST_NODE_ID),
+      requiresSelection: true,
     };
   }
   return clearInvalidSelection({ reason: "startup-recovery" });

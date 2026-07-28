@@ -5,7 +5,14 @@ const { app } = require("electron");
 const { getApplicationHostNode, APPLICATION_HOST_NODE_ID } = require("./applicationHostService");
 const agentClient = require("./agentClient");
 const { getEffectiveAgentSettings, getHealth, normalizeAgentSettings } = agentClient;
-const { deleteNodeToken, getNodeCredentialsPath, getNodeToken, hasNodeToken, setNodeToken } = require("./nodeCredentialStore");
+const {
+  deleteNodeToken: deleteStoredNodeToken,
+  getNodeCredentialsPath,
+  getNodeToken: getStoredNodeToken,
+  hasNodeToken: hasStoredNodeToken,
+  setNodeToken: setStoredNodeToken,
+} = require("./nodeCredentialStore");
+const authRecovery = require("./authRecoveryState");
 const { parsePairingCode } = require("../shared/agentPairing");
 const { AGENT_STATUS, classifyAgentError, createAgentStatusSnapshot } = require("../shared/agentStatus");
 const { generateAgentToken, tokenFingerprint } = require("../shared/agentTokenStore");
@@ -22,6 +29,65 @@ const MIN_AGENT_PROTOCOL_VERSION = 1;
 const MAX_AGENT_PROTOCOL_VERSION = 1;
 const inFlightHealthChecks = new Map();
 const nodeHealthGenerations = new Map();
+let nodeCredentialRecovery = null;
+
+function localCredentialsUnlocked() {
+  const authState = authRecovery.getState().state;
+  return authRecovery.getState().authenticated === true || ![
+    authRecovery.AUTH_STATES.LOCAL_CREDENTIALS_LOCKED,
+    authRecovery.AUTH_STATES.LOCKED_RECOVERABLE,
+    authRecovery.AUTH_STATES.UNLOCKING,
+    authRecovery.AUTH_STATES.RESTORE_PENDING,
+    authRecovery.AUTH_STATES.RESTORE_FAILED,
+  ].includes(authState);
+}
+
+function requireNodeCredentialWrite(target, message) {
+  if (localCredentialsUnlocked()) return;
+  authRecovery.requireLocalCredentialsUnlocked(target, message);
+}
+
+function getNodeToken(nodeId) {
+  if (!localCredentialsUnlocked()) return "";
+  try {
+    const token = getStoredNodeToken(nodeId);
+    nodeCredentialRecovery = null;
+    return token;
+  } catch (error) {
+    if (error?.code !== "NODE_CREDENTIAL_DECRYPT_FAILED") throw error;
+    nodeCredentialRecovery = {
+      degraded: true,
+      reason: "node_credentials_unavailable",
+      message: "Saved node credentials could not be restored. Unlock AnxOS to continue.",
+    };
+    return "";
+  }
+}
+
+function hasNodeToken(nodeId) {
+  if (!localCredentialsUnlocked()) return false;
+  try {
+    return hasStoredNodeToken(nodeId);
+  } catch (error) {
+    if (error?.code !== "NODE_CREDENTIAL_DECRYPT_FAILED") throw error;
+    nodeCredentialRecovery = {
+      degraded: true,
+      reason: "node_credentials_unavailable",
+      message: "Saved node credentials could not be restored. Unlock AnxOS to continue.",
+    };
+    return false;
+  }
+}
+
+function setNodeToken(nodeId, token) {
+  requireNodeCredentialWrite("node-credential-write", "Unlock AnxOS to manage nodes.");
+  return setStoredNodeToken(nodeId, token);
+}
+
+function deleteNodeToken(nodeId) {
+  requireNodeCredentialWrite("node-credential-delete", "Unlock AnxOS to manage nodes.");
+  return deleteStoredNodeToken(nodeId);
+}
 
 function getConfigDirectory() {
   if (process.env.ANXHUB_CONFIG_DIR) return process.env.ANXHUB_CONFIG_DIR;
@@ -819,6 +885,7 @@ function toPersistentState(state) {
 }
 
 function needsCredentialWrite(state) {
+  if (!localCredentialsUnlocked() || nodeCredentialRecovery?.degraded) return false;
   return state.nodes.some((node) => node.kind === "agent" && node.id && node.agentToken && getNodeToken(node.id) !== node.agentToken);
 }
 
@@ -848,11 +915,14 @@ function readNodeState() {
     }
   }
   const state = migrateState(parsed);
-  if (parsed.schemaVersion !== NODE_SCHEMA_VERSION || JSON.stringify(parsed) !== JSON.stringify(toPersistentState(state)) || needsCredentialWrite(state)) writeNodeState(state);
+  if (localCredentialsUnlocked() && (parsed.schemaVersion !== NODE_SCHEMA_VERSION || JSON.stringify(parsed) !== JSON.stringify(toPersistentState(state)) || needsCredentialWrite(state))) {
+    writeNodeState(state);
+  }
   return state;
 }
 
 function writeNodeState(state) {
+  requireNodeCredentialWrite("node-config-write", "Unlock AnxOS to manage nodes.");
   ensureConfigDirectory();
   const nodes = state.nodes.map((node) => {
     if (node.kind === "agent" && node.id && node.agentToken && getNodeToken(node.id) !== node.agentToken) {
@@ -1158,9 +1228,39 @@ async function refreshIdentities(state) {
 }
 
 async function listNodes(options = {}) {
-  const discoveredState = options.discoverLocalAgent === false ? readNodeState() : await withDiscoveredLocalAgent(readNodeState());
+  if (!localCredentialsUnlocked()) {
+    const state = readNodeState();
+    return {
+      schemaVersion: NODE_SCHEMA_VERSION,
+      applicationHost: getApplicationHostNode().applicationHost,
+      selectedNodeId: state.selectedNodeId,
+      credentialsLocked: true,
+      recoveryMessage: "Saved node credentials could not be restored. Unlock AnxOS to continue.",
+      nodes: [publicNode(getApplicationHostNode()), ...state.nodes.map(publicNode)],
+      configPath: getNodesPath(),
+    };
+  }
+  const initialState = readNodeState();
+  if (nodeCredentialRecovery?.degraded) {
+    return {
+      schemaVersion: NODE_SCHEMA_VERSION,
+      applicationHost: getApplicationHostNode().applicationHost,
+      selectedNodeId: initialState.selectedNodeId,
+      credentialRecovery: nodeCredentialRecovery,
+      nodes: [publicNode(getApplicationHostNode()), ...initialState.nodes.map(publicNode)],
+      configPath: getNodesPath(),
+    };
+  }
+  const discoveredState = options.discoverLocalAgent === false ? initialState : await withDiscoveredLocalAgent(initialState);
   const state = options.refreshIdentity === false ? discoveredState : await refreshIdentities(discoveredState);
-  return { schemaVersion: NODE_SCHEMA_VERSION, applicationHost: getApplicationHostNode().applicationHost, selectedNodeId: state.selectedNodeId, nodes: [publicNode(getApplicationHostNode()), ...state.nodes.map(publicNode)], configPath: getNodesPath() };
+  return {
+    schemaVersion: NODE_SCHEMA_VERSION,
+    applicationHost: getApplicationHostNode().applicationHost,
+    selectedNodeId: state.selectedNodeId,
+    credentialRecovery: nodeCredentialRecovery,
+    nodes: [publicNode(getApplicationHostNode()), ...state.nodes.map(publicNode)],
+    configPath: getNodesPath(),
+  };
 }
 
 function getNode(nodeId) {

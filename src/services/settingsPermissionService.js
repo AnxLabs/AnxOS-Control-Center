@@ -1,4 +1,4 @@
-const { getStatus, requireOwner } = require("./securityService");
+const { getStatus, requireLocalOwnerAuthenticated, requireOwner } = require("./securityService");
 
 const SETTINGS_CAPABILITIES = [
   "canManageMarketplaceSettings",
@@ -84,6 +84,7 @@ function requireSettingsCapability(capability, target = "settings") {
 }
 
 function assertCanReadSettingsSecret(capability, target) {
+  requireLocalOwnerAuthenticated(target || capability, "Unlock AnxOS to use saved credentials.");
   return requireSettingsCapability(capability, target);
 }
 

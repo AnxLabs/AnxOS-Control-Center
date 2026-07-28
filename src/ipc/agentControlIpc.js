@@ -1,6 +1,6 @@
 const { ipcMain } = require("electron");
 const control = require("../services/agentControlService");
-const { audit, requireOwner } = require("../services/securityService");
+const { audit, requireLocalOwnerAuthenticated, requireOwner } = require("../services/securityService");
 const { requireNodeContext } = require("./nodeContext");
 const { createIpcError } = require("../shared/ipcError");
 
@@ -13,6 +13,10 @@ function normalizeAgentControlError(error) {
 }
 
 function authorize(operation) {
+  requireLocalOwnerAuthenticated(
+    `agent-control:${operation}`,
+    operation === "start" ? "Unlock AnxOS to start the Local Agent." : "Unlock AnxOS to manage the Local Agent.",
+  );
   return requireOwner(`agent-control:${operation}`);
 }
 

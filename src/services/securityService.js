@@ -1198,8 +1198,13 @@ function getStatus() {
   const recovery = authRecovery.getState();
   if (!recovery.lockedRecoverable) {
     authRecovery.enterLocked({ setupRequired: !hasAdminUser });
-    if (user || accountUser) authRecovery.enterUnlocked({ provider: user ? "local-owner" : "account" });
+    if (user) {
+      authRecovery.enterUnlocked({ provider: "local-owner" });
+    } else if (accountUser && hasAdminUser) {
+      authRecovery.enterLocalCredentialsLocked({ reason: "node_credentials_unavailable" });
+    }
   }
+  const localOwnerAuthenticated = Boolean(user && authRecovery.getState().authenticated);
   return {
     setupRequired: !hasAdminUser,
     localMode,
@@ -1207,6 +1212,7 @@ function getStatus() {
     authenticated: Boolean(user || accountUser),
     user: user || accountUser,
     accountAuthenticated: Boolean(accountUser),
+    localOwnerAuthenticated,
     roles: Object.keys(ROLE_PERMISSIONS),
     permissions: (user || accountUser) ? ROLE_PERMISSIONS[(user || accountUser).role] || [] : localMode ? ["local:*"] : [],
     ownerWorkspaceAvailable: Boolean((user || accountUser)?.role === "Owner" && (user || accountUser)?.ownerAuthorized !== false),
@@ -1220,6 +1226,7 @@ function getStatus() {
     authState: authRecovery.getState().state,
     recoveryRequired: authRecovery.getState().lockedRecoverable,
     recoveryMessage: authRecovery.getState().message,
+    recoveryReason: authRecovery.getState().reason,
   };
 }
 
@@ -1435,8 +1442,10 @@ function userHasPermission(user, permission) {
   return permissions.includes("*") || permissions.includes(permission);
 }
 
-function requirePermission(permission, target = null) {
-  authRecovery.requireUnlocked(target || permission);
+function requirePermission(permission, target = null, options = {}) {
+  if (options.localCredentials !== false) {
+    authRecovery.requireUnlocked(target || permission);
+  }
   const status = getStatus();
   if (status.accountAuthenticated && status.user?.role === "Owner" && status.user?.ownerAuthorized === true) {
     return {
@@ -1478,6 +1487,18 @@ function requireOwner(target = "owner-workspace") {
     audit({ action: "security.ownerWorkspace", outcome: "denied", target, reason: "OWNER_REQUIRED" });
     const error = new Error("Owner access is required.");
     error.code = "OWNER_REQUIRED";
+    throw error;
+  }
+  return status.user;
+}
+
+function requireLocalOwnerAuthenticated(target = "protected-local-action", message = "Unlock AnxOS to continue.") {
+  authRecovery.requireLocalCredentialsUnlocked(target, message);
+  const status = getStatus();
+  if (!status.localOwnerAuthenticated) {
+    const error = new Error(message);
+    error.code = "AUTH_UNLOCK_REQUIRED";
+    error.friendlyMessage = message;
     throw error;
   }
   return status.user;
@@ -1743,6 +1764,7 @@ module.exports = {
   lockOwnerWorkspace,
   removeTrustedDevice,
   requirePermission,
+  requireLocalOwnerAuthenticated,
   requireOwner,
   renameTrustedDevice,
   revokeAgentToken,

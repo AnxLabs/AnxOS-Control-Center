@@ -4,6 +4,7 @@ const Module = require("module");
 const handlers = new Map();
 const invocations = [];
 let ownerAuthorized = false;
+let localOwnerAuthenticated = false;
 const control = new Proxy({}, {
   get: (_target, property) => (...args) => {
     invocations.push({ property, args });
@@ -18,6 +19,10 @@ Module._load = function patchedLoad(request, parent, isMain) {
   if (request === "../services/securityService") {
     return {
       audit: () => {},
+      requireLocalOwnerAuthenticated: () => {
+        if (localOwnerAuthenticated) return { username: "owner" };
+        throw Object.assign(new Error("Unlock AnxOS to manage the Local Agent."), { code: "AUTH_UNLOCK_REQUIRED" });
+      },
       requireOwner: () => {
         if (ownerAuthorized) return { username: "owner" };
         throw Object.assign(new Error("Owner authorization required."), { code: "OWNER_AUTH_REQUIRED" });
@@ -49,13 +54,14 @@ async function main() {
     assert(handler, `${channel} should be registered.`);
     await assert.rejects(
       () => Promise.resolve().then(() => handler({}, { nodeId: "node-a" })),
-      (error) => error?.code === "OWNER_AUTH_REQUIRED",
-      `${channel} should require Owner authorization.`,
+      (error) => error?.code === "AUTH_UNLOCK_REQUIRED",
+      `${channel} should require Local Owner authentication.`,
     );
     assert.strictEqual(invocations.length, 0, `${channel} must authorize before invoking Agent Control services.`);
   }
 
   ownerAuthorized = true;
+  localOwnerAuthenticated = true;
   invocations.length = 0;
   await assert.rejects(
     () => handlers.get("agentControl:list")({}, {}),

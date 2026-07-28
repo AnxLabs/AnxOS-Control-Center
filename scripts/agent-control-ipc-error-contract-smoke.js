@@ -19,7 +19,11 @@ Module._load = function patchedLoad(request, parent, isMain) {
   if (request === "electron") return { ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) } };
   if (request === "../services/agentControlService") return control;
   if (request === "../services/securityService") {
-    return { audit: (entry) => audits.push(entry), requireOwner: () => ({ username: "owner" }) };
+    return {
+      audit: (entry) => audits.push(entry),
+      requireLocalOwnerAuthenticated: () => ({ username: "owner" }),
+      requireOwner: () => ({ username: "owner" }),
+    };
   }
   if (request === "./nodeContext") return { requireNodeContext: (payload) => payload };
   return originalLoad.call(this, request, parent, isMain);

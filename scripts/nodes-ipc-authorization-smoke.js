@@ -15,6 +15,7 @@ Module._load = function patchedLoad(request, parent, isMain) {
   if (request === "../services/securityService") {
     return {
       audit: () => {},
+      requireLocalOwnerAuthenticated: () => { throw Object.assign(new Error("Permission denied."), { code: "PERMISSION_DENIED" }); },
       requirePermission: () => { throw Object.assign(new Error("Permission denied."), { code: "PERMISSION_DENIED" }); },
     };
   }

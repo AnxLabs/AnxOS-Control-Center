@@ -8,7 +8,14 @@ const FRIENDLY_MESSAGES = {
   AUTH_UNLOCK_REQUIRED: "Unlock AnxOS to continue.",
   SECURE_SESSION_DECRYPT_FAILED: "Your saved session could not be restored. Please unlock AnxOS again.",
   SECURE_SESSION_CORRUPT: "Your saved session could not be restored. Please unlock AnxOS again.",
+  NODE_CREDENTIAL_DECRYPT_FAILED: "Saved node credentials could not be restored. Unlock AnxOS to continue.",
 };
+const USER_SAFE_UNPREFIXED_CODES = new Set([
+  "AUTH_UNLOCK_REQUIRED",
+  "NODE_CREDENTIAL_DECRYPT_FAILED",
+  "SECURE_SESSION_DECRYPT_FAILED",
+  "SECURE_SESSION_CORRUPT",
+]);
 
 function firstValue(...values) {
   return values.find((value) => value !== undefined && value !== null && value !== "");
@@ -54,7 +61,9 @@ function normalizeIpcError(error = {}, options = {}) {
 
 function createIpcError(error = {}, options = {}) {
   const contract = normalizeIpcError(error, options);
-  const message = contract.friendlyMessage.includes(contract.code)
+  const message = USER_SAFE_UNPREFIXED_CODES.has(contract.code)
+    ? contract.friendlyMessage
+    : contract.friendlyMessage.includes(contract.code)
     ? contract.friendlyMessage
     : `${contract.code}: ${contract.friendlyMessage}`;
   const wrapped = new Error(message);

@@ -2215,6 +2215,9 @@ function normalizeIpcErrorMessage(error, fallback = "Request failed.") {
   if (/SECURE_SESSION_(?:DECRYPT_FAILED|CORRUPT|SCHEMA_INVALID|SCHEMA_UNSUPPORTED)/i.test(message)) {
     return "Your saved session could not be restored. Please unlock AnxOS again.";
   }
+  if (/NODE_CREDENTIAL_DECRYPT_FAILED/i.test(message)) {
+    return "Saved node credentials could not be restored. Unlock AnxOS to continue.";
+  }
   if (/AUTH_UNLOCK_REQUIRED|OWNER_REQUIRED|LOGIN_REQUIRED/i.test(message)) {
     return "Unlock AnxOS to continue.";
   }
@@ -2231,7 +2234,7 @@ function isAuthRecoveryLocked() {
 
 function blockProtectedAction(message = "Unlock AnxOS to continue.") {
   if (!isAuthRecoveryLocked()) return false;
-  if (securityMessage) securityMessage.textContent = "Your saved session could not be restored. Unlock AnxOS to continue.";
+  if (securityMessage) securityMessage.textContent = securityState?.recoveryMessage || "Unlock AnxOS to continue.";
   showToast(message, "warning");
   return true;
 }
@@ -19241,6 +19244,10 @@ function clampPercent(value) {
 
 function redactOperationText(value) {
   return String(value ?? "")
+    .replace(
+      /\bNODE_CREDENTIAL_DECRYPT_FAILED\b(?::\s*Saved node credentials could not be decrypted on this device\.?)?/gi,
+      "Saved node credentials could not be restored. Unlock AnxOS to continue.",
+    )
     .replace(/(Bearer|token|password|api[_-]?key|secret)=?\s*[^\s,;]+/gi, "$1=[redacted]")
     .replace(/(Authorization:\s*)[^\n]+/gi, "$1[redacted]")
     .replace(/([A-Za-z]:\\Users\\)[^\\\n]+/g, "$1[redacted]")
@@ -28201,6 +28208,8 @@ async function bootstrapApplication() {
 
 function renderSecurityState() {
   const setup = Boolean(securityState.setupRequired);
+  const accountAuthenticated = Boolean(securityState.accountAuthenticated);
+  const localOwnerAuthenticated = securityState.localOwnerAuthenticated === true;
   const authenticated = Boolean(securityState.authenticated);
   setOwnerWorkspaceNavVisible(shouldShowOwnerWorkspaceNav());
   if (!isOwnerWorkspaceAuthorized() && getActivePageName() === "owner-workspace") {
@@ -28210,7 +28219,7 @@ function renderSecurityState() {
     setLocalSetupComplete();
   }
   renderLocalSetupState();
-  setSecurityGateVisible(!authenticated && !setup && getDesktopApiState().hasSecurity);
+  setSecurityGateVisible(!localOwnerAuthenticated && !setup && getDesktopApiState().hasSecurity);
   if (securityMode) {
     securityMode.textContent = setup ? "Remote Control Setup" : "Security";
   }
@@ -28232,7 +28241,11 @@ function renderSecurityState() {
     securityConfirmRow.hidden = !setup;
   }
   if (securityStatus) {
-    securityStatus.textContent = authenticated ? "Signed in" : setup ? "Local mode" : "Locked";
+    securityStatus.textContent = localOwnerAuthenticated
+      ? "Unlocked"
+      : accountAuthenticated
+        ? "Signed in · Local unlock required"
+        : setup ? "Local mode" : "Locked";
   }
   if (securityCurrentUser) {
     securityCurrentUser.value = securityState.user?.username || (setup ? "This Device" : "");
@@ -28243,8 +28256,10 @@ function renderSecurityState() {
   if (securitySettingsMessage) {
     securitySettingsMessage.textContent = setup
       ? "Remote Control is only needed if you want to manage another computer or server."
-      : authenticated
+      : localOwnerAuthenticated
         ? `Audit log: ${securityState.auditPath || "configured"} · remembered sessions: ${securityState.persistentSessionCount || 0}`
+        : accountAuthenticated
+          ? "Your Owner identity is signed in. Unlock the Local Owner account to use protected credentials and local actions."
         : "Sign in to manage security settings.";
   }
   document.querySelector('[data-security-action="enable-remote-control"]')?.toggleAttribute("hidden", !setup);
@@ -28839,7 +28854,7 @@ async function refreshSecurityState() {
     return;
   }
   try {
-    if (desktopApiState.api.security.getDashboard && (securityState.authenticated || securityState.accountAuthenticated)) {
+    if (desktopApiState.api.security.getDashboard && securityState.localOwnerAuthenticated === true) {
       const dashboard = await withTimeout(
         desktopApiState.api.security.getDashboard(getNodeScopedPayload(requestContext)),
         SECURITY_REQUEST_TIMEOUT_MS,
@@ -28887,7 +28902,7 @@ async function refreshSecurityState() {
   getDesktopApiState().api?.diagnostics?.capture?.({
     accountSignedIn: securityState?.accountAuthenticated === true,
     ownerAuthorized: securityState?.ownerWorkspaceAvailable === true,
-    localOwnerAuthenticated: securityState?.authenticated === true && securityState?.user?.account !== true,
+    localOwnerAuthenticated: securityState?.localOwnerAuthenticated === true,
     rememberedSessionCount: securityState?.persistentSessionCount || 0,
     authenticationProvider: securityState?.user?.account ? "cloud-account" : securityState?.authenticated ? "local-owner" : "none",
   }).catch(() => {});
@@ -29217,6 +29232,9 @@ async function submitSecurityForm(event) {
       securityMessage.textContent = "";
     }
     await refreshSecurityState();
+    await refreshNodes({ forceHealthRefresh: true });
+    await loadMarketplaceSettings();
+    await loadAgentSettings();
     setLocalSetupComplete();
     showToast(authResult?.warning || "Signed in.", authResult?.warning ? "warning" : "success");
   } catch (error) {
@@ -31181,8 +31199,10 @@ function renderNodes() {
     if (detailTarget) {
       detailTarget.textContent = nodeSwitchInProgress
         ? "Switching node..."
+        : securityState?.localOwnerAuthenticated !== true
+          ? "Unlock AnxOS to start the Application Host."
         : !selected
-          ? "Node unavailable until Local Owner authorization is restored."
+          ? "Application Host unavailable."
         : selected.kind === "application-host"
           ? selected.modeLabel || "Local Application"
           : formatNodeAgentContext(selected);
@@ -31335,6 +31355,10 @@ async function refreshNodes(options = {}) {
     };
   }
   nodeHealthSnapshotCache.clear();
+  if (nodesState.credentialsLocked === true || securityState?.localOwnerAuthenticated !== true) {
+    renderNodes();
+    return;
+  }
   refreshNodeHealth();
   renderNodes();
 }
@@ -31841,6 +31865,18 @@ function setAgentConnectionDisplay(status, message, options = {}) {
 function syncAgentConnectionDisplayWithSelectedNode() {
   const selected = getSelectedNode();
   const connectionState = getNodeConnectionState(selected);
+  if (securityState?.localOwnerAuthenticated !== true) {
+    setAgentConnectionDisplay("disconnected", "Unlock AnxOS to start the Application Host.", {
+      label: "Unlock required",
+    });
+    return;
+  }
+  if (nodesState?.credentialRecovery?.degraded === true && selected?.kind === "agent") {
+    setAgentConnectionDisplay("error", "Saved node credentials could not be restored. Unlock AnxOS to continue.", {
+      label: "Credential recovery required",
+    });
+    return;
+  }
   if (!selected || selected.kind === "application-host") {
     setAgentConnectionDisplay("connected", "Application Host is available locally.", {
       label: "Application Host",
@@ -33088,6 +33124,23 @@ async function loadMarketplaceSettings() {
     if (marketplaceConfigMessage) {
       marketplaceConfigMessage.textContent = "Marketplace provider settings are unavailable in this build.";
     }
+    return;
+  }
+  if (securityState?.localOwnerAuthenticated !== true) {
+    renderMarketplaceSettings({
+      recovery: {
+        degraded: true,
+        message: "Saved provider credentials are locked until Local Owner authentication completes.",
+      },
+      curseForge: {
+        configured: false,
+        diagnostics: {
+          degraded: true,
+          recoveryMessage: "Unlock AnxOS to use saved Marketplace provider credentials.",
+          mode: "local-credentials-locked",
+        },
+      },
+    });
     return;
   }
 
