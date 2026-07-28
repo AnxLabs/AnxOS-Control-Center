@@ -23850,6 +23850,7 @@ async function refreshPlayitStatus() {
 
   playitRequestInFlight = true;
   const requestContext = getNodeRequestContext("playit");
+  const isSelectedNodeRequest = () => requestContext.nodeId === getSelectedNodeId();
   if (shouldBackOffAgentPolling("public-access", requestContext)) {
     renderPlayitUnavailable("Public Access status is temporarily unavailable. Reconnect or retry Refresh.");
     playitRequestInFlight = false;
@@ -23861,7 +23862,7 @@ async function refreshPlayitStatus() {
     const snapshot = desktopApiState.hasPublicAccess
       ? await desktopApiState.api.publicAccess.getSnapshot(payload)
       : await desktopApiState.api.playit.getSnapshot(payload);
-    if (!isNodeRequestCurrent(requestContext)) {
+    if (!isSelectedNodeRequest()) {
       return;
     }
     if (snapshot?.ok === false && snapshot.error) {
@@ -23883,7 +23884,7 @@ async function refreshPlayitStatus() {
     }
     clearAgentPollingBackoff("public-access", requestContext);
   } catch (error) {
-    if (!isNodeRequestCurrent(requestContext)) {
+    if (!isSelectedNodeRequest()) {
       return;
     }
     console.warn("[Public Access] Status refresh failed.", {
@@ -23898,10 +23899,8 @@ async function refreshPlayitStatus() {
     );
     renderPlayitUnavailable(message);
   } finally {
-    if (isNodeRequestCurrent(requestContext)) {
-      document.querySelector("[data-public-access-loading]")?.setAttribute("hidden", "");
-      playitRequestInFlight = false;
-    }
+    document.querySelector("[data-public-access-loading]")?.setAttribute("hidden", "");
+    playitRequestInFlight = false;
   }
 }
 
