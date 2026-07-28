@@ -13413,15 +13413,15 @@ html[data-ui-generation="v1.9"] .inline-action {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .instances-summary-grid {
+  .page[data-page="instances"] .instances-summary-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
-  .instances-controlbar {
+  .page[data-page="instances"] .instances-controlbar {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
-  .instances-controlbar .docker-actions {
+  .page[data-page="instances"] .instances-controlbar .docker-actions {
     grid-column: 1 / -1;
     justify-content: flex-start;
     flex-wrap: wrap;
