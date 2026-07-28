@@ -868,26 +868,30 @@
             </div>
           </header>
           <section class="playit-shell public-access-shell" aria-label="Public Access status">
+            <div class="workspace-loading-state" data-public-access-loading role="status">
+              <span class="workspace-loading-state__spinner" aria-hidden="true"></span>
+              <span><strong>Checking Public Access...</strong><small>Synchronizing providers, tunnels, and service status.</small></span>
+            </div>
             <div class="playit-summary-grid public-access-overview" aria-label="Public Access overview">
               <article class="playit-summary-card">
                 <span>PUBLIC SERVICES</span>
-                <strong data-field="publicAccessServices">Checking...</strong>
+                <strong data-field="publicAccessServices">—</strong>
               </article>
               <article class="playit-summary-card">
                 <span>ACTIVE TUNNELS</span>
-                <strong data-field="publicAccessActiveTunnels">Checking...</strong>
+                <strong data-field="publicAccessActiveTunnels">—</strong>
               </article>
               <article class="playit-summary-card">
                 <span>CONNECTED PROVIDER</span>
-                <strong data-field="publicAccessProvider">Checking...</strong>
+                <strong data-field="publicAccessProvider">—</strong>
               </article>
               <article class="playit-summary-card">
                 <span>TUNNEL STATUS</span>
-                <strong data-field="playitConnected">Checking...</strong>
+                <strong data-field="playitConnected">—</strong>
               </article>
               <article class="playit-summary-card">
                 <span>RECENT ACTIVITY</span>
-                <strong data-field="publicAccessActivity">Checking...</strong>
+                <strong data-field="publicAccessActivity">—</strong>
               </article>
             </div>
 
@@ -895,38 +899,38 @@
               <article class="status-card status-card--wide playit-status-card" data-playit-status-card data-public-access-service-card="playit-primary" role="button" tabindex="0">
                 <div class="status-card__top">
                   <span class="service-icon">PA</span>
-                  <span class="status-pill status-pill--planned" data-playit-status-pill data-field="playitConnected">Checking...</span>
+                  <span class="status-pill status-pill--planned" data-playit-status-pill data-field="playitConnected">Loading</span>
                 </div>
                 <h3>Public Service</h3>
                 <p data-field="playitSummary">Checking public access status...</p>
                 <dl>
                   <div>
                     <dt>Service Name</dt>
-                    <dd data-field="publicAccessServiceName">Checking...</dd>
+                    <dd data-field="publicAccessServiceName">—</dd>
                   </div>
                   <div>
                     <dt>Local Port</dt>
-                    <dd data-field="playitLocalPort">Checking...</dd>
+                    <dd data-field="playitLocalPort">—</dd>
                   </div>
                   <div>
                     <dt>Provider</dt>
-                    <dd data-field="publicAccessProvider">Checking...</dd>
+                    <dd data-field="publicAccessProvider">—</dd>
                   </div>
                   <div>
                     <dt>Public Address</dt>
-                    <dd data-field="playitTunnelAddress">Checking...</dd>
+                    <dd data-field="playitTunnelAddress">—</dd>
                   </div>
                   <div>
                     <dt>Status</dt>
-                    <dd data-field="playitConnected">Checking...</dd>
+                    <dd data-field="playitConnected">—</dd>
                   </div>
                   <div>
                     <dt>Reachability</dt>
-                    <dd data-field="publicAccessReachability">Checking...</dd>
+                    <dd data-field="publicAccessReachability">—</dd>
                   </div>
                   <div>
                     <dt>Last Refresh</dt>
-                    <dd data-field="playitLastSuccessfulRefresh">Checking...</dd>
+                    <dd data-field="playitLastSuccessfulRefresh">—</dd>
                   </div>
                 </dl>
                 <div class="settings-actions public-access-actions" data-public-access-service-actions aria-label="Public service actions"></div>
@@ -966,7 +970,7 @@
               <article class="status-card playit-service-card">
                 <div class="status-card__top">
                   <span class="service-icon">SV</span>
-                  <span class="status-pill status-pill--planned" data-playit-service-state>Checking...</span>
+                  <span class="status-pill status-pill--planned" data-playit-service-state>Loading</span>
                 </div>
                 <h3>Playit Service</h3>
                 <p data-playit-service-meta>Checking Playit service state...</p>
@@ -1002,27 +1006,27 @@
                 <dl>
                   <div>
                     <dt>Installed</dt>
-                    <dd data-field="playitInstalled">Checking...</dd>
+                    <dd data-field="playitInstalled">—</dd>
                   </div>
                   <div>
                     <dt>Running</dt>
-                    <dd data-field="playitRunning">Checking...</dd>
+                    <dd data-field="playitRunning">—</dd>
                   </div>
                   <div>
                     <dt>Local IP</dt>
-                    <dd data-field="playitLocalIp">Checking...</dd>
+                    <dd data-field="playitLocalIp">—</dd>
                   </div>
                   <div>
                     <dt>Protocol</dt>
-                    <dd data-field="playitProtocol">Checking...</dd>
+                    <dd data-field="playitProtocol">—</dd>
                   </div>
                   <div>
                     <dt>Tunnel ID</dt>
-                    <dd data-field="playitTunnelId">Checking...</dd>
+                    <dd data-field="playitTunnelId">—</dd>
                   </div>
                   <div>
                     <dt>Last Check</dt>
-                    <dd data-field="playitLastSuccessfulRefresh">Checking...</dd>
+                    <dd data-field="playitLastSuccessfulRefresh">—</dd>
                   </div>
                   <div>
                     <dt>Latency</dt>
@@ -1030,15 +1034,15 @@
                   </div>
                   <div>
                     <dt>Connection Health</dt>
-                    <dd data-field="publicAccessConnectionHealth">Checking...</dd>
+                    <dd data-field="publicAccessConnectionHealth">—</dd>
                   </div>
                   <div>
                     <dt>Public Reachability</dt>
-                    <dd data-field="publicAccessReachability">Checking...</dd>
+                    <dd data-field="publicAccessReachability">—</dd>
                   </div>
                   <div>
                     <dt>Capabilities</dt>
-                    <dd data-field="publicAccessProviderCapabilities">Checking...</dd>
+                    <dd data-field="publicAccessProviderCapabilities">—</dd>
                   </div>
                   <div>
                     <dt>Traffic</dt>

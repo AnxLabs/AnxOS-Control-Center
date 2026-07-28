@@ -9,7 +9,8 @@ const { redactString } = require("../shared/redaction");
 
 const DEV_SSH_PROFILES_PATH = path.resolve(__dirname, "..", "..", "config", "ssh-profiles.json");
 const DEFAULT_CONNECT_TIMEOUT_MS = 10000;
-const SHELL_START_TIMEOUT_MS = 10000;
+const SHELL_START_TIMEOUT_MS = 15000;
+const DEFAULT_SHELL_START_ATTEMPTS = 2;
 const DEFAULT_SHELL_COLS = 120;
 const DEFAULT_SHELL_ROWS = 32;
 const VALID_AUTH_TYPES = new Set(["password", "privateKey"]);
@@ -293,10 +294,30 @@ function createSessionLabel(profile) {
 
 function mapConnectionError(error) {
   const code = error?.level === "client-authentication" ? "SSH_AUTH_FAILED" : error?.code || null;
+  const message = String(error?.message || "");
 
-  if (code === "SSH_AUTH_FAILED" || /all configured authentication methods failed|authentication/i.test(error?.message || "")) {
+  if (
+    code === "HOST_VERIFICATION_FAILED" ||
+    code === "SSH_HOST_KEY_MISMATCH" ||
+    /host key verification failed|host key mismatch|remote host identification has changed/i.test(message)
+  ) {
+    return new SshServiceError("Host key mismatch. Verify the server identity before connecting again.", {
+      code: "SSH_HOST_KEY_MISMATCH",
+    });
+  }
+
+  if (
+    code === "SSH_AUTH_FAILED" ||
+    /all configured authentication methods failed|authentication failed/i.test(message)
+  ) {
     return new SshServiceError("Authentication failed. Check your username, password, or private key.", {
       code: "SSH_AUTH_FAILED",
+    });
+  }
+
+  if (code === "EACCES" || /permission denied|publickey/i.test(message)) {
+    return new SshServiceError("Permission denied. The account or key is not allowed to open this SSH session.", {
+      code: "SSH_PERMISSION_DENIED",
     });
   }
 
@@ -306,7 +327,7 @@ function mapConnectionError(error) {
     });
   }
 
-  if (code === "ETIMEDOUT" || /timed out/i.test(error?.message || "")) {
+  if (code === "ETIMEDOUT" || /timed out/i.test(message)) {
     return new SshServiceError("Connection timed out. The SSH host did not respond in time.", {
       code: "SSH_TIMEOUT",
     });
@@ -315,6 +336,18 @@ function mapConnectionError(error) {
   if (code === "EHOSTUNREACH" || code === "ENETUNREACH" || code === "ENOTFOUND") {
     return new SshServiceError("Host unreachable. Check the host address and network connectivity.", {
       code: "SSH_HOST_UNREACHABLE",
+    });
+  }
+
+  if (code === "ECONNRESET" || code === "EPIPE" || /socket hang up|connection reset/i.test(message)) {
+    return new SshServiceError("SSH connection was interrupted by the remote host. AnxOS will retry when it is safe to do so.", {
+      code: "SSH_CONNECTION_INTERRUPTED",
+    });
+  }
+
+  if (code === "SSH_AGENT_UNAVAILABLE" || /agent.*(?:unavailable|not running|refused)/i.test(message)) {
+    return new SshServiceError("SSH agent unavailable. Start or unlock the configured agent, then retry.", {
+      code: "SSH_AGENT_UNAVAILABLE",
     });
   }
 
@@ -561,7 +594,7 @@ class SshService extends EventEmitter {
       host: profile.host,
       port: normalizePort(profile.port),
       username: profile.username,
-      readyTimeout: DEFAULT_CONNECT_TIMEOUT_MS,
+      readyTimeout: this.connectTimeoutMs,
       keepaliveInterval: 15000,
       keepaliveCountMax: 2,
       tryKeyboard: false,
@@ -648,6 +681,7 @@ class SshService extends EventEmitter {
       failureCode: null,
       connectTimer: null,
       shellStartTimer: null,
+      shellStartAttempt: 0,
     };
 
     this.sessions.set(sessionId, session);
@@ -667,18 +701,29 @@ class SshService extends EventEmitter {
         clearTimeout(session.connectTimer);
         session.connectTimer = null;
       }
-      session.phase = "waiting-shell";
+      session.phase = "authenticating";
       session.connectedAt = new Date().toISOString();
-      session.message = "Waiting for remote shell...";
+      session.message = "Authenticated. Starting remote shell...";
       this.emit("session-updated", createSessionSnapshot(session));
-      session.shellStartTimer = setTimeout(() => {
-        if (!session.shellReady && !session.didClose) {
-          this.handleSessionFailure(sessionId, new SshServiceError("SSH connection timed out before the remote shell became available.", {
+      const openShell = () => {
+        session.shellStartAttempt += 1;
+        session.phase = session.shellStartAttempt > 1 ? "retrying-shell" : "waiting-shell";
+        session.message = session.shellStartAttempt > 1
+          ? "Remote shell was slow to start. Retrying automatically..."
+          : "Waiting for remote shell...";
+        this.emit("session-updated", createSessionSnapshot(session));
+        session.shellStartTimer = setTimeout(() => {
+          session.shellStartTimer = null;
+          if (session.shellReady || session.didClose) return;
+          if (session.shellStartAttempt < DEFAULT_SHELL_START_ATTEMPTS) {
+            openShell();
+            return;
+          }
+          this.handleSessionFailure(sessionId, new SshServiceError("SSH authentication succeeded, but the remote shell did not start in time.", {
             code: "SSH_SHELL_START_TIMEOUT",
           }));
-        }
-      }, this.shellStartTimeoutMs);
-      client.shell(
+        }, this.shellStartTimeoutMs);
+        client.shell(
         {
           term: "xterm-256color",
           cols: Number.isFinite(options.cols) ? options.cols : DEFAULT_SHELL_COLS,
@@ -731,7 +776,9 @@ class SshService extends EventEmitter {
             if (stream.writable !== false) stream.write("\r");
           } catch {}
         },
-      );
+        );
+      };
+      openShell();
     });
 
     client.on("error", (error) => {

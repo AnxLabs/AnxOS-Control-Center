@@ -13345,6 +13345,28 @@ html[data-ui-generation="v1.9"] .inline-action {
     grid-template-columns: minmax(200px, 240px) 10px minmax(0, 1fr);
   }
 
+  .files-connect-bar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .files-connect-bar .ssh-connection-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+
+  .file-toolbar {
+    grid-template-columns: minmax(220px, 1fr) minmax(180px, 0.72fr);
+  }
+
+  .file-toolbar-stack {
+    grid-column: 1 / -1;
+    justify-items: start;
+  }
+
+  .file-actions {
+    justify-content: flex-start;
+  }
+
   .file-manager-shell:not(.is-edit-mode) .file-workspace {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -14680,5 +14702,152 @@ html[data-ui-generation="v1.9"] .inline-action {
 @media (max-width: 720px) {
   .agent-compatibility-card__versions {
     grid-template-columns: 1fr;
+  }
+}
+
+/* Build 192 polish: shared task cards, grouped loading, and consistent compact badges. */
+.workspace-loading-state {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  border-radius: var(--anx-radius-md);
+  background: color-mix(in srgb, var(--accent) 7%, var(--panel));
+}
+
+.workspace-loading-state[hidden] {
+  display: none;
+}
+
+.workspace-loading-state > span:last-child {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.workspace-loading-state small {
+  color: var(--muted);
+}
+
+.workspace-loading-state__spinner {
+  width: 1.1rem;
+  height: 1.1rem;
+  flex: 0 0 auto;
+  border: 2px solid color-mix(in srgb, var(--accent) 26%, transparent);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+
+.download-item {
+  gap: 0.85rem;
+  padding: 1rem;
+  border-radius: var(--anx-radius-lg);
+  background: linear-gradient(145deg, color-mix(in srgb, var(--panel-strong) 96%, var(--accent) 4%), var(--panel));
+}
+
+.download-item__header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.download-item__icon {
+  display: grid;
+  width: 2.55rem;
+  height: 2.55rem;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel-strong));
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.download-item__heading {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.download-item__heading strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.download-item__logs {
+  padding-top: 0.2rem;
+  border-top: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+}
+
+html[data-ui-generation="v1.9"] .status-pill,
+html[data-ui-generation="v1.9"] .marketplace-card__badge {
+  min-height: 1.55rem;
+  padding: 0.25rem 0.58rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 750;
+  line-height: 1;
+  letter-spacing: 0.015em;
+}
+
+html[data-ui-generation="v1.9"] .marketplace-card {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 0.9rem;
+  padding: 1.05rem;
+}
+
+html[data-ui-generation="v1.9"] .marketplace-card .inline-action {
+  min-height: 2.25rem;
+  padding-inline: 0.9rem;
+  font-weight: 750;
+}
+
+.file-editor-toolbar,
+.file-editor-topbar,
+.file-editor-pathbar {
+  border-color: color-mix(in srgb, var(--border) 68%, transparent);
+}
+
+.file-editor-toolbar {
+  gap: 0.75rem;
+}
+
+.page[data-page="files"] .files-connect-bar {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.page[data-page="files"] .files-connect-bar .ssh-connection-actions {
+  grid-column: 1 / -1;
+  justify-content: flex-start;
+}
+
+.page[data-page="files"] .file-toolbar {
+  grid-template-columns: minmax(220px, 1fr) minmax(180px, 0.72fr);
+}
+
+.page[data-page="files"] .file-toolbar-stack {
+  grid-column: 1 / -1;
+  justify-items: start;
+}
+
+.page[data-page="files"] .file-actions {
+  justify-content: flex-start;
+}
+
+@media (max-width: 720px) {
+  .download-item__header {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .download-item__header > .status-pill {
+    grid-column: 2;
+    justify-self: start;
   }
 }

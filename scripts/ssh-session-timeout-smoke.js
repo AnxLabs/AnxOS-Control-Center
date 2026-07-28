@@ -11,13 +11,17 @@ process.env.ANXOS_SELECTED_NODE_ID = "timeout-node";
 const source = fs.readFileSync(path.join(__dirname, "..", "src", "services", "sshService.js"), "utf8");
 const { SshService } = require("../src/services/sshService");
 
-assert(source.includes("const SHELL_START_TIMEOUT_MS = 10000;"), "SSH shell startup must have a bounded timeout.");
+assert(source.includes("const SHELL_START_TIMEOUT_MS = 15000;"), "SSH shell startup must have a bounded timeout.");
+assert(source.includes("const DEFAULT_SHELL_START_ATTEMPTS = 2;"), "A slow shell startup must receive one bounded automatic retry.");
 assert(source.includes("const DEFAULT_CONNECT_TIMEOUT_MS = 10000;"), "SSH connection establishment must have a bounded timeout.");
 assert(source.indexOf("session.connectTimer = setTimeout") < source.indexOf('client.on("ready"'), "SSH connect timeout must cover pre-ready stalls.");
 assert(source.indexOf("session.shellStartTimer = setTimeout") > source.indexOf('client.on("ready"'), "SSH shell startup timeout must begin after the transport is ready.");
 assert(source.includes("SSH_TIMEOUT"), "SSH connection timeout must use a structured error code.");
 assert(source.includes("SSH_SHELL_START_TIMEOUT"), "SSH shell startup timeout must use a structured error code.");
 assert(source.includes("SSH_SHELL_OPEN_FAILED"), "SSH PTY failures must use a structured shell-open error code.");
+assert(source.includes("SSH_HOST_KEY_MISMATCH"), "SSH host-key failures must have a distinct error code.");
+assert(source.includes("SSH_PERMISSION_DENIED"), "SSH permission failures must have a distinct error code.");
+assert(source.includes("SSH_AGENT_UNAVAILABLE"), "SSH agent failures must have a distinct error code.");
 assert(source.includes("Waiting for remote shell..."), "SSH auth success must report waiting-for-shell separately.");
 assert(source.includes("shellReady: Boolean(session.shellReady)"), "SSH snapshots must expose shell readiness separately from connection state.");
 assert(source.includes("SSH_SHELL_NOT_READY"), "SSH write failures must distinguish a connected transport from an unready shell.");
@@ -64,7 +68,7 @@ class ReadyNoShellClient extends StalledClient {
   connect() {
     queueMicrotask(() => this.emit("ready"));
   }
-  shell() {}
+  shell() { this.shellAttempts = (this.shellAttempts || 0) + 1; }
 }
 
 class PtyFailureClient extends StalledClient {
@@ -107,10 +111,11 @@ async function main() {
   service.createClient = () => noShellClient;
   const shellTimeout = service.connect({ profileId: "timeout-profile", nodeId: "timeout-node", password: "fixture-only" });
   assert.strictEqual(shellTimeout.status, "connecting", "Ready-without-shell fixture should begin in connecting state.");
-  await new Promise((resolve) => setTimeout(resolve, 80));
+  await new Promise((resolve) => setTimeout(resolve, 110));
   assert.strictEqual(errors.length, 2, "A stalled shell allocation must emit one bounded shell-start failure.");
   assert.strictEqual(errors[1].code, "SSH_SHELL_START_TIMEOUT");
-  assert.match(errors[1].message, /remote shell became available/i);
+  assert.match(errors[1].message, /authentication succeeded.*remote shell did not start/i);
+  assert.strictEqual(noShellClient.shellAttempts, 2, "A stalled remote shell must be retried once automatically.");
   assert.strictEqual(service.sessions.size, 0, "Shell timeout cleanup must remove the pending session.");
   assert.strictEqual(noShellClient.ended, true, "Shell timeout cleanup must close the SSH client.");
   assert.strictEqual(noShellClient.destroyed, true, "Shell timeout cleanup must destroy the SSH client.");

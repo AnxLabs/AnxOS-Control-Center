@@ -1061,7 +1061,6 @@ const STARTUP_MINIMUM_MS = 2000;
 const SSH_OUTPUT_LINE_LIMIT = 1500;
 const SSH_TERMINAL_DEFAULT_COLS = 120;
 const SSH_TERMINAL_DEFAULT_ROWS = 32;
-const SSH_RENDERER_CONNECT_TIMEOUT_MS = 28000;
 const SSH_RENDERER_PHASES = [
   { at: 0, phase: "connecting", message: "Connecting to SSH host..." },
   { at: 5000, phase: "authenticating", message: "Authenticating SSH credentials..." },
@@ -9323,6 +9322,7 @@ async function runPublicAccessAction(action) {
 }
 
 function renderPlayitSnapshot(snapshot) {
+  document.querySelector("[data-public-access-loading]")?.setAttribute("hidden", "");
   latestPlayitSnapshot = snapshot;
   const configuredAddress = getConfiguredPlayitAddress();
   const playitState = getPlayitState(snapshot, configuredAddress);
@@ -9452,6 +9452,7 @@ function renderPublicAccessProviders(providers = []) {
 }
 
 function renderPublicAccessSnapshot(snapshot = {}) {
+  document.querySelector("[data-public-access-loading]")?.setAttribute("hidden", "");
   latestPublicAccessSnapshot = snapshot;
   const playitSnapshot = snapshot.playit || snapshot;
   renderPlayitSnapshot(playitSnapshot);
@@ -9488,6 +9489,7 @@ function renderPublicAccessSnapshot(snapshot = {}) {
 }
 
 function renderPlayitUnavailable(message = "Public Access status unavailable.") {
+  document.querySelector("[data-public-access-loading]")?.setAttribute("hidden", "");
   const unavailable = getPublicAccessRequestUnavailableReason(null, message);
   latestPlayitSnapshot = null;
   setPlayitVisualState("missing");
@@ -16355,6 +16357,39 @@ function buildDependencyInstallPanel(download = {}) {
   return panel;
 }
 
+function isInternalOperationIdentifier(value) {
+  return /^(?:provider-install|operation|job|queue|steamcmd-update)[-:][a-z0-9:-]+$/i.test(String(value || "").trim());
+}
+
+function getDownloadFriendlyTitle(download = {}) {
+  const candidates = [
+    download.name,
+    download.title,
+    download.displayName,
+    download.instanceName,
+    download.metadata?.title,
+    download.metadata?.displayName,
+    download.dependencyName,
+    download.fileName,
+  ];
+  const resolved = candidates.find((value) => value && !isInternalOperationIdentifier(value));
+  if (resolved) {
+    return /^(?:install|installing|download|downloading)\b/i.test(String(resolved))
+      ? String(resolved)
+      : `Installing ${resolved}`;
+  }
+  return String(download.status || "").toLowerCase() === "complete" ? "Installation complete" : "Installing...";
+}
+
+function getDownloadProviderLabel(download = {}) {
+  const provider = download.providerName || download.provider || download.metadata?.provider || "";
+  if (/curseforge/i.test(provider)) return "CurseForge";
+  if (/modrinth/i.test(provider)) return "Modrinth";
+  if (/steam/i.test(provider) || /steamcmd/i.test(download.installerType || "")) return "SteamCMD";
+  if (isDependencyDownload(download)) return "AnxOS";
+  return provider || "Marketplace";
+}
+
 function renderMarketplaceDownloads(downloads = []) {
   if (!downloadList) {
     return;
@@ -16386,12 +16421,24 @@ function renderMarketplaceDownloads(downloads = []) {
     }
     const header = document.createElement("div");
     header.className = "download-item__header";
+    const icon = document.createElement("span");
+    icon.className = "download-item__icon";
+    icon.setAttribute("aria-hidden", "true");
+    const providerLabel = getDownloadProviderLabel(download);
+    icon.textContent = providerLabel.slice(0, 2).toUpperCase();
+    const heading = document.createElement("span");
+    heading.className = "download-item__heading";
     const name = document.createElement("strong");
-    name.textContent = download.name || download.id;
+    name.textContent = getDownloadFriendlyTitle(download);
+    const providerBadge = document.createElement("span");
+    providerBadge.className = "marketplace-card__badge";
+    providerBadge.textContent = providerLabel;
+    heading.append(name, providerBadge);
     const status = document.createElement("span");
-    status.className = "status-pill";
-    status.textContent = download.status || "queued";
-    header.append(name, status);
+    const normalizedStatus = normalizeOperationStatus(download.status);
+    status.className = `status-pill ${operationStatusTone(normalizedStatus)}`;
+    status.textContent = operationStatusLabel(normalizedStatus);
+    header.append(icon, heading, status);
 
     const bar = document.createElement("div");
     const indeterminate = dependencyDownload && download.progressMode !== "determinate" && !["complete", "degraded", "failed", "cancelled"].includes(String(download.status || "").toLowerCase());
@@ -16404,12 +16451,11 @@ function renderMarketplaceDownloads(downloads = []) {
 
     const meta = document.createElement("small");
     const eta = Number.isFinite(download.etaSeconds) && download.status !== "failed" ? ` · ETA ${formatDuration(download.etaSeconds)}` : "";
-    const url = download.url ? ` · ${download.url}` : "";
     const stage = download.stage || "Preparing";
     const installer = download.installerType ? ` · ${download.installerType}` : "";
     const terminalState = ["failed", "cancelled", "complete", "degraded"].includes(download.status) ? download.status : "";
     const speedText = terminalState ? "" : ` · ${formatDownloadSpeed(download.speedBytesPerSecond)}`;
-    meta.textContent = download.body || `${stage}${installer} · ${download.progress || 0}%${speedText}${eta}${url}`;
+    meta.textContent = download.body || `${stage}${installer} · ${download.progress || 0}%${speedText}${eta}`;
 
     const metadata = document.createElement("small");
     metadata.textContent = download.metadataText || "";
@@ -16428,6 +16474,14 @@ function renderMarketplaceDownloads(downloads = []) {
       ? "View installer logs"
       : "Logs";
     logs.append(summary);
+    if (download.id || download.url) {
+      const technical = document.createElement("pre");
+      technical.textContent = [
+        download.id ? `Operation: ${download.id}` : "",
+        download.url ? `Source: ${download.url}` : "",
+      ].filter(Boolean).join("\n");
+      logs.append(technical);
+    }
     (Array.isArray(download.logs) ? download.logs : []).forEach((entry) => {
       const line = document.createElement("pre");
       line.textContent = [
@@ -27275,19 +27329,6 @@ function getSshConnectingPhase(session = null) {
   return SSH_RENDERER_PHASES.reduce((selected, phase) => (age >= phase.at ? phase : selected), SSH_RENDERER_PHASES[0]);
 }
 
-function enforceSshRendererTimeouts() {
-  let changed = false;
-  sshSessions.forEach((session) => {
-    if (session.status !== "connecting") return;
-    if (getSshSessionAgeMs(session) <= SSH_RENDERER_CONNECT_TIMEOUT_MS) return;
-    session.status = "error";
-    session.message = "SSH connection timed out before the remote shell became available. Retry or cancel and check the host, credentials, and network path.";
-    sshTransientStatusMessage = session.message;
-    changed = true;
-  });
-  return changed;
-}
-
 function updateSshConnectWatchdog() {
   if (sshConnectWatchdogTimer) {
     window.clearTimeout(sshConnectWatchdogTimer);
@@ -27316,6 +27357,12 @@ function clearSshConnectWatchdog() {
 
 function getSshSessionMessage(session) {
   if (session?.status === "connecting") {
+    if (
+      ["authenticating", "waiting-shell", "retrying-shell"].includes(session.diagnostics?.phase) &&
+      session.message
+    ) {
+      return session.message;
+    }
     return getSshConnectingPhase(session).message;
   }
 
@@ -27502,10 +27549,6 @@ function renderSshSessionTabs() {
 }
 
 function renderSshView() {
-  const timedOut = enforceSshRendererTimeouts();
-  if (timedOut) {
-    window.requestAnimationFrame(renderSshView);
-  }
   renderSshProfileSelectors();
   renderSshSessionTabs();
 
