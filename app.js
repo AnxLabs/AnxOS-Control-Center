@@ -719,6 +719,8 @@ const routingDiagnostics = document.querySelector("[data-routing-diagnostics]");
 const routingDiagnosticFields = document.querySelectorAll("[data-routing-diagnostic]");
 const fieldMap = new Map();
 let systemRequestInFlight = false;
+let systemRequestSerial = 0;
+let activeSystemRequestSerial = 0;
 let ampRequestInFlight = false;
 let playitRequestInFlight = false;
 let latestPublicAccessSnapshot = null;
@@ -24668,9 +24670,14 @@ async function refreshDashboard() {
   }
 
   systemRequestInFlight = true;
+  const requestSerial = ++systemRequestSerial;
+  activeSystemRequestSerial = requestSerial;
   const requestContext = getNodeRequestContext("system");
   if (shouldBackOffAgentPolling("system", requestContext)) {
-    systemRequestInFlight = false;
+    if (activeSystemRequestSerial === requestSerial) {
+      systemRequestInFlight = false;
+      activeSystemRequestSerial = 0;
+    }
     return;
   }
 
@@ -24697,9 +24704,10 @@ async function refreshDashboard() {
     renderFriendlyDashboard();
     showToast("System metrics are unavailable.");
   } finally {
-    if (isNodeRequestCurrent(requestContext)) {
+    if (activeSystemRequestSerial === requestSerial) {
       markStartupReady("system");
       systemRequestInFlight = false;
+      activeSystemRequestSerial = 0;
     }
   }
 }
@@ -30845,6 +30853,7 @@ function clearDashboardMetricsForActiveTarget(message = "Unavailable") {
 
 function resetNodeScopedRendererState(message = "Loading selected node...") {
   systemRequestInFlight = false;
+  activeSystemRequestSerial = 0;
   ampRequestInFlight = false;
   playitRequestInFlight = false;
   dockerRequestInFlight = false;

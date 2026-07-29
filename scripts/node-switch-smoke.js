@@ -94,11 +94,13 @@ includesAll(appSource, [
 ], "Stale response protection");
 
 includesAll(compact(appSource), [
-  "if (isNodeRequestCurrent(requestContext)) { markStartupReady(\"system\"); systemRequestInFlight = false;",
+  "const requestSerial = ++systemRequestSerial; activeSystemRequestSerial = requestSerial;",
+  "if (activeSystemRequestSerial === requestSerial) { markStartupReady(\"system\"); systemRequestInFlight = false; activeSystemRequestSerial = 0;",
+  "systemRequestInFlight = false; activeSystemRequestSerial = 0;",
   "if (isNodeRequestCurrent(requestContext)) { dockerRequestInFlight = false;",
   "if (isNodeRequestCurrent(requestContext)) { instancesRequestInFlight = false;",
   "if (isNodeRequestCurrent(requestContext)) { backupRequestInFlight = false;",
-], "Current-context request finalizers");
+], "Request ownership and current-context finalizers");
 
 includesAll(appSource, [
   "!shouldSkipNodeScopedPolling() && getActivePageName() === \"dashboard\"",
