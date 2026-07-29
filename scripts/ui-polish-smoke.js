@@ -241,9 +241,8 @@ assert(app.includes("pre = createTextElement(\"pre\", JSON.stringify(event.detai
 assert(app.includes("function isConfiguredStorageRootPath") && app.includes("Configured storage roots cannot be deleted from AnxOS"), "Files UI must prevent configured storage roots from being presented as deletable items.");
 assert(app.includes('/^(?:provider|unknown|n\\/a)$/i.test(text)'), "Marketplace cards must suppress internal provider placeholder versions.");
 assert(
-  styles.includes("body.create-server-window .create-server-wizard-actions {\n  position: sticky;") &&
-    styles.includes("body.create-server-window .marketplace-wizard {\n  grid-template-rows: auto minmax(180px, 1fr) auto auto;\n  min-height: 0;\n  padding-bottom: 0;") &&
-    styles.includes("body.create-server-window .create-server-step-panel {\n  max-height: min(340px, 42dvh);\n  padding-bottom: 86px;\n  scroll-padding-bottom: 86px;"),
+  styles.includes("body.create-server-window .create-server-wizard-actions {\n  position: static;") &&
+    styles.includes("body.create-server-window .marketplace-wizard {\n  grid-template-rows: auto minmax(180px, 1fr) auto auto;\n  min-height: 0;\n  padding-bottom: 0;"),
   "Create Server actions must remain in the wizard flow so default-size windows cannot cover configuration controls.",
 );
 

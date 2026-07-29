@@ -12332,8 +12332,6 @@ body.create-server-window .marketplace-wizard {
 
 body.create-server-window .create-server-step-panel {
   max-height: min(340px, 42dvh);
-  padding-bottom: 86px;
-  scroll-padding-bottom: 86px;
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -12541,7 +12539,7 @@ body.create-server-window .marketplace-side-panel {
 }
 
 body.create-server-window .create-server-wizard-actions {
-  position: sticky;
+  position: static;
   right: auto;
   bottom: 0;
   left: auto;
