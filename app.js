@@ -15164,6 +15164,38 @@ function createMarketplaceSummarySection(titleText, items = []) {
   return section;
 }
 
+function getCreateServerReviewItems(template) {
+  const isMinecraft = isMinecraftMarketplaceTemplate(template);
+  const name = String(getMarketplaceField("name")?.value || template?.displayName || "").trim();
+  const version = String(getMarketplaceField("version")?.value || template?.minecraftVersion || template?.gameVersion || "").trim();
+  const runtime = String(getMarketplaceField("serverType")?.value || template?.serverType || template?.loader || "").trim();
+  const storageLocation = String(getMarketplaceField("storageLocation")?.value || "Managed by the selected Agent instance data root").trim();
+  const memory = String(getMarketplaceField("memory")?.value || template?.defaultRam || "").trim();
+  const port = String(getMarketplaceField("port")?.value || template?.defaultPorts?.[0] || "").trim();
+  const items = [
+    { label: "Server name", value: name || "Unnamed server", state: name ? "ready" : "blocked" },
+    { label: "Target node", value: formatMarketplaceSelectedNodeLabel(), state: "ready" },
+    ...(version ? [{ label: isMinecraft ? "Minecraft version" : "Version", value: version, state: "ready" }] : []),
+    ...(runtime ? [{ label: "Runtime", value: runtime, state: "ready" }] : []),
+    { label: "Install location", value: storageLocation, state: "ready" },
+    ...(memory ? [{ label: "Memory", value: memory, state: "ready" }] : []),
+    ...(port ? [{ label: "Primary port", value: port, state: "ready" }] : []),
+  ];
+  if (isMinecraft) {
+    items.push({
+      label: "Minecraft EULA",
+      value: getMarketplaceField("acceptEula")?.checked ? "Accepted" : "Not accepted",
+      state: getMarketplaceField("acceptEula")?.checked ? "ready" : "blocked",
+    });
+  }
+  items.push({
+    label: "Start after install",
+    value: getMarketplaceField("start")?.checked ? "Enabled" : "Disabled",
+    state: "ready",
+  });
+  return items;
+}
+
 function renderMarketplaceInstallSummary(template) {
   if (!marketplaceInstallSummary) return;
   renderMarketplaceReadiness();
@@ -15237,6 +15269,7 @@ function renderMarketplaceInstallSummary(template) {
   }
   marketplaceInstallSummary.append(
     overview,
+    createMarketplaceSummarySection("Deployment configuration", getCreateServerReviewItems(template)),
     createMarketplaceSummarySection("Runtime requirements", getMarketplaceRequirementItems(template)),
     createMarketplaceSummarySection("Compatibility", getMarketplaceCompatibilityItems(template)),
   );

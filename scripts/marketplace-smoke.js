@@ -3556,6 +3556,10 @@ function assertMarketplaceProductionPolishRendererContracts() {
   assert(appSource.includes("Compatibility unknown"), "Renderer must show unknown compatibility honestly when metadata is absent.");
   assert(appSource.includes("Install path\", \"Managed by the selected Agent instance data root"), "Install review should avoid exposing or inventing raw filesystem paths.");
   assert(appSource.includes("Data preservation\", \"Uninstall and backup behavior are managed"), "Install review should not imply unsupported uninstall/data-preservation choices.");
+  assert(appSource.includes('createMarketplaceSummarySection("Deployment configuration", getCreateServerReviewItems(template))'), "Create Server review should summarize the configured deployment values.");
+  ["Server name", "Target node", "Install location", "Memory", "Primary port", "Minecraft EULA", "Start after install"].forEach((label) => {
+    assert(appSource.includes(`label: "${label}"`), `Create Server review should include ${label}.`);
+  });
   assert(appSource.includes("function getMarketplaceUpdateState"), "Marketplace installed-state polish should render update available/current/unavailable states deliberately.");
   assert(appSource.includes("Stop the instance before validating or updating server files."), "Marketplace updates should be blocked while the installed instance is running.");
   assert(appSource.includes("Provider metadata is not complete enough to compare versions safely."), "Marketplace provider update checks must not guess when metadata is ambiguous.");
