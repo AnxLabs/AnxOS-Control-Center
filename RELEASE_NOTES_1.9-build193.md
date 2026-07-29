@@ -1,6 +1,6 @@
 # AnxOS Control Center v1.9 Build 193
 
-Build 193 is an unpublished development build focused on Marketplace reliability, unified server creation, operation visibility, notifications, and responsive desktop polish.
+Build 193 is a published Private Alpha focused on Marketplace reliability, unified server creation, operation visibility, notifications, and responsive desktop polish.
 
 ## Added
 
@@ -20,4 +20,10 @@ Build 193 is an unpublished development build focused on Marketplace reliability
 
 - Installed ATM10 through the normal Marketplace workflow on an existing remote node.
 - Exercised Marketplace, Create Server, Download Manager, Notifications, Dashboard, Nodes, Instances, Docker, Files, Public Access, Security, Agent Control, and Settings with Computer Use.
-- Revalidated SSH connectivity as part of the packaged release-candidate regression pass.
+- Validated signed in-place upgrade behavior, preserved user data and configuration, and verified the packaged application through Computer Use.
+
+## Known Issues
+
+- SSH connectivity is currently undergoing stabilization.
+- Some SSH scenarios may authenticate but fail to open an interactive shell.
+- SSH development is intentionally deferred to a future stabilization build.
