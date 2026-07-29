@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const { Readable } = require("stream");
 const dotenv = require("dotenv");
 const { app } = require("electron");
 const {
@@ -1503,6 +1504,94 @@ async function requestBuffer(pathname, options = {}) {
     });
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+async function requestStream(pathname, options = {}) {
+  const {
+    config: configOverride = null,
+    method = "GET",
+    body = null,
+    timeoutMs = REQUEST_TIMEOUT_MS,
+  } = options;
+  const config = getAgentConfig(configOverride);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), Math.max(1000, Number(timeoutMs) || REQUEST_TIMEOUT_MS));
+  let streamReturned = false;
+
+  try {
+    const headers = {
+      Accept: "application/octet-stream, application/json",
+    };
+    if (config.token) headers.Authorization = `Bearer ${config.token}`;
+    if (body !== null) headers["Content-Type"] = "application/json";
+
+    const requestUrl = buildAgentUrl(pathname, configOverride);
+    const response = await fetch(requestUrl, {
+      method,
+      headers,
+      body: body === null ? undefined : JSON.stringify(body),
+      signal: controller.signal,
+    });
+    const contentType = response.headers.get("content-type") || "";
+    if (!response.ok) {
+      const buffer = Buffer.from(await response.arrayBuffer());
+      const payload = parseAgentPayload(buffer, contentType);
+      const responseErrorCode = getAgentPayloadErrorCode(payload);
+      const message = getAgentHttpErrorMessage(response.status, responseErrorCode, payload);
+      throw new AgentClientError(message, {
+        status: response.status,
+        code: responseErrorCode,
+        payload,
+      });
+    }
+    if (!response.body) {
+      throw new AgentClientError("Agent returned an empty download stream.", {
+        code: "AGENT_EMPTY_RESPONSE",
+      });
+    }
+
+    const stream = Readable.fromWeb(response.body);
+    const clearRequestTimeout = () => clearTimeout(timeout);
+    stream.once("end", clearRequestTimeout);
+    stream.once("error", clearRequestTimeout);
+    stream.once("close", clearRequestTimeout);
+    streamReturned = true;
+    return {
+      stream,
+      contentType,
+      headers: Object.fromEntries(response.headers.entries()),
+    };
+  } catch (error) {
+    if (error instanceof AgentClientError) throw error;
+    const errorCode = error?.name === "AbortError"
+      ? "AGENT_TIMEOUT"
+      : getTransportErrorCode(error) || "AGENT_UNAVAILABLE";
+    const requestUrl = (() => {
+      try {
+        return buildAgentUrl(pathname, configOverride);
+      } catch (urlError) {
+        return urlError?.payload?.error?.details?.invalidUrl || null;
+      }
+    })();
+    const transportMessage = getAgentTransportErrorMessage(errorCode, requestUrl);
+    throw new AgentClientError(transportMessage, {
+      code: errorCode,
+      payload: {
+        error: {
+          code: errorCode,
+          message: transportMessage,
+          details: {
+            name: error?.name || null,
+            originalMessage: error?.message || null,
+            causeCode: error?.cause?.code || error?.code || null,
+            url: requestUrl,
+          },
+        },
+      },
+    });
+  } finally {
+    if (!streamReturned) clearTimeout(timeout);
   }
 }
 
@@ -3251,6 +3340,7 @@ module.exports = {
   getSharedAgentTokenStatus,
   isCompatibilityFallbackAllowed,
   requestBuffer,
+  requestStream,
   requestJson,
   rotateAgentSettingsToken,
   saveAgentSettings,

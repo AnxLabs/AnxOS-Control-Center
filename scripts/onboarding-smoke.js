@@ -173,7 +173,7 @@ try {
     "Copy Technical Details",
     "normalizeFriendlyError",
     "openFirstServerGuide",
-    "openMarketplaceWizard(option.templateId)",
+    'openMarketplaceWizard(templateId, { source: "manual" })',
     "first-server-guide-title",
     "first-server-guide-description",
   ].forEach((needle) => assert(app.includes(needle), `Onboarding renderer wiring missing: ${needle}`));

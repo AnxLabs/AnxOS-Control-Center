@@ -147,10 +147,23 @@ async function main() {
     );
     providerConfig.saveMarketplaceConfig({ curseForgeApiKey: "" });
     curseforge._test.setRuntimeApiKey();
-    await assert.rejects(
-      () => marketplace.searchProviderPacks({ provider: "curseforge", nodeId: "anxlab", query: "desktop" }),
-      (error) => error?.code === "CURSEFORGE_API_KEY_REQUIRED",
-      "Missing desktop CurseForge key should remain a CurseForge API-key configuration failure.",
+    const fallback = await marketplace._test.withCurseForgeBrowseFallback("anxlab", async (config) => {
+      if (!config.useAgentProxy) {
+        const error = new Error("CurseForge API key is required.");
+        error.code = "CURSEFORGE_API_KEY_REQUIRED";
+        throw error;
+      }
+      return "agent-fallback";
+    });
+    assert.strictEqual(
+      fallback.value,
+      "agent-fallback",
+      "A rejected desktop CurseForge credential should fall back to the selected registered Agent.",
+    );
+    assert.strictEqual(
+      fallback.config.credentialSource,
+      "protected-node-credential",
+      "CurseForge browse fallback should use the selected node credential.",
     );
 
     console.log("CurseForge browse Agent auth smoke checks passed.");

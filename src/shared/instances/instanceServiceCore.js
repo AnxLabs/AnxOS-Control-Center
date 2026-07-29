@@ -3570,6 +3570,59 @@ async function discoverDetachedRuntime(config = {}) {
   return null;
 }
 
+async function discoverDescendantPortRuntime(config = {}, ancestorPid = null) {
+  const normalizedAncestorPid = normalizePid(ancestorPid);
+  const configuredPorts = configuredRuntimePorts(config);
+  if (!normalizedAncestorPid || configuredPorts.length === 0) {
+    return null;
+  }
+
+  const snapshot = await inspectSystemProcesses();
+  const processesByPid = new Map(snapshot.processes
+    .map((proc) => [normalizePid(proc.pid), proc])
+    .filter(([pid]) => Boolean(pid)));
+  const isDescendant = (pid) => {
+    const visited = new Set();
+    let currentPid = normalizePid(pid);
+    while (currentPid && !visited.has(currentPid) && visited.size < 64) {
+      if (currentPid === normalizedAncestorPid) {
+        return true;
+      }
+      visited.add(currentPid);
+      currentPid = normalizePid(processesByPid.get(currentPid)?.ppid);
+    }
+    return false;
+  };
+
+  const preferredPorts = [
+    Number(config.primaryPort),
+    ...configuredPorts,
+  ].filter((port, index, values) => Number.isInteger(port) && values.indexOf(port) === index);
+  for (const port of preferredPorts) {
+    for (const row of snapshot.ports) {
+      const pid = normalizePid(row.pid);
+      if (Number(row.port) !== port || !pid || !isProcessAlive(pid) || !isDescendant(pid)) {
+        continue;
+      }
+      const proc = processesByPid.get(pid) || {};
+      return {
+        pid,
+        ppid: normalizePid(proc.ppid),
+        processName: proc.name || path.basename(proc.exe || ""),
+        executablePath: proc.exe || null,
+        workingDirectory: proc.cwd || null,
+        commandLine: proc.commandLine || null,
+        ports: [...new Set(snapshot.ports
+          .filter((candidate) => normalizePid(candidate.pid) === pid && configuredPorts.includes(Number(candidate.port)))
+          .map((candidate) => Number(candidate.port)))],
+        detectionMethod: "descendant-port-runtime",
+        runtimeKind: String(config.game || config.type || "managed"),
+      };
+    }
+  }
+  return null;
+}
+
 async function findUnrelatedPortConflicts(config = {}) {
   const ports = configuredRuntimePorts(config);
   if (ports.length === 0) {
@@ -4716,7 +4769,22 @@ function waitForExit(child, timeoutMs) {
 async function stopInstance(instanceId, options = {}) {
   let config = await reconcileConfigState(await loadInstanceConfig(instanceId));
   const entry = runningProcesses.get(config.id);
-  const pid = entry?.child?.pid || config.pid;
+  const trackedRuntimePid = normalizePid(config.runtimeProcess?.pid);
+  const entryPid = normalizePid(entry?.child?.pid);
+  const configPid = normalizePid(config.pid);
+  const descendantRuntime = entryPid
+    ? await discoverDescendantPortRuntime(config, entryPid).catch(() => null)
+    : null;
+  // Script launchers can remain attached while the actual game runtime moves
+  // into a child Java process. Reconciliation records that authoritative
+  // runtime PID. When generic runtimes cannot be identified by executable
+  // name, a configured-port owner is accepted only if its ancestry proves it
+  // is a child of this instance's tracked wrapper.
+  const pid = descendantRuntime?.pid && isProcessAlive(descendantRuntime.pid)
+    ? descendantRuntime.pid
+    : (trackedRuntimePid && isProcessAlive(trackedRuntimePid)
+    ? trackedRuntimePid
+    : (entryPid && isProcessAlive(entryPid) ? entryPid : configPid));
 
   if (!pid || !isProcessAlive(pid)) {
     resetRestartBackoff(config.id);
@@ -4753,7 +4821,9 @@ async function stopInstance(instanceId, options = {}) {
   const shutdownTimeoutMs = Number.isFinite(requestedTimeout) && requestedTimeout > 0
     ? Math.min(config.shutdownTimeoutMs, requestedTimeout)
     : config.shutdownTimeoutMs;
-  const exited = entry ? await waitForExit(entry.child, shutdownTimeoutMs) : await waitForPidExit(pid, shutdownTimeoutMs);
+  let exited = entry && entryPid === pid
+    ? await waitForExit(entry.child, shutdownTimeoutMs)
+    : await waitForPidExit(pid, shutdownTimeoutMs);
 
   if (!exited && isProcessAlive(pid)) {
     try {
@@ -4761,6 +4831,16 @@ async function stopInstance(instanceId, options = {}) {
     } catch {
       // The process may have exited between checks.
     }
+    exited = await waitForPidExit(pid, Math.min(shutdownTimeoutMs, 5000));
+  }
+
+  if (!exited && isProcessAlive(pid)) {
+    const error = createInstanceError("INSTANCE_STOP_FAILED", 500, {
+      instanceId: config.id,
+      pid,
+    });
+    error.message = "The server process did not stop within the configured timeout.";
+    throw error;
   }
 
   config = await updateRuntimeState(config.id, {

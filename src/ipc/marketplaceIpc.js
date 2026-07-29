@@ -71,6 +71,9 @@ function getMarketplaceErrorMessage(error) {
   if (validation?.field) parts.push(`field=${validation.field}`);
   if (validation?.expected) parts.push(`expected=${validation.expected}`);
   if (validation?.received !== undefined) parts.push(`received=${JSON.stringify(validation.received)}`);
+  if (details.field) parts.push(`field=${details.field}`);
+  if (details.advertised !== undefined) parts.push(`advertised=${JSON.stringify(details.advertised)}`);
+  if (details.resolved !== undefined) parts.push(`resolved=${JSON.stringify(details.resolved)}`);
   if (Array.isArray(details.expectedEnvNames)) parts.push(`expectedEnvNames=${details.expectedEnvNames.join(",")}`);
   if (Array.isArray(details.expectedFileEnvNames)) parts.push(`expectedFileEnvNames=${details.expectedFileEnvNames.join(",")}`);
   if (Array.isArray(details.envSourcesChecked)) parts.push(`envSourcesChecked=${details.envSourcesChecked.join(";")}`);
@@ -169,6 +172,21 @@ function getMarketplaceUiError(error) {
       },
     };
   }
+  if (code === "CURSEFORGE_API_KEY_INVALID") {
+    return {
+      code,
+      message: "CurseForge API key is missing or invalid",
+      details: {
+        ...details,
+        provider: "curseforge",
+        action: "open-settings",
+        friendlyMessage: "Update the CurseForge API key in Settings, then retry.",
+        suggestion: "Open Settings and replace the configured CurseForge API key.",
+        debugMessage: getMarketplaceErrorMessage(error),
+        originalMessage: message,
+      },
+    };
+  }
 
   if (code) {
     return {
@@ -249,6 +267,7 @@ async function invokeMarketplaceOperation(operation, context = {}) {
       status: normalized.status?.code || null,
       provider: normalized.provider?.id || null,
       technicalDetails: normalized.technicalDetails,
+      details: uiError.details,
       elapsedMs: Date.now() - startedAt,
     });
     return {

@@ -48,12 +48,22 @@
     return [explicit || rawMessage || cleanMessage, summary].filter(Boolean).join(" | ");
   }
 
+  function getEffectiveCode(error, details, payloadError, cleanMessage) {
+    const explicitCode = details.code || payloadError.code || error?.code || "";
+    if (explicitCode && explicitCode !== "AGENT_HTTP_ERROR") {
+      return explicitCode;
+    }
+    return String(cleanMessage || "").match(/\bcode=([A-Z][A-Z0-9_]{2,})\b/)?.[1]
+      || String(cleanMessage || "").match(/\b(INSTANCE_[A-Z0-9_]+|INVALID_[A-Z0-9_]+)\b/)?.[1]
+      || explicitCode;
+  }
+
   function normalizeMarketplaceError(error = {}, context = {}) {
     const payloadError = error?.payload?.error || {};
     const details = error?.details || payloadError.details || {};
-    const code = details.code || payloadError.code || error?.code || "";
     const rawMessage = getRawMessage(error);
     const cleanMessage = stripIpcErrorWrapper(rawMessage);
+    const code = getEffectiveCode(error, details, payloadError, cleanMessage);
     const friendlyMessage = details.friendlyMessage || payloadError.friendlyMessage || error?.friendlyMessage || "";
     const file = details.file || details.fileName || details.name || null;
     const provider = details.provider || payloadError.provider || error?.provider || "";
@@ -151,6 +161,39 @@
         rawMessage,
         cleanMessage,
         debug: buildDebugText(details, rawMessage, cleanMessage),
+        details,
+      };
+    }
+
+    const friendlyFailures = {
+      INSTANCE_ALREADY_EXISTS: {
+        title: "A server with this name already exists.",
+        body: "Choose a different server name, then retry the deployment.",
+        action: "Return to Review and update the server name.",
+      },
+      INVALID_INSTANCE_ID: {
+        title: "This server name cannot be used.",
+        body: "Use a name with letters, numbers, spaces, underscores, or dashes.",
+        action: "Return to Review and update the server name.",
+      },
+      MINECRAFT_PORT_IN_USE: {
+        title: "The selected Minecraft port is already in use.",
+        body: "Choose another available port, then retry the deployment.",
+        action: "Return to Review and update the port.",
+      },
+    };
+    if (friendlyFailures[code]) {
+      return {
+        code,
+        ...friendlyFailures[code],
+        provider,
+        providerName,
+        file,
+        projectId,
+        fileId,
+        rawMessage,
+        cleanMessage,
+        debug: buildDebugText({ ...details, code }, rawMessage, cleanMessage),
         details,
       };
     }

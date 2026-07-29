@@ -553,7 +553,11 @@
               <button class="primary-button" type="button" data-dashboard-next-action>Open Dashboard</button>
             </div>
             <div class="dashboard-quick-actions" aria-label="Dashboard quick actions">
-              <button class="inline-action dashboard-launcher dashboard-launcher--primary" type="button" data-dashboard-action="create-server"><span>Create</span><strong>New Instance</strong></button>
+              <button class="inline-action dashboard-launcher dashboard-launcher--primary" type="button" data-dashboard-action="refresh"><span>Update</span><strong>Refresh Dashboard</strong></button>
+              <button class="inline-action dashboard-launcher" type="button" data-dashboard-action="restart-agent"><span>Recover</span><strong>Restart Agent</strong></button>
+              <button class="inline-action dashboard-launcher" type="button" data-dashboard-action="start-all"><span>Launch</span><strong>Start All Servers</strong></button>
+              <button class="inline-action dashboard-launcher" type="button" data-dashboard-action="stop-all"><span>Pause</span><strong>Stop All Servers</strong></button>
+              <button class="inline-action dashboard-launcher dashboard-launcher--primary" type="button" data-dashboard-action="create-server"><span>Create</span><strong>New Server</strong></button>
               <button class="inline-action dashboard-launcher" type="button" data-dashboard-action="instances"><span>Manage</span><strong>Instances</strong></button>
               <button class="inline-action dashboard-launcher" type="button" data-dashboard-action="share-server"><span>Invite</span><strong>Share Server</strong></button>
               <button class="inline-action dashboard-launcher" type="button" data-dashboard-action="public-access"><span>Connect</span><strong>Public Access</strong></button>
@@ -603,6 +607,16 @@
               <span>Network</span>
               <strong data-field="networkThroughput">Checking...</strong>
               <small>Current transfer rate</small>
+            </article>
+            <article>
+              <span>Agent</span>
+              <strong data-field="dashboardAgentStatus">Checking...</strong>
+              <small data-field="dashboardAgentVersion">Version unavailable</small>
+            </article>
+            <article>
+              <span>Public Access</span>
+              <strong data-field="dashboardPublicAccess">Checking...</strong>
+              <small data-field="dashboardPublicAccessDetail">Checking configured services</small>
             </article>
           </div>
 
@@ -1476,9 +1490,14 @@
             <div>
               <p class="eyebrow">Application Templates</p>
               <h1>Marketplace</h1>
-              <p class="lede">Browse installable server templates and launch managed instances without manual setup.</p>
+              <p class="lede">Discover server packages, compare compatibility, and hand your selection to Create Server.</p>
             </div>
-            <button class="primary-button" type="button" data-marketplace-action="first-server">Create Your First Server</button>
+            <div class="marketplace-header-actions">
+              <span class="status-pill status-pill--planned" data-marketplace-health>Initializing</span>
+              <button class="inline-action" type="button" data-marketplace-shortcut="downloads">Downloads</button>
+              <button class="inline-action" type="button" data-marketplace-shortcut="notifications">Notifications</button>
+              <button class="primary-button" type="button" data-marketplace-action="first-server">Create Your First Server</button>
+            </div>
           </header>
 
           <section class="marketplace-shell" aria-label="Application marketplace">
@@ -1523,6 +1542,24 @@
                         <option value="quilt">Quilt</option>
                       </select>
                     </label>
+                    <label class="ssh-field">
+                      <span>Release Channel</span>
+                      <select data-marketplace-provider-filter="releaseChannel">
+                        <option value="">Any</option>
+                        <option value="release">Release</option>
+                        <option value="beta">Beta</option>
+                        <option value="alpha">Alpha</option>
+                      </select>
+                    </label>
+                    <label class="ssh-field">
+                      <span>Sort</span>
+                      <select data-marketplace-provider-filter="sort">
+                        <option value="">Provider default</option>
+                        <option value="downloads">Downloads</option>
+                        <option value="updated">Recently updated</option>
+                        <option value="name">Name</option>
+                      </select>
+                    </label>
                     <div class="marketplace-provider-modes" data-marketplace-provider-modes>
                       <button class="marketplace-provider-mode is-active" type="button" data-marketplace-provider-mode="featured">Featured</button>
                       <button class="marketplace-provider-mode" type="button" data-marketplace-provider-mode="trending">Trending</button>
@@ -1544,6 +1581,13 @@
               </section>
 
               <aside class="marketplace-side-panel" aria-label="Installer">
+                <section class="marketplace-discovery-details" data-marketplace-details aria-label="Package details">
+                  <div class="marketplace-details-empty">
+                    <strong>Select a package</strong>
+                    <span>Package information, versions, dependencies, and compatibility appear here.</span>
+                  </div>
+                </section>
+                <div class="marketplace-deployment-panel">
                 <div class="panel-heading">
                   <div>
                     <h3 data-marketplace-selected-name>Select a template</h3>
@@ -1587,8 +1631,23 @@
                 </section>
 
                 <form class="marketplace-wizard" data-marketplace-wizard hidden>
-                  <div class="marketplace-wizard-steps" data-marketplace-wizard-steps></div>
-                  <label class="ssh-field"><span>Name</span><input type="text" data-marketplace-field="name" placeholder="My Server"></label>
+                  <nav class="create-server-step-nav" data-create-server-step-nav aria-label="Create Server steps"></nav>
+                  <div class="marketplace-wizard-steps" data-marketplace-wizard-steps aria-live="polite"></div>
+                  <section class="create-server-step-panel" data-create-server-step-panel="summary">
+                    <p class="eyebrow">Package Summary</p>
+                    <div class="create-server-package-summary" data-create-server-package-summary></div>
+                  </section>
+                  <section class="create-server-step-panel" data-create-server-step-panel="node" hidden>
+                    <p class="eyebrow">Deployment Target</p>
+                    <div class="create-server-node-summary" data-create-server-node-summary></div>
+                    <p class="settings-note">Unavailable nodes remain visible in the target selector with their current connection state.</p>
+                  </section>
+                  <section class="create-server-step-panel" data-create-server-step-panel="runtime" hidden>
+                    <p class="eyebrow">Runtime & Dependencies</p>
+                    <div class="create-server-runtime-summary" data-create-server-runtime-summary></div>
+                  </section>
+                  <section class="create-server-step-panel create-server-config-grid" data-create-server-step-panel="configuration" hidden>
+                  <label class="ssh-field"><span>Server Name</span><input type="text" data-marketplace-field="name" placeholder="My Server" required></label>
                   <div class="ssh-field marketplace-version-field" data-marketplace-field-wrap="version">
                     <span>Minecraft version</span>
                     <div class="marketplace-version-input-row">
@@ -1612,13 +1671,26 @@
                   <label class="console-toggle" data-marketplace-field-wrap="playitTunnel"><input type="checkbox" data-marketplace-field="playitTunnel"><span>Configure Public Access later</span></label>
                   <label class="console-toggle" data-marketplace-field-wrap="acceptEula"><input type="checkbox" data-marketplace-field="acceptEula"><span>Accept Minecraft EULA</span></label>
                   <label class="console-toggle"><input type="checkbox" checked data-marketplace-field="start"><span>Start after install</span></label>
+                  </section>
+                  <section class="create-server-step-panel" data-create-server-step-panel="review" hidden>
+                    <p class="eyebrow">Review Deployment</p>
                   <div class="marketplace-install-summary" data-marketplace-install-summary aria-live="polite"></div>
                   <div class="marketplace-recovery-actions" data-marketplace-recovery-actions hidden></div>
-                  <div class="ssh-connection-actions">
-                    <button class="inline-action" type="submit" data-marketplace-install>Install</button>
+                  </section>
+                  <section class="create-server-step-panel" data-create-server-step-panel="deployment" hidden>
+                    <p class="eyebrow">Deployment</p>
+                    <div class="create-server-deployment-state" data-create-server-deployment-state>
+                      <strong>Ready to deploy</strong>
+                      <span>Progress will synchronize with Download Manager after deployment starts.</span>
+                    </div>
+                  </section>
+                  <footer class="create-server-wizard-actions">
+                    <p class="ssh-password-note create-server-validation-message" data-marketplace-message aria-live="polite">Templates create instances through the existing Debian agent API.</p>
+                    <button class="inline-action" type="button" data-create-server-back>Back</button>
+                    <button class="inline-action" type="button" data-create-server-next>Next</button>
+                    <button class="inline-action inline-action--primary" type="submit" data-marketplace-install>Deploy</button>
                     <button class="inline-action" type="button" data-marketplace-cancel>Cancel</button>
-                  </div>
-                  <p class="ssh-password-note" data-marketplace-message>Templates create instances through the existing Debian agent API.</p>
+                  </footer>
                 </form>
 
                 <div class="marketplace-install-progress" data-marketplace-progress></div>
@@ -1631,6 +1703,7 @@
                   <div class="download-list" data-download-list>
                     <div class="docker-empty-state"><strong>No downloads queued</strong><span>Marketplace install progress, manual download prompts, and installer logs will appear here after you start an install.</span></div>
                   </div>
+                </div>
                 </div>
               </aside>
             </div>
@@ -1706,7 +1779,7 @@
               </label>
               <div class="docker-actions" aria-label="Instance actions">
                 <button class="inline-action" type="button" data-instance-action="refresh" disabled>Refresh</button>
-                <button class="inline-action" type="button" data-instance-action="create">Create Instance</button>
+                <button class="inline-action" type="button" data-instance-action="create">Create Server</button>
               </div>
               <label class="docker-filter instances-log-control">
                 <span>Logs</span>
@@ -1735,13 +1808,18 @@
                 </div>
                 <span class="status-pill status-pill--planned">Wizard</span>
               </div>
-              <div class="instance-template-grid" role="radiogroup" aria-label="Instance type">
-                <button class="instance-template-card is-active" type="button" data-instance-template="minecraft-paper"><span>MC</span><strong>Minecraft</strong><small>Paper server</small></button>
-                <button class="instance-template-card" type="button" data-instance-template="node-app"><span>JS</span><strong>Node.js</strong><small>App or API</small></button>
-                <button class="instance-template-card" type="button" data-instance-template="python-app"><span>PY</span><strong>Python</strong><small>Script or service</small></button>
-                <button class="instance-template-card" type="button" data-instance-template="java-app"><span>JAR</span><strong>Java</strong><small>Executable jar</small></button>
-                <button class="instance-template-card" type="button" data-instance-template="docker-compose"><span>DKR</span><strong>Docker</strong><small>Placeholder</small></button>
-                <button class="instance-template-card" type="button" data-instance-template="custom-command"><span>CMD</span><strong>Custom</strong><small>Advanced command</small></button>
+              <div class="instance-template-grid" role="radiogroup" aria-label="Server templates">
+                <button class="instance-template-card is-active" type="button" data-instance-template="minecraft-paper" data-instance-preset="minecraft-paper" role="radio" aria-checked="true"><span>MC</span><strong>Paper</strong><small>Fast plugin server</small></button>
+                <button class="instance-template-card" type="button" data-instance-template="java-app" data-instance-preset="minecraft-vanilla" role="radio" aria-checked="false"><span>MC</span><strong>Vanilla</strong><small>Official server</small></button>
+                <button class="instance-template-card" type="button" data-instance-template="java-app" data-instance-preset="minecraft-fabric" role="radio" aria-checked="false"><span>MC</span><strong>Fabric</strong><small>Lightweight mods</small></button>
+                <button class="instance-template-card" type="button" data-instance-template="java-app" data-instance-preset="minecraft-forge" role="radio" aria-checked="false"><span>MC</span><strong>Forge</strong><small>Classic modpacks</small></button>
+                <button class="instance-template-card" type="button" data-instance-template="java-app" data-instance-preset="minecraft-neoforge" role="radio" aria-checked="false"><span>MC</span><strong>NeoForge</strong><small>Modern modpacks</small></button>
+                <button class="instance-template-card" type="button" data-instance-template="java-app" data-instance-preset="minecraft-atm10" role="radio" aria-checked="false"><span>ATM</span><strong>ATM10</strong><small>All the Mods preset</small></button>
+                <button class="instance-template-card" type="button" data-instance-template="custom-command" data-instance-preset="palworld" role="radio" aria-checked="false"><span>PAL</span><strong>Palworld</strong><small>Dedicated server</small></button>
+                <button class="instance-template-card" type="button" data-instance-template="custom-command" data-instance-preset="rust" role="radio" aria-checked="false"><span>RST</span><strong>Rust</strong><small>Dedicated server</small></button>
+                <button class="instance-template-card" type="button" data-instance-template="custom-command" data-instance-preset="cs2" role="radio" aria-checked="false"><span>CS2</span><strong>Counter-Strike 2</strong><small>Competitive server</small></button>
+                <button class="instance-template-card" type="button" data-instance-template="custom-command" data-instance-preset="terraria" role="radio" aria-checked="false"><span>TER</span><strong>Terraria</strong><small>Adventure server</small></button>
+                <button class="instance-template-card" type="button" data-instance-template="custom-command" data-instance-preset="valheim" role="radio" aria-checked="false"><span>VAL</span><strong>Valheim</strong><small>Dedicated world</small></button>
               </div>
               <input type="hidden" data-instance-form="type" value="minecraft-paper">
               <label class="ssh-field"><span>Name</span><input type="text" placeholder="Survival Server" data-instance-form="displayName" autocomplete="off"></label>
@@ -2918,6 +2996,7 @@
                 <button class="inline-action" type="button" data-notification-action="mark-all-read">Mark All Read</button>
                 <button class="inline-action" type="button" data-notification-action="clear-read">Clear Read</button>
                 <button class="inline-action" type="button" data-notification-action="clear-noncritical">Clear Noncritical</button>
+                <button class="inline-action" type="button" data-notification-action="clear-all">Clear All</button>
               </div>
             </div>
 

@@ -2,6 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const dotenv = require("dotenv");
 const crypto = require("crypto");
+const { Readable } = require("stream");
 const agentClient = require("../agentClient");
 const {
   MARKETPLACE_CONFIG_RECOVERY_MESSAGE,
@@ -20,12 +21,6 @@ const OPTIONAL_DEPENDENCY = 2;
 const modMetadataCache = new Map();
 const USER_AGENT = "AnxOS-Control-Center/1.0 (+https://anxos.local)";
 const DEFAULT_TIMEOUT_MS = 30000;
-const CURSEFORGE_DOWNLOAD_HOSTS = new Set([
-  "edge.forgecdn.net",
-  "mediafilez.forgecdn.net",
-  "media.forgecdn.net",
-]);
-
 const API_KEY_FIELDS = ["apiKey", "curseForgeApiKey", "curseforgeApiKey", "cfApiKey"];
 const API_KEY_ENV = ["CURSEFORGE_API_KEY", "CF_API_KEY", "ANXHUB_CURSEFORGE_API_KEY"];
 const API_KEY_FILE_FIELDS = ["apiKeyFile", "curseForgeApiKeyFile", "curseforgeApiKeyFile", "cfApiKeyFile"];
@@ -82,6 +77,18 @@ function friendlyHttpMessage(label, status, body = "") {
   if (status === 404) return `${prefix}: 404 Project not found${detail ? ` - ${detail}` : ""}.`;
   if (status === 429) return `${prefix}: 429 Rate limited. Try again later${detail ? ` - ${detail}` : ""}.`;
   return `${prefix}: HTTP ${status}${detail ? ` - ${detail}` : ""}`;
+}
+
+function classifyApiRequestError(status, body = "") {
+  const normalizedStatus = Number(status);
+  const responseText = String(body || "").toLowerCase();
+  if (
+    [401, 403].includes(normalizedStatus) &&
+    /api[\s_-]*key|missing or invalid|invalid key|authentication/.test(responseText)
+  ) {
+    return "CURSEFORGE_API_KEY_INVALID";
+  }
+  return "CURSEFORGE_REQUEST_FAILED";
 }
 
 function logProviderFailure(error, context = {}) {
@@ -925,6 +932,43 @@ async function requestAgentProxyBuffer(url, label, options = {}) {
   }
 }
 
+async function requestAgentProxyStream(url, label, options = {}) {
+  const query = new URLSearchParams({ url: String(url) });
+  if (options.projectId) query.set("projectId", String(options.projectId));
+  if (options.fileId) query.set("fileId", String(options.fileId));
+  const proxyConfig = options.config || {};
+  const nodeId = proxyConfig.agentNodeId || proxyConfig.agentConfig?.nodeId || proxyConfig.agentConfig?.agentNodeId || null;
+  const nodeLabel = proxyConfig.agentNodeLabel || proxyConfig.agentConfig?.agentNodeLabel || null;
+  try {
+    const result = await agentClient.requestStream(`/api/v1/marketplace/curseforge/download?${query.toString()}`, {
+      config: proxyConfig.agentConfig
+        ? { ...proxyConfig.agentConfig, targetLabel: nodeLabel ? `curseforge:${nodeLabel}` : nodeId ? `curseforge:${nodeId}` : "curseforge-agent-proxy" }
+        : null,
+      timeoutMs: Math.max(15 * 60 * 1000, Number(options.timeoutMs) || Number(proxyConfig.timeoutMs) || 0),
+    });
+    return result.stream;
+  } catch (error) {
+    const code = error?.payload?.error?.code || error?.code || "CURSEFORGE_AGENT_PROXY_DOWNLOAD_FAILED";
+    throw new CurseForgeProviderError(error?.message || `${label}: Agent proxy download failed.`, code, {
+      provider: "curseforge",
+      status: error?.status || null,
+      source: "agent-proxy",
+      nodeId,
+      nodeLabel,
+      endpoint: "/api/v1/marketplace/curseforge/download",
+      projectId: options.projectId || null,
+      fileId: options.fileId || null,
+    });
+  }
+}
+
+async function requestStreamViaTrustedBackend(url, label, options = {}) {
+  if (shouldUseAgentProxy(options.config || {})) {
+    return requestAgentProxyStream(url, label, options);
+  }
+  return Readable.from(await requestBufferViaTrustedBackend(url, label, options));
+}
+
 async function requestBufferViaTrustedBackend(url, label, options = {}) {
   const proxyUrl = getHostedProxyUrl(options.config || {});
   if (proxyUrl) {
@@ -936,22 +980,18 @@ async function requestBufferViaTrustedBackend(url, label, options = {}) {
   return requestBuffer(url, label, options);
 }
 
-function buildDownloadHeaders(url, config = {}) {
-  const parsed = validateDownloadUrl(url, "CurseForge file");
-  const headers = {
+function buildDownloadHeaders(url) {
+  validateDownloadUrl(url, "CurseForge file");
+  return {
     "User-Agent": USER_AGENT,
   };
-  if (CURSEFORGE_DOWNLOAD_HOSTS.has(parsed.hostname.toLowerCase()) || parsed.hostname.toLowerCase().endsWith(".curseforge.com")) {
-    headers["x-api-key"] = requireApiKey(config);
-  }
-  return headers;
 }
 
 async function fetchDownloadWithRedirects(url, options = {}) {
   let current = validateDownloadUrl(url, "CurseForge file");
   const maxRedirects = Math.min(Math.max(Number(options.maxRedirects) || 5, 0), 10);
   for (let redirectCount = 0; redirectCount <= maxRedirects; redirectCount += 1) {
-    const headers = buildDownloadHeaders(current, options.config || {});
+    const headers = buildDownloadHeaders(current);
     const response = await fetchWithTimeout(current, {
       headers,
       redirect: "manual",
@@ -996,10 +1036,11 @@ async function requestJson(url, label, config = {}) {
         bodyBytes: Buffer.byteLength(body || "", "utf8"),
       });
       if (!response.ok) {
-        throw new CurseForgeProviderError(friendlyHttpMessage(label, response.status, body), "CURSEFORGE_REQUEST_FAILED", {
+        throw new CurseForgeProviderError(friendlyHttpMessage(label, response.status, body), classifyApiRequestError(response.status, body), {
           status: response.status,
           body: truncateForLog(body),
           url: String(url),
+          authenticationFailure: [401, 403].includes(response.status),
         });
       }
       try {
@@ -1117,6 +1158,9 @@ const curseForgeClient = {
   },
   downloadFile(url, label, options = {}) {
     return requestBufferViaTrustedBackend(url, label, options);
+  },
+  downloadFileStream(url, label, options = {}) {
+    return requestStreamViaTrustedBackend(url, label, options);
   },
 };
 
@@ -1462,6 +1506,26 @@ async function downloadFile(file, destination = "", options = {}) {
   return { ...file, downloadUrl, buffer };
 }
 
+async function downloadFileStream(file, options = {}) {
+  let downloadUrl = file?.downloadUrl;
+  if (!downloadUrl) {
+    downloadUrl = await getFileDownloadUrl(file?.projectId, file?.id, options.config || {});
+  }
+  if (!downloadUrl) {
+    throw new CurseForgeProviderError(`${file?.fileName || "CurseForge file"} has no download URL.`, "CURSEFORGE_DOWNLOAD_URL_MISSING", {
+      projectId: file?.projectId || null,
+      fileId: file?.id || null,
+      fileName: file?.fileName || file?.name || null,
+    });
+  }
+  const stream = await curseForgeClient.downloadFileStream(downloadUrl, file.fileName || "CurseForge file", {
+    ...options,
+    projectId: file?.projectId || null,
+    fileId: file?.id || null,
+  });
+  return { ...file, downloadUrl, stream };
+}
+
 module.exports = {
   _test: {
     buildApiHeaders,
@@ -1470,6 +1534,7 @@ module.exports = {
     curseForgeClient,
     fetchDownloadWithRedirects,
     friendlyHttpMessage,
+    classifyApiRequestError,
     getApiKeyStatus,
     getConfigurationDiagnostics,
     getCurseForgeApiKey,
@@ -1490,6 +1555,7 @@ module.exports = {
   },
   CurseForgeProviderError,
   downloadFile,
+  downloadFileStream,
   ensureConfigured,
   getFile,
   getFileDownloadUrl,

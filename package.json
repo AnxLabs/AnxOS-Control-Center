@@ -1,7 +1,7 @@
 {
   "name": "anxos-control-center",
   "productName": "AnxOS Control Center",
-  "version": "1.0.53",
+  "version": "1.0.54",
   "description": "Private local desktop control center for a Debian server.",
   "homepage": "https://anxoscontrolcenter.org",
   "author": "Anx",
@@ -83,6 +83,7 @@
     "instances:ipc-error-contract:smoke": "node scripts/instances-ipc-error-contract-smoke.js",
     "dashboard:node-routing:smoke": "node scripts/dashboard-node-routing-smoke.js",
     "dashboard:metrics:smoke": "node scripts/dashboard-metrics-presentation-smoke.js",
+    "build193:productivity:smoke": "node scripts/build193-productivity-smoke.js",
     "node:agent-client:smoke": "node scripts/node-agent-client-smoke.js",
     "node:global-agent-isolation:smoke": "node scripts/global-agent-config-isolation-smoke.js",
     "node:legacy-migration:smoke": "node scripts/node-legacy-migration-smoke.js",

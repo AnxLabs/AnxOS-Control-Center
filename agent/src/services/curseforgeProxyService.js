@@ -94,6 +94,13 @@ async function fetchWithTimeout(url, options = {}) {
   }
 }
 
+function buildCdnRequestHeaders(context = {}) {
+  return {
+    "User-Agent": USER_AGENT,
+    ...(context.range ? { Range: context.range } : {}),
+  };
+}
+
 async function withRetry(operation, context = {}) {
   const attempts = Math.max(1, Number(context.attempts) || 3);
   let lastError = null;
@@ -197,17 +204,13 @@ function validateDownloadUrl(value) {
   return parsed;
 }
 
-async function fetchDownloadWithRedirects(url, apiKey, context = {}) {
+async function fetchDownloadWithRedirects(url, context = {}) {
   let current = validateDownloadUrl(url);
   const maxRedirects = 5;
   for (let redirectCount = 0; redirectCount <= maxRedirects; redirectCount += 1) {
     const response = await fetchWithTimeout(current, {
       redirect: "manual",
-      headers: {
-        "User-Agent": USER_AGENT,
-        "x-api-key": apiKey,
-        ...(context.range ? { Range: context.range } : {}),
-      },
+      headers: buildCdnRequestHeaders(context),
     });
     if (![301, 302, 303, 307, 308].includes(response.status)) {
       response.redirectCount = redirectCount;
@@ -270,20 +273,20 @@ async function fetchCurseForgeEndpoint(pathname, params = {}) {
 }
 
 async function fetchCurseForgeDownload(url) {
-  const resolved = requireApiKey();
+  requireApiKey();
   const target = validateDownloadUrl(url.searchParams.get("url") || "");
   const context = {
     projectId: url.searchParams.get("projectId") || null,
     fileId: url.searchParams.get("fileId") || null,
   };
-  const response = await fetchDownloadWithRedirects(target, resolved.key, context);
+  const response = await fetchDownloadWithRedirects(target, context);
   console.info("[AnxOS Agent][CurseForge] Download response.", {
     hostname: response.finalHostname || target.hostname,
     status: response.status,
     redirectCount: response.redirectCount || 0,
     projectId: context.projectId,
     fileId: context.fileId,
-    authenticated: true,
+    authenticatedApiLookup: true,
   });
   if (!response.ok) {
     const body = await response.text().catch(() => "");
@@ -323,6 +326,68 @@ async function fetchCurseForgeDownloadPost(request) {
   return fetchCurseForgeDownload(url);
 }
 
+async function probeCurseForgeCdn(projects = [], options = {}) {
+  const fetchEndpoint = options.fetchEndpoint || fetchCurseForgeEndpoint;
+  const fetchDownload = options.fetchDownload || fetchDownloadWithRedirects;
+  const candidates = [];
+  for (const project of projects.slice(0, 8)) {
+    for (const fileIndex of (Array.isArray(project?.latestFilesIndexes) ? project.latestFilesIndexes : []).slice(0, 3)) {
+      const projectId = project?.id;
+      const fileId = fileIndex?.fileId || fileIndex?.fileID;
+      if (projectId && fileId) {
+        candidates.push({ projectId, fileId });
+      }
+    }
+  }
+
+  if (candidates.length === 0) {
+    throw new CurseForgeProxyError("CurseForge CDN probe did not find a probe file.", "CURSEFORGE_CDN_PROBE_UNAVAILABLE", {}, 502);
+  }
+
+  let lastFailure = null;
+  for (const candidate of candidates.slice(0, 12)) {
+    try {
+      const download = await fetchEndpoint(`/mods/${candidate.projectId}/files/${candidate.fileId}/download-url`);
+      const downloadUrl = typeof download.body?.data === "string" ? download.body.data : "";
+      if (!downloadUrl) {
+        continue;
+      }
+      const response = await fetchDownload(downloadUrl, candidate);
+      response.body?.cancel?.();
+      if (response.ok) {
+        return {
+          status: response.status,
+          hostname: response.finalHostname || null,
+          projectId: candidate.projectId,
+          fileId: candidate.fileId,
+        };
+      }
+      lastFailure = {
+        status: response.status,
+        hostname: response.finalHostname || null,
+        projectId: candidate.projectId,
+        fileId: candidate.fileId,
+      };
+      if (![403, 404, 410].includes(response.status)) {
+        break;
+      }
+    } catch (error) {
+      lastFailure = {
+        status: error?.details?.status || error?.statusCode || null,
+        hostname: error?.details?.hostname || null,
+        projectId: candidate.projectId,
+        fileId: candidate.fileId,
+        errorCode: error?.code || null,
+      };
+      if (![403, 404, 410].includes(Number(lastFailure.status))) {
+        break;
+      }
+    }
+  }
+
+  throw new CurseForgeProxyError("CurseForge CDN probe failed.", "CURSEFORGE_CDN_PROBE_FAILED", lastFailure || {}, lastFailure?.status || 502);
+}
+
 async function testCurseForgeConnectivity() {
   const checkedAt = new Date().toISOString();
   const status = getCurseForgeProxyStatus();
@@ -347,28 +412,13 @@ async function testCurseForgeConnectivity() {
     const search = await fetchCurseForgeEndpoint("/mods/search", {
       gameId: 432,
       classId: 4471,
-      pageSize: 1,
+      pageSize: 8,
       sortField: 2,
       sortOrder: "desc",
     });
-    const project = Array.isArray(search.body?.data) ? search.body.data[0] : null;
-    const fileIndex = Array.isArray(project?.latestFilesIndexes) ? project.latestFilesIndexes[0] : null;
-    const projectId = project?.id;
-    const fileId = fileIndex?.fileId || fileIndex?.fileID;
-    if (!projectId || !fileId) {
-      throw new CurseForgeProxyError("CurseForge CDN probe did not find a probe file.", "CURSEFORGE_CDN_PROBE_UNAVAILABLE", {}, 502);
-    }
-    const download = await fetchCurseForgeEndpoint(`/mods/${projectId}/files/${fileId}/download-url`);
-    const downloadUrl = typeof download.body?.data === "string" ? download.body.data : "";
-    const response = await fetchDownloadWithRedirects(downloadUrl, requireApiKey().key, { projectId, fileId, range: "bytes=0-0" });
-    response.body?.cancel?.();
-    if (!response.ok && response.status !== 206) {
-      throw new CurseForgeProxyError("CurseForge CDN probe failed.", "CURSEFORGE_CDN_PROBE_FAILED", {
-        status: response.status,
-        hostname: response.finalHostname || null,
-      }, response.status);
-    }
-    result.cdn = { ok: true, status: response.status, errorCode: null, hostname: response.finalHostname || null };
+    requireApiKey();
+    const probe = await probeCurseForgeCdn(Array.isArray(search.body?.data) ? search.body.data : []);
+    result.cdn = { ok: true, status: probe.status, errorCode: null, hostname: probe.hostname };
     result.ok = true;
     return { statusCode: 200, body: result };
   } catch (error) {
@@ -447,6 +497,10 @@ async function handleCurseForgeProxy(request, url) {
 }
 
 module.exports = {
+  _test: {
+    buildCdnRequestHeaders,
+    probeCurseForgeCdn,
+  },
   getCurseForgeProxyStatus,
   handleCurseForgeProxy,
 };

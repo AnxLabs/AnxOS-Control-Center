@@ -24,8 +24,8 @@ function file(id, fileName, extra = {}) {
     projectId: 100,
     name: fileName,
     fileName,
-    minecraftVersions: extra.minecraftVersions || ["1.20.1"],
-    loaders: extra.loaders || ["fabric"],
+    minecraftVersions: extra.minecraftVersions === undefined ? ["1.20.1"] : extra.minecraftVersions,
+    loaders: extra.loaders === undefined ? ["fabric"] : extra.loaders,
     releaseType: extra.releaseType || 1,
     serverPackFileId: extra.serverPackFileId || null,
   };
@@ -213,6 +213,35 @@ async function main() {
     assert.strictEqual(atm10BootstrapRuntime.serverJar, "neoforge-21.1.228-installer.jar", "ATM10-style packs should preserve the versioned NeoForge installer from the server pack.");
     assert.strictEqual(atm10BootstrapRuntime.loaderVersion, "21.1.228", "ATM10-style runtime metadata should use the server-pack NeoForge version.");
     assert.strictEqual(atm10BootstrapRuntime.versionInfo?.softwareVersion, "21.1.228", "versionInfo should persist the actual server-pack NeoForge version.");
+    assert.strictEqual(atm10BootstrapRuntime.requiresInstallerBootstrap, true, "ATM10 bootstrap scripts must install the bundled NeoForge runtime before deployment completes.");
+    const descriptiveLoaderRuntime = await marketplace._test.resolveServerPackRuntime(
+      "atm10-runtime-smoke",
+      { type: "script", path: "startserver.sh", patch: marketplace._test.buildStartupScriptPatch("startserver.sh") },
+      { provider: "curseforge", loader: "NeoForge server pack", minecraftVersion: "1.21.1" },
+      { platform: "linux" }
+    );
+    assert.strictEqual(
+      descriptiveLoaderRuntime.requiresInstallerBootstrap,
+      true,
+      "Descriptive NeoForge server-pack labels must still trigger installer bootstrap."
+    );
+    assert.strictEqual(
+      marketplace._test.shouldResolveProviderServerPackRuntime(
+        { type: "script", path: "startserver.sh" },
+        { providerRuntimeDeferred: false, loader: "neoforge" },
+        { loader: "neoforge" }
+      ),
+      true,
+      "NeoForge script runtimes must be inspected even when early package resolution did not set providerRuntimeDeferred."
+    );
+    assert.strictEqual(
+      marketplace._test.requiresAuthoritativeNeoForgePreparation(
+        { providerRuntimeDeferred: true },
+        { loader: "NeoForge server pack" }
+      ),
+      true,
+      "Provider-supplied NeoForge server packs must use Agent-authoritative runtime preparation before activation."
+    );
 
     setRuntimeFiles({
       "startserver.sh": "#!/usr/bin/env bash\njava -jar neoforge-21.1.228-installer.jar --installServer\n",
@@ -226,6 +255,18 @@ async function main() {
       { platform: "linux" }
     );
     assert.strictEqual(versionedWinsRuntime.serverJar, "neoforge-21.1.228-installer.jar", "Versioned server-pack installer must win over generic neoforge-installer.jar.");
+    assert.strictEqual(versionedWinsRuntime.requiresInstallerBootstrap, true, "A versioned installer selected from startserver.sh must be bootstrapped during deployment.");
+
+    setRuntimeFiles({
+      "startserver.sh": "#!/usr/bin/env bash\njava -jar neoforge-installer.jar --installServer\n",
+    });
+    const unresolvedBootstrapRuntime = await marketplace._test.resolveServerPackRuntime(
+      "atm10-unresolved-bootstrap-smoke",
+      { type: "script", path: "startserver.sh", patch: marketplace._test.buildStartupScriptPatch("startserver.sh") },
+      { provider: "curseforge", loader: "neoforge", minecraftVersion: "1.21.1" },
+      { platform: "linux" }
+    );
+    assert.strictEqual(unresolvedBootstrapRuntime.requiresInstallerBootstrap, true, "An unresolved startserver bootstrap must run repair or fail instead of completing with an unusable runtime.");
 
     setRuntimeFiles({
       "run.sh": "#!/usr/bin/env bash\nexec java @user_jvm_args.txt @libraries/net/neoforged/neoforge/21.1.228/unix_args.txt \"$@\"\n",
@@ -280,6 +321,41 @@ async function main() {
     assert.strictEqual(explicit.selectedFile.id, 10, "Selected client file should be preserved for review.");
     assert.strictEqual(explicit.serverFile.id, 11, "Explicit serverPackFileId should win.");
     assert.strictEqual(explicit.source, "selected-file-serverPackFileId");
+
+    resetScenario({
+      selected: file(12, "Client Pack.zip", { serverPackFileId: 13 }),
+      files: [
+        file(13, "Stale Server Pack.zip"),
+        file(14, "Advertised Server Pack.zip"),
+      ],
+    });
+    const advertised = await marketplace._test.resolveCurseForgeServerPackSelection({
+      projectId: 100,
+      minecraftVersion: "1.20.1",
+      loader: "fabric",
+      requestedFileId: 12,
+      requestedServerPackFileId: 14,
+    });
+    assert.strictEqual(advertised.selectedFile.id, 12, "The exact selected client file should remain authoritative.");
+    assert.strictEqual(advertised.serverFile.id, 14, "A verified advertised server-pack file should override a stale detail-endpoint relationship.");
+    assert.strictEqual(advertised.source, "advertised-serverPackFileId");
+
+    resetScenario({
+      selected: file(15, "Client Pack.zip", { serverPackFileId: 16 }),
+      files: [
+        file(16, "Stale Server Pack.zip"),
+        file(17, "Advertised Server Pack.zip", { minecraftVersions: [], loaders: [] }),
+      ],
+    });
+    const metadataSparseAdvertised = await marketplace._test.resolveCurseForgeServerPackSelection({
+      projectId: 100,
+      minecraftVersion: "1.20.1",
+      loader: "fabric",
+      requestedFileId: 15,
+      requestedServerPackFileId: 17,
+    });
+    assert.strictEqual(metadataSparseAdvertised.serverFile.id, 17, "A fetched advertised server pack may omit redundant version and loader metadata.");
+    assert.strictEqual(metadataSparseAdvertised.source, "advertised-serverPackFileId");
 
     resetScenario({
       selected: file(20, "Client Pack 1.20.1.zip"),
@@ -345,6 +421,19 @@ async function main() {
       (error) => error?.code === "MARKETPLACE_CONFIG_CORRUPT",
       "Corrupt Marketplace config must not silently discard credentials.",
     );
+    assert.strictEqual(runScriptRuntime.requiresInstallerBootstrap, false, "A generated run.sh with unix_args.txt is already launch-ready.");
+
+    setRuntimeFiles({
+      "run.sh": "#!/usr/bin/env bash\njava -jar neoforge-installer.jar --installServer\n",
+      "neoforge-installer.jar": "installer",
+    });
+    const unresolvedRunBootstrap = await marketplace._test.resolveServerPackRuntime(
+      "atm10-run-bootstrap-smoke",
+      { type: "script", path: "run.sh", patch: marketplace._test.buildStartupScriptPatch("run.sh") },
+      { provider: "curseforge", loader: "neoforge", minecraftVersion: "1.21.1" },
+      { platform: "linux" }
+    );
+    assert.strictEqual(unresolvedRunBootstrap.requiresInstallerBootstrap, true, "A NeoForge run.sh without generated unix_args.txt must bootstrap before activation.");
     assert(fs.readdirSync(path.dirname(configPath)).some((name) => name.startsWith(`${path.basename(configPath)}.corrupt-`)), "Corrupt Marketplace config should be preserved.");
 
     const unreadableEncryptedState = {
@@ -373,6 +462,18 @@ async function main() {
       () => curseforgeProvider.ensureConfigured({}),
       (error) => error?.code === "CURSEFORGE_PROVIDER_SETTINGS_UNAVAILABLE" && !error.message.includes("MARKETPLACE_CONFIG_DECRYPT_FAILED"),
       "Credential-dependent CurseForge actions should fail with friendly degraded guidance.",
+    );
+    const recoveredConfig = providerConfig.saveMarketplaceConfig({ curseForgeApiKey: "replacement-cf-key" });
+    assert.strictEqual(recoveredConfig.curseForgeApiKey, "replacement-cf-key", "A new owner-supplied key should replace an unreadable encrypted config.");
+    assert.strictEqual(
+      providerConfig.readMarketplaceConfig({ includeSecrets: true }).curseForgeApiKey,
+      "replacement-cf-key",
+      "Recovered Marketplace credentials should restore normally after replacement.",
+    );
+    assert.strictEqual(
+      providerConfig.getMarketplaceConfigRecoveryState().degraded,
+      false,
+      "Saving a replacement key should clear the bounded Marketplace recovery state.",
     );
     const mainSource = fs.readFileSync(path.join(__dirname, "..", "main.js"), "utf8");
     assert(

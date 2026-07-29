@@ -182,13 +182,23 @@ function retryMarketplaceConfig(options = {}) {
 }
 
 function saveMarketplaceConfig(config = {}) {
-  const existing = readMarketplaceConfig({ includeSecrets: true });
+  let existing = { ...DEFAULT_MARKETPLACE_CONFIG };
+  try {
+    existing = readMarketplaceConfig({ includeSecrets: true });
+  } catch (error) {
+    if (!["MARKETPLACE_CONFIG_DECRYPT_FAILED", "MARKETPLACE_CONFIG_CORRUPT"].includes(error?.code)) {
+      throw error;
+    }
+    // A new owner-supplied credential is the recovery path. The unreadable source
+    // has already been preserved, so do not require decrypting it before replacing it.
+  }
   const next = normalizeMarketplaceConfig({
     ...existing,
     ...config,
   });
   const configPath = getMarketplaceConfigPath();
   writeEncryptedConfig(configPath, next);
+  clearMarketplaceConfigRecoveryState();
   return next;
 }
 

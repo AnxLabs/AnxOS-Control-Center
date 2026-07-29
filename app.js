@@ -1,4 +1,11 @@
-const qaMode = new URLSearchParams(window.location.search).get("qa-mode") === "1";
+const launchParameters = new URLSearchParams(window.location.search);
+const qaMode = launchParameters.get("qa-mode") === "1";
+const workspaceSurface = launchParameters.get("surface") || "";
+const workspaceTemplateId = launchParameters.get("templateId") || "";
+let workspaceInitContext = null;
+if (workspaceSurface) {
+  document.body.classList.add("workspace-window", `${workspaceSurface}-window`);
+}
 if (qaMode) {
   const indicator = document.createElement("div");
   indicator.dataset.testid = "qa-mode-indicator";
@@ -210,6 +217,10 @@ const marketplaceProviderTabs = document.querySelector("[data-marketplace-provid
 const marketplaceProviderModes = document.querySelector("[data-marketplace-provider-modes]");
 const marketplaceProviderMinecraftVersion = document.querySelector('[data-marketplace-provider-filter="minecraftVersion"]');
 const marketplaceProviderLoader = document.querySelector('[data-marketplace-provider-filter="loader"]');
+const marketplaceProviderReleaseChannel = document.querySelector('[data-marketplace-provider-filter="releaseChannel"]');
+const marketplaceProviderSort = document.querySelector('[data-marketplace-provider-filter="sort"]');
+const marketplaceHealth = document.querySelector("[data-marketplace-health]");
+const marketplaceDetails = document.querySelector("[data-marketplace-details]");
 const marketplaceLoadMoreButton = document.querySelector("[data-marketplace-load-more]");
 const marketplaceLoading = document.querySelector("[data-marketplace-loading]");
 const marketplaceEmpty = document.querySelector("[data-marketplace-empty]");
@@ -234,6 +245,14 @@ const marketplaceManualRecoveryImport = document.querySelector("[data-marketplac
 const marketplaceManualRecoveryResume = document.querySelector("[data-marketplace-manual-resume]");
 const marketplaceWizard = document.querySelector("[data-marketplace-wizard]");
 const marketplaceWizardSteps = document.querySelector("[data-marketplace-wizard-steps]");
+const createServerStepNav = document.querySelector("[data-create-server-step-nav]");
+const createServerStepPanels = document.querySelectorAll("[data-create-server-step-panel]");
+const createServerPackageSummary = document.querySelector("[data-create-server-package-summary]");
+const createServerNodeSummary = document.querySelector("[data-create-server-node-summary]");
+const createServerRuntimeSummary = document.querySelector("[data-create-server-runtime-summary]");
+const createServerDeploymentState = document.querySelector("[data-create-server-deployment-state]");
+const createServerBackButton = document.querySelector("[data-create-server-back]");
+const createServerNextButton = document.querySelector("[data-create-server-next]");
 const marketplaceFields = document.querySelectorAll("[data-marketplace-field]");
 const marketplaceVersionToggle = document.querySelector("[data-marketplace-version-toggle]");
 const marketplaceVersionPanel = document.querySelector("[data-marketplace-version-panel]");
@@ -553,6 +572,7 @@ let onboardingWizardCleanup = null;
 let onboardingOpenGeneration = 0;
 let contextualHelpCleanup = null;
 let activeContextualHelpTopic = null;
+let firstServerGuideCleanup = null;
 let openModalCount = 0;
 let modalBackgroundWasInert = false;
 
@@ -797,6 +817,18 @@ let marketplaceRequestInFlight = false;
 let marketplaceInstallInFlight = false;
 let marketplaceCatalog = { categories: [], templates: [] };
 let marketplaceSelectedTemplateId = null;
+let createServerDraft = null;
+let deploymentSyncRefreshTimer = null;
+const CREATE_SERVER_STEPS = Object.freeze(["summary", "node", "runtime", "configuration", "review", "deployment"]);
+const CREATE_SERVER_STEP_LABELS = Object.freeze({
+  summary: "Package",
+  node: "Node",
+  runtime: "Runtime",
+  configuration: "Configure",
+  review: "Review",
+  deployment: "Deploy",
+});
+let createServerWizardStep = "summary";
 let marketplaceActiveCategory = "All";
 let marketplaceInstallProgressEvents = [];
 let marketplaceProgressRenderTimer = null;
@@ -805,6 +837,7 @@ let unsubscribeMarketplaceInstallProgress = null;
 let activeMarketplaceOperationId = null;
 let activeMarketplaceInstallNodeId = null;
 let marketplaceLocalDownloadEntries = [];
+let latestMarketplaceDownloads = [];
 let marketplaceManualRecoveryState = null;
 let marketplaceProviderActive = "modrinth";
 let marketplaceProviderMode = "featured";
@@ -814,6 +847,7 @@ let marketplaceProviderHasMore = false;
 let marketplaceProviderRequestInFlight = false;
 let marketplaceProviderRequestId = 0;
 let marketplaceProviderError = null;
+const MARKETPLACE_VIEW_STATE_KEY = "anxos:marketplace-view-state";
 const marketplaceProviderTemplates = new Map();
 const MARKETPLACE_PROVIDER_PAGE_SIZE = 24;
 const MARKETPLACE_VERSION_FILTERS = ["recommended", "releases", "snapshots", "legacy", "all"];
@@ -833,6 +867,20 @@ let marketplaceVersionRequestId = 0;
 let selectedInstanceId = null;
 let staleInstanceIdsLoaded = false;
 let instanceCreateFormVisible = false;
+let selectedInstancePresetId = "minecraft-paper";
+const INSTANCE_SERVER_PRESETS = Object.freeze({
+  "minecraft-paper": { type: "minecraft-paper", name: "Paper Server", id: "paper_server", entrypoint: "paper.jar", memory: "4G", port: "25565", folder: "data", tags: "minecraft, paper", game: "Minecraft", software: "Paper", eula: true },
+  "minecraft-vanilla": { type: "java-app", name: "Vanilla Server", id: "vanilla_server", entrypoint: "server.jar", memory: "4G", port: "25565", folder: "data", tags: "minecraft, vanilla", game: "Minecraft", software: "Vanilla", eula: true },
+  "minecraft-fabric": { type: "java-app", name: "Fabric Server", id: "fabric_server", entrypoint: "fabric-server-launch.jar", memory: "4G", port: "25565", folder: "data", tags: "minecraft, fabric", game: "Minecraft", software: "Fabric", eula: true },
+  "minecraft-forge": { type: "java-app", name: "Forge Server", id: "forge_server", entrypoint: "forge-server.jar", memory: "6G", port: "25565", folder: "data", tags: "minecraft, forge", game: "Minecraft", software: "Forge", eula: true },
+  "minecraft-neoforge": { type: "java-app", name: "NeoForge Server", id: "neoforge_server", entrypoint: "neoforge-server.jar", memory: "6G", port: "25565", folder: "data", tags: "minecraft, neoforge", game: "Minecraft", software: "NeoForge", eula: true },
+  "minecraft-atm10": { type: "java-app", name: "ATM10 Server", id: "atm10_server", entrypoint: "startserver.jar", memory: "10G", port: "25565", folder: "data", tags: "minecraft, neoforge, atm10", game: "Minecraft", software: "ATM10", eula: true },
+  palworld: { type: "custom-command", name: "Palworld Server", id: "palworld_server", executable: "bash", args: "start.sh", memory: "8G", port: "8211", folder: "data", tags: "palworld, steamcmd", game: "Palworld", software: "Dedicated Server" },
+  rust: { type: "custom-command", name: "Rust Server", id: "rust_server", executable: "bash", args: "start.sh", memory: "8G", port: "28015", folder: "data", tags: "rust, steamcmd", game: "Rust", software: "Dedicated Server" },
+  cs2: { type: "custom-command", name: "Counter-Strike 2 Server", id: "cs2_server", executable: "bash", args: "start.sh", memory: "6G", port: "27015", folder: "data", tags: "cs2, steamcmd", game: "Counter-Strike 2", software: "Dedicated Server" },
+  terraria: { type: "custom-command", name: "Terraria Server", id: "terraria_server", executable: "bash", args: "start.sh", memory: "2G", port: "7777", folder: "data", tags: "terraria", game: "Terraria", software: "Dedicated Server" },
+  valheim: { type: "custom-command", name: "Valheim Server", id: "valheim_server", executable: "bash", args: "start.sh", memory: "4G", port: "2456", folder: "data", tags: "valheim, steamcmd", game: "Valheim", software: "Dedicated Server" },
+});
 let lastMissingInstanceNoticeAt = 0;
 let lastStaleInstanceRemovedNoticeAt = 0;
 let activeInstanceTab = "overview";
@@ -1078,6 +1126,7 @@ const FILES_DETAILS_WIDTH_STORAGE_KEY = "anxos.files.detailsWidth.v1";
 const FILES_EDITOR_PREFS_STORAGE_KEY = "anxos.files.editorPrefs.v1";
 const OPERATIONS_STORAGE_KEY = "anxos.operations.history.v1";
 const NOTIFICATIONS_STORAGE_KEY = "anxos.notifications.history.v1";
+const DEPLOYMENT_LIFECYCLE_STORAGE_KEY = "anxos.deployment.lifecycle.v1";
 const GLOBAL_SEARCH_RECENTS_STORAGE_KEY = "anxos.globalSearch.recents.v1";
 const COMMAND_PALETTE_RECENTS_STORAGE_KEY = "anxos.commandPalette.recents.v1";
 const INSTANCE_TAB_STORAGE_KEY = "anxos.instances.activeTab.v1";
@@ -1114,6 +1163,7 @@ const PRIMARY_NAVIGATION_ORDER = [
   "console",
   "backups",
   "operations",
+  "notifications",
   "maintenance",
   "security",
   "agent-control",
@@ -1451,6 +1501,42 @@ function getDesktopApi() {
 
 function getDesktopWindowApi() {
   return window.anxWindow || getDesktopApi()?.window || null;
+}
+
+function openWorkspaceSurface(surface, context = {}) {
+  const windowApi = getDesktopWindowApi();
+  if (typeof windowApi?.openWorkspace !== "function") {
+    if (surface === "marketplace") showPage("marketplace");
+    else if (surface === "create-server") openFirstServerGuide();
+    return Promise.resolve({ opened: false, fallback: true });
+  }
+  return windowApi.openWorkspace(surface, context);
+}
+
+function openCreateServerWorkspace(template = null) {
+  getDesktopApi()?.diagnostics?.log?.({
+    severity: "info",
+    source: "renderer",
+    operation: "create-server-handoff",
+    message: "Opening the Create Server workspace.",
+    context: {
+      templateId: template?.id || null,
+      provider: template?.provider || "static",
+    },
+  }).catch(() => {});
+  if (template?.id) {
+    localStorage.setItem("anxos:create-server-handoff", JSON.stringify({
+      createdAt: Date.now(),
+      template: {
+        id: template.id,
+      },
+    }));
+  } else {
+    localStorage.removeItem("anxos:create-server-handoff");
+  }
+  return openWorkspaceSurface("create-server", {
+    template: template ? { ...template, rawProviderProject: undefined } : null,
+  });
 }
 
 function getDesktopApiState() {
@@ -3578,7 +3664,11 @@ function getTitlebarConnectionState(pageName = getActivePageName()) {
 
 function updateTitlebar(pageName = getActivePageName()) {
   if (titlebarPageTarget) {
-    titlebarPageTarget.textContent = getPageDisplayName(pageName);
+    titlebarPageTarget.textContent = workspaceSurface === "create-server"
+      ? "Create Server"
+      : workspaceSurface === "marketplace"
+        ? "Marketplace"
+        : getPageDisplayName(pageName);
   }
 
   const connectionState = getTitlebarConnectionState(pageName);
@@ -4476,6 +4566,10 @@ function renderAgentControlState(payload = agentControlState) {
   const service = local.service || {};
   const serviceNeedsElevation = Boolean(service.requiresElevation && service.privilege?.elevated !== true);
   const agentStatus = getAgentStatusSnapshot(local);
+  setField("dashboardAgentStatus", agentStatus.primary || state);
+  setField("dashboardAgentVersion", runtime?.version || local.agentVersion || local.identity?.agentVersion
+    ? `Agent ${runtime?.version || local.agentVersion || local.identity?.agentVersion}`
+    : "Version unavailable");
   if (agentControlStatus) {
     agentControlStatus.textContent = agentStatus.primary;
     agentControlStatus.className = `status-pill status-pill--${getAgentStatusPillTone(agentStatus)}`;
@@ -9469,6 +9563,8 @@ function renderPublicAccessSnapshot(snapshot = {}) {
     },
   }).catch(() => {});
   const service = Array.isArray(snapshot.services) ? snapshot.services[0] : null;
+  setField("dashboardPublicAccess", Number(snapshot.activeTunnels || 0) > 0 ? "Connected" : "Ready");
+  setField("dashboardPublicAccessDetail", `${Array.isArray(snapshot.services) ? snapshot.services.length : 0} service${snapshot.services?.length === 1 ? "" : "s"} · ${Number(snapshot.activeTunnels || 0)} active`);
   if (service) {
     selectedPublicAccessServiceId = service.id || selectedPublicAccessServiceId;
     setField("publicAccessServiceName", service.name || "Public service");
@@ -9494,6 +9590,8 @@ function renderPlayitUnavailable(message = "Public Access status unavailable.") 
   document.querySelector("[data-public-access-loading]")?.setAttribute("hidden", "");
   const unavailable = getPublicAccessRequestUnavailableReason(null, message);
   latestPlayitSnapshot = null;
+  setField("dashboardPublicAccess", "Unavailable");
+  setField("dashboardPublicAccessDetail", message);
   setPlayitVisualState("missing");
   setField("playitInstalled", "Unavailable");
   setField("playitRunning", "Unavailable");
@@ -13859,7 +13957,11 @@ function openCurseForgeIntegrationSettings() {
 function isCurseForgeApiKeyRequiredError(error = {}) {
   const message = String(error?.message || "").trim();
   const code = error?.details?.code || error?.payload?.error?.code || error?.code;
-  return ["CURSEFORGE_API_KEY_REQUIRED", "CURSEFORGE_CONFIGURATION_MISSING"].includes(code) || message === "CurseForge API key required";
+  return [
+    "CURSEFORGE_API_KEY_REQUIRED",
+    "CURSEFORGE_API_KEY_INVALID",
+    "CURSEFORGE_CONFIGURATION_MISSING",
+  ].includes(code) || /CurseForge API key (?:is )?(?:required|missing or invalid)/i.test(message);
 }
 
 function createMarketplaceEmptyStateContent(state = {}) {
@@ -13966,9 +14068,154 @@ function renderMarketplaceCategories() {
       if (category === "Modpacks" && marketplaceProviderResults.length === 0) {
         loadMarketplaceProviderPacks({ reset: true });
       }
+      persistMarketplaceViewState();
     });
     marketplaceCategories.append(button);
   });
+}
+
+function persistMarketplaceViewState() {
+  try {
+    localStorage.setItem(MARKETPLACE_VIEW_STATE_KEY, JSON.stringify({
+      search: marketplaceSearchInput?.value || "",
+      category: marketplaceActiveCategory,
+      provider: marketplaceProviderActive,
+      mode: marketplaceProviderMode,
+      minecraftVersion: marketplaceProviderMinecraftVersion?.value || "",
+      loader: marketplaceProviderLoader?.value || "",
+      releaseChannel: marketplaceProviderReleaseChannel?.value || "",
+      sort: marketplaceProviderSort?.value || "",
+      scrollTop: marketplaceGrid?.scrollTop || 0,
+    }));
+  } catch {}
+}
+
+function restoreMarketplaceViewState() {
+  if (workspaceSurface !== "marketplace") return;
+  try {
+    const state = JSON.parse(localStorage.getItem(MARKETPLACE_VIEW_STATE_KEY) || "null");
+    if (!state) return;
+    if (marketplaceSearchInput) marketplaceSearchInput.value = state.search || "";
+    marketplaceActiveCategory = state.category || "All";
+    marketplaceProviderActive = state.provider || "modrinth";
+    marketplaceProviderMode = state.mode || "featured";
+    if (marketplaceProviderMinecraftVersion) marketplaceProviderMinecraftVersion.value = state.minecraftVersion || "";
+    if (marketplaceProviderLoader) marketplaceProviderLoader.value = state.loader || "";
+    if (marketplaceProviderReleaseChannel) marketplaceProviderReleaseChannel.value = state.releaseChannel || "";
+    if (marketplaceProviderSort) marketplaceProviderSort.value = state.sort || "";
+    window.setTimeout(() => {
+      if (marketplaceGrid) marketplaceGrid.scrollTop = Number(state.scrollTop) || 0;
+    }, 0);
+  } catch {}
+}
+
+function renderMarketplacePackageDetails(template = null) {
+  if (!marketplaceDetails) return;
+  marketplaceDetails.replaceChildren();
+  if (!template) {
+    const empty = document.createElement("div");
+    empty.className = "marketplace-details-empty";
+    empty.append(
+      createTextElement("strong", "Select a package"),
+      createTextElement("span", "Package information, versions, dependencies, and compatibility appear here."),
+    );
+    marketplaceDetails.append(empty);
+    return;
+  }
+  marketplaceSelectedTemplateId = template.id;
+  const heading = document.createElement("div");
+  heading.className = "marketplace-details-heading";
+  const icon = document.createElement("span");
+  icon.className = "marketplace-card__icon";
+  if (template.iconUrl) {
+    const image = document.createElement("img");
+    image.src = template.iconUrl;
+    image.alt = "";
+    icon.append(image);
+  } else {
+    icon.textContent = template.icon || "APP";
+  }
+  const title = document.createElement("div");
+  title.append(
+    createTextElement("h3", template.displayName || "Marketplace package"),
+    createTextElement("span", `${template.author || "Unknown author"} · ${formatMarketplaceProviderLabel(template)}`),
+  );
+  heading.append(icon, title);
+  const facts = document.createElement("dl");
+  facts.className = "marketplace-details-facts";
+  [
+    ["Game version", template.displayMinecraftVersion || template.minecraftVersion || "Determined during creation"],
+    ["Loader", formatMarketplaceLoaderLabel(template) || template.instanceType || "Automatic"],
+    ["Release", template.modpackVersion || template.version || "Latest compatible"],
+    ["Downloads", template.downloads ? formatProviderDownloads(template.downloads) : "Not reported"],
+    ["Updated", template.updatedAt ? formatDateTime(template.updatedAt) : "Not reported"],
+    ["Compatibility", (template.serverPackCapability || classifyMarketplaceServerPackCapability(template)).label || "Server-compatible"],
+    ["Recommended memory", template.defaultRam || "4G"],
+  ].forEach(([label, value]) => {
+    facts.append(createTextElement("dt", label), createTextElement("dd", String(value)));
+  });
+  const actions = document.createElement("div");
+  actions.className = "ssh-connection-actions";
+  const versionField = document.createElement("label");
+  versionField.className = "ssh-field marketplace-details-version";
+  versionField.append(createTextElement("span", "Version"));
+  const versionSelect = document.createElement("select");
+  versionSelect.append(new Option(template.modpackVersion || template.version || "Latest compatible", template.providerVersionId || template.providerFileId || ""));
+  versionSelect.disabled = true;
+  versionField.append(versionSelect);
+  if (isProviderMarketplaceTemplate(template) && getDesktopApiState().hasMarketplaceProviderInstall) {
+    getDesktopApiState().api.marketplace.getProviderPackVersions({
+      provider: getMarketplaceProvider(template),
+      providerProjectId: template.providerProjectId,
+      minecraftVersion: template.minecraftVersion || "",
+      loader: template.loader || "",
+      nodeId: getSelectedNodeId(),
+    }).then((catalog) => {
+      if (marketplaceSelectedTemplateId !== template.id) return;
+      const versions = Array.isArray(catalog?.versions) ? catalog.versions : [];
+      versionSelect.replaceChildren(...versions.map((version) => new Option(
+        version.name || version.versionNumber || version.fileName || "Provider release",
+        String(version.providerFileId || version.id || ""),
+      )));
+      versionSelect.disabled = versions.length === 0;
+      versionSelect.addEventListener("change", () => {
+        const selected = versions.find((version) => String(version.providerFileId || version.id || "") === versionSelect.value);
+        if (!selected) return;
+        template.providerVersionId = selected.id || selected.providerFileId || "";
+        template.providerFileId = selected.providerFileId || selected.id || "";
+        template.providerServerPackFileId = selected.providerServerPackFileId || selected.serverPackFileId || "";
+        template.modpackVersion = selected.versionNumber || selected.name || selected.fileName || "";
+        template.minecraftVersions = selected.minecraftVersions || template.minecraftVersions;
+        template.loaders = selected.loaders || template.loaders;
+      });
+    }).catch(() => {
+      versionSelect.disabled = false;
+      versionSelect.title = "Version list is temporarily unavailable. Create Server will retry.";
+    });
+  }
+  const create = document.createElement("button");
+  create.type = "button";
+  create.className = "primary-button";
+  create.textContent = "Continue to Create Server";
+  create.addEventListener("click", () => openCreateServerWorkspace(template));
+  actions.append(create);
+  const technical = document.createElement("details");
+  technical.className = "marketplace-technical-details";
+  technical.append(createTextElement("summary", "Technical Details"));
+  technical.append(createTextElement("pre", [
+    `Provider: ${formatMarketplaceProviderLabel(template)}`,
+    `Diagnostic code: ${template.serverPackCapability?.state || "READY"}`,
+    `Checked: ${new Date().toISOString()}`,
+  ].join("\n")));
+  marketplaceDetails.append(
+    heading,
+    createTextElement("p", template.description || "No description is available."),
+    facts,
+    versionField,
+    actions,
+    technical,
+  );
+  renderMarketplaceTemplates();
 }
 
 function getFilteredMarketplaceTemplates() {
@@ -14007,9 +14254,20 @@ function renderMarketplaceTemplates() {
   marketplaceGrid.replaceChildren();
   const providerBrowserActive = isMarketplaceProviderBrowserActive();
   const fetchedCount = providerBrowserActive ? marketplaceProviderResults.length : getStaticMarketplaceTemplates().length;
-  const templates = providerBrowserActive
+  let templates = providerBrowserActive
     ? marketplaceProviderResults.map(registerProviderMarketplaceTemplate)
     : getFilteredMarketplaceTemplates();
+  if (providerBrowserActive && marketplaceProviderReleaseChannel?.value) {
+    templates = templates.filter((template) => String(template.releaseType || "").toLowerCase() === marketplaceProviderReleaseChannel.value);
+  }
+  if (providerBrowserActive && marketplaceProviderSort?.value) {
+    const sort = marketplaceProviderSort.value;
+    templates.sort((left, right) => {
+      if (sort === "downloads") return (Number(right.downloads) || 0) - (Number(left.downloads) || 0);
+      if (sort === "updated") return new Date(right.updatedAt || 0).getTime() - new Date(left.updatedAt || 0).getTime();
+      return String(left.displayName || "").localeCompare(String(right.displayName || ""));
+    });
+  }
   console.info("[Marketplace][Renderer] renderMarketplaceTemplates.", {
     category: marketplaceActiveCategory,
     provider: providerBrowserActive ? marketplaceProviderActive : "static",
@@ -14094,23 +14352,40 @@ function renderMarketplaceTemplates() {
     const install = document.createElement("button");
     install.type = "button";
     install.className = "inline-action";
-    install.textContent = template.comingSoon || template.disabled ? "Coming soon" : primaryAction.label;
+    install.textContent = template.comingSoon || template.disabled
+      ? "Coming soon"
+      : workspaceSurface === "marketplace"
+        ? "View Details"
+        : primaryAction.label;
     install.disabled = Boolean(template.comingSoon || template.disabled || primaryAction.disabled);
     install.dataset.marketplaceInstalledAction = primaryAction.id;
-    install.addEventListener("click", () => runMarketplaceInstalledAction(template, primaryAction.id));
+    install.addEventListener("click", () => {
+      if (workspaceSurface === "marketplace") renderMarketplacePackageDetails(template);
+      else runMarketplaceInstalledAction(template, primaryAction.id);
+    });
 
     card.append(icon, body, install);
+    card.addEventListener("click", (event) => {
+      if (event.target.closest("button")) return;
+      if (workspaceSurface === "marketplace") renderMarketplacePackageDetails(template);
+    });
     card.addEventListener("keydown", (event) => {
       if (event.key !== "Enter" && event.key !== " ") return;
       event.preventDefault();
-      if (!template.comingSoon && !template.disabled && !primaryAction.disabled) runMarketplaceInstalledAction(template, primaryAction.id);
+      if (!template.comingSoon && !template.disabled && !primaryAction.disabled) {
+        if (workspaceSurface === "marketplace") renderMarketplacePackageDetails(template);
+        else runMarketplaceInstalledAction(template, primaryAction.id);
+      }
     });
     card.addEventListener("dblclick", () => {
       if (template.comingSoon || template.disabled) {
         setMarketplaceMessage(template.comingSoonMessage || "This template is not ready yet.", "warning");
         return;
       }
-      if (!primaryAction.disabled) runMarketplaceInstalledAction(template, primaryAction.id);
+      if (!primaryAction.disabled) {
+        if (workspaceSurface === "marketplace") renderMarketplacePackageDetails(template);
+        else runMarketplaceInstalledAction(template, primaryAction.id);
+      }
     });
     marketplaceGrid.append(card);
   });
@@ -14131,7 +14406,7 @@ async function loadMarketplaceProviderPacks({ reset = false } = {}) {
     inFlight: marketplaceProviderRequestInFlight,
     providerInstallAvailable: desktopApiState.hasMarketplaceProviderInstall,
   });
-  if (!desktopApiState.hasMarketplaceProviderInstall || marketplaceProviderRequestInFlight) {
+  if (!desktopApiState.hasMarketplaceProviderInstall) {
     if (!desktopApiState.hasMarketplaceProviderInstall) {
       setMarketplaceProviderStatus("Provider browser is unavailable in this build.", "warning");
     }
@@ -14162,7 +14437,14 @@ async function loadMarketplaceProviderPacks({ reset = false } = {}) {
     }
     const results = Array.isArray(result?.results) ? result.results : [];
     const fetchedCount = results.length;
-    marketplaceProviderResults = reset ? results : [...marketplaceProviderResults, ...results];
+    const combined = reset ? results : [...marketplaceProviderResults, ...results];
+    const seenProjects = new Set();
+    marketplaceProviderResults = combined.filter((project) => {
+      const key = `${getMarketplaceProvider(project)}:${project.providerProjectId || project.id || project.slug}`;
+      if (seenProjects.has(key)) return false;
+      seenProjects.add(key);
+      return true;
+    });
     marketplaceProviderOffset = Number(result?.nextOffset) || marketplaceProviderResults.length;
     marketplaceProviderHasMore = Boolean(result?.hasMore);
     marketplaceProviderError = null;
@@ -14204,13 +14486,13 @@ async function loadMarketplaceProviderPacks({ reset = false } = {}) {
     marketplaceProviderHasMore = false;
     if (isCurseForgeApiKeyRequiredError(error)) {
       marketplaceProviderError = {
-        title: "CurseForge temporarily unavailable",
-        message: "CurseForge is not configured on the selected AnxOS Agent. Modrinth and other Marketplace providers are still available. Diagnostics code: CF-CONFIG-MISSING.",
-        action: "retry-provider",
-        actionLabel: "Retry",
+        title: "CurseForge API key needs attention",
+        message: "The CurseForge API key is missing, invalid, or does not have API access. Update it in Settings, then retry. Modrinth and other Marketplace providers remain available.",
+        action: "open-settings",
+        actionLabel: "Open Settings",
       };
-      setMarketplaceProviderStatus("CurseForge unavailable on selected Agent", "error");
-      showToast("CurseForge temporarily unavailable", "warning");
+      setMarketplaceProviderStatus("CurseForge API key needs attention", "error");
+      showToast("CurseForge API key needs attention", "warning");
     } else {
       marketplaceProviderError = {
         title: "Provider unavailable",
@@ -14393,7 +14675,7 @@ function getMarketplaceCompactFooterState(template = {}, templateState = {}) {
 function getMarketplaceCompactPackVersion(template = {}) {
   const raw = getMarketplaceModpackVersionLabel(template) || template.version || "";
   const text = String(raw || "").trim();
-  if (!text) return "";
+  if (!text || /^(?:provider|unknown|n\/a)$/i.test(text)) return "";
   const fileBase = text.replace(/\.(?:zip|jar|mrpack)$/i, "");
   const trailingVersion = fileBase.match(/(?:^|[-_\s])v?(\d+(?:\.\d+){0,3}(?:[-+][A-Za-z0-9.-]+)?)$/i)?.[1];
   if (trailingVersion) return trailingVersion;
@@ -14683,7 +14965,8 @@ async function runMarketplaceInstalledAction(template = {}, actionId = "open-ins
   const state = getMarketplaceStateForTemplate(template);
   const instance = state.instances?.[0] || null;
   if (actionId === "install") {
-    openMarketplaceWizard(template.id);
+    if (workspaceSurface === "create-server") openMarketplaceWizard(template.id);
+    else await openCreateServerWorkspace(template);
     return;
   }
   if (actionId === "review-recovery") {
@@ -14691,7 +14974,8 @@ async function runMarketplaceInstalledAction(template = {}, actionId = "open-ins
     return;
   }
   if (!instance?.id) {
-    openMarketplaceWizard(template.id);
+    if (workspaceSurface === "create-server") openMarketplaceWizard(template.id);
+    else await openCreateServerWorkspace(template);
     return;
   }
 
@@ -14898,7 +15182,9 @@ function renderMarketplaceInstallSummary(template) {
     ["Instance state", state.instances.length ? `${state.instances.length} installed · ${state.label}` : state.label],
   ];
   const providerDetails = isProviderMarketplaceTemplate(template)
-    ? getMarketplaceProviderVersionRows(template).map((item) => [item.label, item.value])
+    ? getMarketplaceProviderVersionRows(template)
+      .filter((item) => !/^(?:provider file|server pack)$/i.test(String(item.label || "").trim()))
+      .map((item) => [item.label, item.value])
     : [];
   const installedInstance = state.instances[0] || null;
   const updateState = getMarketplaceUpdateState(template, installedInstance);
@@ -14911,7 +15197,7 @@ function renderMarketplaceInstallSummary(template) {
       ["Installed update state", updateState.label],
     ] : []),
     ["Server compatibility", capability.label || "Compatibility Unknown"],
-    ["Server-pack detail", capability.serverPackFileId ? `Resolved server-pack metadata: file ${capability.serverPackFileId}` : capability.detail || "No server-pack metadata available"],
+    ["Server-pack detail", capability.serverPackFileId ? "Official server-pack metadata resolved" : capability.detail || "No server-pack metadata available"],
     ["Install path", "Managed by the selected Agent instance data root"],
     ["Data preservation", "Uninstall and backup behavior are managed from the Instances and Backups workspaces."],
   ].forEach(([label, value]) => appendDetailPair(details, label, value, { valueTag: "small" }));
@@ -15210,7 +15496,7 @@ function buildProviderMarketplaceTemplate(project = {}) {
   const serverPackCapability = classifyMarketplaceServerPackCapability(project);
   return {
     id,
-    displayName: project.name || project.title || project.slug || providerProjectId,
+    displayName: project.displayName || project.name || project.title || project.slug || providerProjectId,
     description: project.description || "Provider modpack.",
     icon: project.iconUrl ? "" : provider === "curseforge" ? "CF" : "MR",
     iconUrl: project.iconUrl || "",
@@ -15265,6 +15551,12 @@ function setMarketplaceProviderStatus(message, tone = "muted") {
   }
   marketplaceProviderStatus.textContent = message;
   marketplaceProviderStatus.dataset.tone = tone;
+  if (marketplaceHealth) {
+    const label = tone === "success" ? "Healthy" : tone === "error" ? "Unavailable" : tone === "warning" ? "Needs Attention" : "Loading";
+    marketplaceHealth.textContent = label;
+    marketplaceHealth.className = `status-pill status-pill--${tone === "success" ? "running" : tone === "error" ? "failed" : "planned"}`;
+    marketplaceHealth.title = message;
+  }
 }
 
 function renderMarketplaceProviderControls() {
@@ -15288,6 +15580,8 @@ function getMarketplaceProviderQueryPayload({ reset = false } = {}) {
     query: marketplaceSearchInput?.value || "",
     minecraftVersion: marketplaceProviderMinecraftVersion?.value || "",
     loader: marketplaceProviderLoader?.value || "",
+    releaseChannel: marketplaceProviderReleaseChannel?.value || "",
+    sort: marketplaceProviderSort?.value || "",
     offset: reset ? 0 : marketplaceProviderOffset,
     limit: MARKETPLACE_PROVIDER_PAGE_SIZE,
     nodeId: getSelectedNodeId(),
@@ -15595,6 +15889,221 @@ function formatMarketplaceSelectedMeta(template = {}) {
   return `${template.category || "Template"} · ${template.instanceType || "custom-command"} · ${template.startupType || "runtime"}`;
 }
 
+function appendCreateServerFact(container, label, value, tone = "") {
+  const row = document.createElement("div");
+  row.className = "create-server-fact";
+  if (tone) row.dataset.tone = tone;
+  row.append(createTextElement("span", label), createTextElement("strong", value || "Unavailable"));
+  container.append(row);
+}
+
+function renderCreateServerPackageSummary(template) {
+  if (!createServerPackageSummary) return;
+  createServerPackageSummary.replaceChildren();
+  if (!template) {
+    createServerPackageSummary.append(createEmptyState("Choose a Marketplace package or server template to continue."));
+    return;
+  }
+  const capability = template.serverPackCapability || classifyMarketplaceServerPackCapability(template);
+  appendCreateServerFact(createServerPackageSummary, "Package", template.displayName || template.name || template.id || "Selected package");
+  appendCreateServerFact(createServerPackageSummary, "Provider", isProviderMarketplaceTemplate(template) ? formatMarketplaceProviderLabel(template) : "AnxOS Templates");
+  appendCreateServerFact(createServerPackageSummary, "Game", template.game || template.category || "Application");
+  appendCreateServerFact(createServerPackageSummary, "Version", getMarketplaceCompactPackVersion(template) || template.minecraftVersion || template.gameVersion || template.version || "Latest compatible");
+  appendCreateServerFact(createServerPackageSummary, "Loader", formatMarketplaceLoaderLabel(template) || "Not required");
+  appendCreateServerFact(createServerPackageSummary, "Server pack", capability.label || "Compatibility Unknown", capability.installable === false ? "blocked" : "ready");
+  appendCreateServerFact(createServerPackageSummary, "Recommended memory", template.defaultRam || template.recommendedMemory || "Not specified");
+  appendCreateServerFact(createServerPackageSummary, "Estimated size", template.estimatedSize || template.downloadSize || "Calculated during preflight");
+}
+
+function renderCreateServerNodeSummary() {
+  if (!createServerNodeSummary) return;
+  createServerNodeSummary.replaceChildren();
+  const target = resolveActiveManagementTarget();
+  const node = getSelectedNode();
+  const memory = node ? formatNodeMemory(node) : "Metrics unavailable";
+  const storage = node ? formatNodeStorage(node) : "Metrics unavailable";
+  appendCreateServerFact(createServerNodeSummary, "Node", target.name);
+  appendCreateServerFact(createServerNodeSummary, "Connection", target.connectionState?.state || (target.reachable ? "Connected" : "Offline"), target.reachable && target.authenticated ? "ready" : "blocked");
+  appendCreateServerFact(createServerNodeSummary, "Operating system", target.operatingSystem || target.platform || "Unknown");
+  appendCreateServerFact(createServerNodeSummary, "Architecture", target.architecture || "Unknown");
+  appendCreateServerFact(createServerNodeSummary, "Memory", memory);
+  appendCreateServerFact(createServerNodeSummary, "Storage", storage);
+}
+
+function renderCreateServerRuntimeSummary(template) {
+  if (!createServerRuntimeSummary) return;
+  createServerRuntimeSummary.replaceChildren();
+  const target = resolveActiveManagementTarget();
+  const dependencies = getMarketplaceTemplateDependencyIds(template || {});
+  const runtime = isMinecraftMarketplaceTemplate(template)
+    ? `Java · ${formatMarketplaceLoaderLabel(template) || "Vanilla"}`
+    : template?.startupType || template?.instanceType || "Template managed";
+  appendCreateServerFact(createServerRuntimeSummary, "Runtime", runtime, "ready");
+  appendCreateServerFact(createServerRuntimeSummary, "Agent", target.authenticated ? "Connected and authenticated" : "Agent unavailable", target.authenticated ? "ready" : "blocked");
+  appendCreateServerFact(createServerRuntimeSummary, "Dependencies", dependencies.length ? dependencies.join(", ") : "No additional dependency declared");
+  appendCreateServerFact(createServerRuntimeSummary, "Installer", getDesktopApiState().hasMarketplace ? "Ready" : "Unavailable", getDesktopApiState().hasMarketplace ? "ready" : "blocked");
+  appendCreateServerFact(createServerRuntimeSummary, "Storage preflight", "Runs before registration");
+  appendCreateServerFact(createServerRuntimeSummary, "Integrity validation", "Required before completion");
+}
+
+function normalizeCreateServerDraft(template, { source = "" } = {}) {
+  if (!template) return null;
+  const providerPackage = isProviderMarketplaceTemplate(template);
+  const normalizedSource = ["marketplace", "template", "manual"].includes(source)
+    ? source
+    : providerPackage ? "marketplace" : "template";
+  const templateId = String(template.id || template.templateId || "").trim();
+  const displayName = String(template.displayName || template.name || template.title || "").trim();
+  const gameId = String(template.gameId || template.game || template.category || "").trim().toLowerCase();
+  const serverType = String(
+    template.serverType ||
+    template.serverSoftware ||
+    template.software ||
+    template.loader ||
+    template.instanceType ||
+    "",
+  ).trim();
+  const installationStrategy = providerPackage
+    ? "provider-server-pack"
+    : String(
+      template.installerType ||
+      template.startupType ||
+      template.installationStrategy ||
+      "",
+    ).trim();
+  return {
+    source: normalizedSource,
+    gameId,
+    serverType,
+    templateId,
+    provider: providerPackage ? getMarketplaceProvider(template) : "anxos",
+    projectId: providerPackage ? String(template.providerProjectId || template.projectId || "") : "",
+    packageId: providerPackage ? String(template.providerVersionId || template.providerFileId || "") : "",
+    displayName,
+    version: String(template.modpackVersion || template.version || "").trim(),
+    loader: String(template.loader || template.serverSoftware || "").trim(),
+    gameVersion: String(template.minecraftVersion || template.gameVersion || "").trim(),
+    serverPack: template.serverPackCapability || classifyMarketplaceServerPackCapability(template),
+    runtimeRequirements: getMarketplaceTemplateDependencyIds(template),
+    memoryRecommendation: String(template.defaultRam || template.recommendedMemory || "").trim(),
+    installationStrategy,
+    metadata: template,
+    validation: {
+      summary: [],
+    },
+  };
+}
+
+function validateCreateServerDraftSummary(draft) {
+  const reasons = [];
+  if (!draft) return ["Choose a package or template before continuing."];
+  if (!draft.gameId) reasons.push("The selected template does not identify a supported game or application.");
+  if (!draft.serverType) reasons.push("The selected template does not identify a server type.");
+  if (!draft.displayName) reasons.push("The selected template needs a friendly name.");
+  if (!draft.installationStrategy) reasons.push("The selected template does not provide an installation strategy.");
+  if (draft.source === "manual" && !draft.templateId) reasons.push("Choose a valid server template.");
+  if (draft.source === "marketplace" && !draft.projectId) reasons.push("The Marketplace package is missing its project reference.");
+  return reasons;
+}
+
+function validateCreateServerStep(step, { report = true } = {}) {
+  const template = findMarketplaceTemplate();
+  if (!template) {
+    if (report) setMarketplaceMessage("Choose a package before continuing.", "error");
+    return false;
+  }
+  if (step === "summary") {
+    const reasons = validateCreateServerDraftSummary(createServerDraft);
+    if (reasons.length) {
+      if (createServerDraft?.validation) createServerDraft.validation.summary = reasons;
+      if (report) setMarketplaceMessage(reasons[0], "error");
+      return false;
+    }
+    if (createServerDraft?.validation) createServerDraft.validation.summary = [];
+    const capability = template.serverPackCapability || classifyMarketplaceServerPackCapability(template);
+    if (isProviderMarketplaceTemplate(template) && capability.installable === false) {
+      if (report) setMarketplaceMessage("Choose a version that provides a dedicated-server pack.", "error");
+      return false;
+    }
+  }
+  if (step === "node" || step === "runtime") {
+    const target = resolveActiveManagementTarget();
+    if (!target.reachable || !target.authenticated || target.targetType === "application-host") {
+      if (report) setMarketplaceMessage("Select a connected Agent node before deployment.", "error");
+      return false;
+    }
+    if (step === "runtime" && !getDesktopApiState().hasMarketplace) {
+      if (report) setMarketplaceMessage("The deployment installer is unavailable in this build.", "error");
+      return false;
+    }
+  }
+  if (step === "configuration" || step === "review") {
+    const nameField = getMarketplaceField("name");
+    if (!String(nameField?.value || "").trim()) {
+      if (report) {
+        setMarketplaceMessage("Enter a server name before continuing.", "error");
+        nameField?.focus();
+      }
+      return false;
+    }
+    if (!syncMarketplacePortValidity({ report }) || !syncMarketplaceMemoryValidity({ report })) return false;
+    if (isMinecraftMarketplaceTemplate(template) && !getMarketplaceField("acceptEula")?.checked) {
+      if (report) setMarketplaceMessage("Accept the Minecraft EULA before reviewing deployment.", "error");
+      return false;
+    }
+  }
+  return true;
+}
+
+function renderCreateServerWizard(template = findMarketplaceTemplate()) {
+  if (!marketplaceWizard || workspaceSurface !== "create-server") return;
+  const activeIndex = Math.max(0, CREATE_SERVER_STEPS.indexOf(createServerWizardStep));
+  createServerStepNav?.replaceChildren(...CREATE_SERVER_STEPS.map((step, index) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = `${index + 1}. ${CREATE_SERVER_STEP_LABELS[step]}`;
+    button.dataset.createServerStep = step;
+    button.className = index === activeIndex ? "is-active" : index < activeIndex ? "is-complete" : "";
+    button.disabled = marketplaceInstallInFlight || index > activeIndex;
+    button.addEventListener("click", () => {
+      if (index <= activeIndex) {
+        createServerWizardStep = step;
+        renderCreateServerWizard(template);
+      }
+    });
+    return button;
+  }));
+  createServerStepPanels.forEach((panel) => {
+    panel.hidden = panel.dataset.createServerStepPanel !== createServerWizardStep;
+  });
+  renderCreateServerPackageSummary(template);
+  renderCreateServerNodeSummary();
+  renderCreateServerRuntimeSummary(template);
+  if (createServerWizardStep === "review") renderMarketplaceInstallSummary(template);
+  const terminal = createServerWizardStep === "deployment";
+  if (createServerBackButton) createServerBackButton.disabled = marketplaceInstallInFlight || activeIndex === 0 || terminal;
+  if (createServerNextButton) {
+    createServerNextButton.hidden = activeIndex >= CREATE_SERVER_STEPS.indexOf("review");
+    createServerNextButton.disabled = marketplaceInstallInFlight;
+  }
+  if (marketplaceInstallButton) {
+    marketplaceInstallButton.hidden = createServerWizardStep !== "review";
+    marketplaceInstallButton.textContent = "Deploy";
+  }
+  if (marketplaceCancelButton) marketplaceCancelButton.textContent = terminal ? "Close" : "Cancel";
+  if (!marketplaceInstallInFlight && !terminal) {
+    setMarketplaceMessage(`Step ${activeIndex + 1} of ${CREATE_SERVER_STEPS.length - 1}: ${CREATE_SERVER_STEP_LABELS[createServerWizardStep]}.`);
+  }
+}
+
+function moveCreateServerWizard(direction) {
+  const index = CREATE_SERVER_STEPS.indexOf(createServerWizardStep);
+  if (direction > 0 && !validateCreateServerStep(createServerWizardStep)) return;
+  const nextIndex = Math.min(CREATE_SERVER_STEPS.indexOf("review"), Math.max(0, index + direction));
+  createServerWizardStep = CREATE_SERVER_STEPS[nextIndex];
+  renderCreateServerWizard();
+}
+
 function syncMarketplaceWizardFields(template) {
   const isMinecraft = isMinecraftMarketplaceTemplate(template);
   document.querySelectorAll("[data-marketplace-field-wrap]").forEach((wrapper) => {
@@ -15606,7 +16115,7 @@ function syncMarketplaceWizardFields(template) {
   });
 }
 
-function openMarketplaceWizard(templateId) {
+function openMarketplaceWizard(templateId, { source = "" } = {}) {
   if (marketplaceManualRecoveryState) {
     setMarketplaceMessage("Finish the manual download recovery before starting another Marketplace install.", "warning");
     showToast("Finish the manual download recovery first.");
@@ -15625,6 +16134,8 @@ function openMarketplaceWizard(templateId) {
   }
 
   marketplaceSelectedTemplateId = template.id;
+  createServerDraft = normalizeCreateServerDraft(template, { source });
+  createServerWizardStep = "summary";
   if (marketplaceWizard) {
     marketplaceWizard.hidden = false;
   }
@@ -15717,10 +16228,13 @@ function openMarketplaceWizard(templateId) {
     setMarketplaceInstallState("Installing", "running");
     setMarketplaceMessage("Install already running. You can keep browsing, but wait for it to finish before starting another install.", "warning");
   }
+  renderCreateServerWizard(template);
 }
 
 function closeMarketplaceWizard() {
   marketplaceSelectedTemplateId = null;
+  createServerDraft = null;
+  createServerWizardStep = "summary";
   if (marketplaceWizard) {
     marketplaceWizard.hidden = true;
   }
@@ -15761,15 +16275,6 @@ function createFirstServerOptionCard(option) {
       : "No extra dependency preflight declared",
   ].filter(Boolean).join(" · "));
   card.append(title, description, meta);
-  card.addEventListener("click", () => {
-    document.querySelector("[data-first-server-modal]")?.remove();
-    showPage("marketplace");
-    marketplaceActiveCategory = template?.category || "All";
-    renderMarketplaceCategories();
-    renderMarketplaceTemplates();
-    openMarketplaceWizard(option.templateId);
-    setMarketplaceMessage("AnxOS will check this system and install the server using the selected options.");
-  });
   return card;
 }
 
@@ -15788,6 +16293,7 @@ function createFirstServerSection(titleText, copy, options) {
 }
 
 function openFirstServerGuide() {
+  firstServerGuideCleanup?.();
   const overlay = document.createElement("div");
   overlay.className = "app-modal-backdrop";
   overlay.dataset.firstServerModal = "";
@@ -15841,6 +16347,7 @@ function openFirstServerGuide() {
     document.removeEventListener("keydown", onKeyDown);
     deactivateModal?.();
     overlay.remove();
+    if (firstServerGuideCleanup === closeModal) firstServerGuideCleanup = null;
   };
   const onKeyDown = (event) => {
     if (event.key === "Escape") closeModal();
@@ -15850,14 +16357,32 @@ function openFirstServerGuide() {
       closeModal();
       return;
     }
-    if (event.target.closest('[data-first-server-action="marketplace"]')) {
+    const templateButton = event.target.closest("[data-first-server-template]");
+    if (templateButton) {
+      const templateId = templateButton.dataset.firstServerTemplate;
+      const template = findMarketplaceTemplate(templateId);
       closeModal();
       showPage("marketplace");
+      marketplaceActiveCategory = template?.category || "All";
+      renderMarketplaceCategories();
+      renderMarketplaceTemplates();
+      openMarketplaceWizard(templateId, { source: "manual" });
+      setMarketplaceMessage("AnxOS will check this system and install the server using the selected options.");
+      return;
+    }
+    if (event.target.closest('[data-first-server-action="marketplace"]')) {
+      closeModal();
+      if (workspaceSurface === "create-server") {
+        openWorkspaceSurface("marketplace");
+      } else {
+        showPage("marketplace");
+      }
     }
   });
   document.addEventListener("keydown", onKeyDown);
   document.body.append(overlay);
   deactivateModal = activateModal(overlay, { initialFocus: () => overlay.querySelector("[data-first-server-template]") || marketplace });
+  firstServerGuideCleanup = closeModal;
 }
 
 function collectMarketplaceInstallOptions() {
@@ -16360,27 +16885,39 @@ function buildDependencyInstallPanel(download = {}) {
 }
 
 function isInternalOperationIdentifier(value) {
-  return /^(?:provider-install|operation|job|queue|steamcmd-update)[-:][a-z0-9:-]+$/i.test(String(value || "").trim());
+  return /^(?:(?:provider-install|operation|job|queue|steamcmd-update)[-:][a-z0-9:-]+|(?:curseforge|modrinth)[-:]\d+)$/i.test(String(value || "").trim());
+}
+
+function isGenericDownloadTitle(value) {
+  return /^(?:installing\s+)?(?:marketplace\s+)?provider\s+pack$/i.test(String(value || "").trim());
 }
 
 function getDownloadFriendlyTitle(download = {}) {
+  const catalogTemplate = findMarketplaceTemplate(download.templateId || download.metadata?.templateId);
   const candidates = [
+    catalogTemplate?.displayName,
     download.name,
     download.title,
     download.displayName,
     download.instanceName,
+    download.projectName,
+    download.packName,
     download.metadata?.title,
     download.metadata?.displayName,
+    download.metadata?.projectName,
+    download.metadata?.packName,
     download.dependencyName,
     download.fileName,
   ];
-  const resolved = candidates.find((value) => value && !isInternalOperationIdentifier(value));
+  const resolved = candidates.find((value) => value && !isInternalOperationIdentifier(value) && !isGenericDownloadTitle(value));
   if (resolved) {
     return /^(?:install|installing|download|downloading)\b/i.test(String(resolved))
       ? String(resolved)
       : `Installing ${resolved}`;
   }
-  return String(download.status || "").toLowerCase() === "complete" ? "Installation complete" : "Installing...";
+  if (String(download.status || "").toLowerCase() === "complete") return "Installation complete";
+  const provider = getDownloadProviderLabel(download);
+  return provider === "Marketplace" ? "Installing server" : `Installing ${provider} server pack`;
 }
 
 function getDownloadProviderLabel(download = {}) {
@@ -16398,7 +16935,8 @@ function renderMarketplaceDownloads(downloads = []) {
   }
 
   renderMarketplaceReadiness();
-  const visibleDownloads = [...marketplaceLocalDownloadEntries, ...downloads]
+  latestMarketplaceDownloads = [...marketplaceLocalDownloadEntries, ...downloads];
+  const visibleDownloads = latestMarketplaceDownloads
     .filter((download) => !download.parentTaskId);
   downloadList.replaceChildren();
   if (!visibleDownloads.length) {
@@ -16417,7 +16955,9 @@ function renderMarketplaceDownloads(downloads = []) {
     const dependencyDownload = isDependencyDownload(download);
     const item = document.createElement("article");
     item.className = dependencyDownload ? "download-item download-item--dependency" : "download-item";
-    item.dataset.status = download.status || "queued";
+    const normalizedStatus = normalizeOperationStatus(download.status);
+    const terminal = ["completed", "failed", "canceled"].includes(normalizedStatus);
+    item.dataset.status = normalizedStatus;
     if (dependencyDownload) {
       item.dataset.downloadType = "dependency";
     }
@@ -16437,14 +16977,14 @@ function renderMarketplaceDownloads(downloads = []) {
     providerBadge.textContent = providerLabel;
     heading.append(name, providerBadge);
     const status = document.createElement("span");
-    const normalizedStatus = normalizeOperationStatus(download.status);
     status.className = `status-pill ${operationStatusTone(normalizedStatus)}`;
     status.textContent = operationStatusLabel(normalizedStatus);
     header.append(icon, heading, status);
 
     const bar = document.createElement("div");
-    const indeterminate = dependencyDownload && download.progressMode !== "determinate" && !["complete", "degraded", "failed", "cancelled"].includes(String(download.status || "").toLowerCase());
+    const indeterminate = dependencyDownload && download.progressMode !== "determinate" && !terminal;
     bar.className = indeterminate ? "download-progress is-indeterminate" : "download-progress";
+    bar.hidden = terminal;
     const fill = document.createElement("span");
     const rawProgress = Math.max(0, Math.min(Number(download.progress) || 0, 100));
     const renderedProgress = indeterminate ? 40 : download.status === "failed" ? Math.min(rawProgress, 96) : rawProgress;
@@ -16455,16 +16995,30 @@ function renderMarketplaceDownloads(downloads = []) {
     const eta = Number.isFinite(download.etaSeconds) && download.status !== "failed" ? ` · ETA ${formatDuration(download.etaSeconds)}` : "";
     const stage = download.stage || "Preparing";
     const installer = download.installerType ? ` · ${download.installerType}` : "";
-    const terminalState = ["failed", "cancelled", "complete", "degraded"].includes(download.status) ? download.status : "";
+    const terminalState = terminal ? normalizedStatus : "";
     const speedText = terminalState ? "" : ` · ${formatDownloadSpeed(download.speedBytesPerSecond)}`;
-    meta.textContent = download.body || `${stage}${installer} · ${download.progress || 0}%${speedText}${eta}`;
+    meta.textContent = getFriendlyOperationText(terminal
+      ? `${operationStatusLabel(normalizedStatus)}${installer}`
+      : download.body || `${stage}${installer} · ${download.progress || 0}%${speedText}${eta}`);
+
+    const errorPanel = document.createElement("div");
+    errorPanel.className = "download-item__error";
+    const errorTitle = document.createElement("strong");
+    errorTitle.textContent = "Installation failed";
+    const errorSummary = document.createElement("span");
+    errorSummary.textContent = getFriendlyOperationText(getMarketplaceDownloadErrorSummary(download));
+    const recovery = document.createElement("span");
+    recovery.className = "download-item__recovery";
+    recovery.textContent = getFriendlyOperationText(getMarketplaceDownloadRecovery(download));
+    errorPanel.append(errorTitle, errorSummary, recovery);
+    errorPanel.hidden = normalizedStatus !== "failed";
 
     const metadata = document.createElement("small");
-    metadata.textContent = download.metadataText || "";
+    metadata.textContent = getFriendlyOperationText(download.metadataText || "");
     metadata.hidden = !download.metadataText;
 
     const actionText = document.createElement("small");
-    actionText.textContent = download.actionText || "";
+    actionText.textContent = getFriendlyOperationText(download.actionText || "");
     actionText.hidden = !download.actionText;
 
     const logs = document.createElement("details");
@@ -16476,17 +17030,16 @@ function renderMarketplaceDownloads(downloads = []) {
       ? "View installer logs"
       : "Logs";
     logs.append(summary);
-    if (download.id || download.url) {
+    if (download.url) {
       const technical = document.createElement("pre");
-      technical.textContent = [
-        download.id ? `Operation: ${download.id}` : "",
+      technical.textContent = getFriendlyOperationText([
         download.url ? `Source: ${download.url}` : "",
-      ].filter(Boolean).join("\n");
+      ].filter(Boolean).join("\n"));
       logs.append(technical);
     }
     (Array.isArray(download.logs) ? download.logs : []).forEach((entry) => {
       const line = document.createElement("pre");
-      line.textContent = [
+      line.textContent = getFriendlyOperationText([
         entry.at,
         entry.level || "info",
         entry.step,
@@ -16506,7 +17059,7 @@ function renderMarketplaceDownloads(downloads = []) {
         Array.isArray(entry.finalStdoutLines) && entry.finalStdoutLines.length ? `stdout=${entry.finalStdoutLines.join(" / ")}` : "",
         Array.isArray(entry.finalStderrLines) && entry.finalStderrLines.length ? `stderr=${entry.finalStderrLines.join(" / ")}` : "",
         entry.body ? `body=${entry.body}` : "",
-      ].filter(Boolean).join(" | ");
+      ].filter(Boolean).join(" | "));
       logs.append(line);
     });
 
@@ -16536,24 +17089,27 @@ function renderMarketplaceDownloads(downloads = []) {
       resume.addEventListener("click", () => resumeMarketplaceManualInstall(download.sessionId));
       actions.append(resume);
     }
-    const cancel = document.createElement("button");
-    cancel.type = "button";
-    cancel.className = "inline-action";
-    cancel.textContent = "Cancel";
-    cancel.disabled = !download.canCancel;
-    cancel.addEventListener("click", () => cancelMarketplaceDownload(download.id));
-    const retry = document.createElement("button");
-    retry.type = "button";
-    retry.className = "inline-action";
-    retry.textContent = download.canRetryVerification ? "Retry Verification" : "Retry";
-    retry.disabled = !download.canRetry;
-    retry.addEventListener("click", () => retryMarketplaceDownload(download.id));
-    actions.append(cancel, retry);
+    if (!terminal && download.canCancel) {
+      const cancel = document.createElement("button");
+      cancel.type = "button";
+      cancel.className = "inline-action";
+      cancel.textContent = "Cancel";
+      cancel.addEventListener("click", () => cancelMarketplaceDownload(download.id));
+      actions.append(cancel);
+    }
+    if (terminal && download.canRetry) {
+      const retry = document.createElement("button");
+      retry.type = "button";
+      retry.className = "inline-action";
+      retry.textContent = download.canRetryVerification ? "Retry Verification" : "Retry";
+      retry.addEventListener("click", () => retryMarketplaceDownload(download.id));
+      actions.append(retry);
+    }
 
     if (dependencyDownload) {
-      item.append(header, bar, buildDependencyInstallPanel(download), meta, metadata, actionText, logs, actions);
+      item.append(header, bar, errorPanel, buildDependencyInstallPanel(download), meta, metadata, actionText, logs, actions);
     } else {
-      item.append(header, bar, meta, metadata, actionText, logs, actions);
+      item.append(header, bar, errorPanel, meta, metadata, actionText, logs, actions);
     }
     downloadList.append(item);
   });
@@ -16577,24 +17133,46 @@ async function refreshMarketplaceDownloads() {
 }
 
 async function cancelMarketplaceDownload(downloadId) {
+  const download = latestMarketplaceDownloads.find((entry) => entry.id === downloadId) || {};
+  const subject = getDownloadFriendlyTitle(download).replace(/^Installing\s+/i, "") || "download";
+  const operationId = startOperation({
+    type: "Marketplace",
+    title: `Cancel ${subject}`,
+    target: getSelectedNode()?.displayName || getSelectedNode()?.name || "Selected Agent",
+    step: "Canceling download.",
+  });
   try {
     const requestContext = createNodeActionContext("marketplace-download-cancel");
     await getDesktopApiState().api.marketplace.cancelDownload(downloadId, getNodeScopedPayload(requestContext));
     if (!isNodeActionStillCurrent(requestContext)) return;
     await refreshMarketplaceDownloads();
+    finishOperation(operationId, true, "Download canceled.");
   } catch (error) {
-    showToast(error?.message || "Download cancel failed.");
+    const message = normalizeIpcErrorMessage(error, "Download cancel failed.");
+    finishOperation(operationId, false, message);
+    showToast(message);
   }
 }
 
 async function retryMarketplaceDownload(downloadId) {
+  const download = latestMarketplaceDownloads.find((entry) => entry.id === downloadId) || {};
+  const subject = getDownloadFriendlyTitle(download).replace(/^Installing\s+/i, "") || "download";
+  const operationId = startOperation({
+    type: "Marketplace",
+    title: `Retry ${subject}`,
+    target: getSelectedNode()?.displayName || getSelectedNode()?.name || "Selected Agent",
+    step: "Requesting retry.",
+  });
   try {
     const requestContext = createNodeActionContext("marketplace-download-retry");
     await getDesktopApiState().api.marketplace.retryDownload(downloadId, getNodeScopedPayload(requestContext));
     if (!isNodeActionStillCurrent(requestContext)) return;
     await refreshMarketplaceDownloads();
+    finishOperation(operationId, true, "Retry requested. Download Manager will track progress.");
   } catch (error) {
-    showToast(error?.message || "Download retry failed.");
+    const message = normalizeIpcErrorMessage(error, "Download retry failed.");
+    finishOperation(operationId, false, message);
+    showToast(message);
   }
 }
 
@@ -17225,16 +17803,47 @@ async function refreshMarketplace() {
     renderMarketplaceTemplates();
     if (isMarketplaceProviderBrowserActive()) {
       loadMarketplaceProviderPacks({ reset: true });
+    } else {
+      setMarketplaceProviderStatus("Built-in catalog ready. Select Modpacks to check external providers.", "success");
     }
     setMarketplaceMessage("Template catalog loaded.");
   } catch (error) {
     marketplaceCatalog = { categories: [], templates: [] };
     renderMarketplaceCategories();
     renderMarketplaceTemplates();
+    setMarketplaceProviderStatus("Marketplace catalog unavailable.", "error");
     setMarketplaceMessage(error?.message || "Marketplace could not be loaded.", "error");
   } finally {
     setMarketplaceLoading(false);
   }
+}
+
+function publishDeploymentLifecycle(event = {}) {
+  const payload = {
+    eventId: `deployment:${Date.now()}:${Math.random().toString(16).slice(2)}`,
+    timestamp: Date.now(),
+    status: String(event.status || "updated"),
+    operationId: String(event.operationId || ""),
+    instanceId: String(event.instanceId || ""),
+    nodeId: String(event.nodeId || ""),
+    title: sanitizeNotificationText(event.title || "Deployment", 120),
+  };
+  try {
+    window.localStorage.setItem(DEPLOYMENT_LIFECYCLE_STORAGE_KEY, JSON.stringify(payload));
+  } catch {}
+  return payload;
+}
+
+async function refreshIntegratedDeploymentSurfaces() {
+  const refreshes = [
+    refreshNodes(),
+    refreshInstances({ refreshMetrics: true }),
+    refreshDashboard(),
+  ];
+  const results = await Promise.allSettled(refreshes);
+  renderNotificationCenter();
+  renderOperationsCenter();
+  return results;
 }
 
 async function completeMarketplaceInstallResult(result, template, providerInstall) {
@@ -17247,12 +17856,42 @@ async function completeMarketplaceInstallResult(result, template, providerInstal
   selectedInstanceId = result?.instance?.id || selectedInstanceId;
   forgetStaleInstanceId(selectedInstanceId);
   setMarketplaceInstallState("Complete", "complete");
-  setMarketplaceMessage("Install complete. Opening the new instance.");
+  setMarketplaceMessage("Deployment complete. The new server passed registration and readiness validation.");
   renderMarketplaceRecoveryActions(template);
   finishOperation(activeMarketplaceOperationId, true, `Installed ${template.displayName || template.id || "template"}.`);
-  showToast("Template installed.");
-  showPage("instances");
-  await refreshInstances();
+  createNotification({
+    category: "Instances",
+    severity: "success",
+    title: "Server ready",
+    message: `${template.displayName || template.id || "Server"} completed deployment successfully.`,
+    dedupKey: `create-server:ready:${result?.instance?.id || template.id || "server"}`,
+    relatedOperationId: activeMarketplaceOperationId,
+    relatedInstanceId: result?.instance?.id || "",
+    relatedNodeId: activeMarketplaceInstallNodeId || getSelectedNodeId() || "",
+    relatedWorkspace: "instances",
+    actions: ["openInstances"],
+  });
+  showToast("Server deployment completed.");
+  if (workspaceSurface === "create-server") {
+    createServerWizardStep = "deployment";
+    if (createServerDeploymentState) {
+      createServerDeploymentState.replaceChildren(
+        createTextElement("strong", "Server ready"),
+        createTextElement("span", "Deployment, registration, and readiness validation completed successfully."),
+      );
+    }
+    renderCreateServerWizard(template);
+  } else {
+    showPage("instances");
+  }
+  publishDeploymentLifecycle({
+    status: "completed",
+    operationId: activeMarketplaceOperationId,
+    instanceId: result?.instance?.id || "",
+    nodeId: activeMarketplaceInstallNodeId || getSelectedNodeId() || "",
+    title: template.displayName || template.id || "Server",
+  });
+  await refreshIntegratedDeploymentSurfaces();
 }
 
 function formatMissingDependencyList(dependencies = []) {
@@ -17426,6 +18065,8 @@ async function installMarketplaceTemplate(event) {
     return;
   }
 
+  if (!validateCreateServerStep("review")) return;
+
   if (isMinecraftMarketplaceTemplate(template) && !options.acceptEula) {
     setMarketplaceMessage("Accept the Minecraft EULA to generate eula.txt.", "error");
     return;
@@ -17438,8 +18079,29 @@ async function installMarketplaceTemplate(event) {
     type: "Marketplace",
     title: `Install ${template.displayName || template.id || "template"}`,
     target: requestContext.nodeLabel || requestContext.nodeId || "Selected node",
-    step: `Sending install request for ${template.id}.`,
+    step: `Preparing ${template.displayName || "the selected server"}.`,
   });
+  createNotification({
+    category: "Marketplace",
+    severity: "information",
+    title: "Deployment started",
+    message: `${template.displayName || template.id || "Server"} is being prepared on ${requestContext.nodeLabel || "the selected node"}.`,
+    dedupKey: `create-server:started:${activeMarketplaceOperationId}`,
+    relatedOperationId: activeMarketplaceOperationId,
+    relatedNodeId: requestContext.nodeId || "",
+    relatedWorkspace: "operations",
+    actions: ["openOperations"],
+  });
+  if (workspaceSurface === "create-server") {
+    createServerWizardStep = "deployment";
+    if (createServerDeploymentState) {
+      createServerDeploymentState.replaceChildren(
+        createTextElement("strong", "Deployment in progress"),
+        createTextElement("span", "Live progress is synchronized with Download Manager and Operations."),
+      );
+    }
+    renderCreateServerWizard(template);
+  }
   marketplaceLocalDownloadEntries = [];
   setMarketplaceManualRecoveryState(null);
   if (marketplaceInstallButton) {
@@ -17448,7 +18110,7 @@ async function installMarketplaceTemplate(event) {
   setMarketplaceInstallState("Installing", "running");
   renderMarketplaceRecoveryActions(template);
   renderMarketplaceProgress([
-    { label: "Validate template", status: "running", detail: `Sending install request for ${template.id}.` },
+    { label: "Validate template", status: "running", detail: `Preparing ${template.displayName || "the selected server"}.` },
   ]);
   startMarketplaceInstallProgressListener();
   const providerInstall = isProviderMarketplaceTemplate(template) && desktopApiState.hasMarketplaceProviderInstall;
@@ -17505,11 +18167,7 @@ async function installMarketplaceTemplate(event) {
     } catch (prepareError) {
       const preparedError = normalizeMarketplaceError(prepareError, "Dependency preparation failed.");
       setMarketplaceInstallState("Failed", "failed");
-      updateOperation(activeMarketplaceOperationId, {
-        status: "failed",
-        step: preparedError.title,
-        error: preparedError.body,
-      });
+      finishOperation(activeMarketplaceOperationId, false, preparedError.body || preparedError.title);
       renderMarketplaceProgress([
         {
           label: preparedError.title,
@@ -17526,10 +18184,19 @@ async function installMarketplaceTemplate(event) {
       ? normalizedError.details.childTaskState
       : [];
     setMarketplaceInstallState("Failed", "failed");
-    updateOperation(activeMarketplaceOperationId, {
-      status: "failed",
-      step: normalizedError.title,
-      error: normalizedError.body,
+    finishOperation(activeMarketplaceOperationId, false, normalizedError.body || normalizedError.title);
+    createNotification({
+      category: "Marketplace",
+      severity: "error",
+      title: "Deployment failed",
+      message: normalizedError.body || normalizedError.title,
+      dedupKey: `create-server:failed:${activeMarketplaceOperationId || template.id}`,
+      relatedOperationId: activeMarketplaceOperationId,
+      relatedNodeId: requestContext.nodeId || "",
+      relatedDiagnosticCode: normalizedError.code,
+      relatedWorkspace: "operations",
+      technicalDetails: normalizedError.debug,
+      actions: ["openOperations"],
     });
     setMarketplaceManualRecoveryState(null);
     if (failureDownloads.length > 0) {
@@ -17550,6 +18217,12 @@ async function installMarketplaceTemplate(event) {
     marketplacePendingProgressSteps = null;
     renderMarketplaceDownloads(failureDownloads);
     setMarketplaceMessage(`${normalizedError.body || normalizedError.title || "Marketplace install failed."} See Download Manager for progress details.`, "error");
+    if (workspaceSurface === "create-server" && createServerDeploymentState) {
+      createServerDeploymentState.replaceChildren(
+        createTextElement("strong", "Deployment failed"),
+        createTextElement("span", "Return to Review to adjust settings, retry, or inspect technical details."),
+      );
+    }
     showToast(normalizedError.title);
   } finally {
     if (downloadPoll) {
@@ -17563,6 +18236,7 @@ async function installMarketplaceTemplate(event) {
       marketplaceInstallButton.disabled = false;
     }
     renderMarketplaceTemplates();
+    renderCreateServerWizard(template);
     refreshMarketplaceDownloads();
   }
 }
@@ -17632,6 +18306,50 @@ function setInstanceFormMessage(message) {
   }
 }
 
+function getMarketplaceDownloadErrorSummary(download = {}) {
+  const message = sanitizeNotificationText(download.error || download.body || "The Marketplace operation could not be completed.", 240);
+  return message.replace(/\s*\([^)]*(?:operation|request|node|template)Id=[^)]*\)\s*$/i, "").trim();
+}
+
+function getMarketplaceDownloadRecovery(download = {}) {
+  const code = String(download.errorCode || "").toUpperCase();
+  if (code === "CURSEFORGE_API_KEY_REQUIRED") return "Open Settings → Marketplace and save a CurseForge API key.";
+  if (code === "CURSEFORGE_API_KEY_INVALID") return "Open Settings → Marketplace and replace the saved CurseForge API key.";
+  if (code === "MARKETPLACE_CONFIG_DECRYPT_FAILED") return "Open Settings → Marketplace and save the API key again.";
+  if (code.includes("AGENT") || code === "UNAUTHORIZED") return "Reconnect the selected Agent, then retry.";
+  if (code.includes("CDN")) return "Check network access to ForgeCDN, then retry.";
+  return download.actionText || "Review Details for diagnostics, correct the issue, then retry.";
+}
+
+function setInstanceFormValue(name, value = "") {
+  const input = document.querySelector(`[data-instance-form="${name}"]`);
+  if (!input) return;
+  if (input.type === "checkbox") input.checked = Boolean(value);
+  else input.value = String(value ?? "");
+}
+
+function applyInstanceServerPreset(presetId, { preserveIdentity = false } = {}) {
+  const preset = INSTANCE_SERVER_PRESETS[presetId];
+  if (!preset) return;
+  selectedInstancePresetId = presetId;
+  setInstanceFormValue("type", preset.type);
+  if (!preserveIdentity) {
+    setInstanceFormValue("displayName", preset.name);
+    setInstanceFormValue("id", preset.id);
+  }
+  setInstanceFormValue("entrypoint", preset.entrypoint || "");
+  setInstanceFormValue("executable", preset.executable || "");
+  setInstanceFormValue("args", preset.args || "");
+  setInstanceFormValue("memoryLimit", preset.memory);
+  setInstanceFormValue("ports", preset.port);
+  setInstanceFormValue("workingDirectory", preset.folder);
+  setInstanceFormValue("environment", "");
+  setInstanceFormValue("tags", preset.tags);
+  setInstanceFormValue("acceptEula", preset.eula === true);
+  syncInstanceCreateTypeFields();
+  setInstanceFormMessage(`${preset.name} defaults loaded. Review every field before creating the instance.`);
+}
+
 function syncInstanceCreateTypeFields() {
   const type = instanceTypeSelect?.value || "custom-command";
   const executableInput = document.querySelector('[data-instance-form="executable"]');
@@ -17646,7 +18364,9 @@ function syncInstanceCreateTypeFields() {
   });
 
   instanceTemplateButtons.forEach((button) => {
-    button.classList.toggle("is-active", button.dataset.instanceTemplate === type);
+    const active = button.dataset.instancePreset === selectedInstancePresetId;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-checked", active ? "true" : "false");
   });
 
   if (executableInput && !executableInput.value.trim()) {
@@ -17693,12 +18413,19 @@ function buildInstanceCreatePayload() {
     tags,
     environment,
   };
+  const preset = INSTANCE_SERVER_PRESETS[selectedInstancePresetId];
+  if (preset) {
+    payload.templateId = selectedInstancePresetId;
+    payload.game = preset.game;
+    payload.serverSoftware = preset.software;
+    payload.primaryPort = ports[0] || null;
+  }
 
   if (memoryLimit) {
     payload.memoryLimit = memoryLimit;
   }
 
-  if (type === "minecraft-paper" && !payload.tags.includes("minecraft")) {
+  if (preset?.game === "Minecraft" && !payload.tags.includes("minecraft")) {
     payload.tags.push("minecraft");
   }
 
@@ -17733,7 +18460,7 @@ function setInstanceCreateFormVisible(visible) {
   }
 
   if (instancesCreateToggleButton) {
-    instancesCreateToggleButton.textContent = instanceCreateFormVisible ? "Hide Form" : "Create Instance";
+    instancesCreateToggleButton.textContent = "Create Server";
   }
 
   syncInstanceCreateTypeFields();
@@ -17986,7 +18713,7 @@ async function createInstanceFromForm(event) {
     createdInstanceAccepted = true;
     selectInstance(createdInstanceId, { refreshMetrics: false });
 
-    if (payload.type === "minecraft-paper") {
+    if (payload.game === "Minecraft") {
       const acceptEula = document.querySelector('[data-instance-form="acceptEula"]')?.checked === true;
       if (acceptEula) {
         if (!isNodeActionStillCurrent(requestContext)) return;
@@ -18013,8 +18740,18 @@ async function createInstanceFromForm(event) {
 
     setInstanceCreateFormVisible(false);
     instanceCreateForm?.reset();
+    applyInstanceServerPreset("minecraft-paper");
     setInstanceFormMessage("Commands run without a shell. Secrets are not accepted in environment variable names.");
-    showToast("Instance created.");
+    createNotification({
+      category: "Instances",
+      severity: "success",
+      title: "Server created",
+      message: `${payload.displayName || payload.id} was created from the ${INSTANCE_SERVER_PRESETS[payload.templateId]?.name || "custom"} template.`,
+      dedupKey: `instance-created:${payload.id}`,
+      relatedWorkspace: "instances",
+      actions: ["openInstances"],
+    });
+    showToast("Instance created.", "success");
     await refreshInstances();
   } catch (error) {
     if (isInstanceNotFoundError(error)) {
@@ -19544,6 +20281,55 @@ function operationStatusTone(status) {
   return "status-pill--planned";
 }
 
+function getFriendlyOperationTarget(target = "") {
+  const value = String(target || "").trim();
+  if (!value) return "";
+  const matchedNode = (nodesState.nodes || []).find((node) => [
+    node.id,
+    node.deviceId,
+    node.agentIdentity?.deviceId,
+    node.agentIdentity?.id,
+  ].filter(Boolean).includes(value));
+  if (matchedNode) return getFilesNodeLabel(matchedNode);
+  if (/^(?:agent-device|node|operation|job|queue)[-:][a-f0-9-]{12,}$/i.test(value)) {
+    return "Selected Agent";
+  }
+  return value;
+}
+
+function getFriendlyOperationText(value = "") {
+  let text = redactOperationText(value);
+  const persistedFailureMessages = [
+    {
+      pattern: /\bINSTANCE_ALREADY_EXISTS\b/i,
+      message: "A server with this name already exists.",
+    },
+    {
+      pattern: /\bINVALID_INSTANCE_ID\b/i,
+      message: "The server name contains unsupported characters.",
+    },
+    {
+      pattern: /\bMINECRAFT_PORT_IN_USE\b/i,
+      message: "That Minecraft port is already in use.",
+    },
+  ];
+  const persistedFailure = persistedFailureMessages.find(({ pattern }) => pattern.test(text));
+  if (persistedFailure) return persistedFailure.message;
+  getMarketplaceTemplates().forEach((template) => {
+    const id = String(template?.id || "").trim();
+    const displayName = String(template?.displayName || "").trim();
+    if (!id || !displayName || id === displayName) return;
+    const escapedId = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    text = text.replace(new RegExp(`\\b${escapedId}\\b`, "gi"), displayName);
+  });
+  return text
+    .replace(/\btemplateId\s*[=:]\s*[a-z0-9._:-]+/gi, "selected template")
+    .replace(/\b(?:projectId|fileId|versionId)=\d+\b/gi, "internal reference")
+    .replace(/\/files\/\d+\/\d+\//gi, "/files/[internal]/")
+    .replace(/\b(?:curseforge|modrinth)[-:]\d+\b/gi, "Marketplace item")
+    .replace(/\b(?:agent-device|operation|job|queue)[-:][a-f0-9-]{12,}\b/gi, "internal reference");
+}
+
 function createOperationId(type = "operation") {
   return `${type}:${Date.now()}:${Math.random().toString(16).slice(2)}`;
 }
@@ -19578,7 +20364,7 @@ function persistOperationHistory() {
   }
 }
 
-function loadOperationHistory() {
+function loadOperationHistory({ recoverInterrupted = true } = {}) {
   if (operationsState.loaded) return;
   operationsState.loaded = true;
   try {
@@ -19601,6 +20387,13 @@ function loadOperationHistory() {
         error: entry.error ? redactOperationText(entry.error) : "",
         logs: Array.isArray(entry.logs) ? entry.logs.slice(-12).map(redactOperationText) : [],
       };
+      if (recoverInterrupted && ["queued", "running", "waiting"].includes(operation.status)) {
+        operation.status = "failed";
+        operation.step = "Interrupted when AnxOS closed. Retry from the originating workspace.";
+        operation.error = operation.step;
+        operation.completedAt = operation.updatedAt;
+        appendOperationLog(operation, operation.step);
+      }
       const recoveryText = `${operation.step} ${operation.error} ${operation.logs.join(" ")}`;
       if (
         operation.status === "failed" &&
@@ -19622,6 +20415,14 @@ const NOTIFICATION_ACTIONS = {
   openOperations: { label: "Open Operations", run: (notification) => openNotificationRelatedOperation(notification) },
   openDiagnostics: { label: "Open Diagnostics", run: (notification) => openNotificationDiagnostics(notification) },
   openMarketplace: { label: "Open Marketplace", run: () => showPage("marketplace") },
+  openInstances: {
+    label: "Open Instance",
+    run: (notification) => {
+      if (notification?.relatedInstanceId) selectedInstanceId = notification.relatedInstanceId;
+      showPage("instances");
+      return refreshInstances({ refreshMetrics: true });
+    },
+  },
   openFiles: { label: "Open Files", run: () => showPage("files") },
   openMaintenance: { label: "Open Maintenance", run: () => showPage("maintenance") },
   openSecurity: { label: "Open Security", run: () => showPage("security") },
@@ -19634,7 +20435,7 @@ const NOTIFICATION_ACTIONS = {
 };
 
 function sanitizeNotificationText(value = "", limit = NOTIFICATION_MAX_MESSAGE_LENGTH) {
-  return redactOperationText(value)
+  return getFriendlyOperationText(value)
     .replace(/\b[A-Za-z0-9+/]{180,}={0,2}\b/g, "[redacted-base64]")
     .replace(/\s+/g, " ")
     .trim()
@@ -19718,6 +20519,8 @@ function serializeNotification(notification) {
     resolved: notification.resolved !== false,
     occurrenceCount: Math.max(1, Number(notification.occurrenceCount) || 1),
     relatedOperationId: notification.relatedOperationId ? sanitizeNotificationText(notification.relatedOperationId, 160) : "",
+    relatedInstanceId: notification.relatedInstanceId ? sanitizeNotificationText(notification.relatedInstanceId, 160) : "",
+    relatedNodeId: notification.relatedNodeId ? sanitizeNotificationText(notification.relatedNodeId, 160) : "",
     relatedDiagnosticCode: notification.relatedDiagnosticCode ? sanitizeNotificationText(notification.relatedDiagnosticCode, 80) : "",
     relatedWorkspace: notification.relatedWorkspace ? sanitizeNotificationText(notification.relatedWorkspace, 80) : "",
     technicalDetails: notification.technicalDetails ? sanitizeNotificationText(notification.technicalDetails, 900) : "",
@@ -19795,12 +20598,46 @@ function getOperationNotificationCategory(operation = {}) {
   return "Operations";
 }
 
+function getOperationNotificationTitle(operation = {}, status = normalizeOperationStatus(operation.status)) {
+  const rawTitle = getFriendlyOperationText(operation.title || "Operation");
+  const subject = rawTitle.replace(/^(?:install|retry|cancel)\s+/i, "").trim() || "Operation";
+  if (getOperationNotificationCategory(operation) === "Marketplace") {
+    if (status === "completed" && /^install\s+/i.test(rawTitle)) return `${subject} installed`;
+    if (status === "failed" && /^install\s+/i.test(rawTitle)) return `${subject} installation failed`;
+  }
+  if (status === "completed" && /\bdownload\b/i.test(rawTitle)) return "Download finished";
+  return status === "failed"
+    ? `${rawTitle} failed`
+    : `${rawTitle} ${operationStatusLabel(status).toLowerCase()}`;
+}
+
 function shouldPersistToastNotification(message, severity) {
   if (getCurrentSettings()["notifications.persistHistory"] === false) return false;
   const text = String(message || "");
   if (!text.trim()) return false;
   if (/\b(copied|copy|opened|selected|filter|search cleared|toast test|test notification)\b/i.test(text)) return false;
+  if (normalizeNotificationSeverity(severity) === "success") {
+    return /\b(server|instance).*(started|stopped|created)\b|\bbackup.*completed\b|\bdownload.*(finished|completed)\b|\bupdate available\b|\bpublic access.*connected\b|\bdocker.*completed\b|\bconfiguration saved\b/i.test(text);
+  }
   return ["warning", "error", "critical"].includes(normalizeNotificationSeverity(severity));
+}
+
+function getToastNotificationTitle(message, severity) {
+  const text = String(message || "");
+  if (normalizeNotificationSeverity(severity) === "error") return /\bcrash/i.test(text) ? "Server crashed" : "Action failed";
+  if (normalizeNotificationSeverity(severity) === "warning") {
+    if (/\bpublic access.*(lost|disconnected)\b/i.test(text)) return "Public Access lost";
+    return "Action needs attention";
+  }
+  if (/\b(server|instance).*started\b/i.test(text)) return "Server started";
+  if (/\b(server|instance).*stopped\b/i.test(text)) return "Server stopped";
+  if (/\bbackup.*completed\b/i.test(text)) return "Backup completed";
+  if (/\bdownload.*(finished|completed)\b/i.test(text)) return "Download finished";
+  if (/\bupdate available\b/i.test(text)) return "Update available";
+  if (/\bpublic access.*connected\b/i.test(text)) return "Public Access connected";
+  if (/\bdocker.*completed\b/i.test(text)) return "Docker operation completed";
+  if (/\bconfiguration saved\b/i.test(text)) return "Configuration saved";
+  return "Action completed";
 }
 
 function createNotification(input = {}) {
@@ -19838,6 +20675,8 @@ function createNotification(input = {}) {
       resolved: input.resolved !== false,
       occurrenceCount: 1,
       relatedOperationId: input.relatedOperationId || "",
+      relatedInstanceId: input.relatedInstanceId || "",
+      relatedNodeId: input.relatedNodeId || "",
       relatedDiagnosticCode: input.relatedDiagnosticCode || "",
       relatedWorkspace: input.relatedWorkspace || "",
       technicalDetails: input.technicalDetails || "",
@@ -19861,7 +20700,7 @@ function createOperationNotification(operation = {}) {
   createNotification({
     category: getOperationNotificationCategory(operation),
     severity: failed ? "error" : status === "canceled" ? "warning" : "success",
-    title: failed ? `${operation.title || "Operation"} failed` : `${operation.title || "Operation"} ${status}`,
+    title: getOperationNotificationTitle(operation, status),
     message: failed
       ? operation.error || operation.step || "Operation stopped before a final result was reported. Open Operations details or diagnostics for the recorded steps."
       : operation.step || operationStatusLabel(status),
@@ -19869,6 +20708,7 @@ function createOperationNotification(operation = {}) {
     relatedOperationId: operation.id,
     relatedWorkspace: "operations",
     actions: failed ? ["openOperations", "openDiagnostics", "copyMessage"] : ["openOperations"],
+    technicalDetails: failed ? [operation.error, ...(operation.logs || []).slice(-4)].filter(Boolean).join(" | ") : "",
     resolved: !failed,
   });
 }
@@ -20036,6 +20876,7 @@ function renderNotificationCenter() {
     });
     actions.append(clear);
 
+    item.append(header, message);
     if ((notification.occurrences || []).length > 1) {
       const details = document.createElement("details");
       details.className = "notification-occurrences";
@@ -20047,10 +20888,17 @@ function renderNotificationCenter() {
         list.append(row);
       });
       details.append(summary, list);
-      item.append(header, message, details, actions);
-    } else {
-      item.append(header, message, actions);
+      item.append(details);
     }
+    if (notification.technicalDetails) {
+      const technical = document.createElement("details");
+      technical.className = "notification-technical";
+      const summary = createTextElement("summary", "Technical details");
+      const content = createTextElement("pre", notification.technicalDetails);
+      technical.append(summary, content);
+      item.append(technical);
+    }
+    item.append(actions);
     notificationList.append(item);
   });
 }
@@ -20114,6 +20962,13 @@ function clearNoncriticalNotifications() {
   renderNotificationCenter();
 }
 
+function clearAllNotifications() {
+  loadNotificationHistory();
+  notificationState.items = [];
+  persistNotificationHistory();
+  renderNotificationCenter();
+}
+
 function appendOperationLog(operation, message) {
   if (!operation || !message) return;
   operation.logs = [...(operation.logs || []), `${new Date().toLocaleTimeString()} ${redactOperationText(message)}`].slice(-24);
@@ -20155,9 +21010,20 @@ function updateOperation(id, patch = {}) {
   if (patch.type) operation.type = redactOperationText(patch.type);
   if (patch.title) operation.title = redactOperationText(patch.title);
   if (patch.target !== undefined) operation.target = redactOperationText(patch.target);
-  if (patch.status) operation.status = normalizeOperationStatus(patch.status);
+  if (patch.status) {
+    const incomingStatus = normalizeOperationStatus(patch.status);
+    const currentTerminal = ["completed", "failed", "canceled"].includes(operation.status);
+    if (!currentTerminal && !(operation.status !== "queued" && incomingStatus === "queued")) {
+      operation.status = incomingStatus;
+    }
+  }
   if (patch.step !== undefined) operation.step = redactOperationText(patch.step);
-  if (patch.percent !== undefined) operation.percent = clampPercent(patch.percent);
+  if (patch.percent !== undefined) {
+    const incomingPercent = clampPercent(patch.percent);
+    operation.percent = incomingPercent === null
+      ? operation.percent
+      : Math.max(Number(operation.percent) || 0, incomingPercent);
+  }
   if (patch.error !== undefined) operation.error = redactOperationText(patch.error);
   if (patch.cancel !== undefined) operation.cancel = patch.cancel;
   operation.updatedAt = Date.now();
@@ -20226,20 +21092,23 @@ function renderOperationDetail(operation) {
     operationDetailStatus.className = `status-pill ${operationStatusTone(operation.status)}`;
   }
   const title = document.createElement("strong");
-  title.textContent = operation.title;
+  title.textContent = getFriendlyOperationText(operation.title);
   const meta = document.createElement("span");
-  meta.textContent = `${operation.type}${operation.target ? ` · ${operation.target}` : ""}`;
+  const friendlyTarget = getFriendlyOperationTarget(operation.target);
+  meta.textContent = `${operation.type}${friendlyTarget ? ` · ${friendlyTarget}` : ""}`;
   const step = document.createElement("span");
-  step.textContent = operation.step || operationStatusLabel(operation.status);
+  step.textContent = getFriendlyOperationText(operation.step || operationStatusLabel(operation.status));
   operationDetail.append(title, meta, step);
   if (operation.error) {
     const error = document.createElement("span");
     error.className = "operation-detail__error";
-    error.textContent = operation.error;
+    error.textContent = getFriendlyOperationText(operation.error);
     operationDetail.append(error);
   }
   const logs = document.createElement("pre");
-  logs.textContent = operation.logs?.length ? operation.logs.join("\n") : "No operation logs captured yet.";
+  logs.textContent = operation.logs?.length
+    ? operation.logs.map(getFriendlyOperationText).join("\n")
+    : "No operation logs captured yet.";
   operationDetail.append(logs);
 }
 
@@ -20297,13 +21166,13 @@ function renderOperationsCenter() {
       const header = document.createElement("span");
       header.className = "operation-item__header";
       const title = document.createElement("strong");
-      title.textContent = operation.title;
+      title.textContent = getFriendlyOperationText(operation.title);
       const status = document.createElement("span");
       status.className = `status-pill ${operationStatusTone(operation.status)}`;
       status.textContent = operationStatusLabel(operation.status);
       header.append(title, status);
       const step = document.createElement("small");
-      step.textContent = operation.step || operation.target || operation.type;
+      step.textContent = getFriendlyOperationText(operation.step || getFriendlyOperationTarget(operation.target) || operation.type);
       button.append(header, step, createProgressBar(operation.percent, operation.status));
       item.append(button);
       if (operation.cancel && ["running", "queued", "waiting"].includes(operation.status)) {
@@ -20763,7 +21632,7 @@ function getGlobalSearchProviders() {
           .map((operation) => createGlobalSearchResult(this, {
             id: operation.id,
             label: operation.title || "Operation",
-            description: [operationStatusLabel(operation.status), operation.target || operation.step].filter(Boolean).join(" · "),
+            description: [operationStatusLabel(operation.status), getFriendlyOperationTarget(operation.target) || operation.step].filter(Boolean).join(" · "),
             action: () => {
               showPage("operations");
               operationsState.selectedId = operation.id;
@@ -23789,7 +24658,11 @@ async function refreshAmpDashboard(options = {}) {
 async function refreshDashboard() {
   const desktopApiState = getDesktopApiState();
 
-  if (systemRequestInFlight || !desktopApiState.hasSystem) {
+  if (systemRequestInFlight) {
+    return;
+  }
+
+  if (!desktopApiState.hasSystem) {
     setField("osVersion", "Desktop API unavailable");
     return;
   }
@@ -25657,7 +26530,7 @@ function showToast(message, tone = null) {
     createNotification({
       category: inferNotificationCategoryFromText(`${displayMessage} ${formatted.originalMessage || ""}`),
       severity: nextTone,
-      title: nextTone === "error" ? "Action failed" : "Action needs attention",
+      title: getToastNotificationTitle(displayMessage, nextTone),
       message: displayMessage,
       dedupKey: `toast:${nextTone}:${inferNotificationCategoryFromText(displayMessage)}:${sanitizeNotificationText(displayMessage, 120)}`,
       relatedDiagnosticCode: formatted.friendly?.technicalDetails?.code || /\b[A-Z][A-Z0-9_]{3,}\b/.exec(String(message || ""))?.[0] || "",
@@ -28515,6 +29388,140 @@ async function bootstrapApplication() {
   setupDeveloperUpdates();
   startStartupFallback();
   refreshDockerStatus();
+  if (workspaceSurface) {
+    const initialWorkspace = await getDesktopWindowApi()?.getWorkspaceContext?.().catch(() => null);
+    const storedHandoff = (() => {
+      try {
+        const value = JSON.parse(localStorage.getItem("anxos:create-server-handoff") || "null");
+        if (value?.template?.id && Date.now() - Number(value.createdAt || 0) < 30000) return value;
+      } catch {}
+      return null;
+    })();
+    const initialContext = initialWorkspace?.context?.template
+      ? initialWorkspace.context
+      : workspaceInitContext?.template
+        ? workspaceInitContext
+        : storedHandoff?.template
+          ? storedHandoff
+        : workspaceTemplateId
+          ? { template: { id: workspaceTemplateId } }
+          : {};
+    getDesktopApi()?.diagnostics?.log?.({
+      severity: "info",
+      source: "renderer",
+      operation: "workspace-window-init",
+      message: "Initialized a dedicated workspace window.",
+      context: {
+        surface: workspaceSurface,
+        queryTemplateId: workspaceTemplateId || null,
+        contextTemplateId: initialContext?.template?.id || null,
+        storedTemplateId: storedHandoff?.template?.id || null,
+      },
+    }).catch(() => {});
+    await applyWorkspaceWindowContext(initialContext);
+  }
+}
+
+async function applyWorkspaceWindowContext(context = {}) {
+  if (!workspaceSurface) return;
+  workspaceInitContext = context || {};
+  showPage("marketplace");
+  if (workspaceSurface === "marketplace") {
+    restoreMarketplaceViewState();
+    renderMarketplaceCategories();
+    renderMarketplaceProviderControls();
+    return;
+  }
+  document.title = "Create Server — AnxOS Control Center";
+  if (titlebarPageTarget) titlebarPageTarget.textContent = "Create Server";
+  const marketplaceHeading = document.querySelector('[data-page="marketplace"] .page-header h1');
+  const marketplaceLede = document.querySelector('[data-page="marketplace"] .page-header .lede');
+  if (marketplaceHeading) marketplaceHeading.textContent = "Create Server";
+  if (marketplaceLede) marketplaceLede.textContent = "Review the selected template, adjust its settings, and create the server.";
+  const hasExplicitTemplateContext = Object.prototype.hasOwnProperty.call(context || {}, "template");
+  const requestedTemplateId = hasExplicitTemplateContext
+    ? context?.template?.id || ""
+    : workspaceTemplateId;
+  const contextTemplate = context?.template || null;
+  const providerContextTemplate = contextTemplate?.displayName && isProviderMarketplaceTemplate(contextTemplate)
+    ? contextTemplate
+    : null;
+  if (requestedTemplateId && !providerContextTemplate) {
+    await ensureWorkspaceMarketplaceCatalog();
+  }
+  const template = providerContextTemplate || findMarketplaceTemplate(requestedTemplateId);
+  getDesktopApi()?.diagnostics?.log?.({
+    severity: "info",
+    source: "renderer",
+    operation: "create-server-template-resolve",
+    message: "Resolved the requested Create Server template.",
+    context: {
+      requestedTemplateId: requestedTemplateId || null,
+      resolvedTemplateId: template?.id || null,
+      staticTemplateCount: getStaticMarketplaceTemplates().length,
+      providerTemplateCount: marketplaceProviderTemplates.size,
+      manualRecoveryActive: Boolean(marketplaceManualRecoveryState),
+    },
+  }).catch(() => {});
+  if (template) {
+    firstServerGuideCleanup?.();
+    if (isProviderMarketplaceTemplate(template)) {
+      registerProviderMarketplaceTemplate(template);
+    }
+    marketplaceActiveCategory = template.category || "All";
+    renderMarketplaceCategories();
+    renderMarketplaceTemplates();
+    openMarketplaceWizard(template.id);
+    getDesktopApi()?.diagnostics?.log?.({
+      severity: "info",
+      source: "renderer",
+      operation: "create-server-wizard-open",
+      message: "Opened the Create Server review workflow.",
+      context: {
+        templateId: template.id,
+        wizardHidden: Boolean(marketplaceWizard?.hidden),
+        selectedTemplateId: marketplaceSelectedTemplateId || null,
+      },
+    }).catch(() => {});
+    return;
+  }
+  if (requestedTemplateId) {
+    openWorkspaceTemplateWhenReady(requestedTemplateId);
+    return;
+  }
+  await ensureWorkspaceMarketplaceCatalog();
+  window.setTimeout(() => {
+    if (!document.querySelector("[data-first-server-modal]")) openFirstServerGuide();
+  }, 0);
+}
+
+async function ensureWorkspaceMarketplaceCatalog() {
+  if (getStaticMarketplaceTemplates().length > 0) return;
+  if (!marketplaceRequestInFlight) {
+    await refreshMarketplace();
+    return;
+  }
+  for (let attempt = 0; attempt < 40 && marketplaceRequestInFlight; attempt += 1) {
+    await new Promise((resolve) => window.setTimeout(resolve, 100));
+  }
+  if (getStaticMarketplaceTemplates().length === 0 && !marketplaceRequestInFlight) {
+    await refreshMarketplace();
+  }
+}
+
+async function openWorkspaceTemplateWhenReady(templateId) {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const template = findMarketplaceTemplate(templateId);
+    if (template) {
+      marketplaceActiveCategory = template.category || "All";
+      renderMarketplaceCategories();
+      renderMarketplaceTemplates();
+      openMarketplaceWizard(template.id);
+      return;
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 250));
+  }
+  setMarketplaceMessage("The selected template is no longer available. Return to Marketplace and choose another template.", "warning");
 }
 
 function renderSecurityState() {
@@ -32313,8 +33320,12 @@ function renderMarketplaceSettings(settingsPayload) {
 
   if (marketplaceConfigInput) {
     marketplaceConfigInput.value = "";
-    marketplaceConfigInput.disabled = degraded;
-    marketplaceConfigInput.placeholder = configured ? "Temporary owner key saved - enter a new key to replace" : "Temporary owner/private-alpha key";
+    marketplaceConfigInput.disabled = false;
+    marketplaceConfigInput.placeholder = degraded
+      ? "Saved key unavailable — enter a new key"
+      : configured
+        ? "Saved key configured — enter a new key to replace"
+        : "Enter CurseForge API key";
   }
 
   if (marketplaceConfigPill) {
@@ -32325,7 +33336,7 @@ function renderMarketplaceSettings(settingsPayload) {
 
   if (marketplaceConfigMessage) {
     marketplaceConfigMessage.textContent = degraded
-      ? "Marketplace provider settings could not be restored. Marketplace providers that require saved credentials are temporarily disabled."
+      ? "AnxOS could not restore the saved CurseForge credentials."
       : configured
       ? `CurseForge configuration mode: ${mode}.${fingerprint ? ` Key${fingerprint}.` : ""}`
       : "CurseForge is unavailable until a hosted proxy, Agent configuration, or temporary owner/private-alpha key is configured.";
@@ -32333,7 +33344,7 @@ function renderMarketplaceSettings(settingsPayload) {
 
   if (marketplaceConfigSource) {
     marketplaceConfigSource.textContent = degraded
-      ? "Saved provider credentials were preserved. Unlock AnxOS or reset Marketplace provider settings to use this provider again."
+      ? "Enter and save the API key again. The unreadable encrypted settings were preserved for diagnostics."
       : `Source: ${diagnostics.keySource || mode}. Proxy: ${diagnostics.hostedProxyConfigured ? "configured" : "not configured"}. Agent proxy: ${diagnostics.agentProxyEligible ? "eligible" : "not active"}.`;
   }
   renderCurseForgeDiagnostics(diagnostics);
@@ -34565,6 +35576,10 @@ navItems.forEach((item) => {
     if (item.hidden || item.getAttribute("aria-disabled") === "true") {
       return;
     }
+    if (item.dataset.pageTarget === "marketplace" && !workspaceSurface) {
+      openWorkspaceSurface("marketplace");
+      return;
+    }
     showPage(item.dataset.pageTarget);
   });
 });
@@ -35137,6 +36152,7 @@ document.querySelectorAll("[data-docker-cleanup]").forEach((button) => {
 });
 updateDockerActionButtons();
 marketplaceSearchInput?.addEventListener("input", debounce(() => {
+  persistMarketplaceViewState();
   if (isMarketplaceProviderBrowserActive()) {
     loadMarketplaceProviderPacks({ reset: true });
   } else {
@@ -35154,6 +36170,7 @@ marketplaceProviderTabs?.addEventListener("click", (event) => {
   marketplaceProviderOffset = 0;
   marketplaceProviderHasMore = false;
   marketplaceProviderError = null;
+  persistMarketplaceViewState();
   renderMarketplaceProviderControls();
   loadMarketplaceProviderPacks({ reset: true });
 });
@@ -35167,13 +36184,17 @@ marketplaceProviderModes?.addEventListener("click", (event) => {
   marketplaceProviderOffset = 0;
   marketplaceProviderHasMore = false;
   marketplaceProviderError = null;
+  persistMarketplaceViewState();
   renderMarketplaceProviderControls();
   loadMarketplaceProviderPacks({ reset: true });
 });
 marketplaceProviderMinecraftVersion?.addEventListener("input", debounce(() => loadMarketplaceProviderPacks({ reset: true }), 220));
-marketplaceProviderLoader?.addEventListener("change", () => loadMarketplaceProviderPacks({ reset: true }));
+marketplaceProviderLoader?.addEventListener("change", () => { persistMarketplaceViewState(); loadMarketplaceProviderPacks({ reset: true }); });
+marketplaceProviderReleaseChannel?.addEventListener("change", () => { persistMarketplaceViewState(); loadMarketplaceProviderPacks({ reset: true }); });
+marketplaceProviderSort?.addEventListener("change", () => { persistMarketplaceViewState(); loadMarketplaceProviderPacks({ reset: true }); });
 marketplaceLoadMoreButton?.addEventListener("click", () => loadMarketplaceProviderPacks({ reset: false }));
 marketplaceGrid?.addEventListener("scroll", () => {
+  persistMarketplaceViewState();
   if (!isMarketplaceProviderBrowserActive() || !marketplaceProviderHasMore || marketplaceProviderRequestInFlight) {
     return;
   }
@@ -35183,7 +36204,15 @@ marketplaceGrid?.addEventListener("scroll", () => {
 });
 downloadRefreshButton?.addEventListener("click", refreshMarketplaceDownloads);
 marketplaceWizard?.addEventListener("submit", installMarketplaceTemplate);
-marketplaceCancelButton?.addEventListener("click", closeMarketplaceWizard);
+createServerBackButton?.addEventListener("click", () => moveCreateServerWizard(-1));
+createServerNextButton?.addEventListener("click", () => moveCreateServerWizard(1));
+marketplaceCancelButton?.addEventListener("click", () => {
+  if (workspaceSurface === "create-server" && !marketplaceInstallInFlight) {
+    getDesktopWindowApi()?.close?.();
+    return;
+  }
+  closeMarketplaceWizard();
+});
 marketplaceVersionToggle?.addEventListener("click", () => {
   const template = findMarketplaceTemplate();
   if (!isMinecraftMarketplaceTemplate(template)) {
@@ -35220,7 +36249,7 @@ instancesLogLimitSelect?.addEventListener("change", () => refreshInstanceLogs())
 instancesRefreshButtons.forEach((button) => {
   button.addEventListener("click", refreshInstances);
 });
-instancesCreateToggleButton?.addEventListener("click", () => setInstanceCreateFormVisible(!instanceCreateFormVisible));
+instancesCreateToggleButton?.addEventListener("click", () => openCreateServerWorkspace());
 document.querySelector('[data-instance-action="cancel-create"]')?.addEventListener("click", () => setInstanceCreateFormVisible(false));
 instancesStartButtons.forEach((button) => {
   button.addEventListener("click", () => runInstanceAction("start"));
@@ -35287,17 +36316,11 @@ instanceTabs.forEach((button) => {
 });
 instanceTemplateButtons.forEach((button) => {
   button.addEventListener("click", () => {
-    const type = button.dataset.instanceTemplate || "custom-command";
-    if (type === "docker-compose") {
-      showToast("Docker instance wizard is planned. Use Docker page or Custom Command for now.");
-      return;
-    }
-    if (instanceTypeSelect) {
-      instanceTypeSelect.value = type;
-    }
-    syncInstanceCreateTypeFields();
+    applyInstanceServerPreset(button.dataset.instancePreset || "minecraft-paper");
   });
 });
+document.querySelector('[data-marketplace-shortcut="downloads"]')?.addEventListener("click", () => showPage("operations"));
+document.querySelector('[data-marketplace-shortcut="notifications"]')?.addEventListener("click", () => showPage("notifications"));
 instanceCreateForm?.addEventListener("submit", createInstanceFromForm);
 instanceTypeSelect?.addEventListener("change", syncInstanceCreateTypeFields);
 instanceFormInputs.forEach((input) => {
@@ -35497,7 +36520,7 @@ instanceFileDropzone?.addEventListener("drop", async (event) => {
     }
   }
 });
-syncInstanceCreateTypeFields();
+applyInstanceServerPreset("minecraft-paper");
 setActiveInstanceTab(readStoredInstanceTab());
 updateInstanceActionButtons();
 settingsInputs.forEach((input) => {
@@ -35551,9 +36574,51 @@ onboardingWizardButtons.forEach((button) => {
     }
   });
 });
-function runDashboardFriendlyAction(action) {
-  if (action === "create-server") return openFirstServerGuide();
-  if (action === "marketplace") return showPage("marketplace");
+async function runDashboardBulkInstanceAction(action) {
+  const desktopApiState = getDesktopApiState();
+  if (!desktopApiState.hasInstances) {
+    showToast("Instance controls are unavailable for the selected system.", "warning");
+    return;
+  }
+  const candidates = getInstances().filter(action === "start" ? canStartInstance : canStopInstance);
+  if (!candidates.length) {
+    showToast(action === "start" ? "No stopped servers are ready to start." : "No running servers need to be stopped.", "info");
+    return;
+  }
+  if (action === "stop" && !(await confirmDestructiveAction({
+    title: `Stop ${candidates.length} running server${candidates.length === 1 ? "" : "s"}?`,
+    message: "Active players and services may disconnect. Each server will receive its normal graceful stop request.",
+    confirmLabel: "Stop All Servers",
+  }))) return;
+  const requestContext = createNodeActionContext(`dashboard-${action}-all`);
+  const results = await Promise.allSettled(candidates.map((instance) =>
+    desktopApiState.api.instances[action](instance.id, getNodeScopedPayload(requestContext))));
+  const succeeded = results.filter((result) => result.status === "fulfilled").length;
+  const failed = results.length - succeeded;
+  createNotification({
+    category: "Instances",
+    severity: failed ? "warning" : "success",
+    title: action === "start" ? "Start all servers completed" : "Stop all servers completed",
+    message: `${succeeded} succeeded${failed ? ` and ${failed} failed` : ""}.`,
+    dedupKey: `dashboard:${action}-all:${Date.now()}`,
+    relatedWorkspace: "instances",
+    actions: ["openInstances"],
+  });
+  showToast(`${succeeded} server${succeeded === 1 ? "" : "s"} ${action === "start" ? "started" : "stopped"}${failed ? `; ${failed} failed` : ""}.`, failed ? "warning" : "success");
+  await refreshInstances();
+}
+
+async function runDashboardFriendlyAction(action) {
+  if (action === "refresh") {
+    await Promise.allSettled([refreshDashboard(), refreshInstances(), refreshDockerStatus(), refreshPlayitStatus(), refreshAgentControl()]);
+    showToast("Dashboard refreshed.", "success");
+    return;
+  }
+  if (action === "restart-agent") return runAgentControlAction("restart");
+  if (action === "start-all") return runDashboardBulkInstanceAction("start");
+  if (action === "stop-all") return runDashboardBulkInstanceAction("stop");
+  if (action === "create-server") return openCreateServerWorkspace();
+  if (action === "marketplace") return openWorkspaceSurface("marketplace");
   if (action === "instances") return showPage("instances");
   if (action === "share-server") {
     const instance = findInstance();
@@ -35573,9 +36638,15 @@ function runDashboardFriendlyAction(action) {
   return showPage("dashboard");
 }
 dashboardActionButtons.forEach((button) => {
-  button.addEventListener("click", () => runDashboardFriendlyAction(button.dataset.dashboardAction || "dashboard"));
+  button.addEventListener("click", () => {
+    runDashboardFriendlyAction(button.dataset.dashboardAction || "dashboard")
+      .catch((error) => showToast(normalizeIpcErrorMessage(error, "Dashboard action failed."), "error"));
+  });
 });
-document.querySelector('[data-marketplace-action="first-server"]')?.addEventListener("click", openFirstServerGuide);
+document.querySelector('[data-marketplace-action="first-server"]')?.addEventListener("click", () => {
+  if (workspaceSurface === "create-server") openFirstServerGuide();
+  else openCreateServerWorkspace();
+});
 dashboardNextAction?.addEventListener("click", () => runDashboardFriendlyAction(dashboardNextActionState.page || "dashboard"));
 setupHealthContinueButton?.addEventListener("click", () => runDashboardFriendlyAction(setupHealthActionState.action || "dashboard"));
 helpTopicButtons.forEach((button) => {
@@ -35700,6 +36771,13 @@ notificationActionButtons.forEach((button) => {
         confirmLabel: "Clear Noncritical",
       });
       if (ok) clearNoncriticalNotifications();
+    } else if (action === "clear-all") {
+      const ok = await createSecurityConfirmation({
+        title: "Clear all notifications?",
+        message: "This removes the complete local Notification Center history, including pinned and critical records. Runtime diagnostics and Operations history are not affected.",
+        confirmLabel: "Clear All",
+      });
+      if (ok) clearAllNotifications();
     }
   });
 });
@@ -36050,7 +37128,11 @@ localSetupButtons.forEach((button) => {
   });
 });
 nodeTargetSelects.forEach((select) => {
-  select.addEventListener("change", () => selectNode(select.value || "application-host"));
+  select.addEventListener("change", async () => {
+    await selectNode(select.value || "application-host");
+    renderMarketplaceInstallSummary(findMarketplaceTemplate());
+    renderCreateServerWizard();
+  });
 });
 nodePickerTrigger?.addEventListener("click", (event) => {
   event.stopPropagation();
@@ -36325,6 +37407,41 @@ backupActionButtons.forEach((button) => {
 windowMaximizedUnsubscribe = getDesktopWindowApi()?.onMaximizedChanged?.((isMaximized) => {
   setTitlebarWindowState(isMaximized);
 }) || null;
+getDesktopWindowApi()?.onWorkspaceInit?.((payload = {}) => {
+  if (payload.surface && payload.surface !== workspaceSurface) return;
+  applyWorkspaceWindowContext(payload.context || {}).catch((error) => {
+    setMarketplaceMessage(normalizeIpcErrorMessage(error, "Create Server could not initialize."), "error");
+  });
+});
+window.addEventListener("storage", (event) => {
+  if (event.key === OPERATIONS_STORAGE_KEY) {
+    operationsState.loaded = false;
+    operationsState.items.clear();
+    loadOperationHistory({ recoverInterrupted: false });
+    renderOperationsCenter();
+    return;
+  }
+  if (event.key === NOTIFICATIONS_STORAGE_KEY) {
+    notificationState.loaded = false;
+    notificationState.items = [];
+    loadNotificationHistory();
+    renderNotificationCenter();
+    return;
+  }
+  if (event.key !== DEPLOYMENT_LIFECYCLE_STORAGE_KEY || !event.newValue) return;
+  window.clearTimeout(deploymentSyncRefreshTimer);
+  deploymentSyncRefreshTimer = window.setTimeout(() => {
+    refreshIntegratedDeploymentSurfaces().catch((error) => {
+      getDesktopApi()?.diagnostics?.log?.({
+        severity: "warning",
+        source: "renderer",
+        operation: "deployment-sync-refresh",
+        message: "A deployment completed, but one or more subscribed surfaces could not refresh.",
+        context: { message: normalizeIpcErrorMessage(error, "Refresh failed.") },
+      }).catch(() => {});
+    });
+  }, 80);
+});
 syncTitlebarWindowState();
 configurePrimaryNavigation();
 ensurePageIntroductions();

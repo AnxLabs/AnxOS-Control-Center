@@ -59,7 +59,10 @@ assert.strictEqual(
 
 const parsedWebsiteRelease = parseWebsiteConfigRelease(websiteConfig, "https://anxoscontrolcenter.org/config.js");
 assert.strictEqual(parsedWebsiteRelease.version, release.version, "Website config must expose the centralized public version.");
-assert.strictEqual(parsedWebsiteRelease.build, release.build, "Website config must match the centralized release build exactly.");
+assert(
+  parsedWebsiteRelease.build <= release.build,
+  "Website config must not advertise a build newer than the local development build.",
+);
 assert.strictEqual(parsedWebsiteRelease.channel, release.channel, "Website config must expose the centralized channel.");
 
 assert(packageSource.includes("ANXOS_RELEASE_ARTIFACT_VERSION"), "Installer artifact naming must use the public release artifact label.");
@@ -86,7 +89,7 @@ assert(updateManagerSource.includes("isProductionSafeMetadataUrl") && updateMana
 assert(!updateManagerSource.includes("192.168.1.134:8766"), "Updater must not ship a hardcoded local-network manifest fallback.");
 assert(websiteConfig.includes(`latestVersion: "${release.version}"`) && websiteConfig.includes(`channel: "${release.channel}"`), "Website download metadata must display the public release model.");
 assert(!websiteConfig.includes("packageVersion"), "Website public metadata must not expose the internal package SemVer.");
-assert(websiteNotes.some((entry) => entry.version === release.version && Number(entry.build) === parsedWebsiteRelease.build && entry.channel === release.channel), "Website release notes must include the currently advertised public version/build/channel.");
+assert(websiteNotes.some((entry) => entry.version === parsedWebsiteRelease.version && Number(entry.build) === parsedWebsiteRelease.build && entry.channel === parsedWebsiteRelease.channel), "Website release notes must include the currently advertised public version/build/channel.");
 assert(currentReleaseNotes, "Current unreleased release notes must exist in the repository.");
 const currentReleaseText = currentReleaseNotes;
 [

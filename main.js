@@ -57,6 +57,8 @@ const developerGitUpdater = new DeveloperGitUpdater({ app, appRoot: __dirname })
 let mainWindow = null;
 let addStorageWindow = null;
 let pendingAddStoragePayload = null;
+const workspaceWindows = new Map();
+const pendingWorkspacePayloads = new Map();
 let appShuttingDown = false;
 let appShutdownComplete = false;
 let activeStartupAttemptId = null;
@@ -506,6 +508,22 @@ function registerWindowIpc() {
   ipcMain.handle("window:isMaximized", (event) => {
     return Boolean(getSenderWindow(event)?.isMaximized());
   });
+
+  ipcMain.handle("window:openWorkspace", (_event, payload = {}) => {
+    const context = payload.context || {};
+    if (payload.templateId && !context.template?.id) {
+      context.template = { id: String(payload.templateId) };
+    }
+    return openWorkspaceWindow(payload.surface, context);
+  });
+  ipcMain.handle("window:getWorkspaceContext", (event) => {
+    const senderUrl = new URL(event.sender.getURL());
+    const surface = senderUrl.searchParams.get("surface") || "";
+    return {
+      surface,
+      context: pendingWorkspacePayloads.get(surface) || {},
+    };
+  });
 }
 
 function getCenteredChildBounds(parent, width = 520, height = 650) {
@@ -589,6 +607,70 @@ function closeAddStorageWindow() {
     return { closed: true };
   }
   return { closed: false };
+}
+
+function openWorkspaceWindow(surface, context = {}) {
+  const normalizedSurface = String(surface || "").trim().toLowerCase();
+  if (!["marketplace", "create-server"].includes(normalizedSurface)) {
+    throw Object.assign(new Error("Unsupported workspace window."), { code: "WORKSPACE_WINDOW_UNSUPPORTED" });
+  }
+  pendingWorkspacePayloads.set(normalizedSurface, context);
+  const existing = workspaceWindows.get(normalizedSurface);
+  if (existing && !existing.isDestroyed()) {
+    if (existing.isMinimized()) existing.restore();
+    existing.focus();
+    existing.webContents.send("workspaceWindow:init", {
+      surface: normalizedSurface,
+      context,
+    });
+    return { opened: true, focused: true, surface: normalizedSurface };
+  }
+
+  const parent = mainWindow && !mainWindow.isDestroyed() ? mainWindow : BrowserWindow.getFocusedWindow();
+  const bounds = getCenteredChildBounds(parent, normalizedSurface === "marketplace" ? 1180 : 880, 780);
+  const workspaceWindow = new BrowserWindow({
+    ...bounds,
+    minWidth: normalizedSurface === "marketplace" ? 900 : 720,
+    minHeight: 640,
+    title: normalizedSurface === "marketplace"
+      ? "Marketplace — AnxOS Control Center"
+      : "Create Server — AnxOS Control Center",
+    icon: APP_ICON_PATH,
+    backgroundColor: "#07020f",
+    autoHideMenuBar: true,
+    show: false,
+    frame: false,
+    titleBarStyle: "hidden",
+    thickFrame: true,
+    roundedCorners: true,
+    webPreferences: {
+      preload: path.join(__dirname, "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  workspaceWindows.set(normalizedSurface, workspaceWindow);
+  workspaceWindow.once("ready-to-show", () => {
+    if (workspaceWindow.isDestroyed()) return;
+    workspaceWindow.show();
+    workspaceWindow.webContents.send("workspaceWindow:init", {
+      surface: normalizedSurface,
+      context: pendingWorkspacePayloads.get(normalizedSurface) || {},
+    });
+  });
+  workspaceWindow.on("closed", () => {
+    workspaceWindows.delete(normalizedSurface);
+    pendingWorkspacePayloads.delete(normalizedSurface);
+  });
+  workspaceWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  workspaceWindow.loadFile(path.join(__dirname, "index.html"), {
+    query: {
+      surface: normalizedSurface,
+      ...(context?.template?.id ? { templateId: String(context.template.id) } : {}),
+    },
+  });
+  return { opened: true, focused: false, surface: normalizedSurface };
 }
 
 function clearMainWindowWatchdogTimers() {

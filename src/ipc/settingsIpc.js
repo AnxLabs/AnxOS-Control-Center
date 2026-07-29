@@ -173,6 +173,22 @@ async function testSelectedAgentCurseForgeConnection() {
         cdn: payload?.cdn || { ok: false, status: null, errorCode: null },
       };
     });
+    console.info("[Marketplace][CurseForge] Selected Agent connectivity test result.", {
+      nodeId: selectedNodeId,
+      ok: Boolean(test.ok),
+      errorCode: test.errorCode || null,
+      api: {
+        ok: Boolean(test.api?.ok),
+        status: test.api?.status || null,
+        errorCode: test.api?.errorCode || null,
+      },
+      cdn: {
+        ok: Boolean(test.cdn?.ok),
+        status: test.cdn?.status || null,
+        errorCode: test.cdn?.errorCode || null,
+        hostname: test.cdn?.hostname || null,
+      },
+    });
     return {
       ok: Boolean(test.ok),
       provider: "curseforge",

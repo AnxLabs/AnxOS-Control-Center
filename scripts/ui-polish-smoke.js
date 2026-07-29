@@ -50,6 +50,35 @@ assert(!/window\.prompt|prompt\(|window\.alert|alert\(|window\.confirm|confirm\(
 assert(preload.includes("settings:getPreferences") && preload.includes("settings:savePreferences") && preload.includes("settings:resetPreferences"), "Preload must expose centralized settings preference IPC.");
 assert(preload.includes("dependencies:plan") && app.includes("typeof api?.dependencies?.plan === \"function\""), "Dependency preparation planning must be exposed before install actions.");
 assert(main.includes("registerSettingsIpc"), "Main process must register settings IPC.");
+assert(main.includes("function openWorkspaceWindow") && main.includes('"marketplace", "create-server"'), "Main process must provide singleton Marketplace and Create Server workspace windows.");
+assert(preload.includes("window:openWorkspace") && preload.includes("workspaceWindow:init"), "Preload must expose narrow workspace-window handoff IPC.");
+assert(app.includes("function openCreateServerWorkspace") && app.includes("applyWorkspaceWindowContext"), "Marketplace selection must hand off to the authoritative Create Server workspace.");
+assert(app.includes("function renderMarketplacePackageDetails") && styles.includes("body.marketplace-window .marketplace-deployment-panel"), "Dedicated Marketplace must show discovery details and hide deployment configuration.");
+assert(index.includes("data-create-server-step-nav") && index.includes('data-create-server-step-panel="review"') && index.includes('data-create-server-step-panel="deployment"'), "Create Server must expose a staged wizard with explicit review and deployment surfaces.");
+assert(app.includes("const CREATE_SERVER_STEPS") && app.includes("function validateCreateServerStep") && app.includes("function renderCreateServerWizard"), "Create Server must use one validated universal wizard state machine.");
+assert(app.includes("function normalizeCreateServerDraft") && app.includes("function validateCreateServerDraftSummary"), "Create Server must normalize every entry source before stage validation.");
+assert(app.includes('openMarketplaceWizard(templateId, { source: "manual" })'), "Manual templates must enter the universal Create Server pipeline with an explicit source.");
+assert(!app.includes('document.querySelector("[data-first-server-modal]")?.remove()'), "Manual template selection must use modal cleanup so the application shell is not left inert.");
+assert(app.includes("const templateButton = event.target.closest(\"[data-first-server-template]\")") && app.includes("closeModal();"), "Manual template selection must close the guide through its lifecycle-safe cleanup path.");
+assert(app.includes('draft.source === "marketplace" && !draft.projectId') && app.includes('draft.source === "manual" && !draft.templateId'), "Create Server validation must keep Marketplace-only identifiers out of manual template requirements.");
+assert(app.includes('providerPackage\n    ? "provider-server-pack"'), "Provider packages must derive their installation strategy from the resolved server-pack pipeline.");
+assert(app.includes("DEPLOYMENT_LIFECYCLE_STORAGE_KEY") && app.includes("refreshIntegratedDeploymentSurfaces"), "Completed deployments must notify every open window and refresh Dashboard, Nodes, and Instances together.");
+assert(app.includes('loadOperationHistory({ recoverInterrupted: false })'), "Cross-window operation synchronization must not misclassify active work as interrupted.");
+assert(app.includes("relatedInstanceId") && app.includes("relatedNodeId"), "Deployment notifications must preserve instance and node deep-link context.");
+assert(app.includes("Math.max(Number(operation.percent) || 0, incomingPercent)"), "Operation progress must remain monotonic.");
+assert(app.includes('Object.prototype.hasOwnProperty.call(context || {}, "template")'), "Manual Create Server entry must override a stale Marketplace query template in the singleton window.");
+assert(app.includes('title: "Deployment started"') && app.includes('title: "Server ready"') && app.includes('title: "Deployment failed"'), "Create Server milestones must synchronize with Notification Center.");
+assert(app.includes('createServerWizardStep = "deployment"') && app.includes("startMarketplaceInstallProgressListener"), "Create Server deployment must transition into the shared Download Manager progress pipeline.");
+assert(!app.includes("Resolved server-pack metadata: file ${capability.serverPackFileId}"), "Create Server review must not expose raw provider file identifiers.");
+assert(app.includes('filter((item) => !/^(?:provider file|server pack)$/i.test'), "Create Server review must omit identifier-bearing provider metadata rows.");
+assert(styles.includes(".create-server-step-nav") && styles.includes(".create-server-wizard-actions") && styles.includes("position: sticky"), "Create Server must keep responsive step navigation and fixed actions visible.");
+assert(index.includes("create-server-validation-message") && styles.includes(".create-server-validation-message"), "Create Server validation feedback must remain visible beside the fixed wizard actions.");
+assert(app.includes("MARKETPLACE_VIEW_STATE_KEY") && app.includes("restoreMarketplaceViewState"), "Dedicated Marketplace must preserve search, filters, and scroll state.");
+assert(app.includes("seenProjects") && app.includes("requestId !== marketplaceProviderRequestId"), "Marketplace search must deduplicate packages and ignore stale provider responses.");
+assert(app.includes("ensureWorkspaceMarketplaceCatalog") && app.includes('instancesCreateToggleButton?.addEventListener("click", () => openCreateServerWorkspace())'), "Create Server must wait for the catalog and remain the single visible instance-creation entry point.");
+assert(app.includes("project.displayName || project.name || project.title"), "Provider-template handoff must preserve the friendly Marketplace title instead of exposing a project ID.");
+assert(styles.includes("body.workspace-window .sidebar") && styles.includes("body.create-server-window .marketplace-browser"), "Dedicated workspace windows must remove unrelated navigation and keep Create Server focused.");
+assert(styles.includes("body.create-server-window .app-modal--first-server") && styles.includes("grid-template-columns: minmax(0, 1fr)"), "Create Server guidance must use a readable stacked header at dedicated-window widths.");
 assert(index.includes("nodes-summary-grid") && index.includes('data-node-summary="online"'), "Nodes workspace must expose a compact dashboard summary.");
 assert(index.includes("Switch System / Node") && index.includes("Choose a system to manage.") && index.includes("selected system"), "New-user language should consistently teach system/node terminology.");
 assert(index.includes("This PC is always available.") && app.includes("This PC is ready. Add a remote Agent node") && !index.includes("This Device is always available."), "Local system copy should consistently use This PC in the desktop shell.");
@@ -74,6 +103,9 @@ assert(index.includes("data-node-modal") && index.includes('data-node-action="op
 assert(index.includes("node-modal-layout") && index.indexOf("node-pairing-section") < index.indexOf("node-manual-section"), "Node editor modal must use a balanced pairing/manual setup layout.");
 assert(index.indexOf("node-manual-section") < index.indexOf("node-form-actions"), "Node editor action buttons must stay aligned with the manual setup form.");
 assert(styles.includes(".node-modal-layout") && styles.includes("grid-template-columns: minmax(260px, 0.86fr) minmax(420px, 1.4fr)"), "Node editor modal must keep a balanced two-column desktop layout.");
+assert(styles.includes(".node-modal-layout > .node-pairing-section {\n  grid-column: 1;") && styles.includes(".node-modal-layout > .node-manual-section {\n  grid-column: 2;"), "Node editor sections must override unrelated Settings nth-child grid placement with modal-owned specificity.");
+assert(styles.includes("@media (max-width: 1320px)") && styles.includes(".marketplace-layout {\n    grid-template-columns: minmax(0, 1fr) minmax(300px, 340px);"), "Marketplace must keep the installer visible beside the catalog at common desktop widths.");
+assert(!app.includes("download.id ? `Operation: ${download.id}`"), "Download Manager logs must not expose raw operation identifiers.");
 assert(styles.includes(".app-modal--node .modal-header .icon-action") && styles.includes("position: absolute") && styles.includes("right: 0"), "Node editor close button must stay aligned in the modal header.");
 assert(styles.includes("@media (max-width: 900px)") && styles.includes(".node-modal-layout") && styles.includes("grid-template-columns: minmax(0, 1fr)"), "Node editor modal must collapse cleanly on smaller windows.");
 assert(index.includes("data-node-details-modal") && index.includes("node-details-drawer"), "Nodes workspace must include a details drawer.");
@@ -207,6 +239,7 @@ assert(styles.includes(".public-access-grid") && styles.includes(".public-access
 assert(app.includes("function createTextElement") && app.includes("function createSecurityBadgeElement"), "Renderer must keep safe DOM helper coverage for dynamic desktop surfaces.");
 assert(app.includes("pre = createTextElement(\"pre\", JSON.stringify(event.details || {}, null, 2)") && app.includes("createSvgElement(\"path\""), "High-risk diagnostics/security/icon surfaces must render through DOM APIs.");
 assert(app.includes("function isConfiguredStorageRootPath") && app.includes("Configured storage roots cannot be deleted from AnxOS"), "Files UI must prevent configured storage roots from being presented as deletable items.");
+assert(app.includes('/^(?:provider|unknown|n\\/a)$/i.test(text)'), "Marketplace cards must suppress internal provider placeholder versions.");
 
 [
   "@media (max-width: 640px), (max-height: 560px)",
@@ -217,5 +250,31 @@ assert(app.includes("function isConfiguredStorageRootPath") && app.includes("Con
   "button:focus-visible",
   "scrollbar-gutter: stable",
 ].forEach((needle) => assert(styles.includes(needle), `Shared responsive/accessibility CSS is missing: ${needle}`));
+
+[
+  "function getMarketplaceDownloadErrorSummary",
+  "function getMarketplaceDownloadRecovery",
+  'bar.hidden = terminal',
+  'if (!terminal && download.canCancel)',
+  'if (terminal && download.canRetry)',
+  'marketplaceConfigInput.disabled = false',
+  '"Saved key unavailable — enter a new key"',
+  "function getFriendlyOperationTarget",
+  "function getFriendlyOperationText",
+  "A server with this name already exists.",
+  "projectId|fileId|versionId",
+  "Interrupted when AnxOS closed. Retry from the originating workspace.",
+  "function isGenericDownloadTitle",
+  "technicalDetails: failed",
+].forEach((needle) => assert(app.includes(needle), `Marketplace reliability UI contract is missing: ${needle}`));
+
+[
+  ".download-item__error",
+  ".download-item__logs pre",
+  "grid-template-columns: auto minmax(0, 1fr) auto",
+  "min-width: max-content",
+  "overflow-wrap: break-word",
+  ".settings-section--marketplace .settings-inline-status",
+].forEach((needle) => assert(styles.includes(needle), `Download Manager responsive contract is missing: ${needle}`));
 
 console.log("UI polish smoke checks passed.");

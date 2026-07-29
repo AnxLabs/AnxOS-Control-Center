@@ -22,6 +22,7 @@ const marketplaceInstallService = require("../src/services/marketplaceInstallSer
 const systemService = require("../src/services/systemService");
 const modrinthProvider = require("../src/services/providers/modrinthProvider");
 const curseforgeProvider = require("../src/services/providers/curseforgeProvider");
+const curseforgeProxyService = require("../agent/src/services/curseforgeProxyService");
 const { getMarketplaceConfigPath } = require("../src/services/providerConfigService");
 const { normalizeMarketplaceError, stripIpcErrorWrapper } = require("../src/shared/marketplaceError");
 const agentInstanceService = require("../agent/src/services/instances/instanceService");
@@ -2889,11 +2890,35 @@ async function assertProviderInstallSupport() {
       },
       "CurseForge API requests must include API key and User-Agent headers."
     );
-    assert.strictEqual(
-      curseforgeProvider._test.buildDownloadHeaders("https://edge.forgecdn.net/files/1/2/example.jar", { cfApiKey: "cf-direct-token" })["x-api-key"],
-      "cf-direct-token",
-      "CurseForge CDN downloads must include API key authentication."
-    );
+  assert.strictEqual(
+    curseforgeProvider._test.buildDownloadHeaders("https://edge.forgecdn.net/files/1/2/example.jar", { cfApiKey: "cf-direct-token" })["x-api-key"],
+    undefined,
+    "CurseForge CDN downloads must not expose the API key to the returned CDN URL."
+  );
+  assert.strictEqual(
+    curseforgeProxyService._test.buildCdnRequestHeaders({ range: "bytes=0-0" })["x-api-key"],
+    undefined,
+    "The Agent must not expose the CurseForge API key to ForgeCDN."
+  );
+  assert.strictEqual(
+    curseforgeProxyService._test.buildCdnRequestHeaders({}).Range,
+    undefined,
+    "The Agent CDN probe should use the same ordinary GET semantics as a real download."
+  );
+  const cdnProbe = await curseforgeProxyService._test.probeCurseForgeCdn([
+    { id: 10, latestFilesIndexes: [{ fileId: 100 }] },
+    { id: 20, latestFilesIndexes: [{ fileId: 200 }] },
+  ], {
+    fetchEndpoint: async (pathname) => ({ body: { data: `https://edge.forgecdn.net/${pathname.includes("/10/") ? "stale" : "current"}.zip` } }),
+    fetchDownload: async (url) => ({
+      ok: url.includes("current"),
+      status: url.includes("current") ? 200 : 404,
+      finalHostname: "edge.forgecdn.net",
+      body: { cancel() {} },
+    }),
+  });
+  assert.strictEqual(cdnProbe.status, 200, "The Agent CDN probe should skip a stale file and accept a current candidate.");
+  assert.strictEqual(cdnProbe.projectId, 20, "The Agent CDN probe should report the successful candidate.");
   } finally {
     if (previousAliasMigrationDisabled === undefined) {
       delete process.env.ANXHUB_DISABLE_CURSEFORGE_KEY_MIGRATION;
@@ -2920,6 +2945,16 @@ async function assertProviderInstallSupport() {
     curseforgeProvider._test.friendlyHttpMessage("search", 429, '{"message":"rate limit exceeded"}'),
     /429 Rate limited.*rate limit exceeded/,
     "CurseForge 429 errors should include provider response details."
+  );
+  assert.strictEqual(
+    curseforgeProvider._test.classifyApiRequestError(403, "Forbidden: API Key missing or invalid"),
+    "CURSEFORGE_API_KEY_INVALID",
+    "CurseForge search authentication failures should not be treated as restricted mod files."
+  );
+  assert.strictEqual(
+    curseforgeProvider._test.classifyApiRequestError(403, "Forbidden"),
+    "CURSEFORGE_REQUEST_FAILED",
+    "Unrelated CurseForge 403 responses should retain the generic request code."
   );
   const normalizedCurseForgeMod = curseforgeProvider._test.normalizeMod({
     id: 925200,
@@ -3359,7 +3394,8 @@ async function assertProviderInstallSupport() {
     indexSource.includes("Create Your First Server") &&
       appSource.includes("FIRST_SERVER_OPTIONS") &&
       appSource.includes("openFirstServerGuide") &&
-      appSource.includes("openMarketplaceWizard(option.templateId)") &&
+      appSource.includes('openMarketplaceWizard(templateId, { source: "manual" })') &&
+      appSource.includes("firstServerGuideCleanup?.()") &&
       appSource.includes("AnxOS will check this system and install the server using the selected options.") &&
       fs.readFileSync(path.join(__dirname, "..", "styles.css"), "utf8").includes(".first-server-card"),
     "First-server guided experience must hand off to the existing Marketplace wizard and use real template IDs."
@@ -3370,7 +3406,7 @@ async function assertProviderInstallSupport() {
       appSource.includes("renderMarketplaceDownloads(failureDownloads)"),
     "Renderer should use service-owned failed install tasks instead of adding duplicate local failed Download Manager rows."
   );
-  const unreachableAgentError = normalizeMarketplaceError({
+const unreachableAgentError = normalizeMarketplaceError({
     code: "ECONNREFUSED",
     message: "Agent unavailable at http://192.168.1.134:47131/api/v1/instances.",
     details: {
@@ -3594,3 +3630,13 @@ main().catch((error) => {
   console.error(error);
   process.exit(1);
 });
+
+const duplicateInstanceError = normalizeMarketplaceError({
+  code: "AGENT_HTTP_ERROR",
+  message: "Agent request failed with HTTP 409. | code=INSTANCE_ALREADY_EXISTS | status=409 | error=AgentClientError",
+});
+assert.equal(duplicateInstanceError.code, "INSTANCE_ALREADY_EXISTS");
+assert.equal(duplicateInstanceError.title, "A server with this name already exists.");
+assert.equal(duplicateInstanceError.body, "Choose a different server name, then retry the deployment.");
+assert.match(duplicateInstanceError.debug, /INSTANCE_ALREADY_EXISTS/);
+assert.doesNotMatch(duplicateInstanceError.body, /HTTP 409|AgentClientError/);

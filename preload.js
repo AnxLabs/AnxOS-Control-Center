@@ -79,6 +79,17 @@ const windowApi = {
   restore: () => ipcRenderer.send("window:restore"),
   close: () => ipcRenderer.send("window:close"),
   isMaximized: () => ipcRenderer.invoke("window:isMaximized"),
+  openWorkspace: (surface, context = {}) => ipcRenderer.invoke("window:openWorkspace", {
+    surface,
+    context,
+    templateId: context?.template?.id || "",
+  }),
+  getWorkspaceContext: () => ipcRenderer.invoke("window:getWorkspaceContext"),
+  onWorkspaceInit: (callback) => {
+    const handler = (_, payload) => callback(payload || {});
+    ipcRenderer.on("workspaceWindow:init", handler);
+    return () => ipcRenderer.removeListener("workspaceWindow:init", handler);
+  },
   onMaximizedChanged: (callback) => {
     const handler = (_, isMaximized) => callback(Boolean(isMaximized));
     ipcRenderer.on("window:maximized-changed", handler);

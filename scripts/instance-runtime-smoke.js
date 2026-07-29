@@ -1071,6 +1071,116 @@ async function assertStopAfterReconciliation() {
   });
 }
 
+async function assertStopPrefersReconciledRuntimeOverWrapper() {
+  await withTempService(async (instanceService) => {
+    const instanceRoot = await createPalworld(instanceService, "palworld-wrapper-stop-smoke");
+    const wrapperPid = 580983;
+    const runtimePid = 580984;
+    const alive = new Set([wrapperPid, runtimePid]);
+    let exposeRuntime = false;
+    instanceService._test.setProcessAliveProvider((pid) => alive.has(Number(pid)));
+    instanceService._test.setProcessInspectionProvider(() => exposeRuntime
+      ? runtimeSnapshot(instanceRoot, runtimePid)
+      : { processes: [], ports: [] });
+
+    const originalSpawn = childProcess.spawn;
+    const originalKill = process.kill;
+    const fakeChild = createFakeChild(wrapperPid);
+    const killed = [];
+    childProcess.spawn = () => fakeChild;
+    process.kill = (pid, signal) => {
+      const numericPid = Number(pid);
+      if (alive.has(numericPid) && (signal === "SIGTERM" || signal === "SIGKILL")) {
+        killed.push({ pid: numericPid, signal });
+        alive.delete(numericPid);
+        return true;
+      }
+      return originalKill(pid, signal);
+    };
+
+    try {
+      await instanceService.startInstance("palworld-wrapper-stop-smoke");
+      exposeRuntime = true;
+      const status = await instanceService.stopInstance("palworld-wrapper-stop-smoke");
+      assert.strictEqual(status.state, "Stopped", "Wrapper-backed runtime should transition to Stopped.");
+      assert(killed.some((entry) => entry.pid === runtimePid), "Stop must terminate the reconciled game runtime PID.");
+      assert(!alive.has(runtimePid), "Stop must not leave the reconciled game runtime alive.");
+    } finally {
+      childProcess.spawn = originalSpawn;
+      process.kill = originalKill;
+    }
+  });
+}
+
+async function assertStopTargetsDescendantConfiguredPortOwner() {
+  await withTempService(async (instanceService) => {
+    const wrapperPid = 580985;
+    const runtimePid = 580986;
+    const alive = new Set([wrapperPid, runtimePid]);
+    let exposeRuntime = false;
+    await instanceService.createInstance({
+      id: "minecraft-wrapper-descendant-stop-smoke",
+      displayName: "Minecraft Wrapper Descendant Stop Smoke",
+      type: "custom-command",
+      game: "minecraft",
+      workingDirectory: "data",
+      executable: "bash",
+      args: ["./run.sh"],
+      primaryPort: 25573,
+      ports: [25573],
+      restartPolicy: "never",
+      startupTimeoutMs: 60000,
+    });
+    await instanceService.writeInstanceFile("minecraft-wrapper-descendant-stop-smoke", "run.sh", "#!/usr/bin/env bash\njava -jar server.jar\n");
+    instanceService._test.setProcessAliveProvider((pid) => alive.has(Number(pid)));
+    instanceService._test.setProcessInspectionProvider(() => exposeRuntime ? {
+      processes: [{
+        pid: wrapperPid,
+        ppid: 1,
+        name: "bash",
+        exe: "/usr/bin/bash",
+        cwd: "/srv/anxos/instances/minecraft-wrapper-descendant-stop-smoke/data",
+        commandLine: "bash ./run.sh",
+      }, {
+        pid: runtimePid,
+        ppid: wrapperPid,
+        name: "java",
+        exe: "/usr/bin/java",
+        cwd: "/srv/anxos/instances/minecraft-wrapper-descendant-stop-smoke/data",
+        commandLine: "java -jar server.jar",
+      }],
+      ports: [{ protocol: "tcp6", port: 25573, pid: runtimePid }],
+    } : { processes: [], ports: [] });
+
+    const originalSpawn = childProcess.spawn;
+    const originalKill = process.kill;
+    const fakeChild = createFakeChild(wrapperPid);
+    const killed = [];
+    childProcess.spawn = () => fakeChild;
+    process.kill = (pid, signal) => {
+      const numericPid = Number(pid);
+      if (alive.has(numericPid) && (signal === "SIGTERM" || signal === "SIGKILL")) {
+        killed.push({ pid: numericPid, signal });
+        alive.delete(numericPid);
+        return true;
+      }
+      return originalKill(pid, signal);
+    };
+
+    try {
+      await instanceService.startInstance("minecraft-wrapper-descendant-stop-smoke");
+      exposeRuntime = true;
+      const status = await instanceService.stopInstance("minecraft-wrapper-descendant-stop-smoke");
+      assert.strictEqual(status.state, "Stopped", "Descendant runtime should transition to Stopped.");
+      assert(killed.some((entry) => entry.pid === runtimePid), "Stop must terminate the configured-port owner descended from the wrapper.");
+      assert(!alive.has(runtimePid), "Stop must not leave the descendant Java runtime alive.");
+    } finally {
+      childProcess.spawn = originalSpawn;
+      process.kill = originalKill;
+    }
+  });
+}
+
 async function assertAtomicConfigWriteRetriesWindowsRenameContention() {
   await withTempService(async (instanceService, root) => {
     const targetPath = path.join(root, "atomic-config.json");
@@ -1232,6 +1342,8 @@ async function run() {
   await assertDetachedRuntimeReconciliation();
   await assertNoUnrelatedAdoptionAndPortCollision();
   await assertStopAfterReconciliation();
+  await assertStopPrefersReconciledRuntimeOverWrapper();
+  await assertStopTargetsDescendantConfiguredPortOwner();
   await assertAtomicConfigWriteRetriesWindowsRenameContention();
   await assertAtomicConfigWriteDoesNotRetryWindowsOnlyErrorsOnOtherPlatforms();
   await assertAtomicConfigWritePropagatesPermanentRenameFailures();

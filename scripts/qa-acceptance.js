@@ -248,10 +248,27 @@ async function main() {
         const diagnosticsSection = window.locator('[data-agent-control-section-target="diagnostics"], [data-testid="agent-control-diagnostics"], button[aria-label="Diagnostics"]').first();
         if (await diagnosticsSection.count() && await diagnosticsSection.isVisible().catch(() => false) && !await diagnosticsSection.isDisabled().catch(() => false)) await diagnosticsSection.evaluate((element) => element.click());
       }
-      const visible = page === "diagnostics"
-        ? await window.locator('[data-agent-control-section="diagnostics"]').isVisible().catch(() => false)
-        : await window.locator(`[data-page="${page === "public-access" ? "playit" : page}"]`).isVisible().catch(() => false);
-      record(`navigate-${page}`, page, "page becomes visible", String(visible), visible, await shot(page));
+      let visible;
+      let pageScreenshot = null;
+      if (page === "marketplace") {
+        const marketplaceWindow = await electronApp.waitForEvent("window", { timeout: 5_000 })
+          .catch(() => electronApp.windows().find((candidate) => candidate !== window && /Marketplace/i.test(candidate.url())));
+        if (marketplaceWindow) {
+          await marketplaceWindow.waitForLoadState("domcontentloaded").catch(() => {});
+          visible = await marketplaceWindow.locator('[data-page="marketplace"]').isVisible().catch(() => false);
+          pageScreenshot = await marketplaceWindow.screenshot({ path: path.join(screenshotDir, "marketplace.png") })
+            .then(() => path.relative(artifactDir, path.join(screenshotDir, "marketplace.png")))
+            .catch(() => null);
+        } else {
+          visible = false;
+        }
+      } else {
+        visible = page === "diagnostics"
+          ? await window.locator('[data-agent-control-section="diagnostics"]').isVisible().catch(() => false)
+          : await window.locator(`[data-page="${page === "public-access" ? "playit" : page}"]`).isVisible().catch(() => false);
+        pageScreenshot = await shot(page);
+      }
+      record(`navigate-${page}`, page, page === "marketplace" ? "dedicated window becomes visible" : "page becomes visible", String(visible), visible, pageScreenshot);
       stage(`navigation-${page}-complete`, { visible });
     } else record(`navigate-${page}`, page, "navigation control exists", `control not found; inventory=${JSON.stringify(navInventory.filter((entry) => /public|diagnostic|agent/i.test(`${entry.page} ${entry.testid} ${entry.aria} ${entry.text}`)))}`, false);
   }
