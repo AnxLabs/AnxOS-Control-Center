@@ -12327,7 +12327,7 @@ body.create-server-window .marketplace-wizard-steps {
 body.create-server-window .marketplace-wizard {
   grid-template-rows: auto minmax(180px, 1fr) auto auto;
   min-height: 0;
-  padding-bottom: 76px;
+  padding-bottom: 0;
 }
 
 body.create-server-window .create-server-step-panel {
@@ -12539,13 +12539,14 @@ body.create-server-window .marketplace-side-panel {
 }
 
 body.create-server-window .create-server-wizard-actions {
-  position: fixed;
-  right: 34px;
-  bottom: 22px;
+  position: sticky;
+  right: auto;
+  bottom: 0;
   left: auto;
-  width: min(620px, calc(100vw - 68px));
+  width: 100%;
   z-index: 100;
   padding: 10px;
+  margin-top: 8px;
   border: 1px solid rgba(190, 170, 220, 0.2);
   border-radius: 10px;
   background: rgba(12, 4, 24, 0.96);

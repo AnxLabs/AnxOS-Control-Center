@@ -240,6 +240,11 @@ assert(app.includes("function createTextElement") && app.includes("function crea
 assert(app.includes("pre = createTextElement(\"pre\", JSON.stringify(event.details || {}, null, 2)") && app.includes("createSvgElement(\"path\""), "High-risk diagnostics/security/icon surfaces must render through DOM APIs.");
 assert(app.includes("function isConfiguredStorageRootPath") && app.includes("Configured storage roots cannot be deleted from AnxOS"), "Files UI must prevent configured storage roots from being presented as deletable items.");
 assert(app.includes('/^(?:provider|unknown|n\\/a)$/i.test(text)'), "Marketplace cards must suppress internal provider placeholder versions.");
+assert(
+  styles.includes("body.create-server-window .create-server-wizard-actions {\n  position: sticky;") &&
+    styles.includes("body.create-server-window .marketplace-wizard {\n  grid-template-rows: auto minmax(180px, 1fr) auto auto;\n  min-height: 0;\n  padding-bottom: 0;"),
+  "Create Server actions must remain in the wizard flow so default-size windows cannot cover configuration controls.",
+);
 
 [
   "@media (max-width: 640px), (max-height: 560px)",
