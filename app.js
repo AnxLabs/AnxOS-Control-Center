@@ -2,6 +2,7 @@ const launchParameters = new URLSearchParams(window.location.search);
 const qaMode = launchParameters.get("qa-mode") === "1";
 const workspaceSurface = launchParameters.get("surface") || "";
 const workspaceTemplateId = launchParameters.get("templateId") || "";
+const WORKSPACE_NAVIGATION_STORAGE_KEY = "anxos:workspace-navigation.v1";
 let workspaceInitContext = null;
 if (workspaceSurface) {
   document.body.classList.add("workspace-window", `${workspaceSurface}-window`);
@@ -364,6 +365,10 @@ const filesDetailsDivider = filesPage?.querySelector('[data-files-resizer="detai
 const startupScreen = document.querySelector("[data-startup-screen]");
 const startupAudioElement = document.querySelector("[data-startup-audio]");
 const appShell = document.querySelector("[data-app-shell]");
+if (workspaceSurface) {
+  if (startupScreen) startupScreen.hidden = true;
+  if (appShell) appShell.hidden = false;
+}
 const appWorkspace = document.querySelector("[data-app-workspace]");
 const sidebar = document.querySelector("[data-sidebar]");
 const sidebarHeader = document.querySelector(".sidebar-header");
@@ -2522,9 +2527,6 @@ function getFriendlyStatusFailureMessage(error = {}, context = "Status could not
 
 function readStoredSettings() {
   try {
-    if (actionName === "update-steam") {
-      showToast("Updating server files with SteamCMD...", "info");
-    }
     const storedSettings = JSON.parse(window.localStorage.getItem(SETTINGS_STORAGE_KEY) || "{}");
     const firstLocalSettings = Object.keys(storedSettings || {}).length === 0;
     const migratedSettings = {
@@ -2562,7 +2564,7 @@ function isStartupSoundEnabled() {
 }
 
 function isStartupSplashEnabled() {
-  return readStoredSettings()["startup.enabled"] !== false;
+  return !workspaceSurface && readStoredSettings()["startup.enabled"] !== false;
 }
 
 function normalizeNumber(value, fallback, min, max) {
@@ -7368,12 +7370,7 @@ function renderCpuTemperature(snapshot) {
 }
 
 function getCpuTemperatureUnavailableLabel(reason = "", source = "") {
-  const text = `${reason || ""} ${source || ""}`.toLowerCase();
-  if (/unsupported|platform/.test(text)) return "Unavailable on this system";
-  if (/provider_missing|provider_unavailable|not_reported|sensor|driver|access_denied|requires_elevation|low_level/.test(text)) {
-    return "Requires sensor support";
-  }
-  return "Not supported by this node";
+  return "Temperature unavailable";
 }
 
 function getCpuTemperatureUnavailableDetail(reason = "", source = "") {
@@ -7383,8 +7380,10 @@ function getCpuTemperatureUnavailableDetail(reason = "", source = "") {
   if (reason === "access_denied_or_driver_unavailable" || reason === "cpu_sensor_unavailable_requires_elevation_or_driver") {
     return "CPU temperature unavailable: the node could not access the required sensor or driver.";
   }
-  if (label === "Unavailable on this system") return "CPU temperature is unavailable on this operating system or hardware.";
-  if (label === "Requires sensor support") return "CPU temperature requires hardware sensor support that this node did not report.";
+  if (label === "Temperature unavailable" && /unsupported|platform/i.test(`${reason} ${source}`)) {
+    return "CPU temperature is unavailable on this operating system or hardware.";
+  }
+  if (label === "Temperature unavailable") return "CPU temperature is not available from a supported hardware sensor.";
   return "CPU temperature is not reported by this node.";
 }
 
@@ -13014,10 +13013,14 @@ function updateInstanceActionButtons() {
     button.disabled = busy || !hasInstancesBridge || !isFiveMSetupRequired(selectedInstance);
   });
   document.querySelectorAll('[data-instance-action="update-steam"]').forEach((button) => {
-    const eligible = selectedInstance?.installerType === "steamcmd-native" && Number.isInteger(Number(selectedInstance?.steamAppId)) && !isInstanceRunning(selectedInstance);
-    button.hidden = !eligible;
-    button.disabled = busy || !hasInstancesBridge || !eligible || typeof desktopApiState.api?.marketplace?.updateSteamServer !== "function";
+    const supported = selectedInstance?.installerType === "steamcmd-native" && Number.isInteger(Number(selectedInstance?.steamAppId));
+    const running = isInstanceRunning(selectedInstance);
+    button.hidden = !supported;
+    button.disabled = busy || running || !hasInstancesBridge || !supported || typeof desktopApiState.api?.marketplace?.updateSteamServer !== "function";
     button.textContent = instanceActionRequestInFlight ? "Updating..." : "Update Server Files";
+    button.title = running
+      ? "Stop this server before updating its files."
+      : busy ? "Wait for the current instance operation to finish." : "Validate and update this server with SteamCMD.";
   });
 
   document.querySelectorAll('[data-instance-action="expose-share"]').forEach((button) => {
@@ -14037,10 +14040,6 @@ function findMarketplaceTemplate(templateId = marketplaceSelectedTemplateId) {
 
 function setMarketplaceLoading(loading) {
   marketplaceRequestInFlight = Boolean(loading);
-  if (marketplaceLoading) {
-    marketplaceLoading.hidden = !loading;
-    marketplaceLoading.setAttribute("aria-busy", loading ? "true" : "false");
-  }
   if (marketplaceRefreshButton) {
     marketplaceRefreshButton.disabled = loading;
   }
@@ -14426,10 +14425,6 @@ async function loadMarketplaceProviderPacks({ reset = false } = {}) {
   }
   renderMarketplaceProviderControls();
   setMarketplaceProviderStatus(`Loading ${formatMarketplaceProviderLabel({ provider: marketplaceProviderActive })} modpacks...`);
-  if (marketplaceLoading) {
-    marketplaceLoading.hidden = false;
-  }
-
   try {
     const payload = getMarketplaceProviderQueryPayload({ reset });
     console.info("[Marketplace][Renderer] Provider IPC request.", payload);
@@ -14507,9 +14502,6 @@ async function loadMarketplaceProviderPacks({ reset = false } = {}) {
   } finally {
     if (requestId === marketplaceProviderRequestId) {
       marketplaceProviderRequestInFlight = false;
-      if (marketplaceLoading) {
-        marketplaceLoading.hidden = true;
-      }
       renderMarketplaceProviderControls();
     }
   }
@@ -16494,7 +16486,14 @@ function renderMarketplaceProgress(steps = []) {
 function marketplaceProgressEventToStep(event = {}) {
   const stageLabels = {
     resolving: "Resolving dependencies",
+    preflight: "Checking requirements",
+    preparing: "Preparing update",
+    connecting: "Connecting to Steam",
     downloading: "Downloading files",
+    staging: "Staging update",
+    verifying: "Verifying files",
+    installing: "Installing update",
+    success: "Update complete",
     extracting: "Extracting overrides",
     writing: "Writing instance metadata",
     waiting: "Waiting for Manual Download",
@@ -16502,11 +16501,15 @@ function marketplaceProgressEventToStep(event = {}) {
     resuming: "Resuming Installation",
     done: "Done",
     error: "Failed",
+    failed: "Failed",
+    cancelled: "Cancelled",
   };
   const status = event.stage === "done"
     ? "complete"
-    : event.stage === "error"
+    : event.stage === "error" || event.stage === "failed"
       ? "failed"
+      : event.stage === "cancelled"
+        ? "cancelled"
       : event.stage === "waiting"
         ? "waiting"
         : event.stage === "imported"
@@ -16526,8 +16529,10 @@ function updateMarketplaceOperationFromEvent(event = {}) {
   if (!activeMarketplaceOperationId) return;
   const status = event.stage === "done"
     ? "completed"
-    : event.stage === "error"
+    : event.stage === "error" || event.stage === "failed"
       ? "failed"
+      : event.stage === "cancelled"
+        ? "canceled"
       : event.stage === "waiting"
         ? "waiting"
         : "running";
@@ -16568,6 +16573,15 @@ function startMarketplaceInstallProgressListener() {
       return;
     }
     marketplaceInstallProgressEvents = [...marketplaceInstallProgressEvents, event].slice(-8);
+    if (event?.instanceId === selectedInstanceId && Array.isArray(event.logs) && event.logs.length) {
+      renderInstanceLogs({
+        entries: event.logs.map((entry) => ({
+          at: entry.timestamp || new Date().toISOString(),
+          stream: entry.stream || "steamcmd",
+          message: entry.message || "",
+        })),
+      });
+    }
     updateMarketplaceOperationFromEvent(event);
     scheduleMarketplaceProgressRender();
   });
@@ -17648,11 +17662,30 @@ async function createBackupForInstance(instanceId = null) {
     showToast("Backup created.");
     await refreshBackups();
   } catch (error) {
-    showToast(error?.message || "Backup could not be created.");
+    showToast(getBackupErrorMessage(error, "Backup could not be created."), "error");
   } finally {
     backupRequestInFlight = false;
     renderBackups();
   }
+}
+
+function getBackupErrorMessage(error, fallback = "Backup operation failed.") {
+  const rawMessage = normalizeIpcErrorMessage(error, fallback);
+  const code = getFriendlyErrorCode(error, rawMessage).toUpperCase();
+  const messages = {
+    BACKUP_SOURCE_LIMIT_EXCEEDED: "This backup is larger than the configured safety limit. Reduce the backup scope or increase the Agent backup limit.",
+    BACKUP_ARCHIVE_LIMIT_EXCEEDED: "This backup archive exceeds the configured safety limit.",
+    BACKUP_ENTRY_LIMIT_EXCEEDED: "This backup contains too many files to process safely.",
+    BACKUP_ENTRY_SIZE_EXCEEDED: "A file inside this backup exceeds the configured safety limit.",
+    BACKUP_DISK_SPACE_INSUFFICIENT: "There is not enough free space to create this backup.",
+    RESTORE_DISK_SPACE_INSUFFICIENT: "There is not enough free space to restore this backup.",
+    RESTORE_SNAPSHOT_DISK_SPACE_INSUFFICIENT: "There is not enough free space to create the restore safety snapshot.",
+    BACKUP_ARCHIVE_INVALID: "This backup archive is invalid or damaged.",
+    BACKUP_NOT_FOUND: "This backup is no longer available. Refresh the backup list and try again.",
+    RESTORE_INSTANCE_STOP_FAILED: "The server could not be stopped safely, so no files were replaced.",
+    RESTORE_ROLLBACK_FAILED: "Restore failed and AnxOS could not complete the automatic rollback. Review diagnostics before starting this server.",
+  };
+  return messages[code] || getFriendlyErrorMessage(error, fallback);
 }
 
 async function restoreSelectedBackup() {
@@ -17681,7 +17714,7 @@ async function restoreSelectedBackup() {
     await refreshInstances();
     await refreshBackups();
   } catch (error) {
-    showToast(error?.message || "Backup restore failed.");
+    showToast(getBackupErrorMessage(error, "Backup restore failed."), "error");
   }
 }
 
@@ -17712,7 +17745,7 @@ async function deleteSelectedBackup() {
       await refreshBackups();
       return;
     }
-    showToast(error?.message || "Backup delete failed.");
+    showToast(getBackupErrorMessage(error, "Backup delete failed."), "error");
   }
 }
 
@@ -17728,7 +17761,7 @@ async function downloadSelectedBackup() {
     const result = await desktopApiState.api.backups.download(selected.id, getNodeScopedPayload(requestContext));
     showToast(result?.canceled ? "Download canceled." : "Backup downloaded.");
   } catch (error) {
-    showToast(error?.message || "Backup download failed.");
+    showToast(getBackupErrorMessage(error, "Backup download failed."), "error");
   }
 }
 
@@ -17754,7 +17787,7 @@ async function importBackupForInstance() {
     showToast(result?.canceled ? "Import canceled." : "Backup imported.");
     await refreshBackups();
   } catch (error) {
-    showToast(error?.message || "Backup import failed.");
+    showToast(getBackupErrorMessage(error, "Backup import failed."), "error");
   }
 }
 
@@ -18825,6 +18858,22 @@ async function createInstanceFromForm(event) {
   }
 }
 
+function getSteamCmdUpdateErrorMessage(error) {
+  const code = getAgentErrorCode(error);
+  const messages = {
+    STEAMCMD_MISSING: "SteamCMD is not available on the selected node. Install or repair SteamCMD, then retry.",
+    STEAMCMD_NETWORK_UNAVAILABLE: "Steam could not be reached. Check the node's internet connection and retry.",
+    STEAMCMD_APP_ID_INVALID: "This server's Steam App ID is invalid or unavailable.",
+    STEAMCMD_AUTHORIZATION_FAILED: "Steam did not authorize this server update with anonymous access.",
+    STEAMCMD_UPDATE_REQUIRES_STOPPED: "Stop this server before updating its files.",
+    STEAMCMD_UPDATE_CONFLICT: "Another update is already running for this server.",
+    STEAMCMD_UPDATE_CANCELLED: "Server update cancelled.",
+    STEAMCMD_UPDATE_TIMEOUT: "SteamCMD did not finish before the update timeout.",
+    PATH_NOT_ALLOWED: "The saved server install directory is not safe. Review the instance configuration before retrying.",
+  };
+  return messages[code] || getAgentErrorMessage(error, "Server files could not be updated.");
+}
+
 async function runInstanceAction(actionName) {
   const selectedInstance = findInstance();
   const desktopApiState = getDesktopApiState();
@@ -19015,6 +19064,8 @@ async function runInstanceAction(actionName) {
       showToast(`Renaming ${label}...`);
     } else if (actionName === "duplicate") {
       showToast(`Duplicating ${label}...`);
+    } else if (actionName === "update-steam") {
+      showToast("Updating server files with SteamCMD...", "info");
     } else if (actionName === "start") {
       logInstanceLifecycle("start requested", { instanceId: targetInstanceId });
     }
@@ -19035,6 +19086,30 @@ async function runInstanceAction(actionName) {
         code: failure.code || "STEAMCMD_UPDATE_FAILED",
         details: failure.details || failure.technicalDetails || {},
       });
+    }
+    let steamUpdateRestarted = false;
+    if (actionName === "update-steam") {
+      const updateResult = actionResult?.result || {};
+      const buildLabel = updateResult.buildIdAfter ? `\n\nVerified Steam build: ${updateResult.buildIdAfter}` : "";
+      const summary = updateResult.buildChanged === false
+        ? `${label} is already up to date.${buildLabel}`
+        : `${label} updated successfully.${buildLabel}`;
+      const restartAfterUpdate = await createSecurityConfirmation({
+        title: updateResult.buildChanged === false ? "Server Already Up to Date" : "Update Complete",
+        message: `${summary}\n\nThe server remains stopped. Start it now?`,
+        confirmLabel: "Restart Server",
+      });
+      if (restartAfterUpdate) {
+        const restartResult = await desktopApiState.api.instances.start(targetInstanceId, getNodeScopedPayload(requestContext));
+        if (restartResult?.ok === false) {
+          const failure = restartResult.error || {};
+          throw Object.assign(new Error(failure.message || "The update completed, but the server could not restart."), {
+            code: failure.code || "INSTANCE_RESTART_AFTER_UPDATE_FAILED",
+            details: failure.details || {},
+          });
+        }
+        steamUpdateRestarted = true;
+      }
     }
     if (actionName === "start") {
       logInstanceLifecycle("start result", {
@@ -19065,7 +19140,13 @@ async function runInstanceAction(actionName) {
             ? "Instance duplicated."
             : actionName === "open-folder"
               ? "Instance folder opened."
-              : actionName === "update-steam" ? "Server files updated. The server remains stopped." : `Instance ${actionName} request completed.`);
+              : actionName === "update-steam"
+                ? steamUpdateRestarted
+                  ? "Server files updated and the server was started."
+                  : actionResult?.result?.buildChanged === false
+                    ? "Server is already up to date."
+                    : "Server files updated. The server remains stopped."
+                : `Instance ${actionName} request completed.`);
 
     if (actionName === "delete" || actionName === "forget") {
       const accessCleanup = await deleteAccessServicesForInstance(selectedInstance);
@@ -19172,7 +19253,9 @@ async function runInstanceAction(actionName) {
           showToast(getAgentErrorMessage(forgetError, "Instance record could not be removed."));
         }
       } else {
-        showToast(getAgentErrorMessage(error, `Instance ${actionName} failed.`));
+        showToast(actionName === "update-steam"
+          ? getSteamCmdUpdateErrorMessage(error)
+          : getAgentErrorMessage(error, `Instance ${actionName} failed.`));
       }
       if ((actionName === "start" || actionName === "restart") && getAgentErrorCode(error) !== "FIVEM_SETUP_REQUIRED") {
         updateInstanceSnapshot(targetInstanceId, {
@@ -25239,7 +25322,14 @@ async function refreshDockerStatus() {
   }
   dockerWorkspaceState = getDockerWorkspaceState(latestDockerSnapshot);
   renderDockerEmptyState(dockerWorkspaceState);
-  setDockerLoading(!latestDockerSnapshot);
+  const isInitialLoad = !latestDockerSnapshot;
+  setDockerLoading(isInitialLoad);
+  // The dedicated loading panel is the only initial-load state. Keeping the
+  // empty-state panel visible here duplicates the same status and causes the
+  // two absolute panels to overlap at narrow window sizes.
+  if (isInitialLoad) {
+    setDockerEmpty(false);
+  }
 
   try {
     const snapshot = await withTimeout(
@@ -37455,7 +37545,41 @@ getDesktopWindowApi()?.onWorkspaceInit?.((payload = {}) => {
     setMarketplaceMessage(normalizeIpcErrorMessage(error, "Create Server could not initialize."), "error");
   });
 });
+getDesktopWindowApi()?.onNavigate?.((payload = {}) => {
+  if (workspaceSurface || payload.page !== "dashboard") return;
+  showPage("dashboard");
+  refreshDashboard().catch(() => {});
+});
+document.querySelectorAll("[data-workspace-nav]").forEach((button) => {
+  button.addEventListener("click", async () => {
+    const action = button.dataset.workspaceNav;
+    if (!workspaceSurface) return;
+    button.disabled = true;
+    try {
+      if (action === "dashboard") {
+        localStorage.setItem(WORKSPACE_NAVIGATION_STORAGE_KEY, JSON.stringify({ page: "dashboard", requestedAt: Date.now() }));
+        await getDesktopWindowApi()?.focusMain?.("dashboard");
+      } else if (workspaceSurface === "create-server") {
+        await openWorkspaceSurface("marketplace");
+      } else {
+        await getDesktopWindowApi()?.focusMain?.();
+      }
+    } finally {
+      button.disabled = false;
+    }
+  });
+});
 window.addEventListener("storage", (event) => {
+  if (event.key === WORKSPACE_NAVIGATION_STORAGE_KEY && !workspaceSurface && event.newValue) {
+    try {
+      const request = JSON.parse(event.newValue);
+      if (request.page === "dashboard") {
+        showPage("dashboard");
+        refreshDashboard().catch(() => {});
+      }
+    } catch {}
+    return;
+  }
   if (event.key === OPERATIONS_STORAGE_KEY) {
     operationsState.loaded = false;
     operationsState.items.clear();

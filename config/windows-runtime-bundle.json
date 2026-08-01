@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "platform": "win-x64",
+  "artifacts": [
+    {
+      "id": "java-8",
+      "version": "8.0.492+9",
+      "url": "https://github.com/adoptium/temurin8-binaries/releases/download/jdk8u492-b09/OpenJDK8U-jre_x64_windows_hotspot_8u492b09.zip",
+      "algorithm": "sha256",
+      "checksum": "bb25b002556afc7ef158cd95ec6270dddb3eecba69acdd7abb9d28b2e9ff0f5e",
+      "destination": "java/8",
+      "flattenSingleDirectory": true,
+      "license": "GPL-2.0-with-Classpath-Exception"
+    },
+    {
+      "id": "java-16",
+      "version": "16.0.2+7",
+      "url": "https://github.com/adoptium/temurin16-binaries/releases/download/jdk-16.0.2%2B7/OpenJDK16U-jdk_x64_windows_hotspot_16.0.2_7.zip",
+      "algorithm": "sha256",
+      "checksum": "40191ffbafd8a6f9559352d8de31e8d22a56822fb41bbcf45f34e3fd3afa5f9e",
+      "destination": "java/16",
+      "flattenSingleDirectory": true,
+      "license": "GPL-2.0-with-Classpath-Exception"
+    },
+    {
+      "id": "java-17",
+      "version": "17.0.20+8",
+      "url": "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.20%2B8/OpenJDK17U-jre_x64_windows_hotspot_17.0.20_8.zip",
+      "algorithm": "sha256",
+      "checksum": "7fe2324cc5901a89aaa0e8dc232075c59f2aca5270c533bdb1b861a5274af834",
+      "destination": "java/17",
+      "flattenSingleDirectory": true,
+      "license": "GPL-2.0-with-Classpath-Exception"
+    },
+    {
+      "id": "java-21",
+      "version": "21.0.12+8",
+      "url": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12%2B8/OpenJDK21U-jre_x64_windows_hotspot_21.0.12_8.zip",
+      "algorithm": "sha256",
+      "checksum": "b8aa18fef5edb69bee8618f99677d66d0873d22cb40d974c15ac9ffcdecf73ba",
+      "destination": "java/21",
+      "flattenSingleDirectory": true,
+      "license": "GPL-2.0-with-Classpath-Exception"
+    },
+    {
+      "id": "dotnet-8",
+      "version": "8.0.29",
+      "url": "https://builds.dotnet.microsoft.com/dotnet/Runtime/8.0.29/dotnet-runtime-8.0.29-win-x64.zip",
+      "algorithm": "sha512",
+      "checksum": "e3f31d298a2b674b54c7fc89fb3f06d9645fc5879a54f2ebf2ea20e9ee7ae55f1bfe3284c1f90a591d6be2d6bcd251790ddc27771d65303e7a6a56d331df4632",
+      "destination": "dotnet/8",
+      "flattenSingleDirectory": false,
+      "license": "MIT"
+    },
+    {
+      "id": "steamcmd",
+      "version": "bootstrap-2026-07-29",
+      "url": "https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip",
+      "algorithm": "sha256",
+      "checksum": "7669b170dee42db8ee2273775ed7dfb2d173bdba1b849f70d2c7b379290bce13",
+      "destination": "steamcmd",
+      "flattenSingleDirectory": false,
+      "license": "Valve-SteamCMD-terms"
+    }
+  ]
+}

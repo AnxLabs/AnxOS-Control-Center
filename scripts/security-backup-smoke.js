@@ -282,12 +282,18 @@ async function main() {
   assert.strictEqual(fs.readFileSync(path.join(instancePath, "data", "world", "level.dat"), "utf8"), "changed", "A failed stop must leave instance data untouched.");
   backupInstanceService.getStatus = originalGetStatus;
   backupInstanceService.stopInstance = originalStopInstance;
+  const oversizedNonWorldFile = path.join(instancePath, "data", "large-server-runtime.bin");
+  fs.writeFileSync(oversizedNonWorldFile, "");
+  fs.truncateSync(oversizedNonWorldFile, (512 * 1024 * 1024) + 1);
   const restored = await backupService.restoreBackup({ backupId: created.backup.id, confirmOverwrite: true });
   assert.strictEqual(restored.restore.instanceId, instanceId, "Restore should target the original instance.");
   assert(restored.restore.safetyBackupId, "Restore should create a safety snapshot before replacing files.");
   assert.strictEqual(fs.readFileSync(path.join(instancePath, "data", "world", "level.dat"), "utf8"), "world", "World restore should replace changed world files.");
   fs.writeFileSync(path.join(instancePath, "data", "world", "level.dat"), "partially-restored-corruption");
   const safetyMetadata = (await backupService.listBackups({ instanceId })).backups.find((entry) => entry.id === restored.restore.safetyBackupId);
+  assert.strictEqual(safetyMetadata.type, "world", "World restore safety snapshots must remain world-only so large server runtimes do not block restoring small world backups.");
+  assert(!safetyMetadata.sourcePaths.includes("data/large-server-runtime.bin"), "World restore safety snapshots must exclude unrelated server runtime files.");
+  assert(restored.restore.requiredDiskSpace < (512 * 1024 * 1024), "World restore disk accounting must remain scoped to the restored archive rather than unrelated instance files.");
   const rollback = await backupService._test.rollbackRestoreFromSafetySnapshot(instancePath, safetyMetadata);
   assert.strictEqual(rollback.rolledBack, true, "Restore rollback should replace a partial restore with the safety snapshot.");
   assert.strictEqual(fs.readFileSync(path.join(instancePath, "data", "world", "level.dat"), "utf8"), "changed", "Rollback should recover the exact pre-restore instance data.");

@@ -5,6 +5,9 @@ const path = require("path");
 const SOURCE = "Embedded LibreHardwareMonitor";
 const MIN_CELSIUS = 1;
 const MAX_CELSIUS = 125;
+const DEFAULT_PROVIDER_TIMEOUT_MS = 8000;
+const DEFAULT_PROVIDER_STARTUP_TIMEOUT_MS = 20000;
+const MAX_PROVIDER_LINE_BYTES = 256 * 1024;
 let providerProcess = null;
 let providerPath = null;
 let providerBuffer = "";
@@ -104,6 +107,72 @@ function classifyPayload(payload = {}) {
   return { available: true, status: "available", source: SOURCE, provider: SOURCE, timestamp, cpu, gpu };
 }
 
+function parseSensorRows(stdout) {
+  if (!stdout || !String(stdout).trim()) return [];
+  const parsed = JSON.parse(stdout);
+  return Array.isArray(parsed) ? parsed : [parsed];
+}
+
+function queryHardwareMonitorNamespace(namespace, options = {}) {
+  const execFile = options.execFile || childProcess.execFile;
+  const script = [
+    "$ErrorActionPreference = 'Stop';",
+    `Get-CimInstance -Namespace '${namespace}' -ClassName Sensor -Filter "SensorType='Temperature'"`,
+    "| Select-Object Name,Identifier,Parent,SensorType,Value",
+    "| ConvertTo-Json -Compress",
+  ].join(" ");
+
+  return new Promise((resolve) => {
+    execFile("powershell.exe", [
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-Command",
+      script,
+    ], {
+      timeout: options.namespaceTimeoutMs || 5000,
+      windowsHide: true,
+      maxBuffer: 256 * 1024,
+    }, (error, stdout) => {
+      if (error) {
+        resolve(unavailable(error.code === "ETIMEDOUT" ? "provider_timeout" : "provider_unavailable"));
+        return;
+      }
+      try {
+        const reading = classifyPayload({
+          ok: true,
+          source: namespace,
+          timestamp: new Date().toISOString(),
+          sensors: parseSensorRows(stdout),
+        });
+        resolve({
+          ...reading,
+          source: namespace,
+          provider: namespace,
+          cpu: reading.cpu ? { ...reading.cpu, source: namespace, provider: namespace } : reading.cpu,
+          gpu: reading.gpu ? {
+            core: reading.gpu.core ? { ...reading.gpu.core, source: namespace, provider: namespace } : null,
+            hotspot: reading.gpu.hotspot ? { ...reading.gpu.hotspot, source: namespace, provider: namespace } : null,
+          } : null,
+        });
+      } catch {
+        resolve(unavailable("provider_invalid_response"));
+      }
+    });
+  });
+}
+
+async function readExistingHardwareMonitorTemperature(options = {}) {
+  const namespaces = ["root\\LibreHardwareMonitor", "root\\OpenHardwareMonitor"];
+  let lastUnavailable = unavailable("provider_unavailable");
+  for (const namespace of namespaces) {
+    const reading = await queryHardwareMonitorNamespace(namespace, options);
+    if (reading.available) return reading;
+    lastUnavailable = reading;
+  }
+  return lastUnavailable;
+}
+
 function resolveHelperPath(options = {}) {
   if (options.helperPath) return fs.existsSync(options.helperPath) ? options.helperPath : null;
   const candidates = [
@@ -146,19 +215,27 @@ function ensureProvider(helperPath) {
   if (providerProcess && providerPath === helperPath && !providerProcess.killed) return providerProcess;
   stopWindowsHardwareTemperatureProvider();
   providerPath = helperPath;
-  providerProcess = childProcess.spawn(helperPath, [], { windowsHide: true, stdio: ["pipe", "pipe", "ignore"] });
-  unrefProviderHandle(providerProcess);
-  unrefProviderHandle(providerProcess.stdin);
-  unrefProviderHandle(providerProcess.stdout);
-  unrefProviderHandle(providerProcess.stderr);
-  providerProcess.stdout.setEncoding("utf8");
-  if (typeof providerProcess.stdin?.on === "function") {
-    providerProcess.stdin.on("error", (error) => {
+  const spawnedProvider = childProcess.spawn(helperPath, [], { windowsHide: true, stdio: ["pipe", "pipe", "ignore"] });
+  providerProcess = spawnedProvider;
+  unrefProviderHandle(spawnedProvider);
+  unrefProviderHandle(spawnedProvider.stdin);
+  unrefProviderHandle(spawnedProvider.stdout);
+  unrefProviderHandle(spawnedProvider.stderr);
+  spawnedProvider.stdout.setEncoding("utf8");
+  if (typeof spawnedProvider.stdin?.on === "function") {
+    spawnedProvider.stdin.on("error", (error) => {
+      if (providerProcess !== spawnedProvider) return;
       settlePendingRead(error?.code === "EPIPE" ? "provider_pipe_closed" : "provider_stdin_failed");
     });
   }
-  providerProcess.stdout.on("data", (chunk) => {
+  spawnedProvider.stdout.on("data", (chunk) => {
+    if (providerProcess !== spawnedProvider) return;
     providerBuffer += chunk;
+    if (Buffer.byteLength(providerBuffer, "utf8") > MAX_PROVIDER_LINE_BYTES) {
+      settlePendingRead("provider_invalid_response");
+      stopWindowsHardwareTemperatureProvider();
+      return;
+    }
     const newline = providerBuffer.indexOf("\n");
     if (newline < 0 || !pendingRead) return;
     const line = providerBuffer.slice(0, newline).trim();
@@ -172,10 +249,12 @@ function ensureProvider(helperPath) {
       current.resolve(unavailable("provider_invalid_response"));
     }
   });
-  providerProcess.on("error", (error) => {
+  spawnedProvider.on("error", (error) => {
+    if (providerProcess !== spawnedProvider) return;
     settlePendingRead(error.code === "EACCES" ? "access_denied_or_driver_unavailable" : "provider_failed");
   });
-  providerProcess.on("exit", () => {
+  spawnedProvider.on("exit", () => {
+    if (providerProcess !== spawnedProvider) return;
     providerProcess = null;
     providerPath = null;
     settlePendingRead("provider_exited");
@@ -184,43 +263,58 @@ function ensureProvider(helperPath) {
     shutdownHooksRegistered = true;
     process.once("exit", stopWindowsHardwareTemperatureProvider);
   }
-  return providerProcess;
+  return spawnedProvider;
 }
 
 function runHelper(helperPath, options = {}) {
-  if (pendingRead) return Promise.resolve(unavailable("provider_busy"));
+  if (pendingRead) return pendingRead.promise;
+  const startingProvider = !providerProcess || providerPath !== helperPath || providerProcess.killed;
   const provider = ensureProvider(helperPath);
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      if (!pendingRead) return;
-      pendingRead = null;
-      resolve(unavailable("provider_timeout"));
-      stopWindowsHardwareTemperatureProvider();
-    }, options.timeoutMs || 8000);
-    pendingRead = { resolve, timer };
-    if (!provider.stdin || provider.stdin.destroyed || provider.stdin.writableEnded) {
-      settlePendingRead("provider_pipe_closed");
-      return;
+  let resolveRead;
+  const promise = new Promise((resolve) => { resolveRead = resolve; });
+  const timeoutMs = startingProvider
+    ? options.startupTimeoutMs || DEFAULT_PROVIDER_STARTUP_TIMEOUT_MS
+    : options.timeoutMs || DEFAULT_PROVIDER_TIMEOUT_MS;
+  const timer = setTimeout(() => {
+    if (!pendingRead || pendingRead.promise !== promise) return;
+    pendingRead = null;
+    resolveRead(unavailable("provider_timeout"));
+    stopWindowsHardwareTemperatureProvider();
+  }, timeoutMs);
+  pendingRead = { resolve: resolveRead, timer, promise };
+  if (!provider.stdin || provider.stdin.destroyed || provider.stdin.writableEnded) {
+    settlePendingRead("provider_pipe_closed");
+    return promise;
+  }
+  provider.stdin.write("read\n", (error) => {
+    if (error) {
+      settlePendingRead(error.code === "EPIPE" ? "provider_pipe_closed" : "provider_write_failed");
     }
-    provider.stdin.write("read\n", (error) => {
-      if (error) {
-        settlePendingRead(error.code === "EPIPE" ? "provider_pipe_closed" : "provider_write_failed");
-      }
-    });
   });
+  return promise;
 }
 
 async function readWindowsHardwareTemperature(options = {}) {
   const helperPath = resolveHelperPath(options);
-  if (!helperPath) return unavailable("provider_missing");
-  return runHelper(helperPath, options);
+  const embedded = helperPath
+    ? await runHelper(helperPath, options)
+    : unavailable("provider_missing");
+  if (embedded.available || options.disableNamespaceFallback === true) return embedded;
+
+  const existingProvider = await readExistingHardwareMonitorTemperature(options);
+  return existingProvider.available ? existingProvider : embedded;
 }
 
 module.exports = {
+  DEFAULT_PROVIDER_STARTUP_TIMEOUT_MS,
+  DEFAULT_PROVIDER_TIMEOUT_MS,
   SOURCE,
   classifyPayload,
   chooseCpuSensor,
   chooseGpuSensors,
+  parseSensorRows,
+  queryHardwareMonitorNamespace,
+  readExistingHardwareMonitorTemperature,
   readWindowsHardwareTemperature,
   resolveHelperPath,
   stopWindowsHardwareTemperatureProvider,

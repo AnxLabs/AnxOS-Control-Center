@@ -32,6 +32,8 @@ config/agent.json
 config/owner-accounts.json
 config/node-agent-credentials.json
 config/long-operations.json
+config/application-host.json
+config/nodes.json
 config/*.backup
 agent/.env
 agent/config/
@@ -40,6 +42,7 @@ agent/*.log
 release-build.json
 release-artifacts/
 resources/hardware-telemetry/
+resources/bundled-runtimes/
 tools/windows-hardware-telemetry/bin/
 tools/windows-hardware-telemetry/obj/
 

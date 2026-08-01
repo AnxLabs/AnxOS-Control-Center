@@ -18,7 +18,11 @@ static object Sensor(ISensor sensor) => new
 Computer? computer = null;
 try
 {
-    computer = new Computer { IsCpuEnabled = true, IsGpuEnabled = true };
+    // This helper exists only to provide CPU temperature to the Runtime card.
+    // Enabling unrelated hardware makes LibreHardwareMonitor initialize extra
+    // buses and drivers, which can delay or stall the first response on some
+    // Windows systems. Keep discovery deliberately CPU-only.
+    computer = new Computer { IsCpuEnabled = true };
     computer.Open();
     var visitor = new UpdateVisitor();
     var principal = new WindowsPrincipal(WindowsIdentity.GetCurrent());

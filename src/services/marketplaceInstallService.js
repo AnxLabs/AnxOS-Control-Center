@@ -376,6 +376,7 @@ function emitProgress(payload = {}) {
     current,
     total,
     percent: Math.max(0, Math.min(percent, 100)),
+    logs: Array.isArray(payload.logs) ? payload.logs.slice(-120) : [],
   };
   marketplaceInstallEvents.emit("progress", event);
   if (payload.operationId) {
@@ -383,6 +384,7 @@ function emitProgress(payload = {}) {
       stage: event.stage,
       body: event.message,
       progress: event.percent,
+      logs: event.logs,
       status: event.stage === "waiting" ? "waiting" : event.stage === "done" ? "complete" : "running",
     });
   }
@@ -404,11 +406,13 @@ function updateProviderInstallOperation(operationId, patch = {}) {
     : patch.status === "failed" ? "failed"
       : patch.status === "cancelled" ? "cancelled"
         : patch.status === "waiting" ? "paused" : "running";
+  const canCancel = patch.canCancel !== undefined ? Boolean(patch.canCancel) : status === "running";
+  const canRetry = patch.canRetry !== undefined ? Boolean(patch.canRetry) : status === "failed" || status === "cancelled";
   const metadata = {
     ...(operation.metadata || {}),
     ...patch,
-    canCancel: status === "running",
-    canRetry: status === "failed" || status === "cancelled",
+    canCancel,
+    canRetry,
     updatedAt: new Date().toISOString(),
   };
   return longOperations.updateOperation(operationId, {
@@ -416,8 +420,8 @@ function updateProviderInstallOperation(operationId, patch = {}) {
     stage: metadata.stage || null,
     message: metadata.body || null,
     progress: Number.isFinite(Number(metadata.progress)) ? Number(metadata.progress) : null,
-    canCancel: status === "running",
-    canRetry: status === "failed" || status === "cancelled",
+    canCancel,
+    canRetry,
     metadata,
   });
 }
@@ -3350,22 +3354,114 @@ async function updateSteamCmdInstance(payload = {}) {
   const instanceId = String(payload.instanceId || "").trim();
   const nodeId = payload.nodeId || null;
   if (!instanceId) throw new MarketplaceInstallError("An instance is required.", "INVALID_INSTANCE_ID");
-  const agentConfig = resolveMarketplaceAgentConfig(nodeId);
+  const target = resolveMarketplaceInstallTarget({
+    nodeId: nodeId || getSelectedNodeId(),
+    operation: "steamcmd-update",
+  });
+  const targetNodeId = target.nodeId;
+  const agentConfig = target.agentConfig;
   const operationId = `steamcmd-update-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
-  const operation = longOperations.createOperation({ id: operationId, kind: "marketplace-download", nodeId, lockKey: `marketplace-steamcmd-update:${nodeId}:${instanceId}`, status: "running", canCancel: false, retryable: true, rollbackSupported: false, metadata: { instanceId, nodeId, stage: "Preparing", progress: 0, body: "Preparing SteamCMD update." } });
+  const controller = new AbortController();
+  const operation = longOperations.createOperation({
+    id: operationId,
+    kind: "marketplace-download",
+    nodeId: targetNodeId,
+    lockKey: `marketplace-steamcmd-update:${targetNodeId}:${instanceId}`,
+    status: "running",
+    canCancel: true,
+    retryable: false,
+    rollbackSupported: false,
+    metadata: {
+      id: operationId,
+      instanceId,
+      nodeId: targetNodeId,
+      name: "Update server files",
+      type: "steamcmd-update",
+      installerType: "steamcmd-native",
+      status: "running",
+      stage: "Preparing",
+      progress: 0,
+      progressMode: "determinate",
+      body: "Preparing SteamCMD update.",
+      logs: [],
+      controller,
+      canCancel: true,
+      canRetry: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
+  });
+  longOperations.registerCancelHandler(operationId, () => controller.abort());
+  let session = null;
   try {
-    emitProgress({ nodeId, instanceId, operationId, stage: "preflight", message: "Checking SteamCMD update prerequisites.", current: 0, total: 1 });
+    emitProgress({ nodeId: targetNodeId, instanceId, operationId, stage: "preflight", message: "Checking SteamCMD update prerequisites.", current: 0, total: 1 });
     await agentClient.repairLegacySteamCmdMetadata(instanceId, agentConfig);
-    const session = await agentClient.beginSteamCmdUpdateSession(instanceId, { operationId }, agentConfig);
-    emitProgress({ nodeId, instanceId, operationId, stage: "updating", message: "Updating server files with SteamCMD.", current: 0, total: 1 });
-    const result = await agentClient.executeSteamCmdUpdate(instanceId, { operationId, token: session.token }, agentConfig);
-    await agentClient.closeSteamCmdUpdateSession(instanceId, { operationId, token: session.token }, agentConfig);
-    emitProgress({ nodeId, instanceId, operationId, stage: "done", message: "Server files updated. The instance remains stopped.", current: 1, total: 1 });
-    longOperations.updateOperation(operationId, { status: "complete", stage: "Complete", progress: 100, message: "Server files updated.", canCancel: false, metadata: { result } });
+    session = await agentClient.beginSteamCmdUpdateSession(instanceId, { operationId }, agentConfig);
+    const proof = { operationId, token: session.token };
+    if (controller.signal.aborted) {
+      await agentClient.cancelInstallationSession(instanceId, proof, agentConfig).catch(() => {});
+      throw new MarketplaceInstallError("Server update cancelled.", "STEAMCMD_UPDATE_CANCELLED");
+    }
+    controller.signal.addEventListener("abort", () => {
+      agentClient.cancelInstallationSession(instanceId, proof, agentConfig).catch(() => {});
+    }, { once: true });
+    emitProgress({ nodeId: targetNodeId, instanceId, operationId, stage: "connecting", message: "Connecting to Steam...", percent: 1 });
+    let executionFinished = false;
+    const execution = agentClient.executeSteamCmdUpdate(instanceId, proof, agentConfig)
+      .finally(() => { executionFinished = true; });
+    while (!executionFinished) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      if (executionFinished) break;
+      try {
+        const status = await agentClient.getSteamCmdUpdateStatus(instanceId, proof, agentConfig);
+        emitProgress({
+          nodeId: targetNodeId,
+          instanceId,
+          operationId,
+          stage: status.stage || "updating",
+          message: status.label || "Updating server files with SteamCMD...",
+          percent: status.percent,
+          logs: status.logs,
+        });
+      } catch (statusError) {
+        if (executionFinished) break;
+        console.warn("[Marketplace][SteamCMD] Live update status unavailable.", {
+          instanceId,
+          operationId,
+          code: statusError?.code || null,
+        });
+      }
+    }
+    const result = await execution;
+    const completionMessage = result.buildChanged === false
+      ? "Server is already up to date."
+      : "Server files updated successfully.";
+    emitProgress({ nodeId: targetNodeId, instanceId, operationId, stage: "done", message: completionMessage, current: 1, total: 1, percent: 100 });
+    updateProviderInstallOperation(operationId, {
+      status: "complete",
+      stage: "Complete",
+      body: completionMessage,
+      progress: 100,
+      canCancel: false,
+      result,
+    });
     return { operationId, instanceId, result };
   } catch (error) {
-    longOperations.updateOperation(operationId, { status: "failed", stage: "Failed", message: error.message || "SteamCMD update failed.", canCancel: false, metadata: { code: error.code || "STEAMCMD_UPDATE_FAILED" } });
+    const cancelled = controller.signal.aborted || /CANCEL/i.test(String(error?.code || ""));
+    updateProviderInstallOperation(operationId, {
+      status: cancelled ? "cancelled" : "failed",
+      stage: cancelled ? "Cancelled" : "Failed",
+      body: cancelled ? "Server update cancelled." : error.message || "SteamCMD update failed.",
+      progress: longOperations.getOperation(operationId)?.progress || 0,
+      canCancel: false,
+      code: cancelled ? "STEAMCMD_UPDATE_CANCELLED" : error.code || "STEAMCMD_UPDATE_FAILED",
+      canRetry: false,
+    });
     throw error;
+  } finally {
+    if (session?.token) {
+      await agentClient.closeSteamCmdUpdateSession(instanceId, { operationId, token: session.token }, agentConfig).catch(() => {});
+    }
   }
 }
 

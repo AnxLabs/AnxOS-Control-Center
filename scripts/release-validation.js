@@ -25,6 +25,9 @@ const TIERS = {
     ["node", ["scripts/agent-game-config-compat-smoke.js"]],
     ["node", ["scripts/curseforge-server-pack-resolution-smoke.js"]],
     ["node", ["scripts/instance-runtime-smoke.js"]],
+    ["node", ["scripts/windows-cpu-temperature-smoke.js"]],
+    ["node", ["scripts/windows-elevation-tray-smoke.js"]],
+    ["node", ["scripts/bundled-runtime-smoke.js"]],
     ["git", ["diff", "--check"]],
   ],
   release: [
@@ -38,6 +41,9 @@ const TIERS = {
     ["node", ["scripts/agent-game-config-compat-smoke.js"]],
     ["node", ["scripts/curseforge-server-pack-resolution-smoke.js"]],
     ["node", ["scripts/instance-runtime-smoke.js"]],
+    ["node", ["scripts/windows-cpu-temperature-smoke.js"]],
+    ["node", ["scripts/windows-elevation-tray-smoke.js"]],
+    ["node", ["scripts/bundled-runtime-smoke.js"]],
     ["git", ["diff", "--check"]],
   ],
 };

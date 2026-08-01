@@ -17,6 +17,8 @@
     "dist:win:portable": "node scripts/run-electron-builder.js --win portable --x64",
     "dist:linux": "node scripts/run-electron-builder.js --linux deb AppImage --x64",
     "hardware-telemetry:build": "node scripts/build-windows-hardware-telemetry.js",
+    "runtimes:prepare:win": "node scripts/prepare-windows-runtime-bundle.js",
+    "runtimes:bundle:smoke": "node scripts/bundled-runtime-smoke.js",
     "build:increment": "node scripts/release-config.js build:increment",
     "version:set": "node scripts/release-config.js version:set",
     "channel:set": "node scripts/release-config.js channel:set",
@@ -214,6 +216,7 @@
     "agent-control:sections:smoke": "node scripts/agent-control-sections-smoke.js",
     "windows-runtime:smoke": "node scripts/windows-runtime-smoke.js",
     "windows-cpu-temperature:smoke": "node scripts/windows-cpu-temperature-smoke.js",
+    "windows-elevation-tray:smoke": "node scripts/windows-elevation-tray-smoke.js",
     "security:reset-password": "node scripts/reset-local-password.js",
     "icons:branding": "node scripts/generate-linux-icons.js"
   },
@@ -324,9 +327,17 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "resources/bundled-runtimes/win-x64",
+        "to": "bundled-runtimes/win-x64",
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "win": {
+      "requestedExecutionLevel": "requireAdministrator",
       "target": [
         {
           "target": "nsis",

@@ -52,6 +52,13 @@ assert(preload.includes("dependencies:plan") && app.includes("typeof api?.depend
 assert(main.includes("registerSettingsIpc"), "Main process must register settings IPC.");
 assert(main.includes("function openWorkspaceWindow") && main.includes('"marketplace", "create-server"'), "Main process must provide singleton Marketplace and Create Server workspace windows.");
 assert(preload.includes("window:openWorkspace") && preload.includes("workspaceWindow:init"), "Preload must expose narrow workspace-window handoff IPC.");
+assert(preload.includes("window:focusMain") && preload.includes("window:navigate"), "Dedicated workflow navigation must use narrow trusted IPC.");
+assert(main.includes('ipcMain.handle("window:focusMain"'), "Main process must focus and navigate the primary window for workflow exits.");
+assert(index.includes('data-workspace-nav="back"') && index.includes('data-workspace-nav="dashboard"'), "Marketplace and Create Server must expose Back and Dashboard navigation.");
+assert(!index.includes("data-marketplace-loading"), "Marketplace must not render a blocking catalog loading screen.");
+assert(app.includes('return !workspaceSurface && readStoredSettings()["startup.enabled"] !== false'), "Dedicated workflows must bypass the application startup splash.");
+assert(app.includes("WORKSPACE_NAVIGATION_STORAGE_KEY") && app.includes('request.page === "dashboard"'), "Dashboard navigation must synchronize across independently loaded workflow windows.");
+assert(styles.includes("body.workspace-window .startup-screen") && styles.includes("display: none !important"), "Workspace-window CSS must prevent startup-splash flashes.");
 assert(app.includes("function openCreateServerWorkspace") && app.includes("applyWorkspaceWindowContext"), "Marketplace selection must hand off to the authoritative Create Server workspace.");
 assert(app.includes("function renderMarketplacePackageDetails") && styles.includes("body.marketplace-window .marketplace-deployment-panel"), "Dedicated Marketplace must show discovery details and hide deployment configuration.");
 assert(index.includes("data-create-server-step-nav") && index.includes('data-create-server-step-panel="review"') && index.includes('data-create-server-step-panel="deployment"'), "Create Server must expose a staged wizard with explicit review and deployment surfaces.");
@@ -79,6 +86,8 @@ assert(app.includes("ensureWorkspaceMarketplaceCatalog") && app.includes('instan
 assert(app.includes("project.displayName || project.name || project.title"), "Provider-template handoff must preserve the friendly Marketplace title instead of exposing a project ID.");
 assert(styles.includes("body.workspace-window .sidebar") && styles.includes("body.create-server-window .marketplace-browser"), "Dedicated workspace windows must remove unrelated navigation and keep Create Server focused.");
 assert(styles.includes("body.create-server-window .app-modal--first-server") && styles.includes("grid-template-columns: minmax(0, 1fr)"), "Create Server guidance must use a readable stacked header at dedicated-window widths.");
+assert(styles.includes(".settings-shell:not(.settings-shell--workspace) > .settings-section--amp"), "Settings integration cards must not create implicit narrow columns inside the single-column workspace.");
+assert(styles.includes(".settings-shell--workspace > .settings-section--minecraft") && styles.includes("grid-column: 1 / -1"), "Settings connection cards must remain full-width at compact desktop sizes.");
 assert(index.includes("nodes-summary-grid") && index.includes('data-node-summary="online"'), "Nodes workspace must expose a compact dashboard summary.");
 assert(index.includes("Switch System / Node") && index.includes("Choose a system to manage.") && index.includes("selected system"), "New-user language should consistently teach system/node terminology.");
 assert(index.includes("This PC is always available.") && app.includes("This PC is ready. Add a remote Agent node") && !index.includes("This Device is always available."), "Local system copy should consistently use This PC in the desktop shell.");
@@ -96,6 +105,9 @@ assert(index.includes('data-nav-description="System overview"') && index.include
 assert(app.includes("label.dataset.navDescription") && app.includes("PAGE_INTRODUCTIONS"), "Renderer should wire nav descriptions and page introductions.");
 assert(styles.includes(".page-introduction") && styles.includes(".nav-item[data-nav-description] .nav-item__label::after"), "Friendly navigation and page introduction CSS must exist.");
 assert(styles.includes('.page[data-page="files"].is-active') && styles.includes("grid-template-rows: auto auto minmax(0, 1fr)") && styles.includes('.page[data-page="files"] .file-manager-shell'), "Files page introduction must occupy a normal full-width row above the Files workspace.");
+assert(styles.includes('.page[data-page="files"] {\n  width: 100%;\n  max-width: none;'), "Files must use the available full-screen workspace instead of leaving a large empty column.");
+assert(styles.includes('.page[data-page="backups"] .backup-summary-grid') && styles.includes('grid-template-columns: repeat(2, minmax(0, 1fr))'), "Backup summary cards must collapse before compact-window content clips.");
+assert(app.includes("function getBackupErrorMessage") && app.includes("BACKUP_SOURCE_LIMIT_EXCEEDED"), "Backup failures must use friendly user-facing messages instead of raw IPC errors.");
 assert(index.includes("Help and Learning") && index.includes("data-contextual-help-modal"), "Settings must include in-app Help and Learning with a contextual help modal.");
 assert(app.includes("CONTEXTUAL_HELP_TOPICS") && app.includes("openContextualHelp") && app.includes("dismissContextualHelpTip"), "Contextual help must render through the reusable renderer component.");
 assert(index.includes("[data-node-list]") || index.includes("data-node-list"), "Nodes workspace must expose the node card list.");
@@ -194,6 +206,7 @@ assert(index.includes("No matching servers found") && index.includes("Try anothe
 assert(index.includes("marketplace-readiness-strip") && index.includes('data-marketplace-readiness="dependencies"') && app.includes("function renderMarketplaceReadiness"), "Marketplace installer panel must summarize readiness before install.");
 assert(index.includes("You have not installed any servers yet.") && app.includes("Install a server from the Marketplace to get started."), "Instances empty state must point new users to Marketplace.");
 assert(app.includes("Docker is not installed on this system.") && app.includes("Install Docker") && app.includes("No containers yet"), "Docker empty states must distinguish missing Docker from an empty container list.");
+assert(app.includes("const isInitialLoad = !latestDockerSnapshot;") && app.includes("if (isInitialLoad) {\n    setDockerEmpty(false);"), "Docker initial loading must hide the empty-state panel to prevent overlapping grouped states.");
 assert(app.includes("Connect a supported system to browse its files.") && app.includes("This folder is empty"), "Files empty states must distinguish no target from an empty folder.");
 assert(index.includes("No backups yet") && app.includes("Create a backup before making major server changes."), "Backups empty state must be calm and actionable.");
 assert(app.includes("No access services created yet") && app.includes("Choose a provider to securely access supported services."), "Public Access empty state must explain provider setup without stale data.");

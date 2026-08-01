@@ -722,14 +722,14 @@ async function deleteBackup(backupId) {
   return { id: metadata.id, deleted: true };
 }
 
-async function createSafetySnapshot(instanceId) {
+async function createSafetySnapshot(instanceId, type = "full") {
   // Called from within restoreBackup, which already holds the backup:${instanceId}
   // lock for the duration of the restore, so this bypasses the public locked entry
   // point to avoid a false self-conflict on the same lock key.
   return performCreateBackup({
     instanceId,
     name: `${instanceId} safety snapshot before restore`,
-    type: "full",
+    type: type === "world" ? "world" : "full",
     createdBy: "restore-safety",
     retention: { keepLast: 9999, maxAgeDays: 3650 },
   });
@@ -764,11 +764,25 @@ async function rollbackRestoreFromSafetySnapshot(instancePath, safetyBackup) {
     throw createBackupError("RESTORE_SAFETY_SNAPSHOT_MISSING", 500);
   }
   await validateArchiveFile(safetyBackup.path);
-  await fs.rm(instancePath, { recursive: true, force: true });
-  await fs.mkdir(instancePath, { recursive: true, mode: 0o700 });
+  if (safetyBackup.type === "world") {
+    for (const sourcePath of Array.isArray(safetyBackup.sourcePaths) ? safetyBackup.sourcePaths : []) {
+      const targetPath = path.resolve(instancePath, sourcePath);
+      if (!isInsideRoot(targetPath, instancePath)) {
+        throw createBackupError("BACKUP_ARCHIVE_PATH_UNSAFE", 400);
+      }
+      await fs.rm(targetPath, { recursive: true, force: true });
+    }
+  } else {
+    await fs.rm(instancePath, { recursive: true, force: true });
+    await fs.mkdir(instancePath, { recursive: true, mode: 0o700 });
+  }
   await extractTarGzArchive(safetyBackup.path, instancePath);
-  const configExists = await fs.stat(path.join(instancePath, "config.json")).then((stats) => stats.isFile(), () => false);
-  if (!configExists) {
+  const rollbackVerified = safetyBackup.type === "world"
+    ? (Array.isArray(safetyBackup.sourcePaths) && safetyBackup.sourcePaths.length > 0 && await Promise.all(
+      safetyBackup.sourcePaths.map((sourcePath) => fs.stat(path.resolve(instancePath, sourcePath)).then(() => true, () => false)),
+    )).every(Boolean)
+    : await fs.stat(path.join(instancePath, "config.json")).then((stats) => stats.isFile(), () => false);
+  if (!rollbackVerified) {
     throw createBackupError("RESTORE_ROLLBACK_VERIFICATION_FAILED", 500);
   }
   return { rolledBack: true, safetyBackupId: safetyBackup.id };
@@ -795,10 +809,14 @@ async function restoreBackup(payload = {}) {
     const validation = await validateArchiveFile(backup.path);
 
     await ensureInstanceStoppedForRestore(instanceId);
-    const currentInstanceSize = await calculatePathSize(instancePath);
-    await ensureDiskSpace(getBackupRoot(), currentInstanceSize, "RESTORE_SNAPSHOT_DISK_SPACE_INSUFFICIENT");
+    const safetySourcePaths = await getSourcePaths(instancePath, backup.type);
+    let safetySnapshotSize = 0;
+    for (const sourcePath of safetySourcePaths) {
+      safetySnapshotSize += await calculatePathSize(path.resolve(instancePath, sourcePath));
+    }
+    await ensureDiskSpace(getBackupRoot(), safetySnapshotSize, "RESTORE_SNAPSHOT_DISK_SPACE_INSUFFICIENT");
     await ensureDiskSpace(path.dirname(instancePath), validation.uncompressedSize, "RESTORE_DISK_SPACE_INSUFFICIENT");
-    safety = await createSafetySnapshot(instanceId);
+    safety = await createSafetySnapshot(instanceId, backup.type);
     mutationStarted = true;
     if (backup.type === "world") {
       for (const sourcePath of Array.isArray(backup.sourcePaths) ? backup.sourcePaths : []) {

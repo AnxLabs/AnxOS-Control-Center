@@ -1361,6 +1361,7 @@ class NodeAgentClient {
   }
 
   beginSteamCmdUpdateSession(instanceId, payload = {}) { return this.post(`/instances/${encodeInstanceId(instanceId)}/steamcmd/update/session`, payload); }
+  getSteamCmdUpdateStatus(instanceId, payload = {}) { return this.post(`/instances/${encodeInstanceId(instanceId)}/steamcmd/update/status`, payload); }
   repairLegacySteamCmdMetadata(instanceId) { return this.post(`/instances/${encodeInstanceId(instanceId)}/steamcmd/update/migrate`, {}); }
   executeSteamCmdUpdate(instanceId, payload = {}, timeoutMs = 610000) { return this.request(`/instances/${encodeInstanceId(instanceId)}/steamcmd/update`, { method: "POST", body: payload, timeoutMs }); }
   closeSteamCmdUpdateSession(instanceId, payload = {}) { return this.delete(`/instances/${encodeInstanceId(instanceId)}/steamcmd/update/session`, { body: payload }); }
@@ -3033,6 +3034,10 @@ async function beginSteamCmdUpdateSession(instanceId, payload = {}, configOverri
   if (shouldUseLocalInstanceService(configOverride)) return getLocalInstanceService().beginSteamCmdUpdateSession(instanceId, payload);
   return requestJson(`/api/v1/instances/${encodeInstanceId(instanceId)}/steamcmd/update/session`, { config: configOverride, method: "POST", body: payload });
 }
+async function getSteamCmdUpdateStatus(instanceId, payload = {}, configOverride = null) {
+  if (shouldUseLocalInstanceService(configOverride)) return getLocalInstanceService().getSteamCmdUpdateStatus(instanceId, payload);
+  return requestJson(`/api/v1/instances/${encodeInstanceId(instanceId)}/steamcmd/update/status`, { config: configOverride, method: "POST", body: payload });
+}
 async function repairLegacySteamCmdMetadata(instanceId, configOverride = null) {
   if (shouldUseLocalInstanceService(configOverride)) return getLocalInstanceService().repairLegacySteamCmdMetadata(instanceId);
   return requestJson(`/api/v1/instances/${encodeInstanceId(instanceId)}/steamcmd/update/migrate`, { config: configOverride, method: "POST", body: {} });
@@ -3236,6 +3241,7 @@ module.exports = {
   AgentClientError,
   beginInstallationSession,
   beginSteamCmdUpdateSession,
+  getSteamCmdUpdateStatus,
   repairLegacySteamCmdMetadata,
   cancelInstallationSession,
   checkDependencies,

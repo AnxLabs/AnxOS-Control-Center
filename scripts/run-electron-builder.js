@@ -27,6 +27,15 @@ const info = buildReleaseInfo(nextRelease);
 console.log(`Packaging AnxOS Control Center ${info.compactLabel}`);
 
 if (builderArgs.includes("--win") || process.platform === "win32") {
+  const runtimeBuild = spawnSync(process.execPath, [path.join(__dirname, "prepare-windows-runtime-bundle.js")], {
+    cwd: process.cwd(),
+    stdio: "inherit",
+    shell: false,
+  });
+  if (runtimeBuild.error || runtimeBuild.status !== 0) {
+    console.error(runtimeBuild.error?.message || "Windows bundled runtime preparation failed.");
+    process.exit(runtimeBuild.status || 1);
+  }
   const helperBuild = spawnSync(process.execPath, [path.join(__dirname, "build-windows-hardware-telemetry.js")], {
     cwd: process.cwd(),
     stdio: "inherit",

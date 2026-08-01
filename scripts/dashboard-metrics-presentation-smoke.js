@@ -27,9 +27,8 @@ requireSource(app, "number !== 0 || explicitRealZero", "Placeholder zero tempera
 requireSource(app, "setField(\"temperature\", text)", "Temperature field must be rendered through the shared field updater.");
 requireSource(app, "delete field.dataset.temperatureState", "Unavailable temperature must not keep a Cool/Warm/Hot badge state.");
 requireSource(app, "getCpuTemperatureUnavailableLabel(reason, source)", "Unavailable temperature must render through bounded friendly labels.");
-requireSource(app, "Unavailable on this system", "Unsupported local temperature sensors must render honestly.");
-requireSource(app, "Requires sensor support", "Missing sensor support must render honestly.");
-requireSource(app, "Not supported by this node", "Remote nodes without temperature support must render honestly.");
+requireSource(app, "Temperature unavailable", "Unavailable temperature sensors must render with neutral language.");
+assert(!app.includes('return "Requires sensor support";'), "Unavailable temperature must not render as an error-looking sensor-support badge.");
 
 requireSource(app, "function formatRate", "Dashboard must use a consistent network rate formatter.");
 requireSource(app, "formatRate(safeSnapshot.network.downloadPerSecond)", "Network download rates must use the formatter.");

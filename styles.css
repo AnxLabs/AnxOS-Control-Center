@@ -6720,8 +6720,8 @@ body.is-resizing-files * {
   grid-row: 6;
   position: static;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-rows: auto auto;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto auto;
   align-items: center;
   min-height: 0;
   overflow: hidden;
@@ -6737,9 +6737,18 @@ body.is-resizing-files * {
 }
 
 .page[data-page="instances"] .instance-workspace-header {
-  grid-column: 1;
+  grid-column: 1 / -1;
   grid-row: 1;
   border-bottom: 0;
+}
+
+.page[data-page="files"] {
+  width: 100%;
+  max-width: none;
+}
+
+.page[data-page="files"] .file-manager-shell {
+  grid-template-columns: clamp(260px, 18vw, 320px) 10px minmax(0, 1fr);
 }
 
 .page[data-page="instances"] .instance-workspace-header h3 {
@@ -6753,13 +6762,13 @@ body.is-resizing-files * {
 }
 
 .page[data-page="instances"] .instance-quick-actions {
-  grid-column: 2;
-  grid-row: 1;
+  grid-column: 1 / -1;
+  grid-row: 2;
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
-  padding: 14px 16px;
-  border-bottom: 0;
+  justify-content: flex-start;
+  padding: 0 16px 14px;
+  border-bottom: 1px solid rgba(185, 171, 200, 0.1);
   background: transparent;
 }
 
@@ -6769,7 +6778,7 @@ body.is-resizing-files * {
 
 .page[data-page="instances"] .instance-tabs {
   grid-column: 1 / -1;
-  grid-row: 2;
+  grid-row: 3;
   padding: 8px 14px 12px;
   border-top: 1px solid rgba(185, 171, 200, 0.1);
   border-bottom: 1px solid rgba(185, 171, 200, 0.12);
@@ -11680,11 +11689,18 @@ button:disabled {
 }
 
 @media (min-width: 980px) {
-  .settings-shell > .settings-section--marketplace,
-  .settings-shell > .settings-section--amp,
-  .settings-shell > .settings-section--about {
+  .settings-shell:not(.settings-shell--workspace) > .settings-section--marketplace,
+  .settings-shell:not(.settings-shell--workspace) > .settings-section--amp,
+  .settings-shell:not(.settings-shell--workspace) > .settings-section--about {
     grid-column: span 2;
   }
+}
+
+.settings-shell--workspace > .settings-section--amp,
+.settings-shell--workspace > .settings-section--minecraft,
+.settings-shell--workspace > .settings-section--playit {
+  grid-column: 1 / -1;
+  width: 100%;
 }
 
 .settings-field,
@@ -12348,6 +12364,31 @@ body.marketplace-window .marketplace-layout {
   flex-wrap: wrap;
   gap: 8px;
   min-width: 0;
+}
+
+.workspace-navigation {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  padding-right: 8px;
+  margin-right: 2px;
+  border-right: 1px solid rgba(190, 170, 220, 0.16);
+}
+
+body.workspace-window .workspace-navigation {
+  display: flex;
+}
+
+body.workspace-window .startup-screen {
+  display: none !important;
+}
+
+body.workspace-window .page {
+  display: none;
+}
+
+body.workspace-window [data-page="marketplace"] {
+  display: block;
 }
 
 .marketplace-discovery-details,
@@ -13372,7 +13413,7 @@ html[data-ui-generation="v1.9"] .inline-action {
   border-radius: 7px;
 }
 
-@media (max-width: 1120px) {
+@media (max-width: 1280px) {
   html[data-ui-generation="v1.9"] .dashboard-welcome {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -13543,6 +13584,220 @@ html[data-ui-generation="v1.9"] .inline-action {
 .settings-section--marketplace .settings-actions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+/* Build 194 compact desktop stabilization.
+   These views carry more information than a narrow table can preserve, so the
+   layout changes shape before controls or meaningful values leave the window. */
+.page[data-page="instances"] .instances-table-panel {
+  max-height: min(62vh, 760px);
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+
+@media (max-width: 1320px) {
+  .page[data-page="backups"] .backup-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .page[data-page="backups"] .backup-summary-card strong {
+    overflow-wrap: anywhere;
+  }
+
+  .page[data-page="backups"] .backup-toolbar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .page[data-page="backups"] .backup-actions {
+    justify-content: flex-start;
+  }
+
+  .page[data-page="files"].is-active {
+    display: grid;
+    grid-template-rows: auto auto minmax(0, 1fr);
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .page[data-page="instances"] .instances-table-panel,
+  .page[data-page="instances"] .instances-table-panel .docker-table-wrap {
+    min-height: 0;
+  }
+
+  .page[data-page="instances"] .instances-table-panel {
+    max-height: min(54vh, 560px);
+    overflow-x: hidden;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+  }
+
+  .page[data-page="instances"] .instances-table-panel .docker-table-wrap {
+    overflow: visible;
+  }
+
+  .page[data-page="instances"] .instances-table {
+    display: block;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .page[data-page="instances"] .instances-table thead {
+    display: none;
+  }
+
+  .page[data-page="instances"] .instances-table tbody {
+    display: grid;
+    gap: 10px;
+  }
+
+  .page[data-page="instances"] .instances-table tbody tr {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0;
+    overflow: hidden;
+    border: 1px solid rgba(185, 171, 200, 0.1);
+    border-radius: 10px;
+    background: rgba(18, 10, 32, 0.52);
+  }
+
+  .page[data-page="instances"] .instances-table td {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+    align-content: start;
+    min-width: 0;
+    padding: 7px 10px;
+    border: 0;
+    border-bottom: 1px solid rgba(185, 171, 200, 0.07);
+    border-radius: 0;
+    background: transparent;
+  }
+
+  .page[data-page="instances"] .instances-table td::before {
+    color: rgba(226, 216, 240, 0.64);
+    font-size: 0.62rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .page[data-page="instances"] .instances-table td:nth-child(1),
+  .page[data-page="instances"] .instances-table td:nth-child(9) {
+    grid-column: 1 / -1;
+  }
+
+  .page[data-page="instances"] .instances-table td:nth-child(1) {
+    grid-template-columns: minmax(78px, auto) minmax(0, 1fr);
+    align-items: center;
+  }
+
+  .page[data-page="instances"] .instances-table td:nth-child(9) {
+    grid-template-columns: minmax(78px, auto) minmax(0, 1fr);
+    align-items: center;
+  }
+
+  .page[data-page="instances"] .instances-table td:nth-child(1)::before { content: "Server"; }
+  .page[data-page="instances"] .instances-table td:nth-child(2)::before { content: "Type"; }
+  .page[data-page="instances"] .instances-table td:nth-child(3)::before { content: "Status"; }
+  .page[data-page="instances"] .instances-table td:nth-child(4)::before { content: "Address"; }
+  .page[data-page="instances"] .instances-table td:nth-child(5)::before { content: "CPU"; }
+  .page[data-page="instances"] .instances-table td:nth-child(6)::before { content: "RAM"; }
+  .page[data-page="instances"] .instances-table td:nth-child(7)::before { content: "Uptime"; }
+  .page[data-page="instances"] .instances-table td:nth-child(8)::before { content: "Tags"; }
+  .page[data-page="instances"] .instances-table td:nth-child(9)::before { content: "Actions"; }
+
+  .page[data-page="instances"] .instances-table td:first-child,
+  .page[data-page="instances"] .instances-table td:last-child {
+    width: auto;
+    min-width: 0;
+    border-left: 0;
+    border-right: 0;
+    border-radius: 0;
+  }
+
+  .page[data-page="instances"] .instances-table tbody tr.is-selected td:first-child {
+    box-shadow: inset 3px 0 0 rgba(199, 161, 255, 0.9);
+  }
+
+  .page[data-page="instances"] .instance-row-actions {
+    justify-content: flex-start;
+  }
+
+  .page[data-page="files"] .file-manager-shell {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+    height: 100%;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    align-items: start;
+    align-content: start;
+  }
+
+  .page[data-page="files"] .storage-manager-panel,
+  .page[data-page="files"] .files-connect-bar,
+  .page[data-page="files"] .file-password-prompt,
+  .page[data-page="files"] .file-toolbar,
+  .page[data-page="files"] .file-workspace {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .page[data-page="files"] .storage-manager-panel {
+    grid-template-rows: auto auto auto auto;
+    height: 260px;
+    max-height: 260px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    align-self: start;
+    scrollbar-gutter: stable;
+  }
+
+  .page[data-page="files"] .storage-manager-divider {
+    display: none;
+  }
+
+  .page[data-page="files"] .file-manager-shell:not(.is-edit-mode) .file-workspace,
+  .page[data-page="files"] .file-manager-shell:not(.is-edit-mode) .file-browser {
+    grid-template-columns: minmax(0, 1fr);
+    overflow: visible;
+  }
+
+  .page[data-page="files"] .file-manager-shell:not(.is-edit-mode) .file-workspace {
+    grid-template-rows: auto auto;
+    height: auto;
+  }
+
+  .page[data-page="files"] .file-manager-shell:not(.is-edit-mode) .file-browser {
+    grid-template-rows: auto auto;
+    min-height: 610px;
+  }
+
+  .page[data-page="files"] .folder-tree-panel,
+  .page[data-page="files"] .file-list-panel {
+    min-height: 300px;
+  }
+
+  .page[data-page="files"] .file-table-wrap {
+    min-height: 260px;
+    max-height: 440px;
+  }
+
+  .page[data-page="files"] .file-editor-panel {
+    min-height: 380px;
+  }
+}
+
+@media (max-width: 760px) {
+  .page[data-page="instances"] .instances-table tbody tr,
+  .page[data-page="instances"] .instances-table td {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .page[data-page="instances"] .instances-table td::before {
+    margin-bottom: 2px;
+  }
 }
 
 @media (max-width: 760px) {

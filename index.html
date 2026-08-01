@@ -1493,6 +1493,10 @@
               <p class="lede">Discover server packages, compare compatibility, and hand your selection to Create Server.</p>
             </div>
             <div class="marketplace-header-actions">
+              <div class="workspace-navigation" data-workspace-navigation aria-label="Workspace navigation">
+                <button class="inline-action" type="button" data-workspace-nav="back">← Back</button>
+                <button class="inline-action" type="button" data-workspace-nav="dashboard">⌂ Dashboard</button>
+              </div>
               <span class="status-pill status-pill--planned" data-marketplace-health>Initializing</span>
               <button class="inline-action" type="button" data-marketplace-shortcut="downloads">Downloads</button>
               <button class="inline-action" type="button" data-marketplace-shortcut="notifications">Notifications</button>
@@ -1569,11 +1573,6 @@
                 </div>
                 <div class="marketplace-grid" data-marketplace-grid></div>
                 <button class="inline-action marketplace-load-more" type="button" data-marketplace-load-more hidden>Load More</button>
-                <div class="docker-loading-state marketplace-loading" data-marketplace-loading hidden>
-                  <span class="file-loader" aria-hidden="true"></span>
-                  <strong>Loading marketplace</strong>
-                  <span>Reading template catalog...</span>
-                </div>
                 <div class="docker-empty-state marketplace-empty" data-marketplace-empty hidden>
                   <strong>No matching servers found</strong>
                   <span>Try another search, clear your filters, or choose a different category.</span>

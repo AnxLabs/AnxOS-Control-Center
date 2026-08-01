@@ -346,7 +346,11 @@ async function routeRequest(request, url) {
 
 async function handleRequest(request, response) {
   const isFileWrite = request.method === "PUT" && /\/file$/.test(request.url || "");
-  request.setTimeout(isFileWrite ? config.fileWriteTimeoutMs : config.requestTimeoutMs, () => {
+  const isLongInstallerOperation = request.method === "POST" && /\/(?:steamcmd\/update|installation\/execute|neoforge\/repair-runtime)$/.test(request.url || "");
+  const requestTimeoutMs = isLongInstallerOperation
+    ? Math.max(config.requestTimeoutMs, 11 * 60 * 1000)
+    : isFileWrite ? config.fileWriteTimeoutMs : config.requestTimeoutMs;
+  request.setTimeout(requestTimeoutMs, () => {
     request.destroy();
   });
 

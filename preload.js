@@ -84,11 +84,17 @@ const windowApi = {
     context,
     templateId: context?.template?.id || "",
   }),
+  focusMain: (page = "") => ipcRenderer.invoke("window:focusMain", { page }),
   getWorkspaceContext: () => ipcRenderer.invoke("window:getWorkspaceContext"),
   onWorkspaceInit: (callback) => {
     const handler = (_, payload) => callback(payload || {});
     ipcRenderer.on("workspaceWindow:init", handler);
     return () => ipcRenderer.removeListener("workspaceWindow:init", handler);
+  },
+  onNavigate: (callback) => {
+    const handler = (_, payload) => callback(payload || {});
+    ipcRenderer.on("window:navigate", handler);
+    return () => ipcRenderer.removeListener("window:navigate", handler);
   },
   onMaximizedChanged: (callback) => {
     const handler = (_, isMaximized) => callback(Boolean(isMaximized));

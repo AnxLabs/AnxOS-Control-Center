@@ -95,6 +95,44 @@ const unavailable = telemetry.classifyPayload({ ok: false, reason: "access_denie
 assert.strictEqual(unavailable.available, false);
 assert.strictEqual(unavailable.reason, "access_denied_or_driver_unavailable");
 
+async function assertExistingProviderFallback() {
+  const calls = [];
+  const execFile = (command, args, options, callback) => {
+    calls.push({ command, args, options });
+    callback(null, JSON.stringify([
+      { Name: "GPU Core", Identifier: "/gpu/0/temperature/0", Parent: "/gpu/0", SensorType: "Temperature", Value: 71 },
+      { Name: "CPU Package", Identifier: "/intelcpu/0/temperature/0", Parent: "/intelcpu/0", SensorType: "Temperature", Value: 59 },
+    ]), "");
+  };
+  const reading = await telemetry.readWindowsHardwareTemperature({
+    helperPath: path.join(__dirname, "missing-helper.exe"),
+    execFile,
+  });
+  assert.strictEqual(reading.available, true, "A running LibreHardwareMonitor namespace must be used when the embedded provider is unavailable.");
+  assert.strictEqual(reading.cpu.temperatureCelsius, 59);
+  assert.strictEqual(reading.cpu.sensorName, "CPU Package");
+  assert.strictEqual(reading.source, "root\\LibreHardwareMonitor");
+  assert.strictEqual(calls.length, 1, "Fallback must stop after the first healthy namespace.");
+  assert(calls[0].args.join(" ").includes("root\\LibreHardwareMonitor"));
+  assert(!calls[0].args.join(" ").includes("MSAcpi_ThermalZoneTemperature"), "ACPI thermal-zone values must never be queried.");
+
+  const malformed = await telemetry.readExistingHardwareMonitorTemperature({
+    execFile(command, args, options, callback) {
+      callback(null, "{not-json", "");
+    },
+  });
+  assert.strictEqual(malformed.available, false, "Malformed provider data must fail safely.");
+
+  const timedOut = await telemetry.readExistingHardwareMonitorTemperature({
+    execFile(command, args, options, callback) {
+      const error = new Error("timed out");
+      error.code = "ETIMEDOUT";
+      callback(error, "", "");
+    },
+  });
+  assert.strictEqual(timedOut.available, false, "Provider timeouts must fail safely.");
+}
+
 async function assertAgentWindowsNormalization() {
   const reading = await readAgentTemperatureWithHardware(packageReading);
   assert.strictEqual(reading.temperatureValid, true, "Agent Windows metric path must normalize valid embedded readings.");
@@ -170,10 +208,86 @@ async function assertProviderHandlesAreReleased() {
   }
 }
 
-Promise.resolve(telemetry.readWindowsHardwareTemperature({ helperPath: path.join(__dirname, "missing-helper.exe") }))
+async function assertProviderSingleFlightAndTimeoutRecovery() {
+  const originalSpawn = childProcess.spawn;
+  let spawnCount = 0;
+  let writeCount = 0;
+  const providers = [];
+  childProcess.spawn = () => {
+    spawnCount += 1;
+    const child = new EventEmitter();
+    const stdout = new EventEmitter();
+    child.killed = false;
+    child.unref = () => {};
+    child.kill = () => {
+      child.killed = true;
+      process.nextTick(() => child.emit("exit", null, "SIGTERM"));
+      return true;
+    };
+    child.stdin = {
+      destroyed: false,
+      writableEnded: false,
+      write(_chunk, callback) {
+        writeCount += 1;
+        callback?.();
+        if (spawnCount > 1) {
+          process.nextTick(() => stdout.emit("data", `${JSON.stringify({ ok: true, sensors: [sensor("CPU Package", 44)] })}\n`));
+        }
+        return true;
+      },
+      destroy() { this.destroyed = true; },
+      unref() {},
+      on() {},
+    };
+    child.stdout = stdout;
+    child.stdout.setEncoding = () => {};
+    child.stdout.destroy = () => {};
+    child.stdout.unref = () => {};
+    child.stderr = { destroy() {}, unref() {} };
+    providers.push(child);
+    return child;
+  };
+  try {
+    const first = telemetry.readWindowsHardwareTemperature({
+      helperPath: __filename,
+      startupTimeoutMs: 20,
+      disableNamespaceFallback: true,
+    });
+    const concurrent = telemetry.readWindowsHardwareTemperature({
+      helperPath: __filename,
+      startupTimeoutMs: 20,
+      disableNamespaceFallback: true,
+    });
+    const [timedOut, sameTimedOut] = await Promise.all([first, concurrent]);
+    assert.strictEqual(timedOut.reason, "provider_timeout", "A bounded first-start timeout must remain structured.");
+    assert.strictEqual(sameTimedOut.reason, "provider_timeout", "Concurrent callers must share the active provider read.");
+    assert.strictEqual(spawnCount, 1, "Concurrent telemetry requests must not launch duplicate helper processes.");
+    assert.strictEqual(writeCount, 1, "Concurrent telemetry requests must issue only one provider command.");
+    assert.strictEqual(providers[0].killed, true, "A timed-out provider process must be terminated.");
+
+    const recovered = await telemetry.readWindowsHardwareTemperature({
+      helperPath: __filename,
+      startupTimeoutMs: 1000,
+      disableNamespaceFallback: true,
+    });
+    assert.strictEqual(recovered.available, true, "A later request must recover by starting a fresh provider.");
+    assert.strictEqual(recovered.cpu.temperatureCelsius, 44);
+    assert.strictEqual(spawnCount, 2, "Timeout recovery must create exactly one replacement provider.");
+  } finally {
+    childProcess.spawn = originalSpawn;
+    telemetry.stopWindowsHardwareTemperatureProvider();
+  }
+}
+
+Promise.resolve(telemetry.readWindowsHardwareTemperature({
+  helperPath: path.join(__dirname, "missing-helper.exe"),
+  disableNamespaceFallback: true,
+}))
   .then(async (missing) => {
     assert.strictEqual(missing.reason, "provider_missing", "Missing bundled provider must have an explicit reason.");
+    await assertExistingProviderFallback();
     await assertProviderHandlesAreReleased();
+    await assertProviderSingleFlightAndTimeoutRecovery();
     await assertAgentWindowsNormalization();
     const systemSource = fs.readFileSync(path.join(__dirname, "../src/services/systemService.js"), "utf8");
     assert(systemSource.includes('target.type === "agent"') && systemSource.includes("getLocalSystemSnapshot()"), "Selected Agent and Local Application Host metrics must stay routed separately.");
@@ -190,6 +304,14 @@ Promise.resolve(telemetry.readWindowsHardwareTemperature({ helperPath: path.join
     const providerSource = fs.readFileSync(path.join(__dirname, "../src/shared/windowsHardwareTemperature.js"), "utf8");
     assert(providerSource.includes("ensureProvider") && providerSource.includes('provider.stdin.write("read\\n"'), "Hardware provider must be initialized once and reused.");
     assert(providerSource.includes("stopWindowsHardwareTemperatureProvider"), "Hardware provider must be disposed on shutdown.");
+    assert(providerSource.includes("root\\\\LibreHardwareMonitor"), "Windows fallback must query the LibreHardwareMonitor namespace.");
+    assert(!providerSource.includes("MSAcpi_ThermalZoneTemperature"), "Windows fallback must not use unreliable ACPI thermal-zone values.");
+    const helperSource = fs.readFileSync(path.join(__dirname, "../tools/windows-hardware-telemetry/Program.cs"), "utf8");
+    assert(helperSource.includes("new Computer { IsCpuEnabled = true }"), "The embedded helper must limit LibreHardwareMonitor discovery to CPU sensors.");
+    assert(!helperSource.includes("IsGpuEnabled = true"), "The CPU-temperature helper must not initialize unrelated GPU hardware.");
+    const rendererSource = fs.readFileSync(path.join(__dirname, "../app.js"), "utf8");
+    assert(rendererSource.includes('return "Temperature unavailable";'), "Unavailable temperature must use neutral Runtime-card language.");
+    assert(!rendererSource.includes('return "Requires sensor support";'), "Runtime card must not show an error-looking sensor-support badge.");
     console.log("Windows CPU temperature smoke checks passed.");
   })
   .catch((error) => {

@@ -7,6 +7,7 @@ const os = require("os");
 const path = require("path");
 const zlib = require("zlib");
 const javaRuntimeResolver = require("../minecraftJavaRuntime");
+const bundledRuntimePaths = require("../bundledRuntimePaths");
 const {
   buildConfigModel,
   getAdapter,
@@ -365,10 +366,110 @@ async function beginSteamCmdUpdateSession(instanceId, request = {}) {
   const operationId = String(request.operationId || "").trim();
   if (!STEAM_UPDATE_OPERATION_ID_PATTERN.test(operationId)) throw createInstanceError("INSTALLATION_OPERATION_INVALID", 400);
   const existing = getInstallationSession(config.id);
-  if (existing && !existing.closed) throw createInstanceError("STEAMCMD_UPDATE_CONFLICT", 409);
-  const session = { instanceId: config.id, operationId, installerFamily: "steamcmd-update", token: crypto.randomBytes(32).toString("base64url"), child: null, closed: false, createdAt: Date.now() };
+  if (existing && !existing.closed) {
+    if (existing.child) throw createInstanceError("STEAMCMD_UPDATE_CONFLICT", 409);
+    existing.closed = true;
+    installationSessions.delete(config.id);
+  }
+  const session = {
+    instanceId: config.id,
+    operationId,
+    installerFamily: "steamcmd-update",
+    token: crypto.randomBytes(32).toString("base64url"),
+    child: null,
+    closed: false,
+    createdAt: Date.now(),
+    updateState: {
+      stage: "preparing",
+      label: "Preparing update...",
+      percent: 0,
+      logs: [],
+      updatedAt: nowIso(),
+    },
+  };
   installationSessions.set(config.id, session);
   return { operationId, token: session.token, status: "ready", appId: config.steamAppId };
+}
+
+function parseSteamCmdUpdateProgress(output = "", previous = {}) {
+  const text = String(output || "");
+  const lower = text.toLowerCase();
+  const percentMatch = text.match(/(?:progress|downloaded)\s*:?\s*(\d{1,3}(?:\.\d+)?)\s*%/i);
+  const percent = percentMatch
+    ? Math.max(Number(previous.percent) || 0, Math.min(100, Number(percentMatch[1])))
+    : Number(previous.percent) || 0;
+  if (/success!\s+app\s+['"]?\d+['"]?\s+fully installed/i.test(text)) {
+    return { stage: "success", label: "Finished successfully.", percent: 100 };
+  }
+  if (/error!|failed|failure|invalid app|no subscription|network.*(?:unavailable|failed)|timeout/i.test(lower)) {
+    return { stage: "failed", label: "SteamCMD reported an update failure.", percent };
+  }
+  if (/verif|validate|checking.*files|state\s*\(0x5\)/i.test(text)) {
+    return { stage: "verifying", label: "Verifying server files...", percent: Math.max(percent, 85) };
+  }
+  if (/staging|committing|state\s*\(0x101\)/i.test(text)) {
+    return { stage: "staging", label: "Staging update files...", percent: Math.max(percent, 70) };
+  }
+  if (/installing|extracting|state\s*\(0x81\)/i.test(text)) {
+    return { stage: "installing", label: "Installing update...", percent: Math.max(percent, 75) };
+  }
+  if (/downloading|update state|state\s*\(0x61\)|progress/i.test(text)) {
+    return { stage: "downloading", label: "Downloading update...", percent: Math.max(percent, 5) };
+  }
+  if (/connecting|logging in|waiting for user info|loading steam api/i.test(text)) {
+    return { stage: "connecting", label: "Connecting to Steam...", percent: Math.max(percent, 1) };
+  }
+  return {
+    stage: previous.stage || "preparing",
+    label: previous.label || "Preparing update...",
+    percent,
+  };
+}
+
+function recordSteamCmdUpdateOutput(session, stream, chunk) {
+  if (!session?.updateState) return;
+  const text = String(chunk || "");
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  session.updateState.logs.push(...lines.map((message) => ({ stream, message, timestamp: nowIso() })));
+  session.updateState.logs = session.updateState.logs.slice(-120);
+  Object.assign(session.updateState, parseSteamCmdUpdateProgress(text, session.updateState), {
+    updatedAt: nowIso(),
+  });
+}
+
+async function getSteamCmdUpdateStatus(instanceId, request = {}) {
+  const id = validateInstanceId(instanceId);
+  const session = validateInstallationSession(
+    getInstallationSession(id),
+    String(request.operationId || "").trim(),
+    String(request.token || ""),
+  );
+  if (session.installerFamily !== "steamcmd-update") throw createInstanceError("INSTALLATION_SESSION_INVALID", 403);
+  return {
+    operationId: session.operationId,
+    running: Boolean(session.child),
+    closed: Boolean(session.closed),
+    ...(session.updateState || {}),
+  };
+}
+
+function resolveSteamCmdExecutable() {
+  const bundled = bundledRuntimePaths.resolveExecutable("steamcmd");
+  if (bundled) return bundled;
+  if (process.platform !== "win32") {
+    for (const candidate of ["/usr/games/steamcmd", "/usr/bin/steamcmd", "/usr/local/bin/steamcmd"]) {
+      if (fsSync.existsSync(candidate)) return candidate;
+    }
+  }
+  return process.platform === "win32" ? "steamcmd.exe" : "steamcmd";
+}
+
+function classifySteamCmdFailure(output = "") {
+  const text = String(output || "");
+  if (/invalid app|invalid platform|app info request failed/i.test(text)) return "STEAMCMD_APP_ID_INVALID";
+  if (/no subscription|account.*does not own|license/i.test(text)) return "STEAMCMD_AUTHORIZATION_FAILED";
+  if (/network|connection.*failed|could not connect|timeout|steam.*unavailable/i.test(text)) return "STEAMCMD_NETWORK_UNAVAILABLE";
+  return "STEAMCMD_UPDATE_FAILED";
 }
 
 async function repairLegacySteamCmdMetadata(instanceId) {
@@ -405,28 +506,52 @@ async function executeSteamCmdUpdate(instanceId, request = {}) {
   if (!/^[A-Za-z0-9][A-Za-z0-9._/-]{0,120}$/.test(installDir) || path.isAbsolute(installDir) || installDir.includes("..")) throw createInstanceError("PATH_NOT_ALLOWED", 403);
   const workingDirectory = resolveRelativeManagedPath(config.id, "data", "data");
   const args = ["+force_install_dir", installDir, "+login", "anonymous", "+app_update", String(config.steamAppId), "validate", "+quit"];
+  const manifestRelative = `${installDir}/steamapps/appmanifest_${config.steamAppId}.acf`;
+  const manifestPath = resolveRelativeManagedPath(config.id, `data/${manifestRelative}`, "data");
+  const readBuildId = async () => {
+    try {
+      const content = await fs.readFile(manifestPath, "utf8");
+      return content.match(/"buildid"\s+"([^"]+)"/i)?.[1] || null;
+    } catch {
+      return null;
+    }
+  };
+  const buildIdBefore = await readBuildId();
   const timeoutMs = Math.min(INSTALLER_TIMEOUT_MAX_MS, Math.max(INSTALLER_TIMEOUT_MIN_MS, Number(request.timeoutMs) || 10 * 60 * 1000));
   const startedAt = Date.now(); let stdout = ""; let stderr = ""; let timedOut = false; let cancelled = false;
   const result = await new Promise((resolve, reject) => {
     let child;
-    try { child = childProcess.spawn("steamcmd", args, { cwd: workingDirectory, env: buildSpawnEnvironment(config), shell: false, detached: false, stdio: ["ignore", "pipe", "pipe"], windowsHide: true }); }
-    catch (error) { reject(createInstanceError("STEAMCMD_SPAWN_FAILED", 500, { causeCode: error?.code || null })); return; }
+    const steamCmdExecutable = resolveSteamCmdExecutable();
+    try { child = childProcess.spawn(steamCmdExecutable, args, { cwd: workingDirectory, env: buildSpawnEnvironment(config), shell: false, detached: false, stdio: ["ignore", "pipe", "pipe"], windowsHide: true }); }
+    catch (error) { reject(createInstanceError(error?.code === "ENOENT" ? "STEAMCMD_MISSING" : "STEAMCMD_SPAWN_FAILED", 500, { causeCode: error?.code || null })); return; }
     session.child = child; session.cancel = () => { cancelled = true; if (!child.killed) child.kill("SIGKILL"); };
-    child.stdout?.on("data", (chunk) => { stdout = appendBoundedOutput(stdout, chunk); }); child.stderr?.on("data", (chunk) => { stderr = appendBoundedOutput(stderr, chunk); });
-    child.once("error", (error) => reject(createInstanceError("STEAMCMD_PROCESS_ERROR", 500, { causeCode: error?.code || null })));
+    child.stdout?.on("data", (chunk) => { stdout = appendBoundedOutput(stdout, chunk); recordSteamCmdUpdateOutput(session, "stdout", chunk); });
+    child.stderr?.on("data", (chunk) => { stderr = appendBoundedOutput(stderr, chunk); recordSteamCmdUpdateOutput(session, "stderr", chunk); });
+    child.once("error", (error) => reject(createInstanceError(error?.code === "ENOENT" ? "STEAMCMD_MISSING" : "STEAMCMD_PROCESS_ERROR", 500, { causeCode: error?.code || null })));
     child.once("close", (exitCode, signal) => resolve({ exitCode, signal }));
     const timer = setTimeout(() => { timedOut = true; if (!child.killed) child.kill("SIGKILL"); }, timeoutMs); child.once("close", () => clearTimeout(timer));
   }).finally(() => { session.child = null; session.cancel = null; });
-  const details = { operationId: session.operationId, appId: config.steamAppId, args, exitCode: result.exitCode, signal: result.signal || null, timeoutMs, durationMs: Date.now() - startedAt, stdout, stderr };
+  const buildIdAfter = await readBuildId();
+  const output = `${stdout}\n${stderr}`;
+  const successMarker = new RegExp(`Success!\\s+App\\s+['"]?${config.steamAppId}['"]?\\s+fully installed`, "i").test(output);
+  const details = { operationId: session.operationId, appId: config.steamAppId, args, exitCode: result.exitCode, signal: result.signal || null, timeoutMs, durationMs: Date.now() - startedAt, stdout, stderr, manifest: manifestRelative, buildIdBefore, buildIdAfter, successMarker };
   if (cancelled) throw createInstanceError("STEAMCMD_UPDATE_CANCELLED", 409, details);
   if (timedOut) throw createInstanceError("STEAMCMD_UPDATE_TIMEOUT", 504, details);
-  if (result.exitCode !== 0) throw createInstanceError("STEAMCMD_UPDATE_FAILED", 422, details);
+  if (result.exitCode !== 0) throw createInstanceError(classifySteamCmdFailure(output), 422, details);
+  if (!successMarker) throw createInstanceError("STEAMCMD_UPDATE_NOT_CONFIRMED", 422, details);
+  if (!buildIdAfter) throw createInstanceError("STEAMCMD_UPDATE_BUILD_UNVERIFIED", 422, details);
   const verifyFiles = Array.isArray(config.steamVerifyFiles) ? config.steamVerifyFiles : [];
   for (const relative of verifyFiles) {
     const target = resolveRelativeManagedPath(config.id, `data/${relative}`, "data");
     if (!await pathExists(target)) throw createInstanceError("STEAMCMD_UPDATE_ARTIFACTS_MISSING", 422, { ...details, missing: relative });
   }
-  return { ok: true, ...details, verified: verifyFiles };
+  await saveInstanceConfig({
+    ...config,
+    steamBuildId: buildIdAfter,
+    steamUpdatedAt: nowIso(),
+    updatedAt: nowIso(),
+  });
+  return { ok: true, ...details, verified: verifyFiles, buildChanged: Boolean(buildIdBefore && buildIdAfter !== buildIdBefore) };
 }
 
 function terminateInstallationSession(instanceId) {
@@ -4234,8 +4359,10 @@ function scheduleVersionRefresh(instanceId, delayMs = 2500) {
 }
 
 function buildSpawnEnvironment(config) {
+  const runtimeEnvironment = bundledRuntimePaths.buildRuntimeEnvironment(process.env);
   return {
-    PATH: process.env.PATH || "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+    ...runtimeEnvironment,
+    PATH: runtimeEnvironment.PATH || "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
     HOME: path.join(instancePath(config.id), "runtime"),
     ...config.environment,
   };
@@ -5523,6 +5650,7 @@ module.exports = {
   clearLogs,
   beginInstallationSession,
   beginSteamCmdUpdateSession,
+  getSteamCmdUpdateStatus,
   repairLegacySteamCmdMetadata,
   cancelInstallationSession,
   closeInstallationSession,
@@ -5534,6 +5662,9 @@ module.exports = {
   getStatus,
   executeInstallationPhase,
   executeSteamCmdUpdate,
+  parseSteamCmdUpdateProgress,
+  classifySteamCmdFailure,
+  resolveSteamCmdExecutable,
   instanceFileExists,
   listInstanceFiles,
   listInstances,

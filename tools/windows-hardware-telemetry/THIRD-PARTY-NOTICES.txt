@@ -6,3 +6,8 @@ License: https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/blob/maste
 Third-party notices: https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/tree/master/THIRD-PARTY-LICENSES
 
 The library is used unmodified through its published NuGet package.
+
+AnxOS does not redistribute or install PawnIO. PawnIO is a separate low-level
+driver distributed under GPL-2.0 with additional terms and must undergo a
+separate licensing, security, signing, and installation review before any
+future bundling decision.

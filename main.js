@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, ipcMain, screen, dialog } = require("electron");
+const { app, BrowserWindow, Menu, Tray, ipcMain, screen, dialog } = require("electron");
 const { execFileSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
@@ -55,6 +55,7 @@ const STARTUP_ATTEMPT_STALE_MS = 2 * 60 * 1000;
 const updateManager = new UpdateManager();
 const developerGitUpdater = new DeveloperGitUpdater({ app, appRoot: __dirname });
 let mainWindow = null;
+let tray = null;
 let addStorageWindow = null;
 let pendingAddStoragePayload = null;
 const workspaceWindows = new Map();
@@ -516,6 +517,14 @@ function registerWindowIpc() {
     }
     return openWorkspaceWindow(payload.surface, context);
   });
+  ipcMain.handle("window:focusMain", (_event, payload = {}) => {
+    const page = payload.page === "dashboard" ? "dashboard" : "";
+    ensureMainWindowVisible("workspace-navigation", { recreateIfUnusable: true });
+    if (page && mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("window:navigate", { page });
+    }
+    return { focused: true, page };
+  });
   ipcMain.handle("window:getWorkspaceContext", (event) => {
     const senderUrl = new URL(event.sender.getURL());
     const surface = senderUrl.searchParams.get("surface") || "";
@@ -524,6 +533,30 @@ function registerWindowIpc() {
       context: pendingWorkspacePayloads.get(surface) || {},
     };
   });
+}
+
+function showMainWindowFromTray(reason = "tray") {
+  ensureMainWindowVisible(reason, { recreateIfUnusable: true });
+}
+
+function createTray() {
+  if (tray || qaMode) return tray;
+  tray = new Tray(APP_ICON_PATH);
+  tray.setToolTip("AnxOS Control Center");
+  tray.setContextMenu(Menu.buildFromTemplate([
+    {
+      label: "Open AnxOS Control Center",
+      click: () => showMainWindowFromTray("tray-menu"),
+    },
+    { type: "separator" },
+    {
+      label: "Quit",
+      click: () => app.quit(),
+    },
+  ]));
+  tray.on("click", () => showMainWindowFromTray("tray-click"));
+  tray.on("double-click", () => showMainWindowFromTray("tray-double-click"));
+  return tray;
 }
 
 function getCenteredChildBounds(parent, width = 520, height = 650) {
@@ -847,11 +880,18 @@ function createWindow(options = {}) {
   });
   window.on("resize", scheduleWindowStateSave);
   window.on("move", scheduleWindowStateSave);
-  window.on("close", () => {
+  window.on("close", (event) => {
     clearTimeout(saveWindowStateTimer);
+    saveWindowState(window);
+    if (!qaMode && !appShuttingDown) {
+      event.preventDefault();
+      closeAddStorageWindow();
+      window.hide();
+      diagnostics.log("info", "desktop", "window-hidden-to-tray", "Main window was hidden to the notification tray.", {}, { file: "desktop" });
+      return;
+    }
     completeWindowStartupAttempt("closed", { reason: "window-close" });
     closeAddStorageWindow();
-    saveWindowState(window);
   });
   window.on("closed", () => {
     clearTimeout(showFallbackTimer);
@@ -985,6 +1025,7 @@ app.whenReady().then(async () => {
   registerFilesIpc();
   registerSettingsIpc();
   registerSshIpc();
+  createTray();
   createWindow();
   try {
     logCurseForgeStartupStatus();
@@ -1014,7 +1055,7 @@ app.whenReady().then(async () => {
 });
 
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
+  if (qaMode && process.platform !== "darwin") {
     app.quit();
   }
 });
@@ -1024,6 +1065,10 @@ app.on("before-quit", (event) => {
   event.preventDefault();
   if (appShuttingDown) return;
   appShuttingDown = true;
+  if (tray) {
+    tray.destroy();
+    tray = null;
+  }
   diagnostics.updateRuntimeState({ applicationRunning: false });
   updateManager.stop();
   disposeFilesIpc();

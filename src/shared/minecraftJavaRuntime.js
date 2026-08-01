@@ -1,6 +1,7 @@
 const childProcess = require("child_process");
 const fs = require("fs");
 const path = require("path");
+const bundledRuntimePaths = require("./bundledRuntimePaths");
 
 const JAVA_RULES = Object.freeze([
   { min: [1, 20, 5], major: 21, source: "minecraft-version" },
@@ -52,6 +53,7 @@ function approvedRoots(platform = process.platform, environment = process.env) {
     .filter(Boolean);
   if (platform === "win32") {
     return [
+      bundledRuntimePaths.resolveRoot({ platform, environment }),
       environment.ProgramFiles,
       environment["ProgramFiles(x86)"],
       environment.ProgramData && path.join(environment.ProgramData, "AnxOS", "runtimes"),
@@ -69,6 +71,9 @@ function isInsideRoot(candidate, root) {
 function collectJavaCandidates(platform = process.platform, environment = process.env) {
   const executable = platform === "win32" ? "java.exe" : "java";
   const candidates = new Set();
+  for (const id of ["java-8", "java-16", "java-17", "java-21"]) {
+    for (const candidate of bundledRuntimePaths.executableCandidates(id, { platform, environment })) candidates.add(candidate);
+  }
   const javaHomes = [environment.JAVA_8_HOME, environment.JAVA_16_HOME, environment.JAVA_17_HOME, environment.JAVA_21_HOME, environment.JAVA_HOME];
   for (const home of javaHomes.filter(Boolean)) candidates.add(path.join(home, "bin", executable));
   for (const root of approvedRoots(platform, environment)) {
