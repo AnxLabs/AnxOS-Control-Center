@@ -33,7 +33,11 @@ async function withPatchedRuntime(platform, patches, fn) {
       // test seam. This test only asserts disk-stats behavior, so give CPU
       // temperature reading a benign "no provider" response instead of
       // letting it hit this test's disk-only execFile guard/mocks.
-      systemService._test.setCpuTemperatureExecFileForTest(async () => ({ ok: false, stdout: "", stderr: "mocked: no hardware monitor provider" }));
+      systemService._test.setWindowsHardwareTemperatureReaderForTest(async () => ({
+        available: false,
+        reason: "mocked_no_hardware_monitor_provider",
+        source: "test",
+      }));
     }
     await fn(systemService);
   } finally {
