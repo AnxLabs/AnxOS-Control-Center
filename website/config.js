@@ -5,18 +5,18 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   siteUrl: "https://anxoscontrolcenter.org",
   logoPath: "/assets/anxos-logo.png",
   latestVersion: "1.9",
-  build: "193",
-  buildNumber: "193",
+  build: "194",
+  buildNumber: "194",
   channel: "Private Alpha",
-  releaseLabel: "Version 1.9 Build 193 Private Alpha",
-  releaseDate: "July 29, 2026",
-  releaseTag: "v1.9-build193",
+  releaseLabel: "Version 1.9 Build 194 Private Alpha",
+  releaseDate: "August 1, 2026",
+  releaseTag: "v1.9-build194",
   releaseRepository: {
     owner: "bungopam-byte",
     repo: "AnxOS-Control-Center-Releases",
   },
   repositoryUrl: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases",
-  releaseUrl: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.9-build193",
+  releaseUrl: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.9-build194",
   githubReleasesApiUrl: "https://api.github.com/repos/bungopam-byte/AnxOS-Control-Center-Releases/releases?per_page=20",
   stableDownloadEndpoints: {
     windows: "/api/download/latest/windows",
@@ -26,23 +26,41 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   },
   releaseAssets: [
       {
-          fileName: "AnxOS-Control-Center-Setup-1.9-build193.exe",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.9-build193/AnxOS-Control-Center-Setup-1.9-build193.exe"
+          fileName: "AnxOS-Control-Center-Setup-1.9-build194.exe",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.9-build194/AnxOS-Control-Center-Setup-1.9-build194.exe"
       },
       {
-          fileName: "AnxOS-Control-Center-1.9-build193-portable.exe",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.9-build193/AnxOS-Control-Center-1.9-build193-portable.exe"
+          fileName: "AnxOS-Control-Center-1.9-build194-portable.exe",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.9-build194/AnxOS-Control-Center-1.9-build194-portable.exe"
       },
       {
-          fileName: "AnxOS-Control-Center-1.9-build193.AppImage",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.9-build193/AnxOS-Control-Center-1.9-build193.AppImage"
+          fileName: "AnxOS-Control-Center-1.9-build194.AppImage",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.9-build194/AnxOS-Control-Center-1.9-build194.AppImage"
       },
       {
-          fileName: "AnxOS-Control-Center-1.9-build193.deb",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.9-build193/AnxOS-Control-Center-1.9-build193.deb"
+          fileName: "AnxOS-Control-Center-1.9-build194.deb",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.9-build194/AnxOS-Control-Center-1.9-build194.deb"
       }
   ],
   releaseNotes: [
+      {
+          "version": "1.9",
+          "build": 194,
+          "channel": "Private Alpha",
+          "tag": "v1.9-build194",
+          "date": "August 1, 2026",
+          "datetime": "2026-08-01",
+          "title": "Build 194 desktop reliability and server maintenance",
+          "summary": "Private Alpha Build 194 adds one-click SteamCMD server updates, bundled Windows runtimes and CPU telemetry, tray behavior, responsive workflow polish, and reliable elevated Agent startup migration.",
+          "changes": [
+              "Added provider-driven one-click SteamCMD updates for supported game servers.",
+              "Bundled Java and Embedded LibreHardwareMonitor runtime support on Windows.",
+              "Separated the standard desktop UI from the elevated background Agent.",
+              "Migrated legacy Agent scheduled tasks and prevented duplicate Agent startup.",
+              "Improved Marketplace, Create Server, Instances, Files, Settings, backups, and responsive layouts."
+          ],
+          "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.9-build194"
+      },
       {
           "version": "1.9",
           "build": 193,

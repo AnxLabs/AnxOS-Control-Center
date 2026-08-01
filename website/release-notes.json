@@ -1,6 +1,24 @@
 [
   {
     "version": "1.9",
+    "build": 194,
+    "channel": "Private Alpha",
+    "tag": "v1.9-build194",
+    "date": "August 1, 2026",
+    "datetime": "2026-08-01",
+    "title": "Build 194 desktop reliability and server maintenance",
+    "summary": "Private Alpha Build 194 adds one-click SteamCMD server updates, bundled Windows runtimes and CPU telemetry, tray behavior, responsive workflow polish, and reliable elevated Agent startup migration.",
+    "changes": [
+      "Added provider-driven one-click SteamCMD updates for supported game servers.",
+      "Bundled Java and Embedded LibreHardwareMonitor runtime support on Windows.",
+      "Separated the standard desktop UI from the elevated background Agent.",
+      "Migrated legacy Agent scheduled tasks and prevented duplicate Agent startup.",
+      "Improved Marketplace, Create Server, Instances, Files, Settings, backups, and responsive layouts."
+    ],
+    "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.9-build194"
+  },
+  {
+    "version": "1.9",
     "build": 193,
     "channel": "Private Alpha",
     "tag": "v1.9-build193",
