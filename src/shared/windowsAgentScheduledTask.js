@@ -1,6 +1,7 @@
 const path = require("path");
 
 const WINDOWS_AGENT_TASK_NAME = "AnxOSAgent";
+const WINDOWS_AGENT_LEGACY_TASK_NAMES = ["AnxOS Agent"];
 
 function quotePowerShellValue(value) {
   return `'${String(value ?? "").replace(/'/g, "''")}'`;
@@ -12,6 +13,17 @@ function normalizeWindowsPath(value) {
 
 function normalizeUserId(value) {
   return String(value || "").trim().toLowerCase();
+}
+
+function windowsUserIdsMatch(actualValue, expectedValue) {
+  const actual = normalizeUserId(actualValue).replace(/^\.\\/, "");
+  const expected = normalizeUserId(expectedValue).replace(/^\.\\/, "");
+  if (!actual || !expected) return actual === expected;
+  if (actual === expected) return true;
+  const actualQualified = actual.includes("\\");
+  const expectedQualified = expected.includes("\\");
+  if (actualQualified && expectedQualified) return false;
+  return actual.split("\\").pop() === expected.split("\\").pop();
 }
 
 function getCurrentWindowsUser(env = process.env) {
@@ -49,6 +61,7 @@ function buildWindowsAgentTaskDefinition({ executablePath = process.execPath, us
       stopOnBatteryTransition: false,
       multipleInstances: "IgnoreNew",
     },
+    legacyTaskNames: [...WINDOWS_AGENT_LEGACY_TASK_NAMES],
   };
 }
 
@@ -80,6 +93,7 @@ function normalizeTaskSnapshot(snapshot = {}) {
     allowStartOnBatteries: settings.allowStartOnBatteries ?? settings.AllowStartIfOnBatteries ?? snapshot.allowStartOnBatteries ?? false,
     stopOnBatteryTransition: settings.stopOnBatteryTransition ?? settings.StopIfGoingOnBatteries ?? snapshot.stopOnBatteryTransition ?? true,
     multipleInstances: settings.multipleInstances ?? settings.MultipleInstances ?? snapshot.multipleInstances ?? null,
+    legacyTaskNames: Array.isArray(snapshot.legacyTaskNames) ? snapshot.legacyTaskNames.filter(Boolean) : [],
   };
 }
 
@@ -92,12 +106,13 @@ function compareWindowsAgentTask(snapshot, canonical) {
   if (normalizeWindowsPath(actual.executable) !== normalizeWindowsPath(expected.executable)) mismatches.push("executable");
   if (String(actual.arguments || "").trim() !== expected.arguments) mismatches.push("arguments");
   if (normalizeWindowsPath(actual.workingDirectory) !== normalizeWindowsPath(expected.workingDirectory)) mismatches.push("working-directory");
-  if (normalizeUserId(actual.userId) !== normalizeUserId(expected.userId)) mismatches.push("principal-user");
+  if (!windowsUserIdsMatch(actual.userId, expected.userId)) mismatches.push("principal-user");
   if (!/^interactive(?:token)?$/i.test(String(actual.logonType || ""))) mismatches.push("logon-type");
   if (!/^highest$/i.test(String(actual.runLevel || ""))) mismatches.push("run-level");
   const logonTrigger = actual.triggers.find((trigger) => /logon/i.test(String(trigger.type || "")));
   if (!logonTrigger) mismatches.push("logon-trigger");
-  else if (logonTrigger.userId && normalizeUserId(logonTrigger.userId) !== normalizeUserId(expected.userId)) mismatches.push("trigger-user");
+  else if (logonTrigger.userId && !windowsUserIdsMatch(logonTrigger.userId, expected.userId)) mismatches.push("trigger-user");
+  if (actual.legacyTaskNames.length) mismatches.push("legacy-task-present");
   if (actual.enabled === false) mismatches.push("disabled");
   if (actual.startWhenAvailable !== true) mismatches.push("start-when-available");
   if (actual.allowStartOnBatteries !== true) mismatches.push("battery-start");
@@ -107,18 +122,26 @@ function compareWindowsAgentTask(snapshot, canonical) {
 }
 
 function buildWindowsTaskInspectionScript(taskName = WINDOWS_AGENT_TASK_NAME) {
+  const legacyTaskNames = WINDOWS_AGENT_LEGACY_TASK_NAMES.map(quotePowerShellValue).join(", ");
   return [
     `$task = Get-ScheduledTask -TaskName ${quotePowerShellValue(taskName)} -ErrorAction SilentlyContinue`,
-    "if ($null -eq $task) { @{ found = $false } | ConvertTo-Json -Compress; exit 0 }",
+    `$legacyTaskNames = @(${legacyTaskNames})`,
+    "$legacyTasks = @($legacyTaskNames | Where-Object { Get-ScheduledTask -TaskName $_ -ErrorAction SilentlyContinue })",
+    "if ($null -eq $task) { @{ found = $false; legacyTaskNames = $legacyTasks } | ConvertTo-Json -Compress; exit 0 }",
     "$info = Get-ScheduledTaskInfo -TaskName $task.TaskName -TaskPath $task.TaskPath -ErrorAction SilentlyContinue",
     "$actions = @($task.Actions | ForEach-Object { @{ execute = $_.Execute; arguments = $_.Arguments; workingDirectory = $_.WorkingDirectory } })",
     "$triggers = @($task.Triggers | ForEach-Object { @{ type = $_.CimClass.CimClassName; userId = $_.UserId; enabled = $_.Enabled } })",
-    "@{ found = $true; taskName = $task.TaskName; taskPath = $task.TaskPath; actions = $actions; principal = @{ userId = $task.Principal.UserId; logonType = [string]$task.Principal.LogonType; runLevel = [string]$task.Principal.RunLevel }; triggers = $triggers; settings = @{ enabled = $task.Settings.Enabled; startWhenAvailable = $task.Settings.StartWhenAvailable; allowStartOnBatteries = (-not $task.Settings.DisallowStartIfOnBatteries); stopOnBatteryTransition = $task.Settings.StopIfGoingOnBatteries; multipleInstances = [string]$task.Settings.MultipleInstances }; state = [string]$task.State; lastRunTime = $info.LastRunTime; lastTaskResult = $info.LastTaskResult } | ConvertTo-Json -Depth 6 -Compress",
+    "@{ found = $true; taskName = $task.TaskName; taskPath = $task.TaskPath; legacyTaskNames = $legacyTasks; actions = $actions; principal = @{ userId = $task.Principal.UserId; logonType = [string]$task.Principal.LogonType; runLevel = [string]$task.Principal.RunLevel }; triggers = $triggers; settings = @{ enabled = $task.Settings.Enabled; startWhenAvailable = $task.Settings.StartWhenAvailable; allowStartOnBatteries = (-not $task.Settings.DisallowStartIfOnBatteries); stopOnBatteryTransition = $task.Settings.StopIfGoingOnBatteries; multipleInstances = [string]$task.Settings.MultipleInstances }; state = [string]$task.State; lastRunTime = $info.LastRunTime; lastTaskResult = $info.LastTaskResult } | ConvertTo-Json -Depth 6 -Compress",
   ].join("; ");
 }
 
 function buildWindowsTaskRegistrationScript(definition) {
+  const legacyCleanup = (definition.legacyTaskNames || WINDOWS_AGENT_LEGACY_TASK_NAMES).flatMap((taskName) => [
+    `Stop-ScheduledTask -TaskName ${quotePowerShellValue(taskName)} -ErrorAction SilentlyContinue`,
+    `Unregister-ScheduledTask -TaskName ${quotePowerShellValue(taskName)} -Confirm:$false -ErrorAction SilentlyContinue`,
+  ]);
   return [
+    ...legacyCleanup,
     `$action = New-ScheduledTaskAction -Execute ${quotePowerShellValue(definition.executable)} -Argument ${quotePowerShellValue(definition.arguments)} -WorkingDirectory ${quotePowerShellValue(definition.workingDirectory)}`,
     `$principal = New-ScheduledTaskPrincipal -UserId ${quotePowerShellValue(definition.userId)} -LogonType Interactive -RunLevel Highest`,
     `$trigger = New-ScheduledTaskTrigger -AtLogOn -User ${quotePowerShellValue(definition.userId)}`,
@@ -128,6 +151,7 @@ function buildWindowsTaskRegistrationScript(definition) {
 }
 
 module.exports = {
+  WINDOWS_AGENT_LEGACY_TASK_NAMES,
   WINDOWS_AGENT_TASK_NAME,
   buildWindowsAgentTaskDefinition,
   buildWindowsTaskInspectionScript,
@@ -135,4 +159,5 @@ module.exports = {
   compareWindowsAgentTask,
   getCurrentWindowsUser,
   normalizeTaskSnapshot,
+  windowsUserIdsMatch,
 };

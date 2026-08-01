@@ -6,6 +6,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $taskName = "AnxOSAgent"
+$legacyTaskNames = @("AnxOS Agent")
 
 function Test-IsAdministrator {
   $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -48,16 +49,19 @@ $existing = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
 if ($existing) {
   Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
 }
+$legacyTaskNames | ForEach-Object { Stop-ScheduledTask -TaskName $_ -ErrorAction SilentlyContinue }
 Stop-OwnedAgentProcess -ExpectedExecutable $ExecutablePath
 
 if ($Mode -eq "Uninstall") {
   if ($existing) { Unregister-ScheduledTask -TaskName $taskName -Confirm:$false }
+  $legacyTaskNames | ForEach-Object { Unregister-ScheduledTask -TaskName $_ -Confirm:$false -ErrorAction SilentlyContinue }
   exit 0
 }
 
 if (-not (Test-Path -LiteralPath $ExecutablePath -PathType Leaf)) { exit 20 }
 if ($UserId -and $UserId.StartsWith("\")) { $UserId = $UserId.TrimStart("\") }
 if (-not $UserId) { $UserId = [Security.Principal.WindowsIdentity]::GetCurrent().Name }
+$legacyTaskNames | ForEach-Object { Unregister-ScheduledTask -TaskName $_ -Confirm:$false -ErrorAction SilentlyContinue }
 $workingDirectory = Split-Path -Parent $ExecutablePath
 $action = New-ScheduledTaskAction -Execute $ExecutablePath -Argument "--agent" -WorkingDirectory $workingDirectory
 $principal = New-ScheduledTaskPrincipal -UserId $UserId -LogonType Interactive -RunLevel Highest
