@@ -334,10 +334,14 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "windows/install-agent-task.ps1",
+        "to": "install-agent-task.ps1"
       }
     ],
     "win": {
-      "requestedExecutionLevel": "requireAdministrator",
+      "requestedExecutionLevel": "asInvoker",
       "target": [
         {
           "target": "nsis",
@@ -396,7 +400,8 @@
       "shortcutName": "AnxOS Control Center",
       "installerIcon": "assets/icon.ico",
       "uninstallerIcon": "assets/icon.ico",
-      "installerHeaderIcon": "assets/icon.ico"
+      "installerHeaderIcon": "assets/icon.ico",
+      "include": "windows/installer.nsh"
     }
   },
   "devDependencies": {

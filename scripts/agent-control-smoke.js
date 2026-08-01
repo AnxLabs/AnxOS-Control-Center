@@ -26,8 +26,8 @@ async function main() {
   assert(serviceSource.includes("getSystemStats(getConfiguredAgentHealthConfig(effective))"), "Configured Agent status must include lightweight Agent metrics.");
   assert(serviceSource.includes("runtime-payload-shape"), "Development diagnostics should log sanitized runtime payload shapes.");
   assert(serviceSource.includes("getWindowsElevationState"), "Agent Control must detect Windows elevation before privileged registration changes.");
-  assert(serviceSource.includes("validateWindowsServiceRegistration"), "Agent Control must validate Windows service registration before reporting it as passed.");
-  assert(serviceSource.includes("SERVICE_VERIFICATION_FAILED"), "Agent Control service install must verify registration after modification.");
+  assert(serviceSource.includes("compareWindowsAgentTask"), "Agent Control must compare Windows registration with the canonical definition before reporting it as passed.");
+  assert(serviceSource.includes("repairWindowsAgentTask") && serviceSource.includes("AGENT_PRIVILEGED_OPERATION_UNAVAILABLE"), "Standard-user Agent Control must route privileged Windows task repair through the authenticated Agent.");
   assert(serviceSource.includes("ensureLocalAgentBackendSelected"), "Starting the bundled local Agent must select the local Agent backend for first-time packaged users.");
   assert(serviceSource.includes("pairLocalAgentSecurely") && serviceSource.includes("readLocalAgentPairingStatus"), "Agent Control must expose secure automatic Local Agent pairing.");
   assert(serviceSource.includes("updateLocalAgent") && serviceSource.includes("backupLocalAgentState") && serviceSource.includes("Local Agent Update Available"), "Agent Control must expose a safe Local Agent update flow.");
@@ -72,13 +72,10 @@ async function main() {
   assert(htmlSource.includes("data-agent-beginner-summary") && htmlSource.includes("Agent Control Summary"), "Agent Control must include the beginner-friendly summary panel.");
   assert(htmlSource.includes("data-agent-local-host-list") && htmlSource.includes("Application Host, Local Agent, and the selected Remote Agent"), "Agent Control must expose distinct local and remote identity panels.");
   const control = require("../src/services/agentControlService");
-  control._test.writeWindowsAgentLauncher(control.readConfig());
-  const validService = control._test.validateWindowsServiceRegistration(`Task To Run: ${control._test.expectedWindowsServiceCommand(control.readConfig())}\nStatus: Ready`, control.readConfig());
-  assert.strictEqual(validService.valid, true, "Matching Windows service binary path should validate.");
-  const invalidService = control._test.validateWindowsServiceRegistration("BINARY_PATH_NAME   : C:\\\\old\\\\agent.exe\nSTATE              : 1  STOPPED", control.readConfig());
-  assert.strictEqual(invalidService.valid, false, "Mismatched Windows service binary path should not validate.");
-  assert(control._test.buildWindowsAgentLauncherScript(control.readConfig()).includes("ELECTRON_RUN_AS_NODE"), "Windows launcher must configure Electron as Node.");
-  assert(control._test.buildWindowsAgentLauncherScript(control.readConfig()).includes("WScript.Shell"), "Windows launcher must use a hidden script host.");
+  const canonicalTask = control._test.buildWindowsAgentTaskDefinition({ executablePath: process.execPath, userId: "TEST\\User" });
+  assert.strictEqual(canonicalTask.arguments, "--agent", "Windows task must use the packaged Agent entry point.");
+  assert.strictEqual(canonicalTask.runLevel, "Highest", "Windows task must run elevated.");
+  assert(control._test.buildWindowsTaskRegistrationScript(canonicalTask).includes("-LogonType Interactive"), "Windows task must use interactive logon without a plaintext password.");
   assert.strictEqual(control._test.getRegistrationStatusFromServiceState({ supported: true, installed: true, valid: false }), "invalid", "Invalid registration must not be reported as passed.");
   assert.strictEqual(control._test.getRegistrationStatusFromServiceState({ supported: true, installed: false, verification: { state: "unverifiable" } }), "unverifiable", "Unverifiable registration must remain distinct from missing.");
   assert.strictEqual(control._test.compareVersions("1.2.3", "1.2.4"), -1, "Version comparison should detect older Agent versions.");

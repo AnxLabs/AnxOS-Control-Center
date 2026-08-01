@@ -29,6 +29,10 @@ const { openExternalUrl } = require("./src/services/externalUrlService");
 const { getReleaseInfo } = require("./src/shared/releaseConfig");
 const packageJson = require("./package.json");
 const qaMode = process.argv.includes("--qa-mode") || process.env.ANXOS_QA_MODE === "1";
+const agentMode = process.argv.includes("--agent");
+if (agentMode) {
+  app.setPath("sessionData", path.join(app.getPath("userData"), "AgentRuntimeSession"));
+}
 if (qaMode) {
   app.disableHardwareAcceleration();
   app.commandLine.appendSwitch("disable-gpu");
@@ -64,7 +68,7 @@ let appShuttingDown = false;
 let appShutdownComplete = false;
 let activeStartupAttemptId = null;
 let mainWindowWatchdogTimers = [];
-const gotSingleInstanceLock = app.requestSingleInstanceLock();
+const gotSingleInstanceLock = agentMode || app.requestSingleInstanceLock();
 
 app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required");
 if (qaMode) {
@@ -976,11 +980,24 @@ function createWindow(options = {}) {
 
 if (gotSingleInstanceLock) {
 app.on("second-instance", () => {
+  if (agentMode) return;
   logWindowLifecycle("second-instance", "Second app launch requested; restoring or recreating main window.");
   ensureMainWindowVisible("second-instance", { recreateIfUnusable: true });
 });
 
 app.whenReady().then(async () => {
+  if (agentMode) {
+    const agentControl = require("./src/services/agentControlService");
+    const config = agentControl.readConfig();
+    Object.assign(process.env, agentControl._test.agentEnvironment(config));
+    diagnostics.log("info", "agent", "scheduled-task-start", "Starting the Local Agent from the canonical --agent entry point.", {
+      executable: process.execPath,
+      arguments: "--agent",
+      workingDirectory: path.dirname(process.execPath),
+    }, { file: "agent" });
+    require(agentControl._test.getAgentScript());
+    return;
+  }
   logWindowLifecycle("app-ready", "Electron app ready; starting desktop initialization.");
   instrumentIpcHandlers();
   registerDiagnosticsIpc();

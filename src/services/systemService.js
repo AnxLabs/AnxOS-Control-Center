@@ -419,12 +419,34 @@ async function getCpuTemperature() {
 }
 
 async function getLocalSystemSnapshot() {
-  const [osVersion, disk, network, cpuTemperature] = await Promise.all([
+  const [osVersion, disk, network, localCpuTemperature] = await Promise.all([
     getOsVersion(),
     getDiskUsage(),
     getNetworkUsage(),
     getCpuTemperature(),
   ]);
+
+  let cpuTemperature = localCpuTemperature;
+  if (process.platform === "win32" && (!localCpuTemperature || localCpuTemperature.available !== true)) {
+    try {
+      const privilegedSnapshot = await agentClient.getSystemStats();
+      const privilegedTemperature = normalizeCpuTemperature(privilegedSnapshot);
+      if (Number.isFinite(privilegedTemperature)) {
+        cpuTemperature = {
+          available: true,
+          source: privilegedSnapshot?.cpu?.temperatureSource || privilegedSnapshot?.temperatureSource || "Elevated AnxOS Agent",
+          timestamp: privilegedSnapshot?.cpu?.temperatureTimestamp || privilegedSnapshot?.temperatureTimestamp || new Date().toISOString(),
+          cpu: {
+            temperatureCelsius: privilegedTemperature,
+            sensorName: privilegedSnapshot?.cpu?.temperatureSensor || privilegedSnapshot?.temperatureSensor || "CPU Package",
+          },
+          gpu: null,
+        };
+      }
+    } catch (error) {
+      console.warn("[AnxOS][System] Elevated Agent temperature unavailable.", { code: error?.code || "AGENT_UNAVAILABLE" });
+    }
+  }
 
   const windowsTemperature = process.platform === "win32" && cpuTemperature && typeof cpuTemperature === "object"
     ? cpuTemperature

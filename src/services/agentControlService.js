@@ -17,6 +17,14 @@ const {
 } = require("./localAgentRuntimeService");
 const { testConnection } = require("./agentClient");
 const {
+  WINDOWS_AGENT_TASK_NAME,
+  buildWindowsAgentTaskDefinition,
+  buildWindowsTaskInspectionScript,
+  buildWindowsTaskRegistrationScript,
+  compareWindowsAgentTask,
+  getCurrentWindowsUser,
+} = require("../shared/windowsAgentScheduledTask");
+const {
   pairLocalAgent,
   readLocalAgentPairingStatus,
   restoreLocalAgentCredential,
@@ -24,10 +32,9 @@ const {
   snapshotLocalAgentCredential,
 } = require("./localAgentPairingService");
 
-const SERVICE_NAME = "AnxOSAgent";
+const SERVICE_NAME = WINDOWS_AGENT_TASK_NAME;
 const LOCAL_AGENT_DISPLAY_NAME = "This PC";
 const REMOTE_DIAGNOSTICS_CACHE_MS = 30000;
-const WINDOWS_TASK_STATUS_RUNNING = /\bRunning\b/i;
 let managedProcess = null;
 let operationInFlight = null;
 let lastRestartReason = null;
@@ -56,8 +63,6 @@ function getAgentInstancesDirectory() { return path.join(getAgentDataDirectory()
 function getAgentBackupsDirectory() { return path.join(getAgentDataDirectory(), "backups"); }
 function getAgentTempDirectory() { return path.join(getAgentDataDirectory(), "tmp"); }
 function getAgentUpdateDirectory() { return path.join(getAgentDataDirectory(), "updates"); }
-function getAgentBinDirectory() { return path.join(getAgentDataDirectory(), "bin"); }
-function getWindowsLauncherPath() { return path.join(getAgentBinDirectory(), "start-local-agent.vbs"); }
 function getAgentScript() { return getBundledLocalAgentRuntime().agentScript; }
 function getAppRoot() { return getBundledLocalAgentRuntime().workingDirectory; }
 function defaults() { return { name: `${os.hostname()} Agent`, host: "127.0.0.1", port: 47131, allowedOrigins: [], allowedFolders: [os.homedir(), getAgentInstancesDirectory(), getAgentBackupsDirectory()], storageRoots: [getAgentInstancesDirectory(), getAgentBackupsDirectory()], autoStart: false, updateChannel: "stable", loggingLevel: "info", connectionTimeoutMs: 10000, heartbeatIntervalMs: 5000, restartPolicy: "on-failure", ownerMachine: true, accountAssociation: null }; }
@@ -84,28 +89,6 @@ function resetConfig() { return saveConfig(defaults()); }
 
 function command(command, args, options = {}) { return new Promise((resolve) => execFile(command, args, { windowsHide: true, timeout: options.timeout || 15000, maxBuffer: 256 * 1024 }, (error, stdout, stderr) => resolve({ ok: !error, code: error?.code || null, stdout: String(stdout || "").trim(), stderr: String(stderr || "").trim() }))); }
 function quotePowerShellValue(value) { return `'${String(value ?? "").replace(/'/g, "''")}'`; }
-async function commandWindowsElevated(commandName, args = [], options = {}) {
-  if (process.platform !== "win32") return command(commandName, args, options);
-  const argumentList = `@(${args.map(quotePowerShellValue).join(",")})`;
-  const script = `$process = Start-Process -FilePath ${quotePowerShellValue(commandName)} -ArgumentList ${argumentList} -Verb RunAs -Wait -PassThru; if ($null -eq $process) { exit 1223 }; exit $process.ExitCode`;
-  const result = await command("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script], { timeout: options.timeout || 120000 });
-  return {
-    ...result,
-    elevated: true,
-    cancelled: result.code === 1223 || /cancelled|canceled/i.test(`${result.stdout}\n${result.stderr}`),
-  };
-}
-async function commandWindowsTask(args = [], options = {}) {
-  const result = await command("schtasks.exe", args, options);
-  if (process.platform === "win32" && !result.ok && options.elevateOnAccessDenied !== false && isWindowsAccessDenied(result)) {
-    const elevated = await commandWindowsElevated("schtasks.exe", args, options);
-    if (!elevated.ok && elevated.cancelled) {
-      throw Object.assign(new Error("Administrator permission was not approved."), { code: "ELEVATION_CANCELLED", recoverySuggestion: "Approve the Windows UAC prompt to repair the Local Agent service." });
-    }
-    return elevated;
-  }
-  return result;
-}
 function ensureManagedAgentDirectories() {
   const directories = [
     getConfigDirectory(),
@@ -115,7 +98,6 @@ function ensureManagedAgentDirectories() {
     getAgentBackupsDirectory(),
     getAgentTempDirectory(),
     getAgentUpdateDirectory(),
-    getAgentBinDirectory(),
   ];
   directories.forEach((directory) => fs.mkdirSync(directory, { recursive: true }));
   return directories;
@@ -126,7 +108,6 @@ function agentEnvironment(config) {
   return { ...process.env, ELECTRON_RUN_AS_NODE: "1", NODE_ENV: "production", AGENT_HOST: config.host, AGENT_PORT: String(config.port), AGENT_FILE_ROOTS: config.allowedFolders.join(path.delimiter), AGENT_INSTANCE_ROOT: getAgentInstancesDirectory(), AGENT_BACKUP_ROOT: getAgentBackupsDirectory(), AGENT_LOG_DIR: getAgentLogsDirectory(), AGENT_TEMP_DIR: getAgentTempDirectory(), AGENT_IDENTITY_PATH: path.join(getAgentDataDirectory(), "device-identity.json"), ANXHUB_CONFIG_DIR: getConfigDirectory(), ANXOS_LOCAL_AGENT_RUNTIME_ROOT: runtime.runtimeRoot, ANXOS_LOCAL_AGENT_RUNTIME_MANIFEST: runtime.manifestPath };
 }
 function isWindowsAccessDenied(result = {}) { return /access is denied|administrator|elevat/i.test(`${result.stderr || ""}\n${result.stdout || ""}\n${result.code || ""}`); }
-function createWindowsElevationError(action = "modify") { return Object.assign(new Error(`Windows requires administrator permission to ${action} the Agent service. Run AnxOS Control Center as Administrator, then retry the Agent service action.`), { code: "ELEVATION_REQUIRED", recoverySuggestion: "Close AnxOS Control Center, right-click it, choose Run as administrator, then retry the Agent service action." }); }
 
 function parseWindowsNetstatListener(stdout = "", port = 47131) {
   const wanted = String(port);
@@ -213,46 +194,17 @@ async function getWindowsElevationState() {
 
 function expectedWindowsServiceCommand(config = readConfig()) {
   void config;
-  return `"${getWindowsLauncherPath()}"`;
+  const definition = buildWindowsAgentTaskDefinition();
+  return `"${definition.executable}" ${definition.arguments}`;
 }
 
-function quoteWindowsBatchValue(value) {
-  return String(value ?? "").replace(/"/g, '\\"');
-}
-
-function buildWindowsAgentLauncherScript(config = readConfig()) {
-  const env = agentEnvironment(config);
-  const keys = [
-    "ELECTRON_RUN_AS_NODE",
-    "NODE_ENV",
-    "AGENT_HOST",
-    "AGENT_PORT",
-    "AGENT_FILE_ROOTS",
-    "AGENT_INSTANCE_ROOT",
-    "AGENT_BACKUP_ROOT",
-    "AGENT_LOG_DIR",
-    "AGENT_TEMP_DIR",
-    "AGENT_IDENTITY_PATH",
-    "ANXHUB_CONFIG_DIR",
-    "ANXOS_LOCAL_AGENT_RUNTIME_ROOT",
-    "ANXOS_LOCAL_AGENT_RUNTIME_MANIFEST",
-  ];
-  const quoteVbs = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`;
-  return [
-    "On Error Resume Next",
-    "Set shell = CreateObject(\"WScript.Shell\")",
-    ...keys.map((key) => `shell.Environment(\"Process\")(\"${key}\") = ${quoteVbs(env[key])}`),
-    `shell.CurrentDirectory = ${quoteVbs(getAppRoot())}`,
-    `shell.Run ${quoteVbs(`\"${process.execPath}\" \"${getAgentScript()}\"`)}, 0, False`,
-    "",
-  ].join("\r\n");
-}
-
-function writeWindowsAgentLauncher(config = readConfig()) {
-  ensureManagedAgentDirectories();
-  const launcherPath = getWindowsLauncherPath();
-  fs.writeFileSync(launcherPath, buildWindowsAgentLauncherScript(config), { mode: 0o700 });
-  return launcherPath;
+async function inspectWindowsAgentScheduledTask() {
+  const result = await command("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", buildWindowsTaskInspectionScript()], { timeout: 20000 });
+  if (!result.ok) {
+    return { found: false, inspectionFailed: true, errorCode: result.code || "AGENT_TASK_INSPECTION_FAILED", message: result.stderr || result.stdout || "The Agent task could not be inspected." };
+  }
+  try { return JSON.parse(result.stdout || '{"found":false}'); }
+  catch { return { found: false, inspectionFailed: true, errorCode: "AGENT_TASK_INSPECTION_INVALID", message: "The Agent task returned invalid inspection data." }; }
 }
 
 function normalizeCommandForComparison(value) {
@@ -262,53 +214,6 @@ function normalizeCommandForComparison(value) {
 function getWindowsServiceBinaryPath(stdout = "") {
   const match = String(stdout || "").match(/(?:BINARY_PATH_NAME|Task To Run)\s*:\s*(.+)$/im);
   return match ? match[1].trim() : "";
-}
-
-function getWindowsServiceState(stdout = "") {
-  const match = String(stdout || "").match(/STATE\s*:\s*\d+\s+([A-Z_]+)|Status\s*:\s*(.+)$/im);
-  if (match?.[2]) return match[2].trim().toLowerCase().replace(/\s+/g, "-");
-  return match ? match[1].trim().toLowerCase().replace(/_/g, "-") : "";
-}
-
-function validateWindowsServiceRegistration(stdout = "", config = readConfig()) {
-  const serviceCommand = getWindowsServiceBinaryPath(stdout);
-  const normalizedService = normalizeCommandForComparison(serviceCommand);
-  const expectedLauncher = normalizeCommandForComparison(getWindowsLauncherPath());
-  const launcherPath = getWindowsLauncherPath();
-  let launcherValid = false;
-  let launcherIssues = [];
-  try {
-    const launcher = fs.readFileSync(launcherPath, "utf8");
-    const normalizedLauncher = normalizeCommandForComparison(launcher);
-    const launcherContainsEnv = (key, value) => normalizedLauncher.includes(normalizeCommandForComparison(`${key}=${value}`)) || (normalizedLauncher.includes(normalizeCommandForComparison(key)) && normalizedLauncher.includes(normalizeCommandForComparison(value)));
-    launcherValid = normalizedLauncher.includes(normalizeCommandForComparison(process.execPath))
-      && normalizedLauncher.includes(normalizeCommandForComparison(getAgentScript()))
-      && launcherContainsEnv("ANXHUB_CONFIG_DIR", getConfigDirectory())
-      && launcherContainsEnv("AGENT_PORT", config.port);
-    launcherIssues = [
-      normalizedLauncher.includes(normalizeCommandForComparison(process.execPath)) ? null : "Launcher does not point at the current AnxOS runtime.",
-      normalizedLauncher.includes(normalizeCommandForComparison(getAgentScript())) ? null : "Launcher does not point at the bundled Agent server.",
-      launcherContainsEnv("ANXHUB_CONFIG_DIR", getConfigDirectory()) ? null : "Launcher does not use the current Agent config directory.",
-      launcherContainsEnv("AGENT_PORT", config.port) ? null : "Launcher does not use the configured Agent port.",
-    ].filter(Boolean);
-  } catch {
-    launcherIssues = ["Launcher script is missing."];
-  }
-  const valid = Boolean(
-    serviceCommand &&
-    normalizedService.includes(expectedLauncher) &&
-    launcherValid
-  );
-  return {
-    valid,
-    command: serviceCommand || null,
-    expected: expectedWindowsServiceCommand(config),
-    issues: [
-      serviceCommand ? null : "Service binary path could not be read.",
-      normalizedService.includes(expectedLauncher) ? null : "Background startup does not point at the managed Agent launcher.",
-      ...launcherIssues,
-    ].filter(Boolean),
-  };
 }
 
 function classifyLegacyWindowsServiceOwnership(qcOutput = "", descriptionOutput = "", binaryMetadata = {}) {
@@ -339,10 +244,13 @@ async function inspectWindowsBinaryMetadata(commandLine = "") {
 }
 
 function classifyWindowsTaskOwnership(taskOutput = "", verification = {}) {
-  const evidence = normalizeCommandForComparison(taskOutput);
+  const snapshot = taskOutput && typeof taskOutput === "object" ? taskOutput : null;
+  const evidence = normalizeCommandForComparison(snapshot ? JSON.stringify(snapshot) : taskOutput);
   if (!evidence || /cannot find|does not exist/.test(evidence)) return { state: "missing", owned: false };
-  const exactName = /taskname:\s*\/anxosagent(?:\s|$)/.test(evidence);
-  const hasEntrypoint = evidence.includes("agent/src/server.js") || evidence.includes("start-local-agent.cmd") || evidence.includes("start-local-agent.vbs");
+  const exactName = snapshot
+    ? String(snapshot.taskName || snapshot.TaskName || "").replace(/^\\/, "").toLowerCase() === SERVICE_NAME.toLowerCase()
+    : /taskname:\s*\/anxosagent(?:\s|$)/.test(evidence);
+  const hasEntrypoint = evidence.includes("agent/src/server.js") || evidence.includes("start-local-agent.cmd") || evidence.includes("start-local-agent.vbs") || evidence.includes("--agent");
   const hasProductPath = evidence.includes("anxos control center") || evidence.includes("anxos-control-center") || evidence.includes("anxhub");
   if (!(exactName && hasEntrypoint && hasProductPath)) return { state: "ambiguous", owned: false };
   return { state: verification.valid ? "valid-packaged" : "verified-stale", owned: true, stale: !verification.valid };
@@ -356,18 +264,6 @@ async function inspectLegacyWindowsService() {
   const binaryMetadata = await inspectWindowsBinaryMetadata(getWindowsServiceBinaryPath(qc.stdout));
   const classification = classifyLegacyWindowsServiceOwnership(`${qc.stdout}\n${qc.stderr}`, `${description.stdout}\n${description.stderr}`, binaryMetadata);
   return { ...classification, qc, description, binaryMetadata };
-}
-
-async function removeVerifiedLegacyWindowsService() {
-  const legacy = await inspectLegacyWindowsService();
-  if (legacy.state === "missing") return { changed: false, state: "missing" };
-  if (!legacy.owned) throw Object.assign(new Error("A same-named Windows service exists, but AnxOS ownership could not be proven. Repair stopped without changing it."), { code: "LEGACY_SERVICE_OWNERSHIP_AMBIGUOUS", details: { state: legacy.state, issues: legacy.issues } });
-  const stopped = await commandWindowsElevated("sc.exe", ["stop", SERVICE_NAME], { timeout: 120000 });
-  if (stopped.cancelled) throw Object.assign(new Error("Administrator permission was declined; the verified legacy Agent service was not changed."), { code: "ELEVATION_CANCELLED" });
-  const removed = await commandWindowsElevated("sc.exe", ["delete", SERVICE_NAME], { timeout: 120000 });
-  if (removed.cancelled) throw Object.assign(new Error("Administrator permission was declined; the verified legacy Agent service was not removed."), { code: "ELEVATION_CANCELLED" });
-  if (!removed.ok && !/does not exist|marked for deletion|failed 1060/i.test(`${removed.stdout}\n${removed.stderr}`)) throw Object.assign(new Error(removed.stderr || removed.stdout || "Verified legacy AnxOS service could not be removed."), { code: "LEGACY_SERVICE_REMOVE_FAILED" });
-  return { changed: true, state: "removed" };
 }
 
 function getRegistrationStatusFromServiceState(service = {}) {
@@ -541,14 +437,10 @@ async function getServiceState() {
   }
   if (process.platform === "win32") {
     const legacyRegistration = await inspectLegacyWindowsService();
-    const result = await command("schtasks.exe", ["/Query", "/TN", SERVICE_NAME, "/FO", "LIST", "/V"], { timeout: 15000 });
-    const qc = result;
-    const combined = `${result.stdout}\n${result.stderr}\n${qc.stdout}\n${qc.stderr}`;
-    const serviceState = getWindowsServiceState(result.stdout);
-    const active = WINDOWS_TASK_STATUS_RUNNING.test(serviceState);
-    const privilege = { supported: false, elevated: false, state: "not-required" };
-    if (!result.ok || /cannot find|does not exist|ERROR:\s*The system cannot find/i.test(combined)) {
-      const unverifiable = isWindowsAccessDenied(result);
+    const snapshot = await inspectWindowsAgentScheduledTask();
+    const privilege = await getWindowsElevationState();
+    if (!snapshot.found) {
+      const unverifiable = snapshot.inspectionFailed === true;
       return {
         supported: true,
         type: "windows-scheduled-task",
@@ -561,18 +453,31 @@ async function getServiceState() {
         verification: {
           state: unverifiable ? "unverifiable" : "missing",
           issues: unverifiable ? ["Windows denied service verification."] : [],
-          errorCode: result.code,
-          message: result.stderr || result.stdout || null,
+          errorCode: snapshot.errorCode || null,
+          message: snapshot.message || null,
         },
         privilege,
-        requiresElevation: false,
+        requiresElevation: privilege.elevated !== true,
         processRunning: Boolean(managedProcess),
         startupRegistrationHealthy: false,
         legacyRegistration: { state: legacyRegistration.state, owned: legacyRegistration.owned, issues: legacyRegistration.issues || [] },
       };
     }
-    const verification = validateWindowsServiceRegistration(qc.stdout, readConfig());
-    const enabled = !/Scheduled Task State\s*:\s*Disabled/i.test(qc.stdout);
+    const canonical = buildWindowsAgentTaskDefinition({ userId: getCurrentWindowsUser() });
+    const comparison = compareWindowsAgentTask(snapshot, canonical);
+    const serviceState = String(snapshot.state || "unknown").toLowerCase();
+    const active = serviceState === "running";
+    const enabled = snapshot.enabled !== false;
+    const verification = {
+      valid: comparison.matches,
+      command: snapshot.actions?.[0]?.execute || null,
+      expected: expectedWindowsServiceCommand(),
+      issues: comparison.mismatches,
+      mismatchReasons: comparison.mismatches,
+      task: comparison.actual,
+      canonical,
+      raw: snapshot,
+    };
     const service = {
       supported: true,
       type: "windows-scheduled-task",
@@ -582,9 +487,9 @@ async function getServiceState() {
       active: active || Boolean(managedProcess),
       state: active ? "running" : verification.valid ? serviceState || "stopped" : "invalid",
       registrationStatus: verification.valid ? "valid" : "invalid",
-      verification: { state: verification.valid ? "valid" : "invalid", serviceState, raw: qc.stdout, ...verification },
+      verification: { state: verification.valid ? "valid" : "invalid", serviceState, ...verification },
       privilege,
-      requiresElevation: false,
+      requiresElevation: privilege.elevated !== true,
       processRunning: active || Boolean(managedProcess),
       startupRegistrationHealthy: verification.valid && enabled,
       legacyRegistration: { state: legacyRegistration.state, owned: legacyRegistration.owned, issues: legacyRegistration.issues || [] },
@@ -598,42 +503,19 @@ async function installService() {
   const config = readConfig();
   if (process.platform === "linux") { const unitDir = path.join(os.homedir(), ".config", "systemd", "user"); const unitPath = path.join(unitDir, "anxos-agent.service"); fs.mkdirSync(unitDir, { recursive: true }); const quote = (value) => `"${String(value).replace(/([\\"])/g, "\\$1")}"`; const unit = `[Unit]\nDescription=AnxOS Agent\nAfter=network.target\n\n[Service]\nType=simple\nEnvironment=${quote("ELECTRON_RUN_AS_NODE=1")}\nEnvironment=${quote(`ANXHUB_CONFIG_DIR=${getConfigDirectory()}`)}\nEnvironment=${quote(`AGENT_HOST=${config.host}`)}\nEnvironment=${quote(`AGENT_PORT=${config.port}`)}\nEnvironment=${quote(`AGENT_IDENTITY_PATH=${path.join(getAgentDataDirectory(), "device-identity.json")}`)}\nExecStart=${quote(process.execPath)} ${quote(getAgentScript())}\nRestart=${config.restartPolicy === "never" ? "no" : config.restartPolicy}\n\n[Install]\nWantedBy=default.target\n`; fs.writeFileSync(unitPath, unit, { mode: 0o600 }); await command("systemctl", ["--user", "daemon-reload"]); const enabled = await command("systemctl", ["--user", "enable", "--now", "anxos-agent.service"]); if (!enabled.ok) throw Object.assign(new Error(enabled.stderr || "Could not install systemd user service."), { code: "SERVICE_INSTALL_FAILED" }); }
   else if (process.platform === "win32") {
-    await removeVerifiedLegacyWindowsService();
-    const current = await getServiceState();
-    if (current.installed && current.valid) {
-      if (current.enabled === false) {
-        const enable = await commandWindowsTask(["/Change", "/TN", SERVICE_NAME, "/ENABLE"], { timeout: 15000 });
-        if (!enable.ok) throw Object.assign(new Error(enable.stderr || enable.stdout || "Could not enable Agent background startup task."), { code: "SERVICE_UPDATE_FAILED" });
-      }
-      writeWindowsAgentLauncher(config);
-      saveConfig({ ...config, autoStart: true });
-      return getStatus();
+    let repaired;
+    try { repaired = await agentClient.repairWindowsAgentTask(getLocalAgentHealthConfig(config)); }
+    catch (error) {
+      throw Object.assign(new Error("The elevated Local Agent is unavailable to repair Windows startup."), { code: "AGENT_PRIVILEGED_OPERATION_UNAVAILABLE", cause: error, recoverySuggestion: "Repair or reinstall AnxOS so the elevated Agent task can be restored, then try again." });
     }
-    if (current.installed) {
-      const ownership = classifyWindowsTaskOwnership(current.verification?.raw || "", current.verification);
-      if (ownership.state === "ambiguous") throw Object.assign(new Error("The existing AnxOSAgent task has ambiguous ownership. Repair stopped without changing it."), { code: "STARTUP_TASK_OWNERSHIP_AMBIGUOUS" });
-      await commandWindowsTask(["/Delete", "/TN", SERVICE_NAME, "/F"], { timeout: 30000 });
-    }
-    const launcherPath = writeWindowsAgentLauncher(config);
-    const serviceCommand = expectedWindowsServiceCommand(config);
-    const result = await commandWindowsTask([
-      "/Create",
-      "/TN", SERVICE_NAME,
-      "/SC", "ONLOGON",
-      "/TR", serviceCommand,
-      "/RL", "LIMITED",
-      "/F",
-    ], { timeout: 30000 });
-    if (!result.ok) throw Object.assign(new Error(result.stderr || result.stdout || "Could not install Agent background startup task."), { code: "SERVICE_INSTALL_FAILED", details: { launcherPath } });
-    const verified = await getServiceState();
-    if (!verified.installed || !verified.valid) throw Object.assign(new Error("Agent background startup was created but did not pass validation."), { code: "SERVICE_VERIFICATION_FAILED", details: verified.verification });
+    if (!repaired?.matchesCanonicalDefinition || repaired?.agentHealth !== "healthy") throw Object.assign(new Error("The Agent did not confirm a healthy canonical startup task."), { code: "AGENT_TASK_DEFINITION_MISMATCH", details: { mismatchReasons: repaired?.mismatchReasons || [] } });
   }
   else throw Object.assign(new Error("Agent background service management is not supported on this platform."), { code: "PLATFORM_UNSUPPORTED" });
   saveConfig({ ...config, autoStart: true }); diagnostics.log("info", "service-manager", "install", "Agent background startup installed", { platform: process.platform }, { file: "service-manager" }); return getStatus();
 }
 
-async function uninstallService() { if (process.platform === "linux") { await command("systemctl", ["--user", "disable", "--now", "anxos-agent.service"]); fs.rmSync(path.join(os.homedir(), ".config", "systemd", "user", "anxos-agent.service"), { force: true }); await command("systemctl", ["--user", "daemon-reload"]); } else if (process.platform === "win32") { const service = await getServiceState(); if (service.installed) { const ownership = classifyWindowsTaskOwnership(service.verification?.raw || "", service.verification); if (!ownership.owned) throw Object.assign(new Error("The existing AnxOSAgent task has ambiguous ownership. Uninstall stopped without changing it."), { code: "STARTUP_TASK_OWNERSHIP_AMBIGUOUS" }); if (service.active) { await commandWindowsTask(["/End", "/TN", SERVICE_NAME], { timeout: 30000 }); await stopVerifiedWindowsTaskAgent(readConfig()); } const result = await commandWindowsTask(["/Delete", "/TN", SERVICE_NAME, "/F"], { timeout: 30000 }); if (!result.ok && !/cannot find|does not exist/i.test(`${result.stdout}\n${result.stderr}`)) throw Object.assign(new Error(result.stderr || result.stdout || "Could not remove Agent background startup task."), { code: "SERVICE_UNINSTALL_FAILED" }); } await removeVerifiedLegacyWindowsService(); } else throw Object.assign(new Error("Agent service management is unsupported."), { code: "PLATFORM_UNSUPPORTED" }); saveConfig({ ...readConfig(), autoStart: false }); return getStatus(); }
-async function setAutoStart(enabled) { if (enabled) return installService(); if (process.platform === "linux") await command("systemctl", ["--user", "disable", "anxos-agent.service"]); else if (process.platform === "win32") { const service = await getServiceState(); const action = service.installed ? ["/Change", "/TN", SERVICE_NAME, "/DISABLE"] : null; if (action) { const result = await commandWindowsTask(action, { timeout: 15000 }); if (!result.ok) throw Object.assign(new Error(result.stderr || result.stdout || "Could not disable Agent background startup task."), { code: "SERVICE_UPDATE_FAILED" }); } } saveConfig({ ...readConfig(), autoStart: Boolean(enabled) }); return getStatus(); }
+async function uninstallService() { if (process.platform === "linux") { await command("systemctl", ["--user", "disable", "--now", "anxos-agent.service"]); fs.rmSync(path.join(os.homedir(), ".config", "systemd", "user", "anxos-agent.service"), { force: true }); await command("systemctl", ["--user", "daemon-reload"]); } else if (process.platform === "win32") { try { await agentClient.uninstallWindowsAgentTask(getLocalAgentHealthConfig(readConfig())); } catch (error) { throw Object.assign(new Error("The elevated Local Agent could not remove Windows startup."), { code: "AGENT_PRIVILEGED_OPERATION_FAILED", cause: error }); } } else throw Object.assign(new Error("Agent service management is unsupported."), { code: "PLATFORM_UNSUPPORTED" }); saveConfig({ ...readConfig(), autoStart: false }); return getStatus(); }
+async function setAutoStart(enabled) { if (enabled) return installService(); return uninstallService(); }
 
 function installerStep(id, label, state = "pending", message = "") {
   return { id, label, state, message, at: new Date().toISOString() };
@@ -2001,20 +1883,21 @@ async function openDataFolder() { fs.mkdirSync(getAgentDataDirectory(), { recurs
 
 module.exports = {
   _test: {
-    buildWindowsAgentLauncherScript,
+    agentEnvironment,
+    buildWindowsAgentTaskDefinition,
+    buildWindowsTaskInspectionScript,
+    buildWindowsTaskRegistrationScript,
     classifyLegacyWindowsServiceOwnership,
     classifyWindowsTaskOwnership,
     compareVersions,
     expectedWindowsServiceCommand,
-    getWindowsLauncherPath,
+    getAgentScript,
+    inspectWindowsAgentScheduledTask,
     getLocalAgentUpdateState,
     getRegistrationStatusFromServiceState,
     getLocalAgentStartupSummary,
     isVerifiedOldLocalAgentProcess,
     parseWindowsNetstatListener,
-    removeVerifiedLegacyWindowsService,
-    validateWindowsServiceRegistration,
-    writeWindowsAgentLauncher,
   },
   captureRemoteDiagnostics,
   getAgentDataDirectory,

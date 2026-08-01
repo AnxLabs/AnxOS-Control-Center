@@ -3,6 +3,7 @@ const { sanitize } = require("../../src/shared/redaction");
 const { URL } = require("url");
 
 const { handleActionInvoke, handleActionsList } = require("./routes/actions");
+const { handleAgentTask } = require("./routes/agentTask");
 const { handleAmpInstances, handleAmpSnapshot, handleAmpStatus } = require("./routes/amp");
 const { auditAction } = require("./audit/auditLogger");
 const { handleBackups, handleBackupsList } = require("./routes/backups");
@@ -185,6 +186,7 @@ function getRoutePermission(request, pathname) {
   if (pathname.startsWith("/api/v1/marketplace/")) return "marketplace:read";
   if (pathname === "/api/v1/diagnostics") return "owner";
   if (pathname === "/api/v1/actions") return "actions:read";
+  if (pathname === "/api/v1/system/agent-task") return "agent:manage";
   if (isActionInvokeRoute(request, pathname)) return "actions:execute";
   return null;
 }
@@ -214,6 +216,8 @@ function readRequestBody(request) {
 async function routeRequest(request, url) {
   const pathname = url.pathname;
 
+  if (pathname === "/api/v1/system/agent-task") return handleAgentTask(request);
+
   if (isActionInvokeRoute(request, pathname)) {
     return handleActionInvoke(request, url);
   }
@@ -238,7 +242,7 @@ async function routeRequest(request, url) {
     return handleFilesMutate(request);
   }
 
-  if (pathname === "/api/v1/public-access/snapshot" || pathname === "/api/v1/public-access/services" || pathname.startsWith("/api/v1/public-access/services/")) {
+  if (pathname === "/api/v1/public-access/snapshot" || pathname === "/api/v1/public-access/services" || pathname.startsWith("/api/v1/public-access/services/") || pathname === "/api/v1/public-access/firewall-rule") {
     return handlePublicAccess(request, url);
   }
 

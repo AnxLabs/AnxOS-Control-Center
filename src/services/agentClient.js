@@ -3233,6 +3233,22 @@ async function installDependencies(payload = {}, configOverride = null) {
   });
 }
 
+async function getWindowsAgentTask(configOverride = null) {
+  return requestJson("/api/v1/system/agent-task", { config: configOverride });
+}
+
+async function repairWindowsAgentTask(configOverride = null) {
+  return requestJson("/api/v1/system/agent-task", { config: configOverride, method: "POST", body: {} });
+}
+
+async function uninstallWindowsAgentTask(configOverride = null) {
+  return requestJson("/api/v1/system/agent-task", { config: configOverride, method: "DELETE" });
+}
+
+async function createWindowsFirewallRule(payload = {}, configOverride = null) {
+  return requestJson("/api/v1/public-access/firewall-rule", { config: configOverride, method: "POST", body: payload });
+}
+
 module.exports = {
   _test: {
     getAgentTransportErrorMessage,
@@ -3243,6 +3259,7 @@ module.exports = {
   beginSteamCmdUpdateSession,
   getSteamCmdUpdateStatus,
   repairLegacySteamCmdMetadata,
+  repairWindowsAgentTask,
   cancelInstallationSession,
   checkDependencies,
   closeInstallationSession,
@@ -3252,6 +3269,7 @@ module.exports = {
   createDockerContainer,
   createDockerNetwork,
   createPublicAccessService,
+  createWindowsFirewallRule,
   deleteDockerImage,
   deletePublicAccessService,
   downloadFile,
@@ -3298,6 +3316,7 @@ module.exports = {
   getHealth,
   getDependencyCatalog,
   getSystemStats,
+  getWindowsAgentTask,
   getInstanceLogs,
   getInstanceMetrics,
   getInstanceStatus,
@@ -3364,6 +3383,7 @@ module.exports = {
   stopInstance,
   stopDockerContainer,
   unpauseDockerContainer,
+  uninstallWindowsAgentTask,
   restartDockerContainer,
   readInstanceFile,
   renameInstanceFile,
