@@ -28,6 +28,8 @@ const FORGE_MAVEN_METADATA_URL = "https://maven.minecraftforge.net/net/minecraft
 const NEOFORGE_MAVEN_METADATA_URL = "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml";
 const marketplaceInstallEvents = new EventEmitter();
 const pendingManualInstalls = new Map();
+// Abandoned manual-download flows (dialog closed without importing/cancelling) must not leak forever.
+const MANUAL_INSTALL_SESSION_TTL_MS = 60 * 60 * 1000;
 const MAX_PROVIDER_DOWNLOAD_BYTES = 512 * 1024 * 1024;
 const MAX_ARCHIVE_ENTRY_COUNT = 100000;
 const MAX_ARCHIVE_ENTRY_BYTES = 8 * 1024 * 1024 * 1024;
@@ -1365,7 +1367,17 @@ function getImportedManualFile(manualFiles = {}, requirementId) {
   return manualFiles?.[requirementId] || null;
 }
 
+function pruneExpiredManualInstalls() {
+  const now = Date.now();
+  for (const [id, existing] of pendingManualInstalls) {
+    if (now - Date.parse(existing.createdAt || "") > MANUAL_INSTALL_SESSION_TTL_MS) {
+      pendingManualInstalls.delete(id);
+    }
+  }
+}
+
 function createPendingManualInstall(context = {}) {
+  pruneExpiredManualInstalls();
   const manual = context.manual || {};
   const sessionId = `manual-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
   const session = {
@@ -3228,9 +3240,14 @@ async function installPack(payload = {}) {
 }
 
 function getPendingManualInstall(sessionId, options = {}) {
-  const session = pendingManualInstalls.get(String(sessionId || ""));
+  const key = String(sessionId || "");
+  const session = pendingManualInstalls.get(key);
   if (!session) {
     throw new MarketplaceInstallError("Manual download session was not found.", "PROVIDER_MANUAL_SESSION_NOT_FOUND", { sessionId });
+  }
+  if (Date.now() - Date.parse(session.createdAt || "") > MANUAL_INSTALL_SESSION_TTL_MS) {
+    pendingManualInstalls.delete(key);
+    throw new MarketplaceInstallError("Manual download session expired. Start the install again.", "PROVIDER_MANUAL_SESSION_EXPIRED", { sessionId });
   }
   const requestedNodeId = String(options.nodeId || "").trim();
   const sessionNodeId = String(session.nodeId || session.agentConfig?.nodeId || "").trim();
