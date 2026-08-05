@@ -7,6 +7,7 @@ const { pipeline } = require("stream/promises");
 const { BrowserWindow, dialog } = require("electron");
 const { Client } = require("ssh2");
 const { AgentClientError, downloadFile, getFileListing, getFilesystemIdentity, mutateFile, readFileText } = require("./agentClient");
+const diagnostics = require("./diagnosticsService");
 const { getNode, getNodeAgentConfig } = require("./nodeService");
 const longOperations = require("../shared/longOperationService");
 const { SshService, SshServiceError } = require("./sshService");
@@ -1395,7 +1396,7 @@ class FileService extends EventEmitter {
 
       const response = await downloadFile(remotePath, configOverride);
       await commitLocalFile(selection.filePath, (temporaryPath) => fsPromises.writeFile(temporaryPath, response.buffer, { flag: "wx", mode: 0o600 }), "download");
-      console.info(`[Files] Download completed via agent (${remotePath} -> ${selection.filePath})`);
+      diagnostics.log("info", "files", "download-completed", "Download completed via agent.", { remotePath, localPath: selection.filePath, transport: "agent" }, { file: "files" });
 
       return {
         canceled: false,
@@ -1457,7 +1458,7 @@ class FileService extends EventEmitter {
         };
       }
 
-      console.info(`[Files] Download transport selected: sftp (${remotePath})`);
+      diagnostics.log("info", "files", "download-transport-selected", "Download transport selected: sftp.", { remotePath }, { file: "files" });
       const controller = this.createTransferController(options.transferId, { nodeId: transferNodeId, path: remotePath, type: "download" });
       let transferredBytes = 0;
       const temporaryPath = createLocalTemporaryPath(selection.filePath, "download");
