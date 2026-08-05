@@ -1,12 +1,27 @@
-const { BrowserWindow, ipcMain } = require("electron");
+const { ipcMain } = require("electron");
 const { SshService } = require("../services/sshService");
 const { audit, checkRateLimit, requirePermission } = require("../services/securityService");
 const { createIpcError } = require("../shared/ipcError");
-const { sanitize } = require("../shared/redaction");
+const { redactString, sanitize } = require("../shared/redaction");
 
 const sshService = new SshService();
 let sshIpcRegistered = false;
 let lastSshWriteDiagnostic = null;
+const authorizedSshSenders = new Set();
+
+function authorizeSshRenderer(event) {
+  const sender = event?.sender;
+  if (sender && typeof sender.send === "function") authorizedSshSenders.add(sender);
+}
+
+function sanitizeSshEventPayload(payload = {}) {
+  const { session, sessionId, chunk, ...rest } = payload;
+  const safePayload = sanitize(rest);
+  if (session !== undefined) safePayload.session = sanitize(session);
+  if (sessionId !== undefined) safePayload.sessionId = String(sessionId).slice(0, 160);
+  if (chunk !== undefined) safePayload.chunk = redactString(chunk).slice(0, 16000);
+  return safePayload;
+}
 
 function registerSshHandler(channel, handler) {
   ipcMain.handle(channel, async (...args) => {
@@ -23,17 +38,17 @@ function registerSshHandler(channel, handler) {
 }
 
 function broadcastSshEvent(channel, payload) {
-  try {
-    requirePermission("ssh:read", payload?.sessionId || "ssh-session");
-  } catch {
-    return;
-  }
-  const safePayload = sanitize(payload);
-  BrowserWindow.getAllWindows().forEach((window) => {
-    if (!window.isDestroyed()) {
-      window.webContents.send(channel, safePayload);
+  // Generic redaction intentionally hides keys containing "session". SSH event
+  // routing requires the non-secret session snapshot and identifier, so preserve
+  // those fields explicitly while still redacting their contents.
+  const safePayload = sanitizeSshEventPayload(payload);
+  for (const sender of [...authorizedSshSenders]) {
+    if (sender.isDestroyed?.()) {
+      authorizedSshSenders.delete(sender);
+      continue;
     }
-  });
+    sender.send(channel, safePayload);
+  }
 }
 
 function registerSshIpc() {
@@ -57,12 +72,10 @@ function registerSshIpc() {
     });
   });
 
-  sshService.on("session-error", ({ sessionId, message, code }) => {
+  sshService.on("session-error", (failure) => {
     broadcastSshEvent("ssh:status", {
       type: "session-error",
-      sessionId,
-      message,
-      code,
+      ...failure,
     });
   });
 
@@ -74,8 +87,9 @@ function registerSshIpc() {
     });
   });
 
-  registerSshHandler("ssh:listProfiles", async () => {
+  registerSshHandler("ssh:listProfiles", async (event) => {
     requirePermission("ssh:read", "ssh-profiles");
+    authorizeSshRenderer(event);
     return sshService.listProfiles();
   });
   registerSshHandler("ssh:saveProfile", async (_, payload = {}) => {
@@ -83,16 +97,32 @@ function registerSshIpc() {
     audit({ action: "ssh.profile.save", target: payload.id || payload.name || payload.host });
     return sshService.saveProfile(payload);
   });
+  registerSshHandler("ssh:deleteProfile", async (_, payload = {}) => {
+    requirePermission("settings:write", payload.profileId || "ssh-profile");
+    audit({ action: "ssh.profile.delete", target: payload.profileId || "ssh-profile" });
+    return sshService.deleteProfile(payload.profileId);
+  });
   registerSshHandler("ssh:assignProfileToNode", async (_, payload = {}) => {
     requirePermission("settings:write", payload.profileId || "ssh-profile");
     audit({ action: "ssh.profile.assign-node", target: payload.profileId || "ssh-profile" });
     return sshService.assignProfileToNode(payload.profileId, payload.nodeId);
   });
-  registerSshHandler("ssh:connect", async (_, payload = {}) => {
+  registerSshHandler("ssh:connect", async (event, payload = {}) => {
     requirePermission("instance:write", payload.profileId || payload.host || "ssh-session");
+    authorizeSshRenderer(event);
     checkRateLimit("ssh-connect", 30, 60 * 1000);
     audit({ action: "ssh.connect", target: payload.profileId || payload.host });
     return sshService.connect(payload);
+  });
+  registerSshHandler("ssh:getSession", async (event, payload = {}) => {
+    requirePermission("ssh:read", payload.sessionId || "ssh-session");
+    authorizeSshRenderer(event);
+    return sshService.getSession(payload.sessionId);
+  });
+  registerSshHandler("ssh:approveHostKey", async (_, payload = {}) => {
+    requirePermission("instance:write", payload.profileId || "ssh-host-key");
+    audit({ action: "ssh.host-key.approve", target: payload.profileId || "ssh-host-key" });
+    return sshService.approveHostKey(payload.profileId, payload.fingerprint);
   });
   registerSshHandler("ssh:disconnect", async (_, payload = {}) => {
     requirePermission("instance:write", payload.sessionId);
@@ -120,6 +150,7 @@ function registerSshIpc() {
 
 function disposeSshIpc() {
   sshService.dispose();
+  authorizedSshSenders.clear();
   sshIpcRegistered = false;
 }
 
@@ -127,4 +158,5 @@ module.exports = {
   disposeSshIpc,
   registerSshIpc,
   getLastSshWriteDiagnostic: () => (lastSshWriteDiagnostic ? { ...lastSshWriteDiagnostic } : null),
+  _test: { sanitizeSshEventPayload },
 };

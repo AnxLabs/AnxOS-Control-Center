@@ -28,6 +28,7 @@ const TIERS = {
     ["node", ["scripts/windows-cpu-temperature-smoke.js"]],
     ["node", ["scripts/windows-elevation-tray-smoke.js"]],
     ["node", ["scripts/bundled-runtime-smoke.js"]],
+    ["node", ["scripts/ssh-session-timeout-smoke.js"]],
     ["git", ["diff", "--check"]],
   ],
   release: [
@@ -44,6 +45,7 @@ const TIERS = {
     ["node", ["scripts/windows-cpu-temperature-smoke.js"]],
     ["node", ["scripts/windows-elevation-tray-smoke.js"]],
     ["node", ["scripts/bundled-runtime-smoke.js"]],
+    ["node", ["scripts/ssh-session-timeout-smoke.js"]],
     ["git", ["diff", "--check"]],
   ],
 };

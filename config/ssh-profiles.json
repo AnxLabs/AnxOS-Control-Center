@@ -1,9 +1,11 @@
 {
+  "schemaVersion": 1,
   "servers": [
     {
       "id": "debian-server",
       "displayName": "Debian",
-      "host": "192.168.1.134"
+      "host": "192.168.1.134",
+      "nodeId": "application-host"
     }
   ],
   "profiles": [
@@ -15,7 +17,8 @@
       "port": 22,
       "username": "anx",
       "authType": "password",
-      "privateKeyPath": null
+      "privateKeyPath": null,
+      "nodeId": "application-host"
     }
   ],
   "defaultServerId": "debian-server",

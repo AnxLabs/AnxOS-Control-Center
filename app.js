@@ -416,6 +416,7 @@ const sshServerSelect = document.querySelector("[data-ssh-server]");
 const sshProfileSelect = document.querySelector("[data-ssh-profile]");
 const sshConnectButton = document.querySelector("[data-ssh-connect]");
 const sshDisconnectButton = document.querySelector("[data-ssh-disconnect]");
+const sshProfileDeleteButton = document.querySelector("[data-ssh-profile-delete]");
 const sshProfileToggleButton = document.querySelector("[data-ssh-profile-toggle]");
 const sshProfileForm = document.querySelector("[data-ssh-profile-form]");
 const sshProfileNameInput = document.querySelector("[data-ssh-profile-name]");
@@ -1104,6 +1105,8 @@ const filesConnectionState = {
 };
 const sshSessions = new Map();
 const sshSessionFailures = new Map();
+const sshRemovedSessionIds = new Set();
+let sshSessionPollInFlight = false;
 const AMP_REFRESH_INTERVAL_MS = 2000;
 const DOCKER_STATS_REFRESH_INTERVAL_MS = 5000;
 const CONSOLE_LOG_REFRESH_INTERVAL_MS = 2000;
@@ -1117,7 +1120,7 @@ const STARTUP_MINIMUM_MS = 2000;
 const SSH_OUTPUT_LINE_LIMIT = 1500;
 const SSH_TERMINAL_DEFAULT_COLS = 120;
 const SSH_TERMINAL_DEFAULT_ROWS = 32;
-const SSH_RENDERER_CONNECT_DEADLINE_MS = 35000;
+const SSH_RENDERER_FAILSAFE_MS = 45000;
 const SSH_RENDERER_PHASES = [
   { at: 0, phase: "connecting", message: "Connecting to SSH host..." },
   { at: 5000, phase: "authenticating", message: "Authenticating SSH credentials..." },
@@ -1654,10 +1657,12 @@ function getDesktopApiState() {
     hasSsh:
       typeof api?.ssh?.listProfiles === "function" &&
       typeof api?.ssh?.saveProfile === "function" &&
+      typeof api?.ssh?.deleteProfile === "function" &&
       typeof api?.ssh?.connect === "function" &&
       typeof api?.ssh?.disconnect === "function" &&
       typeof api?.ssh?.write === "function" &&
       typeof api?.ssh?.resize === "function" &&
+      typeof api?.ssh?.getSession === "function" &&
       typeof api?.ssh?.onData === "function" &&
       typeof api?.ssh?.onStatus === "function",
     hasSettings:
@@ -27881,6 +27886,11 @@ function createSshTerminalBuffer(options = {}) {
         state.escapeBuffer = "";
         return;
       }
+      if (char === "]") {
+        state.escapeState = "osc";
+        state.escapeBuffer = "";
+        return;
+      }
       state.escapeState = null;
       state.escapeBuffer = "";
       return;
@@ -27893,6 +27903,22 @@ function createSshTerminalBuffer(options = {}) {
         state.escapeState = null;
         state.escapeBuffer = "";
       }
+      return;
+    }
+
+    if (state.escapeState === "osc") {
+      if (char === "\u0007") {
+        state.escapeState = null;
+        state.escapeBuffer = "";
+      } else if (char === "\u001b") {
+        state.escapeState = "osc-escape";
+      }
+      return;
+    }
+
+    if (state.escapeState === "osc-escape") {
+      state.escapeState = char === "\\" ? null : "osc";
+      state.escapeBuffer = "";
     }
   };
 
@@ -28344,6 +28370,33 @@ function mergeSshSessionSnapshot(sessionSnapshot) {
   return nextValue;
 }
 
+function removeSshSessionTab(sessionId, options = {}) {
+  const session = sshSessions.get(sessionId);
+  if (!session) return false;
+  if (!options.force && (session.status === "connected" || ["connecting", "verifying-host", "authenticating", "opening-shell"].includes(session.status))) {
+    showToast("Disconnect the SSH session before removing its tab.");
+    return false;
+  }
+  sshSessions.delete(sessionId);
+  sshSessionFailures.delete(sessionId);
+  sshRemovedSessionIds.add(sessionId);
+  while (sshRemovedSessionIds.size > 100) {
+    sshRemovedSessionIds.delete(sshRemovedSessionIds.values().next().value);
+  }
+  if (sshXtermSessionId === sessionId) sshXtermSessionId = null;
+  if (activeSshSessionId === sessionId) activeSshSessionId = getSshSessionList().at(-1)?.id || null;
+  renderSshView();
+  return true;
+}
+
+function collapseReconnectedSshSessions(profileId, keepSessionId) {
+  [...sshSessions.values()].forEach((session) => {
+    if (session.id !== keepSessionId && session.profileId === profileId && session.status !== "connected") {
+      removeSshSessionTab(session.id, { force: true });
+    }
+  });
+}
+
 function appendSshOutput(sessionId, chunk) {
   const session = sshSessions.get(sessionId);
 
@@ -28375,13 +28428,17 @@ function getSshSessionStatusLabel(session) {
     return session.shellReady === false ? "Waiting for shell" : "Connected";
   }
 
-  if (session.status === "connecting") {
-    return "Connecting";
+  if (["connecting", "verifying-host", "authenticating", "opening-shell"].includes(session.status)) {
+    return session.status === "verifying-host" ? "Verifying host"
+      : session.status === "authenticating" ? "Authenticating"
+        : session.status === "opening-shell" ? "Opening terminal" : "Connecting";
   }
 
-  if (session.status === "error") {
+  if (session.status === "error" || session.status === "failed") {
     return "Error";
   }
+
+  if (session.status === "cancelled") return "Cancelled";
 
   return "Disconnected";
 }
@@ -28401,7 +28458,7 @@ function updateSshConnectWatchdog() {
     window.clearTimeout(sshConnectWatchdogTimer);
     sshConnectWatchdogTimer = null;
   }
-  const connecting = [...sshSessions.values()].some((session) => session.status === "connecting") || sshConnectRequestInFlight;
+  const connecting = [...sshSessions.values()].some((session) => ["connecting", "verifying-host", "authenticating", "opening-shell"].includes(session.status)) || sshConnectRequestInFlight;
   if (!connecting) {
     sshConnectPhase = "idle";
     return;
@@ -28409,21 +28466,50 @@ function updateSshConnectWatchdog() {
   const phase = getSshConnectingPhase(getActiveSshSession());
   sshConnectPhase = phase.phase;
   const activeSession = getActiveSshSession();
-  if (activeSession?.status === "connecting" && getSshSessionAgeMs(activeSession) >= SSH_RENDERER_CONNECT_DEADLINE_MS) {
-    activeSession.status = "error";
-    activeSession.failureCode = "SSH_SHELL_START_TIMEOUT";
-    activeSession.message = "SSH authentication succeeded, but the remote shell did not start in time.";
-    sshSessionFailures.set(activeSession.id, {
-      code: activeSession.failureCode,
-      message: activeSession.message,
-    });
-    sshTransientStatusMessage = activeSession.message;
-    showToast(activeSession.message);
-    Promise.resolve(getDesktopApiState().api.ssh.disconnect(activeSession.id))
+  if (activeSession && !sshSessionPollInFlight) {
+    sshSessionPollInFlight = true;
+    Promise.resolve(getDesktopApiState().api.ssh.getSession(activeSession.id))
+      .then((snapshot) => {
+        if (!snapshot) return;
+        const refreshed = mergeSshSessionSnapshot(snapshot);
+        sshTransientStatusMessage = refreshed.message || sshTransientStatusMessage;
+        if (["connected", "failed", "cancelled", "disconnected"].includes(refreshed.status)) {
+          if (refreshed.diagnostics?.failureCode) {
+            refreshed.failureCode = refreshed.diagnostics.failureCode;
+            sshSessionFailures.set(refreshed.id, { code: refreshed.failureCode, message: refreshed.message });
+          }
+          clearSshConnectWatchdog();
+        }
+        renderSshView();
+      })
       .catch(() => {})
+      .finally(() => { sshSessionPollInFlight = false; });
+  }
+  if (activeSession && !activeSession.watchdogCancelRequested && getSshSessionAgeMs(activeSession) >= SSH_RENDERER_FAILSAFE_MS) {
+    activeSession.watchdogCancelRequested = true;
+    Promise.resolve(getDesktopApiState().api.ssh.disconnect(activeSession.id))
+      .then((result) => {
+        if (!["connected", "failed", "cancelled", "disconnected"].includes(activeSession.status)) {
+          activeSession.status = result?.status === "cancelled" ? "cancelled" : "failed";
+          activeSession.failureCode = result?.status === "cancelled" ? "SSH_CANCELLED" : "SSH_INTERNAL_ERROR";
+          activeSession.message = result?.status === "cancelled"
+            ? "SSH connection cancelled after it stopped responding. You can retry immediately."
+            : "SSH connection did not return a terminal result. You can retry immediately.";
+          sshSessionFailures.set(activeSession.id, { code: activeSession.failureCode, message: activeSession.message });
+          sshTransientStatusMessage = activeSession.message;
+        }
+      })
+      .catch(() => {
+        activeSession.status = "failed";
+        activeSession.failureCode = "SSH_INTERNAL_ERROR";
+        activeSession.message = "SSH cleanup did not respond. Close and reopen the SSH page before retrying.";
+        sshTransientStatusMessage = activeSession.message;
+      })
       .finally(() => renderSshView());
     return;
   }
+  // The backend owns stage deadlines. This later fail-safe requests authoritative
+  // cancellation only when event delivery itself has stopped responding.
   sshConnectWatchdogTimer = window.setTimeout(() => {
     sshConnectWatchdogTimer = null;
     renderSshView();
@@ -28439,9 +28525,9 @@ function clearSshConnectWatchdog() {
 }
 
 function getSshSessionMessage(session) {
-  if (session?.status === "connecting") {
+  if (["connecting", "verifying-host", "authenticating", "opening-shell"].includes(session?.status)) {
     if (
-      ["authenticating", "waiting-shell", "retrying-shell"].includes(session.diagnostics?.phase) &&
+      ["verifying-host", "authenticating", "opening-shell"].includes(session.diagnostics?.phase) &&
       session.message
     ) {
       return session.message;
@@ -28581,6 +28667,8 @@ function renderSshSessionTabs() {
   } else {
     sessions.forEach((session) => {
       const rows = getSshRenderableRows(session);
+      const row = document.createElement("div");
+      row.className = "ssh-tab-row";
       const tab = document.createElement("button");
       tab.className = `ssh-tab${session.id === activeSshSessionId ? " is-active" : ""}`;
       tab.type = "button";
@@ -28610,7 +28698,16 @@ function renderSshSessionTabs() {
 
         renderSshView();
       });
-      sshSessionTabs.appendChild(tab);
+      const remove = document.createElement("button");
+      remove.className = "ssh-tab-remove";
+      remove.type = "button";
+      remove.textContent = "×";
+      remove.title = `Remove ${session.label} session`;
+      remove.setAttribute("aria-label", `Remove ${session.label} session`);
+      remove.disabled = session.status === "connected" || ["connecting", "verifying-host", "authenticating", "opening-shell"].includes(session.status);
+      remove.addEventListener("click", () => removeSshSessionTab(session.id));
+      row.append(tab, remove);
+      sshSessionTabs.appendChild(row);
     });
   }
 
@@ -28637,8 +28734,9 @@ function renderSshView() {
 
   const session = getActiveSshSession();
   const hasProfiles = sshProfilesState.profiles.length > 0;
-  const canConnect = hasProfiles && !sshConnectRequestInFlight && (!session || (session.status !== "connected" && session.status !== "connecting"));
-  const canDisconnect = Boolean(session && (session.status === "connected" || session.status === "connecting"));
+  const pending = Boolean(session && ["connecting", "verifying-host", "authenticating", "opening-shell"].includes(session.status));
+  const canConnect = hasProfiles && !sshConnectRequestInFlight && (!session || (session.status !== "connected" && !pending));
+  const canDisconnect = Boolean(session && (session.status === "connected" || pending));
   const canSend = Boolean(session && session.status === "connected" && session.shellReady !== false);
   const hasOutput = getSshRenderableRows(session).length > 0;
 
@@ -28660,7 +28758,11 @@ function renderSshView() {
 
   if (sshDisconnectButton) {
     sshDisconnectButton.disabled = !canDisconnect;
-    sshDisconnectButton.textContent = session?.status === "connecting" ? "Cancel" : "Disconnect";
+    sshDisconnectButton.textContent = pending ? "Cancel" : "Disconnect";
+  }
+
+  if (sshProfileDeleteButton) {
+    sshProfileDeleteButton.disabled = !hasProfiles || pending || session?.status === "connected";
   }
 
   if (sshCommandInput) {
@@ -28691,11 +28793,11 @@ function renderSshView() {
   }
 
   if (sshLoading) {
-    sshLoading.hidden = !(sshConnectRequestInFlight || session?.status === "connecting");
+    sshLoading.hidden = !(sshConnectRequestInFlight || pending);
   }
 
   if (sshEmpty) {
-    sshEmpty.hidden = hasOutput || sshConnectRequestInFlight || session?.status === "connecting" || session?.status === "connected";
+    sshEmpty.hidden = hasOutput || sshConnectRequestInFlight || pending || session?.status === "connected";
   }
 
   setSshStatus(getSshSessionStatusLabel(session), getSshSessionMessage(session));
@@ -28839,6 +28941,29 @@ async function saveSshProfile(event) {
   }
 }
 
+async function deleteSelectedSshProfile() {
+  const desktopApiState = getDesktopApiState();
+  const profile = getActiveSshProfile();
+  if (!desktopApiState.hasSsh || typeof desktopApiState.api.ssh.deleteProfile !== "function" || !profile) return;
+  if (!window.confirm(`Delete the SSH profile "${profile.displayName}"?\n\nSaved connection details and its terminal history will be removed.`)) return;
+  try {
+    await desktopApiState.api.ssh.deleteProfile(profile.id);
+    [...sshSessions.values()].forEach((session) => {
+      if (session.profileId === profile.id) removeSshSessionTab(session.id, { force: true });
+    });
+    sshSelectedProfileId = null;
+    sshSelectedServerId = null;
+    await loadSshProfiles();
+    sshTransientStatusMessage = `Deleted SSH profile ${profile.displayName}.`;
+    renderSshView();
+    showToast("SSH profile deleted.");
+  } catch (error) {
+    sshTransientStatusMessage = error?.message || "SSH profile could not be deleted.";
+    renderSshView();
+    showToast(sshTransientStatusMessage);
+  }
+}
+
 function ensureSshEventSubscription() {
   if ((sshDataUnsubscribe || sshStatusUnsubscribe) || !getDesktopApiState().hasSsh) {
     return;
@@ -28846,6 +28971,7 @@ function ensureSshEventSubscription() {
 
   sshStatusUnsubscribe = getDesktopApiState().api.ssh.onStatus((payload) => {
     if (payload?.type === "session-updated" && payload.session) {
+      if (sshRemovedSessionIds.has(payload.session.id)) return;
       const session = mergeSshSessionSnapshot(payload.session);
       sshTransientStatusMessage = session.message || "";
 
@@ -28858,6 +28984,7 @@ function ensureSshEventSubscription() {
       }
 
       if (session.status === "connected" && session.shellReady !== false) {
+        collapseReconnectedSshSessions(session.profileId, session.id);
         setSshPasswordPromptState(false);
         clearSshConnectWatchdog();
         window.requestAnimationFrame(focusSshTerminalInput);
@@ -28877,7 +29004,7 @@ function ensureSshEventSubscription() {
       sshSessionFailures.set(payload.sessionId, failure);
 
       if (session) {
-        session.status = "error";
+        session.status = failure.code === "SSH_CANCELLED" ? "cancelled" : "failed";
         session.failureCode = failure.code;
         session.message = failure.message;
       }
@@ -28885,7 +29012,27 @@ function ensureSshEventSubscription() {
       sshTransientStatusMessage = failure.message;
       clearSshConnectWatchdog();
 
-      showToast(failure.message);
+      if (failure.code === "SSH_HOST_KEY_UNKNOWN" && payload.profileId && payload.details?.fingerprint) {
+        const fingerprint = String(payload.details.fingerprint);
+        const approved = window.confirm(`Unknown SSH host identity.\n\nFingerprint: ${fingerprint}\n\nApprove this host key for future connections?`);
+        if (approved) {
+          getDesktopApiState().api.ssh.approveHostKey({ profileId: payload.profileId, fingerprint })
+            .then(() => {
+              sshPendingPasswordProfileId = payload.profileId;
+              setSshPasswordPromptState(true, "Host identity approved. Enter the password again to connect.");
+              sshTransientStatusMessage = "Host identity approved. Reconnect to continue.";
+              renderSshView();
+              focusSshPasswordPrompt();
+            })
+            .catch((error) => {
+              sshTransientStatusMessage = error?.message || "Host identity approval failed.";
+              showToast(sshTransientStatusMessage);
+              renderSshView();
+            });
+        }
+      }
+
+      if (failure.code !== "SSH_CANCELLED") showToast(failure.message);
 
       renderSshView();
       return;
@@ -28918,7 +29065,7 @@ function ensureSshEventSubscription() {
   });
 
   sshDataUnsubscribe = getDesktopApiState().api.ssh.onData((payload) => {
-    if (payload?.sessionId && typeof payload.chunk === "string") {
+    if (payload?.sessionId && !sshRemovedSessionIds.has(payload.sessionId) && typeof payload.chunk === "string") {
       appendSshOutput(payload.sessionId, payload.chunk);
     }
   });
@@ -28973,6 +29120,7 @@ async function connectSshSession(options = {}) {
 
     setSshPasswordPromptState(false);
     mergeSshSessionSnapshot(session);
+    collapseReconnectedSshSessions(profile.id, session.id);
     activeSshSessionId = session.id;
     sshTransientStatusMessage = session.message || `Connected to ${session.label}.`;
     renderSshView();
@@ -28984,7 +29132,7 @@ async function connectSshSession(options = {}) {
     renderSshView();
   } finally {
     sshConnectRequestInFlight = false;
-    if (![...sshSessions.values()].some((session) => session.status === "connecting")) {
+    if (![...sshSessions.values()].some((session) => ["connecting", "verifying-host", "authenticating", "opening-shell"].includes(session.status))) {
       clearSshConnectWatchdog();
     }
     renderSshView();
@@ -29001,7 +29149,7 @@ async function disconnectSshSession() {
 
   try {
     await desktopApiState.api.ssh.disconnect(session.id);
-    if (session.failureCode !== "SSH_SHELL_START_TIMEOUT") {
+    if (!session.failureCode) {
       session.status = "disconnected";
       session.message = "SSH session disconnected.";
       sshTransientStatusMessage = "SSH session disconnected.";
@@ -35867,6 +36015,7 @@ sshProfileSelect?.addEventListener("change", () => {
 });
 sshConnectButton?.addEventListener("click", connectSshSession);
 sshDisconnectButton?.addEventListener("click", disconnectSshSession);
+sshProfileDeleteButton?.addEventListener("click", deleteSelectedSshProfile);
 sshProfileToggleButton?.addEventListener("click", () => {
   if (!sshProfileFormVisible) {
     resetSshProfileForm();

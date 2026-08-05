@@ -34,6 +34,7 @@ config/node-agent-credentials.json
 config/long-operations.json
 config/application-host.json
 config/nodes.json
+config/ssh-known-hosts.json
 config/*.backup
 agent/.env
 agent/config/

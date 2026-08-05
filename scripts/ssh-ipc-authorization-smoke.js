@@ -10,7 +10,9 @@ let sshServiceInstance = null;
 class MockSshService extends EventEmitter {
   async listProfiles() { serviceInvoked = true; return []; }
   async saveProfile() { serviceInvoked = true; return {}; }
+  async deleteProfile() { serviceInvoked = true; return {}; }
   async connect() { serviceInvoked = true; return {}; }
+  async getSession() { serviceInvoked = true; return {}; }
   async disconnect() { serviceInvoked = true; return {}; }
   async write() { serviceInvoked = true; return {}; }
   async resize() { serviceInvoked = true; return {}; }
@@ -39,13 +41,19 @@ Module._load = function patchedLoad(request, parent, isMain) {
 };
 
 try {
-  sshServiceInstance = require("../src/ipc/sshIpc").registerSshIpc();
+  const sshIpc = require("../src/ipc/sshIpc");
+  sshServiceInstance = sshIpc.registerSshIpc();
+  const safeStatus = sshIpc._test.sanitizeSshEventPayload({ type: "session-updated", session: { id: "session-a", status: "connected" } });
+  assert.deepStrictEqual(safeStatus.session, { id: "session-a", status: "connected" }, "SSH status sanitization must preserve the non-secret session snapshot.");
+  const safeData = sshIpc._test.sanitizeSshEventPayload({ sessionId: "session-a", chunk: "hello" });
+  assert.strictEqual(safeData.sessionId, "session-a", "SSH data sanitization must preserve the routing session identifier.");
+  assert.strictEqual(safeData.chunk, "hello", "SSH data sanitization must preserve safe terminal output.");
 } finally {
   Module._load = originalLoad;
 }
 
 async function main() {
-  for (const channel of ["ssh:listProfiles", "ssh:saveProfile", "ssh:connect", "ssh:disconnect", "ssh:write", "ssh:resize"]) {
+  for (const channel of ["ssh:listProfiles", "ssh:saveProfile", "ssh:deleteProfile", "ssh:connect", "ssh:getSession", "ssh:approveHostKey", "ssh:disconnect", "ssh:write", "ssh:resize"]) {
     serviceInvoked = false;
     const handler = handlers.get(channel);
     assert(handler, `${channel} should be registered.`);

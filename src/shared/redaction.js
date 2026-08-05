@@ -7,12 +7,15 @@ const URL_CREDENTIALS = /([a-z][a-z0-9+.-]*:\/\/)[^/@\s]+@/gi;
 const PRIVATE_PATH = /(^|[\s"'=(,:[{])((?:[A-Za-z]:\\Users\\|\/(?:home|Users|root)\/)[^\s"',)}\]]+)/g;
 const LARGE_BASE64 = /\b[A-Za-z0-9+/]{160,}={0,2}\b/g;
 const PRIVATE_KEY_BLOCK = /-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----[\s\S]*?-----END (?:[A-Z0-9 ]+ )?PRIVATE KEY-----/g;
+// Catches privateKey=-----BEGIN...----- assignments even when truncated (no matching END marker).
+const PRIVATE_KEY_ASSIGNMENT = /\b(private[_-]?key)\b\s*[:=]\s*(?:"|')?-----BEGIN[\s\S]*?(?:-----END[^\n"']*|$)(?:"|')?/gi;
 const USER_FACING_DECRYPT_FAILURE = /\bNODE_CREDENTIAL_DECRYPT_FAILED\b(?::\s*Saved node credentials could not be decrypted on this device\.?)?/gi;
 
 function redactString(value) {
   return String(value)
     .replace(USER_FACING_DECRYPT_FAILURE, "Saved node credentials could not be restored. Unlock AnxOS to continue.")
     .replace(PRIVATE_KEY_BLOCK, "[redacted-private-key]")
+    .replace(PRIVATE_KEY_ASSIGNMENT, "$1=[redacted-private-key]")
     .replace(BEARER, "Bearer [redacted]")
     .replace(JWT, "[redacted-jwt]")
     .replace(COMMAND_LINE_SECRET, "$1 [redacted]")

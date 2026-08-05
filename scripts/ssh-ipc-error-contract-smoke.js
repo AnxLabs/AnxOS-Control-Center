@@ -10,6 +10,8 @@ let serviceInstance = null;
 class MockSshService extends EventEmitter {
   async listProfiles() { return { profiles: [] }; }
   async saveProfile() { return {}; }
+  async deleteProfile() { return {}; }
+  async getSession() { return {}; }
   async connect() {
     if (failConnect) {
       throw Object.assign(new Error("password=ssh-secret Authorization: Bearer ssh-token"), {
@@ -30,7 +32,6 @@ const originalLoad = Module._load;
 Module._load = function patchedLoad(request, parent, isMain) {
   if (request === "electron") {
     return {
-      BrowserWindow: { getAllWindows: () => [{ isDestroyed: () => false, webContents: { send: (channel, payload) => rendererEvents.push({ channel, payload }) } }] },
       ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
     };
   }
@@ -47,9 +48,10 @@ try {
 
 async function main() {
   const connect = handlers.get("ssh:connect");
-  assert.deepStrictEqual(await connect({}, { profileId: "profile-a" }), { session: { id: "session-a", connected: true } });
+  const sender = { id: 7, isDestroyed: () => false, send: (channel, payload) => rendererEvents.push({ channel, payload }) };
+  assert.deepStrictEqual(await connect({ sender }, { profileId: "profile-a" }), { session: { id: "session-a", connected: true } });
   failConnect = true;
-  await assert.rejects(connect({}, { profileId: "profile-a" }), (error) => {
+  await assert.rejects(connect({ sender }, { profileId: "profile-a" }), (error) => {
     assert.strictEqual(error.code, "SSH_AUTHENTICATION_FAILED");
     assert.strictEqual(error.statusCode, 401);
     const serialized = JSON.stringify(error);

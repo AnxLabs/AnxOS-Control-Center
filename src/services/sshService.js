@@ -1,4 +1,4 @@
-const { randomUUID } = require("crypto");
+const { createHash, randomUUID } = require("crypto");
 const { EventEmitter } = require("events");
 const { app } = require("electron");
 const fs = require("fs");
@@ -8,9 +8,11 @@ const { getAllNodesSync, getSelectedNodeId } = require("./nodeService");
 const { redactString } = require("../shared/redaction");
 
 const DEV_SSH_PROFILES_PATH = path.resolve(__dirname, "..", "..", "config", "ssh-profiles.json");
-const DEFAULT_CONNECT_TIMEOUT_MS = 10000;
-const SHELL_START_TIMEOUT_MS = 15000;
-const DEFAULT_SHELL_START_ATTEMPTS = 2;
+const SSH_TIMEOUTS = Object.freeze({
+  connect: 10000,
+  authentication: 15000,
+  shell: 15000,
+});
 const DEFAULT_SHELL_COLS = 120;
 const DEFAULT_SHELL_ROWS = 32;
 const VALID_AUTH_TYPES = new Set(["password", "privateKey"]);
@@ -22,6 +24,11 @@ class SshServiceError extends Error {
     this.name = "SshServiceError";
     this.code = details.code || null;
     this.status = details.status || null;
+    this.stage = details.stage || null;
+    this.retryable = details.retryable !== false;
+    this.technicalMessage = redactString(details.technicalMessage || message || "SSH operation failed.");
+    this.platformCode = details.platformCode || null;
+    this.details = details.details || null;
   }
 }
 
@@ -292,7 +299,7 @@ function createSessionLabel(profile) {
   return trimValue(profile?.displayName) || `${username}@${host}`;
 }
 
-function mapConnectionError(error) {
+function mapConnectionError(error, stage = "connecting") {
   const code = error?.level === "client-authentication" ? "SSH_AUTH_FAILED" : error?.code || null;
   const message = String(error?.message || "");
 
@@ -302,7 +309,7 @@ function mapConnectionError(error) {
     /host key verification failed|host key mismatch|remote host identification has changed/i.test(message)
   ) {
     return new SshServiceError("Host key mismatch. Verify the server identity before connecting again.", {
-      code: "SSH_HOST_KEY_MISMATCH",
+      code: "SSH_HOST_KEY_CHANGED", stage: "verifying-host", retryable: false, platformCode: code,
     });
   }
 
@@ -311,37 +318,43 @@ function mapConnectionError(error) {
     /all configured authentication methods failed|authentication failed/i.test(message)
   ) {
     return new SshServiceError("Authentication failed. Check your username, password, or private key.", {
-      code: "SSH_AUTH_FAILED",
+      code: "SSH_AUTHENTICATION_FAILED", stage: "authenticating", retryable: true, platformCode: code,
     });
   }
 
   if (code === "EACCES" || /permission denied|publickey/i.test(message)) {
     return new SshServiceError("Permission denied. The account or key is not allowed to open this SSH session.", {
-      code: "SSH_PERMISSION_DENIED",
+      code: "SSH_AUTHENTICATION_FAILED", stage: "authenticating", retryable: true, platformCode: code,
     });
   }
 
   if (code === "ECONNREFUSED") {
     return new SshServiceError("Connection refused. Verify the SSH service is running on the target host.", {
-      code: "SSH_CONNECTION_REFUSED",
+      code: "SSH_CONNECTION_REFUSED", stage: "connecting", platformCode: code,
     });
   }
 
   if (code === "ETIMEDOUT" || /timed out/i.test(message)) {
     return new SshServiceError("Connection timed out. The SSH host did not respond in time.", {
-      code: "SSH_TIMEOUT",
+      code: stage === "authenticating" ? "SSH_AUTHENTICATION_TIMEOUT" : "SSH_CONNECTION_TIMEOUT", stage, platformCode: code,
     });
   }
 
-  if (code === "EHOSTUNREACH" || code === "ENETUNREACH" || code === "ENOTFOUND") {
+  if (code === "ENOTFOUND" || code === "EAI_AGAIN") {
+    return new SshServiceError("The SSH hostname could not be resolved.", {
+      code: "SSH_DNS_FAILED", stage: "resolving-host", platformCode: code,
+    });
+  }
+
+  if (code === "EHOSTUNREACH" || code === "ENETUNREACH") {
     return new SshServiceError("Host unreachable. Check the host address and network connectivity.", {
-      code: "SSH_HOST_UNREACHABLE",
+      code: "SSH_HOST_UNREACHABLE", stage: "connecting", platformCode: code,
     });
   }
 
   if (code === "ECONNRESET" || code === "EPIPE" || /socket hang up|connection reset/i.test(message)) {
     return new SshServiceError("SSH connection was interrupted by the remote host. AnxOS will retry when it is safe to do so.", {
-      code: "SSH_CONNECTION_INTERRUPTED",
+      code: "SSH_CONNECTION_CLOSED", stage, platformCode: code,
     });
   }
 
@@ -352,19 +365,19 @@ function mapConnectionError(error) {
   }
 
   return new SshServiceError("SSH connection failed.", {
-    code: code || "SSH_CONNECTION_FAILED",
+    code: "SSH_INTERNAL_ERROR", stage, platformCode: code, technicalMessage: message,
   });
 }
 
 function mapShellOpenError(error) {
   if (error) {
-    const mapped = mapConnectionError(error);
-    if (mapped.code && !/^SSH_CONNECTION/i.test(mapped.code)) {
+    const mapped = mapConnectionError(error, "opening-shell");
+    if (["SSH_AUTHENTICATION_FAILED", "SSH_HOST_KEY_CHANGED", "SSH_CONNECTION_CLOSED"].includes(mapped.code)) {
       return mapped;
     }
   }
   return new SshServiceError("SSH connected, but remote shell could not be opened.", {
-    code: "SSH_SHELL_OPEN_FAILED",
+      code: "SSH_SHELL_OPEN_FAILED", stage: "opening-shell",
   });
 }
 
@@ -388,23 +401,135 @@ function createSessionSnapshot(session) {
     diagnostics: {
       phase: session.phase || session.status,
       failureCode: session.failureCode || null,
+      attemptId: session.attemptId,
+      failedStage: session.failedStage || null,
+      retryable: session.retryable !== false,
+      createdAt: session.createdAt,
+      stateChangedAt: session.stateChangedAt,
+      timings: { ...session.timings },
+      cleanup: session.cleanup ? { ...session.cleanup } : null,
     },
   };
 }
+
+function getKnownHostsPath() {
+  return path.join(path.dirname(getProfilesPath()), "ssh-known-hosts.json");
+}
+
+function readKnownHosts() {
+  try {
+    const value = JSON.parse(fs.readFileSync(getKnownHostsPath(), "utf8"));
+    return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  } catch (error) {
+    if (error?.code === "ENOENT") return {};
+    throw new SshServiceError("Saved SSH host identities could not be read.", { code: "SSH_KNOWN_HOSTS_INVALID", retryable: false });
+  }
+}
+
+function writeKnownHosts(value) {
+  ensureProfilesDirectory();
+  const target = getKnownHostsPath();
+  const temporary = `${target}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+  fs.renameSync(temporary, target);
+}
+
+function fingerprintHostKey(key) {
+  return `SHA256:${createHash("sha256").update(key).digest("base64").replace(/=+$/, "")}`;
+}
+
+function knownHostId(profile) {
+  return `${trimValue(profile.host).toLowerCase()}:${normalizePort(profile.port)}`;
+}
+
+const SSH_STATES = Object.freeze({
+  IDLE: "idle", CONNECTING: "connecting", VERIFYING_HOST: "verifying-host",
+  AUTHENTICATING: "authenticating", OPENING_SHELL: "opening-shell", CONNECTED: "connected",
+  DISCONNECTING: "disconnecting", DISCONNECTED: "disconnected", CANCELLED: "cancelled", FAILED: "failed",
+});
+const TERMINAL_STATES = new Set([SSH_STATES.DISCONNECTED, SSH_STATES.CANCELLED, SSH_STATES.FAILED]);
+const VALID_TRANSITIONS = new Map([
+  [SSH_STATES.IDLE, new Set([SSH_STATES.CONNECTING])],
+  [SSH_STATES.CONNECTING, new Set([SSH_STATES.VERIFYING_HOST, SSH_STATES.AUTHENTICATING, SSH_STATES.CANCELLED, SSH_STATES.FAILED, SSH_STATES.DISCONNECTED])],
+  [SSH_STATES.VERIFYING_HOST, new Set([SSH_STATES.AUTHENTICATING, SSH_STATES.CANCELLED, SSH_STATES.FAILED])],
+  [SSH_STATES.AUTHENTICATING, new Set([SSH_STATES.OPENING_SHELL, SSH_STATES.CANCELLED, SSH_STATES.FAILED, SSH_STATES.DISCONNECTED])],
+  [SSH_STATES.OPENING_SHELL, new Set([SSH_STATES.CONNECTED, SSH_STATES.CANCELLED, SSH_STATES.FAILED, SSH_STATES.DISCONNECTED])],
+  [SSH_STATES.CONNECTED, new Set([SSH_STATES.DISCONNECTING, SSH_STATES.DISCONNECTED, SSH_STATES.FAILED])],
+  [SSH_STATES.DISCONNECTING, new Set([SSH_STATES.DISCONNECTED])],
+]);
 
 class SshService extends EventEmitter {
   constructor(options = {}) {
     super();
     this.sessions = new Map();
+    this.terminalSessions = new Map();
     this.sessionIdsByProfileId = new Map();
     this.lastWriteDiagnostic = null;
     this.createClient = typeof options.createClient === "function" ? options.createClient : () => new Client();
+    this.pendingHostKeys = new Map();
     this.connectTimeoutMs = Number.isFinite(options.connectTimeoutMs)
       ? Math.max(1, options.connectTimeoutMs)
-      : DEFAULT_CONNECT_TIMEOUT_MS;
+      : SSH_TIMEOUTS.connect;
+    this.authenticationTimeoutMs = Number.isFinite(options.authenticationTimeoutMs)
+      ? Math.max(1, options.authenticationTimeoutMs)
+      : SSH_TIMEOUTS.authentication;
     this.shellStartTimeoutMs = Number.isFinite(options.shellStartTimeoutMs)
       ? Math.max(1, options.shellStartTimeoutMs)
-      : SHELL_START_TIMEOUT_MS;
+      : SSH_TIMEOUTS.shell;
+  }
+
+  getSession(sessionId) {
+    const session = this.sessions.get(sessionId);
+    if (session) return createSessionSnapshot(session);
+    return this.terminalSessions.get(sessionId) || null;
+  }
+
+  approveHostKey(profileId, fingerprint) {
+    const profile = this.getProfile(profileId);
+    const pending = this.pendingHostKeys.get(profile.id);
+    if (!pending || pending.fingerprint !== trimValue(fingerprint)) {
+      throw new SshServiceError("The host-key approval is stale. Start a new connection attempt.", { code: "SSH_HOST_KEY_APPROVAL_STALE", stage: "verifying-host", retryable: true });
+    }
+    const knownHosts = readKnownHosts();
+    knownHosts[knownHostId(profile)] = { fingerprint: pending.fingerprint, approvedAt: new Date().toISOString() };
+    writeKnownHosts(knownHosts);
+    this.pendingHostKeys.delete(profile.id);
+    return { profileId: profile.id, fingerprint: pending.fingerprint, approved: true };
+  }
+
+  transition(session, nextState, message, details = {}) {
+    if (!session || session.didClose || session.status === nextState) return false;
+    const allowed = VALID_TRANSITIONS.get(session.status);
+    if (!allowed?.has(nextState)) return false;
+    const now = Date.now();
+    if (session.stageStartedAt && session.phase) session.timings[session.phase] = now - session.stageStartedAt;
+    session.status = nextState;
+    session.phase = nextState;
+    session.message = message || session.message;
+    session.stateChangedAt = new Date(now).toISOString();
+    session.stageStartedAt = now;
+    if (details.failureCode) session.failureCode = details.failureCode;
+    if (details.failedStage) session.failedStage = details.failedStage;
+    if (typeof details.retryable === "boolean") session.retryable = details.retryable;
+    this.emit("session-updated", createSessionSnapshot(session));
+    return true;
+  }
+
+  setStageTimer(session, stage, timeoutMs, code, message) {
+    this.clearStageTimer(session);
+    session.stageTimer = setTimeout(() => {
+      if (!this.isCurrentAttempt(session)) return;
+      this.handleSessionFailure(session.id, new SshServiceError(message, { code, stage, retryable: true }));
+    }, timeoutMs);
+  }
+
+  clearStageTimer(session) {
+    if (session?.stageTimer) clearTimeout(session.stageTimer);
+    if (session) session.stageTimer = null;
+  }
+
+  isCurrentAttempt(session) {
+    return Boolean(session && !session.didClose && this.sessions.get(session.id)?.attemptId === session.attemptId);
   }
 
   recordWriteDiagnostic(details = {}) {
@@ -657,7 +782,7 @@ class SshService extends EventEmitter {
     const existingSessionId = this.sessionIdsByProfileId.get(profile.id);
     const existingSession = existingSessionId ? this.sessions.get(existingSessionId) || null : null;
 
-    if (existingSession && !existingSession.didClose) {
+    if (existingSession && !existingSession.didClose && !TERMINAL_STATES.has(existingSession.status)) {
       return createSessionSnapshot(existingSession);
     }
 
@@ -673,79 +798,68 @@ class SshService extends EventEmitter {
       createdAt: new Date().toISOString(),
       connectedAt: null,
       shellReadyAt: null,
-      status: "connecting",
-      message: "Connecting...",
+      attemptId: randomUUID(),
+      status: SSH_STATES.IDLE,
+      message: "Preparing SSH connection...",
       shellReady: false,
       didClose: false,
       phase: "tcp-connect",
       failureCode: null,
-      connectTimer: null,
-      shellStartTimer: null,
-      shellDeadlineTimer: null,
-      shellStartAttempt: 0,
+      stateChangedAt: new Date().toISOString(),
+      stageStartedAt: Date.now(),
+      stageTimer: null,
+      timings: {},
+      retryable: true,
+      cleanup: null,
     };
 
     this.sessions.set(sessionId, session);
     this.sessionIdsByProfileId.set(profile.id, sessionId);
-    this.emit("session-updated", createSessionSnapshot(session));
+    this.transition(session, SSH_STATES.CONNECTING, "Connecting to SSH host...");
+    this.setStageTimer(session, "connecting", this.connectTimeoutMs, "SSH_CONNECTION_TIMEOUT", "Connection timed out before the SSH handshake completed.");
 
-    session.connectTimer = setTimeout(() => {
-      if (!session.connectedAt && !session.didClose) {
-        this.handleSessionFailure(sessionId, new SshServiceError("Connection timed out. The SSH host did not respond in time.", {
-          code: "SSH_TIMEOUT",
-        }));
+    const knownFingerprint = readKnownHosts()[knownHostId(profile)]?.fingerprint || null;
+    connectConfig.hostVerifier = (key) => {
+      if (!this.isCurrentAttempt(session)) return false;
+      const fingerprint = fingerprintHostKey(key);
+      if (!knownFingerprint) {
+        session.pendingHostKey = { fingerprint };
+        this.pendingHostKeys.set(profile.id, { fingerprint, capturedAt: new Date().toISOString() });
+        this.transition(session, SSH_STATES.VERIFYING_HOST, "Host-key approval required.");
+        return false;
       }
-    }, this.connectTimeoutMs);
+      if (knownFingerprint !== fingerprint) {
+        session.changedHostKey = { expected: knownFingerprint, received: fingerprint };
+        this.transition(session, SSH_STATES.VERIFYING_HOST, "The saved host identity does not match.");
+        return false;
+      }
+      return true;
+    };
+
+    client.on("handshake", () => {
+      if (!this.isCurrentAttempt(session)) return;
+      this.transition(session, SSH_STATES.AUTHENTICATING, "Authenticating SSH credentials...");
+      this.setStageTimer(session, "authenticating", this.authenticationTimeoutMs, "SSH_AUTHENTICATION_TIMEOUT", "SSH authentication did not complete in time.");
+    });
 
     client.on("ready", () => {
-      if (session.connectTimer) {
-        clearTimeout(session.connectTimer);
-        session.connectTimer = null;
+      if (!this.isCurrentAttempt(session)) return;
+      this.clearStageTimer(session);
+      if (session.status === SSH_STATES.CONNECTING || session.status === SSH_STATES.VERIFYING_HOST) {
+        this.transition(session, SSH_STATES.AUTHENTICATING, "SSH credentials accepted.");
       }
-      session.phase = "authenticating";
       session.connectedAt = new Date().toISOString();
-      session.message = "Authenticated. Starting remote shell...";
-      this.emit("session-updated", createSessionSnapshot(session));
-      session.shellDeadlineTimer = setTimeout(() => {
-        session.shellDeadlineTimer = null;
-        if (session.shellReady || session.didClose) return;
-        this.handleSessionFailure(sessionId, new SshServiceError("SSH authentication succeeded, but the remote shell did not start in time.", {
-          code: "SSH_SHELL_START_TIMEOUT",
-        }));
-      }, this.shellStartTimeoutMs * DEFAULT_SHELL_START_ATTEMPTS);
-      const openShell = () => {
-        session.shellStartAttempt += 1;
-        session.phase = session.shellStartAttempt > 1 ? "retrying-shell" : "waiting-shell";
-        session.message = session.shellStartAttempt > 1
-          ? "Remote shell was slow to start. Retrying automatically..."
-          : "Waiting for remote shell...";
-        this.emit("session-updated", createSessionSnapshot(session));
-        const attemptTimer = setTimeout(() => {
-          if (session.shellStartTimer === attemptTimer) {
-            session.shellStartTimer = null;
-          }
-          if (session.shellReady || session.didClose) return;
-          if (session.shellStartAttempt < DEFAULT_SHELL_START_ATTEMPTS) {
-            openShell();
-            return;
-          }
-          this.handleSessionFailure(sessionId, new SshServiceError("SSH authentication succeeded, but the remote shell did not start in time.", {
-            code: "SSH_SHELL_START_TIMEOUT",
-          }));
-        }, this.shellStartTimeoutMs);
-        session.shellStartTimer = attemptTimer;
-        client.shell(
+      this.transition(session, SSH_STATES.OPENING_SHELL, "Opening remote terminal...");
+      this.setStageTimer(session, "opening-shell", this.shellStartTimeoutMs, "SSH_SHELL_OPEN_TIMEOUT", "SSH authentication succeeded, but the remote terminal did not open in time.");
+      client.shell(
         {
           term: "xterm-256color",
           cols: Number.isFinite(options.cols) ? options.cols : DEFAULT_SHELL_COLS,
           rows: Number.isFinite(options.rows) ? options.rows : DEFAULT_SHELL_ROWS,
         },
         (error, stream) => {
-          if (session.shellStartTimer === attemptTimer) {
-            clearTimeout(attemptTimer);
-            session.shellStartTimer = null;
-          }
-          if (session.didClose || !this.sessions.has(sessionId)) {
+          this.clearStageTimer(session);
+          if (!this.isCurrentAttempt(session)) {
             try {
               stream?.removeAllListeners?.();
               stream?.end?.();
@@ -776,28 +890,35 @@ class SshService extends EventEmitter {
             this.handleSessionClosed(sessionId, "SSH session closed.");
           });
 
-          session.status = "connected";
-          session.phase = "shell-ready";
           session.shellReady = true;
           session.connectedAt = session.connectedAt || new Date().toISOString();
           session.shellReadyAt = new Date().toISOString();
           session.message = `Connected to ${session.label}. Shell ready.`;
-          if (session.shellDeadlineTimer) {
-            clearTimeout(session.shellDeadlineTimer);
-            session.shellDeadlineTimer = null;
-          }
-          this.emit("session-updated", createSessionSnapshot(session));
+          this.transition(session, SSH_STATES.CONNECTED, session.message);
           try {
             if (stream.writable !== false) stream.write("\r");
           } catch {}
         },
         );
-      };
-      openShell();
     });
 
     client.on("error", (error) => {
-      this.handleSessionFailure(sessionId, mapConnectionError(error));
+      if (!this.isCurrentAttempt(session)) return;
+      if (session.pendingHostKey) {
+        this.handleSessionFailure(sessionId, new SshServiceError("This SSH host is not trusted yet. Review and approve its fingerprint before retrying.", {
+          code: "SSH_HOST_KEY_UNKNOWN", stage: "verifying-host", retryable: true,
+          details: { fingerprint: session.pendingHostKey.fingerprint },
+        }));
+        return;
+      }
+      if (session.changedHostKey) {
+        this.handleSessionFailure(sessionId, new SshServiceError("The SSH host key changed. Verify the server identity before connecting again.", {
+          code: "SSH_HOST_KEY_CHANGED", stage: "verifying-host", retryable: false,
+          details: { expectedFingerprint: session.changedHostKey.expected, receivedFingerprint: session.changedHostKey.received },
+        }));
+        return;
+      }
+      this.handleSessionFailure(sessionId, mapConnectionError(error, session.phase));
     });
 
     client.on("close", () => {
@@ -816,15 +937,24 @@ class SshService extends EventEmitter {
       return;
     }
 
-    session.status = "error";
-    session.phase = "failed";
-    session.failureCode = error.code || "SSH_CONNECTION_FAILED";
+    const failedStage = error.stage || session.phase;
+    session.failureCode = error.code || "SSH_INTERNAL_ERROR";
+    session.failedStage = failedStage;
+    session.retryable = error.retryable !== false;
     session.message = redactString(error.message || "SSH connection failed.");
-    this.emit("session-updated", createSessionSnapshot(session));
+    this.transition(session, SSH_STATES.FAILED, session.message, { failureCode: session.failureCode, failedStage, retryable: session.retryable });
     this.emit("session-error", {
       sessionId,
+      attemptId: session.attemptId,
+      profileId: session.profile.id,
       message: session.message,
-      code: error.code || "SSH_CONNECTION_FAILED",
+      technicalMessage: error.technicalMessage,
+      code: session.failureCode,
+      failedStage,
+      retryable: session.retryable,
+      timestamp: new Date().toISOString(),
+      platformCode: error.platformCode,
+      details: error.details,
     });
     this.destroySession(sessionId);
   }
@@ -836,9 +966,7 @@ class SshService extends EventEmitter {
       return;
     }
 
-    session.status = "disconnected";
-    session.message = message;
-    this.emit("session-updated", createSessionSnapshot(session));
+    this.transition(session, SSH_STATES.DISCONNECTED, message);
     this.emit("session-closed", {
       sessionId,
       message,
@@ -855,29 +983,26 @@ class SshService extends EventEmitter {
 
     session.didClose = true;
 
-    if (session.shellStartTimer) {
-      clearTimeout(session.shellStartTimer);
-      session.shellStartTimer = null;
-    }
-    if (session.shellDeadlineTimer) {
-      clearTimeout(session.shellDeadlineTimer);
-      session.shellDeadlineTimer = null;
-    }
-    if (session.connectTimer) {
-      clearTimeout(session.connectTimer);
-      session.connectTimer = null;
-    }
+    this.clearStageTimer(session);
 
     try {
       session.stream?.removeAllListeners();
       session.stream?.end?.();
+      session.stream?.destroy?.();
     } catch {}
+
+    session.cleanup = { timersCleared: true, streamClosed: true, clientClosed: true, completedAt: new Date().toISOString() };
 
     try {
       session.client?.removeAllListeners();
       session.client?.end?.();
       session.client?.destroy?.();
     } catch {}
+
+    this.terminalSessions.set(sessionId, createSessionSnapshot(session));
+    while (this.terminalSessions.size > 50) {
+      this.terminalSessions.delete(this.terminalSessions.keys().next().value);
+    }
 
     if (session.profile?.id && this.sessionIdsByProfileId.get(session.profile.id) === sessionId) {
       this.sessionIdsByProfileId.delete(session.profile.id);
@@ -886,17 +1011,53 @@ class SshService extends EventEmitter {
     this.sessions.delete(sessionId);
   }
 
+  deleteProfile(profileId) {
+    const id = trimValue(profileId);
+    const config = readProfilesConfig();
+    const profile = config.profiles.find((candidate) => candidate.id === id);
+    if (!profile) {
+      throw new SshServiceError("SSH profile not found.", { code: "SSH_PROFILE_NOT_FOUND" });
+    }
+    const activeSessionId = this.sessionIdsByProfileId.get(id);
+    const activeSession = activeSessionId ? this.sessions.get(activeSessionId) : null;
+    if (activeSession && !activeSession.didClose && !TERMINAL_STATES.has(activeSession.status)) {
+      throw new SshServiceError("Disconnect this SSH profile before deleting it.", {
+        code: "SSH_PROFILE_IN_USE",
+        retryable: true,
+      });
+    }
+    const profiles = config.profiles.filter((candidate) => candidate.id !== id);
+    const serverStillUsed = profiles.some((candidate) => candidate.serverId === profile.serverId);
+    const servers = serverStillUsed ? config.servers : config.servers.filter((server) => server.id !== profile.serverId);
+    writeProfilesConfig({
+      ...config,
+      profiles,
+      servers,
+      defaultProfileId: config.defaultProfileId === id ? profiles[0]?.id || null : config.defaultProfileId,
+      defaultServerId: config.defaultServerId === profile.serverId && !serverStillUsed ? servers[0]?.id || null : config.defaultServerId,
+    });
+    this.terminalSessions.forEach((session, sessionId) => {
+      if (session.profileId === id) this.terminalSessions.delete(sessionId);
+    });
+    return this.listProfiles();
+  }
+
   disconnect(sessionId) {
     const session = this.sessions.get(sessionId);
 
     if (!session) {
-      throw new SshServiceError("SSH session not found.", {
-        code: "SSH_SESSION_NOT_FOUND",
-      });
+      return { sessionId, status: SSH_STATES.DISCONNECTED, alreadyClosed: true };
     }
 
+    if ([SSH_STATES.CONNECTING, SSH_STATES.VERIFYING_HOST, SSH_STATES.AUTHENTICATING, SSH_STATES.OPENING_SHELL].includes(session.status)) {
+      this.transition(session, SSH_STATES.CANCELLED, "SSH connection cancelled.", { failureCode: "SSH_CANCELLED", failedStage: session.phase, retryable: true });
+      this.emit("session-error", { sessionId, attemptId: session.attemptId, profileId: session.profile.id, code: "SSH_CANCELLED", message: "SSH connection cancelled.", technicalMessage: "Connection attempt cancelled by user.", failedStage: session.phase, retryable: true, timestamp: new Date().toISOString(), platformCode: null });
+      this.destroySession(sessionId);
+      return { sessionId, attemptId: session.attemptId, status: SSH_STATES.CANCELLED };
+    }
+    if (session.status === SSH_STATES.CONNECTED) this.transition(session, SSH_STATES.DISCONNECTING, "Disconnecting SSH session...");
     this.handleSessionClosed(sessionId, "SSH session disconnected.");
-    return { sessionId };
+    return { sessionId, attemptId: session.attemptId, status: SSH_STATES.DISCONNECTED };
   }
 
   write(sessionId, input) {
@@ -904,7 +1065,7 @@ class SshService extends EventEmitter {
     const data = typeof input === "string" ? input : "";
     const byteLength = Buffer.byteLength(data, "utf8");
 
-    if (!session || session.status !== "connected" || !session.stream || !session.shellReady) {
+    if (!session || session.status !== SSH_STATES.CONNECTED || !session.stream || !session.shellReady) {
       this.recordWriteDiagnostic({
         ipcReceived: true,
         sessionFound: Boolean(session),
@@ -969,12 +1130,12 @@ class SshService extends EventEmitter {
   resize(sessionId, size = {}) {
     const session = this.sessions.get(sessionId);
 
-    if (!session || session.status !== "connected" || !session.stream?.setWindow) {
+    if (!session || session.status !== SSH_STATES.CONNECTED || !session.stream?.setWindow) {
       return { sessionId };
     }
 
-    const rows = Number.isFinite(size.rows) ? size.rows : DEFAULT_SHELL_ROWS;
-    const cols = Number.isFinite(size.cols) ? size.cols : DEFAULT_SHELL_COLS;
+    const rows = Number.isFinite(size.rows) ? Math.max(12, Math.min(300, Math.floor(size.rows))) : DEFAULT_SHELL_ROWS;
+    const cols = Number.isFinite(size.cols) ? Math.max(40, Math.min(500, Math.floor(size.cols))) : DEFAULT_SHELL_COLS;
     session.stream.setWindow(rows, cols, 0, 0);
     return { sessionId };
   }
@@ -986,6 +1147,7 @@ class SshService extends EventEmitter {
 
     this.removeAllListeners();
     this.sessionIdsByProfileId.clear();
+    this.pendingHostKeys.clear();
   }
 }
 
@@ -996,5 +1158,8 @@ module.exports = {
   SshServiceError,
   _test: {
     buildProfileNodeMismatchDetails,
+    SSH_STATES,
+    SSH_TIMEOUTS,
+    VALID_TRANSITIONS,
   },
 };

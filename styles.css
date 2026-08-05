@@ -6742,6 +6742,33 @@ body.is-resizing-files * {
   border-bottom: 0;
 }
 
+.ssh-tab-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 30px;
+  gap: 6px;
+  align-items: stretch;
+}
+
+.ssh-tab-remove {
+  border: 1px solid rgba(255, 107, 138, 0.2);
+  border-radius: 8px;
+  background: rgba(255, 107, 138, 0.08);
+  color: var(--muted);
+  font: inherit;
+  font-size: 1.05rem;
+  cursor: pointer;
+}
+
+.ssh-tab-remove:hover:not(:disabled) {
+  border-color: rgba(255, 107, 138, 0.48);
+  color: #ff9bb0;
+}
+
+.ssh-tab-remove:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
 .page[data-page="files"] {
   width: 100%;
   max-width: none;

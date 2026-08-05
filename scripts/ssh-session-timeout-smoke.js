@@ -12,36 +12,27 @@ const source = fs.readFileSync(path.join(__dirname, "..", "src", "services", "ss
 const rendererSource = fs.readFileSync(path.join(__dirname, "..", "app.js"), "utf8");
 const { SshService } = require("../src/services/sshService");
 
-assert(source.includes("const SHELL_START_TIMEOUT_MS = 15000;"), "SSH shell startup must have a bounded timeout.");
-assert(source.includes("const DEFAULT_SHELL_START_ATTEMPTS = 2;"), "A slow shell startup must receive one bounded automatic retry.");
-assert(source.includes("const DEFAULT_CONNECT_TIMEOUT_MS = 10000;"), "SSH connection establishment must have a bounded timeout.");
-assert(source.indexOf("session.connectTimer = setTimeout") < source.indexOf('client.on("ready"'), "SSH connect timeout must cover pre-ready stalls.");
-assert(source.indexOf("const attemptTimer = setTimeout") > source.indexOf('client.on("ready"'), "SSH shell startup timeout must begin after the transport is ready.");
-assert(source.includes("SSH_TIMEOUT"), "SSH connection timeout must use a structured error code.");
-assert(source.includes("SSH_SHELL_START_TIMEOUT"), "SSH shell startup timeout must use a structured error code.");
+assert(source.includes("const SSH_TIMEOUTS = Object.freeze"), "SSH stage timeouts must be centralized.");
+assert(source.includes("SSH_CONNECTION_TIMEOUT"), "SSH connection timeout must use a structured error code.");
+assert(source.includes("SSH_AUTHENTICATION_TIMEOUT"), "SSH authentication timeout must be distinct.");
+assert(source.includes("SSH_SHELL_OPEN_TIMEOUT"), "SSH shell startup timeout must be distinct.");
 assert(source.includes("SSH_SHELL_OPEN_FAILED"), "SSH PTY failures must use a structured shell-open error code.");
-assert(source.includes("SSH_HOST_KEY_MISMATCH"), "SSH host-key failures must have a distinct error code.");
-assert(source.includes("SSH_PERMISSION_DENIED"), "SSH permission failures must have a distinct error code.");
+assert(source.includes("SSH_HOST_KEY_CHANGED"), "SSH host-key failures must have a distinct error code.");
+assert(source.includes("SSH_AUTHENTICATION_FAILED"), "SSH authentication failures must have a stable error code.");
 assert(source.includes("SSH_AGENT_UNAVAILABLE"), "SSH agent failures must have a distinct error code.");
-assert(source.includes("Waiting for remote shell..."), "SSH auth success must report waiting-for-shell separately.");
-assert(source.includes("shellDeadlineTimer"), "SSH shell startup must keep an independent absolute deadline.");
-assert(source.includes("session.shellStartTimer === attemptTimer"), "Late shell callbacks must not clear a newer retry timer.");
-assert(rendererSource.includes("const SSH_RENDERER_CONNECT_DEADLINE_MS = 35000;"), "The renderer watchdog must enforce an independent terminal deadline.");
-assert(rendererSource.includes('activeSession.failureCode = "SSH_SHELL_START_TIMEOUT";'), "The renderer watchdog must expose a structured shell-start timeout.");
-assert(rendererSource.includes("getDesktopApiState().api.ssh.disconnect(activeSession.id)"), "The renderer watchdog must clean up the stalled backend session.");
+assert(source.includes("Opening remote terminal..."), "SSH auth success must report shell opening separately.");
+assert(!source.includes("DEFAULT_SHELL_START_ATTEMPTS"), "Shell opening must not create overlapping retry requests.");
+assert(!rendererSource.includes("SSH_RENDERER_CONNECT_DEADLINE_MS"), "Renderer must not race the backend timeout authority.");
 assert(rendererSource.includes("const sshSessionFailures = new Map();"), "Renderer failures must survive later session snapshot replacement.");
 assert(rendererSource.includes("sshSessionFailures.set(payload.sessionId, failure);"), "Renderer session errors must retain their structured backend failure.");
 assert(rendererSource.includes("const retainedFailure = sshSessionFailures.get(sessionSnapshot.id);"), "Session snapshot merges must restore retained failures.");
 assert(rendererSource.includes("const retainedFailure = sshSessionFailures.get(payload.sessionId);"), "Backend cleanup must restore retained failures.");
-assert(
-  rendererSource.match(/await desktopApiState\.api\.ssh\.disconnect\(session\.id\);\s+if \(session\.failureCode !== "SSH_SHELL_START_TIMEOUT"\)/),
-  "Explicit SSH disconnect cleanup must preserve the renderer timeout error state.",
-);
+assert(rendererSource.includes("The backend owns stage deadlines"), "Renderer fail-safe must defer to backend stage deadlines.");
+assert(rendererSource.includes("const SSH_RENDERER_FAILSAFE_MS = 45000;"), "Renderer must retain a bounded last-resort cleanup deadline.");
 assert(source.includes("shellReady: Boolean(session.shellReady)"), "SSH snapshots must expose shell readiness separately from connection state.");
 assert(source.includes("SSH_SHELL_NOT_READY"), "SSH write failures must distinguish a connected transport from an unready shell.");
-assert(source.indexOf('stream.on("data"') < source.indexOf('session.status = "connected"'), "SSH output listeners must attach before broadcasting shell readiness.");
-assert(source.includes("clearTimeout(session.shellStartTimer)"), "SSH shell startup timers must be cleared after callback or teardown.");
-assert(source.includes("clearTimeout(session.connectTimer)"), "SSH connect timers must be cleared after callback or teardown.");
+assert(source.indexOf('stream.on("data"') < source.indexOf("this.transition(session, SSH_STATES.CONNECTED"), "SSH output listeners must attach before broadcasting shell readiness.");
+assert(source.includes("clearStageTimer(session)"), "SSH stage timers must be cleared after callback or teardown.");
 assert(source.includes("client.on(\"error\""), "SSH client errors must terminate the session.");
 assert(source.includes("client.on(\"close\""), "SSH client close events must terminate the session.");
 
@@ -95,6 +86,19 @@ class PtyFailureClient extends StalledClient {
   }
 }
 
+class LateShellClient extends StalledClient {
+  connect() { queueMicrotask(() => this.emit("ready")); }
+  shell(options, callback) { this.shellCallback = callback; }
+}
+
+class HostKeyClient extends ReadyClient {
+  constructor(key) { super(); this.key = key; }
+  connect(config) {
+    this.hostAccepted = config.hostVerifier(this.key);
+    queueMicrotask(() => this.hostAccepted ? this.emit("ready") : this.emit("error", Object.assign(new Error("Host key verification failed"), { code: "HOST_VERIFICATION_FAILED" })));
+  }
+}
+
 async function main() {
   const stalledClient = new StalledClient();
   const service = new SshService({ createClient: () => stalledClient, connectTimeoutMs: 20, shellStartTimeoutMs: 40 });
@@ -113,9 +117,11 @@ async function main() {
   assert.strictEqual(session.status, "connecting", "Fixture must reproduce the pre-fix indefinite Connecting state.");
   await new Promise((resolve) => setTimeout(resolve, 60));
   assert.strictEqual(errors.length, 1, "A stalled connection must emit one bounded connect failure.");
-  assert.strictEqual(errors[0].code, "SSH_TIMEOUT");
-  assert.match(errors[0].message, /did not respond in time/i);
+  assert.strictEqual(errors[0].code, "SSH_CONNECTION_TIMEOUT");
+  assert.match(errors[0].message, /handshake/i);
   assert.strictEqual(service.sessions.size, 0, "Timeout cleanup must remove the pending session.");
+  assert.strictEqual(service.getSession(session.id)?.status, "failed", "A cleaned-up timeout must retain its terminal status for renderer recovery.");
+  assert.strictEqual(service.getSession(session.id)?.diagnostics?.failureCode, "SSH_CONNECTION_TIMEOUT", "Recovered terminal snapshots must preserve the structured failure code.");
   assert.strictEqual(service.sessionIdsByProfileId.size, 0, "Timeout cleanup must remove the profile mapping.");
   assert.strictEqual(stalledClient.ended, true, "Timeout cleanup must close the SSH client.");
   assert.strictEqual(stalledClient.destroyed, true, "Timeout cleanup must destroy the SSH client.");
@@ -127,9 +133,9 @@ async function main() {
   assert.strictEqual(shellTimeout.status, "connecting", "Ready-without-shell fixture should begin in connecting state.");
   await new Promise((resolve) => setTimeout(resolve, 110));
   assert.strictEqual(errors.length, 2, "A stalled shell allocation must emit one bounded shell-start failure.");
-  assert.strictEqual(errors[1].code, "SSH_SHELL_START_TIMEOUT");
-  assert.match(errors[1].message, /authentication succeeded.*remote shell did not start/i);
-  assert.strictEqual(noShellClient.shellAttempts, 2, "A stalled remote shell must be retried once automatically.");
+  assert.strictEqual(errors[1].code, "SSH_SHELL_OPEN_TIMEOUT");
+  assert.match(errors[1].message, /remote terminal did not open/i);
+  assert.strictEqual(noShellClient.shellAttempts, 1, "A stalled remote shell must not create overlapping requests.");
   assert.strictEqual(service.sessions.size, 0, "Shell timeout cleanup must remove the pending session.");
   assert.strictEqual(noShellClient.ended, true, "Shell timeout cleanup must close the SSH client.");
   assert.strictEqual(noShellClient.destroyed, true, "Shell timeout cleanup must destroy the SSH client.");
@@ -170,8 +176,42 @@ async function main() {
   );
   connectedRetry.shellReady = true;
   service.disconnect(retry.id);
+  assert.strictEqual(service.disconnect(retry.id).alreadyClosed, true, "Repeated disconnect must be idempotent.");
   assert.strictEqual(service.sessions.size, 0, "Disconnect must immediately clean up a recovered session.");
+  assert.strictEqual(service.getSession(retry.id)?.status, "disconnected", "A cleaned-up connection must retain its final status for bounded renderer polling.");
   assert.strictEqual(retryClient.streamEnded, true, "Disconnect must close the recovered PTY stream.");
+
+  const lateClient = new LateShellClient();
+  service.createClient = () => lateClient;
+  const cancelled = service.connect({ profileId: "timeout-profile", nodeId: "timeout-node", password: "fixture-only" });
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  const cancelResult = service.disconnect(cancelled.id);
+  assert.strictEqual(cancelResult.status, "cancelled", "Pending attempts must terminate as cancelled.");
+  assert.strictEqual(errors.at(-1).code, "SSH_CANCELLED", "Cancellation must use its stable structured code.");
+  const staleStream = new EventEmitter();
+  staleStream.writable = true;
+  staleStream.end = () => {};
+  staleStream.destroy = () => {};
+  lateClient.shellCallback?.(null, staleStream);
+  assert.strictEqual(service.sessions.size, 0, "A late shell callback must not resurrect a cancelled attempt.");
+  assert.strictEqual(staleStream.listenerCount("data"), 0, "A stale shell stream must not retain listeners.");
+
+  const hostKey = Buffer.from("deterministic-host-key-fixture");
+  const unknownHostClient = new HostKeyClient(hostKey);
+  service.createClient = () => unknownHostClient;
+  const unknown = service.connect({ profileId: "timeout-profile", nodeId: "timeout-node", password: "fixture-only" });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  const unknownFailure = errors.at(-1);
+  assert.strictEqual(unknownFailure.code, "SSH_HOST_KEY_UNKNOWN", "Unknown host keys must require explicit approval.");
+  assert.match(unknownFailure.details.fingerprint, /^SHA256:/, "Host approval must expose only a fingerprint.");
+  service.approveHostKey("timeout-profile", unknownFailure.details.fingerprint);
+  const trustedHostClient = new HostKeyClient(hostKey);
+  service.createClient = () => trustedHostClient;
+  const trusted = service.connect({ profileId: "timeout-profile", nodeId: "timeout-node", password: "fixture-only" });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.strictEqual(service.sessions.get(trusted.id)?.status, "connected", "An explicitly approved host key must connect on retry.");
+  assert.notStrictEqual(trusted.id, unknown.id, "Host-key retry must use a fresh session identifier.");
+  service.disconnect(trusted.id);
   console.log("SSH session timeout smoke checks passed.");
 }
 

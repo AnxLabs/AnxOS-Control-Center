@@ -24,6 +24,9 @@ assert.throws(
 
 let assigned = service.assignProfileToNode("profile-a", "anxlab");
 assert.strictEqual(assigned.profiles.find((profile) => profile.id === "profile-a")?.nodeId, "anxlab", "Profile assignment should persist the selected node id.");
+const deleted = service.deleteProfile("profile-a");
+assert.strictEqual(deleted.profiles.length, 0, "Deleting an SSH profile must remove its saved connection details.");
+assert.strictEqual(deleted.servers.length, 0, "Deleting the last profile for a server must remove the orphaned server entry.");
 
 fs.writeFileSync(filePath, `${JSON.stringify({
   schemaVersion: SSH_PROFILES_SCHEMA_VERSION,

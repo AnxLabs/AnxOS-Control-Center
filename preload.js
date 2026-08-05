@@ -374,14 +374,17 @@ const desktopApi = {
   ssh: {
     listProfiles: () => ipcRenderer.invoke("ssh:listProfiles"),
     saveProfile: (payload) => ipcRenderer.invoke("ssh:saveProfile", payload),
+    deleteProfile: (profileId) => ipcRenderer.invoke("ssh:deleteProfile", { profileId }),
     assignProfileToNode: (payload) => ipcRenderer.invoke("ssh:assignProfileToNode", payload),
     connect: (payload) => ipcRenderer.invoke("ssh:connect", payload),
+    approveHostKey: (payload) => ipcRenderer.invoke("ssh:approveHostKey", payload),
     disconnect: (sessionId) => ipcRenderer.invoke("ssh:disconnect", { sessionId }),
     write: (sessionId, input) => {
       recordSshBridgeWrite(sessionId, input);
       return ipcRenderer.invoke("ssh:write", { sessionId, input });
     },
     resize: (sessionId, size = {}) => ipcRenderer.invoke("ssh:resize", { sessionId, ...size }),
+    getSession: (sessionId) => ipcRenderer.invoke("ssh:getSession", { sessionId }),
     onData: (callback) => {
       const handler = (_, payload) => callback(payload);
       ipcRenderer.on("ssh:data", handler);

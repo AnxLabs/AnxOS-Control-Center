@@ -25,12 +25,19 @@ requireSource("bindSshXtermInput(terminal);", "Renderer must rebind input when s
 requireSource("sshXtermSessionId !== session.id", "Renderer must reject stale session input.");
 requireSource("terminal.options.disableStdin = !(session && session.status === \"connected\" && session.shellReady !== false)", "Renderer must enable input only for shell-ready connected sessions.");
 requireSource("window.requestAnimationFrame(focusSshTerminalInput);", "Renderer must focus the terminal after a successful connection.");
+requireSource("collapseReconnectedSshSessions(profile.id, session.id);", "Reconnect must replace prior disconnected tabs for the same profile.");
+requireSource("sshRemovedSessionIds.has(payload.session.id)", "Late status events must not recreate removed SSH sessions.");
+requireSource("!sshRemovedSessionIds.has(payload.sessionId)", "Late data events must not recreate removed SSH session output.");
+requireSource("collapseReconnectedSshSessions(session.profileId, session.id);", "Connected status events must collapse provisional reconnect sessions regardless of event ordering.");
+requireSource("function removeSshSessionTab(sessionId, options = {})", "Renderer must allow terminal history tabs to be removed safely.");
+requireSource('state.escapeState = "osc";', "Terminal history must consume OSC title sequences instead of displaying duplicate prompt text.");
 requireSource("sshTerminalWindow?.addEventListener(\"click\", () => {", "Renderer must listen for terminal surface clicks.");
 requireSource("if (getActiveSshSession()?.status === \"connected\" && getActiveSshSession()?.shellReady !== false) {\n    focusSshTerminalInput();", "Clicking inside a shell-ready connected terminal must request xterm focus.");
 requireSource("lastWriteRejectedCategory: session?.status === \"connected\" && session.shellReady === false ? \"shell_not_ready\" : \"stale_or_inactive_session\"", "Renderer diagnostics must identify shell-not-ready and stale or inactive session writes.");
 requireSource("lastWriteAccepted: true", "Renderer diagnostics must mark successful writes.");
 
 assert(preloadSource.includes("return ipcRenderer.invoke(\"ssh:write\", { sessionId, input });"), "Preload must forward exact xterm data to main IPC.");
+assert(preloadSource.includes('deleteProfile: (profileId) => ipcRenderer.invoke("ssh:deleteProfile", { profileId })'), "Preload must expose the bounded SSH profile deletion action.");
 assert(ipcSource.includes("registerSshHandler(\"ssh:write\"") && ipcSource.includes("return sshService.write(payload.sessionId, payload.input);"), "Main IPC must forward exact terminal data through the SSH domain wrapper to the service.");
 assert(serviceSource.includes("session.stream.write(data);"), "SSH service must write terminal data once to the PTY stream.");
 
