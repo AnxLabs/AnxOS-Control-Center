@@ -25420,12 +25420,12 @@ async function refreshDockerStatus() {
     });
     notifyDockerFailure(dockerWorkspaceState);
   } finally {
-    if (isNodeRequestCurrent(requestContext)) {
-      dockerRequestInFlight = false;
-      if (requestId === dockerRequestSerial) {
-        setDockerLoading(false);
-        updateDockerActionButtons();
-      }
+    // Always release the in-flight flag, even for stale/discarded responses, or Docker
+    // refreshes deadlock permanently after the node context changes mid-request.
+    dockerRequestInFlight = false;
+    if (isNodeRequestCurrent(requestContext) && requestId === dockerRequestSerial) {
+      setDockerLoading(false);
+      updateDockerActionButtons();
     }
   }
 }

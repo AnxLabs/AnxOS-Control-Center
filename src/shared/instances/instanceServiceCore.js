@@ -105,6 +105,8 @@ const restartBackoffStates = new Map();
 const restartTimers = new Map();
 const versionRefreshTimers = new Map();
 const installationSessions = new Map();
+// Guards startInstance() against concurrent invocations for the same id before runningProcesses is populated.
+const startingInstances = new Set();
 let processInspectionProvider = null;
 let processAliveProvider = null;
 
@@ -4104,6 +4106,10 @@ async function deleteInstance(instanceId) {
       await fs.rm(basePath, { recursive: true, force: true });
       runningProcesses.delete(id);
       metricsSamples.delete(id);
+      resetRestartBackoff(id);
+      const pendingVersionTimer = versionRefreshTimers.get(id);
+      if (pendingVersionTimer) clearTimeout(pendingVersionTimer);
+      versionRefreshTimers.delete(id);
 
       return {
         ...result,
@@ -4130,6 +4136,10 @@ async function deleteInstance(instanceId) {
     await fs.rm(instancePath(config.id), { recursive: true, force: true });
     runningProcesses.delete(config.id);
     metricsSamples.delete(config.id);
+    resetRestartBackoff(config.id);
+    const pendingVersionTimer = versionRefreshTimers.get(config.id);
+    if (pendingVersionTimer) clearTimeout(pendingVersionTimer);
+    versionRefreshTimers.delete(config.id);
 
     return {
       ...result,
@@ -4369,6 +4379,21 @@ function buildSpawnEnvironment(config) {
 }
 
 async function startInstance(instanceId, options = {}) {
+  const guardId = validateInstanceId(instanceId);
+  if (startingInstances.has(guardId)) {
+    const error = createInstanceError("INSTANCE_START_IN_PROGRESS", 409, { instanceId: guardId });
+    error.message = "The instance is already starting.";
+    throw error;
+  }
+  startingInstances.add(guardId);
+  try {
+    return await startInstanceImpl(instanceId, options);
+  } finally {
+    startingInstances.delete(guardId);
+  }
+}
+
+async function startInstanceImpl(instanceId, options = {}) {
   if (!options.automaticRestart) {
     resetRestartBackoff(instanceId);
   }

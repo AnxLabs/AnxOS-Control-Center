@@ -141,6 +141,7 @@ function getAuthErrorMessage(code) {
 }
 
 function logRequestError(request, error, statusCode, code) {
+  const sanitizedDetails = sanitizeErrorDetails(error);
   console.error("[AnxOS Agent] Request failed.", {
     method: request.method,
     url: request.url,
@@ -148,9 +149,7 @@ function logRequestError(request, error, statusCode, code) {
     code,
     name: error?.name || null,
     message: error?.message || null,
-    details: error?.details || null,
-    responseBody: error?.details?.body || error?.details?.responseBody || null,
-    failingUrl: error?.details?.url || error?.details?.invalidUrl || null,
+    details: Object.keys(sanitizedDetails).length ? sanitizedDetails : null,
   });
 }
 
