@@ -13966,7 +13966,20 @@ function isCurseForgeApiKeyRequiredError(error = {}) {
     "CURSEFORGE_API_KEY_REQUIRED",
     "CURSEFORGE_API_KEY_INVALID",
     "CURSEFORGE_CONFIGURATION_MISSING",
+    "CURSEFORGE_AUTH_CONFIGURATION_MISSING",
   ].includes(code) || /CurseForge API key (?:is )?(?:required|missing or invalid)/i.test(message);
+}
+
+const CURSEFORGE_MARKETPLACE_UNAVAILABLE_MESSAGE = "CurseForge Marketplace is temporarily unavailable. Please check your internet connection and try again.";
+
+function isCurseForgeServiceUnavailableError(error = {}) {
+  const code = error?.details?.code || error?.payload?.error?.code || error?.code;
+  return ["CURSEFORGE_SERVICE_UNAVAILABLE", "CURSEFORGE_UPSTREAM_ERROR"].includes(code);
+}
+
+function isCurseForgeRateLimitedError(error = {}) {
+  const code = error?.details?.code || error?.payload?.error?.code || error?.code;
+  return code === "CURSEFORGE_RATE_LIMITED";
 }
 
 function createMarketplaceEmptyStateContent(state = {}) {
@@ -14481,15 +14494,41 @@ async function loadMarketplaceProviderPacks({ reset = false } = {}) {
     marketplaceProviderResults = [];
     marketplaceProviderOffset = 0;
     marketplaceProviderHasMore = false;
-    if (isCurseForgeApiKeyRequiredError(error)) {
+    if (isCurseForgeRateLimitedError(error)) {
       marketplaceProviderError = {
-        title: "CurseForge API key needs attention",
-        message: "The CurseForge API key is missing, invalid, or does not have API access. Update it in Settings, then retry. Modrinth and other Marketplace providers remain available.",
-        action: "open-settings",
-        actionLabel: "Open Settings",
+        title: "CurseForge Marketplace is busy",
+        message: "CurseForge Marketplace is receiving too many requests right now. Please wait a moment and try again.",
+        action: "retry-provider",
+        actionLabel: "Retry",
       };
-      setMarketplaceProviderStatus("CurseForge API key needs attention", "error");
-      showToast("CurseForge API key needs attention", "warning");
+      setMarketplaceProviderStatus("CurseForge Marketplace is busy.", "warning");
+      showToast("CurseForge Marketplace is busy. Please try again shortly.", "warning");
+    } else if (isCurseForgeServiceUnavailableError(error)) {
+      marketplaceProviderError = {
+        title: "CurseForge Marketplace unavailable",
+        message: CURSEFORGE_MARKETPLACE_UNAVAILABLE_MESSAGE,
+        action: "retry-provider",
+        actionLabel: "Retry",
+      };
+      setMarketplaceProviderStatus(CURSEFORGE_MARKETPLACE_UNAVAILABLE_MESSAGE, "error");
+      showToast(CURSEFORGE_MARKETPLACE_UNAVAILABLE_MESSAGE, "warning");
+    } else if (isCurseForgeApiKeyRequiredError(error)) {
+      const ownerCanFix = canUseSettingsCapability("canManageMarketplaceSettings");
+      marketplaceProviderError = ownerCanFix
+        ? {
+          title: "CurseForge API key needs attention",
+          message: "The CurseForge API key is missing, invalid, or does not have API access. Update it in Settings, then retry. Modrinth and other Marketplace providers remain available.",
+          action: "open-settings",
+          actionLabel: "Open Settings",
+        }
+        : {
+          title: "CurseForge Marketplace unavailable",
+          message: CURSEFORGE_MARKETPLACE_UNAVAILABLE_MESSAGE,
+          action: "retry-provider",
+          actionLabel: "Retry",
+        };
+      setMarketplaceProviderStatus(ownerCanFix ? "CurseForge API key needs attention" : CURSEFORGE_MARKETPLACE_UNAVAILABLE_MESSAGE, "error");
+      showToast(ownerCanFix ? "CurseForge API key needs attention" : CURSEFORGE_MARKETPLACE_UNAVAILABLE_MESSAGE, "warning");
     } else {
       marketplaceProviderError = {
         title: "Provider unavailable",
@@ -18381,8 +18420,15 @@ function getMarketplaceDownloadErrorSummary(download = {}) {
 
 function getMarketplaceDownloadRecovery(download = {}) {
   const code = String(download.errorCode || "").toUpperCase();
-  if (code === "CURSEFORGE_API_KEY_REQUIRED") return "Open Settings → Marketplace and save a CurseForge API key.";
-  if (code === "CURSEFORGE_API_KEY_INVALID") return "Open Settings → Marketplace and replace the saved CurseForge API key.";
+  const ownerCanFix = canUseSettingsCapability("canManageMarketplaceSettings");
+  if (["CURSEFORGE_API_KEY_REQUIRED", "CURSEFORGE_AUTH_CONFIGURATION_MISSING"].includes(code)) {
+    return ownerCanFix ? "Open Settings → Marketplace and save a CurseForge API key." : CURSEFORGE_MARKETPLACE_UNAVAILABLE_MESSAGE;
+  }
+  if (code === "CURSEFORGE_API_KEY_INVALID") {
+    return ownerCanFix ? "Open Settings → Marketplace and replace the saved CurseForge API key." : CURSEFORGE_MARKETPLACE_UNAVAILABLE_MESSAGE;
+  }
+  if (code === "CURSEFORGE_RATE_LIMITED") return "CurseForge Marketplace is busy. Please wait a moment and try again.";
+  if (code === "CURSEFORGE_SERVICE_UNAVAILABLE" || code === "CURSEFORGE_UPSTREAM_ERROR") return CURSEFORGE_MARKETPLACE_UNAVAILABLE_MESSAGE;
   if (code === "MARKETPLACE_CONFIG_DECRYPT_FAILED") return "Open Settings → Marketplace and save the API key again.";
   if (code.includes("AGENT") || code === "UNAUTHORIZED") return "Reconnect the selected Agent, then retry.";
   if (code.includes("CDN")) return "Check network access to ForgeCDN, then retry.";

@@ -4,7 +4,7 @@ CurseForge access must be configured in trusted code. Do not put the private Cur
 
 ## Resolution Precedence
 
-1. Hosted/proxy configuration:
+1. Hosted/proxy configuration (explicit owner override):
    - `ANXOS_CURSEFORGE_PROXY_URL`
    - `ANXHUB_CURSEFORGE_PROXY_URL`
    - `CURSEFORGE_PROXY_URL`
@@ -15,9 +15,26 @@ CurseForge access must be configured in trusted code. Do not put the private Cur
    - Desktop user-data marketplace config
    - Local development `.env`
    - Local development key file
-4. Unavailable.
+4. AnxOS-hosted Marketplace proxy (bundled default): when none of the above are configured,
+   the desktop app automatically uses the AnxOS-controlled CurseForge Marketplace proxy bundled
+   with every build (`website/marketplace-config.js`). This is what lets ordinary end users
+   browse, search, and install CurseForge modpacks without ever configuring anything. See
+   [CURSEFORGE_MARKETPLACE_PROXY_DEPLOYMENT.md](./CURSEFORGE_MARKETPLACE_PROXY_DEPLOYMENT.md) for
+   how the owner deploys and configures this backend.
+5. Unavailable (only if the bundled proxy is explicitly disabled and no other tier applies).
 
 Ordinary testers must not be asked to create or paste their own CurseForge developer API key.
+A locally saved legacy key is also automatically removed the first time a hosted/Agent proxy is
+available (see "Legacy Local Key Migration" below).
+
+## Legacy Local Key Migration
+
+On startup, if a hosted proxy (explicit or bundled default) or Agent proxy is available, any
+previously saved local `curseForgeApiKey` in `config/marketplace.json` is deleted automatically,
+since it is no longer used for normal requests. This runs once per startup in
+`migrateAwayFromLegacyLocalApiKey()` (`src/services/providers/curseforgeProvider.js`) and can be
+disabled for local development with `ANXHUB_DISABLE_CURSEFORGE_KEY_MIGRATION=1`.
+
 
 ## Packaged Private Alpha
 

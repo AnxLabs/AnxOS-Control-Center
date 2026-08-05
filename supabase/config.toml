@@ -2,3 +2,9 @@ project_id = "anxos-control-center"
 
 [functions.anxos-account]
 verify_jwt = false
+
+[functions.anxos-marketplace-curseforge]
+# Platform-level JWT/anon-key verification stays enabled (Supabase default). The desktop app
+# sends the bundled public Supabase anon key as the apikey/Authorization header, so this rejects
+# unauthenticated callers before the function code even runs.
+verify_jwt = true

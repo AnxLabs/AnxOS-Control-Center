@@ -3218,7 +3218,7 @@ async function installPack(payload = {}) {
       canCancel: false,
       canRetry: true,
     });
-    throw new MarketplaceInstallError(detailedMessage, error?.code || "MARKETPLACE_INSTALL_FAILED", {
+    throw new MarketplaceInstallError(detailedMessage, error?.code || (provider === "curseforge" ? "CURSEFORGE_INSTALL_FAILED" : "MARKETPLACE_INSTALL_FAILED"), {
       ...(error?.details || {}),
       originalName: error?.name || null,
       originalMessage: error?.message || null,

@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const vm = require("vm");
 const dotenv = require("dotenv");
 const crypto = require("crypto");
 const { Readable } = require("stream");
@@ -27,6 +28,9 @@ const API_KEY_FILE_FIELDS = ["apiKeyFile", "curseForgeApiKeyFile", "curseforgeAp
 const API_KEY_FILE_ENV = ["CURSEFORGE_API_KEY_FILE", "CF_API_KEY_FILE", "ANXHUB_CURSEFORGE_API_KEY_FILE"];
 const PROXY_URL_FIELDS = ["proxyUrl", "curseForgeProxyUrl", "curseforgeProxyUrl", "cfProxyUrl"];
 const PROXY_URL_ENV = ["ANXOS_CURSEFORGE_PROXY_URL", "ANXHUB_CURSEFORGE_PROXY_URL", "CURSEFORGE_PROXY_URL"];
+const APPROVED_SUPABASE_FUNCTION_HOST = /^[a-z0-9-]+\.functions\.supabase\.co$/i;
+let bundledMarketplaceProxyUrlCache = null;
+let bundledSupabaseAnonKeyCache = null;
 let envLoaded = false;
 let envLoadInfo = null;
 let startupStatusLogged = false;
@@ -213,6 +217,60 @@ function getElectronUserDataDirectory() {
 
 function getRepoEnvPath() {
   return path.join(__dirname, "..", "..", "..", ".env");
+}
+
+function parseBundledPublicConfig(filePath, globalName) {
+  try {
+    const raw = fs.readFileSync(filePath, "utf8");
+    const sandbox = { window: {}, globalThis: {} };
+    sandbox.globalThis = sandbox.window;
+    vm.runInNewContext(raw, sandbox, { filename: filePath, timeout: 1000 });
+    return sandbox.window[globalName] || sandbox.globalThis[globalName] || {};
+  } catch {
+    return {};
+  }
+}
+
+// Bundled with every packaged build. Contains only public, non-secret values: see
+// website/marketplace-config.js and docs/CURSEFORGE_MARKETPLACE_PROXY_DEPLOYMENT.md.
+function getBundledMarketplaceProxyUrl() {
+  if (bundledMarketplaceProxyUrlCache === null) {
+    const filePath = path.join(__dirname, "..", "..", "..", "website", "marketplace-config.js");
+    bundledMarketplaceProxyUrlCache = trimValue(parseBundledPublicConfig(filePath, "ANXOS_MARKETPLACE_CONFIG").curseforgeProxyUrl);
+  }
+  return bundledMarketplaceProxyUrlCache;
+}
+
+// The Supabase anon key is a public, RLS-protected identifier (already bundled in
+// website/account-config.js for the account system) reused here to identify requests as
+// coming from the official AnxOS app, matching the CurseForge Marketplace proxy's platform-level
+// authorization requirement.
+function getBundledSupabaseAnonKey() {
+  if (bundledSupabaseAnonKeyCache === null) {
+    const filePath = path.join(__dirname, "..", "..", "..", "website", "account-config.js");
+    bundledSupabaseAnonKeyCache = trimValue(parseBundledPublicConfig(filePath, "ANXOS_ACCOUNT_CONFIG").supabaseAnonKey);
+  }
+  return bundledSupabaseAnonKeyCache;
+}
+
+function getHostedProxyAuthHeaders(proxyUrl) {
+  try {
+    const hostname = new URL(proxyUrl).hostname;
+    if (!APPROVED_SUPABASE_FUNCTION_HOST.test(hostname)) return {};
+    const anonKey = getBundledSupabaseAnonKey();
+    return anonKey ? { apikey: anonKey, Authorization: `Bearer ${anonKey}` } : {};
+  } catch {
+    return {};
+  }
+}
+
+function parseHostedProxyErrorBody(body) {
+  try {
+    const parsed = JSON.parse(body);
+    return { code: parsed?.code || parsed?.error?.code || null, message: parsed?.message || parsed?.error?.message || null };
+  } catch {
+    return { code: null, message: null };
+  }
 }
 
 function getEnvCandidates() {
@@ -435,6 +493,29 @@ function migrateLegacyApiKeyToConfig() {
   }
 }
 
+// One-time cleanup: once the AnxOS-hosted Marketplace proxy (or an explicit owner override) is
+// available, a locally saved personal CurseForge API key is obsolete and must stop being used
+// for normal requests. Local development without any hosted proxy keeps its saved key so owner
+// testing is not broken.
+function migrateAwayFromLegacyLocalApiKey() {
+  if (process.env.ANXHUB_DISABLE_CURSEFORGE_KEY_MIGRATION === "1") {
+    return;
+  }
+  try {
+    if (!getHostedProxyUrl({}) && !getBundledMarketplaceProxyUrl() && !shouldUseAgentProxy({})) {
+      return;
+    }
+    const stored = readMarketplaceConfigSafe({ includeSecrets: true });
+    if (stored.recovery.degraded || !stored.config.curseForgeApiKey) {
+      return;
+    }
+    saveMarketplaceConfig({ curseForgeApiKey: "" });
+    console.info("[Marketplace][CurseForge] Removed an obsolete locally saved CurseForge API key. CurseForge requests now use the AnxOS-hosted Marketplace proxy.");
+  } catch (error) {
+    console.warn("[Marketplace][CurseForge] Legacy API key cleanup skipped.", serializeError(error));
+  }
+}
+
 function readStoredApiKeyWithMigration(options = {}) {
   const safeResult = readMarketplaceConfigSafe({ includeSecrets: true });
   const stored = safeResult.config;
@@ -638,6 +719,7 @@ function logStartupStatus() {
   }
 
   startupStatusLogged = true;
+  migrateAwayFromLegacyLocalApiKey();
   let status;
   try {
     status = getApiKeyStatus();
@@ -754,6 +836,39 @@ function getHostedProxyUrl(config = {}) {
   return firstConfigValue(config, PROXY_URL_FIELDS, PROXY_URL_ENV);
 }
 
+// Resolves the hosted proxy actually used for a request, applying the full precedence order:
+// 1. an explicit owner-configured proxy URL (config field or env var);
+// 2. the Agent proxy, when applicable;
+// 3. an owner-configured local CurseForge API key (direct-to-CurseForge mode);
+// 4. the AnxOS-hosted Marketplace proxy bundled with this build, so clean installs work with
+//    no local configuration at all.
+function resolveEffectiveHostedProxyUrl(config = {}) {
+  const explicit = getHostedProxyUrl(config);
+  if (explicit) {
+    return explicit;
+  }
+  if (config.disableHostedProxy === true || process.env.ANXOS_DISABLE_CURSEFORGE_HOSTED_PROXY === "1") {
+    return "";
+  }
+  if (shouldUseAgentProxy(config)) {
+    return "";
+  }
+  let hasLocalKey = false;
+  try {
+    hasLocalKey = Boolean(getApiKeyStatus(config).loaded);
+  } catch {
+    hasLocalKey = false;
+  }
+  if (hasLocalKey) {
+    return "";
+  }
+  return getBundledMarketplaceProxyUrl();
+}
+
+function isTrustedCurseForgeBackendAvailable(config = {}) {
+  return Boolean(getHostedProxyUrl(config) || getBundledMarketplaceProxyUrl()) || shouldUseAgentProxy(config);
+}
+
 function shouldUseAgentProxy(config = {}) {
   if (config.useAgentProxy === false || process.env.ANXOS_DISABLE_CURSEFORGE_AGENT_PROXY === "1") {
     return false;
@@ -775,18 +890,41 @@ function appendProxyParams(endpoint, pathname, params = {}) {
   return url;
 }
 
+// Builds a hosted-proxy endpoint URL, preserving the base URL's own path (e.g. the Supabase
+// Edge Function slug "/anxos-marketplace-curseforge") instead of replacing it. A leading-slash
+// string passed as the first argument to `new URL()` discards the base's path entirely, which
+// previously dropped the function slug for any proxy URL that had one. Any query string already
+// present on `proxyUrl` is intentionally discarded, not merged, to avoid ambiguous precedence.
+function buildHostedProxyEndpoint(proxyUrl, subPath) {
+  const base = new URL(proxyUrl);
+  const basePath = base.pathname.replace(/\/+$/, "");
+  const cleanSubPath = `/${String(subPath).replace(/^\/+/, "")}`;
+  return new URL(`${basePath}${cleanSubPath}`, base.origin);
+}
+
 async function requestHostedProxyJson(proxyUrl, pathname, params = {}, label = "CurseForge request", config = {}) {
-  const endpoint = appendProxyParams(new URL("/api/v1/marketplace/curseforge/api", proxyUrl.endsWith("/") ? proxyUrl : `${proxyUrl}/`), pathname, params);
-  const response = await fetchWithTimeout(endpoint, {
-    headers: {
-      Accept: "application/json",
-      "User-Agent": USER_AGENT,
-    },
-    timeoutMs: config.timeoutMs,
-  });
+  const endpoint = appendProxyParams(buildHostedProxyEndpoint(proxyUrl, "/api/v1/marketplace/curseforge/api"), pathname, params);
+  let response;
+  try {
+    response = await fetchWithTimeout(endpoint, {
+      headers: {
+        Accept: "application/json",
+        "User-Agent": USER_AGENT,
+        ...getHostedProxyAuthHeaders(proxyUrl),
+      },
+      timeoutMs: config.timeoutMs,
+    });
+  } catch (error) {
+    throw new CurseForgeProviderError("CurseForge Marketplace is temporarily unavailable. Please check your internet connection and try again.", "CURSEFORGE_SERVICE_UNAVAILABLE", {
+      url: String(endpoint),
+      source: "hosted-proxy",
+      message: error?.message || "request failed",
+    });
+  }
   const body = await response.text();
   if (!response.ok) {
-    throw new CurseForgeProviderError(friendlyHttpMessage(label, response.status, body), "CURSEFORGE_PROXY_REQUEST_FAILED", {
+    const parsed = parseHostedProxyErrorBody(body);
+    throw new CurseForgeProviderError(parsed.message || friendlyHttpMessage(label, response.status, body), parsed.code || "CURSEFORGE_PROXY_REQUEST_FAILED", {
       status: response.status,
       body: truncateForLog(body),
       url: String(endpoint),
@@ -861,7 +999,7 @@ function getAgentProxyApiPath(pathname, params = {}) {
 }
 
 async function requestJsonViaTrustedBackend(pathname, params = {}, label = "CurseForge request", config = {}) {
-  const proxyUrl = getHostedProxyUrl(config);
+  const proxyUrl = resolveEffectiveHostedProxyUrl(config);
   if (proxyUrl) {
     return requestHostedProxyJson(proxyUrl, pathname, params, label, config);
   }
@@ -872,20 +1010,33 @@ async function requestJsonViaTrustedBackend(pathname, params = {}, label = "Curs
 }
 
 async function requestHostedProxyBuffer(proxyUrl, url, label, options = {}) {
-  const endpoint = new URL("/api/v1/marketplace/curseforge/download", proxyUrl.endsWith("/") ? proxyUrl : `${proxyUrl}/`);
+  const endpoint = buildHostedProxyEndpoint(proxyUrl, "/api/v1/marketplace/curseforge/download");
   endpoint.searchParams.set("url", String(url));
   if (options.projectId) endpoint.searchParams.set("projectId", String(options.projectId));
   if (options.fileId) endpoint.searchParams.set("fileId", String(options.fileId));
-  const response = await fetchWithTimeout(endpoint, {
-    headers: {
-      Accept: "application/octet-stream, application/json",
-      "User-Agent": USER_AGENT,
-    },
-    timeoutMs: options.timeoutMs || options.config?.timeoutMs,
-  });
+  let response;
+  try {
+    response = await fetchWithTimeout(endpoint, {
+      headers: {
+        Accept: "application/octet-stream, application/json",
+        "User-Agent": USER_AGENT,
+        ...getHostedProxyAuthHeaders(proxyUrl),
+      },
+      timeoutMs: options.timeoutMs || options.config?.timeoutMs,
+    });
+  } catch (error) {
+    throw new CurseForgeProviderError("CurseForge Marketplace is temporarily unavailable. Please check your internet connection and try again.", "CURSEFORGE_SERVICE_UNAVAILABLE", {
+      url: String(endpoint),
+      source: "hosted-proxy",
+      projectId: options.projectId || null,
+      fileId: options.fileId || null,
+      message: error?.message || "request failed",
+    });
+  }
   const buffer = Buffer.from(await response.arrayBuffer());
   if (!response.ok) {
-    throw new CurseForgeProviderError(`${label}: hosted proxy download failed.`, "CURSEFORGE_PROXY_DOWNLOAD_FAILED", {
+    const parsed = parseHostedProxyErrorBody(buffer.toString("utf8"));
+    throw new CurseForgeProviderError(parsed.message || `${label}: hosted proxy download failed.`, parsed.code || "CURSEFORGE_DOWNLOAD_FAILED", {
       status: response.status,
       url: String(endpoint),
       source: "hosted-proxy",
@@ -970,7 +1121,7 @@ async function requestStreamViaTrustedBackend(url, label, options = {}) {
 }
 
 async function requestBufferViaTrustedBackend(url, label, options = {}) {
-  const proxyUrl = getHostedProxyUrl(options.config || {});
+  const proxyUrl = resolveEffectiveHostedProxyUrl(options.config || {});
   if (proxyUrl) {
     return requestHostedProxyBuffer(proxyUrl, url, label, options);
   }
@@ -1552,6 +1703,15 @@ module.exports = {
     requireApiKey,
     setRuntimeApiKey,
     withRetry,
+    getBundledMarketplaceProxyUrl,
+    getBundledSupabaseAnonKey,
+    getHostedProxyUrl,
+    resolveEffectiveHostedProxyUrl,
+    buildHostedProxyEndpoint,
+    getHostedProxyAuthHeaders,
+    parseHostedProxyErrorBody,
+    migrateAwayFromLegacyLocalApiKey,
+    requestBufferViaTrustedBackend,
   },
   CurseForgeProviderError,
   downloadFile,

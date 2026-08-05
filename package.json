@@ -160,6 +160,8 @@
     "marketplace:server-capability-ux:smoke": "node scripts/marketplace-server-capability-ux-smoke.js",
     "curseforge:browse-agent-auth:smoke": "node scripts/curseforge-browse-agent-auth-smoke.js",
     "curseforge:regression": "node scripts/curseforge-packaged-regression.js",
+    "curseforge:marketplace-proxy:smoke": "node scripts/curseforge-marketplace-proxy-smoke.js",
+    "curseforge:hosted-proxy-endpoint:smoke": "node scripts/curseforge-hosted-proxy-endpoint-smoke.js",
     "dependencies:smoke": "node scripts/dependency-smoke.js",
     "operational-reads:ipc-authorization:smoke": "node scripts/operational-read-ipc-authorization-smoke.js",
     "public-access:ipc-authorization:smoke": "node scripts/public-access-ipc-authorization-smoke.js",
@@ -247,6 +249,7 @@
       },
       "website/anxos-design-system.css",
       "website/account-config.js",
+      "website/marketplace-config.js",
       "src/**/*",
       {
         "from": "src/services",

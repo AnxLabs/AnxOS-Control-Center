@@ -84,18 +84,83 @@ function assertPackagedConfigurationSurface() {
   );
 }
 
+// Owner-managed proxy architecture: the desktop client never holds or sends the real CurseForge
+// API key. Direct-to-CDN requests carry no secret at all, and hosted-proxy requests carry only
+// the public Supabase anon key (to identify the official app); the CurseForge secret is attached
+// server-side, inside the deployed Edge Function, which the client cannot see or influence.
 function assertDownloadAuthenticationCoverage() {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "anx-cf-download-"));
   try {
     const probe = spawnSync(process.execPath, ["-e", `
+      const http = require("http");
+      const assert = require("assert");
       process.env.ANXHUB_CONFIG_DIR = ${JSON.stringify(tempRoot)};
       process.env.ANXHUB_DISABLE_CURSEFORGE_KEY_MIGRATION = "1";
       process.env.ANXHUB_DISABLE_CURSEFORGE_ENV_FALLBACK = "1";
       const provider = require("./src/services/providers/curseforgeProvider");
-      const headers = provider._test.buildDownloadHeaders("https://edge.forgecdn.net/files/1/2/example.jar", { cfApiKey: "test-key" });
-      if (headers["x-api-key"] !== "test-key") {
-        throw new Error("ForgeCDN downloads must attach x-api-key from resolved configuration.");
-      }
+      const SECRET = "test-curseforge-secret-must-never-leak-client-side";
+
+      // Direct CDN requests must never carry the private CurseForge API key.
+      const cdnHeaders = provider._test.buildDownloadHeaders("https://edge.forgecdn.net/files/1/2/example.jar");
+      assert(!cdnHeaders["x-api-key"], "Direct CDN download headers must not include x-api-key.");
+      assert(!JSON.stringify(cdnHeaders).includes(SECRET), "Direct CDN download headers must never include the CurseForge API key.");
+
+      // Hosted-proxy requests to an approved Supabase function host attach only the public
+      // anon key, never the CurseForge secret.
+      const proxyAuthHeaders = provider._test.getHostedProxyAuthHeaders("https://abcdefgh.functions.supabase.co/anxos-marketplace-curseforge");
+      assert(!proxyAuthHeaders["x-api-key"], "Hosted proxy auth headers must never include x-api-key.");
+      assert(!JSON.stringify(proxyAuthHeaders).includes(SECRET), "Hosted proxy auth headers must never include the CurseForge API key.");
+
+      (async () => {
+        // Stand up a mock hosted proxy standing in for the deployed Supabase Edge Function, to
+        // prove downloads route through it (not directly to the CDN) and that authentication is
+        // applied server-side, independent of anything the client sends.
+        let receivedHeaders = null;
+        let requestCount = 0;
+        const server = http.createServer((req, res) => {
+          requestCount += 1;
+          receivedHeaders = req.headers;
+          res.setHeader("x-anxos-curseforge-authenticated", "true");
+          res.setHeader("Content-Type", "application/octet-stream");
+          res.end("mock-proxied-file-bytes");
+        });
+        const serverNoMarker = http.createServer((req, res) => {
+          res.setHeader("Content-Type", "application/octet-stream");
+          res.end("mock-proxied-file-bytes-no-marker");
+        });
+        try {
+          await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+          const proxyUrl = "http://127.0.0.1:" + server.address().port + "/mock-hosted-proxy";
+
+          const buffer = await provider._test.requestBufferViaTrustedBackend(
+            "https://edge.forgecdn.net/files/1/2/example.jar",
+            "CurseForge file",
+            { config: { proxyUrl }, projectId: 1, fileId: 2 }
+          );
+          assert.strictEqual(requestCount, 1, "The download must route through the trusted hosted proxy, not directly to the CDN.");
+          assert.strictEqual(buffer.toString("utf8"), "mock-proxied-file-bytes", "The hosted-proxy download must return the proxied response body.");
+          assert(!receivedHeaders["x-api-key"], "The hosted proxy must never receive a client-supplied x-api-key header; authentication is applied server-side.");
+          assert(!JSON.stringify(receivedHeaders).includes(SECRET), "The CurseForge API key must never be sent to the hosted proxy from the client.");
+
+          // The server-authenticated marker is a diagnostic signal, not a client-side requirement:
+          // a proxied download must still succeed even if the marker header is absent.
+          await new Promise((resolve) => serverNoMarker.listen(0, "127.0.0.1", resolve));
+          const proxyUrlNoMarker = "http://127.0.0.1:" + serverNoMarker.address().port + "/mock-hosted-proxy";
+          const bufferNoMarker = await provider._test.requestBufferViaTrustedBackend(
+            "https://edge.forgecdn.net/files/1/2/example.jar",
+            "CurseForge file",
+            { config: { proxyUrl: proxyUrlNoMarker }, projectId: 1, fileId: 2 }
+          );
+          assert.strictEqual(bufferNoMarker.toString("utf8"), "mock-proxied-file-bytes-no-marker", "A proxied download must succeed even without the x-anxos-curseforge-authenticated marker.");
+          process.exitCode = 0;
+        } finally {
+          await new Promise((resolve) => server.close(resolve));
+          await new Promise((resolve) => serverNoMarker.close(resolve));
+        }
+      })().catch((error) => {
+        console.error(error.stack || error.message);
+        process.exitCode = 1;
+      });
     `], {
       cwd: repoRoot,
       env: {
