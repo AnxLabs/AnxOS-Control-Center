@@ -16,7 +16,7 @@ Running log of release-hardening fixes for Codex context. Entries are factual su
 - Regression note: `startInstanceImpl` rename is internal only; exported `startInstance` name and
   call sites (`scheduleAutomaticRestart`, `restartInstance`) are unchanged.
 
-## Batch 2 — pending commit
+## Batch 2 — commit `a2cb940` (pushed to `dev`)
 
 - Fixed: Desktop `fileService.js` logged completed download local/remote paths via raw
   `console.info`, bypassing the diagnostics redaction pipeline entirely (only `console.error` is
