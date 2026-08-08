@@ -87,3 +87,21 @@ Running log of release-hardening fixes.
 - Deferred risk: user-configured paths under `/mnt/` or `/media/` can still appear in diagnostics, but
   adding those roots to the generic matcher could redact URL/API paths. Quoted or whitespace-containing
   paths also remain only partially redacted and require a separately scoped, quote-aware hardening pass.
+
+### Batch 6 — Balanced quoted private-path redaction
+
+- Fixed: balanced single-quoted and double-quoted private Linux and `C:\Users\` paths containing
+  whitespace were redacted only through the first space, leaving the remaining path suffix visible.
+- Fix: defined the supported private-root alternatives once and reused them for dedicated balanced
+  single-quote, balanced double-quote, and existing unquoted matchers. Quoted replacements run first,
+  replace the complete path interior, preserve the original quote characters, and stop at the matching
+  quote or newline. Existing unquoted behavior remains unchanged.
+- Added: regression coverage for every supported Linux root, Windows paths with spaces, multiple paths,
+  trailing punctuation/error details/prose, idempotence, existing unquoted behavior, deferred input
+  shapes, and a bounded quote-heavy performance guard.
+- Validation: `redaction:smoke`, JavaScript syntax checks, Diagnostics smoke and IPC authorization/error
+  contracts, Security page and IPC error-contract smoke suites, SSH redaction smoke, and repeated
+  sanitization checks all passed.
+- Deferred: bare structured path values with whitespace, diagnostic-specific path-field sanitization,
+  shell-escaped spaces, raw JSON-escaped paths, SSH paths split across chunks, `file://` URLs, and
+  malformed or unmatched quote recovery remain outside this batch.
