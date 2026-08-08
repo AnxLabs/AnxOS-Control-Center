@@ -10,6 +10,8 @@ const privatePaths = [
   ["C:\\Users\\private-user\\AppData\\Roaming\\AnxOS\\config.json", "[redacted-path]"],
   ["read /srv/anxos/private/agent.json", "read [redacted-path]"],
   ["read /opt/anxos/private/agent.json", "read [redacted-path]"],
+  ["inspect /var/lib/docker/volumes/customer-project/_data/config.json", "inspect [redacted-path]"],
+  ["read /var/log/playit/playit.log", "read [redacted-path]"],
 ];
 
 for (const [input, expected] of privatePaths) {
@@ -19,6 +21,17 @@ for (const [input, expected] of privatePaths) {
 const controls = [
   "https://example.test/srv/anxos/status",
   "https://example.test/opt/anxos/releases",
+  "https://example.test/var/lib/item",
+  "https://example.test/var/log/playit",
+  "GET /var/logs HTTP/1.1",
+  "GET /var/liberate HTTP/1.1",
+  "/var/cache/anxos/index.json",
+  "/var/run/anxos.sock",
+  "/usr/local/bin/docker",
+  "/etc/anxos/config.json",
+  "prefix/var/lib/data",
+  "/mnt/anxos/instances/server.json",
+  "/media/anx/Backups/server.tar.gz",
   "api/v1/servers/list",
   "alpha/beta/gamma",
   "provider --endpoint /api/v1/status --format json",

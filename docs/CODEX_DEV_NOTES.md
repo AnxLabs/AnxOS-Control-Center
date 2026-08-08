@@ -71,3 +71,19 @@ Running log of release-hardening fixes.
 - Added: a focused `redaction:smoke` suite covering all supported private roots plus negative cases
   for URLs, generic slash-delimited strings, command arguments, embedded path fragments, and
   unrelated text.
+
+### Batch 5 — Targeted `/var` private-path redaction
+
+- Fixed: private paths under `/var/lib/` and `/var/log/` could pass through shared diagnostics and
+  structured logging unchanged. These locations occur in AnxOS workflows through Docker volume
+  mountpoints and Playit log diagnostics.
+- Fix: added only the explicit `var/lib` and `var/log` alternatives to `PRIVATE_PATH`; matching was
+  not broadened to all of `/var/`, `/mnt/`, `/media/`, `/usr/`, or `/usr/local/`.
+- Added: focused positive coverage for Docker data and Playit log paths, plus negative coverage for
+  URLs, similar `/var` prefixes, `/var/cache/`, `/var/run/`, standard system paths, embedded path
+  fragments, and the intentionally deferred `/mnt/` and `/media/` roots.
+- Validation: `redaction:smoke`, JavaScript syntax checks, Diagnostics smoke and IPC authorization/error
+  contracts, Security page and IPC error-contract smoke suites, and SSH redaction smoke all passed.
+- Deferred risk: user-configured paths under `/mnt/` or `/media/` can still appear in diagnostics, but
+  adding those roots to the generic matcher could redact URL/API paths. Quoted or whitespace-containing
+  paths also remain only partially redacted and require a separately scoped, quote-aware hardening pass.
