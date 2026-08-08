@@ -205,6 +205,7 @@
     "website:setup:smoke": "node scripts/website-setup-smoke.js",
     "website:a11y:smoke": "node scripts/website-accessibility-smoke.js",
     "website:download:smoke": "node scripts/website-download-smoke.js",
+    "redaction:smoke": "node scripts/redaction-smoke.js",
     "diagnostics:smoke": "node scripts/diagnostics-smoke.js",
     "diagnostics:disk-stats:smoke": "node scripts/diagnostic-disk-stats-classification-smoke.js",
     "versioning:smoke": "node scripts/versioning-smoke.js",

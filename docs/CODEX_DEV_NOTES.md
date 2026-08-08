@@ -59,3 +59,15 @@ Running log of release-hardening fixes.
   flows complete well within that window. No smoke test exercises the manual-install session
   lifecycle directly — validated by code inspection plus the broader `marketplace:smoke` and
   `curseforge:server-pack-resolution:smoke` suites, which passed unchanged.
+
+### Batch 4 — Non-standard Linux private-path redaction
+
+- Fixed: `src/shared/redaction.js` redacted private paths only under `/home/`, `/Users/`, `/root/`,
+  and `C:\Users\`, allowing private paths rooted under common application locations such as `/srv/`
+  and `/opt/` to reach diagnostics and structured logs unchanged.
+- Fix: extended the existing `PRIVATE_PATH` Linux-root allowlist with only `srv` and `opt`, preserving
+  its established path boundaries and terminators to avoid broad redaction of URLs or generic
+  slash-delimited text.
+- Added: a focused `redaction:smoke` suite covering all supported private roots plus negative cases
+  for URLs, generic slash-delimited strings, command arguments, embedded path fragments, and
+  unrelated text.
