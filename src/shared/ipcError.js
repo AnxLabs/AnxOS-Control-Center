@@ -1,4 +1,4 @@
-const { sanitize } = require("./redaction");
+const { sanitizeForDiagnostics } = require("./redaction");
 
 const RETRYABLE_CODES = new Set([
   "AGENT_UNAVAILABLE", "ECONNREFUSED", "ENETUNREACH", "ETIMEDOUT", "NETWORK_ERROR",
@@ -40,7 +40,7 @@ function normalizeIpcError(error = {}, options = {}) {
   const retryable = firstValue(error?.retryable, sourceDetails.retryable, options.retryable, RETRYABLE_CODES.has(code)) === true;
   const provider = firstValue(error?.provider, sourceDetails.provider, options.provider, null);
   const causeCode = firstValue(error?.cause?.code, error?.causeCode, sourceDetails.causeCode, null);
-  const sanitized = sanitize({
+  const sanitized = sanitizeForDiagnostics({
     code,
     friendlyMessage,
     technicalDetails: {

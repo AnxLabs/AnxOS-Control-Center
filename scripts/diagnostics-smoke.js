@@ -49,7 +49,12 @@ async function main() {
   const validatedConfig = agentControl.validateConfig({ name: "Local Test Agent", host: "127.0.0.1", port: 48131, allowedFolders: [temp] });
   assert.strictEqual(validatedConfig.port, 48131);
   assert.throws(() => agentControl.validateConfig({ name: "Agent", host: "example.com", port: 80 }), /listening address|Port/i, "Agent configuration must reject unsafe host/port values.");
-  desktopDiagnostics.updateRuntimeState({ currentWorkspace: "agent-control", ownerAuthorized: true });
+  const diagnosticRuntimeState = desktopDiagnostics.updateRuntimeState({
+    currentWorkspace: "agent-control",
+    ownerAuthorized: true,
+    localPath: "C:\\Users\\Runtime User\\AnxOS Control Center\\runtime.json",
+  });
+  assert.strictEqual(diagnosticRuntimeState.localPath, "[redacted-path]", "Diagnostic runtime state must fully redact allowlisted path fields.");
   const untestedReadiness = desktopDiagnostics.captureSnapshot({ dependencyCheck: null, dependencyPlan: null });
   assert.strictEqual(untestedReadiness.readinessSummary.items.find((item) => item.id === "dependencies").state, "not-tested", "Diagnostics must not mark dependencies ready before a real check runs.");
   const dependencySummary = readiness.summarizeDependencyReadiness({
@@ -69,22 +74,35 @@ async function main() {
   });
   assert.strictEqual(tailnetOnly.state, "degraded", "Tailnet-only Tailscale must not be marked public-ready.");
   assert.strictEqual(tailnetOnly.context.providerCapabilities[0].publicInternet, false, "Tailnet-only provider capability summary must not claim public internet exposure.");
-  desktopDiagnostics.log("error", "renderer", "smoke-error", `Failed password=${secret}`, { providerMode: "agent", accessToken: "hidden" }, { file: "renderer" });
+  desktopDiagnostics.log("error", "renderer", "smoke-error", `Failed password=${secret}`, {
+    providerMode: "agent",
+    accessToken: "hidden",
+    backupRoot: "/opt/AnxOS Control Center/Backups/Nested Folder",
+  }, { file: "renderer" });
   const latestSnapshot = JSON.parse(fs.readFileSync(path.join(process.env.ANXOS_LOG_DIR, "latest-error.json"), "utf8"));
   assert.strictEqual(latestSnapshot.runtimeState.currentWorkspace, "agent-control");
   assert(Array.isArray(latestSnapshot.recentRelatedEntries) && Array.isArray(latestSnapshot.suggestedDiagnosticChecks));
   assert(latestSnapshot.runtimeState.readinessSummary?.items?.some((item) => item.id === "desktop"), "Latest error snapshot must include readiness context.");
+  assert.strictEqual(latestSnapshot.context.backupRoot, "[redacted-path]", "Latest-error snapshots must fully redact diagnostic path fields.");
+  assert.strictEqual(latestSnapshot.runtimeState.localPath, "[redacted-path]", "Latest-error runtime state must retain complete path-field redaction.");
   assert(!JSON.stringify(latestSnapshot).includes(secret), "Latest error snapshot must redact secrets before writing.");
 
   const logDir = path.join(temp, "logs");
   const logger = new StructuredLogger({ directory: logDir, source: "smoke", processName: "test", maxBytes: 500, retainedFiles: 2, retentionMs: 1000 });
-  logger.info("write", "Structured event", { password: secret, safe: true });
+  const structuredEntry = logger.info("write", "Structured event", {
+    password: secret,
+    safe: true,
+    remotePath: "/srv/Game Servers/Palworld/config.ini",
+  });
+  assert.strictEqual(structuredEntry.context.remotePath, "[redacted-path]", "Structured logger entries must fully redact diagnostic path fields.");
   logger.error("failure", Object.assign(new Error(`Failed with token=${jwt}`), { code: "SMOKE_FAILED" }), { apiKey: "hidden" });
   assert(fs.existsSync(path.join(logDir, "smoke.log")));
   assert(fs.existsSync(path.join(logDir, "live.log")));
   assert(fs.existsSync(path.join(logDir, "latest-error.json")));
-  logger.snapshot("runtime-state.json", { applicationRunning: true, authorization: "private" });
-  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(logDir, "runtime-state.json"), "utf8")).authorization, "[redacted]");
+  logger.snapshot("runtime-state.json", { applicationRunning: true, authorization: "private", executablePath: "/var/lib/AnxOS Data/bin/server" });
+  const persistedRuntimeState = JSON.parse(fs.readFileSync(path.join(logDir, "runtime-state.json"), "utf8"));
+  assert.strictEqual(persistedRuntimeState.authorization, "[redacted]");
+  assert.strictEqual(persistedRuntimeState.executablePath, "[redacted-path]", "Persisted diagnostic snapshots must fully redact path fields.");
   for (let index = 0; index < 30; index += 1) logger.info("rotation", `event-${index}-${"x".repeat(100)}`, {});
   assert(fs.existsSync(path.join(logDir, "smoke.log.1")), "Log rotation should retain bounded history.");
   const blockedPath = path.join(temp, "not-a-directory");

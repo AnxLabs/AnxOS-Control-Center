@@ -1707,7 +1707,7 @@ async function captureRemoteDiagnostics(nodeId) {
     const safeId = String(bundle.identity?.deviceId || node.id).replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 80);
     const directory = path.join(diagnostics.getDirectory(), "remote", safeId);
     fs.mkdirSync(directory, { recursive: true });
-    fs.writeFileSync(path.join(directory, "diagnostics.json"), `${JSON.stringify(require("../shared/redaction").sanitize(bundle), null, 2)}\n`, { mode: 0o600 });
+    fs.writeFileSync(path.join(directory, "diagnostics.json"), `${JSON.stringify(require("../shared/redaction").sanitizeForDiagnostics(bundle), null, 2)}\n`, { mode: 0o600 });
     const result = { captured: true, nodeId: node.id, deviceId: safeId };
     remoteDiagnosticsCache.set(node.id, { capturedAt: Date.now(), result });
     diagnostics.log("info", "agent-control", "remote-diagnostics", "Remote Agent diagnostics captured", { nodeId: node.id, deviceId: safeId }, { file: "agent" });

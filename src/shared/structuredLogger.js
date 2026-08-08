@@ -1,6 +1,6 @@
 const fs = require("fs");
 const path = require("path");
-const { sanitize } = require("./redaction");
+const { sanitizeForDiagnostics } = require("./redaction");
 
 const DEFAULT_MAX_BYTES = 2 * 1024 * 1024;
 const DEFAULT_RETAINED_FILES = 3;
@@ -10,7 +10,7 @@ function safeWriteJson(filePath, value) {
   try {
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     const temporary = `${filePath}.${process.pid}.tmp`;
-    fs.writeFileSync(temporary, `${JSON.stringify(sanitize(value), null, 2)}\n`, { mode: 0o600 });
+    fs.writeFileSync(temporary, `${JSON.stringify(sanitizeForDiagnostics(value), null, 2)}\n`, { mode: 0o600 });
     fs.renameSync(temporary, filePath);
     return true;
   } catch { return false; }
@@ -57,7 +57,7 @@ class StructuredLogger {
 
   write(level, operation, message, context = {}, options = {}) {
     try {
-      const entry = sanitize({
+      const entry = sanitizeForDiagnostics({
         timestamp: new Date().toISOString(), severity: level, source: options.source || this.source,
         process: options.process || this.processName, operation: operation || "event", message: String(message || ""),
         errorCode: options.errorCode || context?.code || null, stack: options.stack || context?.stack || null,

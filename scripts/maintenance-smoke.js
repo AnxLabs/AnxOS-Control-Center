@@ -39,6 +39,7 @@ async function main() {
     const scan = await maintenance.scan(paths);
     assert(scan.categories.some((category) => category.id === "electron-cache"), "scan should include electron-cache.");
     const cache = scan.categories.find((category) => category.id === "electron-cache");
+    assert(cache.pathLabel && cache.pathLabel !== "[redacted-path]", "Maintenance operational results must retain their path label value.");
     assert(cache.sizeBytes >= 1536, "electron cache size should be measured from real files.");
     assert.strictEqual(cache.restartRequired, true, "electron cache should require restart.");
     const session = scan.categories.find((category) => category.id === "session-cache");

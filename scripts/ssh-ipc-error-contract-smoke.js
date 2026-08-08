@@ -63,10 +63,13 @@ async function main() {
 
   serviceInstance.emit("session-error", { sessionId: "session-a", code: "SSH_FAILED", message: "password=event-secret" });
   serviceInstance.emit("session-output", { sessionId: "session-a", chunk: "Authorization: Bearer output-secret" });
+  const operationalWorkingDirectory = "/srv/Game Servers/Palworld";
+  serviceInstance.emit("session-updated", { id: "session-a", connected: true, workingDirectory: operationalWorkingDirectory });
   const serializedEvents = JSON.stringify(rendererEvents);
   assert(!serializedEvents.includes("event-secret"));
   assert(!serializedEvents.includes("output-secret"));
   assert(serializedEvents.includes("[redacted]"));
+  assert(rendererEvents.some((event) => event.payload?.session?.workingDirectory === "[redacted-path] Servers/Palworld"), "SSH operational session state must retain default sanitizer behavior rather than enabling full path-field redaction.");
   console.log("SSH IPC error contract smoke checks passed.");
 }
 

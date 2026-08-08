@@ -8,7 +8,7 @@ const os = require("os");
 const path = require("path");
 const { openExternalUrl } = require("./externalUrlService");
 const { OFFICIAL_SITE_ORIGIN } = require("../shared/officialSite");
-const { sanitize } = require("../shared/redaction");
+const { sanitize, sanitizeForDiagnostics } = require("../shared/redaction");
 const { getReleaseInfo } = require("../shared/releaseConfig");
 
 const DEFAULT_UPDATE_REPOSITORY = "bungopam-byte/AnxOS-Control-Center-Releases";
@@ -461,7 +461,7 @@ class UpdateManager extends EventEmitter {
   }
 
   log(message, details = {}, level = "info") {
-    const safeDetails = sanitize(details);
+    const safeDetails = sanitizeForDiagnostics(details);
     if (safeDetails && typeof safeDetails === "object" && !Array.isArray(safeDetails)) delete safeDetails.stack;
     const entry = sanitize({ at: new Date().toISOString(), level, message, details: safeDetails });
     this.logs.push(entry);

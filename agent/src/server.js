@@ -1,5 +1,5 @@
 const http = require("http");
-const { sanitize } = require("../../src/shared/redaction");
+const { sanitizeForDiagnostics } = require("../../src/shared/redaction");
 const { URL } = require("url");
 
 const { handleActionInvoke, handleActionsList } = require("./routes/actions");
@@ -105,7 +105,7 @@ function sendResult(response, result) {
 
 function sanitizeErrorDetails(error, extra = {}) {
   const details = error?.details && typeof error.details === "object" ? error.details : {};
-  const sanitized = sanitize({
+  const sanitized = sanitizeForDiagnostics({
     ...details,
     ...extra,
     name: error?.name || null,

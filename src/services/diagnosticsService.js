@@ -4,7 +4,7 @@ const os = require("os");
 const path = require("path");
 const { app, dialog, shell } = require("electron");
 const packageJson = require("../../package.json");
-const { sanitize } = require("../shared/redaction");
+const { sanitizeForDiagnostics } = require("../shared/redaction");
 const { StructuredLogger, safeWriteJson } = require("../shared/structuredLogger");
 const { buildEnvironmentReadinessSummary } = require("./readinessService");
 const { getReleaseInfo } = require("../shared/releaseConfig");
@@ -34,8 +34,8 @@ function buildReadinessFromRuntime(state = runtimeState) {
 }
 
 function updateRuntimeState(patch = {}) {
-  const next = sanitize({ ...runtimeState, ...patch, updatedAt: new Date().toISOString() });
-  runtimeState = sanitize({ ...next, readinessSummary: buildReadinessFromRuntime(next) });
+  const next = sanitizeForDiagnostics({ ...runtimeState, ...patch, updatedAt: new Date().toISOString() });
+  runtimeState = sanitizeForDiagnostics({ ...next, readinessSummary: buildReadinessFromRuntime(next) });
   logger.snapshot("runtime-state.json", runtimeState);
   return runtimeState;
 }
@@ -73,14 +73,14 @@ function readLogs(options = {}) {
 async function openFolder() { await shell.openPath(getDirectory()); return { opened: true }; }
 async function copySummary() {
   const latest = (() => { try { return JSON.parse(fs.readFileSync(path.join(getDirectory(), "latest-error.json"), "utf8")); } catch { return null; } })();
-  return JSON.stringify(sanitize({ runtimeState, readinessSummary: buildReadinessFromRuntime(), latestError: latest, recent: readLogs({ sources: ["live"], limit: 30 }).entries }), null, 2);
+  return JSON.stringify(sanitizeForDiagnostics({ runtimeState, readinessSummary: buildReadinessFromRuntime(), latestError: latest, recent: readLogs({ sources: ["live"], limit: 30 }).entries }), null, 2);
 }
 
 async function exportBundle(parentWindow = null) {
   const result = await dialog.showSaveDialog(parentWindow || undefined, { title: "Export AnxOS Diagnostic Bundle", defaultPath: `anxos-diagnostics-${new Date().toISOString().replace(/[:.]/g, "-")}.json`, filters: [{ name: "JSON", extensions: ["json"] }] });
   if (result.canceled || !result.filePath) return { canceled: true };
   const release = getReleaseInfo();
-  const bundle = sanitize({ generatedAt: new Date().toISOString(), application: { name: "AnxOS Control Center", version: release.versionLabel, build: release.buildLabel, channel: release.channel, releaseLabel: release.compactLabel, packageVersion: packageJson.version, platform: os.platform(), release: os.release(), architecture: os.arch() }, agentVersion: getBundledLocalAgentVersion("unavailable"), readinessSummary: buildReadinessFromRuntime(), runtimeState, latestError: (() => { try { return JSON.parse(fs.readFileSync(path.join(getDirectory(), "latest-error.json"), "utf8")); } catch { return null; } })(), logs: readLogs({ limit: 500 }).entries });
+  const bundle = sanitizeForDiagnostics({ generatedAt: new Date().toISOString(), application: { name: "AnxOS Control Center", version: release.versionLabel, build: release.buildLabel, channel: release.channel, releaseLabel: release.compactLabel, packageVersion: packageJson.version, platform: os.platform(), release: os.release(), architecture: os.arch() }, agentVersion: getBundledLocalAgentVersion("unavailable"), readinessSummary: buildReadinessFromRuntime(), runtimeState, latestError: (() => { try { return JSON.parse(fs.readFileSync(path.join(getDirectory(), "latest-error.json"), "utf8")); } catch { return null; } })(), logs: readLogs({ limit: 500 }).entries });
   fs.writeFileSync(result.filePath, `${JSON.stringify(bundle, null, 2)}\n`, { mode: 0o600 });
   log("info", "diagnostics", "export", "Sanitized diagnostic bundle exported", { destinationType: "user-selected-json" });
   return { canceled: false, exported: true };

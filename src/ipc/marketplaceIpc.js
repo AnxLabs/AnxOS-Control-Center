@@ -24,7 +24,7 @@ const { audit, requirePermission } = require("../services/securityService");
 const { requireNodeContext } = require("./nodeContext");
 const { openExternalUrl } = require("../services/externalUrlService");
 const { normalizeIpcError } = require("../shared/ipcError");
-const { sanitize } = require("../shared/redaction");
+const { sanitizeForDiagnostics } = require("../shared/redaction");
 const crypto = require("crypto");
 
 let progressForwarderRegistered = false;
@@ -41,7 +41,7 @@ function getSafeMarketplaceDetails(details = {}) {
     debugMessage: _debugMessage,
     ...safeFields
   } = details && typeof details === "object" ? details : {};
-  return sanitize(safeFields);
+  return sanitizeForDiagnostics(safeFields);
 }
 
 function getMarketplaceErrorMessage(error) {

@@ -1,6 +1,6 @@
 const assert = require("assert").strict;
 const { performance } = require("perf_hooks");
-const { redactString, sanitize } = require("../src/shared/redaction");
+const { redactString, sanitize, sanitizeForDiagnostics } = require("../src/shared/redaction");
 
 console.log("Checking private path redaction boundaries...");
 
@@ -48,6 +48,77 @@ for (const [input, expected] of quotedPrivatePaths) {
 
 const sanitizedQuotedPath = sanitize({ message: quotedPrivatePaths[0][0], nested: { pathText: quotedPrivatePaths[9][0] } });
 assert.deepStrictEqual(sanitize(sanitizedQuotedPath), sanitizedQuotedPath, "Repeated structured sanitization must remain idempotent.");
+
+const diagnosticPathSource = {
+  localPath: "C:\\Users\\Private User\\Downloads\\AnxOS Control Center\\server.zip",
+  remotePath: "/home/Private User/Game Servers/world.zip",
+  backupRoot: "/Users/Backup User/AnxOS Backups/world.zip",
+  binaryPath: "/root/AnxOS Tools/bin/server",
+  configPathUsed: "/srv/Game Servers/config/server.json",
+  logPathUsed: "/opt/AnxOS Control Center/logs/server.log",
+  workingDirectory: "/var/lib/AnxOS Data/Nested Folder",
+  executablePath: "/var/log/AnxOS Control Center/helper",
+  nested: {
+    remotePath: [
+      "/home/Array User/First Folder/file.txt",
+      "relative/folder/file.txt",
+      "https://example.test/home/Array%20User/file.txt",
+      "/etc/anxos/config.json",
+      "/usr/local/bin/docker",
+      "/var/cache/anxos/index.json",
+      "/var/run/anxos.sock",
+      "/mnt/anxos/file.txt",
+      "/media/anx/file.txt",
+      "[redacted-path]",
+      { localPath: "/Users/Nested User/Second Folder/file.txt" },
+    ],
+  },
+};
+const diagnosticPathSourceBefore = JSON.stringify(diagnosticPathSource);
+const defaultDiagnosticPathOutput = sanitize(diagnosticPathSource);
+assert.notStrictEqual(defaultDiagnosticPathOutput.localPath, "[redacted-path]", "Default sanitize behavior must not enable full diagnostic path-field redaction.");
+assert(defaultDiagnosticPathOutput.localPath.includes(" User\\Downloads"), "Default sanitize behavior must retain its existing whitespace-suffix behavior.");
+
+const diagnosticPathOutput = sanitizeForDiagnostics(diagnosticPathSource);
+for (const field of ["localPath", "remotePath", "backupRoot", "binaryPath", "configPathUsed", "logPathUsed", "workingDirectory", "executablePath"]) {
+  assert.strictEqual(diagnosticPathOutput[field], "[redacted-path]", `Diagnostic field ${field} must redact its complete supported absolute path.`);
+}
+assert.deepStrictEqual(diagnosticPathOutput.nested.remotePath.slice(0, 10), [
+  "[redacted-path]",
+  "relative/folder/file.txt",
+  "https://example.test/home/Array%20User/file.txt",
+  "/etc/anxos/config.json",
+  "/usr/local/bin/docker",
+  "/var/cache/anxos/index.json",
+  "/var/run/anxos.sock",
+  "/mnt/anxos/file.txt",
+  "/media/anx/file.txt",
+  "[redacted-path]",
+]);
+assert.strictEqual(diagnosticPathOutput.nested.remotePath[10].localPath, "[redacted-path]", "Objects inside diagnostic path arrays must recurse normally.");
+assert.strictEqual(JSON.stringify(diagnosticPathSource), diagnosticPathSourceBefore, "Diagnostic sanitization must not mutate its source object.");
+assert.deepStrictEqual(sanitizeForDiagnostics(diagnosticPathOutput), diagnosticPathOutput, "Repeated diagnostic sanitization must remain idempotent.");
+assert.deepStrictEqual(sanitize(diagnosticPathOutput), diagnosticPathOutput, "Default sanitization after diagnostic sanitization must remain stable.");
+
+const excludedDiagnosticFields = {
+  path: "/home/Private User/path value",
+  pathname: "/home/Private User/pathname value",
+  filePath: "/home/Private User/file path",
+  pathLabel: "/home/Private User/path label",
+  mountpoint: "/home/Private User/mount point",
+  filesystemRoot: "/home/Private User/filesystem root",
+  sourcePath: "/home/Private User/source path",
+  destinationPath: "/home/Private User/destination path",
+};
+assert.deepStrictEqual(sanitizeForDiagnostics(excludedDiagnosticFields), sanitize(excludedDiagnosticFields), "Excluded operational field names must retain default sanitizer behavior.");
+
+const deepDiagnosticSource = { nested: [{ nested: [{ nested: [{ localPath: "/srv/Deep Structure/Folder/file.txt" }] }] }] };
+assert.strictEqual(sanitizeForDiagnostics(deepDiagnosticSource).nested[0].nested[0].nested[0].localPath, "[redacted-path]", "Diagnostic path fields must redact within normal depth limits.");
+assert.strictEqual(sanitizeForDiagnostics({ localPath: 42, remotePath: false, backupRoot: null }).localPath, 42, "Non-string diagnostic path fields must retain normal sanitizer behavior.");
+assert.strictEqual(sanitizeForDiagnostics({ payload: Buffer.from("path") }).payload, "[buffer:4]", "Diagnostic sanitization must preserve Buffer handling.");
+const circularDiagnosticSource = { localPath: "/home/Circular User/file.txt" };
+circularDiagnosticSource.self = circularDiagnosticSource;
+assert.strictEqual(sanitizeForDiagnostics(circularDiagnosticSource).self, "[circular]", "Diagnostic sanitization must preserve circular-reference handling.");
 
 const controls = [
   "https://example.test/srv/anxos/status",
@@ -117,6 +188,7 @@ for (const [input, expected] of deferredCases) {
 const quoteHeavyInput = `${'message "ordinary quoted prose" and \'single quoted prose\' '.repeat(260)}open "/opt/AnxOS Control Center/resources/app.asar"`;
 const performanceStart = performance.now();
 const quoteHeavyOutput = redactString(quoteHeavyInput);
+sanitizeForDiagnostics({ nested: Array.from({ length: 200 }, (_, index) => ({ localPath: `/home/Performance User/Folder ${index}/file.txt` })) });
 const quoteHeavyElapsedMs = performance.now() - performanceStart;
 assert(quoteHeavyOutput.endsWith('open "[redacted-path]"'), "Quote-heavy input must still redact the final balanced private path.");
 assert(quoteHeavyElapsedMs < 250, `Quote-heavy redaction exceeded the 250 ms guard: ${quoteHeavyElapsedMs.toFixed(2)} ms.`);

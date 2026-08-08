@@ -9,6 +9,19 @@ const PRIVATE_PATH_BOUNDARY_SOURCE = String.raw`(^|[\s"'=(,:[{])`;
 const DOUBLE_QUOTED_PRIVATE_PATH = new RegExp(`${PRIVATE_PATH_BOUNDARY_SOURCE}"(${PRIVATE_PATH_PREFIX_SOURCE}[^"\\r\\n]*)"`, "g");
 const SINGLE_QUOTED_PRIVATE_PATH = new RegExp(`${PRIVATE_PATH_BOUNDARY_SOURCE}'(${PRIVATE_PATH_PREFIX_SOURCE}[^'\\r\\n]*)'`, "g");
 const PRIVATE_PATH = new RegExp(`${PRIVATE_PATH_BOUNDARY_SOURCE}(${PRIVATE_PATH_PREFIX_SOURCE}[^\\s"',)}\\]]+)`, "g");
+const ABSOLUTE_PRIVATE_PATH = new RegExp(`^${PRIVATE_PATH_PREFIX_SOURCE}`);
+const DIAGNOSTIC_PATH_FIELDS = new Set([
+  "localPath",
+  "remotePath",
+  "backupRoot",
+  "binaryPath",
+  "configPathUsed",
+  "logPathUsed",
+  "workingDirectory",
+  "executablePath",
+]);
+const DIAGNOSTIC_PATH_FIELDS_ENABLED = Symbol("diagnosticPathFieldsEnabled");
+const DIAGNOSTIC_PATH_FIELD_VALUE = Symbol("diagnosticPathFieldValue");
 const LARGE_BASE64 = /\b[A-Za-z0-9+/]{160,}={0,2}\b/g;
 const PRIVATE_KEY_BLOCK = /-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----[\s\S]*?-----END (?:[A-Z0-9 ]+ )?PRIVATE KEY-----/g;
 // Catches privateKey=-----BEGIN...----- assignments even when truncated (no matching END marker).
@@ -35,7 +48,10 @@ function sanitize(value, options = {}, seen = new WeakSet()) {
   const depth = Number(options.depth || 0);
   const maxDepth = Number(options.maxDepth || 8);
   if (value === null || value === undefined || typeof value === "boolean" || typeof value === "number") return value;
-  if (typeof value === "string") return redactString(value).slice(0, Number(options.maxStringLength || 16000));
+  if (typeof value === "string") {
+    if (options[DIAGNOSTIC_PATH_FIELD_VALUE] === true && ABSOLUTE_PRIVATE_PATH.test(value)) return "[redacted-path]";
+    return redactString(value).slice(0, Number(options.maxStringLength || 16000));
+  }
   if (typeof value === "bigint") return String(value);
   if (typeof value === "function" || typeof value === "symbol") return undefined;
   if (value instanceof Error) {
@@ -47,13 +63,29 @@ function sanitize(value, options = {}, seen = new WeakSet()) {
     if (seen.has(value)) return "[circular]";
     seen.add(value);
     if (Array.isArray(value)) return value.slice(0, 200).map((entry) => sanitize(entry, { ...options, depth: depth + 1 }, seen));
+    const objectOptions = options[DIAGNOSTIC_PATH_FIELD_VALUE] === true
+      ? { ...options, [DIAGNOSTIC_PATH_FIELD_VALUE]: false }
+      : options;
     const result = {};
     for (const [key, entry] of Object.entries(value).slice(0, 200)) {
-      result[key] = SENSITIVE_KEY.test(key) ? "[redacted]" : sanitize(entry, { ...options, depth: depth + 1 }, seen);
+      if (SENSITIVE_KEY.test(key)) {
+        result[key] = "[redacted]";
+        continue;
+      }
+      const childOptions = {
+        ...objectOptions,
+        depth: depth + 1,
+        [DIAGNOSTIC_PATH_FIELD_VALUE]: objectOptions[DIAGNOSTIC_PATH_FIELDS_ENABLED] === true && DIAGNOSTIC_PATH_FIELDS.has(key),
+      };
+      result[key] = sanitize(entry, childOptions, seen);
     }
     return result;
   }
   return redactString(value);
 }
 
-module.exports = { SENSITIVE_KEY, redactString, sanitize };
+function sanitizeForDiagnostics(value, options = {}) {
+  return sanitize(value, { ...options, [DIAGNOSTIC_PATH_FIELDS_ENABLED]: true });
+}
+
+module.exports = { SENSITIVE_KEY, redactString, sanitize, sanitizeForDiagnostics };

@@ -16,7 +16,7 @@ const {
 } = require("./marketplaceInstallContext");
 const modrinthProvider = require("./providers/modrinthProvider");
 const curseforgeProvider = require("./providers/curseforgeProvider");
-const { sanitize } = require("../shared/redaction");
+const { sanitizeForDiagnostics } = require("../shared/redaction");
 const { normalizeDiskEvidence } = require("../shared/diskSpace");
 const { CLASSIFICATIONS, classifyServerCompatibility } = require("../shared/marketplaceServerCompatibility");
 const longOperations = require("../shared/longOperationService");
@@ -161,7 +161,7 @@ async function withCurseForgeBrowseFallback(nodeId, operation) {
 
 function serializeError(error, context = {}) {
   const details = error?.details && typeof error.details === "object" ? error.details : {};
-  const serialized = sanitize({
+  const serialized = sanitizeForDiagnostics({
     ...context,
     name: error?.name || null,
     code: error?.code || null,

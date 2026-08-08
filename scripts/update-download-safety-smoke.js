@@ -45,10 +45,15 @@ async function main() {
   const port = await listen(server);
   const manager = new UpdateManager();
 
-  manager.log("redaction fixture", { url: "https://user:password@example.invalid/update?token=secret-value", stack: "secret stack" });
+  manager.log("redaction fixture", {
+    url: "https://user:password@example.invalid/update?token=secret-value",
+    stack: "secret stack",
+    localPath: "C:\\Users\\Update User\\Downloads\\AnxOS Control Center.exe",
+  });
   const serializedLogs = JSON.stringify(manager.getState().logs);
   assert(!serializedLogs.includes("password") && !serializedLogs.includes("secret-value"), "renderer-visible update logs must redact credentials.");
   assert(!serializedLogs.includes("secret stack"), "renderer-visible update logs must omit stack traces.");
+  assert(serializedLogs.includes('"localPath":"[redacted-path]"'), "Update diagnostic history must fully redact allowlisted path fields.");
 
   try {
     const committedPath = path.join(root, "update.bin");
