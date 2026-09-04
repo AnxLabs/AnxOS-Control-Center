@@ -820,7 +820,10 @@ let lastLoggedAmpUrlSource = null;
 let latestInstancesSnapshot = null;
 let latestInstancesSnapshotAt = 0;
 let latestInstancesSnapshotNodeId = null;
-let latestInstanceMetrics = null;
+const instanceMetricsStore = window.AnxInstanceMetrics.createStore();
+const instanceMetricsInFlight = new Map();
+let instanceMetricsRequestSerial = 0;
+const INSTANCE_METRICS_MAX_CONCURRENCY = 3;
 let marketplaceRequestInFlight = false;
 let marketplaceInstallInFlight = false;
 let marketplaceCatalog = { categories: [], templates: [] };
@@ -846,6 +849,13 @@ let activeMarketplaceOperationId = null;
 let activeMarketplaceInstallNodeId = null;
 let marketplaceLocalDownloadEntries = [];
 let latestMarketplaceDownloads = [];
+let marketplaceDownloadsRequestSerial = 0;
+// Resource existence is authoritative data; transient work is an overlay keyed
+// by the stable resource id. An operation must never decide whether its owner
+// remains mounted in the renderer.
+const instanceOperationStore = window.AnxResourceOperations.createStore();
+const downloadOperationStore = window.AnxResourceOperations.createStore();
+const instanceOperationCompletionTimers = new Map();
 let marketplaceManualRecoveryState = null;
 let marketplaceProviderActive = "modrinth";
 let marketplaceProviderMode = "featured";
@@ -1009,6 +1019,7 @@ let consoleOpenInstanceIds = [];
 let consoleBufferedEntries = [];
 let consoleLogsRequestInFlight = false;
 let instanceConsolePollTimerId = null;
+let instancesPagePollTimerId = null;
 let monitoringConsolePollTimerId = null;
 let consoleSuppressAutoSelect = false;
 let consoleAutoScrollSuppressed = false;
@@ -1110,6 +1121,7 @@ let sshSessionPollInFlight = false;
 const AMP_REFRESH_INTERVAL_MS = 2000;
 const DOCKER_STATS_REFRESH_INTERVAL_MS = 5000;
 const CONSOLE_LOG_REFRESH_INTERVAL_MS = 2000;
+const INSTANCE_PAGE_REFRESH_INTERVAL_MS = 5000;
 const FILE_INLINE_EDIT_LIMIT_BYTES = 1024 * 1024;
 const FILE_LARGE_TRANSFER_WARN_BYTES = 512 * 1024 * 1024;
 const FILES_NODE_SERVER_PREFIX = "files-node-server:";
@@ -4117,8 +4129,10 @@ function showPage(pageName) {
 
   if (safePageName === "instances") {
     refreshInstances();
+    startInstancesPagePolling();
     syncInstanceConsolePolling();
   } else {
+    stopInstancesPagePolling();
     stopInstanceConsolePolling();
   }
 
@@ -4129,7 +4143,7 @@ function showPage(pageName) {
   if (safePageName === "console") {
     consoleSuppressAutoSelect = false;
     renderConsoleWorkspace();
-    refreshInstances({ refreshMetrics: false }).then(() => {
+    refreshInstances().then(() => {
       refreshConsoleMetrics();
       refreshConsoleLogs({ silent: true });
       syncMonitoringConsolePolling();
@@ -10464,6 +10478,44 @@ function findInstance(instanceId = selectedInstanceId) {
   return getInstances().find((instance) => instance?.id === instanceId) || null;
 }
 
+function getInstanceOperation(instanceId) {
+  return instanceOperationStore.getOperation(instanceId);
+}
+
+// Friendly present-progressive labels for instance operation overlays. The
+// naive `${type}ing…` construction produced misspellings such as "Stoping…".
+function getInstanceOperationLabel(type) {
+  const labels = {
+    start: "Starting…",
+    stop: "Stopping…",
+    reload: "Reloading…",
+    restart: "Reloading…",
+    update: "Updating…",
+  };
+  return labels[type] || `${type} in progress`;
+}
+
+function setInstanceOperation(instanceId, patch) {
+  const operation = instanceOperationStore.updateOperation(instanceId, patch);
+  renderInstanceRows(getInstances());
+  setInstanceDetails(findInstance(selectedInstanceId));
+  updateInstanceActionButtons();
+  return operation;
+}
+
+function finishInstanceOperation(instanceId, type, status, error = null) {
+  const now = Date.now();
+  setInstanceOperation(instanceId, { type, status, error, progress: status === "success" ? 100 : undefined, updatedAt: now, completedAt: now });
+  const previousTimer = instanceOperationCompletionTimers.get(instanceId);
+  if (previousTimer) window.clearTimeout(previousTimer);
+  if (status === "failed") return;
+  const timer = window.setTimeout(() => {
+    if (instanceOperationStore.clearOperation(instanceId, type)) renderInstanceRows(getInstances());
+    instanceOperationCompletionTimers.delete(instanceId);
+  }, 1200);
+  instanceOperationCompletionTimers.set(instanceId, timer);
+}
+
 function updateInstanceSnapshot(instanceId, patch = {}) {
   if (!latestInstancesSnapshot || !instanceId) {
     return false;
@@ -10902,7 +10954,16 @@ async function copyInstanceAddress(instance, button = null) {
 }
 
 function getInstanceMetrics(instanceId = selectedInstanceId) {
-  return latestInstanceMetrics?.id === instanceId ? latestInstanceMetrics : null;
+  return instanceMetricsStore.getSample(instanceId);
+}
+
+function getInstanceMetricsPlaceholder(instance) {
+  if (!isInstanceRunning(instance)) return "Unavailable";
+  const status = instanceMetricsStore.getStatus(instance.id);
+  if (["idle", "loading"].includes(status)) return "Loading metrics…";
+  if (status === "refreshing") return "Refreshing…";
+  if (status === "stale") return "Reconnecting…";
+  return "Metrics unavailable";
 }
 
 function getInstanceRowMetrics(instance) {
@@ -13178,15 +13239,20 @@ function buildInstanceAddressCell(instance) {
 
 function buildInstanceStatePill(instance) {
   const pill = document.createElement("span");
-  const state = instance?.state || "Stopped";
-  pill.className = `instance-state is-${getInstanceStateClass(state)}`;
+  const operation = getInstanceOperation(instance?.id);
+  const state = operation?.status === "running"
+    ? getInstanceOperationLabel(operation.type)
+    : operation?.status === "failed" ? "Reload failed" : operation?.status === "success" ? "Ready" : instance?.state || "Stopped";
+  const stateClass = operation?.status === "running" ? "reloading" : operation?.status === "failed" ? "failed" : getInstanceStateClass(state);
+  pill.className = `instance-state is-${stateClass}`;
   pill.textContent = state;
+  if (operation?.error) pill.title = operation.error;
   return pill;
 }
 
 function buildInstanceMetricCell(value) {
   const wrapper = document.createElement("span");
-  wrapper.className = value === "Unavailable" ? "instance-metric-cell is-muted" : "instance-metric-cell";
+  wrapper.className = /Unavailable|Loading|Refreshing|Reconnecting/i.test(value) ? "instance-metric-cell is-muted" : "instance-metric-cell";
   wrapper.textContent = value;
   return wrapper;
 }
@@ -13222,7 +13288,7 @@ function buildInstanceActionCell(instance) {
   const actions = [
     { label: isFiveMSetupRequired(instance) ? "Configure" : "Start", action: "start", disabled: !canStartInstance(instance) },
     { label: "Stop", action: "stop", disabled: !canStopInstance(instance) },
-    { label: "Restart", action: "restart", disabled: !canRestartInstance(instance) },
+    { label: "Reload", action: "restart", disabled: !canRestartInstance(instance) },
     { label: "Expose", action: "expose-share", disabled: !getInstanceAccessSuggestions(instance).some((suggestion) => suggestion.compatible !== false && suggestion.localPort) },
     { label: "Share", action: "share-server", disabled: !getInstancePrimaryPort(instance) },
   ];
@@ -13233,7 +13299,16 @@ function buildInstanceActionCell(instance) {
     button.className = "inline-action";
     button.dataset.instanceRowAction = item.action;
     button.dataset.instanceRowDisabled = item.disabled ? "true" : "false";
-    button.textContent = item.label;
+    if (item.action === "restart") {
+      const icon = document.createElement("span");
+      icon.className = "operation-reload-icon";
+      icon.setAttribute("aria-hidden", "true");
+      icon.textContent = "↻";
+      button.append(icon, document.createTextNode(item.label));
+      button.classList.toggle("is-operating", getInstanceOperation(instance.id)?.type === "reload" && getInstanceOperation(instance.id)?.status === "running");
+    } else {
+      button.textContent = item.label;
+    }
     button.disabled = item.disabled;
     button.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -13247,42 +13322,110 @@ function buildInstanceActionCell(instance) {
 }
 
 function renderInstanceRows(instances) {
-  clearInstanceRows();
-
   if (!instancesList) {
     return;
   }
-
+  const existingRows = new Map([...instancesList.querySelectorAll("tr[data-instance-id]")].map((row) => [row.dataset.instanceId, row]));
   instances.forEach((instance) => {
-    const row = document.createElement("tr");
-    row.dataset.instanceId = instance.id || "";
-    row.dataset.instanceState = getInstanceStateClass(instance?.state);
-    row.tabIndex = 0;
-    row.addEventListener("click", () => selectInstance(instance.id));
-    row.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        selectInstance(instance.id);
-      }
-    });
-
-    const metrics = getInstanceRowMetrics(instance);
-    addInstanceCell(row, buildInstanceNameCell(instance));
-    addInstanceCell(row, getInstanceTypeLabel(instance));
-    addInstanceCell(row, buildInstanceStatePill(instance));
-    addInstanceCell(row, buildInstanceAddressCell(instance));
-    addInstanceCell(row, buildInstanceMetricCell(formatInstanceCpuPercent(metrics)));
-    addInstanceCell(row, buildInstanceMetricCell(formatInstanceMemoryUsage(instance, metrics)));
-    addInstanceCell(row, buildInstanceMetricCell(formatDuration(metrics?.uptimeSeconds)));
-    addInstanceCell(row, buildInstanceTagsCell(instance));
-    addInstanceCell(row, buildInstanceActionCell(instance));
+    const row = existingRows.get(instance.id) || document.createElement("tr");
+    existingRows.delete(instance.id);
+    updateInstanceRow(row, instance);
     instancesList.appendChild(row);
   });
+  existingRows.forEach((row) => row.remove());
 
   filterInstanceRows();
 }
 
+function updateInstanceRow(row, instance) {
+  if (!row || !instance) return;
+  row.replaceChildren();
+  row.dataset.instanceId = instance.id || "";
+  row.dataset.instanceState = getInstanceStateClass(instance?.state);
+  row.tabIndex = 0;
+  row.onclick = () => selectInstance(instance.id);
+  row.onkeydown = (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      selectInstance(instance.id);
+    }
+  };
+
+  const metrics = getInstanceRowMetrics(instance);
+  const metricsPlaceholder = metrics ? null : getInstanceMetricsPlaceholder(instance);
+  addInstanceCell(row, buildInstanceNameCell(instance));
+  addInstanceCell(row, getInstanceTypeLabel(instance));
+  addInstanceCell(row, buildInstanceStatePill(instance));
+  addInstanceCell(row, buildInstanceAddressCell(instance));
+  addInstanceCell(row, buildInstanceMetricCell(metricsPlaceholder || formatInstanceCpuPercent(metrics)));
+  addInstanceCell(row, buildInstanceMetricCell(metricsPlaceholder || formatInstanceMemoryUsage(instance, metrics)));
+  addInstanceCell(row, buildInstanceMetricCell(metricsPlaceholder || formatDuration(metrics?.uptimeSeconds)));
+  addInstanceCell(row, buildInstanceTagsCell(instance));
+  addInstanceCell(row, buildInstanceActionCell(instance));
+}
+
+function renderInstanceMetricsUpdate(instanceId) {
+  const instance = findInstance(instanceId);
+  const row = [...(instancesList?.querySelectorAll("tr[data-instance-id]") || [])].find((entry) => entry.dataset.instanceId === instanceId);
+  if (instance && row) updateInstanceRow(row, instance);
+  renderInstanceSummary(getInstances());
+  if (selectedInstanceId === instanceId) setInstanceDetails(instance);
+  if (activeConsoleInstanceId === instanceId) renderConsoleStatusPanel();
+}
+
+function summarizeInstanceHealthBuckets(instances) {
+  const shared = typeof window !== "undefined" ? window.AnxInstanceHealthSummary : null;
+  if (shared && typeof shared.summarizeInstanceHealth === "function") {
+    return shared.summarizeInstanceHealth(instances);
+  }
+  // Fallback keeps legacy two-bucket behavior if the shared module fails to load.
+  const runningInstances = instances.filter(isInstanceRunning);
+  return {
+    total: instances.length,
+    counts: { running: runningInstances.length, stopped: instances.length - runningInstances.length },
+    needsAttention: [],
+    attentionCount: 0,
+  };
+}
+
+function renderInstanceAttentionStrip(summary) {
+  const strip = document.querySelector("[data-instance-attention]");
+  if (!strip) return;
+  const items = Array.isArray(summary?.needsAttention) ? summary.needsAttention : [];
+  strip.replaceChildren();
+  strip.hidden = items.length === 0;
+  if (items.length === 0) return;
+
+  const heading = document.createElement("strong");
+  heading.textContent = items.length === 1 ? "1 instance needs attention" : `${items.length} instances need attention`;
+  strip.appendChild(heading);
+
+  const visibleItems = items.slice(0, 5);
+  visibleItems.forEach((item) => {
+    if (!item?.id) return;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "instances-attention-item";
+    button.title = item.reason || item.state || "Needs attention";
+    button.textContent = item.name;
+    const stateLabel = document.createElement("span");
+    stateLabel.textContent = String(item.state || "").trim() || "Unknown";
+    button.appendChild(stateLabel);
+    button.addEventListener("click", () => selectInstance(item.id));
+    strip.appendChild(button);
+  });
+
+  const remaining = items.length - visibleItems.filter((item) => item?.id).length;
+  if (remaining > 0) {
+    const more = document.createElement("span");
+    more.className = "instances-attention-item";
+    more.textContent = `+${remaining} more`;
+    strip.appendChild(more);
+  }
+}
+
 function renderInstanceSummary(instances) {
+  const healthSummary = summarizeInstanceHealthBuckets(instances);
   const runningInstances = instances.filter(isInstanceRunning);
   const stoppedInstances = instances.filter((instance) => !isInstanceRunning(instance));
   const aggregateMetrics = instances.reduce((totals, instance) => {
@@ -13301,8 +13444,12 @@ function renderInstanceSummary(instances) {
   setField("instancesTotal", String(instances.length));
   setField("instancesRunning", String(runningInstances.length));
   setField("instancesStopped", String(stoppedInstances.length));
+  setField("instancesStarting", String(healthSummary.counts.starting || 0));
+  setField("instancesStopping", String(healthSummary.counts.stopping || 0));
+  setField("instancesNeedsAttention", String(healthSummary.attentionCount || 0));
   setField("instancesTotalCpu", aggregateMetrics.cpuCount > 0 ? `${aggregateMetrics.cpu.toFixed(1)}%` : "Unavailable");
   setField("instancesTotalRam", aggregateMetrics.memoryCount > 0 ? formatBytes(aggregateMetrics.memory) : "Unavailable");
+  renderInstanceAttentionStrip(healthSummary);
 }
 
 function getFiveMSetupMessage(instance = null) {
@@ -13407,6 +13554,7 @@ async function openFiveMServerConfig() {
 
 function setInstanceDetails(instance = null) {
   const metrics = instance ? getInstanceMetrics(instance.id) : null;
+  const metricsPlaceholder = instance && !metrics ? getInstanceMetricsPlaceholder(instance) : null;
   if (instancesDetailsPanel) {
     instancesDetailsPanel.hidden = !instance;
   }
@@ -13462,12 +13610,17 @@ function setInstanceDetails(instance = null) {
   const primaryPort = getInstancePrimaryPort(instance);
   const ports = getInstancePorts(instance);
   const rconPort = ports.find((port) => port !== primaryPort) || null;
-  setField("instanceDetailState", instance.state || "Unavailable");
+  const activeOperation = getInstanceOperation(instance.id);
+  const visibleState = activeOperation?.status === "running"
+    ? getInstanceOperationLabel(activeOperation.type)
+    : activeOperation?.status === "failed" ? "Reload failed" : activeOperation?.status === "success" ? "Ready" : instance.state || "Unavailable";
+  setField("instanceDetailState", visibleState);
   document.querySelectorAll('[data-field="instanceDetailState"]').forEach((field) => {
-    field.className = `instance-state is-${getInstanceStateClass(instance.state)}`;
+    field.className = `instance-state is-${activeOperation?.status === "running" ? "reloading" : activeOperation?.status === "failed" ? "failed" : getInstanceStateClass(instance.state)}`;
+    field.title = activeOperation?.error || "";
   });
-  setField("instancesSelectedCpu", formatInstanceCpu(metrics));
-  setField("instancesSelectedMemory", formatInstanceMemory(metrics));
+  setField("instancesSelectedCpu", metricsPlaceholder || formatInstanceCpu(metrics));
+  setField("instancesSelectedMemory", metricsPlaceholder || formatInstanceMemory(metrics));
   setInstanceDetail("name", formatInstanceValue(instance.displayName));
   setInstanceDetail("id", formatInstanceValue(instance.id));
   setInstanceDetail("version", version.main);
@@ -13486,10 +13639,10 @@ function setInstanceDetails(instance = null) {
   setInstanceDetail("command", command || "Unavailable");
   setInstanceDetail("failureReason", getInstanceFailureReason(instance));
   setInstanceDetail("pid", formatInstanceValue(instance.pid));
-  setInstanceDetail("uptime", formatDuration(metrics?.uptimeSeconds));
-  setInstanceDetail("cpu", formatInstanceCpu(metrics));
-  setInstanceDetail("memory", formatInstanceMemory(metrics));
-  setInstanceDetail("disk", formatInstanceDisk(metrics));
+  setInstanceDetail("uptime", metricsPlaceholder || formatDuration(metrics?.uptimeSeconds));
+  setInstanceDetail("cpu", metricsPlaceholder || formatInstanceCpu(metrics));
+  setInstanceDetail("memory", metricsPlaceholder || formatInstanceMemory(metrics));
+  setInstanceDetail("disk", metricsPlaceholder || formatInstanceDisk(metrics));
   setInstanceDetail("ports", formatInstancePorts(instance, metrics));
   setInstanceDetail("tags", formatInstanceList(instance.tags));
   setInstanceDetail("workingDirectory", formatInstanceValue(instance.workingDirectory));
@@ -13521,9 +13674,6 @@ function selectInstance(instanceId, options = {}) {
 
   updateInstanceActionButtons();
 
-  if (selectedInstanceId && options.refreshMetrics !== false) {
-    refreshSelectedInstanceMetrics();
-  }
   syncInstanceConsolePolling();
 }
 
@@ -13531,6 +13681,7 @@ function renderInstancesSnapshot(snapshot) {
   const previousInstances = getInstances();
   const normalizedSnapshot = normalizeInstancesPayload(snapshot);
   const incomingInstances = normalizedSnapshot.instances;
+  instanceMetricsStore.setScope(getSelectedNodeId());
   const incomingIds = new Set(incomingInstances.map((instance) => instance.id));
   const preservedInstances = previousInstances.filter((instance) => {
     return instance?.id && !incomingIds.has(instance.id) && !instanceRemovalAllowedIds.has(instance.id);
@@ -13547,14 +13698,21 @@ function renderInstancesSnapshot(snapshot) {
     });
   }
 
+  const reconciledInstances = instanceOperationStore.reconcileResources(incomingInstances, {
+    removableIds: instanceRemovalAllowedIds,
+  });
   latestInstancesSnapshot = {
     ...normalizedSnapshot,
-    instances: [...incomingInstances, ...preservedInstances],
+    instances: reconciledInstances.length ? reconciledInstances : [...incomingInstances, ...preservedInstances],
   };
   latestInstancesSnapshotAt = Date.now();
   latestInstancesSnapshotNodeId = getSelectedNodeId();
   instanceRemovalAllowedIds.clear();
   const instances = getInstances();
+  const eligibleMetricIds = new Set(instances.filter(isInstanceRunning).map((instance) => instance.id));
+  instanceMetricsStore.keys().forEach((instanceId) => {
+    if (!eligibleMetricIds.has(instanceId)) instanceMetricsStore.stop(instanceId);
+  });
   const previousSelectedInstanceId = selectedInstanceId;
   const storedInstanceId = readLastInstanceId();
   const rememberedInstanceId = storedInstanceId;
@@ -13597,16 +13755,21 @@ function renderInstancesUnavailable(message = "AnxOS could not load installed se
   latestInstancesSnapshot = null;
   latestInstancesSnapshotAt = 0;
   latestInstancesSnapshotNodeId = null;
-  latestInstanceMetrics = null;
+  instanceMetricsStore.reset();
+  instanceMetricsInFlight.clear();
   selectedInstanceId = null;
   storeLastInstanceId(null);
   setField("instancesTotal", "Unavailable");
   setField("instancesRunning", "Unavailable");
   setField("instancesStopped", "Unavailable");
+  setField("instancesStarting", "Unavailable");
+  setField("instancesStopping", "Unavailable");
+  setField("instancesNeedsAttention", "Unavailable");
   setField("instancesTotalCpu", "Unavailable");
   setField("instancesTotalRam", "Unavailable");
   setField("instancesSelectedCpu", "Unavailable");
   setField("instancesSelectedMemory", "Unavailable");
+  renderInstanceAttentionStrip(null);
   setInstancesLoading(false);
   setInstancesEmpty(true, message);
   clearInstanceRows();
@@ -13839,7 +14002,7 @@ async function handleMissingSelectedInstance(error = null, instanceId = selected
     notifyMissingSelectedInstance(error);
   }
 
-  latestInstanceMetrics = null;
+  if (missingInstanceId) instanceMetricsStore.stop(missingInstanceId);
 
   if (missingInstanceId && findInstance(missingInstanceId)) {
     updateInstanceSnapshot(missingInstanceId, {
@@ -17028,11 +17191,38 @@ function renderMarketplaceDownloads(downloads = []) {
   }
 
   renderMarketplaceReadiness();
-  latestMarketplaceDownloads = [...marketplaceLocalDownloadEntries, ...downloads];
+  const incomingDownloads = [...marketplaceLocalDownloadEntries, ...downloads];
+  incomingDownloads.forEach((download) => {
+    downloadOperationStore.updateOperation(download.id, {
+      type: "download",
+      status: normalizeOperationStatus(download.status),
+      progress: download.progress,
+      bytesCompleted: download.bytesReceived,
+      bytesTotal: download.bytesTotal,
+      speedBytesPerSecond: download.speedBytesPerSecond,
+      error: download.error,
+      startedAt: download.startedAt,
+      updatedAt: download.updatedAt,
+    });
+  });
+  latestMarketplaceDownloads = downloadOperationStore.reconcileResources(incomingDownloads).map((download) => {
+    const operation = downloadOperationStore.getOperation(download.id);
+    return operation ? {
+      ...download,
+      status: operation.status,
+      progress: operation.progress,
+      bytesReceived: operation.bytesCompleted,
+      bytesTotal: operation.bytesTotal,
+      speedBytesPerSecond: operation.speedBytesPerSecond,
+      error: operation.error,
+      updatedAt: operation.updatedAt,
+    } : download;
+  });
   const visibleDownloads = latestMarketplaceDownloads
     .filter((download) => !download.parentTaskId);
-  downloadList.replaceChildren();
+  const existingItems = new Map([...downloadList.querySelectorAll("[data-download-id]")].map((item) => [item.dataset.downloadId, item]));
   if (!visibleDownloads.length) {
+    if (downloadList.children.length) return;
     const empty = document.createElement("div");
     empty.className = "docker-empty-state";
     const title = document.createElement("strong");
@@ -17043,10 +17233,14 @@ function renderMarketplaceDownloads(downloads = []) {
     downloadList.append(empty);
     return;
   }
+  downloadList.querySelectorAll(":scope > .docker-empty-state").forEach((empty) => empty.remove());
 
   visibleDownloads.forEach((download) => {
     const dependencyDownload = isDependencyDownload(download);
-    const item = document.createElement("article");
+    const item = existingItems.get(download.id) || document.createElement("article");
+    existingItems.delete(download.id);
+    item.replaceChildren();
+    item.dataset.downloadId = download.id || "";
     item.className = dependencyDownload ? "download-item download-item--dependency" : "download-item";
     const normalizedStatus = normalizeOperationStatus(download.status);
     const terminal = ["completed", "failed", "canceled"].includes(normalizedStatus);
@@ -17090,9 +17284,15 @@ function renderMarketplaceDownloads(downloads = []) {
     const installer = download.installerType ? ` · ${download.installerType}` : "";
     const terminalState = terminal ? normalizedStatus : "";
     const speedText = terminalState ? "" : ` · ${formatDownloadSpeed(download.speedBytesPerSecond)}`;
-    meta.textContent = getFriendlyOperationText(terminal
+    const completedBytes = Number(download.bytesReceived);
+    const totalBytes = Number(download.bytesTotal);
+    const byteText = Number.isFinite(completedBytes) && completedBytes >= 0
+      ? ` · ${formatBytes(completedBytes)}${Number.isFinite(totalBytes) && totalBytes > 0 ? ` / ${formatBytes(totalBytes)}` : " downloaded"}`
+      : "";
+    const baseText = terminal
       ? `${operationStatusLabel(normalizedStatus)}${installer}`
-      : download.body || `${stage}${installer} · ${download.progress || 0}%${speedText}${eta}`);
+      : `${download.body || `${stage}${installer}`} · ${download.progress || 0}%${byteText}${speedText}${eta}`;
+    meta.textContent = getFriendlyOperationText(baseText);
 
     const errorPanel = document.createElement("div");
     errorPanel.className = "download-item__error";
@@ -17206,6 +17406,7 @@ function renderMarketplaceDownloads(downloads = []) {
     }
     downloadList.append(item);
   });
+  existingItems.forEach((item) => item.remove());
 }
 
 async function refreshMarketplaceDownloads() {
@@ -17216,12 +17417,13 @@ async function refreshMarketplaceDownloads() {
   }
 
   try {
+    const requestSerial = ++marketplaceDownloadsRequestSerial;
     const requestContext = getNodeRequestContext("marketplace-downloads");
     const payload = await desktopApiState.api.marketplace.getDownloads(getNodeScopedPayload(requestContext));
-    if (!isNodeRequestCurrent(requestContext)) return;
+    if (!isNodeRequestCurrent(requestContext) || requestSerial !== marketplaceDownloadsRequestSerial) return;
     renderMarketplaceDownloads(Array.isArray(payload?.downloads) ? payload.downloads : []);
-  } catch {
-    renderMarketplaceDownloads([]);
+  } catch (error) {
+    console.warn("[Marketplace] Download refresh failed; keeping the last known operation state.", error);
   }
 }
 
@@ -18613,9 +18815,7 @@ async function refreshInstances(options = {}) {
     }
     renderInstancesSnapshot(snapshot);
     clearAgentPollingBackoff("instances", requestContext);
-    if (options.refreshMetrics !== false) {
-      await refreshSelectedInstanceMetrics();
-    }
+    if (options.refreshMetrics !== false) refreshEligibleInstanceMetrics();
   } catch (error) {
     if (!isNodeRequestCurrent(requestContext)) {
       return getInstances();
@@ -18639,47 +18839,60 @@ async function refreshInstances(options = {}) {
   return getInstances();
 }
 
-async function refreshSelectedInstanceMetrics() {
-  if (!selectedInstanceId || instanceActionRequestInFlight) {
-    return;
-  }
-
-  const requestInstanceId = selectedInstanceId;
-  const requestContext = getNodeRequestContext("instance-metrics");
-
-  if (!findInstance(requestInstanceId)) {
-    await handleMissingSelectedInstance(null, requestInstanceId);
-    return;
-  }
-
+async function requestInstanceMetrics(instanceId, requestContext) {
+  if (!instanceId || instanceMetricsInFlight.has(instanceId)) return instanceMetricsInFlight.get(instanceId) || null;
+  const instance = findInstance(instanceId);
   const desktopApiState = getDesktopApiState();
+  if (!instance || !isInstanceRunning(instance) || !desktopApiState.hasInstances || instanceActionRequestInFlight) return null;
 
-  if (!desktopApiState.hasInstances) {
-    return;
-  }
+  const requestId = ++instanceMetricsRequestSerial;
+  instanceMetricsStore.begin(instanceId, requestId);
+  renderInstanceMetricsUpdate(instanceId);
+  const request = (async () => {
+    try {
+      const response = await desktopApiState.api.instances.getMetrics(instanceId, getNodeScopedPayload(requestContext));
+      if (!isNodeRequestCurrent(requestContext) || !findInstance(instanceId)) return null;
+      const metrics = normalizeMetricsResponse(response);
+      if (!metrics || metrics.id && metrics.id !== instanceId) {
+        throw new Error("Metrics response did not match the requested instance.");
+      }
+      instanceMetricsStore.succeed(instanceId, requestId, metrics);
+      return metrics;
+    } catch (error) {
+      if (!isNodeRequestCurrent(requestContext)) return null;
+      instanceMetricsStore.fail(instanceId, requestId, error);
+      console.warn("[Instances] Metrics request failed.", { instanceId, code: getAgentErrorCode(error) });
+      return null;
+    } finally {
+      if (instanceMetricsInFlight.get(instanceId) === request) instanceMetricsInFlight.delete(instanceId);
+      if (isNodeRequestCurrent(requestContext)) renderInstanceMetricsUpdate(instanceId);
+    }
+  })();
+  instanceMetricsInFlight.set(instanceId, request);
+  return request;
+}
 
-  try {
-    const metrics = await desktopApiState.api.instances.getMetrics(requestInstanceId, getNodeScopedPayload(requestContext));
-    if (!isNodeRequestCurrent(requestContext) || requestInstanceId !== selectedInstanceId) {
-      return;
+async function refreshEligibleInstanceMetrics() {
+  if (shouldSkipNodeScopedPolling() || instanceActionRequestInFlight) return [];
+  const requestContext = getNodeRequestContext("instance-metrics");
+  instanceMetricsStore.setScope(requestContext.nodeId);
+  const eligibleIds = getInstances().filter(isInstanceRunning).map((instance) => instance.id);
+  const eligibleSet = new Set(eligibleIds);
+  instanceMetricsStore.keys().forEach((instanceId) => {
+    if (!eligibleSet.has(instanceId)) instanceMetricsStore.stop(instanceId);
+  });
+  if (!eligibleIds.length) return [];
+
+  const queue = eligibleIds.filter((instanceId) => !instanceMetricsInFlight.has(instanceId));
+  const results = [];
+  const workers = Array.from({ length: Math.min(INSTANCE_METRICS_MAX_CONCURRENCY, queue.length) }, async () => {
+    while (queue.length && isNodeRequestCurrent(requestContext)) {
+      const instanceId = queue.shift();
+      results.push(await requestInstanceMetrics(instanceId, requestContext));
     }
-    latestInstanceMetrics = normalizeMetricsResponse(metrics);
-    const instances = getInstances();
-    renderInstanceSummary(instances);
-    renderInstanceRows(instances);
-    selectInstance(requestInstanceId, { refreshMetrics: false });
-  } catch (error) {
-    if (!isNodeRequestCurrent(requestContext)) {
-      return;
-    }
-    latestInstanceMetrics = null;
-    if (isInstanceNotFoundError(error)) {
-      await handleMissingSelectedInstance(error, requestInstanceId);
-      return;
-    }
-    console.warn("[Instances] Metrics request failed.", error);
-    setInstanceDetails(findInstance());
-  }
+  });
+  await Promise.allSettled(workers);
+  return results;
 }
 
 async function refreshInstanceLogs(options = {}) {
@@ -18742,6 +18955,33 @@ function shouldPollInstanceConsole() {
     activeInstanceTab === "console" &&
     Boolean(selectedInstanceId) &&
     !instanceConsolePauseInput?.checked;
+}
+
+// Keeps instance status and metrics fresh while the user stays on the Instances
+// page; refreshInstances() already skips hidden tabs, deduplicates in-flight
+// requests, refreshes eligible metrics, and honors agent polling backoff.
+function startInstancesPagePolling() {
+  if (instancesPagePollTimerId) {
+    return;
+  }
+  instancesPagePollTimerId = window.setInterval(() => {
+    if (getActivePageName() !== "instances") {
+      stopInstancesPagePolling();
+      return;
+    }
+    if (document.hidden || instanceActionRequestInFlight) {
+      return;
+    }
+    refreshInstances();
+  }, INSTANCE_PAGE_REFRESH_INTERVAL_MS);
+}
+
+function stopInstancesPagePolling() {
+  if (!instancesPagePollTimerId) {
+    return;
+  }
+  window.clearInterval(instancesPagePollTimerId);
+  instancesPagePollTimerId = null;
 }
 
 function startInstanceConsolePolling() {
@@ -19104,6 +19344,17 @@ async function runInstanceAction(actionName) {
   }
 
   instanceActionRequestInFlight = true;
+  const resourceOperationType = actionName === "restart" ? "reload" : actionName === "update-steam" ? "update" : actionName;
+  if (["start", "stop", "restart", "update-steam"].includes(actionName)) {
+    setInstanceOperation(targetInstanceId, {
+      type: resourceOperationType,
+      status: "running",
+      progress: null,
+      error: null,
+      startedAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+  }
   updateInstanceActionButtons();
 
   try {
@@ -19171,6 +19422,7 @@ async function runInstanceAction(actionName) {
     }
     const resultInstance = actionResult?.instance || actionResult;
     if ((actionName === "start" || actionName === "restart") && resultInstance?.state === "Failed") {
+      finishInstanceOperation(targetInstanceId, resourceOperationType, "failed", resultInstance.failureReason || `Instance ${actionName} failed.`);
       updateInstanceSnapshot(targetInstanceId, resultInstance);
       if (isNeoForgeRuntimeFailure(resultInstance)) {
         await showNeoForgeRuntimeIncompleteHint(resultInstance, requestContext);
@@ -19204,7 +19456,7 @@ async function runInstanceAction(actionName) {
       const cleanupMessage = summarizeAccessCleanupResult(accessCleanup);
       if (cleanupMessage) showToast(cleanupMessage, accessCleanup.failed > 0 ? "warning" : "success");
       selectedInstanceId = null;
-      latestInstanceMetrics = null;
+      instanceMetricsStore.stop(targetInstanceId);
       clearInstanceLogs();
       setInstanceDetails(null);
       instanceRemovalAllowedIds.add(targetInstanceId);
@@ -19212,6 +19464,9 @@ async function runInstanceAction(actionName) {
     }
 
     const refreshedInstances = await refreshInstances();
+    if (["start", "stop", "restart", "update-steam"].includes(actionName)) {
+      finishInstanceOperation(targetInstanceId, resourceOperationType, "success");
+    }
     if (actionName === "duplicate") {
       const duplicatedId = actionResult?.instance?.id || actionResult?.id || duplicateConfig?.id;
       if (duplicatedId && refreshedInstances.some((instance) => instance.id === duplicatedId)) {
@@ -19231,7 +19486,7 @@ async function runInstanceAction(actionName) {
         instanceRemovalAllowedIds.add(targetInstanceId);
         const accessCleanup = await deleteAccessServicesForInstance(selectedInstance);
         selectedInstanceId = null;
-        latestInstanceMetrics = null;
+        instanceMetricsStore.stop(targetInstanceId);
         storeLastInstanceId(null);
         clearInstanceLogs();
         setInstanceDetails(null);
@@ -19266,7 +19521,7 @@ async function runInstanceAction(actionName) {
             instanceRemovalAllowedIds.add(targetInstanceId);
             const accessCleanup = await deleteAccessServicesForInstance(selectedInstance);
             selectedInstanceId = null;
-            latestInstanceMetrics = null;
+            instanceMetricsStore.stop(targetInstanceId);
             storeLastInstanceId(null);
             clearInstanceLogs();
             setInstanceDetails(null);
@@ -19291,7 +19546,7 @@ async function runInstanceAction(actionName) {
           instanceRemovalAllowedIds.add(targetInstanceId);
           const accessCleanup = await deleteAccessServicesForInstance(selectedInstance);
           selectedInstanceId = null;
-          latestInstanceMetrics = null;
+          instanceMetricsStore.stop(targetInstanceId);
           storeLastInstanceId(null);
           clearInstanceLogs();
           setInstanceDetails(null);
@@ -19313,6 +19568,9 @@ async function runInstanceAction(actionName) {
           state: "Failed",
           failureReason: getAgentErrorMessage(error, `Instance ${actionName} failed.`),
         });
+      }
+      if (["start", "stop", "restart", "update-steam"].includes(actionName)) {
+        finishInstanceOperation(targetInstanceId, resourceOperationType, "failed", getAgentErrorMessage(error, `Instance ${actionName} failed.`));
       }
       const refreshedInstances = await refreshInstances();
       if (actionName === "start") {
@@ -27325,6 +27583,7 @@ function renderConsoleActivity(instance) {
 function renderConsoleStatusPanel() {
   const instance = getActiveConsoleInstance();
   const metrics = instance ? getInstanceMetrics(instance.id) : null;
+  const metricsPlaceholder = instance && !metrics ? getInstanceMetricsPlaceholder(instance) : null;
   const state = getConsoleStateLabel(instance);
 
   if (consoleStateBadge) {
@@ -27332,8 +27591,8 @@ function renderConsoleStatusPanel() {
     consoleStateBadge.className = `instance-state is-${getInstanceStateClass(state)}`;
   }
 
-  setConsoleMetric("cpu", metrics ? formatInstanceCpu(metrics) : "Unavailable");
-  setConsoleMetric("ram", metrics ? formatInstanceMemory(metrics) : "Unavailable");
+  setConsoleMetric("cpu", metricsPlaceholder || (metrics ? formatInstanceCpu(metrics) : "Unavailable"));
+  setConsoleMetric("ram", metricsPlaceholder || (metrics ? formatInstanceMemory(metrics) : "Unavailable"));
   setConsoleDetail("pid", formatInstanceValue(instance?.pid));
   setConsoleDetail("uptime", formatDuration(metrics?.uptimeSeconds));
   setConsoleDetail("memoryLimit", formatInstanceValue(instance?.memoryLimit));
@@ -27418,27 +27677,9 @@ async function refreshConsoleMetrics() {
     return;
   }
 
-  const requestContext = getNodeRequestContext("console-metrics");
-  const requestInstanceId = instance.id;
-  try {
-    const metrics = await desktopApiState.api.instances.getMetrics(requestInstanceId, getNodeScopedPayload(requestContext));
-    if (!isNodeRequestCurrent(requestContext) || getActiveConsoleInstance()?.id !== requestInstanceId) {
-      return;
-    }
-    latestInstanceMetrics = normalizeMetricsResponse(metrics);
-  } catch (error) {
-    if (!isNodeRequestCurrent(requestContext)) {
-      return;
-    }
-    if (isInstanceNotFoundError(error)) {
-      console.warn("[Console] Selected instance no longer exists.", error);
-      await refreshInstances({ refreshMetrics: false });
-    } else {
-      console.warn("[Console] Metrics unavailable.", error);
-    }
-  } finally {
-    renderConsoleWorkspace();
-  }
+  // Common instance telemetry is owned by the shared Instances scheduler.
+  // Console only consumes that keyed state so opening it cannot add a second poller.
+  renderConsoleWorkspace();
 }
 
 async function refreshConsoleLogs(options = {}) {
@@ -28941,11 +29182,43 @@ async function saveSshProfile(event) {
   }
 }
 
+// Host-key approval is a security decision, so it always uses the modal path
+// (never the settings-based destructive-action bypass).
+async function handleUnknownSshHostKey({ profileId, fingerprint }) {
+  const approved = await createSecurityConfirmation({
+    title: "Unknown SSH host identity",
+    message: `Fingerprint: ${fingerprint}\n\nApprove this host key for future connections?`,
+    confirmLabel: "Approve",
+  });
+  if (!approved) {
+    sshTransientStatusMessage = "Host key approval declined.";
+    renderSshView();
+    return;
+  }
+  try {
+    await getDesktopApiState().api.ssh.approveHostKey({ profileId, fingerprint });
+    sshPendingPasswordProfileId = profileId;
+    setSshPasswordPromptState(true, "Host identity approved. Enter the password again to connect.");
+    sshTransientStatusMessage = "Host identity approved. Reconnect to continue.";
+    renderSshView();
+    focusSshPasswordPrompt();
+  } catch (error) {
+    sshTransientStatusMessage = error?.message || "Host identity approval failed.";
+    showToast(sshTransientStatusMessage);
+    renderSshView();
+  }
+}
+
 async function deleteSelectedSshProfile() {
   const desktopApiState = getDesktopApiState();
   const profile = getActiveSshProfile();
   if (!desktopApiState.hasSsh || typeof desktopApiState.api.ssh.deleteProfile !== "function" || !profile) return;
-  if (!window.confirm(`Delete the SSH profile "${profile.displayName}"?\n\nSaved connection details and its terminal history will be removed.`)) return;
+  const approved = await confirmDestructiveAction({
+    title: "Delete SSH profile",
+    message: `Delete the SSH profile "${profile.displayName}"?\n\nSaved connection details and its terminal history will be removed.`,
+    confirmLabel: "Delete",
+  });
+  if (!approved) return;
   try {
     await desktopApiState.api.ssh.deleteProfile(profile.id);
     [...sshSessions.values()].forEach((session) => {
@@ -29014,22 +29287,7 @@ function ensureSshEventSubscription() {
 
       if (failure.code === "SSH_HOST_KEY_UNKNOWN" && payload.profileId && payload.details?.fingerprint) {
         const fingerprint = String(payload.details.fingerprint);
-        const approved = window.confirm(`Unknown SSH host identity.\n\nFingerprint: ${fingerprint}\n\nApprove this host key for future connections?`);
-        if (approved) {
-          getDesktopApiState().api.ssh.approveHostKey({ profileId: payload.profileId, fingerprint })
-            .then(() => {
-              sshPendingPasswordProfileId = payload.profileId;
-              setSshPasswordPromptState(true, "Host identity approved. Enter the password again to connect.");
-              sshTransientStatusMessage = "Host identity approved. Reconnect to continue.";
-              renderSshView();
-              focusSshPasswordPrompt();
-            })
-            .catch((error) => {
-              sshTransientStatusMessage = error?.message || "Host identity approval failed.";
-              showToast(sshTransientStatusMessage);
-              renderSshView();
-            });
-        }
+        handleUnknownSshHostKey({ profileId: payload.profileId, fingerprint });
       }
 
       if (failure.code !== "SSH_CANCELLED") showToast(failure.message);
@@ -31197,7 +31455,14 @@ function resetNodeScopedRendererState(message = "Loading selected node...") {
   latestDependencyNodeId = null;
   latestInstancesSnapshot = null;
   latestInstancesSnapshotNodeId = null;
-  latestInstanceMetrics = null;
+  instanceMetricsStore.reset();
+  instanceMetricsInFlight.clear();
+  instanceMetricsRequestSerial += 1;
+  stopInstancesPagePolling();
+  instanceOperationStore.reset();
+  downloadOperationStore.reset();
+  instanceOperationCompletionTimers.forEach((timer) => window.clearTimeout(timer));
+  instanceOperationCompletionTimers.clear();
   marketplaceInstallProgressEvents = [];
   marketplacePendingProgressSteps = null;
   activeMarketplaceInstallNodeId = null;

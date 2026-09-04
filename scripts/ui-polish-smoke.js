@@ -3,13 +3,18 @@ const fs = require("fs");
 const path = require("path");
 
 const root = path.resolve(__dirname, "..");
-const index = fs.readFileSync(path.join(root, "index.html"), "utf8");
-const app = fs.readFileSync(path.join(root, "app.js"), "utf8");
-const styles = fs.readFileSync(path.join(root, "styles.css"), "utf8").replace(/\r\n/g, "\n");
-const main = fs.readFileSync(path.join(root, "main.js"), "utf8");
-const preload = fs.readFileSync(path.join(root, "preload.js"), "utf8");
-const addStorageHtml = fs.readFileSync(path.join(root, "windows", "add-storage.html"), "utf8");
-const addStorageCss = fs.readFileSync(path.join(root, "windows", "add-storage.css"), "utf8");
+// Normalize CRLF to LF so assertions match on both Unix and Windows checkouts
+// regardless of Git autocrlf; styles.css already relied on this.
+const normalize = (value) => value.replace(/\r\n/g, "\n");
+const readSource = (relativePath) => normalize(fs.readFileSync(path.join(root, relativePath), "utf8"));
+
+const index = readSource("index.html");
+const app = readSource("app.js");
+const styles = readSource("styles.css");
+const main = readSource("main.js");
+const preload = readSource("preload.js");
+const addStorageHtml = readSource("windows/add-storage.html");
+const addStorageCss = readSource("windows/add-storage.css");
 
 const expectedPages = ["dashboard", "amp", "playit", "coolpals", "docker", "marketplace", "instances", "ssh", "files", "console", "backups", "operations", "maintenance", "security", "owner-workspace", "agent-control", "nodes", "settings"];
 expectedPages.forEach((page) => assert(index.includes(`data-page="${page}"`), `Missing workspace root: ${page}`));

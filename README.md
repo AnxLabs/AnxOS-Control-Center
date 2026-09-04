@@ -79,6 +79,25 @@ The desktop application includes workspaces for:
 - Docker resources when Docker is available on the selected node
 - Owner and security workflows
 
+Long-running renderer actions preserve resource identity. Reload, download,
+update, and failure state are represented as operation overlays on stable
+instance/download IDs; polling or a transient read failure does not remove an
+existing resource from the UI. See `docs/OPERATION_FRAMEWORK.md` for the
+backend and renderer lifecycle contracts.
+
+Instance CPU, memory, and runtime telemetry is also resource-owned. Opening
+the Instances page discovers every running instance and loads its metrics
+through one bounded, node-scoped scheduler; selecting an instance only changes
+the expanded UI and does not activate monitoring.
+
+Game server configuration is edited in place per instance. The shared
+configuration workspace covers Minecraft `server.properties`, Palworld
+`PalWorldSettings.ini`, and FiveM `server.cfg` (hostname, slots, bind
+endpoints, resources, and the Cfx.re license key). Sensitive values are never
+returned to the renderer; untouched secrets keep their saved values on save,
+saves that change runtime settings offer a restart, and every save writes a
+backup of the previous file. Paths are confined to the instance directory.
+
 Missing platform data is shown as unavailable, unknown, or not tested instead of using fake values.
 
 ## AMP API Integration For Source Development

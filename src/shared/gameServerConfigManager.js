@@ -173,6 +173,52 @@ const PALWORLD_FIELDS = Object.freeze([
   }),
 ]);
 
+const FIVEM_FIELDS = Object.freeze([
+  field("hostname", "Server Name", "Identity", "text", "AnxOS FiveM Server", {
+    description: "Name shown in the FiveM server browser.",
+    persistenceKey: "sv_hostname",
+    required: true,
+    restartRequired: true,
+  }),
+  field("maxClients", "Player Slots", "Players", "integer", 32, {
+    description: "Maximum number of connected players.",
+    persistenceKey: "sv_maxclients",
+    min: 1,
+    max: 2048,
+    required: true,
+    restartRequired: true,
+  }),
+  field("tcpEndpoint", "TCP Bind Endpoint", "Network", "text", "0.0.0.0:30120", {
+    description: "Local TCP bind address and port, for example 0.0.0.0:30120.",
+    persistenceKey: "endpoint_add_tcp",
+    validation: { pattern: "^(?:[A-Za-z0-9:._-]+|\\[[0-9A-Fa-f:]+\\]):[0-9]{1,5}$" },
+    required: true,
+    restartRequired: true,
+  }),
+  field("udpEndpoint", "UDP Bind Endpoint", "Network", "text", "0.0.0.0:30120", {
+    description: "Local UDP bind address and port, for example 0.0.0.0:30120.",
+    persistenceKey: "endpoint_add_udp",
+    validation: { pattern: "^(?:[A-Za-z0-9:._-]+|\\[[0-9A-Fa-f:]+\\]):[0-9]{1,5}$" },
+    required: true,
+    restartRequired: true,
+  }),
+  field("resources", "Enabled Resources", "Resources", "multiline", "mapmanager\nchat\nspawnmanager\nsessionmanager\nbasic-gamemode\nhardcap", {
+    description: "One resource name per line. Each entry is persisted as an ensure command.",
+    persistenceKey: "ensure",
+    persistenceFormat: "repeated-command",
+    validation: { pattern: "^(?:[A-Za-z0-9_.@/\\[\\]-]+(?:\\r?\\n|$))*$" },
+    restartRequired: true,
+  }),
+  field("licenseKey", "Cfx.re License Key", "Security", "secret", "", {
+    description: "FiveM server license key from Cfx.re Keymaster. Existing values are never returned to the renderer.",
+    persistenceKey: "sv_licenseKey",
+    sensitive: true,
+    required: true,
+    validation: { pattern: "^[A-Za-z0-9_-]{8,}$" },
+    restartRequired: true,
+  }),
+]);
+
 const ADAPTERS = Object.freeze({
   minecraft: Object.freeze({
     id: "minecraft",
@@ -189,6 +235,14 @@ const ADAPTERS = Object.freeze({
     format: "palworld-options",
     defaultFilePath: "server/Pal/Saved/Config/LinuxServer/PalWorldSettings.ini",
     fields: PALWORLD_FIELDS,
+  }),
+  fivem: Object.freeze({
+    id: "fivem",
+    gameId: "fivem",
+    label: "FiveM",
+    format: "fivem-cfg",
+    defaultFilePath: "server/server.cfg",
+    fields: FIVEM_FIELDS,
   }),
 });
 
@@ -433,22 +487,122 @@ function serializePalworldDocument(document, fields, values) {
   return `${document.prefix}${chunks.join(",")}${document.suffix}`;
 }
 
+function parseFiveMCfgDocument(content) {
+  const text = String(content || "");
+  const hadTrailingNewline = /\r?\n$/.test(text);
+  const lines = text.split(/\r?\n/);
+  if (hadTrailingNewline) lines.pop();
+  const entries = lines.map((line) => {
+    const trimmed = line.trim();
+    if (!trimmed) return { type: "blank", raw: line };
+    if (trimmed.startsWith("#") || trimmed.startsWith(";") || trimmed.startsWith("//")) {
+      return { type: "comment", raw: line };
+    }
+    const match = line.match(/^(\s*)([A-Za-z_][A-Za-z0-9_]*)(?:\s+)(.*?)(\s*)$/);
+    if (!match) return { type: "raw", raw: line };
+    return {
+      type: "entry",
+      raw: line,
+      indent: match[1],
+      key: match[2],
+      rawValue: match[3],
+      suffix: match[4],
+      value: unquoteCfgValue(match[3]),
+    };
+  });
+  return { type: "fivem-cfg", entries, trailingNewline: hadTrailingNewline || text.length === 0 };
+}
+
+function unquoteCfgValue(value) {
+  const text = String(value ?? "").trim();
+  if (text.length >= 2 && text.startsWith('"') && text.endsWith('"')) {
+    return text.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+  }
+  return text;
+}
+
+function readFiveMCfgValues(document, fields) {
+  const values = {};
+  for (const fieldMeta of fields) {
+    const matches = (document.entries || []).filter((entry) => entry.type === "entry" && entry.key.toLowerCase() === fieldMeta.persistence.key.toLowerCase());
+    if (fieldMeta.persistence.format === "repeated-command") {
+      values[fieldMeta.persistence.key] = matches.map((entry) => entry.value).join("\n");
+    } else if (matches.length > 0) {
+      values[fieldMeta.persistence.key] = matches[matches.length - 1].value;
+    }
+  }
+  return values;
+}
+
+function serializeFiveMCfgValue(fieldMeta, value) {
+  const text = String(value ?? "");
+  if (fieldMeta.type === "integer" || fieldMeta.type === "port") return String(Number.parseInt(text, 10));
+  if (fieldMeta.persistence.format === "repeated-command") return text;
+  return `"${text.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\r?\n/g, " ")}"`;
+}
+
+function serializeFiveMCfgDocument(document, fields, values) {
+  const fieldsByPersistenceKey = new Map(fields.map((item) => [item.persistence.key.toLowerCase(), item]));
+  const lastIndexes = new Map();
+  (document.entries || []).forEach((entry, index) => {
+    if (entry.type === "entry" && fieldsByPersistenceKey.has(entry.key.toLowerCase())) lastIndexes.set(entry.key.toLowerCase(), index);
+  });
+  const seen = new Set();
+  const lines = [];
+  (document.entries || []).forEach((entry, index) => {
+    if (entry.type !== "entry") {
+      lines.push(entry.raw);
+      return;
+    }
+    const key = entry.key.toLowerCase();
+    const fieldMeta = fieldsByPersistenceKey.get(key);
+    if (!fieldMeta) {
+      lines.push(entry.raw);
+      return;
+    }
+    if (fieldMeta.persistence.format === "repeated-command") {
+      if (seen.has(key)) return;
+      seen.add(key);
+      const resources = String(values[fieldMeta.key] ?? "").split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
+      lines.push(...resources.map((resource) => `${entry.indent || ""}${fieldMeta.persistence.key} ${resource}`));
+      return;
+    }
+    if (lastIndexes.get(key) !== index) {
+      lines.push(entry.raw);
+      return;
+    }
+    seen.add(key);
+    lines.push(`${entry.indent || ""}${fieldMeta.persistence.key} ${serializeFiveMCfgValue(fieldMeta, values[fieldMeta.key])}${entry.suffix || ""}`);
+  });
+  for (const fieldMeta of fields) {
+    const key = fieldMeta.persistence.key.toLowerCase();
+    if (seen.has(key)) continue;
+    if (fieldMeta.persistence.format === "repeated-command") {
+      const resources = String(values[fieldMeta.key] ?? "").split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
+      lines.push(...resources.map((resource) => `${fieldMeta.persistence.key} ${resource}`));
+    } else {
+      lines.push(`${fieldMeta.persistence.key} ${serializeFiveMCfgValue(fieldMeta, values[fieldMeta.key])}`);
+    }
+  }
+  return `${lines.join("\n")}${document.trailingNewline ? "\n" : ""}`;
+}
+
 function parseDocument(adapter, content) {
-  return adapter.format === "palworld-options"
-    ? parsePalworldDocument(content)
-    : parsePropertiesDocument(content);
+  if (adapter.format === "palworld-options") return parsePalworldDocument(content);
+  if (adapter.format === "fivem-cfg") return parseFiveMCfgDocument(content);
+  return parsePropertiesDocument(content);
 }
 
 function readDocumentValues(adapter, document) {
-  return adapter.format === "palworld-options"
-    ? readPalworldValues(document)
-    : readPropertiesValues(document);
+  if (adapter.format === "palworld-options") return readPalworldValues(document);
+  if (adapter.format === "fivem-cfg") return readFiveMCfgValues(document, adapter.fields);
+  return readPropertiesValues(document);
 }
 
 function serializeDocument(adapter, document, values) {
-  return adapter.format === "palworld-options"
-    ? serializePalworldDocument(document, adapter.fields, values)
-    : serializePropertiesDocument(document, adapter.fields, values);
+  if (adapter.format === "palworld-options") return serializePalworldDocument(document, adapter.fields, values);
+  if (adapter.format === "fivem-cfg") return serializeFiveMCfgDocument(document, adapter.fields, values);
+  return serializePropertiesDocument(document, adapter.fields, values);
 }
 
 function serializeValueForFormat(fieldMeta, value, format) {
@@ -637,6 +791,7 @@ module.exports = {
   getAdapter,
   hashContent,
   mergeSubmittedValues,
+  parseFiveMCfgDocument,
   parsePalworldDocument,
   parsePropertiesDocument,
   redactPayload,

@@ -20,6 +20,8 @@ gates:
 - `RELEASE_BLOCKER_CLOSURE_REPORT.md`
 - `QA_CONTRACT_RECONCILIATION_REPORT.md`
 - `PRIVATE_ALPHA_READINESS_REPORT_FINAL.md`
+- `MASTER_ROADMAP.md`
+- `B0_BASELINE.md`
 
 When a current document conflicts with a build-numbered report, the current
 document controls.

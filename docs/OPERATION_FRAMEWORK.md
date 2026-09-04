@@ -1,5 +1,48 @@
 # Shared Operation Framework
 
+## Resource ownership invariant
+
+A long-running operation changes the state of an existing resource; it does
+not determine whether that resource exists in the UI. The renderer keeps
+authoritative resource snapshots and transient operation records separate,
+reconciles them by stable resource id, and retains the last authoritative
+resource while an operation is active or a poll temporarily fails. Keyed DOM
+nodes are updated in place so reloads, downloads, updates, and failures do not
+destroy and recreate visual identity. Terminal and timestamp ordering also
+prevents an older poll or duplicate event from regressing a newer completion.
+
+The renderer lifecycle helper is `src/shared/resourceOperationLifecycle.js`.
+It complements the persistent backend registry in
+`src/shared/longOperationService.js`; it does not replace backend truth or
+manufacture progress telemetry.
+
+## Instance telemetry invariant
+
+A running instance's monitoring lifecycle is owned by the instance, not by
+whether the user has selected or opened it. Common CPU, memory, process, and
+runtime telemetry therefore remains separate from both authoritative instance
+data and temporary operation state:
+
+```text
+authoritative instance + transient operation + transient telemetry
+                         all keyed by node scope and stable instance.id
+```
+
+`src/shared/instanceMetricsLifecycle.js` stores telemetry independently for
+each instance. The Instances refresh path discovers every running instance and
+feeds a bounded, deduplicated scheduler (at most three concurrent Agent
+requests). Overview, selected-instance details, and Console consume the same
+store; selecting an instance never starts another request loop. A first sample
+is `loading`, a first failure is `unavailable`, and a refresh failure after a
+valid sample is `stale` while retaining that sample.
+
+Node changes clear the entire scoped telemetry store. Stopped, deleted, or
+otherwise ineligible instances are removed from monitoring. Request IDs,
+sample timestamps, and node request contexts prevent old completions from
+overwriting newer samples or crossing node boundaries. Metrics are not placed
+in `resourceOperationLifecycle.js`: monitoring and long-running commands have
+different lifetimes even though both use the same stable resource identity.
+
 This document describes the actual implementation of the shared long-running
 operation framework as it exists in the codebase today. It is not an
 aspirational design; every claim below is backed by working code and

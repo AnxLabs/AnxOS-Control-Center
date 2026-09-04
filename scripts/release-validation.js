@@ -29,6 +29,10 @@ const TIERS = {
     ["node", ["scripts/windows-elevation-tray-smoke.js"]],
     ["node", ["scripts/bundled-runtime-smoke.js"]],
     ["node", ["scripts/ssh-session-timeout-smoke.js"]],
+    ["node", ["scripts/resource-operation-lifecycle-smoke.js"]],
+    ["node", ["scripts/instance-metrics-lifecycle-smoke.js"]],
+    ["node", ["scripts/instance-health-summary-smoke.js"]],
+    ["node", ["scripts/instance-health-state-smoke.js"]],
     ["git", ["diff", "--check"]],
   ],
   release: [

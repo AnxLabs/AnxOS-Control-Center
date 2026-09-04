@@ -7,6 +7,17 @@ const instanceService = require("../src/shared/instances/instanceServiceCore");
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+async function waitForStatus(instanceId, predicate, timeoutMs = 3000) {
+  const deadline = Date.now() + timeoutMs;
+  let status = null;
+  do {
+    status = await instanceService.getStatus(instanceId);
+    if (predicate(status)) return status;
+    await wait(50);
+  } while (Date.now() < deadline);
+  return status;
+}
+
 async function main() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "anx-instance-health-"));
   instanceService.configureInstanceService({ getConfig: () => ({ instanceRoot: root }) });
@@ -20,8 +31,7 @@ async function main() {
     startupTimeoutMs: 1000,
   });
   await instanceService.startInstance("ready-health-smoke");
-  await wait(100);
-  const ready = await instanceService.getStatus("ready-health-smoke");
+  const ready = await waitForStatus("ready-health-smoke", (status) => status?.readinessState === "ready");
   assert.strictEqual(ready.processState, "Running");
   assert.strictEqual(ready.readinessState, "ready");
   assert.strictEqual(ready.healthState, "healthy");
@@ -37,8 +47,7 @@ async function main() {
     startupTimeoutMs: 50,
   });
   await instanceService.startInstance("degraded-health-smoke");
-  await wait(120);
-  const degraded = await instanceService.getStatus("degraded-health-smoke");
+  const degraded = await waitForStatus("degraded-health-smoke", (status) => status?.readinessState === "timeout");
   assert.strictEqual(degraded.processState, "Running");
   assert.strictEqual(degraded.readinessState, "timeout");
   assert.strictEqual(degraded.healthState, "degraded");

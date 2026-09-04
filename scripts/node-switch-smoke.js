@@ -97,9 +97,12 @@ includesAll(compact(appSource), [
   "const requestSerial = ++systemRequestSerial; activeSystemRequestSerial = requestSerial;",
   "if (activeSystemRequestSerial === requestSerial) { markStartupReady(\"system\"); systemRequestInFlight = false; activeSystemRequestSerial = 0;",
   "systemRequestInFlight = false; activeSystemRequestSerial = 0;",
-  "if (isNodeRequestCurrent(requestContext)) { dockerRequestInFlight = false;",
   "if (isNodeRequestCurrent(requestContext)) { instancesRequestInFlight = false;",
   "if (isNodeRequestCurrent(requestContext)) { backupRequestInFlight = false;",
+  // Docker releases its in-flight flag unconditionally in the finally block so a
+  // node switch mid-request cannot deadlock refreshes; only the UI finalizers are
+  // guarded by current node + serial context.
+  "dockerRequestInFlight = false; if (isNodeRequestCurrent(requestContext) && requestId === dockerRequestSerial) {",
 ], "Request ownership and current-context finalizers");
 
 includesAll(appSource, [

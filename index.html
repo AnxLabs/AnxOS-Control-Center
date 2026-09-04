@@ -1727,6 +1727,20 @@
                   <strong data-field="instancesRunning">Unavailable</strong>
                 </div>
               </article>
+              <article class="instances-summary-card instances-summary-card--starting">
+                <span class="instances-summary-card__icon">◐</span>
+                <div>
+                  <span>Starting / Stopping</span>
+                  <strong><span data-field="instancesStarting">Unavailable</span> / <span data-field="instancesStopping">Unavailable</span></strong>
+                </div>
+              </article>
+              <article class="instances-summary-card instances-summary-card--attention">
+                <span class="instances-summary-card__icon">!</span>
+                <div>
+                  <span>Needs Attention</span>
+                  <strong data-field="instancesNeedsAttention">Unavailable</strong>
+                </div>
+              </article>
               <article class="instances-summary-card instances-summary-card--stopped">
                 <span class="instances-summary-card__icon">■</span>
                 <div>
@@ -1756,6 +1770,19 @@
                 </div>
               </article>
             </div>
+
+            <div class="instances-health-breakdown" data-instance-health-breakdown aria-label="Instance health counts">
+              <span data-health-bucket="running"><strong data-field="instancesHealthRunning">Unavailable</strong> Running</span>
+              <span data-health-bucket="stopped"><strong data-field="instancesHealthStopped">Unavailable</strong> Stopped</span>
+              <span data-health-bucket="starting"><strong data-field="instancesHealthStarting">Unavailable</strong> Starting</span>
+              <span data-health-bucket="stopping"><strong data-field="instancesHealthStopping">Unavailable</strong> Stopping</span>
+              <span data-health-bucket="unavailable"><strong data-field="instancesUnavailable">Unavailable</strong> Unavailable</span>
+              <span data-health-bucket="unhealthy"><strong data-field="instancesUnhealthy">Unavailable</strong> Unhealthy</span>
+              <span data-health-bucket="failed"><strong data-field="instancesFailed">Unavailable</strong> Failed</span>
+              <span data-health-bucket="unknown"><strong data-field="instancesUnknown">Unavailable</strong> Unknown</span>
+            </div>
+
+            <div class="instances-attention-strip" data-instance-attention role="region" aria-label="Instances needing attention" hidden></div>
 
             <div class="instances-controlbar" aria-label="Instances controls">
               <label class="docker-search">
@@ -4833,6 +4860,9 @@
     </div>
     <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
     <script src="src/shared/marketplaceError.js"></script>
+    <script src="src/shared/resourceOperationLifecycle.js"></script>
+    <script src="src/shared/instanceMetricsLifecycle.js"></script>
+    <script src="src/shared/instanceHealthSummary.js"></script>
     <script src="node_modules/@xterm/xterm/lib/xterm.js"></script>
     <script src="app.js"></script>
   </body>

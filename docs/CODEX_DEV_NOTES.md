@@ -134,3 +134,91 @@ Running log of release-hardening fixes.
   `pathLabel`, file-browser `filesystemRoot`, long-operation persistence, raw JSON path strings,
   shell-escaped spaces, SSH chunk buffering, `/mnt` and `/media`, `file://` URLs, normalized/fuzzy field
   matching, and nested schemas for generic path keys remain outside this batch.
+## 2026-08-20 — Resource-owned operation lifecycle
+
+- Root cause: instance and Marketplace download renderers rebuilt their whole
+  lists on every snapshot; download refresh errors explicitly rendered an
+  empty list; instance actions had only a page-wide busy boolean and no state
+  keyed to the affected resource. The Agent also intentionally omits
+  `installationState: installing` entries from list results.
+- Added `src/shared/resourceOperationLifecycle.js` to reconcile authoritative
+  resources separately from transient operations and reject stale/duplicate
+  lifecycle updates.
+- Instance rows and download entries now retain keyed DOM owners. Reload uses
+  the existing restart backend action but immediately displays `Reloading…`,
+  rotates its icon, disables conflicts, shows a brief success state, and keeps
+  failure attached to the instance.
+- Download Manager retains the last snapshot on polling failure and displays
+  real percentage, received/total bytes, speed, and ETA when provided. No
+  progress is simulated.
+- Focused coverage: `npm run operations:renderer-lifecycle:smoke`.
+- Known baseline constraints: `npm run ui:polish:smoke` still fails on the two
+  pre-existing SSH `window.confirm` calls. `npm run packaging:smoke` requires a
+  current packaged artifact and failed against the stale/missing
+  `dist/win-unpacked/resources/app.asar` content; no artifact was rebuilt.
+
+## 2026-08-20 — Instance-owned metrics lifecycle
+
+- Root cause: `refreshSelectedInstanceMetrics()` was the only Instances-page
+  metrics request path, and its result lived in one `latestInstanceMetrics`
+  slot. Initial list selection requested one server at most; clicking another
+  server changed that singleton owner and was what activated its telemetry.
+- Added `src/shared/instanceMetricsLifecycle.js`, a node-scoped telemetry map
+  keyed by stable `instance.id`. It distinguishes loading, ready, refreshing,
+  stale, and unavailable state while retaining the last valid sample.
+- The existing five-second Instances refresh now discovers all running
+  instances and schedules their existing per-instance IPC requests with
+  concurrency capped at three and per-ID in-flight deduplication. Console and
+  selected details read the same store and never create another poller.
+- Node request contexts, per-request IDs, sample timestamps, conditional
+  in-flight cleanup, and eligibility pruning protect against stale responses,
+  node switching, stopped instances, and overlapping refresh triggers.
+- Focused coverage: `npm run instances:metrics-lifecycle:smoke`.
+
+## 2026-08-27 — FiveM configuration, exit-observed lifecycle, health summary
+
+- Added a FiveM adapter to `src/shared/gameServerConfigManager.js` using real
+  FXServer semantics: `sv_hostname`, `sv_maxclients`, `endpoint_add_tcp` /
+  `endpoint_add_udp`, repeated `ensure` resource commands, and a sensitive
+  `sv_licenseKey` field. Existing license keys are never returned to the
+  renderer (`[REDACTED]` plus `hasCurrentValue`); untouched secrets keep their
+  saved value on write.
+- `instanceServiceCore.js` resolves the FiveM config at `server/server.cfg`
+  (matching the marketplace template's `data/server` working directory and its
+  `run.sh +exec server.cfg` startup), guards resolution with
+  `assertNoInstanceDataEscape`, and infers the `fivem` adapter for FiveM
+  instances. Writes create a backup and report `restartRequired: true`.
+- Instance wrapper-exit handling now records exit observation on the running
+  entry (exit code, signal, failure reason) before teardown and deletes the
+  running-process entry only after the runtime state update lands, so a dead
+  process cannot keep reporting Running, an adoptable detached runtime is
+  preferred over a stopped transition, and readiness is tracked on the entry
+  when the process reports ready.
+- Added `src/shared/instanceHealthSummary.js`, a shared classifier mapping
+  persisted states plus health/readiness onto truthful buckets (running,
+  stopped, starting, stopping, unavailable, unhealthy, failed, unknown,
+  setupRequired). A live process with degraded health surfaces as unhealthy,
+  not Running. The Instances renderer shows per-bucket counts and a
+  needs-attention strip through the shared summarizer.
+- De-flaked `instance-health-state-smoke.js` with `waitForStatus` polling and
+  extended `game-server-config-smoke.js` (run directly: `node
+  scripts/game-server-config-smoke.js`) with a FiveM fixture: discovery,
+  masked read, safe edit, backup-on-save, comment/untouched-secret
+  preservation, and traversal rejection.
+- Focused coverage: `npm run instances:health-summary:smoke`,
+  `node scripts/game-server-config-smoke.js`,
+  `npm run instances:health-state:smoke` equivalent (`node
+  scripts/instance-health-state-smoke.js`), plus the lifecycle, stale-PID,
+  shutdown, file-security, and SteamCMD suites.
+- The Instances page now refreshes itself on a 5-second interval while visible
+  (`startInstancesPagePolling`), so status and metrics stay current without
+  navigation. The timer honors hidden-tab and in-flight-action guards, stops
+  when leaving the page, and is cleared by renderer resource cleanup.
+- Replaced the two native `window.confirm` calls in SSH flows (profile delete,
+  unknown host-key approval) with the shared modal confirmation system
+  (`confirmDestructiveAction` / `createSecurityConfirmation`), restoring the
+  no-native-dialogs policy. Host-key approval deliberately does not use the
+  destructive-action settings bypass.
+- `ui-polish-smoke.js` now normalizes CRLF to LF when loading source files, so
+  its exact string assertions pass on Windows checkouts instead of failing on
+  whitespace only.

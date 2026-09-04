@@ -14,6 +14,7 @@ async function main() {
 
   await testMinecraft(root);
   await testPalworld(root);
+  await testFiveM(root);
   await testUnsupportedAndTraversal(root);
 
   console.log("game-server-config-smoke passed");
@@ -127,6 +128,68 @@ async function testPalworld(root) {
   assert.match(text, /ServerPassword="join-secret"/);
   assert.match(text, /UnknownPalOption=42/);
   assert.doesNotMatch(JSON.stringify(loaded), /top-secret|join-secret/);
+}
+
+async function testFiveM(root) {
+  const id = "fivem-config-smoke";
+  await instanceService.createInstance({
+    id,
+    type: "custom-command",
+    displayName: "FiveM Config Smoke",
+    workingDirectory: "data/server",
+    executable: "bash",
+    args: ["run.sh", "+exec", "server.cfg"],
+    game: "fivem",
+    templateId: "fivem",
+    tags: ["fivem", "fxserver", "game-server"],
+    primaryPort: 30120,
+    ports: [30120],
+  });
+  const configPath = path.join(root, id, "data", "server", "server.cfg");
+  await fs.mkdir(path.dirname(configPath), { recursive: true });
+  await fs.writeFile(configPath, [
+    "# preserve this comment",
+    'endpoint_add_tcp "0.0.0.0:30120"',
+    'endpoint_add_udp "0.0.0.0:30120"',
+    'sv_hostname "Original FiveM"',
+    "sv_maxclients 32",
+    "ensure mapmanager",
+    "ensure chat",
+    'sv_licenseKey "cfxk_test_secret_123456"',
+    'set onesync on',
+    "",
+  ].join("\n"), "utf8");
+
+  const loaded = await instanceService.readGameServerConfig(id);
+  assert.strictEqual(loaded.adapterId, "fivem");
+  assert.strictEqual(loaded.filePath, "server/server.cfg");
+  assert.strictEqual(loaded.values.hostname, "Original FiveM");
+  assert.strictEqual(loaded.values.maxClients, 32);
+  assert.strictEqual(loaded.values.resources, "mapmanager\nchat");
+  assert.strictEqual(loaded.values.licenseKey, "[REDACTED]");
+  assert.strictEqual(loaded.fields.find((field) => field.key === "licenseKey").hasCurrentValue, true);
+  assert.doesNotMatch(JSON.stringify(loaded), /cfxk_test_secret_123456/);
+
+  const saved = await instanceService.writeGameServerConfig(id, {
+    adapterId: "fivem",
+    sourceHash: loaded.sourceHash,
+    values: {
+      hostname: "Updated FiveM",
+      maxClients: 48,
+      resources: "mapmanager\nchat\nspawnmanager",
+    },
+  });
+  assert.strictEqual(saved.saved, true);
+  assert.strictEqual(saved.restartRequired, true);
+  assert.ok(saved.backupPath, "FiveM config save should create a backup");
+  const text = await fs.readFile(configPath, "utf8");
+  assert.match(text, /# preserve this comment/);
+  assert.match(text, /sv_hostname "Updated FiveM"/);
+  assert.match(text, /sv_maxclients 48/);
+  assert.match(text, /ensure spawnmanager/);
+  assert.match(text, /sv_licenseKey "cfxk_test_secret_123456"/);
+  assert.match(text, /set onesync on/);
+  assert.doesNotMatch(JSON.stringify(saved), /cfxk_test_secret_123456/);
 }
 
 async function testUnsupportedAndTraversal(root) {

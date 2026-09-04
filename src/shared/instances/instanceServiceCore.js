@@ -744,11 +744,11 @@ function validateExecutable(value) {
     throw createInstanceError("INVALID_EXECUTABLE");
   }
 
-  if (executable.includes("/") && !path.isAbsolute(executable)) {
+  if ((executable.includes("/") || executable.includes("\\")) && !path.isAbsolute(executable)) {
     throw createInstanceError("INVALID_EXECUTABLE");
   }
 
-  if (!executable.includes("/") && !/^[a-zA-Z0-9_.+-]+$/.test(executable)) {
+  if (!path.isAbsolute(executable) && !/^[a-zA-Z0-9_.+-]+$/.test(executable)) {
     throw createInstanceError("INVALID_EXECUTABLE");
   }
 
@@ -758,7 +758,9 @@ function validateExecutable(value) {
 function getExecutableRoots() {
   const configuredRoots = process.env.AGENT_INSTANCE_EXECUTABLE_ROOTS
     ? process.env.AGENT_INSTANCE_EXECUTABLE_ROOTS.split(path.delimiter)
-    : DEFAULT_EXECUTABLE_ROOTS;
+    : process.platform === "win32"
+      ? [path.dirname(process.execPath)]
+      : DEFAULT_EXECUTABLE_ROOTS;
 
   return configuredRoots.map((root) => path.resolve(root.trim())).filter(Boolean);
 }
@@ -3828,16 +3830,62 @@ async function reconcileConfigState(config) {
   const processEntry = runningProcesses.get(config.id);
   const pid = processEntry?.child?.pid || config.pid;
 
+  if (processEntry?.exitObserved) {
+    const updated = {
+      ...config,
+      state: processEntry.failed ? INSTANCE_STATES.FAILED : INSTANCE_STATES.STOPPED,
+      pid: null,
+      runtimeProcess: null,
+      exitCode: processEntry.exitCode ?? config.exitCode ?? null,
+      signal: processEntry.exitSignal || config.signal || null,
+      failureReason: processEntry.failed ? processEntry.resolvedFailureReason || "PROCESS_EXITED" : null,
+      readinessState: processEntry.failed ? "failed" : "stopped",
+      healthState: processEntry.failed ? "crashed" : "unknown",
+      lastStoppedAt: config.lastStoppedAt || nowIso(),
+    };
+    await saveInstanceConfig(updated);
+    return updated;
+  }
+
   if (pid && isProcessAlive(pid)) {
-    const state = processEntry && config.state === INSTANCE_STATES.STARTING ? INSTANCE_STATES.STARTING : INSTANCE_STATES.RUNNING;
+    const readinessDetected = processEntry?.readinessState === "ready";
+    const state = processEntry && config.state === INSTANCE_STATES.STARTING && !readinessDetected
+      ? INSTANCE_STATES.STARTING
+      : INSTANCE_STATES.RUNNING;
     return {
       ...config,
       state,
       pid,
+      readinessState: readinessDetected ? "ready" : config.readinessState,
+      healthState: readinessDetected ? "healthy" : config.healthState,
     };
   }
 
+  // A persisted failure is evidence about a process that already exited, not a
+  // stale claim that the process is still active. Preserve it until an explicit
+  // start/stop/update transition replaces it so crash status survives refresh
+  // and service restarts.
+  if (config.state === INSTANCE_STATES.FAILED) {
+    if (config.pid || config.runtimeProcess) {
+      const updated = {
+        ...config,
+        pid: null,
+        runtimeProcess: null,
+      };
+      await saveInstanceConfig(updated);
+      return updated;
+    }
+    return config;
+  }
+
   if (config.state === INSTANCE_STATES.RUNNING || config.state === INSTANCE_STATES.STARTING || config.state === INSTANCE_STATES.STOPPING || config.state === INSTANCE_STATES.RESTARTING) {
+    // Process-exit handling may persist a terminal result while detached-runtime
+    // inspection is in flight. Re-read before writing a stale active snapshot
+    // back as Unknown so a confirmed crash cannot be lost to reconciliation.
+    const latest = await loadInstanceConfig(config.id).catch(() => config);
+    if (latest.state === INSTANCE_STATES.FAILED) {
+      return latest;
+    }
     const intentionalStop = config.state === INSTANCE_STATES.STOPPING;
     const updated = {
       ...config,
@@ -4593,6 +4641,8 @@ async function startInstanceImpl(instanceId, options = {}) {
       if (!isCurrentRunningProcess(config.id, child)) {
         return;
       }
+      const entry = runningProcesses.get(config.id);
+      if (entry) entry.readinessState = "ready";
       updateRuntimeState(config.id, {
         state: INSTANCE_STATES.RUNNING,
         pid: child.pid,
@@ -4666,6 +4716,14 @@ async function startInstanceImpl(instanceId, options = {}) {
       ? "EARLY_CLEAN_EXIT"
       : failed ? failureReason : null;
 
+    if (entry) {
+      entry.exitObserved = true;
+      entry.exitCode = exitCode;
+      entry.exitSignal = signal;
+      entry.failed = failed;
+      entry.resolvedFailureReason = resolvedFailureReason;
+    }
+
     discoverDetachedRuntime(config).then(async (runtime) => {
       if (runtime && !requestedStop) {
         const updated = await adoptDiscoveredRuntime(config, runtime, { reason: "wrapper-exit" });
@@ -4687,19 +4745,20 @@ async function startInstanceImpl(instanceId, options = {}) {
         return updated;
       }
 
-      runningProcesses.delete(config.id);
       metricsSamples.delete(config.id);
-      return updateRuntimeState(config.id, {
-      state: failed ? INSTANCE_STATES.FAILED : INSTANCE_STATES.STOPPED,
-      pid: null,
-      exitCode,
-      signal,
-      failureReason: resolvedFailureReason,
-      failureDetails: entry?.failureDetails || null,
-      readinessState: failed ? "failed" : "stopped",
-      healthState: failed ? "crashed" : "unknown",
-      lastStoppedAt: nowIso(),
+      const updated = await updateRuntimeState(config.id, {
+        state: failed ? INSTANCE_STATES.FAILED : INSTANCE_STATES.STOPPED,
+        pid: null,
+        exitCode,
+        signal,
+        failureReason: resolvedFailureReason,
+        failureDetails: entry?.failureDetails || null,
+        readinessState: failed ? "failed" : "stopped",
+        healthState: failed ? "crashed" : "unknown",
+        lastStoppedAt: nowIso(),
       });
+      runningProcesses.delete(config.id);
+      return updated;
     }).then(async (updatedConfig) => {
       if (updatedConfig?.state === INSTANCE_STATES.RUNNING && updatedConfig?.pid) {
         return;
@@ -4808,6 +4867,7 @@ async function startInstanceImpl(instanceId, options = {}) {
     requestedStop: existingEntry?.requestedStop || false,
     suppressRestart: existingEntry?.suppressRestart || false,
     failureReason: existingEntry?.failureReason || null,
+    readinessState: existingEntry?.readinessState || null,
     startupTimer,
     discoveryTimer,
     outputTail: existingEntry?.outputTail || [],
@@ -5394,6 +5454,14 @@ async function resolveExistingGameConfigPath(config, adapterId) {
     return { ...resolveInstanceDataPath(config.id, candidates[0]), exists: false, candidates };
   }
 
+  if (adapterId === "fivem") {
+    const relativePath = FIVEM_CONFIG_RELATIVE_PATH;
+    const resolved = resolveInstanceDataPath(config.id, relativePath);
+    await assertNoInstanceDataEscape(resolved, { forWrite: true });
+    const stats = await fs.stat(resolved.path).catch(() => null);
+    return { ...resolved, exists: Boolean(stats?.isFile()), candidates: [relativePath] };
+  }
+
   throw createInstanceError("UNSUPPORTED_GAME_CONFIG", 404);
 }
 
@@ -5402,6 +5470,7 @@ function inferConfigAdapterId(config = {}, requestedAdapterId = null) {
   const family = inferGameFamily(config);
   if (family === "minecraft") return "minecraft";
   if (family === "palworld") return "palworld";
+  if (isFiveMInstance(config)) return "fivem";
   return null;
 }
 
@@ -5413,7 +5482,7 @@ function getDefaultGameConfigContent(adapter) {
   }, {});
   const document = adapter.format === "palworld-options"
     ? { prefix: "[/Script/Pal.PalGameWorldSettings]\nOptionSettings=(", suffix: ")\n", entries: [] }
-    : { entries: [], trailingNewline: true };
+    : { entries: [], trailingNewline: true, type: adapter.format };
   return serializeDocument(adapter, document, values);
 }
 
