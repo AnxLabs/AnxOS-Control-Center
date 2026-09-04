@@ -5,6 +5,11 @@ const path = require("path");
 
 const instanceService = require("../src/shared/instances/instanceServiceCore");
 
+// Case 9 creates a tracked child from process.execPath. On Linux CI the Node
+// binary lives outside the default executable roots, so the smoke must opt the
+// Node directory into the allowlist (read fresh by getExecutableRoots()).
+process.env.AGENT_INSTANCE_EXECUTABLE_ROOTS = path.dirname(process.execPath);
+
 const ALIVE_PID = 424242;
 
 function palworldInstancePayload(id) {
