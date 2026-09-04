@@ -1,6 +1,20 @@
 [
   {
     "version": "1.9",
+    "build": 198,
+    "channel": "Private Alpha",
+    "tag": "v1.9-build198",
+    "date": "September 4, 2026",
+    "datetime": "2026-09-04",
+    "title": "AnxOS Version 1.9",
+    "summary": "Latest AnxOS-Control-Center release.",
+    "changes": [
+      "Updated application build, website metadata, and downloadable release assets."
+    ],
+    "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.9-build198"
+  },
+  {
+    "version": "1.9",
     "build": 196,
     "channel": "Private Alpha",
     "tag": "v1.9-build196",
