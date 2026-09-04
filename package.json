@@ -225,7 +225,8 @@
     "windows-cpu-temperature:smoke": "node scripts/windows-cpu-temperature-smoke.js",
     "windows-elevation-tray:smoke": "node scripts/windows-elevation-tray-smoke.js",
     "security:reset-password": "node scripts/reset-local-password.js",
-    "icons:branding": "node scripts/generate-linux-icons.js"
+    "icons:branding": "node scripts/generate-linux-icons.js",
+    "instances:runtime-reconciliation:smoke": "node scripts/instance-runtime-reconciliation-smoke.js"
   },
   "build": {
     "appId": "com.anxos.controlcenter",

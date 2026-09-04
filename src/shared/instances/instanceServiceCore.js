@@ -358,11 +358,19 @@ async function cancelInstallationSession(instanceId, request = {}) {
 }
 
 async function beginSteamCmdUpdateSession(instanceId, request = {}) {
-  const config = await loadInstanceConfig(instanceId);
+  const config = await reconcileConfigState(await loadInstanceConfig(instanceId));
   if (config.installerType !== "steamcmd-native" || !Number.isInteger(config.steamAppId) || config.steamAppId < 1) {
     throw createInstanceError("STEAMCMD_UPDATE_UNSUPPORTED", 409);
   }
-  if (config.state !== INSTANCE_STATES.STOPPED || runningProcesses.has(config.id)) {
+  // Reconciliation above is the authoritative runtime verdict: a stale
+  // persisted "Running" with no live, identity-matching process becomes
+  // Stopped here. Only a genuinely live runtime (tracked child, adopted
+  // detached runtime, or live persisted PID) may block file updates, and a
+  // Failed record means the process already exited.
+  if (
+    (config.state !== INSTANCE_STATES.STOPPED && config.state !== INSTANCE_STATES.FAILED) ||
+    runningProcesses.has(config.id)
+  ) {
     throw createInstanceError("STEAMCMD_UPDATE_REQUIRES_STOPPED", 409, { state: config.state });
   }
   const operationId = String(request.operationId || "").trim();
@@ -479,7 +487,8 @@ async function repairLegacySteamCmdMetadata(instanceId) {
   if (config.installerType === "steamcmd-native" && config.steamAppId) return publicConfig(config);
   const template = LEGACY_STEAMCMD_TEMPLATES[String(config.templateId || "").toLowerCase()];
   if (!template) throw createInstanceError("STEAMCMD_METADATA_MIGRATION_REQUIRED", 409, { templateId: config.templateId || null });
-  if (config.state !== INSTANCE_STATES.STOPPED || runningProcesses.has(config.id)) throw createInstanceError("STEAMCMD_UPDATE_REQUIRES_STOPPED", 409);
+  const reconciled = await reconcileConfigState(config);
+  if ((reconciled.state !== INSTANCE_STATES.STOPPED && reconciled.state !== INSTANCE_STATES.FAILED) || runningProcesses.has(config.id)) throw createInstanceError("STEAMCMD_UPDATE_REQUIRES_STOPPED", 409, { state: reconciled.state });
   const root = path.resolve(instancePath(config.id));
   if (!isInsideRoot(root, getInstanceRoot())) throw createInstanceError("PATH_NOT_ALLOWED", 403);
   const verifyFiles = template.verifyFiles.filter((relative) => {
@@ -498,9 +507,12 @@ async function repairLegacySteamCmdMetadata(instanceId) {
 }
 
 async function executeSteamCmdUpdate(instanceId, request = {}) {
-  const config = await loadInstanceConfig(instanceId);
+  const config = await reconcileConfigState(await loadInstanceConfig(instanceId));
   if (config.installerType !== "steamcmd-native" || !Number.isInteger(config.steamAppId) || config.steamAppId < 1) throw createInstanceError("STEAMCMD_UPDATE_UNSUPPORTED", 409);
-  if (config.state !== INSTANCE_STATES.STOPPED || runningProcesses.has(config.id)) throw createInstanceError("STEAMCMD_UPDATE_REQUIRES_STOPPED", 409, { state: config.state });
+  if (
+    (config.state !== INSTANCE_STATES.STOPPED && config.state !== INSTANCE_STATES.FAILED) ||
+    runningProcesses.has(config.id)
+  ) throw createInstanceError("STEAMCMD_UPDATE_REQUIRES_STOPPED", 409, { state: config.state });
   const session = validateInstallationSession(getInstallationSession(config.id), String(request.operationId || "").trim(), String(request.token || ""));
   if (session.installerFamily !== "steamcmd-update") throw createInstanceError("INSTALLATION_SESSION_INVALID", 403);
   if (session.child) throw createInstanceError("STEAMCMD_UPDATE_CONFLICT", 409);
@@ -3780,6 +3792,76 @@ async function findUnrelatedPortConflicts(config = {}) {
   return conflicts;
 }
 
+function normalizeIdentityPath(value) {
+  return String(value || "").replace(/\\/g, "/").toLowerCase().replace(/\/+$/, "");
+}
+
+// A stored PID must never prove the instance is running on its own: PIDs are
+// recycled by the OS. When a process snapshot is available, require the
+// recorded runtime identity (or the Palworld detached-runtime identity) to
+// still match before treating a persisted PID as live.
+// Returns "verified", "mismatch", or "unavailable" (no snapshot data to judge
+// with — callers must keep treating the process as running in that case).
+async function verifyPersistedRuntimeIdentity(config = {}, pid = null) {
+  const normalizedPid = normalizePid(pid);
+  if (!normalizedPid) {
+    return "unavailable";
+  }
+  let snapshot = null;
+  try {
+    snapshot = await inspectSystemProcesses();
+  } catch {
+    return "unavailable";
+  }
+  if (!Array.isArray(snapshot.processes) || snapshot.processes.length === 0) {
+    return "unavailable";
+  }
+  const proc = snapshot.processes.find((entry) => normalizePid(entry.pid) === normalizedPid);
+  if (!proc) {
+    // The snapshot is available and does not contain the PID, so the process
+    // is authoritatively gone.
+    return "mismatch";
+  }
+  const spec = await buildDetachedRuntimeSpec(config);
+  if (spec) {
+    if (processMatchesDetachedIdentity(proc, spec)) {
+      return "verified";
+    }
+    const liveName = path.basename(String(proc.name || proc.exe || "")).toLowerCase();
+    const looksLikeRuntime = spec.processNames.has(liveName) ||
+      spec.executableFragments.some((fragment) => String(proc.commandLine || "")
+        .replace(/\\/g, "/").toLowerCase().includes(fragment.replace(/\\/g, "/").toLowerCase()));
+    // Identity data for a genuine game server can be unreadable (different
+    // user, restricted /proc entries). Only declare a mismatch when the live
+    // process is positively something else.
+    return looksLikeRuntime ? "unavailable" : "mismatch";
+  }
+  const runtime = config.runtimeProcess;
+  if (!runtime) {
+    return "unavailable";
+  }
+  const liveName = path.basename(String(proc.name || proc.exe || "")).toLowerCase();
+  const liveExe = String(proc.exe || "").replace(/\\/g, "/").toLowerCase();
+  const liveCwd = normalizeIdentityPath(proc.cwd);
+  const liveCommandLine = String(proc.commandLine || "").replace(/\\/g, "/").toLowerCase();
+  if (!liveName && !liveExe && !liveCwd && !liveCommandLine) {
+    return "unavailable";
+  }
+  const recordedName = path.basename(String(runtime.processName || "")).toLowerCase();
+  const recordedExe = String(runtime.executablePath || "").replace(/\\/g, "/").toLowerCase();
+  const recordedCwd = normalizeIdentityPath(runtime.workingDirectory);
+  if (recordedName && liveName && recordedName === liveName) {
+    return "verified";
+  }
+  if (recordedExe && liveExe && recordedExe === liveExe) {
+    return "verified";
+  }
+  if (recordedCwd && liveCwd && (liveCwd === recordedCwd || isInsideRoot(path.resolve(proc.cwd), path.resolve(runtime.workingDirectory)))) {
+    return "verified";
+  }
+  return "mismatch";
+}
+
 async function adoptDiscoveredRuntime(config, runtime, options = {}) {
   if (!runtime?.pid || !isProcessAlive(runtime.pid)) {
     return null;
@@ -3848,6 +3930,26 @@ async function reconcileConfigState(config) {
   }
 
   if (pid && isProcessAlive(pid)) {
+    // When the PID comes from persisted state rather than a tracked child of
+    // this process, liveness alone is not enough: the PID may have been
+    // recycled by an unrelated process after an agent restart.
+    if (!processEntry) {
+      const identity = await verifyPersistedRuntimeIdentity(config, pid).catch(() => "unavailable");
+      if (identity === "mismatch") {
+        const updated = {
+          ...config,
+          state: INSTANCE_STATES.STOPPED,
+          pid: null,
+          runtimeProcess: null,
+          lastStoppedAt: config.lastStoppedAt || nowIso(),
+          failureReason: "PID_IDENTITY_MISMATCH",
+          readinessState: "stopped",
+          healthState: "unknown",
+        };
+        await saveInstanceConfig(updated);
+        return updated;
+      }
+    }
     const readinessDetected = processEntry?.readinessState === "ready";
     const state = processEntry && config.state === INSTANCE_STATES.STARTING && !readinessDetected
       ? INSTANCE_STATES.STARTING
@@ -3878,6 +3980,29 @@ async function reconcileConfigState(config) {
     return config;
   }
 
+  // Legacy records reconciled by older builds may still sit in Unknown with
+  // STALE_PID evidence. That evidence means a dead PID was already confirmed
+  // authoritatively; migrate the record to Stopped so stale state cannot
+  // block maintenance operations forever.
+  if (
+    config.state === INSTANCE_STATES.UNKNOWN &&
+    !processEntry &&
+    !normalizePid(config.pid) &&
+    config.failureReason === "STALE_PID"
+  ) {
+    const updated = {
+      ...config,
+      state: INSTANCE_STATES.STOPPED,
+      pid: null,
+      runtimeProcess: null,
+      lastStoppedAt: config.lastStoppedAt || nowIso(),
+      readinessState: "stopped",
+      healthState: "unknown",
+    };
+    await saveInstanceConfig(updated);
+    return updated;
+  }
+
   if (config.state === INSTANCE_STATES.RUNNING || config.state === INSTANCE_STATES.STARTING || config.state === INSTANCE_STATES.STOPPING || config.state === INSTANCE_STATES.RESTARTING) {
     // Process-exit handling may persist a terminal result while detached-runtime
     // inspection is in flight. Re-read before writing a stale active snapshot
@@ -3887,14 +4012,21 @@ async function reconcileConfigState(config) {
       return latest;
     }
     const intentionalStop = config.state === INSTANCE_STATES.STOPPING;
+    // A stored PID that fails the liveness check is authoritative proof the
+    // server is no longer running (the detached-runtime discovery above found
+    // nothing either). Reconcile to Stopped so stale state cannot block
+    // maintenance operations, while STALE_PID survives as last-operation
+    // evidence. Without any stored PID there is nothing to verify against, so
+    // the honest result stays Unknown rather than a possibly false "Stopped".
+    const hadTrackedPid = Boolean(processEntry || normalizePid(config.pid) || normalizePid(config.runtimeProcess?.pid));
     const updated = {
       ...config,
-      state: intentionalStop ? INSTANCE_STATES.STOPPED : INSTANCE_STATES.UNKNOWN,
+      state: intentionalStop || hadTrackedPid ? INSTANCE_STATES.STOPPED : INSTANCE_STATES.UNKNOWN,
       pid: null,
       runtimeProcess: null,
       lastStoppedAt: config.lastStoppedAt || nowIso(),
-      failureReason: intentionalStop ? null : "STALE_PID",
-      readinessState: intentionalStop ? "stopped" : "unknown",
+      failureReason: intentionalStop ? null : hadTrackedPid ? "STALE_PID" : "RUNTIME_PROBE_INCONCLUSIVE",
+      readinessState: intentionalStop || hadTrackedPid ? "stopped" : "unknown",
       healthState: "unknown",
     };
 

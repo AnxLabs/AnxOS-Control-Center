@@ -40,13 +40,38 @@ item 7 Beta trials are not yet documented.
 
 ## V1-A — Core operation and state reliability (live drill)
 
-Status: **pending live execution.** The drill requires two instances running simultaneously
-on the connected Anxlab agent with lifecycle, per-instance metrics, logs, and recoverable
-state checks. Existing automated coverage: `resource-operation-lifecycle-smoke`,
-`instance-metrics-lifecycle-smoke`, `instance-health-summary-smoke`,
-`instance-health-state-smoke`, `instance-runtime-smoke`, `node:switch:smoke`,
-`operations:framework:smoke` (all passing as of the 2026-09-04 `rc:validate` 181/181 run).
-The live drill result will be recorded here when executed.
+Status: **partially met (live drill executed 2026-09-04).** Environment: packaged v1.9
+build 196 (Private Alpha), remote Debian 13 agent node "Anxlab" (192.168.1.134, Agent 0.1.0,
+API v1, Protocol 1, connected).
+
+Drill performed via the Instances page UI:
+
+1. Started **Terraria TShock** (`terraria-tshock`, custom command, 192.168.1.134:7777) and
+   **Better MC [FORGE] BMC4** (`better-mc-forge-bmc4`, java app, 192.168.1.134:24454) from
+   the Instances page while both were STOPPED.
+2. Both reached **RUNNING** simultaneously. Header counters updated to `RUNNING 2`,
+   `TOTAL INSTANCES 4`, with live `TOTAL RAM` (752 MB → 1.1 GB) and `TOTAL CPU`
+   (25.9% → 19.0% → 29.6%) aggregate values.
+3. Per-instance metrics populated independently per row and updated live across polls:
+   Better MC CPU 0.0% / RAM 3.4 MB / uptime 1m–2m; Terraria CPU 25.0% → 19.0% / RAM
+   748 MB → 1.1 GB / uptime 1m. No metric cross-contamination between rows (the
+   selection-independence invariant).
+4. Console tab for Terraria rendered live server output ("Backing up world file",
+   "127.0.0.1:61390 is connecting...", "Saving world data", "Validating world data").
+5. Stopped Terraria via the row Stop control: a stop confirmation dialog appeared
+   ("may disconnect active players or services"), and after confirming, the console showed
+   the shutdown sequence (Saving world data → Validating world save → Backing up world
+   file) and status returned to **STOPPED** with Start re-enabled.
+6. Stopped Better MC the same way: confirmation dialog, console recorded
+   `Stopping Better MC [FORGE] BMC4 with code=null signal=SIGTERM`, status **STOPPED**,
+   Start re-enabled (recoverable state).
+
+Not yet covered by this drill: restart path and Expose/Share during the drill, failure-path
+(start failure mid-drill), and a second agent node (single-node drill only). Existing
+automated coverage: `resource-operation-lifecycle-smoke`, `instance-metrics-lifecycle-smoke`,
+`instance-health-summary-smoke`, `instance-health-state-smoke`, `instance-runtime-smoke`,
+`node:switch:smoke`, `operations:framework:smoke` (all passing as of the 2026-09-04
+`rc:validate` 181/181 run).
 
 ---
 *Evidence rule: this file only records checks that were actually executed, with dates. Roadmap

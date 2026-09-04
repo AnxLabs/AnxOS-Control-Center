@@ -10495,6 +10495,18 @@ function getInstanceOperationLabel(type) {
   return labels[type] || `${type} in progress`;
 }
 
+// Human-readable summary of the last failed instance operation. Kept separate
+// from the runtime state so a historical failure stays visible without
+// masquerading as the current process state.
+function getInstanceOperationFailureText(operation) {
+  if (!operation || operation.status !== "failed") {
+    return null;
+  }
+  const labels = { start: "Start", stop: "Stop", reload: "Reload", restart: "Reload", update: "Update" };
+  const label = labels[operation.type] || operation.type || "Operation";
+  return `Last operation: ${label} failed${operation?.error ? ` — ${operation.error}` : ""}`;
+}
+
 function setInstanceOperation(instanceId, patch) {
   const operation = instanceOperationStore.updateOperation(instanceId, patch);
   renderInstanceRows(getInstances());
@@ -13240,13 +13252,16 @@ function buildInstanceAddressCell(instance) {
 function buildInstanceStatePill(instance) {
   const pill = document.createElement("span");
   const operation = getInstanceOperation(instance?.id);
-  const state = operation?.status === "running"
-    ? getInstanceOperationLabel(operation.type)
-    : operation?.status === "failed" ? "Reload failed" : operation?.status === "success" ? "Ready" : instance?.state || "Stopped";
-  const stateClass = operation?.status === "running" ? "reloading" : operation?.status === "failed" ? "failed" : getInstanceStateClass(state);
+  // Runtime state and the last operation result are separate facts: a failed
+  // reload must never masquerade as a live runtime state. The pill shows the
+  // reconciled instance state and keeps the failed operation as its tooltip.
+  const state = operation?.status === "running" ? getInstanceOperationLabel(operation.type) : instance?.state || "Stopped";
+  const stateClass = operation?.status === "running" ? "reloading" : getInstanceStateClass(state);
   pill.className = `instance-state is-${stateClass}`;
   pill.textContent = state;
-  if (operation?.error) pill.title = operation.error;
+  const lastOperationText = getInstanceOperationFailureText(operation);
+  if (lastOperationText) pill.title = lastOperationText;
+  else if (operation?.error) pill.title = operation.error;
   return pill;
 }
 
@@ -13611,13 +13626,17 @@ function setInstanceDetails(instance = null) {
   const ports = getInstancePorts(instance);
   const rconPort = ports.find((port) => port !== primaryPort) || null;
   const activeOperation = getInstanceOperation(instance.id);
+  // The state field reports the reconciled runtime state; a failed operation
+  // stays visible through the tooltip and the failure-reason field instead of
+  // replacing the state.
   const visibleState = activeOperation?.status === "running"
     ? getInstanceOperationLabel(activeOperation.type)
-    : activeOperation?.status === "failed" ? "Reload failed" : activeOperation?.status === "success" ? "Ready" : instance.state || "Unavailable";
+    : activeOperation?.status === "success" ? "Ready" : instance.state || "Unavailable";
   setField("instanceDetailState", visibleState);
   document.querySelectorAll('[data-field="instanceDetailState"]').forEach((field) => {
-    field.className = `instance-state is-${activeOperation?.status === "running" ? "reloading" : activeOperation?.status === "failed" ? "failed" : getInstanceStateClass(instance.state)}`;
-    field.title = activeOperation?.error || "";
+    field.className = `instance-state is-${activeOperation?.status === "running" ? "reloading" : getInstanceStateClass(instance.state)}`;
+    const lastOperationText = getInstanceOperationFailureText(activeOperation);
+    field.title = lastOperationText || activeOperation?.error || "";
   });
   setField("instancesSelectedCpu", metricsPlaceholder || formatInstanceCpu(metrics));
   setField("instancesSelectedMemory", metricsPlaceholder || formatInstanceMemory(metrics));
@@ -13637,7 +13656,7 @@ function setInstanceDetails(instance = null) {
   setInstanceDetail("created", formatDateTime(instance.createdAt || instance.created || instance.metadata?.createdAt));
   setInstanceDetail("type", getInstanceTypeLabel(instance));
   setInstanceDetail("command", command || "Unavailable");
-  setInstanceDetail("failureReason", getInstanceFailureReason(instance));
+  setInstanceDetail("failureReason", getInstanceOperationFailureText(activeOperation) || getInstanceFailureReason(instance));
   setInstanceDetail("pid", formatInstanceValue(instance.pid));
   setInstanceDetail("uptime", metricsPlaceholder || formatDuration(metrics?.uptimeSeconds));
   setInstanceDetail("cpu", metricsPlaceholder || formatInstanceCpu(metrics));
