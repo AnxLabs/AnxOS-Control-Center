@@ -5,18 +5,18 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   siteUrl: "https://anxoscontrolcenter.org",
   logoPath: "/assets/anxos-logo.png",
   latestVersion: "1.9",
-  build: "198",
-  buildNumber: "198",
+  build: "199",
+  buildNumber: "199",
   channel: "Private Alpha",
-  releaseLabel: "Version 1.9 Build 198 Private Alpha",
+  releaseLabel: "Version 1.9 Build 199 Private Alpha",
   releaseDate: "September 4, 2026",
-  releaseTag: "v1.9-build198",
+  releaseTag: "v1.9-build199",
   releaseRepository: {
     owner: "bungopam-byte",
     repo: "AnxOS-Control-Center-Releases",
   },
   repositoryUrl: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases",
-  releaseUrl: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.9-build198",
+  releaseUrl: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.9-build199",
   githubReleasesApiUrl: "https://api.github.com/repos/bungopam-byte/AnxOS-Control-Center-Releases/releases?per_page=20",
   stableDownloadEndpoints: {
     windows: "/api/download/latest/windows",
@@ -26,23 +26,37 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   },
   releaseAssets: [
       {
-          fileName: "AnxOS-Control-Center-Setup-1.9-build198.exe",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.9-build198/AnxOS-Control-Center-Setup-1.9-build198.exe"
+          fileName: "AnxOS-Control-Center-Setup-1.9-build199.exe",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.9-build199/AnxOS-Control-Center-Setup-1.9-build199.exe"
       },
       {
-          fileName: "AnxOS-Control-Center-1.9-build198-portable.exe",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.9-build198/AnxOS-Control-Center-1.9-build198-portable.exe"
+          fileName: "AnxOS-Control-Center-1.9-build199-portable.exe",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.9-build199/AnxOS-Control-Center-1.9-build199-portable.exe"
       },
       {
-          fileName: "AnxOS-Control-Center-1.9-build198.AppImage",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.9-build198/AnxOS-Control-Center-1.9-build198.AppImage"
+          fileName: "AnxOS-Control-Center-1.9-build199.AppImage",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.9-build199/AnxOS-Control-Center-1.9-build199.AppImage"
       },
       {
-          fileName: "AnxOS-Control-Center-1.9-build198.deb",
-          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.9-build198/AnxOS-Control-Center-1.9-build198.deb"
+          fileName: "AnxOS-Control-Center-1.9-build199.deb",
+          url: "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/download/v1.9-build199/AnxOS-Control-Center-1.9-build199.deb"
       }
   ],
   releaseNotes: [
+      {
+          "version": "1.9",
+          "build": 199,
+          "channel": "Private Alpha",
+          "tag": "v1.9-build199",
+          "date": "September 4, 2026",
+          "datetime": "2026-09-04",
+          "title": "AnxOS Version 1.9",
+          "summary": "Latest AnxOS-Control-Center release.",
+          "changes": [
+              "Updated application build, website metadata, and downloadable release assets."
+          ],
+          "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.9-build199"
+      },
       {
           "version": "1.9",
           "build": 198,
