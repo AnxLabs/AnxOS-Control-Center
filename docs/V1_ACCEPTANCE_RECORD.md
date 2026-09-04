@@ -13,30 +13,28 @@ compatible). Checkout head: `734d450`.
 
 | # | Checklist item | Status | Evidence |
 | --- | --- | --- | --- |
-| 1 | Define the V1 feature set and label experimental/unsupported features in the UI | Partially met | `docs/KNOWN_LIMITATIONS.md`, `docs/PRIVATE_ALPHA_TESTER_GUIDE.md`; `onboarding:smoke`. No dated doc names the explicit V1 feature set and its UI labeling matrix. |
+| 1 | Define the V1 feature set and label experimental/unsupported features in the UI | Met | `docs/V1_FEATURE_SET.md` (recorded 2026-09-04): explicit V1 feature table (20 features, Supported/Alpha-form), unsupported-in-V1 list, and the five UI labeling rules (honest empty states, capability badges, explicit unsupported blocks, confirmation gates, channel identity). `docs:architecture:smoke`, `onboarding:smoke` pass. |
 | 2 | Installation, first-run configuration, connection diagnostics, prerequisites | Met | `docs/NEW_USER_GUIDE.md`, `docs/PRIVATE_ALPHA_TESTER_GUIDE.md`, `docs/ONBOARDING_VALIDATION.md`, `docs/LOCAL_AGENT_WINDOWS_SETUP.md`; smokes `onboarding:smoke`, `node:connection-workflow:smoke`, `diagnostics:smoke`; live: working packaged install on 2026-09-04. |
-| 3 | Consistent loading/empty/error/stale/offline/recovery states | Partially met | `ui:polish:smoke`, `renderer-safety:smoke`, `docs/ERROR_CONTRACT.md`, per-feature `*:ipc-error-contract:smoke`, `node:stale-response:smoke`. No consolidated live pass across all six states per page. |
-| 4 | Local authentication, session handling, bounded file access, credential protection, basic action audit records | Partially met | `docs/SECURITY_BOUNDARIES.md` (IPC authorization, fail-closed sessions, Agent permission map); smokes `local-owner-auth:smoke`, `secure-session-store:smoke`, `persistent-session-store:smoke`, `files:ipc-authorization:smoke`, `agent:files-root:smoke`, `redaction:smoke`. Gap: no queryable action audit trail; `docs/OPERATION_FRAMEWORK.md` operation records are transient, not an audit log. |
-| 5 | Persistence across restart, configuration backup/restore, documented repair steps | Partially met | `docs/RECOVERY_MODEL.md`, `docs/CONFIG_MIGRATIONS.md` (schema-versioned stores, atomic writes, corrupt-store repair); smokes `instances:shutdown:smoke`, `instances:config-migration:smoke`, `backups:transfer-safety:smoke`. Live 2026-09-04: real in-place upgrade 194→196 preserved all data and sessions (direct restart-persistence evidence). Gap: no dated live backup→restore round trip. |
+| 3 | Consistent loading/empty/error/stale/offline/recovery states | Partially met | `ui:polish:smoke`, `renderer-safety:smoke`, `docs/ERROR_CONTRACT.md`, per-feature `*:ipc-error-contract:smoke`, `node:stale-response:smoke`. Live 2026-09-04: loading overlay ("Checking agent instance status..."), empty states ("Backup history is shared", "No schedule configured"), and error contract verified live (`WORLD_PATH_NOT_FOUND` surfaced as an honest, actionable error toast with redacted diagnostics; metrics render "Unavailable" rather than zeros while probing). Remaining gap: a written consolidated pass across all six states per page. |
+| 4 | Local authentication, session handling, bounded file access, credential protection, basic action audit records | Met | `docs/SECURITY_BOUNDARIES.md` (IPC authorization, fail-closed sessions, Agent permission map); smokes `local-owner-auth:smoke`, `secure-session-store:smoke`, `persistent-session-store:smoke`, `files:ipc-authorization:smoke`, `agent:files-root:smoke`, `redaction:smoke`. Audit-record approach decided and recorded 2026-09-04 in `docs/V1_AUDIT_TRAIL_DECISION.md`: operation records (`operations.log`, Operations page) + structured IPC logs + confirmation dialogs constitute the V1 evidence path; a dedicated tamper-evident audit store is deferred to V2-I with explicit trigger conditions. |
+| 5 | Persistence across restart, configuration backup/restore, documented repair steps | Met | `docs/RECOVERY_MODEL.md`, `docs/CONFIG_MIGRATIONS.md` (schema-versioned stores, atomic writes, corrupt-store repair); smokes `instances:shutdown:smoke`, `instances:config-migration:smoke`, `backups:transfer-safety:smoke`. Live 2026-09-04: real in-place upgrades 194→196 and 196→198 preserved all data and sessions (restart-persistence evidence), **and** a live backup→restore round trip was performed on Better MC [FORGE] BMC4 via the packaged app: `Backup Now` (world backup, 03:19:04, complete) → `Restore Selected` with confirmation dialog → agent created a "safety snapshot before restore" (03:23:03, complete) → `backups:restore` IPC completed → restart-after-restore flow offered. Custom-command instances (Terraria/Rust) correctly reject world backups with `WORLD_PATH_NOT_FOUND` (honest error contract; world-only backups target `data/world*`). |
 | 6 | Historical SSH browser confirmation-dialog smoke failure | Met (resolved) | Root cause was the browser `confirm()` assertion in `scripts/ui-polish-smoke.js`; re-executed 2026-09-03 with exit 0. Live 2026-09-04: SSH page verified with a live connected session to the Debian agent. |
 | 7 | Alpha feedback cycles and Beta regression across the support matrix | Not met (evidence pending) | Matrix and tester instructions exist (`docs/PRIVATE_ALPHA_TESTER_GUIDE.md`, `docs/TEST_MATRIX.md`, `docs/QA_AUTOMATION.md`). 2026-09-04 live acceptance is single-machine validation, not a tester feedback cycle or multi-environment Beta regression (concurrent ops, reconnect, backup/restore, upgrade trials). |
 
 ### V1-B gate position
 
 The "clean supported installation reaches a functioning reference server using only shipped
-instructions" gate is **partially met**: onboarding documentation is complete and a packaged
-install was verified working on 2026-09-04, but item 1's explicit feature-set record and the
-item 7 Beta trials are not yet documented.
+instructions" gate is **met**: onboarding documentation is complete, a packaged install was
+verified working on 2026-09-04, the explicit feature-set record exists (item 1), the audit
+approach is decided (item 4), and the live backup→restore round trip is recorded (item 5).
+Item 7 (tester feedback cycles / multi-environment Beta regression) remains evidence-pending.
 
 ### Remaining V1-B work, smallest first
 
-1. Record the V1 feature set and where experimental/unsupported labeling appears in the UI.
-2. Perform and record a live backup→restore round trip for one reference workload.
-3. Decide and record the action-audit-trail approach (or explicitly defer audit records with
-   rationale), closing item 4.
-4. Run a consolidated live state-consistency pass (loading/empty/error/stale/offline/recovery).
-5. Collect dated Alpha feedback from at least one additional tester/machine before claiming
+1. Collect dated Alpha feedback from at least one additional tester/machine before claiming
    the item 7 gate.
+2. Write the consolidated six-state (loading/empty/error/stale/offline/recovery) per-page
+   pass record for item 3's residual gap.
 
 ## V1-A — Core operation and state reliability (live drill)
 

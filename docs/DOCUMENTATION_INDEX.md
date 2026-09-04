@@ -23,6 +23,8 @@ gates:
 - `MASTER_ROADMAP.md`
 - `B0_BASELINE.md`
 - `V1_ACCEPTANCE_RECORD.md`
+- `V1_FEATURE_SET.md`
+- `V1_AUDIT_TRAIL_DECISION.md`
 
 When a current document conflicts with a build-numbered report, the current
 document controls.
