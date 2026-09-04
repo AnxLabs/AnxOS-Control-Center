@@ -119,6 +119,17 @@ Open **Backups** before making major server changes. Backups can protect instanc
 
 Open **Agent Control** for beginner summaries, local/remote Agent state, diagnostics, logs, and support bundle previews. Use **Copy Summary** or **Export Bundle** instead of pasting raw logs.
 
+## After Restarting AnxOS
+
+After you close and reopen AnxOS (or after an upgrade restart), saved node credentials start locked again. The app remembers who you are signed in as online, but privileged local credentials are only released after you unlock the local owner account on this device.
+
+Until you unlock:
+
+- Docker, Files, Public Access, and other agent-based pages may show errors such as "Unlock AnxOS to access saved node credentials."
+- The Notifications page may show repeated credential errors for these features while they retry in the background. This stops once you unlock.
+
+To unlock, open the **Security** page and sign in with the local owner account you created on this device (the same form shown as "Unlock AnxOS"). If you chose **Stay signed in** previously, AnxOS may unlock automatically; otherwise the unlock is required after every restart. Docker and the other agent features start working again immediately after unlock.
+
 ## Troubleshooting
 
 - Agent unreachable: open **Agent Control**, refresh, and verify the Agent is running.

@@ -22,6 +22,7 @@ gates:
 - `PRIVATE_ALPHA_READINESS_REPORT_FINAL.md`
 - `MASTER_ROADMAP.md`
 - `B0_BASELINE.md`
+- `V1_ACCEPTANCE_RECORD.md`
 
 When a current document conflicts with a build-numbered report, the current
 document controls.

@@ -13,6 +13,8 @@ const source = fs.readFileSync(path.join(root, "app.js"), "utf8");
   "function clearAgentPollingBackoff",
   "UNAUTHORIZED",
   "ECONNREFUSED",
+  "LOCAL_AUTHENTICATION_REQUIRED",
+  "AUTH_UNLOCK_REQUIRED",
   "nextRetryAt",
 ].forEach((needle) => assert(source.includes(needle), `Renderer Agent polling backoff missing ${needle}.`));
 

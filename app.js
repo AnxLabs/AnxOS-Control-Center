@@ -31348,7 +31348,9 @@ function getAgentPollingBackoffKey(feature, context = {}) {
 
 function isBackoffEligibleAgentError(error = {}) {
   const combined = `${error?.code || ""} ${error?.message || ""}`;
-  return /UNAUTHORIZED|AUTHENTICATION_FAILED|AGENT_UNAVAILABLE|ECONNREFUSED|TIMEOUT|NETWORK_ERROR|NODE_DISABLED|NODE_NOT_FOUND|Agent unavailable|token rejected/i.test(combined);
+  // Local-auth lock errors must back off too, or node-scoped polling keeps
+  // hammering the locked credential store at full speed until the owner unlocks.
+  return /UNAUTHORIZED|AUTHENTICATION_FAILED|LOCAL_AUTHENTICATION_REQUIRED|AUTH_UNLOCK_REQUIRED|AGENT_UNAVAILABLE|ECONNREFUSED|TIMEOUT|NETWORK_ERROR|NODE_DISABLED|NODE_NOT_FOUND|Agent unavailable|token rejected/i.test(combined);
 }
 
 function shouldBackOffAgentPolling(feature, context = {}) {
