@@ -549,11 +549,31 @@ function createReleaseNoteCard(release, index = 0) {
   const summary = document.createElement("p");
   summary.textContent = release.summary || "";
   const list = document.createElement("ul");
-  (release.changes || []).forEach((change) => {
-    const item = document.createElement("li");
-    item.textContent = change;
-    list.append(item);
-  });
+  const sections = Array.isArray(release.sections) ? release.sections : [];
+  const sectionNodes = [];
+  if (sections.length) {
+    sections.forEach((section) => {
+      if (!section || !section.heading || !Array.isArray(section.items) || !section.items.length) return;
+      const wrap = document.createElement("div");
+      wrap.className = "release-note-card__section";
+      const sectionHeading = document.createElement("h4");
+      sectionHeading.textContent = section.heading;
+      const sectionList = document.createElement("ul");
+      section.items.forEach((change) => {
+        const item = document.createElement("li");
+        item.textContent = change;
+        sectionList.append(item);
+      });
+      wrap.append(sectionHeading, sectionList);
+      sectionNodes.push(wrap);
+    });
+  } else {
+    (release.changes || []).forEach((change) => {
+      const item = document.createElement("li");
+      item.textContent = change;
+      list.append(item);
+    });
+  }
   const actions = document.createElement("div");
   actions.className = "release-note-card__actions";
   const releaseUrl = release.url || config.releaseUrl;
@@ -566,7 +586,8 @@ function createReleaseNoteCard(release, index = 0) {
   }
   card.append(heading);
   if (summary.textContent) card.append(summary);
-  if (list.children.length) card.append(list);
+  if (sectionNodes.length) sectionNodes.forEach((node) => card.append(node));
+  else if (list.children.length) card.append(list);
   if (actions.children.length) card.append(actions);
   return card;
 }

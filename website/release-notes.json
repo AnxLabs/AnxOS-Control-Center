@@ -6,12 +6,42 @@
     "tag": "v1.9-build199",
     "date": "September 4, 2026",
     "datetime": "2026-09-04",
-    "title": "AnxOS Version 1.9",
-    "summary": "Latest AnxOS-Control-Center release.",
-    "changes": [
-      "Updated application build, website metadata, and downloadable release assets."
+    "title": "AnxOS Control Center v1.9 — Build 199 (Final V1 Build)",
+    "summary": "Final V1 Private Alpha build. Closes the remaining V1-B acceptance evidence gaps: the explicit V1 feature set with maturity labeling, the audit-trail decision record, and a live backup-to-restore round-trip drill on real hardware. Build 200 is reserved for V2 and is intentionally not created.",
+    "sections": [
+      {
+        "heading": "Highlights",
+        "items": [
+          "Documented the explicit V1 feature set: 20 features with Supported/Alpha-form maturity, the unsupported-in-V1 list, and five UI labeling rules for experimental and unsupported features.",
+          "Recorded the action-audit-trail decision: V1 relies on operation records, structured IPC logs, and confirmation dialogs; a tamper-evident audit store is deferred to V2 with explicit trigger conditions.",
+          "V1-B acceptance gate position upgraded to met (items 1, 4, and 5 closed with dated evidence; item 3 gained live state-contract evidence)."
+        ]
+      },
+      {
+        "heading": "Fixes",
+        "items": [
+          "Closed V1-B acceptance-record gaps for the feature-set/labeling matrix, audit-trail decision, and live backup-to-restore round trip.",
+          "Added the two new V1 records to the documentation index so current normative documents stay discoverable."
+        ]
+      },
+      {
+        "heading": "Validation",
+        "items": [
+          "Live backup-to-restore round trip executed 2026-09-04 on Better MC [FORGE] BMC4 via the packaged v1.9 build against the Anxlab agent: complete backup, restore with confirmation dialog, agent safety snapshot before restore, restart-after-restore verified. Custom-command instances correctly reject world backups with WORLD_PATH_NOT_FOUND.",
+          "qa:fast, qa:feature, rc:validate, docs:architecture:smoke, and onboarding:smoke executed for this build."
+        ]
+      },
+      {
+        "heading": "Known limitations",
+        "items": [
+          "V1-B item 7 (additional-tester feedback / multi-environment Beta regression) remains evidence-pending.",
+          "The code-signing certificate expired 2026-09-05 and must be renewed before the next signed release.",
+          "Custom-command instances (Terraria, Rust) have no world directory, so world-only backups are unavailable for them; full-instance backups still apply."
+        ]
+      }
     ],
-    "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.9-build199"
+    "changes": [],
+    "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v1.9-build199"
   },
   {
     "version": "1.9",
@@ -20,12 +50,17 @@
     "tag": "v1.9-build198",
     "date": "September 4, 2026",
     "datetime": "2026-09-04",
-    "title": "AnxOS Version 1.9",
-    "summary": "Latest AnxOS-Control-Center release.",
+    "title": "AnxOS Control Center — Build 198",
+    "summary": "Private Alpha Build 198 fixes stale instance-runtime state so a dead process no longer blocks updates or masquerades as a failure, and records the V1-A live two-instance acceptance drill.",
     "changes": [
-      "Updated application build, website metadata, and downloadable release assets."
+      "Added instance runtime reconciliation: a stale persisted Running state with no live, identity-matching process now reconciles to Stopped (startable, updatable) instead of a blocking Unknown.",
+      "Added stale-PID recovery: a dead PID is authoritative proof the runtime is gone; recovery lands on Stopped while STALE_PID survives as last-operation evidence.",
+      "Fixed failed instance operations masquerading as live runtime state - the failure now surfaces as a Last-operation tooltip while the state pill shows the reconciled state (resolves the lingering RELOAD FAILED presentation on Palworld).",
+      "SteamCMD marketplace and server-file updates now consult the reconciled runtime state, so a stale Running record no longer blocks updates with STEAMCMD_UPDATE_REQUIRES_STOPPED.",
+      "Recorded the 2026-09-04 V1-A live drill: Terraria TShock and Better MC [FORGE] BMC4 started concurrently on the Anxlab Debian agent, with independent live metrics, console output, and a clean confirmed stop.",
+      "Validation: qa:fast, qa:feature (19 suites including the new runtime-reconciliation smoke), full rc:validate, and the live two-instance drill on real hardware."
     ],
-    "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.9-build198"
+    "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v1.9-build198"
   },
   {
     "version": "1.9",
@@ -34,12 +69,18 @@
     "tag": "v1.9-build196",
     "date": "September 4, 2026",
     "datetime": "2026-09-04",
-    "title": "AnxOS Version 1.9",
-    "summary": "Latest AnxOS-Control-Center release.",
+    "title": "AnxOS Control Center — Build 196",
+    "summary": "Private Alpha Build 196 hardens resource-operation and instance-health lifecycles, adds four new lifecycle smoke suites, and establishes the master roadmap and B0 baseline capability matrix.",
     "changes": [
-      "Updated application build, website metadata, and downloadable release assets."
+      "Added a resource operation lifecycle module with regression coverage for stable resource identity, transient operation overlays, cancellation, and stale-response protection.",
+      "Added an instance metrics lifecycle module with bounded scheduling and node-scoped stale-response protection.",
+      "Added an instance health summary module with health classification across reconciliation and failure evidence.",
+      "Wired four new lifecycle smoke suites (resource operations, instance metrics, instance health summary, instance health state) into the feature validation tier.",
+      "Added the master product roadmap and B0 baseline capability matrix with Phase 11A reconciliation outcomes, indexed in the documentation index.",
+      "Fixed the node-switch Docker refresh finalizer so the in-flight flag is always released, preventing refresh deadlock after a mid-request node switch.",
+      "Validation: fast tier passed, feature tier passed 17/17, full RC source validation, and packaging smoke against a freshly rebuilt signed Windows installer."
     ],
-    "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.9-build196"
+    "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v1.9-build196"
   },
   {
     "version": "1.9",
@@ -57,7 +98,7 @@
       "Migrated legacy Agent scheduled tasks and prevented duplicate Agent startup.",
       "Improved Marketplace, Create Server, Instances, Files, Settings, backups, and responsive layouts."
     ],
-    "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.9-build194"
+    "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v1.9-build194"
   },
   {
     "version": "1.9",
@@ -75,7 +116,7 @@
       "Repaired the Agent restart lifecycle and verified restart without PORT_IN_USE.",
       "SSH remains under stabilization and is deferred to a future build."
     ],
-    "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.9-build193"
+    "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v1.9-build193"
   },
   {
     "version": "1.9",
@@ -89,7 +130,7 @@
     "changes": [
       "Prepared signed Build 192 artifacts for in-place upgrade acceptance without publication."
     ],
-    "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.9-build192"
+    "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v1.9-build192"
   },
   {
     "version": "1.9",
@@ -107,7 +148,7 @@
       "Preserved unreadable encrypted sessions and existing owner, node, and configuration data.",
       "Required fresh Local Owner verification before protected actions resume."
     ],
-    "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.9-build191"
+    "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v1.9-build191"
   },
   {
     "version": "1.9",
@@ -131,7 +172,7 @@
       "Refreshed the sidebar, page headers, status cards, Nodes, Instances, Public Access, and Marketplace surfaces.",
       "Preserved Marketplace, Share Server, Playit, NeoForge, Windows Agent, SFTP, and updater behavior."
     ],
-    "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.9-build190"
+    "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v1.9-build190"
   },
   {
     "version": "1.8",
@@ -155,7 +196,7 @@
       "Added honest update states: update available, up to date, update unavailable, and stop-before-update.",
       "Made NeoForge repair discoverable from Marketplace without making reinstall the primary action."
     ],
-    "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build189"
+    "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v1.8-build189"
   },
   {
     "version": "1.8",
@@ -176,7 +217,7 @@
       "Made Docker visibility conditional on Windows Agent capability reporting.",
       "Preserved existing Linux node behavior."
     ],
-    "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build188"
+    "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v1.8-build188"
   },
   {
     "version": "1.8",
@@ -197,7 +238,7 @@
       "Fixed SFTP modal footer buttons overlapping form fields.",
       "Improved SFTP modal scrolling, field spacing, and authentication-specific field layout."
     ],
-    "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build187"
+    "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v1.8-build187"
   },
   {
     "version": "1.8",
@@ -220,7 +261,7 @@
       "Disabled unsupported Playit controls until the selected Agent is updated or restarted.",
       "Prevented raw NOT_FOUND IPC errors and false empty tunnel states when Playit management endpoints are unavailable."
     ],
-    "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build186"
+    "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v1.8-build186"
   },
   {
     "version": "1.8",
@@ -241,7 +282,7 @@
       "Added copyable invite text and game-specific friend instructions for Minecraft, Palworld, and generic servers.",
       "Matched Playit tunnels to instances by local port when safe and handled multiple matching tunnels without guessing."
     ],
-    "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build185"
+    "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v1.8-build185"
   },
   {
     "version": "1.8",
@@ -263,7 +304,7 @@
       "Improved SSH diagnostics for shell timeout, PTY, and command write states.",
       "Fixed existing ATM10 and NeoForge runtime readiness detection and migrated stale java-app/server.jar metadata when launcher files prove a NeoForge script runtime."
     ],
-    "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build184"
+    "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v1.8-build184"
   },
   {
     "version": "1.8",
@@ -284,7 +325,7 @@
       "Fixed Public Access setup checklist readiness when public or private access services are already configured.",
       "Classified Palworld and Steam stderr noise as non-fatal when the server process remains healthy."
     ],
-    "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build183"
+    "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v1.8-build183"
   },
   {
     "version": "1.8",
@@ -304,7 +345,7 @@
       "Polished the SFTP Add Storage modal spacing, provider selection, button placement, and scroll behavior.",
       "Restored packaged desktop config asset inclusion so marketplace templates and agent examples are present in app.asar validation."
     ],
-    "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build182"
+    "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v1.8-build182"
   },
   {
     "version": "1.8",
@@ -322,7 +363,7 @@
       "Fixed the ATM10 and CurseForge install panel display so Minecraft 1.21.1 is not shown as a generic runtime or server-pack version.",
       "Includes the previous build 180 Marketplace and runtime fixes for CurseForge and Modrinth version resolution, server-pack runtime preservation, ATM10 and NeoForge runtime repair, selected-node marketplace install smoke hardening, and Windows disk stats EPIPE handling."
     ],
-    "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build181"
+    "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v1.8-build181"
   },
   {
     "version": "1.8",
@@ -331,7 +372,7 @@
     "tag": "v1.8-build180",
     "date": "July 27, 2026",
     "datetime": "2026-07-27",
-    "title": "AnxOS Version 1.8",
+    "title": "AnxOS Control Center — Build 180",
     "summary": "Private Alpha v1.8 Build 180 fixes marketplace modpack version resolution, server-pack runtime handling, and release smoke reliability.",
     "changes": [
       "Fixed CurseForge and Modrinth marketplace version resolution so selected versions are preserved through install planning.",
@@ -340,7 +381,7 @@
       "Hardened the selected-node marketplace install smoke coverage for remote-node install routing.",
       "Handled Windows hardware temperature EPIPE output safely during the disk stats smoke path."
     ],
-    "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.8-build180"
+    "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v1.8-build180"
   },
   {
     "version": "1.7",
@@ -357,21 +398,41 @@
       "Updater now fails before download when required checksum metadata is unavailable.",
       "Existing post-download and install-time SHA-256 verification remain unchanged."
     ],
-    "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.7-build160"
+    "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v1.7-build160"
   },
   {
     "version": "1.7",
     "build": 159,
     "channel": "Private Alpha",
     "tag": "v1.7-build159",
+    "date": "July 22, 2026",
+    "datetime": "2026-07-22",
+    "title": "AnxOS Control Center — Build 159",
+    "summary": "Private Alpha v1.7 Build 159 introduces a focused seven-step first-run setup guide and improves device-authorization pairing reliability.",
+    "changes": [
+      "Added a seven-step first-run setup guide covering sign-in, local ownership, Agent connection, node preparation, first-server creation, public access, and completion, with status markers and deep links.",
+      "Device authorization polling now respects the server-provided interval and resumes after its bounded wait.",
+      "Expired or consumed pairing codes are cleared so a new pairing attempt starts cleanly.",
+      "Optimized website navigation, downloads, copy actions, and the /setup/ guide for mobile layouts."
+    ],
+    "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v1.7-build159"
+  },
+  {
+    "version": "1.7",
+    "build": 158,
+    "channel": "Private Alpha",
+    "tag": "v1.7-build158",
     "date": "July 21, 2026",
     "datetime": "2026-07-21",
-    "title": "AnxOS Version 1.7",
-    "summary": "Latest AnxOS-Control-Center release.",
+    "title": "AnxOS Control Center — Build 158",
+    "summary": "Private Alpha v1.7 Build 158 installer release with guided setup, pairing, upgrade, and repair guidance for existing installations.",
     "changes": [
-      "Updated application build, website metadata, and downloadable release assets."
+      "Signed Windows installer and Linux package release with onboarding for new installations.",
+      "Existing remote Agent guidance: pair the Agent and verify the selected node before managing instances.",
+      "Upgrade guidance via updater metadata or the signed installer from the release page.",
+      "Repair guidance via Agent Control and Dependencies for missing prerequisites."
     ],
-    "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.7-build159"
+    "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v1.7-build158"
   },
   {
     "version": "1.7",
@@ -380,12 +441,12 @@
     "tag": "v1.7-build157",
     "date": "July 19, 2026",
     "datetime": "2026-07-19",
-    "title": "AnxOS Version 1.7",
+    "title": "AnxOS Control Center — Build 157",
     "summary": "Latest AnxOS-Control-Center release.",
     "changes": [
       "Updated application build, website metadata, and downloadable release assets."
     ],
-    "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.7-build157"
+    "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v1.7-build157"
   },
   {
     "version": "1.7",
@@ -394,12 +455,12 @@
     "tag": "v1.7-build155",
     "date": "July 19, 2026",
     "datetime": "2026-07-19",
-    "title": "AnxOS Version 1.7",
+    "title": "AnxOS Control Center — Build 155",
     "summary": "Latest AnxOS-Control-Center release.",
     "changes": [
       "Updated application build, website metadata, and downloadable release assets."
     ],
-    "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.7-build155"
+    "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v1.7-build155"
   },
   {
     "version": "1.7",
@@ -408,14 +469,14 @@
     "tag": "v1.7-build154",
     "date": "July 19, 2026",
     "datetime": "2026-07-19",
-    "title": "Trusted SteamCMD updates and Agent pairing reliability",
+    "title": "AnxOS Control Center — Build 154",
     "summary": "Build 154 fixes paired remote Agent status rendering.",
     "changes": [
       "Added trusted instance-scoped SteamCMD server-file updates with progress and artifact verification.",
       "Migrated supported legacy SteamCMD instances from trusted template metadata.",
       "Shows Paired instead of Waiting for Control Center after successful Agent pairing."
     ],
-    "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.7-build154"
+    "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v1.7-build154"
   },
   {
     "version": "1.7",
@@ -424,12 +485,12 @@
     "tag": "v1.7-build152",
     "date": "July 17, 2026",
     "datetime": "2026-07-17",
-    "title": "AnxOS Version 1.7",
+    "title": "AnxOS Control Center — Build 152",
     "summary": "Latest AnxOS-Control-Center release.",
     "changes": [
       "Updated application build, website metadata, and downloadable release assets."
     ],
-    "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.7-build152"
+    "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v1.7-build152"
   },
   {
     "version": "1.7",
@@ -438,12 +499,12 @@
     "tag": "v1.7-build151",
     "date": "July 17, 2026",
     "datetime": "2026-07-17",
-    "title": "AnxOS Version 1.7",
+    "title": "AnxOS Control Center — Build 151",
     "summary": "Latest AnxOS-Control-Center release.",
     "changes": [
       "Updated application build, website metadata, and downloadable release assets."
     ],
-    "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.7-build151"
+    "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases"
   },
   {
     "version": "1.7",
@@ -462,7 +523,7 @@
       "Polished website design, navigation, home, authentication, profile, download, release notes, responsive behavior, accessibility, metadata, and production route readiness.",
       "Bumped the Electron updater package version to 1.0.52 so Private Alpha build 150 updates can be detected."
     ],
-    "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.7-build150"
+    "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v1.7-build150"
   },
   {
     "version": "1.7",
@@ -482,7 +543,7 @@
       "Updated CurseForge Settings feedback to distinguish Agent reachability, missing configuration, API probe failures, and CDN authentication probe failures.",
       "Bumped the Electron updater package version to 1.0.51 so Private Alpha hotfix updates can be detected."
     ],
-    "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.7-build149"
+    "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v1.7-build149"
   },
   {
     "version": "1.7",
@@ -500,7 +561,7 @@
       "Preserved the build 147 Local Agent metadata resolver fix.",
       "Bumped the Electron updater package version to 1.0.50 so Private Alpha hotfix updates can be detected."
     ],
-    "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.7-build148"
+    "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v1.7-build148"
   },
   {
     "version": "1.7",
@@ -518,7 +579,7 @@
       "Added smoke coverage to prevent diagnostics and Agent Control from hard-loading agent/package.json from app.asar.",
       "Bumped the Electron updater package version to 1.0.49 so Private Alpha hotfix updates can be detected."
     ],
-    "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.7-build147"
+    "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v1.7-build147"
   },
   {
     "version": "1.7",
@@ -527,12 +588,12 @@
     "tag": "v1.7-build146",
     "date": "July 14, 2026",
     "datetime": "2026-07-14",
-    "title": "AnxOS Version 1.7",
+    "title": "AnxOS Control Center — Build 146",
     "summary": "Latest AnxOS-Control-Center release.",
     "changes": [
       "Updated application build, website metadata, and downloadable release assets."
     ],
-    "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.7-build146"
+    "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v1.7-build146"
   },
   {
     "version": "1.7",
@@ -541,12 +602,12 @@
     "tag": "v1.7-build145",
     "date": "July 14, 2026",
     "datetime": "2026-07-14",
-    "title": "AnxOS Version 1.7",
+    "title": "AnxOS Control Center — Build 145",
     "summary": "Latest AnxOS-Control-Center release.",
     "changes": [
       "Updated application build, website metadata, and downloadable release assets."
     ],
-    "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.7-build145"
+    "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v1.7-build145"
   },
   {
     "version": "1.7",
@@ -555,12 +616,12 @@
     "tag": "v1.7-build144",
     "date": "July 14, 2026",
     "datetime": "2026-07-14",
-    "title": "AnxOS Version 1.7",
+    "title": "AnxOS Control Center — Build 144",
     "summary": "Latest AnxOS-Control-Center release.",
     "changes": [
       "Updated application build, website metadata, and downloadable release assets."
     ],
-    "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.7-build144"
+    "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases"
   },
   {
     "version": "1.7",
@@ -569,7 +630,7 @@
     "tag": "v1.7-build143",
     "date": "July 13, 2026",
     "datetime": "2026-07-14",
-    "title": "Private Alpha packaged release candidate",
+    "title": "AnxOS Control Center — Build 143",
     "summary": "This release prepares AnxOS Control Center for packaged private-alpha validation with hardened production configuration, installer artifacts, onboarding, and broad smoke coverage.",
     "changes": [
       "Generated Windows installer, Windows portable, Linux AppImage, and Debian package artifacts for build 143 validation.",
@@ -579,7 +640,7 @@
       "Normalized Linux package permissions so desktop entries, icons, app.asar, and unpacked resources are readable after installation.",
       "Added private-alpha installer guidance, artifact reports, and packaged application smoke validation notes."
     ],
-    "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.7-build143"
+    "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v1.7-build143"
   },
   {
     "version": "1.7",
@@ -588,12 +649,12 @@
     "tag": "v1.7-build142",
     "date": "July 13, 2026",
     "datetime": "2026-07-13",
-    "title": "AnxOS Version 1.7",
+    "title": "AnxOS Control Center — Build 142",
     "summary": "Latest AnxOS-Control-Center release.",
     "changes": [
       "Updated application build, website metadata, and downloadable release assets."
     ],
-    "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.7-build142"
+    "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases"
   },
   {
     "version": "1.7",
@@ -602,7 +663,7 @@
     "tag": "v1.7-build141",
     "date": "July 11, 2026",
     "datetime": "2026-07-11",
-    "title": "Secure diagnostics and Agent Control Center",
+    "title": "AnxOS Control Center — Build 141",
     "summary": "This release adds privacy-safe runtime diagnostics and complete in-app controls for local and remote AnxOS Agents.",
     "changes": [
       "Added structured, rotated, secret-redacted diagnostics for desktop, renderer, IPC, authentication, services, updater, and Agent failures.",
@@ -612,7 +673,7 @@
       "Improved the Add Storage dialog lifecycle and guarded asynchronous submissions against duplicate requests.",
       "Added regression coverage for redaction, rotation, snapshots, failure-safe logging, remote authorization, and real Agent start/restart/stop behavior."
     ],
-    "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.7-build141"
+    "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases"
   },
   {
     "version": "1.7",
@@ -621,7 +682,7 @@
     "tag": "v1.7-build140",
     "date": "July 10, 2026",
     "datetime": "2026-07-10",
-    "title": "Local Owner authentication recovery",
+    "title": "AnxOS Control Center — Build 140",
     "summary": "This release restores existing local Owner credentials and adds visible website password recovery actions.",
     "changes": [
       "Restored packaged-app authentication for persisted Owner accounts created with historical local credentials.",
@@ -631,7 +692,7 @@
       "Added standalone website password recovery pages and visible Reset Password and Change Password actions.",
       "Added regression coverage for credential verification, legacy migration, and session logout account preservation."
     ],
-    "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.7-build140"
+    "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases"
   },
   {
     "version": "1.7",
@@ -640,7 +701,7 @@
     "tag": "v1.7-build139",
     "date": "July 10, 2026",
     "datetime": "2026-07-10",
-    "title": "Explicit device identity and workspace routing",
+    "title": "AnxOS Control Center — Build 139",
     "summary": "This release separates the desktop host, Agent nodes, and filesystem providers so Windows can reliably control local and remote machines.",
     "changes": [
       "Added stable Agent identities with duplicate-node detection and safe legacy configuration migration.",
@@ -649,7 +710,7 @@
       "Separated local, Agent-native, and SFTP filesystem providers so only explicit SFTP connections create SFTP sessions.",
       "Added development routing diagnostics and regression coverage for node switching, persistence, migration, and filesystem routing."
     ],
-    "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.7-build139"
+    "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases"
   },
   {
     "version": "1.6",
@@ -658,7 +719,7 @@
     "tag": "v1.6-build138",
     "date": "July 9, 2026",
     "datetime": "2026-07-09",
-    "title": "Marketplace runtime selector and storefront polish",
+    "title": "AnxOS Control Center — Build 138",
     "summary": "This release fixes Marketplace modpack runtime selection and aligns Marketplace card actions like a proper storefront.",
     "changes": [
       "Added a Server Runtime selector so modpacks no longer default to Paper.",
@@ -668,6 +729,6 @@
       "Aligned Marketplace Install buttons across card rows and clamped long descriptions.",
       "Updated smoke coverage for runtime detection, no Paper preselect, provider loader metadata, and Quilt install handling."
     ],
-    "url": "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases/releases/tag/v1.6-build138"
+    "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases"
   }
 ]
