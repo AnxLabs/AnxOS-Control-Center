@@ -326,3 +326,33 @@ jobs:
               --prerelease \
               "${NOTES_ARGS[@]}"
           fi
+
+      # Official tag flow only: after artifacts are published to the release
+      # repository, keep this repo's Releases page current with a notes-only
+      # release on the existing tag pointing to the official distribution.
+      # No binaries are uploaded here.
+      - name: Publish source-repository release pointer
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          OFFICIAL_RELEASE_URL: https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/${{ github.ref_name }}
+        run: |
+          cat > release-pointer-notes.md <<NOTES
+          # ${GITHUB_REF_NAME}
+
+          **AnxOS Control Center ${GITHUB_REF_NAME}** has been published.
+
+          > **Downloads (official distribution):**
+          > [AnxOS Control Center ${GITHUB_REF_NAME} - AnxOS-Control-Center-Releases](${OFFICIAL_RELEASE_URL})
+
+          Binaries are distributed from the [AnxOS-Control-Center-Releases](https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases) repository. This entry exists so the current build stays visible on this repository's Releases page; see the official release for installers, checksums, and updater manifests.
+          NOTES
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" --notes-file release-pointer-notes.md --latest
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --title "AnxOS Control Center ${GITHUB_REF_NAME}" \
+              --notes-file release-pointer-notes.md \
+              --latest
+          fi
