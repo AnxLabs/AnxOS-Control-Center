@@ -1818,10 +1818,10 @@ function extractFiveMLicenseKey(configText) {
 
 function isValidFiveMLicenseKey(value) {
   const key = String(value || "").trim();
-  // Cfx.re Keymaster issues 32-character alphanumeric keys; anything else
-  // (placeholders, prose, truncated pastes) must fail validation before the
-  // instance can report READY.
-  return /^[A-Za-z0-9]{32}$/.test(key);
+  // Cfx.re Keymaster issues either legacy 32-character alphanumeric keys or
+  // modern "cfxk_"-prefixed keys; anything else (placeholders, prose,
+  // truncated pastes) must fail validation before the instance can report READY.
+  return /^[A-Za-z0-9]{32}$/.test(key) || /^cfxk_[A-Za-z0-9_-]+$/.test(key);
 }
 
 function buildFiveMReadiness(reasonCode, config = {}, extra = {}) {
@@ -1951,7 +1951,7 @@ function normalizeFiveMLicenseInput(value) {
   if (!isValidFiveMLicenseKey(key)) {
     const error = createInstanceError("INVALID_FIVEM_LICENSE_KEY", 400, {
       field: "sv_licenseKey",
-      expected: "the 32-character alphanumeric license key issued by the Cfx.re Keymaster service",
+      expected: "the license key issued by the Cfx.re Keymaster service (modern cfxk_-prefixed or legacy 32-character alphanumeric)",
       received: key ? "[provided]" : "",
       suggestion: "Generate a key through the official Cfx.re Keymaster service, then paste it here.",
     });
