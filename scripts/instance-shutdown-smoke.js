@@ -71,6 +71,21 @@ async function main() {
   const originalKill = process.kill;
   const timeoutKeepAlive = setInterval(() => {}, 1000);
   service._test.setProcessAliveProvider((pid) => Number(pid) === 999999);
+  // The fabricated PID 999999 must also be visible to the real process-snapshot
+  // authority used by identity reconciliation, or Linux (/proc) will reconcile the
+  // fake PID to Stopped and the unresponsive branch is never exercised. Injecting a
+  // controlled snapshot keeps this contract test host-independent.
+  service._test.setProcessInspectionProvider(async () => ({
+    processes: [{
+      pid: 999999,
+      name: path.basename(process.execPath),
+      exe: process.execPath,
+      commandLine: [process.execPath, "-e", "setInterval(() => {}, 1000)"].join(" "),
+      args: [process.execPath, "-e", "setInterval(() => {}, 1000)"],
+      cwd: path.dirname(process.execPath),
+    }],
+    ports: [],
+  }));
   process.kill = () => true;
   try {
     await assert.rejects(
@@ -82,6 +97,7 @@ async function main() {
     clearInterval(timeoutKeepAlive);
     process.kill = originalKill;
     service._test.setProcessAliveProvider(null);
+    service._test.setProcessInspectionProvider(null);
   }
   const timeoutPersisted = JSON.parse(fs.readFileSync(timeoutPath, "utf8"));
   assert.strictEqual(timeoutPersisted.state, service.INSTANCE_STATES.RUNNING, "A stop timeout must not remain stuck in Stopping while the process is proven alive.");
