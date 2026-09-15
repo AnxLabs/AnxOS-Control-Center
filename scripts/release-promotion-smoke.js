@@ -123,6 +123,18 @@ async function main() {
   const packageJson = JSON.parse(read("package.json"));
   assert(packageJson.scripts["release-promotion:smoke"], "release-promotion smoke must be wired into package scripts.");
 
+  // 9. Immutable RC retry tag support: release provenance follows the actual tag,
+  // while product identity stays Build 200.
+  assert(promote.includes("(-[A-Za-z0-9]+)*"), "Promotion must accept an alphanumeric RC suffix tag.");
+  assert(promote.includes("BUILD_NUM"), "Promotion must derive a numeric build independent of the RC suffix.");
+  assert(promote.includes("ANXOS_RELEASE_TAG"), "Promotion must generate website metadata scoped to the promoted (RC) tag.");
+  assert(wr.includes("ANXOS_RELEASE_TAG"), "Release workflow must pass the actual GitHub tag into metadata generation.");
+  assert(wr.includes("ANXOS_UPDATE_BASE_URL"), "Release workflow must pass the RC-tag download base into the updater manifest.");
+  const validateSourceAfter = read("scripts/validate-release-artifacts.js");
+  assert(validateSourceAfter.includes("manifest.releaseUrl") && validateSourceAfter.includes("releases/download/${release.tag}/"), "Manifest validator must reject URLs that point at the wrong release tag.");
+  const canonicalBase = "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v1.9-build200";
+  assert.notStrictEqual(`${canonicalBase}/AnxOS-Control-Center-Setup-1.9-build200.exe`, `${canonicalBase}-rc2/AnxOS-Control-Center-Setup-1.9-build200.exe`, "Canonical and RC2 asset URLs must be distinct so a wrong-tag URL is caught.");
+
   console.log("Release promotion smoke checks passed.");
 }
 

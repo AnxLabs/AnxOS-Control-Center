@@ -42,7 +42,7 @@ jobs:
           TAG: ${{ github.event.inputs.tag }}
         run: |
           set -euo pipefail
-          [[ "${TAG}" =~ ^v[0-9]+\.[0-9]+-build[0-9]+$ ]] || { echo "Unsupported tag format: ${TAG}" >&2; exit 1; }
+          [[ "${TAG}" =~ ^v[0-9]+\.[0-9]+-build[0-9]+(-[A-Za-z0-9]+)*$ ]] || { echo "Unsupported tag format: ${TAG}" >&2; exit 1; }
           if [ -z "$GH_TOKEN" ]; then
             echo "ANXOS_RELEASE_REPO_TOKEN is required to promote a public release." >&2
             exit 1
@@ -57,11 +57,17 @@ jobs:
           echo "RELEASE_ID=${RELEASE_ID}" >> "$GITHUB_ENV"
 
       - name: Set release build for website metadata
-        run: node scripts/release-config.js build:set "${TAG##*-build}"
         env:
           TAG: ${{ github.event.inputs.tag }}
+        run: |
+          BUILD_NUM="$(printf '%s' "$TAG" | sed -E 's/^v[0-9]+\.[0-9]+-build([0-9]+).*/\1/')"
+          [[ "$BUILD_NUM" =~ ^[0-9]+$ ]] || { echo "Could not derive a numeric build from ${TAG}" >&2; exit 1; }
+          node scripts/release-config.js build:set "$BUILD_NUM"
 
       - name: Generate Build website metadata
+        env:
+          ANXOS_RELEASE_TAG: ${{ github.event.inputs.tag }}
+          ANXOS_UPDATE_BASE_URL: https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/${{ github.event.inputs.tag }}
         run: npm run website:sync
 
       - name: Commit and push promoted website metadata

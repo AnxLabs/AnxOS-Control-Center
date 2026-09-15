@@ -66,6 +66,7 @@ function writeFixture(directory) {
     version: release.version,
     build: release.build,
     channel: release.channel,
+    releaseUrl: `${release.releaseRepositoryUrl}/releases/tag/${release.tag}`,
     expectedReleaseArtifacts: expectedArtifacts()
       .filter((asset) => asset !== "update-manifest.json" && asset !== "SHA256SUMS")
       .map((name) => ({ name, requiredForRelease: true })),
@@ -90,7 +91,11 @@ function writeFixture(directory) {
       { key: "linux-deb", name: `AnxOS-Control-Center-${release.artifactVersion}.deb`, platform: "linux", architecture: "x64", packageType: "deb" },
       { key: "linux-appimage", name: `AnxOS-Control-Center-${release.artifactVersion}.AppImage`, platform: "linux", architecture: "x64", packageType: "appimage" },
       { key: "linux-latest-yml", name: "latest-linux.yml", platform: "linux", architecture: "x64", packageType: "latest-yml" },
-    ].map((asset) => ({ ...asset, sha256: sha256(path.join(directory, asset.name)) })),
+    ].map((asset) => ({
+      ...asset,
+      sha256: sha256(path.join(directory, asset.name)),
+      downloadUrl: `${release.releaseRepositoryUrl}/releases/download/${release.tag}/${encodeURIComponent(asset.name)}`,
+    })),
   };
   fs.writeFileSync(path.join(directory, "update-manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
   const checksums = expectedArtifacts()
@@ -153,6 +158,16 @@ function validate(directory) {
   for (const artifact of expectedArtifacts().filter((asset) => asset !== "SHA256SUMS")) {
     assert(checksums.has(artifact), `SHA256SUMS must include ${artifact}.`);
     assert.strictEqual(checksums.get(artifact), sha256(path.join(directory, artifact)), `SHA256SUMS digest mismatch for ${artifact}.`);
+  }
+
+  // Release-provenance consistency: manifest release/asset URLs must reference the
+  // actual release tag, so an immutable RC retry tag never points at the canonical
+  // (or wrong) tag while claiming Build 200 identity.
+  assert(manifest.releaseUrl, "Update manifest must declare a release URL.");
+  assert.strictEqual(manifest.releaseUrl, `${release.releaseRepositoryUrl}/releases/tag/${release.tag}`, "Update manifest release URL must reference the actual release tag.");
+  for (const asset of manifest.assets || []) {
+    assert(asset.downloadUrl, `${asset.name} must declare a download URL.`);
+    assert(asset.downloadUrl.startsWith(`${release.releaseRepositoryUrl}/releases/download/${release.tag}/`), `${asset.name} download URL must reference the actual release tag.`);
   }
 }
 

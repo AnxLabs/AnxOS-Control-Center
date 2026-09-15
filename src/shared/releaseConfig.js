@@ -78,9 +78,31 @@ function readReleaseConfig() {
   }
 }
 
+const RELEASE_TAG_PATTERN = /^v?\d+\.\d+-build\d+(-[A-Za-z0-9]+)*$/;
+
+// Release-provenance tag override. Product identity (version/build/artifactVersion)
+// always comes from release.json; this only lets an immutable retry tag (for example
+// v1.9-build200-rc2) override the Git tag used for release/asset URLs and provenance.
+function normalizeReleaseTag(value) {
+  const raw = String(value || "").trim();
+  if (!RELEASE_TAG_PATTERN.test(raw)) {
+    throw new Error(`Release tag must match version-build[(-suffix)] format, received "${value}".`);
+  }
+  return raw.startsWith("v") ? raw : `v${raw}`;
+}
+
+// Returns the numeric product build encoded in a release tag, ignoring any RC suffix.
+function parseReleaseTagBuild(value) {
+  const match = String(value || "").match(/^v?\d+\.\d+-build(\d+)/i);
+  const build = match ? Number.parseInt(match[1], 10) : null;
+  return Number.isInteger(build) && build >= 0 ? build : null;
+}
+
 function buildReleaseInfo(config = readReleaseConfig()) {
   const release = normalizeReleaseConfig(config);
-  const tag = `v${release.version}-build${release.build}`;
+  const tag = process.env.ANXOS_RELEASE_TAG
+    ? normalizeReleaseTag(process.env.ANXOS_RELEASE_TAG)
+    : `v${release.version}-build${release.build}`;
   return {
     ...release,
     versionLabel: `Version ${release.version}`,
@@ -115,6 +137,8 @@ module.exports = {
   normalizeBuild,
   normalizeChannel,
   normalizeReleaseConfig,
+  normalizeReleaseTag,
   normalizeReleaseVersion,
+  parseReleaseTagBuild,
   readReleaseConfig,
 };

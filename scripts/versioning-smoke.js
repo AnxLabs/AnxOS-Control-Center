@@ -9,7 +9,9 @@ const {
   buildReleaseInfo,
   normalizeBuild,
   normalizeChannel,
+  normalizeReleaseTag,
   normalizeReleaseVersion,
+  parseReleaseTagBuild,
   readReleaseConfig,
 } = require("../src/shared/releaseConfig");
 const {
@@ -162,7 +164,34 @@ const currentReleaseText = currentReleaseNotes;
   manager.loadStore();
   assert.strictEqual(manager.storeError?.code, "UPDATE_STORE_CORRUPT", "corrupt update state should produce a stable recovery error.");
   assert(fs.readdirSync(tempRoot).some((name) => name.startsWith("updates.json.corrupt-")), "corrupt update state should be preserved.");
-  fs.rmSync(tempRoot, { recursive: true, force: true });
-}
+fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
 
-console.log("Versioning smoke checks passed.");
+  // RC-retry provenance: an immutable suffix tag overrides release provenance only,
+  // never product identity (version/build/artifact naming).
+  assert.strictEqual(normalizeReleaseTag("v1.9-build200"), "v1.9-build200", "Canonical release tag must be accepted.");
+  assert.strictEqual(normalizeReleaseTag("v1.9-build200-rc2"), "v1.9-build200-rc2", "Immutable RC suffix tag must be accepted.");
+  assert.strictEqual(parseReleaseTagBuild("v1.9-build200-rc2"), 200, "An RC suffix must normalize to product Build 200.");
+  assert.strictEqual(parseReleaseTagBuild("v1.9-build200"), 200, "A canonical tag must parse to its numeric build.");
+  assert.strictEqual(parseReleaseTagBuild("v1.9-build199"), 199, "A prior Build tag must parse to its own build, never Build 201.");
+  assert.throws(() => normalizeReleaseTag("v1.9-build200-"), (error) => /Release tag must match/i.test(error.message), "An empty RC suffix must be rejected.");
+  assert.throws(() => normalizeReleaseTag("v1.9-build200-rc2!"), (error) => /Release tag must match/i.test(error.message), "A malformed RC suffix must be rejected.");
+
+  const priorTag = process.env.ANXOS_RELEASE_TAG;
+  try {
+    process.env.ANXOS_RELEASE_TAG = "v1.9-build200-rc2";
+    const retryRelease = buildReleaseInfo(readReleaseConfig());
+    assert.strictEqual(retryRelease.artifactVersion, "1.9-build200", "RC retry must keep Build 200 artifact filenames.");
+    assert.strictEqual(retryRelease.tag, "v1.9-build200-rc2", "RC retry must apply the RC tag for release provenance.");
+    assert.strictEqual(retryRelease.releaseUrl, "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v1.9-build200-rc2", "RC retry release URL must reference the RC tag.");
+    const assetUrl = `${retryRelease.releaseRepositoryUrl}/releases/download/${retryRelease.tag}/AnxOS-Control-Center-Setup-${retryRelease.artifactVersion}.exe`;
+    assert.strictEqual(assetUrl, "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v1.9-build200-rc2/AnxOS-Control-Center-Setup-1.9-build200.exe", "RC retry asset URL must use the RC tag with a Build 200 filename.");
+  } finally {
+    if (priorTag === undefined) {
+      delete process.env.ANXOS_RELEASE_TAG;
+    } else {
+      process.env.ANXOS_RELEASE_TAG = priorTag;
+    }
+  }
+
+  console.log("Versioning smoke checks passed.");

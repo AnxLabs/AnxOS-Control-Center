@@ -277,6 +277,9 @@ jobs:
       # Publishing is tag-only; artifacts are validated before any release upload.
       - name: Generate updater manifest
         shell: bash
+        env:
+          ANXOS_RELEASE_TAG: ${{ github.ref_name }}
+          ANXOS_UPDATE_BASE_URL: https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/${{ github.ref_name }}
         run: |
           mkdir -p dist
           cp release-artifacts/AnxOS-Control-Center-* release-artifacts/latest*.yml dist/
@@ -290,6 +293,8 @@ jobs:
           sha256sum * > SHA256SUMS
 
       - name: Validate release artifact set
+        env:
+          ANXOS_RELEASE_TAG: ${{ github.ref_name }}
         run: node scripts/validate-release-artifacts.js --directory release-artifacts
 
       - name: Publish tagged release
