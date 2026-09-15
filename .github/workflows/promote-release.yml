@@ -1,0 +1,99 @@
+name: Promote Release to Stable
+
+# Explicit publication gate. An RC/tag is created as a pre-release by the Desktop
+# Release workflow and is never automatically treated as the public stable "latest".
+# Promoting a build to public stable is a separate, operator-initiated action that:
+#   1. regenerates and commits the website metadata for that build to `dev`,
+#   2. flips the release from pre-release to the stable latest via the GitHub API,
+#   3. updates the source-repository release pointer, and
+#   4. triggers the guarded Cloudflare Pages deploy (which itself refuses stale config).
+# No assets are re-uploaded and no historical release is modified.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to promote to public stable, e.g. v1.9-build200'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout dev
+        uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 1
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate the release is an unpromoted RC
+        env:
+          GH_TOKEN: ${{ secrets.ANXOS_RELEASE_REPO_TOKEN }}
+          TAG: ${{ github.event.inputs.tag }}
+        run: |
+          set -euo pipefail
+          [[ "${TAG}" =~ ^v[0-9]+\.[0-9]+-build[0-9]+$ ]] || { echo "Unsupported tag format: ${TAG}" >&2; exit 1; }
+          if [ -z "$GH_TOKEN" ]; then
+            echo "ANXOS_RELEASE_REPO_TOKEN is required to promote a public release." >&2
+            exit 1
+          fi
+          ENDPOINT="repos/AnxLabs/AnxOS-Control-Center-Releases/releases/tags/${TAG}"
+          DRAFT="$(gh api "${ENDPOINT}" --jq '.draft')"
+          PRERELEASE="$(gh api "${ENDPOINT}" --jq '.prerelease')"
+          RELEASE_ID="$(gh api "${ENDPOINT}" --jq '.id')"
+          if [ "$DRAFT" = "true" ]; then echo "Refusing to promote the draft release ${TAG}." >&2; exit 1; fi
+          if [ "$PRERELEASE" = "false" ]; then echo "Release ${TAG} is already a public stable release; refusing to re-promote." >&2; exit 1; fi
+          echo "Promoting RC ${TAG} (id=${RELEASE_ID}) to public stable."
+          echo "RELEASE_ID=${RELEASE_ID}" >> "$GITHUB_ENV"
+
+      - name: Set release build for website metadata
+        run: node scripts/release-config.js build:set "${TAG##*-build}"
+        env:
+          TAG: ${{ github.event.inputs.tag }}
+
+      - name: Generate Build website metadata
+        run: npm run website:sync
+
+      - name: Commit and push promoted website metadata
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.inputs.tag }}
+        run: |
+          set -euo pipefail
+          git config user.name "AnxOS Release Bot"
+          git config user.email "releases@anxos.invalid"
+          git add website/config.js website/release-notes.json release.json
+          git commit -m "chore(website): promote ${TAG} to public stable" || echo "No website metadata changes to commit."
+          git push origin dev
+
+      - name: Promote release to public stable latest
+        env:
+          GH_TOKEN: ${{ secrets.ANXOS_RELEASE_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh api --method PATCH "repos/AnxLabs/AnxOS-Control-Center-Releases/releases/${RELEASE_ID}" -f prerelease=false -F make_latest=true
+
+      - name: Update source-repository release pointer to stable
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.inputs.tag }}
+        run: |
+          set -euo pipefail
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release edit "${TAG}" --latest
+          fi
+
+      - name: Trigger guarded Cloudflare Pages deployment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run cloudflare-pages-deploy.yml --ref dev

@@ -13,17 +13,23 @@ function json(body, status) {
 async function latestDownload(request, env, platform) {
   const select = ASSET_MATCHERS[platform];
   if (!select) return json({ error: "unsupported_platform" }, 404);
+  let allowPrerelease = false;
+  try {
+    allowPrerelease = ["1", "true", "yes"].includes(String(new URL(request.url).searchParams.get("prerelease") || "").toLowerCase());
+  } catch {}
   const configured = env.ANXOS_RELEASE_REPOSITORY || env.ANXOS_GITHUB_REPOSITORY || OFFICIAL_RELEASE_REPOSITORY;
   const match = String(configured).trim().match(/^([^/]+)\/([^/]+)$/);
   if (!match || `${match[1]}/${match[2]}` !== OFFICIAL_RELEASE_REPOSITORY) return json({ error: "release_repository_not_configured" }, 500);
   const response = await fetch(`https://api.github.com/repos/${match[1]}/${match[2]}/releases?per_page=20`, { headers: { accept: "application/vnd.github+json", "user-agent": "AnxOS-website-downloads" } });
   if (!response.ok) return json({ error: "release_source_unavailable", status: response.status }, 502);
   const releases = await response.json();
-  const asset = (Array.isArray(releases) ? releases : [])
-    .filter((release) => release && !release.draft)
+  // Stable/latest downloads must never resolve an RC to a prerelease. A prerelease is
+  // only served when a caller explicitly opts in with ?prerelease=1.
+  const release = (Array.isArray(releases) ? releases : [])
+    .filter((item) => item && !item.draft && (allowPrerelease || !item.prerelease))
     .sort((left, right) => new Date(right.published_at || right.created_at || 0) - new Date(left.published_at || left.created_at || 0))
-    .flatMap((release) => release.assets || [])
-    .find((candidate) => select(candidate.name || "") && String(candidate.browser_download_url || "").startsWith(`https://github.com/${OFFICIAL_RELEASE_REPOSITORY}/releases/download/`));
+    .find((item) => (item.assets || []).some((candidate) => select(candidate.name || "") && String(candidate.browser_download_url || "").startsWith(`https://github.com/${OFFICIAL_RELEASE_REPOSITORY}/releases/download/`)));
+  const asset = release?.assets?.find((candidate) => select(candidate.name || "") && String(candidate.browser_download_url || "").startsWith(`https://github.com/${OFFICIAL_RELEASE_REPOSITORY}/releases/download/`));
   if (!asset) return json({ error: "release_asset_unavailable" }, 404);
   return new Response(null, { status: 302, headers: { location: asset.browser_download_url, "cache-control": "no-store" } });
 }

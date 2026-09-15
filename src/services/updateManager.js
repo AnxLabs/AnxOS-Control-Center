@@ -237,9 +237,10 @@ function hasSupportedUpdateAsset(release) {
   return Boolean(pickUpdateAsset(release));
 }
 
-function pickLatestPublishedRelease(releases) {
+function pickLatestPublishedRelease(releases, options = {}) {
+  const allowPrerelease = Boolean(options.allowPrerelease);
   return (Array.isArray(releases) ? releases : [])
-    .filter((release) => release && !release.draft)
+    .filter((release) => release && !release.draft && (allowPrerelease || !release.prerelease))
     .sort((left, right) => new Date(right.published_at || right.created_at || 0) - new Date(left.published_at || left.created_at || 0))
     .find(hasSupportedUpdateAsset) || null;
 }

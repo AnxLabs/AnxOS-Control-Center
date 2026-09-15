@@ -117,7 +117,7 @@ const localBinDir = path.join(process.cwd(), "node_modules", ".bin");
 const dynamicConfigPath = path.join(__dirname, "electron-builder-config.js");
 if (!builderArgs.includes("--config")) builderArgs.push("--config", dynamicConfigPath);
 try {
-  console.log(`Windows Azure Trusted Signing: ${getAzureSigningConfig() ? "enabled" : "disabled (unsigned build)"}`);
+  console.log(`Windows Azure Trusted Signing: ${getAzureSigningConfig() ? "enabled" : "disabled; unsigned Windows builds fail release signature verification"}`);
 } catch (error) {
   console.error(error.message);
   process.exit(1);

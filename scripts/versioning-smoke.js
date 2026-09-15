@@ -48,14 +48,36 @@ assert(!/^\d+\.\d+\.\d+$/.test(release.version), "Public release version must no
 assert(compareReleaseBuilds({ version: "1.7", build: 143 }, { version: "1.7", build: 142 }) > 0, "Updater must detect newer builds in the same public version.");
 assert(compareReleaseBuilds({ version: "1.8", build: 150 }, { version: "1.7", build: 999 }) > 0, "Updater must detect newer public versions.");
 assert.strictEqual(extractReleaseBuild("v1.7-build143"), 143, "Updater must parse build numbers from release tags.");
-assert.strictEqual(
-  pickLatestPublishedRelease([
-    { draft: false, prerelease: true, tag_name: "v1.7-build146", published_at: "2026-07-14T17:15:00Z", assets: [{ name: process.platform === "win32" ? "AnxOS-Control-Center-Setup-1.7-build146.exe" : "AnxOS-Control-Center-1.7-build146.AppImage", size: 100 * 1024 * 1024, browser_download_url: `https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v1.7-build146/update.${process.platform === "win32" ? "exe" : "AppImage"}` }] },
-    { draft: false, prerelease: true, tag_name: "v1.7-build145", published_at: "2026-07-14T06:53:00Z", assets: [{ name: process.platform === "win32" ? "AnxOS-Control-Center-Setup-1.7-build145.exe" : "AnxOS-Control-Center-1.7-build145.AppImage", size: 100 * 1024 * 1024, browser_download_url: `https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v1.7-build145/update.${process.platform === "win32" ? "exe" : "AppImage"}` }] },
-  ])?.tag_name,
-  "v1.7-build146",
-  "Updater must discover the newest published prerelease when the release repository has no stable latest release.",
-);
+const updaterAsset = (tag) => ({
+    name: process.platform === "win32" ? `AnxOS-Control-Center-Setup-${tag.replace(/^v/, "")}.exe` : `AnxOS-Control-Center-${tag.replace(/^v/, "")}.AppImage`,
+    size: 100 * 1024 * 1024,
+    browser_download_url: `https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/${tag}/update.${process.platform === "win32" ? "exe" : "AppImage"}`,
+  });
+  const updaterStable = { draft: false, prerelease: false, tag_name: "v1.7-build144", published_at: "2026-07-14T06:00:00Z", assets: [updaterAsset("v1.7-build144")] };
+  const updaterRc = { draft: false, prerelease: true, tag_name: "v1.7-build146", published_at: "2026-07-14T17:15:00Z", assets: [updaterAsset("v1.7-build146")] };
+  const updaterRcOlder = { draft: false, prerelease: true, tag_name: "v1.7-build145", published_at: "2026-07-14T06:53:00Z", assets: [updaterAsset("v1.7-build145")] };
+
+  // An RC is published as a pre-release, so the stable update fallback must keep preferring
+  // the newest stable build even when a newer pre-release RC exists.
+  assert.strictEqual(
+    pickLatestPublishedRelease([updaterRc, updaterStable])?.tag_name,
+    "v1.7-build144",
+    "Updater stable fallback must prefer the public stable build over a newer prerelease RC.",
+  );
+  // An RC is still discoverable when explicitly requested for acceptance testing.
+  assert.strictEqual(
+    pickLatestPublishedRelease([updaterRcOlder, updaterRc], { allowPrerelease: true })?.tag_name,
+    "v1.7-build146",
+    "Updater must expose prerelease RCs when allowPrerelease is explicitly requested.",
+  );
+  // With only prereleases and no stable build, the steady updater has no stable latest.
+  assert.strictEqual(pickLatestPublishedRelease([updaterRc])?.tag_name, undefined, "Updater stable fallback must not treat a lone prerelease as the stable latest.");
+
+  // W4: the updater decides by release identity (version + build), not by the electron-builder
+  // latest.yml internal package semver, so Build 200 is always distinguishable from Build 199.
+  assert(compareReleaseBuilds({ version: "1.9", build: 200 }, { version: "1.9", build: 199 }) > 0, "Updater must distinguish Build 200 from Build 199 within the same public version.");
+  assert.strictEqual(extractReleaseBuild("v1.9-build200"), 200, "Updater must parse the Build 200 tag identity.");
+  assert(!updateManagerSource.includes("autoUpdater.checkForUpdates") && !updateManagerSource.includes("checkForUpdatesAndNotify"), "The in-app updater must not rely on electron autoUpdater (latest.yml internal semver) to drive update decisions.");
 
 const parsedWebsiteRelease = parseWebsiteConfigRelease(websiteConfig, "https://anxoscontrolcenter.org/config.js");
 assert.strictEqual(parsedWebsiteRelease.version, release.version, "Website config must expose the centralized public version.");

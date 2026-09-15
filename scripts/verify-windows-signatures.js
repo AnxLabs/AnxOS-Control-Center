@@ -69,6 +69,10 @@ if (!signTool) {
 }
 
 const signingExpected = Boolean(getAzureSigningConfig());
+if (!signingExpected) {
+  console.error("Windows release signing is mandatory. No Azure Trusted Signing configuration was provided; refusing to verify an unsigned Windows build for release.");
+  process.exit(1);
+}
 const failures = [];
 for (const filePath of files) {
   const result = spawnSync(signTool, ["verify", "/pa", "/v", filePath], { encoding: "utf8", windowsHide: true });

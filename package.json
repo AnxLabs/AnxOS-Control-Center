@@ -204,6 +204,7 @@
     "packaging:smoke": "node scripts/packaging-artifact-smoke.js",
     "build:signing:smoke": "node scripts/build-signing-smoke.js",
     "release:artifacts:smoke": "node scripts/validate-release-artifacts.js --fixture",
+    "release-promotion:smoke": "node scripts/release-promotion-smoke.js",
     "website:smoke": "node scripts/website-production-smoke.js && node scripts/website-download-smoke.js && node scripts/website-accessibility-smoke.js && node scripts/website-setup-smoke.js",
     "website:setup:smoke": "node scripts/website-setup-smoke.js",
     "website:a11y:smoke": "node scripts/website-accessibility-smoke.js",

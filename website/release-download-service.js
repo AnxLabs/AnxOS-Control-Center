@@ -173,16 +173,16 @@
 
   function latestPublishedRelease(releases, options = {}) {
     const normalized = (Array.isArray(releases) ? releases : [])
-      .filter((release) => release && !release.draft)
+      .filter((release) => release && !release.draft && (options.allowPrerelease || !release.prerelease))
       .sort((left, right) => new Date(right.published_at || right.created_at || 0) - new Date(left.published_at || left.created_at || 0))
       .map((release) => normalizeRelease(release, options))
       .find((release) => release && release.assets.length > 0);
     return normalized || null;
   }
 
-  function publishedReleases(releases) {
+  function publishedReleases(releases, options = {}) {
     return (Array.isArray(releases) ? releases : [])
-      .filter((release) => release && !release.draft)
+      .filter((release) => release && !release.draft && (options.allowPrerelease || !release.prerelease))
       .sort((left, right) => new Date(right.published_at || right.created_at || 0) - new Date(left.published_at || left.created_at || 0));
   }
 
@@ -292,6 +292,7 @@
 
   async function loadLatestRelease(options = {}) {
     const config = options.config || globalScope.ANXOS_DOWNLOAD_CONFIG || {};
+    const allowPrerelease = Boolean(options.allowPrerelease) || (typeof globalScope.location?.search === "string" && new URLSearchParams(globalScope.location.search).has("prerelease"));
     const repository = repositoryFromConfig(config, options.repositoryUrl);
     if (!repository) {
       const error = new Error("Official GitHub repository is not configured.");
@@ -303,7 +304,7 @@
       if (cached) return cached;
     }
     const releases = await fetchJsonWithTimeout(options.apiUrl || githubApiUrl(repository), options);
-    const published = publishedReleases(releases);
+    const published = publishedReleases(releases, { allowPrerelease });
     logReleaseDiagnostic("release-source", {
       repository: `${repository.owner}/${repository.repo}`,
       publishedReleases: published.length,

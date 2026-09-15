@@ -52,6 +52,7 @@ const TIERS = {
     ["node", ["scripts/windows-elevation-tray-smoke.js"]],
     ["node", ["scripts/bundled-runtime-smoke.js"]],
     ["node", ["scripts/ssh-session-timeout-smoke.js"]],
+    ["node", ["scripts/release-promotion-smoke.js"]],
     ["git", ["diff", "--check"]],
   ],
 };

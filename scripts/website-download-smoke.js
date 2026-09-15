@@ -54,6 +54,21 @@ function sampleReleases() {
         { name: "Source code (zip)", browser_download_url: `${publicRepositoryUrl}/archive/refs/tags/v1.7-build142.zip` },
       ],
     },
+    {
+      draft: false,
+      prerelease: true,
+      tag_name: "v1.9-build200",
+      name: "AnxOS Version 1.9 build200 RC",
+      body: "Channel: Private Alpha\n\nRelease candidate for acceptance testing.",
+      published_at: "2026-09-15T09:00:00Z",
+      html_url: `${publicRepositoryUrl}/releases/tag/v1.9-build200`,
+      assets: [
+        makeAsset("AnxOS-Control-Center-Setup-1.9-build200.exe", 80 * 1024 * 1024),
+        makeAsset("AnxOS-Control-Center-1.9-build200-portable.exe", 78 * 1024 * 1024),
+        makeAsset("AnxOS-Control-Center-1.9-build200.AppImage", 92 * 1024 * 1024),
+        makeAsset("AnxOS-Control-Center-1.9-build200.deb", 84 * 1024 * 1024),
+      ],
+    },
   ];
 }
 
@@ -217,6 +232,17 @@ async function main() {
   const missingResponse = await functionsHelper.redirectLatestArtifact(new Request("https://anxoscontrolcenter.org/api/download/latest/macos"), {}, "macos");
   assert.strictEqual(missingResponse.status, 404, "Stable endpoint helper should return JSON 404 when the artifact is missing.");
   assert.match(await missingResponse.text(), /ARTIFACT_NOT_FOUND/, "Missing artifact response should be structured JSON.");
+
+  // RCs are published as pre-releases and must never be served as the stable latest.
+  const stableRedirect = await functionsHelper.redirectLatestArtifact(new Request("https://anxoscontrolcenter.org/api/download/latest/windows"), {}, "windows");
+  assert.strictEqual(stableRedirect.status, 302, "Stable endpoint must redirect when a stable build exists.");
+  assert(!stableRedirect.headers.get("location").includes("build200"), "Stable endpoint must not redirect to a pre-release RC.");
+  const rcRedirect = await functionsHelper.redirectLatestArtifact(new Request("https://anxoscontrolcenter.org/api/download/latest/windows?prerelease=1"), {}, "windows");
+  assert(rcRedirect.headers.get("location").includes("AnxOS-Control-Center-Setup-1.9-build200.exe"), "Explicit prerelease request must resolve the RC.");
+  const clientStable = service.latestPublishedRelease(sampleReleases(), { repositoryUrl: publicRepositoryUrl, config: { channel: "Private Alpha" } });
+  assert.strictEqual(clientStable.tagName, "v1.7-build142", "Client renderer stable latest must ignore the newer pre-release RC.");
+  const clientRc = service.latestPublishedRelease(sampleReleases(), { repositoryUrl: publicRepositoryUrl, config: { channel: "Private Alpha" }, allowPrerelease: true });
+  assert.strictEqual(clientRc.tagName, "v1.9-build200", "Client renderer must expose an RC when allowPrerelease is explicitly requested.");
 
   console.log("Website download smoke checks passed.");
 }

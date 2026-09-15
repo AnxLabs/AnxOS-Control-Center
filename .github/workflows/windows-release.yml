@@ -156,7 +156,7 @@ jobs:
           $names = @("AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET", "AZURE_TRUSTED_SIGNING_ENDPOINT", "AZURE_TRUSTED_SIGNING_ACCOUNT_NAME", "AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME", "AZURE_TRUSTED_SIGNING_PUBLISHER_NAME")
           $present = @($names | Where-Object { -not [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($_)) })
           if ($present.Count -eq 0) {
-            "Windows Azure Trusted Signing: disabled (unsigned build)."
+            "Windows Azure Trusted Signing: disabled; unsigned Windows builds fail release signature verification."
           } elseif ($present.Count -ne $names.Count) {
             $missing = $names | Where-Object { [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($_)) }
             throw "Azure Trusted Signing configuration is partial. Missing: $($missing -join ', ')"
@@ -279,7 +279,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp release-artifacts/AnxOS-Control-Center-* dist/
+          cp release-artifacts/AnxOS-Control-Center-* release-artifacts/latest*.yml dist/
           npm run updates:manifest
           cp dist/update-manifest.json release-artifacts/update-manifest.json
 
@@ -343,10 +343,10 @@ jobs:
           Binaries are distributed from the [AnxOS-Control-Center-Releases](https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases) repository. This entry exists so the current build stays visible on this repository's Releases page; see the official release for installers, checksums, and updater manifests.
           NOTES
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release edit "$GITHUB_REF_NAME" --notes-file release-pointer-notes.md --latest
+            gh release edit "$GITHUB_REF_NAME" --notes-file release-pointer-notes.md
           else
             gh release create "$GITHUB_REF_NAME" \
               --title "AnxOS Control Center ${GITHUB_REF_NAME}" \
               --notes-file release-pointer-notes.md \
-              --latest
+              --prerelease
           fi

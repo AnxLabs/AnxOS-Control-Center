@@ -42,7 +42,18 @@ function classifyAssetName(name) {
   return "";
 }
 
-async function fetchLatestRelease(env = {}) {
+// Stable download routes must treat release candidates as non-promoted. An RC is
+// published with the pre-release flag, so it is never selected by stable/latest until
+// an explicit promotion flips it to a public stable release. This keeps the newest
+// published, non-pre-release build as the only stable "latest".
+function pickReleaseWithInstaller(releases, { allowPrerelease = false } = {}) {
+  return (Array.isArray(releases) ? releases : [])
+    .filter((candidate) => candidate && !candidate.draft && (allowPrerelease || !candidate.prerelease))
+    .sort((left, right) => new Date(right.published_at || right.created_at || 0) - new Date(left.published_at || left.created_at || 0))
+    .find((candidate) => Array.isArray(candidate.assets) && candidate.assets.some((asset) => classifyAssetName(asset?.name))) || null;
+}
+
+async function fetchLatestRelease(env = {}, options = {}) {
   const repository = repositoryFromEnv(env);
   if (!repository) {
     throw Object.assign(new Error("GitHub repository is not configured."), { code: "REPOSITORY_NOT_CONFIGURED" });
@@ -71,8 +82,7 @@ async function fetchLatestRelease(env = {}) {
     if (!published.length) {
       throw Object.assign(new Error("No published AnxOS release is available yet."), { code: "NO_PUBLISHED_RELEASE" });
     }
-    const release = published
-      .find((candidate) => Array.isArray(candidate.assets) && candidate.assets.some((asset) => classifyAssetName(asset?.name)));
+    const release = pickReleaseWithInstaller(published, { allowPrerelease: Boolean(options.allowPrerelease) });
     if (!release) {
       throw Object.assign(new Error("The latest release does not contain a supported installer."), { code: "NO_SUPPORTED_INSTALLER" });
     }
@@ -100,9 +110,18 @@ function findArtifact(release, repository, artifactType) {
   return matches[0] || null;
 }
 
-async function redirectLatestArtifact(request, env, artifactType) {
+function wantsPrerelease(request) {
   try {
-    const { repository, release } = await fetchLatestRelease(env);
+    return ["1", "true", "yes"].includes(String(new URL(request.url).searchParams.get("prerelease") || "").toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
+async function redirectLatestArtifact(request, env, artifactType, options = {}) {
+  try {
+    const allowPrerelease = Boolean(options.allowPrerelease) || wantsPrerelease(request);
+    const { repository, release } = await fetchLatestRelease(env, { allowPrerelease });
     const asset = findArtifact(release, repository, artifactType);
     if (!asset) {
       return json({
@@ -131,6 +150,7 @@ export {
   findArtifact,
   isExpectedAssetUrl,
   json,
+  pickReleaseWithInstaller,
   redirectLatestArtifact,
   repositoryFromEnv,
 };

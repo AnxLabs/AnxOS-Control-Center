@@ -19,11 +19,16 @@ function json(body, status) {
   });
 }
 
-export async function onRequestGet({ params, env }) {
+export async function onRequestGet({ request, params, env }) {
   const select = PLATFORM_ASSETS[String(params.platform || "").toLowerCase()];
   if (!select) return json({ error: "unsupported_platform" }, 404);
   const repository = repositoryFromEnv(env || {});
   if (!repository) return json({ error: "release_repository_not_configured" }, 500);
+
+  let allowPrerelease = false;
+  try {
+    allowPrerelease = ["1", "true", "yes"].includes(String(new URL(request.url).searchParams.get("prerelease") || "").toLowerCase());
+  } catch {}
 
   const apiUrl = `https://api.github.com/repos/${repository.owner}/${repository.repo}/releases?per_page=20`;
   let releases;
@@ -35,8 +40,10 @@ export async function onRequestGet({ params, env }) {
     return json({ error: "release_source_unavailable" }, 502);
   }
 
+  // Stable/latest downloads resolve only non-pre-release releases; RCs are served
+  // only when a caller explicitly opts in with ?prerelease=1.
   const release = (Array.isArray(releases) ? releases : [])
-    .filter((candidate) => candidate && !candidate.draft)
+    .filter((candidate) => candidate && !candidate.draft && (allowPrerelease || !candidate.prerelease))
     .sort((left, right) => new Date(right.published_at || right.created_at || 0) - new Date(left.published_at || left.created_at || 0))
     .find((candidate) => (candidate.assets || []).some((asset) => select(asset.name || "") && String(asset.browser_download_url || "").startsWith(`https://github.com/${OFFICIAL_RELEASE_REPOSITORY}/releases/download/`)));
   const asset = release?.assets?.find((candidate) => select(candidate.name || "") && String(candidate.browser_download_url || "").startsWith(`https://github.com/${OFFICIAL_RELEASE_REPOSITORY}/releases/download/`));

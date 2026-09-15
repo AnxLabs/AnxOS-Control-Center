@@ -84,9 +84,12 @@ function writeFixture(directory) {
     },
     assets: [
       { key: "windows-setup", name: `AnxOS-Control-Center-Setup-${release.artifactVersion}.exe`, platform: "windows", architecture: "x64", packageType: "nsis" },
+      { key: "windows-setup-blockmap", name: `AnxOS-Control-Center-Setup-${release.artifactVersion}.exe.blockmap`, platform: "windows", architecture: "x64", packageType: "blockmap" },
+      { key: "windows-latest-yml", name: "latest.yml", platform: "windows", architecture: "x64", packageType: "latest-yml" },
       { key: "windows-portable", name: `AnxOS-Control-Center-${release.artifactVersion}-portable.exe`, platform: "windows", architecture: "x64", packageType: "portable" },
       { key: "linux-deb", name: `AnxOS-Control-Center-${release.artifactVersion}.deb`, platform: "linux", architecture: "x64", packageType: "deb" },
       { key: "linux-appimage", name: `AnxOS-Control-Center-${release.artifactVersion}.AppImage`, platform: "linux", architecture: "x64", packageType: "appimage" },
+      { key: "linux-latest-yml", name: "latest-linux.yml", platform: "linux", architecture: "x64", packageType: "latest-yml" },
     ].map((asset) => ({ ...asset, sha256: sha256(path.join(directory, asset.name)) })),
   };
   fs.writeFileSync(path.join(directory, "update-manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
@@ -138,7 +141,7 @@ function validate(directory) {
   }
 
   const requiredPackageTypes = new Set((manifest.assets || []).map((asset) => `${asset.platform}:${asset.packageType}`));
-  ["windows:nsis", "windows:portable", "linux:deb", "linux:appimage"].forEach((key) => {
+  ["windows:nsis", "windows:portable", "windows:latest-yml", "linux:deb", "linux:appimage", "linux:latest-yml"].forEach((key) => {
     assert(requiredPackageTypes.has(key), `Update manifest assets must include ${key}.`);
   });
 

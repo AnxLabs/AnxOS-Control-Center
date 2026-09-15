@@ -2,20 +2,12 @@ name: Deploy Website to Cloudflare Pages
 
 on:
   workflow_dispatch:
-  workflow_run:
-    workflows: ["Desktop Release"]
-    types: [completed]
 
 permissions:
   contents: read
 
 jobs:
   deploy:
-    # A release tag is published only after the Desktop Release workflow is green.
-    if: >-
-      ${{ github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' &&
-      startsWith(github.event.workflow_run.head_branch, 'v')) }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout production website branch
@@ -24,6 +16,16 @@ jobs:
           ref: dev
           path: website-source
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # A website deploy is an explicit, operator-initiated action. It never
+      # runs from a release or an RC tag, so an RC can never auto-promote into
+      # the stable website state. The consistency guard below refuses to deploy
+      # if the committed website config does not exactly match the current
+      # public stable (non-preliminary) release.
       - name: Verify required deployment configuration
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -40,6 +42,10 @@ jobs:
             exit 1
           fi
           grep -Eq 'buildNumber: "[0-9]+"' website-source/website/config.js
+
+      - name: Refuse inconsistent or stale website metadata
+        working-directory: website-source
+        run: node scripts/verify-website-config-vs-stable.js
 
       - name: Deploy website to Cloudflare Pages
         uses: cloudflare/pages-action@v1
