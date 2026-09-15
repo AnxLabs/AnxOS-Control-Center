@@ -7,7 +7,7 @@ const { getReleaseInfo } = require(path.join(rootDir, "src", "shared", "releaseC
 const websiteConfigPath = path.join(rootDir, "website", "config.js");
 const releaseNotesPath = path.join(rootDir, "website", "release-notes.json");
 const releaseRepository = {
-  owner: "bungopam-byte",
+  owner: "AnxLabs",
   repo: "AnxOS-Control-Center-Releases",
 };
 const repositoryUrl = `https://github.com/${releaseRepository.owner}/${releaseRepository.repo}`;
@@ -66,7 +66,7 @@ function getReleaseNotes() {
   const notes = readReleaseNotes().map((entry) => {
     const tag = entry.tag || (entry.build ? `v${entry.version}-build${entry.build}` : `v${entry.version}`);
     const staleSemverUrl = /\/releases\/tag\/v\d+\.\d+\.\d+$/i.test(String(entry.url || ""));
-    const sourceRepositoryUrl = /^https:\/\/github\.com\/bungopam-byte\/AnxOS-Control-Center\/releases\/tag\//i.test(String(entry.url || ""));
+    const sourceRepositoryUrl = /^https:\/\/github\.com\/(?:bungopam-byte|AnxLabs)\/AnxOS-Control-Center\/releases\/tag\//i.test(String(entry.url || ""));
     return {
       ...entry,
       tag,

@@ -2985,6 +2985,36 @@ async function cleanupIncompleteInstance(instanceId, agentConfig) {
   }
 }
 
+async function retainIncompleteInstance(instanceId, message, agentConfig) {
+  try {
+    await agentClient.updateInstance(instanceId, {
+      installationState: "failed",
+      installStage: "Failed",
+      lastInstallError: String(message || "MARKETPLACE_INSTALL_FAILED").slice(0, 500),
+      lastInstallAttemptAt: new Date().toISOString(),
+    }, agentConfig);
+    return { attempted: true, succeeded: true, instanceId, action: "retained-failed-installation" };
+  } catch (error) {
+    const failure = serializeError(error, {
+      operation: "retain-failed-installation",
+      instanceId,
+    });
+    logMarketplaceInstallFailure(error, {
+      step: "FAILED_INSTALL_RETENTION_FAILED",
+      instanceId,
+      retention: failure,
+    });
+    return {
+      attempted: true,
+      succeeded: false,
+      instanceId,
+      action: "retention-failed",
+      error: failure,
+      suggestion: `Inspect instance ${instanceId} and remove it explicitly if it cannot be repaired.`,
+    };
+  }
+}
+
 async function assertProviderInstallDiskSpace(options = {}, agentConfig = null) {
   const requiredFreeBytes = Math.max(1, Number(options.minFreeBytes || options.requiredFreeBytes) || PROVIDER_INSTALL_MIN_FREE_BYTES);
   let diskSpaceCheck;
@@ -3219,8 +3249,8 @@ async function installPack(payload = {}) {
     }
     const cancelled = error?.code === "INSTALL_CANCELLED" || signal.aborted;
     emitProgress({ nodeId: installNodeId, instanceId, stage: cancelled ? "cancelled" : "error", message: detailedMessage, current: 0, total: 0, percent: 0 });
-    const cleanup = created
-      ? await cleanupIncompleteInstance(instanceId, agentConfig)
+    const retention = created
+      ? await retainIncompleteInstance(instanceId, detailedMessage, agentConfig)
       : { attempted: false, succeeded: false, instanceId };
     updateProviderInstallOperation(operationId, {
       status: cancelled ? "cancelled" : "failed",
@@ -3234,7 +3264,7 @@ async function installPack(payload = {}) {
       ...(error?.details || {}),
       originalName: error?.name || null,
       originalMessage: error?.message || null,
-      cleanup,
+      retention,
     });
   }
 }
@@ -3739,6 +3769,7 @@ module.exports = {
     buildCurseForgeResolvedMetadata,
     buildModrinthResolvedMetadata,
     cleanupIncompleteInstance,
+    retainIncompleteInstance,
     createPendingManualInstall,
     createProviderInstallOperation,
     createManualDownloadRequiredError,

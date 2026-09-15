@@ -6,11 +6,12 @@ const { pathToFileURL } = require("url");
 const root = path.resolve(__dirname, "..");
 const websiteRoot = path.join(root, "website");
 const service = require(path.join(websiteRoot, "release-download-service.js"));
-const publicOwner = "bungopam-byte";
+const publicOwner = "AnxLabs";
 const publicRepo = "AnxOS-Control-Center-Releases";
 const publicRepository = `${publicOwner}/${publicRepo}`;
 const publicRepositoryUrl = `https://github.com/${publicRepository}`;
-const privateSourceRepositoryUrl = "https://github.com/bungopam-byte/AnxOS-Control-Center";
+const privateSourceRepositoryUrl = "https://github.com/AnxLabs/AnxOS-Control-Center";
+const legacyRepositoryUrl = "https://github.com/bungopam-byte/AnxOS-Control-Center-Releases";
 
 function readWebsite(file) {
   return fs.readFileSync(path.join(websiteRoot, file), "utf8");
@@ -65,6 +66,17 @@ function mockFetchJson(payload, ok = true, status = 200) {
 }
 
 async function main() {
+  const canonicalRepository = service.repositoryFromConfig({
+    releaseRepository: { owner: publicOwner, repo: publicRepo },
+  });
+  const canonicalAssetUrl = makeAsset("AnxOS-Control-Center-Setup-1.7-build142.exe").browser_download_url;
+  assert.strictEqual(canonicalRepository?.repositoryUrl, publicRepositoryUrl, "Canonical AnxLabs release repository configuration must be accepted.");
+  assert.strictEqual(service.isExpectedAssetUrl(canonicalAssetUrl, canonicalRepository), true, "Canonical AnxLabs release assets must be accepted.");
+  assert.strictEqual(service.isExpectedAssetUrl(`${privateSourceRepositoryUrl}/releases/download/v1.7-build142/source.exe`, canonicalRepository), false, "Source repository binaries must be rejected.");
+  assert.strictEqual(service.isExpectedAssetUrl("https://github.com/other/repo/releases/download/v1/test.exe", canonicalRepository), false, "Unrelated GitHub release assets must be rejected.");
+  assert.strictEqual(service.isExpectedAssetUrl("not a URL", canonicalRepository), false, "Malformed release asset URLs must be rejected.");
+  assert.strictEqual(service.repositoryFromConfig({ repositoryUrl: legacyRepositoryUrl }), null, "The legacy owner must not be treated as the canonical release repository.");
+
   const normalized = service.latestPublishedRelease(sampleReleases(), {
     repositoryUrl: publicRepositoryUrl,
     config: { channel: "Private Alpha" },
@@ -186,6 +198,11 @@ async function main() {
 
   const functionsHelper = await import(pathToFileURL(path.join(root, "functions", "_shared", "release-download.mjs")).href);
   assert.strictEqual(functionsHelper.DEFAULT_RELEASE_REPOSITORY, publicRepository, "Pages Functions should default to the public release repository.");
+  assert.strictEqual(functionsHelper.repositoryFromEnv({ ANXOS_RELEASE_REPOSITORY: publicRepository })?.repositoryUrl, publicRepositoryUrl, "Pages Functions must accept the canonical repository.");
+  assert.strictEqual(functionsHelper.repositoryFromEnv({ ANXOS_RELEASE_REPOSITORY: "AnxLabs/AnxOS-Control-Center" }), null, "Pages Functions must reject the source repository.");
+  assert.strictEqual(functionsHelper.repositoryFromEnv({ ANXOS_RELEASE_REPOSITORY: "other/repo" }), null, "Pages Functions must reject unrelated repositories.");
+  assert.strictEqual(functionsHelper.repositoryFromEnv({ ANXOS_RELEASE_REPOSITORY: "malformed" }), null, "Pages Functions must reject malformed repository configuration.");
+  assert.strictEqual(functionsHelper.repositoryFromEnv({ ANXOS_RELEASE_REPOSITORY: "bungopam-byte/AnxOS-Control-Center-Releases" }), null, "Pages Functions must reject the legacy owner as non-canonical.");
   assert.strictEqual(functionsHelper.classifyAssetName("AnxOS-Control-Center-Setup-1.7-build142.exe"), "windows", "Redirect helper should classify Windows setup.");
   assert.strictEqual(functionsHelper.classifyAssetName("AnxOS-Control-Center-1.7-build142-portable.exe"), "windows-portable", "Redirect helper should classify Windows portable.");
   assert.strictEqual(functionsHelper.classifyAssetName("AnxOS-Control-Center-1.7-build142.AppImage"), "linux-appimage", "Redirect helper should classify AppImage.");

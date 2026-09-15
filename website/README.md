@@ -54,7 +54,7 @@ The first-server guide is available at `/setup`. Its download calls to action le
 The download page loads `release-download-service.js`, queries the public GitHub Releases API configured by `window.ANXOS_DOWNLOAD_CONFIG.releaseRepository`, ignores drafts/source archives/invalid URLs, and renders only real assets from:
 
 ```text
-https://github.com/bungopam-byte/AnxOS-Control-Center-Releases
+https://github.com/AnxLabs/AnxOS-Control-Center-Releases
 ```
 
 No GitHub token or secret is used in browser code.
@@ -87,11 +87,11 @@ Cloudflare Pages Functions provide versionless domain endpoints:
 
 Each endpoint queries the latest published GitHub Release, validates that the selected asset belongs to the official repository, and returns an HTTP redirect to the GitHub Release asset. If no matching artifact exists, the endpoint returns a JSON `404` response instead of redirecting to an unrelated file.
 
-Set `ANXOS_RELEASE_REPOSITORY=owner/repo` in the Pages Functions environment only if the public release repository changes. The default is `bungopam-byte/AnxOS-Control-Center-Releases`. The legacy `ANXOS_GITHUB_REPOSITORY` variable is still accepted as a fallback, but new deployments should use `ANXOS_RELEASE_REPOSITORY`.
+Set `ANXOS_RELEASE_REPOSITORY=owner/repo` in the Pages Functions environment only if the public release repository changes. The default is `AnxLabs/AnxOS-Control-Center-Releases`. The legacy `ANXOS_GITHUB_REPOSITORY` variable is still accepted as a fallback, but new deployments should use `ANXOS_RELEASE_REPOSITORY`.
 
 ### Publishing Release Assets
 
-Tagged release builds run from the private source repository, generate the supported installer artifacts, write `SHA256SUMS`, and publish those public artifacts to `bungopam-byte/AnxOS-Control-Center-Releases`.
+Tagged release builds run from the private source repository, generate the supported installer artifacts, write `SHA256SUMS`, and publish those public artifacts to `AnxLabs/AnxOS-Control-Center-Releases`.
 
 Configure this GitHub Actions secret on the private source repository:
 

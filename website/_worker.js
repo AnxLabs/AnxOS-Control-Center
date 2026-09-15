@@ -4,6 +4,7 @@ const ASSET_MATCHERS = {
   "linux-appimage": (name) => /\.appimage$/i.test(name),
   "linux-deb": (name) => /\.deb$/i.test(name),
 };
+const OFFICIAL_RELEASE_REPOSITORY = "AnxLabs/AnxOS-Control-Center-Releases";
 
 function json(body, status) {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
@@ -12,9 +13,9 @@ function json(body, status) {
 async function latestDownload(request, env, platform) {
   const select = ASSET_MATCHERS[platform];
   if (!select) return json({ error: "unsupported_platform" }, 404);
-  const configured = env.ANXOS_RELEASE_REPOSITORY || env.ANXOS_GITHUB_REPOSITORY || "bungopam-byte/AnxOS-Control-Center-Releases";
+  const configured = env.ANXOS_RELEASE_REPOSITORY || env.ANXOS_GITHUB_REPOSITORY || OFFICIAL_RELEASE_REPOSITORY;
   const match = String(configured).trim().match(/^([^/]+)\/([^/]+)$/);
-  if (!match) return json({ error: "release_repository_not_configured" }, 500);
+  if (!match || `${match[1]}/${match[2]}` !== OFFICIAL_RELEASE_REPOSITORY) return json({ error: "release_repository_not_configured" }, 500);
   const response = await fetch(`https://api.github.com/repos/${match[1]}/${match[2]}/releases?per_page=20`, { headers: { accept: "application/vnd.github+json", "user-agent": "AnxOS-website-downloads" } });
   if (!response.ok) return json({ error: "release_source_unavailable", status: response.status }, 502);
   const releases = await response.json();
@@ -22,7 +23,7 @@ async function latestDownload(request, env, platform) {
     .filter((release) => release && !release.draft)
     .sort((left, right) => new Date(right.published_at || right.created_at || 0) - new Date(left.published_at || left.created_at || 0))
     .flatMap((release) => release.assets || [])
-    .find((candidate) => select(candidate.name || "") && /^https:\/\/github\.com\/[^/]+\/[^/]+\/releases\/download\//.test(candidate.browser_download_url || ""));
+    .find((candidate) => select(candidate.name || "") && String(candidate.browser_download_url || "").startsWith(`https://github.com/${OFFICIAL_RELEASE_REPOSITORY}/releases/download/`));
   if (!asset) return json({ error: "release_asset_unavailable" }, 404);
   return new Response(null, { status: 302, headers: { location: asset.browser_download_url, "cache-control": "no-store" } });
 }

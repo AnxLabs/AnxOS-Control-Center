@@ -5,6 +5,7 @@ const marketplaceInstallService = require("../src/services/marketplaceInstallSer
 
 async function main() {
   const originalDeleteInstance = agentClient.deleteInstance;
+  const originalUpdateInstance = agentClient.updateInstance;
   try {
     agentClient.deleteInstance = async () => ({ deleted: true });
     const success = await marketplaceInstallService._test.cleanupIncompleteInstance("cleanup-success", { nodeId: "node-a" });
@@ -26,8 +27,20 @@ async function main() {
     assert.strictEqual(failed.error.code, "AGENT_UNAVAILABLE");
     assert(!JSON.stringify(failed).includes("cleanup-secret-token"), "Cleanup diagnostics must redact credentials.");
     assert(failed.suggestion.includes("Delete the incomplete instance"));
+
+    let retainedPatch = null;
+    agentClient.updateInstance = async (_id, patch) => {
+      retainedPatch = patch;
+      return { instance: { id: "retained-failure", ...patch } };
+    };
+    const retained = await marketplaceInstallService._test.retainIncompleteInstance("retained-failure", "DOWNLOAD_FAILED: interrupted", { nodeId: "node-a" });
+    assert.strictEqual(retained.succeeded, true);
+    assert.strictEqual(retainedPatch.installationState, "failed");
+    assert.strictEqual(retainedPatch.installStage, "Failed");
+    assert.match(retainedPatch.lastInstallError, /DOWNLOAD_FAILED/);
   } finally {
     agentClient.deleteInstance = originalDeleteInstance;
+    agentClient.updateInstance = originalUpdateInstance;
   }
 
   console.log("Marketplace cleanup reporting smoke checks passed.");

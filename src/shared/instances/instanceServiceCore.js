@@ -70,7 +70,7 @@ const PORT_CONNECT_TIMEOUT_MS = 500;
 const PROC_STAT_TICKS_PER_SECOND = 100;
 const PAGE_SIZE_BYTES = 4096;
 const VERSION_CACHE_VERSION = 4;
-const INSTANCE_CONFIG_SCHEMA_VERSION = 1;
+const INSTANCE_CONFIG_SCHEMA_VERSION = 2;
 const ATOMIC_RENAME_RETRY_CODES = new Set(["EPERM", "EACCES", "EBUSY"]);
 const ATOMIC_RENAME_RETRY_ATTEMPTS = 5;
 const ATOMIC_RENAME_RETRY_DELAY_MS = 25;
@@ -114,6 +114,9 @@ const versionRefreshTimers = new Map();
 const installationSessions = new Map();
 // Guards startInstance() against concurrent invocations for the same id before runningProcesses is populated.
 const startingInstances = new Set();
+// Concurrent stop requests share one owned operation so they cannot race the
+// process record, clear each other's metadata, or leave an orphaned child.
+const stoppingInstances = new Map();
 let processInspectionProvider = null;
 let processAliveProvider = null;
 
@@ -677,7 +680,7 @@ function normalizeTags(value) {
 
 function normalizeInstallationState(value, fallback = "active") {
   if (value === undefined || value === null || value === "") return fallback;
-  if (["installing", "active"].includes(value)) return value;
+  if (["installing", "active", "failed"].includes(value)) return value;
   throw createInstanceError("INSTALLATION_STATE_INVALID");
 }
 
@@ -3375,7 +3378,17 @@ async function loadInstanceConfig(instanceId) {
       if (!await pathExists(backupPath)) {
         await fs.copyFile(filePath, backupPath, fsSync.constants.COPYFILE_EXCL);
       }
-      const migrated = { ...config, schemaVersion: INSTANCE_CONFIG_SCHEMA_VERSION };
+      // Build 200 has one deliberately narrow migration: preserve the Build 199
+      // record while adding the durable failed-install state and recovery fields.
+      const migrated = {
+        ...config,
+        installationState: normalizeInstallationState(config.installationState, "active"),
+        installationOperationId: config.installationState === "installing" ? config.installationOperationId || null : null,
+        installStage: config.installStage || null,
+        lastInstallError: config.lastInstallError || null,
+        lastInstallAttemptAt: config.lastInstallAttemptAt || null,
+        schemaVersion: INSTANCE_CONFIG_SCHEMA_VERSION,
+      };
       await writeJson(filePath, migrated);
       return migrated;
     }
@@ -4433,10 +4446,40 @@ async function recoverIncompleteInstallations() {
       if (config.pid && isProcessAlive(config.pid)) {
         await stopInstance(id);
       }
-      await deleteInstance(id);
-      repaired.push({ instanceId: id, action: "removed-incomplete-installation" });
+      config = await loadInstanceConfig(id);
+      await saveInstanceConfig({
+        ...config,
+        installationState: "failed",
+        installationOperationId: null,
+        installStage: "interrupted",
+        lastInstallError: "INSTALLATION_INTERRUPTED: Installation did not reach its activation boundary before the runtime restarted.",
+        lastInstallAttemptAt: config.lastInstallAttemptAt || nowIso(),
+        updatedAt: nowIso(),
+      });
+      repaired.push({ instanceId: id, action: "retained-interrupted-installation" });
     } catch (error) {
-      failures.push({ instanceId: id, code: error?.code || "INSTANCE_RECOVERY_DELETE_FAILED" });
+      const recoveryCode = error?.code || "INSTANCE_RECOVERY_FAILED";
+      try {
+        const latestConfig = await loadInstanceConfig(id);
+        await saveInstanceConfig({
+          ...latestConfig,
+          installationState: "failed",
+          installationOperationId: null,
+          installStage: "interrupted",
+          lastInstallError: `INSTALLATION_INTERRUPTED: Recovery could not stop the recorded process (${recoveryCode}).`,
+          lastInstallAttemptAt: latestConfig.lastInstallAttemptAt || nowIso(),
+          updatedAt: nowIso(),
+        });
+        repaired.push({ instanceId: id, action: "retained-interrupted-installation" });
+      } catch (persistError) {
+        failures.push({
+          instanceId: id,
+          code: persistError?.code || "INSTANCE_RECOVERY_PERSIST_FAILED",
+          recoveryCode,
+        });
+        continue;
+      }
+      failures.push({ instanceId: id, code: recoveryCode });
     }
   }
   return { repaired, failures };
@@ -4646,9 +4689,17 @@ async function startInstanceImpl(instanceId, options = {}) {
 
   let config = await syncNeoForgeScriptRuntimeConfig(await reconcileConfigState(await loadInstanceConfig(instanceId)));
   config = await backfillInstanceVersion(config, { force: true });
-  if (config.installationState === "installing") {
-    const error = createInstanceError("INSTANCE_INSTALLATION_INCOMPLETE", 409, { instanceId: config.id });
-    error.message = "The instance cannot start until installation completes.";
+  if (config.installationState !== "active") {
+    const failedInstallation = config.installationState === "failed";
+    const error = createInstanceError(failedInstallation ? "INSTANCE_INSTALLATION_FAILED" : "INSTANCE_INSTALLATION_INCOMPLETE", 409, {
+      instanceId: config.id,
+      installationState: config.installationState,
+      installStage: config.installStage || null,
+      lastInstallError: config.lastInstallError || null,
+    });
+    error.message = failedInstallation
+      ? "The instance installation failed and must be retried or removed before it can start."
+      : "The instance cannot start until installation completes.";
     throw error;
   }
   config = await repairScriptLauncherCommand(config);
@@ -4935,7 +4986,7 @@ async function startInstanceImpl(instanceId, options = {}) {
       entry.resolvedFailureReason = resolvedFailureReason;
     }
 
-    discoverDetachedRuntime(config).then(async (runtime) => {
+    entry.exitFinalization = discoverDetachedRuntime(config).then(async (runtime) => {
       if (runtime && !requestedStop) {
         const updated = await adoptDiscoveredRuntime(config, runtime, { reason: "wrapper-exit" });
         console.info("[Instances] Reconciled detached instance runtime after wrapper exit.", {
@@ -5238,6 +5289,21 @@ function waitForExit(child, timeoutMs) {
 }
 
 async function stopInstance(instanceId, options = {}) {
+  const guardId = validateInstanceId(instanceId);
+  const existing = stoppingInstances.get(guardId);
+  if (existing) return existing;
+  const operation = stopInstanceImpl(guardId, options);
+  stoppingInstances.set(guardId, operation);
+  try {
+    return await operation;
+  } finally {
+    if (stoppingInstances.get(guardId) === operation) {
+      stoppingInstances.delete(guardId);
+    }
+  }
+}
+
+async function stopInstanceImpl(instanceId, options = {}) {
   let config = await reconcileConfigState(await loadInstanceConfig(instanceId));
   const entry = runningProcesses.get(config.id);
   const trackedRuntimePid = normalizePid(config.runtimeProcess?.pid);
@@ -5309,12 +5375,35 @@ async function stopInstance(instanceId, options = {}) {
   }
 
   if (!exited && isProcessAlive(pid)) {
-    const error = createInstanceError("INSTANCE_STOP_FAILED", 500, {
+    const failureDetails = {
       instanceId: config.id,
       pid,
+      timeoutMs: requestedTimeout > 0 ? requestedTimeout : shutdownTimeoutMs,
+      forcedTerminationAttempted: true,
+    };
+    // The process is proven alive, so Running is the truthful runtime state.
+    // Keep the failed stop attempt as durable evidence instead of leaving a
+    // stale Stopping record that could survive indefinitely.
+    config = await updateRuntimeState(config.id, {
+      state: INSTANCE_STATES.RUNNING,
+      pid,
+      failureReason: "INSTANCE_STOP_FAILED",
+      failureDetails,
+      readinessState: config.readinessState === "ready" ? "ready" : "unknown",
+      healthState: "degraded",
+    });
+    const error = createInstanceError("INSTANCE_STOP_FAILED", 500, {
+      ...failureDetails,
     });
     error.message = "The server process did not stop within the configured timeout.";
     throw error;
+  }
+
+  // The exit listener performs asynchronous reconciliation. Wait for that
+  // owned finalization before a restart can install a new process entry;
+  // otherwise a late exit callback can delete or overwrite the replacement.
+  if (entry?.exitFinalization) {
+    await entry.exitFinalization;
   }
 
   config = await updateRuntimeState(config.id, {

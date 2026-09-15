@@ -167,6 +167,7 @@ function getValidationErrorDetails(error) {
     INVALID_INSTANCE_TYPE: { field: "type", expected: "custom-command, node-app, python-app, java-app, or minecraft-paper", userMessage: "This installer generated an unsupported instance type." },
     INVALID_EXECUTABLE: { field: "executable", expected: "safe executable name or approved absolute path", userMessage: "The generated startup executable is invalid." },
     EXECUTABLE_NOT_ALLOWED: { field: "executable", expected: "absolute executable inside approved roots, or executable name resolved by PATH", userMessage: "The selected executable is outside approved paths." },
+    INSTANCE_INSTALLATION_FAILED: { field: "installationState", expected: "active installation after successful verification", userMessage: "This failed installation must be retried or removed before it can start." },
     INVALID_ARGS: { field: "args", expected: "argument array with safe string values", userMessage: "The generated startup arguments are invalid." },
     INVALID_PORTS: { field: "ports", expected: "ports between 1 and 65535", userMessage: "Enter valid ports between 1 and 65535." },
     INVALID_MEMORY_LIMIT: { field: "memoryLimit", expected: "memory value such as 512M, 2G, or 2048M", userMessage: "Use memory like 512M, 2G, or 2048M." },

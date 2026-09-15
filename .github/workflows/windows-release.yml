@@ -295,7 +295,7 @@ jobs:
       - name: Publish tagged release
         env:
           GH_TOKEN: ${{ secrets.ANXOS_RELEASE_REPO_TOKEN }}
-          ANXOS_RELEASE_REPOSITORY: bungopam-byte/AnxOS-Control-Center-Releases
+          ANXOS_RELEASE_REPOSITORY: AnxLabs/AnxOS-Control-Center-Releases
           GITHUB_REF_NAME: ${{ github.ref_name }}
         run: |
           if [ -z "$GH_TOKEN" ]; then
@@ -311,21 +311,15 @@ jobs:
           fi
 
           if gh release view "$GITHUB_REF_NAME" --repo "$ANXOS_RELEASE_REPOSITORY" >/dev/null 2>&1; then
-            gh release edit "$GITHUB_REF_NAME" \
-              --repo "$ANXOS_RELEASE_REPOSITORY" \
-              --title "$GITHUB_REF_NAME" \
-              --prerelease \
-              "${NOTES_ARGS[@]}"
-            gh release upload "$GITHUB_REF_NAME" release-artifacts/* \
-              --repo "$ANXOS_RELEASE_REPOSITORY" \
-              --clobber
-          else
-            gh release create "$GITHUB_REF_NAME" release-artifacts/* \
-              --repo "$ANXOS_RELEASE_REPOSITORY" \
-              --title "$GITHUB_REF_NAME" \
-              --prerelease \
-              "${NOTES_ARGS[@]}"
+            echo "Release ${GITHUB_REF_NAME} already exists in ${ANXOS_RELEASE_REPOSITORY}; refusing to replace immutable release assets." >&2
+            exit 1
           fi
+
+          gh release create "$GITHUB_REF_NAME" release-artifacts/* \
+            --repo "$ANXOS_RELEASE_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --prerelease \
+            "${NOTES_ARGS[@]}"
 
       # Official tag flow only: after artifacts are published to the release
       # repository, keep this repo's Releases page current with a notes-only

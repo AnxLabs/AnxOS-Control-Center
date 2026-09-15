@@ -8,7 +8,7 @@ const DEFAULT_RELEASE = {
 };
 
 const RELEASE_REPOSITORY = {
-  owner: "bungopam-byte",
+  owner: "AnxLabs",
   repo: "AnxOS-Control-Center-Releases",
 };
 

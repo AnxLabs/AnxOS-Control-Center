@@ -11,7 +11,7 @@ const { OFFICIAL_SITE_ORIGIN } = require("../shared/officialSite");
 const { sanitize, sanitizeForDiagnostics } = require("../shared/redaction");
 const { getReleaseInfo } = require("../shared/releaseConfig");
 
-const DEFAULT_UPDATE_REPOSITORY = "bungopam-byte/AnxOS-Control-Center-Releases";
+const DEFAULT_UPDATE_REPOSITORY = "AnxLabs/AnxOS-Control-Center-Releases";
 const UPDATE_REPOSITORY = normalizeUpdateRepository(process.env.ANXOS_UPDATE_REPOSITORY) || DEFAULT_UPDATE_REPOSITORY;
 const UPDATE_RELEASES_URL = `https://api.github.com/repos/${UPDATE_REPOSITORY}/releases?per_page=20`;
 const UPDATE_LATEST_RELEASE_URL = `https://api.github.com/repos/${UPDATE_REPOSITORY}/releases/latest`;

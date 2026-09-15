@@ -6,6 +6,11 @@
   const SOURCE_ARCHIVE_NAMES = new Set(["Source code (zip)", "Source code (tar.gz)"]);
   const ARTIFACT_ORDER = ["windows-setup", "windows-portable", "windows-msi", "linux-appimage", "linux-deb"];
   const CHECKSUM_PATTERN = /(^sha256sums$|^checksums\.txt$|\.sha256$|sha256)/i;
+  const OFFICIAL_RELEASE_REPOSITORY = Object.freeze({ owner: "AnxLabs", repo: "AnxOS-Control-Center-Releases" });
+
+  function isOfficialRepository(repository) {
+    return repository?.owner === OFFICIAL_RELEASE_REPOSITORY.owner && repository?.repo === OFFICIAL_RELEASE_REPOSITORY.repo;
+  }
 
   function trim(value) {
     return String(value || "").trim();
@@ -17,7 +22,8 @@
       if (parsed.protocol !== "https:" || parsed.hostname !== "github.com") return null;
       const [owner, repo] = parsed.pathname.replace(/^\/+|\/+$/g, "").split("/");
       if (!owner || !repo) return null;
-      return { owner, repo: repo.replace(/\.git$/i, ""), repositoryUrl: `https://github.com/${owner}/${repo.replace(/\.git$/i, "")}` };
+      const repository = { owner, repo: repo.replace(/\.git$/i, ""), repositoryUrl: `https://github.com/${owner}/${repo.replace(/\.git$/i, "")}` };
+      return isOfficialRepository(repository) ? repository : null;
     } catch {
       return null;
     }
@@ -28,7 +34,8 @@
     const owner = trim(configured.owner);
     const repo = trim(configured.repo).replace(/\.git$/i, "");
     if (owner && repo) {
-      return { owner, repo, repositoryUrl: `https://github.com/${owner}/${repo}` };
+      const repository = { owner, repo, repositoryUrl: `https://github.com/${owner}/${repo}` };
+      return isOfficialRepository(repository) ? repository : null;
     }
     return parseRepositoryUrl(repositoryUrl || config.repositoryUrl);
   }
@@ -40,8 +47,8 @@
   function isExpectedAssetUrl(value, repository) {
     try {
       const parsed = new URL(value);
-      const releasePrefix = `/${repository.owner}/${repository.repo}/releases/download/`;
-      return parsed.protocol === "https:" && parsed.hostname === "github.com" && parsed.pathname.startsWith(releasePrefix);
+      const releasePrefix = `/${OFFICIAL_RELEASE_REPOSITORY.owner}/${OFFICIAL_RELEASE_REPOSITORY.repo}/releases/download/`;
+      return isOfficialRepository(repository) && parsed.protocol === "https:" && parsed.hostname === "github.com" && parsed.pathname.startsWith(releasePrefix);
     } catch {
       return false;
     }
@@ -326,6 +333,7 @@
   const api = {
     ARTIFACT_ORDER,
     CACHE_TTL_MS,
+    OFFICIAL_RELEASE_REPOSITORY,
     classifyAsset,
     detectPlatform,
     formatBytes,

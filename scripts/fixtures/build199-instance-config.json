@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "id": "build199-fixture",
+  "displayName": "Build 199 Fixture",
+  "type": "node-app",
+  "workingDirectory": "data",
+  "executable": "node",
+  "args": [
+    "server.js"
+  ],
+  "environment": {},
+  "autoStart": false,
+  "restartPolicy": "on-failure",
+  "startupTimeoutMs": 15000,
+  "shutdownTimeoutMs": 10000,
+  "memoryLimit": "512M",
+  "ports": [
+    25565
+  ],
+  "primaryPort": 25565,
+  "tags": [
+    "build199",
+    "migration-fixture"
+  ],
+  "installationState": "active",
+  "state": "Stopped",
+  "pid": null,
+  "exitCode": 0,
+  "signal": null,
+  "failureReason": null,
+  "readinessState": "stopped",
+  "healthState": "unknown",
+  "createdAt": "2026-09-04T09:00:00.000Z",
+  "updatedAt": "2026-09-04T09:30:00.000Z",
+  "build199Extension": {
+    "preserve": true,
+    "note": "Unknown Build 199 fields must survive migration."
+  }
+}

@@ -33,15 +33,16 @@ compression ratios before reading entry bodies.
 Provider-created instances persist with `installationState: "installing"` and
 are excluded from normal instance listings and startup until server artifacts,
 configuration, and metadata have been verified. The final Agent update changes
-the state to `active`; that activation is the visibility boundary. Ordinary
-failure or cancellation deletes the incomplete instance and reports cleanup
-failure without exposing credentials.
+the state to `active`; that activation is the success boundary. Failure changes
+the state to `failed`, retains the stage and specific error, and leaves the
+record inspectable and explicitly removable without exposing credentials.
 
 On process startup, both the standalone Agent (before opening its HTTP listener)
 and the desktop local-instance runtime (before registering IPC handlers) call
 `recoverIncompleteInstallations()`. The shared routine stops a still-live PID
-owned by an `installing` record, removes that incomplete instance, reports
-per-instance failures, and is idempotent. It never removes active instances.
+owned by an `installing` record, retains it as a failed interrupted install,
+reports per-instance failures, and is idempotent. It never removes active
+instances or instance data.
 
 Instance status keeps the existing `state`/`lifecycleState` contract and adds
 orthogonal `processState`, `readinessState`, and `healthState` fields. A live

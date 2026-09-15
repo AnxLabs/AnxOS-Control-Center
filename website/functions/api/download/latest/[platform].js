@@ -4,11 +4,12 @@ const PLATFORM_ASSETS = {
   "linux-appimage": (name) => /\.appimage$/i.test(name),
   "linux-deb": (name) => /\.deb$/i.test(name),
 };
+const OFFICIAL_RELEASE_REPOSITORY = "AnxLabs/AnxOS-Control-Center-Releases";
 
 function repositoryFromEnv(env) {
-  const value = env.ANXOS_RELEASE_REPOSITORY || env.ANXOS_GITHUB_REPOSITORY || "bungopam-byte/AnxOS-Control-Center-Releases";
+  const value = env.ANXOS_RELEASE_REPOSITORY || env.ANXOS_GITHUB_REPOSITORY || OFFICIAL_RELEASE_REPOSITORY;
   const match = String(value).trim().match(/^([^/]+)\/([^/]+)$/);
-  return match ? { owner: match[1], repo: match[2] } : null;
+  return match && `${match[1]}/${match[2]}` === OFFICIAL_RELEASE_REPOSITORY ? { owner: match[1], repo: match[2] } : null;
 }
 
 function json(body, status) {
@@ -37,8 +38,8 @@ export async function onRequestGet({ params, env }) {
   const release = (Array.isArray(releases) ? releases : [])
     .filter((candidate) => candidate && !candidate.draft)
     .sort((left, right) => new Date(right.published_at || right.created_at || 0) - new Date(left.published_at || left.created_at || 0))
-    .find((candidate) => (candidate.assets || []).some((asset) => select(asset.name || "") && /^https:\/\/github\.com\/[^/]+\/[^/]+\/releases\/download\//.test(asset.browser_download_url || "")));
-  const asset = release?.assets?.find((candidate) => select(candidate.name || "") && /^https:\/\/github\.com\/[^/]+\/[^/]+\/releases\/download\//.test(candidate.browser_download_url || ""));
+    .find((candidate) => (candidate.assets || []).some((asset) => select(asset.name || "") && String(asset.browser_download_url || "").startsWith(`https://github.com/${OFFICIAL_RELEASE_REPOSITORY}/releases/download/`)));
+  const asset = release?.assets?.find((candidate) => select(candidate.name || "") && String(candidate.browser_download_url || "").startsWith(`https://github.com/${OFFICIAL_RELEASE_REPOSITORY}/releases/download/`));
   if (!asset) return json({ error: "release_asset_unavailable" }, 404);
   return new Response(null, {
     status: 302,

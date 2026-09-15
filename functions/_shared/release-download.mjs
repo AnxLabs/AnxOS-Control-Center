@@ -1,10 +1,10 @@
-const DEFAULT_RELEASE_REPOSITORY = "bungopam-byte/AnxOS-Control-Center-Releases";
+const DEFAULT_RELEASE_REPOSITORY = "AnxLabs/AnxOS-Control-Center-Releases";
 const REQUEST_TIMEOUT_MS = 9000;
 
 function repositoryFromEnv(env = {}) {
   const value = String(env.ANXOS_RELEASE_REPOSITORY || env.ANXOS_GITHUB_REPOSITORY || DEFAULT_RELEASE_REPOSITORY).trim();
   const [owner, repo] = value.replace(/^https:\/\/github\.com\//, "").replace(/\.git$/i, "").split("/");
-  if (!owner || !repo) return null;
+  if (`${owner}/${repo}` !== DEFAULT_RELEASE_REPOSITORY) return null;
   return { owner, repo, repositoryUrl: `https://github.com/${owner}/${repo}` };
 }
 
@@ -22,7 +22,8 @@ function json(body, status = 200, headers = {}) {
 function isExpectedAssetUrl(value, repository) {
   try {
     const parsed = new URL(value);
-    return parsed.protocol === "https:" &&
+    return `${repository?.owner}/${repository?.repo}` === DEFAULT_RELEASE_REPOSITORY &&
+      parsed.protocol === "https:" &&
       parsed.hostname === "github.com" &&
       parsed.pathname.startsWith(`/${repository.owner}/${repository.repo}/releases/download/`);
   } catch {

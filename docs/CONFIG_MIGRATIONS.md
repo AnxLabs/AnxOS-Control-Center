@@ -1,5 +1,15 @@
 # Configuration Migrations
 
+## Build 200 instance records
+
+Build 200 upgrades Build 199 instance schema 1 records to schema 2 on first
+read. The original JSON is preserved once as `config.json.schema-v1.backup`,
+then the migrated record is atomically replaced. The migration adds only the
+durable failed-install fields, preserves unknown metadata and instance data,
+and is safe to rerun. Future schema versions and malformed JSON fail explicitly
+without rewriting the source. This is the complete Build 200 instance migration
+contract; it is not a generalized V2 migration framework.
+
 Persisted formats with explicit schema versions include the node registry,
 node credential store, settings preferences, forgotten-instance state, public
 access registry, and long-operation records.

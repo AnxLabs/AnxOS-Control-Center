@@ -41,7 +41,16 @@ async function main() {
   const recovery = await instanceService.recoverIncompleteInstallations();
   assert.deepStrictEqual(recovery.failures, []);
   assert(recovery.repaired.some((entry) => entry.instanceId === "interrupted-install-smoke"));
-  assert.strictEqual((await instanceService.listInstances()).instances.length, 0, "Startup recovery must remove interrupted hidden installs.");
+  const recovered = (await instanceService.listInstances()).instances.find((entry) => entry.id === "interrupted-install-smoke");
+  assert(recovered, "Startup recovery must retain an interrupted install for inspection or removal.");
+  assert.strictEqual(recovered.installationState, "failed");
+  assert.strictEqual(recovered.installStage, "interrupted");
+  assert.match(recovered.lastInstallError, /INSTALLATION_INTERRUPTED/, "Recovery must retain a specific failure code.");
+  await assert.rejects(
+    () => instanceService.startInstance("interrupted-install-smoke"),
+    (error) => error?.code === "INSTANCE_INSTALLATION_FAILED",
+    "A retained failed install must remain non-startable until repaired or removed.",
+  );
   const secondRecovery = await instanceService.recoverIncompleteInstallations();
   assert.deepStrictEqual(secondRecovery, { repaired: [], failures: [] }, "Recovery must be idempotent.");
   fs.rmSync(root, { recursive: true, force: true });
