@@ -12,6 +12,7 @@ const {
   listDependencyGroups,
   normalizeDependencyIds,
 } = require("../../../src/shared/marketplaceDependencies");
+const bundledRuntimePaths = require("../../../src/shared/bundledRuntimePaths");
 const { logger } = require("./diagnosticsLogger");
 
 const DEFAULT_TIMEOUT_MS = 120000;
@@ -25,6 +26,7 @@ let readFileText = (filePath) => fs.readFileSync(filePath, "utf8");
 let accessExecutable = (filePath) => fs.accessSync(filePath, process.platform === "win32" ? fs.constants.F_OK : fs.constants.X_OK);
 let windowsInstallerCommandProvider = getWindowsPackageInstallerCommand;
 let windowsInstallerProvider = getWindowsInstaller;
+let bundledRuntimeExecutableProvider = bundledRuntimePaths.resolveExecutable;
 
 function nowIso() {
   return new Date().toISOString();
@@ -494,8 +496,21 @@ async function checkDependency(dependencyId) {
     privateRuntime = {
       source: "AnxOS managed Local Agent runtime",
       path: process.execPath,
+      runtime: "nodejs",
     };
     commandResults.push({ command: "node", path: process.execPath, installed: true, privateRuntime: true });
+  }
+  if (id === "java" && !installed && process.platform === "win32") {
+    const bundledJava = bundledRuntimeExecutableProvider("java-21");
+    if (bundledJava) {
+      installed = true;
+      privateRuntime = {
+        source: "AnxOS bundled Java runtime",
+        path: bundledJava,
+        runtime: "java",
+      };
+      commandResults.push({ command: "java", path: bundledJava, installed: true, privateRuntime: true });
+    }
   }
   if (!installed && definition.windowsRegistry) {
     registryDetection = await detectWindowsRegistryDependency(definition);
@@ -515,7 +530,7 @@ async function checkDependency(dependencyId) {
   }
 
   if (installed) {
-    if (privateRuntime) {
+    if (privateRuntime?.runtime === "nodejs") {
       version = process.version.replace(/^v/, "");
       versionRaw = process.version;
       verification = [{ command: "node", args: ["--version"], ok: true, allowFailure: false, description: "AnxOS managed private Node runtime is available.", privateRuntime: true }];
@@ -1031,6 +1046,7 @@ function __setTestHooks(hooks = {}) {
   accessExecutable = hooks.accessExecutable || ((filePath) => fs.accessSync(filePath, process.platform === "win32" ? fs.constants.F_OK : fs.constants.X_OK));
   windowsInstallerCommandProvider = hooks.windowsInstallerCommand || getWindowsPackageInstallerCommand;
   windowsInstallerProvider = hooks.windowsInstaller || getWindowsInstaller;
+  bundledRuntimeExecutableProvider = hooks.bundledRuntimeExecutable || bundledRuntimePaths.resolveExecutable;
   packageManagerBusy = false;
   activeDependencyInstalls.clear();
   dependencyJobs.clear();

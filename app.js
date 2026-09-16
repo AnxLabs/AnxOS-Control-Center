@@ -4890,7 +4890,7 @@ async function runDependencyAction(action) {
         return;
       }
       if (installResult?.ok === false) {
-        throw Object.assign(new Error(installResult.error?.message || "Dependency installation failed."), {
+        throw Object.assign(new Error(installResult.error?.friendlyMessage || installResult.error?.message || "Dependency installation failed."), {
           code: installResult.error?.code || "DEPENDENCY_INSTALL_FAILED",
         });
       }
@@ -4915,8 +4915,8 @@ async function runDependencyAction(action) {
     if (!isNodeRequestCurrent(requestContext) || requestId !== dependencyRequestSerial) {
       return;
     }
-    if (check?.ok === false) {
-      throw Object.assign(new Error(check.error?.message || "Dependency check failed."), {
+    if (check?.ok === false && check.error) {
+      throw Object.assign(new Error(check.error?.friendlyMessage || check.error?.message || "Dependency check failed."), {
         code: check.error?.code || "DEPENDENCY_CHECK_FAILED",
       });
     }
@@ -18284,7 +18284,7 @@ async function getDependencyPreparationPlan(payload = {}) {
   }
   const plan = await desktopApiState.api.dependencies.plan(payload);
   if (plan?.ok === false && plan.error) {
-    throw Object.assign(new Error(plan.error.message || "Dependency planning failed."), {
+    throw Object.assign(new Error(plan.error.friendlyMessage || plan.error.message || "Dependency planning failed."), {
       code: plan.error.code,
       details: plan.error.details,
     });

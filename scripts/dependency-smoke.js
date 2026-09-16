@@ -105,6 +105,18 @@ async function run() {
   assert.strictEqual(check.ok, true);
   assert.strictEqual(check.dependencies[0].state, "installed");
 
+  if (process.platform === "win32") {
+    const bundledJava = path.join(__dirname, "..", "resources", "bundled-runtimes", "win-x64", "java", "21", "bin", "java");
+    mock = createMockHooks({ installedCommands: [] });
+    dependencyService.__setTestHooks({
+      ...mock.hooks,
+      bundledRuntimeExecutable: (id) => id === "java-21" ? bundledJava : null,
+    });
+    check = await dependencyService.checkDependencies({ dependencyIds: ["java"] });
+    assert.strictEqual(check.ok, true, "Bundled Java must satisfy Marketplace dependency preflight on Windows.");
+    assert.strictEqual(check.dependencies[0].privateRuntime?.path, bundledJava, "Dependency results should identify the AnxOS bundled Java runtime.");
+  }
+
   const installerCalls = [];
   dependencyService.__setTestHooks({
     commandRunner: async (command, args) => {

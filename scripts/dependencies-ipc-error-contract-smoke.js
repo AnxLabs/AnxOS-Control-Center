@@ -2,6 +2,7 @@ const assert = require("assert");
 const Module = require("module");
 
 const handlers = new Map();
+const diagnosticEntries = [];
 const secret = "dependency-command-secret";
 const originalError = Object.assign(new Error(`password=${secret}`), {
   code: "DEPENDENCY_OS_UNSUPPORTED",
@@ -25,7 +26,10 @@ Module._load = function patchedLoad(request, parent, isMain) {
   if (request === "electron") return { ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) } };
   if (request === "../services/serviceRouter") return serviceRouter;
   if (request === "../services/marketplaceService") return marketplaceService;
-  if (request === "../services/diagnosticsService") return { updateRuntimeState: () => {} };
+  if (request === "../services/diagnosticsService") return {
+    updateRuntimeState: () => {},
+    log: (...args) => diagnosticEntries.push(args),
+  };
   if (request === "../services/securityService") return { audit: () => {}, requirePermission: () => ({}) };
   if (request === "./nodeContext") return { requireNodeContext: (payload) => payload };
   return originalLoad.call(this, request, parent, isMain);
@@ -48,6 +52,10 @@ async function main() {
   assert.strictEqual(result.error.provider.id, "apt");
   assert.strictEqual(result.error.suggestion, "Select a supported node.");
   assert(!JSON.stringify(result).includes(secret), "Dependency IPC errors must redact command credentials.");
+  assert.strictEqual(diagnosticEntries.length, 1, "Dependency IPC failures should emit one diagnostic entry.");
+  assert.strictEqual(diagnosticEntries[0][2], "dependencies:check", "Dependency diagnostics should identify the failed operation.");
+  assert.strictEqual(diagnosticEntries[0][4].errorCode, "DEPENDENCY_OS_UNSUPPORTED", "Dependency diagnostics should record the normalized error code.");
+  assert(!JSON.stringify(diagnosticEntries).includes(secret), "Dependency diagnostics must not log command credentials.");
   console.log("Dependency IPC error contract smoke checks passed.");
 }
 

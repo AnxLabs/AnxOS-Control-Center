@@ -16,21 +16,29 @@ const { requireNodeContext } = require("./nodeContext");
 const { normalizeIpcError } = require("../shared/ipcError");
 const requireDependencyNodeContext = requireNodeContext;
 
-function invokeDependencyOperation(operation) {
+function invokeDependencyOperation(operation, operationName = "dependencies:request") {
   return Promise.resolve()
     .then(operation)
-    .catch((error) => ({
-      ok: false,
-      error: normalizeIpcError(error, {
+    .catch((error) => {
+      const normalized = normalizeIpcError(error, {
         code: "DEPENDENCY_REQUEST_FAILED",
         fallbackMessage: "Dependency request failed.",
         suggestion: "Review the dependency plan and selected-node capabilities, then retry.",
-      }),
-    }));
+      });
+      diagnostics.log("error", "dependencies", operationName, "Dependency IPC operation failed", {
+        errorCode: normalized.code,
+        status: normalized.status?.code || null,
+        retryable: normalized.retryable,
+      }, { file: "dependencies" });
+      return {
+        ok: false,
+        error: normalized,
+      };
+    });
 }
 
 function registerDependenciesIpc() {
-  ipcMain.handle("dependencies:getCatalog", async (_, payload = {}) => invokeDependencyOperation(() => { requirePermission("dependencies:read", payload.nodeId); return getDependencyCatalog(requireDependencyNodeContext(payload, "dependency catalog")); }));
+  ipcMain.handle("dependencies:getCatalog", async (_, payload = {}) => invokeDependencyOperation(() => { requirePermission("dependencies:read", payload.nodeId); return getDependencyCatalog(requireDependencyNodeContext(payload, "dependency catalog")); }, "dependencies:getCatalog"));
   ipcMain.handle("dependencies:check", async (_, payload = {}) => invokeDependencyOperation(async () => {
     requirePermission("dependencies:read", payload.nodeId);
     requireDependencyNodeContext(payload, "dependency detection");
@@ -41,7 +49,7 @@ function registerDependenciesIpc() {
       dependencyCheckedAt: new Date().toISOString(),
     });
     return result;
-  }));
+  }, "dependencies:check"));
   ipcMain.handle("dependencies:plan", async (_, payload = {}) => invokeDependencyOperation(async () => {
     requirePermission("dependencies:read", payload.nodeId);
     requireDependencyNodeContext(payload, "dependency planning");
@@ -52,7 +60,7 @@ function registerDependenciesIpc() {
       dependencyPlannedAt: new Date().toISOString(),
     });
     return result;
-  }));
+  }, "dependencies:plan"));
   ipcMain.handle("dependencies:install", async (_, payload = {}) => invokeDependencyOperation(async () => {
     requireDependencyNodeContext(payload, "dependency installation");
     requirePermission("instance:write", "marketplace-dependencies");
@@ -100,7 +108,7 @@ function registerDependenciesIpc() {
       });
       throw error;
     }
-  }));
+  }, "dependencies:install"));
 }
 
 module.exports = { registerDependenciesIpc };
