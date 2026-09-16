@@ -1,4 +1,55 @@
 const { getDeviceIdentity } = require("../services/deviceIdentityService");
+const { getConfiguredApiPermissions } = require("../permissions");
+
+// Tokens that let a credential mutate state. The API permission set defaults to
+// ["*"], so unless an operator explicitly narrows it, writes are enabled and the
+// agent must not claim to be read-only.
+const WRITE_CAPABLE_PERMISSIONS = new Set([
+  "docker:write",
+  "files:write",
+  "console:write",
+  "instance:write",
+  "instance:lifecycle",
+  "instance:delete",
+  "backups:write",
+  "backups:restore",
+  "dependencies:write",
+  "public-access:write",
+  "agent:manage",
+]);
+
+function isWriteEnabled(permissions) {
+  if (permissions.size === 0) {
+    return false;
+  }
+  if (permissions.has("*")) {
+    return true;
+  }
+  for (const permission of permissions) {
+    if (permission === "*" || permission === "*:*") {
+      return true;
+    }
+    if (WRITE_CAPABLE_PERMISSIONS.has(permission)) {
+      return true;
+    }
+    // A "<category>:*" wildcard grants every mutation in that category.
+    if (/^[a-zA-Z0-9_-]+:\*$/.test(permission)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// The reported mode must reflect the actually configured API permissions rather
+// than a hard-coded claim. With the default "*" permission set (or any explicit
+// write-capable token) the agent is read-write; it is read-only only when every
+// configured permission is genuinely non-mutating.
+function computeHealthMode(permissions) {
+  if (permissions.size === 0) {
+    return "no-access";
+  }
+  return isWriteEnabled(permissions) ? "read-write" : "read-only";
+}
 
 function buildAgentCapabilities(identity = {}) {
   const platform = identity.platform || process.platform;
@@ -34,7 +85,7 @@ async function handleHealth(config = {}) {
       ok: true,
       service: "anxos-agent",
       identity,
-      mode: "read-only",
+      mode: computeHealthMode(getConfiguredApiPermissions()),
       capabilities: buildAgentCapabilities(identity),
       tokenConfigured: Boolean(config.token),
       tokenFingerprint: config.tokenStatus?.fingerprint || null,
@@ -57,5 +108,7 @@ module.exports = {
   handleHealth,
   _test: {
     buildAgentCapabilities,
+    computeHealthMode,
+    isWriteEnabled,
   },
 };
