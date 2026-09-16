@@ -2421,6 +2421,15 @@ async function shutdownInstanceService(options = {}) {
 
   runningProcesses.clear();
   metricsSamples.clear();
+  // A readiness/version-refresh event may arrive from a child stdout stream while
+  // the children above are stopping, re-arming an owned timer after dispose() ran.
+  // Clear every owned timer again so the service keeps its "release all owned
+  // timers on shutdown" contract regardless of that race.
+  for (const timer of restartTimers.values()) clearTimeout(timer);
+  restartTimers.clear();
+  for (const timer of versionRefreshTimers.values()) clearTimeout(timer);
+  versionRefreshTimers.clear();
+  restartBackoffStates.clear();
   return {
     stopped: results.filter((result) => result.status === "fulfilled").length,
     forced: results.filter((result) => result.status === "rejected").length,
