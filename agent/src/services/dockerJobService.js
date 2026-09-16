@@ -32,9 +32,13 @@ function dockerJobError(code, statusCode, message) {
   return error;
 }
 
+// Exactly docker.<namespace>.<action>; everything else (docker., docker..x,
+// docker.x, extra segments) fails closed instead of minting a degenerate job.
+const DOCKER_JOB_TYPE_PATTERN = /^docker\.[a-z][a-z0-9.:-]{0,63}\.[a-z][a-z0-9.:-]{0,63}$/;
+
 async function mintDockerJob(options = {}) {
   const type = String(options.type || "");
-  if (!type || !type.startsWith("docker.")) {
+  if (!type || !DOCKER_JOB_TYPE_PATTERN.test(type)) {
     throw dockerJobError("INVALID_DOCKER_JOB_TYPE", 400, "Docker job type must be docker.<namespace>.<action>.");
   }
   const destructive = isDestructiveDockerType(type);

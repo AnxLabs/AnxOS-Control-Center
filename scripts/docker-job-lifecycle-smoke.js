@@ -89,6 +89,16 @@ async function main() {
     "Non-docker job types must be refused by the docker job wrapper.",
   );
 
+  // 6. Degenerate docker job types fail closed: bare, missing action or
+  // namespace, and extra segments must all be rejected.
+  for (const bad of ["docker.", "docker..", "docker..x", "docker.x", "docker.container", "docker.container.start.extra"]) {
+    await assert.rejects(
+      () => mintDockerJob({ type: bad, run: async () => ({}) }),
+      (error) => error.code === "INVALID_DOCKER_JOB_TYPE",
+      `Degenerate docker job type must be rejected: ${bad}`,
+    );
+  }
+
   console.log("docker:job-lifecycle:smoke passed");
 }
 
