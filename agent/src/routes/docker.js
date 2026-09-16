@@ -241,7 +241,9 @@ function getContainerFromPath(pathname, suffix = "") {
   if (!pathname.startsWith(prefix) || !pathname.endsWith(suffix)) {
     return null;
   }
-  return decodeURIComponent(pathname.slice(prefix.length, suffix ? -suffix.length : undefined).replace(/\/$/, ""));
+  const id = decodeURIComponent(pathname.slice(prefix.length, suffix ? -suffix.length : undefined).replace(/\/$/, ""));
+  // Decoded traversal (`%2F..%2F...`) must never become a target id.
+  return id && !id.includes("/") ? id : null;
 }
 
 function getImageFromPath(pathname) {
@@ -249,19 +251,22 @@ function getImageFromPath(pathname) {
   if (!pathname.startsWith(prefix)) {
     return null;
   }
-  return decodeURIComponent(pathname.slice(prefix.length).replace(/\/$/, ""));
+  const id = decodeURIComponent(pathname.slice(prefix.length).replace(/\/$/, ""));
+  return id && !id.includes("/") ? id : null;
 }
 
 function getVolumeFromPath(pathname, suffix = "") {
   const prefix = "/api/v1/docker/volumes/";
   if (!pathname.startsWith(prefix) || !pathname.endsWith(suffix)) return null;
-  return decodeURIComponent(pathname.slice(prefix.length, suffix ? -suffix.length : undefined).replace(/\/$/, ""));
+  const id = decodeURIComponent(pathname.slice(prefix.length, suffix ? -suffix.length : undefined).replace(/\/$/, ""));
+  return id && !id.includes("/") ? id : null;
 }
 
 function getNetworkFromPath(pathname, suffix = "") {
   const prefix = "/api/v1/docker/networks/";
   if (!pathname.startsWith(prefix) || !pathname.endsWith(suffix)) return null;
-  return decodeURIComponent(pathname.slice(prefix.length, suffix ? -suffix.length : undefined).replace(/\/$/, ""));
+  const id = decodeURIComponent(pathname.slice(prefix.length, suffix ? -suffix.length : undefined).replace(/\/$/, ""));
+  return id && !id.includes("/") ? id : null;
 }
 
 async function handleDocker(request, url) {
