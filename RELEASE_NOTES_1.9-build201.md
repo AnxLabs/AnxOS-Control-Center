@@ -8,6 +8,16 @@ reliability baseline. Scope was intentionally trimmed to stability fixes;
 the UX/quality follow-ups (browserless device-login fallback, truthful agent
 health mode label, node-switch reset) are queued for a later build.
 
+## Added
+
+- An EPIPE-safe console facade centralizes best-effort logging so a closed
+  or broken pipe cannot destabilize the app.
+- Unreadable or corrupt instance configs now surface as an explicit
+  `Unavailable` instance instead of being silently dropped (honest-state
+  contract).
+- An actionable `AGENT_AUTH_FAILED` error with Repair / Rotate Token / Pair
+  guidance is raised when the Agent rejects the request token.
+
 ## Fixed
 
 - Uncaught `EPIPE` from best-effort console writes can no longer crash the
