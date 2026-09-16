@@ -4,21 +4,11 @@
 // an in-flight operation: the Agent continues running the job, the durable
 // record survives, and a reconnecting client re-observes job state here.
 //
-// NOTE (integration): `agent/src/server.js` must register this module in
-// `routeRequest` and extend `getRoutePermission` — see the V2-A Wave 1 report
-// for the exact registration. Until then these routes are dormant.
-//
-//   routeRequest: add before the instances branch (jobs paths do not collide
-//   with /api/v1/instances/...):
-//     if (pathname === "/api/v1/jobs" || pathname.startsWith("/api/v1/jobs/")) {
-//       return handleJobs(request, url);
-//     }
-//   getRoutePermission:
-//     if (pathname === "/api/v1/jobs" || pathname.startsWith("/api/v1/jobs/")) {
-//       if (pathname.endsWith("/cancel")) return "instance:lifecycle";
-//       return "instance:read";
-//     }
-//   plus `const { handleJobs } = require("./routes/jobs");` at the top.
+// NOTE (integration): this module is registered and live in
+// `agent/src/server.js` — imported at the top, dispatched from `routeRequest`
+// for `/api/v1/jobs`, and permission-mapped in `getRoutePermission`
+// (`instance:lifecycle` for /cancel, `instance:read` otherwise). Keep that
+// permission mapping in sync when adding endpoints here.
 
 const instanceService = require("../services/instances/instanceService");
 

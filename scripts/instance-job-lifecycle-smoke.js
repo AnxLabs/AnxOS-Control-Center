@@ -116,6 +116,15 @@ async function main() {
     "Destructive operations must never be silently replayed.",
   );
 
+  // 4b. The exported destructive set is pinned exactly as the Wave-1 contract
+  // requires (docs/v2/V2A_WAVE1_REVIEW.md item f): adding a type to this set
+  // must be a deliberate, tested decision.
+  assert.deepStrictEqual(
+    new Set([...engine.DESTRUCTIVE_JOB_TYPES]),
+    new Set(["instance.delete", "instance.forget", "instance.forceKill"]),
+    "The exported destructive set must enumerate exactly the contracted types.",
+  );
+
   // 5. Cancellation: a running job with a cancel handler settles cancelled.
   // The job handle is taken with awaitResult disabled (the way an IPC jobs
   // surface would observe it) so the cancel can arrive mid-run from a second
