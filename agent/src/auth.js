@@ -24,6 +24,16 @@ function isPublicRoute(pathname) {
   return pathname === "/api/v1/health";
 }
 
+// V2-A: the agent still authenticates exactly one shared token (scoped
+// per-node/per-workload credentials are deferred to V2-I). This descriptor is
+// the single recognized principal so future per-principal grants have a stable
+// identity to bind to; it carries no authority of its own.
+const SHARED_TOKEN_PRINCIPAL = Object.freeze({ principal: "shared-token", role: null });
+
+function resolveRequestPrincipal() {
+  return SHARED_TOKEN_PRINCIPAL;
+}
+
 function isAuthorized(request, config, pathname) {
   if (isPublicRoute(pathname)) {
     return {
@@ -60,4 +70,5 @@ function isAuthorized(request, config, pathname) {
 
 module.exports = {
   isAuthorized,
+  resolveRequestPrincipal,
 };

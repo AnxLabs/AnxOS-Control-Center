@@ -61,7 +61,68 @@ const ROLE_PERMISSIONS = {
     "backups:restore",
     "settings:write",
   ],
-  User: ["instance:read", "instance:lifecycle", "files:read", "docker:read", "backups:read", "system:read", "dependencies:read", "public-access:read", "marketplace:read", "nodes:read", "ssh:read", "settings:read", "settings:preferences:write"],
+  // V2-A Decision 3: legacy `User` maps to `operator` — lifecycle-capable,
+  // read-everything-else, no delete/install/config-write.
+  Operator: [
+    "instance:read",
+    "instance:lifecycle",
+    "files:read",
+    "docker:read",
+    "backups:read",
+    "system:read",
+    "dependencies:read",
+    "public-access:read",
+    "marketplace:read",
+    "nodes:read",
+    "ssh:read",
+    "settings:read",
+    "settings:preferences:write",
+  ],
+  // V2-A: read-only observability tier.
+  Viewer: [
+    "instance:read",
+    "files:read",
+    "docker:read",
+    "backups:read",
+    "system:read",
+    "dependencies:read",
+    "public-access:read",
+    "marketplace:read",
+    "nodes:read",
+    "ssh:read",
+    "settings:read",
+  ],
+  // Service identities carry explicit grants only; a bare service role grants
+  // nothing implicitly (fail-closed).
+  Service: [],
+  // Legacy role kept so existing stored users keep their operator profile
+  // (Decision 3). Not exposed to new role assignment; see ROLE_ALIASES.
+  User: [
+    "instance:read",
+    "instance:lifecycle",
+    "files:read",
+    "docker:read",
+    "backups:read",
+    "system:read",
+    "dependencies:read",
+    "public-access:read",
+    "marketplace:read",
+    "nodes:read",
+    "ssh:read",
+    "settings:read",
+    "settings:preferences:write",
+  ],
+};
+// Canonical roles presented for assignment. `User` is the legacy stored-role
+// alias for `Operator` and is intentionally excluded from new assignments.
+const CANONICAL_ROLES = ["Owner", "Admin", "Operator", "Viewer", "Service"];
+const ROLE_ALIASES = {
+  owner: "Owner",
+  admin: "Admin",
+  operator: "Operator",
+  viewer: "Viewer",
+  service: "Service",
+  user: "Operator",
 };
 const SECURITY_EVENT_DEFINITIONS = {
   "security.setup": { category: "authentication", severity: "info", message: "Local Owner security was configured." },
@@ -1148,14 +1209,24 @@ function normalizeUsername(value) {
   return username;
 }
 
+// Resolves a stored or caller-supplied role to its canonical ROLE_PERMISSIONS
+// key. Legacy/lowercase aliases (including `User` → `Operator`, Decision 3)
+// are accepted; unknown roles are rejected rather than silently widened.
 function normalizeRole(value, fallback = "User") {
-  const role = String(value || fallback).trim();
-  if (!Object.prototype.hasOwnProperty.call(ROLE_PERMISSIONS, role)) {
+  const raw = String(value || fallback).trim();
+  const canonical = ROLE_ALIASES[raw.toLowerCase()] || raw;
+  if (!Object.prototype.hasOwnProperty.call(ROLE_PERMISSIONS, canonical)) {
     const error = new Error("Invalid role.");
     error.code = "INVALID_ROLE";
     throw error;
   }
-  return role;
+  return canonical;
+}
+
+function getRolePermissions(role) {
+  const raw = String(role || "").trim();
+  const canonical = ROLE_ALIASES[raw.toLowerCase()] || raw;
+  return ROLE_PERMISSIONS[canonical] || [];
 }
 
 function validatePassword(value) {
@@ -1216,8 +1287,8 @@ function getStatus() {
     accountAuthenticated: Boolean(accountUser),
     localOwnerAuthenticated,
     localCredentialContextAvailable: localOwnerAuthenticated,
-    roles: Object.keys(ROLE_PERMISSIONS),
-    permissions: (user || accountUser) ? ROLE_PERMISSIONS[(user || accountUser).role] || [] : localMode ? ["local:*"] : [],
+    roles: CANONICAL_ROLES,
+    permissions: (user || accountUser) ? getRolePermissions((user || accountUser).role) : localMode ? ["local:*"] : [],
     ownerWorkspaceAvailable: Boolean((user || accountUser)?.role === "Owner" && (user || accountUser)?.ownerAuthorized !== false),
     ownerAccountConfigured: Boolean(getConfiguredOwnerAccounts().userIds.length || getConfiguredOwnerAccounts().emails.length),
     trustedDevelopmentMode: isTrustedDevelopmentMode(),
@@ -1504,8 +1575,14 @@ function userHasPermission(user, permission) {
     return false;
   }
 
-  const permissions = ROLE_PERMISSIONS[user.role] || [];
-  return permissions.includes("*") || permissions.includes(permission);
+  const permissions = getRolePermissions(user.role);
+  // V2-A: the "*" passthrough is the exclusive preserve of the Owner role.
+  // Any other role (including unknown ones, which resolve to an empty set)
+  // must match the permission token exactly and therefore denies by default.
+  if (user.role === "Owner" && permissions.includes("*")) {
+    return true;
+  }
+  return permissions.includes(permission);
 }
 
 function requirePermission(permission, target = null, options = {}) {
@@ -1842,4 +1919,9 @@ module.exports = {
   updateRemoteAccessSettings,
   updateSessionSecuritySettings,
   allowReadCompatibility,
+  normalizeRole,
+  getRolePermissions,
+  userHasPermission,
+  CANONICAL_ROLES,
+  ROLE_PERMISSIONS,
 };

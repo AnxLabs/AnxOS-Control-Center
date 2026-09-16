@@ -1,9 +1,11 @@
 const { getDeviceIdentity } = require("../services/deviceIdentityService");
 const { getConfiguredApiPermissions } = require("../permissions");
 
-// Tokens that let a credential mutate state. The API permission set defaults to
-// ["*"], so unless an operator explicitly narrows it, writes are enabled and the
-// agent must not claim to be read-only.
+// Tokens that let a credential mutate state. API permissions are fail-closed
+// by default for standalone/remote agents (no implicit "*"); the desktop's
+// local single-node Owner profile still configures the wildcard, so unless an
+// operator explicitly narrows it, a local agent is read-write and must not
+// claim to be read-only.
 const WRITE_CAPABLE_PERMISSIONS = new Set([
   "docker:write",
   "files:write",
