@@ -4127,7 +4127,41 @@ async function listInstanceIds() {
   }
 }
 
+// A managed-instances directory matched by listInstanceIds() whose persisted
+// config exists but could not be read (malformed JSON, invalid or unsupported
+// schema, I/O failure) must remain visible rather than being silently dropped:
+// that is the honest-state contract. We surface it as an explicit Unavailable
+// entry with a useful, safe diagnostic so nobody mistakes a corrupt instance for
+// one that does not exist. (A config that is genuinely absent — a forgotten
+// instance preserving its data — stays hidden, per the forget contract.)
+function buildUnavailableInstance(id, error) {
+  const reason = String(error?.code || "").trim().slice(0, 120) || "INSTANCE_UNAVAILABLE";
+  return {
+    id,
+    displayName: id,
+    type: null,
+    state: INSTANCE_STATES.UNKNOWN,
+    processState: INSTANCE_STATES.UNKNOWN,
+    readinessState: "unknown",
+    healthState: "unknown",
+    processRunning: false,
+    serverReady: false,
+    healthy: false,
+    degraded: false,
+    lifecycleState: "Unavailable",
+    crashed: false,
+    crashLoop: false,
+    available: false,
+    unavailable: true,
+    unavailableReason: reason,
+    instancePath: instancePath(id),
+    environment: {},
+    schemaVersion: null,
+  };
+}
+
 async function listInstances() {
+  const root = getInstanceRoot();
   const ids = await listInstanceIds();
   const instances = [];
 
@@ -4142,13 +4176,22 @@ async function listInstances() {
         config = (await refreshFiveMReadiness(config.id)).config;
       }
       instances.push(await publicConfigDetailed(await backfillInstanceVersion(config)));
-    } catch {
-      continue;
+    } catch (error) {
+      // A directory whose config.json genuinely does not exist is not an
+      // instance record yet (for example a forgotten instance whose data files
+      // were preserved, or a partially-created directory). Keep those hidden
+      // exactly as before. Any config that exists but cannot be read (malformed,
+      // invalid or unsupported schema, I/O failure, unexpected error) is surfaced
+      // as Unavailable instead of being silently dropped.
+      if (error?.code === "INSTANCE_NOT_FOUND") {
+        continue;
+      }
+      instances.push(buildUnavailableInstance(id, error));
     }
   }
 
   return {
-    root: getInstanceRoot(),
+    root,
     instances: instances.sort((left, right) => left.displayName.localeCompare(right.displayName)),
   };
 }
