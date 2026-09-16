@@ -23,12 +23,13 @@ const {
 } = require("../services/securityService");
 const { createIpcError } = require("../shared/ipcError");
 const { requireNodeContext } = require("./nodeContext");
+const safeConsole = require("../shared/safeConsole");
 
 async function invokeSecurityOperation(operation, operationName = "security") {
-  console.info("[Security][IPC] Operation started.", { operation: operationName });
+  safeConsole.info("[Security][IPC] Operation started.", { operation: operationName });
   try {
     const result = await operation();
-    console.info("[Security][IPC] Operation completed.", { operation: operationName });
+    safeConsole.info("[Security][IPC] Operation completed.", { operation: operationName });
     return result;
   } catch (error) {
     const wrapped = createIpcError(error, {
@@ -40,7 +41,7 @@ async function invokeSecurityOperation(operation, operationName = "security") {
       code: wrapped.code,
       message: wrapped.friendlyMessage,
     }, { file: "auth", errorCode: wrapped.code });
-    console.warn("[Security][IPC] Operation failed.", {
+    safeConsole.warn("[Security][IPC] Operation failed.", {
       operation: operationName,
       code: wrapped.code,
       message: wrapped.friendlyMessage,

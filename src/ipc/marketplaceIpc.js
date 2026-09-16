@@ -25,6 +25,7 @@ const { requireNodeContext } = require("./nodeContext");
 const { openExternalUrl } = require("../services/externalUrlService");
 const { normalizeIpcError } = require("../shared/ipcError");
 const { sanitizeForDiagnostics } = require("../shared/redaction");
+const safeConsole = require("../shared/safeConsole");
 const crypto = require("crypto");
 
 let progressForwarderRegistered = false;
@@ -235,13 +236,13 @@ function getMarketplaceRecoverySuggestion(code) {
 async function invokeMarketplaceOperation(operation, context = {}) {
   const requestId = context.requestId || crypto.randomUUID();
   const startedAt = Date.now();
-  console.info("[Marketplace][IPC] request", {
+  safeConsole.info("[Marketplace][IPC] request", {
     stage: "ipc.request", requestId, templateId: context.templateId || null,
     nodeId: context.nodeId || null, instanceName: context.instanceName || null,
   });
   try {
     const result = await operation(requestId);
-    console.info("[Marketplace][IPC] response", { stage: "ipc.response", requestId, ok: result?.ok !== false, status: result?.status || 200, elapsedMs: Date.now() - startedAt });
+    safeConsole.info("[Marketplace][IPC] response", { stage: "ipc.response", requestId, ok: result?.ok !== false, status: result?.status || 200, elapsedMs: Date.now() - startedAt });
     return result;
   } catch (error) {
     const uiError = getMarketplaceUiError(error);
@@ -259,7 +260,7 @@ async function invokeMarketplaceOperation(operation, context = {}) {
       provider: uiError.details.provider || null,
       retryable: uiError.details.retryable,
     });
-    console.error("[Marketplace][IPC] Operation failed.", {
+    safeConsole.error("[Marketplace][IPC] Operation failed.", {
       stage: "ipc.error",
       requestId,
       code: normalized.code,
@@ -286,7 +287,13 @@ function registerMarketplaceIpc() {
     marketplaceInstallEvents.on("progress", (payload) => {
       BrowserWindow.getAllWindows().forEach((window) => {
         if (!window.isDestroyed()) {
-          window.webContents.send("marketplace:install-progress", payload);
+          try {
+            window.webContents.send("marketplace:install-progress", payload);
+          } catch {
+            // The renderer may have closed between the isDestroyed() check and
+            // the send; a failed progress push for a completed/closed window is
+            // never worth crashing the app over.
+          }
         }
       });
     });
@@ -296,7 +303,7 @@ function registerMarketplaceIpc() {
   ipcMain.handle("marketplace:getMinecraftVersions", async (_, payload = {}) => invokeMarketplaceOperation(() => { requirePermission("marketplace:read", payload.templateId); return getMinecraftVersionCatalog(payload.templateId); }));
   ipcMain.handle("marketplace:searchProviderPacks", async (_, payload = {}) => invokeMarketplaceOperation(async () => {
     requirePermission("marketplace:read", payload.provider || "provider-search");
-    console.info("[Marketplace][IPC] searchProviderPacks request.", {
+    safeConsole.info("[Marketplace][IPC] searchProviderPacks request.", {
       provider: payload.provider || "modrinth",
       mode: payload.mode || "featured",
       query: payload.query || "",
@@ -306,7 +313,7 @@ function registerMarketplaceIpc() {
       limit: payload.limit || null,
     });
     const result = await searchProviderPacks(payload);
-    console.info("[Marketplace][IPC] searchProviderPacks response.", {
+    safeConsole.info("[Marketplace][IPC] searchProviderPacks response.", {
       provider: result?.provider || payload.provider || "modrinth",
       resultCount: Array.isArray(result?.results) ? result.results.length : 0,
       responseBytes: Buffer.byteLength(JSON.stringify(result || {}), "utf8"),

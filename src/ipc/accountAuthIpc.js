@@ -15,17 +15,18 @@ const {
   redactSecret,
 } = require("../services/accountAuthService");
 const { normalizeIpcError } = require("../shared/ipcError");
+const safeConsole = require("../shared/safeConsole");
 
 function getAccountErrorMessage(error) {
   return redactSecret(error?.message || error?.code || "AnxOS account request failed.");
 }
 
 async function invokeAccountOperation(operation, operationName = "account") {
-  console.info("[Account][IPC] Operation started.", { operation: operationName });
+  safeConsole.info("[Account][IPC] Operation started.", { operation: operationName });
   try {
     const result = await operation();
     diagnostics.log("info", "account-auth", operationName, "Cloud account operation completed", {}, { file: "auth" });
-    console.info("[Account][IPC] Operation completed.", { operation: operationName });
+    safeConsole.info("[Account][IPC] Operation completed.", { operation: operationName });
     return result;
   } catch (error) {
     diagnostics.logError("account-auth", operationName, error, {}, { file: "auth" });
@@ -34,7 +35,7 @@ async function invokeAccountOperation(operation, operationName = "account") {
       friendlyMessage: getAccountErrorMessage(error),
       suggestion: "Check the account connection and credentials, then retry.",
     });
-    console.warn("[Account][IPC] Operation failed.", {
+    safeConsole.warn("[Account][IPC] Operation failed.", {
       operation: operationName,
       code: normalized.code,
       message: normalized.friendlyMessage,
