@@ -171,6 +171,12 @@ function handleDockerCapabilities() {
     resource: "docker",
     routes: DOCKER_ROUTE_MANIFEST,
     aliases: DOCKER_ROUTE_ALIASES,
+    // These describe the ROUTE SURFACE this agent serves, not engine state.
+    // A true value means "this agent exposes the operation", never "a Docker
+    // engine is present/running here". Engine truth is reported separately by
+    // GET /api/v1/docker/snapshot (installed / daemonRunning / versions).
+    scope: "route-manifest",
+    engineStatus: "see GET /api/v1/docker/snapshot",
     capabilities: {
       containers: true,
       images: true,

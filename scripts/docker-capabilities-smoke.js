@@ -65,6 +65,12 @@ async function main() {
   assert.strictEqual(report.body.apiVersion, "v1");
   assert.strictEqual(report.body.resource, "docker");
   assert.strictEqual(report.body.routes, DOCKER_ROUTE_MANIFEST, "Report must self-describe its route manifest.");
+  // The report must be honest about what it does NOT mean: the booleans are
+  // route-surface capability, never engine presence — engine truth lives in
+  // /docker/snapshot. Any future drift here is a misleading-state regression.
+  assert.strictEqual(report.body.scope, "route-manifest", "Capabilities must declare their route-manifest scope.");
+  assert.ok(String(report.body.engineStatus || "").startsWith("see GET /api/v1/docker/snapshot"),
+    "Capabilities must point engine-state questions at the snapshot endpoint.");
   for (const capability of ["containers", "images", "networks", "volumes", "compose", "cleanup"]) {
     assert.strictEqual(report.body.capabilities[capability], true, `Capability ${capability} must be advertised.`);
   }
