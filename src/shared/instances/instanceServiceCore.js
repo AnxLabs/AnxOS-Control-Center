@@ -8,6 +8,7 @@ const path = require("path");
 const zlib = require("zlib");
 const javaRuntimeResolver = require("../minecraftJavaRuntime");
 const bundledRuntimePaths = require("../bundledRuntimePaths");
+const jobLifecycle = require("./jobLifecycle");
 const {
   buildConfigModel,
   getAdapter,
@@ -2430,6 +2431,9 @@ async function shutdownInstanceService(options = {}) {
   for (const timer of versionRefreshTimers.values()) clearTimeout(timer);
   versionRefreshTimers.clear();
   restartBackoffStates.clear();
+  // Release job timeout timers the same way; still-open job records stay
+  // durable and are re-observed (reconciled) on the next boot.
+  jobLifecycle.disposeJobLifecycle();
   return {
     stopped: results.filter((result) => result.status === "fulfilled").length,
     forced: results.filter((result) => result.status === "rejected").length,
@@ -4115,8 +4119,11 @@ async function listInstanceIds() {
 
   try {
     const entries = await fs.readdir(root, { withFileTypes: true });
+    // The V2-A durable job store lives at <instanceRoot>/jobs; it is not an
+    // instance and must never surface in discovery (bogus "jobs" instance).
+    const reservedDirs = new Set([path.basename(getInstanceJobsRoot())]);
     return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).filter((name) => {
-      return /^[a-zA-Z0-9][a-zA-Z0-9_-]{1,63}$/.test(name);
+      return !reservedDirs.has(name) && /^[a-zA-Z0-9][a-zA-Z0-9_-]{1,63}$/.test(name);
     });
   } catch (error) {
     if (error?.code === "ENOENT") {
@@ -5481,6 +5488,201 @@ async function restartInstance(instanceId) {
   return startInstance(config.id);
 }
 
+// ---------------------------------------------------------------------------
+// V2-A job lifecycle (V2A_JOB_LIFECYCLE.md): durable per-node job records under
+// `<instanceRoot>/jobs/<jobId>.json`. The exported lifecycle mutations below run
+// through the shared job engine, so both the desktop (local application host)
+// and the Agent process own their jobs in the process that executes them and a
+// client restart can never orphan an in-flight operation. Internal callers in
+// this file keep using the unwrapped functions above on purpose: automatic
+// restarts and installer-driven starts must not mint operator-visible jobs.
+// ---------------------------------------------------------------------------
+
+function getInstanceJobsRoot() {
+  return path.join(getInstanceRoot(), "jobs");
+}
+
+let jobLifecycleConfigured = false;
+let instanceJobRecoveryPromise = null;
+
+function ensureJobLifecycleConfigured() {
+  if (!jobLifecycleConfigured) {
+    jobLifecycle.configureJobLifecycle({ getRoot: getInstanceJobsRoot });
+    jobLifecycleConfigured = true;
+  }
+}
+
+function stripJobOptions(options = {}) {
+  if (!options || typeof options !== "object" || Array.isArray(options)) {
+    return options;
+  }
+  const { idempotencyKey: _idempotencyKey, jobTimeoutMs: _jobTimeoutMs, ...rest } = options;
+  return rest;
+}
+
+function withJobAttachment(result, job) {
+  if (!result || typeof result !== "object" || Array.isArray(result) || Buffer.isBuffer(result)) {
+    return result;
+  }
+  if (result.job !== undefined) {
+    return result;
+  }
+  return { ...result, job };
+}
+
+async function ensureInstanceJobsRecovered() {
+  ensureJobLifecycleConfigured();
+  if (!instanceJobRecoveryPromise) {
+    instanceJobRecoveryPromise = jobLifecycle.recoverInterruptedJobs(reconcileInterruptedInstanceJob)
+      .catch((error) => {
+        instanceJobRecoveryPromise = null;
+        throw error;
+      });
+  }
+  return instanceJobRecoveryPromise;
+}
+
+// Re-observation after this process restarted (the V2-A "no orphan" gate): the
+// job record is durable, so reconcile each still-open job against the persisted
+// instance state instead of leaving it dangling or auto-killing anything.
+async function reconcileInterruptedInstanceJob(job) {
+  const instanceId = job.target?.instanceId || job.target?.requestedId;
+  if (!instanceId || typeof instanceId !== "string") {
+    return {
+      state: jobLifecycle.JOB_STATES.FAILED,
+      error: { code: "JOB_INTERRUPTED", message: "The node restarted while this job was in flight and its target could not be identified." },
+    };
+  }
+  const config = await loadInstanceConfig(instanceId).catch(() => null);
+  if (!config) {
+    return {
+      state: jobLifecycle.JOB_STATES.FAILED,
+      error: { code: "JOB_TARGET_GONE", message: `The target instance "${instanceId}" no longer exists.` },
+    };
+  }
+  const instanceState = config.state;
+  const expectedRunning = job.type === "instance.start" || job.type === "instance.restart";
+  if (expectedRunning && instanceState === INSTANCE_STATES.RUNNING) {
+    return { state: jobLifecycle.JOB_STATES.SUCCEEDED, result: publicConfig(config) };
+  }
+  if (job.type === "instance.stop" && instanceState === INSTANCE_STATES.STOPPED) {
+    return { state: jobLifecycle.JOB_STATES.SUCCEEDED, result: publicConfig(config) };
+  }
+  return {
+    state: jobLifecycle.JOB_STATES.FAILED,
+    error: {
+      code: "JOB_INTERRUPTED",
+      message: `The node restarted while this job was in flight; reconciled from persisted instance state (${instanceState}).`,
+    },
+  };
+}
+
+async function startInstanceWithJob(instanceId, options = {}) {
+  await ensureInstanceJobsRecovered();
+  const { job, result } = await jobLifecycle.createJob({
+    type: "instance.start",
+    target: { instanceId: String(instanceId) },
+    idempotencyKey: options?.idempotencyKey,
+    timeoutMs: options?.jobTimeoutMs,
+    owner: options?.owner,
+    // Cancelling an in-flight start stops the instance it is bringing up.
+    cancel: async () => {
+      await stopInstance(instanceId, { timeoutMs: 5000 });
+    },
+    run: () => startInstance(instanceId, stripJobOptions(options)),
+  });
+  return withJobAttachment(result, job);
+}
+
+async function stopInstanceWithJob(instanceId, options = {}) {
+  await ensureInstanceJobsRecovered();
+  const { job, result } = await jobLifecycle.createJob({
+    type: "instance.stop",
+    target: { instanceId: String(instanceId) },
+    idempotencyKey: options?.idempotencyKey,
+    timeoutMs: options?.jobTimeoutMs,
+    owner: options?.owner,
+    // Stopping is itself the cancellation primitive; mid-flight cancel is not
+    // supported and is reported as such instead of pretending to cancel.
+    cancellationSupported: false,
+    run: () => stopInstance(instanceId, stripJobOptions(options)),
+  });
+  return withJobAttachment(result, job);
+}
+
+async function restartInstanceWithJob(instanceId, options = {}) {
+  await ensureInstanceJobsRecovered();
+  const { job, result } = await jobLifecycle.createJob({
+    type: "instance.restart",
+    target: { instanceId: String(instanceId) },
+    idempotencyKey: options?.idempotencyKey,
+    timeoutMs: options?.jobTimeoutMs,
+    owner: options?.owner,
+    cancel: async () => {
+      await stopInstance(instanceId, { timeoutMs: 5000 });
+    },
+    run: () => restartInstance(instanceId),
+  });
+  return withJobAttachment(result, job);
+}
+
+async function createInstanceWithJob(payload = {}) {
+  await ensureInstanceJobsRecovered();
+  const jobPayload = stripJobOptions(payload);
+  const { job, result } = await jobLifecycle.createJob({
+    type: "instance.create",
+    target: {
+      requestedId: typeof jobPayload?.id === "string" ? jobPayload.id : null,
+    },
+    idempotencyKey: jobPayload?.idempotencyKey,
+    timeoutMs: jobPayload?.jobTimeoutMs,
+    owner: jobPayload?.owner,
+    cancellationSupported: false,
+    run: () => createInstance(jobPayload),
+  });
+  return withJobAttachment(result, job);
+}
+
+async function updateInstanceWithJob(instanceId, config = {}, options = {}) {
+  await ensureInstanceJobsRecovered();
+  const { job, result } = await jobLifecycle.createJob({
+    type: "instance.update",
+    target: { instanceId: String(instanceId) },
+    idempotencyKey: options?.idempotencyKey,
+    timeoutMs: options?.jobTimeoutMs,
+    owner: options?.owner,
+    cancellationSupported: false,
+    run: () => updateInstance(instanceId, config, stripJobOptions(options)),
+  });
+  return withJobAttachment(result, job);
+}
+
+async function listInstanceJobs(options = {}) {
+  await ensureInstanceJobsRecovered();
+  return jobLifecycle.listJobs({
+    limit: options?.limit,
+    type: options?.type,
+    instanceId: options?.instanceId,
+  });
+}
+
+async function getInstanceJob(jobId) {
+  await ensureInstanceJobsRecovered();
+  return jobLifecycle.getJob(jobId);
+}
+
+async function cancelInstanceJob(jobId, options = {}) {
+  await ensureInstanceJobsRecovered();
+  return jobLifecycle.cancelJob(jobId, { reason: options?.reason });
+}
+
+// Explicit boot-time re-observation hook: the desktop main and the Agent call
+// this after their instance recovery pass so interrupted job records are
+// reconciled against truthful persisted instance state before clients ask.
+async function recoverInstanceJobs() {
+  return ensureInstanceJobsRecovered();
+}
+
 async function getStatus(instanceId) {
   let config = await reconcileConfigState(await loadInstanceConfig(instanceId));
   config = await syncNeoForgeScriptRuntimeConfig(config);
@@ -6109,6 +6311,7 @@ async function getMetrics(instanceId) {
 
 module.exports = {
   _test: {
+    jobLifecycle,
     configuredRuntimePorts,
     atomicWriteManagedFile,
     discoverDetachedRuntime,
@@ -6144,10 +6347,14 @@ module.exports = {
   configureInstanceService,
   disposeInstanceService,
   shutdownInstanceService,
+  listInstanceJobs,
+  getInstanceJob,
+  cancelInstanceJob,
+  recoverInstanceJobs,
   INSTANCE_STATES,
   INSTANCE_CONFIG_SCHEMA_VERSION,
   INSTANCE_TYPES: [...INSTANCE_TYPES],
-  createInstance,
+  createInstance: createInstanceWithJob,
   duplicateInstance,
   deleteInstance,
   forgetInstance,
@@ -6180,11 +6387,11 @@ module.exports = {
   refreshFiveMReadiness,
   renameInstance,
   renameInstanceFile,
-  restartInstance,
+  restartInstance: restartInstanceWithJob,
   saveFiveMLicenseKey,
-  startInstance,
-  stopInstance,
-  updateInstance,
+  startInstance: startInstanceWithJob,
+  stopInstance: stopInstanceWithJob,
+  updateInstance: updateInstanceWithJob,
   writeInstanceFile,
   writeGameServerConfig,
   writeInstanceInput,

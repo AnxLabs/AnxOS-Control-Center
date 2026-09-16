@@ -35,6 +35,7 @@ const { audit, checkRateLimit, requirePermission } = require("../services/securi
 const { wrapExpectedAgentRead } = require("./expectedAgentError");
 const { requireNodeContext } = require("./nodeContext");
 const { createIpcError } = require("../shared/ipcError");
+const { setAuditEventEmitter } = require("../shared/instances/jobLifecycle");
 
 function getInstanceErrorMessage(error) {
   const code = error?.payload?.error?.code || error?.code;
@@ -70,7 +71,32 @@ function registerInstanceHandler(channel, handler) {
   });
 }
 
+// Job records live in the process that executes the operation. The desktop
+// main owns the local application-host node's store; remote nodes own theirs
+// in the Agent and are re-observed through the Agent jobs REST surface.
+function getLocalJobService() {
+  // Lazy require: keeps module load free of electron-dependent services so
+  // existing IPC smokes can mock the surfaces they exercise.
+  return require("../services/localInstanceService");
+}
+
+function getJobTargetLabel(event) {
+  const target = event?.target || {};
+  return target.instanceId || target.requestedId || "unknown";
+}
+
 function registerInstancesIpc() {
+  // Bridge per-job state transitions into the existing redacted audit stream;
+  // securityService.audit stays the single append-only store (.0600).
+  setAuditEventEmitter((event) => {
+    audit({
+      action: event.action || "job.event",
+      outcome: event.outcome || "ok",
+      target: `${event.type || "job"}:${getJobTargetLabel(event)}`,
+      reason: typeof event.jobId === "string" ? event.jobId : null,
+    });
+  });
+
   registerInstanceHandler("instances:list", async (_, payload = {}) => wrapExpectedAgentRead("instances:list", () => { requirePermission("instance:read", payload.nodeId); return listInstances(payload); }));
   registerInstanceHandler("instances:create", async (_, payload = {}) => invokeInstanceOperation(() => {
     requirePermission("instance:write", payload.id || payload.name || "new-instance");
@@ -192,6 +218,31 @@ function registerInstancesIpc() {
     checkRateLimit("fivem-license-save", 20, 60 * 1000);
     audit({ action: "instance.fivem.license.write", target: payload.instanceId });
     return saveFiveMLicenseKey(payload.instanceId, payload.licenseKey, payload);
+  }));
+  registerInstanceHandler("instances:jobs:list", async (_, payload = {}) => invokeInstanceOperation(() => {
+    requirePermission("instance:read", payload.nodeId || payload.instanceId || "application-host");
+    return getLocalJobService().listInstanceJobs({
+      limit: payload.limit,
+      type: payload.type,
+      instanceId: payload.instanceId,
+    });
+  }));
+  registerInstanceHandler("instances:jobs:get", async (_, payload = {}) => invokeInstanceOperation(async () => {
+    requirePermission("instance:read", payload.instanceId || payload.jobId);
+    const job = await getLocalJobService().getInstanceJob(payload.jobId);
+    if (!job) {
+      throw Object.assign(new Error("JOB_NOT_FOUND"), { code: "JOB_NOT_FOUND", statusCode: 404 });
+    }
+    return { job };
+  }));
+  registerInstanceHandler("instances:jobs:cancel", async (_, payload = {}) => invokeInstanceOperation(async () => {
+    requirePermission("instance:lifecycle", payload.instanceId || "unknown-target");
+    audit({ action: "job.cancel", target: payload.jobId || "unknown-job" });
+    const outcome = await getLocalJobService().cancelInstanceJob(payload.jobId, { reason: payload.reason });
+    if (!outcome) {
+      throw Object.assign(new Error("JOB_NOT_FOUND"), { code: "JOB_NOT_FOUND", statusCode: 404 });
+    }
+    return outcome;
   }));
 }
 
