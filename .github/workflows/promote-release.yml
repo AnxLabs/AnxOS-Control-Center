@@ -87,7 +87,8 @@ jobs:
           GH_TOKEN: ${{ secrets.ANXOS_RELEASE_REPO_TOKEN }}
         run: |
           set -euo pipefail
-          gh api --method PATCH "repos/AnxLabs/AnxOS-Control-Center-Releases/releases/${RELEASE_ID}" -f prerelease=false -F make_latest=true
+          # make_latest must be a string; -F would send a JSON boolean and the API silently ignores it.
+          gh api --method PATCH "repos/AnxLabs/AnxOS-Control-Center-Releases/releases/${RELEASE_ID}" -f prerelease=false -f make_latest=true
 
       - name: Update source-repository release pointer to stable
         env:
@@ -96,6 +97,9 @@ jobs:
         run: |
           set -euo pipefail
           if gh release view "${TAG}" >/dev/null 2>&1; then
+            # The pointer release must stop being a prerelease BEFORE --latest,
+            # otherwise the API rejects the edit with 422 (Latest cannot be prerelease).
+            gh release edit "${TAG}" --prerelease=false
             gh release edit "${TAG}" --latest
           fi
 
