@@ -1062,6 +1062,25 @@ function isCompatibilityFallbackAllowed(error = {}) {
   return /ENDPOINT_NOT_SUPPORTED|NOT_SUPPORTED|METHOD_NOT_ALLOWED|NOT_FOUND|CAPABILITY_MISSING/.test(code);
 }
 
+function isAgentAuthFailure(error = {}) {
+  const status = error.status || error.statusCode || error.payload?.error?.status || null;
+  const code = String(error.code || error.payload?.error?.code || "").toUpperCase();
+  return status === 401 || ["UNAUTHORIZED", "AUTHENTICATION_FAILED", "AGENT_TOKEN_REQUIRED"].includes(code);
+}
+
+function enrichAgentAuthFailure(error) {
+  const causeCode = error.code || error.payload?.error?.code || null;
+  return new AgentClientError(
+    "Agent rejected the request token. Open Agent Control and use Repair, Rotate Token, or Pair with Code to refresh the connection.",
+    {
+      status: error.status || 401,
+      code: "AGENT_AUTH_FAILED",
+      payload: error.payload,
+      details: causeCode ? { causeCode } : { suggestion: "Repair, rotate, or re-pair the agent token before retrying." },
+    },
+  );
+}
+
 async function getSystemStats(configOverride = null) {
   try {
     return await requestJson("/api/v1/stats", {
@@ -1069,6 +1088,9 @@ async function getSystemStats(configOverride = null) {
     });
   } catch (error) {
     if (!isCompatibilityFallbackAllowed(error)) {
+      if (isAgentAuthFailure(error)) {
+        throw enrichAgentAuthFailure(error);
+      }
       throw error;
     }
     console.warn("[AnxOS][Agent] Stats endpoint unavailable; falling back to system summary.", {
