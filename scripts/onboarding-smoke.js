@@ -188,6 +188,10 @@ try {
   assert(app.includes("No dependency check has completed yet"), "Wizard dependency step should not invent dependency results.");
   assert(app.includes("settings[\"onboarding.started\"] === true"), "Interrupted onboarding should resume the saved wizard step.");
   assert(app.includes("setupDetectionResolved &&"), "First Launch must stay hidden while existing setup detection is pending.");
+  assert(app.includes("let localSetupGateDismissed = false;"), "Local setup choice dismissal state should be explicit for the current launch.");
+  assert(app.includes("&& !localSetupGateDismissed"), "Security refreshes must not reopen the local setup chooser over an intentionally opened Local Owner form.");
+  assert(app.includes("function showRemoteControlSetup() {\n  localSetupGateDismissed = true;"), "Opening Local Owner setup should dismiss the chooser before Security refreshes.");
+  assert(app.includes("&& (!setup || localSetupGateDismissed)"), "Security refreshes must keep the intentionally opened Local Owner form visible while setup is required.");
   assert(app.includes("securityState.setupRequired === false"), "An existing local owner must bypass stale First Launch state.");
   assert(app.includes("securityState.persistentSession === true"), "A remembered local session must count as existing setup evidence.");
   assert(app.includes("accountState.canRefresh === true"), "A restorable account session must count as existing setup evidence.");

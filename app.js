@@ -756,6 +756,7 @@ let developerUpdateBusy = false;
 let activeSettingsCategory = "general";
 let settingsSaveInFlight = false;
 let securityState = { setupRequired: false, authenticated: false, user: null };
+let localSetupGateDismissed = false;
 let localOwnerProtectedRefreshPromise = null;
 let accountState = { authenticated: false, account: null, pending: null, configured: false };
 let accountPollTimer = null;
@@ -29609,11 +29610,17 @@ function renderLocalSetupState() {
   if (!localSetupGate) {
     return;
   }
-  const shouldShow = Boolean(accountRestorationResolved && securityState.setupRequired && !isLocalSetupComplete());
+  const shouldShow = Boolean(
+    accountRestorationResolved
+    && securityState.setupRequired
+    && !isLocalSetupComplete()
+    && !localSetupGateDismissed
+  );
   localSetupGate.hidden = !shouldShow;
 }
 
 function showRemoteControlSetup() {
+  localSetupGateDismissed = true;
   if (localSetupGate) {
     localSetupGate.hidden = true;
   }
@@ -30158,7 +30165,11 @@ function renderSecurityState() {
     setLocalSetupComplete();
   }
   renderLocalSetupState();
-  setSecurityGateVisible(!localOwnerAuthenticated && !setup && getDesktopApiState().hasSecurity);
+  setSecurityGateVisible(
+    !localOwnerAuthenticated
+    && (!setup || localSetupGateDismissed)
+    && getDesktopApiState().hasSecurity
+  );
   if (securityMode) {
     securityMode.textContent = setup ? "Remote Control Setup" : "Security";
   }
