@@ -10,6 +10,25 @@ and is safe to rerun. Future schema versions and malformed JSON fail explicitly
 without rewriting the source. This is the complete Build 200 instance migration
 contract; it is not a generalized V2 migration framework.
 
+For packaged Windows acceptance, seed the record under the root used by the
+selected node, not under a directory inferred from the product's display name.
+Build 200 keeps the compatibility `userData` identity `AnxHub`. The canonical
+scheduled-task Local Agent therefore receives:
+
+- `ANXHUB_CONFIG_DIR=%APPDATA%\AnxHub\config`
+- `AGENT_INSTANCE_ROOT=%APPDATA%\AnxHub\agent\instances`
+
+The Desktop fallback root is `%APPDATA%\AnxHub\instances`, but the **This PC**
+agent-kind node lists instances through the Agent REST API and does not read
+that fallback root. A reliable acceptance probe should read the public health
+response, derive `userData` from the parent of its `configPath`, seed
+`<userData>\agent\instances\<id>\config.json` as UTF-8 without a BOM, and then
+make an authenticated `GET /api/v1/instances`. The request must return the
+fixture, rewrite it to schema 2 with `installationState`, and create exactly one
+schema-v1 backup. Merely observing a successful `instances:list` IPC completion
+does not prove the REST result was an instance list because expected Agent read
+errors may be returned as successful IPC payloads.
+
 Persisted formats with explicit schema versions include the node registry,
 node credential store, settings preferences, forgotten-instance state, public
 access registry, and long-operation records.
