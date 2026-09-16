@@ -108,7 +108,7 @@ function sanitizeTarget(target) {
   }
   const sanitized = sanitizeJobValue(target) || {};
   const result = {};
-  for (const key of ["instanceId", "requestedId", "nodeId", "backupId", "dependencyId"]) {
+  for (const key of ["instanceId", "requestedId", "nodeId", "backupId", "dependencyId", "containerId", "imageId", "volumeId", "networkId", "projectName"]) {
     if (typeof sanitized[key] === "string") {
       result[key] = sanitized[key].slice(0, 128);
     }

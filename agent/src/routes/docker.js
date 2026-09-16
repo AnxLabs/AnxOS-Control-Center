@@ -45,6 +45,7 @@ const {
   disconnectNetwork,
   unpauseContainer,
 } = require("../services/dockerService");
+const { mintDockerJob } = require("../services/dockerJobService");
 
 function parseJsonBody(request) {
   if (!request.body) {
@@ -62,6 +63,24 @@ function parseJsonBody(request) {
 
 function result(statusCode, body) {
   return { statusCode, body };
+}
+
+// Job options are request-level and must never leak into the docker payload.
+function stripJobOptions(payload = {}) {
+  const copy = { ...payload };
+  for (const key of ["idempotencyKey", "jobTimeoutMs", "owner"]) {
+    delete copy[key];
+  }
+  return copy;
+}
+
+// State-changing docker responses carry their durable job alongside the
+// operation result (additive; existing docker response fields are preserved).
+function attachJob(opResult, job) {
+  if (opResult && typeof opResult === "object" && !Array.isArray(opResult)) {
+    return { ...opResult, job };
+  }
+  return { result: opResult, job };
 }
 
 const DOCKER_ROUTE_MANIFEST = Object.freeze([
@@ -255,10 +274,27 @@ async function handleDocker(request, url) {
       return handleDockerContainers();
     }
     if (request.method === "POST" && url.pathname === "/api/v1/docker/containers") {
-      return result(201, await createContainer(parseJsonBody(request)));
+      const payload = parseJsonBody(request);
+      const job = await mintDockerJob({
+        type: "docker.container.create",
+        target: { containerId: String(payload?.name || "").trim() || null },
+        idempotencyKey: payload?.idempotencyKey,
+        jobTimeoutMs: payload?.jobTimeoutMs,
+        cancellationSupported: false,
+        run: () => createContainer(stripJobOptions(payload)),
+      });
+      return result(201, attachJob(job.result, job.job));
     }
     if (request.method === "POST" && url.pathname === "/api/v1/docker/images/pull") {
-      return result(200, await pullImage(parseJsonBody(request).image));
+      const body = parseJsonBody(request);
+      const job = await mintDockerJob({
+        type: "docker.image.pull",
+        target: { imageId: body?.image },
+        idempotencyKey: body?.idempotencyKey,
+        jobTimeoutMs: body?.jobTimeoutMs,
+        run: () => pullImage(body?.image),
+      });
+      return result(200, attachJob(job.result, job.job));
     }
     if (request.method === "POST" && url.pathname === "/api/v1/docker/images/prune") {
       return result(200, await pruneImages());
@@ -365,15 +401,30 @@ async function handleDocker(request, url) {
     }
     const startId = getContainerFromPath(url.pathname, "/start");
     if (request.method === "POST" && startId) {
-      return result(200, await startContainer(startId));
+      const job = await mintDockerJob({
+        type: "docker.container.start",
+        target: { containerId: startId },
+        run: () => startContainer(startId),
+      });
+      return result(200, attachJob(job.result, job.job));
     }
     const stopId = getContainerFromPath(url.pathname, "/stop");
     if (request.method === "POST" && stopId) {
-      return result(200, await stopContainer(stopId));
+      const job = await mintDockerJob({
+        type: "docker.container.stop",
+        target: { containerId: stopId },
+        run: () => stopContainer(stopId),
+      });
+      return result(200, attachJob(job.result, job.job));
     }
     const restartId = getContainerFromPath(url.pathname, "/restart");
     if (request.method === "POST" && restartId) {
-      return result(200, await restartContainer(restartId));
+      const job = await mintDockerJob({
+        type: "docker.container.restart",
+        target: { containerId: restartId },
+        run: () => restartContainer(restartId),
+      });
+      return result(200, attachJob(job.result, job.job));
     }
     const pauseId = getContainerFromPath(url.pathname, "/pause");
     if (request.method === "POST" && pauseId) {
@@ -397,7 +448,12 @@ async function handleDocker(request, url) {
     }
     const deleteId = getContainerFromPath(url.pathname);
     if (request.method === "DELETE" && deleteId) {
-      return result(200, await deleteContainer(deleteId));
+      const job = await mintDockerJob({
+        type: "docker.container.delete",
+        target: { containerId: deleteId },
+        run: () => deleteContainer(deleteId),
+      });
+      return result(200, attachJob(job.result, job.job));
     }
     return result(404, { error: { code: "NOT_FOUND", message: "Request failed." } });
   } catch (error) {
