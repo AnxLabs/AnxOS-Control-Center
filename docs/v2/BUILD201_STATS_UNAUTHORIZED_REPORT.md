@@ -1,3 +1,8 @@
+> **SUPERSEDED (2026-09-16).** The defect this report documents was fixed and
+> shipped: agent `/api/v1/stats` 401s are now surfaced as an actionable error
+> (commit `1bed0b7`, build 201, carried into build 202). This report is
+> retained for historical record only; it does not describe current behavior.
+
 # BUILD201 — `/api/v1/stats` returns UNAUTHORIZED from the desktop → Agent
 
 **Investigated by:** Read-only diagnostic subagent
