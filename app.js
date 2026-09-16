@@ -779,6 +779,7 @@ let previousOwnerOverviewState = null;
 let runtimeInfoState = null;
 let selectedNodeContextVersion = 0;
 let nodeSwitchInProgress = false;
+let nodeSwitchGeneration = 0;
 let nodePickerOpen = false;
 let nodeModalCleanup = null;
 let nodeDetailsCleanup = null;
@@ -29710,7 +29711,9 @@ function renderAccountState() {
   });
   if (pending?.userCode) {
     const urlText = pending.verificationUrl ? ` Visit ${pending.verificationUrl}.` : "";
-    setAccountMessage(`Opening your browser... Code ${pending.userCode}.${urlText} ${remainingText}`);
+    setAccountMessage(pending.manualOpenRequired
+      ? `No browser could be opened. Open the link below (or copy the device code) in your browser to sign in.${urlText} Code ${pending.userCode}. ${remainingText}`
+      : `Opening your browser... Code ${pending.userCode}.${urlText} ${remainingText}`);
   } else if (signedIn) {
     setAccountMessage(ownerAccount
       ? `Signed in as ${account.displayName || account.username || "AnxOS Account"} with Owner access.`
@@ -29876,7 +29879,9 @@ async function startAnxOsAccountLogin() {
     renderAccountState();
     if (accountState.pending) {
       startAccountPolling(accountState.pending.intervalMs);
-      showToast("Opened AnxOS sign-in in your browser.");
+      showToast(accountState.pending.manualOpenRequired
+        ? "No browser could be opened. Open the sign-in link or copy the device code below."
+        : "Opened AnxOS sign-in in your browser.");
     } else {
       stopAccountPolling();
       setAccountMessage(accountState.message || "AnxOS account sign-in did not start.");
@@ -31623,7 +31628,9 @@ async function reloadActiveNodeData(context = getNodeRequestContext("reload-node
 
   await Promise.allSettled(reloads);
   if (isNodeRequestCurrent(context)) {
-    nodeSwitchInProgress = false;
+    // Note: nodeSwitchInProgress is owned by selectNode's finally block and is
+    // reset there unconditionally (keyed by a switch generation). It is NOT
+    // cleared here so a stale completion can never clear a newer switch.
     renderNodes();
     updateDockerActionButtons();
     updateInstanceActionButtons();
@@ -33397,30 +33404,43 @@ async function selectNode(nodeId) {
 
   nodesState.selectedNodeId = nextNodeId;
   selectedNodeContextVersion += 1;
+  const switchGeneration = ++nodeSwitchGeneration;
   nodeSwitchInProgress = true;
   const context = getNodeRequestContext("select-node");
   syncNodeSelectorControls();
   resetNodeScopedRendererState(`Switching to ${getSelectedNode()?.displayName || nodesState.selectedNodeId}...`);
-  if (desktopApiState.hasNodes) {
-    try {
-      const persistedState = await desktopApiState.api.nodes.select(nodesState.selectedNodeId);
-      if (persistedState?.selectedNodeId && Array.isArray(persistedState.nodes)) {
-        nodesState = persistedState;
+  try {
+    if (desktopApiState.hasNodes) {
+      try {
+        const persistedState = await desktopApiState.api.nodes.select(nodesState.selectedNodeId);
+        if (persistedState?.selectedNodeId && Array.isArray(persistedState.nodes)) {
+          nodesState = persistedState;
+        }
+      } catch (error) {
+        nodesState = previousNodesState;
+        selectedNodeContextVersion += 1;
+        if (switchGeneration === nodeSwitchGeneration) {
+          nodeSwitchInProgress = false;
+        }
+        renderNodes();
+        showToast(normalizeIpcErrorMessage(error, "Node could not be selected."), "warning");
+        return { changed: false, selectedNodeId: getSelectedNodeId(), error };
       }
-    } catch (error) {
-      nodesState = previousNodesState;
+    }
+    renderNodes();
+    if (isNodeRequestCurrent(context)) {
       nodeSwitchInProgress = false;
-      selectedNodeContextVersion += 1;
-      renderNodes();
-      showToast(normalizeIpcErrorMessage(error, "Node could not be selected."), "warning");
-      return { changed: false, selectedNodeId: getSelectedNodeId(), error };
+      await reloadActiveNodeData(context);
+    }
+    return { changed: true, selectedNodeId: getSelectedNodeId() };
+  } finally {
+    // Unconditionally leave the "switching" state even if the reload never
+    // completes (no unconditional cleanup previously existed), keyed by a
+    // switch generation so a stale completion can never clear a newer switch.
+    if (switchGeneration === nodeSwitchGeneration) {
+      nodeSwitchInProgress = false;
     }
   }
-  renderNodes();
-  if (isNodeRequestCurrent(context)) {
-    await reloadActiveNodeData(context);
-  }
-  return { changed: true, selectedNodeId: getSelectedNodeId() };
 }
 
 function getNodeFormPayload() {

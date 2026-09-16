@@ -119,7 +119,11 @@ includesAll(appSource, [
   "return { changed: false, selectedNodeId: previousNodeId };",
   "return { changed: true, selectedNodeId: getSelectedNodeId() };",
   "showToast(normalizeIpcErrorMessage(error, \"Node could not be selected.\"), \"warning\");",
-  "nodeSwitchInProgress = false;\n    renderNodes();",
+  "nodeSwitchInProgress = true;",
+  "const switchGeneration = ++nodeSwitchGeneration;",
+  "if (switchGeneration === nodeSwitchGeneration) {",
+  "Unconditionally leave the \"switching\" state",
+  "nodeSwitchInProgress = false;",
   "Selected node was unavailable. Switched to",
   "getFriendlyErrorMessage(result.message || \"Node unavailable.\")",
 ], "Node switch persistence and completion");
