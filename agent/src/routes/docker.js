@@ -277,7 +277,7 @@ async function handleDocker(request, url) {
       const payload = parseJsonBody(request);
       const job = await mintDockerJob({
         type: "docker.container.create",
-        target: { containerId: String(payload?.name || "").trim() || null },
+        target: { requestedId: String(payload?.name || "").trim() || null },
         idempotencyKey: payload?.idempotencyKey,
         jobTimeoutMs: payload?.jobTimeoutMs,
         cancellationSupported: false,
