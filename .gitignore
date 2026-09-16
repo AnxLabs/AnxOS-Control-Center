@@ -30,6 +30,8 @@ config/long-operations.json
 config/application-host.json
 config/nodes.json
 config/ssh-known-hosts.json
+config/device-identity.json
+config/enrollment.json
 config/*.backup
 agent/.env
 agent/config/
