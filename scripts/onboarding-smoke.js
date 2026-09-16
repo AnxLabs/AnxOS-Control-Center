@@ -8,11 +8,11 @@ const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "anxos-onboarding-smoke-"
 process.env.ANXHUB_CONFIG_DIR = path.join(tempRoot, "config");
 
 const prefs = require("../src/services/settingsPreferenceService");
-const index = fs.readFileSync(path.join(root, "index.html"), "utf8");
-const app = fs.readFileSync(path.join(root, "app.js"), "utf8");
-const styles = fs.readFileSync(path.join(root, "styles.css"), "utf8");
-const packageJson = fs.readFileSync(path.join(root, "package.json"), "utf8");
-const settingsIpc = fs.readFileSync(path.join(root, "src", "ipc", "settingsIpc.js"), "utf8");
+const index = fs.readFileSync(path.join(root, "index.html"), "utf8").replace(/\r\n/g, "\n");
+const app = fs.readFileSync(path.join(root, "app.js"), "utf8").replace(/\r\n/g, "\n");
+const styles = fs.readFileSync(path.join(root, "styles.css"), "utf8").replace(/\r\n/g, "\n");
+const packageJson = fs.readFileSync(path.join(root, "package.json"), "utf8").replace(/\r\n/g, "\n");
+const settingsIpc = fs.readFileSync(path.join(root, "src", "ipc", "settingsIpc.js"), "utf8").replace(/\r\n/g, "\n");
 
 try {
   const initial = prefs.readPreferences();

@@ -8,7 +8,7 @@ const originalLoad = Module._load;
 Module._load = function patchedLoad(request, parent, isMain) {
   if (request === "electron") return { ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) } };
   if (["../services/serviceRouter", "../services/systemService", "../services/publicAccessProviderService", "../services/marketplaceService"].includes(request)) return serviceProxy;
-  if (request === "../services/diagnosticsService") return { updateRuntimeState: () => {} };
+  if (request === "../services/diagnosticsService") return { updateRuntimeState: () => {}, log: () => {} };
   if (request === "../services/securityService") return { audit: () => {}, requirePermission: () => { throw Object.assign(new Error("Permission denied."), { code: "PERMISSION_DENIED" }); } };
   if (request === "./expectedAgentError") return { wrapExpectedAgentRead: async (_channel, task) => task() };
   if (request === "./nodeContext") return { requireNodeContext: (payload) => payload };
