@@ -562,6 +562,12 @@ function readTemplatesFile() {
     screenshots: [],
     author: "AnxOS",
     version: "1.0.0",
+    // V2-D package metadata defaults (docs/v2/V2D_MARKETPLACE_RUNTIMES_WAVE1.md
+    // §3.1): catalog items carry versioned-package fields unless the template
+    // declares them explicitly.
+    packageVersion: "1.0.0",
+    checksum: null,
+    provenance: { source: "anxos-catalog" },
     defaultPorts: [],
     configurationSchema: [],
     installScript: [],

@@ -73,6 +73,32 @@ function getTemplateInstallerType(template = {}) {
   return "";
 }
 
+// V2-D package metadata (docs/v2/V2D_MARKETPLACE_RUNTIMES_WAVE1.md §3.1):
+// opt-in versioned package fields are enforced when present, so the shipped
+// Marketplace 1.x catalog is unaffected until a template declares them.
+const PACKAGE_VERSION_PATTERN = /^v?\d+\.\d+\.\d+([-.][0-9A-Za-z.-]+)?$/;
+const PACKAGE_CHECKSUM_PATTERN = /^sha256:[a-f0-9]{64}$/i;
+
+function validateTemplateV2Metadata(template = {}) {
+  const templateId = template.id || null;
+  if (template.packageVersion !== undefined && template.packageVersion !== null
+    && !PACKAGE_VERSION_PATTERN.test(String(template.packageVersion))) {
+    throw new MarketplaceManifestError("Marketplace template packageVersion must be semver (e.g. 1.2.3).", "PACKAGE_VERSION_INVALID", { templateId });
+  }
+  if (template.checksum !== undefined && template.checksum !== null) {
+    const raw = String(template.checksum).trim();
+    if (!PACKAGE_CHECKSUM_PATTERN.test(raw)) {
+      throw new MarketplaceManifestError("Marketplace template checksum must be sha256:<64 hex> for integrity verification.", "PACKAGE_CHECKSUM_INVALID", { templateId });
+    }
+  }
+  if (template.provenance !== undefined && template.provenance !== null) {
+    const prov = template.provenance;
+    if (!prov || typeof prov !== "object" || Array.isArray(prov) || !String(prov.source || "").trim()) {
+      throw new MarketplaceManifestError("Marketplace template provenance must declare a non-empty source.", "PACKAGE_PROVENANCE_INVALID", { templateId });
+    }
+  }
+}
+
 function validatePorts(template = {}) {
   const ports = Array.isArray(template.defaultPorts) ? template.defaultPorts : [];
   for (const port of ports) {
@@ -119,6 +145,7 @@ function validateMarketplaceTemplate(template = {}) {
   }
 
   validatePorts(template);
+  validateTemplateV2Metadata(template);
 
   const installerType = getTemplateInstallerType(template);
   if (!installerType || !SUPPORTED_INSTALLER_TYPES.has(installerType)) {
