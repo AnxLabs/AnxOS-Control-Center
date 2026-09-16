@@ -597,6 +597,8 @@ function publicPending(login = pendingDeviceLogin) {
     expiresAt: login.expiresAt,
     intervalMs: login.intervalMs,
     device: login.device,
+    manualOpenRequired: login.manualOpenRequired === true,
+    browserErrorCode: login.browserErrorCode || null,
   };
 }
 
@@ -731,7 +733,35 @@ async function startDeviceLogin() {
       pendingDeviceLogin = createLocalPendingDeviceLogin();
     }
     const verificationUrl = assertApprovedExternalUrl(pendingDeviceLogin.verificationUrl, "verification");
-    await openExternalUrl(verificationUrl, { source: "account-device-login" });
+    let browserOpened = false;
+    let browserErrorCode = null;
+    try {
+      await openExternalUrl(verificationUrl, { source: "account-device-login" });
+      browserOpened = true;
+    } catch (error) {
+      // No default browser (or the browser handoff failed). This is the optional
+      // cloud sign-in, so it must degrade gracefully: keep the pending device
+      // login so the user can open the verification link / copy the device code
+      // manually instead of hard-failing the whole request.
+      browserErrorCode = error?.code || error?.errno || String(error?.message || "browser-open-failed");
+    }
+    if (!browserOpened) {
+      pendingDeviceLogin.manualOpenRequired = true;
+      pendingDeviceLogin.browserErrorCode = browserErrorCode;
+      audit({
+        action: "account.deviceLogin.start",
+        outcome: "browser_unavailable",
+        target: pendingDeviceLogin.localOnly ? "local-placeholder" : "device-login",
+        reason: pendingDeviceLogin.localOnly ? "ACCOUNT_API_NOT_CONFIGURED" : `BROWSER_UNAVAILABLE:${browserErrorCode}`,
+      });
+      return {
+        ...getStatus(),
+        state: "pending",
+        message: pendingDeviceLogin.localOnly
+          ? "No web browser could be opened. Configure ANXOS_ACCOUNT_API_URL to enable live website sign-in."
+          : "No web browser could be opened. Open the sign-in link below or copy the device code, then approve sign-in on the AnxOS website.",
+      };
+    }
     audit({
       action: "account.deviceLogin.start",
       outcome: "ok",
