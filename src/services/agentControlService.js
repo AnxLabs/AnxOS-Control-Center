@@ -109,6 +109,23 @@ function agentEnvironment(config) {
 }
 function isWindowsAccessDenied(result = {}) { return /access is denied|administrator|elevat/i.test(`${result.stderr || ""}\n${result.stdout || ""}\n${result.code || ""}`); }
 
+// V2-A desktop spawn contract (docs/v2/V2A_DECISIONS.md Decision 1): the
+// desktop ALWAYS spawns the agent with ANXHUB_CONFIG_DIR (canonical identity +
+// config source) plus AGENT_IDENTITY_PATH and AGENT_INSTANCE_ROOT. Refusing to
+// spawn without them prevents a stray instance root or duplicate identity
+// lineage from ever being created silently.
+function assertAgentSpawnContractEnvironment(env) {
+  const requiredKeys = ["ANXHUB_CONFIG_DIR", "AGENT_IDENTITY_PATH", "AGENT_INSTANCE_ROOT"];
+  const missing = requiredKeys.filter((key) => !String(env?.[key] || "").trim());
+  if (missing.length) {
+    throw Object.assign(new Error(`The Local Agent cannot be started because the spawn environment is missing ${missing.join(", ")}. Restart the Agent from AnxOS Control Center.`), {
+      code: "AGENT_SPAWN_CONTRACT_VIOLATED",
+      details: { missingSpawnEnv: missing },
+    });
+  }
+  return true;
+}
+
 function parseWindowsNetstatListener(stdout = "", port = 47131) {
   const wanted = String(port);
   for (const line of String(stdout || "").split(/\r?\n/)) {
@@ -369,7 +386,9 @@ async function start() {
     if (!runtime.exists) {
       throw Object.assign(new Error("Bundled Local Agent runtime is missing or incomplete. Repair AnxOS Control Center, then try again."), { code: "LOCAL_AGENT_RUNTIME_MISSING" });
     }
-    managedProcess = spawn(process.execPath, [getAgentScript()], { cwd: getAppRoot(), env: agentEnvironment(config), windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+    const spawnEnv = agentEnvironment(config);
+    assertAgentSpawnContractEnvironment(spawnEnv);
+    managedProcess = spawn(process.execPath, [getAgentScript()], { cwd: getAppRoot(), env: spawnEnv, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
     managedProcess.spawnAt = Date.now();
     const correlationId = diagnostics.correlationId("agent-start");
     for (const [stream, severity] of [[managedProcess.stdout, "info"], [managedProcess.stderr, "error"]]) stream.on("data", (chunk) => diagnostics.log(severity, "agent", "process-output", String(chunk).trim(), { pid: managedProcess?.pid }, { file: "agent", correlationId }));
@@ -1884,6 +1903,7 @@ async function openDataFolder() { fs.mkdirSync(getAgentDataDirectory(), { recurs
 module.exports = {
   _test: {
     agentEnvironment,
+    assertAgentSpawnContractEnvironment,
     buildWindowsAgentTaskDefinition,
     buildWindowsTaskInspectionScript,
     buildWindowsTaskRegistrationScript,

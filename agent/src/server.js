@@ -16,9 +16,18 @@ const { getConfig } = require("./config");
 const { handleDocker, handleDockerContainers, handleDockerSnapshot, handleDockerSummary } = require("./routes/docker");
 const { handleDiagnostics } = require("./routes/diagnostics");
 const { handleDependencies } = require("./routes/dependencies");
+const {
+  PUBLIC_ENROLL_PATHS,
+  assertEnrollmentGate,
+  getEnrollmentRoutePermission,
+  handleEnrollmentManagement,
+  handlePublicEnrollment,
+  registerEnrollmentStartup,
+} = require("./routes/enroll");
 const { handleFilesDownload, handleFilesIdentity, handleFilesList, handleFilesMutate, handleFilesRead, handleFilesStat } = require("./routes/files");
 const { handleHealth } = require("./routes/health");
 const { handleInstances } = require("./routes/instances");
+const { handleJobs } = require("./routes/jobs");
 const { handlePairing } = require("./routes/pairing");
 const { authorizeApiPermission } = require("./permissions");
 const { handlePlayitSnapshot, handlePlayitStatus, handlePublicAccessPlayit } = require("./routes/playit");
@@ -174,6 +183,10 @@ function getRoutePermission(request, pathname) {
     if (pathname.endsWith("/restore")) return "backups:restore";
     return method === "GET" ? "backups:read" : "backups:write";
   }
+  if (pathname === "/api/v1/jobs" || pathname.startsWith("/api/v1/jobs/")) {
+    if (pathname.endsWith("/cancel")) return "instance:lifecycle";
+    return "instance:read";
+  }
   if (pathname === "/api/v1/instances" || pathname.startsWith("/api/v1/instances/")) {
     if (method === "GET") return "instance:read";
     if (/\/(?:start|stop|restart|kill)$/.test(pathname)) return "instance:lifecycle";
@@ -184,6 +197,11 @@ function getRoutePermission(request, pathname) {
   if (pathname.startsWith("/api/v1/dependencies/")) return pathname.endsWith("/install") ? "dependencies:write" : "dependencies:read";
   if (pathname.startsWith("/api/v1/marketplace/")) return "marketplace:read";
   if (pathname === "/api/v1/diagnostics") return "owner";
+  // V2-A enrollment: revoke is owner-only with explicit confirmation; rotate
+  // is agent:manage (admin may rotate, not revoke). Public handshake paths
+  // (/enroll/start, /enroll/complete, /enroll/status) never reach here.
+  if (pathname === "/api/v1/enroll/revoke" || pathname === "/api/v1/credentials/rotate") return getEnrollmentRoutePermission(pathname);
+  if (PUBLIC_ENROLL_PATHS.has(pathname)) return null;
   if (pathname === "/api/v1/actions") return "actions:read";
   if (pathname === "/api/v1/system/agent-task") return "agent:manage";
   if (isActionInvokeRoute(request, pathname)) return "actions:execute";
@@ -215,10 +233,19 @@ function readRequestBody(request) {
 async function routeRequest(request, url) {
   const pathname = url.pathname;
 
+  // V2-A enrollment privileged management (bearer + permission gated upstream).
+  if (request.method === "POST" && (pathname === "/api/v1/credentials/rotate" || pathname === "/api/v1/enroll/revoke")) {
+    return handleEnrollmentManagement(request, url, config);
+  }
+
   if (pathname === "/api/v1/system/agent-task") return handleAgentTask(request);
 
   if (isActionInvokeRoute(request, pathname)) {
     return handleActionInvoke(request, url);
+  }
+
+  if (pathname === "/api/v1/jobs" || pathname.startsWith("/api/v1/jobs/")) {
+    return handleJobs(request, url);
   }
 
   if (pathname === "/api/v1/instances" || pathname.startsWith("/api/v1/instances/")) {
@@ -370,6 +397,16 @@ async function handleRequest(request, response) {
     request.body = await readRequestBody(request);
 
     const url = new URL(request.url, `http://${request.headers.host || `${config.host}:${config.port}`}`);
+    // V2-A public enrollment handshake: nonce-protected start/complete plus a
+    // public status summary, handled before bearer authentication.
+    if (url.pathname.startsWith("/api/v1/enroll/")) {
+      checkRateLimit(`enroll:${address}`, 30, 60 * 1000);
+      const publicEnroll = handlePublicEnrollment(request, url, config);
+      if (publicEnroll) {
+        sendResult(response, publicEnroll);
+        return;
+      }
+    }
     if (url.pathname.startsWith("/api/v1/pairing/")) {
       checkRateLimit(`pairing:${address}`, 30, 60 * 1000);
       const pairingResult = await handlePairing(request, url, config);
@@ -417,6 +454,11 @@ async function handleRequest(request, response) {
       return;
     }
 
+    // V2-A enrollment binding gate: authenticated routes refuse with
+    // NODE_BINDING_MISMATCH / REVOKED once the pinned tuple drifts. Health,
+    // /enroll/*, and /pairing/* remain reachable for detection and re-enroll.
+    assertEnrollmentGate(url.pathname, config);
+
     const result = await routeRequest(request, url);
     sendResult(response, result);
   } catch (error) {
@@ -461,6 +503,9 @@ server.on("error", (error) => {
 });
 
 async function startServer() {
+  // V2-A enrollment contract (Decision 1): loud spawn-contract diagnostic +
+  // legacy binding auto-migration before the agent accepts traffic.
+  registerEnrollmentStartup(config);
   const recovery = await instanceService.recoverIncompleteInstallations();
   if (recovery.repaired.length || recovery.failures.length) {
     logger.info("startup-recovery", "Incomplete Marketplace installations were repaired.", recovery, { file: "agent" });
@@ -468,6 +513,13 @@ async function startServer() {
   const backupRecovery = await recoverBackupArtifacts();
   if (backupRecovery.removed.length) {
     logger.info("startup-recovery", "Interrupted backup artifacts were removed.", backupRecovery, { file: "agent" });
+  }
+  // V2-A job lifecycle: re-observe jobs that were in flight when the agent
+  // (or the desktop client that owns the session) restarted, so no server
+  // operation is orphaned by a client crash.
+  const jobRecovery = await instanceService.recoverInstanceJobs();
+  if (jobRecovery?.recovered) {
+    logger.info("startup-recovery", "Interrupted instance jobs were re-observed.", jobRecovery, { file: "agent" });
   }
   server.listen(config.port, config.host, () => {
     startBackupScheduler();

@@ -3,19 +3,59 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const packageJson = require("../../package.json");
-const DEVICE_IDENTITY_SCHEMA_VERSION = 1;
+// V2-A identity model (docs/v2/V2A_IDENTITY_MODEL.md §3.2): the agent mints
+// deviceId (stable per device lineage), agentInstallationId (stable per
+// installation) and agentIdentityGeneration (intentionally rotated on
+// re-pair / credential rotate / re-enrollment). All three live in
+// device-identity.json so node derivation stays deterministic from one store.
+const DEVICE_IDENTITY_SCHEMA_VERSION = 2;
 
 function getIdentityPath() {
   return process.env.AGENT_IDENTITY_PATH
     || path.join(process.env.ANXHUB_CONFIG_DIR || path.join(process.cwd(), "config"), "device-identity.json");
 }
 
+function newInstallationId() {
+  return `agenti-${crypto.randomUUID()}`;
+}
+
+function newIdentityGeneration() {
+  return `agentn-${crypto.randomUUID()}`;
+}
+
+// Normalize a legacy (schema v0/v1) identity record into the v2 shape without
+// minting replacement ids for fields the caller already trusts.
+function normalizeIdentityRecord(parsed) {
+  return {
+    schemaVersion: DEVICE_IDENTITY_SCHEMA_VERSION,
+    deviceId: parsed.deviceId,
+    agentInstallationId: typeof parsed.agentInstallationId === "string" && parsed.agentInstallationId
+      ? parsed.agentInstallationId
+      : newInstallationId(),
+    agentIdentityGeneration: typeof parsed.agentIdentityGeneration === "string" && parsed.agentIdentityGeneration
+      ? parsed.agentIdentityGeneration
+      : newIdentityGeneration(),
+  };
+}
+
+function writeIdentity(identityPath, record) {
+  fs.mkdirSync(path.dirname(identityPath), { recursive: true });
+  const tempPath = `${identityPath}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(tempPath, `${JSON.stringify({ ...record, schemaVersion: DEVICE_IDENTITY_SCHEMA_VERSION }, null, 2)}\n`, { mode: 0o600 });
+  fs.renameSync(tempPath, identityPath);
+}
+
 function readOrCreateDeviceId() {
   const identityPath = getIdentityPath();
   if (!fs.existsSync(identityPath)) {
-    const deviceId = `device-${crypto.randomUUID()}`;
-    writeIdentity(identityPath, deviceId);
-    return deviceId;
+    const record = {
+      schemaVersion: DEVICE_IDENTITY_SCHEMA_VERSION,
+      deviceId: `device-${crypto.randomUUID()}`,
+      agentInstallationId: newInstallationId(),
+      agentIdentityGeneration: newIdentityGeneration(),
+    };
+    writeIdentity(identityPath, record);
+    return record;
   }
   let parsed;
   try {
@@ -40,24 +80,32 @@ function readOrCreateDeviceId() {
       code: "DEVICE_IDENTITY_INVALID",
     });
   }
-  if (schemaVersion < DEVICE_IDENTITY_SCHEMA_VERSION) {
+  const record = normalizeIdentityRecord(parsed);
+  if (schemaVersion !== DEVICE_IDENTITY_SCHEMA_VERSION) {
+    // Preserve the pre-upgrade record so an operator can always recover it.
     const backupPath = `${identityPath}.schema-v${schemaVersion}.backup`;
     if (!fs.existsSync(backupPath)) fs.copyFileSync(identityPath, backupPath, fs.constants.COPYFILE_EXCL);
-    writeIdentity(identityPath, parsed.deviceId);
+    writeIdentity(identityPath, record);
   }
-  return parsed.deviceId;
+  return record;
 }
 
-function writeIdentity(identityPath, deviceId) {
-  fs.mkdirSync(path.dirname(identityPath), { recursive: true });
-  const tempPath = `${identityPath}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(tempPath, `${JSON.stringify({ schemaVersion: DEVICE_IDENTITY_SCHEMA_VERSION, deviceId }, null, 2)}\n`, { mode: 0o600 });
-  fs.renameSync(tempPath, identityPath);
+// Rotate the identity generation (re-pair / token rotate / re-enrollment).
+// deviceId and agentInstallationId are intentionally never touched here.
+function rotateAgentIdentityGeneration() {
+  const identityPath = getIdentityPath();
+  const current = readOrCreateDeviceId();
+  const record = { ...current, agentIdentityGeneration: newIdentityGeneration() };
+  writeIdentity(identityPath, record);
+  return record;
 }
 
 function getDeviceIdentity() {
+  const record = readOrCreateDeviceId();
   return {
-    deviceId: readOrCreateDeviceId(),
+    deviceId: record.deviceId,
+    agentInstallationId: record.agentInstallationId,
+    agentIdentityGeneration: record.agentIdentityGeneration,
     hostname: os.hostname(),
     operatingSystem: `${os.type()} ${os.release()}`.trim(),
     platform: process.platform,
@@ -66,4 +114,9 @@ function getDeviceIdentity() {
   };
 }
 
-module.exports = { DEVICE_IDENTITY_SCHEMA_VERSION, getDeviceIdentity, getIdentityPath };
+module.exports = {
+  DEVICE_IDENTITY_SCHEMA_VERSION,
+  getDeviceIdentity,
+  getIdentityPath,
+  rotateAgentIdentityGeneration,
+};
