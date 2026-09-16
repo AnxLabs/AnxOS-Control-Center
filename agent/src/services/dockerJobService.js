@@ -34,7 +34,7 @@ function dockerJobError(code, statusCode, message) {
 
 // Exactly docker.<namespace>.<action>; everything else (docker., docker..x,
 // docker.x, extra segments) fails closed instead of minting a degenerate job.
-const DOCKER_JOB_TYPE_PATTERN = /^docker\.[a-z][a-z0-9.:-]{0,63}\.[a-z][a-z0-9.:-]{0,63}$/;
+const DOCKER_JOB_TYPE_PATTERN = /^docker\.[a-z][a-z0-9:-]{0,63}\.[a-z][a-z0-9:-]{0,63}$/;
 
 async function mintDockerJob(options = {}) {
   const type = String(options.type || "");
