@@ -158,6 +158,27 @@ All three Cycle-3 implementers delivered validated work; per-workstream commits 
 - Backlog: client-supplied identity documented as soft-bypass (not a security boundary); listBackups read-path legacy-schema tolerance; prune-report overcount on swallowed delete failures; verify-then-extract TOCTOU (hash-during-extract).
 Full gate rerun launched at close. V2-G wave 1 (revoke/disconnect/groups) dispatched.
 
+### Cycle 4 close — consistency + node lifecycle, queue system stood up (2026-09-17)
+
+- **Starting commit:** 0ee8bc3 · **Ending commit:** 91f31ef (+ queues/log after)
+- **Agents used:** 2 implementers (backup consistency; node lifecycle), orchestrator integration.
+- **Implementation completed:** V2-F wave 3 (consistency option: crash default byte-identical / stopped via canonical stop→archive→restart with reported restart failures; honest metadata + listBackups disclosure incl. legacy-truthful "crash" default; renderer pause checkbox + static note); V2-G wave 1 (desktop-driven revocation via the node's own credential with honest 403 surfacing for restricted agents, node groups with toolbar filter, explicit disconnect/reconnect ops).
+- **Reviewer findings:** none yet — R1 review of 91f31ef dispatched (review queue).
+- **Regressions found:** none open; root-residue tripwire remains green after the dependency-smoke pins.
+- **Harness defects found:** none new.
+- **Security findings:** revocation credential model documented (shared agent token; restricted agents refuse with 403 and are reported honestly — never claimed revoked).
+- **Reliability findings:** restart failures after stopped-consistency backups are reported, never swallowed; already-stopped instances never double-handled.
+- **Tests run:** node-lifecycle, backup-consistency, nodes IPC authorization + error contract, agent enroll, node switch, backup integrity, security backup, alpha-loop — all PASS (exact outputs in the cycle record).
+- **Full gate result:** pending at close (dispatched after this entry).
+- **Commits created:** 91f31ef (combined wave commit). **Push result:** OK.
+- **Roadmap items closed:** V2-F bullet 6 (consistency hooks + disclosure); V2-G bullet 1 (enroll/name/group/inspect/disconnect/revoke — code-complete, live drill queued).
+- **Roadmap items reopened:** none.
+- **Blockers:** none.
+- **Next active queues:** R1 review; I1 (fleet aggregation); I2 (offline job policy); T2 (two-node drill harness); D3/D5 (runtime-pin + new-endpoint docs).
+- **Local HEAD:** 91f31ef + queues/log commit · **Remote HEAD:** same · **Working tree:** clean.
+
+**Formal queue system stood up this cycle:** `docs/v2/V2_CAMPAIGN_QUEUES.md` — 12 queues with evidence, priorities, and agent-pool state; maintained every cycle.
+
 ### Cycle 1 close — V2-B/V2-F/V2-D integrated (2026-09-17, commits 411f610, eb13b83 — PUSHED)
 
 - **411f610** — V2-B renderer slice (dashboard app-card grid, "Open service" launch links via the main-window setWindowOpenHandler→openExternalUrl path, marketplace favorites in localStorage, 90s honest staleness) + V2-F Alpha wiring (per-instance Restore now routed through restoreBackupForInstance with latest-backup reconciliation; Delete/Forget dialogs state their data outcomes; hermetic alpha-loop e2e smoke registered as `alpha:loop:backup:smoke`). 13-smoke renderer gate green pre-commit.
