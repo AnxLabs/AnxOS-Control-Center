@@ -1133,6 +1133,37 @@ function assertSafeArguments(args) {
   }
 }
 
+// V2-B app-slice ownership (docs/v2/V2B_DASHBOARD_APPS_WAVE1.md §3.3):
+// AnxOS-managed | imported | external, with explicit one-way adoption.
+const INSTANCE_OWNERSHIP_VALUES = new Set(["anxos-managed", "imported", "external"]);
+
+function normalizeOwnership(value, existingConfig, payload) {
+  const requested = value === undefined || value === null || value === ""
+    ? null
+    : String(value).trim().toLowerCase();
+  if (requested !== null && !INSTANCE_OWNERSHIP_VALUES.has(requested)) {
+    throw createInstanceError("INSTANCE_OWNERSHIP_INVALID", 400, {
+      allowed: [...INSTANCE_OWNERSHIP_VALUES],
+    });
+  }
+  if (!existingConfig) {
+    return requested || "anxos-managed";
+  }
+  const current = existingConfig.ownership || "anxos-managed";
+  if (requested === null || requested === current) {
+    return current;
+  }
+  // Ownership changes are a one-way adoption transition (external/imported →
+  // managed) and only when the caller explicitly opts in with adopt: true.
+  if (payload?.adopt === true && requested === "anxos-managed" && current !== "anxos-managed") {
+    return "anxos-managed";
+  }
+  throw createInstanceError("INSTANCE_OWNERSHIP_IMMUTABLE", 409, {
+    current,
+    hint: "Adopt an existing service with ownership 'anxos-managed' and adopt: true.",
+  });
+}
+
 function normalizeInstanceConfig(payload, existingConfig = null) {
   const createdAt = existingConfig?.createdAt || nowIso();
   const id = existingConfig?.id || validateInstanceId(payload.id);
@@ -1195,6 +1226,7 @@ function normalizeInstanceConfig(payload, existingConfig = null) {
     connectionHost: payload.connectionHost ? String(payload.connectionHost).slice(0, 255) : null,
     primaryPort: Number.isInteger(primaryPort) && primaryPort > 0 && primaryPort <= 65535 ? primaryPort : null,
     tags: normalizeTags(payload.tags),
+    ownership: normalizeOwnership(payload.ownership, existingConfig, payload),
     installationState: normalizeInstallationState(payload.installationState),
     installationOperationId: payload.installationState === "installing" && INSTALLATION_OPERATION_ID_PATTERN.test(String(payload.installationOperationId || ""))
       ? String(payload.installationOperationId)
@@ -1216,9 +1248,20 @@ function normalizeInstanceConfig(payload, existingConfig = null) {
     readinessState: existingConfig?.readinessState || "stopped",
     healthState: existingConfig?.healthState || "unknown",
     javaRuntime: existingConfig?.javaRuntime || null,
+    adoptedAt: existingConfig?.adoptedAt || null,
   };
 
   config.versionInfo = normalizeVersionInfo(payload.versionInfo, config);
+
+  if (
+    payload.adopt === true
+    && existingConfig
+    && existingConfig.ownership
+    && existingConfig.ownership !== "anxos-managed"
+    && config.ownership === "anxos-managed"
+  ) {
+    config.adoptedAt = nowIso();
+  }
 
   if (
     payload.state !== undefined
@@ -4316,8 +4359,19 @@ async function updateInstance(instanceId, payload = {}) {
     installStage: payload.installStage !== undefined ? (payload.installStage ? String(payload.installStage).slice(0, 80) : null) : current.installStage,
     lastInstallError: payload.lastInstallError !== undefined ? (payload.lastInstallError ? String(payload.lastInstallError).slice(0, 500) : null) : current.lastInstallError,
     lastInstallAttemptAt: payload.lastInstallAttemptAt !== undefined ? (payload.lastInstallAttemptAt ? String(payload.lastInstallAttemptAt).slice(0, 40) : null) : current.lastInstallAttemptAt,
+    ownership: normalizeOwnership(payload.ownership, current, payload),
     updatedAt: nowIso(),
   };
+
+  // Explicit adoption (external/imported → managed) stamps adoptedAt once.
+  if (
+    payload.adopt === true
+    && current.ownership
+    && current.ownership !== "anxos-managed"
+    && next.ownership === "anxos-managed"
+  ) {
+    next.adoptedAt = nowIso();
+  }
 
   next.versionInfo = normalizeVersionInfo(payload.versionInfo !== undefined ? payload.versionInfo : current.versionInfo, next);
   if (
