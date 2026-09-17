@@ -4,7 +4,17 @@
 **Priority order:** critical regression/security/reliability → broken harness/gate → dependency blockers → current milestone completion → review findings → next implementation → docs/release cleanup → final audit.
 **Rules:** regressions outrank features; no implementation leaves review unresolved; "queue empty" must be proven; evidence beats claims.
 
-Last full-rebuild: cycle 4 close (HEAD 91f31ef).
+Last full-rebuild: cycle 5 close (HEAD bbf4d90).
+
+### Cycle-5 queue deltas
+
+- **I1 fleet aggregation + batch: LANDED (bbf4d90)** — fleetService, batch start/stop with max-3 concurrency + per-node results + destructive confirm, fleet strip UI. Review R3 dispatched.
+- **T2 drill harness: LANDED (bbf4d90)** — multi-node:fleet:smoke (two spawned agents, interrupt/isolation/revocation/JOB_INTERRUPTED-recovery legs; transfer/per-OS legs documented for later). Found a real product bug: stale removal markers silently deleted re-paired nodes (fixed in nodeService, regression-covered by node:local-removal smoke).
+- **Implementation queue:** I2 (offline job policy) and I3 (restore targeting) now READY; I4 still blocked on I3; I7 (V2-H/I/J surveys) dispatches next cycle.
+- **Review queue:** R3 (bbf4d90) dispatched (agent running); R2's fix-commit 1b04536 covered by R3's scope extension.
+- **Test queue:** T2 partial → drill live (transfer/per-OS legs appended when I3/I5 land). Suite count 232 → 234.
+- **Reliability:** the harness caught a REAL reliability bug pre-land: stale removal markers deleting re-paired nodes (fixed, regression smoke node:local-removal still green).
+- **Clean tree at bbf4d90**; full gate + R3 reviewer dispatched at close.
 
 ---
 
