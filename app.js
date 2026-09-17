@@ -13617,6 +13617,7 @@ function setInstanceDetails(instance = null) {
     setInstanceDetail("node", "Unavailable");
     setInstanceDetail("created", "Unavailable");
     setInstanceDetail("type", "Unavailable");
+    setInstanceDetail("ownership", "Unavailable");
     setInstanceDetail("command", "Unavailable");
     setInstanceDetail("failureReason", "Unavailable");
     setInstanceDetail("pid", "Unavailable");
@@ -13673,6 +13674,14 @@ function setInstanceDetails(instance = null) {
   setInstanceDetail("node", getInstanceNodeLabel(instance));
   setInstanceDetail("created", formatDateTime(instance.createdAt || instance.created || instance.metadata?.createdAt));
   setInstanceDetail("type", getInstanceTypeLabel(instance));
+  // V2-B app slice: surface the ownership model honestly — managed is the
+  // default; imported/external services show their state (and adoptedAt, when
+  // present) so an operator can tell adopted services from native ones.
+  const ownershipLabels = { "anxos-managed": "AnxOS-managed", "imported": "Imported", "external": "External" };
+  const ownershipLabel = ownershipLabels[instance.ownership] || (instance.ownership ? String(instance.ownership) : "AnxOS-managed");
+  setInstanceDetail("ownership", instance.adoptedAt
+    ? `${ownershipLabel} (adopted ${formatDateTime(instance.adoptedAt)})`
+    : ownershipLabel);
   setInstanceDetail("command", command || "Unavailable");
   setInstanceDetail("failureReason", getInstanceOperationFailureText(activeOperation) || getInstanceFailureReason(instance));
   setInstanceDetail("pid", formatInstanceValue(instance.pid));
