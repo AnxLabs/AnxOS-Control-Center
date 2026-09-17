@@ -25716,10 +25716,17 @@ async function runDockerComposeUiAction(action) {
     const destructive = action === "down";
     const confirmed = await createSecurityConfirmation({
       title: destructive ? "Remove Compose project containers?" : "Run Compose project?",
-      message: destructive ? "Compose down removes project containers. Removing volumes requires a separate explicit backend flag and is not enabled here." : "AnxOS will validate docker compose config before starting the project.",
+      message: destructive
+        ? "Compose down removes project containers. Removing volumes requires a separate explicit backend flag and is not enabled here."
+        : "AnxOS will validate docker compose config before starting the project. If the project uses privileged mode, host mounts, host namespaces, or engine-socket mounts, this confirmation also authorizes them.",
       confirmLabel: destructive ? "Remove" : "Run",
     });
     if (!confirmed) return;
+    // The compose policy gate fails closed on dangerous service options;
+    // this explicit grant is what the operator's confirmation earns.
+    if (["up", "recreate"].includes(action)) {
+      payload.policyGrant = { privileged: true, hostNetwork: true, hostPid: true, hostMount: true, socketAccess: true };
+    }
   }
   const result = await runDockerOperationRecord(`Docker Compose ${action}`, payload.projectName, () => getDockerApi().compose(action, payload));
   const output = document.querySelector("[data-docker-compose-output]");

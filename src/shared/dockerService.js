@@ -6,9 +6,12 @@ const {
   assertCleanupSelection,
   detectHostPortConflicts,
   normalizeHostPorts,
+  policeComposeYaml,
   policeContainerRequest,
   validateResourceLimits,
 } = require("./dockerPolicy");
+
+const COMPOSE_FILE_CANDIDATES = ["docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"];
 
 const COMMAND_TIMEOUT_MS = 8000;
 const LOG_TIMEOUT_MS = 12000;
@@ -1198,6 +1201,43 @@ async function preflightContainerCreate(payload = {}) {
   };
 }
 
+// V2-C compose policy gate: evaluate the compose file the engine would
+// actually run. Inline payload.composeYaml (editor preview) wins; otherwise
+// the file is resolved from the project directory exactly like
+// `docker compose` resolves it. File reads are bounded: the directory must
+// pass the existing compose path validation, only fixed compose basenames are
+// accepted, and the resolved candidate must stay inside that directory.
+// No compose file to review → null (the engine produces its own missing-file
+// diagnostic); unparsable or denied content → DockerServiceError before any
+// docker command runs.
+async function assertComposePolicy(payload = {}) {
+  const grant = payload.policyGrant && typeof payload.policyGrant === "object" ? payload.policyGrant : {};
+  let yamlText = typeof payload.composeYaml === "string" && payload.composeYaml.trim() !== "" ? payload.composeYaml : null;
+  if (yamlText === null) {
+    const rawDirectory = payload.projectDirectory || payload.path || null;
+    if (!rawDirectory) return null;
+    const projectDirectory = path.resolve(validateNodePath(rawDirectory));
+    for (const candidate of COMPOSE_FILE_CANDIDATES) {
+      const candidatePath = path.resolve(projectDirectory, candidate);
+      if (!candidatePath.startsWith(projectDirectory + path.sep)) continue;
+      if (await pathExists(candidatePath)) {
+        yamlText = await fs.readFile(candidatePath, "utf8");
+        break;
+      }
+    }
+  }
+  if (yamlText === null) return null;
+  const policy = policeComposeYaml(yamlText, grant);
+  if (!policy.parsed) {
+    throw new DockerServiceError(`Compose file could not be reviewed for policy: ${policy.parseError}`, "COMPOSE_POLICY_UNPARSEABLE", 400);
+  }
+  if (!policy.allowed) {
+    const summary = policy.denials.map((flag) => `${flag.service}: ${flag.label}`).join("; ");
+    throw new DockerServiceError(`Docker policy denied this compose project: ${summary}. Grant the options explicitly to allow them.`, "DOCKER_POLICY_DENIED", 403);
+  }
+  return policy;
+}
+
 module.exports = {
   DockerServiceError,
   attachStats,
@@ -1235,6 +1275,7 @@ module.exports = {
   parseJsonLines,
   pauseContainer,
   preflightContainerCreate,
+  assertComposePolicy,
   pullImage,
   pruneImages,
   pruneNetworks,

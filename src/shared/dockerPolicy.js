@@ -8,6 +8,11 @@
 
 const DOCKER_SOCKET_HINT = /docker\.sock/i;
 
+// Compose documents are parsed with js-yaml's safe default schema; a declared
+// direct dependency (previously transitive) so the packaged agent runtime
+// always resolves it.
+const yaml = require("js-yaml");
+
 function splitList(value) {
   if (Array.isArray(value)) {
     return value.map((entry) => String(entry).trim()).filter(Boolean);
@@ -164,6 +169,75 @@ function validateResourceLimits(payload = {}) {
   return problems;
 }
 
+// --- compose project policy (V2-C §3.5 applied to compose files) ---
+
+// Evaluate one parsed compose service definition; pure.
+function policeComposeService(service) {
+  const flags = [];
+  if (!service || typeof service !== "object") return flags;
+  if (service.privileged === true) {
+    flags.push({ key: "privileged", label: "privileged mode" });
+  }
+  if (service.network_mode === "host") {
+    flags.push({ key: "hostNetwork", label: "host networking" });
+  }
+  if (service.pid === "host") {
+    flags.push({ key: "hostPid", label: "host PID namespace" });
+  }
+  const volumes = Array.isArray(service.volumes) ? service.volumes : [];
+  for (const entry of volumes) {
+    if (typeof entry === "string") {
+      const { hostPath, socket } = inspectVolumeEntry(entry);
+      if (hostPath) flags.push({ key: "hostMount", label: `host path mount (${entry})` });
+      if (socket) flags.push({ key: "socketAccess", label: `engine socket mount (${entry})` });
+    } else if (entry && typeof entry === "object") {
+      const source = String(entry.source || "");
+      const type = entry.type === undefined ? undefined : String(entry.type);
+      if ((type === "bind" || type === undefined) && isHostPathSource(source)) {
+        flags.push({ key: "hostMount", label: `host path mount (${source})` });
+      }
+      if (DOCKER_SOCKET_HINT.test(source) || DOCKER_SOCKET_HINT.test(String(entry.target || ""))) {
+        flags.push({ key: "socketAccess", label: `engine socket mount (${source})` });
+      }
+    }
+  }
+  return flags;
+}
+
+function policeComposeDocument(document, grant = {}) {
+  const services = document && typeof document === "object"
+    && document.services && typeof document.services === "object"
+    ? document.services : {};
+  const flags = [];
+  for (const [name, service] of Object.entries(services)) {
+    for (const flag of policeComposeService(service)) {
+      flags.push({ service: name, ...flag });
+    }
+  }
+  const denials = flags.filter((flag) => grant[flag.key] !== true);
+  return { services: Object.keys(services), flags, denials, allowed: denials.length === 0 };
+}
+
+// Parse + evaluate compose YAML text. Unparsable content fails closed
+// (COMPOSE_POLICY_UNPARSEABLE decision lives in the caller): a document the
+// policy cannot see must never silently bypass the gate.
+function policeComposeYaml(yamlText, grant = {}) {
+  let document;
+  try {
+    document = yaml.load(String(yamlText ?? ""));
+  } catch (error) {
+    return {
+      parsed: false,
+      parseError: error?.message || "Unparsable compose document.",
+      services: [],
+      flags: [],
+      denials: [],
+      allowed: false,
+    };
+  }
+  return { parsed: true, parseError: null, ...policeComposeDocument(document, grant) };
+}
+
 module.exports = {
   assertCleanupSelection,
   cleanupAffectsPersistentData,
@@ -174,6 +248,9 @@ module.exports = {
   isHostPathSource,
   normalizeHostPorts,
   parseHostPort,
+  policeComposeDocument,
+  policeComposeService,
+  policeComposeYaml,
   policeContainerRequest,
   validateResourceLimits,
 };

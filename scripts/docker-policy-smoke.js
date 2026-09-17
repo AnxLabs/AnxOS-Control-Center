@@ -1,4 +1,7 @@
 const assert = require("assert");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
 
 // V2-C policy + preflight contract smoke (docs/v2/V2C_CONTAINERS_WAVE1.md
 // §3.4–3.5): dangerous container options fail closed without an explicit
@@ -11,6 +14,7 @@ const assert = require("assert");
 const policy = require("../src/shared/dockerPolicy");
 const {
   DockerServiceError,
+  assertComposePolicy,
   createContainer,
   preflightContainerCreate,
   runCleanup,
@@ -153,6 +157,84 @@ async function main() {
   assert(report.findings.some((finding) => finding.severity === "error" && finding.code === "POLICY_DENIED"),
     "Preflight must surface a POLICY_DENIED error finding.");
   assert.strictEqual(typeof report.engineAvailable, "boolean", "Preflight must report engine availability explicitly.");
+
+  // 8. Compose project policy: services with dangerous options fail closed
+  // unless granted; unparsable documents fail closed too.
+  const benignCompose = policy.policeComposeYaml("services:\n  web:\n    image: nginx:stable-alpine\n    volumes:\n      - webdata:/var/www\n");
+  assert.strictEqual(benignCompose.parsed, true, "Valid compose YAML must parse.");
+  assert.strictEqual(benignCompose.allowed, true, "Named-volume compose services must pass the policy gate.");
+  assert.deepStrictEqual(benignCompose.services, ["web"]);
+
+  const dangerousCompose = policy.policeComposeYaml([
+    "services:",
+    "  root:",
+    "    image: busybox",
+    "    privileged: true",
+    "    network_mode: host",
+    "    pid: \"host\"",
+    "  mounty:",
+    "    image: busybox",
+    "    volumes:",
+    "      - /etc:/victim:ro",
+    "      - /var/run/docker.sock:/var/run/docker.sock",
+    "  longform:",
+    "    image: busybox",
+    "    volumes:",
+    "      - type: bind",
+    "        source: /etc",
+    "        target: /victim",
+  ].join("\n"));
+  assert.strictEqual(dangerousCompose.allowed, false, "Dangerous compose services must be denied without a grant.");
+  assert(dangerousCompose.denials.some((flag) => flag.service === "root" && flag.key === "privileged"), "privileged must be flagged per service.");
+  assert(dangerousCompose.denials.some((flag) => flag.service === "root" && flag.key === "hostNetwork"), "network_mode: host must be flagged.");
+  assert(dangerousCompose.denials.some((flag) => flag.service === "root" && flag.key === "hostPid"), "pid: host must be flagged.");
+  assert(dangerousCompose.denials.some((flag) => flag.service === "mounty" && flag.key === "hostMount"), "short-syntax host bind must be flagged.");
+  assert(dangerousCompose.denials.some((flag) => flag.service === "mounty" && flag.key === "socketAccess"), "socket mount must be flagged.");
+  assert(dangerousCompose.denials.some((flag) => flag.service === "longform" && flag.key === "hostMount"), "long-syntax bind must be flagged.");
+
+  const windowsCompose = policy.policeComposeYaml("services:\n  win:\n    image: busybox\n    volumes:\n      - C:\\Users\\shared:/shared\n");
+  assert.strictEqual(windowsCompose.allowed, false, "A Windows drive-path compose bind must be denied without a grant.");
+
+  const grantedCompose = policy.policeComposeYaml(
+    "services:\n  root:\n    image: busybox\n    privileged: true\n",
+    { privileged: true },
+  );
+  assert.strictEqual(grantedCompose.allowed, true, "An explicit grant must allow the flagged compose options.");
+
+  const unparsable = policy.policeComposeYaml("services: [oops");
+  assert.strictEqual(unparsable.parsed, false, "Broken YAML must be reported as unparsable.");
+  assert.strictEqual(unparsable.allowed, false, "Unparsable compose content must fail closed.");
+
+  const emptyDocument = policy.policeComposeYaml("");
+  assert.strictEqual(emptyDocument.parsed && emptyDocument.allowed, true,
+    "An empty document has no services and must not fabricate denials (the engine reports the real problem).");
+
+  // 9. The engine-boundary compose gate: reads only whitelisted compose
+  // basenames inside the validated project directory, denies dangerous
+  // on-disk projects, honors grants by resolving, and passes through
+  // project directories without any compose file (the engine reports that).
+  const composeProbeDir = fs.mkdtempSync(path.join(os.tmpdir(), "anxos-compose-policy-"));
+  try {
+    fs.writeFileSync(
+      path.join(composeProbeDir, "compose.yaml"),
+      "services:\n  root:\n    image: busybox\n    privileged: true\n",
+    );
+    await assert.rejects(
+      () => assertComposePolicy({ projectDirectory: composeProbeDir }),
+      (error) => error instanceof DockerServiceError && error.code === "DOCKER_POLICY_DENIED" && error.statusCode === 403,
+      "A compose file on disk with privileged services must be denied.",
+    );
+    const granted = await assertComposePolicy({ projectDirectory: composeProbeDir, policyGrant: { privileged: true } });
+    assert.strictEqual(granted.allowed, true, "A granted compose project must pass the gate (no engine call happens in the gate).");
+
+    const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), "anxos-compose-empty-"));
+    fs.rmSync(emptyDir, { recursive: true, force: true });
+    const passthrough = await assertComposePolicy({ projectDirectory: emptyDir });
+    assert.strictEqual(passthrough, null, "A directory without a compose file must pass through for the engine to diagnose.");
+    fs.rmSync(emptyDir, { recursive: true, force: true });
+  } finally {
+    fs.rmSync(composeProbeDir, { recursive: true, force: true });
+  }
 
   console.log("docker:policy:smoke passed");
 }

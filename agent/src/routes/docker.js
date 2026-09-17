@@ -47,6 +47,7 @@ const {
   unpauseContainer,
 } = require("../services/dockerService");
 const { mintDockerJob } = require("../services/dockerJobService");
+const { assertComposePolicy } = require("../services/dockerService");
 
 function parseJsonBody(request) {
   if (!request.body) {
@@ -335,6 +336,9 @@ async function handleDocker(request, url) {
     }
     if (request.method === "POST" && url.pathname === "/api/v1/docker/compose/up") {
       const body = parseJsonBody(request);
+      // Compose creates containers from the project file: the policy gate
+      // reviews that file before any job is minted or command runs.
+      await assertComposePolicy(body);
       const job = await mintDockerJob({
         type: "docker.compose.start",
         target: { projectName: body?.projectName || null },
@@ -390,6 +394,7 @@ async function handleDocker(request, url) {
     }
     if (request.method === "POST" && url.pathname === "/api/v1/docker/compose/recreate") {
       const body = parseJsonBody(request);
+      await assertComposePolicy(body);
       const job = await mintDockerJob({
         type: "docker.compose.recreate",
         target: { projectName: body?.projectName || null },
