@@ -2187,12 +2187,14 @@ function renderDashboardWidgets(state) {
       !state.instancesLoaded,
     ),
     tile(
-      `${state.connectedRemoteNodes.length}/${state.remoteNodes.length}`,
+      state.remoteNodes
+        ? `${state.remoteNodes.filter((node) => getNodeVisualState(node) === "online").length}/${state.remoteNodes.length}`
+        : "—",
       "Remote systems online",
-      false,
+      !state.remoteNodes,
     ),
     tile(state.metrics.health, "Node health", false),
-    tile(state.metrics.updated, "Metrics freshness", !state.hasSystemSnapshot),
+    tile(state.metrics.updated, "Metrics freshness", false),
   ];
   row.replaceChildren(...tiles);
 }
