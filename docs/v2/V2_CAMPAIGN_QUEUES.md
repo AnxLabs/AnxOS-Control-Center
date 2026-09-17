@@ -4,7 +4,14 @@
 **Priority order:** critical regression/security/reliability → broken harness/gate → dependency blockers → current milestone completion → review findings → next implementation → docs/release cleanup → final audit.
 **Rules:** regressions outrank features; no implementation leaves review unresolved; "queue empty" must be proven; evidence beats claims.
 
-Last full-rebuild: cycle 5 close (HEAD bbf4d90).
+Last full-rebuild: cycle 6 in flight (HEAD dc1fcb8).
+
+### Cycle-5→6 queue deltas
+
+- **R3 reviewer verdict: NOTHING ABOVE P1** on the fleet/drill wave (batch confirm gate verified service-side on the sole path; runWithConcurrency race-free; drill hermetic with real leak detection; marker fix sound). All four findings fixed + pushed (dc1fcb8): fleet-summary wording honesty, failed-batch refresh, delete-toast attempted-false wording, (ungrouped) sentinel collision (NUL-prefixed sentinel). Recorded: commit-split drift in 2748170 (message says review-fixes, content includes the wave-2 feature — mid-session git add -A sweep; unfixable without history rewrite, recorded here as the attribution of record).
+- **V2-H/I/J survey COMPLETE**: three bullet tables + wave plans + drill decompositions + deferral candidates (reverse-proxy/certs → defer with owner decision; container trust levels → possibly re-scope; fleet update orchestration → may ride V2-G batch). Key campaign-artifact gap flagged: the Mimosa triage evidence must be recorded in-repo (S1 now includes "write docs/v2/SECURITY_TRIAGE_RECORD.md"). Waves queued in the implementation queue after I2/I3: V2-I W1 (actor×resource×action matrix harness) first — it hardens everything before V2-H's exposure work.
+- **Cycle 6 in flight:** I2 offline job policy (jobLifecycle expiresAt), I3 restore targeting + preview (backupService), R3 findings fixed (dc1fcb8).
+- **Sequencing note:** V2-I W1 (permission matrix harness) prioritized ahead of V2-H waves — hardening before exposure, per the roadmap's own ordering ("public exposure also requires V2-I security gates").
 
 ### Cycle-5 queue deltas
 
