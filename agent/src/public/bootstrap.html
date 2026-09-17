@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AnxOS Agent — Connect</title>
+<style>
+  :root { color-scheme: dark; }
+  body { font-family: system-ui, sans-serif; background: #14101d; color: #e8e4f2; margin: 0; padding: 2rem; }
+  main { max-width: 460px; margin: 3rem auto; }
+  h1 { font-size: 1.15rem; margin-bottom: 0.4rem; }
+  p.lede { color: #a99ec4; margin-top: 0; }
+  .card { background: #1d1729; border: 1px solid #2e2440; border-radius: 10px; padding: 1.25rem; margin-top: 1rem; }
+  label { display: block; margin-bottom: 0.5rem; color: #a99ec4; font-size: 0.9rem; }
+  input { width: 100%; box-sizing: border-box; padding: 0.6rem 0.75rem; border-radius: 6px; border: 1px solid #3a2d52; background: #14101d; color: #e8e4f2; font-size: 1.05rem; letter-spacing: 0.12em; text-transform: uppercase; }
+  input:focus { outline: 2px solid #6d4fa3; border-color: #6d4fa3; }
+  button { width: 100%; margin-top: 0.9rem; padding: 0.65rem; border-radius: 6px; border: none; background: #6d4fa3; color: #fff; font-size: 0.95rem; cursor: pointer; }
+  button:hover { background: #7d5fb8; }
+  button:disabled { opacity: 0.5; cursor: wait; }
+  .error { color: #e2777a; margin-top: 0.6rem; min-height: 1.2em; font-size: 0.88rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>AnxOS Agent — Connect</h1>
+  <p class="lede">Paste the one-time code from AnxOS Control Center (Agent Control → Agent Connection → New Browser Code) to open the read-only management view.</p>
+  <div class="card">
+    <form id="connect-form">
+      <label for="code">One-time code</label>
+      <input id="code" autocomplete="off" spellcheck="false" maxlength="9" placeholder="XXXX-XXXX" required>
+      <button type="submit" id="submit">Connect</button>
+      <div class="error" id="error"></div>
+    </form>
+  </div>
+</main>
+<script>
+  // Render with textContent only; the form posts to the pre-auth bootstrap
+  // endpoint and lands in the management view on success.
+  const form = document.getElementById("connect-form");
+  const input = document.getElementById("code");
+  const button = document.getElementById("submit");
+  const errorEl = document.getElementById("error");
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const code = input.value.trim().toUpperCase();
+    if (!code) return;
+    button.disabled = true;
+    errorEl.textContent = "";
+    try {
+      const res = await fetch("/api/v1/ui/session/bootstrap", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ code }),
+      });
+      if (res.ok) {
+        window.location.href = "/api/v1/ui";
+        return;
+      }
+      const body = await res.json().catch(() => null);
+      errorEl.textContent = body?.error?.message || "Connection failed. Check the code and try again.";
+    } catch {
+      errorEl.textContent = "Could not reach the agent. Is it running?";
+    } finally {
+      button.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>

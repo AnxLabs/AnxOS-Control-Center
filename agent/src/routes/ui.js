@@ -11,7 +11,9 @@ const { consumeBootstrapCode, issueBootstrapCode, issueSession, validateSessionT
 
 const SESSION_COOKIE_NAME = "anxos_ui_session";
 const MANAGEMENT_PAGE_PATH = path.join(__dirname, "..", "public", "management.html");
+const BOOTSTRAP_PAGE_PATH = path.join(__dirname, "..", "public", "bootstrap.html");
 const MANAGEMENT_PAGE_CACHE = { mtimeMs: 0, html: null };
+const BOOTSTRAP_PAGE_CACHE = { mtimeMs: 0, html: null };
 
 const MANAGEMENT_PAGE_HEADERS = {
   "content-type": "text/html; charset=utf-8",
@@ -39,17 +41,31 @@ function sessionCookieHeader(token, expiresAt) {
   return `${SESSION_COOKIE_NAME}=${token}; Path=/api/v1/ui; HttpOnly; SameSite=Strict; Expires=${new Date(expiresAt).toUTCString()}`;
 }
 
-function loadManagementPage() {
+function loadStaticPage(filePath, cache) {
   try {
-    const stats = fs.statSync(MANAGEMENT_PAGE_PATH);
-    if (!MANAGEMENT_PAGE_CACHE.html || stats.mtimeMs !== MANAGEMENT_PAGE_CACHE.mtimeMs) {
-      MANAGEMENT_PAGE_CACHE.mtimeMs = stats.mtimeMs;
-      MANAGEMENT_PAGE_CACHE.html = fs.readFileSync(MANAGEMENT_PAGE_PATH, "utf8");
+    const stats = fs.statSync(filePath);
+    if (!cache.html || stats.mtimeMs !== cache.mtimeMs) {
+      cache.mtimeMs = stats.mtimeMs;
+      cache.html = fs.readFileSync(filePath, "utf8");
     }
-    return MANAGEMENT_PAGE_CACHE.html;
+    return cache.html;
   } catch {
     return null;
   }
+}
+
+function sendHtmlPage(html) {
+  if (html === null) {
+    return {
+      statusCode: 404,
+      body: { error: { code: "UI_PAGE_UNAVAILABLE", message: "The management page asset is missing on this agent." } },
+    };
+  }
+  return {
+    statusCode: 200,
+    headers: MANAGEMENT_PAGE_HEADERS,
+    rawBody: Buffer.from(html, "utf8"),
+  };
 }
 
 function parseBootstrapBody(request) {
@@ -106,30 +122,23 @@ function handleUiBootstrap(request, url) {
 }
 
 function handleUiSession(request, url) {
+  if (request.method === "GET" && url.pathname === "/api/v1/ui/bootstrap") {
+    // Pre-auth static page: the browser-side half of the bootstrap flow.
+    return sendHtmlPage(loadStaticPage(BOOTSTRAP_PAGE_PATH, BOOTSTRAP_PAGE_CACHE));
+  }
   if (request.method === "GET" && url.pathname === "/api/v1/ui") {
-    // Session-gated static page. A missing/expired session redirects the
-    // browser to Control Center guidance rather than serving the shell.
+    // Session-gated static page. A missing/expired session redirects to the
+    // bootstrap form rather than a dead end.
     try {
       validateSessionToken(parseSessionCookie(request));
     } catch {
       return {
         statusCode: 302,
-        headers: { location: "/api/v1/ui/session?state=expired" },
+        headers: { location: "/api/v1/ui/bootstrap" },
         body: null,
       };
     }
-    const html = loadManagementPage();
-    if (html === null) {
-      return {
-        statusCode: 404,
-        body: { error: { code: "UI_PAGE_UNAVAILABLE", message: "The management page asset is missing on this agent." } },
-      };
-    }
-    return {
-      statusCode: 200,
-      headers: MANAGEMENT_PAGE_HEADERS,
-      rawBody: Buffer.from(html, "utf8"),
-    };
+    return sendHtmlPage(loadStaticPage(MANAGEMENT_PAGE_PATH, MANAGEMENT_PAGE_CACHE));
   }
   if (request.method === "POST" && url.pathname === "/api/v1/ui/session") {
     const issued = issueSession();

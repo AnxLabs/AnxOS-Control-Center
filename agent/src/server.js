@@ -239,7 +239,7 @@ async function routeRequest(request, url) {
 
   // V2-A browser surface: short-lived session transport (bearer-gated for
   // POST, cookie-gated for GET; permission-gated via ui:session below).
-  if (pathname === "/api/v1/ui/session" || pathname === "/api/v1/ui" || pathname === "/api/v1/ui/bootstrap-code") {
+  if (pathname === "/api/v1/ui/session" || pathname === "/api/v1/ui" || pathname === "/api/v1/ui/bootstrap" || pathname === "/api/v1/ui/bootstrap-code") {
     try {
       if (pathname === "/api/v1/ui/bootstrap-code") {
         return handleUiBootstrapCode(request, url);
@@ -435,16 +435,21 @@ async function handleRequest(request, response) {
     // A valid UI session cookie substitutes for the bearer credential on the
     // session-validation path only (browser clients hold no bearer token);
     // permission authorization still runs below (ui:session, fail-closed).
-    const uiSessionBypass = (url.pathname === "/api/v1/ui/session" && request.method === "GET"
-      || url.pathname === "/api/v1/ui" && request.method === "GET")
-      && (() => {
-        try {
-          validateSessionToken(parseSessionCookie(request));
-          return true;
-        } catch {
-          return false;
-        }
-      })();
+    // /api/v1/ui/bootstrap is pre-auth by design (the paste-code form).
+    // /api/v1/ui is the browser entry point: the auth gate always lets it
+    // through, and handleUiSession does its own session check (200 or 302).
+    // /api/v1/ui/session GET bypasses only with a valid session cookie.
+    const uiSessionBypass = (url.pathname === "/api/v1/ui/bootstrap" && request.method === "GET")
+      || (url.pathname === "/api/v1/ui" && request.method === "GET")
+      || (url.pathname === "/api/v1/ui/session" && request.method === "GET"
+        && (() => {
+          try {
+            validateSessionToken(parseSessionCookie(request));
+            return true;
+          } catch {
+            return false;
+          }
+        })());
     // Browser bootstrap (A2.5): pre-auth, rate-limited, one-time code →
     // session cookie. The only unauthenticated way into the UI surface.
     if (url.pathname === "/api/v1/ui/session/bootstrap" && request.method === "POST") {

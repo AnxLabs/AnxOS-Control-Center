@@ -110,8 +110,14 @@ async function main() {
   assert.ok(String(pageOk.headers["content-security-policy"]).includes("default-src 'none'"), "The page must carry a tightened CSP.");
   const pageDenied = dispatch({ method: "GET", headers: {}, body: "" }, u("/api/v1/ui"));
   // No session at the route layer: the page handler redirects the browser to
-  // guidance rather than serving the shell.
+  // the bootstrap form rather than serving the shell.
   assert.strictEqual(pageDenied.statusCode, 302, "A missing session must redirect, not serve the shell.");
+  assert.strictEqual(pageDenied.headers.location, "/api/v1/ui/bootstrap", "The redirect must target the bootstrap form.");
+
+  // 6b. The bootstrap form itself is pre-auth and always reachable.
+  const bootstrapPage = dispatch({ method: "GET", headers: {}, body: "" }, u("/api/v1/ui/bootstrap"));
+  assert.strictEqual(bootstrapPage.statusCode, 200, "The bootstrap form must be pre-auth (always reachable).");
+  assert.ok(String(bootstrapPage.headers["content-security-policy"]).includes("default-src 'none'"), "The bootstrap page must carry the same CSP.");
 
   // 7. Browser bootstrap (A2.5): one-time code → session cookie, pre-auth.
   resetSessionsForTest();
