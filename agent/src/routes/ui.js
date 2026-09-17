@@ -1,6 +1,6 @@
 const fs = require("fs");
 const path = require("path");
-const { issueSession, validateSessionToken } = require("../services/sessionService");
+const { consumeBootstrapCode, issueBootstrapCode, issueSession, validateSessionToken } = require("../services/sessionService");
 
 // V2-A browser surface routes (docs/v2/V2A_BROWSER_SURFACE_WAVE1.md Option A).
 // POST /api/v1/ui/session — exchange the existing bearer credential for a
@@ -50,6 +50,59 @@ function loadManagementPage() {
   } catch {
     return null;
   }
+}
+
+function parseBootstrapBody(request) {
+  try {
+    const parsed = request.body ? JSON.parse(request.body) : {};
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    throw Object.assign(new Error("Bootstrap request body must be valid JSON."), {
+      code: "UI_BOOTSTRAP_BAD_REQUEST",
+      statusCode: 400,
+    });
+  }
+}
+
+// Bearer-gated (permission ui:session): the desktop mints the code it will
+// show to the operator for the browser bootstrap form.
+function handleUiBootstrapCode(request, url) {
+  if (request.method === "POST" && url.pathname === "/api/v1/ui/bootstrap-code") {
+    const issued = issueBootstrapCode();
+    return {
+      statusCode: 200,
+      body: { code: issued.code, expiresAt: issued.expiresAt, ttlMs: issued.ttlMs },
+    };
+  }
+  return {
+    statusCode: 404,
+    body: { error: { code: "NOT_FOUND", message: "Request failed." } },
+  };
+}
+
+// Pre-auth: exchanges a one-time bootstrap code for a session cookie. The
+// browser holds no bearer credential — this is its only way in.
+function handleUiBootstrap(request, url) {
+  if (request.method === "POST" && url.pathname === "/api/v1/ui/session/bootstrap") {
+    const body = parseBootstrapBody(request);
+    consumeBootstrapCode(body?.code);
+    const issued = issueSession();
+    return {
+      statusCode: 200,
+      headers: {
+        "set-cookie": sessionCookieHeader(issued.token, issued.expiresAt),
+      },
+      body: {
+        status: "active",
+        expiresAt: issued.expiresAt,
+        ttlMs: issued.ttlMs,
+      },
+    };
+  }
+  return {
+    statusCode: 404,
+    body: { error: { code: "NOT_FOUND", message: "Request failed." } },
+  };
 }
 
 function handleUiSession(request, url) {
@@ -123,6 +176,8 @@ function handleUiSessionError(error) {
 
 module.exports = {
   SESSION_COOKIE_NAME,
+  handleUiBootstrap,
+  handleUiBootstrapCode,
   handleUiSession,
   handleUiSessionError,
   parseSessionCookie,

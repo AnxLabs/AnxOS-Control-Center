@@ -5,8 +5,12 @@ const assert = require("assert");
 // — hermetic, no live server required.
 
 const {
+  BOOTSTRAP_CODE_PATTERN,
+  MAX_ACTIVE_BOOTSTRAP_CODES,
   MAX_ACTIVE_SESSIONS,
   SESSION_ID_PATTERN,
+  consumeBootstrapCode,
+  issueBootstrapCode,
   issueSession,
   resetSessionsForTest,
   revokeSession,
@@ -14,6 +18,7 @@ const {
 } = require("../agent/src/services/sessionService");
 const {
   SESSION_COOKIE_NAME,
+  handleUiBootstrap,
   handleUiSession,
   handleUiSessionError,
   parseSessionCookie,
@@ -25,6 +30,14 @@ const u = (p) => new URL(`${BASE}${p}`);
 const dispatch = (request, url) => {
   try {
     return handleUiSession(request, url);
+  } catch (error) {
+    return handleUiSessionError(error);
+  }
+};
+// Mirror the server's pre-auth wrap: handler errors become error results.
+const runBootstrap = (request, url) => {
+  try {
+    return handleUiBootstrap(request, url);
   } catch (error) {
     return handleUiSessionError(error);
   }
@@ -99,6 +112,39 @@ async function main() {
   // No session at the route layer: the page handler redirects the browser to
   // guidance rather than serving the shell.
   assert.strictEqual(pageDenied.statusCode, 302, "A missing session must redirect, not serve the shell.");
+
+  // 7. Browser bootstrap (A2.5): one-time code → session cookie, pre-auth.
+  resetSessionsForTest();
+  const codeIssued = issueBootstrapCode();
+  assert.ok(BOOTSTRAP_CODE_PATTERN.test(codeIssued.code), "Bootstrap codes must use the unambiguous XXXX-XXXX form.");
+  const badBootstrap = runBootstrap(
+    { method: "POST", headers: {}, body: JSON.stringify({ code: "AAAA-AAAA" }) },
+    u("/api/v1/ui/session/bootstrap"),
+  );
+  assert.strictEqual(badBootstrap.statusCode, 401, "An unknown code must be rejected.");
+  const bootstrap = runBootstrap(
+    { method: "POST", headers: {}, body: JSON.stringify({ code: codeIssued.code }) },
+    u("/api/v1/ui/session/bootstrap"),
+  );
+  assert.strictEqual(bootstrap.statusCode, 200, "A valid code must mint a session.");
+  assert.ok(bootstrap.headers["set-cookie"].startsWith(`${SESSION_COOKIE_NAME}=`), "Bootstrap must set the session cookie.");
+  const replay = runBootstrap(
+    { method: "POST", headers: {}, body: JSON.stringify({ code: codeIssued.code }) },
+    u("/api/v1/ui/session/bootstrap"),
+  );
+  assert.strictEqual(replay.statusCode, 401, "A bootstrap code is single-use: replay must be rejected.");
+  assert.strictEqual(replay.body.error.code, "UI_BOOTSTRAP_INVALID");
+  const malformed = runBootstrap(
+    { method: "POST", headers: {}, body: JSON.stringify({ code: "nope" }) },
+    u("/api/v1/ui/session/bootstrap"),
+  );
+  assert.strictEqual(malformed.statusCode, 401, "Malformed codes must be rejected.");
+  resetSessionsForTest();
+  for (let index = 0; index < MAX_ACTIVE_BOOTSTRAP_CODES; index += 1) {
+    issueBootstrapCode();
+  }
+  assert.throws(() => issueBootstrapCode(), (error) => error.code === "BOOTSTRAP_LIMIT_REACHED",
+    "Pending bootstrap codes are bounded.");
 
   console.log("agent:ui-session:smoke passed");
 }

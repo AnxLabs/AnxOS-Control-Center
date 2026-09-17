@@ -11,7 +11,16 @@ const SESSION_TTL_MS = 15 * 60 * 1000;
 const MAX_ACTIVE_SESSIONS = 16;
 const SESSION_ID_PATTERN = /^[a-zA-Z0-9_-]{43}$/;
 
+// One-time browser bootstrap codes (A2.5): the desktop shows a short-TTL
+// code; the browser exchanges it for a session cookie. Single-use, bounded,
+// unambiguous charset only.
+const BOOTSTRAP_TTL_MS = 10 * 60 * 1000;
+const MAX_ACTIVE_BOOTSTRAP_CODES = 5;
+const BOOTSTRAP_CODE_PATTERN = /^[A-Z2-9]{4}-[A-Z2-9]{4}$/;
+const BOOTSTRAP_CODE_CHARSET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
 const sessions = new Map();
+const bootstrapCodes = new Map();
 
 function sessionError(code, statusCode, message, details = {}) {
   return Object.assign(new Error(message), { code, statusCode, details });
@@ -72,14 +81,55 @@ function revokeSession(supplied) {
   return sessions.delete(value);
 }
 
+function pruneBootstrapCodes(now = Date.now()) {
+  for (const [code, entry] of bootstrapCodes) {
+    if (Date.parse(entry.expiresAt) <= now) {
+      bootstrapCodes.delete(code);
+    }
+  }
+}
+
+function issueBootstrapCode(now = Date.now()) {
+  pruneBootstrapCodes(now);
+  if (bootstrapCodes.size >= MAX_ACTIVE_BOOTSTRAP_CODES) {
+    throw sessionError("BOOTSTRAP_LIMIT_REACHED", 429, "Too many pending browser bootstrap codes. Try again shortly.");
+  }
+  const pick = () => BOOTSTRAP_CODE_CHARSET[crypto.randomInt(BOOTSTRAP_CODE_CHARSET.length)];
+  const code = `${pick()}${pick()}${pick()}${pick()}-${pick()}${pick()}${pick()}${pick()}`;
+  const entry = { expiresAt: new Date(now + BOOTSTRAP_TTL_MS).toISOString() };
+  bootstrapCodes.set(code, entry);
+  return { code, expiresAt: entry.expiresAt, ttlMs: BOOTSTRAP_TTL_MS };
+}
+
+// Single-use: a consumed code is deleted, so a replay is just "unknown".
+function consumeBootstrapCode(supplied, now = Date.now()) {
+  const code = String(supplied || "").trim().toUpperCase();
+  if (!code || !BOOTSTRAP_CODE_PATTERN.test(code)) {
+    throw sessionError("UI_BOOTSTRAP_INVALID", 401, "That bootstrap code is not valid. Check Control Center for the current code.");
+  }
+  const entry = bootstrapCodes.get(code);
+  if (!entry || Date.parse(entry.expiresAt) <= now) {
+    bootstrapCodes.delete(code);
+    throw sessionError("UI_BOOTSTRAP_INVALID", 401, "That bootstrap code is not valid. Check Control Center for the current code.");
+  }
+  bootstrapCodes.delete(code);
+  return { consumed: true, expiresAt: entry.expiresAt };
+}
+
 function resetSessionsForTest() {
   sessions.clear();
+  bootstrapCodes.clear();
 }
 
 module.exports = {
+  BOOTSTRAP_CODE_PATTERN,
+  BOOTSTRAP_TTL_MS,
+  MAX_ACTIVE_BOOTSTRAP_CODES,
   MAX_ACTIVE_SESSIONS,
   SESSION_ID_PATTERN,
   SESSION_TTL_MS,
+  consumeBootstrapCode,
+  issueBootstrapCode,
   issueSession,
   resetSessionsForTest,
   revokeSession,

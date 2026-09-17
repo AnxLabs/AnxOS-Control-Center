@@ -28,7 +28,7 @@ const { handleFilesDownload, handleFilesIdentity, handleFilesList, handleFilesMu
 const { handleHealth } = require("./routes/health");
 const { handleInstances } = require("./routes/instances");
 const { handleJobs } = require("./routes/jobs");
-const { handleUiSession, handleUiSessionError, parseSessionCookie } = require("./routes/ui");
+const { handleUiBootstrap, handleUiBootstrapCode, handleUiSession, handleUiSessionError, parseSessionCookie } = require("./routes/ui");
 const { validateSessionToken } = require("./services/sessionService");
 const { handlePairing } = require("./routes/pairing");
 const { authorizeApiPermission } = require("./permissions");
@@ -239,8 +239,11 @@ async function routeRequest(request, url) {
 
   // V2-A browser surface: short-lived session transport (bearer-gated for
   // POST, cookie-gated for GET; permission-gated via ui:session below).
-  if (pathname === "/api/v1/ui/session" || pathname === "/api/v1/ui") {
+  if (pathname === "/api/v1/ui/session" || pathname === "/api/v1/ui" || pathname === "/api/v1/ui/bootstrap-code") {
     try {
+      if (pathname === "/api/v1/ui/bootstrap-code") {
+        return handleUiBootstrapCode(request, url);
+      }
       return handleUiSession(request, url);
     } catch (error) {
       return handleUiSessionError(error);
@@ -442,6 +445,21 @@ async function handleRequest(request, response) {
           return false;
         }
       })();
+    // Browser bootstrap (A2.5): pre-auth, rate-limited, one-time code →
+    // session cookie. The only unauthenticated way into the UI surface.
+    if (url.pathname === "/api/v1/ui/session/bootstrap" && request.method === "POST") {
+      checkRateLimit(`ui-bootstrap:${address}`, 10, 60 * 1000);
+      let bootstrapResult;
+      try {
+        bootstrapResult = handleUiBootstrap(request, url);
+      } catch (error) {
+        bootstrapResult = handleUiSessionError(error);
+      }
+      if (bootstrapResult) {
+        sendResult(response, bootstrapResult);
+        return;
+      }
+    }
     const auth = uiSessionBypass ? { ok: true } : isAuthorized(request, config, url.pathname);
 
     if (!auth.ok) {
