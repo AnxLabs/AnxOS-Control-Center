@@ -59,6 +59,29 @@ function readReleaseNotes() {
   }
 }
 
+// Parse the RELEASE_NOTES_*.md file for a build into title/summary/changes.
+function readMarkdownReleaseNotes(version, build) {
+  const notesFile = path.join(rootDir, `RELEASE_NOTES_${version}-build${build}.md`);
+  if (!fs.existsSync(notesFile)) {
+    return null;
+  }
+  try {
+    const raw = fs.readFileSync(notesFile, "utf8");
+    const lines = raw.split(/\r?\n/);
+    const title = (lines.find((line) => line.startsWith("# ")) || "").replace(/^#\s+/, "").trim() || `AnxOS ${version} Build ${build}`;
+    const firstParagraph = lines.find((line, index) => index > 0 && line.trim() && !line.startsWith("#") && !line.startsWith("**"));
+    const summary = (firstParagraph || `Latest AnxOS-Control-Center release.`).trim().slice(0, 300);
+    const changes = lines
+      .filter((line) => line.startsWith("- "))
+      .map((line) => line.replace(/^- /, "").trim())
+      .filter(Boolean)
+      .slice(0, 12);
+    return { title, summary, changes: changes.length ? changes : ["Updated application build and downloadable release assets."] };
+  } catch {
+    return null;
+  }
+}
+
 function getReleaseNotes() {
   const releaseDate = formatReleaseDate();
   const today = new Date().toISOString().slice(0, 10);
@@ -75,6 +98,7 @@ function getReleaseNotes() {
   });
 
   if (!notes.some((entry) => (entry.version === release.version && Number(entry.build) === release.build) || entry.tag === currentTag)) {
+    const markdown = readMarkdownReleaseNotes(release.version, release.build);
     notes.unshift({
       version: release.version,
       build: release.build,
@@ -82,9 +106,9 @@ function getReleaseNotes() {
       tag: currentTag,
       date: releaseDate,
       datetime: today,
-      title: `AnxOS ${release.versionLabel}`,
-      summary: "Latest AnxOS-Control-Center release.",
-      changes: [
+      title: markdown?.title || `AnxOS ${release.versionLabel}`,
+      summary: markdown?.summary || "Latest AnxOS-Control-Center release.",
+      changes: markdown?.changes || [
         "Updated application build, website metadata, and downloadable release assets.",
       ],
       url: `${repositoryUrl}/releases/tag/${currentTag}`,

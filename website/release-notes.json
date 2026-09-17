@@ -1,15 +1,26 @@
 [
   {
-    "version": "1.9",
+    "version": "2.0",
     "build": 203,
     "channel": "Private Alpha",
     "tag": "v1.9-build203-rc2",
     "date": "September 17, 2026",
     "datetime": "2026-09-17",
-    "title": "AnxOS Version 1.9",
-    "summary": "Latest AnxOS-Control-Center release.",
+    "title": "Release Notes — AnxOS Control Center v1.9 build 203",
+    "summary": "Build 203 ships the V2-A Wave-1 close-out, the first V2-C and V2-D slices,",
     "changes": [
-      "Updated application build, website metadata, and downloadable release assets."
+      "Shared instance identity model, authenticated agent enrollment handshake",
+      "Durable per-instance job lifecycle: state machine, idempotency keys,",
+      "The agent spawn contract is now explicit: `ANXHUB_CONFIG_DIR` is the sole",
+      "A Windows/Linux support matrix documents what is tested, partial, and",
+      "Docker engine detection with per-prerequisite diagnostics (not installed,",
+      "Container create/start/stop/restart/delete/pull ride the durable V2-A job",
+      "A dedicated smoke pins the docker route manifest, capability report,",
+      "Marketplace templates carry opt-in `version stamps`, `checksum`",
+      "Instances carry managed/imported/external ownership. Silent ownership",
+      "The instance detail panel surfaces ownership; imported and external",
+      "The dashboard gains a widget row (servers, remote systems, node health,",
+      "The agent serves a session-gated, read-only management page at"
     ],
     "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v1.9-build203-rc2"
   },
@@ -20,10 +31,17 @@
     "tag": "v1.9-build202-rc1",
     "date": "September 16, 2026",
     "datetime": "2026-09-16",
-    "title": "AnxOS Version 1.9",
-    "summary": "Latest AnxOS-Control-Center release.",
+    "title": "Release Notes — AnxOS Control Center v1.9 build 202",
+    "summary": "Build 202 completes the UX/quality half of the original bug batch whose",
     "changes": [
-      "Updated application build, website metadata, and downloadable release assets."
+      "A truthful Agent health `mode` derived from the configured API permissions",
+      "A regression smoke locks the health-mode computation against permission",
+      "A regression smoke for the node-switch reset contract (generation-keyed,",
+      "The node selector no longer sticks on \"Switching node…\" when a switch never",
+      "The optional AnxOS cloud device-login no longer hard-fails on machines with",
+      "The versioning smoke's RC-retry provenance scenario is advanced together",
+      "Full source validation (187 suites) passes before this build is eligible",
+      "Reused the disposable-sandbox in-place upgrade acceptance pattern proven in"
     ],
     "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v1.9-build202-rc1"
   },
@@ -34,10 +52,19 @@
     "tag": "v1.9-build201-rc2",
     "date": "September 16, 2026",
     "datetime": "2026-09-16",
-    "title": "AnxOS Version 1.9",
-    "summary": "Latest AnxOS-Control-Center release.",
+    "title": "Release Notes — AnxOS Control Center v1.9 build 201",
+    "summary": "Build 201 ships the crash-only bugfix batch on top of the Build 200 V2",
     "changes": [
-      "Updated application build, website metadata, and downloadable release assets."
+      "An EPIPE-safe console facade centralizes best-effort logging so a closed",
+      "Unreadable or corrupt instance configs now surface as an explicit",
+      "An actionable `AGENT_AUTH_FAILED` error with Repair / Rotate Token / Pair",
+      "Uncaught `EPIPE` from best-effort console writes can no longer crash the",
+      "An unreadable or corrupt instance config is now surfaced as an explicit",
+      "The Agent instance-root fallback is now Windows-aware (`%LOCALAPPDATA%",
+      "A rejected Agent token on `/api/v1/stats` now returns an actionable",
+      "Regression smokes cover the EPIPE guard, the unavailable-config surface,",
+      "Two non-`EOL`-normalizing smokes were hardened and the dependency IPC",
+      "Full source validation must pass before Build 201 is eligible for commit or"
     ],
     "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v1.9-build201-rc2"
   },
@@ -48,10 +75,18 @@
     "tag": "v1.9-build200-rc4",
     "date": "September 15, 2026",
     "datetime": "2026-09-16",
-    "title": "AnxOS Version 1.9",
-    "summary": "Latest AnxOS-Control-Center release.",
+    "title": "Release Notes — AnxOS Control Center v1.9 build 200",
+    "summary": "Build 200 establishes the V2 Reliability Contract without beginning the wider",
     "changes": [
-      "Updated application build, website metadata, and downloadable release assets."
+      "A focused Build 199 instance-record fixture and deterministic schema 1 to",
+      "Durable failed-install state for interrupted provider installations.",
+      "Regression coverage for repeated lifecycle cycles, duplicate stops,",
+      "Interrupted installs are retained with actionable failure evidence instead",
+      "Stop timeouts no longer leave instance metadata indefinitely in `Stopping`;",
+      "The shutdown regression uses an already-authorized absolute executable path,",
+      "Website and updater download routing now recognize only the canonical",
+      "Focused migration, lifecycle, installation recovery, Marketplace retention,",
+      "Full source validation must pass before Build 200 is eligible for commit or"
     ],
     "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v1.9-build200-rc4"
   },
