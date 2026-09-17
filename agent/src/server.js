@@ -239,7 +239,7 @@ async function routeRequest(request, url) {
 
   // V2-A browser surface: short-lived session transport (bearer-gated for
   // POST, cookie-gated for GET; permission-gated via ui:session below).
-  if (pathname === "/api/v1/ui/session") {
+  if (pathname === "/api/v1/ui/session" || pathname === "/api/v1/ui") {
     try {
       return handleUiSession(request, url);
     } catch (error) {
@@ -432,7 +432,8 @@ async function handleRequest(request, response) {
     // A valid UI session cookie substitutes for the bearer credential on the
     // session-validation path only (browser clients hold no bearer token);
     // permission authorization still runs below (ui:session, fail-closed).
-    const uiSessionBypass = url.pathname === "/api/v1/ui/session" && request.method === "GET"
+    const uiSessionBypass = (url.pathname === "/api/v1/ui/session" && request.method === "GET"
+      || url.pathname === "/api/v1/ui" && request.method === "GET")
       && (() => {
         try {
           validateSessionToken(parseSessionCookie(request));

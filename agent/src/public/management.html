@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AnxOS Agent — Management</title>
+<style>
+  :root { color-scheme: dark; }
+  body { font-family: system-ui, sans-serif; background: #14101d; color: #e8e4f2; margin: 0; padding: 2rem; }
+  main { max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 1.2rem; }
+  .card { background: #1d1729; border: 1px solid #2e2440; border-radius: 10px; padding: 1rem 1.25rem; margin: 0.75rem 0; }
+  .row { display: flex; justify-content: space-between; gap: 1rem; padding: 0.35rem 0; border-bottom: 1px solid #241b33; }
+  .row:last-child { border-bottom: none; }
+  .label { color: #a99ec4; }
+  .stale { color: #e0b45c; }
+  .error { color: #e2777a; }
+</style>
+</head>
+<body>
+<main>
+  <h1>AnxOS Agent — Management</h1>
+  <section class="card" id="session-card"><div class="row"><span class="label">Session</span><span id="session-state">Checking…</span></div></section>
+  <section class="card"><div class="row"><span class="label">Agent</span><span id="health-state">Checking…</span></div><div class="row"><span class="label">Details</span><span id="health-detail">—</span></div></section>
+  <section class="card"><div class="row"><span class="label">Docker route surface</span><span id="caps-state">Checking…</span></div><div class="row"><span class="label">Operations</span><span id="caps-count">—</span></div></section>
+  <p class="label">Read-only view served by this agent. Engine truth lives in the agent API; this page never widens permissions.</p>
+</main>
+<script>
+  // Render with textContent only — no innerHTML sinks anywhere on this page.
+  const setText = (id, value, cls) => {
+    const el = document.getElementById(id);
+    el.textContent = value;
+    el.className = cls || "";
+  };
+  const text = async (res) => { try { return await res.json(); } catch { return null; } };
+
+  (async () => {
+    try {
+      const session = await fetch("/api/v1/ui/session");
+      const sessionBody = await text(session);
+      if (!session.ok) {
+        setText("session-state", sessionBody?.error?.code === "UI_SESSION_EXPIRED" ? "Expired — authenticate again from Control Center." : "No active session.", "error");
+        return;
+      }
+      setText("session-state", `Active until ${sessionBody?.expiresAt || "unknown"}`);
+
+      const health = await fetch("/api/v1/health");
+      const healthBody = await text(health);
+      setText("health-state", health.ok && healthBody?.ok ? "Healthy" : "Unreachable", health.ok && healthBody?.ok ? "" : "error");
+      setText("health-detail", healthBody?.version ? `agent ${healthBody.version}` : "—");
+
+      const caps = await fetch("/api/v1/docker/capabilities");
+      const capsBody = await text(caps);
+      setText("caps-state", caps.ok ? `${capsBody?.scope || "unknown"}` : `HTTP ${caps.status}`, caps.ok ? "" : "error");
+      setText("caps-count", caps.ok && Array.isArray(capsBody?.routes) ? `${capsBody.routes.length} routes` : "—");
+    } catch (error) {
+      setText("health-state", "Request failed.", "error");
+      setText("health-detail", String(error && error.message || error).slice(0, 160));
+    }
+  })();
+</script>
+</body>
+</html>

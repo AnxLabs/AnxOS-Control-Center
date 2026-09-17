@@ -84,6 +84,22 @@ async function main() {
   assert.throws(() => validateSessionToken(expired.token), (error) => error.code === "UI_SESSION_EXPIRED",
     "An expired session must be rejected with the expiry code.");
 
+  // 6. The management page is session-gated: a valid session serves the
+  // static shell with a tightened CSP; no session redirects to guidance.
+  resetSessionsForTest();
+  const pageSession = issueSession();
+  const pageCookie = sessionCookieHeader(pageSession.token, pageSession.expiresAt);
+  const pageOk = dispatch(
+    { method: "GET", headers: { cookie: pageCookie }, body: "" },
+    u("/api/v1/ui"),
+  );
+  assert.strictEqual(pageOk.statusCode, 200, "A valid session must serve the management page.");
+  assert.ok(String(pageOk.headers["content-security-policy"]).includes("default-src 'none'"), "The page must carry a tightened CSP.");
+  const pageDenied = dispatch({ method: "GET", headers: {}, body: "" }, u("/api/v1/ui"));
+  // No session at the route layer: the page handler redirects the browser to
+  // guidance rather than serving the shell.
+  assert.strictEqual(pageDenied.statusCode, 302, "A missing session must redirect, not serve the shell.");
+
   console.log("agent:ui-session:smoke passed");
 }
 
