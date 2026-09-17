@@ -76,7 +76,7 @@ function createLocalAgent() {
     const nodes = require("../src/services/nodeService");
     const { getNodeToken } = require("../src/services/nodeCredentialStore");
 
-    nodes.deleteNode("agent-local-agent-47131");
+    await nodes.deleteNode("agent-local-agent-47131");
 
     const afterDelete = JSON.parse(fs.readFileSync(nodes.getNodesPath(), "utf8"));
     assert.strictEqual(afterDelete.nodes.some((node) => node.id === "agent-local-agent-47131"), false, "deleted local Agent node should be removed from registry");

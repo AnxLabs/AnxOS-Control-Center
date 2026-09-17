@@ -23,11 +23,32 @@ const TAR_BLOCK_SIZE = 512;
 const BACKUP_METADATA_SCHEMA_VERSION = 1;
 const BACKUP_SCHEDULE_SCHEMA_VERSION = 1;
 const MINIMUM_DISK_RESERVE_BYTES = 64 * 1024 * 1024;
+// Workload-consistency disclosure (V2-F): "crash" copies are taken while the
+// instance keeps running (the historical default), "stopped" copies quiesce
+// the workload first through the instance lifecycle.
+const BACKUP_CONSISTENCY_MODES = new Set(["crash", "stopped"]);
+// States from which a quiesced backup must first bring the instance down;
+// mirrors the stop set the restore flow uses.
+const INSTANCE_ACTIVE_STATES = new Set(["Starting", "Running", "Restarting", "Stopping"]);
 let schedulerStarted = false;
 let schedulerTimer = null;
 
 function createBackupError(code, statusCode = 400, details = {}) {
   return Object.assign(new Error(code), { code, statusCode, details });
+}
+
+function isInstanceActive(status) {
+  return Boolean(status?.pid || INSTANCE_ACTIVE_STATES.has(status?.state));
+}
+
+function normalizeBackupConsistency(value) {
+  // Unknown values must fail loudly instead of silently downgrading to a
+  // weaker consistency guarantee than the caller asked for.
+  if (value === undefined || value === null || value === "") return "crash";
+  if (!BACKUP_CONSISTENCY_MODES.has(value)) {
+    throw createBackupError("INVALID_BACKUP_CONSISTENCY", 400, { consistency: String(value) });
+  }
+  return value;
 }
 
 function sha256Hex(buffer) {
@@ -679,6 +700,10 @@ async function listBackups(options = {}) {
   const instanceIndexes = new Map();
   const nowMs = Date.now();
   for (const backup of filtered) {
+    // Older metadata predates consistency disclosure; every copy taken before
+    // the stopped option existed was crash-consistent, so the displayed value
+    // defaults instead of inventing per-backup history.
+    backup.consistency = backup.consistency === "stopped" ? "stopped" : "crash";
     const instanceIndex = instanceIndexes.get(backup.instanceId) ?? 0;
     instanceIndexes.set(backup.instanceId, instanceIndex + 1);
     if (!newestBackupIds.has(backup.instanceId)) {
@@ -775,6 +800,7 @@ async function pruneRetention(instanceId, options = {}) {
 async function performCreateBackup(payload = {}) {
   const instanceId = validateInstanceId(payload.instanceId);
   const type = String(payload.type || "full") === "world" ? "world" : "full";
+  const consistency = normalizeBackupConsistency(payload.consistency);
   const instancePath = await getInstancePath(instanceId);
   const sourcePaths = await getSourcePaths(instancePath, type);
   await ensureBackupRoot();
@@ -785,9 +811,44 @@ async function performCreateBackup(payload = {}) {
   }
   await ensureDiskSpace(getBackupRoot(), sourceSize, "BACKUP_DISK_SPACE_INSUFFICIENT");
 
+  // Workload-consistent backup hook (V2-F): "crash" stays byte-identical to
+  // the historical behavior — files are archived while the instance keeps
+  // running, which is disclosed as crash-consistent. When the caller asks for
+  // "stopped", the instance is quiesced through the same canonical stop path
+  // the restore flow uses; an already-stopped instance is never stopped or
+  // restarted again.
+  let instanceWasRunning = null;
+  let stoppedForBackup = false;
+  if (consistency === "stopped") {
+    const { before } = await stopInstanceAndWait(instanceId, {
+      stopFailed: "BACKUP_INSTANCE_STOP_FAILED",
+      stillRunning: "BACKUP_INSTANCE_STILL_RUNNING",
+    });
+    instanceWasRunning = isInstanceActive(before);
+    stoppedForBackup = instanceWasRunning;
+  } else {
+    // Crash-consistent copies never touch the lifecycle, so the running flag
+    // is disclosure metadata only and an unobservable state is recorded as
+    // null rather than guessed.
+    instanceWasRunning = await instanceService.getStatus(instanceId)
+      .then((status) => isInstanceActive(status))
+      .catch(() => null);
+  }
+
   const backupId = `${instanceId}-${Date.now()}-${crypto.randomBytes(3).toString("hex")}`;
   const archive = archivePath(backupId);
-  const archiveDetails = await writeTarGzArchive(archive, instancePath, sourcePaths);
+  let archiveDetails;
+  let restartAfterBackup = null;
+  try {
+    archiveDetails = await writeTarGzArchive(archive, instancePath, sourcePaths);
+  } finally {
+    // The stopped window covers only the archive step, and the restart holds
+    // whether the archive succeeded or failed so a paused server is never
+    // left down by a failed backup.
+    if (stoppedForBackup) {
+      restartAfterBackup = await restartInstanceAfterBackup(instanceId);
+    }
+  }
   const metadata = {
     schemaVersion: BACKUP_METADATA_SCHEMA_VERSION,
     id: backupId,
@@ -805,7 +866,18 @@ async function performCreateBackup(payload = {}) {
     sourcePaths,
     archiveName: path.basename(archive),
     status: "complete",
+    // Additive consistency disclosure (schema stays at 1): how the copy was
+    // taken and whether the instance had to be stopped and started again.
+    consistency,
+    instanceWasRunning,
+    restartedAfterBackup: restartAfterBackup?.restarted === true,
   };
+  if (restartAfterBackup?.attempted && restartAfterBackup.restarted === false) {
+    metadata.restartAfterBackupError = {
+      code: restartAfterBackup.errorCode,
+      message: restartAfterBackup.errorMessage,
+    };
+  }
   try {
     await writeJson(metadataPath(backupId), metadata);
   } catch (error) {
@@ -813,7 +885,7 @@ async function performCreateBackup(payload = {}) {
     throw error;
   }
   const retention = await pruneRetention(instanceId, payload.retention || {});
-  return { backup: metadata, retention };
+  return { backup: metadata, retention, restart: restartAfterBackup || IDLE_RESTART_REPORT };
 }
 
 async function createBackup(payload = {}) {
@@ -864,29 +936,58 @@ async function createSafetySnapshot(instanceId, type = "full") {
   });
 }
 
-async function ensureInstanceStoppedForRestore(instanceId) {
-  const activeStates = new Set(["Starting", "Running", "Restarting", "Stopping"]);
+// Canonical stop-then-verify pattern: read the live status, stop through the
+// instance lifecycle when the workload is active, then re-verify the stop
+// actually landed before callers depend on a quiesced instance. Restore and
+// stopped-consistency backups share it so both flows stop the same way.
+async function stopInstanceAndWait(instanceId, errorCodes) {
   const before = await instanceService.getStatus(instanceId);
-  if (before?.pid || activeStates.has(before?.state)) {
+  if (isInstanceActive(before)) {
     try {
       await instanceService.stopInstance(instanceId);
     } catch (error) {
-      throw createBackupError("RESTORE_INSTANCE_STOP_FAILED", 409, {
+      throw createBackupError(errorCodes.stopFailed, 409, {
         instanceId,
         causeCode: error?.code || "INSTANCE_STOP_FAILED",
       });
     }
   }
   const after = await instanceService.getStatus(instanceId);
-  if (after?.pid || activeStates.has(after?.state)) {
-    throw createBackupError("RESTORE_INSTANCE_STILL_RUNNING", 409, {
+  if (isInstanceActive(after)) {
+    throw createBackupError(errorCodes.stillRunning, 409, {
       instanceId,
       state: after?.state || "Unknown",
       pid: after?.pid || null,
     });
   }
-  return after;
+  return { before, after };
 }
+
+async function ensureInstanceStoppedForRestore(instanceId) {
+  return (await stopInstanceAndWait(instanceId, {
+    stopFailed: "RESTORE_INSTANCE_STOP_FAILED",
+    stillRunning: "RESTORE_INSTANCE_STILL_RUNNING",
+  })).after;
+}
+
+// Best-effort restart through the same canonical start path the restore flow
+// uses. A failed restart never fails the backup itself, but it is reported in
+// the create result and metadata instead of being silently swallowed.
+async function restartInstanceAfterBackup(instanceId) {
+  try {
+    await instanceService.startInstance(instanceId);
+    return { attempted: true, restarted: true, errorCode: null, errorMessage: null };
+  } catch (error) {
+    return {
+      attempted: true,
+      restarted: false,
+      errorCode: error?.code || "INSTANCE_START_FAILED",
+      errorMessage: String(error?.message || "Instance restart after backup failed."),
+    };
+  }
+}
+
+const IDLE_RESTART_REPORT = Object.freeze({ attempted: false, restarted: false, errorCode: null, errorMessage: null });
 
 async function rollbackRestoreFromSafetySnapshot(instancePath, safetyBackup) {
   if (!safetyBackup?.path) {

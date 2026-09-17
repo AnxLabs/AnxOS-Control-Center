@@ -4149,6 +4149,9 @@
               <div class="nodes-toolbar">
                 <button class="inline-action" type="button" data-node-action="refresh">Refresh</button>
                 <button class="inline-action" type="button" data-node-action="test">Test Selected</button>
+                <select data-node-group-filter aria-label="Filter nodes by group">
+                  <option value="all">All groups</option>
+                </select>
                 <span class="settings-inline-status" data-node-message>No additional nodes registered.</span>
               </div>
               <div class="download-list" data-node-list></div>
@@ -4645,6 +4648,7 @@
                   <small class="settings-field-error" data-node-field-error="agentToken"></small>
                 </div>
                 <label class="settings-field settings-field--wide"><span>Description</span><input type="text" data-node-field="description" placeholder="Optional note, rack, owner, or location" maxlength="500"></label>
+                <label class="settings-field"><span>Group</span><input type="text" data-node-field="group" placeholder="Optional group label, e.g. Lab" maxlength="40"><small class="settings-field-error" data-node-field-error="group"></small></label>
                 <label class="settings-field settings-field--wide"><span>Tags</span><input type="text" data-node-field="tags" placeholder="windows, minecraft, vps"></label>
                 <label class="settings-check settings-check--toggle"><input type="checkbox" data-node-field="enabled" checked><span>Node enabled</span></label>
                 <label class="settings-check settings-check--toggle"><input type="checkbox" data-node-field="dockerEnabled" checked><span>Docker enabled on this node</span></label>

@@ -611,6 +611,12 @@ function normalizeTags(value) {
     : [];
 }
 
+// Groups are organizational labels only this wave (no policy): trimmed,
+// bounded, and allowed to be empty.
+function normalizeNodeGroup(value) {
+  return String(value || "").trim().slice(0, 40);
+}
+
 function normalizeAgentNode(node = {}) {
   const agentUrl = normalizeUrl(node.baseUrl || node.agentUrl || node.url);
   const identity = node.agentIdentity || node.identity || {};
@@ -654,6 +660,8 @@ function normalizeAgentNode(node = {}) {
     enabled: node.enabled !== false,
     description: String(node.description || "").trim().slice(0, 500),
     tags: normalizeTags(node.tags),
+    group: normalizeNodeGroup(node.group),
+    manualDisconnect: node.manualDisconnect === true,
     lastConnectionState: normalizeConnectionState(node.lastConnectionState || node.connection?.status || "unknown"),
     lastSuccessfulHealthCheck: node.lastSuccessfulHealthCheck || node.connection?.lastSeen || null,
     lastHealthCheckedAt: node.lastHealthCheckedAt || node.connection?.checkedAt || null,
@@ -724,6 +732,8 @@ function mergeAgentNodes(nodes) {
       enabled: current.enabled !== false && raw.enabled !== false,
       description: current.description || raw.description || "",
       tags: normalizeTags([...(current.tags || []), ...(raw.tags || [])]),
+      group: current.group || raw.group || "",
+      manualDisconnect: current.manualDisconnect === true || raw.manualDisconnect === true,
       lastConnectionState: current.lastConnectionState || raw.lastConnectionState || "unknown",
       lastSuccessfulHealthCheck: current.lastSuccessfulHealthCheck || raw.lastSuccessfulHealthCheck || null,
       lastHealthCheckedAt: current.lastHealthCheckedAt || raw.lastHealthCheckedAt || null,
@@ -752,6 +762,25 @@ function mergeAgentNodes(nodes) {
 async function discoverLocalAgentNode(state) {
   const effective = getEffectiveAgentSettings();
   const existingLocal = state.nodes.find((node) => node.localAgent === true || isLocalAgentUrl(node.agentUrl));
+  // An owner-disconnected Local Agent node must not be re-probed into
+  // "online" by routine discovery; only Reconnect/Re-pair restores it.
+  if (existingLocal?.manualDisconnect === true) {
+    return normalizeAgentNode({
+      ...existingLocal,
+      localAgent: true,
+      ownerMachine: true,
+      connection: createLocalAgentConnectionStatus({
+        connected: false,
+        status: "offline",
+        displayStatus: "Offline",
+        installed: null,
+        serviceRunning: null,
+        authenticated: null,
+        message: "Local Agent is manually disconnected. Use Reconnect or re-pair to resume monitoring.",
+        lastSeen: existingLocal.connection?.lastSeen || null,
+      }),
+    });
+  }
   let lastError = null;
 
   for (const agentUrl of getLocalAgentUrls()) {
@@ -1157,6 +1186,26 @@ async function checkNodeHealth(nodeId, options = {}) {
       checkedAt: new Date().toISOString(),
     };
   }
+  // Manual disconnect is an explicit owner action: health checks must not
+  // probe the Agent or churn the recorded connection state until Reconnect
+  // (or re-pairing) clears the flag.
+  if (node.manualDisconnect === true) {
+    const updated = updateNodeHealthState(node.id, {
+      state: "offline",
+      message: "Node is manually disconnected. Use Reconnect or re-pair to resume health checks.",
+      errorCode: "NODE_MANUALLY_DISCONNECTED",
+      checkedAt: new Date().toISOString(),
+    });
+    return {
+      nodeId: updated.id,
+      state: "offline",
+      connected: false,
+      status: "offline",
+      message: updated.connection?.message,
+      node: publicNode(updated),
+      checkedAt: updated.lastHealthCheckedAt,
+    };
+  }
   if (node.enabled === false) {
     const updated = updateNodeHealthState(node.id, {
       state: "unknown",
@@ -1532,6 +1581,7 @@ async function saveNode(payload = {}) {
   const agentToken = agentTokenInput || existingById?.agentToken || "";
   if (!displayName || displayName.length > 80) throw Object.assign(new Error("Enter a node name up to 80 characters."), { code: "INVALID_NODE_NAME" });
   if (!/^https?:\/\/[^ ]+$/i.test(agentUrl)) throw Object.assign(new Error("Enter a valid Agent URL."), { code: "INVALID_NODE_URL" });
+  if (String(payload.group ?? "").trim().length > 40) throw Object.assign(new Error("Enter a group label of 40 characters or fewer."), { code: "INVALID_NODE_GROUP" });
   let healthResponse;
   let identity;
   try {
@@ -1661,6 +1711,9 @@ async function pairNodeFromCode(payload = {}) {
     agentUrl,
     agentToken: permanentToken,
     enabled: true,
+    // Pairing (or re-pairing) re-establishes the connection and must clear an
+    // owner disconnect so health checks resume immediately.
+    manualDisconnect: false,
     agentIdentity: {
       ...identity,
       agentInstallationId: identity.agentInstallationId || paired.agentInstallationId || null,
@@ -1741,12 +1794,114 @@ async function testNodeConnectionPayload(payload = {}) {
   };
 }
 
-function deleteNode(nodeId) {
+const DEFAULT_AGENT_REVOCATION_TIMEOUT_MS = 5000;
+
+// Best-effort desktop-driven enrollment revocation: the desktop presents the
+// node's own shared Agent token (bearer) to POST /api/v1/enroll/revoke. The
+// Agent gates revoke behind the owner permission, so restricted remote
+// credentials may refuse (403) and unreachable Agents time out; every failure
+// is reported instead of being swallowed, and the caller decides what to do.
+async function attemptAgentEnrollmentRevocation(node, options = {}) {
+  const agentUrl = normalizeUrl(node.baseUrl || node.agentUrl || "");
+  if (!/^https?:\/\//i.test(agentUrl)) {
+    return {
+      attempted: false,
+      revoked: false,
+      agentUrl,
+      code: "NODE_AGENT_URL_MISSING",
+      reason: "Node has no Agent URL, so the remote enrollment was not revoked.",
+    };
+  }
+  try {
+    const config = getNodeAgentConfigFromNode(node);
+    await agentClient.revokeAgentEnrollment(config, {
+      timeoutMs: Math.max(1000, Number(options.timeoutMs) || DEFAULT_AGENT_REVOCATION_TIMEOUT_MS),
+      reason: String(options.reason || "removed-from-control-center").slice(0, 200),
+    });
+    return { attempted: true, revoked: true, agentUrl };
+  } catch (error) {
+    return {
+      attempted: true,
+      revoked: false,
+      agentUrl,
+      code: error?.code || error?.payload?.error?.code || "AGENT_UNAVAILABLE",
+      reason: error?.message || "Remote revocation failed.",
+    };
+  }
+}
+
+function setNodeManualDisconnect(node, disconnected) {
+  const manualDisconnect = disconnected === true;
+  return normalizeAgentNode({
+    ...node,
+    manualDisconnect,
+    lastConnectionState: manualDisconnect ? "offline" : node.lastConnectionState,
+    lastHealthErrorCode: manualDisconnect ? "NODE_MANUALLY_DISCONNECTED" : node.lastHealthErrorCode,
+    connection: manualDisconnect
+      ? buildConnectionPatch({
+          state: "offline",
+          message: "Disconnected from AnxOS by the owner. Use Reconnect or re-pair to restore.",
+          localAgent: node.localAgent === true || isLocalAgentUrl(node.agentUrl),
+          previous: node.connection || null,
+        })
+      : node.connection,
+  });
+}
+
+function disconnectNode(nodeId) {
+  if (!nodeId || nodeId === APPLICATION_HOST_NODE_ID || nodeId === "default") {
+    throw Object.assign(new Error("The application host connection cannot be changed here."), { code: "APPLICATION_HOST_READ_ONLY" });
+  }
+  const state = readNodeState();
+  const index = state.nodes.findIndex((entry) => entry.id === nodeId);
+  if (index < 0) {
+    throw Object.assign(new Error("Node not found."), { code: "NODE_NOT_FOUND" });
+  }
+  // Invalidate any in-flight health check so a pre-disconnect probe can never
+  // resurrect the connection state after the flag is written.
+  advanceNodeHealthGeneration(nodeId);
+  const nodes = [...state.nodes];
+  nodes[index] = setNodeManualDisconnect(nodes[index], true);
+  writeNodeState({ ...state, nodes });
+  return { nodeId, disconnected: true, node: publicNode(nodes[index]) };
+}
+
+async function reconnectNode(nodeId) {
+  if (!nodeId || nodeId === APPLICATION_HOST_NODE_ID || nodeId === "default") {
+    return checkNodeHealth(APPLICATION_HOST_NODE_ID);
+  }
+  const state = readNodeState();
+  const index = state.nodes.findIndex((entry) => entry.id === nodeId);
+  if (index < 0) {
+    throw Object.assign(new Error("Node not found."), { code: "NODE_NOT_FOUND" });
+  }
+  if (state.nodes[index].manualDisconnect === true) {
+    advanceNodeHealthGeneration(nodeId);
+    const nodes = [...state.nodes];
+    nodes[index] = setNodeManualDisconnect(nodes[index], false);
+    writeNodeState({ ...state, nodes });
+  }
+  return checkNodeHealth(nodeId);
+}
+
+async function deleteNode(nodeId, options = {}) {
   if (!nodeId || nodeId === APPLICATION_HOST_NODE_ID || nodeId === "default") {
     throw Object.assign(new Error("The application host cannot be deleted."), { code: "APPLICATION_HOST_READ_ONLY" });
   }
   const state = readNodeState();
   const node = state.nodes.find((entry) => entry.id === nodeId);
+  // Desktop-driven revocation runs FIRST and is best-effort: the local record
+  // is removed regardless of the outcome, and a failed revocation is surfaced
+  // honestly (never reported as a revoked Agent).
+  const revocation = node && node.kind === "agent" && localCredentialsUnlocked()
+    ? await attemptAgentEnrollmentRevocation(node, options)
+    : {
+        attempted: false,
+        revoked: false,
+        reason: node
+          ? "Node credentials are locked, so revocation was not attempted."
+          : "Node was not registered, so revocation was not attempted.",
+      };
   const removalMarker = node ? getLocalAgentRemovalMarker(node) : null;
   const nodes = state.nodes.filter((entry) => entry.id !== nodeId);
   deleteNodeToken(nodeId);
@@ -1759,9 +1914,9 @@ function deleteNode(nodeId) {
     selectedNodeId: state.selectedNodeId === nodeId ? APPLICATION_HOST_NODE_ID : state.selectedNodeId,
     nodes,
   });
-  return { id: nodeId, deleted: true };
+  return { id: nodeId, deleted: true, revocation };
 }
 async function selectNode(nodeId) { getNode(nodeId); const state = readNodeState(); writeNodeState({ ...state, selectedNodeId: nodeId || APPLICATION_HOST_NODE_ID }); return listNodes({ discoverLocalAgent: false, refreshIdentity: false }); }
 async function testNode(nodeId) { return checkNodeHealth(nodeId || getSelectedNodeId(), { timeoutMs: 8000 }); }
 
-module.exports = { APPLICATION_HOST_NODE_ID, HEALTH_STATES, NODE_SCHEMA_VERSION, checkAllNodeHealth, checkNodeHealth, deleteNode, getAllNodesSync, getExecutionTarget, getNode, getNodeAgentConfig, getNodeCredentialStatus, getNodeCredentialsPath, getNodesPath, getSelectedNodeId, listNodes, mergeAgentNodes, migrateState, pairNodeFromCode, recordAuthenticatedNodeHealth, repairNodeCredential, resolveNodeForAgentIdentity, saveNode, selectNode, testNode, testNodeConnectionPayload, updateNodeHealthState, _test: { buildNodeCapabilities, compareAgentVersions, formatAgentCompatibilityMessage, getAgentCompatibilityReport, getNodeReportedCapabilities, normalizeAgentApiMajor, normalizeAgentCapabilitiesMetadata, normalizeAgentProtocolVersion, parseComparableAgentVersion, postPairingComplete } };
+module.exports = { APPLICATION_HOST_NODE_ID, HEALTH_STATES, NODE_SCHEMA_VERSION, checkAllNodeHealth, checkNodeHealth, deleteNode, disconnectNode, getAllNodesSync, getExecutionTarget, getNode, getNodeAgentConfig, getNodeCredentialStatus, getNodeCredentialsPath, getNodesPath, getSelectedNodeId, listNodes, mergeAgentNodes, migrateState, pairNodeFromCode, reconnectNode, recordAuthenticatedNodeHealth, repairNodeCredential, resolveNodeForAgentIdentity, saveNode, selectNode, testNode, testNodeConnectionPayload, updateNodeHealthState, _test: { attemptAgentEnrollmentRevocation, buildNodeCapabilities, compareAgentVersions, formatAgentCompatibilityMessage, getAgentCompatibilityReport, getNodeReportedCapabilities, normalizeAgentApiMajor, normalizeAgentCapabilitiesMetadata, normalizeAgentProtocolVersion, normalizeNodeGroup, parseComparableAgentVersion, postPairingComplete, setNodeManualDisconnect } };

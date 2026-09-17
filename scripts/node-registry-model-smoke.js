@@ -39,7 +39,7 @@ try {
 
   fs.writeFileSync(nodes.getNodesPath(), `${JSON.stringify({ schemaVersion: 1, selectedNodeId: "anxlab", nodes: [legacyNode] }, null, 2)}\n`, { mode: 0o600 });
   const listed = nodes.listNodes({ discoverLocalAgent: false, refreshIdentity: false });
-  Promise.resolve(listed).then((state) => {
+  Promise.resolve(listed).then(async (state) => {
     const node = state.nodes.find((entry) => entry.id === "anxlab");
     assert(node, "Deserialization should return the migrated node.");
     assert.strictEqual(node.baseUrl, "http://192.168.1.134:47131", "Public node should expose normalized baseUrl.");
@@ -69,7 +69,7 @@ try {
     }, null, 2)}\n`, { mode: 0o600 });
     assert.strictEqual(nodes.getNodeAgentConfig("anxlab").agentToken, "new-canonical-token", "Protected node credential store must be the canonical token source over stale node metadata.");
 
-    nodes.deleteNode("anxlab");
+    await nodes.deleteNode("anxlab");
     assert.strictEqual(getNodeToken("anxlab"), "", "Deleting a node should delete its stored credential.");
 
     console.log("Node registry model smoke checks passed.");

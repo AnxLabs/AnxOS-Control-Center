@@ -691,6 +691,7 @@ const accountDetailsPanel = document.querySelector("[data-account-details]");
 const nodeTargetSelects = document.querySelectorAll("[data-node-target]");
 const nodeFields = document.querySelectorAll("[data-node-field]");
 const nodeList = document.querySelector("[data-node-list]");
+const nodeGroupFilter = document.querySelector("[data-node-group-filter]");
 const nodeMessage = document.querySelector("[data-node-message]");
 const nodeStatus = document.querySelector("[data-node-status]");
 const nodeSummaryFields = document.querySelectorAll("[data-node-summary]");
@@ -18364,17 +18365,28 @@ function getBackupWorldGameLabel(instance = null) {
   return BACKUP_WORLD_GAME_LABELS[getInstanceAccessGameKind(instance)] || null;
 }
 
-async function chooseBackupType(title = "Create world-only backup?", instance = null) {
+async function chooseBackupType(title = "Create world-only backup?", instance = null, options = {}) {
   const gameLabel = getBackupWorldGameLabel(instance);
   const message = gameLabel
     ? `World data (${gameLabel}) will be included. Choose World Backup for world-only data, or Cancel to create a full instance backup.`
     : "This instance does not have a recognized world data layout, so World Backup may not be available. Cancel to create a full instance backup, or continue to try a World Backup.";
-  const worldOnly = await createSecurityConfirmation({
+  const confirmation = await createSecurityConfirmation({
     title,
     message,
     confirmLabel: gameLabel ? `World Backup (${gameLabel})` : "World Backup",
+    // Workload-consistency disclosure (V2-F): without the pause option the
+    // archive is a crash-consistent copy taken while the server keeps running.
+    note: "The server keeps running while a crash-consistent copy is taken.",
+    checkboxLabel: options.offerPause ? "Pause server during backup" : "",
   });
-  return worldOnly ? "world" : "full";
+  if (!confirmation) {
+    return { type: "full", consistency: "crash" };
+  }
+  const worldOnly = confirmation === true || confirmation?.confirmed === true;
+  return {
+    type: worldOnly ? "world" : "full",
+    consistency: options.offerPause && confirmation?.checked === true ? "stopped" : "crash",
+  };
 }
 
 function parseBackupWholeNumber(value, fallback, fieldLabel) {
@@ -18487,19 +18499,26 @@ async function createBackupForInstance(instanceId = null) {
   if (!targetInstanceId) {
     return;
   }
-  const type = await chooseBackupType("Create world-only backup?", findInstance(targetInstanceId) || null);
+  const { type, consistency } = await chooseBackupType("Create world-only backup?", findInstance(targetInstanceId) || null, { offerPause: true });
   backupRequestInFlight = true;
   renderBackups();
   try {
     if (!isNodeActionStillCurrent(requestContext)) return;
-    await desktopApiState.api.backups.create({
+    const result = await desktopApiState.api.backups.create({
       nodeId: requestContext.nodeId,
       instanceId: targetInstanceId,
       name: `${targetInstanceId} ${type} backup`,
       type,
+      consistency,
       createdBy: securityState.user?.username || "local-user",
     });
     showToast("Backup created.");
+    // A paused backup restarts the server best-effort; a failed restart is
+    // surfaced instead of leaving the server silently down.
+    if (result?.restart?.attempted && result.restart.restarted === false) {
+      showToast(`Backup created, but the server could not be restarted (${result.restart.errorCode || "restart failed"}). Start it manually.`, "warning");
+      await refreshInstances();
+    }
     await refreshBackups();
   } catch (error) {
     showToast(getBackupErrorMessage(error, "Backup could not be created."), "error");
@@ -18698,7 +18717,7 @@ async function configureBackupSchedule(instanceId) {
     showToast(error?.message || "Backup schedule values are invalid.", "warning");
     return;
   }
-  const type = await chooseBackupType("Schedule world-only backups?", findInstance(instanceId) || null);
+  const { type } = await chooseBackupType("Schedule world-only backups?", findInstance(instanceId) || null);
   try {
     if (!isNodeActionStillCurrent(requestContext)) return;
     await desktopApiState.api.backups.saveSchedule({
@@ -31767,7 +31786,7 @@ async function refreshProtectedStateAfterLocalOwnerAuthentication(authResult = {
   }
 }
 
-function createSecurityConfirmation({ title, message, phrase = "", confirmLabel = "Confirm" } = {}) {
+function createSecurityConfirmation({ title, message, phrase = "", confirmLabel = "Confirm", note = "", checkboxLabel = "" } = {}) {
   return new Promise((resolve) => {
     const overlay = document.createElement("div");
     overlay.className = "app-modal-backdrop";
@@ -31791,6 +31810,18 @@ function createSecurityConfirmation({ title, message, phrase = "", confirmLabel 
       createTextElement("p", message || "Confirm this security action."),
     );
     dialog.append(closeButton, header);
+    if (note) {
+      header.appendChild(createTextElement("p", note));
+    }
+    let checkbox = null;
+    if (checkboxLabel) {
+      const option = document.createElement("label");
+      option.className = "security-option";
+      checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      option.append(checkbox, createTextElement("span", checkboxLabel));
+      dialog.appendChild(option);
+    }
     if (phrase) {
       const label = document.createElement("label");
       label.className = "settings-field";
@@ -31830,6 +31861,12 @@ function createSecurityConfirmation({ title, message, phrase = "", confirmLabel 
       if (phrase && typed !== phrase) {
         showToast(`Type ${phrase} to confirm.`);
         overlay.querySelector("[data-confirm-phrase]")?.focus();
+        return;
+      }
+      // Checkbox confirmations resolve the choice instead of a bare boolean
+      // so the caller can act on the option without a second dialog.
+      if (checkbox) {
+        close({ confirmed: true, checked: checkbox.checked });
         return;
       }
       close(phrase || true);
@@ -33676,6 +33713,9 @@ function validateNodeFormPayload(payload = {}) {
   if (!nodeEditId && !String(payload.agentToken || "").trim()) {
     errors.agentToken = "Enter the Agent token for this node.";
   }
+  if (String(payload.group || "").trim().length > 40) {
+    errors.group = "Use 40 characters or fewer.";
+  }
   return errors;
 }
 
@@ -33779,6 +33819,8 @@ function setNodeModalVisible(isVisible, node = null) {
         field.placeholder = nodeEditId ? "Saved token is stored securely" : "Enter or generate an Agent token";
       } else if (key === "description") {
         field.value = node?.description || "";
+      } else if (key === "group") {
+        field.value = node?.group || "";
       } else if (key === "tags") {
         field.value = Array.isArray(node?.tags) ? node.tags.join(", ") : "";
       }
@@ -34029,6 +34071,44 @@ async function activateNodePickerOption(index) {
   await selectNode(node.id || "application-host");
 }
 
+const NODE_GROUP_FILTER_ALL = "all";
+const NODE_GROUP_FILTER_UNGROUPED = "(ungrouped)";
+
+function getNodeGroupFilterValue() {
+  return nodeGroupFilter?.value || NODE_GROUP_FILTER_ALL;
+}
+
+function nodeMatchesGroupFilter(node, filterValue) {
+  if (!filterValue || filterValue === NODE_GROUP_FILTER_ALL) return true;
+  const group = String(node?.group || "").trim();
+  if (filterValue === NODE_GROUP_FILTER_UNGROUPED) return !group;
+  return group === filterValue;
+}
+
+function syncNodeGroupFilterOptions() {
+  if (!nodeGroupFilter) return;
+  const groups = [...new Set((nodesState.nodes || [])
+    .filter((node) => node.kind === "agent")
+    .map((node) => String(node.group || "").trim())
+    .filter(Boolean))]
+    .sort((left, right) => left.localeCompare(right));
+  const selected = getNodeGroupFilterValue();
+  const options = [
+    { value: NODE_GROUP_FILTER_ALL, label: "All groups" },
+    ...(groups.includes(NODE_GROUP_FILTER_UNGROUPED) ? [] : [{ value: NODE_GROUP_FILTER_UNGROUPED, label: "No group" }]),
+    ...groups.map((group) => ({ value: group, label: group })),
+  ];
+  const validValues = new Set(options.map((option) => option.value));
+  nodeGroupFilter.replaceChildren();
+  options.forEach((option) => {
+    const element = document.createElement("option");
+    element.value = option.value;
+    element.textContent = option.label;
+    nodeGroupFilter.append(element);
+  });
+  nodeGroupFilter.value = validValues.has(selected) ? selected : NODE_GROUP_FILTER_ALL;
+}
+
 function renderNodes() {
   renderRoutingDiagnostics();
   syncAgentConnectionDisplayWithSelectedNode();
@@ -34086,6 +34166,8 @@ function renderNodes() {
   if (nodeList) {
     nodeList.replaceChildren();
     const nodes = nodesState.nodes || [];
+    syncNodeGroupFilterOptions();
+    const groupFilter = getNodeGroupFilterValue();
     const remoteCount = nodes.filter((node) => node.kind === "agent").length;
     if (remoteCount === 0) {
       const empty = document.createElement("div");
@@ -34103,6 +34185,7 @@ function renderNodes() {
       nodeList.append(empty);
     }
     nodes.forEach((node) => {
+      if (!nodeMatchesGroupFilter(node, groupFilter)) return;
       const state = getNodeVisualState(node);
       const connectionState = getNodeConnectionState(node);
       const health = getSharedNodeHealthModel(node);
@@ -34137,6 +34220,7 @@ function renderNodes() {
       meta.className = "node-card__meta";
       [
         ["Context", node.kind === "application-host" ? "Local Application Host" : `${getNodeTypeLabel(node)} · ${node.agentUrl || "Unavailable"}`],
+        ...(node.group ? [["Group", node.group]] : []),
         ["Connection", `${connectionState.primary} - ${connectionState.secondary}`],
         ...(isWindowsAgentNode(node) ? [["Windows MVP", getWindowsAgentMvpSummary(node)]] : []),
         ["Last seen", formatNodeLastSeen(node)],
@@ -34160,8 +34244,11 @@ function renderNodes() {
         ["details", "View Details"],
         ["remove", node.kind === "application-host" ? "Built In" : "Remove"],
       ];
+      if (node.kind === "agent") {
+        nodeActions.splice(2, 0, node.manualDisconnect === true ? ["reconnect", "Reconnect"] : ["disconnect", "Disconnect"]);
+      }
       if (getNodeConnectionState(node).state === "Authentication Required") {
-        nodeActions.splice(3, 0, ["repair", "Re-pair Existing Node"]);
+        nodeActions.splice(4, 0, ["repair", "Re-pair Existing Node"]);
       }
       nodeActions.forEach(([actionName, label]) => {
         const button = document.createElement("button");
@@ -34541,9 +34628,9 @@ async function deleteSelectedNode() {
     return;
   }
   try {
-    await desktopApiState.api.nodes.delete(nodeId);
+    const result = await desktopApiState.api.nodes.delete(nodeId);
     await refreshNodes();
-    showToast("Node deleted.");
+    showToast(getNodeDeleteToast(result));
   } catch (error) {
     showToast(error?.message || "Node could not be deleted.");
   }
@@ -34555,6 +34642,54 @@ async function testNodeById(nodeId) {
   const result = await desktopApiState.api.nodes.test(nodeId || getSelectedNodeId()).catch((error) => ({ connected: false, message: error.message }));
   await refreshNodes();
   showToast(result.connected ? "Node connected." : getFriendlyErrorMessage(result.message || "Node unavailable."));
+}
+
+// Disconnect stops health polling and marks the node offline without deleting
+// the record or revoking the Agent; Reconnect (or re-pairing) restores it.
+async function disconnectNodeById(nodeId) {
+  const desktopApiState = getDesktopApiState();
+  const node = getNodePickerNodes().find((candidate) => candidate.id === nodeId);
+  if (!desktopApiState.hasNodes || !node || node.kind !== "agent" || typeof desktopApiState.api.nodes.disconnect !== "function") {
+    return;
+  }
+  try {
+    await desktopApiState.api.nodes.disconnect(nodeId);
+    await refreshNodes();
+    if (nodeId === getSelectedNodeId()) {
+      await reloadActiveNodeData(getNodeRequestContext("node-disconnect"));
+    }
+    showToast(`${node.displayName || node.id} disconnected. Health checks are paused until you reconnect or re-pair.`, "info");
+  } catch (error) {
+    showToast(normalizeIpcErrorMessage(error, "Node could not be disconnected."), "error");
+  }
+}
+
+async function reconnectNodeById(nodeId) {
+  const desktopApiState = getDesktopApiState();
+  const node = getNodePickerNodes().find((candidate) => candidate.id === nodeId);
+  if (!desktopApiState.hasNodes || !node || node.kind !== "agent" || typeof desktopApiState.api.nodes.reconnect !== "function") {
+    return;
+  }
+  try {
+    await desktopApiState.api.nodes.reconnect(nodeId);
+    await refreshNodes();
+    if (nodeId === getSelectedNodeId()) {
+      await reloadActiveNodeData(getNodeRequestContext("node-reconnect"));
+    }
+    showToast(`${node.displayName || node.id} reconnected.`);
+  } catch (error) {
+    showToast(normalizeIpcErrorMessage(error, "Node could not be reconnected."), "error");
+  }
+}
+
+// The backend revokes the Agent enrollment best-effort before removing the
+// node; a failed revocation is never reported as a revoked Agent.
+function getNodeDeleteToast(result) {
+  const revocation = result?.revocation;
+  if (revocation && revocation.revoked !== true) {
+    return `Node removed from AnxOS, but remote revocation failed: ${revocation.reason || "unknown reason"}.`;
+  }
+  return "Node removed.";
 }
 
 async function deleteNodeById(nodeId) {
@@ -34571,11 +34706,11 @@ async function deleteNodeById(nodeId) {
     return;
   }
   try {
-    await desktopApiState.api.nodes.delete(node.id);
+    const result = await desktopApiState.api.nodes.delete(node.id);
     setNodeDetailsVisible(false);
     setNodeModalVisible(false);
     await refreshNodes();
-    showToast("Node removed.");
+    showToast(getNodeDeleteToast(result));
   } catch (error) {
     showToast(error?.message || "Node could not be removed.");
   }
@@ -34629,6 +34764,8 @@ async function repairNodeById(nodeId) {
 async function handleNodeCardAction(action, nodeId) {
   if (action === "select") await selectNode(nodeId);
   else if (action === "test") await testNodeById(nodeId);
+  else if (action === "disconnect") await disconnectNodeById(nodeId);
+  else if (action === "reconnect") await reconnectNodeById(nodeId);
   else if (action === "edit") editNodeById(nodeId);
   else if (action === "repair") await repairNodeById(nodeId);
   else if (action === "refresh") await refreshNodes({ forceHealthRefresh: true });
@@ -38763,6 +38900,7 @@ nodeList?.addEventListener("click", async (event) => {
   event.stopPropagation();
   await handleNodeCardAction(actionButton.dataset.nodeCardAction, actionButton.dataset.nodeId);
 });
+nodeGroupFilter?.addEventListener("change", () => renderNodes());
 nodeDetailsModal?.addEventListener("click", async (event) => {
   const healthButton = event.target.closest("[data-node-health-action]");
   if (healthButton) {

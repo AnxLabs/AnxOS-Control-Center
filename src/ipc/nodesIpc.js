@@ -3,9 +3,11 @@ const {
   checkAllNodeHealth,
   checkNodeHealth,
   deleteNode,
+  disconnectNode,
   getNodeCredentialStatus,
   listNodes,
   pairNodeFromCode,
+  reconnectNode,
   repairNodeCredential,
   saveNode,
   testNode,
@@ -47,6 +49,20 @@ function registerNodesIpc() {
     requirePermission("settings:write", context.nodeId);
     audit({ action: "node.delete", target: context.nodeId });
     return deleteNode(context.nodeId);
+  }));
+  ipcMain.handle("nodes:disconnect", async (_, payload = {}) => invokeNodeOperation(() => {
+    const context = requireNodeContext(payload, "node disconnect");
+    requireLocalOwnerAuthenticated("nodes:disconnect", "Unlock AnxOS to manage nodes.");
+    requirePermission("settings:write", context.nodeId);
+    audit({ action: "node.disconnect", target: context.nodeId });
+    return disconnectNode(context.nodeId);
+  }));
+  ipcMain.handle("nodes:reconnect", async (_, payload = {}) => invokeNodeOperation(() => {
+    const context = requireNodeContext(payload, "node reconnect");
+    requireLocalOwnerAuthenticated("nodes:reconnect", "Unlock AnxOS to manage nodes.");
+    requirePermission("settings:write", context.nodeId);
+    audit({ action: "node.reconnect", target: context.nodeId });
+    return reconnectNode(context.nodeId);
   }));
   ipcMain.handle("nodes:select", async (_, payload = {}) => invokeNodeOperation(() => { requireLocalOwnerAuthenticated("nodes:select", "Unlock AnxOS to manage nodes."); requirePermission("nodes:read", payload.nodeId); return setActiveNode(requireNodeContext(payload, "node selection").nodeId, { reason: "ipc-select" }); }));
   ipcMain.handle("nodes:test", async (_, payload = {}) => invokeNodeOperation(() => { requireLocalOwnerAuthenticated("nodes:test", "Unlock AnxOS to use saved node credentials."); requirePermission("nodes:read", payload.nodeId); return testNode(requireNodeContext(payload, "node connection test").nodeId); }));

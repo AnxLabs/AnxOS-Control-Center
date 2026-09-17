@@ -258,7 +258,7 @@ async function main() {
     "World data (${gameLabel}) will be included. Choose World Backup for world-only data, or Cancel to create a full instance backup.",
     "This instance does not have a recognized world data layout, so World Backup may not be available. Cancel to create a full instance backup, or continue to try a World Backup.",
     "confirmLabel: gameLabel ? `World Backup (${gameLabel})` : \"World Backup\",",
-    "await chooseBackupType(\"Create world-only backup?\", findInstance(targetInstanceId) || null)",
+    "await chooseBackupType(\"Create world-only backup?\", findInstance(targetInstanceId) || null, { offerPause: true })",
     "await chooseBackupType(\"Schedule world-only backups?\", findInstance(instanceId) || null)",
   ].forEach((needle) => assert(appSource.includes(needle), `Backup world-scope renderer pinning missing: ${needle}`));
 

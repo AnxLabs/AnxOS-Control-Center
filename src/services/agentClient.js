@@ -3329,6 +3329,40 @@ async function createWindowsFirewallRule(payload = {}, configOverride = null) {
   return requestJson("/api/v1/public-access/firewall-rule", { config: configOverride, method: "POST", body: payload });
 }
 
+// V2-G node lifecycle: the desktop revokes a node's enrollment with the same
+// shared Agent token it already holds for that node. Revocation is
+// owner-permission gated on the Agent, so a restricted remote credential may
+// legitimately refuse; callers must treat the result as best-effort and
+// surface refusals instead of assuming success.
+async function revokeAgentEnrollment(configOverride = null, options = {}) {
+  return requestJson("/api/v1/enroll/revoke", {
+    config: configOverride,
+    method: "POST",
+    body: {
+      confirmRevoke: options.confirmRevoke !== false,
+      reason: options.reason || undefined,
+    },
+    timeoutMs: options.timeoutMs,
+    targetLabel: configOverride?.targetLabel || "agent-enroll-revoke",
+    suppressConnectionRefusedLog: true,
+    logThrottleMs: 60000,
+  });
+}
+
+// Companion privileged enrollment endpoint (agent:manage gated). Kept
+// reachable from the desktop so credential rotation shares one transport.
+async function rotateAgentEnrollmentCredential(configOverride = null, options = {}) {
+  return requestJson("/api/v1/credentials/rotate", {
+    config: configOverride,
+    method: "POST",
+    body: {},
+    timeoutMs: options.timeoutMs,
+    targetLabel: configOverride?.targetLabel || "agent-credential-rotate",
+    suppressConnectionRefusedLog: true,
+    logThrottleMs: 60000,
+  });
+}
+
 module.exports = {
   _test: {
     getAgentTransportErrorMessage,
@@ -3454,6 +3488,8 @@ module.exports = {
   requestBuffer,
   requestStream,
   requestJson,
+  revokeAgentEnrollment,
+  rotateAgentEnrollmentCredential,
   rotateAgentSettingsToken,
   saveAgentSettings,
   saveBackupSchedule,

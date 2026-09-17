@@ -330,6 +330,8 @@ const desktopApi = {
     save: (payload = {}) => ipcRenderer.invoke("nodes:save", payload),
     pair: (payload = {}) => ipcRenderer.invoke("nodes:pair", payload),
     delete: (nodeId) => ipcRenderer.invoke("nodes:delete", { nodeId }),
+    disconnect: (nodeId) => ipcRenderer.invoke("nodes:disconnect", { nodeId }),
+    reconnect: (nodeId) => ipcRenderer.invoke("nodes:reconnect", { nodeId }),
     select: (nodeId) => ipcRenderer.invoke("nodes:select", { nodeId }),
     test: (nodeId) => ipcRenderer.invoke("nodes:test", { nodeId }),
     testConnection: (payload = {}) => ipcRenderer.invoke("nodes:testConnection", payload),
