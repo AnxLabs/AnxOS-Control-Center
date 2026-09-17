@@ -6,6 +6,15 @@
 
 Last full-rebuild: cycle 6 in flight (HEAD dc1fcb8).
 
+### Cycle-6 queue deltas
+
+- **V2-G wave 3 (offline job policy): LANDED (86432ee)** — jobLifecycle expiresAt opt-in, lazy expiry on getJob/listJobs/recovery, key release without replay, TTL excluding destructive types, zero-change default. instances:job-expiry:smoke registered; job family green. I2 CLOSED.
+- **V2-F wave 4 (restore targeting + preview): LANDED (21a27cc)** — read-only preview (byte-proven), same-node targetInstanceId with cross-instance restore + config rebranding, target-aware conflict refusal, safety-scope fallback. **Product bug fixed by the implementer: in-restore failures were masked as RESTORE_ROLLBACK_FAILED (rollbackRestoreFromSafetySnapshot required a path field live metadata never carried) — every real in-restore failure had skipped rollback. Now resolves from the snapshot id; covered by forced mid-mutation rollback test.** restore:targeting:smoke registered; backup family green. I3 CLOSED.
+- **I4 workload transfer: DISPATCHED** (desktop orchestration: download → import → targeted restore with preview-first + confirm; extends the drill harness transfer leg). R4 reviewer dispatched over 86432ee/21a27cc.
+- **Residue tripwire caught implementer development-run residue again** (both new smokes verified clean in isolation; cleaned + gate rerun).
+- **V2-H/I/J survey COMPLETE** (agent_f54328a7): three bullet tables + wave plans. Sequencing decision: V2-I W1 (actor×resource×action permission-matrix harness) BEFORE V2-H exposure waves. Deferrals recorded: reverse-proxy/certs (owner decision), container trust levels (re-scope candidate), fleet update orchestration (may ride V2-G batch). NEW queue item: write docs/v2/SECURITY_TRIAGE_RECORD.md (Mimosa evidence must be in-repo for the V2-I gate) — S1 updated.
+- Suite count 234 → 238 (job-expiry + restore-targeting + fleet + multi-node smokes registered).
+
 ### Cycle-5→6 queue deltas
 
 - **R3 reviewer verdict: NOTHING ABOVE P1** on the fleet/drill wave (batch confirm gate verified service-side on the sole path; runWithConcurrency race-free; drill hermetic with real leak detection; marker fix sound). All four findings fixed + pushed (dc1fcb8): fleet-summary wording honesty, failed-batch refresh, delete-toast attempted-false wording, (ungrouped) sentinel collision (NUL-prefixed sentinel). Recorded: commit-split drift in 2748170 (message says review-fixes, content includes the wave-2 feature — mid-session git add -A sweep; unfixable without history rewrite, recorded here as the attribution of record).
