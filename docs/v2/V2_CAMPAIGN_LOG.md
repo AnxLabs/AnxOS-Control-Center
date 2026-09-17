@@ -140,7 +140,14 @@ Checkpoint: local == remote == 398e7d2, tree clean. In flight:
 - **V2-D runtime pin guard** (implementer): resolution-time pin records + cross-workload refusal + explicit unpin; closes the "updating one runtime must not break a pinned workload" acceptance gap.
 - **V2-E player management** (implementer): read-only Minecraft whitelist/ops/bans view, adapter-scoped, honest unsupported states.
 - **V2-F survey COMPLETE**: bullet table (1-2 EXISTS with verified containment; 3/5/8 PARTIAL; 4/6/7/9 MISSING-or-partial), acceptance-gate decomposition, 5 bounded waves, deferral candidates (bullet 4 → discovery-only; remote/encrypted destinations → pair with V2-G, local-only disclosure; DB hooks → defer until a DB workload track). Wave dispatch: waves 1+2 (retention safety + archive integrity) launched as one implementer; wave 3 (consistency hooks), wave 4 (restore targeting), wave 5 (remote destinations, L) queued in order.
-- **V2-G survey** running (node model, enrollment/revocation, reconnection, wrong-node isolation, upgrade story, two-node drill decomposition).
+- **V2-G survey COMPLETE**: bullet table (5 EXIST-solid wrong-node fail-safes; 1/2/3/4 PARTIAL; 6/7/8 MISSING) + 5 bounded waves:
+  1. *Node lifecycle completion (M)* — desktop-driven revoke (agent exposes /enroll/revoke but agentClient never calls it; deleteNode only removes the local record and leaves the agent enrolled), explicit disconnect op, node groups + filter.
+  2. *Fleet aggregation + batch actions (M-L)* — fleet view roll-up, cross-node batch with per-node results + bounded concurrency.
+  3. *Offline job policy (S-M)* — expiresAt/renewed-approval in jobLifecycle (today enqueued jobs just fail, never expire by policy).
+  4. *Workload transfer (M)* — cross-node backup→import→restore with conflict preview.
+  5. *Agent upgrade per OS (M)* — remote upgrade path (today local-agent-only, "Automatic updating is available only for the Local Agent"), Linux packaged unit (Debian "Experimental" in the support matrix).
+  Acceptance drill decomposed and ONE-MACHINE feasible: two agent processes with distinct ANXHUB_CONFIG_DIR/AGENT_INSTANCE_ROOT/AGENT_PORT; enroll both; interrupt B mid-job; restart desktop; assert A stays usable, per-node result tagging, no stale replay, revoke→410 (needs wave 1), transfer drill (needs wave 4), per-OS legs.
+  Sequencing: V2-G wave 1 dispatches after the three running implementers integrate (bandwidth + it unblocks the drill's revocation step).
 
 ### Cycle 1 close — V2-B/V2-F/V2-D integrated (2026-09-17, commits 411f610, eb13b83 — PUSHED)
 
