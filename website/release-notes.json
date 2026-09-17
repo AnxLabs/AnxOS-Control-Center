@@ -6,7 +6,7 @@
     "tag": "v1.9-build203-rc2",
     "date": "September 17, 2026",
     "datetime": "2026-09-17",
-    "title": "Release Notes — AnxOS Control Center v1.9 build 203",
+    "title": "Release Notes — AnxOS Control Center v2.0 build 203",
     "summary": "Build 203 ships the V2-A Wave-1 close-out, the first V2-C and V2-D slices,",
     "changes": [
       "Shared instance identity model, authenticated agent enrollment handshake",
