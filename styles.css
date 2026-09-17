@@ -8579,6 +8579,118 @@ dd {
   gap: 8px;
 }
 
+/* V2-B Wave 1 dashboard widgets + app cards (docs/v2/V2B_DASHBOARD_APPS_WAVE1.md §3.2). */
+.dashboard-widget-row {
+  margin-bottom: 18px;
+}
+
+.dashboard-widget-row article {
+  min-width: 0;
+  padding: 13px;
+  border: 1px solid rgba(190, 170, 220, .14);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .04);
+}
+
+.dashboard-widget-row article strong {
+  color: var(--text);
+}
+
+.dashboard-widget-row article p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.dashboard-widget-row article.is-stale {
+  border-style: dashed;
+  opacity: .82;
+}
+
+.dashboard-widget-row article.is-stale strong {
+  color: var(--muted);
+}
+
+.dashboard-app-grid-section {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.dashboard-app-grid-section h2 {
+  margin: 0;
+  color: var(--text);
+}
+
+.dashboard-app-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.dashboard-app-card {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  min-width: 0;
+  padding: 13px;
+  border: 1px solid rgba(190, 170, 220, .14);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .04);
+  cursor: pointer;
+  transition: border-color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
+}
+
+.dashboard-app-card:hover,
+.dashboard-app-card:focus-visible {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+  box-shadow: var(--anx-glow-sm);
+  outline: none;
+}
+
+.dashboard-app-card strong {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-app-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  color: var(--muted);
+  font-size: .82rem;
+}
+
+.dashboard-app-card__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.dashboard-app-card__footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.dashboard-app-grid-note {
+  margin: 0;
+  padding: 13px;
+  border: 1px dashed rgba(190, 170, 220, .2);
+  border-radius: 8px;
+  color: var(--muted);
+  grid-column: 1 / -1;
+}
+
+.dashboard-app-grid-note.is-stale {
+  opacity: .82;
+}
+
 .dashboard-setup-health {
   display: grid;
   gap: 14px;
@@ -9628,6 +9740,51 @@ body.has-open-modal {
   height: 100%;
   border-radius: inherit;
   object-fit: cover;
+}
+
+/* V2-B Wave 1 favorites (docs/v2/V2B_DASHBOARD_APPS_WAVE1.md §3). */
+.marketplace-card__title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.marketplace-card__title-row strong {
+  min-width: 0;
+}
+
+.marketplace-card__favorite {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgba(202, 169, 255, 0.22);
+  border-radius: var(--anx-radius-sm);
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.95rem;
+  line-height: 1;
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  transition: border-color 160ms ease, color 160ms ease, background 160ms ease, transform 160ms ease;
+}
+
+.marketplace-card__favorite:hover,
+.marketplace-card__favorite:focus-visible {
+  border-color: rgba(211, 186, 255, 0.5);
+  color: var(--text);
+  background: var(--anx-surface-control-hover);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.marketplace-card__favorite.is-active {
+  color: var(--accent);
+  border-color: rgba(182, 108, 255, 0.45);
+  background: rgba(182, 108, 255, 0.14);
 }
 
 .marketplace-card__body {

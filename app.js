@@ -868,6 +868,11 @@ let marketplaceProviderRequestInFlight = false;
 let marketplaceProviderRequestId = 0;
 let marketplaceProviderError = null;
 const MARKETPLACE_VIEW_STATE_KEY = "anxos:marketplace-view-state";
+// V2-B Wave 1 favorites (docs/v2/V2B_DASHBOARD_APPS_WAVE1.md §3): stars live in
+// their own localStorage key so they survive restarts independently of the
+// per-session view state.
+const MARKETPLACE_FAVORITES_KEY = "anxos:marketplace-favorites";
+let marketplaceFavorites = loadMarketplaceFavorites();
 const marketplaceProviderTemplates = new Map();
 const MARKETPLACE_PROVIDER_PAGE_SIZE = 24;
 const MARKETPLACE_VERSION_FILTERS = ["recommended", "releases", "snapshots", "legacy", "all"];
@@ -1895,6 +1900,11 @@ function getFriendlyDashboardState() {
     selectedSystemStatus: activeTarget.connectionState.label,
     updated: hasSystemSnapshot ? formatHealthCheckedAt(latestSystemSnapshotAt) : "Waiting for metrics",
     health: `${nodeHealth.state} · ${nodeHealth.issueCount} issue${nodeHealth.issueCount === 1 ? "" : "s"}`,
+    // V2-B Wave 1 staleness inputs (docs/v2/V2B_DASHBOARD_APPS_WAVE1.md §3.2):
+    // seconds since each dashboard source was observed, or null when that
+    // source has never loaded for the selected node.
+    ageSeconds: hasSystemSnapshot && latestSystemSnapshotAt ? Math.max(0, Math.round((Date.now() - latestSystemSnapshotAt) / 1000)) : null,
+    healthAgeSeconds: nodeHealth?.updatedAt ? Math.max(0, Math.round((Date.now() - nodeHealth.updatedAt) / 1000)) : null,
   };
 
   const computer = activeTarget.targetType === "application-host" && (hasSystemSnapshot || runtimeInfoState)
@@ -2145,6 +2155,18 @@ function renderSetupHealthCenter() {
   );
 }
 
+// V2-B Wave 1 staleness threshold (docs/v2/V2B_DASHBOARD_APPS_WAVE1.md §3.2).
+// The agent health surface applies its metricsUpdated staleness policy
+// server-side and does not export a renderer constant, so the dashboard
+// mirrors the operator-facing rule locally: data older than 90 seconds renders
+// as stale, never healthy.
+const DASHBOARD_STALE_AFTER_MS = 90 * 1000;
+
+function formatDashboardStaleAge(ageSeconds) {
+  if (!Number.isFinite(ageSeconds)) return "an unknown time";
+  return `${Math.max(1, Math.round(ageSeconds / 60))} min`;
+}
+
 // V2-B app slice (docs/v2/V2B_DASHBOARD_APPS_WAVE1.md §3.2): a compact widget
 // row over the data the dashboard already polls. Staleness policy: when the
 // instances snapshot is not current for the selected node, the tile says
@@ -2193,10 +2215,120 @@ function renderDashboardWidgets(state) {
       "Remote systems online",
       !state.remoteNodes,
     ),
-    tile(state.metrics.health, "Node health", false),
-    tile(state.metrics.updated, "Metrics freshness", false),
+    tile(
+      state.metrics.health,
+      state.metrics.healthAgeSeconds === null || state.metrics.healthAgeSeconds * 1000 > DASHBOARD_STALE_AFTER_MS
+        ? `Health data is ${formatDashboardStaleAge(state.metrics.healthAgeSeconds)} old — refresh`
+        : "Node health",
+      state.metrics.healthAgeSeconds === null || state.metrics.healthAgeSeconds * 1000 > DASHBOARD_STALE_AFTER_MS,
+    ),
+    tile(
+      state.metrics.updated,
+      state.metrics.ageSeconds === null
+        ? "No fresh metrics yet — refresh"
+        : state.metrics.ageSeconds * 1000 > DASHBOARD_STALE_AFTER_MS
+          ? `Data is ${formatDashboardStaleAge(state.metrics.ageSeconds)} old — refresh`
+          : "Metrics freshness",
+      state.metrics.ageSeconds === null || state.metrics.ageSeconds * 1000 > DASHBOARD_STALE_AFTER_MS,
+    ),
   ];
   row.replaceChildren(...tiles);
+}
+
+// V2-B Wave 1 app-card grid (docs/v2/V2B_DASHBOARD_APPS_WAVE1.md §3.2): one
+// card per installed instance from the already-polled snapshot. The grid is
+// honest about data state — a stale snapshot shows "Checking…", an empty one
+// shows a real empty note — it never renders zeros or placeholder cards.
+function renderDashboardAppGrid(state) {
+  const page = document.querySelector('[data-page="dashboard"]');
+  if (!page) return;
+  let section = page.querySelector("[data-dashboard-app-grid]");
+  if (!section) {
+    section = document.createElement("section");
+    section.className = "dashboard-app-grid-section";
+    section.dataset.dashboardAppGrid = "true";
+    const widgetRow = page.querySelector("[data-dashboard-widgets]");
+    const header = page.querySelector(".page-header");
+    if (widgetRow) {
+      widgetRow.insertAdjacentElement("afterend", section);
+    } else if (header) {
+      header.insertAdjacentElement("afterend", section);
+    } else {
+      page.prepend(section);
+    }
+  }
+  const grid = document.createElement("div");
+  grid.className = "dashboard-app-grid";
+  if (!state.instancesLoaded) {
+    grid.append(createTextElement("p", "Checking installed servers for the selected system…", "dashboard-app-grid-note is-stale"));
+  } else if (!state.instances.length) {
+    grid.append(createTextElement("p", "No applications are installed on the selected system yet. Install one from the Marketplace.", "dashboard-app-grid-note"));
+  } else {
+    state.instances.forEach((instance) => grid.append(createDashboardAppCard(instance)));
+  }
+  section.replaceChildren(createTextElement("h2", "Applications"), grid);
+}
+
+function createDashboardAppCard(instance) {
+  const card = document.createElement("article");
+  card.className = "dashboard-app-card";
+  card.tabIndex = 0;
+  card.setAttribute("role", "button");
+  const name = instance?.displayName || instance?.id || "Unnamed service";
+  card.setAttribute("aria-label", `${name}: open instance details`);
+
+  const meta = document.createElement("div");
+  meta.className = "dashboard-app-card__meta";
+  meta.append(
+    createTextElement("span", getInstanceNodeLabel(instance)),
+    createTextElement("span", formatInstanceAddressLabel(instance)),
+  );
+
+  const badges = document.createElement("div");
+  badges.className = "dashboard-app-card__badges";
+  const ownershipTone = instance?.ownership && instance.ownership !== "anxos-managed" ? "planned" : "ok";
+  badges.append(
+    createTextElement("span", getInstanceOwnershipLabel(instance), `status-pill status-pill--${ownershipTone}`),
+    buildInstanceStatePill(instance),
+  );
+
+  const footer = document.createElement("div");
+  footer.className = "dashboard-app-card__footer";
+  // Best-effort HTTP launch link: only when the service is running and has a
+  // primary port; never guess HTTPS (V2-B Wave 1 launch-link primitive).
+  const serviceUrl = isInstanceRunning(instance) ? getInstanceServiceUrl(instance) : "";
+  if (serviceUrl) {
+    const open = document.createElement("a");
+    open.className = "inline-action dashboard-app-card__open";
+    open.href = serviceUrl;
+    open.target = "_blank";
+    open.rel = "noopener";
+    open.textContent = "Open service";
+    open.title = `Open ${serviceUrl} in your browser`;
+    footer.append(open);
+  }
+
+  card.addEventListener("click", (event) => {
+    if (event.target.closest("a")) return;
+    openDashboardInstanceDetails(instance?.id);
+  });
+  card.addEventListener("keydown", (event) => {
+    if (event.target !== card) return;
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    openDashboardInstanceDetails(instance?.id);
+  });
+
+  card.append(createTextElement("strong", name), meta, badges, footer);
+  return card;
+}
+
+function openDashboardInstanceDetails(instanceId) {
+  if (!instanceId) return;
+  // Reuse the existing instance detail flow: the same page the instance rows
+  // navigate to, selected the same way.
+  showPage("instances");
+  selectInstance(instanceId);
 }
 
 function renderFriendlyDashboard() {
@@ -2241,6 +2373,7 @@ function renderFriendlyDashboard() {
   }
   renderSetupHealthCenter();
   renderDashboardWidgets(state);
+  renderDashboardAppGrid(state);
   refreshBackupSummaryForSetup().catch((error) => {
     console.warn("[Backups] Setup backup summary refresh failed.", { message: error?.message || String(error) });
   });
@@ -10988,6 +11121,25 @@ function getInstanceConnectionHost(instance = null) {
   }
 }
 
+// V2-B Wave 1 launch-link primitive (docs/v2/V2B_DASHBOARD_APPS_WAVE1.md §3.2):
+// a best-effort HTTP URL for web-facing services. The scheme is never guessed
+// beyond plain HTTP, so callers only render the link when the service is
+// running and has a primary port configured.
+function getInstanceServiceUrl(instance = null) {
+  const port = getInstancePrimaryPort(instance);
+  if (!port) {
+    return "";
+  }
+  return `http://${getInstanceConnectionHost(instance)}:${port}`;
+}
+
+// Shared with the dashboard app cards so the ownership wording can never drift
+// between the instances page and the dashboard (V2-B app slice).
+function getInstanceOwnershipLabel(instance = null) {
+  const ownershipLabels = { "anxos-managed": "AnxOS-managed", "imported": "Imported", "external": "External" };
+  return ownershipLabels[instance?.ownership] || (instance?.ownership ? String(instance.ownership) : "AnxOS-managed");
+}
+
 function formatInstanceAddress(instance) {
   const port = getInstancePrimaryPort(instance);
   if (!port) {
@@ -13184,6 +13336,20 @@ function updateInstanceActionButtons() {
     button.disabled = busy || !hasInstancesBridge || !selectedInstance || !hasAddress;
   });
 
+  document.querySelectorAll("[data-instance-open-service]").forEach((anchor) => {
+    // V2-B Wave 1 launch-link primitive: a best-effort HTTP link shown only
+    // when the selected service is running and has a primary port; the scheme
+    // is never guessed beyond plain HTTP.
+    const serviceUrl = selectedInstance && isInstanceRunning(selectedInstance) ? getInstanceServiceUrl(selectedInstance) : "";
+    anchor.hidden = !serviceUrl || !hasInstancesBridge;
+    if (serviceUrl) {
+      anchor.href = serviceUrl;
+      anchor.title = `Open ${formatInstanceAddress(selectedInstance)} in your browser`;
+    } else {
+      anchor.removeAttribute("href");
+    }
+  });
+
   document.querySelectorAll('[data-instance-action="manage-access"]').forEach((button) => {
     button.disabled = busy || !hasInstancesBridge || !selectedInstance || !getDesktopApiState().hasPublicAccess;
   });
@@ -13776,8 +13942,7 @@ function setInstanceDetails(instance = null) {
   // V2-B app slice: surface the ownership model honestly — managed is the
   // default; imported/external services show their state (and adoptedAt, when
   // present) so an operator can tell adopted services from native ones.
-  const ownershipLabels = { "anxos-managed": "AnxOS-managed", "imported": "Imported", "external": "External" };
-  const ownershipLabel = ownershipLabels[instance.ownership] || (instance.ownership ? String(instance.ownership) : "AnxOS-managed");
+  const ownershipLabel = getInstanceOwnershipLabel(instance);
   setInstanceDetail("ownership", instance.adoptedAt
     ? `${ownershipLabel} (adopted ${formatDateTime(instance.adoptedAt)})`
     : ownershipLabel);
@@ -14387,7 +14552,7 @@ function renderMarketplaceCategories() {
   }
 
   marketplaceCategories.replaceChildren();
-  const categories = ["All", ...(Array.isArray(marketplaceCatalog.categories) ? marketplaceCatalog.categories : []), "Modpacks"]
+  const categories = ["All", "Favorites", ...(Array.isArray(marketplaceCatalog.categories) ? marketplaceCatalog.categories : []), "Modpacks"]
     .filter((category, index, source) => source.indexOf(category) === index);
 
   categories.forEach((category) => {
@@ -14443,6 +14608,38 @@ function restoreMarketplaceViewState() {
       if (marketplaceGrid) marketplaceGrid.scrollTop = Number(state.scrollTop) || 0;
     }, 0);
   } catch {}
+}
+
+function loadMarketplaceFavorites() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(MARKETPLACE_FAVORITES_KEY) || "[]");
+    return Array.isArray(parsed) ? [...new Set(parsed.map(String))] : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistMarketplaceFavorites() {
+  try {
+    localStorage.setItem(MARKETPLACE_FAVORITES_KEY, JSON.stringify(marketplaceFavorites));
+  } catch {}
+}
+
+function isMarketplaceFavorite(template) {
+  return Boolean(template?.id) && marketplaceFavorites.includes(String(template.id));
+}
+
+function toggleMarketplaceFavorite(template) {
+  if (!template?.id) return;
+  const favoriteId = String(template.id);
+  marketplaceFavorites = marketplaceFavorites.includes(favoriteId)
+    ? marketplaceFavorites.filter((id) => id !== favoriteId)
+    : [...marketplaceFavorites, favoriteId];
+  persistMarketplaceFavorites();
+  // Re-render so the star state and an active Favorites filter stay honest
+  // (unfavoriting under the Favorites chip removes the card immediately).
+  renderMarketplaceCategories();
+  renderMarketplaceTemplates();
 }
 
 function renderMarketplacePackageDetails(template = null) {
@@ -14557,7 +14754,10 @@ function renderMarketplacePackageDetails(template = null) {
 function getFilteredMarketplaceTemplates() {
   const query = (marketplaceSearchInput?.value || "").trim().toLowerCase();
   return getStaticMarketplaceTemplates().filter((template) => {
-    const matchesCategory = marketplaceActiveCategory === "All" || template.category === marketplaceActiveCategory;
+    // "Favorites" is a virtual chip over the static catalog: it filters by the
+    // persisted star list instead of a template category.
+    const matchesCategory = marketplaceActiveCategory === "All"
+      || (marketplaceActiveCategory === "Favorites" ? isMarketplaceFavorite(template) : template.category === marketplaceActiveCategory);
     const haystack = [
       template.displayName,
       template.name,
@@ -14614,11 +14814,16 @@ function renderMarketplaceTemplates() {
     loader: marketplaceProviderLoader?.value || "",
     minecraftVersion: marketplaceProviderMinecraftVersion?.value || "",
   });
-  const noResultsMessage = marketplaceProviderError || {
-    title: "No matching servers found",
-    message: "Try another search, clear your filters, or choose a different category.",
-    actionLabel: "Clear filters",
-  };
+  const noResultsMessage = marketplaceProviderError || (marketplaceActiveCategory === "Favorites"
+    ? {
+      title: "No favorites yet",
+      message: "Select the star on a marketplace card to pin your favorite servers here.",
+    }
+    : {
+      title: "No matching servers found",
+      message: "Try another search, clear your filters, or choose a different category.",
+      actionLabel: "Clear filters",
+    });
   renderMarketplaceEmptyState(templates.length > 0 ? { hidden: true } : noResultsMessage);
 
   templates.forEach((template) => {
@@ -14642,6 +14847,20 @@ function renderMarketplaceTemplates() {
     } else {
       icon.textContent = template.icon || "APP";
     }
+
+    const favorite = document.createElement("button");
+    favorite.type = "button";
+    favorite.className = "marketplace-card__favorite";
+    const favoriteActive = isMarketplaceFavorite(template);
+    favorite.classList.toggle("is-active", favoriteActive);
+    favorite.textContent = favoriteActive ? "★" : "☆";
+    favorite.title = favoriteActive ? "Remove from favorites" : "Add to favorites";
+    favorite.setAttribute("aria-pressed", String(favoriteActive));
+    favorite.setAttribute("aria-label", `${favoriteActive ? "Remove" : "Add"} ${template.displayName || template.id || "template"} ${favoriteActive ? "from" : "to"} favorites`);
+    favorite.addEventListener("click", (event) => {
+      event.stopPropagation();
+      toggleMarketplaceFavorite(template);
+    });
 
     const body = document.createElement("div");
     body.className = "marketplace-card__body";
@@ -14682,7 +14901,10 @@ function renderMarketplaceTemplates() {
     versionLine.textContent = installedVersion || getMarketplaceCompactPackVersion(template) || (isProviderMarketplaceTemplate(template) ? "Pack version pending" : `Template v${template.version || "0.0.0"}`);
     versionLine.title = versionLine.textContent;
     footer.append(versionLine, stateBadge, badges);
-    body.append(title, description, meta);
+    const titleRow = document.createElement("div");
+    titleRow.className = "marketplace-card__title-row";
+    titleRow.append(title, favorite);
+    body.append(titleRow, description, meta);
     body.append(footer);
 
     const install = document.createElement("button");
@@ -14706,6 +14928,9 @@ function renderMarketplaceTemplates() {
       if (workspaceSurface === "marketplace") renderMarketplacePackageDetails(template);
     });
     card.addEventListener("keydown", (event) => {
+      // Child buttons (favorite star, install action) keep native key
+      // activation; Enter/Space on the card itself opens the details.
+      if (event.target.closest("button")) return;
       if (event.key !== "Enter" && event.key !== " ") return;
       event.preventDefault();
       if (!template.comingSoon && !template.disabled && !primaryAction.disabled) {
@@ -17703,6 +17928,9 @@ function handleInstanceBackupAction(action) {
   if (action === "backup-now") {
     createBackupForInstance(selectedInstance.id);
     return;
+  } else if (action === "restore") {
+    restoreBackupForInstance(selectedInstance.id);
+    return;
   } else if (action === "schedule") {
     configureBackupSchedule(selectedInstance.id);
     return;
@@ -18091,8 +18319,8 @@ function getBackupErrorMessage(error, fallback = "Backup operation failed.") {
   return messages[code] || getFriendlyErrorMessage(error, fallback);
 }
 
-async function restoreSelectedBackup() {
-  const selected = getSelectedBackup();
+async function restoreSelectedBackup(backupOverride = null) {
+  const selected = backupOverride || getSelectedBackup();
   const desktopApiState = getDesktopApiState();
   const requestContext = createNodeActionContext("backup-restore");
   if (!selected || !desktopApiState.hasBackups) {
@@ -18119,6 +18347,31 @@ async function restoreSelectedBackup() {
   } catch (error) {
     showToast(getBackupErrorMessage(error, "Backup restore failed."), "error");
   }
+}
+
+function getLatestBackupForInstance(instanceId) {
+  return backupsState.backups
+    .filter((backup) => backup.instanceId === instanceId)
+    .slice()
+    .sort((left, right) => String(right.createdAt || "").localeCompare(String(left.createdAt || "")))[0] || null;
+}
+
+async function restoreBackupForInstance(instanceId) {
+  const currentSelection = getSelectedBackup();
+  // Reconcile with the shared Backups page selection: keep it when it already
+  // points at this instance, otherwise select this instance's most recent backup.
+  const target = currentSelection?.instanceId === instanceId
+    ? currentSelection
+    : getLatestBackupForInstance(instanceId);
+  if (!target) {
+    showToast("No backups found for this instance yet. Use Backup Now or the Backups page.");
+    return;
+  }
+  if (backupsState.selectedBackupId !== target.id) {
+    backupsState.selectedBackupId = target.id;
+    renderBackups();
+  }
+  await restoreSelectedBackup(target);
 }
 
 async function deleteSelectedBackup() {
@@ -19472,17 +19725,17 @@ async function runInstanceAction(actionName) {
       : "";
     if (!(await confirmDestructiveAction({
       title: "Delete this server?",
-      message: `${label} will be removed from AnxOS. Depending on the selected backend result, its files may also be permanently deleted.${accessWarning}`,
-      confirmLabel: "Delete Server",
+      message: `Delete removes ${label} from AnxOS and permanently deletes all of its instance data from disk, including saves and configuration. This cannot be undone. Backups created through the Backups page are kept in the backup root. To keep the instance data on disk, use Forget instead.${accessWarning}`,
+      confirmLabel: "Delete (removes all instance data)",
     }))) {
       showToast("Delete canceled.");
       return;
     }
   } else if (actionName === "forget") {
     if (!(await confirmDestructiveAction({
-      title: "Remove this server from the list?",
-      message: `${label} will be removed from AnxOS Control Center metadata. Server files may remain on disk.`,
-      confirmLabel: "Remove from List",
+      title: "Forget this server?",
+      message: `Forget removes ${label} from AnxOS Control Center, but keeps all of its data on disk. The instance folder is not deleted. Use Delete instead to remove the data as well.`,
+      confirmLabel: "Forget (keeps data on disk)",
     }))) {
       showToast("Forget canceled.");
       return;
