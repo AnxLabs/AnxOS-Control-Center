@@ -13585,6 +13585,38 @@ async function openFiveMServerConfig() {
   await openInstanceTextFile("server/server.cfg");
 }
 
+const instanceAdoptRow = document.querySelector("[data-instance-adopt-row]");
+const instanceAdoptButton = document.querySelector("[data-instance-adopt]");
+
+if (instanceAdoptButton) {
+  instanceAdoptButton.addEventListener("click", async () => {
+    const instance = getInstances().find((entry) => entry.id === selectedInstanceId);
+    if (!instance || !instance.ownership || instance.ownership === "anxos-managed") {
+      return;
+    }
+    instanceAdoptButton.disabled = true;
+    const context = getNodeRequestContext("instance-adopt");
+    try {
+      await getDesktopApiState().api.instances.update(
+        instance.id,
+        { ownership: "anxos-managed", adopt: true },
+        getNodeScopedPayload(context),
+      );
+      const index = instances.findIndex((entry) => entry.id === instance.id);
+      if (index >= 0) {
+        instances[index] = { ...instances[index], ownership: "anxos-managed", adoptedAt: new Date().toISOString() };
+      }
+      showToast(`Adopted service: ${instance.displayName || instance.id}`);
+      setInstanceDetails(instances.find((entry) => entry.id === selectedInstanceId) || null);
+    } catch (error) {
+      showToast(`Adoption failed: ${error?.message || "request failed."}`, "error");
+    } finally {
+      if (!isNodeRequestCurrent(context)) return;
+      instanceAdoptButton.disabled = false;
+    }
+  });
+}
+
 function setInstanceDetails(instance = null) {
   const metrics = instance ? getInstanceMetrics(instance.id) : null;
   const metricsPlaceholder = instance && !metrics ? getInstanceMetricsPlaceholder(instance) : null;
@@ -13618,6 +13650,9 @@ function setInstanceDetails(instance = null) {
     setInstanceDetail("created", "Unavailable");
     setInstanceDetail("type", "Unavailable");
     setInstanceDetail("ownership", "Unavailable");
+    if (instanceAdoptRow) {
+      instanceAdoptRow.hidden = true;
+    }
     setInstanceDetail("command", "Unavailable");
     setInstanceDetail("failureReason", "Unavailable");
     setInstanceDetail("pid", "Unavailable");
@@ -13682,6 +13717,15 @@ function setInstanceDetails(instance = null) {
   setInstanceDetail("ownership", instance.adoptedAt
     ? `${ownershipLabel} (adopted ${formatDateTime(instance.adoptedAt)})`
     : ownershipLabel);
+  if (instanceAdoptRow) {
+    // Imported/external services must be explicitly adopted before they are
+    // treated as AnxOS-managed (V2-B app slice, docs/v2/V2B_DASHBOARD_APPS_WAVE1.md).
+    const needsAdoption = Boolean(instance.ownership) && instance.ownership !== "anxos-managed";
+    instanceAdoptRow.hidden = !needsAdoption;
+    if (instanceAdoptButton) {
+      instanceAdoptButton.disabled = !needsAdoption;
+    }
+  }
   setInstanceDetail("command", command || "Unavailable");
   setInstanceDetail("failureReason", getInstanceOperationFailureText(activeOperation) || getInstanceFailureReason(instance));
   setInstanceDetail("pid", formatInstanceValue(instance.pid));
