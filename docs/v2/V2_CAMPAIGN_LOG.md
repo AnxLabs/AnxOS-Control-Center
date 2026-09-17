@@ -130,6 +130,10 @@ Independent reviewer over the V2-E wave: **zero P0.** Canonical-restart claim ve
 
 Gate rerun launched at close; reviewer's P1 fixes verified by the extended route-layer smoke + world-scopes smoke.
 
+### Cycle 2c — the tripwire's first catch (2026-09-17, commit 760e493 — PUSHED)
+
+The new repo-root residue tripwire fired on its first real outing: gate run 7 refused to start because `instances/jobs/` existed at the repo root. Empirical bisect (one smoke per run with residue checks) identified `instance-job-lifecycle-smoke.js`: it configures the job-engine root to a temp dir, but the instance core's boot-time ensure still mkdir'd the cwd-default instance root. Fixed by pinning AGENT_INSTANCE_ROOT inside the smoke's temp tree before the core loads — exactly the mitigation class the tripwire was built to enforce. Smoke green; full gate rerun launched.
+
 ### Cycle 1 close — V2-B/V2-F/V2-D integrated (2026-09-17, commits 411f610, eb13b83 — PUSHED)
 
 - **411f610** — V2-B renderer slice (dashboard app-card grid, "Open service" launch links via the main-window setWindowOpenHandler→openExternalUrl path, marketplace favorites in localStorage, 90s honest staleness) + V2-F Alpha wiring (per-instance Restore now routed through restoreBackupForInstance with latest-backup reconciliation; Delete/Forget dialogs state their data outcomes; hermetic alpha-loop e2e smoke registered as `alpha:loop:backup:smoke`). 13-smoke renderer gate green pre-commit.
