@@ -81,6 +81,26 @@ P2 items parked (with reasons — revisit only with owner approval):
   - `qa-logged-out-renderer-smoke`: sidebar chain gained the leading unlock branch before the null guard; pin updated to the current chain.
 - Early rc:validate launched over the in-flight tree (V2-B + V2-F agent work uncommitted) as a pre-integration regression gate; authoritative gate runs after V2-D lands.
 
+### Cycle 2 open — V2-E wave dispatched + roadmap audit integrated (2026-09-17)
+
+**Gate:** rc:validate **228/228 PASS** on c03bcdb — Cycle-1 checkpoint certified.
+
+**Roadmap audit (independent auditor, reconciled by the orchestrator):** The audit correctly identified genuine gaps but under-credited two shipped features; both refuted by direct inspection and corrected here:
+- *Auditor claim:* "managed vs imported vs external + adoption MISSING". **Refuted** — the ownership model with one-way adoption ships at `src/shared/instances/instanceServiceCore.js:1137-1163` (`adopt: true` transition guard), renderer labels at `app.js:11138/2291/13945`, shipped in Build 203 (69c2ff7, e038ece).
+- *Auditor claim:* "browser surface: no serving HTML surface code found / GAP". **Refuted** — the Option A agent-served surface ships in Build 203 (commits 1f34abe→71c7d05): `agent/src/services/sessionService.js`, bootstrap-code routes in `agent/src/server.js`, browser bootstrap form, session-gated read-only management page; exercised live during the 202→203 upgrade acceptance.
+
+**Authoritative remainder queue for V2-A…D (credible audit findings, prioritized):**
+1. Live Docker engine acceptance (V2-C gate: single+multi container app, bad image, occupied port, missing volume, failed update) — needs a live-engine session (sandbox pattern from Builds 200/203).
+2. Two-node wrong-node/revocation/duplicate live run (V2-A gate) — needs a second node or emulated remote harness.
+3. V2-B operator walkthrough live run (install → open → config change → recover failed start, stale-status agreement).
+4. Clean-host reproducible install (V2-D gate) — doubles as V2-A Debian 12 x64 acceptance (systemd unit installer exists, `agentControlService.js:523`).
+5. Runtime pin / shared-dependency guard ("updating one runtime must not break a pinned workload") — GAP, no pin mechanism (V2-D bullet).
+6. Docker image update rollback (`rollbackSupported: false`) — build it or record a roadmap-scoped deferral decision.
+7. Catalog export/import + third-party-executable trust warning (V2-D bullets, missing/partial).
+8. Debian live evidence appended to `docs/v2/V2A_SUPPORT_MATRIX.md`.
+
+**In flight:** code-reviewer (Cycle-1 waves), harness auditor (flakiness/vacuous scans), V2-E implementers ×2 (world backup scopes; scheduled restarts). Live-acceptance sessions are queued as a dedicated phase after the code waves.
+
 ### Cycle 1 close — V2-B/V2-F/V2-D integrated (2026-09-17, commits 411f610, eb13b83 — PUSHED)
 
 - **411f610** — V2-B renderer slice (dashboard app-card grid, "Open service" launch links via the main-window setWindowOpenHandler→openExternalUrl path, marketplace favorites in localStorage, 90s honest staleness) + V2-F Alpha wiring (per-instance Restore now routed through restoreBackupForInstance with latest-backup reconciliation; Delete/Forget dialogs state their data outcomes; hermetic alpha-loop e2e smoke registered as `alpha:loop:backup:smoke`). 13-smoke renderer gate green pre-commit.
