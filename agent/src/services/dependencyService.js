@@ -14,6 +14,7 @@ const {
 } = require("../../../src/shared/marketplaceDependencies");
 const bundledRuntimePaths = require("../../../src/shared/bundledRuntimePaths");
 const { logger } = require("./diagnosticsLogger");
+const runtimePinService = require("./runtimePinService");
 
 const DEFAULT_TIMEOUT_MS = 120000;
 const INSTALL_TIMEOUT_MS = 15 * 60 * 1000;
@@ -625,6 +626,22 @@ async function checkDependencies(payload = {}) {
     }
   }
   const missing = dependencies.filter((dependency) => !dependency.installed || dependency.state !== "installed");
+  const instanceId = runtimePinService.normalizeWorkloadInstanceId(payload.instanceId);
+  if (instanceId) {
+    // V2-D runtime pins: a workload-specific check RESOLVES runtime versions
+    // (bundled or system). Persist what this workload resolved so later
+    // installs/updates can refuse changes that would break it.
+    for (const dependency of dependencies) {
+      if (dependency.state !== "installed" || dependency.executable !== true) continue;
+      await runtimePinService.upsertRuntimePin({
+        dependencyId: dependency.id,
+        instanceId,
+        resolvedVersion: dependency.version || null,
+        nodeId: payload.nodeId || null,
+        source: "dependency-resolution",
+      });
+    }
+  }
   return {
     ok: missing.length === 0,
     distribution: detectDistribution(),
@@ -800,6 +817,19 @@ async function installDependency(dependencyId, context = {}) {
   return promise;
 }
 
+// Refresh the requesting workload's pin once the new runtime version is
+// installed AND verified; degraded outcomes leave the previous pin in place.
+async function pinInstalledRuntime(dependencyId, context, after) {
+  if (!context.instanceId) return;
+  await runtimePinService.upsertRuntimePin({
+    dependencyId,
+    instanceId: context.instanceId,
+    resolvedVersion: after.version || null,
+    nodeId: context.nodeId || null,
+    source: "dependency-install",
+  });
+}
+
 async function doInstallDependency(dependencyId, context = {}) {
   let job = dependencyJob(dependencyId, {
     nodeId: context.nodeId || null,
@@ -829,7 +859,57 @@ async function doInstallDependency(dependencyId, context = {}) {
     addJobEvent(job, "preparing", "Preparing installation", "Checking current dependency state.");
     const before = await checkDependency(dependencyId);
     job.dependencyName = before.displayName;
+    // V2-D runtime pin guard: an install or version-affecting update that
+    // would change the shared runtime is refused while another workload's pin
+    // depends on it. Updating the requesting workload's OWN pinned runtime
+    // stays allowed (the pin is refreshed after a verified install).
+    if (!(before.installed && before.state === "installed")) {
+      let conflictingPin = null;
+      try {
+        conflictingPin = await runtimePinService.findConflictingRuntimePin({ dependencyId, requesterInstanceId: context.instanceId });
+      } catch (error) {
+        // Fail closed: when the pin store cannot be read we cannot prove the
+        // shared runtime is safe to change, so the install is refused.
+        const guardMessage = `Runtime pin check failed: ${error.message || error.code || "unknown error"}`;
+        completeJob(job, {
+          state: "failed",
+          stage: "Preparing installation",
+          message: guardMessage,
+          error: { code: error.code || "RUNTIME_PIN_GUARD_FAILED", message: guardMessage },
+        });
+        throw error;
+      }
+      if (conflictingPin) {
+        const message = `${before.displayName} on this node is pinned by workload "${conflictingPin.instanceId}" (resolved ${conflictingPin.resolvedVersion || "an unpinned version"} at ${conflictingPin.pinnedAt}). Installing or updating it would change the shared runtime that workload depends on. Unpin it explicitly through the runtime-pins API, then retry.`;
+        completeJob(job, {
+          state: "failed",
+          stage: "Preparing installation",
+          message,
+          error: { code: "RUNTIME_PINNED_BY_OTHER_WORKLOAD", message },
+        });
+        throw createDependencyError("RUNTIME_PINNED_BY_OTHER_WORKLOAD", message, {
+          dependencyId,
+          nodeId: context.nodeId || null,
+          requesterInstanceId: context.instanceId || null,
+          action: "unpin-required",
+          pinnedWorkload: {
+            instanceId: conflictingPin.instanceId,
+            resolvedVersion: conflictingPin.resolvedVersion || null,
+            pinnedAt: conflictingPin.pinnedAt,
+          },
+        }, 409);
+      }
+    }
     if (before.installed && before.state !== "update-required") {
+      if (context.instanceId) {
+        await runtimePinService.upsertRuntimePin({
+          dependencyId,
+          instanceId: context.instanceId,
+          resolvedVersion: before.version || null,
+          nodeId: context.nodeId || null,
+          source: "dependency-install",
+        });
+      }
       completeJob(job, {
         state: "completed",
         stage: "Installation complete",
@@ -875,6 +955,7 @@ async function doInstallDependency(dependencyId, context = {}) {
         progressPercent: 100,
         restartRequired: Boolean(after.serviceRestartRequired),
       });
+      await pinInstalledRuntime(dependencyId, context, after);
       return { id: dependencyId, state: "installed", changed: true, log, before, after, installer: { method: installer.method, packageId: installer.packageId }, job };
     }
     const packages = before.packages || [];
@@ -978,6 +1059,7 @@ async function doInstallDependency(dependencyId, context = {}) {
       restartRequired: after.restartRequired === true || before.serviceRestartRequired === true,
     });
     logger.write("info", "dependency-install-completed", `Installed ${dependencyId}.`, { dependencyId, packages }, { file: "agent" });
+    await pinInstalledRuntime(dependencyId, context, after);
     return { id: dependencyId, state: "installed", changed: true, log, before, after, job };
   } finally {
     packageManagerBusy = false;
@@ -1012,6 +1094,7 @@ async function installDependencies(payload = {}) {
   const context = {
     nodeId: payload.nodeId || null,
     platform: process.platform,
+    instanceId: runtimePinService.normalizeWorkloadInstanceId(payload.instanceId),
   };
   const results = [];
   for (const dependencyId of dependencyIds) {

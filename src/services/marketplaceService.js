@@ -202,8 +202,13 @@ async function ensureTemplateDependencies(template, options = {}, agentConfig = 
     return { ok: true, dependencyIds, dependencies: [] };
   }
 
+  // V2-D runtime pins: attribute dependency resolution and installs to the
+  // workload being installed so the agent can refuse cross-workload runtime
+  // changes. Plan previews pass no workload identity and never pin.
+  const workloadId = String(options.instanceId || options.id || options.name || "").trim() || null;
+
   pushStep(progress, "Check dependencies", "running", "Checking node runtime dependencies.");
-  const check = await agentClient.checkDependencies({ dependencyIds }, agentConfig);
+  const check = await agentClient.checkDependencies({ dependencyIds, instanceId: workloadId, nodeId: options.nodeId || null }, agentConfig);
   if (check.ok) {
     pushStep(progress, "Check dependencies", "complete", "Node dependencies are ready.");
     return check;
@@ -235,7 +240,7 @@ async function ensureTemplateDependencies(template, options = {}, agentConfig = 
     });
     let install;
     try {
-      install = await agentClient.installDependencies({ dependencyIds: missingDependencyIds }, agentConfig);
+      install = await agentClient.installDependencies({ dependencyIds: missingDependencyIds, instanceId: workloadId, nodeId: options.nodeId || agentConfig?.nodeId || null }, agentConfig);
       finalizeDependencyInstallRecord(dependencyRecord.id, install, null);
       diagnostics.updateRuntimeState({
         dependencyInstall: {

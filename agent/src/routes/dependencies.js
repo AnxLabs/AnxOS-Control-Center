@@ -4,6 +4,7 @@ const {
   installDependencies,
   planDependencyPreparation,
 } = require("../services/dependencyService");
+const { listRuntimePins, removeRuntimePin } = require("../services/runtimePinService");
 
 function parseJsonBody(request) {
   if (!request.body) {
@@ -46,6 +47,20 @@ async function handleDependencies(request, url) {
     }
     if (request.method === "POST" && url.pathname === "/api/v1/dependencies/install") {
       return result(200, await installDependencies(parseJsonBody(request)));
+    }
+    // V2-D runtime pins: read is a plain capability check; unpin is the
+    // explicit operator escape hatch for RUNTIME_PINNED_BY_OTHER_WORKLOAD and
+    // is permission-gated as a write (dependencies:write in server.js).
+    if (request.method === "GET" && url.pathname === "/api/v1/dependencies/runtime-pins") {
+      const filter = {};
+      const dependencyId = url.searchParams.get("dependencyId");
+      const instanceId = url.searchParams.get("instanceId");
+      if (dependencyId) filter.dependencyId = dependencyId;
+      if (instanceId) filter.instanceId = instanceId;
+      return result(200, { pins: await listRuntimePins(filter) });
+    }
+    if (request.method === "DELETE" && url.pathname === "/api/v1/dependencies/runtime-pins") {
+      return result(200, await removeRuntimePin(parseJsonBody(request)));
     }
     return result(404, { error: { code: "NOT_FOUND", message: "Request failed." } });
   } catch (error) {

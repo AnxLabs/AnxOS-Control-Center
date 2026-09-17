@@ -198,7 +198,13 @@ function getRoutePermission(request, pathname) {
     return "instance:write";
   }
   if (pathname === "/api/v1/docker" || pathname.startsWith("/api/v1/docker/")) return method === "GET" ? "docker:read" : "docker:write";
-  if (pathname.startsWith("/api/v1/dependencies/")) return pathname.endsWith("/install") ? "dependencies:write" : "dependencies:read";
+  if (pathname.startsWith("/api/v1/dependencies/")) {
+    if (pathname.endsWith("/install")) return "dependencies:write";
+    // V2-D runtime pin unpinning changes guard state for every workload on
+    // this node: it must require the same write capability as installs.
+    if (pathname.endsWith("/runtime-pins") && method !== "GET") return "dependencies:write";
+    return "dependencies:read";
+  }
   if (pathname.startsWith("/api/v1/marketplace/")) return "marketplace:read";
   if (pathname === "/api/v1/diagnostics") return "owner";
   // V2-A enrollment: revoke is owner-only with explicit confirmation; rotate

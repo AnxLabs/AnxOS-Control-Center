@@ -200,6 +200,9 @@ async function ensureProviderPackDependencies(options = {}, agentConfig = null) 
   }
   const dependencyIds = ["java"];
   const nodeId = options.nodeId || agentConfig?.nodeId || null;
+  // V2-D runtime pins: attribute the java resolution/install to the workload
+  // being installed so the agent can refuse cross-workload runtime changes.
+  const workloadId = String(options.instanceId || options.id || options.name || "").trim() || null;
   const nodeLabel = agentConfig?.agentNodeLabel || agentConfig?.nodeName || nodeId || "Selected node";
   const diagnosticsContext = {
     provider: options.provider || null,
@@ -217,7 +220,7 @@ async function ensureProviderPackDependencies(options = {}, agentConfig = null) 
   emitProgress({ nodeId, instanceId: options.id || options.name || "provider-pack", stage: "dependencies", message: "Checking node dependencies...", current: 0, total: 1 });
   let check;
   try {
-    check = await agentClient.checkDependencies({ dependencyIds, nodeId }, agentConfig);
+    check = await agentClient.checkDependencies({ dependencyIds, nodeId, instanceId: workloadId }, agentConfig);
   } catch (error) {
     if (error?.status === 401 || error?.code === "UNAUTHORIZED") {
       throw new MarketplaceInstallError(`${nodeLabel} credential rejected. Repair or re-pair this Node before installing.`, "NODE_CREDENTIAL_REJECTED", {
@@ -233,7 +236,7 @@ async function ensureProviderPackDependencies(options = {}, agentConfig = null) 
     return;
   }
   if (options.autoInstallDependencies === true) {
-    await agentClient.installDependencies({ dependencyIds: check.missingDependencyIds || dependencyIds, nodeId }, agentConfig);
+    await agentClient.installDependencies({ dependencyIds: check.missingDependencyIds || dependencyIds, nodeId, instanceId: workloadId }, agentConfig);
     const recheck = await agentClient.checkDependencies({ dependencyIds, nodeId }, agentConfig);
     if (recheck.ok) {
       emitProgress({ nodeId, instanceId: options.id || options.name || "provider-pack", stage: "dependencies", message: "Node dependencies installed.", current: 1, total: 1 });

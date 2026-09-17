@@ -179,12 +179,15 @@ async function ensureInstanceDependenciesBeforeStart(instanceId, options = {}) {
   if (dependencyIds.length === 0) {
     return;
   }
-  const check = await agentClient.checkDependencies({ dependencyIds }, getOptionalNodeConfig(options));
+  // V2-D runtime pins: attribute start-time dependency resolution and any
+  // auto-install to this workload so cross-workload runtime changes are
+  // refused while a pinned reference workload depends on the shared runtime.
+  const check = await agentClient.checkDependencies({ dependencyIds, instanceId }, getOptionalNodeConfig(options));
   if (check.ok) {
     return;
   }
   if (options.autoInstallDependencies === true) {
-    await agentClient.installDependencies({ dependencyIds: check.missingDependencyIds || dependencyIds }, getOptionalNodeConfig(options));
+    await agentClient.installDependencies({ dependencyIds: check.missingDependencyIds || dependencyIds, instanceId }, getOptionalNodeConfig(options));
     const recheck = await agentClient.checkDependencies({ dependencyIds }, getOptionalNodeConfig(options));
     if (recheck.ok) {
       return;
