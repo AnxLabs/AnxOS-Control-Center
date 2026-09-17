@@ -2145,6 +2145,58 @@ function renderSetupHealthCenter() {
   );
 }
 
+// V2-B app slice (docs/v2/V2B_DASHBOARD_APPS_WAVE1.md §3.2): a compact widget
+// row over the data the dashboard already polls. Staleness policy: when the
+// instances snapshot is not current for the selected node, the tile says
+// "Checking…" — never a fake zero — and the tile is marked is-stale.
+function renderDashboardWidgets(state) {
+  const page = document.querySelector('[data-page="dashboard"]');
+  if (!page) return;
+  let row = page.querySelector("[data-dashboard-widgets]");
+  if (!row) {
+    row = document.createElement("div");
+    row.className = "dashboard-widget-row";
+    row.dataset.dashboardWidgets = "true";
+    row.style.display = "flex";
+    row.style.flexWrap = "wrap";
+    row.style.gap = "12px";
+    const header = page.querySelector(".page-header");
+    if (header) {
+      header.insertAdjacentElement("afterend", row);
+    } else {
+      page.prepend(row);
+    }
+  }
+  const tile = (value, label, stale) => {
+    const card = document.createElement("article");
+    card.style.flex = "1 1 180px";
+    if (stale) {
+      card.classList.add("is-stale");
+      card.title = "Underlying data is not current for the selected system.";
+    }
+    card.append(createTextElement("strong", value), createTextElement("p", label));
+    return card;
+  };
+  const running = state.instances.filter(isInstanceRunning).length;
+  const tiles = [
+    tile(
+      state.instancesLoaded ? `${running} running` : "Checking…",
+      state.instancesLoaded
+        ? `${state.instances.length} installed server${state.instances.length === 1 ? "" : "s"} on the selected system`
+        : "Installed servers are being re-checked",
+      !state.instancesLoaded,
+    ),
+    tile(
+      `${state.connectedRemoteNodes.length}/${state.remoteNodes.length}`,
+      "Remote systems online",
+      false,
+    ),
+    tile(state.metrics.health, "Node health", false),
+    tile(state.metrics.updated, "Metrics freshness", !state.hasSystemSnapshot),
+  ];
+  row.replaceChildren(...tiles);
+}
+
 function renderFriendlyDashboard() {
   const state = getFriendlyDashboardState();
   setDashboardFriendlyField("selectedSystem", state.metrics.selectedSystem);
@@ -2186,6 +2238,7 @@ function renderFriendlyDashboard() {
     dashboardFriendlyEmpty.hidden = dashboardFriendlyEmpty.childElementCount === 0;
   }
   renderSetupHealthCenter();
+  renderDashboardWidgets(state);
   refreshBackupSummaryForSetup().catch((error) => {
     console.warn("[Backups] Setup backup summary refresh failed.", { message: error?.message || String(error) });
   });
