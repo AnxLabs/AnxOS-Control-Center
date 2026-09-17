@@ -80,10 +80,12 @@ function runSuite(command, timeoutMs = Number(process.env.RC_SUITE_TIMEOUT_MS ||
     child.once("close", (exitCode, signalCode) => {
       clearTimeout(timer);
       const result = { command, status: exitCode === 0 ? "PASS" : "FAIL", exitCode, signalCode, elapsedMs: Date.now() - startedAt, pid: child.pid, stdout, stderr };
-      // Hollow-green guard (P0-2 lesson): a suite that exits 0 without ever
-      // printing a success marker silently skipped its own assertions. Every
-      // registered smoke prints either "passed" or "PASS" on success.
-      if (result.status === "PASS" && !/pass/i.test(stdout)) {
+      // Hollow-green guard (P0-2 lesson): a suite that exits 0 without
+      // printing anything silently skipped its own assertions (a deadlocked
+      // async harness drains the event loop and exits 0 silently). Every
+      // registered smoke prints a success or diagnostic marker on success,
+      // so near-empty stdout on a zero exit is always a hollow run.
+      if (result.status === "PASS" && stdout.trim().length < 8) {
         result.status = "FAIL";
         result.failureReason = "exit 0 without a success marker (hollow green)";
       }
