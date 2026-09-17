@@ -134,6 +134,14 @@ Gate rerun launched at close; reviewer's P1 fixes verified by the extended route
 
 The new repo-root residue tripwire fired on its first real outing: gate run 7 refused to start because `instances/jobs/` existed at the repo root. Empirical bisect (one smoke per run with residue checks) identified `instance-job-lifecycle-smoke.js`: it configures the job-engine root to a temp dir, but the instance core's boot-time ensure still mkdir'd the cwd-default instance root. Fixed by pinning AGENT_INSTANCE_ROOT inside the smoke's temp tree before the core loads — exactly the mitigation class the tripwire was built to enforce. Smoke green; full gate rerun launched.
 
+### Cycle 3 open — gate certified 229/229; five parallel workstreams (2026-09-17)
+
+Checkpoint: local == remote == 398e7d2, tree clean. In flight:
+- **V2-D runtime pin guard** (implementer): resolution-time pin records + cross-workload refusal + explicit unpin; closes the "updating one runtime must not break a pinned workload" acceptance gap.
+- **V2-E player management** (implementer): read-only Minecraft whitelist/ops/bans view, adapter-scoped, honest unsupported states.
+- **V2-F survey COMPLETE**: bullet table (1-2 EXISTS with verified containment; 3/5/8 PARTIAL; 4/6/7/9 MISSING-or-partial), acceptance-gate decomposition, 5 bounded waves, deferral candidates (bullet 4 → discovery-only; remote/encrypted destinations → pair with V2-G, local-only disclosure; DB hooks → defer until a DB workload track). Wave dispatch: waves 1+2 (retention safety + archive integrity) launched as one implementer; wave 3 (consistency hooks), wave 4 (restore targeting), wave 5 (remote destinations, L) queued in order.
+- **V2-G survey** running (node model, enrollment/revocation, reconnection, wrong-node isolation, upgrade story, two-node drill decomposition).
+
 ### Cycle 1 close — V2-B/V2-F/V2-D integrated (2026-09-17, commits 411f610, eb13b83 — PUSHED)
 
 - **411f610** — V2-B renderer slice (dashboard app-card grid, "Open service" launch links via the main-window setWindowOpenHandler→openExternalUrl path, marketplace favorites in localStorage, 90s honest staleness) + V2-F Alpha wiring (per-instance Restore now routed through restoreBackupForInstance with latest-backup reconciliation; Delete/Forget dialogs state their data outcomes; hermetic alpha-loop e2e smoke registered as `alpha:loop:backup:smoke`). 13-smoke renderer gate green pre-commit.
