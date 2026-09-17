@@ -4,6 +4,10 @@ const os = require("os");
 const path = require("path");
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "anxos-instance-job-lifecycle-"));
+// Pin the instance root BEFORE the core loads: its boot-time job-store
+// ensure otherwise mkdirs the cwd-default instances/jobs (the eb13b83-class
+// leak the rc:validate tripwire now fails on).
+process.env.AGENT_INSTANCE_ROOT = path.join(root, "instances");
 const engine = require("../src/shared/instances/jobLifecycle");
 const core = require("../src/shared/instances/instanceServiceCore");
 
