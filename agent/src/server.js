@@ -28,6 +28,8 @@ const { handleFilesDownload, handleFilesIdentity, handleFilesList, handleFilesMu
 const { handleHealth } = require("./routes/health");
 const { handleInstances } = require("./routes/instances");
 const { handleJobs } = require("./routes/jobs");
+const { handleUiSession, handleUiSessionError, parseSessionCookie } = require("./routes/ui");
+const { validateSessionToken } = require("./services/sessionService");
 const { handlePairing } = require("./routes/pairing");
 const { authorizeApiPermission } = require("./permissions");
 const { handlePlayitSnapshot, handlePlayitStatus, handlePublicAccessPlayit } = require("./routes/playit");
@@ -55,7 +57,7 @@ function checkRateLimit(key, limit, windowMs) {
   }
 }
 
-function sendJson(response, statusCode, body) {
+function sendJson(response, statusCode, body, extraHeaders = null) {
   const payload = JSON.stringify(body);
 
   if (Buffer.byteLength(payload) > config.maxResponseBytes) {
@@ -67,6 +69,7 @@ function sendJson(response, statusCode, body) {
     "Content-Type": "application/json; charset=utf-8",
     "Content-Length": Buffer.byteLength(payload),
     "Cache-Control": "no-store",
+    ...(extraHeaders && typeof extraHeaders === "object" ? extraHeaders : {}),
   });
   response.end(payload);
 }
@@ -109,7 +112,7 @@ function sendResult(response, result) {
     return;
   }
 
-  sendJson(response, result?.statusCode || 200, result?.body);
+  sendJson(response, result?.statusCode || 200, result?.body, result?.headers);
 }
 
 function sanitizeErrorDetails(error, extra = {}) {
@@ -200,6 +203,7 @@ function getRoutePermission(request, pathname) {
   // V2-A enrollment: revoke is owner-only with explicit confirmation; rotate
   // is agent:manage (admin may rotate, not revoke). Public handshake paths
   // (/enroll/start, /enroll/complete, /enroll/status) never reach here.
+  if (pathname.startsWith("/api/v1/ui/")) return "ui:session";
   if (pathname === "/api/v1/enroll/revoke" || pathname === "/api/v1/credentials/rotate") return getEnrollmentRoutePermission(pathname);
   if (PUBLIC_ENROLL_PATHS.has(pathname)) return null;
   if (pathname === "/api/v1/actions") return "actions:read";
@@ -232,6 +236,16 @@ function readRequestBody(request) {
 
 async function routeRequest(request, url) {
   const pathname = url.pathname;
+
+  // V2-A browser surface: short-lived session transport (bearer-gated for
+  // POST, cookie-gated for GET; permission-gated via ui:session below).
+  if (pathname === "/api/v1/ui/session") {
+    try {
+      return handleUiSession(request, url);
+    } catch (error) {
+      return handleUiSessionError(error);
+    }
+  }
 
   // V2-A enrollment privileged management (bearer + permission gated upstream).
   if (request.method === "POST" && (pathname === "/api/v1/credentials/rotate" || pathname === "/api/v1/enroll/revoke")) {
@@ -415,7 +429,19 @@ async function handleRequest(request, response) {
         return;
       }
     }
-    const auth = isAuthorized(request, config, url.pathname);
+    // A valid UI session cookie substitutes for the bearer credential on the
+    // session-validation path only (browser clients hold no bearer token);
+    // permission authorization still runs below (ui:session, fail-closed).
+    const uiSessionBypass = url.pathname === "/api/v1/ui/session" && request.method === "GET"
+      && (() => {
+        try {
+          validateSessionToken(parseSessionCookie(request));
+          return true;
+        } catch {
+          return false;
+        }
+      })();
+    const auth = uiSessionBypass ? { ok: true } : isAuthorized(request, config, url.pathname);
 
     if (!auth.ok) {
       logger.warn("authentication", "Agent request authorization failed", { method: request.method, pathname: url.pathname, code: auth.code }, { file: "auth", errorCode: auth.code });
