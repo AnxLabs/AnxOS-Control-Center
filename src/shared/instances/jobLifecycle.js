@@ -126,7 +126,9 @@ function clampTimeoutMs(value) {
 
 // V2-G: `expiresAt` accepts an epoch-ms number or an ISO date string and is
 // normalized to a canonical ISO string for persistence. Malformed input fails
-// closed before any record or index state is touched.
+// closed before any record or index state is touched. A past-dated value is
+// rejected too: a job minted already-expired would dispatch and then settle
+// FAILED nondeterministically depending on which lazy evaluator ran first.
 function normalizeExpiresAt(value) {
   if (value === undefined || value === null) {
     return null;
@@ -136,6 +138,12 @@ function normalizeExpiresAt(value) {
     throw createJobError("INVALID_JOB_EXPIRES_AT", 400, {
       field: "expiresAt",
       expected: "an epoch-ms number or an ISO date string",
+    });
+  }
+  if (ms <= Date.now()) {
+    throw createJobError("INVALID_JOB_EXPIRES_AT", 400, {
+      field: "expiresAt",
+      expected: "a future expiry timestamp",
     });
   }
   return new Date(ms).toISOString();
@@ -543,11 +551,15 @@ async function createJob(options = {}) {
     const existingEntry = findExistingByIdempotencyKey(idempotencyKey);
     if (existingEntry) {
       const prior = existingEntry.record;
-      if (isPendingExpired(prior)) {
+      if (isPendingExpired(prior) || prior.expired === true) {
         // V2-G: the expired attempt can never execute again, so its key is
-        // released instead of replaying or conflicting. The fresh explicit
-        // request below mints a new job; the expired record stays on disk for
-        // audit with expired: true. The key stays reserved for THIS
+        // released instead of replaying or conflicting — whether the record
+        // is still pending-expired or was ALREADY settled (by boot recovery
+        // or a lazy read) before this request. A terminal expired record
+        // must behave identically to a pending-expired one, or the contract
+        // depends on which evaluator ran first (P1 review finding). The
+        // fresh explicit request below mints a new job; the expired record
+        // stays on disk for audit. The key stays reserved for THIS
         // continuation until the new record is indexed, preserving the
         // concurrent-duplicate guarantee.
         releasedExpiredPrior = existingEntry;
@@ -616,8 +628,10 @@ async function createJob(options = {}) {
     // Durable, audited settlement of the expired record whose key this fresh
     // job now owns. The index above already points at the new record, so a
     // concurrent keyed duplicate dedupes onto this execution instead of
-    // minting a second one.
-    await settleExpiredPendingJob(releasedExpiredPrior, { reason: "expired before start (idempotency key re-issued)" });
+    // minting a second one. A persist failure must not abort the fresh job's
+    // dispatch — the stale record is settled by the next lazy read anyway
+    // (best-effort here; review finding).
+    await settleExpiredPendingJob(releasedExpiredPrior, { reason: "expired before start (idempotency key re-issued)" }).catch(() => {});
   }
 
   await appendEvent(record, { state: JOB_STATES.ENQUEUED, action: "job.enqueued" });

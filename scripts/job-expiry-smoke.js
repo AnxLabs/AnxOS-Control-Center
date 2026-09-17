@@ -200,6 +200,50 @@ async function main() {
   assert.strictEqual(replay.replayed, true, "The fresh job's result must replay normally.");
   assert.strictEqual(freshRuns, 1, "Replay of the fresh job must not re-execute.");
 
+  // ---- Phase 4b: the record settled by an EARLIER evaluator (boot recovery)
+  // must behave identically to the pending-expired case — the re-issue mints
+  // fresh instead of hitting the FAILED branch's JOB_CONFLICT (review P1-1).
+  usePhaseRoot("4b-settled-reissue");
+  const settledId = writePendingJobRecord({
+    idempotencyKey: "expiry:recovered:v1",
+    expiresAt: new Date(Date.now() - 1000).toISOString(),
+  });
+  engine._test.reset(); // drop in-memory state; the durable record stays
+  usePhaseRoot("4b-settled-reissue");
+  // Boot-style recovery pass settles the record FIRST, before any keyed
+  // request arrives.
+  await engine.recoverInterruptedJobs();
+  const settledRecord = readRecord(settledId);
+  assert.strictEqual(settledRecord.state, JOB_STATES.FAILED, "Recovery must settle the expired pending record.");
+  assert.strictEqual(settledRecord.expired, true, "Recovery must mark the expired record.");
+  let recoveredRuns = 0;
+  const reissuedAfterRecovery = await engine.createJob({
+    type: "instance.start",
+    target: { instanceId: "expiry-smoke" },
+    idempotencyKey: "expiry:recovered:v1",
+    run: async () => {
+      recoveredRuns += 1;
+      return { pid: 11 };
+    },
+  });
+  assert.notStrictEqual(reissuedAfterRecovery.job.id, settledId, "A keyed request after a SETTLED expiry must still mint a fresh job.");
+  assert.strictEqual(reissuedAfterRecovery.deduped, false, "The re-issue must not dedupe onto the settled expired record.");
+  assert.strictEqual(reissuedAfterRecovery.replayed, false, "The settled expired record must never replay.");
+  assert.strictEqual(recoveredRuns, 1, "The re-issued job must execute.");
+
+  // Past-dated expiresAt at mint is rejected (review P2: a job minted
+  // already-expired would dispatch then settle FAILED nondeterministically).
+  await assert.rejects(
+    () => engine.createJob({
+      type: "instance.start",
+      target: { instanceId: "expiry-smoke" },
+      expiresAt: new Date(Date.now() - 5000).toISOString(),
+      run: async () => ({}),
+    }),
+    (error) => error.code === "INVALID_JOB_EXPIRES_AT",
+    "A past-dated expiresAt must be rejected at mint.",
+  );
+
   // ---- Phase 5: no expiry config + no expiresAt = zero behavior change -----
   usePhaseRoot("5-no-opt-in");
   const legacyId = writePendingJobRecord({ enqueuedAtMs: Date.now() - 60 * 60 * 1000 });

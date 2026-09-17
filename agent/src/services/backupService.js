@@ -1280,6 +1280,7 @@ async function restoreBackup(payload = {}) {
     await ensureDiskSpace(path.dirname(instancePath), validation.uncompressedSize, "RESTORE_DISK_SPACE_INSUFFICIENT");
     safety = await createSafetySnapshot(targetInstanceId, safetyScope.type);
     mutationStarted = true;
+    let targetRecord = null;
     if (backup.type === "world") {
       for (const sourcePath of Array.isArray(backup.sourcePaths) ? backup.sourcePaths : []) {
         const targetPath = path.resolve(instancePath, sourcePath);
@@ -1288,19 +1289,41 @@ async function restoreBackup(payload = {}) {
         }
         await fs.rm(targetPath, { recursive: true, force: true });
       }
-    } else {
+      await extractTarGzArchive(backup.path, instancePath);
+    } else if (sameTarget) {
       await fs.rm(instancePath, { recursive: true, force: true });
       await fs.mkdir(instancePath, { recursive: true, mode: 0o700 });
+      await extractTarGzArchive(backup.path, instancePath);
+      if (!await fs.stat(path.join(instancePath, "config.json")).then((stats) => stats.isFile(), () => false)) {
+        throw createBackupError("RESTORE_VERIFICATION_FAILED", 500);
+      }
+    } else {
+      // Cross-instance full restore: the extracted config.json carries the
+      // SOURCE id until it is rebranded. Instance state IS <dir>/config.json
+      // and self-heal writes follow config.id, so an intermediate window
+      // would let a concurrent status read follow the source identity into
+      // the source's directory (phantom instance) or race the rebrand.
+      // Extract + rebrand in a sibling staging dir, then swap atomically
+      // (P1 review finding).
+      const stagingPath = `${instancePath}.restore-staging-${crypto.randomBytes(3).toString("hex")}`;
+      try {
+        await fs.rm(stagingPath, { recursive: true, force: true });
+        await fs.mkdir(stagingPath, { recursive: true, mode: 0o700 });
+        await extractTarGzArchive(backup.path, stagingPath);
+        if (!await fs.stat(path.join(stagingPath, "config.json")).then((stats) => stats.isFile(), () => false)) {
+          throw createBackupError("RESTORE_VERIFICATION_FAILED", 500);
+        }
+        targetRecord = await rebrandRestoredInstanceRecord(stagingPath, targetInstanceId);
+        await fs.rm(instancePath, { recursive: true, force: true });
+        await fs.rename(stagingPath, instancePath);
+      } catch (stagingError) {
+        await fs.rm(stagingPath, { recursive: true, force: true }).catch(() => {});
+        throw stagingError;
+      }
     }
-    await extractTarGzArchive(backup.path, instancePath);
 
     if (backup.type !== "world" && !await fs.stat(path.join(instancePath, "config.json")).then((stats) => stats.isFile(), () => false)) {
       throw createBackupError("RESTORE_VERIFICATION_FAILED", 500);
-    }
-
-    let targetRecord = null;
-    if (backup.type !== "world" && !sameTarget) {
-      targetRecord = await rebrandRestoredInstanceRecord(instancePath, targetInstanceId);
     }
 
     // Restart discipline: same-instance restores keep the historical explicit
