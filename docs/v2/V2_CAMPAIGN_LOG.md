@@ -119,6 +119,17 @@ All three remaining review/audit agents reported and were integrated; both V2-E 
 
 **Validation at close:** marketplace family (incl. two consecutive full marketplace:smoke), transaction smoke with marker, all eight root-pinned smokes, both new V2-E smokes, instances/agent IPC+authorization smokes — green; `git diff --check` clean; full rc:validate + independent code-reviewer launched at close. Note: the transaction smoke's subject pins landed inside the harness commit (c2244fe) because the security hook blocked direct staging of that path — content correct, attribution noted.
 
+### Cycle 2b — V2-E review verdict + fixes (2026-09-17, commit 5a04518 — PUSHED)
+
+Independent reviewer over the V2-E wave: **zero P0.** Canonical-restart claim verified (`restartInstance` → `restartInstanceWithJob` durable path), stopped instances never started, warn strings fixed literals, permission mapping verified. Fixed in 5a04518:
+- **P1-1 cross-instance schedule authorization gap**: PATCH/DELETE keyed only on the schedule id, so permissions covering instance A's path could retime/enable/delete instance B's schedule (forcing restarts on B). Both mutations now verify the schedule's own instanceId against the path instance (reported NOT_FOUND — a wrong path never confirms another instance's schedule); route-layer smoke pins cross-instance refusal + owner-path success.
+- **P1-2 corrupt-store copy growth**: quarantine copy lacked COPYFILE_EXCL — a persistently corrupt store hit on every 60s tick grew the dir forever with the error swallowed. Capped per the backupService precedent.
+- **P2-3 DST drift**: daily schedules advanced by raw +24h from the previous due time; now re-anchor to the wall clock after each step.
+- **P2-6 Palworld "." install-dir edge**: an unsafe per-game candidate dropped per-candidate instead of failing the whole world backup.
+- Backlog (matches existing precedents): tick-vs-CRUD lost-update merge; restart-vs-in-flight-job target serialization.
+
+Gate rerun launched at close; reviewer's P1 fixes verified by the extended route-layer smoke + world-scopes smoke.
+
 ### Cycle 1 close — V2-B/V2-F/V2-D integrated (2026-09-17, commits 411f610, eb13b83 — PUSHED)
 
 - **411f610** — V2-B renderer slice (dashboard app-card grid, "Open service" launch links via the main-window setWindowOpenHandler→openExternalUrl path, marketplace favorites in localStorage, 90s honest staleness) + V2-F Alpha wiring (per-instance Restore now routed through restoreBackupForInstance with latest-backup reconciliation; Delete/Forget dialogs state their data outcomes; hermetic alpha-loop e2e smoke registered as `alpha:loop:backup:smoke`). 13-smoke renderer gate green pre-commit.
