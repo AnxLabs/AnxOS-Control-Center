@@ -488,10 +488,20 @@ async function getSourcePaths(instancePath, type) {
   }
 
   const config = await readInstanceConfigSnapshot(instancePath);
+  // Per-candidate guard: an odd game layout (for example a Palworld template
+  // with steamInstallDir ".") must not throw out of the whole resolution —
+  // an unsafe candidate is simply dropped and the generic candidates still
+  // apply.
   const perGameCandidates = (config && typeof instanceService.getWorldScopeCandidates === "function"
     ? instanceService.getWorldScopeCandidates(config)
     : []
-  ).map((candidate) => assertSafeArchiveEntryName(`data/${candidate}`));
+  ).flatMap((candidate) => {
+    try {
+      return [assertSafeArchiveEntryName(`data/${candidate}`)];
+    } catch {
+      return [];
+    }
+  });
   const candidates = [...new Set([...perGameCandidates, ...GENERIC_WORLD_SOURCE_CANDIDATES])];
 
   const existing = [];

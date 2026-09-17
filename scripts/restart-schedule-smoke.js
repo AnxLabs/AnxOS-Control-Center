@@ -243,6 +243,21 @@ async function main() {
   assert.strictEqual(notFoundResponse.statusCode, 404);
   assert.strictEqual(notFoundResponse.body.error.code, "RESTART_SCHEDULE_NOT_FOUND");
 
+  // Cross-instance scope guard (P1 review finding): a schedule belonging to
+  // server-b must not be retimed or deleted through server-a's path, even
+  // though the caller's permissions cover server-a.
+  const otherCreate = await routeRequest("POST", "/api/v1/instances/server-b/restart-schedules", { intervalHours: 3 });
+  assert.strictEqual(otherCreate.statusCode, 201);
+  const otherSchedule = otherCreate.body.schedule;
+  const crossUpdate = await routeRequest("PATCH", `/api/v1/instances/server-a/restart-schedules/${otherSchedule.id}`, { enabled: false });
+  assert.strictEqual(crossUpdate.statusCode, 404, "Another instance's schedule must not be reachable through this instance's path.");
+  const crossDelete = await routeRequest("DELETE", `/api/v1/instances/server-a/restart-schedules/${otherSchedule.id}`);
+  assert.strictEqual(crossDelete.statusCode, 404, "Another instance's schedule must not be deletable through this instance's path.");
+  const otherStillThere = await routeRequest("GET", "/api/v1/instances/server-b/restart-schedules");
+  assert(otherStillThere.body.schedules.some((schedule) => schedule.id === otherSchedule.id && schedule.enabled !== false), "The out-of-scope schedule must be untouched.");
+  const otherDelete = await routeRequest("DELETE", `/api/v1/instances/server-b/restart-schedules/${otherSchedule.id}`);
+  assert.strictEqual(otherDelete.statusCode, 200, "The owning instance's path must still delete its own schedule.");
+
   service.stopRestartScheduler();
   console.log("restart-schedule-smoke passed");
 }

@@ -138,8 +138,11 @@ async function readSchedules() {
   try {
     parsed = await readJson(filePath);
   } catch (error) {
-    const backupPath = `${filePath}.corrupt-${Date.now()}`;
-    await fs.copyFile(filePath, backupPath).catch(() => {});
+    // COPYFILE_EXCL caps the quarantine at one file (the backupService
+    // precedent): a persistently corrupt store hit on every 60s tick must
+    // not grow the schedule dir forever.
+    const backupPath = `${filePath}.corrupt`;
+    await fs.copyFile(filePath, backupPath, fs.constants.COPYFILE_EXCL).catch(() => {});
     throw createRestartScheduleError("RESTART_SCHEDULE_STORE_CORRUPT", 500, { causeCode: error?.code || "INVALID_JSON" });
   }
   const schemaVersion = Number.isInteger(parsed?.schemaVersion) ? parsed.schemaVersion : 0;
@@ -202,6 +205,11 @@ function nextDailyRunMs(minutesOfDay, fromMs) {
   let next = candidate.getTime();
   while (next <= fromMs) {
     next += 24 * 60 * 60 * 1000;
+    // Re-anchor to the wall clock after each day step: a raw +24h drifts
+    // ±1h across DST transitions even though cadence stays "daily".
+    candidate.setTime(next);
+    candidate.setHours(Math.floor(minutesOfDay / 60), minutesOfDay % 60, 0, 0);
+    next = candidate.getTime();
   }
   return next;
 }
@@ -313,7 +321,7 @@ async function getRestartSchedule(id) {
   return schedule;
 }
 
-async function updateRestartSchedule(id, payload = {}) {
+async function updateRestartSchedule(id, payload = {}, options = {}) {
   const scheduleId = validateScheduleId(id);
   const schedules = await readSchedules();
   const index = schedules.findIndex((entry) => entry.id === scheduleId);
@@ -322,6 +330,11 @@ async function updateRestartSchedule(id, payload = {}) {
   }
   const atMs = now();
   const previous = schedules[index];
+  // Authz scope: a schedule belongs to exactly one instance. A caller whose
+  // permissions cover the PATH instance but not the schedule's own instance
+  // must not be able to retime, enable or delete it (the path instance gate
+  // alone would allow instance A's rights to control instance B's schedule).
+  assertScheduleInScope(previous, options);
   const updated = buildSchedulePayload({ ...payload, instanceId: previous.instanceId }, previous);
   const timingChanged = updated.type !== previous.type
     || updated.intervalHours !== previous.intervalHours
@@ -348,15 +361,27 @@ async function updateRestartSchedule(id, payload = {}) {
   return { schedule: updated };
 }
 
-async function deleteRestartSchedule(id) {
+async function deleteRestartSchedule(id, options = {}) {
   const scheduleId = validateScheduleId(id);
   const schedules = await readSchedules();
-  const remaining = schedules.filter((entry) => entry.id !== scheduleId);
-  if (remaining.length === schedules.length) {
+  const target = schedules.find((entry) => entry.id === scheduleId);
+  if (!target) {
     throw createRestartScheduleError("RESTART_SCHEDULE_NOT_FOUND", 404);
   }
+  assertScheduleInScope(target, options);
+  const remaining = schedules.filter((entry) => entry.id !== scheduleId);
   await writeSchedules(remaining);
   return { id: scheduleId, deleted: true };
+}
+
+// Instance-scope guard for schedule mutations reached through an
+// instance-scoped path: the schedule must belong to that instance. Reported
+// as NOT_FOUND so a wrong instance path never confirms another instance's
+// schedule existence.
+function assertScheduleInScope(schedule, options) {
+  if (options?.instanceScope !== undefined && schedule.instanceId !== options.instanceScope) {
+    throw createRestartScheduleError("RESTART_SCHEDULE_NOT_FOUND", 404);
+  }
 }
 
 async function sendWarning(schedule, message) {

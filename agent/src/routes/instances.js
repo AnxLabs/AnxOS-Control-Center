@@ -494,11 +494,12 @@ async function handleInstances(request, url) {
       }
 
       if ((request.method === "PATCH" || request.method === "PUT") && scheduleId && scheduleId !== "evaluate") {
-        return result(200, await updateRestartSchedule(scheduleId, parseJsonBody(request)));
+        // Scope guard: the schedule must belong to the path instance.
+        return result(200, await updateRestartSchedule(scheduleId, parseJsonBody(request), { instanceScope: scheduleInstanceId }));
       }
 
       if (request.method === "DELETE" && scheduleId && scheduleId !== "evaluate") {
-        return result(200, await deleteRestartSchedule(scheduleId));
+        return result(200, await deleteRestartSchedule(scheduleId, { instanceScope: scheduleInstanceId }));
       }
     }
 
