@@ -128,6 +128,7 @@
     "backups:integrity:smoke": "node scripts/backup-integrity-smoke.js",
     "node:lifecycle:smoke": "node scripts/node-lifecycle-smoke.js",
     "multi-node:fleet:smoke": "node scripts/multi-node-fleet-smoke.js",
+    "workload:transfer:smoke": "node scripts/workload-transfer-smoke.js",
     "fleet:aggregation:smoke": "node scripts/fleet-aggregation-smoke.js",
     "backups:consistency:smoke": "node scripts/backup-consistency-smoke.js",
     "restore:targeting:smoke": "node scripts/restore-targeting-smoke.js",

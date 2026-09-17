@@ -324,6 +324,10 @@ const desktopApi = {
     saveSchedule: (payload = {}) => ipcRenderer.invoke("backups:saveSchedule", payload),
     deleteSchedule: (instanceId, payload = {}) => ipcRenderer.invoke("backups:deleteSchedule", { ...payload, instanceId }),
   },
+  workload: {
+    transferPreview: (payload = {}) => ipcRenderer.invoke("workload:transferPreview", payload),
+    transfer: (payload = {}) => ipcRenderer.invoke("workload:transfer", payload),
+  },
   nodes: {
     list: () => ipcRenderer.invoke("nodes:list"),
     restore: () => ipcRenderer.invoke("nodes:restore"),

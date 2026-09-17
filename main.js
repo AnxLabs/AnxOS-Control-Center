@@ -20,6 +20,7 @@ const { registerSettingsIpc } = require("./src/ipc/settingsIpc");
 const { disposeSshIpc, registerSshIpc } = require("./src/ipc/sshIpc");
 const { registerSystemIpc } = require("./src/ipc/systemIpc");
 const { registerStorageWindowIpc } = require("./src/ipc/storageWindowIpc");
+const { registerWorkloadIpc } = require("./src/ipc/workloadIpc");
 const { registerDeveloperUpdatesIpc, registerUpdatesIpc } = require("./src/ipc/updatesIpc");
 const { logStartupStatus: logCurseForgeStartupStatus } = require("./src/services/providers/curseforgeProvider");
 const { UpdateManager } = require("./src/services/updateManager");
@@ -1043,6 +1044,7 @@ app.whenReady().then(async () => {
   registerMarketplaceIpc();
   registerMaintenanceIpc();
   registerNodesIpc();
+  registerWorkloadIpc();
   registerOwnerWorkspaceIpc();
   registerFilesIpc();
   registerSettingsIpc();
