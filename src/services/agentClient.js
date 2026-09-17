@@ -2805,11 +2805,42 @@ function encodeInstanceId(instanceId) {
   return encodeURIComponent(String(instanceId || ""));
 }
 
-async function listInstances(configOverride = null) {
+async function listInstances(configOverride = null, options = {}) {
   if (shouldUseLocalInstanceService(configOverride)) {
     return getLocalInstanceService().listInstances();
   }
-  return requestJson("/api/v1/instances", { config: configOverride });
+  return requestJson("/api/v1/instances", {
+    config: configOverride,
+    timeoutMs: options.timeoutMs,
+    suppressConnectionRefusedLog: options.suppressConnectionRefusedLog,
+    logThrottleMs: options.logThrottleMs,
+  });
+}
+
+// Read-only observation of the Agent's durable job records (V2-A jobs REST
+// surface). Fleet aggregation reads these counts; job ownership and execution
+// stay with the executing node.
+async function listJobs(configOverride = null, options = {}) {
+  if (shouldUseLocalInstanceService(configOverride)) {
+    return getLocalInstanceService().listInstanceJobs({ limit: options.limit });
+  }
+  const params = new URLSearchParams();
+  if (options.limit !== undefined && options.limit !== null && options.limit !== "") {
+    params.set("limit", String(options.limit));
+  }
+  if (options.type) {
+    params.set("type", String(options.type));
+  }
+  if (options.instanceId) {
+    params.set("instanceId", String(options.instanceId));
+  }
+  const query = params.toString();
+  return requestJson(`/api/v1/jobs${query ? `?${query}` : ""}`, {
+    config: configOverride,
+    timeoutMs: options.timeoutMs,
+    suppressConnectionRefusedLog: options.suppressConnectionRefusedLog,
+    logThrottleMs: options.logThrottleMs,
+  });
 }
 
 async function createInstance(payload = {}, configOverride = null) {
@@ -3465,6 +3496,7 @@ module.exports = {
   connectDockerNetwork,
   listInstanceFiles,
   listInstances,
+  listJobs,
   loadEnvironment,
   normalizeAgentSettings,
   mutateFile,

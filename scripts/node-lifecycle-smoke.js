@@ -171,6 +171,19 @@ async function main() {
     assert.strictEqual(successAgent.state.healthRequests, healthRequestsBeforeDisconnect, "health checks must not probe the Agent while manually disconnected");
     assert.strictEqual(disconnectedHealth.connected, false, "a manually disconnected node is not connected");
 
+    // Authenticated-health side path must not resurrect a disconnected node
+    // (review P1-1: the Agent Control listAgents probe writes through
+    // recordAuthenticatedNodeHealth, which historically bypassed the gate).
+    const resurrectAttempt = nodeService.recordAuthenticatedNodeHealth({
+      nodeId: nodeA.id,
+      identity: { deviceId: nodeA.id },
+      message: "Authenticated Agent endpoint responded.",
+    });
+    assert.strictEqual(resurrectAttempt.disconnected, true, "authenticated-health writes must be refused for a manually disconnected node");
+    const afterResurrectAttempt = nodeService.getNode(nodeA.id);
+    assert.strictEqual(afterResurrectAttempt.manualDisconnect, true, "the disconnect flag must survive an authenticated-health probe");
+    assert.strictEqual(afterResurrectAttempt.connection?.status, "offline", "an authenticated-health probe must not flip a disconnected node online");
+
     const listedAfterDisconnect = await nodeService.listNodes({ discoverLocalAgent: false, refreshIdentity: false });
     assert(listedAfterDisconnect.nodes.some((node) => node.id === nodeA.id), "disconnect must not delete the node record");
     assert.strictEqual(listedAfterDisconnect.nodes.find((node) => node.id === nodeA.id).manualDisconnect, true, "manual disconnect must survive listNodes");

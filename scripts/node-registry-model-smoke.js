@@ -9,6 +9,11 @@ fs.mkdirSync(process.env.ANXHUB_CONFIG_DIR, { recursive: true });
 
 const nodes = require("../src/services/nodeService");
 const { getNodeToken, setNodeToken } = require("../src/services/nodeCredentialStore");
+// Hermeticity: deleteNode performs a best-effort enrollment revocation against
+// the node's configured agent URL (a LAN address in this fixture). Stub the
+// transport so the smoke never emits a live network request.
+const agentClient = require("../src/services/agentClient");
+agentClient.revokeAgentEnrollment = async () => ({ revoked: true });
 
 const legacyNode = {
   id: "anxlab",

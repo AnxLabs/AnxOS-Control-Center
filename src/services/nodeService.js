@@ -1161,6 +1161,12 @@ function recordAuthenticatedNodeHealth(payload = {}) {
       code: "NODE_IDENTITY_NOT_REGISTERED",
     });
   }
+  // A manually disconnected node must not resurrect to "online" through a
+  // side health path: only an explicit reconnect (or re-pair) clears the
+  // operator's disconnect, whichever surface probes the agent.
+  if (resolution.node.manualDisconnect === true) {
+    return { node: resolution.node, disconnected: true };
+  }
   advanceNodeHealthGeneration(resolution.nodeId);
   const updated = updateNodeHealthState(resolution.nodeId, {
     state: "online",

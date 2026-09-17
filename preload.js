@@ -337,6 +337,8 @@ const desktopApi = {
     testConnection: (payload = {}) => ipcRenderer.invoke("nodes:testConnection", payload),
     health: (nodeId) => ipcRenderer.invoke("nodes:health", { nodeId }),
     healthAll: () => ipcRenderer.invoke("nodes:healthAll"),
+    fleetSummary: () => ipcRenderer.invoke("nodes:fleetSummary"),
+    fleetBatch: (payload = {}) => ipcRenderer.invoke("nodes:fleetBatch", payload),
     credentialStatus: (nodeId) => ipcRenderer.invoke("nodes:credentialStatus", { nodeId }),
     repairCredential: (payload = {}) => ipcRenderer.invoke("nodes:repairCredential", payload),
     generateToken: () => ipcRenderer.invoke("nodes:generateToken"),

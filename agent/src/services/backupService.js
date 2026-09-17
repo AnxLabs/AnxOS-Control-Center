@@ -702,8 +702,14 @@ async function listBackups(options = {}) {
   for (const backup of filtered) {
     // Older metadata predates consistency disclosure; every copy taken before
     // the stopped option existed was crash-consistent, so the displayed value
-    // defaults instead of inventing per-backup history.
-    backup.consistency = backup.consistency === "stopped" ? "stopped" : "crash";
+    // defaults instead of inventing per-backup history. Imported backups have
+    // no honest provenance for how the copy was taken — report "unknown"
+    // rather than assuming.
+    if (backup.status === "imported") {
+      backup.consistency = "unknown";
+    } else {
+      backup.consistency = backup.consistency === "stopped" ? "stopped" : "crash";
+    }
     const instanceIndex = instanceIndexes.get(backup.instanceId) ?? 0;
     instanceIndexes.set(backup.instanceId, instanceIndex + 1);
     if (!newestBackupIds.has(backup.instanceId)) {
@@ -819,13 +825,24 @@ async function performCreateBackup(payload = {}) {
   // restarted again.
   let instanceWasRunning = null;
   let stoppedForBackup = false;
+  let effectiveConsistency = consistency;
   if (consistency === "stopped") {
-    const { before } = await stopInstanceAndWait(instanceId, {
-      stopFailed: "BACKUP_INSTANCE_STOP_FAILED",
-      stillRunning: "BACKUP_INSTANCE_STILL_RUNNING",
-    });
-    instanceWasRunning = isInstanceActive(before);
-    stoppedForBackup = instanceWasRunning;
+    const before = await instanceService.getStatus(instanceId).catch(() => null);
+    if (before?.state === "Stopping") {
+      // An operator-initiated stop is in flight: never undo it with a
+      // restart, and the archive cannot claim stopped-consistency while the
+      // instance may still be flushing. Downgrade honestly to crash.
+      instanceWasRunning = true;
+      effectiveConsistency = "crash";
+    } else {
+      const { after } = await stopInstanceAndWait(instanceId, {
+        stopFailed: "BACKUP_INSTANCE_STOP_FAILED",
+        stillRunning: "BACKUP_INSTANCE_STILL_RUNNING",
+      });
+      instanceWasRunning = isInstanceActive(before);
+      stoppedForBackup = instanceWasRunning;
+      if (!stoppedForBackup) effectiveConsistency = "crash";
+    }
   } else {
     // Crash-consistent copies never touch the lifecycle, so the running flag
     // is disclosure metadata only and an unobservable state is recorded as
@@ -844,9 +861,14 @@ async function performCreateBackup(payload = {}) {
   } finally {
     // The stopped window covers only the archive step, and the restart holds
     // whether the archive succeeded or failed so a paused server is never
-    // left down by a failed backup.
+    // left down by a failed backup. An external start during the window is
+    // reported by the restart helper as a skip (RESTART_SKIPPED_ALREADY_RUNNING)
+    // and downgrades the honest consistency disclosure to crash.
     if (stoppedForBackup) {
       restartAfterBackup = await restartInstanceAfterBackup(instanceId);
+      if (restartAfterBackup.errorCode === "RESTART_SKIPPED_ALREADY_RUNNING") {
+        effectiveConsistency = "crash";
+      }
     }
   }
   const metadata = {
@@ -868,7 +890,9 @@ async function performCreateBackup(payload = {}) {
     status: "complete",
     // Additive consistency disclosure (schema stays at 1): how the copy was
     // taken and whether the instance had to be stopped and started again.
-    consistency,
+    // effectiveConsistency may differ from the requested mode when a Stopping
+    // instance or an external start made stopped-consistency untrue.
+    consistency: effectiveConsistency,
     instanceWasRunning,
     restartedAfterBackup: restartAfterBackup?.restarted === true,
   };
@@ -973,11 +997,26 @@ async function ensureInstanceStoppedForRestore(instanceId) {
 // Best-effort restart through the same canonical start path the restore flow
 // uses. A failed restart never fails the backup itself, but it is reported in
 // the create result and metadata instead of being silently swallowed.
-async function restartInstanceAfterBackup(instanceId) {
+// executors.startInstance is a test seam (defaults to the canonical
+// instanceService.startInstance).
+async function restartInstanceAfterBackup(instanceId, executors = {}) {
+  const startInstance = executors.startInstance || instanceService.startInstance;
   try {
-    await instanceService.startInstance(instanceId);
+    await startInstance(instanceId);
     return { attempted: true, restarted: true, errorCode: null, errorMessage: null };
   } catch (error) {
+    if (error?.code === "INSTANCE_ALREADY_RUNNING") {
+      // An external start during the archive window undid the operator's
+      // stop: the copy was no longer taken while stopped. Report a skip —
+      // claiming a FAILED restart would be dishonest while the server is
+      // actually running.
+      return {
+        attempted: false,
+        restarted: false,
+        errorCode: "RESTART_SKIPPED_ALREADY_RUNNING",
+        errorMessage: "The instance was started externally during the backup; it was left running and the copy is crash-consistent.",
+      };
+    }
     return {
       attempted: true,
       restarted: false,
@@ -1263,6 +1302,7 @@ module.exports = {
     parseTarEntries,
     pruneRetention,
     recoverBackupArtifacts,
+    restartInstanceAfterBackup,
     rollbackRestoreFromSafetySnapshot,
   },
   createBackup,

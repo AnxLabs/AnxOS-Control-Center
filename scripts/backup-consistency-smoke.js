@@ -234,6 +234,23 @@ async function main() {
     "result?.restart?.attempted && result.restart.restarted === false",
   ].forEach((needle) => assert(appSource.includes(needle), `Backup consistency renderer pinning missing: ${needle}`));
 
+  // External-start honesty (review P1-2): an INSTANCE_ALREADY_RUNNING restart
+  // failure is re-reported as skipped (attempted:false), never as a failed
+  // restart while the server is actually running.
+  const skipped = await backupService._test.restartInstanceAfterBackup("restart-mapping-probe", {
+    startInstance: async () => {
+      const error = new Error("Instance is already running.");
+      error.code = "INSTANCE_ALREADY_RUNNING";
+      throw error;
+    },
+  });
+  assert.strictEqual(skipped.attempted, false, "An externally-started instance must not be reported as a restart attempt.");
+  assert.strictEqual(skipped.errorCode, "RESTART_SKIPPED_ALREADY_RUNNING", "The skip must carry its distinct code.");
+  const restarted = await backupService._test.restartInstanceAfterBackup("restart-mapping-probe", {
+    startInstance: async () => {},
+  });
+  assert.strictEqual(restarted.attempted && restarted.restarted, true, "A normal restart must still be reported as attempted+restarted.");
+
   fs.rmSync(root, { recursive: true, force: true });
   console.log("backup-consistency-smoke passed");
 }

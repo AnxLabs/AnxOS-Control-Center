@@ -14,6 +14,7 @@ const {
   testNodeConnectionPayload,
 } = require("../services/nodeService");
 const { restorePersistedActiveNode, setActiveNode } = require("../services/activeNodeSelectionService");
+const { getFleetSummary, runFleetBatchAction } = require("../services/fleetService");
 const { generateAgentToken } = require("../shared/agentTokenStore");
 const { audit, getStatus, requireLocalOwnerAuthenticated, requirePermission } = require("../services/securityService");
 const { requireNodeContext } = require("./nodeContext");
@@ -73,6 +74,24 @@ function registerNodesIpc() {
   }));
   ipcMain.handle("nodes:health", async (_, payload = {}) => invokeNodeOperation(() => { requireLocalOwnerAuthenticated("nodes:health", "Unlock AnxOS to use saved node credentials."); requirePermission("nodes:read", payload.nodeId); return checkNodeHealth(requireNodeContext(payload, "node health check").nodeId); }));
   ipcMain.handle("nodes:healthAll", async () => invokeNodeOperation(() => { requireLocalOwnerAuthenticated("nodes:health-all", "Unlock AnxOS to use saved node credentials."); requirePermission("nodes:read", "nodes"); return checkAllNodeHealth(); }));
+  // V2-G Wave 2 fleet aggregation: read-only roll-up plus controlled batch
+  // actions. The batch channel is authorized once for the fleet-scope request
+  // here; every target inside it is still resolved against the registry and
+  // audited per node by runFleetBatchAction/the result records below.
+  ipcMain.handle("nodes:fleetSummary", async () => invokeNodeOperation(() => { requireLocalOwnerAuthenticated("nodes:fleet-summary", "Unlock AnxOS to use saved node credentials."); requirePermission("nodes:read", "nodes"); return getFleetSummary(); }));
+  ipcMain.handle("nodes:fleetBatch", async (_, payload = {}) => invokeNodeOperation(async () => {
+    requireLocalOwnerAuthenticated("nodes:fleet-batch", "Unlock AnxOS to manage nodes.");
+    requirePermission("settings:write", "nodes");
+    audit({ action: "node.fleet-batch", target: payload.action || "unknown-action" });
+    const outcome = await runFleetBatchAction(payload);
+    outcome.results.forEach((result) => audit({
+      action: `node.fleet-batch.${outcome.action}`,
+      target: result.nodeId,
+      outcome: result.ok ? "ok" : "failed",
+      reason: result.ok ? null : result.code,
+    }));
+    return outcome;
+  }));
   ipcMain.handle("nodes:credentialStatus", async (_, payload = {}) => invokeNodeOperation(() => { requireLocalOwnerAuthenticated("nodes:credential-status", "Unlock AnxOS to use saved node credentials."); requirePermission("nodes:read", payload.nodeId); return getNodeCredentialStatus(requireNodeContext(payload, "node credential status").nodeId); }));
   ipcMain.handle("nodes:repairCredential", async (_, payload = {}) => invokeNodeOperation(() => {
     const context = requireNodeContext(payload, "node credential repair");

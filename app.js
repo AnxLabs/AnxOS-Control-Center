@@ -694,6 +694,11 @@ const nodeList = document.querySelector("[data-node-list]");
 const nodeGroupFilter = document.querySelector("[data-node-group-filter]");
 const nodeMessage = document.querySelector("[data-node-message]");
 const nodeStatus = document.querySelector("[data-node-status]");
+const fleetPanel = document.querySelector("[data-fleet-panel]");
+const fleetRows = document.querySelector("[data-fleet-rows]");
+const fleetStatus = document.querySelector("[data-fleet-status]");
+const fleetMessage = document.querySelector("[data-fleet-message]");
+const fleetActionButtons = document.querySelectorAll("[data-fleet-action]");
 const nodeSummaryFields = document.querySelectorAll("[data-node-summary]");
 const nodeModal = document.querySelector("[data-node-modal]");
 const nodeModalTitle = document.querySelector("[data-node-modal-title]");
@@ -796,6 +801,10 @@ let nodePairingSubmissionSerial = 0;
 let nodePairingLastSubmittedCode = "";
 let nodeDetailsId = null;
 let nodeRefreshTimer = null;
+let fleetState = null;
+let fleetSummaryInFlight = false;
+let fleetSummarySerial = 0;
+let fleetBatchInFlight = false;
 let nodePickerActiveIndex = 0;
 const nodeRequestSerials = new Map();
 let backupRequestInFlight = false;
@@ -4299,6 +4308,7 @@ function showPage(pageName) {
 
   if (safePageName === "nodes") {
     refreshNodes();
+    refreshFleetSummary();
     startNodeRefreshPolling();
   } else {
     stopNodeRefreshPolling();
@@ -34273,6 +34283,8 @@ function renderNodes() {
       nodeList.append(item);
     });
   }
+  syncFleetControls();
+  renderFleetSummary();
   renderNodePicker();
 }
 
@@ -34329,6 +34341,238 @@ function stopNodeRefreshPolling() {
   if (nodeRefreshTimer) {
     window.clearInterval(nodeRefreshTimer);
     nodeRefreshTimer = null;
+  }
+}
+
+// V2-G Wave 2 fleet aggregation strip: a desktop-side roll-up over every
+// registered node (connection state the registry already polls, plus live
+// instance/job counts the fleet service reads per node). The strip renders from
+// the cached summary; only explicit refreshes and page opens fetch it.
+function getFleetTone(status) {
+  if (status === "online") return "ok";
+  if (status === "degraded" || status === "connecting" || status === "unknown") return "warning";
+  if (status === "authentication_failed" || status === "agent_incompatible" || status === "offline") return "critical";
+  return "planned";
+}
+
+function getFleetTargetNodes() {
+  const groupFilter = getNodeGroupFilterValue();
+  return (nodesState.nodes || []).filter((node) => node.kind === "agent" && nodeMatchesGroupFilter(node, groupFilter));
+}
+
+function formatFleetInventory(entry) {
+  if (entry.instances.available) {
+    const running = entry.instances.runningInstanceCount || 0;
+    return `${entry.instances.instanceCount} instance${entry.instances.instanceCount === 1 ? "" : "s"} · ${running} running`;
+  }
+  return entry.instances.message || "Instance inventory unavailable.";
+}
+
+function formatFleetJobs(entry) {
+  if (!entry.jobs.available) {
+    return entry.jobs.message || "Job records unavailable.";
+  }
+  const parts = Object.entries(entry.jobs.byState || {})
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([state, count]) => `${count} ${state}`);
+  const suffix = entry.jobs.total > entry.jobs.sampled ? ` of ${entry.jobs.total}` : "";
+  return parts.length ? `Recent jobs: ${parts.join(", ")}${suffix}.` : "No recent jobs.";
+}
+
+function renderFleetSummary() {
+  if (!fleetPanel) return;
+  const agentCount = (nodesState.nodes || []).filter((node) => node.kind === "agent").length;
+  fleetPanel.hidden = agentCount === 0;
+  if (fleetStatus) {
+    const groupFilter = getNodeGroupFilterValue();
+    const visibleEntries = (fleetState?.nodes || []).filter((entry) => entry.kind === "agent" && nodeMatchesGroupFilter({ group: entry.group }, groupFilter));
+    const onlineCount = visibleEntries.filter((entry) => entry.connection.status === "online").length;
+    if (!fleetState) {
+      fleetStatus.textContent = securityState?.localOwnerAuthenticated !== true ? "Locked" : "Loading";
+      fleetStatus.className = "status-pill status-pill--planned";
+    } else if (fleetState.error) {
+      fleetStatus.textContent = "Unavailable";
+      fleetStatus.className = "status-pill status-pill--critical";
+    } else if (!visibleEntries.length) {
+      fleetStatus.textContent = "No match";
+      fleetStatus.className = "status-pill status-pill--planned";
+    } else {
+      fleetStatus.textContent = `${onlineCount}/${visibleEntries.length} Online`;
+      fleetStatus.className = `status-pill status-pill--${onlineCount === visibleEntries.length ? "ok" : onlineCount > 0 ? "warning" : "critical"}`;
+    }
+  }
+  if (fleetMessage) {
+    fleetMessage.textContent = securityState?.localOwnerAuthenticated !== true
+      ? "Unlock AnxOS to aggregate the fleet."
+      : fleetState?.error
+        ? fleetState.error
+        : fleetState?.checkedAt
+          ? `Fleet updated ${formatHealthCheckedAt(fleetState.checkedAt)}.`
+          : "Fleet aggregation has not run yet.";
+  }
+  if (fleetRows) {
+    fleetRows.replaceChildren();
+    if (!fleetState) return;
+    const groupFilter = getNodeGroupFilterValue();
+    const visibleEntries = (fleetState.nodes || []).filter((entry) => entry.kind === "agent" && nodeMatchesGroupFilter({ group: entry.group }, groupFilter));
+    if (!visibleEntries.length) {
+      const empty = document.createElement("div");
+      empty.className = "nodes-empty-state";
+      empty.textContent = "No fleet nodes match the current group filter.";
+      fleetRows.append(empty);
+      return;
+    }
+    visibleEntries.forEach((entry) => {
+      const row = document.createElement("article");
+      row.className = "download-item node-card fleet-row";
+      row.dataset.fleetNodeId = entry.nodeId;
+      row.dataset.agentState = getFleetTone(entry.connection.status) === "ok" ? "online" : "offline";
+      const body = document.createElement("div");
+      body.className = "agent-node-copy node-card__body";
+      const header = document.createElement("div");
+      header.className = "node-card__header";
+      const titleGroup = document.createElement("div");
+      const title = document.createElement("strong");
+      title.textContent = entry.displayName;
+      const detail = document.createElement("small");
+      detail.textContent = [entry.group ? `Group: ${entry.group}` : "No group", entry.connection.displayStatus].filter(Boolean).join(" · ");
+      titleGroup.append(title, detail);
+      const badges = document.createElement("div");
+      badges.className = "node-card__badges";
+      badges.append(createNodeBadge(entry.connection.displayStatus || "Unknown", getFleetTone(entry.connection.status)));
+      if (entry.connection.manualDisconnect === true) {
+        badges.append(createNodeBadge("Disconnected by owner", "warning"));
+      }
+      if (entry.enabled === false) {
+        badges.append(createNodeBadge("Disabled", "planned"));
+      }
+      header.append(titleGroup, badges);
+      const meta = document.createElement("dl");
+      meta.className = "node-card__meta";
+      [
+        ["Inventory", formatFleetInventory(entry)],
+        ["Jobs", formatFleetJobs(entry)],
+        ["Last seen", formatHealthCheckedAt(entry.connection.lastSeen)],
+      ].forEach(([label, value]) => {
+        const wrapper = document.createElement("div");
+        const dt = document.createElement("dt");
+        const dd = document.createElement("dd");
+        dt.textContent = label;
+        dd.textContent = value;
+        wrapper.append(dt, dd);
+        meta.append(wrapper);
+      });
+      body.append(header, meta);
+      row.append(body);
+      fleetRows.append(row);
+    });
+  }
+}
+
+function syncFleetControls() {
+  if (!fleetActionButtons.length) return;
+  const locked = securityState?.localOwnerAuthenticated !== true;
+  const targets = getFleetTargetNodes();
+  fleetActionButtons.forEach((button) => {
+    const fleetAction = button.dataset.fleetAction;
+    if (fleetAction === "refresh") {
+      button.disabled = locked || fleetSummaryInFlight;
+      return;
+    }
+    button.disabled = locked || fleetBatchInFlight || targets.length === 0;
+    const targetLabel = `${targets.length} filtered node${targets.length === 1 ? "" : "s"}`;
+    button.title = fleetAction === "start"
+      ? `Reconnect ${targetLabel}`
+      : `Disconnect ${targetLabel}: AnxOS stops managing them until they are reconnected`;
+  });
+}
+
+async function refreshFleetSummary() {
+  const desktopApiState = getDesktopApiState();
+  if (!fleetPanel || !desktopApiState.hasNodes || typeof desktopApiState.api.nodes.fleetSummary !== "function") {
+    return;
+  }
+  if (securityState?.localOwnerAuthenticated !== true || fleetSummaryInFlight) {
+    renderFleetSummary();
+    syncFleetControls();
+    return;
+  }
+  const serial = ++fleetSummarySerial;
+  fleetSummaryInFlight = true;
+  renderFleetSummary();
+  syncFleetControls();
+  try {
+    const summary = await desktopApiState.api.nodes.fleetSummary();
+    if (serial !== fleetSummarySerial) return;
+    fleetState = summary;
+  } catch (error) {
+    if (serial !== fleetSummarySerial) return;
+    fleetState = { error: normalizeIpcErrorMessage(error, "Fleet summary is unavailable."), nodes: [], totals: null, checkedAt: null };
+  } finally {
+    if (serial === fleetSummarySerial) {
+      fleetSummaryInFlight = false;
+    }
+  }
+  renderFleetSummary();
+  syncFleetControls();
+}
+
+async function runFleetBatchActionFromUi(action) {
+  const desktopApiState = getDesktopApiState();
+  if (!desktopApiState.hasNodes || typeof desktopApiState.api.nodes.fleetBatch !== "function") {
+    showToast("Fleet actions are unavailable for this workspace.", "warning");
+    return;
+  }
+  if (fleetBatchInFlight) return;
+  if (blockProtectedAction("Unlock AnxOS to manage nodes.")) return;
+  const targets = getFleetTargetNodes();
+  if (!targets.length) {
+    showToast("No nodes match the current group filter.", "info");
+    return;
+  }
+  const targetLabels = targets.map((node) => node.displayName || node.id);
+  if (action === "stop" && !(await confirmDestructiveAction({
+    title: `Stop ${targets.length} node${targets.length === 1 ? "" : "s"}?`,
+    message: `AnxOS will disconnect from: ${targetLabels.join(", ")}. Each node keeps its records; use Start Nodes to reconnect.`,
+    confirmLabel: "Stop Nodes",
+  }))) return;
+  fleetBatchInFlight = true;
+  fleetSummarySerial += 1;
+  syncFleetControls();
+  try {
+    const outcome = await desktopApiState.api.nodes.fleetBatch({
+      action,
+      nodeIds: targets.map((node) => node.id),
+      confirm: action === "stop" ? true : undefined,
+    });
+    const failed = outcome.results.filter((result) => !result.ok);
+    const summaryLine = `${outcome.summary.succeeded} node${outcome.summary.succeeded === 1 ? "" : "s"} ${action === "start" ? "started" : "stopped"}${outcome.summary.failed ? `, ${outcome.summary.failed} failed` : ""}.`;
+    const failureReasons = failed
+      .slice(0, 3)
+      .map((result) => `${result.nodeName || result.nodeId}: ${result.message || result.code}`);
+    showToast(
+      failureReasons.length
+        ? `Fleet ${action} finished with failures. ${summaryLine} ${failureReasons.join(" | ")}`
+        : `Fleet ${action} completed. ${summaryLine}`,
+      failureReasons.length ? "warning" : "success",
+    );
+    createNotification({
+      category: "Nodes",
+      severity: failed.length ? "warning" : "success",
+      title: `Fleet ${action} completed`,
+      message: `${summaryLine}${failed.length ? ` Failed: ${failed.map((result) => `${result.nodeName || result.nodeId} (${result.code})`).join(", ")}` : ""}`,
+      dedupKey: `fleet-batch:${action}:${Date.now()}`,
+      relatedWorkspace: "nodes",
+      actions: ["openOperations"],
+    });
+    fleetState = null;
+    await refreshNodes();
+    await refreshFleetSummary();
+  } catch (error) {
+    showToast(normalizeIpcErrorMessage(error, "Fleet action failed."), "error");
+  } finally {
+    fleetBatchInFlight = false;
+    syncFleetControls();
   }
 }
 
@@ -38901,6 +39145,14 @@ nodeList?.addEventListener("click", async (event) => {
   await handleNodeCardAction(actionButton.dataset.nodeCardAction, actionButton.dataset.nodeId);
 });
 nodeGroupFilter?.addEventListener("change", () => renderNodes());
+fleetActionButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    const fleetAction = button.dataset.fleetAction;
+    if (fleetAction === "refresh") return refreshFleetSummary();
+    if (fleetAction === "start" || fleetAction === "stop") return runFleetBatchActionFromUi(fleetAction);
+    return undefined;
+  });
+});
 nodeDetailsModal?.addEventListener("click", async (event) => {
   const healthButton = event.target.closest("[data-node-health-action]");
   if (healthButton) {

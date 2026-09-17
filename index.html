@@ -4152,9 +4152,26 @@
                 <select data-node-group-filter aria-label="Filter nodes by group">
                   <option value="all">All groups</option>
                 </select>
+                <button class="inline-action" type="button" data-fleet-action="start" title="Reconnect the filtered nodes">Start Nodes</button>
+                <button class="inline-action inline-action--danger" type="button" data-fleet-action="stop" title="Disconnect the filtered nodes">Stop Nodes</button>
                 <span class="settings-inline-status" data-node-message>No additional nodes registered.</span>
               </div>
               <div class="download-list" data-node-list></div>
+            </section>
+
+            <section class="settings-section settings-section--nodes nodes-panel" data-fleet-panel hidden>
+              <div class="settings-section__header">
+                <div>
+                  <h2>Fleet</h2>
+                  <p>Aggregated connection, inventory and job outcome roll-up for registered nodes.</p>
+                </div>
+                <span class="status-pill status-pill--planned" data-fleet-status>Unknown</span>
+              </div>
+              <div class="nodes-toolbar">
+                <button class="inline-action" type="button" data-fleet-action="refresh">Refresh Fleet</button>
+                <span class="settings-inline-status" data-fleet-message>Fleet aggregation applies to the filtered node set.</span>
+              </div>
+              <div class="download-list" data-fleet-rows></div>
             </section>
           </div>
         </section>
