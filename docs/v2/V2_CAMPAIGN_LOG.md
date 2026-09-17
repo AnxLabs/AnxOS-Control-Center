@@ -149,6 +149,15 @@ Checkpoint: local == remote == 398e7d2, tree clean. In flight:
   Acceptance drill decomposed and ONE-MACHINE feasible: two agent processes with distinct ANXHUB_CONFIG_DIR/AGENT_INSTANCE_ROOT/AGENT_PORT; enroll both; interrupt B mid-job; restart desktop; assert A stays usable, per-node result tagging, no stale replay, revoke→410 (needs wave 1), transfer drill (needs wave 4), per-OS legs.
   Sequencing: V2-G wave 1 dispatches after the three running implementers integrate (bandwidth + it unblocks the drill's revocation step).
 
+### Cycle 3 close — implementation complete, review verdict integrated (2026-09-17, commits f59e608, 28f66e4, 1eb7f88, 1b04536 — PUSHED)
+
+All three Cycle-3 implementers delivered validated work; per-workstream commits landed and pushed. The independent reviewer then verified the pin guard's chokepoint claim by tracing every install path (installDependency is the sole doInstallDependency caller; update-required flows through the same guarded path; no bypass) and returned **zero P0, two P1** — both fixed in 1b04536 plus two cheap P2s:
+- P1-1: a corrupt runtime-pin store failed every attributed dependency CHECK (blocking instance starts) — pin recording now degrades to a reported field; the install chokepoint keeps failing closed.
+- P1-2 pin lifecycle: deleted workloads' pins are now cleaned by the agent instance-delete route (a deleted-but-pinned workload could previously block runtime updates forever), and the display-name identity fallback is dropped (pins key on the durable instance id only).
+- P2 fixed: players tab renders the agent's real unsupported reason (binary_unsupported ≠ too_large); dependency-family smokes pin their runtime roots via the shared helper (they reach the agent config path since the pin work and would leak into the cwd-default root every gate run — the residue the tripwire caught).
+- Backlog: client-supplied identity documented as soft-bypass (not a security boundary); listBackups read-path legacy-schema tolerance; prune-report overcount on swallowed delete failures; verify-then-extract TOCTOU (hash-during-extract).
+Full gate rerun launched at close. V2-G wave 1 (revoke/disconnect/groups) dispatched.
+
 ### Cycle 1 close — V2-B/V2-F/V2-D integrated (2026-09-17, commits 411f610, eb13b83 — PUSHED)
 
 - **411f610** — V2-B renderer slice (dashboard app-card grid, "Open service" launch links via the main-window setWindowOpenHandler→openExternalUrl path, marketplace favorites in localStorage, 90s honest staleness) + V2-F Alpha wiring (per-instance Restore now routed through restoreBackupForInstance with latest-backup reconciliation; Delete/Forget dialogs state their data outcomes; hermetic alpha-loop e2e smoke registered as `alpha:loop:backup:smoke`). 13-smoke renderer gate green pre-commit.
