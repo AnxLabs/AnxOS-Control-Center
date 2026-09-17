@@ -88,6 +88,7 @@ jobs:
       - name: Promote release to public stable latest
         env:
           GH_TOKEN: ${{ secrets.ANXOS_RELEASE_REPO_TOKEN }}
+          TAG: ${{ github.event.inputs.tag }}
         run: |
           set -euo pipefail
           # GitHub ignores make_latest when it is set in the SAME request that
