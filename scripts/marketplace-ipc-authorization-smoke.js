@@ -47,6 +47,7 @@ async function main() {
     "marketplace:getProviderPackVersions",
     "marketplace:getProviderPackDetails",
     "marketplace:getImportSupport",
+    "marketplace:getInstallPlan",
     "marketplace:installTemplate",
     "marketplace:installPack",
     "marketplace:getDownloads",

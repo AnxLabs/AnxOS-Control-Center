@@ -250,6 +250,7 @@ const desktopApi = {
     getProviderPackVersions: (payload = {}) => invokeMarketplace("marketplace:getProviderPackVersions", payload),
     getProviderPackDetails: (payload = {}) => invokeMarketplace("marketplace:getProviderPackDetails", payload),
     getImportSupport: () => invokeMarketplace("marketplace:getImportSupport"),
+    getInstallPlan: (payload = {}) => invokeMarketplace("marketplace:getInstallPlan", payload),
     importCommunityTemplate: (payload = {}) => invokeMarketplace("marketplace:importCommunityTemplate", payload),
     installTemplate: (payload) => invokeMarketplace("marketplace:installTemplate", payload),
     installPack: (payload) => invokeMarketplace("marketplace:installPack", payload),

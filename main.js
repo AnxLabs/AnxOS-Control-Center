@@ -93,6 +93,11 @@ const { registerDiagnosticsIpc } = require("./src/ipc/diagnosticsIpc");
 const { registerAgentControlIpc } = require("./src/ipc/agentControlIpc");
 const { registerDependenciesIpc } = require("./src/ipc/dependenciesIpc");
 const localInstanceService = require("./src/services/localInstanceService");
+// V2-D install transactions: marketplace install jobs ride the shared V2-A job
+// store owned by the local instance service; warm the marketplace wrappers up
+// through the same configure-and-reconcile hook the instance jobs use.
+const { setMarketplaceJobsWarmup } = require("./src/services/marketplaceInstallJobService");
+setMarketplaceJobsWarmup(() => localInstanceService.recoverInstanceJobs());
 const originalConsoleError = console.error.bind(console);
 console.error = (...args) => {
   originalConsoleError(...args);
@@ -1060,6 +1065,20 @@ app.whenReady().then(async () => {
     })
     .catch((error) => {
       diagnostics.logError("startup", "instance-recovery", error, {}, { file: "desktop" });
+    });
+
+  // V2-D install transactions: re-observe marketplace install jobs that were in
+  // flight when the desktop restarted (the V2-A "no orphan" gate), mirroring the
+  // Agent's boot-time job re-observation. Interrupted marketplace jobs settle
+  // as FAILED/JOB_INTERRUPTED with retry guidance.
+  localInstanceService.recoverInstanceJobs()
+    .then((jobRecovery) => {
+      if (jobRecovery?.recovered) {
+        diagnostics.log("info", "startup", "marketplace-job-recovery", "Interrupted Marketplace install jobs were re-observed.", jobRecovery, { file: "desktop" });
+      }
+    })
+    .catch((error) => {
+      diagnostics.logError("startup", "marketplace-job-recovery", error, {}, { file: "desktop" });
     });
 
   app.on("activate", () => {

@@ -19,6 +19,11 @@ const {
   buildMarketplaceInstallContext,
   validateMarketplaceInstallContext,
 } = require("./marketplaceInstallContext");
+const {
+  MARKETPLACE_JOB_TYPES,
+  buildMarketplaceInstallKey,
+  mintMarketplaceJob,
+} = require("./marketplaceInstallJobService");
 const longOperations = require("../shared/longOperationService");
 const { resolveTemplateDependencyIds } = require("../shared/marketplaceDependencies");
 const { redactString, sanitize } = require("../shared/redaction");
@@ -701,6 +706,79 @@ function getTemplateInstallPlan(templateId) {
     reason: installable ? null : "Template does not define an automatic installer or download source.",
     downloadCount: downloads.length,
     steps,
+  };
+}
+
+// V2-D plan preview: compose the curated install plan with read-only preflight
+// verdicts (dependency diff + disk check) so the Marketplace UI can show the
+// transaction before it is executed. The preview never installs anything: the
+// dependency check runs with autoInstallDependencies forced off.
+async function getTemplateInstallPlanPreview(payload = {}) {
+  const templateId = payload.templateId || payload.id;
+  if (!templateId || typeof templateId !== "string") {
+    throw createMarketplaceError("A templateId is required to build an install plan.", "TEMPLATE_ID_REQUIRED", { templateId: null });
+  }
+
+  let agentConfig = null;
+  try {
+    agentConfig = resolveMarketplaceAgentConfig(payload.nodeId);
+  } catch {
+    agentConfig = null;
+  }
+  const targetPlatform = getInstallTargetPlatform(payload, agentConfig);
+  const template = resolveTemplateForPlatform(findTemplate(templateId), targetPlatform);
+  const plan = getTemplateInstallPlan(template.id || templateId);
+  const installablePlan = { ...plan, templateId: template.id || templateId };
+
+  const resolvedDownloads = normalizeTemplateDownloads(template).map((download) => ({
+    type: download.type,
+    destination: download.destination || null,
+    fileName: download.fileName || null,
+    url: typeof download.url === "string" ? download.url : null,
+    size: Number.isFinite(Number(download.size)) ? Number(download.size) : null,
+  }));
+
+  let dependencies;
+  try {
+    const check = await ensureTemplateDependencies(
+      template,
+      { nodeId: payload.nodeId || null, autoInstallDependencies: false },
+      agentConfig,
+      [],
+    );
+    dependencies = {
+      checked: true,
+      ok: check.ok !== false,
+      dependencyIds: Array.isArray(check.dependencyIds) ? check.dependencyIds : [],
+      dependencies: Array.isArray(check.dependencies) ? check.dependencies : [],
+    };
+  } catch (error) {
+    dependencies = {
+      checked: true,
+      ok: false,
+      dependencyIds: Array.isArray(error?.details?.dependencyIds) ? error.details.dependencyIds : [],
+      missing: error?.details?.missingDependencies || null,
+      code: error?.code || "DEPENDENCY_CHECK_FAILED",
+      message: error?.message || "Dependency preflight failed.",
+    };
+  }
+
+  let disk;
+  try {
+    // Lazy require: the disk preflight lives with the provider install
+    // executors, and resolving it at call time keeps this module free of any
+    // require-order coupling to marketplaceInstallService.
+    const { getInstallDiskPreflight } = require("./marketplaceInstallService");
+    disk = await getInstallDiskPreflight({ nodeId: payload.nodeId });
+  } catch (error) {
+    disk = { checked: false, ok: null, code: "DISK_SPACE_CHECK_UNAVAILABLE", message: error?.message || "Disk preflight could not run." };
+  }
+
+  return {
+    ...installablePlan,
+    downloads: resolvedDownloads,
+    dependencies,
+    disk,
   };
 }
 
@@ -3777,6 +3855,36 @@ async function setInstanceInstallStage(instanceId, stage, agentConfig = null, ex
 }
 
 async function installTemplate(payload = {}) {
+  // Key subject: the requested instance identity when present (options.id), so
+  // distinct installs of the same template mint distinct jobs; template-level
+  // dedupe would collapse distinct installs of the same template into replays.
+  const requestedInstanceId = payload.options?.id || null;
+  const version = payload.packageVersion || payload.options?.packageVersion || "unversioned";
+  // Callers (IPC, renderer, smokes) receive the install result exactly as
+  // before the job wrapper existed: the durable job record lives in the job
+  // store, not in this function's return shape.
+  const job = await mintMarketplaceJob({
+    type: MARKETPLACE_JOB_TYPES.INSTALL,
+    target: { nodeId: payload.nodeId || null, templateId: payload.templateId || null },
+    idempotencyKey: payload.idempotencyKey !== undefined && payload.idempotencyKey !== null
+      ? payload.idempotencyKey
+      : buildMarketplaceInstallKey({ nodeId: payload.nodeId, subject: requestedInstanceId || payload.templateId, version }),
+    // Template installs have no in-flight cancellation seam; cancel only works
+    // while the job is still queued, and that is reported honestly.
+    cancellationSupported: false,
+    run: async ({ jobId, setStage }) => {
+      await setStage("executing");
+      return executeInstallTemplate(payload);
+    },
+  });
+  return job.result;
+}
+
+// The real install executor. The exported installTemplate wrapper rides the
+// durable V2-A job lifecycle (V2-D install transactions) so every install is
+// recorded, idempotent on keyed retry, and reconciled as interrupted if the
+// desktop restarts mid-flight.
+async function executeInstallTemplate(payload = {}) {
   const requestId = payload.requestId || require("crypto").randomUUID();
   const baseTemplate = findTemplate(payload.templateId, payload.template);
   const agentConfig = resolveMarketplaceAgentConfig(payload.nodeId);
@@ -4170,6 +4278,7 @@ module.exports = {
   getMinecraftVersionCatalog,
   importCommunityTemplate,
   installTemplate,
+  getTemplateInstallPlanPreview,
   listTemplates,
   retryDownload,
   updateDependencyInstallRecord,

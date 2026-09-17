@@ -62,6 +62,7 @@
     "marketplace:provider-cancellation:smoke": "node scripts/marketplace-provider-cancellation-smoke.js",
     "marketplace:provider-disk-preflight:smoke": "node scripts/marketplace-provider-disk-preflight-smoke.js",
     "marketplace:template-metadata:smoke": "node scripts/marketplace-template-metadata-smoke.js",
+    "marketplace:install-transaction:smoke": "node scripts/marketplace-install-transaction-smoke.js",
     "alpha:loop:backup:smoke": "node scripts/alpha-loop-backup-smoke.js",
     "account:smoke": "node scripts/account-system-smoke.js",
     "account:ipc-error-contract:smoke": "node scripts/account-ipc-error-contract-smoke.js",

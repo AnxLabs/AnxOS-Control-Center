@@ -20,6 +20,11 @@ const { sanitizeForDiagnostics } = require("../shared/redaction");
 const { normalizeDiskEvidence } = require("../shared/diskSpace");
 const { CLASSIFICATIONS, classifyServerCompatibility } = require("../shared/marketplaceServerCompatibility");
 const longOperations = require("../shared/longOperationService");
+const {
+  MARKETPLACE_JOB_TYPES,
+  buildMarketplaceInstallKey,
+  mintMarketplaceJob,
+} = require("./marketplaceInstallJobService");
 
 const INSTALL_FOLDERS = ["mods", "config", "defaultconfigs", "kubejs", "kubejs/scripts", "world", "logs", "backups"];
 const PAPER_DOWNLOADS_API = "https://fill.papermc.io/v3";
@@ -429,7 +434,9 @@ function updateProviderInstallOperation(operationId, patch = {}) {
 }
 
 function createProviderInstallOperation(payload, context = {}) {
-  const controller = new AbortController();
+  // The job wrapper passes its own controller so a durable-job cancel can abort
+  // the same signal the long operation's cancel handler aborts.
+  const controller = context.controller instanceof AbortController ? context.controller : new AbortController();
   const now = new Date().toISOString();
   const id = `provider-install-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
   const metadata = {
@@ -1483,7 +1490,9 @@ function verifyImportedFile(filePath, manual = {}) {
   const buffer = fs.readFileSync(filePath);
   const sha1 = crypto.createHash("sha1").update(buffer).digest("hex");
   const sha512 = crypto.createHash("sha512").update(buffer).digest("hex");
-  const expectedHash = manual.hash || manual.sha1 || manual.sha512;
+  // Prefer the strong digest when provider metadata offers both; SHA-1 is the
+  // legacy fallback only (P2 hardening, Mimosa triage 2026-09-17).
+  const expectedHash = manual.hash || manual.sha512 || manual.sha1;
   if (expectedHash && ![sha1, sha512].includes(String(expectedHash).toLowerCase())) {
     throw new MarketplaceInstallError("Selected file hash does not match the expected provider metadata.", "PROVIDER_IMPORT_FILE_HASH_MISMATCH", {
       expectedHash,
@@ -2341,7 +2350,7 @@ async function installModrinthPack(instanceId, payload, agentConfig, progressSta
 	            versionId: version.id,
 	            fileName: path.posix.basename(filePath),
 	            expectedDestinationPath: filePath,
-	            hash: file.hashes?.sha1 || file.hashes?.sha512 || null,
+	            hash: file.hashes?.sha512 || file.hashes?.sha1 || null,
 	            size: file.fileSize || file.size || null,
 	            projectUrl: project.projectUrl || null,
 	          };
@@ -3047,7 +3056,66 @@ async function assertProviderInstallDiskSpace(options = {}, agentConfig = null) 
   return { ...diskSpaceCheck, requiredFreeBytes };
 }
 
+// Read-only disk preflight verdict for install plan previews (V2-D). Never
+// installs or mutates anything: it reads the Agent's storage metrics and
+// reports the same verdict the executing install would enforce.
+async function getInstallDiskPreflight(payload = {}) {
+  let target;
+  try {
+    target = resolveMarketplaceInstallTarget({ nodeId: payload.nodeId, operation: "install-plan" });
+  } catch (error) {
+    return { checked: false, ok: null, code: error?.code || null, message: error?.message || "No install target could be resolved for the disk preflight." };
+  }
+  try {
+    const verdict = await assertProviderInstallDiskSpace({ minFreeBytes: payload.minFreeBytes }, target.agentConfig);
+    return { checked: true, ok: true, ...verdict };
+  } catch (error) {
+    return {
+      checked: true,
+      ok: false,
+      code: error?.code || "DISK_SPACE_CHECK_UNAVAILABLE",
+      message: error?.message || "Disk preflight failed.",
+      requiredFreeBytes: error?.details?.requiredFreeBytes ?? null,
+      retryable: error?.details?.retryable ?? null,
+      suggestion: error?.details?.suggestion || null,
+    };
+  }
+}
+
 async function installPack(payload = {}) {
+  const subject = payload.providerProjectId || payload.projectId || payload.templateId || payload.id || payload.template?.id || "provider-pack";
+  const controller = new AbortController();
+  const job = await mintMarketplaceJob({
+    type: MARKETPLACE_JOB_TYPES.INSTALL,
+    target: { nodeId: payload.nodeId || null, projectId: subject },
+    idempotencyKey: payload.idempotencyKey !== undefined && payload.idempotencyKey !== null
+      ? payload.idempotencyKey
+      : buildMarketplaceInstallKey({
+        nodeId: payload.nodeId,
+        subject,
+        version: payload.versionId || payload.minecraftVersion || payload.version || "unversioned",
+      }),
+    cancellationSupported: true,
+    // Durable-job cancel forwards onto the same AbortController the provider
+    // install uses, so one cancellation path serves both cancel surfaces.
+    cancel: async () => {
+      controller.abort();
+    },
+    run: async ({ jobId, setStage }) => {
+      await setStage("executing");
+      return executeInstallPack(payload, { controller });
+    },
+  });
+  // Callers (IPC, renderer, smokes) receive the install result exactly as
+  // before the job wrapper existed; the durable record lives in the job store.
+  return job.result;
+}
+
+// The real install executor. The exported installPack wrapper rides the durable
+// V2-A job lifecycle (V2-D install transactions) so every provider-pack install
+// is recorded, idempotent on keyed retry, and reconciled as interrupted if the
+// desktop restarts mid-flight.
+async function executeInstallPack(payload = {}, context = {}) {
   const provider = String(payload.provider || payload.template?.provider || "anxhub").toLowerCase();
   const options = {
     ...payload.template,
@@ -3155,7 +3223,7 @@ async function installPack(payload = {}) {
   const instancePayload = buildInstancePayload(options, serverInfo);
   const installContext = validateInstallContext(buildInstallContext(payload, options, instancePayload));
   const instanceId = instancePayload.id;
-  const installOperation = createProviderInstallOperation(payload, { nodeId: installNodeId, instanceId });
+  const installOperation = createProviderInstallOperation(payload, { nodeId: installNodeId, instanceId, controller: context?.controller || null });
   const operationId = installOperation.operation.id;
   const signal = installOperation.signal;
   instancePayload.installationOperationId = operationId;
@@ -3397,7 +3465,38 @@ async function resumeManualInstall(sessionId, options = {}) {
   }
 }
 
+// The real SteamCMD update executor. The exported updateSteamCmdInstance
+// wrapper rides the durable V2-A job lifecycle (V2-D install transactions) so
+// every update is recorded and reconciled as interrupted on a desktop restart.
 async function updateSteamCmdInstance(payload = {}) {
+  const instanceId = String(payload.instanceId || "").trim() || "unknown-instance";
+  const controller = new AbortController();
+  const job = await mintMarketplaceJob({
+    type: MARKETPLACE_JOB_TYPES.STEAMCMD_UPDATE,
+    target: { instanceId, nodeId: payload.nodeId || null },
+    idempotencyKey: payload.idempotencyKey !== undefined && payload.idempotencyKey !== null
+      ? payload.idempotencyKey
+      : buildMarketplaceInstallKey({ nodeId: payload.nodeId, subject: instanceId, version: "current" }),
+    cancellationSupported: true,
+    // Durable-job cancel forwards onto the same AbortController the SteamCMD
+    // session uses, so one cancellation path serves both cancel surfaces.
+    cancel: async () => {
+      controller.abort();
+    },
+    run: async ({ jobId, setStage }) => {
+      await setStage("executing");
+      return executeUpdateSteamCmdInstance(payload, { controller });
+    },
+  });
+  // Callers (IPC, renderer, smokes) receive the update result exactly as
+  // before the job wrapper existed; the durable record lives in the job store.
+  return job.result;
+}
+
+// The real SteamCMD update executor. The exported updateSteamCmdInstance
+// wrapper rides the durable V2-A job lifecycle (V2-D install transactions) so
+// every update is recorded and reconciled as interrupted on a desktop restart.
+async function executeUpdateSteamCmdInstance(payload = {}, context = {}) {
   const instanceId = String(payload.instanceId || "").trim();
   const nodeId = payload.nodeId || null;
   if (!instanceId) throw new MarketplaceInstallError("An instance is required.", "INVALID_INSTANCE_ID");
@@ -3408,7 +3507,9 @@ async function updateSteamCmdInstance(payload = {}) {
   const targetNodeId = target.nodeId;
   const agentConfig = target.agentConfig;
   const operationId = `steamcmd-update-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
-  const controller = new AbortController();
+  // The job wrapper passes its own controller so a durable-job cancel aborts
+  // the same signal the long operation's cancel handler aborts.
+  const controller = context?.controller instanceof AbortController ? context.controller : new AbortController();
   const operation = longOperations.createOperation({
     id: operationId,
     kind: "marketplace-download",
@@ -3816,6 +3917,7 @@ module.exports = {
   },
   getManualInstallProviderPage,
   getManualInstallRecovery,
+  getInstallDiskPreflight,
   installPack,
   importManualInstallFile,
   marketplaceInstallEvents,

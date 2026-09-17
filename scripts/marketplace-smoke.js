@@ -15,7 +15,21 @@ fs.readFileSync = (filePath, options) => {
 
 const smokeConfigRoot = fs.mkdtempSync(path.join(os.tmpdir(), "anx-marketplace-config-"));
 process.env.ANXHUB_CONFIG_DIR = smokeConfigRoot;
+// V2-D install transactions: the wrapped install executors mint durable V2-A
+// jobs. The agent-layer instance service re-configures the shared job store
+// to <instanceRoot>/jobs when it loads, which would override the smoke's own
+// configuration below and leak job records into the real machine root — and
+// a persisted succeeded job would then REPLAY on every later run instead of
+// executing (createInstance mocks never fire, asserts fail nondeterministically).
+// Pin the instance root inside the smoke's temp tree so every configuration
+// lands hermetically.
+process.env.AGENT_INSTANCE_ROOT = path.join(smokeConfigRoot, "instances");
 process.on("exit", () => fs.rmSync(smokeConfigRoot, { recursive: true, force: true }));
+
+// V2-D install transactions: the wrapped install executors mint durable V2-A
+// jobs; point the shared job store at a hermetic temp root for this smoke.
+const jobLifecycle = require("../src/shared/instances/jobLifecycle");
+jobLifecycle.configureJobLifecycle({ getRoot: () => path.join(smokeConfigRoot, "jobs") });
 
 const marketplaceService = require("../src/services/marketplaceService");
 const marketplaceInstallService = require("../src/services/marketplaceInstallService");

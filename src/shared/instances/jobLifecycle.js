@@ -108,7 +108,9 @@ function sanitizeTarget(target) {
   }
   const sanitized = sanitizeJobValue(target) || {};
   const result = {};
-  for (const key of ["instanceId", "requestedId", "nodeId", "backupId", "dependencyId", "containerId", "imageId", "volumeId", "networkId", "projectName"]) {
+  // V2-D: marketplace install transactions target Marketplace subjects in
+  // addition to instance/device identities; "projectId" covers provider packs.
+  for (const key of ["instanceId", "requestedId", "nodeId", "backupId", "dependencyId", "containerId", "imageId", "volumeId", "networkId", "projectName", "templateId", "projectId"]) {
     if (typeof sanitized[key] === "string") {
       result[key] = sanitized[key].slice(0, 128);
     }

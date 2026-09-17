@@ -5600,6 +5600,18 @@ async function ensureInstanceJobsRecovered() {
 // job record is durable, so reconcile each still-open job against the persisted
 // instance state instead of leaving it dangling or auto-killing anything.
 async function reconcileInterruptedInstanceJob(job) {
+  // V2-D: marketplace install transactions are desktop-side only this wave and
+  // carry no resumable in-flight state after a restart, so they are honestly
+  // reconciled as failed/interrupted instead of being guessed at.
+  if (typeof job.type === "string" && job.type.startsWith("marketplace.")) {
+    return {
+      state: jobLifecycle.JOB_STATES.FAILED,
+      error: {
+        code: "JOB_INTERRUPTED",
+        message: "The desktop restarted while this Marketplace install was in flight; it could not be completed. Retry the install from the Marketplace.",
+      },
+    };
+  }
   const instanceId = job.target?.instanceId || job.target?.requestedId;
   if (!instanceId || typeof instanceId !== "string") {
     return {
@@ -6397,6 +6409,7 @@ module.exports = {
     setProcessAliveProvider(provider) {
       processAliveProvider = typeof provider === "function" ? provider : null;
     },
+    reconcileInterruptedInstanceJob,
   },
   configureInstanceService,
   disposeInstanceService,

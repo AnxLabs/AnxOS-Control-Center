@@ -6,6 +6,7 @@ const {
   getMinecraftVersionCatalog,
   importCommunityTemplate,
   installTemplate,
+  getTemplateInstallPlanPreview,
   listTemplates,
   retryDownload,
 } = require("../services/marketplaceService");
@@ -323,6 +324,11 @@ function registerMarketplaceIpc() {
   }));
   ipcMain.handle("marketplace:getProviderPackVersions", async (_, payload = {}) => invokeMarketplaceOperation(() => { requirePermission("marketplace:read", payload.projectId || payload.id); return getProviderPackVersions(payload); }));
   ipcMain.handle("marketplace:getProviderPackDetails", async (_, payload = {}) => invokeMarketplaceOperation(() => { requirePermission("marketplace:read", payload.projectId || payload.id); return getProviderPackDetails(payload); }));
+  // V2-D plan preview: read-only install plan + preflight verdicts (never executes).
+  ipcMain.handle("marketplace:getInstallPlan", async (_, payload = {}) => invokeMarketplaceOperation(() => {
+    requirePermission("marketplace:read", payload.templateId || "install-plan");
+    return getTemplateInstallPlanPreview(payload);
+  }));
   ipcMain.handle("marketplace:getImportSupport", async () => invokeMarketplaceOperation(() => { requirePermission("marketplace:read", "import-support"); return getImportSupport(); }));
   ipcMain.handle("marketplace:importCommunityTemplate", async (_, payload = {}) => invokeMarketplaceOperation(() => {
     requirePermission("marketplace:install", payload?.template?.id || payload?.id || "community-template");

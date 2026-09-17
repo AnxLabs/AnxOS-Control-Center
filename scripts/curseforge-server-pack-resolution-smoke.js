@@ -6,6 +6,11 @@ const path = require("path");
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "anx-cf-server-pack-"));
 process.env.ANXHUB_CONFIG_DIR = root;
 
+// V2-D install transactions: the wrapped installPack mints durable V2-A jobs;
+// point the shared job store at a hermetic temp root for this smoke.
+const jobLifecycle = require("../src/shared/instances/jobLifecycle");
+jobLifecycle.configureJobLifecycle({ getRoot: () => path.join(root, "jobs") });
+
 const nodeService = require("../src/services/nodeService");
 const credentials = require("../src/services/nodeCredentialStore");
 const providerConfig = require("../src/services/providerConfigService");

@@ -15,6 +15,11 @@ async function main() {
   process.env.ANXOS_LOG_DIR = path.join(root, "logs");
   fs.mkdirSync(process.env.ANXHUB_CONFIG_DIR, { recursive: true });
 
+  // V2-D install transactions: the wrapped installPack mints durable V2-A jobs;
+  // point the shared job store at a hermetic temp root for this smoke.
+  const jobLifecycle = require("../src/shared/instances/jobLifecycle");
+  jobLifecycle.configureJobLifecycle({ getRoot: () => path.join(root, "jobs") });
+
   const originalFetch = global.fetch;
   const records = [];
 
