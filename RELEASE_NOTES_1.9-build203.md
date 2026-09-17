@@ -35,8 +35,8 @@ published Build 202 stable.
 
 ### V2-D package metadata
 
-- Marketplace templates carry opt-in `packageVersion`, `checksum`
-  (sha256), and `provenance` (source) fields. Invalid metadata fails closed
+- Marketplace templates carry opt-in version stamps, sha256 checksums,
+  and provenance (source) fields. Invalid metadata fails closed
   with distinct codes; the shipped 33-template catalog is unaffected.
 
 ### V2-B app slice
