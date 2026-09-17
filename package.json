@@ -130,6 +130,7 @@
     "multi-node:fleet:smoke": "node scripts/multi-node-fleet-smoke.js",
     "fleet:aggregation:smoke": "node scripts/fleet-aggregation-smoke.js",
     "backups:consistency:smoke": "node scripts/backup-consistency-smoke.js",
+    "restore:targeting:smoke": "node scripts/restore-targeting-smoke.js",
     "ipc:error-contract:smoke": "node scripts/ipc-error-contract-smoke.js",
     "nodes:ipc-error-contract:smoke": "node scripts/nodes-ipc-error-contract-smoke.js",
     "nodes:ipc-authorization:smoke": "node scripts/nodes-ipc-authorization-smoke.js",

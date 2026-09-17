@@ -987,41 +987,185 @@ async function stopInstanceAndWait(instanceId, errorCodes) {
   return { before, after };
 }
 
-async function ensureInstanceStoppedForRestore(instanceId) {
-  return (await stopInstanceAndWait(instanceId, {
-    stopFailed: "RESTORE_INSTANCE_STOP_FAILED",
-    stillRunning: "RESTORE_INSTANCE_STILL_RUNNING",
-  })).after;
+// Registration probe shared by the restore preview and the restore preflight.
+// Only a genuinely missing instance record counts as unregistered; any other
+// status failure propagates so a half-readable target fails loudly instead of
+// being silently treated as restorable.
+async function readTargetInstanceStatus(targetInstanceId) {
+  try {
+    return { registered: true, status: await instanceService.getStatus(targetInstanceId), errorCode: null };
+  } catch (error) {
+    if (error?.code === "INSTANCE_NOT_FOUND") {
+      return { registered: false, status: null, errorCode: "INSTANCE_NOT_FOUND" };
+    }
+    throw error;
+  }
+}
+
+// Scope of the safety snapshot a restore takes before mutating the target.
+// A world-scope restore normally snapshots the target's current world
+// directories (the same fresh resolution the create flow uses). A target that
+// has never produced a world directory under the current layout would
+// otherwise refuse the whole restore with WORLD_PATH_NOT_FOUND before any
+// mutation, so the safety snapshot widens to the whole instance instead —
+// strictly safer, and it lets a fresh target receive a workload restore. The
+// world-scope error is carried for preview reporting instead of thrown.
+async function resolveRestoreSafetyScope(instancePath, type) {
+  if (type !== "world") {
+    return { type, sourcePaths: ["."], worldSourcePaths: null, worldScopeError: null };
+  }
+  let worldSourcePaths;
+  try {
+    worldSourcePaths = await getSourcePaths(instancePath, "world");
+  } catch (error) {
+    if (error?.code !== "WORLD_PATH_NOT_FOUND") throw error;
+    return { type: "full", sourcePaths: ["."], worldSourcePaths: [], worldScopeError: "WORLD_PATH_NOT_FOUND" };
+  }
+  return { type: "world", sourcePaths: worldSourcePaths, worldSourcePaths, worldScopeError: null };
+}
+
+// A full-scope restore writes the backup's own instance record into the target
+// directory. A cross-instance target must not adopt the source's identity:
+// the record keeps its restored configuration but is rebranded to the target's
+// registered id and reset to a clean stopped state so a stale runtime claim
+// from the source can never be adopted as live. A record that cannot be read
+// back fails the restore (rollback still restores the target's prior state).
+async function rebrandRestoredInstanceRecord(instancePath, targetInstanceId) {
+  const configFilePath = path.join(instancePath, "config.json");
+  let record;
+  try {
+    record = JSON.parse(await fs.readFile(configFilePath, "utf8"));
+  } catch (error) {
+    throw createBackupError("RESTORE_VERIFICATION_FAILED", 500, {
+      targetInstanceId,
+      causeCode: error?.code === "ENOENT" ? "RESTORED_RECORD_MISSING" : "RESTORED_RECORD_UNREADABLE",
+    });
+  }
+  if (!record || typeof record !== "object" || Array.isArray(record)) {
+    throw createBackupError("RESTORE_VERIFICATION_FAILED", 500, {
+      targetInstanceId,
+      causeCode: "RESTORED_RECORD_UNREADABLE",
+    });
+  }
+  const updates = {};
+  if (record.id !== targetInstanceId) updates.id = targetInstanceId;
+  if (record.state !== undefined && record.state !== "Stopped") updates.state = "Stopped";
+  if (record.pid !== undefined && record.pid !== null) updates.pid = null;
+  if (record.runtimeProcess !== undefined && record.runtimeProcess !== null) updates.runtimeProcess = null;
+  if (Object.keys(updates).length === 0) {
+    return { patched: false, reason: null };
+  }
+  await writeJson(configFilePath, { ...record, ...updates });
+  return { patched: true, reason: null, fields: Object.keys(updates) };
+}
+
+// Preview (dry-run) for restore targeting: genuinely read-only — no lock, no
+// lifecycle calls, no snapshot, no file mutation. It reports the backup, the
+// resolved target, the paths a confirmed restore would extract, and the
+// conflict verdict so callers can present exactly what would happen before
+// anything is touched.
+async function buildRestorePreview(payload, backup, { targetInstanceId, sourceInstanceId }) {
+  const sameTarget = targetInstanceId === sourceInstanceId;
+  const root = getInstanceRoot();
+  const targetPath = path.resolve(root, targetInstanceId);
+  if (!isInsideRoot(targetPath, root)) {
+    throw createBackupError("PATH_NOT_ALLOWED", 403);
+  }
+
+  const target = {
+    instanceId: targetInstanceId,
+    sourceInstanceId,
+    sameInstance: sameTarget,
+    exists: await fs.stat(targetPath).then((stats) => stats.isDirectory(), () => false),
+    registered: false,
+    state: null,
+    pid: null,
+    running: false,
+    statusErrorCode: null,
+  };
+  const warnings = [];
+  try {
+    const registration = await readTargetInstanceStatus(targetInstanceId);
+    target.registered = registration.registered;
+    target.state = registration.status?.state ?? null;
+    target.pid = registration.status?.pid ?? null;
+    target.running = registration.registered && isInstanceActive(registration.status);
+  } catch (error) {
+    // An unreadable target status must not break the preview: report the
+    // condition instead of guessing a running state.
+    target.statusErrorCode = error?.code || "INSTANCE_STATUS_UNAVAILABLE";
+    warnings.push("RESTORE_TARGET_STATUS_UNAVAILABLE");
+  }
+  if (target.registered && target.running) {
+    warnings.push("RESTORE_TARGET_RUNNING");
+  }
+  if (!target.registered) {
+    warnings.push("RESTORE_TARGET_INSTANCE_MISSING");
+  }
+
+  const safetyScope = await resolveRestoreSafetyScope(targetPath, backup.type);
+  if (safetyScope.worldScopeError) {
+    warnings.push("RESTORE_TARGET_WORLD_SCOPE_MISSING");
+  }
+  const scope = {
+    type: backup.type,
+    willWipeWholeInstance: backup.type !== "world",
+    backupSourcePaths: Array.isArray(backup.sourcePaths) ? backup.sourcePaths : [],
+    targetWorldSourcePaths: safetyScope.worldSourcePaths,
+    safetyType: safetyScope.type,
+    safetySourcePaths: safetyScope.sourcePaths,
+    worldScopeError: safetyScope.worldScopeError,
+  };
+
+  return {
+    preview: true,
+    backup,
+    target,
+    scope,
+    conflict: {
+      // target == the backup's own instance replaces that instance in place;
+      // any other target is a new-restore that leaves the source untouched.
+      verdict: sameTarget ? "overwrite" : "new-restore",
+      targetExists: target.registered,
+      requiresConfirmation: true,
+      confirmed: payload.confirmOverwrite === true,
+      warnings,
+    },
+  };
 }
 
 // Best-effort restart through the same canonical start path the restore flow
 // uses. A failed restart never fails the backup itself, but it is reported in
 // the create result and metadata instead of being silently swallowed.
 // executors.startInstance is a test seam (defaults to the canonical
-// instanceService.startInstance).
-async function restartInstanceAfterBackup(instanceId, executors = {}) {
+// instanceService.startInstance). context only rewords the reported messages
+// for the restore flow; the default keeps the historical backup wording.
+async function restartInstanceAfterBackup(instanceId, executors = {}, context = "backup") {
   const startInstance = executors.startInstance || instanceService.startInstance;
   try {
     await startInstance(instanceId);
     return { attempted: true, restarted: true, errorCode: null, errorMessage: null };
   } catch (error) {
     if (error?.code === "INSTANCE_ALREADY_RUNNING") {
-      // An external start during the archive window undid the operator's
-      // stop: the copy was no longer taken while stopped. Report a skip —
-      // claiming a FAILED restart would be dishonest while the server is
-      // actually running.
+      // An external start during the operation window undid the operator's
+      // stop. Report a skip — claiming a FAILED restart would be dishonest
+      // while the instance is actually running.
       return {
         attempted: false,
         restarted: false,
         errorCode: "RESTART_SKIPPED_ALREADY_RUNNING",
-        errorMessage: "The instance was started externally during the backup; it was left running and the copy is crash-consistent.",
+        errorMessage: context === "restore"
+          ? "The instance was started during the restore; it was left running and the restore result stands."
+          : "The instance was started externally during the backup; it was left running and the copy is crash-consistent.",
       };
     }
     return {
       attempted: true,
       restarted: false,
       errorCode: error?.code || "INSTANCE_START_FAILED",
-      errorMessage: String(error?.message || "Instance restart after backup failed."),
+      errorMessage: String(error?.message || (context === "restore"
+        ? "Instance restart after restore failed."
+        : "Instance restart after backup failed.")),
     };
   }
 }
@@ -1029,10 +1173,15 @@ async function restartInstanceAfterBackup(instanceId, executors = {}) {
 const IDLE_RESTART_REPORT = Object.freeze({ attempted: false, restarted: false, errorCode: null, errorMessage: null });
 
 async function rollbackRestoreFromSafetySnapshot(instancePath, safetyBackup) {
-  if (!safetyBackup?.path) {
+  // The in-restore catch path passes the raw createSafetySnapshot metadata,
+  // which — unlike listed/read metadata — carries no absolute path field.
+  // Resolve the archive from the snapshot id so a genuine post-snapshot
+  // failure rolls back instead of being masked as a missing snapshot.
+  const safetyArchivePath = safetyBackup?.path || (safetyBackup?.id ? archivePath(safetyBackup.id) : null);
+  if (!safetyArchivePath) {
     throw createBackupError("RESTORE_SAFETY_SNAPSHOT_MISSING", 500);
   }
-  await validateArchiveFile(safetyBackup.path, safetyBackup.archiveSha256);
+  await validateArchiveFile(safetyArchivePath, safetyBackup.archiveSha256);
   if (safetyBackup.type === "world") {
     for (const sourcePath of Array.isArray(safetyBackup.sourcePaths) ? safetyBackup.sourcePaths : []) {
       const targetPath = path.resolve(instancePath, sourcePath);
@@ -1045,7 +1194,7 @@ async function rollbackRestoreFromSafetySnapshot(instancePath, safetyBackup) {
     await fs.rm(instancePath, { recursive: true, force: true });
     await fs.mkdir(instancePath, { recursive: true, mode: 0o700 });
   }
-  await extractTarGzArchive(safetyBackup.path, instancePath);
+  await extractTarGzArchive(safetyArchivePath, instancePath);
   const rollbackVerified = safetyBackup.type === "world"
     ? (Array.isArray(safetyBackup.sourcePaths) && safetyBackup.sourcePaths.length > 0 && await Promise.all(
       safetyBackup.sourcePaths.map((sourcePath) => fs.stat(path.resolve(instancePath, sourcePath)).then(() => true, () => false)),
@@ -1059,33 +1208,77 @@ async function rollbackRestoreFromSafetySnapshot(instancePath, safetyBackup) {
 
 async function restoreBackup(payload = {}) {
   const backup = await readBackupMetadata(payload.backupId);
-  const instanceId = validateInstanceId(payload.instanceId || backup.instanceId);
-  if (instanceId !== backup.instanceId) {
+  const sourceInstanceId = backup.instanceId;
+  // Historical source-side guard: payload.instanceId keeps naming the backup's
+  // own instance. Targeting a different instance is expressed with
+  // targetInstanceId so the two selectors can never disagree silently.
+  const requestedInstanceId = validateInstanceId(payload.instanceId || sourceInstanceId);
+  if (requestedInstanceId !== sourceInstanceId) {
     throw createBackupError("BACKUP_INSTANCE_MISMATCH");
   }
-  if (payload.confirmOverwrite !== true) {
-    throw createBackupError("RESTORE_OVERWRITE_CONFIRMATION_REQUIRED", 400);
+  const targetInstanceId = validateInstanceId(payload.targetInstanceId || requestedInstanceId);
+  const sameTarget = targetInstanceId === sourceInstanceId;
+
+  // Preview is a genuinely read-only dry run: it never requires the overwrite
+  // confirmation because it never overwrites anything.
+  if (payload.preview === true) {
+    return buildRestorePreview(payload, backup, { targetInstanceId, sourceInstanceId });
   }
-  const operation = acquireBackupLock(instanceId, "backup-restore", { rollbackSupported: true });
+
+  if (!sameTarget) {
+    // A selected target must be a registered instance on this agent (checked
+    // before the operation lock so a bogus target creates no operation
+    // record); the backup's own instance keeps the historical path-only
+    // requirement it has always had.
+    const registration = await readTargetInstanceStatus(targetInstanceId);
+    if (!registration.registered) {
+      throw createBackupError("RESTORE_TARGET_INSTANCE_NOT_FOUND", 404, {
+        targetInstanceId,
+        backupInstanceId: sourceInstanceId,
+        causeCode: registration.errorCode,
+      });
+    }
+  }
+  if (payload.confirmOverwrite !== true) {
+    // Every supported target already exists, so a restore is always an
+    // overwrite of the target's current content. The confirmation details now
+    // name the target so a cross-instance overwrite cannot be mistaken for a
+    // same-instance one.
+    throw createBackupError("RESTORE_OVERWRITE_CONFIRMATION_REQUIRED", 400, {
+      instanceId: targetInstanceId,
+      targetInstanceId,
+      backupInstanceId: sourceInstanceId,
+      sameTargetAsBackup: sameTarget,
+    });
+  }
+  // The lock and every mutation below follow the TARGET: a cross-instance
+  // restore never touches the source instance, so locking the source would
+  // block unrelated work without protecting anything.
+  const operation = acquireBackupLock(targetInstanceId, "backup-restore", { rollbackSupported: true });
   // Registered immediately so a failed restore can genuinely be retried
   // through longOperations.retryOperation() rather than only resetting status.
   longOperations.registerRetryHandler(operation.id, () => restoreBackup(payload));
   let instancePath = null;
   let safety = null;
   let mutationStarted = false;
+  let targetWasRunning = null;
   try {
-    instancePath = await getInstancePath(instanceId);
+    instancePath = await getInstancePath(targetInstanceId);
     const validation = await validateArchiveFile(backup.path, backup.archiveSha256);
 
-    await ensureInstanceStoppedForRestore(instanceId);
-    const safetySourcePaths = await getSourcePaths(instancePath, backup.type);
+    const { before } = await stopInstanceAndWait(targetInstanceId, {
+      stopFailed: "RESTORE_INSTANCE_STOP_FAILED",
+      stillRunning: "RESTORE_INSTANCE_STILL_RUNNING",
+    });
+    targetWasRunning = isInstanceActive(before);
+    const safetyScope = await resolveRestoreSafetyScope(instancePath, backup.type);
     let safetySnapshotSize = 0;
-    for (const sourcePath of safetySourcePaths) {
+    for (const sourcePath of safetyScope.sourcePaths) {
       safetySnapshotSize += await calculatePathSize(path.resolve(instancePath, sourcePath));
     }
     await ensureDiskSpace(getBackupRoot(), safetySnapshotSize, "RESTORE_SNAPSHOT_DISK_SPACE_INSUFFICIENT");
     await ensureDiskSpace(path.dirname(instancePath), validation.uncompressedSize, "RESTORE_DISK_SPACE_INSUFFICIENT");
-    safety = await createSafetySnapshot(instanceId, backup.type);
+    safety = await createSafetySnapshot(targetInstanceId, safetyScope.type);
     mutationStarted = true;
     if (backup.type === "world") {
       for (const sourcePath of Array.isArray(backup.sourcePaths) ? backup.sourcePaths : []) {
@@ -1105,20 +1298,41 @@ async function restoreBackup(payload = {}) {
       throw createBackupError("RESTORE_VERIFICATION_FAILED", 500);
     }
 
+    let targetRecord = null;
+    if (backup.type !== "world" && !sameTarget) {
+      targetRecord = await rebrandRestoredInstanceRecord(instancePath, targetInstanceId);
+    }
+
+    // Restart discipline: same-instance restores keep the historical explicit
+    // opt-in (payload.restart === true). A cross-instance target is only ever
+    // restarted when this restore stopped it (it was running before), and an
+    // explicit restart: false suppresses that restart entirely — restoring
+    // into a target that was stopped before leaves it stopped.
+    const shouldRestart = sameTarget
+      ? payload.restart === true
+      : targetWasRunning === true && payload.restart !== false;
+    const restart = shouldRestart
+      ? await restartInstanceAfterBackup(targetInstanceId, {}, "restore")
+      : IDLE_RESTART_REPORT;
+
     const restored = {
       backupId: backup.id,
-      instanceId,
+      instanceId: targetInstanceId,
+      targetInstanceId,
+      sourceInstanceId,
+      sameInstanceAsBackup: sameTarget,
+      targetWasRunning,
       safetyBackupId: safety.backup.id,
       requiredDiskSpace: validation.uncompressedSize,
       restoredEntries: validation.entryCount,
       restoredAt: nowIso(),
+      restart,
     };
-
-    if (payload.restart === true) {
-      await instanceService.startInstance(instanceId).catch(() => {});
+    if (targetRecord) {
+      restored.targetRecord = targetRecord;
     }
 
-    longOperations.completeOperation(operation.id, { metadata: { instanceId, backupId: backup.id, safetyBackupId: safety.backup.id } });
+    longOperations.completeOperation(operation.id, { metadata: { instanceId: targetInstanceId, backupId: backup.id, safetyBackupId: safety.backup.id } });
     return { restore: restored };
   } catch (error) {
     let rollback = null;
@@ -1127,7 +1341,7 @@ async function restoreBackup(payload = {}) {
         rollback = await rollbackRestoreFromSafetySnapshot(instancePath, safety.backup);
       } catch (rollbackError) {
         const failure = createBackupError("RESTORE_ROLLBACK_FAILED", 500, {
-          instanceId,
+          instanceId: targetInstanceId,
           backupId: backup.id,
           safetyBackupId: safety.backup.id,
           causeCode: error?.code || "BACKUP_RESTORE_FAILED",
