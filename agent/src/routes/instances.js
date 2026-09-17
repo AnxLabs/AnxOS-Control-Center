@@ -45,6 +45,7 @@ const {
   runDueSchedules: runDueRestartSchedules,
   updateRestartSchedule,
 } = require("../services/restartScheduleService");
+const runtimePinService = require("../services/runtimePinService");
 
 function parseJsonBody(request) {
   if (!request.body) {
@@ -505,7 +506,14 @@ async function handleInstances(request, url) {
 
     const deleteId = getDirectInstanceId(url.pathname);
     if (request.method === "DELETE" && deleteId) {
-      return result(200, await deleteInstance(deleteId));
+      // V2-D runtime pins: a deleted workload's pins must not block future
+      // runtime updates on this node forever. Best-effort cleanup after the
+      // delete succeeded.
+      const deletion = await deleteInstance(deleteId);
+      try {
+        await runtimePinService.clearWorkloadRuntimePins(deleteId);
+      } catch {}
+      return result(200, deletion);
     }
 
     const forgetId = getInstanceIdFromPath(url.pathname, "/record");

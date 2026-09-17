@@ -11720,7 +11720,10 @@ async function refreshMinecraftPlayerFiles() {
     try {
       const file = await api.readFile(selectedInstance.id, spec.path, getNodeScopedPayload(requestContext));
       if (file && file.supported === false) {
-        return { kind: "too_large" };
+        // The agent distinguishes why a read is unsupported; render the real
+        // reason instead of assuming the size limit (a corrupted file can be
+        // binary_unsupported, not too_large).
+        return { kind: file.reason === "file_too_large" ? "too_large" : "unsupported", reason: file.reason || null };
       }
       return { kind: "content", content: file?.content ?? "" };
     } catch (error) {

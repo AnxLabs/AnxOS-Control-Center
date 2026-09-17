@@ -216,6 +216,27 @@ async function upsertRuntimePin(record = {}) {
   });
 }
 
+// Instance-deletion cleanup: a deleted workload's pins would otherwise block
+// every future runtime update on this node forever (nothing could ever unpin
+// them through the UI). Best-effort — a store failure must not fail the
+// instance delete that triggered it.
+async function clearWorkloadRuntimePins(instanceId) {
+  const normalized = normalizeWorkloadInstanceId(instanceId);
+  if (!normalized) return { cleared: false, removedCount: 0 };
+  return withStoreLock(async () => {
+    try {
+      const store = await readPinStore();
+      const remaining = store.pins.filter((pin) => pin.instanceId !== normalized);
+      const removedCount = store.pins.length - remaining.length;
+      if (removedCount === 0) return { cleared: false, removedCount: 0 };
+      await writePinStore(remaining);
+      return { cleared: true, removedCount };
+    } catch (error) {
+      return { cleared: false, removedCount: 0, errorCode: error?.code || "RUNTIME_PIN_STORE_UNAVAILABLE" };
+    }
+  });
+}
+
 // Explicit operator unpin. A dependency-wide reset requires all: true so an
 // omitted instanceId can never wipe other workloads' pins by accident.
 async function removeRuntimePin(payload = {}) {
@@ -248,6 +269,7 @@ async function findConflictingRuntimePin({ dependencyId, requesterInstanceId } =
 }
 
 module.exports = {
+  clearWorkloadRuntimePins,
   configureRuntimePinService,
   findConflictingRuntimePin,
   listRuntimePins,

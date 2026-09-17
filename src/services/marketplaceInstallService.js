@@ -202,7 +202,9 @@ async function ensureProviderPackDependencies(options = {}, agentConfig = null) 
   const nodeId = options.nodeId || agentConfig?.nodeId || null;
   // V2-D runtime pins: attribute the java resolution/install to the workload
   // being installed so the agent can refuse cross-workload runtime changes.
-  const workloadId = String(options.instanceId || options.id || options.name || "").trim() || null;
+  // Identity is the durable instance id — a display name would leave pins
+  // keyed to a label that can outlive the workload (review P1-2).
+  const workloadId = String(options.instanceId || options.id || "").trim() || null;
   const nodeLabel = agentConfig?.agentNodeLabel || agentConfig?.nodeName || nodeId || "Selected node";
   const diagnosticsContext = {
     provider: options.provider || null,

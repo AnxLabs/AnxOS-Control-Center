@@ -627,19 +627,28 @@ async function checkDependencies(payload = {}) {
   }
   const missing = dependencies.filter((dependency) => !dependency.installed || dependency.state !== "installed");
   const instanceId = runtimePinService.normalizeWorkloadInstanceId(payload.instanceId);
+  let pinRecording = null;
   if (instanceId) {
     // V2-D runtime pins: a workload-specific check RESOLVES runtime versions
     // (bundled or system). Persist what this workload resolved so later
-    // installs/updates can refuse changes that would break it.
+    // installs/updates can refuse changes that would break it. Pin-recording
+    // failures degrade to a reported field instead of failing the check: a
+    // corrupt side-store must not block instance starts (the install
+    // chokepoint is where fail-closed enforcement belongs).
     for (const dependency of dependencies) {
       if (dependency.state !== "installed" || dependency.executable !== true) continue;
-      await runtimePinService.upsertRuntimePin({
-        dependencyId: dependency.id,
-        instanceId,
-        resolvedVersion: dependency.version || null,
-        nodeId: payload.nodeId || null,
-        source: "dependency-resolution",
-      });
+      try {
+        await runtimePinService.upsertRuntimePin({
+          dependencyId: dependency.id,
+          instanceId,
+          resolvedVersion: dependency.version || null,
+          nodeId: payload.nodeId || null,
+          source: "dependency-resolution",
+        });
+      } catch (error) {
+        pinRecording = error?.code || "RUNTIME_PIN_RECORD_FAILED";
+        break;
+      }
     }
   }
   return {
@@ -648,6 +657,7 @@ async function checkDependencies(payload = {}) {
     dependencies,
     missingDependencyIds: missing.map((dependency) => dependency.id),
     checkedAt: new Date().toISOString(),
+    ...(pinRecording ? { pinRecordingDegraded: pinRecording } : {}),
   };
 }
 

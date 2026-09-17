@@ -1,4 +1,11 @@
 const assert = require("assert");
+
+// Pin runtime roots before service modules load (eb13b83 job-store leak
+// lesson): the dependency path reaches the agent config and runtime-pin
+// services.
+const { pinAgentRoots } = require("../test-helpers/pin-agent-roots");
+pinAgentRoots("anx-dependency-abort-listener-");
+
 const dependencyService = require("../agent/src/services/dependencyService");
 
 async function main() {

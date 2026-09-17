@@ -2,6 +2,12 @@ const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
 
+// Pin runtime roots before service modules load (eb13b83 job-store leak
+// lesson): the dependency path reaches the agent config and runtime-pin
+// services, which would otherwise fall back to the cwd-default instance root.
+const { pinAgentRoots } = require("../test-helpers/pin-agent-roots");
+pinAgentRoots("anx-dependency-smoke-");
+
 const {
   dependencyIdsForGroups,
   resolveTemplateDependencyIds,

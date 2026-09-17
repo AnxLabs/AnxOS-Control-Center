@@ -204,8 +204,10 @@ async function ensureTemplateDependencies(template, options = {}, agentConfig = 
 
   // V2-D runtime pins: attribute dependency resolution and installs to the
   // workload being installed so the agent can refuse cross-workload runtime
-  // changes. Plan previews pass no workload identity and never pin.
-  const workloadId = String(options.instanceId || options.id || options.name || "").trim() || null;
+  // changes. Plan previews pass no workload identity and never pin. Identity
+  // is the durable instance id — a display name would leave pins keyed to a
+  // label that can outlive the workload (review P1-2).
+  const workloadId = String(options.instanceId || options.id || "").trim() || null;
 
   pushStep(progress, "Check dependencies", "running", "Checking node runtime dependencies.");
   const check = await agentClient.checkDependencies({ dependencyIds, instanceId: workloadId, nodeId: options.nodeId || null }, agentConfig);

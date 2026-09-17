@@ -173,6 +173,8 @@
   //   { kind: "content", content: string }
   //   { kind: "missing" }
   //   { kind: "too_large" }
+  //   { kind: "unsupported", reason? }   (agent refused the read: binary
+  //     content, encoding, or any other unsupported reason)
   //   { kind: "read_error", message? }
   function summarizeMinecraftPlayerFile(specKey, outcome) {
     const spec = getMinecraftPlayerFileSpec(specKey);
@@ -202,6 +204,14 @@
         entries: [],
         count: 0,
         message: describeMinecraftPlayerFileState("too_large"),
+      };
+    } else if (outcome.kind === "unsupported") {
+      parsed = {
+        key: spec.key,
+        status: "unsupported",
+        entries: [],
+        count: 0,
+        message: `The agent could not read this file as text${outcome.reason ? ` (${outcome.reason})` : ""}.`,
       };
     } else {
       parsed = {
