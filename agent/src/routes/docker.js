@@ -22,6 +22,7 @@ const {
   listVolumes,
   pauseContainer,
   pullImage,
+  preflightContainerCreate,
   pruneImages,
   pruneNetworks,
   pruneVolumes,
@@ -89,6 +90,7 @@ const DOCKER_ROUTE_MANIFEST = Object.freeze([
   { method: "GET", path: "/api/v1/docker/summary", operation: "docker.summary" },
   { method: "GET", path: "/api/v1/docker/containers", operation: "docker.containers.list" },
   { method: "POST", path: "/api/v1/docker/containers", operation: "docker.containers.create" },
+  { method: "POST", path: "/api/v1/docker/preflight/container", operation: "docker.preflight.container" },
   { method: "GET", path: "/api/v1/docker/containers/:container/inspect", operation: "docker.containers.inspect" },
   { method: "GET", path: "/api/v1/docker/containers/:container/logs", operation: "docker.containers.logs" },
   { method: "GET", path: "/api/v1/docker/containers/:container/stats", operation: "docker.containers.stats" },
@@ -296,6 +298,11 @@ async function handleDocker(request, url) {
       });
       return result(201, attachJob(job.result, job.job));
     }
+    // Read-only preflight report: findings only, never a durable job, never a
+    // state change. Callers decide whether to proceed to create.
+    if (request.method === "POST" && url.pathname === "/api/v1/docker/preflight/container") {
+      return result(200, await preflightContainerCreate(parseJsonBody(request)));
+    }
     if (request.method === "POST" && url.pathname === "/api/v1/docker/images/pull") {
       const body = parseJsonBody(request);
       const job = await mintDockerJob({
@@ -308,7 +315,14 @@ async function handleDocker(request, url) {
       return result(200, attachJob(job.result, job.job));
     }
     if (request.method === "POST" && url.pathname === "/api/v1/docker/images/prune") {
-      return result(200, await pruneImages());
+      const body = parseJsonBody(request);
+      const job = await mintDockerJob({
+        type: "docker.image.prune",
+        target: { scope: "unused-images" },
+        jobTimeoutMs: body?.jobTimeoutMs,
+        run: () => pruneImages(),
+      });
+      return result(200, attachJob(job.result, job.job));
     }
     if (request.method === "GET" && url.pathname === "/api/v1/docker/images") {
       return result(200, await listImages());
@@ -320,22 +334,70 @@ async function handleDocker(request, url) {
       return result(200, await validateComposeConfig(parseJsonBody(request)));
     }
     if (request.method === "POST" && url.pathname === "/api/v1/docker/compose/up") {
-      return result(200, await startComposeProject(parseJsonBody(request)));
+      const body = parseJsonBody(request);
+      const job = await mintDockerJob({
+        type: "docker.compose.start",
+        target: { projectName: body?.projectName || null },
+        idempotencyKey: body?.idempotencyKey,
+        jobTimeoutMs: body?.jobTimeoutMs,
+        run: () => startComposeProject(stripJobOptions(body)),
+      });
+      return result(200, attachJob(job.result, job.job));
     }
     if (request.method === "POST" && url.pathname === "/api/v1/docker/compose/stop") {
-      return result(200, await stopComposeProject(parseJsonBody(request)));
+      const body = parseJsonBody(request);
+      const job = await mintDockerJob({
+        type: "docker.compose.stop",
+        target: { projectName: body?.projectName || null },
+        idempotencyKey: body?.idempotencyKey,
+        jobTimeoutMs: body?.jobTimeoutMs,
+        run: () => stopComposeProject(stripJobOptions(body)),
+      });
+      return result(200, attachJob(job.result, job.job));
     }
     if (request.method === "POST" && url.pathname === "/api/v1/docker/compose/restart") {
-      return result(200, await restartComposeProject(parseJsonBody(request)));
+      const body = parseJsonBody(request);
+      const job = await mintDockerJob({
+        type: "docker.compose.restart",
+        target: { projectName: body?.projectName || null },
+        idempotencyKey: body?.idempotencyKey,
+        jobTimeoutMs: body?.jobTimeoutMs,
+        run: () => restartComposeProject(stripJobOptions(body)),
+      });
+      return result(200, attachJob(job.result, job.job));
     }
     if (request.method === "POST" && url.pathname === "/api/v1/docker/compose/pull") {
-      return result(200, await pullComposeProject(parseJsonBody(request)));
+      const body = parseJsonBody(request);
+      const job = await mintDockerJob({
+        type: "docker.compose.pull",
+        target: { projectName: body?.projectName || null },
+        idempotencyKey: body?.idempotencyKey,
+        jobTimeoutMs: body?.jobTimeoutMs,
+        run: () => pullComposeProject(stripJobOptions(body)),
+      });
+      return result(200, attachJob(job.result, job.job));
     }
     if (request.method === "POST" && url.pathname === "/api/v1/docker/compose/build") {
-      return result(200, await buildComposeProject(parseJsonBody(request)));
+      const body = parseJsonBody(request);
+      const job = await mintDockerJob({
+        type: "docker.compose.build",
+        target: { projectName: body?.projectName || null },
+        idempotencyKey: body?.idempotencyKey,
+        jobTimeoutMs: body?.jobTimeoutMs,
+        run: () => buildComposeProject(stripJobOptions(body)),
+      });
+      return result(200, attachJob(job.result, job.job));
     }
     if (request.method === "POST" && url.pathname === "/api/v1/docker/compose/recreate") {
-      return result(200, await recreateComposeProject(parseJsonBody(request)));
+      const body = parseJsonBody(request);
+      const job = await mintDockerJob({
+        type: "docker.compose.recreate",
+        target: { projectName: body?.projectName || null },
+        idempotencyKey: body?.idempotencyKey,
+        jobTimeoutMs: body?.jobTimeoutMs,
+        run: () => recreateComposeProject(stripJobOptions(body)),
+      });
+      return result(200, attachJob(job.result, job.job));
     }
     if (request.method === "POST" && url.pathname === "/api/v1/docker/compose/logs") {
       return result(200, await getComposeLogs(parseJsonBody(request)));
@@ -344,35 +406,78 @@ async function handleDocker(request, url) {
       return result(200, await getComposeStatus(parseJsonBody(request)));
     }
     if (request.method === "POST" && url.pathname === "/api/v1/docker/compose/down") {
-      return result(200, await removeComposeProject(parseJsonBody(request)));
+      // compose down destroys project containers/networks; durable and
+      // non-replayable like every other destructive Docker operation.
+      const body = parseJsonBody(request);
+      const job = await mintDockerJob({
+        type: "docker.compose.down",
+        target: { projectName: body?.projectName || null },
+        jobTimeoutMs: body?.jobTimeoutMs,
+        run: () => removeComposeProject(stripJobOptions(body)),
+      });
+      return result(200, attachJob(job.result, job.job));
     }
     if (request.method === "GET" && url.pathname === "/api/v1/docker/cleanup/preview") {
       return result(200, await getCleanupPreview());
     }
     if (request.method === "POST" && url.pathname === "/api/v1/docker/cleanup") {
-      return result(200, await runCleanup(parseJsonBody(request)));
+      const body = parseJsonBody(request);
+      const job = await mintDockerJob({
+        type: "docker.cleanup.run",
+        target: { kind: body?.kind || null },
+        jobTimeoutMs: body?.jobTimeoutMs,
+        run: () => runCleanup(stripJobOptions(body)),
+      });
+      return result(200, attachJob(job.result, job.job));
     }
     if (request.method === "GET" && url.pathname === "/api/v1/docker/networks") {
       return result(200, await listNetworks());
     }
     if (request.method === "POST" && url.pathname === "/api/v1/docker/networks") {
-      return result(201, await createNetwork(parseJsonBody(request)));
+      const body = parseJsonBody(request);
+      const job = await mintDockerJob({
+        type: "docker.network.create",
+        target: { networkId: String(body?.name || "").trim() || null },
+        idempotencyKey: body?.idempotencyKey,
+        jobTimeoutMs: body?.jobTimeoutMs,
+        run: () => createNetwork(stripJobOptions(body)),
+      });
+      return result(201, attachJob(job.result, job.job));
     }
     if (request.method === "POST" && url.pathname === "/api/v1/docker/networks/prune") {
-      return result(200, await pruneNetworks());
+      const body = parseJsonBody(request);
+      const job = await mintDockerJob({
+        type: "docker.network.prune",
+        target: { scope: "unused-networks" },
+        jobTimeoutMs: body?.jobTimeoutMs,
+        run: () => pruneNetworks(),
+      });
+      return result(200, attachJob(job.result, job.job));
     }
     if (request.method === "GET" && url.pathname === "/api/v1/docker/volumes") {
       return result(200, await listVolumes());
     }
     if (request.method === "POST" && url.pathname === "/api/v1/docker/volumes/prune") {
-      return result(200, await pruneVolumes());
+      const body = parseJsonBody(request);
+      const job = await mintDockerJob({
+        type: "docker.volume.prune",
+        target: { scope: "unused-volumes" },
+        jobTimeoutMs: body?.jobTimeoutMs,
+        run: () => pruneVolumes(),
+      });
+      return result(200, attachJob(job.result, job.job));
     }
     const imageId = getImageFromPath(url.pathname);
     if (request.method === "GET" && imageId) {
       return result(200, await inspectImage(imageId));
     }
     if (request.method === "DELETE" && imageId) {
-      return result(200, await removeImage(imageId));
+      const job = await mintDockerJob({
+        type: "docker.image.delete",
+        target: { imageId },
+        run: () => removeImage(imageId),
+      });
+      return result(200, attachJob(job.result, job.job));
     }
     const volumeInspect = getVolumeFromPath(url.pathname, "/inspect");
     if (request.method === "GET" && volumeInspect) {
@@ -380,7 +485,12 @@ async function handleDocker(request, url) {
     }
     const volumeId = getVolumeFromPath(url.pathname);
     if (request.method === "DELETE" && volumeId) {
-      return result(200, await removeVolume(volumeId));
+      const job = await mintDockerJob({
+        type: "docker.volume.delete",
+        target: { volumeId },
+        run: () => removeVolume(volumeId),
+      });
+      return result(200, attachJob(job.result, job.job));
     }
     const networkInspect = getNetworkFromPath(url.pathname, "/inspect");
     if (request.method === "GET" && networkInspect) {
@@ -388,15 +498,36 @@ async function handleDocker(request, url) {
     }
     const networkConnect = getNetworkFromPath(url.pathname, "/connect");
     if (request.method === "POST" && networkConnect) {
-      return result(200, await connectNetwork(networkConnect, parseJsonBody(request).container));
+      const body = parseJsonBody(request);
+      const job = await mintDockerJob({
+        type: "docker.network.connect",
+        target: { networkId: networkConnect, containerId: String(body?.container || "").trim() || null },
+        idempotencyKey: body?.idempotencyKey,
+        jobTimeoutMs: body?.jobTimeoutMs,
+        run: () => connectNetwork(networkConnect, body?.container),
+      });
+      return result(200, attachJob(job.result, job.job));
     }
     const networkDisconnect = getNetworkFromPath(url.pathname, "/disconnect");
     if (request.method === "POST" && networkDisconnect) {
-      return result(200, await disconnectNetwork(networkDisconnect, parseJsonBody(request).container));
+      const body = parseJsonBody(request);
+      const job = await mintDockerJob({
+        type: "docker.network.disconnect",
+        target: { networkId: networkDisconnect, containerId: String(body?.container || "").trim() || null },
+        idempotencyKey: body?.idempotencyKey,
+        jobTimeoutMs: body?.jobTimeoutMs,
+        run: () => disconnectNetwork(networkDisconnect, body?.container),
+      });
+      return result(200, attachJob(job.result, job.job));
     }
     const networkId = getNetworkFromPath(url.pathname);
     if (request.method === "DELETE" && networkId) {
-      return result(200, await removeNetwork(networkId));
+      const job = await mintDockerJob({
+        type: "docker.network.delete",
+        target: { networkId },
+        run: () => removeNetwork(networkId),
+      });
+      return result(200, attachJob(job.result, job.job));
     }
     const inspectId = getContainerFromPath(url.pathname, "/inspect");
     if (request.method === "GET" && inspectId) {
