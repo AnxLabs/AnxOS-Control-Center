@@ -98,6 +98,10 @@ async function mintMarketplaceJob(options = {}) {
     owner: options.owner,
     cancellationSupported: options.cancellationSupported === true,
     cancel: options.cancel,
+    // Fire-and-forget mints (tests, background reconcilers) must get exactly
+    // what they asked for: dropping this option silently upgraded non-awaiting
+    // mints to awaiting ones and deadlocked their callers (P0-2 review finding).
+    awaitResult: options.awaitResult,
     run: options.run,
   };
   try {

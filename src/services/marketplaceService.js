@@ -3854,12 +3854,27 @@ async function setInstanceInstallStage(instanceId, stage, agentConfig = null, ex
   }
 }
 
-async function installTemplate(payload = {}) {
-  // Key subject: the requested instance identity when present (options.id), so
-  // distinct installs of the same template mint distinct jobs; template-level
-  // dedupe would collapse distinct installs of the same template into replays.
+// The idempotency-key subject must be the identity the executor actually
+// uses — slugify(options.id || options.name || template.id) (templateValue
+// id, the instance id on disk). Exposed through _test so the transaction
+// smoke can pin that distinct installs mint distinct keys (P0-1/P1-2).
+function buildTemplateInstallSubject(payload = {}) {
   const requestedInstanceId = payload.options?.id || null;
+  const requestedName = payload.options?.name || null;
+  return (requestedInstanceId && slugify(requestedInstanceId))
+    || (requestedName && slugify(requestedName))
+    || payload.templateId
+    || "unknown-template";
+}
+
+// The exported installTemplate wrapper rides the durable V2-A job lifecycle
+// (V2-D install transactions) so every install is recorded, idempotent on
+// keyed retry, and reconciled as interrupted if the desktop restarts
+// mid-flight. The real executor is executeInstallTemplate below.
+async function installTemplate(payload = {}) {
+  const subject = buildTemplateInstallSubject(payload);
   const version = payload.packageVersion || payload.options?.packageVersion || "unversioned";
+  const templateInstallController = new AbortController();
   // Callers (IPC, renderer, smokes) receive the install result exactly as
   // before the job wrapper existed: the durable job record lives in the job
   // store, not in this function's return shape.
@@ -3868,23 +3883,33 @@ async function installTemplate(payload = {}) {
     target: { nodeId: payload.nodeId || null, templateId: payload.templateId || null },
     idempotencyKey: payload.idempotencyKey !== undefined && payload.idempotencyKey !== null
       ? payload.idempotencyKey
-      : buildMarketplaceInstallKey({ nodeId: payload.nodeId, subject: requestedInstanceId || payload.templateId, version }),
-    // Template installs have no in-flight cancellation seam; cancel only works
-    // while the job is still queued, and that is reported honestly.
-    cancellationSupported: false,
+      : buildMarketplaceInstallKey({ nodeId: payload.nodeId, subject, version }),
+    // The executor checks the shared controller at phase boundaries, so a
+    // durable-job cancel stops the next phase from starting; the executor's
+    // final guard refuses to report success after a late cancel (P1-1).
+    cancellationSupported: true,
+    cancel: async () => templateInstallController.abort(),
     run: async ({ jobId, setStage }) => {
       await setStage("executing");
-      return executeInstallTemplate(payload);
+      return executeInstallTemplate(payload, { controller: templateInstallController });
     },
   });
   return job.result;
 }
 
-// The real install executor. The exported installTemplate wrapper rides the
-// durable V2-A job lifecycle (V2-D install transactions) so every install is
-// recorded, idempotent on keyed retry, and reconciled as interrupted if the
-// desktop restarts mid-flight.
-async function executeInstallTemplate(payload = {}) {
+// Cancellation seam for template installs: the executor checks the shared
+// controller at phase boundaries, so a cancel stops the NEXT phase from
+// starting rather than mid-flight work. The guard also runs immediately
+// before completion, so a cancel arriving late still refuses to report
+// success — keeping the durable job record honest (P1-1 review finding).
+function assertInstallNotAborted(context) {
+  if (context?.controller?.aborted) {
+    throw createMarketplaceError("The install was cancelled.", "INSTALL_CANCELLED", { retryable: false });
+  }
+}
+
+async function executeInstallTemplate(payload = {}, context = {}) {
+  assertInstallNotAborted(context);
   const requestId = payload.requestId || require("crypto").randomUUID();
   const baseTemplate = findTemplate(payload.templateId, payload.template);
   const agentConfig = resolveMarketplaceAgentConfig(payload.nodeId);
@@ -3925,6 +3950,7 @@ async function executeInstallTemplate(payload = {}) {
     throw error;
   }
 
+  assertInstallNotAborted(context);
   if (template.runtime === "docker" || template.startupType === "docker-image") {
     try {
       pushStep(progress, "Create instance", "running", `Creating ${template.displayName}.`);
@@ -4019,6 +4045,7 @@ async function executeInstallTemplate(payload = {}) {
     });
     pushStep(progress, "Create instance", "complete", `${reuseExistingInstance ? "Reused existing instance" : "Created"} ${createdInstanceId}. Agent instances: ${createdIds.join(", ") || "none"}.`);
     console.info("[Marketplace][Stage]", { stage: "instance.create.complete", timestamp: new Date().toISOString(), requestId, nodeId: installNodeId, templateId: template.id, instanceId: createdInstanceId });
+    assertInstallNotAborted(context);
     await setInstanceInstallStage(createdInstanceId, "instance-create", agentConfig);
 
     pushStep(progress, "Create folders", "running");
@@ -4033,6 +4060,7 @@ async function executeInstallTemplate(payload = {}) {
       pushStep(progress, "Download files", "complete", "Starter project generated.");
     }
 
+    assertInstallNotAborted(context);
     await setInstanceInstallStage(createdInstanceId, "archive-download", agentConfig);
     const downloadResult = await downloadToInstance(template, options, createdInstanceId, progress, agentConfig, parentRecord);
     console.info("[Marketplace][Stage]", { stage: "download.complete", timestamp: new Date().toISOString(), requestId, nodeId: installNodeId, templateId: template.id, instanceId: createdInstanceId });
@@ -4067,6 +4095,7 @@ async function executeInstallTemplate(payload = {}) {
       throw error;
     }
 
+    assertInstallNotAborted(context);
     pushStep(progress, "Write config", "running");
     updateDownload(parentRecord, { stage: "Write config", progress: 70 });
     await setInstanceInstallStage(createdInstanceId, "configuration", agentConfig);
@@ -4173,6 +4202,10 @@ async function executeInstallTemplate(payload = {}) {
       pushStep(progress, "Optional start", "skipped", skipReason);
     }
 
+    // Final guard: a cancel arriving after all real work still refuses to
+    // report success, so the durable record never says CANCELLED for an
+    // install that completed (P1-1).
+    assertInstallNotAborted(context);
     await setInstanceInstallStage(createdInstanceId, "ready", agentConfig);
     pushStep(progress, "Complete", "complete", setupRequiredResult?.readiness?.setupRequired ? "Installation finished. FiveM setup is required before startup." : "Installation finished.");
     if (setupRequiredResult?.readiness?.setupRequired) {
@@ -4245,6 +4278,7 @@ module.exports = {
   _test: {
     buildInstancePayload,
     buildInstallContext,
+    buildTemplateInstallSubject,
     buildMinecraftProperties,
     buildSteamCmdInstallerArgs,
     buildResolvedVersionMetadata,

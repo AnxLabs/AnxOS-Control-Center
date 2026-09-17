@@ -3082,8 +3082,22 @@ async function getInstallDiskPreflight(payload = {}) {
   }
 }
 
+// Subject must include the requested server identity, not just the provider
+// project: two installs of the same pack with different names are distinct
+// servers, and a shared key would replay the first result without creating
+// the second (P0-1 review finding). The executor names the instance from
+// options.name via buildInstancePayload, so key on that slug when present.
+// Exposed through _test so the transaction smoke can pin distinctness.
+function buildPackInstallSubject(payload = {}) {
+  const providerProjectId = payload.providerProjectId || payload.projectId || payload.templateId || payload.id || payload.template?.id || "provider-pack";
+  const requestedName = payload.options?.name || payload.name || null;
+  return requestedName
+    ? `${providerProjectId}:${slugify(requestedName, "instance")}`
+    : providerProjectId;
+}
+
 async function installPack(payload = {}) {
-  const subject = payload.providerProjectId || payload.projectId || payload.templateId || payload.id || payload.template?.id || "provider-pack";
+  const subject = buildPackInstallSubject(payload);
   const controller = new AbortController();
   const job = await mintMarketplaceJob({
     type: MARKETPLACE_JOB_TYPES.INSTALL,
@@ -3864,6 +3878,7 @@ module.exports = {
     buildInstallContext,
     buildInstallMetadata,
     buildInstancePayload,
+    buildPackInstallSubject,
     applyResolvedProviderSelection,
     assertProviderInstallDiskSpace,
     assertAdvertisedProviderSelection,
