@@ -1,10 +1,20 @@
 #!/usr/bin/env node
 const { spawn, spawnSync } = require("child_process");
+const fs = require("fs");
+const path = require("path");
 const packageJson = require("../package.json");
 
-const excluded = new Set(["rc:validate", "artifacts:validate"]);
+// qa:smoke drives a real Electron via playwright with its own 180s internal
+// timeout — over this suite runner's 120s cap, so it can stall the whole gate
+// at position 4. It remains available standalone and in the qa:release tier.
+const excluded = new Set(["rc:validate", "artifacts:validate", "qa:smoke"]);
 const commands = Object.keys(packageJson.scripts)
   .filter((name) => name.endsWith(":smoke") && !excluded.has(name));
+
+// Regression tripwire (eb13b83 class): a cwd-relative instance root means a
+// smoke minted jobs/instances outside its temp tree and into the repo.
+const residueRoots = ["instances", "anxos-instances"].map((name) => path.join(process.cwd(), name));
+const residue = residueRoots.filter((root) => fs.existsSync(root));
 
 function npmCommand() {
   return process.platform === "win32" ? "npm.cmd" : "npm";
@@ -69,13 +79,30 @@ function runSuite(command, timeoutMs = Number(process.env.RC_SUITE_TIMEOUT_MS ||
     });
     child.once("close", (exitCode, signalCode) => {
       clearTimeout(timer);
-      resolve({ command, status: exitCode === 0 ? "PASS" : "FAIL", exitCode, signalCode, elapsedMs: Date.now() - startedAt, pid: child.pid, stdout, stderr });
+      const result = { command, status: exitCode === 0 ? "PASS" : "FAIL", exitCode, signalCode, elapsedMs: Date.now() - startedAt, pid: child.pid, stdout, stderr };
+      // Hollow-green guard (P0-2 lesson): a suite that exits 0 without ever
+      // printing a success marker silently skipped its own assertions.
+      if (result.status === "PASS" && !/passed/i.test(stdout)) {
+        result.status = "FAIL";
+        result.failureReason = "exit 0 without a success marker (hollow green)";
+      }
+      resolve(result);
     });
   });
 }
 
 async function runValidation() {
 const results = [];
+if (residue.length > 0) {
+  const message = `Repo-root instance-root residue detected (${residue.join(", ")}). A smoke minted jobs/instances outside its temp tree; fix the smoke's AGENT_INSTANCE_ROOT pinning before running the gate.`;
+  console.error(`[RC] FAIL ${message}`);
+  console.log(JSON.stringify({ status: "FAIL", suite: "private-alpha-rc-source-validation", completed: 0, total: commands.length, failed: "rc:root-residue-tripwire", residue: residue.map((root) => path.relative(process.cwd(), root)) }, null, 2));
+  process.exitCode = 1;
+  return { results, failed: { command: "rc:root-residue-tripwire", status: "FAIL" } };
+}
+// RC_FAIL_FAST=0 keeps running after failures and reports an aggregate —
+// for audit runs where the full failure list matters more than fast exit.
+const failFast = process.env.RC_FAIL_FAST !== "0";
 for (let index = 0; index < commands.length; index += 1) {
   const command = commands[index];
   console.error(`[RC] suite ${index + 1}/${commands.length} start ${command} ${new Date().toISOString()}`);
@@ -83,7 +110,7 @@ for (let index = 0; index < commands.length; index += 1) {
   console.error(`[RC] suite ${index + 1}/${commands.length} ${result.status} ${command} pid=${result.pid || "-"} elapsedMs=${result.elapsedMs} exitCode=${result.exitCode} signalCode=${result.signalCode || "-"}`);
   if (result.status === "FAIL" && result.stderr) console.error(`[RC] ${command} stderr:\n${result.stderr}`);
   results.push(result);
-  if (result.status !== "PASS") break;
+  if (result.status !== "PASS" && failFast) break;
 }
 
 const failed = results.find((result) => result.status === "FAIL");
@@ -93,6 +120,7 @@ console.log(JSON.stringify({
   completed: results.length,
   total: commands.length,
   failed: failed?.command || null,
+  failedCount: results.filter((result) => result.status === "FAIL").length,
 }, null, 2));
 process.exitCode = failed ? 1 : 0;
 return { results, failed };

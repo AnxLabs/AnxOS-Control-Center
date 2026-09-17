@@ -1,5 +1,9 @@
 const assert = require("assert");
 
+// Pin runtime roots before service modules load (eb13b83 job-store leak lesson).
+const { pinAgentRoots } = require("../test-helpers/pin-agent-roots");
+pinAgentRoots("anx-marketplace-archive-safety-");
+
 const marketplace = require("../src/services/marketplaceInstallService")._test;
 
 for (const unsafePath of ["/etc/passwd", "C:\\Windows\\system.ini", "../outside", "folder/../../outside"]) {

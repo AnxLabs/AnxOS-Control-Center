@@ -13,6 +13,11 @@ artifacts/
 .npm-cache/
 release-artifacts/
 
+# Smoke-run fallback residue: any cwd-relative instance root proves a smoke
+# failed to pin AGENT_INSTANCE_ROOT (rc-validate trips on this pre-run).
+/instances/
+/anxos-instances/
+
 # Codex temporary Electron smoke test profiles
 .tmp-electron-smoke-profile*
 .tmp-sidebar-*.js

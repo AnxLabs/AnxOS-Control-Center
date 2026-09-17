@@ -14,6 +14,9 @@ async function main() {
   process.env.ANXHUB_CONFIG_DIR = path.join(root, "config");
   process.env.ANXOS_LOG_DIR = path.join(root, "logs");
   fs.mkdirSync(process.env.ANXHUB_CONFIG_DIR, { recursive: true });
+  // Pin runtime roots before service modules load (eb13b83 job-store leak lesson).
+  const { pinAgentRoots } = require("../test-helpers/pin-agent-roots");
+  pinAgentRoots("anx-marketplace-install-node-roots-");
 
   // V2-D install transactions: the wrapped installPack mints durable V2-A jobs;
   // point the shared job store at a hermetic temp root for this smoke.

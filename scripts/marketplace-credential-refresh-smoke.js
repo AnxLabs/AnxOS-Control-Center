@@ -5,6 +5,9 @@ const path = require("path");
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "anx-marketplace-credential-refresh-"));
 process.env.ANXHUB_CONFIG_DIR = root;
+// Pin runtime roots before service modules load (eb13b83 job-store leak lesson).
+const { pinAgentRoots } = require("../test-helpers/pin-agent-roots");
+pinAgentRoots("anx-marketplace-credential-refresh-roots-");
 
 const nodeService = require("../src/services/nodeService");
 const credentials = require("../src/services/nodeCredentialStore");

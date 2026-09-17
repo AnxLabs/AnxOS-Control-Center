@@ -1,5 +1,9 @@
 const assert = require("assert");
 
+// Pin runtime roots before service modules load (eb13b83 job-store leak lesson).
+const { pinAgentRoots } = require("../test-helpers/pin-agent-roots");
+pinAgentRoots("anx-marketplace-disk-preflight-");
+
 const agentClient = require("../src/services/agentClient");
 const marketplaceInstallService = require("../src/services/marketplaceInstallService");
 

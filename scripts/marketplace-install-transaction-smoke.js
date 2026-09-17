@@ -9,8 +9,8 @@ const path = require("path");
 // under jobs/<jobId>.json, a cancel settles the job cancelled, an interrupted
 // install is honestly reconciled to FAILED/JOB_INTERRUPTED after a restart, and
 // non-marketplace job types are refused by the wrapper. Hermetic — no network,
-// no agent, no electron; run is caller-provided so the smoke mints jobs
-// directly without loading the real install executors.
+// no agent, no electron; mints use caller-provided run functions, and the
+// wrapper subject derivation is pinned through the services' _test seams.
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "anx-marketplace-install-transaction-"));
 process.env.ANXHUB_CONFIG_DIR = path.join(root, "config");
@@ -65,6 +65,31 @@ async function main() {
   ]) {
     assert.strictEqual(isMarketplaceJobType(bad), false, `Degenerate/foreign job type must be refused: ${bad}`);
   }
+
+  // 1b. Wrapper idempotency subjects (P0-1/P1-2 review findings): the key
+  // subject must follow the identity the executor uses, so two installs of
+  // the same template/pack with different server names mint distinct keys
+  // (otherwise the engine replays the first result and never creates the
+  // second server), while a keyed retry of the same identity still dedupes.
+  const marketplaceService = require("../src/services/marketplaceService");
+  const marketplaceInstallService = require("../src/services/marketplaceInstallService");
+  const subjectA = marketplaceService._test.buildTemplateInstallSubject({ templateId: "paper", options: { name: "Survival A" } });
+  const subjectB = marketplaceService._test.buildTemplateInstallSubject({ templateId: "paper", options: { name: "Creative B" } });
+  assert.notStrictEqual(subjectA, subjectB, "Two installs of the same template with different names must key differently.");
+  assert.strictEqual(
+    marketplaceService._test.buildTemplateInstallSubject({ templateId: "paper", options: { name: "Same Name" } }),
+    marketplaceService._test.buildTemplateInstallSubject({ templateId: "paper", options: { name: "Same Name" } }),
+    "A keyed retry of the same identity must dedupe onto one key.",
+  );
+  assert.strictEqual(marketplaceService._test.buildTemplateInstallSubject({ templateId: "paper" }), "paper",
+    "Without a requested identity the template id remains the subject.");
+  assert.strictEqual(marketplaceService._test.buildTemplateInstallSubject({ templateId: "paper", options: { id: "custom-id" } }), "custom-id",
+    "An explicit options.id wins the subject.");
+  const packA = marketplaceInstallService._test.buildPackInstallSubject({ providerProjectId: "pack-1", options: { name: "Server One" } });
+  const packB = marketplaceInstallService._test.buildPackInstallSubject({ providerProjectId: "pack-1", options: { name: "Server Two" } });
+  assert.notStrictEqual(packA, packB, "Two installs of the same pack with different names must key differently.");
+  assert.strictEqual(marketplaceInstallService._test.buildPackInstallSubject({ providerProjectId: "pack-1" }), "pack-1",
+    "Without a requested name the project id remains the subject.");
 
   // 2. Keyed repeat dedupes onto the original install; the record persists.
   let runCount = 0;
