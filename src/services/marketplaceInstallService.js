@@ -3479,9 +3479,10 @@ async function resumeManualInstall(sessionId, options = {}) {
   }
 }
 
-// The real SteamCMD update executor. The exported updateSteamCmdInstance
-// wrapper rides the durable V2-A job lifecycle (V2-D install transactions) so
-// every update is recorded and reconciled as interrupted on a desktop restart.
+// The exported updateSteamCmdInstance wrapper rides the durable V2-A job
+// lifecycle (V2-D install transactions) so every update is recorded and
+// reconciled as interrupted on a desktop restart. The real executor is
+// executeUpdateSteamCmdInstance below.
 async function updateSteamCmdInstance(payload = {}) {
   const instanceId = String(payload.instanceId || "").trim() || "unknown-instance";
   const controller = new AbortController();
@@ -3507,9 +3508,7 @@ async function updateSteamCmdInstance(payload = {}) {
   return job.result;
 }
 
-// The real SteamCMD update executor. The exported updateSteamCmdInstance
-// wrapper rides the durable V2-A job lifecycle (V2-D install transactions) so
-// every update is recorded and reconciled as interrupted on a desktop restart.
+// The real SteamCMD update executor, wrapped by updateSteamCmdInstance above.
 async function executeUpdateSteamCmdInstance(payload = {}, context = {}) {
   const instanceId = String(payload.instanceId || "").trim();
   const nodeId = payload.nodeId || null;

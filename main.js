@@ -1074,7 +1074,10 @@ app.whenReady().then(async () => {
   localInstanceService.recoverInstanceJobs()
     .then((jobRecovery) => {
       if (jobRecovery?.recovered) {
-        diagnostics.log("info", "startup", "marketplace-job-recovery", "Interrupted Marketplace install jobs were re-observed.", jobRecovery, { file: "desktop" });
+        // The recovery payload is just a ran-flag: it covers the shared pass
+        // over ALL non-terminal jobs (instance + marketplace), so the message
+        // must not claim marketplace jobs specifically were found.
+        diagnostics.log("info", "startup", "marketplace-job-recovery", "Interrupted-job recovery pass completed; non-terminal jobs (instance and marketplace) were re-observed.", jobRecovery, { file: "desktop" });
       }
     })
     .catch((error) => {
