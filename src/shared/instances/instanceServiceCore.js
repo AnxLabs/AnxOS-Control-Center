@@ -6106,6 +6106,40 @@ function getPalworldConfigCandidates(config = {}) {
   ));
 }
 
+// Canonical world-scope (save-data) directories per game family, relative to
+// the instance data root. The agent backup service combines these with its
+// generic data/world candidates so "world" backups capture the actual save
+// layout for games whose saved data does not live in data/world. Palworld
+// derives its install directory the same way the config resolver does, so
+// SteamCMD template installs (data/server) and flat installs both resolve.
+// Minecraft and unrecognized games return no extra candidates and keep using
+// the generic candidates unchanged.
+function getWorldScopeCandidates(config = {}) {
+  const family = inferGameFamily(config);
+  if (family === "palworld") {
+    const installDirectory = getPalworldInstallDirectory(config);
+    return [
+      normalizeInstanceDataRelativePath(`${installDirectory}/Pal/Saved`),
+      normalizeInstanceDataRelativePath("server/Pal/Saved"),
+      normalizeInstanceDataRelativePath("Pal/Saved"),
+    ];
+  }
+  if (family === "fivem") {
+    // FXServer runs with cwd data/server: txAdmin operator data (txData) and
+    // locally deployed resources (resources/[local]) are the restorable state.
+    // The artifact runtime (citizen/) and runtime cache are reproducible from
+    // the original download, so world scope deliberately excludes them.
+    return ["server/txData", "server/resources/[local]", "txData", "resources/[local]"];
+  }
+  if (family === "terraria") {
+    // TShock runs with cwd data/server: worlds land in Worlds/ and TShock
+    // state (database, configs) in tshock/. The generic data/Worlds candidate
+    // still covers flat installs that run from the data root.
+    return ["server/Worlds", "server/tshock", "tshock"];
+  }
+  return [];
+}
+
 async function resolveExistingGameConfigPath(config, adapterId) {
   if (adapterId === "minecraft") {
     for (const requestedPath of ["server.properties", "server/server.properties"]) {
@@ -6436,6 +6470,7 @@ module.exports = {
   deleteInstanceFile,
   forceKillInstance,
   getMetrics,
+  getWorldScopeCandidates,
   readGameServerConfig,
   getStatus,
   executeInstallationPhase,

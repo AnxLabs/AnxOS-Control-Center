@@ -304,6 +304,11 @@ const desktopApi = {
     saveMinecraftProperties: (instanceId, properties, options = {}) => ipcRenderer.invoke("instances:saveMinecraftProperties", { ...options, instanceId, properties }),
     getFiveMReadiness: (instanceId, options = {}) => ipcRenderer.invoke("instances:getFiveMReadiness", { ...options, instanceId }),
     saveFiveMLicenseKey: (instanceId, licenseKey, options = {}) => ipcRenderer.invoke("instances:saveFiveMLicenseKey", { ...options, instanceId, licenseKey }),
+    listRestartSchedules: (instanceId, options = {}) => invokeAgentFeature("instances:listRestartSchedules", { ...options, instanceId }),
+    createRestartSchedule: (instanceId, payload = {}, options = {}) => ipcRenderer.invoke("instances:createRestartSchedule", { ...options, ...payload, instanceId }),
+    updateRestartSchedule: (instanceId, scheduleId, payload = {}, options = {}) => ipcRenderer.invoke("instances:updateRestartSchedule", { ...options, ...payload, instanceId, scheduleId }),
+    deleteRestartSchedule: (instanceId, scheduleId, options = {}) => ipcRenderer.invoke("instances:deleteRestartSchedule", { ...options, instanceId, scheduleId }),
+    evaluateRestartSchedules: (instanceId, options = {}) => ipcRenderer.invoke("instances:evaluateRestartSchedules", { ...options, instanceId }),
   },
   actions: {
     executeAction: (actionId, params = {}, options = {}) => ipcRenderer.invoke("action:execute", { actionId, params, ...options }),

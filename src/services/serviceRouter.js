@@ -1022,6 +1022,33 @@ async function deleteBackupSchedule(instanceId, options = {}) {
   return withNodeContext(await agentClient.deleteBackupSchedule(instanceId, getOptionalNodeConfig(options)), nodeId);
 }
 
+// V2-E scheduled restarts: thin passthrough — the agent owns schedule
+// storage, warning delivery, and the lifecycle restart.
+async function listRestartSchedules(instanceId, options = {}) {
+  const nodeId = getRequestNodeId(options);
+  return withNodeContext(await agentClient.listRestartSchedules(instanceId, getOptionalNodeConfig(options)), nodeId);
+}
+
+async function createRestartSchedule(instanceId, payload = {}, options = {}) {
+  const nodeId = getRequestNodeId(options);
+  return withNodeContext(await agentClient.createRestartSchedule(instanceId, payload, getOptionalNodeConfig(options)), nodeId);
+}
+
+async function updateRestartSchedule(instanceId, scheduleId, payload = {}, options = {}) {
+  const nodeId = getRequestNodeId(options);
+  return withNodeContext(await agentClient.updateRestartSchedule(instanceId, scheduleId, payload, getOptionalNodeConfig(options)), nodeId);
+}
+
+async function deleteRestartSchedule(instanceId, scheduleId, options = {}) {
+  const nodeId = getRequestNodeId(options);
+  return withNodeContext(await agentClient.deleteRestartSchedule(instanceId, scheduleId, getOptionalNodeConfig(options)), nodeId);
+}
+
+async function evaluateRestartSchedules(instanceId, options = {}) {
+  const nodeId = getRequestNodeId(options);
+  return withNodeContext(await agentClient.evaluateRestartSchedules(instanceId, getOptionalNodeConfig(options)), nodeId);
+}
+
 module.exports = {
   checkDependencies,
   clearInstanceLogs,
@@ -1081,6 +1108,11 @@ module.exports = {
   listBackups,
   listInstanceFiles,
   listInstances,
+  listRestartSchedules,
+  createRestartSchedule,
+  updateRestartSchedule,
+  deleteRestartSchedule,
+  evaluateRestartSchedules,
   planDependencyPreparation,
   readInstanceFile,
   repairNeoForgeRuntime,

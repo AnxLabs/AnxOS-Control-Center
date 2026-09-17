@@ -3249,6 +3249,42 @@ async function deleteBackupSchedule(instanceId, configOverride = null) {
   });
 }
 
+async function listRestartSchedules(instanceId, configOverride = null) {
+  return requestJson(`/api/v1/instances/${encodeInstanceId(instanceId)}/restart-schedules`, {
+    config: configOverride,
+  });
+}
+
+async function createRestartSchedule(instanceId, payload = {}, configOverride = null) {
+  return requestJson(`/api/v1/instances/${encodeInstanceId(instanceId)}/restart-schedules`, {
+    config: configOverride,
+    method: "POST",
+    body: payload,
+  });
+}
+
+async function updateRestartSchedule(instanceId, scheduleId, payload = {}, configOverride = null) {
+  return requestJson(`/api/v1/instances/${encodeInstanceId(instanceId)}/restart-schedules/${encodeURIComponent(String(scheduleId || ""))}`, {
+    config: configOverride,
+    method: "PATCH",
+    body: payload,
+  });
+}
+
+async function deleteRestartSchedule(instanceId, scheduleId, configOverride = null) {
+  return requestJson(`/api/v1/instances/${encodeInstanceId(instanceId)}/restart-schedules/${encodeURIComponent(String(scheduleId || ""))}`, {
+    config: configOverride,
+    method: "DELETE",
+  });
+}
+
+async function evaluateRestartSchedules(instanceId, configOverride = null) {
+  return requestJson(`/api/v1/instances/${encodeInstanceId(instanceId)}/restart-schedules/evaluate`, {
+    config: configOverride,
+    method: "POST",
+  });
+}
+
 async function getDependencyCatalog(configOverride = null) {
   return requestJson("/api/v1/dependencies/catalog", { config: configOverride });
 }
@@ -3325,6 +3361,11 @@ module.exports = {
   duplicateInstance,
   deleteBackup,
   deleteBackupSchedule,
+  deleteRestartSchedule,
+  createRestartSchedule,
+  updateRestartSchedule,
+  listRestartSchedules,
+  evaluateRestartSchedules,
   deleteDockerContainer,
   disconnectDockerNetwork,
   execDockerContainer,

@@ -2081,6 +2081,18 @@
                     </div>
                     <div class="docker-empty-state"><strong data-instance-backup-empty-title>Backup history is shared</strong><span data-instance-backup-empty-message>Open the Backups page to view configured local backup paths.</span></div>
                   </div>
+                  <section class="instance-backup-panel" data-restart-schedule-panel>
+                    <div class="panel-heading">
+                      <div><h3>Scheduled Restarts</h3><span>Warn players through the server console, then restart automatically.</span></div>
+                      <span class="status-pill status-pill--planned" data-restart-schedule-status>Unavailable</span>
+                    </div>
+                    <div class="instance-backup-actions">
+                      <button class="inline-action" type="button" data-restart-schedule-action="create">New Restart Schedule</button>
+                      <button class="inline-action" type="button" data-restart-schedule-action="refresh">Refresh</button>
+                    </div>
+                    <div class="docker-empty-state" data-restart-schedule-empty><strong>No restart schedules</strong><span>Create a schedule to warn players before automatic restarts.</span></div>
+                    <div class="instance-network-list" data-restart-schedule-list></div>
+                  </section>
                 </div>
 
                 <div class="instance-tab-panel" data-instance-panel="settings">

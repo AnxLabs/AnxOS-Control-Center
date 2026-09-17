@@ -1744,6 +1744,11 @@ function getDesktopApiState() {
       typeof api?.backups?.listSchedules === "function" &&
       typeof api?.backups?.saveSchedule === "function" &&
       typeof api?.backups?.deleteSchedule === "function",
+    hasRestartSchedules:
+      typeof api?.instances?.listRestartSchedules === "function" &&
+      typeof api?.instances?.createRestartSchedule === "function" &&
+      typeof api?.instances?.updateRestartSchedule === "function" &&
+      typeof api?.instances?.deleteRestartSchedule === "function",
     hasNodes:
       typeof api?.nodes?.list === "function" &&
       typeof api?.nodes?.save === "function" &&
@@ -11621,6 +11626,9 @@ function setActiveInstanceTab(tabName) {
   } else if (activeInstanceTab === "settings") {
     stopInstanceConsolePolling();
     loadGameServerConfig();
+  } else if (activeInstanceTab === "backups") {
+    stopInstanceConsolePolling();
+    refreshRestartSchedules({ silent: true });
   } else {
     stopInstanceConsolePolling();
   }
@@ -13897,6 +13905,7 @@ function setInstanceDetails(instance = null) {
     renderFiveMSetupCard(null);
     populateInstanceConfigForm(null);
     renderInstanceNetwork(null);
+    renderInstanceRestartSchedules(null);
     if (instanceAddressCopyButton) {
       instanceAddressCopyButton.disabled = true;
     }
@@ -13970,6 +13979,7 @@ function setInstanceDetails(instance = null) {
   renderMinecraftWorkspaceSummary(instance, metrics);
   populateInstanceConfigForm(instance);
   renderInstanceNetwork(instance);
+  renderInstanceRestartSchedules(instance);
   if (instanceAddressCopyButton) {
     instanceAddressCopyButton.disabled = !getInstancePrimaryPort(instance);
   }
@@ -13984,6 +13994,9 @@ function selectInstance(instanceId, options = {}) {
     clearInstanceLogs(selectedInstanceId ? "Refresh logs to load the selected instance." : "Select an instance and refresh logs.");
   }
   setInstanceDetails(selectedInstance);
+  if (previousSelectedInstanceId !== selectedInstanceId) {
+    refreshRestartSchedules({ silent: true });
+  }
 
   if (instancesList) {
     [...instancesList.querySelectorAll("tr")].forEach((row) => {
@@ -18159,11 +18172,26 @@ async function promptBackupText({ title, message, label, initialValue = "", conf
   return createSecurityTextPrompt({ title, message, label, initialValue, confirmLabel });
 }
 
-async function chooseBackupType(title = "Create world-only backup?") {
+const BACKUP_WORLD_GAME_LABELS = Object.freeze({
+  minecraft: "Minecraft",
+  palworld: "Palworld",
+  terraria: "Terraria",
+  fivem: "FiveM",
+});
+
+function getBackupWorldGameLabel(instance = null) {
+  return BACKUP_WORLD_GAME_LABELS[getInstanceAccessGameKind(instance)] || null;
+}
+
+async function chooseBackupType(title = "Create world-only backup?", instance = null) {
+  const gameLabel = getBackupWorldGameLabel(instance);
+  const message = gameLabel
+    ? `World data (${gameLabel}) will be included. Choose World Backup for world-only data, or Cancel to create a full instance backup.`
+    : "This instance does not have a recognized world data layout, so World Backup may not be available. Cancel to create a full instance backup, or continue to try a World Backup.";
   const worldOnly = await createSecurityConfirmation({
     title,
-    message: "Choose World Backup for world-only data, or Cancel to create a full instance backup.",
-    confirmLabel: "World Backup",
+    message,
+    confirmLabel: gameLabel ? `World Backup (${gameLabel})` : "World Backup",
   });
   return worldOnly ? "world" : "full";
 }
@@ -18278,7 +18306,7 @@ async function createBackupForInstance(instanceId = null) {
   if (!targetInstanceId) {
     return;
   }
-  const type = await chooseBackupType("Create world-only backup?");
+  const type = await chooseBackupType("Create world-only backup?", findInstance(targetInstanceId) || null);
   backupRequestInFlight = true;
   renderBackups();
   try {
@@ -18489,7 +18517,7 @@ async function configureBackupSchedule(instanceId) {
     showToast(error?.message || "Backup schedule values are invalid.", "warning");
     return;
   }
-  const type = await chooseBackupType("Schedule world-only backups?");
+  const type = await chooseBackupType("Schedule world-only backups?", findInstance(instanceId) || null);
   try {
     if (!isNodeActionStillCurrent(requestContext)) return;
     await desktopApiState.api.backups.saveSchedule({
@@ -18506,6 +18534,226 @@ async function configureBackupSchedule(instanceId) {
   } catch (error) {
     showToast(error?.message || "Backup schedule could not be saved.");
   }
+}
+
+// V2-E scheduled restarts: the agent owns schedule storage, player warnings
+// (via the server's own console input), and the lifecycle restart. This panel
+// only manages the schedule records and mirrors the backup schedule flow.
+function parseRestartScheduleTiming(timingInput, warnInput) {
+  const rawTiming = String(timingInput || "").trim();
+  const payload = {};
+  if (/^([01]?\d|2[0-3]):([0-5]\d)$/.test(rawTiming)) {
+    payload.type = "daily";
+    payload.dailyTime = rawTiming;
+  } else {
+    payload.type = "interval";
+    payload.intervalHours = parseBackupWholeNumber(rawTiming, "24", "Interval hours");
+  }
+  payload.warnMinutes = parseBackupWholeNumber(warnInput, "5", "Warning minutes");
+  return payload;
+}
+
+function formatRestartScheduleSummary(schedule) {
+  if (schedule?.type === "daily") {
+    return `Daily at ${schedule.dailyTime}`;
+  }
+  return `Every ${schedule?.intervalHours} hour(s)`;
+}
+
+function formatRestartScheduleNextRun(schedule) {
+  if (schedule?.enabled === false) {
+    return "Disabled";
+  }
+  return schedule?.nextRunAt ? formatDateTime(schedule.nextRunAt) : "Pending evaluation";
+}
+
+function renderInstanceRestartSchedules(instance) {
+  if (!restartScheduleList) {
+    return;
+  }
+
+  const matchesSelection = Boolean(instance) && restartSchedulesState.instanceId === instance.id;
+  const schedules = matchesSelection ? restartSchedulesState.schedules : [];
+  const supported = matchesSelection && restartSchedulesState.supported !== false && getDesktopApiState().hasRestartSchedules;
+
+  restartScheduleList.replaceChildren();
+  if (restartScheduleEmpty) {
+    restartScheduleEmpty.hidden = schedules.length > 0;
+  }
+  if (restartScheduleStatus) {
+    restartScheduleStatus.textContent = !getDesktopApiState().hasRestartSchedules
+      ? "Unavailable"
+      : !instance ? "No instance selected"
+        : supported ? (schedules.length === 1 ? "1 schedule configured" : `${schedules.length} schedules configured`)
+          : "Unavailable";
+  }
+
+  schedules.forEach((schedule) => {
+    const row = document.createElement("div");
+    row.className = "instance-network-row";
+    const label = document.createElement("span");
+    const stateLabel = schedule.enabled === false ? "disabled" : "enabled";
+    label.textContent = `${formatRestartScheduleSummary(schedule)} · warn ${schedule.warnMinutes} min · next ${formatRestartScheduleNextRun(schedule)} · ${stateLabel}`;
+    label.title = `Warnings are sent through the server console before the restart.${schedule.lastError ? ` Last error: ${schedule.lastError}.` : ""}`;
+    const toggle = document.createElement("button");
+    toggle.className = "inline-action";
+    toggle.type = "button";
+    toggle.textContent = schedule.enabled === false ? "Enable" : "Disable";
+    toggle.addEventListener("click", () => setRestartScheduleEnabled(schedule, schedule.enabled === false));
+    const remove = document.createElement("button");
+    remove.className = "inline-action";
+    remove.type = "button";
+    remove.textContent = "Delete";
+    remove.addEventListener("click", () => deleteRestartScheduleEntry(schedule));
+    row.append(label, toggle, remove);
+    restartScheduleList.appendChild(row);
+  });
+}
+
+async function refreshRestartSchedules(options = {}) {
+  const desktopApiState = getDesktopApiState();
+  const instance = findInstance();
+  if (!desktopApiState.hasRestartSchedules || !instance) {
+    renderInstanceRestartSchedules(instance);
+    return;
+  }
+  if (restartSchedulesRequestInFlight) {
+    return;
+  }
+
+  restartSchedulesRequestInFlight = true;
+  const requestContext = createNodeActionContext("restart-schedules");
+  try {
+    const result = await desktopApiState.api.instances.listRestartSchedules(instance.id, getNodeScopedPayload(requestContext));
+    if (!isNodeActionStillCurrent(requestContext)) return;
+    restartSchedulesState = {
+      supported: true,
+      instanceId: instance.id,
+      schedules: Array.isArray(result?.schedules) ? result.schedules : [],
+    };
+  } catch (error) {
+    if (!isNodeActionStillCurrent(requestContext)) return;
+    restartSchedulesState = {
+      supported: false,
+      instanceId: instance.id,
+      schedules: [],
+    };
+    if (!options.silent) {
+      showToast(getAgentErrorMessage(error, "Restart schedules could not be loaded."), "warning");
+    }
+  } finally {
+    restartSchedulesRequestInFlight = false;
+    renderInstanceRestartSchedules(findInstance());
+  }
+}
+
+async function configureRestartSchedule() {
+  const desktopApiState = getDesktopApiState();
+  const requestContext = createNodeActionContext("restart-schedule-create");
+  const selectedInstance = findInstance();
+  if (!desktopApiState.hasRestartSchedules || !selectedInstance) {
+    showToast("Scheduled restarts are unavailable.");
+    return;
+  }
+  const timing = await promptBackupText({
+    title: "Scheduled Restart",
+    message: "Restart every N hours, or every day at HH:MM (agent local time).",
+    label: "Interval hours or HH:MM",
+    initialValue: "24",
+    confirmLabel: "Continue",
+  });
+  if (!timing) {
+    return;
+  }
+  const warnInput = await promptBackupText({
+    title: "Restart Warning",
+    message: "How many minutes before the restart should players be warned?",
+    label: "Warning minutes",
+    initialValue: "5",
+    confirmLabel: "Save Schedule",
+  }) || "5";
+  let payload;
+  try {
+    payload = parseRestartScheduleTiming(timing, warnInput);
+  } catch (error) {
+    showToast(error?.message || "Restart schedule values are invalid.", "warning");
+    return;
+  }
+  try {
+    if (!isNodeActionStillCurrent(requestContext)) return;
+    await desktopApiState.api.instances.createRestartSchedule(selectedInstance.id, {
+      nodeId: requestContext.nodeId,
+      ...payload,
+    });
+    showToast("Restart schedule saved.");
+    await refreshRestartSchedules();
+  } catch (error) {
+    showToast(getAgentErrorMessage(error, "Restart schedule could not be saved."));
+  }
+}
+
+async function setRestartScheduleEnabled(schedule, enabled) {
+  const desktopApiState = getDesktopApiState();
+  const requestContext = createNodeActionContext("restart-schedule-toggle");
+  const selectedInstance = findInstance();
+  if (!desktopApiState.hasRestartSchedules || !selectedInstance || !schedule?.id) {
+    return;
+  }
+  try {
+    if (!isNodeActionStillCurrent(requestContext)) return;
+    await desktopApiState.api.instances.updateRestartSchedule(selectedInstance.id, schedule.id, {
+      nodeId: requestContext.nodeId,
+      enabled,
+    });
+    showToast(enabled ? "Restart schedule enabled." : "Restart schedule disabled.");
+    await refreshRestartSchedules();
+  } catch (error) {
+    showToast(getAgentErrorMessage(error, "Restart schedule update failed."));
+  }
+}
+
+async function deleteRestartScheduleEntry(schedule) {
+  const desktopApiState = getDesktopApiState();
+  const requestContext = createNodeActionContext("restart-schedule-delete");
+  const selectedInstance = findInstance();
+  if (!desktopApiState.hasRestartSchedules || !selectedInstance || !schedule?.id) {
+    return;
+  }
+  const confirmed = await createSecurityConfirmation({
+    title: "Delete Restart Schedule",
+    message: "This stops the scheduled restart and its player warnings.",
+    confirmLabel: "Delete",
+  });
+  if (!confirmed) {
+    return;
+  }
+  try {
+    if (!isNodeActionStillCurrent(requestContext)) return;
+    await desktopApiState.api.instances.deleteRestartSchedule(selectedInstance.id, schedule.id, {
+      nodeId: requestContext.nodeId,
+    });
+    showToast("Restart schedule deleted.");
+    await refreshRestartSchedules();
+  } catch (error) {
+    showToast(getAgentErrorMessage(error, "Restart schedule could not be deleted."));
+  }
+}
+
+function handleRestartScheduleAction(action) {
+  const selectedInstance = findInstance();
+  if (!selectedInstance) {
+    showToast("Select an instance first.");
+    return;
+  }
+  if (action === "create") {
+    configureRestartSchedule();
+    return;
+  }
+  if (action === "refresh") {
+    refreshRestartSchedules();
+    return;
+  }
+  showToast("This restart schedule action is not available yet.");
 }
 
 async function refreshMarketplace() {
@@ -37336,6 +37584,9 @@ marketplaceVersionList?.addEventListener("scroll", () => {
 getMarketplaceField("version")?.addEventListener("input", renderMarketplaceVersionList);
 document.querySelectorAll("[data-instance-backup-action]").forEach((button) => {
   button.addEventListener("click", () => handleInstanceBackupAction(button.dataset.instanceBackupAction));
+});
+document.querySelectorAll("[data-restart-schedule-action]").forEach((button) => {
+  button.addEventListener("click", () => handleRestartScheduleAction(button.dataset.restartScheduleAction));
 });
 instancesSearchInput?.addEventListener("input", debounce(filterInstanceRows, 120));
 instancesFilterSelect?.addEventListener("change", filterInstanceRows);

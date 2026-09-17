@@ -466,12 +466,34 @@ async function getInstancePath(instanceId) {
   return real;
 }
 
+// Fallback world-scope candidates relative to the instance root. They carry the
+// historical Minecraft-style layout and remain the only candidates for
+// Minecraft instances and for instances without a recognized game identity.
+const GENERIC_WORLD_SOURCE_CANDIDATES = ["data/world", "data/worlds", "data/Worlds"];
+
+async function readInstanceConfigSnapshot(instancePath) {
+  try {
+    const parsed = JSON.parse(await fs.readFile(path.join(instancePath, "config.json"), "utf8"));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    // Missing or unreadable instance records keep the generic world candidates
+    // so legacy and externally created instances back up exactly as before.
+    return null;
+  }
+}
+
 async function getSourcePaths(instancePath, type) {
   if (type !== "world") {
     return ["."];
   }
 
-  const candidates = ["data/world", "data/worlds", "data/Worlds"];
+  const config = await readInstanceConfigSnapshot(instancePath);
+  const perGameCandidates = (config && typeof instanceService.getWorldScopeCandidates === "function"
+    ? instanceService.getWorldScopeCandidates(config)
+    : []
+  ).map((candidate) => assertSafeArchiveEntryName(`data/${candidate}`));
+  const candidates = [...new Set([...perGameCandidates, ...GENERIC_WORLD_SOURCE_CANDIDATES])];
+
   const existing = [];
   for (const candidate of candidates) {
     const source = path.join(instancePath, candidate);
@@ -480,11 +502,18 @@ async function getSourcePaths(instancePath, type) {
     }
   }
 
-  if (existing.length === 0) {
+  // Keep the deepest matching directories so a nested per-game layout (for
+  // example data/server/Pal/Saved) is not archived twice alongside a parent
+  // candidate; the generic candidates are siblings and are unaffected.
+  const selected = existing.filter((candidate) => !existing.some((other) => (
+    other !== candidate && (other === "." || candidate.startsWith(`${other}/`))
+  )));
+
+  if (selected.length === 0) {
     throw createBackupError("WORLD_PATH_NOT_FOUND", 404);
   }
 
-  return existing;
+  return selected;
 }
 
 async function listMetadataFiles() {

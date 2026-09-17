@@ -38,6 +38,13 @@ const {
   writeInstanceInput,
   writeMinecraftProperties,
 } = require("../services/instances/instanceService");
+const {
+  createRestartSchedule,
+  deleteRestartSchedule,
+  listRestartSchedules,
+  runDueSchedules: runDueRestartSchedules,
+  updateRestartSchedule,
+} = require("../services/restartScheduleService");
 
 function parseJsonBody(request) {
   if (!request.body) {
@@ -457,6 +464,42 @@ async function handleInstances(request, url) {
       return result(200, {
         instance: await restartInstance(restartId),
       });
+    }
+
+    // V2-E scheduled restarts. Lives under /instances/:id so the central
+    // agent permission gate maps reads to instance:read, writes to
+    // instance:write, and deletes to instance:delete — the same split the
+    // backups schedule routes inherit from their prefix.
+    const restartScheduleMatch = url.pathname.match(/^\/api\/v1\/instances\/([^/]+)\/restart-schedules(?:\/([^/]+))?$/);
+    if (restartScheduleMatch) {
+      const scheduleInstanceId = decodeURIComponent(restartScheduleMatch[1]);
+      const scheduleId = restartScheduleMatch[2] ? decodeURIComponent(restartScheduleMatch[2]) : null;
+
+      if (request.method === "GET" && !scheduleId) {
+        return result(200, await listRestartSchedules(scheduleInstanceId));
+      }
+
+      if (request.method === "POST" && !scheduleId) {
+        return result(201, await createRestartSchedule({
+          ...parseJsonBody(request),
+          instanceId: scheduleInstanceId,
+        }));
+      }
+
+      if (request.method === "POST" && scheduleId === "evaluate") {
+        // Contract parity with the other instance-scoped routes: reject an
+        // invalid path segment before running the shared evaluation.
+        await listRestartSchedules(scheduleInstanceId);
+        return result(200, await runDueRestartSchedules());
+      }
+
+      if ((request.method === "PATCH" || request.method === "PUT") && scheduleId && scheduleId !== "evaluate") {
+        return result(200, await updateRestartSchedule(scheduleId, parseJsonBody(request)));
+      }
+
+      if (request.method === "DELETE" && scheduleId && scheduleId !== "evaluate") {
+        return result(200, await deleteRestartSchedule(scheduleId));
+      }
     }
 
     const deleteId = getDirectInstanceId(url.pathname);

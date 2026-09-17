@@ -8,6 +8,7 @@ const { handleAmpInstances, handleAmpSnapshot, handleAmpStatus } = require("./ro
 const { auditAction } = require("./audit/auditLogger");
 const { handleBackups, handleBackupsList } = require("./routes/backups");
 const { recoverBackupArtifacts, startBackupScheduler, stopBackupScheduler } = require("./services/backupService");
+const { startRestartScheduler, stopRestartScheduler } = require("./services/restartScheduleService");
 const instanceService = require("./services/instances/instanceService");
 const { handleConsoleCommands, handleConsoleLogs } = require("./routes/console");
 const { handleCurseForgeProxy } = require("./services/curseforgeProxyService");
@@ -573,6 +574,7 @@ async function startServer() {
   }
   server.listen(config.port, config.host, () => {
     startBackupScheduler();
+    startRestartScheduler();
     console.info(`AnxOS Agent listening on http://${config.host}:${config.port}`);
     logger.info("startup", "AnxOS Agent listening", { host: config.host, port: config.port, pid: process.pid });
   });
@@ -587,6 +589,7 @@ async function shutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
   stopBackupScheduler();
+  stopRestartScheduler();
   logger.info("shutdown", "AnxOS Agent shutdown started", { signal, connectedClients: connectedClients.size });
   const forceTimer = setTimeout(() => {
     for (const socket of connectedClients) socket.destroy();

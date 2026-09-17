@@ -3,9 +3,12 @@ const {
   clearInstanceLogs,
   createInstance,
   createInstanceFolder,
+  createRestartSchedule,
   deleteInstance,
   deleteInstanceFile,
+  deleteRestartSchedule,
   duplicateInstance,
+  evaluateRestartSchedules,
   forgetInstance,
   forceKillInstance,
   getGameServerConfig,
@@ -16,6 +19,7 @@ const {
   getMinecraftProperties,
   listInstanceFiles,
   listInstances,
+  listRestartSchedules,
   openInstanceFolder,
   readInstanceFile,
   repairNeoForgeRuntime,
@@ -29,6 +33,7 @@ const {
   startInstance,
   stopInstance,
   updateInstance,
+  updateRestartSchedule,
   writeInstanceFile,
 } = require("../services/serviceRouter");
 const { audit, checkRateLimit, requirePermission } = require("../services/securityService");
@@ -170,6 +175,33 @@ function registerInstancesIpc() {
     requirePermission("instance:delete", payload.instanceId);
     audit({ action: "instance.forget", target: payload.instanceId });
     return forgetInstance(payload.instanceId, payload);
+  }));
+  // V2-E scheduled restarts: permission split mirrors the agent's central
+  // route gate (read → instance:read, mutate → instance:write, remove →
+  // instance:delete); the scheduler itself runs server-side in the agent.
+  registerInstanceHandler("instances:listRestartSchedules", async (_, payload = {}) => wrapExpectedAgentRead("instances:listRestartSchedules", () => {
+    requirePermission("instance:read", payload.instanceId);
+    return listRestartSchedules(payload.instanceId, payload);
+  }));
+  registerInstanceHandler("instances:createRestartSchedule", async (_, payload = {}) => invokeInstanceOperation(() => {
+    requirePermission("instance:write", payload.instanceId);
+    audit({ action: "instance.restartSchedule.create", target: payload.instanceId });
+    return createRestartSchedule(payload.instanceId, payload, payload);
+  }));
+  registerInstanceHandler("instances:updateRestartSchedule", async (_, payload = {}) => invokeInstanceOperation(() => {
+    requirePermission("instance:write", payload.instanceId);
+    audit({ action: "instance.restartSchedule.update", target: `${payload.instanceId}:${payload.scheduleId}` });
+    return updateRestartSchedule(payload.instanceId, payload.scheduleId, payload, payload);
+  }));
+  registerInstanceHandler("instances:deleteRestartSchedule", async (_, payload = {}) => invokeInstanceOperation(() => {
+    requirePermission("instance:delete", payload.instanceId);
+    audit({ action: "instance.restartSchedule.delete", target: `${payload.instanceId}:${payload.scheduleId}` });
+    return deleteRestartSchedule(payload.instanceId, payload.scheduleId, payload);
+  }));
+  registerInstanceHandler("instances:evaluateRestartSchedules", async (_, payload = {}) => invokeInstanceOperation(() => {
+    requirePermission("instance:write", payload.instanceId);
+    audit({ action: "instance.restartSchedule.evaluate", target: payload.instanceId });
+    return evaluateRestartSchedules(payload.instanceId, payload);
   }));
   registerInstanceHandler("instances:listFiles", async (_, payload = {}) => invokeInstanceOperation(() => { requirePermission("instance:read", payload.instanceId); return listInstanceFiles(payload.instanceId, payload.path, payload); }));
   registerInstanceHandler("instances:readFile", async (_, payload = {}) => invokeInstanceOperation(() => { requirePermission("instance:read", payload.instanceId); return readInstanceFile(payload.instanceId, payload.path, payload); }));
