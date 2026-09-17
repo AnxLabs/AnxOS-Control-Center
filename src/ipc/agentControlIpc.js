@@ -56,6 +56,7 @@ function registerAgentControlIpc() {
   ipcMain.handle("agentControl:list", (_, payload = {}) => runAuthorized("list", () => control.listAgents(requireNodeContext(payload, "Agent Control listing"))));
   ipcMain.handle("agentControl:status", (_, payload = {}) => runAuthorized("status", () => control.getStatus(payload)));
   ipcMain.handle("agentControl:diagnostics", () => runAuthorized("diagnostics", () => control.runDiagnostics()));
+  ipcMain.handle("agentControl:createUiBootstrapCode", () => runAuthorized("ui-bootstrap-code", () => control.createUiBootstrapCode()));
   ipcMain.handle("agentControl:remoteDiagnostics", (_, payload = {}) => {
     const actor = authorize("remote-diagnostics");
     return runAudited("remote-diagnostics", actor, () => control.captureRemoteDiagnostics(payload.nodeId));

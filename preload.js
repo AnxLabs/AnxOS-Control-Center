@@ -119,6 +119,7 @@ const desktopApi = {
     list: (payload = {}) => ipcRenderer.invoke("agentControl:list", payload),
     status: (payload = {}) => ipcRenderer.invoke("agentControl:status", payload),
     diagnostics: () => ipcRenderer.invoke("agentControl:diagnostics"),
+    createUiBootstrapCode: () => ipcRenderer.invoke("agentControl:createUiBootstrapCode"),
     remoteDiagnostics: (nodeId) => ipcRenderer.invoke("agentControl:remoteDiagnostics", { nodeId }),
     getConfig: () => ipcRenderer.invoke("agentControl:getConfig"),
     saveConfig: (payload = {}) => ipcRenderer.invoke("agentControl:saveConfig", payload),

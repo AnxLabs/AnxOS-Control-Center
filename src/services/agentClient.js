@@ -1687,6 +1687,17 @@ async function getDockerContainers(configOverride = null) {
   return requestJson("/api/v1/docker/containers", { config: configOverride, timeoutMs: DOCKER_REQUEST_TIMEOUT_MS });
 }
 
+// V2-A browser surface (A2.6): mint the one-time bootstrap code the operator
+// pastes into the agent management page's browser form.
+async function createUiBootstrapCode(configOverride = null) {
+  return requestJson("/api/v1/ui/bootstrap-code", {
+    config: configOverride,
+    method: "POST",
+    body: {},
+    timeoutMs: DOCKER_REQUEST_TIMEOUT_MS,
+  });
+}
+
 async function getDockerSnapshot(configOverride = null) {
   const payload = await requestJson("/api/v1/docker/snapshot", { config: configOverride, timeoutMs: DOCKER_REQUEST_TIMEOUT_MS });
   const containers = normalizeContainers(payload);
@@ -3292,6 +3303,7 @@ module.exports = {
   createDockerContainer,
   createDockerNetwork,
   createPublicAccessService,
+  createUiBootstrapCode,
   createWindowsFirewallRule,
   deleteDockerImage,
   deletePublicAccessService,

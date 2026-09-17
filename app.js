@@ -6178,6 +6178,15 @@ async function runAgentControlAction(action) {
     }
     else if (action === "rotateToken") { await api.pairLocalAgent({ rotate: true, reason: "manual-rotation" }); await api.restart(); }
     else if (action === "copyUrl") { await navigator.clipboard.writeText(getAgentControlOverviewTarget()?.agentUrl || ""); showToast("Agent URL copied.", "success"); }
+    else if (action === "mintUiBootstrapCode") {
+      const code = await getDesktopApiState().api.agentControl.createUiBootstrapCode();
+      const field = document.querySelector("[data-agent-ui-bootstrap-code]");
+      if (field) {
+        field.value = String(code?.code || "");
+        field.title = code?.expiresAt ? `Valid until ${code.expiresAt}` : "";
+      }
+      showToast(`Browser code ${code?.code || "generated"} — valid for 10 minutes, single use.`, "success");
+    }
     else if (action === "copyId") { await navigator.clipboard.writeText(getAgentControlOverviewTarget()?.identity?.deviceId || ""); showToast("Agent ID copied.", "success"); }
     else if (action === "completeSetup") {
       const config = await api.saveConfig(readAgentControlConfig());

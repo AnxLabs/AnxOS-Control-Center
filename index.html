@@ -3924,8 +3924,8 @@
                   <input type="password" autocomplete="off" placeholder="Optional bearer token" data-agent-setting="agentToken">
                 </label>
                 <label class="settings-field settings-field--wide">
-                  <span>Pairing code</span>
-                  <textarea rows="3" autocomplete="off" spellcheck="false" placeholder="Paste ANXOS-PAIR code from the remote Agent" data-agent-pairing-code></textarea>
+                  <span>Browser bootstrap code</span>
+                  <textarea rows="2" readonly autocomplete="off" spellcheck="false" placeholder="Generate a one-time code, then paste it into the agent management page in your browser" data-agent-ui-bootstrap-code></textarea>
                 </label>
               </div>
               <div class="settings-actions">
@@ -3934,6 +3934,7 @@
                 <button class="inline-action inline-action--primary" type="button" data-agent-action="pair">Pair Agent</button>
                 <button class="inline-action" type="button" data-agent-action="repair" hidden>Repair Connection</button>
                 <button class="inline-action" type="button" data-agent-control-action="copyUrl">Copy URL</button>
+                <button class="inline-action" type="button" data-agent-control-action="mintUiBootstrapCode">New Browser Code</button>
                 <span class="settings-inline-status" data-agent-config-source>Saved in config/agent.json.</span>
               </div>
             </section>

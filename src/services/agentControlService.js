@@ -1900,6 +1900,18 @@ async function runDiagnostics() {
 async function openLogs() { await diagnostics.openFolder(); return { opened: true }; }
 async function openDataFolder() { fs.mkdirSync(getAgentDataDirectory(), { recursive: true }); await shell.openPath(getAgentDataDirectory()); return { opened: true }; }
 
+// V2-A browser surface (A2.6): mint the one-time code the operator pastes
+// into the agent management page in a browser. Rides the local agent
+// credential; the agent enforces ui:session permission fail-closed.
+async function createUiBootstrapCode() {
+  const payload = await agentClient.createUiBootstrapCode();
+  return {
+    code: String(payload?.code || ""),
+    expiresAt: String(payload?.expiresAt || ""),
+    ttlMs: Number(payload?.ttlMs) || null,
+  };
+}
+
 module.exports = {
   _test: {
     agentEnvironment,
@@ -1920,6 +1932,7 @@ module.exports = {
     parseWindowsNetstatListener,
   },
   captureRemoteDiagnostics,
+  createUiBootstrapCode,
   getAgentDataDirectory,
   getRuntimeConfigPath,
   getStatus,
