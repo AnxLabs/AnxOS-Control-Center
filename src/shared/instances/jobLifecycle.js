@@ -13,6 +13,24 @@
 //   host-specific dependencies; audit failures never affect job execution.
 // - Terminal states are immutable once written; transitions are appended to the
 //   per-record event log as redacted audit events.
+//
+// Pending-job expiry (V2-G): a job may be minted with `expiresAt` (epoch ms or
+// an ISO date string). A node may also configure `defaultPendingJobTtlMs`:
+// pending NON-destructive jobs then lapse once they are older than that TTL —
+// jobs minted while the TTL is configured get the deadline stamped as their
+// `expiresAt`, and older records without one are evaluated against
+// `enqueuedAt + TTL`. A destructive approval never lapses by default — it must
+// be explicitly cancelled or carry an explicit `expiresAt`. Expiry claims ONLY
+// jobs that are still `enqueued` and have never started, and only when
+// evaluated: the boot-time re-observation pass, any getJob/listJobs read, or
+// a keyed request that looks the job up by its idempotency key settles such a
+// job FAILED with code `JOB_EXPIRED` and marks it `expired: true`. A running
+// job never expires mid-run; it reconciles exactly as before. An expired job
+// is never silently replayed: its durable record stays on disk for audit, and
+// a later request reusing its idempotency key mints a fresh explicit job (the
+// new execution is authorized by the new request, not replayed from the stale
+// one). Without an explicit `expiresAt` and a configured default TTL nothing
+// expires — behavior is unchanged for callers that do not opt in.
 
 const crypto = require("crypto");
 const fs = require("fs/promises");
@@ -56,12 +74,20 @@ const DESTRUCTIVE_JOB_TYPES = new Set([
   "instance.forceKill",
 ]);
 
+// V2-G: a pending (enqueued, never-started) job past its expiry settles with
+// this error the first time it is evaluated. The message must stay actionable:
+// the stale request never executes and the operator re-issues it.
+const JOB_EXPIRED_ERROR_MESSAGE = "This queued operation expired while the node was offline. Issue the request again.";
+
 let configuredRootProvider = null;
 let auditEventEmitter = null;
 let storeLoaded = false;
 let storeLoadPromise = null;
 let loadedRoot = null;
 let recoveryPromise = null;
+// V2-G: opt-in default TTL for pending non-destructive jobs. Unset (null) by
+// default, so jobs minted without an explicit expiresAt never expire.
+let defaultPendingJobTtlMs = null;
 const jobs = new Map();
 const idempotencyIndex = new Map();
 
@@ -96,6 +122,60 @@ function clampTimeoutMs(value) {
     return DEFAULT_JOB_TIMEOUT_MS;
   }
   return Math.min(Math.max(Math.round(requested), MIN_JOB_TIMEOUT_MS), MAX_JOB_TIMEOUT_MS);
+}
+
+// V2-G: `expiresAt` accepts an epoch-ms number or an ISO date string and is
+// normalized to a canonical ISO string for persistence. Malformed input fails
+// closed before any record or index state is touched.
+function normalizeExpiresAt(value) {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  const ms = typeof value === "number" ? value : Date.parse(String(value));
+  if (!Number.isFinite(ms)) {
+    throw createJobError("INVALID_JOB_EXPIRES_AT", 400, {
+      field: "expiresAt",
+      expected: "an epoch-ms number or an ISO date string",
+    });
+  }
+  return new Date(ms).toISOString();
+}
+
+// While a default TTL is configured, newly minted non-destructive jobs get
+// their derived deadline stamped as `expiresAt` so the record is
+// self-describing and keeps its deadline even if the TTL is later removed or
+// changed. Records without a stamp (e.g. minted before the TTL was enabled)
+// are evaluated age-based in isPendingExpired instead.
+function defaultExpiresAtFor(type, enqueuedAtIso) {
+  if (defaultPendingJobTtlMs === null || DESTRUCTIVE_JOB_TYPES.has(type)) {
+    return null;
+  }
+  const enqueuedMs = Date.parse(enqueuedAtIso);
+  if (!Number.isFinite(enqueuedMs)) {
+    return null;
+  }
+  return new Date(enqueuedMs + defaultPendingJobTtlMs).toISOString();
+}
+
+// Expiry only ever claims jobs that never started: a running job reconciles
+// exactly as before, and any terminal record is immutable. Invalid persisted
+// expiry values are ignored (untrusted data, never a reason to fail a read).
+// A record without its own expiry only lapses when a default TTL is configured
+// (age-based against enqueuedAt, non-destructive types only) — so enabling the
+// TTL also settles pending records minted before it was turned on.
+function isPendingExpired(record, nowMs = Date.now()) {
+  if (!record || record.state !== JOB_STATES.ENQUEUED || record.startedAt) {
+    return false;
+  }
+  if (record.expiresAt) {
+    const expiresMs = Date.parse(record.expiresAt);
+    return Number.isFinite(expiresMs) && expiresMs <= nowMs;
+  }
+  if (defaultPendingJobTtlMs === null || DESTRUCTIVE_JOB_TYPES.has(record.type)) {
+    return false;
+  }
+  const enqueuedMs = Date.parse(record.enqueuedAt);
+  return Number.isFinite(enqueuedMs) && enqueuedMs + defaultPendingJobTtlMs <= nowMs;
 }
 
 function sanitizeJobValue(value) {
@@ -140,9 +220,11 @@ function publicJob(record) {
     owner: record.owner,
     state: record.state,
     stage: record.stage || null,
+    expired: record.expired === true,
     enqueuedAt: record.enqueuedAt,
     startedAt: record.startedAt || null,
     completedAt: record.completedAt || null,
+    expiresAt: record.expiresAt || null,
     timeoutMs: record.timeoutMs,
     attempts: record.attempts,
     exitCode: record.exitCode ?? null,
@@ -293,6 +375,18 @@ async function settleJob(entry, state, patch = {}, event = {}) {
   });
 }
 
+// V2-G: settles a pending job whose approval window lapsed before it ever
+// started. The old record stays on disk for audit with `expired: true`; a
+// keyed request that finds it re-issues the operation as a fresh explicit job
+// (never a replay of the stale one). Safe against concurrent callers: the
+// terminal transition inside settleJob is applied synchronously.
+async function settleExpiredPendingJob(entry, event = {}) {
+  await settleJob(entry, JOB_STATES.FAILED, {
+    error: { code: "JOB_EXPIRED", message: JOB_EXPIRED_ERROR_MESSAGE },
+    expired: true,
+  }, { reason: "expired before start", ...event });
+}
+
 function timeoutJobError(record) {
   return createJobError("JOB_TIMEOUT", 504, {
     jobId: record.id,
@@ -429,7 +523,12 @@ async function createJob(options = {}) {
     throw createJobError("INVALID_JOB_RUN", 400, { expected: "an executable run function" });
   }
 
+  // V2-G: normalized up front so malformed expiry input fails closed before
+  // any record or idempotency index state is touched.
+  const expiresAt = normalizeExpiresAt(options.expiresAt);
+
   let idempotencyKey = null;
+  let releasedExpiredPrior = null;
   if (options.idempotencyKey !== undefined && options.idempotencyKey !== null) {
     idempotencyKey = String(options.idempotencyKey);
     if (!IDEMPOTENCY_KEY_PATTERN.test(idempotencyKey)) {
@@ -444,7 +543,15 @@ async function createJob(options = {}) {
     const existingEntry = findExistingByIdempotencyKey(idempotencyKey);
     if (existingEntry) {
       const prior = existingEntry.record;
-      if (!TERMINAL_JOB_STATES.has(prior.state)) {
+      if (isPendingExpired(prior)) {
+        // V2-G: the expired attempt can never execute again, so its key is
+        // released instead of replaying or conflicting. The fresh explicit
+        // request below mints a new job; the expired record stays on disk for
+        // audit with expired: true. The key stays reserved for THIS
+        // continuation until the new record is indexed, preserving the
+        // concurrent-duplicate guarantee.
+        releasedExpiredPrior = existingEntry;
+      } else if (!TERMINAL_JOB_STATES.has(prior.state)) {
         // Duplicate in-flight request: rejoin the original execution and return
         // the same job, never a second run of the same operation.
         emitAudit(prior, "job.dedupe", "ok", { requestedType: type });
@@ -452,16 +559,16 @@ async function createJob(options = {}) {
           return await awaitJobCompletion(existingEntry);
         }
         return { job: publicJob(prior), deduped: true, replayed: false };
-      }
-      if (DESTRUCTIVE_JOB_TYPES.has(prior.type) || prior.state !== JOB_STATES.SUCCEEDED) {
+      } else if (DESTRUCTIVE_JOB_TYPES.has(prior.type) || prior.state !== JOB_STATES.SUCCEEDED) {
         emitAudit(prior, "job.conflict", "blocked", { requestedType: type, priorState: prior.state });
         throwIdempotencyConflict(prior, prior.state);
+      } else {
+        // Non-destructive succeeded result: replay the terminal result without
+        // re-executing the operation.
+        await appendEvent(prior, { action: "job.replay", state: prior.state, detail: { requestedType: type } });
+        emitAudit(prior, "job.replay", "ok", { requestedType: type });
+        return { job: publicJob(prior), result: prior.result, deduped: true, replayed: true };
       }
-      // Non-destructive succeeded result: replay the terminal result without
-      // re-executing the operation.
-      await appendEvent(prior, { action: "job.replay", state: prior.state, detail: { requestedType: type } });
-      emitAudit(prior, "job.replay", "ok", { requestedType: type });
-      return { job: publicJob(prior), result: prior.result, deduped: true, replayed: true };
     }
   }
 
@@ -476,6 +583,7 @@ async function createJob(options = {}) {
     enqueuedAt: nowIso(),
     startedAt: null,
     completedAt: null,
+    expiresAt: null,
     timeoutMs: clampTimeoutMs(options.timeoutMs),
     attempts: 1,
     exitCode: null,
@@ -488,6 +596,10 @@ async function createJob(options = {}) {
     },
     events: [],
   };
+  // V2-G: an explicit expiry wins; otherwise a configured default TTL applies
+  // (non-destructive types only). Stamped so the record is self-describing;
+  // unstamped records are evaluated age-based while a TTL is configured.
+  record.expiresAt = expiresAt || defaultExpiresAtFor(type, record.enqueuedAt);
 
   const entry = {
     record,
@@ -499,6 +611,15 @@ async function createJob(options = {}) {
   };
   jobs.set(record.id, entry);
   indexRecord(record);
+
+  if (releasedExpiredPrior) {
+    // Durable, audited settlement of the expired record whose key this fresh
+    // job now owns. The index above already points at the new record, so a
+    // concurrent keyed duplicate dedupes onto this execution instead of
+    // minting a second one.
+    await settleExpiredPendingJob(releasedExpiredPrior, { reason: "expired before start (idempotency key re-issued)" });
+  }
+
   await appendEvent(record, { state: JOB_STATES.ENQUEUED, action: "job.enqueued" });
   emitAudit(record, "job.enqueued", "ok");
 
@@ -545,7 +666,16 @@ async function getJob(jobId) {
     throw createJobError("INVALID_JOB_ID", 400, { field: "jobId", expected: "job_<32 hex characters>" });
   }
   const entry = jobs.get(jobId);
-  return entry ? publicJob(entry.record) : null;
+  if (!entry) {
+    return null;
+  }
+  if (isPendingExpired(entry.record)) {
+    // V2-G lazy expiry: a read settles an expired pending job before showing
+    // it, so the caller observes the truth (failed/expired) instead of a
+    // stale approval that must never execute.
+    await settleExpiredPendingJob(entry);
+  }
+  return publicJob(entry.record);
 }
 
 async function listJobs(options = {}) {
@@ -563,6 +693,10 @@ async function listJobs(options = {}) {
     if (options.instanceId && record.target?.instanceId !== options.instanceId
       && record.target?.requestedId !== options.instanceId) {
       continue;
+    }
+    if (isPendingExpired(record)) {
+      // V2-G lazy expiry (see getJob): settle before the record is listed.
+      await settleExpiredPendingJob(entry);
     }
     filtered.push(record);
   }
@@ -637,9 +771,17 @@ async function recoverInterruptedJobs(reconcile) {
     return recoveryPromise;
   }
   recoveryPromise = (async () => {
+    let expiredCount = 0;
     for (const entry of jobs.values()) {
       const record = entry.record;
       if (TERMINAL_JOB_STATES.has(record.state)) {
+        continue;
+      }
+      if (isPendingExpired(record)) {
+        // V2-G: an expired pending job never started, so there is nothing on
+        // the node to re-observe; settle it expired instead of reconciling.
+        await settleExpiredPendingJob(entry, { reason: "expired before start (re-observed after node restart)" });
+        expiredCount += 1;
         continue;
       }
       let outcome;
@@ -670,14 +812,15 @@ async function recoverInterruptedJobs(reconcile) {
         result: state === JOB_STATES.SUCCEEDED ? sanitizeJobValue(outcome.result ?? null) : null,
       }, { reason: "re-observed after node restart" });
     }
+    return expiredCount;
   })();
   try {
-    await recoveryPromise;
+    const expiredCount = await recoveryPromise;
+    return { recovered: true, expired: expiredCount };
   } catch (error) {
     recoveryPromise = null;
     throw error;
   }
-  return { recovered: true };
 }
 
 function disposeJobLifecycle() {
@@ -696,6 +839,12 @@ function configureJobLifecycle(options = {}) {
   }
   if (typeof options.auditEvent === "function") {
     auditEventEmitter = options.auditEvent;
+  }
+  // V2-G: opt-in default pending-job TTL. Explicitly passing a non-positive or
+  // non-finite value disables the default again.
+  if (options.defaultPendingJobTtlMs !== undefined) {
+    const ttl = Number(options.defaultPendingJobTtlMs);
+    defaultPendingJobTtlMs = Number.isFinite(ttl) && ttl > 0 ? Math.round(ttl) : null;
   }
 }
 
@@ -727,6 +876,7 @@ module.exports = {
       storeLoadPromise = null;
       loadedRoot = null;
       recoveryPromise = null;
+      defaultPendingJobTtlMs = null;
     },
   },
 };
