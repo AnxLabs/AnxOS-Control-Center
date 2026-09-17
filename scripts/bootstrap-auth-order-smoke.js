@@ -8,9 +8,14 @@ const app = fs.readFileSync(path.join(root, "app.js"), "utf8");
 const preload = fs.readFileSync(path.join(root, "preload.js"), "utf8");
 const ipc = fs.readFileSync(path.join(root, "src", "ipc", "accountAuthIpc.js"), "utf8");
 
+// String-match pins tolerate formatting drift: identifiers must appear in
+// order within the same expression, so whitespace is normalized before
+// matching (the gate itself spans multiple lines since the local-setup work).
+const normalizedApp = app.replace(/\s+/g, " ");
+
 assert(app.includes("let accountRestorationResolved = false;"), "Renderer must track unresolved account restoration.");
 assert(app.includes("let setupDetectionResolved = false;"), "Renderer must track unresolved setup detection.");
-assert(app.includes("accountRestorationResolved && securityState.setupRequired"), "First Experience must wait for account restoration before rendering.");
+assert(normalizedApp.includes("accountRestorationResolved && securityState.setupRequired"), "First Experience must wait for account restoration before rendering.");
 assert(app.includes("accountRefreshGeneration"), "Renderer must guard account refreshes against stale async results.");
 assert(app.includes("let onboardingOpenGeneration = 0;"), "Renderer must guard delayed onboarding opens against stale auth decisions.");
 assert(app.includes("function shouldRequireAccountBeforeOnboarding()"), "Renderer must define account-before-onboarding requirements.");

@@ -75,27 +75,32 @@ async function main() {
   assert.strictEqual(stalledStatus.state.requestState, "bounded-error", "A stalled status request must resolve to a bounded error.");
   assert.strictEqual(stalledStatus.renders.length, 1, "A stalled status request must render its terminal state.");
 
+  // Since the Local Owner authentication model (Build 203), the security
+  // dashboard request is gated on status.localOwnerAuthenticated === true.
+  // Scenarios exercising dashboard error/loading states present a
+  // locally-authenticated status; a status without it lands "unauthorized".
   const unavailableDashboard = await runScenario({
-    status: () => Promise.resolve({ authenticated: true }),
+    status: () => Promise.resolve({ authenticated: true, localOwnerAuthenticated: true }),
     dashboard: () => Promise.reject(Object.assign(new Error("Service unavailable"), { code: "SERVICE_UNAVAILABLE" })),
   });
   assert.strictEqual(unavailableDashboard.state.requestState, "unavailable");
 
   const unauthorizedDashboard = await runScenario({
-    status: () => Promise.resolve({ authenticated: false, accountAuthenticated: false }),
-    dashboard: () => Promise.resolve({}),
+    status: () => Promise.resolve({ authenticated: true }),
+    dashboard: () => Promise.resolve({ overview: { status: "Secure" }, events: [] }),
   });
-  assert.strictEqual(unauthorizedDashboard.state.requestState, "unauthorized");
+  assert.strictEqual(unauthorizedDashboard.state.requestState, "unauthorized", "A status without local owner authentication must gate the dashboard request.");
+  assert.match(String(unauthorizedDashboard.state.error || ""), /[Ll]ocal [Oo]wner authentication is required/, "The unauthorized state must name the local owner gate.");
 
   const loadedDashboard = await runScenario({
-    status: () => Promise.resolve({ authenticated: true }),
+    status: () => Promise.resolve({ authenticated: true, localOwnerAuthenticated: true }),
     dashboard: () => Promise.resolve({ overview: { status: "Secure" }, events: [] }),
   });
   assert.strictEqual(loadedDashboard.state.requestState, "loaded");
   assert.strictEqual(loadedDashboard.renders.length, 1);
 
   const stalePreviousNode = await runScenario({
-    status: () => Promise.resolve({ authenticated: true }),
+    status: () => Promise.resolve({ authenticated: true, localOwnerAuthenticated: true }),
     dashboard: (payload, scenarioContext) => {
       scenarioContext.selectedNodeId = "new-node";
       scenarioContext.selectedNodeVersion += 1;
