@@ -71,6 +71,16 @@ P2 items parked (with reasons — revisit only with owner approval):
 - playitService PowerShell `-Command` service-name interpolation (4 sites): Mimosa PreToolUse blocks ANY candidate touching a `-Command` line (env-var passing fix was blocked; sc.exe argv migration is disproportionate churn on a triage-verified non-exploitable path where names derive from fixed local candidates). Values remain system-derived; risk unchanged from Build 200 baseline.
 - dompurify/monaco downgrade: semver-major dependency migration — park for a dedicated dependency wave.
 
+### Cycle 1b — Smoke-coverage audit + harness repair (2026-09-17, commit e841dd1)
+
+- Audited all 231 smoke scripts against both harness mechanisms (package.json `*:smoke` entries for rc:validate + `scripts/release-validation.js` QA tiers): **29 smokes were referenced by neither** — real rc-gate coverage gaps, several only ever run manually during past waves.
+- Verified each of the 29 hermetic and green on this machine, then registered all in package.json grouped by family (marketplace ×8, backups ×2, account/auth ×5, agent/local-agent ×6, instances ×2, security/qa/ui ×4, bootstrap, alpha-loop, ssh). rc:validate suite count 195 → 224.
+- Harness drift repaired (behavior proven intact, text pins updated — no production change):
+  - `bootstrap-auth-order-smoke`: the pinned gate expression became multiline in `renderLocalSetupState` (Build 203 local-setup work); whitespace-normalized matching preserves the pin's intent.
+  - `security-loading-state-smoke`: scenarios predated the Build 203 Local Owner authentication model that gates the security dashboard on `status.localOwnerAuthenticated === true`. Scenarios updated to the current contract; a new assertion pins that a status without local owner auth lands "unauthorized" with the gate message (this was previously untested behavior).
+  - `qa-logged-out-renderer-smoke`: sidebar chain gained the leading unlock branch before the null guard; pin updated to the current chain.
+- Early rc:validate launched over the in-flight tree (V2-B + V2-F agent work uncommitted) as a pre-integration regression gate; authoritative gate runs after V2-D lands.
+
 ### Parked (anti-feature-creep)
 
 - V2-L…V2-Q vision extras (AnxOS Intelligence, Automation Engine, Plugin SDK, Mission Control, Themes, Analytics) — need owner scoping per roadmap §6A.4.
