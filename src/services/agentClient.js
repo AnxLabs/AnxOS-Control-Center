@@ -1716,6 +1716,16 @@ async function createDockerContainer(payload = {}, configOverride = null) {
   });
 }
 
+// V2-C create preflight: read-only findings report, never a state change.
+async function preflightDockerContainer(payload = {}, configOverride = null) {
+  return requestJson("/api/v1/docker/preflight/container", {
+    config: configOverride,
+    method: "POST",
+    body: payload,
+    timeoutMs: DOCKER_REQUEST_TIMEOUT_MS,
+  });
+}
+
 async function inspectDockerContainer(container, configOverride = null) {
   return requestJson(`/api/v1/docker/containers/${encodeURIComponent(String(container || ""))}/inspect`, {
     config: configOverride,
@@ -3305,6 +3315,7 @@ module.exports = {
   createPublicAccessService,
   createUiBootstrapCode,
   createWindowsFirewallRule,
+  preflightDockerContainer,
   deleteDockerImage,
   deletePublicAccessService,
   downloadFile,

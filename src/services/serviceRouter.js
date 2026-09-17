@@ -223,6 +223,16 @@ async function createDockerContainer(payload = {}) {
   return withNodeContext(await agentClient.createDockerContainer(payload, getOptionalNodeConfig(payload)), nodeId);
 }
 
+// V2-C read-only create preflight, routed per node like every docker op.
+async function preflightDockerContainer(payload = {}) {
+  const nodeId = getRequestNodeId(payload);
+  assertDockerEnabledForNode(payload);
+  if (shouldUseLocalDocker(payload)) {
+    return withNodeContext(await localDockerService.preflightContainerCreate(payload), nodeId);
+  }
+  return withNodeContext(await agentClient.preflightDockerContainer(payload, getOptionalNodeConfig(payload)), nodeId);
+}
+
 async function startDockerContainer(container, options = {}) {
   const nodeId = getRequestNodeId(options);
   assertDockerEnabledForNode(options);
@@ -1027,6 +1037,7 @@ module.exports = {
   disconnectDockerNetwork,
   dockerComposeAction,
   execDockerContainer,
+  preflightDockerContainer,
   deleteInstance,
   duplicateInstance,
   deleteInstanceFile,

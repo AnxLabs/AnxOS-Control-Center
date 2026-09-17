@@ -25639,9 +25639,61 @@ async function createDockerContainerFromForm() {
     showToast("Container name and image are required.", "warning");
     return;
   }
-  const dangerous = payload.privileged || payload.network === "host" || payload.volumes.some((entry) => /docker\.sock|^\/:|:\/host\b/i.test(entry));
+  // Preflight first: surface policy, port and limit findings before anything
+  // is created. The backend gate (createContainer) is the actual boundary;
+  // this call only makes the findings visible before the attempt.
+  const api = getDockerApi();
+  if (typeof api?.preflightContainer === "function") {
+    try {
+      const report = await api.preflightContainer(payload);
+      const blocked = (report?.findings || []).filter((finding) => finding.severity === "error");
+      const warned = (report?.findings || []).filter((finding) => finding.severity === "warning");
+      if (blocked.length > 0) {
+        showToast(`Preflight blocked: ${blocked.map((finding) => finding.message).join(" ")}`, "error");
+        return;
+      }
+      if (warned.length > 0) {
+        showToast(`Preflight warning: ${warned.map((finding) => finding.message).join(" ")}`, "warning");
+      }
+    } catch (error) {
+      showToast(getDockerActionErrorMessage(error), "warning");
+    }
+  }
+  // Detect dangerous options once; the same flags drive both the operator
+  // confirmation and the explicit policy grant the backend gate requires.
+  const isHostPathSource = (source) => /^[/\\]/.test(source) || /^[a-zA-Z]:[\\/]/.test(source);
+  // A leading single-letter segment is a Windows drive prefix, matching the
+  // backend's inspectVolumeEntry parsing ("C:\\host:/ctr" → "C:\\host").
+  const volumeHostSource = (entry) => {
+    const segments = String(entry).split(":");
+    if (segments.length > 2 && /^[a-zA-Z]$/.test(segments[0])) return `${segments[0]}:${segments[1]}`;
+    return segments[0];
+  };
+  const mountBindSource = (entry) => {
+    const fields = {};
+    String(entry).split(",").forEach((part) => {
+      const eq = part.indexOf("=");
+      if (eq > -1) fields[part.slice(0, eq).toLowerCase()] = part.slice(eq + 1);
+    });
+    return fields.type === "bind" ? (fields.source || fields.src || "") : "";
+  };
+  const mountEntries = [...(payload.binds || payload.mounts || [])];
+  const hostMountDetected = payload.volumes.some((entry) => isHostPathSource(volumeHostSource(entry)))
+    || mountEntries.some((entry) => isHostPathSource(mountBindSource(entry)));
+  const socketDetected = [...payload.volumes, ...mountEntries].some((entry) => /docker\.sock/i.test(String(entry)));
+  const dangerous = payload.privileged === true || payload.network === "host" || hostMountDetected || socketDetected;
   if (dangerous && !(await createSecurityConfirmation({ title: "Create container with dangerous options?", message: "Privileged mode, host networking, Docker socket mounts, or broad host mounts can expose the node. Review the configuration before continuing.", confirmLabel: "Create" }))) return;
-  await runDockerOperationRecord("Create Docker container", payload.name, () => getDockerApi().create(payload));
+  // The backend policy gate fails closed on dangerous options; pass the
+  // explicit grant only after the operator confirmed the reviewed options.
+  if (dangerous) {
+    payload.policyGrant = {
+      privileged: payload.privileged === true,
+      hostNetwork: payload.network === "host",
+      hostMount: hostMountDetected,
+      socketAccess: socketDetected,
+    };
+  }
+  await runDockerOperationRecord("Create Docker container", payload.name, () => api.create(payload));
   await refreshDockerStatus();
 }
 
@@ -25693,7 +25745,10 @@ async function runDockerCleanupAction(kind) {
     confirmLabel: "Run Cleanup",
   });
   if (!confirmed) return;
-  const result = await runDockerOperationRecord("Docker cleanup", kind, () => getDockerApi().cleanup(kind, getDockerNodePayload()));
+  // The backend refuses volume pruning without this explicit flag; the
+  // dialog above is what earns it.
+  const payload = { ...getDockerNodePayload(), confirmVolumeDataRemoval: volumeRisk ? true : undefined };
+  const result = await runDockerOperationRecord("Docker cleanup", kind, () => getDockerApi().cleanup(kind, payload));
   const output = document.querySelector("[data-docker-cleanup-output]");
   if (output) output.textContent = result?.output || "Cleanup completed.";
   await refreshDockerStatus();

@@ -206,6 +206,7 @@ const desktopApi = {
     listContainers: (payload = {}) => invokeAgentFeature("docker:listContainers", payload),
     inspectContainer: (container, payload = {}) => ipcRenderer.invoke("docker:inspectContainer", { ...payload, container }),
     create: (payload = {}) => ipcRenderer.invoke("docker:create", payload),
+    preflightContainer: (payload = {}) => ipcRenderer.invoke("docker:preflightContainer", payload),
     start: (container, payload = {}) => ipcRenderer.invoke("docker:start", { ...payload, container }),
     startContainer: (container, payload = {}) => ipcRenderer.invoke("docker:start", { ...payload, container }),
     stop: (container, payload = {}) => ipcRenderer.invoke("docker:stop", { ...payload, container }),

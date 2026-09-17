@@ -99,6 +99,50 @@ async function main() {
     );
   }
 
+  // 7. Wave-2 durable-job wiring: compose/images/volumes/networks/cleanup
+  // lifecycle operations mint the same durable jobs containers do.
+  let composeRuns = 0;
+  const mintComposeStart = (key) => mintDockerJob({
+    type: "docker.compose.start",
+    target: { projectName: "stack-01" },
+    idempotencyKey: key,
+    run: async () => {
+      composeRuns += 1;
+      return { up: true };
+    },
+  });
+  const composeFirst = await mintComposeStart("compose:stack-01:v1");
+  assert.strictEqual(composeFirst.job.type, "docker.compose.start", "Compose start must mint a docker.compose.start job.");
+  assert.strictEqual(composeFirst.job.target.projectName, "stack-01", "Compose targets must persist the project name.");
+  const composeSecond = await mintComposeStart("compose:stack-01:v1");
+  assert.strictEqual(composeSecond.job.id, composeFirst.job.id, "A keyed compose repeat must return the original job.");
+  assert.strictEqual(composeRuns, 1, "A deduped compose call must not re-run the operation.");
+
+  const connectJob = await mintDockerJob({
+    type: "docker.network.connect",
+    target: { networkId: "net-01", containerId: "web-01" },
+    idempotencyKey: "netconnect:net-01:web-01:v1",
+    run: async () => ({ connected: true }),
+  });
+  assert.strictEqual(connectJob.job.type, "docker.network.connect", "Network connect must ride the durable job store.");
+
+  // Destructive refusal applies to every Wave-2 destructive family.
+  for (const [type, target] of [
+    ["docker.volume.delete", { volumeId: "data-01" }],
+    ["docker.volume.prune", { scope: "unused-volumes" }],
+    ["docker.image.prune", { scope: "unused-images" }],
+    ["docker.network.delete", { networkId: "net-01" }],
+    ["docker.network.prune", { scope: "unused-networks" }],
+    ["docker.compose.down", { projectName: "stack-01" }],
+    ["docker.cleanup.run", { kind: "volumes" }],
+  ]) {
+    await assert.rejects(
+      () => mintDockerJob({ type, target, idempotencyKey: "never-replayable", run: async () => ({}) }),
+      (error) => error.code === "DESTRUCTIVE_IDEMPOTENCY_REFUSED" && error.statusCode === 400,
+      `Destructive docker job must refuse idempotency keys: ${type}`,
+    );
+  }
+
   console.log("docker:job-lifecycle:smoke passed");
 }
 

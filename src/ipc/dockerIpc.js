@@ -22,6 +22,7 @@ const {
   listDockerNetworks,
   listDockerVolumes,
   pauseDockerContainer,
+  preflightDockerContainer,
   pullDockerImage,
   pruneDockerImages,
   pruneDockerNetworks,
@@ -93,6 +94,12 @@ function registerDockerIpc() {
     requirePermission("instance:write", payload.name || payload.image);
     audit({ action: "docker.create", target: payload.name || payload.image });
     return createDockerContainer(payload);
+  }));
+  ipcMain.handle("docker:preflightContainer", async (_, payload = {}) => invokeDockerOperation(() => {
+    requirePermission("docker:read", payload.name || payload.image || payload.nodeId);
+    requireDockerNodeContext(payload, "container preflight");
+    audit({ action: "docker.preflight.container", target: payload.name || payload.image });
+    return preflightDockerContainer(payload);
   }));
   ipcMain.handle("docker:start", async (_, payload = {}) => invokeDockerOperation(() => {
     requireDockerNodeContext(payload, "container start");
