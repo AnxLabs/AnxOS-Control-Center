@@ -220,11 +220,27 @@ function policeComposeDocument(document, grant = {}) {
 
 // Parse + evaluate compose YAML text. Unparsable content fails closed
 // (COMPOSE_POLICY_UNPARSEABLE decision lives in the caller): a document the
-// policy cannot see must never silently bypass the gate.
+// policy cannot see must never silently bypass the gate. Oversized documents
+// also fail closed — bounding the parse input neutralizes quadratic-CPU
+// YAML DoS (js-yaml GHSA-5p4m-2wfm-xmqj / GHSA-2883-xcg3-v3hh) for the
+// hostile-template case; real compose files are orders of magnitude smaller.
+const MAX_COMPOSE_POLICY_BYTES = 256 * 1024;
+
 function policeComposeYaml(yamlText, grant = {}) {
+  const text = String(yamlText ?? "");
+  if (text.length > MAX_COMPOSE_POLICY_BYTES) {
+    return {
+      parsed: false,
+      parseError: `Compose document exceeds the ${MAX_COMPOSE_POLICY_BYTES} byte policy review limit.`,
+      services: [],
+      flags: [],
+      denials: [],
+      allowed: false,
+    };
+  }
   let document;
   try {
-    document = yaml.load(String(yamlText ?? ""));
+    document = yaml.load(text);
   } catch (error) {
     return {
       parsed: false,
@@ -239,6 +255,7 @@ function policeComposeYaml(yamlText, grant = {}) {
 }
 
 module.exports = {
+  MAX_COMPOSE_POLICY_BYTES,
   assertCleanupSelection,
   cleanupAffectsPersistentData,
   detectDangerousCreateOptions,

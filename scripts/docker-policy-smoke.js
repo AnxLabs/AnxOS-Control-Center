@@ -209,6 +209,11 @@ async function main() {
   assert.strictEqual(emptyDocument.parsed && emptyDocument.allowed, true,
     "An empty document has no services and must not fabricate denials (the engine reports the real problem).");
 
+  const oversized = policy.policeComposeYaml(`# ${"x".repeat(policy.MAX_COMPOSE_POLICY_BYTES + 1)}\n`);
+  assert.strictEqual(oversized.parsed, false, "An oversized compose document must fail closed without parsing.");
+  assert.match(oversized.parseError, /policy review limit/, "The oversized diagnostic must name the policy limit.");
+  assert.strictEqual(oversized.allowed, false, "An oversized compose document must never be allowed.");
+
   // 9. The engine-boundary compose gate: reads only whitelisted compose
   // basenames inside the validated project directory, denies dangerous
   // on-disk projects, honors grants by resolving, and passes through

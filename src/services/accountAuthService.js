@@ -118,19 +118,31 @@ function normalizeAccountConfig(rawConfig = {}, source = "unknown") {
   };
 }
 
+// The bundled website config is a tiny `window.ANXOS_ACCOUNT_CONFIG = {...}`
+// literal of string-valued keys. Parse it statically: vm is not a security
+// boundary, so nothing in a config file should ever execute.
+function parseAccountConfigLiteral(raw) {
+  const config = {};
+  const entryPattern = /([A-Za-z_$][\w$]*)\s*:\s*"((?:[^"\\]|\\.)*)"/g;
+  for (const match of String(raw).matchAll(entryPattern)) {
+    config[match[1]] = JSON.parse(`"${match[2]}"`);
+  }
+  return config;
+}
+
 function parseAccountConfigFile(filePath) {
   const raw = fs.readFileSync(filePath, "utf8");
   if (/\.json$/i.test(filePath)) {
     return JSON.parse(raw);
   }
-  const sandbox = { window: {}, globalThis: {} };
-  sandbox.globalThis = sandbox.window;
-  const vm = require("vm");
-  vm.runInNewContext(raw, sandbox, {
-    filename: filePath,
-    timeout: 1000,
-  });
-  return sandbox.window.ANXOS_ACCOUNT_CONFIG || sandbox.globalThis.ANXOS_ACCOUNT_CONFIG || {};
+  // JS-format configs are accepted only for the bundled website config, and
+  // only through the static literal parser above. User-writable locations —
+  // config directory or ANXOS_ACCOUNT_CONFIG_PATH — are JSON-only.
+  const bundledPath = path.resolve(getBundledAccountConfigPath());
+  if (path.resolve(filePath) !== bundledPath) {
+    throw new Error(`Account config at ${filePath} must be JSON (.js is reserved for the bundled app config).`);
+  }
+  return parseAccountConfigLiteral(raw);
 }
 
 function readAccountConfigFromDisk() {

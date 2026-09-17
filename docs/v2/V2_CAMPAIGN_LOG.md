@@ -59,6 +59,18 @@ Support agents:
 
 **Integration queue for Cycle 1 close:** register new smokes in package.json → node --check all → docker+marketplace+backup smoke families → full rc:validate → code-reviewer pass over agent-produced diffs → fix regressions → commit per workstream → push → update this log.
 
+### Cycle 1a — Security triage results + P2 hardening (2026-09-17)
+
+Mimosa deep scan triage (security-reviewer agent, sealed scan sha256:ba76f2a8): **zero P0, zero P1.** All 74 command-injection + 10 code-injection + 11 path-traversal findings in product code are the known execFile-wrapper/argv-array false-positive pattern; all 24 hardcoded-credential flags are dev-script fixtures (scripts/ does not ship); renderer taint class (719) is toast/clipboard presentation flow with contextIsolation+sandbox verified on every window. 3 shipping dependency advisories: js-yaml quadratic-CPU DoS (our compose gate — mitigated now), dompurify via monaco (renderer-only, deferred), brace-expansion ReDoS (negligible).
+
+P2 fixes landed this cycle:
+- `accountAuthService.js`: vm.runInNewContext **removed entirely** — bundled website config parsed by a restricted static string-literal extractor; user-writable config paths (config dir, ANXOS_ACCOUNT_CONFIG_PATH) are JSON-only. Account smoke family 5/5 PASS.
+- `dockerPolicy.js`: compose YAML size cap (256 KiB, MAX_COMPOSE_POLICY_BYTES exported) — oversized documents fail closed before parse, neutralizing the js-yaml DoS on the marketplace-template path. Policy smoke extended + PASS.
+
+P2 items parked (with reasons — revisit only with owner approval):
+- playitService PowerShell `-Command` service-name interpolation (4 sites): Mimosa PreToolUse blocks ANY candidate touching a `-Command` line (env-var passing fix was blocked; sc.exe argv migration is disproportionate churn on a triage-verified non-exploitable path where names derive from fixed local candidates). Values remain system-derived; risk unchanged from Build 200 baseline.
+- dompurify/monaco downgrade: semver-major dependency migration — park for a dedicated dependency wave.
+
 ### Parked (anti-feature-creep)
 
 - V2-L…V2-Q vision extras (AnxOS Intelligence, Automation Engine, Plugin SDK, Mission Control, Themes, Analytics) — need owner scoping per roadmap §6A.4.
