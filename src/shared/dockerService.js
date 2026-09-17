@@ -2,6 +2,13 @@ const { execFile } = require("child_process");
 const fs = require("fs/promises");
 const path = require("path");
 const longOperations = require("./longOperationService");
+const {
+  assertCleanupSelection,
+  detectHostPortConflicts,
+  normalizeHostPorts,
+  policeContainerRequest,
+  validateResourceLimits,
+} = require("./dockerPolicy");
 
 const COMMAND_TIMEOUT_MS = 8000;
 const LOG_TIMEOUT_MS = 12000;
@@ -739,6 +746,19 @@ async function inspectContainer(container) {
 }
 
 async function createContainer(payload = {}) {
+  // V2-C fail-closed policy gate: privileged mode, host networking, host path
+  // mounts and engine-socket mounts are denied unless the request carries an
+  // explicit per-flag policyGrant (renderer confirmations are presentation,
+  // never the boundary).
+  const policy = policeContainerRequest(payload);
+  if (!policy.allowed) {
+    const labels = policy.denials.map((flag) => flag.label).join(", ");
+    throw new DockerServiceError(`Docker policy denied this request: ${labels}. Grant the option explicitly to allow it.`, "DOCKER_POLICY_DENIED", 403);
+  }
+  const limitProblems = validateResourceLimits(payload);
+  if (limitProblems.length > 0) {
+    throw new DockerServiceError(limitProblems[0].message, limitProblems[0].code, 400);
+  }
   const name = validateContainerTarget(payload.name || `anxhub-${Date.now()}`);
   const image = validateImage(payload.image);
   const args = ["create", "--name", name, "--restart", normalizeRestartPolicy(payload.restartPolicy)];
@@ -1098,6 +1118,9 @@ async function runCleanup(payload = {}) {
     safe: ["system", "prune", "-f"],
   };
   if (!commands[kind]) throw new DockerServiceError("Invalid Docker cleanup action.", "INVALID_DOCKER_CLEANUP", 400);
+  // V2-C volume protection: persistent-data cleanup requires an explicit
+  // confirmation flag from the caller, in addition to the renderer dialog.
+  assertCleanupSelection(kind, payload.confirmVolumeDataRemoval);
   const result = await runDockerCommand(commands[kind], { timeout: 10 * 60 * 1000, maxBuffer: 1024 * 1024 * 4 });
   return { kind, output: redactDockerText(result.stdout) };
 }
@@ -1112,6 +1135,67 @@ async function execContainer(container, payload = {}) {
   }
   const result = await runDockerCommand(["exec", target, shell, "-lc", command], { timeout: LOG_TIMEOUT_MS, maxBuffer: 1024 * 1024 * 2 });
   return { container: target, shell, output: redactDockerText(result.stdout), errorOutput: redactDockerText(result.stderr) };
+}
+
+// V2-C create preflight (roadmap: preflight ports, capacity, mounts, limits).
+// Pure checks are exact; engine-dependent checks (port conflicts against
+// currently published host ports) are best-effort and reported as
+// engineUnavailable when the engine is not reachable. Never throws for
+// findings — the caller decides whether to proceed.
+async function preflightContainerCreate(payload = {}) {
+  const findings = [];
+  const policy = policeContainerRequest(payload);
+  for (const denial of policy.denials) {
+    findings.push({ severity: "error", code: "POLICY_DENIED", field: denial.key, message: `${denial.label} is denied by Docker policy unless explicitly granted.` });
+  }
+  for (const flag of policy.flags) {
+    if (!policy.denials.some((denial) => denial.key === flag.key)) {
+      findings.push({ severity: "warning", code: "POLICY_GRANTED", field: flag.key, message: `${flag.label} is allowed by an explicit grant.` });
+    }
+  }
+  for (const problem of validateResourceLimits(payload)) {
+    findings.push({ severity: "error", code: problem.code, field: problem.field, message: problem.message });
+  }
+  try {
+    validateImage(payload.image ?? "");
+  } catch (error) {
+    findings.push({ severity: "error", code: "INVALID_IMAGE", field: "image", message: error?.message || "A container image is required." });
+  }
+  let requestedName = null;
+  try {
+    requestedName = validateContainerTarget(payload.name ?? "");
+  } catch {
+    findings.push({ severity: "error", code: "INVALID_NAME", field: "name", message: "A valid container name is required." });
+  }
+  let engineAvailable = false;
+  try {
+    await listStatsRaw(null, { timeoutMs: SNAPSHOT_OPTIONAL_TIMEOUT_MS });
+    engineAvailable = true;
+    // Published host ports come from live containers, not stats output.
+    // rawPorts entries carry PublicPort (host side); normalized `ports` mixes
+    // exposed container ports in, which would fabricate conflicts.
+    const containers = await listContainersRaw({ timeoutMs: SNAPSHOT_OPTIONAL_TIMEOUT_MS });
+    const publishedHostPorts = [];
+    for (const container of containers) {
+      const rawPorts = Array.isArray(container.rawPorts) ? container.rawPorts : [];
+      for (const binding of rawPorts) {
+        if (typeof binding === "object" && binding !== null && binding.PublicPort != null) {
+          publishedHostPorts.push({ hostPort: binding.PublicPort });
+        }
+      }
+    }
+    for (const port of detectHostPortConflicts(normalizeHostPorts(payload), publishedHostPorts)) {
+      findings.push({ severity: "warning", code: "HOST_PORT_IN_USE", field: "ports", message: `Host port ${port} is already published by another container. The create may fail with a port conflict.` });
+    }
+  } catch {
+    // Engine unreachable: pure findings still stand.
+  }
+  return {
+    engineAvailable,
+    name: requestedName,
+    findings,
+    policy: { allowed: policy.allowed, deniedKeys: policy.denials.map((flag) => flag.key) },
+  };
 }
 
 module.exports = {
@@ -1150,6 +1234,7 @@ module.exports = {
   parseDockerVersion,
   parseJsonLines,
   pauseContainer,
+  preflightContainerCreate,
   pullImage,
   pruneImages,
   pruneNetworks,
