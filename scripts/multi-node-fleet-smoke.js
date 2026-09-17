@@ -406,16 +406,7 @@ async function main() {
     assert.notStrictEqual(rotatedCredentialB, credentialB, "rejoining must rotate node B's credential.");
     const healthBRejoined = await nodeService.checkNodeHealth(nodeB.id);
     assert.strictEqual(healthBRejoined.state, "online", "node B health must recover after rejoining.");
-    console.error("DEBUG raw nodes.json:", fs.readFileSync(nodeService.getNodesPath(), "utf8"));
-    try {
-      const rejoinedList = await serviceRouter.listInstances({ nodeId: nodeB.id });
-      console.error("DEBUG listInstances ok:", JSON.stringify(rejoinedList).slice(0, 200));
-    } catch (debugError) {
-      console.error("DEBUG listInstances error:", debugError.code, debugError.message);
-      console.error("DEBUG nodeB.id:", nodeB.id, "raw file has nodeB:", JSON.stringify(readNodesJson().nodes.map((n) => n.id)));
-      console.error("DEBUG removedLocalAgents:", JSON.stringify(readNodesJson().removedLocalAgents));
-      console.error("DEBUG getNodeAgentConfig:", JSON.stringify(nodeService.getNodeAgentConfig(nodeB.id)));
-    }
+    const rejoinedList = await serviceRouter.listInstances({ nodeId: nodeB.id });
     assert(rejoinedList.instances.some((instance) => instance.id === INSTANCE_B_ID), "node B must serve its own instances after rejoining.");
     const staleTokenAfterRejoin = await agentJson(agentB.url, "/api/v1/instances", { token: credentialB });
     assert.strictEqual(staleTokenAfterRejoin.status, 401, "the pre-rejoin credential must be rejected after pairing rotated it.");

@@ -136,7 +136,8 @@ function createFakeAgent({ token, deviceId, healthDelayMs = 0 }) {
         ],
       });
     }
-    if (request.url === "/api/v1/jobs" && request.method === "GET") {
+    const requestPath = new URL(request.url, "http://localhost").pathname;
+    if (requestPath === "/api/v1/jobs" && request.method === "GET") {
       state.jobsRequests += 1;
       if (!authorized) return respond(401, { error: { code: "UNAUTHORIZED" } });
       return respond(200, {
@@ -200,10 +201,10 @@ async function main() {
 
     // Register the offline node while its endpoint still answers, then close
     // the server so the node becomes genuinely unreachable.
-    const offlineProbe = http.createServer(() => {});
-    const portB = await listen(offlineProbe);
+    const agentB = createFakeAgent({ token: "b-token", deviceId: "fleet-node-b" });
+    const portB = await listen(agentB.server);
     const nodeB = (await nodeService.saveNode({ displayName: "Fleet B", agentUrl: `http://127.0.0.1:${portB}`, agentToken: "b-token", group: "Lab" })).node;
-    await close(offlineProbe);
+    await close(agentB.server);
 
     const nodeC = (await nodeService.saveNode({ displayName: "Fleet C", agentUrl: `http://127.0.0.1:${portC}`, agentToken: "c-token", group: "Rack 4" })).node;
     const disconnectC = nodeService.disconnectNode(nodeC.id);
@@ -426,5 +427,7 @@ async function main() {
 
 main().catch((error) => {
   console.error("fleet-aggregation-smoke FAILED:", error);
-  process.exitCode = 1;
+  // Fail loudly and exit immediately: pending Agent keep-alive sockets or log
+  // throttles must never leave this smoke hanging in a CI/background runner.
+  process.exit(1);
 });

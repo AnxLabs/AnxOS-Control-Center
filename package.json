@@ -126,6 +126,8 @@
     "backups:interrupted-recovery:smoke": "node scripts/backup-interrupted-artifact-recovery-smoke.js",
     "backups:integrity:smoke": "node scripts/backup-integrity-smoke.js",
     "node:lifecycle:smoke": "node scripts/node-lifecycle-smoke.js",
+    "multi-node:fleet:smoke": "node scripts/multi-node-fleet-smoke.js",
+    "fleet:aggregation:smoke": "node scripts/fleet-aggregation-smoke.js",
     "backups:consistency:smoke": "node scripts/backup-consistency-smoke.js",
     "ipc:error-contract:smoke": "node scripts/ipc-error-contract-smoke.js",
     "nodes:ipc-error-contract:smoke": "node scripts/nodes-ipc-error-contract-smoke.js",

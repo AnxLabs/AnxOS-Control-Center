@@ -200,7 +200,21 @@ function isRemovedLocalAgentNode(state = {}, node = {}) {
 
 function clearLocalAgentRemovalMarkersForNode(state = {}, node = {}) {
   const marker = getLocalAgentRemovalMarker(node);
-  if (!marker) return normalizeRemovedLocalAgents(state.removedLocalAgents);
+  if (!marker) {
+    // An explicit re-pair/re-register of a device whose identity matches a
+    // stale intentional-removal marker must still clear that marker. The
+    // freshly built node is not yet classified as a local agent (the health
+    // path derives that classification later), so without this identity-based
+    // clear the stale marker would silently remove the re-paired node from the
+    // registry on the next read (multi-node-fleet-smoke.js rejoin drill).
+    const identityProbe = {
+      id: node?.id,
+      agentIdentity: node?.agentIdentity,
+      deviceId: node?.deviceId,
+      agentUrl: node?.agentUrl || node?.baseUrl || node?.url,
+    };
+    return normalizeRemovedLocalAgents(state.removedLocalAgents).filter((entry) => !localAgentMatchesRemovalMarker(identityProbe, entry));
+  }
   return normalizeRemovedLocalAgents(state.removedLocalAgents).filter((entry) => !localAgentMatchesRemovalMarker(node, entry) && !localAgentMatchesRemovalMarker(marker, entry));
 }
 
