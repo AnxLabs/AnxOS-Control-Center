@@ -2028,6 +2028,48 @@
                   </form>
                 </div>
 
+                <div class="instance-tab-panel" data-instance-panel="players">
+                  <div class="docker-empty-state" data-minecraft-players-unsupported hidden>
+                    <strong>Player information is not supported for this game</strong>
+                    <span>Player rosters are available for Minecraft servers only.</span>
+                  </div>
+                  <div class="instance-minecraft-players" data-instance-minecraft-players hidden>
+                    <div class="panel-heading">
+                      <div>
+                        <h3>Player Information</h3>
+                        <span>Read-only view of the server's player files.</span>
+                      </div>
+                      <span class="status-pill status-pill--planned">Read only</span>
+                    </div>
+                    <div class="instance-minecraft-players-grid">
+                      <section class="instance-minecraft-card instance-minecraft-players-card" data-minecraft-players-card="online">
+                        <h4>Online / Max</h4>
+                        <dl class="docker-details-list">
+                          <div><dt>Online / Max</dt><dd data-minecraft-players-field="onlineMax">—</dd></div>
+                          <div><dt>Source</dt><dd>Live status report</dd></div>
+                        </dl>
+                      </section>
+                      <section class="instance-minecraft-card instance-minecraft-players-card" data-minecraft-players-card="whitelist">
+                        <h4>Whitelist <span class="instance-minecraft-players-path">whitelist.json</span></h4>
+                        <div class="instance-minecraft-players-body" data-minecraft-players-body="whitelist"><span class="instance-minecraft-players-state">Not loaded yet.</span></div>
+                      </section>
+                      <section class="instance-minecraft-card instance-minecraft-players-card" data-minecraft-players-card="ops">
+                        <h4>Operators <span class="instance-minecraft-players-path">ops.json</span></h4>
+                        <div class="instance-minecraft-players-body" data-minecraft-players-body="ops"><span class="instance-minecraft-players-state">Not loaded yet.</span></div>
+                      </section>
+                      <section class="instance-minecraft-card instance-minecraft-players-card" data-minecraft-players-card="banned-players">
+                        <h4>Banned Players <span class="instance-minecraft-players-path">banned-players.json</span></h4>
+                        <div class="instance-minecraft-players-body" data-minecraft-players-body="banned-players"><span class="instance-minecraft-players-state">Not loaded yet.</span></div>
+                      </section>
+                      <section class="instance-minecraft-card instance-minecraft-players-card" data-minecraft-players-card="banned-ips">
+                        <h4>Banned IPs <span class="instance-minecraft-players-path">banned-ips.json</span></h4>
+                        <div class="instance-minecraft-players-body" data-minecraft-players-body="banned-ips"><span class="instance-minecraft-players-state">Not loaded yet.</span></div>
+                      </section>
+                    </div>
+                    <p class="instance-minecraft-players-note">View only for now — whitelist and operator edits are not available yet.</p>
+                  </div>
+                </div>
+
                 <div class="instance-tab-panel" data-instance-panel="files">
                   <div class="instance-file-shortcuts" data-instance-file-shortcuts hidden></div>
                   <div class="instance-files-toolbar">
@@ -2214,6 +2256,7 @@
               <div class="instance-tabs" role="tablist" aria-label="Instance workspace tabs">
                 <button class="instance-tab is-active" type="button" data-instance-tab="overview">Overview</button>
                 <button class="instance-tab" type="button" data-instance-tab="console">Console</button>
+                <button class="instance-tab" type="button" data-instance-tab="players">Players</button>
                 <button class="instance-tab" type="button" data-instance-tab="files">Files</button>
                 <button class="instance-tab" type="button" data-instance-tab="backups">Backups</button>
                 <button class="instance-tab" type="button" data-instance-tab="settings">Settings</button>
@@ -4879,6 +4922,7 @@
     <script src="src/shared/resourceOperationLifecycle.js"></script>
     <script src="src/shared/instanceMetricsLifecycle.js"></script>
     <script src="src/shared/instanceHealthSummary.js"></script>
+    <script src="src/shared/instances/minecraftPlayerFiles.js"></script>
     <script src="node_modules/@xterm/xterm/lib/xterm.js"></script>
     <script src="app.js"></script>
   </body>

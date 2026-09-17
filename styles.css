@@ -6980,6 +6980,81 @@ body.is-resizing-files * {
   padding: 7px 0;
 }
 
+/* V2-E players tab: read-only Minecraft player roster cards. */
+.instance-minecraft-players {
+  display: grid;
+  gap: 12px;
+}
+
+.instance-minecraft-players[hidden] {
+  display: none;
+}
+
+.instance-minecraft-players-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.instance-minecraft-players-card h4 {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.instance-minecraft-players-path {
+  color: rgba(224, 214, 239, 0.45);
+  font-size: 0.68rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.instance-minecraft-players-body {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.instance-minecraft-players-count {
+  margin: 0;
+  color: rgba(224, 214, 239, 0.62);
+  font-size: 0.8rem;
+}
+
+.instance-minecraft-players-list {
+  margin: 0;
+  padding: 0 0 0 16px;
+  color: rgba(233, 226, 245, 0.85);
+  font-size: 0.82rem;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.instance-minecraft-players-state {
+  color: rgba(224, 214, 239, 0.55);
+  font-size: 0.8rem;
+}
+
+.instance-minecraft-players-note {
+  margin: 0;
+  color: rgba(224, 214, 239, 0.5);
+  font-size: 0.75rem;
+}
+
+@media (max-width: 1280px) {
+  .instance-minecraft-players-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .instance-minecraft-players-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .page[data-page="instances"] [data-instance-panel="console"].is-active {
   height: clamp(340px, 46vh, 560px);
   min-height: 0;

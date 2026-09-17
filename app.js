@@ -174,6 +174,11 @@ const gameConfigResetDefaultButton = document.querySelector("[data-game-config-r
 const gameConfigSaveRestartButton = document.querySelector("[data-game-config-save-restart]");
 const instanceMinecraftSummary = document.querySelector("[data-instance-minecraft-summary]");
 const instanceMinecraftSummaryFields = document.querySelectorAll("[data-minecraft-summary]");
+// V2-E players tab: read-only Minecraft player rosters (whitelist/ops/bans).
+const instanceMinecraftPlayers = document.querySelector("[data-instance-minecraft-players]");
+const instanceMinecraftPlayersUnsupported = document.querySelector("[data-minecraft-players-unsupported]");
+const instanceMinecraftPlayersOnlineMax = document.querySelector('[data-minecraft-players-field="onlineMax"]');
+const instanceMinecraftPlayersBodies = document.querySelectorAll("[data-minecraft-players-body]");
 const instanceAppProfile = document.querySelector("[data-instance-app-profile]");
 const instanceAppIcon = document.querySelector("[data-instance-app-icon]");
 const instanceInspectorIcons = document.querySelectorAll("[data-instance-inspector-icon]");
@@ -11593,6 +11598,159 @@ function renderMinecraftWorkspaceSummary(instance, metrics) {
   setMinecraftSummaryField("uptime", formatDuration(metrics?.uptimeSeconds));
 }
 
+/* V2-E players tab (begin) — read-only Minecraft player rosters.
+ * The tab shows the live online/max status plus whitelist.json, ops.json,
+ * banned-players.json, and banned-ips.json read through the existing
+ * instance file-read chain. Files render honest empty/missing/corrupt
+ * states; nothing here mutates server files. */
+const MINECRAFT_PLAYER_FILE_SPECS = (typeof window !== "undefined"
+  && window.AnxMinecraftPlayerFiles?.MINECRAFT_PLAYER_FILE_SPECS) || [];
+
+function isMinecraftPlayersSupportedInstance(instance = null) {
+  return getInstanceAccessGameKind(instance) === "minecraft";
+}
+
+function getMinecraftPlayerBody(key) {
+  return Array.from(instanceMinecraftPlayersBodies)
+    .find((body) => body.dataset.minecraftPlayersBody === key) || null;
+}
+
+function formatMinecraftPlayerEntryLine(entry) {
+  const parts = [];
+  if (entry.name) {
+    parts.push(entry.name);
+  }
+  if (entry.ip) {
+    parts.push(entry.ip);
+  }
+  if (Number.isFinite(entry.level)) {
+    parts.push(`level ${entry.level}`);
+  }
+  if (entry.bypassesPlayerLimit === true) {
+    parts.push("bypasses player limit");
+  }
+  if (entry.reason) {
+    parts.push(`reason: ${entry.reason}`);
+  }
+  if (entry.expires) {
+    parts.push(`expires: ${entry.expires}`);
+  }
+  return parts.join(" · ") || "Unknown entry";
+}
+
+function renderMinecraftPlayerCardBody(key, fileView) {
+  const body = getMinecraftPlayerBody(key);
+  if (!body) {
+    return;
+  }
+  body.replaceChildren();
+  const countLabel = document.createElement("p");
+  countLabel.className = "instance-minecraft-players-count";
+  countLabel.textContent = fileView.status === "ok"
+    ? `${fileView.count} ${fileView.count === 1 ? "entry" : "entries"}`
+    : fileView.message;
+  body.append(countLabel);
+  if (fileView.status !== "ok") {
+    return;
+  }
+  const list = document.createElement("ul");
+  list.className = "instance-minecraft-players-list";
+  fileView.entries.forEach((entry) => {
+    const item = document.createElement("li");
+    item.textContent = formatMinecraftPlayerEntryLine(entry);
+    list.append(item);
+  });
+  body.append(list);
+}
+
+function renderMinecraftPlayersUnsupported(isSupported) {
+  if (instanceMinecraftPlayers) {
+    instanceMinecraftPlayers.hidden = !isSupported;
+  }
+  if (instanceMinecraftPlayersUnsupported) {
+    instanceMinecraftPlayersUnsupported.hidden = isSupported;
+  }
+}
+
+// Rosters belong to one instance; when the selection changes, clear the cards
+// instead of showing the previous instance's players until the refetch lands.
+let minecraftPlayersRenderedInstanceId = null;
+
+function resetMinecraftPlayerCardBodies() {
+  instanceMinecraftPlayersBodies.forEach((body) => {
+    body.replaceChildren();
+    const pending = document.createElement("span");
+    pending.className = "instance-minecraft-players-state";
+    pending.textContent = "Not loaded yet.";
+    body.append(pending);
+  });
+}
+
+function renderMinecraftPlayersPanel(instance) {
+  const isSupported = isMinecraftPlayersSupportedInstance(instance);
+  renderMinecraftPlayersUnsupported(isSupported);
+  if (!isSupported) {
+    return;
+  }
+  if (instanceMinecraftPlayersOnlineMax) {
+    instanceMinecraftPlayersOnlineMax.textContent = getMinecraftSummaryData(instance).players || "—";
+  }
+  if (instance && minecraftPlayersRenderedInstanceId !== instance.id) {
+    minecraftPlayersRenderedInstanceId = instance.id;
+    resetMinecraftPlayerCardBodies();
+  }
+  if (activeInstanceTab === "players") {
+    refreshMinecraftPlayerFiles();
+  }
+}
+
+async function refreshMinecraftPlayerFiles() {
+  const selectedInstance = findInstance();
+  const desktopApiState = getDesktopApiState();
+  if (!selectedInstance || !desktopApiState.hasInstances || !instanceMinecraftPlayers) {
+    return;
+  }
+  if (!isMinecraftPlayersSupportedInstance(selectedInstance)) {
+    return;
+  }
+
+  const requestContext = getNodeRequestContext("minecraft-players");
+  const api = desktopApiState.api.instances;
+  const outcomes = await Promise.all(MINECRAFT_PLAYER_FILE_SPECS.map(async (spec) => {
+    try {
+      const file = await api.readFile(selectedInstance.id, spec.path, getNodeScopedPayload(requestContext));
+      if (file && file.supported === false) {
+        return { kind: "too_large" };
+      }
+      return { kind: "content", content: file?.content ?? "" };
+    } catch (error) {
+      if (isInstanceNotFoundError(error)) {
+        return { kind: "instance_missing", error };
+      }
+      if (getAgentErrorCode(error) === "PATH_NOT_FOUND") {
+        return { kind: "missing" };
+      }
+      return { kind: "read_error" };
+    }
+  }));
+  if (!isNodeRequestCurrent(requestContext) || selectedInstance.id !== selectedInstanceId) {
+    return;
+  }
+
+  const instanceMissing = outcomes.find((outcome) => outcome.kind === "instance_missing");
+  if (instanceMissing) {
+    await handleMissingSelectedInstance(instanceMissing.error, selectedInstance.id);
+    return;
+  }
+
+  MINECRAFT_PLAYER_FILE_SPECS.forEach((spec, index) => {
+    const fileView = window.AnxMinecraftPlayerFiles.summarizeMinecraftPlayerFile(spec.key, outcomes[index]);
+    renderMinecraftPlayerCardBody(spec.key, fileView);
+  });
+}
+
+/* V2-E players tab (end). */
+
 function readStoredInstanceTab() {
   try {
     const value = window.localStorage.getItem(INSTANCE_TAB_STORAGE_KEY);
@@ -11626,6 +11784,9 @@ function setActiveInstanceTab(tabName) {
   } else if (activeInstanceTab === "settings") {
     stopInstanceConsolePolling();
     loadGameServerConfig();
+  } else if (activeInstanceTab === "players") {
+    stopInstanceConsolePolling();
+    refreshMinecraftPlayerFiles();
   } else if (activeInstanceTab === "backups") {
     stopInstanceConsolePolling();
     refreshRestartSchedules({ silent: true });
@@ -13903,6 +14064,7 @@ function setInstanceDetails(instance = null) {
     setInstanceDetail("workingDirectory", "Unavailable");
     renderInstanceWorkspaceProfile(null);
     renderFiveMSetupCard(null);
+    renderMinecraftPlayersPanel(null);
     populateInstanceConfigForm(null);
     renderInstanceNetwork(null);
     renderInstanceRestartSchedules(null);
@@ -13977,6 +14139,7 @@ function setInstanceDetails(instance = null) {
   renderInstanceWorkspaceProfile(instance);
   renderFiveMSetupCard(instance);
   renderMinecraftWorkspaceSummary(instance, metrics);
+  renderMinecraftPlayersPanel(instance);
   populateInstanceConfigForm(instance);
   renderInstanceNetwork(instance);
   renderInstanceRestartSchedules(instance);

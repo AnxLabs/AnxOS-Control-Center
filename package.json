@@ -66,6 +66,7 @@
     "alpha:loop:backup:smoke": "node scripts/alpha-loop-backup-smoke.js",
     "backups:world-scopes:smoke": "node scripts/backup-world-scopes-smoke.js",
     "restart:schedule:smoke": "node scripts/restart-schedule-smoke.js",
+    "minecraft:players:smoke": "node scripts/minecraft-players-smoke.js",
     "account:smoke": "node scripts/account-system-smoke.js",
     "account:ipc-error-contract:smoke": "node scripts/account-ipc-error-contract-smoke.js",
     "account:browser-auth:smoke": "node scripts/account-browser-auth-smoke.js",
