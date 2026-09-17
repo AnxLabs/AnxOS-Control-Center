@@ -18191,6 +18191,17 @@ function formatBackupScheduleSummary() {
   return enabledCount === 1 ? "1 schedule configured" : `${enabledCount} schedules configured`;
 }
 
+// V2-F backup health: the agent payload carries the policy verdict per backup;
+// render it only when present so older agents keep their exact summary text.
+function formatBackupPolicyVerdict(backup) {
+  if (!backup || typeof backup !== "object" || !("retentionPolicyMet" in backup)) {
+    return "";
+  }
+  return backup.retentionPolicyMet
+    ? " · retention policy met"
+    : ` · retention policy: ${backup.retentionPolicyReason || "not met"}`;
+}
+
 function renderBackupSummary() {
   const connected = getBackupsConnected();
   const mostRecent = getMostRecentBackup();
@@ -18212,7 +18223,11 @@ function renderBackupSchedulePanel() {
   setBackupScheduleField("nextRun", schedule?.nextRunAt ? formatDateTime(schedule.nextRunAt) : noScheduleText);
   setBackupScheduleField(
     "retention",
-    schedule ? `Keep last ${schedule.keepLast || "default"} · ${schedule.maxAgeDays || "default"} day max age` : noScheduleText,
+    schedule
+      ? `Keep last ${schedule.keepLast || "default"} · ${schedule.maxAgeDays || "default"} day max age`
+        + `${schedule.lastRunAt ? ` · last run ${formatDateTime(schedule.lastRunAt)}` : ""}`
+        + `${schedule.lastError ? ` · last error: ${schedule.lastError}` : ""}`
+      : noScheduleText,
   );
   setBackupScheduleField("targetPath", connected ? getBackupRootLabel() : "Unavailable");
 }
@@ -18236,7 +18251,7 @@ function renderBackupRestorePanel() {
   setBackupRestoreField("title", selected.name || selected.id);
   setBackupRestoreField(
     "message",
-    `${selected.instanceId || "Unknown instance"} · ${selected.type || "full"} · ${formatBytes(Number(selected.size) || 0)} · ${formatDateTime(selected.createdAt)}`,
+    `${selected.instanceId || "Unknown instance"} · ${selected.type || "full"} · ${formatBytes(Number(selected.size) || 0)} · ${formatDateTime(selected.createdAt)}${formatBackupPolicyVerdict(selected)}`,
   );
 }
 

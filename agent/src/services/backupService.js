@@ -30,6 +30,10 @@ function createBackupError(code, statusCode = 400, details = {}) {
   return Object.assign(new Error(code), { code, statusCode, details });
 }
 
+function sha256Hex(buffer) {
+  return crypto.createHash("sha256").update(buffer).digest("hex");
+}
+
 function acquireBackupLock(instanceId, kind, options = {}) {
   try {
     return longOperations.createOperation({
@@ -248,9 +252,10 @@ async function writeTarGzArchive(archivePathValue, instancePath, sourcePaths) {
   }
 
   chunks.push(Buffer.alloc(TAR_BLOCK_SIZE * 2, 0));
+  const archiveBuffer = zlib.gzipSync(Buffer.concat(chunks));
   const tempPath = `${archivePathValue}.${process.pid}.${Date.now()}.tmp`;
   try {
-    await fs.writeFile(tempPath, zlib.gzipSync(Buffer.concat(chunks)), { mode: 0o600 });
+    await fs.writeFile(tempPath, archiveBuffer, { mode: 0o600 });
     await fs.rename(tempPath, archivePathValue);
   } catch (error) {
     await fs.rm(tempPath, { force: true }).catch(() => {});
@@ -259,6 +264,9 @@ async function writeTarGzArchive(archivePathValue, instancePath, sourcePaths) {
   return {
     entryCount: entries.length,
     uncompressedSize,
+    // Digest of exactly the bytes renamed into place so the create-time
+    // integrity hash in metadata can never drift from the stored archive.
+    sha256: sha256Hex(archiveBuffer),
   };
 }
 
@@ -356,12 +364,21 @@ function parseTarEntries(archiveBuffer, options = {}) {
   };
 }
 
-async function validateArchiveFile(archivePathValue) {
+// Header checks alone cannot detect corruption inside file payloads that keeps
+// the tar structure intact, so callers with a create-time digest get a whole
+// archive hash verification first. Legacy metadata without a digest keeps the
+// header-only validation: the field stays absent rather than being fabricated.
+async function validateArchiveFile(archivePathValue, expectedSha256 = null) {
   const archiveBuffer = await fs.readFile(archivePathValue);
+  const actualSha256 = sha256Hex(archiveBuffer);
+  if (expectedSha256 && actualSha256 !== expectedSha256) {
+    throw createBackupError("BACKUP_ARCHIVE_HASH_MISMATCH", 400, { expectedSha256, actualSha256 });
+  }
   const validation = parseTarEntries(archiveBuffer);
   return {
     entryCount: validation.entries.length,
     uncompressedSize: validation.totalSize,
+    sha256: actualSha256,
   };
 }
 
@@ -647,6 +664,55 @@ async function listBackups(options = {}) {
     : backups;
   filtered.sort((left, right) => String(right.createdAt || "").localeCompare(String(left.createdAt || "")));
 
+  // Additive health reporting: backup age versus the standing retention policy
+  // and the owning schedule's last run outcome. A broken schedule store must
+  // not take the backup list down, so its error code lands in diagnostics.
+  let schedules = [];
+  let scheduleStoreErrorCode = null;
+  try {
+    schedules = await readSchedules();
+  } catch (error) {
+    scheduleStoreErrorCode = error?.code || "BACKUP_SCHEDULE_STORE_UNAVAILABLE";
+  }
+  const scheduleByInstance = new Map(schedules.map((schedule) => [schedule.instanceId, schedule]));
+  const newestBackupIds = new Map();
+  const instanceIndexes = new Map();
+  const nowMs = Date.now();
+  for (const backup of filtered) {
+    const instanceIndex = instanceIndexes.get(backup.instanceId) ?? 0;
+    instanceIndexes.set(backup.instanceId, instanceIndex + 1);
+    if (!newestBackupIds.has(backup.instanceId)) {
+      newestBackupIds.set(backup.instanceId, backup.id);
+    }
+    const schedule = scheduleByInstance.get(backup.instanceId) || null;
+    const keepLast = Number.parseInt(schedule?.keepLast ?? process.env.AGENT_BACKUP_KEEP_LAST ?? DEFAULT_RETENTION_COUNT, 10);
+    const maxAgeDays = Number.parseInt(schedule?.maxAgeDays ?? process.env.AGENT_BACKUP_MAX_AGE_DAYS ?? DEFAULT_RETENTION_DAYS, 10);
+    const createdAtMs = new Date(backup.createdAt).getTime();
+    const ageMs = Number.isFinite(createdAtMs) ? Math.max(0, nowMs - createdAtMs) : null;
+    const tooOld = ageMs !== null && createdAtMs < retentionCutoffMs(maxAgeDays);
+    const beyondKeepLast = Number.isFinite(keepLast) && keepLast > 0 && instanceIndex >= keepLast;
+    const reasons = [];
+    if (tooOld) reasons.push("backup_age_exceeds_max_age_days");
+    if (beyondKeepLast) reasons.push("beyond_keep_last_count");
+
+    backup.backupAgeHours = ageMs === null ? null : ageMs / (60 * 60 * 1000);
+    backup.backupAgeDays = ageMs === null ? null : ageMs / (24 * 60 * 60 * 1000);
+    backup.protectedNewest = newestBackupIds.get(backup.instanceId) === backup.id;
+    backup.retentionPolicy = { keepLast, maxAgeDays, source: schedule ? "schedule" : "default" };
+    backup.retentionPolicyMet = reasons.length === 0;
+    backup.retentionPolicyReason = reasons.length > 0 ? reasons[0] : null;
+    backup.scheduleHealth = schedule
+      ? {
+          enabled: schedule.enabled !== false,
+          type: schedule.type || "full",
+          intervalHours: schedule.intervalHours ?? null,
+          lastRunAt: schedule.lastRunAt || null,
+          lastError: schedule.lastError || null,
+          nextRunAt: schedule.nextRunAt || null,
+        }
+      : null;
+  }
+
   return {
     root: getBackupRoot(),
     roots: [getBackupRoot()],
@@ -658,6 +724,7 @@ async function listBackups(options = {}) {
     },
     diagnostics: {
       metadataErrors,
+      scheduleStoreErrorCode,
       roots: [{
         path: getBackupRoot(),
         resolvedPath: getBackupRoot(),
@@ -668,19 +735,41 @@ async function listBackups(options = {}) {
   };
 }
 
+// Shared with the listBackups policy verdict so reported health always mirrors
+// what a prune with the same policy would actually delete.
+function retentionCutoffMs(maxAgeDays) {
+  return Date.now() - Math.max(maxAgeDays, 1) * 24 * 60 * 60 * 1000;
+}
+
 async function pruneRetention(instanceId, options = {}) {
   const keepLast = Number.parseInt(options.keepLast ?? process.env.AGENT_BACKUP_KEEP_LAST ?? DEFAULT_RETENTION_COUNT, 10);
   const maxAgeDays = Number.parseInt(options.maxAgeDays ?? process.env.AGENT_BACKUP_MAX_AGE_DAYS ?? DEFAULT_RETENTION_DAYS, 10);
   const backups = (await listBackups({ instanceId })).backups;
-  const cutoff = Date.now() - Math.max(maxAgeDays, 1) * 24 * 60 * 60 * 1000;
+  const cutoff = retentionCutoffMs(maxAgeDays);
+  const pruned = [];
+  const skipped = [];
 
   for (const [index, backup] of backups.entries()) {
     const tooMany = Number.isFinite(keepLast) && keepLast > 0 && index >= keepLast;
     const tooOld = new Date(backup.createdAt).getTime() < cutoff;
-    if (tooMany || tooOld) {
-      await deleteBackup(backup.id).catch(() => {});
+    if (!tooMany && !tooOld) {
+      continue;
     }
+    if (index === 0) {
+      // Never prune the newest recovery point of an instance: even when the age
+      // or count policy says it should go, deleting the last recovery point
+      // would leave the instance with nothing to restore.
+      skipped.push({
+        backupId: backup.id,
+        protectedAs: "newest",
+        reason: tooOld ? "backup_age_exceeds_max_age_days" : "beyond_keep_last_count",
+      });
+      continue;
+    }
+    await deleteBackup(backup.id).catch(() => {});
+    pruned.push(backup.id);
   }
+  return { pruned, skipped };
 }
 
 async function performCreateBackup(payload = {}) {
@@ -712,6 +801,7 @@ async function performCreateBackup(payload = {}) {
     requiredDiskSpace: archiveDetails.uncompressedSize,
     entryCount: archiveDetails.entryCount,
     compression: BACKUP_FORMAT,
+    archiveSha256: archiveDetails.sha256,
     sourcePaths,
     archiveName: path.basename(archive),
     status: "complete",
@@ -722,8 +812,8 @@ async function performCreateBackup(payload = {}) {
     await fs.rm(archive, { force: true }).catch(() => {});
     throw error;
   }
-  await pruneRetention(instanceId, payload.retention || {});
-  return { backup: metadata };
+  const retention = await pruneRetention(instanceId, payload.retention || {});
+  return { backup: metadata, retention };
 }
 
 async function createBackup(payload = {}) {
@@ -802,7 +892,7 @@ async function rollbackRestoreFromSafetySnapshot(instancePath, safetyBackup) {
   if (!safetyBackup?.path) {
     throw createBackupError("RESTORE_SAFETY_SNAPSHOT_MISSING", 500);
   }
-  await validateArchiveFile(safetyBackup.path);
+  await validateArchiveFile(safetyBackup.path, safetyBackup.archiveSha256);
   if (safetyBackup.type === "world") {
     for (const sourcePath of Array.isArray(safetyBackup.sourcePaths) ? safetyBackup.sourcePaths : []) {
       const targetPath = path.resolve(instancePath, sourcePath);
@@ -845,7 +935,7 @@ async function restoreBackup(payload = {}) {
   let mutationStarted = false;
   try {
     instancePath = await getInstancePath(instanceId);
-    const validation = await validateArchiveFile(backup.path);
+    const validation = await validateArchiveFile(backup.path, backup.archiveSha256);
 
     await ensureInstanceStoppedForRestore(instanceId);
     const safetySourcePaths = await getSourcePaths(instancePath, backup.type);
@@ -957,6 +1047,7 @@ async function importBackup(payload = {}) {
     requiredDiskSpace: archiveDetails.uncompressedSize,
     entryCount: archiveDetails.entryCount,
     compression: BACKUP_FORMAT,
+    archiveSha256: archiveDetails.sha256,
     sourcePaths: ["."],
     archiveName: path.basename(archive),
     status: "imported",
@@ -1069,6 +1160,7 @@ module.exports = {
     ensureDiskSpace,
     padTarData,
     parseTarEntries,
+    pruneRetention,
     recoverBackupArtifacts,
     rollbackRestoreFromSafetySnapshot,
   },

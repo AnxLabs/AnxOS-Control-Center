@@ -123,6 +123,7 @@
     "backups:transfer-safety:smoke": "node scripts/backups-transfer-safety-smoke.js",
     "backups:archive-limits:smoke": "node scripts/backup-archive-limits-smoke.js",
     "backups:interrupted-recovery:smoke": "node scripts/backup-interrupted-artifact-recovery-smoke.js",
+    "backups:integrity:smoke": "node scripts/backup-integrity-smoke.js",
     "ipc:error-contract:smoke": "node scripts/ipc-error-contract-smoke.js",
     "nodes:ipc-error-contract:smoke": "node scripts/nodes-ipc-error-contract-smoke.js",
     "nodes:ipc-authorization:smoke": "node scripts/nodes-ipc-authorization-smoke.js",
