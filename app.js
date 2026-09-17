@@ -34082,7 +34082,10 @@ async function activateNodePickerOption(index) {
 }
 
 const NODE_GROUP_FILTER_ALL = "all";
-const NODE_GROUP_FILTER_UNGROUPED = "(ungrouped)";
+// Filter sentinel for ungrouped nodes. A leading NUL cannot be typed into
+// the group input (browsers reject NUL in text fields), so a real group can
+// never collide with the "No group" filter option.
+const NODE_GROUP_FILTER_UNGROUPED = "\0ungrouped";
 
 function getNodeGroupFilterValue() {
   return nodeGroupFilter?.value || NODE_GROUP_FILTER_ALL;
@@ -34570,6 +34573,9 @@ async function runFleetBatchActionFromUi(action) {
     await refreshFleetSummary();
   } catch (error) {
     showToast(normalizeIpcErrorMessage(error, "Fleet action failed."), "error");
+    // The serial was bumped before the attempt; a failed attempt must still
+    // refresh the summary so the Refresh control is not left stale-disabled.
+    await refreshFleetSummary().catch(() => {});
   } finally {
     fleetBatchInFlight = false;
     syncFleetControls();
@@ -34931,6 +34937,11 @@ async function reconnectNodeById(nodeId) {
 function getNodeDeleteToast(result) {
   const revocation = result?.revocation;
   if (revocation && revocation.revoked !== true) {
+    if (revocation.attempted !== true) {
+      // No revocation was even attempted (locked credentials, no agent URL,
+      // node not registered with an agent) — saying "failed" would be false.
+      return "Node removed from AnxOS. Remote revocation was not attempted (no usable agent connection).";
+    }
     return `Node removed from AnxOS, but remote revocation failed: ${revocation.reason || "unknown reason"}.`;
   }
   return "Node removed.";

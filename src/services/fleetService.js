@@ -1,13 +1,14 @@
 // V2-G Wave 2 fleet aggregation (docs/MASTER_ROADMAP.md bullets 3 and 6).
 //
-// Desktop-side read-only roll-up across every registered node plus controlled
-// cross-node batch actions. The fleet service never introduces new Agent
-// endpoints: per-node connection/health state comes from the registry the
-// desktop already polls (nodeService health checks), and per-node instance/job
-// counts reuse the Agent's existing read-only /api/v1/instances and /api/v1/jobs
-// queries with the node's own credential. Job records stay owned by the
-// executing node, so a node that cannot be reached reports its inventory as
-// unavailable instead of inventing totals.
+// Desktop-side observation roll-up across every registered node plus
+// controlled cross-node batch actions. The summary is NOT purely read-only:
+// its refresh phase runs checkNodeHealth, which writes recorded connection
+// state to the registry (bounded, deduplicated, and gated on
+// manualDisconnect). Per-node instance/job counts reuse the Agent's existing
+// read-only /api/v1/instances and /api/v1/jobs queries with the node's own
+// credential. Job records stay owned by the executing node, so a node that
+// cannot be reached reports its inventory as unavailable instead of inventing
+// totals.
 const agentClient = require("./agentClient");
 const {
   APPLICATION_HOST_NODE_ID,
