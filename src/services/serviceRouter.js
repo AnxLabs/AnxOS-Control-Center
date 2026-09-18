@@ -427,6 +427,16 @@ async function getAmpSnapshot(options = {}) {
   return isApplicationHostTarget(options) ? localAmpService.getAmpSnapshot() : getAgentAmpSnapshot(options);
 }
 
+// V2-H: read-only network inventory for the selected node's Agent host.
+async function getNetworkInventory(options = {}) {
+  try {
+    return await agentClient.getNetworkInventory(getOptionalNodeConfig(options));
+  } catch (error) {
+    if (shouldPreserveAgentError(error)) throw error;
+    throw new AgentUnavailableError();
+  }
+}
+
 async function getAgentFileListing(options = {}) {
   const config = getOptionalNodeConfig(options);
   try {
@@ -1092,6 +1102,7 @@ module.exports = {
   openInstanceFolder,
   getFiveMReadiness,
   getMinecraftProperties,
+  getNetworkInventory,
   getPlayitSnapshot,
   importBackup,
   installDependencies,

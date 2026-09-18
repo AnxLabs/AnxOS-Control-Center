@@ -206,7 +206,7 @@ const loadedIpcModuleFiles = new Set([
   "dependenciesIpc.js", "storageWindowIpc.js", "updatesIpc.js", "actionIpc.js",
   "systemIpc.js", "ampIpc.js", "backupsIpc.js", "playitIpc.js",
   "publicAccessIpc.js", "dockerIpc.js", "instancesIpc.js", "marketplaceIpc.js",
-  "maintenanceIpc.js", "nodesIpc.js", "workloadIpc.js", "ownerWorkspaceIpc.js",
+  "maintenanceIpc.js", "nodesIpc.js", "networkInventoryIpc.js", "workloadIpc.js", "ownerWorkspaceIpc.js",
   "filesIpc.js", "settingsIpc.js", "sshIpc.js",
 ]);
 // accountIpc.js delegates to accountAuthIpc.registerAccountAuthIpc (which IS
@@ -257,6 +257,7 @@ try {
   require("../src/ipc/marketplaceIpc").registerMarketplaceIpc();
   require("../src/ipc/maintenanceIpc").registerMaintenanceIpc();
   require("../src/ipc/nodesIpc").registerNodesIpc();
+  require("../src/ipc/networkInventoryIpc").registerNetworkInventoryIpc();
   require("../src/ipc/workloadIpc").registerWorkloadIpc();
   require("../src/ipc/ownerWorkspaceIpc").registerOwnerWorkspaceIpc();
   require("../src/ipc/filesIpc").registerFilesIpc();
@@ -382,6 +383,7 @@ const DESKTOP_PROBES = {
   "nodes-read": { channel: "nodes:list", payload: {} },
   "nodes-credential-read": { channel: "nodes:health", payload: { nodeId: "matrix-node-a" } },
   "nodes-write": { channel: "nodes:save", payload: { nodeId: "matrix-node", displayName: "Matrix Node" } },
+  "network-inventory": { channel: "networkInventory:get", payload: { nodeId: "matrix-node-a" } },
   "settings-read": { channel: "settings:getPreferences" },
   "settings-permissions-read": { channel: "settings:getPermissions", serviceRecorded: false },
   "settings-preferences": { channel: "settings:resetPreferences", payload: { category: "network" } },

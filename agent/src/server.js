@@ -29,6 +29,7 @@ const { handleFilesDownload, handleFilesIdentity, handleFilesList, handleFilesMu
 const { handleHealth } = require("./routes/health");
 const { handleInstances } = require("./routes/instances");
 const { handleJobs } = require("./routes/jobs");
+const { handleNetworkInventory } = require("./routes/network");
 const { handleUiBootstrap, handleUiBootstrapCode, handleUiSession, handleUiSessionError, parseSessionCookie } = require("./routes/ui");
 const { validateSessionToken } = require("./services/sessionService");
 const { handlePairing } = require("./routes/pairing");
@@ -179,6 +180,9 @@ function getRoutePermission(request, pathname) {
   const method = String(request.method || "GET").toUpperCase();
   if (pathname === "/api/v1/health") return null;
   if (pathname === "/api/v1/stats" || pathname === "/api/stats" || pathname === "/api/v1/system/summary") return "system:read";
+  // V2-H network inventory: read-only host discovery, same read tier as the
+  // system summary routes.
+  if (pathname === "/api/v1/network/inventory") return "system:read";
   if (pathname.startsWith("/api/v1/playit/") || pathname.startsWith("/api/v1/public-access/")) return method === "GET" ? "public-access:read" : "public-access:write";
   if (pathname.startsWith("/api/v1/amp/")) return "instance:read";
   if (pathname.startsWith("/api/v1/files/")) return method === "GET" ? "files:read" : "files:write";
@@ -325,6 +329,10 @@ async function routeRequest(request, url) {
       return handleStats();
     }
     return handleSystemSummary();
+  }
+
+  if (pathname === "/api/v1/network/inventory") {
+    return handleNetworkInventory(url);
   }
 
   if (pathname === "/api/v1/playit/snapshot") {

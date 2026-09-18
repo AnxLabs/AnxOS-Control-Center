@@ -454,6 +454,16 @@ const IPC_FAMILIES = [
     ],
   },
   {
+    // V2-H network inventory: node-scoped read-only host discovery
+    // (interfaces, ports, listeners, conflicts), same guard chain as the
+    // other node-credential reads.
+    id: "network-inventory",
+    tier: "nodes:read",
+    guard: "local-owner+permission",
+    allow: ["owner-unlocked", "operator-unlocked", "viewer-unlocked"],
+    channels: ["networkInventory:get"],
+  },
+  {
     id: "settings-read",
     tier: "settings:read",
     guard: "permission",
@@ -613,6 +623,12 @@ const REST_FAMILIES = [
     tier: "system:read",
     publicRoute: false,
     routes: [{ method: "GET", path: "/api/v1/stats" }, { method: "GET", path: "/api/v1/system/summary" }],
+  },
+  {
+    id: "rest-network-inventory",
+    tier: "system:read",
+    publicRoute: false,
+    routes: [{ method: "GET", path: "/api/v1/network/inventory" }],
   },
   { id: "rest-files-read", tier: "files:read", publicRoute: false, routes: [{ method: "GET", path: "/api/v1/files/identity" }] },
   {

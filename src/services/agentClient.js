@@ -1103,6 +1103,13 @@ async function getSystemStats(configOverride = null) {
   }
 }
 
+// V2-H: read-only host network inventory from the Agent.
+async function getNetworkInventory(configOverride = null) {
+  return requestJson("/api/v1/network/inventory", {
+    config: configOverride,
+  });
+}
+
 async function isHealthy(configOverride = null) {
   try {
     return isHealthyPayload(await getHealth(configOverride));
@@ -3476,6 +3483,7 @@ module.exports = {
   getGameServerConfig,
   instanceFileExists,
   getMinecraftProperties,
+  getNetworkInventory,
   getPlayitSnapshot,
   getPlayitStatus,
   getPublicAccessPlayitLogs,

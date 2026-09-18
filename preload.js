@@ -190,6 +190,9 @@ const desktopApi = {
   playit: {
     getSnapshot: (payload = {}) => ipcRenderer.invoke("playit:getSnapshot", payload),
   },
+  networkInventory: {
+    get: (payload = {}) => ipcRenderer.invoke("networkInventory:get", payload),
+  },
   publicAccess: {
     getSnapshot: (payload = {}) => ipcRenderer.invoke("publicAccess:getSnapshot", payload),
     listServices: (payload = {}) => ipcRenderer.invoke("publicAccess:listServices", payload),

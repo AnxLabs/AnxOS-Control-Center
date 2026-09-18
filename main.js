@@ -11,6 +11,7 @@ const { disposeFilesIpc, registerFilesIpc } = require("./src/ipc/filesIpc");
 const { registerInstancesIpc } = require("./src/ipc/instancesIpc");
 const { registerMarketplaceIpc } = require("./src/ipc/marketplaceIpc");
 const { registerMaintenanceIpc } = require("./src/ipc/maintenanceIpc");
+const { registerNetworkInventoryIpc } = require("./src/ipc/networkInventoryIpc");
 const { registerNodesIpc } = require("./src/ipc/nodesIpc");
 const { registerOwnerWorkspaceIpc } = require("./src/ipc/ownerWorkspaceIpc");
 const { registerPlayitIpc } = require("./src/ipc/playitIpc");
@@ -1044,6 +1045,7 @@ app.whenReady().then(async () => {
   registerMarketplaceIpc();
   registerMaintenanceIpc();
   registerNodesIpc();
+  registerNetworkInventoryIpc();
   registerWorkloadIpc();
   registerOwnerWorkspaceIpc();
   registerFilesIpc();
