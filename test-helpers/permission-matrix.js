@@ -639,6 +639,13 @@ const IPC_FAMILIES = [
 // Agent, so tier drift in either direction fails.
 // public: true = reachable before bearer auth by design.
 // ---------------------------------------------------------------------------
+// Security P1: the pairing handshake is pre-auth (so it stays a publicRoute)
+// but now authorizes internally for an already-enrolled node. These constants
+// are the contract the smoke cross-checks against the real pairing handler.
+const PAIRING_STATUS_PATH = "/api/v1/pairing/status";
+const PAIRING_INTERNAL_AUTHORIZATION = "pairing-existing-credential";
+const PAIRING_REQUIRES_EXISTING_CREDENTIAL = "PAIRING_REQUIRES_EXISTING_CREDENTIAL";
+
 const REST_FAMILIES = [
   { id: "rest-health", tier: null, publicRoute: true, routes: [{ method: "GET", path: "/api/v1/health" }] },
   {
@@ -705,11 +712,18 @@ const REST_FAMILIES = [
   },
   {
     id: "rest-pairing",
-    // Legacy pairing handshake: pre-auth by design and exempt from the
-    // enrollment binding gate (assertEnrollmentGate).
+    // Legacy pairing handshake: still reachable pre-auth (the route is
+    // dispatched before isAuthorized and the tier is null), but as of the
+    // Security P1 change it authorizes INTERNALLY for an already-enrolled node:
+    // a non-loopback caller must prove possession of a trusted credential or it
+    // is refused with PAIRING_REQUIRES_EXISTING_CREDENTIAL (403). A node with no
+    // enrollment record (or a non-enrolled record) stays open — bootstrap and
+    // recovery. The internalAuthorization marker is cross-checked against the
+    // real pairing handler in scripts/permission-matrix-smoke.js.
     tier: null,
     publicRoute: true,
-    routes: [{ method: "GET", path: "/api/v1/pairing/status" }],
+    internalAuthorization: PAIRING_INTERNAL_AUTHORIZATION,
+    routes: [{ method: "GET", path: PAIRING_STATUS_PATH }],
   },
   {
     id: "rest-ui-session",
@@ -769,6 +783,9 @@ module.exports = {
   REST_ACTORS,
   IPC_FAMILIES,
   REST_FAMILIES,
+  PAIRING_STATUS_PATH,
+  PAIRING_INTERNAL_AUTHORIZATION,
+  PAIRING_REQUIRES_EXISTING_CREDENTIAL,
   expectedDesktopOutcome,
   expectedRestOutcome,
 };

@@ -614,7 +614,7 @@ function crossCheckTableAgainstRealFunctions() {
   // bearer gate; public routes stay reachable through one of the three
   // pre-auth paths (health, the enrollment/pairing handshake, or the ui
   // browser entry bypass).
-  const preAuthHandshakePaths = new Set([...enrollRoutes.PUBLIC_ENROLL_PATHS, "/api/v1/pairing/status"]);
+  const preAuthHandshakePaths = new Set([...enrollRoutes.PUBLIC_ENROLL_PATHS, matrix.PAIRING_STATUS_PATH]);
   for (const family of matrix.REST_FAMILIES) {
     const route = family.routes[0];
     const expected = matrix.expectedRestOutcome(family, "unauthenticated-remote");
@@ -632,7 +632,31 @@ function crossCheckTableAgainstRealFunctions() {
       if (!auth.ok) assert.strictEqual(auth.code, "UNAUTHORIZED", `REST family ${family.id}: unauthenticated denial must be UNAUTHORIZED.`);
     }
   }
-}// ---------------------------------------------------------------------------
+
+  // Security P1: the pairing handshake is pre-auth but authorizes INTERNALLY
+  // for an enrolled node. The marker must exist on exactly the pairing family
+  // and agree with the real pairing handler's refusal code; the behavior itself
+  // is exercised against the real handler in
+  // runPairingInternalAuthorizationProbe() (phase 3, awaited).
+  const marked = matrix.REST_FAMILIES.filter((family) => family.internalAuthorization);
+  assert.strictEqual(marked.length, 1, "Exactly one REST family may carry an internalAuthorization marker.");
+  const pairing = marked[0];
+  assert.strictEqual(pairing.id, "rest-pairing", `Matrix drift: internalAuthorization moved to ${pairing.id}.`);
+  assert.strictEqual(
+    pairing.internalAuthorization,
+    matrix.PAIRING_INTERNAL_AUTHORIZATION,
+    "The pairing internalAuthorization marker must match the pinned contract value.",
+  );
+  assert.strictEqual(pairing.publicRoute, true, "The pairing handshake must stay reachable pre-auth for a non-enrolled node.");
+  assert.strictEqual(pairing.routes[0].path, matrix.PAIRING_STATUS_PATH, "The pairing internalAuthorization row must probe the pairing status route.");
+  const pairingRoute = require(path.join(rootDir, "agent", "src", "routes", "pairing"));
+  assert.strictEqual(
+    pairingRoute.PAIRING_REQUIRES_EXISTING_CREDENTIAL,
+    matrix.PAIRING_REQUIRES_EXISTING_CREDENTIAL,
+    "The pairing refusal code must match the matrix contract value.",
+  );
+}
+// ---------------------------------------------------------------------------
 // Phase 2: desktop IPC handler-level exercise with the real permission core.
 // ---------------------------------------------------------------------------
 async function runActorProbes(actor) {
@@ -1001,8 +1025,93 @@ function runCoverageEnforcement() {
   assert.strictEqual(staleRest.length, 0, `Matrix REST families no longer dispatched by the agent: ${staleRest.join(", ")}`);
 }
 
+// ---------------------------------------------------------------------------
+// Security P1: exercise the pairing handshake's internal authorization against
+// the REAL route handler (phase 3). Bootstrap stays open; an enrolled node
+// refuses a non-loopback caller with the distinct code BEFORE any mutation;
+// loopback and a presented trusted credential still get through. handlePairing
+// is async, so main() awaits this probe.
+// ---------------------------------------------------------------------------
+async function runPairingInternalAuthorizationProbe() {
+  const pairingRoute = require(path.join(rootDir, "agent", "src", "routes", "pairing"));
+  const { tokenFingerprint } = require(path.join(rootDir, "src", "shared", "agentTokenStore"));
+  const gateDir = path.join(smokeRoot, "pairing-gate");
+  fs.mkdirSync(gateDir, { recursive: true });
+  const recordPath = path.join(gateDir, "enrollment.json");
+  const liveToken = "matrix-pairing-live-credential-0123456789";
+  const enrollmentPathBefore = process.env.AGENT_ENROLLMENT_PATH;
+  const configDirBefore = process.env.ANXHUB_CONFIG_DIR;
+  const config = { token: liveToken, tokenStatus: { configured: true, fingerprint: tokenFingerprint(liveToken) } };
+  const urlFor = (pathname) => new URL(pathname, "http://127.0.0.1:47131");
+  const postRequest = (pathname, remoteAddress, headers = {}, body = undefined) => ({
+    method: "POST", url: pathname, socket: { remoteAddress }, headers, body,
+  });
+  const expectPairingRefusal = async (invoke, label) => {
+    await assert.rejects(
+      invoke,
+      (error) => {
+        assert.strictEqual(error.code, matrix.PAIRING_REQUIRES_EXISTING_CREDENTIAL, `${label}: refusal must use the distinct pairing code.`);
+        assert.strictEqual(error.statusCode, 403, `${label}: refusal must use status 403.`);
+        return true;
+      },
+      `${label}: the enrolled pairing gate must refuse.`,
+    );
+  };
+  try {
+    process.env.AGENT_ENROLLMENT_PATH = recordPath;
+    process.env.ANXHUB_CONFIG_DIR = gateDir;
+
+    // Bootstrap (no record): a non-loopback start is still served.
+    fs.rmSync(recordPath, { force: true });
+    pairingRoute._test.reset();
+    const bootstrap = await pairingRoute.handlePairing(postRequest("/api/v1/pairing/start", "203.0.113.7"), urlFor("/api/v1/pairing/start"), config);
+    assert.strictEqual(bootstrap.statusCode, 200, "A node with no enrollment record must keep serving pairing to a remote caller.");
+
+    // Enrolled: a non-loopback start is refused and leaves no session behind.
+    fs.writeFileSync(recordPath, `${JSON.stringify({ schemaVersion: 1, state: "enrolled", tokenFingerprint: tokenFingerprint(liveToken) }, null, 2)}\n`);
+    pairingRoute._test.reset();
+    await expectPairingRefusal(
+      () => pairingRoute.handlePairing(postRequest("/api/v1/pairing/start", "203.0.113.7"), urlFor("/api/v1/pairing/start"), config),
+      "remote pairing/start",
+    );
+    assert.strictEqual(pairingRoute._test.safeSession().active, false, "A refused pairing start must not create a session.");
+
+    // A loopback caller (on-host operator / local repair) still gets a session.
+    const loopbackStart = await pairingRoute.handlePairing(postRequest("/api/v1/pairing/start", "127.0.0.1"), urlFor("/api/v1/pairing/start"), config);
+    assert.strictEqual(loopbackStart.statusCode, 200, "A loopback caller must still open a pairing session on an enrolled node.");
+    assert(loopbackStart.body.pairingCode, "A loopback pairing start must return a session code.");
+
+    // The status route must not leak that code to a non-loopback caller.
+    await expectPairingRefusal(
+      () => pairingRoute.handlePairing({ method: "GET", url: matrix.PAIRING_STATUS_PATH, socket: { remoteAddress: "203.0.113.7" }, headers: {} }, urlFor(matrix.PAIRING_STATUS_PATH), config),
+      "remote pairing/status",
+    );
+    // ...and must not destroy it either.
+    await expectPairingRefusal(
+      () => pairingRoute.handlePairing(postRequest("/api/v1/pairing/cancel", "203.0.113.7"), urlFor("/api/v1/pairing/cancel"), config),
+      "remote pairing/cancel",
+    );
+    assert(pairingRoute._test.safeSession().active, "A refused pairing cancel must not destroy the live session.");
+
+    // A presented trusted credential still authorizes from off-host.
+    const credentialStart = await pairingRoute.handlePairing(
+      postRequest("/api/v1/pairing/start", "203.0.113.7", { authorization: `Bearer ${liveToken}` }),
+      urlFor("/api/v1/pairing/start"),
+      config,
+    );
+    assert.strictEqual(credentialStart.statusCode, 200, "A remote caller presenting the live credential must still open a pairing session.");
+  } finally {
+    pairingRoute._test.reset();
+    if (enrollmentPathBefore === undefined) delete process.env.AGENT_ENROLLMENT_PATH;
+    else process.env.AGENT_ENROLLMENT_PATH = enrollmentPathBefore;
+    if (configDirBefore === undefined) delete process.env.ANXHUB_CONFIG_DIR;
+    else process.env.ANXHUB_CONFIG_DIR = configDirBefore;
+  }
+}
+
 async function main() {
   crossCheckTableAgainstRealFunctions();
+  await runPairingInternalAuthorizationProbe();
   await runDesktopMatrixPhase();
   await runAgentRestPhase();
   runCoverageEnforcement();
