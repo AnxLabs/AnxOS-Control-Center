@@ -1048,6 +1048,31 @@ app.whenReady().then(async () => {
   registerNodesIpc();
   registerNetworkInventoryIpc();
   registerAlertsIpc();
+  // V2-J: the alert engine is inert without a driver. Start a bounded
+  // evaluation loop over state the desktop already polls — it adds no new
+  // network surface and is stopped on quit.
+  try {
+    const alertService = require("./src/services/alertService");
+    const nodeService = require("./src/services/nodeService");
+    const serviceRouter = require("./src/services/serviceRouter");
+    alertService.startAlertScheduler({
+      collectState: async () => {
+        const [nodesPayload, instancesPayload] = await Promise.all([
+          nodeService.listNodes({ discoverLocalAgent: false, refreshIdentity: false }).catch(() => ({ nodes: [] })),
+          serviceRouter.listInstances({}).catch(() => ({ instances: [] })),
+        ]);
+        return {
+          nodes: nodesPayload?.nodes || [],
+          instances: instancesPayload?.instances || [],
+        };
+      },
+    });
+    app.on("before-quit", () => {
+      try { alertService.stopAlertScheduler(); } catch {}
+    });
+  } catch (error) {
+    console.error("[Alerts] Scheduler start failed.", error?.message || error);
+  }
   registerWorkloadIpc();
   registerOwnerWorkspaceIpc();
   registerFilesIpc();

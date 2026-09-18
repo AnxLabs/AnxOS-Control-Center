@@ -148,8 +148,15 @@ async function ensureDestinationRoot() {
   await fs.mkdir(getDestinationRoot(), { recursive: true, mode: 0o700 });
 }
 
+// Per-writer temp name (review P2): a Date.now() suffix in an async writer is
+// not unique — two concurrent pushes can land on the same temp path and the
+// losing rename throws. A monotonic counter guarantees uniqueness within the
+// process; the pid disambiguates across processes.
+let destinationWriteCounter = 0;
+
 async function writeJsonAtomic(filePath, value) {
-  const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  destinationWriteCounter = (destinationWriteCounter + 1) % Number.MAX_SAFE_INTEGER;
+  const tempPath = `${filePath}.${process.pid}.${destinationWriteCounter}.tmp`;
   await fs.writeFile(tempPath, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
   try {
     await fs.rename(tempPath, filePath);
@@ -197,10 +204,21 @@ function validateRemotePath(value) {
   if (raw.includes("\0") || /[\r\n]/.test(raw)) {
     throw createBackupDestinationError("INVALID_BACKUP_DESTINATION_PATH");
   }
-  if (raw.split("/").some((segment) => segment === "..")) {
+  // Separators are normalized BEFORE the traversal check: posixJoin converts
+  // `\` to `/` afterwards, so validating the raw string let a Windows-style
+  // `..\..\etc` through and it became `/../../etc` on the remote side
+  // (review P1, reproduced). Check the normalized form, and also reject any
+  // backslash-separated `..` segment directly.
+  const normalized = raw.replace(/\\/g, "/");
+  if (normalized.split("/").some((segment) => segment === "..")) {
     throw createBackupDestinationError("INVALID_BACKUP_DESTINATION_PATH");
   }
-  return raw;
+  if (/^[a-zA-Z]:/.test(normalized) || normalized.startsWith("//")) {
+    // Drive-letter or UNC-style prefixes are meaningless on the remote and
+    // can only be an attempt to confuse path resolution.
+    throw createBackupDestinationError("INVALID_BACKUP_DESTINATION_PATH");
+  }
+  return normalized;
 }
 
 function sanitizeLabel(value, fallback) {

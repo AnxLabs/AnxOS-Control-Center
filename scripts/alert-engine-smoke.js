@@ -271,6 +271,56 @@ function phaseCorruptQuarantine() {
 // ---------------------------------------------------------------------------
 // Phase H: tier gating at the handler level (both channels).
 // ---------------------------------------------------------------------------
+// The engine must have a PRODUCTION caller: an inert engine meant alerts:list
+// always returned an empty store (review P1 — dead feature). This pins the
+// scheduler wiring end to end: the mapper builds the evaluator's snapshot from
+// desktop-shaped state, one pass persists real alerts, and the scheduler is
+// start/stop idempotent.
+async function phaseSchedulerWiring() {
+  const alertService = require("../src/services/alertService");
+  const source = fs.readFileSync(path.join(__dirname, "..", "main.js"), "utf8");
+  assert(source.includes("startAlertScheduler"), "main.js must start the alert scheduler (otherwise the engine is dead code).");
+  assert(source.includes("stopAlertScheduler"), "main.js must stop the alert scheduler on quit.");
+
+  const mapped = alertService.buildAlertSnapshot({
+    nodes: [{ id: "node-a", connection: { status: "offline" }, disk: { usagePercent: 97 } }],
+    instances: [{ nodeId: "node-a", id: "inst-1", processState: "failed" }],
+  });
+  assert.strictEqual(mapped.nodes[0].nodeId, "node-a", "the mapper must carry the node identity through.");
+  assert.strictEqual(mapped.nodes[0].state, "offline", "the mapper must read the connection state.");
+  assert.strictEqual(mapped.instances[0].nodeId, "node-a", "the mapper must carry the instance node binding.");
+
+  const outcome = await alertService.runAlertEvaluation({
+    collectState: async () => ({
+      nodes: [{ id: "node-off", connection: { status: "offline" } }],
+      instances: [],
+    }),
+  });
+  assert.strictEqual(outcome.ok, true, "an evaluation pass over an injected provider must succeed.");
+  assert(outcome.alerts.some((alert) => alert.condition === "NODE_OFFLINE"), "the pass must persist a real node-offline alert.");
+
+  const unavailable = await alertService.runAlertEvaluation({
+    collectState: async () => {
+      throw Object.assign(new Error("state unavailable"), { code: "STATE_DOWN" });
+    },
+  });
+  assert.strictEqual(unavailable.ok, false, "an unreachable provider must be reported, not fatal.");
+  assert.strictEqual(unavailable.errorCode, "STATE_DOWN", "the provider failure code must surface.");
+
+  let passes = 0;
+  const stop = alertService.startAlertScheduler({
+    collectState: async () => { passes += 1; return { nodes: [], instances: [] }; },
+  }, { intervalMs: 10 });
+  const stopAgain = alertService.startAlertScheduler({ collectState: async () => ({}) }, { intervalMs: 10 });
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  stop();
+  stopAgain();
+  const passesAtStop = passes;
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.strictEqual(passes, passesAtStop, "a stopped scheduler must not keep evaluating.");
+  assert(passesAtStop >= 1, "the scheduler must run an immediate first pass.");
+}
+
 function phaseTierGating() {
   const handlers = new Map();
   const state = { localOwnerUnlocked: false, permissionGranted: false };
@@ -370,6 +420,7 @@ async function main() {
   phaseAcknowledge();
   phaseCorruptQuarantine();
   await phaseTierGating();
+  await phaseSchedulerWiring();
 
   console.log("alert-engine-smoke passed");
 }

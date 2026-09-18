@@ -488,14 +488,95 @@ function getAlertStoreStatus() {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Snapshot collection + scheduler (the production caller).
+// The engine is inert without a driver: alerts:list always returned an empty
+// store until this wiring landed (review P1 — dead feature). The collector
+// reads the SAME desktop state the nodes page already polls, so it adds no new
+// network surface; the scheduler runs a bounded interval and is stopped on app
+// quit.
+// ---------------------------------------------------------------------------
+const DEFAULT_EVALUATION_INTERVAL_MS = 60 * 1000;
+let evaluationTimer = null;
+
+// Pure mapper: desktop node/instance/backup state → the evaluator's snapshot.
+function buildAlertSnapshot({ nodes = [], instances = [], backups = [], now = Date.now() } = {}) {
+  return {
+    now,
+    nodes: (Array.isArray(nodes) ? nodes : []).map((node) => ({
+      nodeId: node?.id || node?.nodeId || node?.deviceId || null,
+      state: node?.state || node?.health || node?.connection?.status || null,
+      disk: node?.disk || node?.storage || null,
+      instances: Array.isArray(node?.instances) ? node.instances : undefined,
+    })),
+    instances: (Array.isArray(instances) ? instances : []).map((instance) => ({
+      nodeId: instance?.nodeId || instance?.node || null,
+      instanceId: instance?.id || instance?.instanceId || null,
+      processState: instance?.processState || instance?.state || null,
+      healthState: instance?.healthState || null,
+      readinessState: instance?.readinessState || null,
+    })),
+    backups: (Array.isArray(backups) ? backups : []).map((row) => ({
+      nodeId: row?.nodeId || null,
+      instanceId: row?.instanceId || null,
+      backupAgeDays: row?.backupAgeDays ?? null,
+      retentionPolicy: row?.retentionPolicy || null,
+    })),
+  };
+}
+
+// One evaluation pass over an injected state provider. Never throws to the
+// caller: an unreachable provider is reported, not fatal (a monitoring pass
+// must not take the app down).
+async function runAlertEvaluation(providers = {}, options = {}) {
+  const collect = providers.collectState || (async () => ({}));
+  let state;
+  try {
+    state = await collect();
+  } catch (error) {
+    return { ok: false, errorCode: error?.code || "ALERT_SNAPSHOT_UNAVAILABLE", alerts: listAlerts().alerts };
+  }
+  const snapshot = buildAlertSnapshot({
+    nodes: state?.nodes || [],
+    instances: state?.instances || [],
+    backups: state?.backups || [],
+    now: typeof overrides.now === "function" ? overrides.now() : Date.now(),
+  });
+  const outcome = evaluateAlerts(snapshot, options);
+  return { ok: true, ...outcome };
+}
+
+function stopAlertScheduler() {
+  if (evaluationTimer) {
+    clearInterval(evaluationTimer);
+    evaluationTimer = null;
+  }
+}
+
+function startAlertScheduler(providers = {}, options = {}) {
+  if (evaluationTimer) return () => stopAlertScheduler();
+  const intervalMs = Number.isFinite(Number(options.intervalMs)) && Number(options.intervalMs) > 0
+    ? Number(options.intervalMs)
+    : DEFAULT_EVALUATION_INTERVAL_MS;
+  const tick = () => {
+    runAlertEvaluation(providers, options).catch(() => {});
+  };
+  tick();
+  evaluationTimer = setInterval(tick, intervalMs);
+  if (typeof evaluationTimer.unref === "function") evaluationTimer.unref();
+  return () => stopAlertScheduler();
+}
+
 module.exports = {
   CONDITION,
   DISK_WARNING_PERCENT,
   DISK_CRITICAL_PERCENT,
   DEFAULT_BACKUP_MAX_AGE_DAYS,
+  DEFAULT_EVALUATION_INTERVAL_MS,
   ALERT_SCHEMA_VERSION,
   AlertStoreError,
   acknowledgeAlert,
+  buildAlertSnapshot,
   configureAlertService,
   deriveAlertConditions,
   evaluateAlerts,
@@ -505,4 +586,7 @@ module.exports = {
   listAlerts,
   resetAlertService,
   resolveStorePath,
+  runAlertEvaluation,
+  startAlertScheduler,
+  stopAlertScheduler,
 };
