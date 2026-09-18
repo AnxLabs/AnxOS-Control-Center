@@ -225,8 +225,28 @@ The record binds exactly one tuple:
      credential can still re-pair with that same credential and drop its scopes, because
      "possessing the existing credential" is the accepted authority. Closing that requires
      an owner-authorized scope-change path (owner-tier bearer or a separate approval
-     token); the desktop does not use `/enroll/complete` today, so it is not reachable
-     from the product UI.
+     token).
+   - **Known residual — P1, proven, NOT closed (2026-09-18):** the gate is
+     **defense-in-depth, not an authorization boundary**. `/api/v1/pairing/start` is
+     pre-auth and returns the pairing code to the same caller, and
+     `/api/v1/pairing/complete` sets `config.token` to a caller-chosen value. An
+     unauthenticated client that can reach the agent port can therefore pair (installing a
+     credential of its choosing) and then satisfy the gate's live-credential branch. This
+     was reproduced end to end by an independent adversarial review: a control re-pair
+     without pairing was refused 403, while the pair-then-enroll sequence succeeded 200 and
+     rebound the record's `tokenFingerprint` with caller-chosen `scopes`. Closing it
+     requires an authorization rule on the **pairing surface itself** (for example: an
+     already-enrolled agent accepts a new pairing only from loopback or an
+     owner-authenticated desktop request), which is an owner-scoped decision because it
+     changes V2-A pairing semantics. Tracked in the security queue of
+     `V2_CAMPAIGN_QUEUES.md`.
+   - **Why the live credential is accepted at all:** the legitimate repair flow pairs a
+     node (rotating the shared config token via `POST /api/v1/pairing/complete`) and then
+     completes enrollment with the rotated credential while the persisted record
+     fingerprint is still stale. A record-bound-only gate therefore refuses a legitimate
+     re-pair: `scripts/multi-node-fleet-smoke.js` exercises that exact sequence and fails
+     403 where it asserts 200. That acceptance is pinned in `agent-enroll-smoke.js` so a
+     future tightening cannot land silently.
 4. **Authenticated use:** every subsequent request presents the token; the agent compares
    fingerprint to the enrollment record **and** re-verifies that `config.instanceRoot` is
    unchanged and the identity deviceId is unchanged. Discrepancy ⇒ `NODE_BINDING_MISMATCH`
