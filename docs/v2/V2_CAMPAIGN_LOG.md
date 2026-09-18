@@ -204,3 +204,16 @@ Full gate rerun launched at close. V2-G wave 1 (revoke/disconnect/groups) dispat
 - **Deviations recorded:** two mid-edit syntax slips in the matrix table (self-caught by node --check); one duplicate-variable collision with the implementer's own phase-8 re-issue test (renamed); R6's claim that the smoke "only exercised keyed-as-first-evaluator" was PARTIALLY wrong — the implementer's phase-8 already covered destructive re-issue; the non-destructive recovered-settle case was genuinely missing and is now pinned (smoke 4b).
 - **Queues updated:** R6 CLOSED; V2-I W1 CLOSED; V2-H W1 + V2-G wave 5 DISPATCHED; V2-H waves 2-3 and V2-F wave 5 queued.
 - **Next:** V2-H waves 2-3, V2-G wave 5, V2-F wave 5, then live-acceptance phase.
+
+### Cycle 9 close — V2-G wave 5 + V2-H wave 1 (2026-09-17/18)
+
+- **Starting commit:** f1339f8 · **Ending commit:** fe4ddb2 · **Gate:** 242/242 PASS
+- **Agents:** 2 implementers (Linux agent self-update; network inventory) + R7 reviewer; orchestrator integration.
+- **Landed:**
+  - *V2-G wave 5 (98e15f7):* Linux agent self-update — shared module with canonical steps (verify → stage → schedule-swap → swap → restart → record), systemd-run transient unit executing a pure-sh swap script (stop unit → backup mv → staged mv → start) with a result marker observable across mid-swap crashes, atomic temp+rename staging, backup-before-swap with rollback on publish failure; agentControlService Linux delegation (version guard → state backup → graceful stop → self-update → reconnect → version verify → config rollback on failure); health capabilities report `agentUpdate {supported, mechanism}` per platform. Windows parity verified and recorded (Windows is desktop-driven via the task lifecycle; never swaps in place — the Linux flow is stricter).
+  - *V2-H wave 1 (fe4ddb2):* read-only network inventory — interfaces (os.networkInterfaces flattened), listeners (netstat -ano + tasklist on Windows; ss with netstat fallback on Linux; fixture-tested pure parsers with malformed-row tolerance, dupe dedupe, 1000-row cap), dual-stack-aware conflict detection, checkPort helper; GET /api/v1/network/inventory (system:read) + desktop chain; permission-matrix rows for the new channels.
+- **Reviewer findings:** R7 dispatched (pending).
+- **Tests run:** agent-self-update (new, registered as agent:self-update:smoke), network-inventory (new, registered as network-inventory:smoke), permission-matrix (57 families/282 channels + 34 REST after both waves' rows), agent-control IPC auth, agent enroll, agent health-mode, agent API auth, nodes IPC auth, agent disk-stats — all PASS; git diff --check clean.
+- **Commits:** 98e15f7, fe4ddb2. **Push:** OK. **Roadmap items closed:** V2-G bullet 2 (capability-aware upgrades, code-complete; live Linux/systemd acceptance queued), V2-H bullet 2 (inventory — code-complete; UI consumption is a later bullet).
+- **Blockers:** none. **Next:** R7 findings → fixes; V2-H waves 2-3; V2-F wave 5; live-acceptance phase.
+- **Local HEAD:** fe4ddb2 · **Remote HEAD:** fe4ddb2 · **Working tree:** clean.
