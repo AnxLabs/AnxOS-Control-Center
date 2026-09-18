@@ -79,9 +79,15 @@ async function main() {
   // Two pending records past their deadline: one settles via getJob, the other
   // via listJobs (both are lazy evaluation points).
   usePhaseRoot("1-explicit-lazy");
-  const viaGetId = writePendingJobRecord({ expiresAt: new Date(Date.now() + 80).toISOString() });
-  const viaListId = writePendingJobRecord({ expiresAt: new Date(Date.now() + 80).toISOString() });
-  await wait(150);
+  // A deadline already in the past, stated directly. This used to be
+  // `Date.now() + 80` followed by `wait(150)`, which made the assertion depend
+  // on the read happening more than 80 ms after the write — true on an idle
+  // machine, false under load, and it failed the suite for no product reason.
+  // The assertion is about a deadline that has PASSED, so that is what the
+  // fixture now says.
+  const viaGetId = writePendingJobRecord({ expiresAt: new Date(Date.now() - 1000).toISOString() });
+  const viaListId = writePendingJobRecord({ expiresAt: new Date(Date.now() - 1000).toISOString() });
+  await wait(50);
 
   const expired = await engine.getJob(viaGetId);
   assert.strictEqual(expired.state, JOB_STATES.FAILED,
@@ -122,7 +128,7 @@ async function main() {
     type: "instance.start",
     target: { instanceId: "expiry-smoke" },
     idempotencyKey: "expiry:running:v1",
-    expiresAt: Date.now() + 120, // epoch-ms number form
+    expiresAt: Date.now() + 1500, // epoch-ms number form; must still be future at validation time
     timeoutMs: 10000,
     awaitResult: false,
     run: () => runningPromise,
@@ -130,7 +136,11 @@ async function main() {
   assert.strictEqual(typeof running.job.expiresAt, "string",
     "A minted job must persist its normalized (ISO) expiresAt.");
   assert.strictEqual(running.job.expired, false, "A live job must report expired: false.");
-  await wait(250); // the deadline passes while the job is running
+  // Comfortably past the deadline. The original 120 ms deadline with a 250 ms
+  // wait was load-sensitive in the OTHER direction as well: validation rejected
+  // the deadline as "not in the future" when creation took longer than 120 ms
+  // (observed failing the gate as INVALID_JOB_EXPIRES_AT).
+  await wait(1700); // the deadline passes while the job is running
   const midRun = await engine.getJob(running.job.id);
   assert.strictEqual(midRun.state, JOB_STATES.RUNNING,
     "A running job must never be claimed by expiry mid-run.");
@@ -146,11 +156,11 @@ async function main() {
     type: "instance.start",
     target: { instanceId: "expiry-smoke" },
     idempotencyKey: "expiry:fast:v1",
-    expiresAt: new Date(Date.now() + 80).toISOString(),
+    expiresAt: new Date(Date.now() + 1500).toISOString(),
     run: async () => ({ pid: 8 }),
   });
   assert.strictEqual(fast.job.state, JOB_STATES.SUCCEEDED, "The fast job must settle succeeded.");
-  await wait(150); // the deadline passes after completion
+  await wait(1700); // the deadline passes after completion
   const afterDeadline = await engine.getJob(fast.job.id);
   assert.strictEqual(afterDeadline.state, JOB_STATES.SUCCEEDED,
     "Expiry must only ever claim jobs that never started.");

@@ -81,13 +81,13 @@ async function getFreePort() {
 }
 
 async function waitForAgent(url) {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    try {
-      if ((await fetch(`${url}/api/v1/health`)).ok) return;
-    } catch {}
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  throw new Error("Agent did not become ready.");
+  // Shared readiness helper: see scripts/test-helpers/agent-readiness.js for why
+  // the budget is generous here and why the failure message must name a cause.
+  const { waitForAgentReady } = require("./test-helpers/agent-readiness");
+  return waitForAgentReady({
+    label: "Agent",
+    probe: async () => (await fetch(`${url}/api/v1/health`)).ok,
+  });
 }
 
 function spawnAgent(env, port, token) {

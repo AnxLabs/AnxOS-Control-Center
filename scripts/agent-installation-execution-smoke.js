@@ -33,13 +33,13 @@ async function request(url, token, pathname, options = {}) {
 }
 
 async function waitForAgent(url, token) {
-  for (let attempt = 0; attempt < 80; attempt += 1) {
-    try {
-      if ((await request(url, token, "/api/v1/health")).status === 200) return;
-    } catch {}
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  throw new Error("Installation execution test Agent did not become ready.");
+  // Shared readiness helper: see scripts/test-helpers/agent-readiness.js for why
+  // the budget is generous here and why the failure message must name a cause.
+  const { waitForAgentReady } = require("./test-helpers/agent-readiness");
+  return waitForAgentReady({
+    label: "Installation execution test Agent",
+    probe: async () => (await request(url, token, "/api/v1/health")).status === 200,
+  });
 }
 
 async function createInstallingInstance(url, token, id, operationId) {

@@ -750,13 +750,14 @@ async function getFreePort() {
 }
 
 async function waitForAgent(url) {
-  for (let attempt = 0; attempt < 120; attempt += 1) {
-    try {
-      if ((await fetch(`${url}/api/v1/health`, { redirect: "manual" })).ok) return;
-    } catch {}
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  throw new Error("Matrix Agent did not become ready.");
+  // Shared readiness helper: see scripts/test-helpers/agent-readiness.js. The
+  // `redirect: "manual"` probe is preserved because this smoke deliberately
+  // observes redirect behaviour rather than following it.
+  const { waitForAgentReady } = require("./test-helpers/agent-readiness");
+  return waitForAgentReady({
+    label: "Matrix Agent",
+    probe: async () => (await fetch(`${url}/api/v1/health`, { redirect: "manual" })).ok,
+  });
 }
 
 async function restProbe(baseUrl, route, token) {

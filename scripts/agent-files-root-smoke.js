@@ -20,14 +20,15 @@ async function getFreePort() {
 }
 
 async function waitForAgent(url, token) {
-  for (let attempt = 0; attempt < 60; attempt += 1) {
-    try {
-      const response = await fetch(`${url}/api/v1/health`, { headers: { Authorization: `Bearer ${token}` } });
-      if (response.ok) return;
-    } catch {}
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  throw new Error("Temporary Agent did not become ready.");
+  // Shared readiness helper: the poll budget here must not double as a latent
+  // boot-latency test (it did, and it failed suites under load for no product
+  // reason), and a failure must name the actual cause instead of always
+  // reporting a timeout. See scripts/test-helpers/agent-readiness.js.
+  const { waitForAgentReady } = require("./test-helpers/agent-readiness");
+  return waitForAgentReady({
+    label: "Temporary Agent",
+    probe: async () => (await fetch(`${url}/api/v1/health`, { headers: { Authorization: `Bearer ${token}` } })).ok,
+  });
 }
 
 function setRoot(rootValue) {

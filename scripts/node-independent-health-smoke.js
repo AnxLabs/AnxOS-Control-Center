@@ -10,6 +10,20 @@ process.env.ANXHUB_CONFIG_DIR = tempDir;
 const { checkAllNodeHealth, checkNodeHealth, getNodesPath } = require("../src/services/nodeService");
 const { setNodeToken } = require("../src/services/nodeCredentialStore");
 
+// These assertions are about CLASSIFICATION (online vs offline vs
+// authentication_failed vs agent_incompatible), not about latency, so the
+// budget must not double as an implicit latency test. It did: a 1000 ms budget
+// against real HTTP round trips to seven concurrent local fixtures made this
+// suite fail intermittently whenever the machine was loaded (observed failing
+// inside a full gate run at 152/252 while three other agents were working, then
+// passing in isolation) — a flaky gate is a broken gate, because it produces
+// false failures and erodes trust in the run.
+//
+// The tight budget is kept only where the test WANTS a failure: the
+// closed-port probe below, where a refused connection is immediate and a
+// timeout still classifies as offline either way.
+const HEALTH_BUDGET_MS = 15000;
+
 function listen(server) {
   return new Promise((resolve) => {
     server.listen(0, "127.0.0.1", () => resolve(server.address().port));
@@ -131,7 +145,7 @@ const servers = [];
   setNodeToken("node-recovery", "token-recovery");
   setNodeToken("node-slow", "token-slow");
 
-  const result = await checkAllNodeHealth({ timeoutMs: 1000 });
+  const result = await checkAllNodeHealth({ timeoutMs: HEALTH_BUDGET_MS });
   const states = new Map(result.nodes.map((entry) => [entry.nodeId, entry.state]));
   assert.strictEqual(states.get("node-a"), "online");
   assert.strictEqual(states.get("node-b"), "online");
@@ -150,8 +164,8 @@ const servers = [];
 
   const slowHitsBefore = slowAgent.getHits();
   const slowChecks = await Promise.all([
-    checkNodeHealth("node-slow", { timeoutMs: 1000 }),
-    checkNodeHealth("node-slow", { timeoutMs: 1000 }),
+    checkNodeHealth("node-slow", { timeoutMs: HEALTH_BUDGET_MS }),
+    checkNodeHealth("node-slow", { timeoutMs: HEALTH_BUDGET_MS }),
   ]);
   assert.strictEqual(slowChecks[0].state, "online");
   assert.strictEqual(slowChecks[1].state, "online");
@@ -160,10 +174,14 @@ const servers = [];
   // single run should still only produce those two hits, not four.
   assert.strictEqual(slowAgent.getHits() - slowHitsBefore, 2, "overlapping checks for one node should be deduplicated");
 
+  // Deliberately tight: this port is closed, so the check must classify it as
+  // offline. A refused connection is immediate, and a budget expiry classifies
+  // as offline too, so the tight value cannot make this leg flaky in the
+  // direction that matters.
   const beforeRecovery = await checkNodeHealth("node-recovery", { timeoutMs: 250 });
   assert.strictEqual(beforeRecovery.state, "offline");
   await new Promise((resolve) => recoveryAgent.server.listen(recoveryPort, "127.0.0.1", resolve));
-  const afterRecovery = await checkNodeHealth("node-recovery", { timeoutMs: 1000 });
+  const afterRecovery = await checkNodeHealth("node-recovery", { timeoutMs: HEALTH_BUDGET_MS });
   assert.strictEqual(afterRecovery.state, "online");
 
   await Promise.all(servers.map(close));

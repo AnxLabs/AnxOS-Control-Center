@@ -20,14 +20,13 @@ async function freePort() {
 }
 
 async function waitForAgent(url, token) {
-  for (let attempt = 0; attempt < 60; attempt += 1) {
-    try {
-      const response = await fetch(`${url}/api/v1/health`, { headers: { Authorization: `Bearer ${token}` } });
-      if (response.ok) return;
-    } catch {}
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  throw new Error("Temporary Agent did not become ready.");
+  // Shared readiness helper: see scripts/test-helpers/agent-readiness.js for why
+  // the budget is generous here and why the failure message must name a cause.
+  const { waitForAgentReady } = require("./test-helpers/agent-readiness");
+  return waitForAgentReady({
+    label: "Temporary Agent",
+    probe: async () => (await fetch(`${url}/api/v1/health`, { headers: { Authorization: `Bearer ${token}` } })).ok,
+  });
 }
 
 async function requestJson(url, token, options = {}) {

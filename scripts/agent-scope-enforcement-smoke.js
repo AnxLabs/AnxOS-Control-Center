@@ -59,13 +59,13 @@ function getFreePort() {
 }
 
 async function waitForAgent(url) {
-  for (let attempt = 0; attempt < 80; attempt += 1) {
-    try {
-      if ((await fetch(`${url}/api/v1/health`)).ok) return;
-    } catch {}
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  throw new Error("Scope-enforcement agent did not become ready.");
+  // Shared readiness helper: see scripts/test-helpers/agent-readiness.js for why
+  // the budget is generous here and why the failure message must name a cause.
+  const { waitForAgentReady } = require("./test-helpers/agent-readiness");
+  return waitForAgentReady({
+    label: "Scope-enforcement agent",
+    probe: async () => (await fetch(`${url}/api/v1/health`)).ok,
+  });
 }
 
 function authHeaders(token) {

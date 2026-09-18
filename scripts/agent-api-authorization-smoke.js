@@ -18,14 +18,31 @@ async function getFreePort() {
   });
 }
 
-async function waitForAgent(url) {
-  for (let attempt = 0; attempt < 80; attempt += 1) {
+// Readiness, with diagnostics. The previous version polled 80 times at 100 ms
+// and then threw "did not become ready" — a fixed budget that silently doubled
+// as a boot-latency test (it failed intermittently on a loaded machine) AND
+// hid the cause when the child had actually died, which is the failure mode a
+// harness most needs to report. This waits longer and, when it gives up or the
+// child exits, says which happened and includes the child's own stderr.
+async function waitForAgent(url, child, stderrBuffer) {
+  const attempts = 300;
+  let lastError = null;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      throw new Error(
+        `Restricted Agent exited before becoming ready (code=${child.exitCode} signal=${child.signalCode}). stderr: ${stderrBuffer.value.slice(-800) || "(empty)"}`,
+      );
+    }
     try {
       if ((await fetch(`${url}/api/v1/health`)).ok) return;
-    } catch {}
+    } catch (error) {
+      lastError = error?.message || String(error);
+    }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  throw new Error("Restricted Agent did not become ready.");
+  throw new Error(
+    `Restricted Agent did not become ready within ${attempts * 100}ms (last fetch error: ${lastError || "none"}). stderr: ${stderrBuffer.value.slice(-800) || "(empty)"}`,
+  );
 }
 
 async function main() {
@@ -57,8 +74,11 @@ async function main() {
     stdio: ["ignore", "pipe", "pipe"],
   });
 
+  const stderrBuffer = { value: "" };
+  agent.stderr.on("data", (chunk) => { stderrBuffer.value += String(chunk); });
+
   try {
-    await waitForAgent(url);
+    await waitForAgent(url, agent, stderrBuffer);
     const headers = { Authorization: `Bearer ${token}` };
     assert.strictEqual((await fetch(`${url}/api/v1/health`)).status, 200, "Health must remain public.");
     assert.strictEqual((await fetch(`${url}/api/v1/stats`)).status, 401, "Non-public APIs must still require authentication.");
