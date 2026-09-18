@@ -197,8 +197,21 @@ Module._load = function patchedLoad(request, parent, isMain) {
 
 // ---------------------------------------------------------------------------
 // Register every src/ipc module with the stubbed transports and the REAL
-// securityService / settingsPermissionService / authRecoveryState.
+// securityService / settingsPermissionService / authRecoveryState. The file
+// list doubles as coverage input: runCoverageEnforcement verifies every
+// module directory entry was actually loaded here (review P1-2).
 // ---------------------------------------------------------------------------
+const loadedIpcModuleFiles = new Set([
+  "diagnosticsIpc.js", "accountAuthIpc.js", "accountIpc.js", "securityIpc.js", "agentControlIpc.js",
+  "dependenciesIpc.js", "storageWindowIpc.js", "updatesIpc.js", "actionIpc.js",
+  "systemIpc.js", "ampIpc.js", "backupsIpc.js", "playitIpc.js",
+  "publicAccessIpc.js", "dockerIpc.js", "instancesIpc.js", "marketplaceIpc.js",
+  "maintenanceIpc.js", "nodesIpc.js", "workloadIpc.js", "ownerWorkspaceIpc.js",
+  "filesIpc.js", "settingsIpc.js", "sshIpc.js",
+]);
+// accountIpc.js delegates to accountAuthIpc.registerAccountAuthIpc (which IS
+// loaded here); loading it again would double-register the account channels.
+const knownDelegatingModules = new Set(["accountIpc.js"]);
 try {
   require("../src/ipc/diagnosticsIpc").registerDiagnosticsIpc();
   require("../src/ipc/accountAuthIpc").registerAccountAuthIpc();
@@ -333,6 +346,7 @@ const UNIVERSAL_PAYLOAD = {
 };
 
 const DESKTOP_PROBES = {
+  "window-management": { channel: "window:getWorkspaceContext", serviceRecorded: false },
   account: { channel: "account:getStatus" },
   "security-public": { channel: "security:getStatus", serviceRecorded: false },
   "security-session": { channel: "security:updateSessionSettings", payload: { inactiveSessionExpirationMs: 86400000 }, serviceRecorded: false },
@@ -618,6 +632,7 @@ function crossCheckTableAgainstRealFunctions() {
 // ---------------------------------------------------------------------------
 async function runActorProbes(actor) {
   for (const family of matrix.IPC_FAMILIES) {
+    if (family.probeExempt === true) continue;
     const probe = DESKTOP_PROBES[family.id];
     assert(probe, `Matrix bug: family ${family.id} has no desktop probe channel.`);
     const payload = { ...UNIVERSAL_PAYLOAD, ...(probe.payload || {}) };
@@ -897,12 +912,35 @@ function runCoverageEnforcement() {
     0,
     `Uncovered desktop IPC channels (add matrix rows in test-helpers/permission-matrix.js): ${uncoveredIpc.join(", ")}`,
   );
-  const staleIpc = [...declaredChannels].filter((channel) => !registeredChannels.has(channel));
+  // Review P1-1: main.js registers window/app channels outside src/ipc.
+  // Extract them the same way from the main.js source and require matrix
+  // rows — a NEW privileged channel added in main.js must fail here too.
+  const mainSource = fs.readFileSync(path.join(rootDir, "main.js"), "utf8");
+  const mainChannels = new Set();
+  for (const match of mainSource.matchAll(/ipcMain\.handle\("([^"]+)"/g)) mainChannels.add(match[1]);
+  for (const match of mainSource.matchAll(/ipcMain\.on\("([^"]+)"/g)) mainChannels.add(match[1]);
+  const uncoveredMain = [...mainChannels].filter((channel) => !declaredChannels.has(channel));
+  assert.strictEqual(uncoveredMain.length, 0, `Uncovered main.js-registered IPC channels (add matrix rows): ${uncoveredMain.join(", ")}`);
+  const staleIpc = [...declaredChannels].filter((channel) => !registeredChannels.has(channel) && !mainChannels.has(channel));
   assert.strictEqual(staleIpc.length, 0, `Matrix rows for channels that are no longer registered: ${staleIpc.join(", ")}`);
   for (const listenerChannel of ipcEventListeners) {
     assert(declaredChannels.has(listenerChannel), `ipcMain.on channel ${listenerChannel} has no matrix row.`);
   }
 
+  // Review P1-2: the registration list in this smoke is hand-maintained —
+  // verify it actually covers every src/ipc module that exports a register
+  // function, so a NEW IPC module can never bypass the matrix.
+  const ipcDir = path.join(rootDir, "src", "ipc");
+  const ipcModules = fs.readdirSync(ipcDir).filter((file) => file.endsWith(".js"));
+  const knownNonRegistrars = new Set(["nodeContext.js", "expectedAgentError.js"]);
+  for (const file of ipcModules) {
+    if (knownNonRegistrars.has(file)) continue;
+    assert(loadedIpcModuleFiles.has(file), `src/ipc module ${file} is not loaded by the coverage exercise (add it to the registration list or the known-non-registrar set).`);
+  }
+
+  // Review P1-3: REST coverage must ALSO cover route files' literals, not
+  // just server.js literals — routes living only in agent/src/routes are
+  // invisible to the server scrape.
   const serverSource = fs.readFileSync(path.join(rootDir, "agent", "src", "server.js"), "utf8");
   const serverSegments = new Set();
   for (const match of serverSource.matchAll(/\/api\/v1\/([a-z0-9_-]+)/g)) serverSegments.add(match[1]);
@@ -916,7 +954,15 @@ function runCoverageEnforcement() {
   }
   const uncoveredRest = [...serverSegments].filter((segment) => !coveredSegments.has(segment));
   assert.strictEqual(uncoveredRest.length, 0, `Uncovered Agent REST route families (add matrix rows): ${uncoveredRest.join(", ")}`);
-  const staleRest = [...coveredSegments].filter((segment) => !serverSegments.has(segment));
+  const routesDir = path.join(rootDir, "agent", "src", "routes");
+  const routeFileSegments = new Set();
+  for (const file of fs.readdirSync(routesDir).filter((file) => file.endsWith(".js"))) {
+    const source = fs.readFileSync(path.join(routesDir, file), "utf8");
+    for (const match of source.matchAll(/\/api\/v1\/([a-z0-9_-]+)/g)) routeFileSegments.add(match[1]);
+  }
+  const uncoveredRouteFiles = [...routeFileSegments].filter((segment) => !coveredSegments.has(segment));
+  assert.strictEqual(uncoveredRouteFiles.length, 0, `Uncovered Agent REST route-file families (add matrix rows): ${uncoveredRouteFiles.join(", ")}`);
+  const staleRest = [...coveredSegments].filter((segment) => !serverSegments.has(segment) && !routeFileSegments.has(segment));
   assert.strictEqual(staleRest.length, 0, `Matrix REST families no longer dispatched by the agent: ${staleRest.join(", ")}`);
 }
 

@@ -14,9 +14,12 @@ artifacts/
 release-artifacts/
 
 # Smoke-run fallback residue: any cwd-relative instance root proves a smoke
-# failed to pin AGENT_INSTANCE_ROOT (rc-validate trips on this pre-run).
+# failed to pin AGENT_INSTANCE_ROOT (rc-validate trips on this pre-run). The
+# agent's backup root is dirname(instanceRoot)/backups, so it leaks the same way
+# and must never be swept into a commit (it can hold real backup payloads).
 /instances/
 /anxos-instances/
+/backups/
 
 # Codex temporary Electron smoke test profiles
 .tmp-electron-smoke-profile*

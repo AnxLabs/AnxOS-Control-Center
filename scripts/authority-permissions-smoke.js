@@ -13,6 +13,16 @@ const { spawn } = require("child_process");
 
 const repoRoot = path.join(__dirname, "..");
 
+// Per-run temp data root for the spawned Agents. These roots must never be the
+// repo root: the agent-layer instance service re-roots the shared job store to
+// <instanceRoot>/jobs when it loads, so a repo-rooted AGENT_INSTANCE_ROOT leaks
+// `<repo>/instances/jobs` into the working tree on every gate run (the rc
+// residue tripwire caught exactly this).
+const agentDataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "anxos-authority-roots-"));
+process.on("exit", () => {
+  try { fs.rmSync(agentDataRoot, { recursive: true, force: true }); } catch {}
+});
+
 const PERMISSIONS_PATH = path.join(repoRoot, "agent", "src", "permissions.js");
 const HEALTH_PATH = path.join(repoRoot, "agent", "src", "routes", "health.js");
 const SECURITY_PATH = path.join(repoRoot, "src", "services", "securityService.js");
@@ -92,8 +102,8 @@ function spawnAgent(env, port, token) {
     AGENT_PORT: String(port),
     AGENT_TOKEN: token,
     ANXHUB_AGENT_CONFIG_PATH: agentConfigPath,
-    AGENT_INSTANCE_ROOT: path.join(repoRoot, "instances"),
-    AGENT_BACKUP_ROOT: path.join(repoRoot, "backups"),
+    AGENT_INSTANCE_ROOT: path.join(agentDataRoot, "instances"),
+    AGENT_BACKUP_ROOT: path.join(agentDataRoot, "backups"),
     ...env,
   };
   // A null override means "must be absent"; child env values are stringified,

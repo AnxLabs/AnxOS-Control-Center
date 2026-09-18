@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 const { spawn, spawnSync } = require("child_process");
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 const packageJson = require("../package.json");
 
@@ -12,9 +13,33 @@ const commands = Object.keys(packageJson.scripts)
   .filter((name) => name.endsWith(":smoke") && !excluded.has(name));
 
 // Regression tripwire (eb13b83 class): a cwd-relative instance root means a
-// smoke minted jobs/instances outside its temp tree and into the repo.
-const residueRoots = ["instances", "anxos-instances"].map((name) => path.join(process.cwd(), name));
+// smoke minted jobs/instances outside its temp tree and into the repo. The
+// backup root derives from dirname(instanceRoot), so the same unpinned-root
+// fallback leaks `backups` alongside `instances`.
+const residueRoots = ["instances", "anxos-instances", "backups"].map((name) => path.join(process.cwd(), name));
 const residue = residueRoots.filter((root) => fs.existsSync(root));
+
+function detectResidue() {
+  return residueRoots.filter((root) => fs.existsSync(root));
+}
+
+// The pre-run check alone cannot catch a leak that this run causes — that hole
+// let one green gate report hide residue until the next run. A leaking suite is
+// therefore named by the run that saw it, and the leaked tree is moved (never
+// deleted) so the evidence survives while later suites start clean.
+function quarantineResidue(roots) {
+  const destination = fs.mkdtempSync(path.join(os.tmpdir(), "anxos-rc-residue-"));
+  return roots.map((root) => {
+    const relative = path.relative(process.cwd(), root);
+    try {
+      const target = path.join(destination, path.basename(root));
+      fs.renameSync(root, target);
+      return { root: relative, quarantine: target, moved: true };
+    } catch (error) {
+      return { root: relative, moved: false, error: error.message };
+    }
+  });
+}
 
 function npmCommand() {
   return process.platform === "win32" ? "npm.cmd" : "npm";
@@ -110,23 +135,44 @@ for (let index = 0; index < commands.length; index += 1) {
   const command = commands[index];
   console.error(`[RC] suite ${index + 1}/${commands.length} start ${command} ${new Date().toISOString()}`);
   const result = await runSuite(command);
+  const leaked = detectResidue();
+  if (leaked.length > 0) {
+    result.residue = quarantineResidue(leaked);
+    if (result.status === "PASS") {
+      result.status = "FAIL";
+      result.failureReason = "repo-root instance-root residue present after this suite (AGENT_INSTANCE_ROOT not pinned)";
+    }
+    console.error(`[RC] ${command} leaked repo-root residue: ${result.residue.map((entry) => entry.root + (entry.moved ? "" : ` (NOT moved: ${entry.error})`)).join(", ")}`);
+  }
   console.error(`[RC] suite ${index + 1}/${commands.length} ${result.status} ${command} pid=${result.pid || "-"} elapsedMs=${result.elapsedMs} exitCode=${result.exitCode} signalCode=${result.signalCode || "-"}`);
   if (result.status === "FAIL" && result.stderr) console.error(`[RC] ${command} stderr:\n${result.stderr}`);
   results.push(result);
   if (result.status !== "PASS" && failFast) break;
 }
 
+// Async tails can outlive a suite's exit code; a final sweep keeps one leaky
+// run from ever being reported green.
+let trailingFailure = null;
+const trailingResidue = detectResidue();
+if (trailingResidue.length > 0) {
+  const quarantined = quarantineResidue(trailingResidue);
+  trailingFailure = { command: "rc:root-residue-tripwire", status: "FAIL", residue: quarantined };
+  console.error(`[RC] FAIL repo-root residue appeared outside a suite window: ${quarantined.map((entry) => entry.root).join(", ")}`);
+}
+
 const failed = results.find((result) => result.status === "FAIL");
+const overallFailure = failed || trailingFailure;
 console.log(JSON.stringify({
-  status: failed ? "FAIL" : "PASS",
+  status: overallFailure ? "FAIL" : "PASS",
   suite: "private-alpha-rc-source-validation",
   completed: results.length,
   total: commands.length,
-  failed: failed?.command || null,
-  failedCount: results.filter((result) => result.status === "FAIL").length,
+  failed: overallFailure?.command || null,
+  failedCount: results.filter((result) => result.status === "FAIL").length + (trailingFailure ? 1 : 0),
+  residue: trailingFailure?.residue || undefined,
 }, null, 2));
-process.exitCode = failed ? 1 : 0;
-return { results, failed };
+process.exitCode = overallFailure ? 1 : 0;
+return { results, failed: overallFailure };
 }
 
 if (require.main === module) runValidation().catch((error) => { console.error(error); process.exitCode = 1; });

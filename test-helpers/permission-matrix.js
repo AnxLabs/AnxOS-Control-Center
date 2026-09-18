@@ -103,6 +103,25 @@ const GUARDS = Object.freeze({
 // ---------------------------------------------------------------------------
 const IPC_FAMILIES = [
   {
+    // Main.js window/app management channels: these operate on the caller's
+    // own window or read app metadata — no node/instance/credential surface.
+    // Sender-scoped (BrowserWindow.fromWebContents), so cross-window access
+    // is structurally impossible; they are pinned explicitly so the coverage
+    // enforcement can see them (review P1-1). probeExempt: the channels are
+    // registered in main.js, outside this smoke's stub transports — the
+    // Electron runtime itself exercises them (window controls).
+    id: "window-management",
+    tier: null,
+    guard: "none",
+    probeExempt: true,
+    allow: ["owner-unlocked", "operator-unlocked", "viewer-unlocked", "owner-locked", "guest"],
+    channels: [
+      "window:minimize", "window:maximize", "window:restore", "window:close",
+      "window:isMaximized", "window:openWorkspace", "window:focusMain",
+      "window:getWorkspaceContext", "app:getRuntimeInfo",
+    ],
+  },
+  {
     id: "account",
     tier: null,
     guard: "none",
