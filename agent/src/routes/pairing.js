@@ -2,6 +2,7 @@ const { createPairingSessionPayload, normalizePairingCode } = require("../../../
 const { generateAgentToken, tokenFingerprint, writeAgentConfigToken } = require("../../../src/shared/agentTokenStore");
 const { AGENT_STATE_ENROLLED, readEnrollmentRecord } = require("../services/enrollmentService");
 const { getDeviceIdentity } = require("../services/deviceIdentityService");
+const { isEchoableAgentHost, trustedAgentAuthority } = require("../services/hostTrustPolicy");
 const { logger } = require("../services/diagnosticsLogger");
 
 let activeSession = null;
@@ -119,10 +120,22 @@ function parseJsonBody(request) {
   }
 }
 
+// Security hardening (DNS-rebinding precondition): the address handed back to
+// the client is the address the client is told to trust and connect to, so it
+// must never be built from a caller-supplied Host. A Host is echoed only when
+// it is one this Agent legitimately answers for — an IP literal (which DNS
+// rebinding cannot produce, and which is how a remote Control Center addresses
+// a remote Agent) or an allowlisted name. Anything else falls back to the
+// operator-configured agentUrl / bind / loopback. The request-layer Host gate
+// in server.js already refuses non-allowlisted hosts on a concrete bind; this
+// keeps the payload safe under a wildcard bind too.
 function getPublicAgentUrl(request, config = {}) {
-  const hostHeader = request.headers.host || `${config.host || "127.0.0.1"}:${config.port || 47131}`;
   const scheme = request.socket?.encrypted ? "https" : "http";
-  return `${scheme}://${hostHeader}`;
+  const hostHeader = typeof request.headers?.host === "string" ? request.headers.host.trim() : "";
+  if (hostHeader && isEchoableAgentHost(hostHeader, config)) {
+    return `${scheme}://${hostHeader}`;
+  }
+  return `${scheme}://${trustedAgentAuthority(config)}`;
 }
 
 function isExpired(session = activeSession) {

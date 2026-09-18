@@ -165,6 +165,7 @@
     "node:remote-pairing-target:smoke": "node scripts/remote-pairing-target-smoke.js",
     "desktop:remote-repair:smoke": "node scripts/desktop-remote-repair-smoke.js",
     "agent:pairing-credential-gate:smoke": "node scripts/agent-pairing-credential-gate-smoke.js",
+    "agent:host-trust:smoke": "node scripts/agent-host-trust-smoke.js",
     "node:expired-pairing-single-submit:smoke": "node scripts/expired-pairing-single-submit-smoke.js",
     "agent-control:canonical-credential:smoke": "node scripts/agent-control-canonical-credential-smoke.js",
     "pairing:input-routing:smoke": "node scripts/pairing-input-routing-smoke.js",

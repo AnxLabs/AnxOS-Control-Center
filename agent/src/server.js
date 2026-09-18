@@ -33,6 +33,7 @@ const { handleJobs } = require("./routes/jobs");
 const { handleNetworkInventory } = require("./routes/network");
 const { handleUiBootstrap, handleUiBootstrapCode, handleUiSession, handleUiSessionError, parseSessionCookie } = require("./routes/ui");
 const { validateSessionToken } = require("./services/sessionService");
+const { CROSS_ORIGIN_DENIED, HOST_NOT_ALLOWED, assertTrustedRequest } = require("./services/hostTrustPolicy");
 const { handlePairing } = require("./routes/pairing");
 const { authorizeApiPermission } = require("./permissions");
 const { handlePlayitSnapshot, handlePlayitStatus, handlePublicAccessPlayit } = require("./routes/playit");
@@ -444,7 +445,15 @@ async function handleRequest(request, response) {
 
     request.body = await readRequestBody(request);
 
-    const url = new URL(request.url, `http://${request.headers.host || `${config.host}:${config.port}`}`);
+    // Security hardening (DNS-rebinding precondition): validate the caller's
+    // Host header and explicitly refuse cross-origin state changes BEFORE any
+    // authentication, session, enrollment, or route work runs, so a refused
+    // request has no side effect and cannot reach a handler that would echo the
+    // caller's Host. The URL is parsed against a fixed internal base — only
+    // pathname/searchParams are consumed anywhere — so a caller-supplied Host
+    // (or an absolute-form request target) can no longer shape the parsed URL.
+    assertTrustedRequest(request, config);
+    const url = new URL(request.url, "http://127.0.0.1");
     // V2-A public enrollment handshake: nonce-protected start/complete plus a
     // public status summary, handled before bearer authentication.
     if (url.pathname.startsWith("/api/v1/enroll/")) {
@@ -556,6 +565,23 @@ async function handleRequest(request, response) {
   } catch (error) {
     const statusCode = error.statusCode || 500;
     const code = error.code || (error.statusCode === 413 ? "REQUEST_TOO_LARGE" : "INTERNAL_ERROR");
+    // Request-trust refusals are pre-auth and shaped entirely by the caller, so
+    // they get a hardened path: only the method and the pathname are logged (no
+    // Host header, no Origin, no absolute-form target) and the response carries
+    // no details object — a hostile host can never be echoed or logged back.
+    if (code === HOST_NOT_ALLOWED || code === CROSS_ORIGIN_DENIED) {
+      const pathname = String(request.url || "").split("?")[0].slice(0, 200);
+      logger.warn("request-trust", "Agent request refused by the request-trust policy", {
+        method: request.method,
+        pathname,
+        code,
+        reason: error?.details?.reason || null,
+      }, { file: "agent", errorCode: code });
+      if (!response.headersSent) {
+        sendError(response, statusCode, code, error.message || "Request failed.");
+      }
+      return;
+    }
     logRequestError(request, error, statusCode, code);
     logger.error("request", error, { method: request.method, url: request.url, statusCode }, { file: "agent", errorCode: code });
     if (!response.headersSent) {

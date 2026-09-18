@@ -413,3 +413,47 @@ default desktop-spawned Agent binds loopback only, while a standalone Agent
 defaults to all interfaces and needs a firewall rule that you create
 deliberately. Loopback trust is absolute, so do not put a reverse proxy in front
 of the Agent port — remote callers would then look local to this check.
+
+## 13. Which Host names and origins the Agent answers for
+
+The Agent now validates the `Host` header on every route and refuses requests
+that do not address it, because a name it answers for can be pointed at
+`127.0.0.1` by an attacker's DNS (DNS rebinding) and then read as if it were
+same-origin. It also refuses state-changing cross-origin requests outright
+rather than relying on the browser's default.
+
+What is accepted:
+
+- **Loopback in any form** — `127.0.0.1`, `localhost`, `::1`, `[::1]`, with or
+  without a port.
+- **The address the Agent is configured to serve** and the host in its
+  configured `agentUrl`, plus **this machine's own interface addresses and
+  hostname**.
+
+Anything else is refused with `HOST_NOT_ALLOWED` (HTTP 421) before
+authentication, and the refused host is neither echoed nor logged. A missing or
+malformed `Host` fails closed.
+
+Two consequences worth knowing before you need them:
+
+- **A remote Agent reached by a DNS name must have that name in its `agentUrl`**
+  in `agent.json`. Otherwise the name is not on the allowlist and requests to it
+  are refused. A remote Agent reached by IP address needs no configuration — IP
+  literals are always accepted, because rebinding cannot produce one.
+- **A wildcard bind (`AGENT_HOST=0.0.0.0` or `::`) is deliberately not strict.**
+  Deciding whether an arbitrary name resolves to a local address would require a
+  DNS lookup on the request path, which the Agent does not do. So on a wildcard
+  bind any syntactically valid host is accepted, and the pairing `agentUrl` is
+  still reported as the configured address rather than the caller's. **If you
+  want the strict allowlist, bind a concrete address.** The Control Center's
+  own local Agent already binds `127.0.0.1`.
+
+Cross-origin requests: the Agent sends no `Access-Control-Allow-Origin` on any
+path, and a state-changing request (anything but GET/HEAD/OPTIONS) or an
+`OPTIONS` preflight whose `Origin` does not match the request's own host is
+refused with `CROSS_ORIGIN_DENIED` (403). The Agent's own browser UI is
+unaffected — it is same-origin by definition, and its full bootstrap → session →
+page flow is covered by the smoke.
+
+Neither rule replaces the pairing gate in §12: an enrolled Agent still requires
+a loopback origin or the existing credential to re-pair.

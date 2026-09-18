@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const {
+  readAgentConfigFile,
   resolveSharedAgentToken,
 } = require("../../src/shared/agentTokenStore");
 const { readAgentRuntimeConfig } = require("../../src/shared/agentRuntimeConfigStore");
@@ -122,6 +123,16 @@ function getConfig() {
     cwd: process.cwd(),
     environmentToken: process.env.AGENT_TOKEN,
   });
+  // The configured Agent address, used by the request-trust policy as one of the
+  // authorities this Agent legitimately answers for. Read from the same config
+  // file the credential came from; a corrupt file already throws above, so this
+  // read can only add the address (or nothing).
+  let configuredAgentUrl = "";
+  try {
+    configuredAgentUrl = String(readAgentConfigFile(tokenStatus.configPath)?.agentUrl || "").trim();
+  } catch {
+    configuredAgentUrl = "";
+  }
   const instanceRoot = resolveInstanceRoot();
   if (instanceRoot.diagnostic) {
     emitInstanceRootDiagnostic(instanceRoot.diagnostic);
@@ -129,6 +140,7 @@ function getConfig() {
   return {
     host: process.env.AGENT_HOST || runtime.host || DEFAULT_HOST,
     port: readInteger(process.env.AGENT_PORT || runtime.port, DEFAULT_PORT),
+    agentUrl: configuredAgentUrl,
     token: tokenStatus.token || "",
     tokenStatus,
     requestTimeoutMs: readInteger(process.env.AGENT_REQUEST_TIMEOUT_MS || runtime.connectionTimeoutMs, DEFAULT_REQUEST_TIMEOUT_MS),
