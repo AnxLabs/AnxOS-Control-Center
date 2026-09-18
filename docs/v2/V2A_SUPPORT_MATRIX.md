@@ -22,7 +22,7 @@ acceptance gate).
 | Platform | Launcher / artifact evidence | Status |
 | --- | --- | --- |
 | Windows 10/11 x64 (primary packaged target) | `start-agent-mode.ps1`; Windows installer in build 202 (signed); bundled runtimes for win-x64 | **Tested** (Windows was the packaged acceptance target for build 200/202 RC gates) |
-| Linux/macOS (dev launcher) | `AnxAgent.sh` (repo root) — bash launcher requiring Node.js + npm; config via `XDG_CONFIG_HOME`/`~/.config/anxos-control-center/agent.env` | **Experimental** (launcher only; no systemd units or Debian packaging found in repo) |
+| Linux/macOS (dev launcher) | `AnxAgent.sh` (repo root) — bash launcher requiring Node.js + npm; config via `XDG_CONFIG_HOME`/`~/.config/anxos-control-center/agent.env`; the Linux Agent also installs and manages a systemd **user** unit at runtime (`src/services/agentControlService.js:524`, reported as type `systemd-user` at `agentControlService.js:455`) | **Experimental** (launcher plus runtime systemd user unit management; no Debian packaging found in repo, and no live V2-A Linux acceptance recorded) |
 | Linux packaged artifacts (historical) | `docs/LINUX_ARTIFACT_REPORT_1.7-build143.md` — AppImage ~143 MiB, deb ~112 MiB, `latest-linux.yml`; build-202 CI produces `.AppImage` + `.deb` | **Partial** (artifact exists; no live V2 acceptance on a Linux host recorded) |
 | Attested distro targets | Debian / Ubuntu / Fedora / Raspberry Pi (roadmap §6A and Linux artifact report) | **Untested for V2-A** — no live V2-A evidence on these hosts |
 
@@ -42,7 +42,7 @@ acceptance gate).
 | Marketplace templates + installs | **Tested** (Windows marketplace flows; build-201 dependency fixes) | **Partial** (same backend; Linux host acceptance outstanding) | `src/services/marketplaceService.js:27-28,554` |
 | Dependency checks + bundled runtimes | **Partial on Windows** (bundled java/dotnet/steamcmd resolved for win32 only); **Absent on Linux** (no bundled runtime tree; system runtime detection only) | | `src/shared/bundledRuntimePaths.js` (executable candidates gated on `win32`); `config/windows-runtime-bundle.json` |
 | Public health endpoint | **Tested** | **Tested** | `agent/src/auth.js:24` (`/api/v1/health` public) |
-| Browser management surface | **Absent** (design brief only — Wave 1) | **Absent** | `V2A_BROWSER_SURFACE_WAVE1.md` |
+| Browser management surface | **Partial** (session-gated read-only management page shipped) | **Partial** (same shared `agent/src/routes/ui.js` code) | `agent/src/routes/ui.js`; `agent/src/public/bootstrap.html`, `agent/src/public/management.html`; `agent:ui-session:smoke` |
 
 ## 3. Explicit platform caveats
 
@@ -53,8 +53,15 @@ acceptance gate).
 - **Docker is a host prerequisite on both platforms** — never bundled; the
   matrix above is for the control-plane surface, not the engine itself.
 - **Persistent service ownership** (management surviving without the desktop
-  client) is **not yet delivered on either platform**; it is the subject of
-  `V2A_BROWSER_SURFACE_WAVE1.md`.
+  client) is now implemented on both platforms. Windows registers a startup
+  scheduled task through the elevated Agent; Linux installs and manages an
+  `anxos-agent.service` systemd **user** unit at runtime
+  (`src/services/agentControlService.js:524`) and reports its state
+  (`agentControlService.js:455`, type `systemd-user`). The Linux Agent
+  self-update path depends on that unit and refuses with
+  `LINUX_AGENT_UNIT_NOT_INSTALLED` when it is missing (see
+  `docs/OPERATOR_NOTES_V2.md` §8). What remains outstanding is **live Linux
+  acceptance** of this ownership on a real host, not the ownership code itself.
 
 ---
 

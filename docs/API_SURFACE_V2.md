@@ -88,7 +88,7 @@ Job expiry adds no route; it changes how existing job routes report state.
 
 | Channel | Desktop guard | Agent tier | Renderer |
 | --- | --- | --- | --- |
-| `networkInventory:get` | local owner + `nodes:read` (node context) | `system:read` | None yet. |
+| `networkInventory:get` | local owner + `nodes:read` (node context) | `system:read` | Nodes page network-inventory card (`index.html:4189`; `app.js:35216`). |
 
 ### Scheduled restarts
 
@@ -140,6 +140,36 @@ No desktop IPC channel exists. Listing and unpinning are Agent REST operations
 (§1). This is intentional in the current slice, not an oversight: there is no
 renderer or main-process wrapper for pins today.
 
+### Alerts
+
+Desktop-only; adds no Agent route. Both channels are local-owner gated and audit
+their action.
+
+| Channel | Desktop guard | Notes |
+| --- | --- | --- |
+| `alerts:list` | local owner + `nodes:read` | Returns the persisted active-alert state. Audited `alerts.list`. |
+| `alerts:acknowledge` | local owner + `settings:write` | Acknowledges one alert by `id`/`alertId`; the acknowledgement label is set desktop-side. Audited `alerts.acknowledge`. |
+
+Source: `src/ipc/alertsIpc.js:24-40` (registered at `main.js:1050`). As of the
+audited SHA `4749e56` these channels have **no preload exposure and no renderer
+caller** — the alert engine itself is wired to a bounded evaluation loop, but
+the desktop alert surface is **unreachable** from the UI. A separate lane is
+wiring them; until that lands, treat them as unreachable.
+
+### Instance jobs
+
+Desktop-only wrappers over the durable job store; no new Agent route.
+
+| Channel | Desktop guard | Notes |
+| --- | --- | --- |
+| `instances:jobs:list` | `instance:read` | Lists the instance's durable jobs; optional `limit` / `type`. |
+| `instances:jobs:get` | `instance:read` | Returns one job; `JOB_NOT_FOUND` (404) when absent. |
+| `instances:jobs:cancel` | `instance:lifecycle` | Cancels one job; audited `job.cancel`; `JOB_NOT_FOUND` (404) when absent. |
+
+Source: `src/ipc/instancesIpc.js:265-289`. As of the audited SHA `4749e56`
+these channels have **no preload exposure and no renderer caller** — registered
+and permission-matrix-covered, but **unreachable at the audited SHA**.
+
 ## 3. Change control
 
 The V2-I permission-matrix harness (`test-helpers/permission-matrix.js`,
@@ -147,3 +177,8 @@ The V2-I permission-matrix harness (`test-helpers/permission-matrix.js`,
 REST families and fails when a channel or route is not covered by a row. Any new
 endpoint or channel added to these surfaces must be added to the matrix, and the
 tier recorded above must match `agent/src/server.js` — the two must not drift.
+
+The `alerts:*` (§2, `test-helpers/permission-matrix.js:618,625`) and
+`instances:jobs:*` (§2, `test-helpers/permission-matrix.js:278,297`) families
+were registered and matrix-covered before they were recorded here; this revision
+adds the missing rows.

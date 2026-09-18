@@ -6,7 +6,7 @@
 
 **Edition:** 0.3 — Infrastructure Update vision integrated into V2 planning
 
-**Planning status:** Proposed sequence; implementation and release acceptance NOT VERIFIED in this revision
+**Planning status:** Proposed sequence. Most V2-A…J bullets are **code-complete (IMPLEMENTED)** as of the 2026-09-18 status pass (see the §6 status lines and evidence); **acceptance** — live operator drills and release acceptance — remains **NOT VERIFIED**.
 
 **Progression:** V1 Control Center → V2 self-hosted/server-management platform → Linux-based AnxOS server OS/appliance
 
@@ -62,7 +62,7 @@ Security and observability start with V1 and V2-A; the later milestones are comp
 
 ## 3. How milestones become accepted
 
-All milestones start **Planned; current acceptance UNKNOWN**. Check boxes only when their stated outcomes have evidence. Work may proceed in parallel where dependencies permit; do not silently skip a release gate or rename history.
+All milestones start **Planned; acceptance UNKNOWN**. Implementation and acceptance are tracked separately, following the field template in §10. In §6, a checked box means the bullet's outcome is **code-complete (IMPLEMENTED)** with a registered hermetic smoke named in that milestone's status line; **acceptance** — live operator drills and release gates — stays **NOT VERIFIED** unless a status line says otherwise. An unchecked box means outstanding work, an absent capability, or a bullet not independently verified in this pass; it is not automatically a missing feature. Work may proceed in parallel where dependencies permit; do not silently skip a release gate or rename history.
 
 For each milestone, maintain:
 
@@ -133,17 +133,21 @@ Automated checks, live UI acceptance, real workload behavior, and packaged relea
 
 ## 6. V2 — The self-hosted/server-management platform
 
+**Status of this section (2026-09-18 status pass).** Implementation is tracked per bullet and acceptance per milestone, following the field template in §10. `[x]` = **code-complete (IMPLEMENTED)** — the outcome ships and is covered by the registered hermetic `*:smoke` suites named in the milestone's status line. `[ ]` = outstanding, an absent capability, or a bullet not independently verified in this pass — not automatically a missing feature. No milestone's **acceptance** gate is claimed as passed: every live-acceptance drill remains queued and release acceptance stays publication-gated. A checked bullet can be re-verified by running its named suite.
+
 ### V2-A — Shared platform, identity and agent foundation
 
 **Depends on:** B0 and accepted V1 foundations.
 
-- [ ] Define consistent identities for nodes, services, game instances, containers, volumes, users and operations.
-- [ ] Define management authority: the backend authorizes actions; an Agent verifies the target and bounded capability before execution.
-- [ ] Introduce scoped roles for owner/admin/operator/viewer and service identities, with explicit node/workload permissions.
-- [ ] Establish authenticated agent enrollment, revocation, credential rotation and compatibility negotiation.
-- [ ] Define job lifecycle, audit events, cancellation and idempotency across local and remote execution.
-- [ ] Publish a support matrix for Windows/Linux roles; do not imply identical host features on every platform.
-- [ ] Separate desktop-client availability from persistent service ownership and prepare an authenticated browser management surface.
+**Status:** Implementation: Implemented (code-complete) · Acceptance: NOT VERIFIED — live Debian 12 x64 acceptance and the two-node drill are queued. Evidence: `agent:identity-mint:smoke`, `node:agent-identity:smoke`, `authority:permissions:smoke`, `permission-matrix:smoke`, `agent:enroll:smoke`, `agent:token:smoke`, `agent:compatibility:smoke`, `node:lifecycle:smoke`, `instances:job-lifecycle:smoke`, `instances:job-reobservation:smoke`, `docker:job-lifecycle:smoke`, `correlation-id:smoke`, `agent:ui-session:smoke`; persistent service ownership at `src/services/agentControlService.js:524` (systemd user unit) with state reported at `agentControlService.js:455`.
+
+- [x] Define consistent identities for nodes, services, game instances, containers, volumes, users and operations.
+- [x] Define management authority: the backend authorizes actions; an Agent verifies the target and bounded capability before execution.
+- [x] Introduce scoped roles for owner/admin/operator/viewer and service identities, with explicit node/workload permissions.
+- [x] Establish authenticated agent enrollment, revocation, credential rotation and compatibility negotiation.
+- [x] Define job lifecycle, audit events, cancellation and idempotency across local and remote execution.
+- [ ] Publish a support matrix for Windows/Linux roles; do not imply identical host features on every platform. *(Previously misrepresented in `docs/v2/V2A_SUPPORT_MATRIX.md`; corrected in this pass — see that file for the verified per-platform state.)*
+- [x] Separate desktop-client availability from persistent service ownership and prepare an authenticated browser management surface.
 
 **Acceptance gate:** A permitted operation succeeds on the intended node; wrong-node, revoked-agent, unauthorized-user and duplicate-request cases fail safely with useful diagnostics. Restarting the client does not orphan server operations.
 
@@ -151,13 +155,15 @@ Automated checks, live UI acceptance, real workload behavior, and packaged relea
 
 **Depends on:** V2-A; installs use V2-C/D services.
 
-- [ ] Create a useful home dashboard with node health, storage pressure, running apps, game servers, failed jobs and actionable alerts.
+**Status:** Implementation: Partial — the Wave-1 dashboard/app-card slice and the ownership model shipped; actionable alerts are not reachable (§V2-J bullet 3) and the responsive browser workflows are deferred (§V2-B bullet 6). Acceptance: NOT VERIFIED — operator walkthrough drill queued. Evidence: `instances:runtime:smoke`, `instances:deletion:smoke`, `steamcmd:instance-update:smoke`, `instances:ownership:smoke`, `cross-page:selected-target:smoke`, `dashboard:node-routing:smoke`, `dashboard:metrics:smoke`; adoption code at `src/shared/instances/instanceServiceCore.js:1138-1159`.
+
+- [ ] Create a useful home dashboard with node health, storage pressure, running apps, game servers, failed jobs and actionable alerts. *(Actionable alerts are not reachable — see V2-J bullet 3.)*
 - [ ] Provide app cards, categories, search, favorites and launch links with real service status.
 - [ ] Guide users through installation requirements, target node, storage, resource limits, ports and access settings.
-- [ ] Support start/stop/restart, configuration, logs, update and uninstall from a coherent app detail page.
-- [ ] Distinguish AnxOS-managed, imported and external services; require explicit adoption before managing existing resources.
-- [ ] Build accessible, responsive browser workflows alongside the desktop experience.
-- [ ] Keep node context and risky action targets visible throughout navigation.
+- [x] Support start/stop/restart, configuration, logs, update and uninstall from a coherent app detail page.
+- [x] Distinguish AnxOS-managed, imported and external services; require explicit adoption before managing existing resources.
+- [ ] Build accessible, responsive browser workflows alongside the desktop experience. *(DEFERRED — the agent-served surface ships read-only; full browser parity is a later track.)*
+- [x] Keep node context and risky action targets visible throughout navigation.
 
 **Acceptance gate:** A first-time operator installs a reference self-hosted app, opens it, changes configuration and recovers a failed start through the UI. Dashboard status agrees with actual runtime state, including offline/stale cases.
 
@@ -165,14 +171,16 @@ Automated checks, live UI acceptance, real workload behavior, and packaged relea
 
 **Depends on:** V2-A; first app slice integrates with V2-B/D.
 
-- [ ] Detect supported container engines and explain missing or incompatible prerequisites.
-- [ ] Manage containers, images, volumes and networks with explicit ownership and target node.
-- [ ] Support reproducible multi-container application definitions, validated environment settings and secret references.
-- [ ] Preflight ports, disk capacity, required mounts and resource limits before creating resources.
-- [ ] Show logs, health checks, resource usage, restart policy and execution failures.
-- [ ] Support controlled image updates, restart and rollback where data/schema compatibility allows it.
-- [ ] Protect volumes on uninstall; preview cleanup and require explicit selection for data removal.
-- [ ] Gate privileged containers, host mounts and engine-socket access through policy and permissions.
+**Status:** Implementation: Partial — container lifecycle, policy gate, volume protection and preflight shipped; controlled image rollback is an open owner decision (bullet 6). Acceptance: NOT VERIFIED — live Docker engine drill queued. Evidence: `docker:smoke`, `docker:capabilities:smoke`, `docker:policy:smoke`, `docker:hostile-input:smoke`, `docker:job-lifecycle:smoke`, `docker:ipc-authorization:smoke`, `marketplace:provider-disk-preflight:smoke`; policy gate at `src/shared/dockerPolicy.js`.
+
+- [x] Detect supported container engines and explain missing or incompatible prerequisites.
+- [x] Manage containers, images, volumes and networks with explicit ownership and target node.
+- [ ] Support reproducible multi-container application definitions, validated environment settings and secret references. *(Compose definitions and the compose-file policy gate ship; secret references were not independently verified in this pass.)*
+- [x] Preflight ports, disk capacity, required mounts and resource limits before creating resources.
+- [x] Show logs, health checks, resource usage, restart policy and execution failures.
+- [ ] Support controlled image updates, restart and rollback where data/schema compatibility allows it. *(Rollback is an OPEN decision — `rollbackSupported: false`; build it or record a roadmap-scoped deferral.)*
+- [x] Protect volumes on uninstall; preview cleanup and require explicit selection for data removal.
+- [x] Gate privileged containers, host mounts and engine-socket access through policy and permissions.
 
 **Acceptance gate:** Install and operate one single-container and one multi-container reference app. Exercise bad image, occupied port, missing volume, restart and failed update. Cleanup preserves unselected user data and leaves no unexplained managed resources.
 
@@ -180,14 +188,16 @@ Automated checks, live UI acceptance, real workload behavior, and packaged relea
 
 **Depends on:** V2-A/C; produces the repeatable V2 Alpha install experience.
 
-- [ ] Define a versioned package/template format with provenance, compatible hosts, requirements, ports, volumes, permissions and lifecycle actions.
-- [ ] Organize a curated initial catalog for self-hosted apps, game servers and required runtimes.
+**Status:** Implementation: Partial — package metadata, install transactions, runtime pins and the install-plan preview ship; the publisher-trust warning and catalog export/import are **ABSENT** (bullets 7–8; `docs/KNOWN_LIMITATIONS.md:143-146`). Acceptance: NOT VERIFIED — clean-host reproducible install queued. Evidence: `marketplace:template-metadata:smoke`, `marketplace:archive-safety:smoke`, `marketplace:install-transaction:smoke`, `runtime:pin-guard:smoke`, `dependencies:smoke`; install-plan renderer at `app.js:15121`.
+
+- [x] Define a versioned package/template format with provenance, compatible hosts, requirements, ports, volumes, permissions and lifecycle actions.
+- [ ] Organize a curated initial catalog for self-hosted apps, game servers and required runtimes. *(Content claim, not independently verified in this pass.)*
 - [ ] Show installed versus available versions, update notes, maintenance state and unsupported combinations.
-- [ ] Resolve runtime versions per workload; avoid silently changing shared dependencies required by another service.
-- [ ] Validate downloads and package integrity before execution; document publisher trust and review requirements.
-- [ ] Show the installation plan before changes; track progress, interruption, resume and cleanup.
-- [ ] Provide a bounded extension/adaptor interface and a clear trust warning for third-party executable content.
-- [ ] Support catalog export/import and document offline installation limits.
+- [x] Resolve runtime versions per workload; avoid silently changing shared dependencies required by another service.
+- [ ] Validate downloads and package integrity before execution; document publisher trust and review requirements. *(Integrity validation ships; the publisher-trust documentation is ABSENT.)*
+- [x] Show the installation plan before changes; track progress, interruption, resume and cleanup.
+- [ ] Provide a bounded extension/adaptor interface and a clear trust warning for third-party executable content. *(ABSENT.)*
+- [ ] Support catalog export/import and document offline installation limits. *(ABSENT.)*
 
 **Acceptance gate:** A catalog package installs reproducibly on a clean supported host with its declared dependencies. Corrupt downloads, missing dependencies, incompatible templates and failed installs produce safe, diagnosable outcomes. Updating one runtime does not break a pinned reference workload.
 
@@ -197,14 +207,16 @@ Automated checks, live UI acceptance, real workload behavior, and packaged relea
 
 **Depends on:** V1-A and V2-A/D; integrates with V2-F/G.
 
-- [ ] Establish a documented game-adapter contract for installation, versions, configuration, lifecycle, readiness and updates.
-- [ ] Choose a bounded first-release game list based on verified support; include FiveM only after its remaining live gates pass.
-- [ ] Add templates, per-instance ports, environment/runtime selection, resource controls and scheduled tasks.
-- [ ] Provide scoped live console access, searchable logs, player information where the adapter supports it, and clear unsupported states.
-- [ ] Support game-specific configuration, mods/plugins and version changes only through declared adapter capabilities.
-- [ ] Handle license or setup requirements without exposing secret values or claiming successful startup prematurely.
-- [ ] Provide maintenance windows, restart warnings where supported, and workload-aware backup/update sequencing.
-- [ ] Allow delegated server operators without granting unrestricted host administration.
+**Status:** Implementation: Partial — player information, scheduled restarts with warnings, and per-game world backup scopes shipped; the documented game-adapter contract is **ABSENT** (bullet 1) and FiveM's remaining live gates are outstanding. Acceptance: NOT VERIFIED — two-instance live drill queued. Evidence: `minecraft:players:smoke`, `restart:schedule:smoke`, `backups:world-scopes:smoke`, `backups:consistency:smoke`, `permission-matrix:smoke`.
+
+- [ ] Establish a documented game-adapter contract for installation, versions, configuration, lifecycle, readiness and updates. *(ABSENT.)*
+- [ ] Choose a bounded first-release game list based on verified support; include FiveM only after its remaining live gates pass. *(FiveM live gates outstanding.)*
+- [ ] Add templates, per-instance ports, environment/runtime selection, resource controls and scheduled tasks. *(Scheduled tasks ship; resource controls were deferred in the V2-E survey.)*
+- [x] Provide scoped live console access, searchable logs, player information where the adapter supports it, and clear unsupported states.
+- [ ] Support game-specific configuration, mods/plugins and version changes only through declared adapter capabilities. *(Adapter contract ABSENT.)*
+- [ ] Handle license or setup requirements without exposing secret values or claiming successful startup prematurely. *(Not independently verified in this pass.)*
+- [x] Provide maintenance windows, restart warnings where supported, and workload-aware backup/update sequencing.
+- [x] Allow delegated server operators without granting unrestricted host administration.
 
 **Acceptance gate:** Two independently configured reference game instances run concurrently, receive console actions and survive restart. Backup/restore recovers usable game state. Permissions prevent cross-instance access, and port conflicts, broken configuration and interrupted updates are recoverable.
 
@@ -212,15 +224,17 @@ Automated checks, live UI acceptance, real workload behavior, and packaged relea
 
 **Depends on:** V2-A; thin backup slice is required for Alpha.
 
-- [ ] Provide scoped file browsing, upload/download, editing, rename and move with target paths and limits visible.
-- [ ] Validate traversal, links and archive extraction against authorized roots; reject writes outside them.
-- [ ] Inventory disks, mounts, volumes, capacity and usage with read-only discovery before provisioning controls.
-- [ ] Manage selected storage locations and quotas where supported; mark destructive disk operations separately.
-- [ ] Add scheduled backups, retention, integrity checks and capacity/error reporting.
-- [ ] Define workload-consistent backup hooks for databases and game servers; disclose when only crash-consistent copies are supported.
-- [ ] Support chosen local and remote/off-node destinations, protected credentials and encryption/key-recovery procedures.
-- [ ] Restore individual workloads and configuration into a selected target, with conflict handling and preview.
-- [ ] Prevent pruning the last required recovery point and show backup age versus policy.
+**Status:** Implementation: Implemented (code-complete) — storage *management* (bullet 4) is discovery-only by a recorded deferral, not missing. Acceptance: NOT VERIFIED — the restore drill is the gate and is queued. Evidence: `files:smoke`, `files:ipc-authorization:smoke`, `instances:file-security:smoke`, `agent:files-root:smoke`, `agent:disk-stats:smoke`, `backups:integrity:smoke`, `backups:metadata-migration:smoke`, `backups:consistency:smoke`, `backups:world-scopes:smoke`, `backup:destinations:smoke`, `restore:targeting:smoke`, `backups:transfer-safety:smoke`.
+
+- [x] Provide scoped file browsing, upload/download, editing, rename and move with target paths and limits visible.
+- [x] Validate traversal, links and archive extraction against authorized roots; reject writes outside them.
+- [x] Inventory disks, mounts, volumes, capacity and usage with read-only discovery before provisioning controls.
+- [ ] Manage selected storage locations and quotas where supported; mark destructive disk operations separately. *(Discovery-only by recorded deferral — provisioning controls are not built.)*
+- [x] Add scheduled backups, retention, integrity checks and capacity/error reporting.
+- [x] Define workload-consistent backup hooks for databases and game servers; disclose when only crash-consistent copies are supported.
+- [x] Support chosen local and remote/off-node destinations, protected credentials and encryption/key-recovery procedures. *(SFTP is the only remote kind; there is no key escrow — see `docs/OPERATOR_NOTES_V2.md` §11.)*
+- [x] Restore individual workloads and configuration into a selected target, with conflict handling and preview.
+- [x] Prevent pruning the last required recovery point and show backup age versus policy.
 
 **Acceptance gate:** Restore a reference app and game workload to an isolated destination and verify usable data. Test full disk, missing mount, interrupted backup, corrupted archive, unauthorized path and unavailable remote destination. A backup is accepted only after a restore drill.
 
@@ -228,14 +242,16 @@ Automated checks, live UI acceptance, real workload behavior, and packaged relea
 
 **Depends on:** V2-A plus relevant workload tracks.
 
-- [ ] Enroll, name, group, inspect, disconnect and revoke nodes with explicit machine identity.
-- [ ] Provide capability-aware actions and compatible Agent upgrades for the selected host matrix.
-- [ ] Aggregate inventory, health and job status while keeping every action bound to its target node.
-- [ ] Reconcile disconnection, timeout, reconnect, stale telemetry and incomplete remote operations.
-- [ ] Add fleet filters and controlled batch actions with a per-node result and bounded concurrency.
-- [ ] Define whether offline jobs expire or require renewed approval; never silently replay stale destructive actions.
-- [ ] Provide explicit backup/restore-based workload transfer between compatible nodes before considering live migration.
-- [ ] Document management-backend outage behavior: existing workloads, agent reconnection and recovery authority.
+**Status:** Implementation: Implemented (code-complete) — node lifecycle, capability-aware upgrades, fleet aggregation/batch, offline job policy and workload transfer all shipped. Acceptance: NOT VERIFIED — the two-node live drill is queued (recorded as code-complete with the live drill outstanding). Evidence: `node:lifecycle:smoke`, `agent:self-update:smoke`, `agent:compatibility:smoke`, `fleet:aggregation:smoke`, `multi-node:fleet:smoke`, `node:stale-response:smoke`, `instances:job-expiry:smoke`, `workload:transfer:smoke`, `workload:transfer-gate:smoke`.
+
+- [x] Enroll, name, group, inspect, disconnect and revoke nodes with explicit machine identity.
+- [x] Provide capability-aware actions and compatible Agent upgrades for the selected host matrix. *(Live Linux/systemd acceptance of the self-update path is queued; Windows is desktop-driven.)*
+- [x] Aggregate inventory, health and job status while keeping every action bound to its target node.
+- [x] Reconcile disconnection, timeout, reconnect, stale telemetry and incomplete remote operations.
+- [x] Add fleet filters and controlled batch actions with a per-node result and bounded concurrency.
+- [x] Define whether offline jobs expire or require renewed approval; never silently replay stale destructive actions.
+- [x] Provide explicit backup/restore-based workload transfer between compatible nodes before considering live migration.
+- [ ] Document management-backend outage behavior: existing workloads, agent reconnection and recovery authority. *(Documentation claim, not independently verified in this pass.)*
 
 **Acceptance gate:** Operate two nodes concurrently, interrupt one connection and restart management services. The healthy node remains usable, results never cross node boundaries, revocation takes effect, and reconnect does not duplicate work. Validate each host OS claimed in the release matrix.
 
@@ -243,14 +259,16 @@ Automated checks, live UI acceptance, real workload behavior, and packaged relea
 
 **Depends on:** V2-A/G; public exposure also requires V2-I security gates.
 
-- [ ] Provide permission-scoped shell/terminal sessions, timeouts and attributable audit metadata without logging secrets unnecessarily.
-- [ ] Inventory interfaces, addresses, ports, listeners and conflicts on supported hosts.
-- [ ] Manage a bounded initial set of network/firewall rules with previews and a recovery path for loss of access.
-- [ ] Add service domains, reverse proxy routes and certificate lifecycle for supported web workloads.
-- [ ] Support selected tunnel/public-access providers through explicit provisioning, readiness, failure and cleanup states.
-- [ ] Distinguish HTTP routing from game-server TCP/UDP requirements; show actual provider and protocol limits.
-- [ ] Keep public workload exposure separate from exposing the AnxOS administration interface.
-- [ ] Surface DNS/certificate/provider errors and residual billable resources where applicable; never imply provisioning succeeded from request acceptance alone.
+**Status:** Implementation: Partial — permission-scoped shell, network inventory, firewall lifecycle and tunnel/public-access providers ship; reverse-proxy/certificate lifecycle is **ABSENT** (bullet 4, an owner decision). Acceptance: NOT VERIFIED — publish/revoke drill queued. Evidence: `ssh:lifecycle:smoke`, `ssh:redaction:smoke`, `ssh:ipc-authorization:smoke`, `network-inventory:smoke`, `firewall:lifecycle:smoke`, `public-access:smoke`, `public-access:create-service:smoke`.
+
+- [x] Provide permission-scoped shell/terminal sessions, timeouts and attributable audit metadata without logging secrets unnecessarily.
+- [x] Inventory interfaces, addresses, ports, listeners and conflicts on supported hosts. *(Renderer consumption ships — see `docs/OPERATOR_NOTES_V2.md` §7.)*
+- [x] Manage a bounded initial set of network/firewall rules with previews and a recovery path for loss of access.
+- [ ] Add service domains, reverse proxy routes and certificate lifecycle for supported web workloads. *(ABSENT — no reverse-proxy/certificate code or documentation found.)*
+- [x] Support selected tunnel/public-access providers through explicit provisioning, readiness, failure and cleanup states.
+- [ ] Distinguish HTTP routing from game-server TCP/UDP requirements; show actual provider and protocol limits. *(Not independently verified in this pass.)*
+- [ ] Keep public workload exposure separate from exposing the AnxOS administration interface. *(Not independently verified in this pass.)*
+- [ ] Surface DNS/certificate/provider errors and residual billable resources where applicable; never imply provisioning succeeded from request acceptance alone. *(Certificate lifecycle ABSENT; provider-error surfacing partially present.)*
 
 **Acceptance gate:** Publish and revoke a test workload using the selected access method; independently verify reachability and closure. Exercise failed provisioning, expired credentials, conflicting ports and rollback after a risky network change. Administrative access remains within the chosen policy.
 
@@ -258,14 +276,16 @@ Automated checks, live UI acceptance, real workload behavior, and packaged relea
 
 **Depends on:** V2-A; hardens every earlier track before public multi-user release.
 
-- [ ] Complete role and resource-scope enforcement for UI, API, file operations, console, shell, backups and Agent calls.
-- [ ] Add session revocation, credential rotation, protected recovery and strong authentication for remote administration.
-- [ ] Scope service/API tokens and prevent secrets appearing in routine logs, diagnostics or unrelated responses.
-- [ ] Define workload trust levels, non-admin execution and container/process isolation appropriate to supported hosts.
-- [ ] Enforce resource limits and restricted host mounts; clearly document residual host-level privileges.
-- [ ] Review package provenance, update trust, extension execution and dependency vulnerability handling.
-- [ ] Provide audit retention, access review and export with sensitive data redaction.
-- [ ] Document threat model, security reporting and operator hardening guidance.
+**Status:** Implementation: Partial — the role/resource-scope permission model, scoped Agent tokens and secret redaction ship; workload trust levels, package trust review and the audit-export/threat-model documentation remain open. Acceptance: NOT VERIFIED — the actor×resource×action live drill is queued (the hermetic `permission-matrix:smoke` harness exists). Evidence: `permission-matrix:smoke`, `agent-scope-enforcement:smoke`, `authority:permissions:smoke`, `redaction:smoke`, `agent:token:smoke`, `ssh:ipc-authorization:smoke`, `backups:ipc-authorization:smoke`.
+
+- [x] Complete role and resource-scope enforcement for UI, API, file operations, console, shell, backups and Agent calls.
+- [ ] Add session revocation, credential rotation, protected recovery and strong authentication for remote administration. *(Partial: the pairing authorization gate and token rotation ship; protected recovery and the full strong-auth story were not independently verified in this pass.)*
+- [x] Scope service/API tokens and prevent secrets appearing in routine logs, diagnostics or unrelated responses.
+- [ ] Define workload trust levels, non-admin execution and container/process isolation appropriate to supported hosts. *(Re-scope candidate — not delivered.)*
+- [ ] Enforce resource limits and restricted host mounts; clearly document residual host-level privileges. *(Enforcement ships via `docker:policy:smoke`; the residual-privilege documentation was not independently verified.)*
+- [ ] Review package provenance, update trust, extension execution and dependency vulnerability handling. *(Publisher-trust warning is ABSENT — see V2-D bullet 7.)*
+- [ ] Provide audit retention, access review and export with sensitive data redaction. *(Audit events are recorded and redacted; retention/access-review/export were not independently verified.)*
+- [ ] Document threat model, security reporting and operator hardening guidance. *(Not independently verified in this pass.)*
 
 **Acceptance gate:** Test an explicit actor × resource × action matrix, including denial paths through direct APIs and Agent requests. Cross-user, cross-node and cross-workload access attempts fail. Critical findings block exposure/release until resolved or the affected capability is removed from release scope.
 
@@ -273,18 +293,22 @@ Automated checks, live UI acceptance, real workload behavior, and packaged relea
 
 **Depends on:** All implemented V2 tracks; monitoring basics start earlier.
 
-- [ ] Unify node, application, container and game-server health with timestamps and stale/unknown states.
-- [ ] Correlate user operations, backend jobs, Agent actions and workload logs through stable IDs.
-- [ ] Provide alerts for disk pressure, failure, offline agents, backup age and resource exhaustion with deduplication and quiet recovery behavior.
-- [ ] Add redacted diagnostic exports and documented retention/storage budgets.
-- [ ] Establish controlled updates for Control Center, backend, Agents, templates and workloads with compatibility checks.
-- [ ] Take and verify required recovery points before risky migrations; distinguish application rollback from data-schema rollback.
-- [ ] Handle interrupted update, partial fleet upgrade, backend crash and failed migration without inventing success.
-- [ ] Publish operator recovery procedures, recovery-time/data-loss targets and drill results.
+**Status:** Implementation: Partial — health unification, correlation IDs, redacted diagnostics and controlled updates ship; alert surfacing is **unreachable** (bullet 3) and schema rollback is not implemented (bullet 6). Acceptance: NOT VERIFIED — induced-failure drill queued. Evidence: `dashboard:metrics:smoke`, `node-health:smoke`, `instances:health-summary:smoke`, `correlation-id:smoke`, `diagnostics:smoke`, `redaction:smoke`, `updates:download-safety:smoke`, `agent:self-update:smoke`, `agent:compatibility:smoke`.
+
+- [x] Unify node, application, container and game-server health with timestamps and stale/unknown states.
+- [x] Correlate user operations, backend jobs, Agent actions and workload logs through stable IDs.
+- [ ] Provide alerts for disk pressure, failure, offline agents, backup age and resource exhaustion with deduplication and quiet recovery behavior. *(The alert engine is wired to a bounded evaluation loop and dedup/quiet-recovery are smoke-covered, but the desktop alert channels have no renderer caller as of the audited SHA — the surface is unreachable; see `docs/API_SURFACE_V2.md` §2.)*
+- [x] Add redacted diagnostic exports and documented retention/storage budgets.
+- [x] Establish controlled updates for Control Center, backend, Agents, templates and workloads with compatibility checks.
+- [ ] Take and verify required recovery points before risky migrations; distinguish application rollback from data-schema rollback. *(Schema rollback is not implemented; container image rollback is an open decision — see V2-C bullet 6.)*
+- [x] Handle interrupted update, partial fleet upgrade, backend crash and failed migration without inventing success.
+- [ ] Publish operator recovery procedures, recovery-time/data-loss targets and drill results. *(Recovery procedures are documented; the RTO/RPO targets and drill results are outstanding.)*
 
 **Acceptance gate:** Induced service failure raises one useful alert and later resolves correctly. Update a staged environment, interrupt an update and recover using documented procedures. Meet targets chosen in B0; record measured outcomes rather than assumed reliability.
 
 ### V2-K — Integrated platform release
+
+**Status:** Implementation: Planned/Unknown — V2-K is the integrated release milestone and is publication-gated; no bullet is claimed code-complete. Acceptance: NOT VERIFIED — the final release audit precedes any claim.
 
 - [ ] Pass the integrated acceptance matrix in Section 8 on packaged candidates.
 - [ ] Publish tested host/Agent/workload combinations and explicit feature differences.

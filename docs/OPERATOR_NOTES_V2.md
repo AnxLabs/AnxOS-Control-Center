@@ -170,10 +170,30 @@ Behavior operators should expect:
   (`RESTART_SCHEDULE_SCHEMA_UNSUPPORTED`, HTTP 409). Neither grows the store
   directory without bound.
 
-**Not yet implemented.** A scheduled restart does not currently check for an
-in-flight durable job on the target instance before restarting; that reliability
-item (queue Y2) is recorded but not landed. Treat concurrent scheduled restart
-and long-running job activity on the same instance as untested.
+**In-flight durable jobs are checked before a restart.** A due restart queries
+the instance's durable jobs through the same canonical read path the
+`/api/v1/jobs` route uses and looks for a non-terminal job
+(`agent/src/services/restartScheduleService.js:438-446`). It never restarts
+into one:
+
+- **Busy instance** — a non-terminal durable job (a long SteamCMD update, a
+  marketplace install, a backup/restore, …) targets the instance, so the due
+  cycle is skipped and reported with `skipReason: INSTANCE_BUSY`, carrying the
+  blocking job's type and id in `lastError` so the missed window can be
+  correlated with the job that held the instance
+  (`restartScheduleService.js:513-547`). The restart is deliberately **not**
+  queued behind the job: a tick-based scheduler has no durable home for a
+  deferred intent, and a queued restart could fire long after the maintenance
+  window the operator scheduled. The next due cycle is the retry point.
+- **Unreadable job store** — the query fails closed and the cycle is skipped
+  and reported with `skipReason: JOB_QUERY_FAILED`
+  (`restartScheduleService.js:521-536`) rather than restarting. Skipping an
+  unnecessary restart is deliberately preferred over killing an in-flight
+  install, and the distinct reason keeps a real busy-instance skip
+  distinguishable from a store fault.
+
+Both skip reasons are a stable contract (`restartScheduleService.js:31-32`) for
+the REST surface and the smoke harness.
 
 ## 6. Runtime pins
 
@@ -224,8 +244,14 @@ writes, or opens sockets; it is discovery only.
   treated as one listener, not a conflict.
 - Platform support: Windows and Linux. Other platforms report
   `supported: false` with an explanatory error entry.
-- There is no renderer UI consumption yet; this is an Agent API/desktop-channel
-  capability only. Treat viewing it as an API operation.
+- The renderer consumes it: the Nodes page has a read-only network-inventory
+  card (`index.html:4189` panel; `app.js:35216` renderer wiring) loaded through
+  the desktop `networkInventory:get` channel (`src/ipc/networkInventoryIpc.js:11`,
+  exposed at `preload.js:193-194`). The card shows interfaces, listeners and
+  conflicts, labels the platform when enumeration is unsupported, and is
+  read-only like the Agent surface behind it. Loading it requires an unlocked
+  local owner plus `nodes:read` on the selected node, matching the Agent's
+  `system:read` tier.
 
 ## 8. Linux Agent self-update
 
@@ -288,7 +314,9 @@ unsupported.
 
 Workload transfer moves a workload from one Agent node to another using the
 existing backup/import/restore primitives; it adds no new Agent endpoints. It is
-desktop-side orchestration (IPC), with **no renderer UI yet**.
+desktop-side orchestration (IPC) surfaced in the renderer as a two-stage
+preview → confirm modal (`app.js:20442-20656`, opened from the instance action
+at `app.js:39241`).
 
 - **Preview first.** The preview channel runs the pipeline up to the target
   restore preview — source backup, archive pull, target import, target
@@ -312,15 +340,15 @@ desktop-side orchestration (IPC), with **no renderer UI yet**.
   full-scope restore replaces it, and on a *failed* transfer a placeholder the
   transfer created is deleted (a pre-existing target is never deleted by the
   failure path).
-- **Caveat, verified in the current code.** The declined-preview path
-  (`confirmOverwrite` not set) calls the placeholder cleanup **without** checking
-  whether the transfer actually created the placeholder, unlike the failure path
-  which gates on that flag. A preview against a node that already has an
-  instance with the target id can therefore delete that existing instance when
-  the operator declines. Until this is fixed, do not run a transfer preview
-  whose target instance already exists. This is recorded here as a
-  documentation-verified discrepancy against the source comment, not as an
-  accepted behavior.
+- **Declined previews are now safe (fixed).** The declined-preview path deletes
+  a placeholder only when the transfer itself created it — it gates on
+  `context.placeholderCreated === true` and an unconsumed import
+  (`src/services/workloadTransferService.js:380`), mirroring the failure path's
+  identical guard at line 449. This closes the earlier P0 where a preview
+  against a node that already had an instance under the target id deleted that
+  pre-existing instance when the operator declined: the pre-existing target
+  survives a declined preview, and only a placeholder this transfer created is
+  removed.
 - The source keeps its workload and its backup untouched throughout; the
   destructive phase runs only on the target.
 
@@ -448,6 +476,11 @@ Two consequences worth knowing before you need them:
   want the strict allowlist, bind a concrete address.** The Control Center's
   own local Agent already binds `127.0.0.1`.
 
+Loopback is trusted absolutely here as well as in the pairing gate (§12), so an
+on-host reverse proxy in front of the Agent port defeats **both** gates: every
+proxied request arrives from loopback and therefore satisfies the Host check.
+Do not put the Agent port behind a reverse proxy unless you accept that.
+
 Cross-origin requests: the Agent sends no `Access-Control-Allow-Origin` on any
 path, and a state-changing request (anything but GET/HEAD/OPTIONS) or an
 `OPTIONS` preflight whose `Origin` does not match the request's own host is
@@ -457,3 +490,32 @@ page flow is covered by the smoke.
 
 Neither rule replaces the pairing gate in §12: an enrolled Agent still requires
 a loopback origin or the existing credential to re-pair.
+
+## 14. Downgrade limitation: schema-2 instances on a pre-Build-200 build
+
+Reinstalling an older build over Build 200 or later preserves data but can make
+existing instances **unreadable**. The update manifest's `rollback` block
+reports `preservesUserData` / `preservesInstances` / `preservesBackups: true`
+(`scripts/write-update-manifest.js:160-164`), and that is literally correct:
+rolling back does not delete instance data. What the manifest does not say is
+that the older build cannot read it.
+
+Instance configuration carries a schema version; the current build writes
+schema 2 (`src/shared/instances/instanceServiceCore.js:75`). A build that
+supports an older schema refuses any configuration whose `schemaVersion`
+exceeds its own with `INSTANCE_CONFIG_SCHEMA_UNSUPPORTED` (HTTP 409) instead of
+misreading it (`instanceServiceCore.js:3427-3432`). So after a downgrade to a
+pre-Build-200 build:
+
+- The instance data is preserved on disk — nothing is deleted or relocated.
+- The affected instances are **unreadable in the older build's UI** until the
+  installation is upgraded back to a build that supports schema 2. Data is
+  preserved; functionality is degraded, not lost.
+- The refusal happens at read time, before any migration or write
+  (`instanceServiceCore.js:3427-3438`), so the stored configuration is left
+  exactly as the newer build wrote it and upgrading back restores normal
+  behavior.
+
+This note records the downgrade limitation where an operator deciding whether to
+roll back should see it. It does not change the update workflow or the manifest
+generator.

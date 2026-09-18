@@ -140,10 +140,12 @@ already performed.
 - **The browser surface is a read-only agent-served management page, not full
   desktop parity.** It is loopback-only with short-lived sessions, and does not
   expose the full desktop workflow set.
-- **Two V2-D roadmap items remain missing/partial.** Install-plan preview has no
-  renderer UI (API-only), and the publisher-trust warning for third-party
-  executable content and catalog export/import limits are not shipped. Treat
-  third-party executable catalog content as unverified.
+- **Two V2-D roadmap items remain missing.** The publisher-trust warning for
+  third-party executable content is not shipped, and catalog export/import is not
+  implemented. Treat third-party executable catalog content as unverified. (The
+  install-plan preview is no longer API-only: a read-only plan dialog for curated
+  templates shipped in cycle 11. Provider packs still have no plan preview by
+  design, because plans compose from the curated catalog.)
 - **Job expiry is opt-in.** Without an explicit `expiresAt` or a configured
   default pending-job TTL, nothing expires; destructive approvals never lapse by
   default.
