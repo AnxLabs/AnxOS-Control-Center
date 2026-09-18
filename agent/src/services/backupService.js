@@ -664,7 +664,19 @@ async function readBackupMetadata(backupId) {
   }
   if (schemaVersion < BACKUP_METADATA_SCHEMA_VERSION) {
     const backupPath = `${filePath}.schema-v${schemaVersion}.backup`;
-    if (!await fs.stat(backupPath).then(() => true, () => false)) await fs.copyFile(filePath, backupPath, fsSync.constants.COPYFILE_EXCL);
+    // Any read migrates legacy metadata, so a listing and a restore can reach
+    // the same pre-migration copy at once. COPYFILE_EXCL is used as the atomic
+    // form (rather than a stat pre-check plus copy): the loser of that race
+    // throws EEXIST, which is the outcome both callers wanted — the original is
+    // preserved — and must not fail the read, or a readable backup would vanish
+    // from the listing.
+    try {
+      await fs.copyFile(filePath, backupPath, fsSync.constants.COPYFILE_EXCL);
+    } catch (error) {
+      if (error?.code !== "EEXIST") {
+        throw error;
+      }
+    }
     metadata = { ...metadata, schemaVersion: BACKUP_METADATA_SCHEMA_VERSION };
     await writeJson(filePath, metadata);
   }
