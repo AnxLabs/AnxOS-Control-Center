@@ -235,10 +235,34 @@ function evaluateHost(hostValue, config = {}) {
  * addresses a remote Agent by its LAN address.
  */
 function isEchoableAgentHost(hostValue, config = {}) {
+  // `parseHostValue` strips an IPv6 zone (`fe80::1%eth0`) from everything it
+  // parses, so a value like `127.0.0.1%2fevil.com` VALIDATES as `127.0.0.1`
+  // while the caller echoes the raw header — a validation/use mismatch that
+  // broke this module's stated guarantee that a hostile host can never be
+  // reflected. A `%` is only ever legitimate here inside a bracketed IPv6
+  // literal, so anything else carrying one is refused outright rather than
+  // parsed.
+  const raw = typeof hostValue === "string" ? hostValue.trim() : "";
+  if (raw.includes("%") && !raw.startsWith("[")) return false;
   const parsed = parseHostValue(hostValue);
   if (!parsed || isWildcardBind(parsed.name)) return false;
   if (parsed.literal) return true;
   return buildHostAllowlist(config).allowed.has(parsed.name);
+}
+
+/**
+ * Count `Host` header occurrences in a raw header list. Node folds duplicate
+ * `host` headers into a single first-value string, so the `Array.isArray`
+ * branch in `evaluateHost` can never fire on a real request — the documented
+ * duplicate refusal has to be driven from `request.rawHeaders` instead.
+ */
+function countRawHostHeaders(rawHeaders) {
+  const list = Array.isArray(rawHeaders) ? rawHeaders : [];
+  let count = 0;
+  for (let index = 0; index < list.length; index += 2) {
+    if (String(list[index] || "").toLowerCase() === "host") count += 1;
+  }
+  return count;
 }
 
 /**
@@ -293,6 +317,18 @@ function isStateChangingMethod(method) {
  * effect and cannot reach a handler that would echo the caller's Host.
  */
 function assertTrustedRequest(request, config = {}) {
+  // A duplicated `Host` must be refused, not silently resolved to the first
+  // value: an intermediate proxy that prefers the LAST one would then be
+  // validating a different host than this Agent does. Node folds duplicates
+  // into a single string before we see `headers.host`, so the check reads the
+  // raw header list.
+  if (countRawHostHeaders(request?.rawHeaders) > 1) {
+    const error = new Error("This Agent does not answer for the requested host.");
+    error.code = HOST_NOT_ALLOWED;
+    error.statusCode = 421;
+    error.details = { reason: "duplicate-host-header" };
+    throw error;
+  }
   const host = evaluateHost(request?.headers?.host, config);
   if (!host.allowed) {
     const error = new Error("This Agent does not answer for the requested host.");
@@ -322,6 +358,7 @@ module.exports = {
   HOST_NOT_ALLOWED,
   assertTrustedRequest,
   buildHostAllowlist,
+  countRawHostHeaders,
   evaluateHost,
   evaluateOrigin,
   isEchoableAgentHost,

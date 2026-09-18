@@ -257,7 +257,35 @@ function runPolicyLegs() {
   assert(!/require\(\s*["'](?:node:)?dns["']\s*\)/.test(policySource), "A7: the request-trust policy must not require a DNS module.");
   assert(!/\.lookup\(|\bresolve4\(|\bresolve6\(/.test(policySource), "A7: the request-trust policy must not resolve names.");
 
-  console.log("leg A passed: the request-trust policy fails closed, adds no DNS, and never echoes a rebinding-shaped name");
+  // A8: the validation/use mismatch the frozen security audit found. The parser
+  // strips an IPv6 zone from EVERY host, so `127.0.0.1%2fevil.com` validated as
+  // `127.0.0.1` while the caller echoed the raw header — a hostile host
+  // reflected into a value the client then trusts. A `%` outside a bracketed
+  // IPv6 literal must now be refused outright.
+  for (const hostile of ["127.0.0.1%2fevil.com:47131", "localhost%2fevil.com:47131", "127.0.0.1%00.evil.com:47131"]) {
+    assert.strictEqual(policy.isEchoableAgentHost(hostile, wildcard), false, `A8: ${hostile} must not be echoable as the Agent address.`);
+    assert.strictEqual(policy.isEchoableAgentHost(hostile, concrete), false, `A8: ${hostile} must not be echoable under a concrete bind either.`);
+  }
+  assert.strictEqual(policy.isEchoableAgentHost("127.0.0.1:47131", concrete), true, "A8: the plain loopback form stays echoable.");
+
+  // A9: a duplicated Host must be refused from the RAW header list. Node folds
+  // duplicate `host` headers into a single first-value string, so the
+  // `Array.isArray` branch in evaluateHost can never fire on a real request and
+  // the documented duplicate refusal had to be driven from `rawHeaders`.
+  assert.strictEqual(policy.countRawHostHeaders(["Host", "127.0.0.1:47131"]), 1, "A9: one Host header counts once.");
+  assert.strictEqual(policy.countRawHostHeaders(["host", "127.0.0.1:47131", "HOST", "evil.test"]), 2, "A9: duplicate Host headers are counted case-insensitively.");
+  assert.strictEqual(policy.countRawHostHeaders(undefined), 0, "A9: a missing raw header list counts zero and must not throw.");
+  assert.throws(
+    () => policy.assertTrustedRequest({ method: "GET", headers: { host: "127.0.0.1:47131" }, rawHeaders: ["Host", "127.0.0.1:47131", "Host", "evil.test"] }, concrete),
+    (error) => error?.code === policy.HOST_NOT_ALLOWED && error?.statusCode === 421 && error?.details?.reason === "duplicate-host-header",
+    "A9: a request carrying two Host headers must be refused with the duplicate reason.",
+  );
+  assert.doesNotThrow(
+    () => policy.assertTrustedRequest({ method: "GET", headers: { host: "127.0.0.1:47131" }, rawHeaders: ["Host", "127.0.0.1:47131"] }, concrete),
+    "A9: a single Host header must still be accepted.",
+  );
+
+  console.log("leg A passed: the request-trust policy fails closed, adds no DNS, and never echoes a rebinding-shaped or zone-smuggled name");
 }
 
 // ---------------------------------------------------------------------------
