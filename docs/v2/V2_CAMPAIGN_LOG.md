@@ -193,3 +193,14 @@ Full gate rerun launched at close. V2-G wave 1 (revoke/disconnect/groups) dispat
 - V2-L…V2-Q vision extras (AnxOS Intelligence, Automation Engine, Plugin SDK, Mission Control, Themes, Analytics) — need owner scoping per roadmap §6A.4.
 - Linux OS appliance track (OS-A…D) — after V2-K.
 - Resumable/chunked downloads, agent-side install orchestration relocation — noted in V2-D survey as follow-up beyond this campaign's milestone scope.
+
+### Cycle 8 close — V2-I W1 permission-matrix harness + R6 fixes (2026-09-17)
+
+- **Starting commit:** 97c77b9 · **Ending commit:** 18a3dc7 (+ security record 97c77b9 prior) · **Gate:** 240/240 PASS
+- **Agents:** V2-I W1 implementer + R6 reviewer; orchestrator integration.
+- **Landed:** permission-matrix harness (test-helpers/permission-matrix.js + permission-matrix-smoke) — 55→56 desktop IPC families covering all 272+9 registered channels + 33 Agent REST families; Phase-1 pure cross-checks against the real permission core; Phase-2 handler-level desktop exercise with real securityService logins per actor; locked-desktop sweep over every channel; Phase-3 two spawned agents for REST 401/403/allow, cross-node token isolation, enrollment-drift 453, denial audit; Phase-4 coverage enforcement failing on uncovered channels.
+- **Security hardening found by the matrix itself:** instances:openFolder had NO role guard (Guests/Viewers could pop host Explorer windows) — now requires instance:read; matrix row pins the tier; guests denied.
+- **R6 findings:** nothing above P1 — three coverage holes in the enforcement teeth, all fixed in 18a3dc7: (1) main.js-registered channels invisible to the scrape — now extracted and required as rows; (2) src/ipc module load verification (a new module not in the registration list fails by name; accountIpc.js recorded as delegating alias); (3) REST route-file segment scraping (routes in agent/src/routes without server.js literals were invisible). Window-management family pinned sender-scoped/probe-exempt.
+- **Deviations recorded:** two mid-edit syntax slips in the matrix table (self-caught by node --check); one duplicate-variable collision with the implementer's own phase-8 re-issue test (renamed); R6's claim that the smoke "only exercised keyed-as-first-evaluator" was PARTIALLY wrong — the implementer's phase-8 already covered destructive re-issue; the non-destructive recovered-settle case was genuinely missing and is now pinned (smoke 4b).
+- **Queues updated:** R6 CLOSED; V2-I W1 CLOSED; V2-H W1 + V2-G wave 5 DISPATCHED; V2-H waves 2-3 and V2-F wave 5 queued.
+- **Next:** V2-H waves 2-3, V2-G wave 5, V2-F wave 5, then live-acceptance phase.
