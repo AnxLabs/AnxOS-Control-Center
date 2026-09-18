@@ -4,7 +4,20 @@
 **Priority order:** critical regression/security/reliability → broken harness/gate → dependency blockers → current milestone completion → review findings → next implementation → docs/release cleanup → final audit.
 **Rules:** regressions outrank features; no implementation leaves review unresolved; "queue empty" must be proven; evidence beats claims.
 
-Last full-rebuild: cycle 9 close (HEAD 396ae08).
+Last full-rebuild: cycle 10 close (HEAD f1b07f1).
+
+### Cycle-10 queue deltas
+
+- **Implementation queue: 4 waves CLOSED** — V2-H wave 2 (firewall lifecycle), V2-I wave 2 (scoped agent tokens enforced), V2-F wave 5 (backup destinations: local + SFTP + AES-256-GCM + restore-from-remote), V2-J wave 1 (alert engine + IPC). Cycle 11 lanes dispatched: **UI reachability** (the 3 unreachable surfaces), **enrollment re-pair hardening** (security), **V2-J correlation IDs**.
+- **Regression queue: the P0 is the headline.** A declined transfer preview deleted a pre-existing target instance (adversarial audit reproduced it; the docs curator found it independently while verifying behavior). Fixed + smoke-pinned. Also fixed: remote path traversal (backslash separators), job-store temp collision, restore verify-then-extract TOCTOU, matrix indirect-registration hole, renderer attribute injection, dead-code restart, alert engine dead feature, destination temp collision, firewall rule identity.
+- **Review queue: R8 CLOSED** (three P1s addressed; two recorded for owner-scoped contract decisions below).
+- **Harness queue: H1/H4/H6 CLOSED** with proven tripwires. Remaining: H2 (source-pin re-tiering), H3 (bootstrap vm-extraction), H5 (website:smoke split), H7 (listBackups read-path legacy-schema tolerance).
+- **Security queue: S1 still open** — the sealed triage covers the baseline; the campaign's new surfaces were individually audited by the security lane this cycle (zero P0/P1 there) but a re-scan at a frozen commit is still owed for the final audit. **NEW S6 (recorded, owner-scoped):** the enrollment completion flow accepts a re-pair with only the nonce + a self-chosen token, so scopes can be dropped without the existing credential — pre-existing V2-A design that makes the scoped-token guarantee non-binding against a caller who can reach the agent port. Cycle 11 lane dispatched to harden it. **NEW S7:** the firewall elevated-confirmation/rollback guard is desktop-only; a direct agent caller can create an access-affecting rule with no guard (needs the api-contract lane).
+- **Reliability queue: Y1/Y2 CLOSED** (scheduler CRUD merge; busy-job skip with fail-closed query handling). Remaining: the runner-up items recorded by the reviewers (alert id fallback, UTC quiet hours, local lockout probe limits).
+- **Release queue: two latent P2s recorded, deliberately NOT hand-fixed** (editing published release metadata would create a worse mismatch): (1) website release metadata points at a tag that does not exist for the published build — the version/build bump to 2.0 happened after the published tag was created, so the sync-derived tag drifts; the build-204 sync must derive from the ACTUAL tag and the deploy guard should catch a mismatch (currently it only compares buildNumber); (2) the local build helper hardcodes a Desktop path while the repo lives under Documents. Both belong to the build-204 release lane.
+- **Docs queue: D2-D5 CLOSED** (index, operator notes, API surface, limitations, guides). Remaining: roadmap checkbox sync (MASTER_ROADMAP §6 still shows every V2 bullet unchecked while the log records them complete — the roadmap file itself needs the status pass).
+- **Test queue:** suite count 246; drill harness has the transfer leg implementable but not yet appended (needs the UI lane's transfer wiring to exercise it end-to-end).
+- **Adversarial lane is a permanent periodic lane**, not final-only — it produced the cycle's only P0 this round.
 
 ### Cycle-6 queue deltas
 
