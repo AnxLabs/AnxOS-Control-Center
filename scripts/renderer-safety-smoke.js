@@ -91,7 +91,11 @@ assert.deepStrictEqual(
 
 assert(sourceBetween("function createSecurityConfirmation", "function createSecurityTextPrompt").includes("document.createElement(\"section\")"), "Security confirmation should use safe DOM construction.");
 assert(sourceBetween("function createSecurityTextPrompt", "const SECURITY_OPERATION_ACTIONS").includes("document.createElement(\"section\")"), "Security text prompt should use safe DOM construction.");
-assert(functionBody("sanitizeMarkdownText").includes("replace(/[<>&]/g"), "Markdown sanitizer must escape HTML-sensitive characters.");
+// The sanitizer must escape quotes as well as the tag delimiters: URLs are
+// interpolated into a double-quoted href attribute by renderMarkdownLite, so
+// an unescaped `"` is an attribute-injection vector (security-lane finding).
+assert(functionBody("sanitizeMarkdownText").includes('replace(/[<>&"\']/g'), "Markdown sanitizer must escape HTML-sensitive characters including quotes.");
+assert(functionBody("sanitizeMarkdownText").includes("&quot;") && functionBody("sanitizeMarkdownText").includes("&#39;"), "Markdown sanitizer must map quotes to entities.");
 assert(sourceBetween("function renderMarkdownLite", "function formatUpdateDate").includes("sanitizeMarkdownText("), "Release note markdown renderer must sanitize input before allowlisted formatting.");
 assert(functionBody("buildDiagnosticsHealthChecks").includes("const desktopApiState = getDesktopApiState();"), "Diagnostics health checks must not rely on an unsafe global desktopApiState.");
 
