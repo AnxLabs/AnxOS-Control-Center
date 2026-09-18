@@ -134,6 +134,7 @@
     "node:lifecycle:smoke": "node scripts/node-lifecycle-smoke.js",
     "multi-node:fleet:smoke": "node scripts/multi-node-fleet-smoke.js",
     "workload:transfer:smoke": "node scripts/workload-transfer-smoke.js",
+    "workload:transfer-gate:smoke": "node scripts/workload-transfer-gate-behavior-smoke.js",
     "fleet:aggregation:smoke": "node scripts/fleet-aggregation-smoke.js",
     "backups:consistency:smoke": "node scripts/backup-consistency-smoke.js",
     "backup:destinations:smoke": "node scripts/backup-destinations-smoke.js",

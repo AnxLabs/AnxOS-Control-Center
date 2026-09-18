@@ -13724,9 +13724,17 @@ function updateInstanceActionButtons() {
         ? "Workload transfer requires the instance's node to be a registered Agent node."
         : !targetAvailable
           ? "Register another Agent node before transferring a workload."
-          : locked
-            ? "Unlock AnxOS to transfer workloads between nodes."
-            : "Preview, then transfer this workload to another Agent node.";
+            : locked
+              ? "Unlock AnxOS to transfer workloads between nodes."
+              : "Preview, then transfer this workload to another Agent node.";
+    // Chromium does not show a `title` tooltip on a disabled control, and this
+    // button is disabled in most states, so the reason is mirrored into the
+    // accessibility description the repo uses elsewhere for gated buttons.
+    if (button.disabled) {
+      button.setAttribute("aria-description", button.title);
+    } else {
+      button.removeAttribute("aria-description");
+    }
   });
 
   document.querySelectorAll('[data-instance-action="open-folder"]').forEach((button) => {

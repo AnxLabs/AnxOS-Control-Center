@@ -302,13 +302,22 @@ assert(
 
 // ---------------------------------------------------------------------------
 // Renderer safety invariants for the V2-D/G/H surfaces (install plan, workload
-// transfer, network inventory). These are ordering-and-disclosure contracts
-// rather than visual checks: the destructive cross-node restore must stay
-// unreachable without a preview and a typed confirmation, and the disclosure
-// that makes that restore honest must not be dropped by a later edit. A
-// behavior-only smoke cannot catch these — the review that found them used a
-// fake-DOM harness, and this pins the same invariants where the repo already
-// pins renderer contracts.
+// transfer, network inventory).
+//
+// READ THIS BEFORE TRUSTING THESE ASSERTIONS. Mutation testing showed they are
+// PRESENCE checks, not guard checks: changing `if (!confirmed)` to `if (false)`
+// (making the destructive restore ignore the operator's typed confirmation)
+// passes every assertion below, as does a second call path written as
+// `api.workload.transfer(` and a phrase derived from raw input instead of the
+// preview-resolved id. Only the consistency-disclosure and anchor checks have
+// teeth.
+//
+// The behavioral coverage for the gate lives in
+// scripts/workload-transfer-gate-behavior-smoke.js, which executes the real
+// openWorkloadTransfer flow and asserts on observed calls (a declined
+// confirmation must never reach api.transfer). Keep these presence checks —
+// they still catch reordering and same-receiver duplication — but do not treat
+// them as proof that the destructive path is gated.
 // ---------------------------------------------------------------------------
 assert.strictEqual(
   app.split("api.transfer(").length - 1,
