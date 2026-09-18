@@ -8528,6 +8528,63 @@ dd {
   color: var(--text);
 }
 
+/* V2-J active alerts (Notifications page) and V2-A durable jobs (Operations
+   page). Rows reuse .notification-item so severity borders, spacing and
+   typography stay consistent with the existing card language. */
+.alerts-panel,
+.jobs-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.alerts-panel__header,
+.jobs-panel__header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.alerts-panel__header h3,
+.jobs-panel__header h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: .95rem;
+  letter-spacing: .01em;
+}
+
+.alerts-panel__header p,
+.jobs-panel__header p {
+  margin: 3px 0 0;
+  max-width: 720px;
+  color: var(--muted);
+  font-size: .82rem;
+  line-height: 1.45;
+}
+
+.alerts-panel__meta,
+.jobs-panel__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.alerts-list,
+.jobs-list {
+  display: grid;
+  gap: 10px;
+}
+
+.alerts-message,
+.jobs-message {
+  color: var(--muted);
+  font-size: .82rem;
+  line-height: 1.45;
+}
+
 .dashboard-welcome {
   display: grid;
   gap: 14px;

@@ -316,6 +316,16 @@ const desktopApi = {
     updateRestartSchedule: (instanceId, scheduleId, payload = {}, options = {}) => ipcRenderer.invoke("instances:updateRestartSchedule", { ...options, ...payload, instanceId, scheduleId }),
     deleteRestartSchedule: (instanceId, scheduleId, options = {}) => ipcRenderer.invoke("instances:deleteRestartSchedule", { ...options, instanceId, scheduleId }),
     evaluateRestartSchedules: (instanceId, options = {}) => ipcRenderer.invoke("instances:evaluateRestartSchedules", { ...options, instanceId }),
+    // V2-A durable jobs: the read/cancel surface for job records owned by the
+    // selected node. Payloads mirror src/ipc/instancesIpc.js exactly:
+    //   list   -> { nodeId, limit?, type?, instanceId? }
+    //   get    -> { nodeId, jobId }
+    //   cancel -> { nodeId, jobId, instanceId?, reason? }
+    jobs: {
+      list: (payload = {}) => ipcRenderer.invoke("instances:jobs:list", payload),
+      get: (jobId, options = {}) => ipcRenderer.invoke("instances:jobs:get", { ...options, jobId }),
+      cancel: (jobId, payload = {}) => ipcRenderer.invoke("instances:jobs:cancel", { ...payload, jobId }),
+    },
   },
   actions: {
     executeAction: (actionId, params = {}, options = {}) => ipcRenderer.invoke("action:execute", { actionId, params, ...options }),
@@ -353,6 +363,13 @@ const desktopApi = {
     credentialStatus: (nodeId) => ipcRenderer.invoke("nodes:credentialStatus", { nodeId }),
     repairCredential: (payload = {}) => ipcRenderer.invoke("nodes:repairCredential", payload),
     generateToken: () => ipcRenderer.invoke("nodes:generateToken"),
+  },
+  // V2-J Wave 1 alert surface (src/ipc/alertsIpc.js). Both channels are
+  // local-owner gated in main; the plain invoke form matches the node-scoped
+  // families, and main throws a typed IPC error rather than returning ok:false.
+  alerts: {
+    list: () => ipcRenderer.invoke("alerts:list"),
+    acknowledge: (id) => ipcRenderer.invoke("alerts:acknowledge", { id }),
   },
   files: {
     listConnections: () => ipcRenderer.invoke("files:listConnections"),

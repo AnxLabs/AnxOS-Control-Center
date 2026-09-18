@@ -336,6 +336,14 @@ const operationDetailStatus = document.querySelector("[data-operation-detail-sta
 const operationSummaryFields = document.querySelectorAll("[data-operations-summary]");
 const operationFilterButtons = document.querySelectorAll("[data-operation-filter]");
 const operationActionButtons = document.querySelectorAll("[data-operation-action]");
+const alertsList = document.querySelector("[data-alerts-list]");
+const alertsMessage = document.querySelector("[data-alerts-message]");
+const alertsStatusPill = document.querySelector("[data-alerts-status]");
+const alertsRefreshButton = document.querySelector("[data-alerts-refresh]");
+const jobsList = document.querySelector("[data-jobs-list]");
+const jobsMessage = document.querySelector("[data-jobs-message]");
+const jobsStatusPill = document.querySelector("[data-jobs-status]");
+const jobsRefreshButton = document.querySelector("[data-jobs-refresh]");
 const maintenanceList = document.querySelector("[data-maintenance-list]");
 const maintenanceDetail = document.querySelector("[data-maintenance-detail]");
 const maintenanceDetailStatus = document.querySelector("[data-maintenance-detail-status]");
@@ -1101,6 +1109,27 @@ const notificationState = {
   filter: "all",
   category: "all",
   severity: "all",
+};
+// V2-J Wave 1: alerts are desktop-wide (derived from every node), so unlike
+// jobs they are not reset on node switch. `pendingIds` only disables the
+// acknowledge action for the alert currently in flight.
+const alertsState = {
+  alerts: [],
+  degraded: false,
+  loaded: false,
+  loading: false,
+  error: null,
+  pendingIds: new Set(),
+};
+// V2-A durable jobs are owned by the selected node, so this state is
+// node-scoped and cleared by resetNodeScopedRendererState.
+const jobsState = {
+  jobs: [],
+  total: 0,
+  loaded: false,
+  loading: false,
+  error: null,
+  pendingIds: new Set(),
 };
 const maintenanceState = {
   categories: [],
@@ -4359,6 +4388,14 @@ function showPage(pageName) {
 
   if (safePageName === "backups") {
     refreshBackups();
+  }
+
+  if (safePageName === "operations") {
+    loadDurableJobs().catch(() => {});
+  }
+
+  if (safePageName === "notifications") {
+    loadAlerts().catch(() => {});
   }
 
   if (safePageName === "console") {
@@ -22812,6 +22849,206 @@ function createNotificationActionButton(notification, actionId) {
   return button;
 }
 
+// ---------------------------------------------------------------------------
+// V2-J Wave 1: active alerts (src/ipc/alertsIpc.js — alerts:list /
+// alerts:acknowledge). The main-process alert engine computes and persists the
+// alerts; this panel only reads the active set and acknowledges an alert. It is
+// deliberately not a notification feed: acknowledging records who/when, and the
+// alert clears only when its underlying condition recovers.
+// ---------------------------------------------------------------------------
+function getAlertsApi() {
+  const api = getDesktopApi();
+  return typeof api?.alerts?.list === "function" ? api.alerts : null;
+}
+
+function formatAlertConditionLabel(condition) {
+  return {
+    NODE_OFFLINE: "Node offline",
+    DISK_PRESSURE: "Disk pressure",
+    BACKUP_AGE: "Backup age",
+    INSTANCE_DEGRADED: "Instance degraded",
+  }[condition] || String(condition || "Alert");
+}
+
+function setAlertsStatusPill(text, tone = "status-pill--planned") {
+  if (!alertsStatusPill) return;
+  alertsStatusPill.textContent = text;
+  alertsStatusPill.className = `status-pill ${tone}`;
+}
+
+function renderAlertsPanel() {
+  if (!alertsList && !alertsMessage && !alertsStatusPill) return;
+
+  // The panel starts unloaded (loading===false, loaded===false) and loads when
+  // the page opens or Refresh is pressed. Until then it reports Loading rather
+  // than claiming an empty alert set.
+  const awaitingFirstLoad = !alertsState.loaded && !alertsState.error;
+  const busy = alertsState.loading || awaitingFirstLoad;
+
+  if (busy) {
+    setAlertsStatusPill("Loading");
+  } else if (alertsState.error) {
+    setAlertsStatusPill("Unavailable", "status-pill--critical");
+  } else if (alertsState.alerts.length) {
+    const critical = alertsState.alerts.some((alert) => alert?.severity === "critical");
+    setAlertsStatusPill(`${alertsState.alerts.length} active`, critical ? "status-pill--critical" : "status-pill--warning");
+  } else {
+    setAlertsStatusPill("0 active", "status-pill--ok");
+  }
+
+  if (alertsMessage) {
+    alertsMessage.textContent = busy
+      ? "Checking for active alerts..."
+      : alertsState.error
+        ? alertsState.error
+        : alertsState.degraded
+          ? "Active alerts loaded. The alert store was rebuilt after a previous corruption, so older history may be incomplete."
+          : `${alertsState.alerts.length} active alert${alertsState.alerts.length === 1 ? "" : "s"} loaded.`;
+  }
+
+  if (!alertsList) return;
+  alertsList.replaceChildren();
+
+  if (busy && !alertsState.alerts.length) {
+    alertsList.append(createEmptyState("Loading active alerts...", "notification-empty"));
+    return;
+  }
+
+  if (alertsState.error && !alertsState.alerts.length) {
+    const empty = document.createElement("div");
+    empty.className = "notification-empty";
+    empty.append(
+      createTextElement("strong", "Active alerts could not be loaded."),
+      createTextElement("span", alertsState.error),
+    );
+    alertsList.append(empty);
+    return;
+  }
+
+  if (!alertsState.alerts.length) {
+    const empty = document.createElement("div");
+    empty.className = "notification-empty";
+    empty.append(
+      createTextElement("strong", "No active alerts."),
+      createTextElement("span", "Node outages, disk pressure, stale backups, and degraded instances will appear here."),
+    );
+    alertsList.append(empty);
+    return;
+  }
+
+  alertsState.alerts.forEach((alert) => alertsList.append(createAlertItem(alert)));
+}
+
+function createAlertItem(alert) {
+  const item = document.createElement("article");
+  item.className = "notification-item alert-item";
+  item.dataset.severity = alert?.severity === "critical" ? "critical" : "warning";
+  item.setAttribute("role", "listitem");
+  item.setAttribute("aria-label", `${formatAlertConditionLabel(alert?.condition)} alert for ${alert?.target || "unknown target"}`);
+
+  const header = document.createElement("div");
+  header.className = "notification-item__header";
+  const titleWrap = document.createElement("div");
+  titleWrap.className = "notification-item__title";
+  titleWrap.append(
+    createTextElement("strong", alert?.title || formatAlertConditionLabel(alert?.condition)),
+    createTextElement("small", [
+      formatAlertConditionLabel(alert?.condition),
+      alert?.target ? `Target ${alert.target}` : "",
+      Number(alert?.occurrences) > 1 ? `${alert.occurrences} occurrences` : "",
+      alert?.lastSeenAt ? `Last seen ${formatDateTime(alert.lastSeenAt)}` : "",
+    ].filter(Boolean).join(" · ")),
+  );
+
+  const badges = document.createElement("div");
+  badges.className = "notification-item__badges";
+  badges.append(
+    createTextElement(
+      "span",
+      alert?.severity === "critical" ? "Critical" : "Warning",
+      `status-pill ${alert?.severity === "critical" ? "status-pill--critical" : "status-pill--warning"}`,
+    ),
+    createTextElement(
+      "span",
+      alert?.acknowledgedAt ? "Acknowledged" : "Active",
+      `status-pill ${alert?.acknowledgedAt ? "status-pill--planned" : "status-pill--external"}`,
+    ),
+  );
+  header.append(titleWrap, badges);
+
+  const message = createTextElement("p", alert?.message || "No detail available.");
+  message.title = alert?.message || "";
+
+  const actions = document.createElement("div");
+  actions.className = "notification-item__actions";
+  const acknowledge = document.createElement("button");
+  acknowledge.type = "button";
+  acknowledge.className = "inline-action";
+  if (alert?.acknowledgedAt) {
+    acknowledge.textContent = "Acknowledged";
+    acknowledge.disabled = true;
+    acknowledge.title = `Acknowledged ${formatDateTime(alert.acknowledgedAt)}${alert.acknowledgedBy ? ` by ${alert.acknowledgedBy}` : ""}.`;
+  } else {
+    const pending = alertsState.pendingIds.has(alert?.id);
+    acknowledge.textContent = pending ? "Acknowledging..." : "Acknowledge";
+    acknowledge.disabled = pending;
+    acknowledge.addEventListener("click", () => acknowledgeAlertById(alert?.id));
+  }
+  actions.append(acknowledge);
+
+  item.append(header, message, actions);
+  return item;
+}
+
+async function loadAlerts(options = {}) {
+  const api = getAlertsApi();
+  if (!api) {
+    alertsState.error = "Alerting is unavailable in this build.";
+    alertsState.loading = false;
+    alertsState.loaded = true;
+    renderAlertsPanel();
+    return;
+  }
+  if (alertsState.loading) return;
+
+  alertsState.loading = true;
+  if (!options.silent) alertsState.error = null;
+  renderAlertsPanel();
+  try {
+    const result = await api.list();
+    alertsState.alerts = Array.isArray(result?.alerts) ? result.alerts : [];
+    alertsState.degraded = result?.degraded === true;
+    alertsState.error = null;
+  } catch (error) {
+    alertsState.error = normalizeIpcErrorMessage(error, "Active alerts could not be loaded.");
+  } finally {
+    alertsState.loading = false;
+    alertsState.loaded = true;
+    renderAlertsPanel();
+  }
+}
+
+async function acknowledgeAlertById(alertId) {
+  const api = getAlertsApi();
+  const id = String(alertId || "").trim();
+  if (!api || typeof api.acknowledge !== "function" || !id || alertsState.pendingIds.has(id)) return;
+  alertsState.pendingIds.add(id);
+  renderAlertsPanel();
+  try {
+    const updated = await api.acknowledge(id);
+    const index = alertsState.alerts.findIndex((alert) => alert?.id === id);
+    if (index >= 0 && updated && typeof updated === "object") alertsState.alerts[index] = updated;
+    alertsState.error = null;
+    showToast("Alert acknowledged.");
+  } catch (error) {
+    alertsState.error = normalizeIpcErrorMessage(error, "The alert could not be acknowledged.");
+    showToast(alertsState.error, "warning");
+  } finally {
+    alertsState.pendingIds.delete(id);
+    renderAlertsPanel();
+  }
+}
+
 function renderNotificationCenter() {
   loadNotificationHistory();
   updateNotificationCategoryOptions();
@@ -23139,6 +23376,258 @@ function renderOperationDetail(operation) {
     ? operation.logs.map(getFriendlyOperationText).join("\n")
     : "No operation logs captured yet.";
   operationDetail.append(logs);
+}
+
+// ---------------------------------------------------------------------------
+// V2-A durable jobs (src/ipc/instancesIpc.js — instances:jobs:*). Job records
+// live in the process that executes the operation: the desktop main owns the
+// local application-host node's store, and a remote node owns its own behind
+// the Agent. Every call therefore carries the selected nodeId, and the view is
+// reconciled away on node switch (see resetNodeScopedRendererState).
+// ---------------------------------------------------------------------------
+const JOB_TERMINAL_STATES = new Set(["cancelled", "failed", "succeeded", "timeout"]);
+
+function getJobsApi() {
+  const api = getDesktopApi();
+  return typeof api?.instances?.jobs?.list === "function" ? api.instances.jobs : null;
+}
+
+function durableJobTypeLabel(type) {
+  return {
+    "instance.start": "Start instance",
+    "instance.stop": "Stop instance",
+    "instance.restart": "Restart instance",
+    "instance.create": "Create instance",
+    "instance.update": "Update instance",
+  }[type] || String(type || "Instance job");
+}
+
+function durableJobStateLabel(state) {
+  return {
+    enqueued: "Enqueued",
+    running: "Running",
+    cancelled: "Cancelled",
+    failed: "Failed",
+    succeeded: "Succeeded",
+    timeout: "Timed out",
+  }[state] || "Unknown";
+}
+
+function durableJobStateTone(state) {
+  if (state === "succeeded") return "status-pill--ok";
+  if (state === "failed" || state === "timeout") return "status-pill--critical";
+  if (state === "cancelled") return "status-pill--warning";
+  return "status-pill--planned";
+}
+
+// Cancellation is only offered where the job service reports it as supported
+// and the job has not already reached a terminal state.
+function isDurableJobCancellable(job) {
+  return Boolean(job) &&
+    job.cancellation?.supported === true &&
+    !JOB_TERMINAL_STATES.has(String(job.state || ""));
+}
+
+function durableJobTargetLabel(job) {
+  const target = job?.target || {};
+  return target.instanceId || target.requestedId || target.nodeId || "unknown target";
+}
+
+function setJobsStatusPill(text, tone = "status-pill--planned") {
+  if (!jobsStatusPill) return;
+  jobsStatusPill.textContent = text;
+  jobsStatusPill.className = `status-pill ${tone}`;
+}
+
+function renderDurableJobs() {
+  if (!jobsList && !jobsMessage && !jobsStatusPill) return;
+
+  // Unloaded-until-opened, like the alerts panel: report Loading instead of an
+  // empty job list before the first fetch for the selected node.
+  const awaitingFirstLoad = !jobsState.loaded && !jobsState.error;
+  const busy = jobsState.loading || awaitingFirstLoad;
+
+  if (busy) {
+    setJobsStatusPill("Loading");
+  } else if (jobsState.error) {
+    setJobsStatusPill("Unavailable", "status-pill--critical");
+  } else if (jobsState.jobs.length) {
+    const active = jobsState.jobs.filter((job) => !JOB_TERMINAL_STATES.has(String(job?.state || ""))).length;
+    setJobsStatusPill(`${jobsState.total} tracked`, active ? "status-pill--warning" : "status-pill--ok");
+  } else {
+    setJobsStatusPill("0 tracked", "status-pill--ok");
+  }
+
+  if (jobsMessage) {
+    const nodeLabel = getSelectedNode()?.displayName || getSelectedNode()?.name || getSelectedNodeId();
+    jobsMessage.textContent = busy
+      ? "Loading durable jobs..."
+      : jobsState.error
+        ? jobsState.error
+        : jobsState.jobs.length
+          ? `${jobsState.total} durable job${jobsState.total === 1 ? "" : "s"} tracked for ${nodeLabel}. Cancel is offered only for jobs that support it.`
+          : `No durable jobs recorded for ${nodeLabel}. Instance start, stop, restart, create, and update jobs will appear here while they run.`;
+  }
+
+  if (!jobsList) return;
+  jobsList.replaceChildren();
+
+  if (busy && !jobsState.jobs.length) {
+    jobsList.append(createEmptyState("Loading durable jobs...", "notification-empty"));
+    return;
+  }
+
+  if (jobsState.error && !jobsState.jobs.length) {
+    const empty = document.createElement("div");
+    empty.className = "notification-empty";
+    empty.append(
+      createTextElement("strong", "Durable jobs could not be loaded."),
+      createTextElement("span", jobsState.error),
+    );
+    jobsList.append(empty);
+    return;
+  }
+
+  if (!jobsState.jobs.length) {
+    const empty = document.createElement("div");
+    empty.className = "notification-empty";
+    empty.append(
+      createTextElement("strong", "No durable jobs recorded."),
+      createTextElement("span", "Jobs run server-side; start, stop, restart, create, and update operations will be listed here while they run."),
+    );
+    jobsList.append(empty);
+    return;
+  }
+
+  jobsState.jobs.forEach((job) => jobsList.append(createDurableJobItem(job)));
+}
+
+function createDurableJobItem(job) {
+  const item = document.createElement("article");
+  item.className = "notification-item job-item";
+  item.dataset.state = job?.state || "unknown";
+  item.setAttribute("role", "listitem");
+  item.setAttribute("aria-label", `${durableJobTypeLabel(job?.type)} job ${durableJobStateLabel(job?.state)}`);
+
+  const header = document.createElement("div");
+  header.className = "notification-item__header";
+  const titleWrap = document.createElement("div");
+  titleWrap.className = "notification-item__title";
+  titleWrap.append(
+    createTextElement("strong", durableJobTypeLabel(job?.type)),
+    createTextElement("small", [
+      durableJobTargetLabel(job),
+      job?.id ? `Job ${job.id}` : "",
+      job?.enqueuedAt ? `Enqueued ${formatDateTime(job.enqueuedAt)}` : "",
+      job?.startedAt ? `Started ${formatDateTime(job.startedAt)}` : "",
+      job?.completedAt ? `Finished ${formatDateTime(job.completedAt)}` : "",
+    ].filter(Boolean).join(" · ")),
+  );
+
+  const badges = document.createElement("div");
+  badges.className = "notification-item__badges";
+  badges.append(
+    createTextElement("span", durableJobStateLabel(job?.state), `status-pill ${durableJobStateTone(job?.state)}`),
+  );
+  if (job?.stage) {
+    badges.append(createTextElement("span", String(job.stage), "status-pill status-pill--external"));
+  }
+  header.append(titleWrap, badges);
+
+  const detailParts = [];
+  if (job?.owner) detailParts.push(`Owner ${job.owner}`);
+  if (Number.isFinite(Number(job?.attempts))) detailParts.push(`Attempts ${job.attempts}`);
+  if (job?.exitCode !== null && job?.exitCode !== undefined) detailParts.push(`Exit code ${job.exitCode}`);
+  if (job?.cancellation?.requestedAt) detailParts.push(`Cancel requested ${formatDateTime(job.cancellation.requestedAt)}`);
+  if (job?.error) detailParts.push(normalizeIpcErrorMessage(job.error, "Job reported an error."));
+  const message = createTextElement("p", detailParts.length ? detailParts.join(" · ") : "No additional job detail reported.");
+  message.title = detailParts.join(" · ");
+
+  const actions = document.createElement("div");
+  actions.className = "notification-item__actions";
+  if (isDurableJobCancellable(job)) {
+    const pending = jobsState.pendingIds.has(job?.id);
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "inline-action";
+    cancel.textContent = pending ? "Cancelling..." : "Cancel";
+    cancel.disabled = pending;
+    cancel.addEventListener("click", () => cancelDurableJob(job?.id));
+    actions.append(cancel);
+  } else {
+    const status = createTextElement(
+      "span",
+      JOB_TERMINAL_STATES.has(String(job?.state || "")) ? "Finished" : "Cancellation unsupported",
+      "status-pill status-pill--planned",
+    );
+    actions.append(status);
+  }
+
+  item.append(header, message, actions);
+  return item;
+}
+
+async function loadDurableJobs(options = {}) {
+  const api = getJobsApi();
+  if (!api) {
+    jobsState.error = "Durable jobs are unavailable in this build.";
+    jobsState.loading = false;
+    jobsState.loaded = true;
+    renderDurableJobs();
+    return;
+  }
+  if (jobsState.loading) return;
+
+  const context = getNodeRequestContext("instance-jobs");
+  jobsState.loading = true;
+  if (!options.silent) jobsState.error = null;
+  renderDurableJobs();
+  try {
+    const result = await api.list(getNodeScopedPayload(context, { limit: 50 }));
+    if (!isNodeRequestCurrent(context)) {
+      jobsState.loading = false;
+      return;
+    }
+    jobsState.jobs = Array.isArray(result?.jobs) ? result.jobs : [];
+    jobsState.total = Number.isFinite(Number(result?.total)) ? Number(result.total) : jobsState.jobs.length;
+    jobsState.error = null;
+  } catch (error) {
+    if (!isNodeRequestCurrent(context)) {
+      jobsState.loading = false;
+      return;
+    }
+    jobsState.error = normalizeIpcErrorMessage(error, "Durable jobs could not be loaded.");
+  }
+  jobsState.loading = false;
+  jobsState.loaded = true;
+  renderDurableJobs();
+}
+
+async function cancelDurableJob(jobId) {
+  const api = getJobsApi();
+  const id = String(jobId || "").trim();
+  if (!api || typeof api.cancel !== "function" || !id || jobsState.pendingIds.has(id)) return;
+  const job = jobsState.jobs.find((candidate) => candidate?.id === id);
+  if (!isDurableJobCancellable(job)) return;
+  jobsState.pendingIds.add(id);
+  renderDurableJobs();
+  try {
+    const cancelPayload = getNodeScopedPayload(getNodeRequestContext("instance-job-cancel"));
+    if (job?.target?.instanceId) cancelPayload.instanceId = job.target.instanceId;
+    const outcome = await api.cancel(id, cancelPayload);
+    if (outcome?.job && typeof outcome.job === "object") {
+      const index = jobsState.jobs.findIndex((candidate) => candidate?.id === id);
+      if (index >= 0) jobsState.jobs[index] = outcome.job;
+    }
+    jobsState.error = null;
+    showToast(outcome?.cancelled === false && outcome?.alreadyTerminal ? "That job had already finished." : "Cancellation requested.");
+  } catch (error) {
+    jobsState.error = normalizeIpcErrorMessage(error, "The job could not be cancelled.");
+    showToast(jobsState.error, "warning");
+  } finally {
+    jobsState.pendingIds.delete(id);
+    renderDurableJobs();
+  }
 }
 
 function renderOperationsCenter() {
@@ -26403,8 +26892,24 @@ function getAmpPanelUrl(snapshot) {
   );
 }
 
+// Security hardening (frozen audit P3): the AMP panel URL is reported by an
+// enrolled node's diagnostics, so it is untrusted. Only http:/https: may reach
+// an href — a javascript: URL assigned to an anchor would execute in the
+// renderer main world, which holds the preload IPC bridge. Mirrors the protocol
+// allowlist in src/services/agentControlService.js (normalizePairingTargetUrl).
+function getSafeAmpPanelUrl(value) {
+  try {
+    const url = new URL(String(value || "").trim());
+    if (!["http:", "https:"].includes(url.protocol) || !url.hostname) return "";
+    return url.toString();
+  } catch {
+    return "";
+  }
+}
+
 function updateAmpPanelLink(snapshot) {
   const panelUrl = getAmpPanelUrl(snapshot);
+  const safePanelUrl = getSafeAmpPanelUrl(panelUrl);
   const ampUrlSource = getAmpUrlSource(snapshot);
   const logPayload = JSON.stringify({
     source: ampUrlSource,
@@ -26423,8 +26928,8 @@ function updateAmpPanelLink(snapshot) {
     return;
   }
 
-  if (panelUrl) {
-    ampPanelLink.href = panelUrl;
+  if (safePanelUrl) {
+    ampPanelLink.href = safePanelUrl;
     ampPanelLink.textContent = "Open panel";
     ampPanelLink.removeAttribute("aria-disabled");
     return;
@@ -33222,6 +33727,16 @@ function resetNodeScopedRendererState(message = "Loading selected node...") {
   renderBackups();
   renderConsoleWorkspace();
 
+  // Durable jobs belong to the node being left; show the pending state until
+  // reloadActiveNodeData re-reads the new node (or the page is next opened).
+  jobsState.jobs = [];
+  jobsState.total = 0;
+  jobsState.loaded = false;
+  jobsState.loading = false;
+  jobsState.error = null;
+  jobsState.pendingIds.clear();
+  renderDurableJobs();
+
   if (getActivePageName() === "files") {
     renderFileListingUnavailable("Storage context changed. Refresh or reconnect to continue.");
   }
@@ -33268,6 +33783,9 @@ async function reloadActiveNodeData(context = getNodeRequestContext("reload-node
   }
   if (activePageName === "agent-control") {
     reloads.push(refreshAgentControl());
+  }
+  if (activePageName === "operations") {
+    reloads.push(loadDurableJobs());
   }
   if (activePageName === "files" && getSelectedRemoteFilesNode()) {
     reloads.push(connectFilesSession());
@@ -39711,6 +40229,12 @@ operationActionButtons.forEach((button) => {
     persistOperationHistory();
   });
 });
+alertsRefreshButton?.addEventListener("click", () => {
+  loadAlerts().catch(() => {});
+});
+jobsRefreshButton?.addEventListener("click", () => {
+  loadDurableJobs().catch(() => {});
+});
 notificationFilterButtons.forEach((button) => {
   button.addEventListener("click", () => {
     notificationState.filter = button.dataset.notificationFilter || "all";
@@ -40461,6 +40985,8 @@ configurePrimaryNavigation();
 ensurePageIntroductions();
 renderOperationsCenter();
 renderNotificationCenter();
+renderAlertsPanel();
+renderDurableJobs();
 renderMaintenanceCenter();
 renderFriendlyDashboard();
 bootstrapApplication();

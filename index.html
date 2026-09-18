@@ -3052,6 +3052,21 @@
               </aside>
             </div>
           </section>
+
+          <section class="jobs-panel" aria-label="Durable jobs">
+            <div class="jobs-panel__header">
+              <div>
+                <h3>Durable jobs</h3>
+                <p>Long-running instances work for the selected node: state, stage, and cancellation for jobs that support it.</p>
+              </div>
+              <div class="jobs-panel__meta">
+                <span class="status-pill status-pill--planned" data-jobs-status>Loading</span>
+                <button class="inline-action" type="button" data-jobs-refresh>Refresh</button>
+              </div>
+            </div>
+            <div class="jobs-list" data-jobs-list role="list" aria-live="polite"></div>
+            <div class="jobs-message" data-jobs-message role="status" aria-live="polite">Loading durable jobs...</div>
+          </section>
         </section>
 
         <section class="page" data-page="notifications">
@@ -3062,6 +3077,21 @@
               <p class="lede">Durable, actionable application events from operations, diagnostics, Marketplace, files, security, account, updates, and maintenance.</p>
             </div>
           </header>
+
+          <section class="alerts-panel" aria-label="Active alerts">
+            <div class="alerts-panel__header">
+              <div>
+                <h3>Active alerts</h3>
+                <p>Live conditions from the alert engine: node outages, disk pressure, stale backups, and degraded instances.</p>
+              </div>
+              <div class="alerts-panel__meta">
+                <span class="status-pill status-pill--planned" data-alerts-status>Loading</span>
+                <button class="inline-action" type="button" data-alerts-refresh>Refresh</button>
+              </div>
+            </div>
+            <div class="alerts-list" data-alerts-list role="list" aria-live="polite"></div>
+            <div class="alerts-message" data-alerts-message role="status" aria-live="polite">Checking for active alerts...</div>
+          </section>
 
           <section class="notification-center" aria-label="Notification Center">
             <div class="notification-summary-grid">

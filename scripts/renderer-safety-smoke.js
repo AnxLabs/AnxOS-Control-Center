@@ -66,7 +66,23 @@ function sourceBetween(startNeedle, endNeedle) {
   "renderSecurityToken",
   "renderSecurityEvents",
   "createAgentRobotIcon",
+  // Cycle-14 surfaces: the alerts panel renders Agent-derived alert titles,
+  // conditions and targets, and the jobs panel renders job type/stage/error
+  // text from a node. Both must build DOM without HTML strings.
+  "renderAlertsPanel",
+  "createAlertItem",
+  "renderDurableJobs",
+  "createDurableJobItem",
 ].forEach(assertFunctionAvoidsHtmlStrings);
+
+// The AMP panel link is the one place a node-supplied value reaches an `href`,
+// so the gate that validates its scheme must exist AND be the thing that decides
+// the assignment. The behavioral proof for both lives in
+// scripts/amp-panel-url-gate-smoke.js (it drives the real href assignment with a
+// fake anchor); these are presence checks only, kept because a deleted gate is
+// the first step of a regression.
+assert(app.includes("function getSafeAmpPanelUrl"), "The AMP panel URL gate must exist.");
+assert(/href\s*=\s*safePanelUrl/.test(app), "The AMP panel href must be assigned from the validated URL, never the raw value.");
 
 assert(!/insertAdjacentHTML\s*\(/.test(app), "Renderer must not use insertAdjacentHTML.");
 assert(!/document\.write\s*\(/.test(app), "Renderer must not use document.write.");
