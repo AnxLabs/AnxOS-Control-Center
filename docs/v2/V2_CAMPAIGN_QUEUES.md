@@ -4,7 +4,7 @@
 **Priority order:** critical regression/security/reliability → broken harness/gate → dependency blockers → current milestone completion → review findings → next implementation → docs/release cleanup → final audit.
 **Rules:** regressions outrank features; no implementation leaves review unresolved; "queue empty" must be proven; evidence beats claims.
 
-Last full-rebuild: cycle 6 in flight (HEAD dc1fcb8).
+Last full-rebuild: cycle 9 close (HEAD 396ae08).
 
 ### Cycle-6 queue deltas
 
@@ -154,3 +154,14 @@ Opens only when queues 1-8 are empty or explicitly deferred. Plan: independent m
 - Completed: player mgmt, backup waves 1+2, pin guard, consistency, node lifecycle (5 implementers) + reviewers (2) + auditors (3) + security triage (1) this campaign.
 - Running: none (all integrated).
 - Next dispatch: R1 reviewer; I1/I2 implementers; T2 drill harness.
+
+### Cycle-9 queue deltas
+
+- **V2-G wave 5 (Linux agent self-update + capability report): LANDED (98e15f7)** — systemd-run transient swap with staging temp+rename, backup-before-swap + rollback, pure-sh post-exit script with observable result markers; agentUpdate capability report; honest Windows parity (desktop-driven task lifecycle, never in-place swap). agent:self-update:smoke registered. Wave 5 partial: remote-agent push upgrades remain future (needs a runtime-download authority).
+- **V2-H wave 1 (network inventory): LANDED (fe4ddb2)** — interfaces/listeners/conflicts/checkPort, agent REST route (system:read), full desktop chain, matrix rows. network-inventory:smoke registered.
+- **R7 verdict: no P0, 3×P1 — ALL FIXED (396ae08):**
+  1. swap-script rollback masking (`|| true` on the restore mv made the orchestrator claim success with neither runtime in place) → new failed-rollback-failed marker, rolledBack reported honestly.
+  2. failed Linux update left the agent stopped → catch path best-effort restarts on the previous runtime, restartAttempted/agentRestarted reported.
+  3. Windows netstat parser locale failure (non-English state words yielded silently empty TCP inventories) → state-agnostic listener selection via the foreign wildcard-port-0 shape + parse telemetry surfacing shape failures.
+- **P2 ledger added:** capability honesty for unitless Linux hosts; self-copy staging note (live drill must validate genuine version-delta swap); UDP wildcard+specific false positives; alias-teeth scope; preview getStatus self-heal caveat.
+- Suite count 240 → 242. Tree clean at 396ae08; gate rerunning at close.
