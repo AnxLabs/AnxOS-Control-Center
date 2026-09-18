@@ -24,6 +24,27 @@ const MAX_INTERVAL_HOURS = 24 * 30;
 const SHORT_WARN_LEAD_MS = 60 * 1000;
 const SCHEDULER_INTERVAL_MS = 60 * 1000;
 
+// Recorded on a schedule when a due cycle is intentionally not executed. The
+// values are a stable contract for the REST surface and the smoke harness.
+const SKIP_REASON = Object.freeze({
+  INSTANCE_NOT_RUNNING: "INSTANCE_NOT_RUNNING",
+  INSTANCE_BUSY: "INSTANCE_BUSY",
+  JOB_QUERY_FAILED: "JOB_QUERY_FAILED",
+});
+
+// The exact set of fields a scheduler tick legitimately owns on an evaluated
+// schedule. Everything else (enabled, type, intervalHours, dailyTime,
+// warnMinutes, instanceId, createdAt…) is structural and must come from the
+// freshest store copy during the post-tick merge.
+const TICK_OWNED_FIELDS = Object.freeze([
+  "lastRunAt",
+  "lastError",
+  "skippedAt",
+  "skipReason",
+  "nextRunAt",
+  "warnState",
+]);
+
 let schedulerStarted = false;
 let schedulerTimer = null;
 let tickInFlight = null;
@@ -37,6 +58,7 @@ const executors = {
   isInstanceRunning: null,
   warnInstance: null,
   restartInstance: null,
+  listInstanceJobs: null,
 };
 
 let lazyInstanceService = null;
@@ -46,6 +68,15 @@ function getInstanceService() {
     lazyInstanceService = require("./instances/instanceService");
   }
   return lazyInstanceService;
+}
+
+let lazyTerminalJobStates = null;
+
+function getTerminalJobStates() {
+  if (!lazyTerminalJobStates) {
+    lazyTerminalJobStates = require("../../../src/shared/instances/jobLifecycle").TERMINAL_JOB_STATES;
+  }
+  return lazyTerminalJobStates;
 }
 
 function defaultNow() {
@@ -63,6 +94,13 @@ async function defaultWarnInstance(instanceId, message) {
 
 async function defaultRestartInstance(instanceId) {
   return getInstanceService().restartInstance(instanceId);
+}
+
+// Canonical read path for the instance's durable jobs (the same query the
+// /api/v1/jobs route uses). Terminal-state filtering lives in findBlockingJob
+// so the seam only has to return the raw list contract.
+async function defaultListInstanceJobs(instanceId) {
+  return getInstanceService().listInstanceJobs({ instanceId });
 }
 
 // Assign only the provided seams; passing null restores the production
@@ -83,6 +121,9 @@ function configureRestartScheduleService(overrides = {}) {
   if (Object.prototype.hasOwnProperty.call(overrides, "restartInstance")) {
     executors.restartInstance = overrides.restartInstance || defaultRestartInstance;
   }
+  if (Object.prototype.hasOwnProperty.call(overrides, "listInstanceJobs")) {
+    executors.listInstanceJobs = overrides.listInstanceJobs || defaultListInstanceJobs;
+  }
 }
 
 configureRestartScheduleService({
@@ -90,6 +131,7 @@ configureRestartScheduleService({
   isInstanceRunning: null,
   warnInstance: null,
   restartInstance: null,
+  listInstanceJobs: null,
 });
 
 function now() {
@@ -393,6 +435,17 @@ async function sendWarning(schedule, message) {
   } catch {}
 }
 
+// Returns the first non-terminal durable job targeting the instance, or null.
+// Uses the canonical job query (same one the /api/v1/jobs route exposes) and
+// the engine's own terminal-state set so this cannot drift from the job store.
+// A query failure propagates to the caller, which applies the fail-closed skip.
+async function findBlockingJob(instanceId) {
+  const result = await (executors.listInstanceJobs || defaultListInstanceJobs)(instanceId);
+  const jobs = Array.isArray(result?.jobs) ? result.jobs : [];
+  const terminalStates = getTerminalJobStates();
+  return jobs.find((job) => job && !terminalStates.has(job.state)) || null;
+}
+
 async function evaluateSchedule(schedule, changed) {
   const atMs = now();
   const dueAtMs = Date.parse(schedule.nextRunAt);
@@ -449,8 +502,44 @@ async function evaluateSchedule(schedule, changed) {
   }
   if (!running) {
     schedule.skippedAt = nowIso(atMs);
-    schedule.skipReason = "INSTANCE_NOT_RUNNING";
+    schedule.skipReason = SKIP_REASON.INSTANCE_NOT_RUNNING;
     schedule.lastError = null;
+    schedule.nextRunAt = new Date(nextDueAtMs(schedule, dueAtMs, atMs)).toISOString();
+    schedule.warnState = freshWarnState(Date.parse(schedule.nextRunAt));
+    changed.value = true;
+    return;
+  }
+
+  // A durable job in flight for this instance (a long SteamCMD update, a
+  // marketplace install, a backup/restore…) would be killed by the restart.
+  // A busy instance skips this due cycle and keeps its cadence. We deliberately
+  // do NOT queue the restart behind the job: a tick-based scheduler has no
+  // durable home for a deferred intent, and a queued restart could fire long
+  // after the maintenance window the operator scheduled. The next due cycle is
+  // the retry point.
+  let blockingJob = null;
+  try {
+    blockingJob = await findBlockingJob(schedule.instanceId);
+  } catch (error) {
+    // Fail-closed (deliberate): an unreadable job store is treated as "busy".
+    // Skipping an unnecessary restart is far cheaper than killing an install,
+    // and the query failure is recorded so operators can see why the window
+    // was missed. Recorded under a distinct reason so a real busy-instance
+    // skip stays distinguishable from a store fault.
+    schedule.skippedAt = nowIso(atMs);
+    schedule.skipReason = SKIP_REASON.JOB_QUERY_FAILED;
+    schedule.lastError = error?.code || "RESTART_SCHEDULE_JOB_QUERY_FAILED";
+    schedule.nextRunAt = new Date(nextDueAtMs(schedule, dueAtMs, atMs)).toISOString();
+    schedule.warnState = freshWarnState(Date.parse(schedule.nextRunAt));
+    changed.value = true;
+    return;
+  }
+  if (blockingJob) {
+    schedule.skippedAt = nowIso(atMs);
+    schedule.skipReason = SKIP_REASON.INSTANCE_BUSY;
+    // Carry the blocking job's type/id so the operator can correlate the
+    // skipped window with the job that held the instance.
+    schedule.lastError = `${SKIP_REASON.INSTANCE_BUSY}:${blockingJob.type || "unknown"}:${blockingJob.id || "unknown"}`;
     schedule.nextRunAt = new Date(nextDueAtMs(schedule, dueAtMs, atMs)).toISOString();
     schedule.warnState = freshWarnState(Date.parse(schedule.nextRunAt));
     changed.value = true;
@@ -483,6 +572,58 @@ async function evaluateSchedule(schedule, changed) {
   changed.value = true;
 }
 
+// Lost-update guard for the tick-vs-CRUD race. The tick loads the schedule
+// array once, then may spend a long time executing restarts; a create, update
+// or delete committed in that window would be silently clobbered by a plain
+// snapshot write. Before the final write we re-read the store and MERGE:
+//
+//   - The re-read is authoritative for structure (membership and every
+//     non-tick-owned field). Schedules added concurrently survive; schedules
+//     deleted concurrently stay deleted (an evaluated-then-deleted entry is
+//     NOT resurrected); edits to type/timing/enabled/warnMinutes from another
+//     writer win over the tick's stale snapshot.
+//   - For schedules the tick actually evaluated (and did not throw on), only
+//     the fields listed in TICK_OWNED_FIELDS are overlaid from the tick's
+//     in-memory copy. Those are the runtime facts the tick legitimately
+//     produced (when it ran/skipped and when it is next due).
+//
+// The backupService scheduler precedent does NOT implement this merge (single
+// writer assumed), so this path is intentionally stricter.
+async function mergeEvaluatedSchedules(snapshot, evaluatedIds) {
+  let latest;
+  try {
+    latest = await readSchedules();
+  } catch {
+    // Re-read failed (for example the store became unreadable mid-tick). The
+    // restart already happened, so recording the tick's runtime fields matters
+    // more than preserving a store we could not read; readSchedules has already
+    // quarantined the bad file. Fall back to the tick snapshot.
+    return snapshot;
+  }
+
+  const evaluatedById = new Map();
+  for (const schedule of snapshot) {
+    if (evaluatedIds.has(schedule.id)) {
+      evaluatedById.set(schedule.id, schedule);
+    }
+  }
+
+  return latest.map((record) => {
+    const tickRecord = evaluatedById.get(record.id);
+    if (!tickRecord) {
+      // Concurrently added (or never evaluated): the fresh record wins whole.
+      return record;
+    }
+    const merged = { ...record };
+    for (const field of TICK_OWNED_FIELDS) {
+      if (tickRecord[field] !== undefined) {
+        merged[field] = tickRecord[field];
+      }
+    }
+    return merged;
+  });
+}
+
 async function runDueSchedules() {
   // Overlapping ticks share one evaluation so a due restart fires exactly
   // once even if the interval timer and a manual evaluation collide.
@@ -490,23 +631,28 @@ async function runDueSchedules() {
     return tickInFlight;
   }
   tickInFlight = (async () => {
-    const schedules = await readSchedules();
+    const snapshot = await readSchedules();
     const changed = { value: false };
-    for (const schedule of schedules) {
+    const evaluatedIds = new Set();
+    for (const schedule of snapshot) {
       if (!schedule.enabled) {
         continue;
       }
       try {
         await evaluateSchedule(schedule, changed);
+        // Only a schedule the tick fully evaluated contributes its runtime
+        // fields; a schedule that threw mid-evaluation keeps the fresh store
+        // copy for every field.
+        evaluatedIds.add(schedule.id);
       } catch {
         // A malformed schedule entry must not stop the remaining schedules;
         // the store keeps the raw entry and the next tick retries.
       }
     }
     if (changed.value) {
-      await writeSchedules(schedules);
+      await writeSchedules(await mergeEvaluatedSchedules(snapshot, evaluatedIds));
     }
-    return { evaluated: schedules.length, changed: changed.value };
+    return { evaluated: snapshot.length, changed: changed.value };
   })();
   try {
     return await tickInFlight;
@@ -539,6 +685,7 @@ module.exports = {
   MAX_INTERVAL_HOURS,
   MIN_INTERVAL_HOURS,
   RESTART_SCHEDULE_SCHEMA_VERSION,
+  SKIP_REASON,
   configureRestartScheduleService,
   createRestartSchedule,
   deleteRestartSchedule,

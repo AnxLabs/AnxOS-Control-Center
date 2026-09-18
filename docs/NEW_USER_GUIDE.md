@@ -50,6 +50,20 @@ To add a remote system:
 4. Paste the pairing code.
 5. Click **Pair Agent**, then **Test Connection**.
 
+Nodes can also be organized with an optional **group** label and filtered by it
+in the node toolbar. Groups are labels only; they do not grant or restrict
+access.
+
+To stop AnxOS from monitoring a node without deleting it, use **Disconnect**. A
+disconnected node stays offline until you **Reconnect** or re-pair it.
+
+Removing an Agent node also attempts to revoke its enrollment on the Agent. The
+Agent only allows an owner-tier credential to do this, so a restricted node may
+refuse the revocation and the app will say so. This is expected: the node is
+removed from this device either way, but a refused revocation is never shown as
+a success.
+
+
 ## Guided Setup
 
 The setup guide walks through:
@@ -92,6 +106,8 @@ After installation:
 
 Some templates require setup before start. For example, FiveM can install successfully but show **Setup Required** until a license key is configured.
 
+You can add a **scheduled restart** for an instance (a daily time or a repeating interval, with a warning minutes setting). Warnings are sent to a running server; a stopped instance is skipped, never started, and the restart uses the normal restart path rather than a forced kill.
+
 ## Files
 
 Open **Files** to browse supported local, Agent, and storage profiles. Each profile keeps its own remembered path. Remote Linux profiles should start from the Agent-reported home or authorized root, not a Windows path.
@@ -114,6 +130,19 @@ Never expose a service publicly unless you understand the provider and port bein
 ## Backups
 
 Open **Backups** before making major server changes. Backups can protect instance files and provide restore points where the selected node supports the backup service.
+
+A backup is crash-consistent by default: it is taken while the server keeps running. Where the option is available, you can request a **stopped-consistent** backup, which pauses the server through the normal stop path, archives it, and starts it again. An already-stopped server is never started just to take a backup, and a restart failure after a stopped backup is reported rather than hidden.
+
+Backup cleanup never removes the newest recovery point of an instance, even if the age or count policy says it should. Older copies are trimmed per the retention policy (default: keep the last 10 or 30 days, whichever is more generous).
+
+Where a node supports it, backups can also be pushed to a remote destination (SFTP). Remote copies are encrypted before they leave the host; keep the encryption key safe, because a lost key means those remote copies cannot be recovered.
+
+## Further Reading
+
+For the operator-facing details behind these features, including Docker policy
+grants, runtime pins, network inventory, Linux Agent self-update, and workload
+transfer between nodes, see `OPERATOR_NOTES_V2.md`. For endpoint and permission
+details, see `API_SURFACE_V2.md`.
 
 ## Diagnostics
 

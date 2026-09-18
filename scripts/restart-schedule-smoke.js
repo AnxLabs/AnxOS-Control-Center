@@ -17,6 +17,13 @@ function makeHarness(startMs) {
     running: new Set(),
     warns: [],
     restarts: [],
+    // Durable-job seam (Y2): jobs keyed by instance, plus a one-shot query
+    // fault switch to exercise the fail-closed path.
+    jobsByInstance: new Map(),
+    jobQueryError: null,
+    // One-shot hook fired inside restartInstance so a test can commit a
+    // concurrent CRUD mutation while the tick is mid-flight (Y1).
+    onRestart: null,
   };
   const executors = {
     now: () => state.clockMs,
@@ -27,7 +34,19 @@ function makeHarness(startMs) {
     },
     restartInstance: async (instanceId) => {
       state.restarts.push({ instanceId, at: state.clockMs });
+      if (state.onRestart) {
+        const hook = state.onRestart;
+        state.onRestart = null;
+        await hook(instanceId);
+      }
       return { id: instanceId, state: "Running" };
+    },
+    listInstanceJobs: async (instanceId) => {
+      if (state.jobQueryError) {
+        throw state.jobQueryError;
+      }
+      const jobs = state.jobsByInstance.get(instanceId) || [];
+      return { jobs, total: jobs.length };
     },
   };
   return { state, executors };
@@ -199,7 +218,83 @@ async function main() {
   assert.strictEqual(warnLogFor("server-f").length, 0);
   assert.strictEqual(Date.parse(dormantRecord.nextRunAt), dormantNext, "Disabled schedules are left untouched.");
 
-  // --- 7. Route layer: REST contract over the same service -----------------
+  // --- 7. Tick-vs-CRUD merge (Y1): a create/update/delete committed while the
+  // tick is executing a restart must survive the tick's final write ----------
+  state.running.add("server-g");
+  const mergeTarget = await service.createRestartSchedule({ instanceId: "server-g", intervalHours: 1, warnMinutes: 5 });
+  const mergeDue = Date.parse(mergeTarget.schedule.nextRunAt);
+  // A second due schedule deleted mid-tick must NOT be resurrected by the
+  // snapshot write.
+  const mergeDeleteTarget = await service.createRestartSchedule({ instanceId: "server-g2", intervalHours: 1, warnMinutes: 5 });
+  state.onRestart = async () => {
+    await service.createRestartSchedule({ instanceId: "server-h", intervalHours: 2, warnMinutes: 5 });
+    await service.updateRestartSchedule(mergeTarget.schedule.id, { enabled: false });
+    await service.deleteRestartSchedule(mergeDeleteTarget.schedule.id);
+  };
+  state.clockMs = mergeDue + 1000;
+  await service.runDueSchedules();
+  const mergedList = (await service.listRestartSchedules()).schedules;
+  assert(mergedList.some((schedule) => schedule.instanceId === "server-h"), "A schedule created mid-tick must not be clobbered by the tick write.");
+  const mergedTarget = mergedList.find((schedule) => schedule.id === mergeTarget.schedule.id);
+  assert(mergedTarget.lastRunAt, "The tick must still record the restart it performed on the evaluated schedule.");
+  assert.strictEqual(mergedTarget.enabled, false, "A concurrent disable must win over the tick's stale structural snapshot.");
+  assert.strictEqual(Date.parse(mergedTarget.nextRunAt), mergeDue + HOUR_MS, "The tick must still own nextRunAt on an evaluated schedule.");
+  assert(!mergedList.some((schedule) => schedule.id === mergeDeleteTarget.schedule.id), "A schedule deleted mid-tick must stay deleted (no resurrection).");
+
+  // --- 8. Busy-instance skip (Y2): a non-terminal durable job blocks the
+  // restart, a terminal job does not, and cadence is preserved --------------
+  state.running.add("server-i");
+  const busy = await service.createRestartSchedule({ instanceId: "server-i", intervalHours: 2, warnMinutes: 5 });
+  const busyDue = Date.parse(busy.schedule.nextRunAt);
+  state.jobsByInstance.set("server-i", [
+    { id: "job_00000000000000000000000000000001", type: "instance.update", state: "succeeded" },
+  ]);
+  state.clockMs = busyDue + 1000;
+  await service.runDueSchedules();
+  assert.strictEqual(state.restarts.filter((entry) => entry.instanceId === "server-i").length, 1, "A terminal job must not block the restart.");
+  const afterTerminal = (await service.listRestartSchedules("server-i")).schedules[0];
+  assert.strictEqual(Date.parse(afterTerminal.nextRunAt), busyDue + 2 * HOUR_MS);
+
+  // Non-terminal job: the due cycle is skipped, not queued behind the job.
+  const busyDue2 = Date.parse(afterTerminal.nextRunAt);
+  state.jobsByInstance.set("server-i", [
+    { id: "job_00000000000000000000000000000002", type: "instance.steamcmdUpdate", state: "running" },
+  ]);
+  state.clockMs = busyDue2 + 1000;
+  await service.runDueSchedules();
+  assert.strictEqual(state.restarts.filter((entry) => entry.instanceId === "server-i").length, 1, "A busy instance must not be restarted.");
+  const busyRecord = (await service.listRestartSchedules("server-i")).schedules[0];
+  assert.strictEqual(busyRecord.skipReason, service.SKIP_REASON.INSTANCE_BUSY);
+  assert(busyRecord.skippedAt, "The busy skip must be recorded.");
+  assert(/instance\.steamcmdUpdate/.test(busyRecord.lastError || ""), "The blocking job type must be recorded.");
+  assert(/job_00000000000000000000000000000002/.test(busyRecord.lastError || ""), "The blocking job id must be recorded.");
+  assert.strictEqual(Date.parse(busyRecord.nextRunAt), busyDue2 + 2 * HOUR_MS, "A busy skip must keep cadence.");
+
+  // The job clears: the next due cycle restarts normally, proving the skipped
+  // restart was not quietly queued and fired late.
+  state.jobsByInstance.set("server-i", []);
+  const busyDue3 = Date.parse(busyRecord.nextRunAt);
+  state.clockMs = busyDue3 + 1000;
+  await service.runDueSchedules();
+  assert.strictEqual(state.restarts.filter((entry) => entry.instanceId === "server-i").length, 2, "The next free cycle must restart normally.");
+
+  // --- 9. Job-query failure is fail-closed (skip + record + keep cadence) ---
+  state.running.add("server-k");
+  const fault = await service.createRestartSchedule({ instanceId: "server-k", intervalHours: 3, warnMinutes: 5 });
+  const faultDue = Date.parse(fault.schedule.nextRunAt);
+  const queryError = new Error("JOB_STORE_READ_FAILED");
+  queryError.code = "JOB_STORE_READ_FAILED";
+  state.jobQueryError = queryError;
+  state.clockMs = faultDue + 1000;
+  await service.runDueSchedules();
+  assert.strictEqual(state.restarts.filter((entry) => entry.instanceId === "server-k").length, 0, "A failed job query must not restart the instance.");
+  const faultRecord = (await service.listRestartSchedules("server-k")).schedules[0];
+  assert.strictEqual(faultRecord.skipReason, service.SKIP_REASON.JOB_QUERY_FAILED);
+  assert.strictEqual(faultRecord.lastError, "JOB_STORE_READ_FAILED");
+  assert.strictEqual(Date.parse(faultRecord.nextRunAt), faultDue + 3 * HOUR_MS, "A fail-closed skip must keep cadence.");
+  state.jobQueryError = null;
+
+  // --- 10. Route layer: REST contract over the same service ----------------
   const routeRequest = (method, pathname, body = null) => handleInstances(
     { method, body: body === null ? undefined : JSON.stringify(body) },
     { pathname, searchParams: new URLSearchParams() },

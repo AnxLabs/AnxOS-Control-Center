@@ -403,8 +403,18 @@ async function validateArchiveFile(archivePathValue, expectedSha256 = null) {
   };
 }
 
-async function extractTarGzArchive(archivePathValue, destinationRoot) {
+// expectedSha256 closes the verify-then-extract window (adversarial audit
+// P2): the caller verifies the archive, then this reads it again — hashing
+// THIS buffer removes the gap entirely, because the bytes that are parsed and
+// extracted are the same bytes that were verified.
+async function extractTarGzArchive(archivePathValue, destinationRoot, expectedSha256 = null) {
   const archiveBuffer = await fs.readFile(archivePathValue);
+  if (expectedSha256) {
+    const actualSha256 = crypto.createHash("sha256").update(archiveBuffer).digest("hex");
+    if (actualSha256 !== String(expectedSha256).toLowerCase()) {
+      throw createBackupError("BACKUP_ARCHIVE_HASH_MISMATCH", 400, { expectedSha256, actualSha256 });
+    }
+  }
   const validation = parseTarEntries(archiveBuffer);
   const realDestinationRoot = await fs.realpath(destinationRoot).catch(() => destinationRoot);
 
@@ -1194,7 +1204,7 @@ async function rollbackRestoreFromSafetySnapshot(instancePath, safetyBackup) {
     await fs.rm(instancePath, { recursive: true, force: true });
     await fs.mkdir(instancePath, { recursive: true, mode: 0o700 });
   }
-  await extractTarGzArchive(safetyArchivePath, instancePath);
+  await extractTarGzArchive(safetyArchivePath, instancePath, safetyBackup.archiveSha256);
   const rollbackVerified = safetyBackup.type === "world"
     ? (Array.isArray(safetyBackup.sourcePaths) && safetyBackup.sourcePaths.length > 0 && await Promise.all(
       safetyBackup.sourcePaths.map((sourcePath) => fs.stat(path.resolve(instancePath, sourcePath)).then(() => true, () => false)),
@@ -1289,11 +1299,11 @@ async function restoreBackup(payload = {}) {
         }
         await fs.rm(targetPath, { recursive: true, force: true });
       }
-      await extractTarGzArchive(backup.path, instancePath);
+      await extractTarGzArchive(backup.path, instancePath, backup.archiveSha256);
     } else if (sameTarget) {
       await fs.rm(instancePath, { recursive: true, force: true });
       await fs.mkdir(instancePath, { recursive: true, mode: 0o700 });
-      await extractTarGzArchive(backup.path, instancePath);
+      await extractTarGzArchive(backup.path, instancePath, backup.archiveSha256);
       if (!await fs.stat(path.join(instancePath, "config.json")).then((stats) => stats.isFile(), () => false)) {
         throw createBackupError("RESTORE_VERIFICATION_FAILED", 500);
       }
@@ -1309,7 +1319,7 @@ async function restoreBackup(payload = {}) {
       try {
         await fs.rm(stagingPath, { recursive: true, force: true });
         await fs.mkdir(stagingPath, { recursive: true, mode: 0o700 });
-        await extractTarGzArchive(backup.path, stagingPath);
+        await extractTarGzArchive(backup.path, stagingPath, backup.archiveSha256);
         if (!await fs.stat(path.join(stagingPath, "config.json")).then((stats) => stats.isFile(), () => false)) {
           throw createBackupError("RESTORE_VERIFICATION_FAILED", 500);
         }
@@ -1546,9 +1556,16 @@ module.exports = {
   deleteBackup,
   deleteSchedule,
   getBackupDownload,
+  // V2-F wave 5: shared so the destination store resolves the same
+  // AGENT_BACKUP_ROOT the backup artifacts themselves use (single source of
+  // truth for the root, no duplicated env/root logic).
+  getBackupRoot,
   importBackup,
   listBackups,
   listSchedules,
+  // V2-F wave 5: the destination service reuses the canonical metadata reader
+  // instead of re-implementing metadata validation/quarantine.
+  readBackupMetadata,
   restoreBackup,
   recoverBackupArtifacts,
   saveSchedule,

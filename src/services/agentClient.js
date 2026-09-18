@@ -3367,6 +3367,23 @@ async function createWindowsFirewallRule(payload = {}, configOverride = null) {
   return requestJson("/api/v1/public-access/firewall-rule", { config: configOverride, method: "POST", body: payload });
 }
 
+// V2-H firewall lifecycle inventory: AnxOS-managed inbound rules only. The
+// Agent filters by the AnxOS name marker, so unmanaged host rules can never be
+// surfaced as deletable here.
+async function listWindowsFirewallRules(payload = {}, configOverride = null) {
+  const query = payload.nodeId ? `?nodeId=${encodeURIComponent(payload.nodeId)}` : "";
+  return requestJson(`/api/v1/public-access/firewall-rule${query}`, { config: configOverride });
+}
+
+// Best-effort rollback transport: deletes a single AnxOS-managed rule by name.
+// Refuses unmanaged names on the Agent side, so the desktop rollback guard can
+// never remove a rule AnxOS did not create.
+async function deleteWindowsFirewallRule(payload = {}, configOverride = null) {
+  const name = payload?.name || payload?.id || "";
+  const query = name ? `?name=${encodeURIComponent(String(name))}` : "";
+  return requestJson(`/api/v1/public-access/firewall-rule${query}`, { config: configOverride, method: "DELETE" });
+}
+
 // V2-G node lifecycle: the desktop revokes a node's enrollment with the same
 // shared Agent token it already holds for that node. Revocation is
 // owner-permission gated on the Agent, so a restricted remote credential may
@@ -3423,6 +3440,8 @@ module.exports = {
   createPublicAccessService,
   createUiBootstrapCode,
   createWindowsFirewallRule,
+  deleteWindowsFirewallRule,
+  listWindowsFirewallRules,
   preflightDockerContainer,
   deleteDockerImage,
   deletePublicAccessService,

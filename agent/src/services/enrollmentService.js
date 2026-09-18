@@ -9,6 +9,7 @@ const {
   writeAgentConfigToken,
 } = require("../../../src/shared/agentTokenStore");
 const { getDeviceIdentity, getIdentityPath, rotateAgentIdentityGeneration } = require("./deviceIdentityService");
+const { normalizeApiScopes, resolveAgentNodeId } = require("../permissions");
 const { logger } = require("./diagnosticsLogger");
 
 // V2-A enrollment contract (docs/v2/V2A_DECISIONS.md Decision 1,
@@ -79,6 +80,55 @@ function compareVersions(left, right) {
 
 function enrollmentError(code, message, statusCode, details = {}) {
   return Object.assign(new Error(message), { code, statusCode, details });
+}
+
+// ---------------------------------------------------------------------------
+// V2-I bullet 3: optional credential scopes.
+//
+// An enrollment (re-pair) may carry an optional scope envelope:
+//   scopes: { nodeIds?: string[], families?: string[] }
+// It is persisted additively on the enrollment record (no schemaVersion bump).
+// Re-pairing WITHOUT scopes clears them: completeEnrollment always writes a
+// fresh record, so absent scopes => unscoped (full profile permissions).
+// `nodeId` (singular, the documented grant spelling) is accepted as an alias
+// for `nodeIds`. Malformed scope shapes are refused fail-closed.
+// ---------------------------------------------------------------------------
+function parseEnrollmentScopes(raw) {
+  if (raw === undefined || raw === null || raw === "") {
+    return null;
+  }
+  if (typeof raw !== "object" || Array.isArray(raw)) {
+    throw enrollmentError("ENROLL_SCOPE_INVALID", "Enrollment scopes must be an object with optional nodeIds/families arrays.", 400);
+  }
+  for (const key of ["nodeIds", "nodeId", "families"]) {
+    if (raw[key] === undefined || raw[key] === null) continue;
+    const list = Array.isArray(raw[key]) ? raw[key] : [raw[key]];
+    const valid = list.every((entry) => (typeof entry === "string" || typeof entry === "number") && String(entry).trim());
+    if (!valid) {
+      throw enrollmentError("ENROLL_SCOPE_INVALID", `Enrollment scope "${key}" must contain only non-empty strings.`, 400, { field: key });
+    }
+  }
+  return normalizeApiScopes(raw);
+}
+
+// Resolves the scope context for the CURRENT persisted enrollment so the
+// request path can enforce it. A missing/legacy record yields an unscoped
+// context (null scopes), which preserves pre-V2-I behavior exactly.
+function resolveEnrollmentScopeContext() {
+  let record = null;
+  try {
+    record = readEnrollmentRecord();
+  } catch {
+    // A corrupt record is surfaced by the enrollment binding gate; scope
+    // resolution must not turn every request into a distinct failure.
+    return { scopes: null, nodeId: null };
+  }
+  if (!record) return { scopes: null, nodeId: null };
+  const deviceId = record.nodeIdentity?.deviceId || null;
+  return {
+    scopes: normalizeApiScopes(record.scopes),
+    nodeId: deviceId ? resolveAgentNodeId(deviceId) : null,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -245,6 +295,9 @@ function completeEnrollment(body = {}, config = {}) {
     throw enrollmentError("ENROLL_CONFIG_PATH_MISSING", "The agent token config path is unavailable; enrollment cannot bind credentials.", 500);
   }
   const identity = getDeviceIdentity();
+  // Parsed before any mutation so a malformed scope shape fails the request
+  // without rotating identity or rewriting the previous binding.
+  const scopes = parseEnrollmentScopes(body?.scopes);
   const previous = readEnrollmentRecord();
   const previousFingerprints = [...(previous?.previousFingerprints || [])];
   if (previous?.state === AGENT_STATE_ENROLLED && previous?.tokenFingerprint) {
@@ -278,6 +331,9 @@ function completeEnrollment(body = {}, config = {}) {
     apiMajorVersion: 1,
     tokenFingerprint: tokenFingerprint(rawToken),
     previousFingerprints,
+    // V2-I scopes are additive and optional: only present when the re-pair
+    // supplied them, otherwise absent (unscoped => full profile permissions).
+    ...(scopes ? { scopes } : {}),
     enrolledAtIso: new Date().toISOString(),
     legacyMigrated: false,
     revokedAtIso: null,
@@ -520,7 +576,9 @@ module.exports = {
   emitSpawnDiagnostic,
   getEnrollmentPath,
   migrateLegacyBinding,
+  parseEnrollmentScopes,
   readEnrollmentRecord,
+  resolveEnrollmentScopeContext,
   revokeEnrollment,
   rotateEnrollmentCredential,
   startEnrollment,

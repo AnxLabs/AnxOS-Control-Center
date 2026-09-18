@@ -203,6 +203,10 @@ const desktopApi = {
     createService: (payload = {}) => ipcRenderer.invoke("publicAccess:createService", payload),
     deleteService: (payload = {}) => ipcRenderer.invoke("publicAccess:deleteService", payload),
     createFirewallRule: (payload = {}) => ipcRenderer.invoke("publicAccess:createFirewallRule", payload),
+    previewFirewallRule: (payload = {}) => ipcRenderer.invoke("publicAccess:previewFirewallRule", payload),
+    applyFirewallRule: (payload = {}) => ipcRenderer.invoke("publicAccess:applyFirewallRule", payload),
+    listFirewallRules: (payload = {}) => ipcRenderer.invoke("publicAccess:listFirewallRules", payload),
+    deleteFirewallRule: (payload = {}) => ipcRenderer.invoke("publicAccess:deleteFirewallRule", payload),
   },
   docker: {
     getSnapshot: (payload = {}) => invokeAgentFeature("docker:getSnapshot", payload),

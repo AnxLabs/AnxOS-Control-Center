@@ -36,6 +36,25 @@ assert(source.includes("clearStageTimer(session)"), "SSH stage timers must be cl
 assert(source.includes("client.on(\"error\""), "SSH client errors must terminate the session.");
 assert(source.includes("client.on(\"close\""), "SSH client close events must terminate the session.");
 
+// H1: the fixture had a 25ms shell callback racing 40ms shell timeouts and
+// 60/110ms fixed sleeps (15ms of margin). Timeouts are widened so the fixture
+// delay is an order of magnitude below the deadline it must beat, and every
+// observation polls a condition with a generous deadline instead of sleeping a
+// fixed amount. Assertion intent is unchanged; only the margins are widened.
+const CONNECT_TIMEOUT_MS = 60;
+const SHELL_START_TIMEOUT_MS = 160;
+const FIXTURE_SHELL_DELAY_MS = 25;
+const OBSERVE_TIMEOUT_MS = 5000;
+
+async function waitFor(predicate, label, timeoutMs = OBSERVE_TIMEOUT_MS) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if (predicate()) return;
+    if (Date.now() >= deadline) throw new Error(`Timed out after ${timeoutMs}ms waiting for ${label}.`);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
 class StalledClient extends EventEmitter {
   connect() {}
   end() { this.ended = true; }
@@ -65,7 +84,7 @@ class DelayedReadyClient extends ReadyClient {
     this.stream.writable = true;
     this.stream.write = (data) => { this.writes.push(data); };
     this.stream.end = () => { this.streamEnded = true; };
-    setTimeout(() => callback(null, this.stream), 25);
+    setTimeout(() => callback(null, this.stream), FIXTURE_SHELL_DELAY_MS);
   }
 }
 
@@ -101,7 +120,7 @@ class HostKeyClient extends ReadyClient {
 
 async function main() {
   const stalledClient = new StalledClient();
-  const service = new SshService({ createClient: () => stalledClient, connectTimeoutMs: 20, shellStartTimeoutMs: 40 });
+  const service = new SshService({ createClient: () => stalledClient, connectTimeoutMs: CONNECT_TIMEOUT_MS, shellStartTimeoutMs: SHELL_START_TIMEOUT_MS });
   service.getProfile = () => ({
     id: "timeout-profile",
     nodeId: "timeout-node",
@@ -115,7 +134,7 @@ async function main() {
   service.on("session-error", (event) => errors.push(event));
   const session = service.connect({ profileId: "timeout-profile", nodeId: "timeout-node", password: "fixture-only" });
   assert.strictEqual(session.status, "connecting", "Fixture must reproduce the pre-fix indefinite Connecting state.");
-  await new Promise((resolve) => setTimeout(resolve, 60));
+  await waitFor(() => errors.length >= 1, "bounded connect timeout");
   assert.strictEqual(errors.length, 1, "A stalled connection must emit one bounded connect failure.");
   assert.strictEqual(errors[0].code, "SSH_CONNECTION_TIMEOUT");
   assert.match(errors[0].message, /handshake/i);
@@ -131,7 +150,7 @@ async function main() {
   service.createClient = () => noShellClient;
   const shellTimeout = service.connect({ profileId: "timeout-profile", nodeId: "timeout-node", password: "fixture-only" });
   assert.strictEqual(shellTimeout.status, "connecting", "Ready-without-shell fixture should begin in connecting state.");
-  await new Promise((resolve) => setTimeout(resolve, 110));
+  await waitFor(() => errors.length >= 2, "bounded shell-start timeout");
   assert.strictEqual(errors.length, 2, "A stalled shell allocation must emit one bounded shell-start failure.");
   assert.strictEqual(errors[1].code, "SSH_SHELL_OPEN_TIMEOUT");
   assert.match(errors[1].message, /remote terminal did not open/i);
@@ -143,7 +162,7 @@ async function main() {
   const ptyFailureClient = new PtyFailureClient();
   service.createClient = () => ptyFailureClient;
   service.connect({ profileId: "timeout-profile", nodeId: "timeout-node", password: "fixture-only" });
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  await waitFor(() => errors.length >= 3, "PTY shell-open failure");
   assert.strictEqual(errors.length, 3, "A PTY allocation failure must emit one shell-open failure.");
   assert.strictEqual(errors[2].code, "SSH_SHELL_OPEN_FAILED");
   assert.match(errors[2].message, /remote shell could not be opened/i);
@@ -151,7 +170,9 @@ async function main() {
   const delayedClient = new DelayedReadyClient();
   service.createClient = () => delayedClient;
   const delayed = service.connect({ profileId: "timeout-profile", nodeId: "timeout-node", password: "fixture-only" });
-  await new Promise((resolve) => setTimeout(resolve, 45));
+  // Resolve on either outcome so the assertion below (not the poll deadline)
+  // reports a meaningful failure if the delayed shell loses its race.
+  await waitFor(() => !service.sessions.has(delayed.id) || service.sessions.get(delayed.id)?.shellReady === true, "delayed shell readiness");
   const delayedSession = service.sessions.get(delayed.id);
   assert.strictEqual(delayedSession?.status, "connected", "Delayed shell allocation should connect before the bounded timeout.");
   assert.strictEqual(delayedSession?.shellReady, true, "Delayed shell allocation should mark the channel writable.");
@@ -162,7 +183,7 @@ async function main() {
   const retryClient = new ReadyClient();
   service.createClient = () => retryClient;
   const retry = service.connect({ profileId: "timeout-profile", nodeId: "timeout-node", password: "fixture-only" });
-  await new Promise((resolve) => setTimeout(resolve, 10));
+  await waitFor(() => !service.sessions.has(retry.id) || service.sessions.get(retry.id)?.shellReady === true, "clean retry shell readiness");
   const connectedRetry = service.sessions.get(retry.id);
   assert.strictEqual(connectedRetry?.status, "connected", "A clean retry must connect after timeout cleanup.");
   assert.strictEqual(connectedRetry?.shellReady, true, "A clean shell callback must mark the shell ready.");
@@ -184,7 +205,7 @@ async function main() {
   const lateClient = new LateShellClient();
   service.createClient = () => lateClient;
   const cancelled = service.connect({ profileId: "timeout-profile", nodeId: "timeout-node", password: "fixture-only" });
-  await new Promise((resolve) => setTimeout(resolve, 5));
+  await waitFor(() => Boolean(lateClient.shellCallback), "pending shell attempt to register");
   const cancelResult = service.disconnect(cancelled.id);
   assert.strictEqual(cancelResult.status, "cancelled", "Pending attempts must terminate as cancelled.");
   assert.strictEqual(errors.at(-1).code, "SSH_CANCELLED", "Cancellation must use its stable structured code.");
@@ -200,7 +221,7 @@ async function main() {
   const unknownHostClient = new HostKeyClient(hostKey);
   service.createClient = () => unknownHostClient;
   const unknown = service.connect({ profileId: "timeout-profile", nodeId: "timeout-node", password: "fixture-only" });
-  await new Promise((resolve) => setTimeout(resolve, 10));
+  await waitFor(() => errors.length >= 5, "unknown host-key rejection");
   const unknownFailure = errors.at(-1);
   assert.strictEqual(unknownFailure.code, "SSH_HOST_KEY_UNKNOWN", "Unknown host keys must require explicit approval.");
   assert.match(unknownFailure.details.fingerprint, /^SHA256:/, "Host approval must expose only a fingerprint.");
@@ -208,7 +229,7 @@ async function main() {
   const trustedHostClient = new HostKeyClient(hostKey);
   service.createClient = () => trustedHostClient;
   const trusted = service.connect({ profileId: "timeout-profile", nodeId: "timeout-node", password: "fixture-only" });
-  await new Promise((resolve) => setTimeout(resolve, 10));
+  await waitFor(() => !service.sessions.has(trusted.id) || service.sessions.get(trusted.id)?.status === "connected", "approved host-key connect");
   assert.strictEqual(service.sessions.get(trusted.id)?.status, "connected", "An explicitly approved host key must connect on retry.");
   assert.notStrictEqual(trusted.id, unknown.id, "Host-key retry must use a fresh session identifier.");
   service.disconnect(trusted.id);

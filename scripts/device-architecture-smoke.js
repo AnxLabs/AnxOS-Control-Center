@@ -7,6 +7,40 @@ const { spawn } = require("child_process");
 
 const rootDir = path.resolve(__dirname, "..");
 
+// H4: timeouts used to be hardcoded (15s startup, 12s stop) and were tight on
+// loaded CI runners. They are now configurable with raised defaults, and temp
+// cleanup uses a bounded retry loop with backoff instead of a single
+// fs.rm call. Everything stays hermetic (isolated temp root, loopback ports).
+function envMs(name, fallback) {
+  const parsed = Number.parseInt(process.env[name], 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+const AGENT_START_BUDGET_MS = envMs("ANX_DEVICE_SMOKE_START_TIMEOUT_MS", 45000);
+const AGENT_STOP_TIMEOUT_MS = envMs("ANX_DEVICE_SMOKE_STOP_TIMEOUT_MS", 30000);
+const CLEANUP_ATTEMPTS = envMs("ANX_DEVICE_SMOKE_CLEANUP_ATTEMPTS", 12);
+const CLEANUP_BASE_DELAY_MS = envMs("ANX_DEVICE_SMOKE_CLEANUP_DELAY_MS", 250);
+
+// Bounded-but-reliable temp cleanup. Windows can hold directory handles briefly
+// after a child exits (EPERM/EBUSY), so retry with linear backoff up to a hard
+// attempt cap. A final failure is reported as a warning rather than swallowed,
+// and deliberately does not mask the smoke result (temp cleanup is best-effort).
+async function removeTree(dir) {
+  if (!dir) return;
+  let lastError;
+  for (let attempt = 0; attempt < CLEANUP_ATTEMPTS; attempt += 1) {
+    try {
+      await fs.rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+      return;
+    } catch (error) {
+      lastError = error;
+      if (attempt === CLEANUP_ATTEMPTS - 1) break;
+      await new Promise((resolve) => setTimeout(resolve, Math.min(CLEANUP_BASE_DELAY_MS * (attempt + 1), 2000)));
+    }
+  }
+  console.error(`WARNING: device-architecture smoke could not remove temp dir ${dir}: ${lastError?.message || lastError}`);
+}
+
 function activeWindowsTelemetryHandles() {
   if (process.platform !== "win32" || typeof process._getActiveHandles !== "function") return [];
   return process._getActiveHandles().filter((handle) => {
@@ -36,12 +70,14 @@ async function startAgent(base, name) {
   });
   child.stderr.on("data", (chunk) => stderr.push(String(chunk)));
   const url = `http://127.0.0.1:${port}`;
-  for (let i = 0; i < 150; i += 1) {
+  const deadline = Date.now() + AGENT_START_BUDGET_MS;
+  for (;;) {
     try { if ((await fetch(`${url}/api/v1/health`)).ok) return { child, root, url, token }; } catch {}
+    if (Date.now() >= deadline) break;
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   const detail = stderr.join("").trim();
-  throw new Error(`${name} Agent did not start within 15 seconds.${detail ? `\n${detail}` : ""}`);
+  throw new Error(`${name} Agent did not start within ${Math.round(AGENT_START_BUDGET_MS / 1000)} seconds.${detail ? `\n${detail}` : ""}`);
 }
 
 async function stopAgent(child) {
@@ -50,7 +86,7 @@ async function stopAgent(child) {
     const done = () => resolve();
     child.once("close", done);
     child.kill("SIGTERM");
-    setTimeout(done, 12000).unref?.();
+    setTimeout(done, AGENT_STOP_TIMEOUT_MS).unref?.();
   });
   child.stderr?.destroy();
 }
@@ -118,7 +154,7 @@ async function main() {
   } finally {
     await stopAgent(first.child);
     await stopAgent(second.child);
-    await fs.rm(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    await removeTree(temp);
   }
 }
 

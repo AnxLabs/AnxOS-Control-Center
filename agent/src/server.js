@@ -25,6 +25,7 @@ const {
   handlePublicEnrollment,
   registerEnrollmentStartup,
 } = require("./routes/enroll");
+const { resolveEnrollmentScopeContext } = require("./services/enrollmentService");
 const { handleFilesDownload, handleFilesIdentity, handleFilesList, handleFilesMutate, handleFilesRead, handleFilesStat } = require("./routes/files");
 const { handleHealth } = require("./routes/health");
 const { handleInstances } = require("./routes/instances");
@@ -497,13 +498,20 @@ async function handleRequest(request, response) {
       return;
     }
 
-    const apiAuthorization = authorizeApiPermission(getRoutePermission(request, url.pathname));
+    // V2-I bullet 3: the enrolled credential's optional scopes are enforced
+    // alongside the resolved route tier. An unscoped (legacy) enrollment
+    // resolves to null scopes, so behavior is byte-identical to before.
+    const apiAuthorization = authorizeApiPermission(
+      getRoutePermission(request, url.pathname),
+      resolveEnrollmentScopeContext(),
+    );
     if (!apiAuthorization.ok) {
       logger.warn("authorization", "Agent API permission denied", {
         method: request.method,
         pathname: url.pathname,
         code: apiAuthorization.code,
         permission: apiAuthorization.permission,
+        scope: apiAuthorization.scope || null,
       }, { file: "auth", errorCode: apiAuthorization.code });
       if (isActionInvokeRoute(request, url.pathname)) {
         auditAction(request, {
@@ -513,8 +521,12 @@ async function handleRequest(request, response) {
           reason: apiAuthorization.code,
         });
       }
-      sendError(response, apiAuthorization.statusCode, apiAuthorization.code, "This Agent credential is not allowed to access the requested API capability.", {
+      const scopeMessage = apiAuthorization.code === "API_SCOPE_DENIED"
+        ? "This Agent credential is scoped and does not cover the requested API capability."
+        : "This Agent credential is not allowed to access the requested API capability.";
+      sendError(response, apiAuthorization.statusCode, apiAuthorization.code, scopeMessage, {
         permission: apiAuthorization.permission,
+        ...(apiAuthorization.scope ? { scope: { type: apiAuthorization.scope.type, value: apiAuthorization.scope.value } } : {}),
       });
       return;
     }

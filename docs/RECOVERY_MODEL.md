@@ -107,6 +107,58 @@ archive limit before reading it into memory. Backup exports write a sibling
 temporary file and rename it into the user-selected destination only after the
 buffer has been written successfully.
 
+## Scheduled restarts
+
+A scheduled restart only runs when its instance is already running. A stopped
+instance is skipped and never started; the schedule records `INSTANCE_NOT_RUNNING`
+and advances to its next run. The restart is carried out through the canonical
+durable instance lifecycle restart path, never a raw process kill. Warnings are a
+best-effort courtesy channel: a failed stdin write never blocks the restart, and
+if the agent was offline across the warning thresholds the unsent warnings are
+delivered in order at the due time. A corrupt schedule store is quarantined once
+and evaluation continues with the remaining schedules. A schedule is not yet
+serialized against an in-flight durable job on the target instance.
+
+## Linux Agent self-update
+
+The Linux Agent runtime update is staged next to the live runtime and published
+by a short-lived `systemd-run --user` transient unit after the Agent exits,
+because a running Agent cannot reliably replace its own runtime. The managed
+systemd user unit is required; without it the update is refused
+(`LINUX_AGENT_UNIT_NOT_INSTALLED`). The ordered swap stops the unit, moves the
+current runtime to `<runtimeRoot>.backup-<stamp>`, atomically renames the staged
+runtime into place, and starts the unit again. The unit writes a result marker
+(`<updateDir>/swap-<stamp>.result`) that is observable across a mid-swap crash:
+`complete`, `failed-missing-staged`, `failed-backup`, `failed-publish`,
+`failed-rolled-back`, `failed-rollback-failed`, or `failed-restart`. A failure
+after the backup rename restores the backup before restarting, and
+`failed-rollback-failed` means neither runtime is in place and the backup at the
+reported path is the recovery source. After a failed update the desktop rolls
+back its configuration backup and best-effort restarts the Agent on the previous
+runtime, reporting `restartAttempted` and `agentRestarted` (with
+`restartErrorCode` when the restart also failed). A swap-timeout leaves the
+transient unit possibly mid-swap, so the update record, the result marker, and
+`journalctl --user -u anxos-agent-update` must be inspected before retrying. The
+full path has not yet been exercised live; see `docs/KNOWN_LIMITATIONS.md`.
+
+## Workload transfer
+
+Workload transfer between nodes is preview-first. The preview phase runs only to
+the target's read-only restore preview and then stops for confirmation; if the
+operator does not confirm, the imported archive is removed. A failed transfer
+cleans up the target-side imported archive whenever the confirmed restore did not
+consume it, and deletes a placeholder it created (a pre-existing target instance
+is not deleted by the failure path). Per-step records are retained on both
+success and failure, so the failing step is always identifiable. The source
+node's workload and backup are not modified by a failed or declined transfer.
+
+Known exception (verified in the current code, not an accepted behavior): the
+declined-preview path invokes the placeholder cleanup without checking whether a
+placeholder was created, so a declined preview against a node that already has an
+instance with the target id can delete that existing instance. Do not run a
+transfer preview whose target instance already exists until the cleanup is gated
+on the placeholder-created flag the way the failure path is.
+
 ## Desktop updates
 
 The updater prefers the HTTPS release manifest because it carries the artifact

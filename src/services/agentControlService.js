@@ -971,16 +971,38 @@ async function updateLinuxAgent(options = {}) {
     // must not stay down until manual intervention. Best-effort restart
     // mirrors the swap script's own restart-on-rollback behavior; a failed
     // restart is reported in the error details, never silent.
-    try {
-      await start();
-      error.restartAttempted = true;
-      error.agentRestarted = true;
-      diagnostics.log("warn", "agent-control", "update-linux-agent-restart", "The Linux Agent update failed; the agent was restarted on the previous runtime.", {}, { file: "service-manager" });
-    } catch (restartError) {
-      error.restartAttempted = true;
+    //
+    // The operationInFlight guard must be RELEASED around the restart (as the
+    // success path does at the reconnect step) or start() refuses with
+    // AGENT_OPERATION_BUSY and the restart becomes dead code (R7-fix review).
+    //
+    // Timeout hazard: if the failure was a swap TIMEOUT, the --wait transient
+    // unit may still be mid-swap. Restarting then would race the swap's own
+    // stop/rename, so the timeout case is NOT restarted here — the operator
+    // gets the recorded script/result/backup paths and the swap unit owns the
+    // outcome. Only non-timeout failures (where no swap unit is running) get
+    // the immediate restart.
+    const swapMayStillBeRunning = error.code === "LINUX_AGENT_SWAP_TIMEOUT";
+    if (swapMayStillBeRunning) {
+      error.restartAttempted = false;
       error.agentRestarted = false;
-      error.restartErrorCode = restartError?.code || "LINUX_AGENT_RESTART_FAILED";
-      diagnostics.logError("agent-control", "update-linux-agent-restart", restartError, {}, { file: "service-manager" });
+      error.restartSkippedReason = "swap-unit-may-still-be-running";
+      diagnostics.log("warn", "agent-control", "update-linux-agent-restart", "The swap unit may still be running after the update timeout; the automatic restart was skipped to avoid racing it.", {}, { file: "service-manager" });
+    } else {
+      try {
+        operationInFlight = null;
+        await start();
+        error.restartAttempted = true;
+        error.agentRestarted = true;
+        diagnostics.log("warn", "agent-control", "update-linux-agent-restart", "The Linux Agent update failed; the agent was restarted on the previous runtime.", {}, { file: "service-manager" });
+      } catch (restartError) {
+        error.restartAttempted = true;
+        error.agentRestarted = false;
+        error.restartErrorCode = restartError?.code || "LINUX_AGENT_RESTART_FAILED";
+        diagnostics.logError("agent-control", "update-linux-agent-restart", restartError, {}, { file: "service-manager" });
+      } finally {
+        operationInFlight = "update-linux-agent";
+      }
     }
     error.steps = error.steps || steps;
     throw error;

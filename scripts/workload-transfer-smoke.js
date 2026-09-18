@@ -270,6 +270,42 @@ async function main() {
     assert.deepStrictEqual(snapshotTree(instanceDirA), beforeTransfer, "node A's workload must be untouched by the preview leg.");
     progress(3, "preview leg: overwrite verdict surfaced, target placeholder registered, imported archive cleaned up");
 
+    // --- 3b. P0 regression (adversarial audit): a declined preview against a
+    // target that ALREADY EXISTED must never delete that instance. Seed a
+    // distinct pre-existing instance on B, preview a transfer onto it, and
+    // assert it survives with its data intact.
+    const PREEXISTING_ID = "preexisting-target";
+    const preexistingDir = path.join(agentB.instanceRoot, PREEXISTING_ID);
+    fs.mkdirSync(path.join(preexistingDir, "data"), { recursive: true });
+    fs.writeFileSync(path.join(preexistingDir, "config.json"), JSON.stringify({ id: PREEXISTING_ID, state: "Stopped" }), { mode: 0o600 });
+    fs.writeFileSync(path.join(preexistingDir, "data", "sentinel.bin"), "do-not-delete");
+    const preexistingBefore = snapshotTree(preexistingDir);
+    const preexistingPreview = await workloadTransferService.transferWorkload({
+      sourceNodeId: nodeA.id,
+      targetNodeId: nodeB.id,
+      backupId: previewResult.backupId,
+      targetInstanceId: PREEXISTING_ID,
+      confirmOverwrite: false,
+    });
+    assert.strictEqual(preexistingPreview.requiresConfirmation, true, "the pre-existing-target preview must stop for confirmation.");
+    const ensureStep = preexistingPreview.steps.find((step) => step.step === "target.instance.ensure");
+    assert.strictEqual(ensureStep.created, false, "the pre-existing target must not be treated as a created placeholder.");
+    assert(!preexistingPreview.steps.some((step) => step.step === "target.instance.cleanup"),
+      "a declined preview against a PRE-EXISTING target must not run placeholder cleanup at all.");
+    assert(fs.existsSync(preexistingDir), "a declined preview must never delete a pre-existing target instance.");
+    // The agent's own status/record normalization may rewrite config.json
+    // (the same maintenance the smoke's transfer baseline already accounts
+    // for), so the invariant pinned here is the one that matters: the
+    // instance survives, its workload data is untouched, and its identity
+    // is unchanged.
+    assert.strictEqual(fs.readFileSync(path.join(preexistingDir, "data", "sentinel.bin"), "utf8"), "do-not-delete",
+      "a declined preview must leave the pre-existing target's data byte-identical.");
+    assert.strictEqual(snapshotTree(preexistingDir).get("data/sentinel.bin"), preexistingBefore.get("data/sentinel.bin"),
+      "the pre-existing target's payload must be byte-identical after a declined preview.");
+    assert.strictEqual(JSON.parse(fs.readFileSync(path.join(preexistingDir, "config.json"), "utf8")).id, PREEXISTING_ID,
+      "the pre-existing target must keep its own identity after a declined preview.");
+    progress(3, `P0 regression pinned: declined preview left pre-existing target ${PREEXISTING_ID} intact`);
+
     // --- 4. Confirmed leg: reuse the preview's backup, confirm the restore ---
     const confirmedResult = await workloadTransferService.transferWorkload({
       sourceNodeId: nodeA.id,

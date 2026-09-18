@@ -1,14 +1,18 @@
 const { ipcMain } = require("electron");
 const {
+  applyWindowsFirewallRule,
+  buildWindowsFirewallRulePreview,
   createPublicAccessService,
   createWindowsFirewallRule,
   controlPlayitService,
   deletePublicAccessService,
+  deleteWindowsFirewallRule,
   getPlayitLogsForNode,
   getPlayitServiceStatusForNode,
   getPublicAccessSnapshot,
   listPlayitTunnelsForNode,
   listPublicAccessServices,
+  listWindowsFirewallRules,
 } = require("../services/publicAccessProviderService");
 const { audit, requirePermission } = require("../services/securityService");
 const { createIpcError, normalizeIpcError } = require("../shared/ipcError");
@@ -42,6 +46,16 @@ const EXPECTED_PUBLIC_ACCESS_ERROR_CODES = new Set([
   "PLAYIT_TUNNEL_PARSE_FAILED",
   "NODE_UNSUPPORTED",
   "AGENT_UNAUTHORIZED",
+  // V2-H firewall lifecycle: structured refusals/outcomes that should not be
+  // logged as unexpected failures.
+  "FIREWALL_ELEVATED_CONFIRM_REQUIRED",
+  "FIREWALL_PREVIEW_FAILED",
+  "FIREWALL_PLATFORM_UNSUPPORTED",
+  "FIREWALL_RULE_FAILED",
+  "FIREWALL_RULE_LIST_FAILED",
+  "FIREWALL_RULE_DELETE_FAILED",
+  "FIREWALL_RULE_UNMANAGED",
+  "FIREWALL_RULE_NAME_REQUIRED",
 ]);
 const expectedPublicAccessLogState = new Map();
 const EXPECTED_PUBLIC_ACCESS_LOG_INTERVAL_MS = 60 * 1000;
@@ -147,6 +161,30 @@ function registerPublicAccessIpc() {
     requirePermission("instance:write", "public-access-firewall");
     audit({ action: "publicAccess.createFirewallRule", target: `${payload.protocol || "tcp"}:${payload.localPort || payload.port || ""}` });
     return createWindowsFirewallRule(payload);
+  }));
+  // V2-H firewall lifecycle: preview is a read (no mutation); apply/list/delete
+  // follow the existing node-context-then-permission ordering so the locked
+  // sweep still denies before any transport work runs.
+  ipcMain.handle("publicAccess:previewFirewallRule", async (_, payload = {}) => invokePublicAccessRead("publicAccess:previewFirewallRule", () => {
+    requirePermission("public-access:read", payload.nodeId);
+    requireNodeContext(payload, "Public Access firewall rule preview");
+    return buildWindowsFirewallRulePreview(payload);
+  }));
+  ipcMain.handle("publicAccess:listFirewallRules", async (_, payload = {}) => invokePublicAccessRead("publicAccess:listFirewallRules", () => {
+    requirePermission("public-access:read", payload.nodeId);
+    return listWindowsFirewallRules(requireNodeContext(payload, "Public Access firewall rules"));
+  }));
+  ipcMain.handle("publicAccess:applyFirewallRule", async (_, payload = {}) => wrapPublicAccessOperation(() => {
+    requireNodeContext(payload, "Public Access firewall rule apply");
+    requirePermission("instance:write", "public-access-firewall");
+    audit({ action: "publicAccess.applyFirewallRule", target: `${payload.protocol || "tcp"}:${payload.localPort || payload.port || ""}` });
+    return applyWindowsFirewallRule(payload);
+  }));
+  ipcMain.handle("publicAccess:deleteFirewallRule", async (_, payload = {}) => wrapPublicAccessOperation(() => {
+    requireNodeContext(payload, "Public Access firewall rule deletion");
+    requirePermission("instance:write", "public-access-firewall");
+    audit({ action: "publicAccess.deleteFirewallRule", target: payload.name || payload.id || "public-access-firewall" });
+    return deleteWindowsFirewallRule(payload);
   }));
   ipcMain.handle("publicAccess:controlPlayit", async (_, payload = {}) => wrapPublicAccessOperation(() => {
     requireNodeContext(payload, "Playit service control");

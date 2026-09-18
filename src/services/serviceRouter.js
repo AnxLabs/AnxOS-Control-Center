@@ -540,6 +540,12 @@ function withNodeContext(payload, nodeId) {
   if (next.backup && typeof next.backup === "object") {
     next.backup = { ...next.backup, nodeId };
   }
+  if (Array.isArray(next.destinations)) {
+    next.destinations = next.destinations.map((destination) => ({ ...destination, nodeId }));
+  }
+  if (next.destination && typeof next.destination === "object") {
+    next.destination = { ...next.destination, nodeId };
+  }
   return next;
 }
 
@@ -1035,6 +1041,44 @@ async function deleteBackupSchedule(instanceId, options = {}) {
   return withNodeContext(await agentClient.deleteBackupSchedule(instanceId, getOptionalNodeConfig(options)), nodeId);
 }
 
+// V2-F wave 5 backup destinations: thin passthroughs. The agent owns the
+// destination store, the SFTP push, the encryption-at-rest, and the remote
+// restore; the desktop only relays. Requests go through the generic node agent
+// client so no frozen agentClient surface is modified.
+async function listBackupDestinations(options = {}) {
+  const nodeId = getRequestNodeId(options);
+  return withNodeContext(await getAgentNodeClient(options).get("/backups/destinations"), nodeId);
+}
+
+async function saveBackupDestination(payload = {}) {
+  const nodeId = getRequestNodeId(payload);
+  return withNodeContext(await getAgentNodeClient(payload).post("/backups/destinations", payload), nodeId);
+}
+
+async function deleteBackupDestination(destinationId, options = {}) {
+  const nodeId = getRequestNodeId(options);
+  return withNodeContext(await getAgentNodeClient(options).delete(`/backups/destinations/${encodeURIComponent(destinationId)}`), nodeId);
+}
+
+async function pushBackupToDestination(payload = {}) {
+  const nodeId = getRequestNodeId(payload);
+  return withNodeContext(
+    await getAgentNodeClient(payload).post(`/backups/${encodeURIComponent(payload.backupId)}/push`, payload),
+    nodeId,
+  );
+}
+
+async function restoreBackupFromDestination(payload = {}) {
+  const nodeId = getRequestNodeId(payload);
+  return withNodeContext(
+    await getAgentNodeClient(payload).post(
+      `/backups/${encodeURIComponent(payload.backupId)}/destinations/${encodeURIComponent(payload.destinationId)}/restore`,
+      payload,
+    ),
+    nodeId,
+  );
+}
+
 // V2-E scheduled restarts: thin passthrough — the agent owns schedule
 // storage, warning delivery, and the lifecycle restart.
 async function listRestartSchedules(instanceId, options = {}) {
@@ -1072,6 +1116,7 @@ module.exports = {
   createInstance,
   createInstanceFolder,
   deleteBackup,
+  deleteBackupDestination,
   deleteBackupSchedule,
   deleteDockerContainer,
   disconnectDockerNetwork,
@@ -1119,6 +1164,7 @@ module.exports = {
   pruneDockerNetworks,
   pruneDockerVolumes,
   listBackupSchedules,
+  listBackupDestinations,
   listBackups,
   listInstanceFiles,
   listInstances,
@@ -1128,6 +1174,7 @@ module.exports = {
   deleteRestartSchedule,
   evaluateRestartSchedules,
   planDependencyPreparation,
+  pushBackupToDestination,
   readInstanceFile,
   repairNeoForgeRuntime,
   renameInstanceFile,
@@ -1139,10 +1186,12 @@ module.exports = {
   renameDockerContainer,
   runDockerCleanup,
   restoreBackup,
+  restoreBackupFromDestination,
   saveFiveMLicenseKey,
   saveGameServerConfig,
   saveMinecraftProperties,
   saveBackupSchedule,
+  saveBackupDestination,
   sendInstanceCommand,
   startInstance,
   startDockerContainer,

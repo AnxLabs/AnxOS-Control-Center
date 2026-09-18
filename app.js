@@ -8313,6 +8313,124 @@ function renderPublicAccessProviderDetails(snapshot = latestPublicAccessSnapshot
   }
 }
 
+// V2-H firewall lifecycle: the inventory surface only ever renders rules the
+// Agent tagged as AnxOS-managed, and only those expose a delete control.
+function getPublicAccessFirewallElements() {
+  return {
+    list: document.querySelector("[data-public-access-firewall-list]"),
+    pill: document.querySelector("[data-public-access-firewall-pill]"),
+    summary: document.querySelector("[data-public-access-firewall-summary]"),
+    actions: document.querySelector("[data-public-access-firewall-actions]"),
+  };
+}
+
+function setPublicAccessFirewallPill(pill, label, tone) {
+  if (!pill) return;
+  pill.className = `status-pill ${tone}`;
+  pill.textContent = label;
+}
+
+function setPublicAccessFirewallMessage(summary, message) {
+  if (!summary) return;
+  summary.textContent = message;
+}
+
+async function deletePublicAccessFirewallRule(name) {
+  const desktopApi = getDesktopApiState().api?.publicAccess;
+  if (typeof desktopApi?.deleteFirewallRule !== "function") {
+    showToast("Firewall rule deletion is not available in this build.", "warning");
+    return;
+  }
+  if (!(await confirmDestructiveAction({
+    title: "Remove AnxOS firewall rule?",
+    message: `AnxOS will remove the inbound rule "${name}" it created. Services relying on this rule may become unreachable.`,
+    confirmLabel: "Remove Rule",
+  }))) {
+    return;
+  }
+  const requestContext = createNodeActionContext("public-access-firewall-delete");
+  try {
+    const result = await desktopApi.deleteFirewallRule({ nodeId: requestContext.nodeId, name });
+    if (result?.ok === false) {
+      throw Object.assign(new Error(result.error?.message || "Firewall rule could not be removed."), { code: result.error?.code || "FIREWALL_RULE_DELETE_FAILED" });
+    }
+    showToast("Firewall rule removed.", "success");
+  } catch (error) {
+    showToast(getFriendlyStatusFailureMessage(error, "Firewall rule could not be removed.", "Try again or remove the rule manually in Windows Firewall."), "error");
+  }
+  await refreshPublicAccessFirewall().catch(() => null);
+}
+
+function renderPublicAccessFirewallRules(result = null) {
+  const { list, pill, summary, actions } = getPublicAccessFirewallElements();
+  if (!list || !summary) return;
+  list.replaceChildren();
+  if (actions) {
+    actions.replaceChildren();
+    const refreshButton = document.createElement("button");
+    refreshButton.type = "button";
+    refreshButton.className = "inline-action";
+    refreshButton.textContent = "Refresh Rules";
+    refreshButton.addEventListener("click", () => { refreshPublicAccessFirewall().catch(() => null); });
+    actions.append(refreshButton);
+  }
+  if (!result || result?.ok === false) {
+    setPublicAccessFirewallPill(pill, "Unavailable", "status-pill--warning");
+    setPublicAccessFirewallMessage(summary, result?.error?.message || "Firewall rule inventory is unavailable for this node.");
+    return;
+  }
+  if (result.supported === false) {
+    setPublicAccessFirewallPill(pill, "Unsupported", "status-pill--planned");
+    setPublicAccessFirewallMessage(summary, result.message || "Windows Firewall rules are only available on Windows. No rules were changed.");
+    return;
+  }
+  const rules = Array.isArray(result.rules) ? result.rules : [];
+  setPublicAccessFirewallPill(pill, rules.length ? `${rules.length} managed` : "None", rules.length ? "status-pill--ok" : "status-pill--planned");
+  setPublicAccessFirewallMessage(summary, rules.length
+    ? "These inbound rules were created by AnxOS and can be removed here."
+    : "No AnxOS-managed inbound firewall rules were found. Rules created outside AnxOS are never shown as removable.");
+  rules.forEach((rule) => {
+    const row = document.createElement("article");
+    row.className = "playit-tunnel-item";
+    row.dataset.publicAccessFirewallRule = rule.name || rule.id || "";
+    const top = document.createElement("div");
+    top.className = "playit-tunnel-item__top";
+    top.append(createTextElement("strong", rule.name || rule.id || "AnxOS rule"));
+    const parts = [
+      `${String(rule.protocol || "TCP").toUpperCase()} ${rule.localPort || "?"}`,
+      rule.direction === "out" ? "Outbound" : "Inbound",
+      rule.action === "block" ? "Block" : "Allow",
+    ];
+    if (rule.enabled === false) parts.push("Disabled");
+    top.append(createTextElement("span", parts.join(" · ")));
+    row.append(top);
+    if (rule.deletableByAnxOS === true) {
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "inline-action";
+      remove.textContent = "Remove";
+      remove.dataset.publicAccessFirewallDelete = rule.name || rule.id || "";
+      remove.addEventListener("click", () => { deletePublicAccessFirewallRule(remove.dataset.publicAccessFirewallDelete).catch(() => null); });
+      row.append(remove);
+    }
+    list.append(row);
+  });
+}
+
+async function refreshPublicAccessFirewall() {
+  const desktopApi = getDesktopApiState().api?.publicAccess;
+  if (typeof desktopApi?.listFirewallRules !== "function") {
+    renderPublicAccessFirewallRules({ ok: false, error: { message: "Firewall rule inventory is not available in this build." } });
+    return null;
+  }
+  const requestContext = getNodeRequestContext("public-access-firewall");
+  const payload = getNodeScopedPayload(requestContext);
+  const result = await desktopApi.listFirewallRules(payload);
+  if (!isNodeRequestCurrent(requestContext)) return null;
+  renderPublicAccessFirewallRules(result);
+  return result;
+}
+
 function getPublicAccessPublicAddress() {
   const service = getSelectedPublicAccessService();
   const provider = getSelectedPublicAccessProvider();
@@ -9621,29 +9739,54 @@ async function runPublicAccessAction(action) {
       showToast("Create or select an access service with a local port before creating a firewall rule.", "warning");
       return null;
     }
-    if (!(await createSecurityConfirmation({
-      title: "Create Windows Firewall rule?",
-      message: `AnxOS will ask Windows to allow inbound ${protocol.toUpperCase()} traffic on port ${localPort} for ${provider?.name || "this provider"}. Administrator permission may be required.`,
-      confirmLabel: "Create Rule",
-    }))) {
-      return null;
+    const desktopApi = getDesktopApiState().api?.publicAccess;
+    if (typeof desktopApi?.previewFirewallRule !== "function" || typeof desktopApi?.applyFirewallRule !== "function") {
+      throw new Error("Windows Firewall rule preparation is not available in this build.");
     }
-    if (typeof getDesktopApiState().api?.publicAccess?.createFirewallRule !== "function") {
-      throw new Error("Windows Firewall rule creation is not available in this build.");
-    }
-    const result = await getDesktopApiState().api?.publicAccess?.createFirewallRule?.({
+    const requestContext = createNodeActionContext("public-access-firewall-rule");
+    const basePayload = {
+      nodeId: requestContext.nodeId,
       providerId: provider?.id,
       localPort,
       protocol,
       name: `AnxOS ${provider?.name || "Public Access"} ${protocol.toUpperCase()} ${localPort}`,
-      confirmConsent: true,
-    });
-    if (result?.ok === false) {
-      throw Object.assign(new Error(result.error?.message || "Windows Firewall rule could not be created."), {
-        code: result.error?.code || "FIREWALL_RULE_FAILED",
-      });
+    };
+    // V2-H: always preview before applying so the operator sees exactly what
+    // Windows would create and whether a management port is at stake.
+    const previewResult = await desktopApi.previewFirewallRule(basePayload);
+    if (previewResult?.ok === false) {
+      throw Object.assign(new Error(previewResult.error?.message || "Windows Firewall rule could not be previewed."), { code: previewResult.error?.code || "FIREWALL_PREVIEW_FAILED" });
     }
-    showToast("Windows Firewall rule created.");
+    if (previewResult?.supported === false) {
+      showToast(previewResult.reason || "Windows Firewall rules are only available on Windows.", "warning");
+      return null;
+    }
+    if (!previewResult?.previewable) {
+      throw Object.assign(new Error(previewResult?.error?.message || "Windows Firewall rule could not be prepared."), { code: previewResult?.error?.code || "FIREWALL_PREVIEW_FAILED" });
+    }
+    if (!isNodeActionStillCurrent(requestContext)) {
+      return null;
+    }
+    const risky = previewResult.lockoutRisk?.risky === true;
+    const confirmed = await createSecurityConfirmation({
+      title: risky ? "Apply firewall rule that affects management access?" : "Create Windows Firewall rule?",
+      message: risky
+        ? `${previewResult.summary} AnxOS will watch the Agent after applying and automatically remove the rule if the Agent becomes unreachable.`
+        : `AnxOS will ask Windows to allow inbound ${previewResult.rule.protocol} traffic on port ${previewResult.rule.port} for ${provider?.name || "this provider"}. Administrator permission may be required.`,
+      confirmLabel: risky ? "Apply With Rollback Guard" : "Create Rule",
+      // A typed phrase makes this an elevated confirmation that cannot be
+      // silently skipped by the destructive-action preference.
+      phrase: risky ? "MANAGE ACCESS RISK" : "",
+    });
+    if (!confirmed) {
+      return null;
+    }
+    const result = await desktopApi.applyFirewallRule({ ...basePayload, confirmConsent: true, confirmElevated: risky });
+    if (result?.ok === false) {
+      throw Object.assign(new Error(result.error?.message || "Windows Firewall rule could not be created."), { code: result.error?.code || "FIREWALL_RULE_FAILED" });
+    }
+    reportPublicAccessFirewallRollback(result);
+    await refreshPublicAccessFirewall().catch(() => null);
     await refreshPlayitStatus();
     return result;
   }
@@ -9655,6 +9798,19 @@ async function runPublicAccessAction(action) {
     return runAgentControlAction("runDiagnostics");
   }
   return null;
+}
+
+function reportPublicAccessFirewallRollback(result = {}) {
+  const rollback = result.rollback || {};
+  if (rollback.status === "rolled-back") {
+    showToast(`The Agent became unreachable after applying the rule, so AnxOS removed it.${rollback.manualCommand ? ` Manual fallback: ${rollback.manualCommand}` : ""}`, "warning");
+    return;
+  }
+  if (rollback.status === "rollback-failed") {
+    showToast(`AnxOS could not reach the Agent and could not remove the rule automatically. Run: ${rollback.manualCommand || "netsh advfirewall firewall delete rule name=\"...\""}`, "error");
+    return;
+  }
+  showToast("Windows Firewall rule created.");
 }
 
 function renderPlayitSnapshot(snapshot) {
@@ -26049,6 +26205,11 @@ async function refreshPlayitStatus() {
     }
     if (desktopApiState.hasPublicAccess) {
       renderPublicAccessSnapshot(snapshot);
+      refreshPublicAccessFirewall().catch((error) => {
+        console.warn("[Public Access] Firewall rule inventory refresh failed.", {
+          message: error?.message || String(error),
+        });
+      });
       refreshPlayitManagement(payload, requestContext).catch((error) => {
         console.warn("[Public Access] Management status refresh failed.", {
           message: error?.message || String(error),
@@ -36928,7 +37089,14 @@ function renderUpdateProgress(progress = null) {
 }
 
 function sanitizeMarkdownText(value) {
-  return String(value || "").replace(/[<>&]/g, (char) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[char]));
+  // Quotes are escaped too: renderMarkdownLite interpolates captured URLs
+  // into a double-quoted href attribute, so an unescaped `"` in release-note
+  // markdown could break out of the attribute and inject an event handler
+  // (security-lane finding, reproduced). Attribute context needs quote
+  // neutralization, not just the tag delimiters.
+  return String(value || "").replace(/[<>&"']/g, (char) => ({
+    "<": "&lt;", ">": "&gt;", "&": "&amp;", "\"": "&quot;", "'": "&#39;",
+  }[char]));
 }
 
 function renderMarkdownLite(markdown = "") {

@@ -96,23 +96,21 @@ function getConfiguredApiPermissions() {
 }
 
 // ---------------------------------------------------------------------------
-// Per-principal grant schema (V2-A Decision 2)
-//
-// Scoping of credentials to individual principals, per-node and per-workload
-// grants land in V2-I. This slice only fixes the SCHEMA so future scoped
-// credentials can be expressed without another wire change:
+// Per-principal grant schema (V2-A Decision 2, scoped in V2-I)
 //
 //   {
 //     "principal": "<principal-id>",
 //     "role": "owner|admin|operator|viewer|service",   // optional
-//     "nodeId": "agent-<deviceId>",                    // optional future scope
-//     "targets": ["<workload-id>", ...],               // optional future scope
+//     "nodeId": "agent-<deviceId>",                    // optional node scope
+//     "targets": ["<workload-id>", ...],               // optional workload scope
 //     "permissions": ["instance:lifecycle", ...]
 //   }
 //
-// `nodeId`/`targets` are carried and validated for shape only in this wave;
-// the agent has no per-request target identity yet, so they are not enforced
-// here. Unknown/invalid grants are dropped (fail-closed), never widened.
+// V2-I bullet 3: `nodeId` is now enforced — a node-scoped grant only applies
+// when the request targets that node (see resolvePrincipalPermissions). The
+// agent still has no per-request workload (target) identity, so `targets`
+// remains carried/validated for shape only. Unknown/invalid grants are dropped
+// (fail-closed), never widened.
 // ---------------------------------------------------------------------------
 
 const GRANT_ROLES = new Set(["owner", "admin", "operator", "viewer", "service"]);
@@ -184,10 +182,19 @@ function resolvePrincipalPermissions(descriptor = {}) {
   const principal = String(descriptor.principal || "").trim();
   const basePermissions = getConfiguredApiPermissions();
   const effective = new Set(basePermissions);
+  // V2-I node scope: a node-scoped grant only applies to a request targeting
+  // that node. When the caller supplies no target node we keep the pre-V2-I
+  // behavior (the grant applies), so unenrolled/legacy callers are unchanged.
+  const targetNodeId = descriptor.nodeId === undefined || descriptor.nodeId === null || descriptor.nodeId === ""
+    ? null
+    : String(descriptor.nodeId).trim();
 
   if (principal) {
     for (const grant of getPermissionGrants().grants) {
       if (grant.principal !== principal) {
+        continue;
+      }
+      if (grant.nodeId && targetNodeId && grant.nodeId !== targetNodeId) {
         continue;
       }
       const wildcardFromOwnerRole = grant.role === "owner";
@@ -211,6 +218,106 @@ function matchesApiPermission(configuredPermissions, normalized) {
     || Boolean(category && configuredPermissions.has(category));
 }
 
+// ---------------------------------------------------------------------------
+// V2-I bullet 3: scoped credentials.
+//
+// A token (enrollment record) or principal descriptor may carry an optional
+// scope envelope. Canonical shape:
+//
+//   scopes: { nodeIds?: string[], families?: string[] }
+//
+// - `nodeIds` restricts the credential to the listed agent node ids
+//   (`agent-<deviceId>`, mirroring src/services/nodeService.js nodeIdForDevice).
+//   This is the plural, array form of the documented grant `nodeId` scope; the
+//   singular `nodeId` is accepted as an alias so both spellings express the
+//   same scope.
+// - `families` restricts the credential to the listed permission families
+//   (the segment before ":" — e.g. "files" covers "files:read"/"files:write").
+//
+// ABSENT or EMPTY scopes => unscoped: the credential keeps its full profile
+// permissions (NOT deny-all). This is the backward-compatibility contract and
+// means existing tokens/records without scopes behave exactly as before.
+//
+// A denial uses the distinct code API_SCOPE_DENIED and names ONLY the scope
+// that was lacking (the requested family or the target node id); it never
+// echoes the credential's other scopes or token material.
+// ---------------------------------------------------------------------------
+
+// Mirrors src/services/nodeService.js nodeIdForDevice exactly so the node id
+// an enrollment scope is compared against is the same id the desktop derives
+// for this agent node.
+function resolveAgentNodeId(deviceId) {
+  return `agent-${String(deviceId || "unknown").replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 56)}`;
+}
+
+function normalizeScopeList(value) {
+  const source = Array.isArray(value)
+    ? value
+    : value === undefined || value === null || value === ""
+      ? []
+      : [value];
+  const entries = [];
+  for (const entry of source) {
+    if (typeof entry !== "string" && typeof entry !== "number") {
+      continue;
+    }
+    const text = String(entry).trim();
+    if (text) entries.push(text);
+  }
+  return [...new Set(entries)];
+}
+
+function normalizeApiScopes(scopes) {
+  if (!scopes || typeof scopes !== "object" || Array.isArray(scopes)) {
+    return null;
+  }
+  const rawNodeIds = scopes.nodeIds !== undefined ? scopes.nodeIds : scopes.nodeId;
+  const nodeIds = normalizeScopeList(rawNodeIds);
+  const families = normalizeScopeList(scopes.families);
+  if (!nodeIds.length && !families.length) {
+    return null;
+  }
+  return { nodeIds, families };
+}
+
+function permissionFamily(permission) {
+  const normalized = normalizePermissionToken(permission);
+  if (!normalized || normalized === "*") return null;
+  return normalized.includes(":") ? normalized.split(":", 1)[0] : normalized;
+}
+
+function matchesFamilyScope(families, permission) {
+  if (!families.length) return true;
+  const normalized = normalizePermissionToken(permission);
+  const family = permissionFamily(permission);
+  return families.some((entry) => {
+    const candidate = normalizePermissionToken(entry);
+    if (!candidate) return false;
+    if (candidate === "*" || candidate === normalized) return true;
+    return Boolean(family) && (candidate === family || candidate === `${family}:*`);
+  });
+}
+
+function matchesNodeScope(nodeIds, targetNodeId) {
+  if (!nodeIds.length) return true;
+  // A node-scoped credential presented without a resolvable target node is
+  // fail-closed: the scope cannot be proven to cover the request.
+  if (!targetNodeId) return false;
+  return nodeIds.includes(targetNodeId);
+}
+
+function evaluateApiScope(permission, descriptor = {}) {
+  const scopes = normalizeApiScopes(descriptor.scopes);
+  if (!scopes) return { ok: true, scope: null };
+  if (!matchesNodeScope(scopes.nodeIds, descriptor.nodeId ? String(descriptor.nodeId).trim() : null)) {
+    return { ok: false, scope: { type: "node", value: descriptor.nodeId ? String(descriptor.nodeId).trim() : null } };
+  }
+  if (!matchesFamilyScope(scopes.families, permission)) {
+    return { ok: false, scope: { type: "family", value: permissionFamily(permission) || normalizePermissionToken(permission) } };
+  }
+  return { ok: true, scope: null };
+}
+
 function authorizeApiPermission(permission, principalDescriptor = null) {
   const normalized = normalizePermissionToken(permission);
   if (!normalized) return { ok: true, code: "API_PERMISSION_NOT_REQUIRED", permission: null };
@@ -219,6 +326,12 @@ function authorizeApiPermission(permission, principalDescriptor = null) {
     : getConfiguredApiPermissions();
   if (!matchesApiPermission(configuredPermissions, normalized)) {
     return { ok: false, statusCode: 403, code: "API_PERMISSION_DENIED", permission: normalized };
+  }
+  if (principalDescriptor) {
+    const scope = evaluateApiScope(normalized, principalDescriptor);
+    if (!scope.ok) {
+      return { ok: false, statusCode: 403, code: "API_SCOPE_DENIED", permission: normalized, scope: scope.scope };
+    }
   }
   return { ok: true, statusCode: 200, code: "API_PERMISSION_AUTHORIZED", permission: normalized };
 }
@@ -254,9 +367,12 @@ function authorizeAction(action) {
 module.exports = {
   authorizeApiPermission,
   authorizeAction,
+  evaluateApiScope,
   getConfiguredApiPermissions,
   getDefaultApiPermissions,
   getPermissionGrants,
+  normalizeApiScopes,
+  resolveAgentNodeId,
   resolvePermissionProfile,
   resolvePrincipalPermissions,
   isLocalOwnerProfile,

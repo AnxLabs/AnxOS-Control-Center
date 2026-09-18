@@ -243,10 +243,18 @@ function publicJob(record) {
   }));
 }
 
+// A per-writer temp name: a deterministic `<file>.tmp` is shared by every
+// concurrent persist of the same record (lazy expiry on read racing a stage
+// update or cancel), and the losing rename then throws ENOENT (adversarial
+// audit P2, reproduced). The pid+counter suffix makes each writer's temp
+// private while the rename stays atomic on the same filesystem.
+let persistCounter = 0;
+
 async function persistRecord(record) {
   const filePath = jobFilePath(record.id);
   const payload = `${JSON.stringify(record, null, 2)}\n`;
-  const tempPath = `${filePath}.tmp`;
+  persistCounter = (persistCounter + 1) % Number.MAX_SAFE_INTEGER;
+  const tempPath = `${filePath}.${process.pid}.${persistCounter}.tmp`;
   await fs.writeFile(tempPath, payload, { mode: 0o600 });
   for (let attempt = 0; attempt < ATOMIC_RENAME_RETRY_ATTEMPTS; attempt += 1) {
     try {
@@ -254,6 +262,9 @@ async function persistRecord(record) {
       return;
     } catch (error) {
       if (!ATOMIC_RENAME_RETRY_CODES.has(error?.code) || attempt === ATOMIC_RENAME_RETRY_ATTEMPTS - 1) {
+        // Best-effort cleanup of this writer's temp so a failed persist does
+        // not accumulate orphans (another writer's temp is untouched).
+        await fs.rm(tempPath, { force: true }).catch(() => {});
         throw error;
       }
       await new Promise((resolve) => setTimeout(resolve, ATOMIC_RENAME_RETRY_DELAY_MS));

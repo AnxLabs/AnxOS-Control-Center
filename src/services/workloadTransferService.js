@@ -372,8 +372,14 @@ async function transferWorkload(request = {}) {
         context.importedBackupId = null;
       }
       // A declined transfer must not leave a junk placeholder instance on
-      // the target (review P1-4); pre-existing targets are left alone.
-      await cleanupTransferPlaceholder(recorder, context);
+      // the target — but ONLY a placeholder this transfer created. Without
+      // the placeholderCreated guard, a preview against a node that already
+      // had an instance under the target id DELETED that pre-existing
+      // instance (P0, reproduced by the adversarial audit and independently
+      // by the docs review). Mirrors the failure path's guard at the catch.
+      if (context.placeholderCreated === true && !context.importedBackupConsumed) {
+        await cleanupTransferPlaceholder(recorder, context);
+      }
       diagnostics.log("info", "workload", "transfer-preview", "Workload transfer stopped for confirmation.", {
         sourceNodeId: context.source.nodeId,
         targetNodeId: context.target.nodeId,

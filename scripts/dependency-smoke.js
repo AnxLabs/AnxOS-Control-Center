@@ -1,12 +1,53 @@
 const assert = require("assert");
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
+
+// H6: pin the canonical Agent config path into a per-run temp tree BEFORE any
+// service module loads. Setting ANXHUB_CONFIG_DIR alone is NOT sufficient:
+// resolveAgentConfigPath() returns the first *existing* candidate, so when the
+// temp candidates do not exist it falls through to the real repo
+// config/agent.json and resolveSharedAgentToken() would generate and write an
+// agent token there. Materializing the temp agent.json (plus the explicit
+// ANXHUB_AGENT_CONFIG_PATH pin) keeps resolution inside the temp tree. See
+// assertHermeticAgentConfig() below for the regression proof.
+const smokeConfigRoot = fs.mkdtempSync(path.join(os.tmpdir(), "anx-dependency-config-"));
+const smokeAgentConfigPath = path.join(smokeConfigRoot, "config", "agent.json");
+fs.mkdirSync(path.dirname(smokeAgentConfigPath), { recursive: true });
+fs.writeFileSync(smokeAgentConfigPath, `${JSON.stringify({ backendMode: "local", agentUrl: "http://127.0.0.1:47131", agentToken: "", schemaVersion: 1 }, null, 2)}\n`, { mode: 0o600 });
+process.env.ANXHUB_CONFIG_DIR = path.dirname(smokeAgentConfigPath);
+process.env.ANXHUB_AGENT_CONFIG_PATH = smokeAgentConfigPath;
 
 // Pin runtime roots before service modules load (eb13b83 job-store leak
 // lesson): the dependency path reaches the agent config and runtime-pin
 // services, which would otherwise fall back to the cwd-default instance root.
 const { pinAgentRoots } = require("../test-helpers/pin-agent-roots");
 pinAgentRoots("anx-dependency-smoke-");
+
+const REAL_AGENT_CONFIG_PATH = path.resolve(__dirname, "..", "config", "agent.json");
+
+function snapshotRealAgentConfig() {
+  if (!fs.existsSync(REAL_AGENT_CONFIG_PATH)) return null;
+  const stat = fs.statSync(REAL_AGENT_CONFIG_PATH);
+  return { mtimeMs: stat.mtimeMs, size: stat.size, body: fs.readFileSync(REAL_AGENT_CONFIG_PATH, "utf8") };
+}
+
+// H6 regression tripwire: proves the run resolves the Agent config inside the
+// temp tree and cannot mutate the real user config, on a fresh machine where
+// the temp candidates would otherwise not exist.
+function assertHermeticAgentConfig(realBefore) {
+  const { resolveAgentConfigPath } = require("../src/shared/agentTokenStore");
+  const resolved = resolveAgentConfigPath();
+  const tempRoot = path.resolve(os.tmpdir()) + path.sep;
+  assert(resolved.startsWith(tempRoot), `Agent config must resolve inside the temp tree, resolved: ${resolved}`);
+  assert.strictEqual(resolved, path.resolve(smokeAgentConfigPath), "Agent config must resolve to the pinned temp agent.json, not a repo/fallback path.");
+  assert.deepStrictEqual(snapshotRealAgentConfig(), realBefore, "Dependency smoke must never create or modify the real Agent config file.");
+}
+
+const realAgentConfigBefore = snapshotRealAgentConfig();
+process.on("exit", () => {
+  try { fs.rmSync(smokeConfigRoot, { recursive: true, force: true }); } catch {}
+});
 
 const {
   dependencyIdsForGroups,
@@ -303,6 +344,7 @@ async function run() {
   ].forEach((needle) => assert(stylesSource.includes(needle), `Dependency install UI styles should include ${needle}.`));
 
   dependencyService.__setTestHooks();
+  assertHermeticAgentConfig(realAgentConfigBefore);
   console.log("Dependency smoke passed.");
 }
 

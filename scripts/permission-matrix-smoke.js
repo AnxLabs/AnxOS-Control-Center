@@ -207,7 +207,7 @@ const loadedIpcModuleFiles = new Set([
   "systemIpc.js", "ampIpc.js", "backupsIpc.js", "playitIpc.js",
   "publicAccessIpc.js", "dockerIpc.js", "instancesIpc.js", "marketplaceIpc.js",
   "maintenanceIpc.js", "nodesIpc.js", "networkInventoryIpc.js", "workloadIpc.js", "ownerWorkspaceIpc.js",
-  "filesIpc.js", "settingsIpc.js", "sshIpc.js",
+  "filesIpc.js", "settingsIpc.js", "sshIpc.js", "alertsIpc.js",
 ]);
 // accountIpc.js delegates to accountAuthIpc.registerAccountAuthIpc (which IS
 // loaded here); loading it again would double-register the account channels.
@@ -258,6 +258,7 @@ try {
   require("../src/ipc/maintenanceIpc").registerMaintenanceIpc();
   require("../src/ipc/nodesIpc").registerNodesIpc();
   require("../src/ipc/networkInventoryIpc").registerNetworkInventoryIpc();
+  require("../src/ipc/alertsIpc").registerAlertsIpc();
   require("../src/ipc/workloadIpc").registerWorkloadIpc();
   require("../src/ipc/ownerWorkspaceIpc").registerOwnerWorkspaceIpc();
   require("../src/ipc/filesIpc").registerFilesIpc();
@@ -384,6 +385,8 @@ const DESKTOP_PROBES = {
   "nodes-credential-read": { channel: "nodes:health", payload: { nodeId: "matrix-node-a" } },
   "nodes-write": { channel: "nodes:save", payload: { nodeId: "matrix-node", displayName: "Matrix Node" } },
   "network-inventory": { channel: "networkInventory:get", payload: { nodeId: "matrix-node-a" } },
+  "alerts-read": { channel: "alerts:list", payload: {} },
+  "alerts-write": { channel: "alerts:acknowledge", payload: { id: "alert:NODE_OFFLINE:matrix-node-a" } },
   "settings-read": { channel: "settings:getPreferences" },
   "settings-permissions-read": { channel: "settings:getPermissions", serviceRecorded: false },
   "settings-preferences": { channel: "settings:resetPreferences", payload: { category: "network" } },
@@ -939,6 +942,36 @@ function runCoverageEnforcement() {
     if (knownNonRegistrars.has(file)) continue;
     assert(loadedIpcModuleFiles.has(file), `src/ipc module ${file} is not loaded by the coverage exercise (add it to the registration list or the known-non-registrar set).`);
   }
+
+  // Adversarial-audit P2: a registrar module OUTSIDE src/ipc (main.js
+  // requires it and calls registerX(), so main.js contains no
+  // ipcMain.handle literal) was invisible to all three scrapes. This smoke
+  // cannot safely require unknown modules, so it asserts BY NAME instead:
+  // every basename-whitelisted registrar file in the fixed source
+  // directories must be accounted for explicitly (loaded by this smoke, or
+  // listed as a known non-registrar). A NEW registrar therefore fails here
+  // by name until it is added to the registration list — which is what puts
+  // its channels under matrix enforcement.
+  const REGISTRAR_BASENAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9-]{0,60}Ipc\.js$/;
+  const REGISTRAR_DIRECTORIES = [
+    { absolute: path.join(rootDir, "src", "ipc"), isLoadedDir: true },
+    { absolute: path.join(rootDir, "src", "services"), isLoadedDir: false },
+    { absolute: path.join(rootDir, "src", "shared"), isLoadedDir: false },
+  ];
+  const unaccountedRegistrars = [];
+  for (const { absolute, isLoadedDir } of REGISTRAR_DIRECTORIES) {
+    if (!fs.existsSync(absolute)) continue;
+    for (const entry of fs.readdirSync(absolute, { withFileTypes: true })) {
+      if (!entry.isFile() || !REGISTRAR_BASENAME_PATTERN.test(entry.name)) continue;
+      if (isLoadedDir || loadedIpcModuleFiles.has(entry.name) || knownNonRegistrars.has(entry.name)) continue;
+      unaccountedRegistrars.push(path.join(path.basename(absolute), entry.name));
+    }
+  }
+  assert.strictEqual(
+    unaccountedRegistrars.length,
+    0,
+    `IPC registrar modules outside src/ipc are not covered by the matrix exercise (add each to loadedIpcModuleFiles or knownNonRegistrars): ${unaccountedRegistrars.join(", ")}`,
+  );
 
   // Review P1-3: REST coverage must ALSO cover route files' literals, not
   // just server.js literals — routes living only in agent/src/routes are

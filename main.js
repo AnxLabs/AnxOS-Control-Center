@@ -93,6 +93,7 @@ configureElectronPaths(app, qaMode ? {
 const diagnostics = require("./src/services/diagnosticsService");
 const { registerDiagnosticsIpc } = require("./src/ipc/diagnosticsIpc");
 const { registerAgentControlIpc } = require("./src/ipc/agentControlIpc");
+const { registerAlertsIpc } = require("./src/ipc/alertsIpc");
 const { registerDependenciesIpc } = require("./src/ipc/dependenciesIpc");
 const localInstanceService = require("./src/services/localInstanceService");
 // V2-D install transactions: marketplace install jobs ride the shared V2-A job
@@ -1046,6 +1047,7 @@ app.whenReady().then(async () => {
   registerMaintenanceIpc();
   registerNodesIpc();
   registerNetworkInventoryIpc();
+  registerAlertsIpc();
   registerWorkloadIpc();
   registerOwnerWorkspaceIpc();
   registerFilesIpc();

@@ -4,12 +4,17 @@ const path = require("path");
 const {
   createBackup,
   deleteBackup,
+  deleteBackupDestination,
   deleteBackupSchedule,
   downloadBackup,
   importBackup,
+  listBackupDestinations,
   listBackupSchedules,
   listBackups,
+  pushBackupToDestination,
   restoreBackup,
+  restoreBackupFromDestination,
+  saveBackupDestination,
   saveBackupSchedule,
 } = require("../services/serviceRouter");
 const { audit, requirePermission } = require("../services/securityService");
@@ -133,6 +138,33 @@ function registerBackupsIpc() {
     requirePermission("backups:write", payload.instanceId);
     audit({ action: "backup.schedule.delete", target: payload.instanceId });
     return deleteBackupSchedule(payload.instanceId, payload);
+  }));
+  // V2-F wave 5 destinations. The guard runs before any transport call so a
+  // denied actor never reaches the agent.
+  ipcMain.handle("backups:listDestinations", async (_, payload = {}) => wrapExpectedAgentRead("backups:listDestinations", () => { requirePermission("backups:read", payload.nodeId); return listBackupDestinations(requireNodeContext(payload, "backup destination listing")); }));
+  ipcMain.handle("backups:saveDestination", async (_, payload = {}) => invokeBackupOperation(() => {
+    requireNodeContext(payload, "backup destination save");
+    requirePermission("backups:write", payload.destinationId || payload.connectionId || payload.nodeId);
+    audit({ action: "backup.destination.save", target: payload.destinationId || payload.connectionId || null });
+    return saveBackupDestination(payload);
+  }));
+  ipcMain.handle("backups:deleteDestination", async (_, payload = {}) => invokeBackupOperation(() => {
+    requireNodeContext(payload, "backup destination deletion");
+    requirePermission("backups:write", payload.destinationId || payload.nodeId);
+    audit({ action: "backup.destination.delete", target: payload.destinationId || null });
+    return deleteBackupDestination(payload.destinationId, payload);
+  }));
+  ipcMain.handle("backups:pushDestination", async (_, payload = {}) => invokeBackupOperation(() => {
+    requireNodeContext(payload, "backup destination push");
+    requirePermission("backups:write", payload.backupId || payload.instanceId);
+    audit({ action: "backup.destination.push", target: payload.backupId || null });
+    return pushBackupToDestination(payload);
+  }));
+  ipcMain.handle("backups:restoreFromDestination", async (_, payload = {}) => invokeBackupOperation(() => {
+    requireNodeContext(payload, "backup restore from destination");
+    requirePermission("backups:restore", payload.backupId || payload.instanceId);
+    audit({ action: "backup.restore.remote", target: payload.backupId || null });
+    return restoreBackupFromDestination(payload);
   }));
 }
 

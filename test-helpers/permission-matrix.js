@@ -330,7 +330,7 @@ const IPC_FAMILIES = [
     tier: "backups:read",
     guard: "permission",
     allow: ["owner-unlocked", "operator-unlocked", "viewer-unlocked"],
-    channels: ["backups:list", "backups:listSchedules"],
+    channels: ["backups:list", "backups:listSchedules", "backups:listDestinations"],
   },
   {
     id: "backups-write",
@@ -341,6 +341,9 @@ const IPC_FAMILIES = [
       "backups:create", "backups:delete", "backups:saveSchedule", "backups:deleteSchedule",
       // download/import guard via backups:write inside their local helpers.
       "backups:download", "backups:import",
+      // V2-F wave 5 destinations: editing a destination or pushing a copy
+      // mutates agent-owned backup state, so it stays in the write tier.
+      "backups:saveDestination", "backups:deleteDestination", "backups:pushDestination",
     ],
   },
   {
@@ -348,7 +351,7 @@ const IPC_FAMILIES = [
     tier: "backups:restore",
     guard: "permission",
     allow: ["owner-unlocked"],
-    channels: ["backups:restore"],
+    channels: ["backups:restore", "backups:restoreFromDestination"],
   },
   {
     id: "dependencies-read",
@@ -534,6 +537,7 @@ const IPC_FAMILIES = [
     channels: [
       "publicAccess:getSnapshot", "publicAccess:listServices", "publicAccess:getPlayitStatus",
       "publicAccess:getPlayitLogs", "publicAccess:listPlayitTunnels",
+      "publicAccess:previewFirewallRule", "publicAccess:listFirewallRules",
     ],
   },
   {
@@ -541,7 +545,7 @@ const IPC_FAMILIES = [
     tier: "instance:write",
     guard: "permission",
     allow: ["owner-unlocked"],
-    channels: ["publicAccess:createService", "publicAccess:deleteService", "publicAccess:createFirewallRule", "publicAccess:controlPlayit"],
+    channels: ["publicAccess:createService", "publicAccess:deleteService", "publicAccess:createFirewallRule", "publicAccess:applyFirewallRule", "publicAccess:deleteFirewallRule", "publicAccess:controlPlayit"],
   },
   {
     id: "amp-read",
@@ -600,6 +604,25 @@ const IPC_FAMILIES = [
     // identity, not the actor role (window-internal channels).
     allow: ["owner-unlocked", "operator-unlocked", "viewer-unlocked", "owner-locked", "guest"],
     channels: ["storageWindow:close", "storageWindow:saved"],
+  },
+  {
+    // V2-J Wave 1 alerts: read the reconciled active-alert set at the
+    // node-read tier (alerts are derived from per-node data the same actors can
+    // already read), acknowledge at the settings-write tier (it mutates the
+    // persisted alert record). Both are local-owner gated like their
+    // node-scoped neighbours.
+    id: "alerts-read",
+    tier: "nodes:read",
+    guard: "local-owner+permission",
+    allow: ["owner-unlocked", "operator-unlocked", "viewer-unlocked"],
+    channels: ["alerts:list"],
+  },
+  {
+    id: "alerts-write",
+    tier: "settings:write",
+    guard: "local-owner+permission",
+    allow: ["owner-unlocked"],
+    channels: ["alerts:acknowledge"],
   },
   {
     id: "workload-transfer",
