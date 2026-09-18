@@ -10,13 +10,13 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   channel: "Private Alpha",
   releaseLabel: "Version 2.0 Build 203 Private Alpha",
   releaseDate: "September 17, 2026",
-  releaseTag: "v2.0-build203",
+  releaseTag: "v1.9-build203-rc2",
   releaseRepository: {
     owner: "AnxLabs",
     repo: "AnxOS-Control-Center-Releases",
   },
   repositoryUrl: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases",
-  releaseUrl: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v2.0-build203",
+  releaseUrl: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v1.9-build203-rc2",
   githubReleasesApiUrl: "https://api.github.com/repos/AnxLabs/AnxOS-Control-Center-Releases/releases?per_page=20",
   stableDownloadEndpoints: {
     windows: "/api/download/latest/windows",
@@ -26,20 +26,20 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   },
   releaseAssets: [
       {
-          fileName: "AnxOS-Control-Center-Setup-2.0-build203.exe",
-          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build203/AnxOS-Control-Center-Setup-2.0-build203.exe"
+          fileName: "AnxOS-Control-Center-Setup-1.9-build203.exe",
+          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v1.9-build203-rc2/AnxOS-Control-Center-Setup-1.9-build203.exe"
       },
       {
-          fileName: "AnxOS-Control-Center-2.0-build203-portable.exe",
-          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build203/AnxOS-Control-Center-2.0-build203-portable.exe"
+          fileName: "AnxOS-Control-Center-1.9-build203-portable.exe",
+          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v1.9-build203-rc2/AnxOS-Control-Center-1.9-build203-portable.exe"
       },
       {
-          fileName: "AnxOS-Control-Center-2.0-build203.AppImage",
-          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build203/AnxOS-Control-Center-2.0-build203.AppImage"
+          fileName: "AnxOS-Control-Center-1.9-build203.AppImage",
+          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v1.9-build203-rc2/AnxOS-Control-Center-1.9-build203.AppImage"
       },
       {
-          fileName: "AnxOS-Control-Center-2.0-build203.deb",
-          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build203/AnxOS-Control-Center-2.0-build203.deb"
+          fileName: "AnxOS-Control-Center-1.9-build203.deb",
+          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v1.9-build203-rc2/AnxOS-Control-Center-1.9-build203.deb"
       }
   ],
   releaseNotes: [
