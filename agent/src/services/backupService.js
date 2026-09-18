@@ -601,7 +601,21 @@ async function readSchedules() {
   const schedules = Array.isArray(parsed?.schedules) ? parsed.schedules : [];
   if (schemaVersion < BACKUP_SCHEDULE_SCHEMA_VERSION) {
     const backupPath = `${filePath}.schema-v${schemaVersion}.backup`;
-    if (!await fs.stat(backupPath).then(() => true, () => false)) await fs.copyFile(filePath, backupPath, fsSync.constants.COPYFILE_EXCL);
+    // Same migration race as the backup metadata above: any read migrates, so
+    // two concurrent reads can race this copy. The loser must treat EEXIST as
+    // success (the original is preserved either way) rather than fail the read
+    // and take the schedule store down with it.
+    // Same migration race as the backup metadata above: any read migrates, so
+    // two concurrent reads can race this copy. The loser must treat EEXIST as
+    // success (the original is preserved either way) rather than fail the read
+    // and take the schedule store down with it.
+    try {
+      await fs.copyFile(filePath, backupPath, fsSync.constants.COPYFILE_EXCL);
+    } catch (error) {
+      if (error?.code !== "EEXIST") {
+        throw error;
+      }
+    }
     await writeSchedules(schedules);
   }
   return schedules;

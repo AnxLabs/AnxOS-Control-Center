@@ -131,6 +131,7 @@
     "backups:archive-limits:smoke": "node scripts/backup-archive-limits-smoke.js",
     "backups:interrupted-recovery:smoke": "node scripts/backup-interrupted-artifact-recovery-smoke.js",
     "backups:integrity:smoke": "node scripts/backup-integrity-smoke.js",
+    "backups:metadata-migration:smoke": "node scripts/backup-metadata-migration-smoke.js",
     "node:lifecycle:smoke": "node scripts/node-lifecycle-smoke.js",
     "multi-node:fleet:smoke": "node scripts/multi-node-fleet-smoke.js",
     "workload:transfer:smoke": "node scripts/workload-transfer-smoke.js",
