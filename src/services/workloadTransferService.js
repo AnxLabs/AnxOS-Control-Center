@@ -13,6 +13,12 @@ const serviceRouter = require("./serviceRouter");
 const diagnostics = require("./diagnosticsService");
 const { MAX_BACKUP_ARCHIVE_BYTES } = require("../shared/backupLimits");
 
+// Mirrors the Agent HTTP body cap (agent/src/config.js DEFAULT_MAX_REQUEST_BYTES).
+// An agent configured with a different value will still enforce its own cap
+// honestly (the import surfaces REQUEST_TOO_LARGE), so the conservative
+// default is the guard the transfer uses.
+const DEFAULT_AGENT_MAX_REQUEST_BYTES = 256 * 1024 * 1024;
+
 // Same shape the Agent's backupService.validateInstanceId enforces; failing
 // here first keeps a malformed id from ever reaching either Agent.
 const INSTANCE_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_-]{1,63}$/;
@@ -94,6 +100,26 @@ function validateTransferInstanceId(value, role) {
 
 // The Agent's deleteBackup is idempotent (alreadyDeleted), so repeated
 // best-effort cleanups of the same imported archive are safe.
+// Best-effort deletion of a placeholder instance the transfer created on the
+// target (review P1-4): a declined or failed transfer must not leave a junk
+// custom-command instance registered forever. Never called when the target
+// instance pre-existed the transfer.
+async function cleanupTransferPlaceholder(recorder, context) {
+  try {
+    await serviceRouter.deleteInstance(context.targetInstanceId, { nodeId: context.target.nodeId });
+    recorder.record("target.instance.cleanup", { instanceId: context.targetInstanceId, deleted: true, reason: "transfer-not-consumed" });
+    return true;
+  } catch (error) {
+    recorder.record("target.instance.cleanup", {
+      instanceId: context.targetInstanceId,
+      deleted: false,
+      reason: "transfer-not-consumed",
+      errorCode: getAgentErrorCode(error) || "TRANSFER_CLEANUP_FAILED",
+    });
+    return false;
+  }
+}
+
 async function cleanupImportedArchive(recorder, context, reason) {
   let deletion = null;
   try {
@@ -227,21 +253,37 @@ async function transferWorkload(request = {}) {
     }));
     context.backupId = sourceBackup.backup.id;
     context.sourceInstanceId = sourceBackup.backup.instanceId;
+    // Validate the requested target identity BEFORE bytes are downloaded and
+    // imported: a malformed targetInstanceId should refuse up front, not
+    // after the archive sits imported on the target (review P2).
+    context.targetInstanceId = validateTransferInstanceId(request.targetInstanceId || context.sourceInstanceId, "target");
 
-    // --- Pull the archive: hold the bytes in memory exactly like the
-    // existing desktop download path (backupsIpc.saveBackupDownload). The
-    // Agent import route accepts archives as base64 JSON, so nothing is
-    // written to disk on the desktop side.
+    // --- Import on the target: the imported record keeps the source instance
+    // id so the restore preview can name the workload it would overwrite.
+    // Size honesty (review P1-2): the Agent HTTP body cap (default 256 MiB,
+    // agent/src/config.js) is the EFFECTIVE limit for the base64 JSON body —
+    // base64 inflates 4/3, so the raw archive must stay under 3/4 of that
+    // cap or the import dies with an opaque REQUEST_TOO_LARGE. The guard
+    // runs before the download to avoid holding bytes that can never import.
+    const importCeilingBytes = Math.floor((DEFAULT_AGENT_MAX_REQUEST_BYTES * 3) / 4);
+    if (importCeilingBytes <= 0) {
+      throw createTransferError("TRANSFER_IMPORT_LIMIT_UNKNOWN", "The target agent's import size limit could not be determined.", { nodeId: context.target.nodeId, statusCode: 502 });
+    }
+    const sourceBackupSize = Number(sourceBackup.backup.size) || null;
+    if (sourceBackupSize !== null && sourceBackupSize > importCeilingBytes) {
+      throw createTransferError("TRANSFER_SIZE_EXCEEDS_IMPORT_LIMIT", `The source backup is ${sourceBackupSize} bytes; the target agent's import body cap admits at most ${importCeilingBytes} bytes of raw archive.`, { archiveBytes: sourceBackupSize, maxArchiveBytes: importCeilingBytes, nodeId: context.target.nodeId, statusCode: 413 });
+    }
     const archive = await recorder.guard("source.download", async () => {
       const download = await serviceRouter.downloadBackup(context.backupId, { nodeId: context.source.nodeId });
       const buffer = download?.buffer || null;
       if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
         throw createTransferError("TRANSFER_DOWNLOAD_EMPTY", "The source node returned an empty backup archive.", { backupId: context.backupId, nodeId: context.source.nodeId, statusCode: 502 });
       }
-      if (buffer.length > MAX_BACKUP_ARCHIVE_BYTES) {
-        // Refuse before base64-encoding a huge archive; the Agent import
-        // route enforces the same limit (BACKUP_ARCHIVE_LIMIT_EXCEEDED).
-        throw createTransferError("BACKUP_ARCHIVE_LIMIT_EXCEEDED", "The source backup exceeds the supported archive size limit.", { archiveBytes: buffer.length, maxArchiveBytes: MAX_BACKUP_ARCHIVE_BYTES, statusCode: 413 });
+      if (buffer.length > importCeilingBytes) {
+        // Refuse before base64-encoding: the base64 JSON body must fit the
+        // target agent's HTTP body cap (review P1-2 — the 512 MiB archive
+        // limit alone is NOT the effective limit).
+        throw createTransferError("BACKUP_ARCHIVE_LIMIT_EXCEEDED", `The source backup exceeds the target agent's import limit (base64 body cap ${importCeilingBytes} bytes).`, { archiveBytes: buffer.length, maxArchiveBytes: importCeilingBytes, statusCode: 413 });
       }
       return buffer;
     }, (buffer) => ({ backupId: context.backupId, bytes: buffer.length }));
@@ -271,7 +313,7 @@ async function transferWorkload(request = {}) {
     // the canonical create path first. A full-scope restore replaces the
     // placeholder's directory and record with the transferred workload's own
     // configuration, so the placeholder never survives a successful transfer.
-    context.targetInstanceId = validateTransferInstanceId(request.targetInstanceId || context.sourceInstanceId, "target");
+    context.targetInstanceId = context.targetInstanceId || validateTransferInstanceId(request.targetInstanceId || context.sourceInstanceId, "target");
     await recorder.guard("target.instance.ensure", async () => {
       const registered = await serviceRouter.getInstanceStatus(context.targetInstanceId, { nodeId: context.target.nodeId })
         .then(() => true)
@@ -282,16 +324,23 @@ async function transferWorkload(request = {}) {
           throw error;
         });
       if (registered) {
+        context.placeholderCreated = false;
         return { created: false, instanceId: context.targetInstanceId };
       }
+      // The placeholder only ever exists to satisfy the agent's registered-
+      // instance requirement; a full restore replaces its record. A bare
+      // executable name keeps the agent's allowlist happy without assuming
+      // the desktop's node binary exists on the target (review P1-1) — the
+      // placeholder is never started, and a failed transfer deletes it.
       const createdInstance = await serviceRouter.createInstance({
         nodeId: context.target.nodeId,
         id: context.targetInstanceId,
         displayName: `Transferred workload ${context.sourceInstanceId}`,
         type: "custom-command",
-        executable: process.execPath,
+        executable: "node",
         args: ["-e", "process.exit(0)"],
       });
+      context.placeholderCreated = true;
       return { created: true, instanceId: createdInstance?.instance?.id || context.targetInstanceId };
     }, (ensured) => ({ created: ensured.created, instanceId: ensured.instanceId }));
 
@@ -322,6 +371,9 @@ async function transferWorkload(request = {}) {
       if (cleanupRemoved) {
         context.importedBackupId = null;
       }
+      // A declined transfer must not leave a junk placeholder instance on
+      // the target (review P1-4); pre-existing targets are left alone.
+      await cleanupTransferPlaceholder(recorder, context);
       diagnostics.log("info", "workload", "transfer-preview", "Workload transfer stopped for confirmation.", {
         sourceNodeId: context.source.nodeId,
         targetNodeId: context.target.nodeId,
@@ -384,6 +436,12 @@ async function transferWorkload(request = {}) {
       if (cleanupRemoved) {
         context.importedBackupId = null;
       }
+    }
+    // A failed transfer that CREATED a placeholder must not leave it
+    // registered forever (review P1-4); pre-existing targets are never
+    // deleted.
+    if (context.placeholderCreated === true && !context.importedBackupConsumed) {
+      await cleanupTransferPlaceholder(recorder, context);
     }
     if (!error?.code) {
       error.code = getAgentErrorCode(error) || "TRANSFER_FAILED";

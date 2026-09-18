@@ -51,16 +51,20 @@ async function invokeWorkloadOperation(operation, { auditStepTrail = false } = {
 }
 
 function registerWorkloadIpc() {
-  // Read-tier planning channel: runs the transfer pipeline up to the target
-  // restore preview (including a source backup, archive pull, and target-side
-  // import) and always stops before the destructive phase. Same read tier as
-  // the fleet summary.
-  ipcMain.handle("workload:transferPreview", async (_, payload = {}) => invokeWorkloadOperation(() => {
+  // Preview channel: despite the name, this RUNS the transfer pipeline up to
+  // the target restore preview — including a source backup, archive pull,
+  // target-side import, and placeholder registration — so it is a WRITE-tier
+  // channel (same grant as workload:transfer) and its per-step trail is
+  // audited exactly like the confirmed channel's (review P1-3/P1-5: a read
+  // tier must never launder backups/imports/instance creation).
+  ipcMain.handle("workload:transferPreview", async (_, payload = {}) => invokeWorkloadOperation(async () => {
     requireLocalOwnerAuthenticated("workload:transfer-preview", "Unlock AnxOS to plan workload transfers.");
-    requirePermission("nodes:read", "nodes");
+    requirePermission("settings:write", "nodes");
     audit({ action: "workload.transfer-preview", target: transferTarget(payload) });
-    return workloadTransferService.transferWorkload({ ...payload, confirmOverwrite: false });
-  }));
+    const outcome = await workloadTransferService.transferWorkload({ ...payload, confirmOverwrite: false });
+    auditTransferSteps(outcome.steps, outcome.sourceNodeId, outcome.targetNodeId);
+    return outcome;
+  }, { auditStepTrail: true }));
   // Write channel: matches the fleet batch tier (local owner + settings:write)
   // because it creates backups, registers a placeholder instance on the
   // target, and runs a confirmed destructive restore there.

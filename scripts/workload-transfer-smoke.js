@@ -253,11 +253,12 @@ async function main() {
     assert.strictEqual(previewResult.importedBackupCleanedUp, true, "the unconsumed imported archive must be cleaned up.");
     assertStepNames(
       previewResult,
-      ["resolve.nodes", "source.backup", "source.download", "target.import", "target.instance.ensure", "target.restore.preview", "target.import.cleanup"],
+      ["resolve.nodes", "source.backup", "source.download", "target.import", "target.instance.ensure", "target.restore.preview", "target.import.cleanup", "target.instance.cleanup"],
       "the preview leg",
     );
     assert.strictEqual(previewResult.steps.find((step) => step.step === "target.instance.ensure").created, true, "the preview leg must register the placeholder target instance.");
     assert.strictEqual(previewResult.steps.find((step) => step.step === "target.import.cleanup").reason, "confirmation-required", "the cleanup must be recorded with its reason.");
+    assert.strictEqual(previewResult.steps.find((step) => step.step === "target.instance.cleanup").deleted, true, "a declined transfer must clean up the placeholder it created.");
     // Nothing destructive happened on B: the workload data never arrived (the
     // placeholder scaffolding may exist, but none of A's files do), and the
     // imported archive is gone again.
@@ -402,7 +403,15 @@ async function main() {
     assert.strictEqual(transferCalls.length, 2, "an authorized workload:transferPreview must reach the service.");
     assert.strictEqual(transferCalls[1].confirmOverwrite, false, "the preview channel must always force confirmOverwrite off.");
     const stepAudits = auditEvents.filter((event) => String(event.action).startsWith("workload.transfer."));
-    assert.deepStrictEqual(stepAudits.map((event) => event.action), ["workload.transfer.resolve.nodes", "workload.transfer.target.restore.confirm"], "per-step audit entries must mirror the result steps.");
+    // Both channels audit their step trails now (review P1-5): the confirmed
+    // leg and the preview channel (which runs the same write-tier pipeline)
+    // each mirror their result steps.
+    assert.deepStrictEqual(stepAudits.map((event) => event.action), [
+      "workload.transfer.resolve.nodes",
+      "workload.transfer.target.restore.confirm",
+      "workload.transfer.resolve.nodes",
+      "workload.transfer.target.restore.confirm",
+    ], "per-step audit entries must mirror the result steps for both channels.");
     assert(stepAudits.every((event) => event.outcome === "ok"), "successful transfer steps must audit as ok.");
 
     auditEvents.length = 0;
