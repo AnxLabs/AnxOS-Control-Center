@@ -231,15 +231,28 @@ The record binds exactly one tuple:
      pre-auth and returns the pairing code to the same caller, and
      `/api/v1/pairing/complete` sets `config.token` to a caller-chosen value. An
      unauthenticated client that can reach the agent port can therefore pair (installing a
-     credential of its choosing) and then satisfy the gate's live-credential branch. This
-     was reproduced end to end by an independent adversarial review: a control re-pair
-     without pairing was refused 403, while the pair-then-enroll sequence succeeded 200 and
-     rebound the record's `tokenFingerprint` with caller-chosen `scopes`. Closing it
-     requires an authorization rule on the **pairing surface itself** (for example: an
-     already-enrolled agent accepts a new pairing only from loopback or an
-     owner-authenticated desktop request), which is an owner-scoped decision because it
-     changes V2-A pairing semantics. Tracked in the security queue of
-     `V2_CAMPAIGN_QUEUES.md`.
+     credential of its choosing) and then use it. This was reproduced end to end by an
+     independent adversarial review: a control re-pair without pairing was refused 403,
+     while the pair-then-enroll sequence succeeded 200 and rebound the record's
+     `tokenFingerprint` with caller-chosen `scopes`.
+   - **The exploit is cheaper than that sequence implies (proven):** the record
+     **self-heals** to the live credential on the next authenticated request (the rotation
+     tolerance described in step 4), so `/enroll/complete` — and therefore this gate — is
+     not on the minimum exploit path at all. Three requests suffice:
+     `pairing/start` → `pairing/complete` (caller-chosen token) → any authenticated
+     request. **Any fix confined to this gate is ineffective**; the authorization rule
+     belongs on the pairing surface itself. Also on that surface: `GET /api/v1/pairing/status`
+     returns the live pairing code pre-auth, and `POST /api/v1/pairing/cancel` is pre-auth
+     and destroys the operator's pending session.
+   - **Reachability decides the severity.** A default desktop-spawned agent binds
+     `127.0.0.1` and the product installs no inbound firewall rule for the agent port, so a
+     default install is not remotely reachable. A **standalone** agent defaults to
+     `0.0.0.0` (`agent/src/config.js`), and remote nodes over LAN/Tailscale are a
+     documented, smoke-supported flow — in that topology this is an unauthenticated
+     credential takeover. Fix in progress: pairing on an already-enrolled node requires a
+     loopback origin or the existing credential (`PAIRING_REQUIRES_EXISTING_CREDENTIAL`),
+     with first pairing and post-revocation recovery left open. Tracked in the security
+     queue of `V2_CAMPAIGN_QUEUES.md`.
    - **Why the live credential is accepted at all:** the legitimate repair flow pairs a
      node (rotating the shared config token via `POST /api/v1/pairing/complete`) and then
      completes enrollment with the rotated credential while the persisted record
