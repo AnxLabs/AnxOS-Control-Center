@@ -124,6 +124,10 @@ function registerInstancesIpc() {
     return duplicateInstance(payload.instanceId, payload.config || payload.options || payload, payload);
   }));
   registerInstanceHandler("instances:openFolder", async (_, payload = {}) => invokeInstanceOperation(() => {
+    // V2-I matrix row (was instances-unguarded-at-ipc): opening the host
+    // file explorer at the instance path is an instance:read action —
+    // Guests/Viewers must not be able to pop Explorer windows on the host.
+    requirePermission("instance:read", payload.instanceId);
     audit({ action: "instance.openFolder", target: payload.instanceId });
     return openInstanceFolder(payload.instanceId, payload);
   }));

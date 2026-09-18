@@ -114,6 +114,7 @@
     "instances:job-lifecycle:smoke": "node scripts/instance-job-lifecycle-smoke.js",
     "instances:job-reobservation:smoke": "node scripts/instance-job-reobservation-smoke.js",
     "instances:job-expiry:smoke": "node scripts/job-expiry-smoke.js",
+    "permission-matrix:smoke": "node scripts/permission-matrix-smoke.js",
     "steamcmd:instance-update:smoke": "node scripts/steamcmd-instance-update-smoke.js",
     "renderer:resource-cleanup:smoke": "node scripts/renderer-resource-cleanup-smoke.js",
     "dependencies:abort-listener:smoke": "node scripts/dependency-abort-listener-smoke.js",
