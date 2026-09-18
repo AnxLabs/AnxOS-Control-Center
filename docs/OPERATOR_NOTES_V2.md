@@ -375,3 +375,41 @@ remote kind in this slice is **SFTP**.
   (`BACKUP_DESTINATION_STORE_CORRUPT`), and a wrong key or tampered archive
   fails decryption with `BACKUP_DESTINATION_DECRYPT_FAILED` (the bytes and key
   are never echoed).
+
+## 12. Re-pairing an Agent that is already enrolled
+
+Pairing an Agent that is **already enrolled** now requires proof that the caller
+may re-pair it. Without that, anyone who could reach the Agent port could pair,
+install a credential of their choosing, and own the node — and the enrollment
+record would adopt that credential on the next request, so the enrollment gate
+never came into it.
+
+The rule is: on an enrolled Agent, `pairing/start`, `pairing/complete`,
+`pairing/status` and `pairing/cancel` are accepted only from **the machine the
+Agent runs on** (loopback), or from a caller that presents a credential the
+Agent already trusts. Anything else is refused with
+`PAIRING_REQUIRES_EXISTING_CREDENTIAL` (403), before any session is created,
+token rotated or session cancelled.
+
+What this means in practice:
+
+- **Pairing a new node works exactly as before** (no enrollment record yet), from
+  anywhere the Agent is reachable.
+- **Repairing a remote node works as long as Control Center still holds that
+  node's credential** — it now presents it automatically. This is the common
+  case: a stale fingerprint or a re-addressed node.
+- **A remote node whose credential is genuinely LOST cannot be re-paired over
+  the network.** Do it on the Agent machine (`npm run agent:pair`, or Control
+  Center running on that machine), or revoke the enrollment first
+  (`enroll/revoke`, owner-authenticated) and then pair. This is deliberate: an
+  unauthenticated network peer must not be able to perform credential recovery.
+- A remote URL with **no matching node record and no stored credential** is in
+  the same category — there is nothing to present, so recovery is on-host.
+- On a **locked** desktop the stored credential is unavailable, so remote re-pair
+  is refused until the owner unlocks. Fail-safe by design.
+
+If the Agent is network-reachable, remember that this gate is one layer: a
+default desktop-spawned Agent binds loopback only, while a standalone Agent
+defaults to all interfaces and needs a firewall rule that you create
+deliberately. Loopback trust is absolute, so do not put a reverse proxy in front
+of the Agent port — remote callers would then look local to this check.

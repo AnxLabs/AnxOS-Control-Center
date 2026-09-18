@@ -161,6 +161,7 @@
     "node:credential-recovery:smoke": "node scripts/node-credential-recovery-smoke.js",
     "node:agent-pairing:smoke": "node scripts/agent-pairing-workflow-smoke.js",
     "node:remote-pairing-target:smoke": "node scripts/remote-pairing-target-smoke.js",
+    "desktop:remote-repair:smoke": "node scripts/desktop-remote-repair-smoke.js",
     "agent:pairing-credential-gate:smoke": "node scripts/agent-pairing-credential-gate-smoke.js",
     "node:expired-pairing-single-submit:smoke": "node scripts/expired-pairing-single-submit-smoke.js",
     "agent-control:canonical-credential:smoke": "node scripts/agent-control-canonical-credential-smoke.js",

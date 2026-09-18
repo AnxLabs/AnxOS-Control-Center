@@ -1643,17 +1643,47 @@ async function saveNode(payload = {}) {
   return { node: publicNode(node), ...(await listNodes({ refreshIdentity: false })) };
 }
 
+// Security P1 follow-up helpers: /pairing/complete installs a caller-chosen
+// credential, so an already-enrolled Agent requires proof of possession of a
+// credential it already trusts. The desktop presents the node credential it
+// holds so a legitimate remote repair keeps working. When it holds none (a true
+// first pairing or a lost credential) the request body is left unchanged, so
+// bootstrap still works and the enrolled-node refusal still applies. The value
+// is only attached to the request; it is never logged or returned.
+function resolveNodeIdForPairingUrl(agentUrl) {
+  const normalized = normalizeUrl(agentUrl);
+  if (!normalized) return "";
+  try {
+    const match = readNodeState().nodes.find((node) => node.kind === "agent" && normalizeUrl(node.baseUrl || node.agentUrl) === normalized);
+    return match?.id || "";
+  } catch {
+    return "";
+  }
+}
+
+function getPairingProofCredential(nodeId) {
+  if (!nodeId) return "";
+  try {
+    return String(getNodeToken(nodeId) || "").trim();
+  } catch {
+    return "";
+  }
+}
+
 async function postPairingComplete(agentUrl, payload = {}, options = {}) {
   const endpoint = `${normalizeUrl(agentUrl)}/api/v1/pairing/complete`;
   const controller = new AbortController();
   const timeoutMs = Math.max(100, Number(options.timeoutMs) || 15000);
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const proofNodeId = options.nodeId ? String(options.nodeId) : resolveNodeIdForPairingUrl(agentUrl);
+  const proofCredential = getPairingProofCredential(proofNodeId);
+  const requestBody = proofCredential ? { ...payload, previousAgentToken: proofCredential } : payload;
   let response;
   try {
     response = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(requestBody),
       signal: controller.signal,
     });
   } catch (error) {
@@ -1707,7 +1737,7 @@ async function pairNodeFromCode(payload = {}) {
   const paired = await postPairingComplete(agentUrl, {
     pairingCode: pairing.pairingCode,
     permanentToken,
-  });
+  }, { nodeId: existingById?.id || "" });
   const health = await getHealth(normalizeAgentSettings({
     backendMode: "agent",
     agentUrl,

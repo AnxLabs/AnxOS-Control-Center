@@ -266,5 +266,15 @@ Full gate rerun launched at close. V2-G wave 1 (revoke/disconnect/groups) dispat
 - **Recorded limitations:** non-loopback refusal is proven at handler level (a loopback-bound agent cannot be reached from a non-loopback address portably) rather than over real non-loopback TCP; loopback trust is absolute, so an on-host reverse proxy in front of the agent port would defeat it; a corrupt `enrollment.json` now makes the pairing routes fail closed (500) instead of allowing pairing.
 - **Unchanged queue:** H7b (legacy backup metadata migration coverage), agent-side firewall guard, remote push upgrades, workload batch actions, roadmap checkbox sync, alert id fallback/UTC quiet hours, live-acceptance phase, Mimosa full re-audit + final audit.
 
+### Cycle 12b — the regression the security fix introduced, fixed (2026-09-18)
+
+- **Gate:** 249/249 PASS (verified by the orchestrator).
+- **Closed:** the cycle-12 regression. The desktop's remote repair now presents the credential it already holds — `x-agent-token` on `pairing/start`, `previousAgentToken` on `pairing/complete` — resolved through the canonical per-node accessor (`getNodeAgentConfig(...).agentToken` / `getNodeToken`), not a new store or field. When the desktop holds no credential the requests are byte-identical to before, so bootstrap and fail-closed behavior are untouched.
+- **Coverage with fail-without evidence:** new `desktop:remote-repair:smoke` (4 legs) drives the real desktop services against a stub HTTP surface that invokes the REAL agent pairing handler with a synthetic non-loopback address. Reverting the two client edits makes leg 1 fail with the actual gate refusal; restoring them passes. Legs also prove: no credential + unenrolled agent still bootstraps with no credential invented; no credential + enrolled agent is refused with no rotation; no token material or pairing code in either log tree.
+- **Why a stub rather than a spawned agent:** a loopback-bound agent always sees a loopback caller, so the refusal path cannot be reproduced against a real spawned agent; the loopback success path is covered end to end by `agent:pairing-credential-gate:smoke`. Recorded so the harness split is not mistaken for a gap.
+- **Operator-facing consequence documented** (`docs/OPERATOR_NOTES_V2.md` §12): a remote node whose credential is genuinely lost cannot be re-paired over the network — recovery is on-host (`npm run agent:pair`), or revoke-then-pair. Also documented: a locked desktop cannot present the credential, and loopback trust means a reverse proxy in front of the agent port would defeat the check.
+- **Recorded limitation:** a remote enrolled node reached at a URL with no matching node record and no stored credential is refused — correct (there is nothing to present), with the on-host recovery path as the answer.
+
+
 
 

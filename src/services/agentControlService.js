@@ -1087,6 +1087,22 @@ function getPairingSessionTarget(options = {}) {
   };
 }
 
+// Security P1 follow-up: re-pairing an ALREADY ENROLLED remote node requires
+// proof of possession of a credential the Agent already trusts. The desktop
+// holds that credential for the node in its protected credential store, so the
+// legitimate remote repair path presents it. When the desktop holds none — a
+// true first pairing or a lost credential — nothing is sent, which keeps
+// bootstrap / recovery working and lets the enrolled-node refusal stay closed.
+// The value is only attached to the request; it is never logged or returned.
+function getNodePairingCredential(nodeId) {
+  if (!nodeId) return "";
+  try {
+    return String(getNodeAgentConfig(nodeId).agentToken || "").trim();
+  } catch {
+    return "";
+  }
+}
+
 async function startPairingSession(options = {}) {
   const target = getPairingSessionTarget(options);
   if (target.kind === "windows-local-agent") {
@@ -1094,9 +1110,16 @@ async function startPairingSession(options = {}) {
       await start();
     }
   }
+  const pairingCredential = getNodePairingCredential(target.nodeId);
   let response;
   try {
-    response = await fetch(`${target.agentUrl}/api/v1/pairing/start`, { method: "POST" });
+    response = await fetch(`${target.agentUrl}/api/v1/pairing/start`, {
+      method: "POST",
+      // The Agent gate accepts `x-agent-token` (and Bearer). Omit the header
+      // entirely when there is no stored credential so an unenrolled Agent is
+      // never sent a stale/foreign token.
+      ...(pairingCredential ? { headers: { "x-agent-token": pairingCredential } } : {}),
+    });
   } catch (error) {
     throw Object.assign(new Error(`Remote Agent at ${target.agentUrl} is unreachable. Pairing code generation was not redirected to the Windows Local Agent.`), {
       code: "PAIRING_AGENT_UNREACHABLE",
