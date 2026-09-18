@@ -300,4 +300,43 @@ assert(
   ".settings-section--marketplace .settings-inline-status",
 ].forEach((needle) => assert(styles.includes(needle), `Download Manager responsive contract is missing: ${needle}`));
 
+// ---------------------------------------------------------------------------
+// Renderer safety invariants for the V2-D/G/H surfaces (install plan, workload
+// transfer, network inventory). These are ordering-and-disclosure contracts
+// rather than visual checks: the destructive cross-node restore must stay
+// unreachable without a preview and a typed confirmation, and the disclosure
+// that makes that restore honest must not be dropped by a later edit. A
+// behavior-only smoke cannot catch these — the review that found them used a
+// fake-DOM harness, and this pins the same invariants where the repo already
+// pins renderer contracts.
+// ---------------------------------------------------------------------------
+assert.strictEqual(
+  app.split("api.transfer(").length - 1,
+  1,
+  "Workload transfer must have exactly one call site so the preview/confirmation gate cannot be bypassed from a second path.",
+);
+const transferPreviewAt = app.indexOf("api.transferPreview(");
+const transferPhraseAt = app.indexOf("phrase: resolvedTargetInstanceId");
+const transferCallAt = app.indexOf("api.transfer(");
+assert(
+  transferPreviewAt > -1 && transferPhraseAt > transferPreviewAt && transferCallAt > transferPhraseAt,
+  "The transfer must be ordered preview -> typed confirmation -> transfer.",
+);
+assert(
+  app.includes("phrase: resolvedTargetInstanceId"),
+  "The confirmation phrase must be the preview-resolved target instance id, not the raw operator input.",
+);
+
+[
+  // The source backup is crash-consistent unless a consistency option is
+  // passed; the confirmation gate must disclose it.
+  "consistency ${step.consistency}",
+  "Another instance action is already running.",
+  "aria-description",
+].forEach((needle) => assert(app.includes(needle), `Workload transfer/install plan disclosure contract is missing: ${needle}`));
+
+assert(index.includes("data-network-inventory-panel"), "The Nodes page must keep the network inventory card container.");
+assert(index.includes("transfer-workload"), "The Instances page must keep the workload transfer button.");
+assert(app.includes("networkInventory:get"), "The network inventory card must stay wired to its IPC channel.");
+
 console.log("UI polish smoke checks passed.");

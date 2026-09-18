@@ -2247,6 +2247,7 @@
                 <button class="inline-action" type="button" data-instance-action="update-steam" hidden disabled>Update Server Files</button>
                 <button class="inline-action" type="button" data-instance-action="rename" disabled>Rename</button>
                 <button class="inline-action" type="button" data-instance-action="duplicate" disabled>Duplicate</button>
+                <button class="inline-action" type="button" data-instance-action="transfer-workload" disabled>Transfer Workload</button>
                 <button class="inline-action" type="button" data-instance-action="open-folder" disabled>Open Folder</button>
                 <button class="inline-action" type="button" data-instance-action="expose-share" disabled>Expose / Share</button>
                 <button class="inline-action" type="button" data-instance-action="share-server" disabled>Share Server</button>
@@ -4183,6 +4184,22 @@
                 <span class="settings-inline-status" data-fleet-message>Fleet aggregation applies to the filtered node set.</span>
               </div>
               <div class="download-list" data-fleet-rows></div>
+            </section>
+
+            <section class="settings-section settings-section--nodes nodes-panel" data-network-inventory-panel hidden>
+              <div class="settings-section__header">
+                <div>
+                  <h2>Network</h2>
+                  <p>Read-only interfaces and listening ports reported by the selected node's Agent host.</p>
+                </div>
+                <span class="status-pill status-pill--planned" data-network-inventory-status>Not loaded</span>
+              </div>
+              <div class="nodes-toolbar">
+                <button class="inline-action" type="button" data-network-inventory-action="load">Load Network Inventory</button>
+                <span class="settings-inline-status" data-network-inventory-message>Network inventory has not been loaded for this node.</span>
+              </div>
+              <div class="security-summary-grid node-health-overview" data-network-inventory-overview hidden aria-live="polite" aria-label="Network inventory summary"></div>
+              <div data-network-inventory-body></div>
             </section>
           </div>
         </section>

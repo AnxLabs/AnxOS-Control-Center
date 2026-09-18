@@ -699,6 +699,14 @@ const fleetRows = document.querySelector("[data-fleet-rows]");
 const fleetStatus = document.querySelector("[data-fleet-status]");
 const fleetMessage = document.querySelector("[data-fleet-message]");
 const fleetActionButtons = document.querySelectorAll("[data-fleet-action]");
+// Network inventory card on the Nodes page (V2-H bullet 2: read-only
+// interfaces + listening ports for the selected Agent node).
+const networkInventoryPanel = document.querySelector("[data-network-inventory-panel]");
+const networkInventoryStatus = document.querySelector("[data-network-inventory-status]");
+const networkInventoryMessage = document.querySelector("[data-network-inventory-message]");
+const networkInventoryOverview = document.querySelector("[data-network-inventory-overview]");
+const networkInventoryBody = document.querySelector("[data-network-inventory-body]");
+const networkInventoryActionButtons = document.querySelectorAll("[data-network-inventory-action]");
 const nodeSummaryFields = document.querySelectorAll("[data-node-summary]");
 const nodeModal = document.querySelector("[data-node-modal]");
 const nodeModalTitle = document.querySelector("[data-node-modal-title]");
@@ -805,6 +813,8 @@ let fleetState = null;
 let fleetSummaryInFlight = false;
 let fleetSummarySerial = 0;
 let fleetBatchInFlight = false;
+let networkInventoryState = { nodeId: null, status: "idle", data: null, error: null, loadedAt: 0 };
+let networkInventoryRequestInFlight = false;
 let nodePickerActiveIndex = 0;
 const nodeRequestSerials = new Map();
 let backupRequestInFlight = false;
@@ -13701,6 +13711,24 @@ function updateInstanceActionButtons() {
     button.disabled = busy || !hasInstancesBridge || !selectedInstance || isInstanceRunning(selectedInstance) || typeof desktopApiState.api?.instances?.duplicate !== "function";
   });
 
+  document.querySelectorAll('[data-instance-action="transfer-workload"]').forEach((button) => {
+    const workloadApi = getWorkloadTransferApi();
+    const sourceNodeId = getSelectedNodeId();
+    const sourceIsAgent = getSelectedNode()?.kind === "agent";
+    const targetAvailable = (nodesState.nodes || []).some((node) => node.kind === "agent" && node.id !== sourceNodeId && node.enabled !== false);
+    const locked = securityState?.localOwnerAuthenticated !== true;
+    button.disabled = busy || !hasInstancesBridge || !selectedInstance || !workloadApi || !sourceIsAgent || !targetAvailable || locked;
+    button.title = !workloadApi
+      ? "Workload transfer is not available in this build."
+      : !sourceIsAgent
+        ? "Workload transfer requires the instance's node to be a registered Agent node."
+        : !targetAvailable
+          ? "Register another Agent node before transferring a workload."
+          : locked
+            ? "Unlock AnxOS to transfer workloads between nodes."
+            : "Preview, then transfer this workload to another Agent node.";
+  });
+
   document.querySelectorAll('[data-instance-action="open-folder"]').forEach((button) => {
     const selectedNode = getSelectedNode();
     const localFolderTarget = !selectedNode || selectedNode.kind === "application-host" || selectedNode.localAgent === true;
@@ -15077,7 +15105,31 @@ function renderMarketplacePackageDetails(template = null) {
   create.className = "primary-button";
   create.textContent = "Continue to Create Server";
   create.addEventListener("click", () => openCreateServerWorkspace(template));
-  actions.append(create);
+  // V2-D bullet 6: read-only install plan preview (installer type, ordered
+  // steps, resolved downloads, dependency and disk verdicts). Never installs.
+  // The plan is composed from the curated template catalog, so provider packs
+  // (which install through their own provider transaction) are disclosed as
+  // unsupported instead of returning a misleading "template not found".
+  const installPlan = document.createElement("button");
+  installPlan.type = "button";
+  installPlan.className = "inline-action";
+  installPlan.textContent = "View Install Plan";
+  const installPlanApi = getMarketplaceInstallPlanApi();
+  const installPlanSupported = installPlanApi !== null && !isProviderMarketplaceTemplate(template);
+  installPlan.disabled = !installPlanSupported;
+  installPlan.title = installPlanApi === null
+    ? "Install plan preview is not available in this build."
+    : isProviderMarketplaceTemplate(template)
+      ? "Curated install plans apply to built-in templates. Provider packs install through their provider transaction."
+      : "Show the install plan for this package without installing it.";
+  installPlan.addEventListener("click", () => openMarketplaceInstallPlan(template));
+  if (installPlan.disabled) {
+    // Chromium does not dispatch the pointer events that show a `title` tooltip
+    // on a disabled control, so the reason is mirrored into the accessibility
+    // description the repo already uses for gated buttons.
+    installPlan.setAttribute("aria-description", installPlan.title);
+  }
+  actions.append(installPlan, create);
   const technical = document.createElement("details");
   technical.className = "marketplace-technical-details";
   technical.append(createTextElement("summary", "Technical Details"));
@@ -15095,6 +15147,194 @@ function renderMarketplacePackageDetails(template = null) {
     technical,
   );
   renderMarketplaceTemplates();
+}
+
+// ---------------------------------------------------------------------------
+// V2-D bullet 6: Marketplace install plan preview.
+// marketplace.getInstallPlan shipped with IPC + preload support but had no
+// renderer caller. This is strictly read-only: it fetches the composed plan and
+// renders it (installer type, ordered steps, resolved downloads, dependency and
+// disk verdicts) without triggering any install.
+// ---------------------------------------------------------------------------
+function getMarketplaceInstallPlanApi() {
+  const api = getDesktopApiState().api;
+  return typeof api?.marketplace?.getInstallPlan === "function" ? api.marketplace : null;
+}
+
+function formatMarketplacePlanDownload(download = {}) {
+  const parts = [String(download.fileName || download.destination || download.url || "Unnamed download")];
+  parts.push(String(download.type || "unknown source"));
+  parts.push(Number.isFinite(Number(download.size)) ? formatBytes(Number(download.size)) : "size unknown");
+  if (download.url) parts.push(String(download.url));
+  return parts.join(" · ");
+}
+
+function formatMarketplaceDependencyVerdict(dependencies = {}) {
+  if (!dependencies || dependencies.checked !== true) {
+    return dependencies?.message ? `Not checked: ${String(dependencies.message)}` : "Not checked for this template.";
+  }
+  if (dependencies.ok === true) {
+    const count = Array.isArray(dependencies.dependencyIds) ? dependencies.dependencyIds.length : 0;
+    return `Satisfied (${count} dependency record${count === 1 ? "" : "s"} resolved).`;
+  }
+  const missing = Array.isArray(dependencies.missing)
+    ? dependencies.missing.map((entry) => String(entry?.id || entry?.dependencyId || entry?.name || entry)).join(", ")
+    : "";
+  return `Not satisfied${dependencies.code ? ` (${dependencies.code})` : ""}.${missing ? ` Missing: ${missing}.` : ""}${dependencies.message ? ` ${String(dependencies.message)}` : ""}`;
+}
+
+function formatMarketplaceDiskVerdict(disk = {}) {
+  if (!disk || disk.checked !== true) {
+    return disk?.message ? `Not verified: ${String(disk.message)}` : "Not verified for the selected node.";
+  }
+  const required = Number.isFinite(Number(disk.requiredFreeBytes)) ? formatBytes(Number(disk.requiredFreeBytes)) : "Unknown";
+  if (disk.ok === true) {
+    const free = Number.isFinite(Number(disk.freeBytes)) ? formatBytes(Number(disk.freeBytes)) : "Unknown";
+    return `Enough free space. Free: ${free}; required: ${required}.`;
+  }
+  return `Not satisfied${disk.code ? ` (${disk.code})` : ""}. Required: ${required}.${disk.message ? ` ${String(disk.message)}` : ""}`;
+}
+
+function appendMarketplacePlanList(container, heading, entries, emptyMessage, formatter) {
+  const list = Array.isArray(entries) ? entries : [];
+  container.append(createTextElement("h4", `${heading} (${list.length})`));
+  if (!list.length) {
+    container.append(createEmptyState(emptyMessage));
+    return;
+  }
+  const wrapper = document.createElement("div");
+  wrapper.className = "security-list";
+  wrapper.setAttribute("role", "list");
+  wrapper.setAttribute("aria-label", heading);
+  list.forEach((entry, index) => {
+    const item = document.createElement("article");
+    item.className = "security-list-item";
+    const body = document.createElement("div");
+    body.className = "node-health-card-body";
+    body.append(createTextElement("p", `${index + 1}. ${formatter(entry, index)}`, "security-event-meta"));
+    item.append(body);
+    wrapper.append(item);
+  });
+  container.append(wrapper);
+}
+
+function createMarketplaceInstallPlanDialog(template = {}, plan = {}, { nodeLabel = null } = {}) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "app-modal-backdrop";
+    const dialog = document.createElement("section");
+    dialog.className = "app-modal";
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-modal", "true");
+    dialog.setAttribute("aria-label", "Install plan");
+    dialog.tabIndex = -1;
+    const closeButton = document.createElement("button");
+    closeButton.className = "app-modal__close";
+    closeButton.type = "button";
+    closeButton.dataset.planClose = "";
+    closeButton.setAttribute("aria-label", "Close");
+    closeButton.textContent = "×";
+
+    const header = document.createElement("div");
+    header.className = "app-modal__header";
+    header.append(
+      createTextElement("p", "Install plan", "eyebrow"),
+      createTextElement("h2", `Install plan: ${template.displayName || template.id || "package"}`),
+      createTextElement("p", "Read-only preview. Nothing is installed, downloaded, or changed by opening this plan."),
+    );
+
+    const body = document.createElement("div");
+    body.className = "app-modal__body";
+    const facts = document.createElement("dl");
+    facts.className = "docker-details-list";
+    const steps = Array.isArray(plan.steps) ? plan.steps : [];
+    const downloads = Array.isArray(plan.downloads) ? plan.downloads : [];
+    [
+      ["Installable", plan.installable === true ? "Yes" : "No"],
+      ["Installer type", plan.installerType || "None (no automatic installer)"],
+      ["Workflow", plan.workflow || "Not reported"],
+      ["Ordered steps", String(steps.length)],
+      ["Resolved downloads", String(downloads.length)],
+      ["Target node", nodeLabel || getSelectedNode()?.displayName || getSelectedNodeId()],
+    ].forEach(([label, value]) => {
+      const row = document.createElement("div");
+      row.append(createTextElement("dt", label), createTextElement("dd", String(value)));
+      facts.append(row);
+    });
+    body.append(facts);
+
+    if (plan.reason) {
+      body.append(createTextElement("p", `Reason: ${String(plan.reason)}`, "settings-note"));
+    }
+
+    appendMarketplacePlanList(body, "Ordered install steps", steps, "This template does not report any install steps.", (entry) => String(entry));
+    appendMarketplacePlanList(body, "Resolved downloads", downloads, "No download sources are resolved for this template.", (entry) => formatMarketplacePlanDownload(entry));
+
+    body.append(createTextElement("h4", "Dependency verdict"));
+    body.append(createTextElement("p", formatMarketplaceDependencyVerdict(plan.dependencies), "settings-note"));
+    body.append(createTextElement("h4", "Disk verdict"));
+    body.append(createTextElement("p", formatMarketplaceDiskVerdict(plan.disk), "settings-note"));
+
+    const actions = document.createElement("div");
+    actions.className = "settings-actions";
+    const close = document.createElement("button");
+    close.className = "inline-action inline-action--primary";
+    close.type = "button";
+    close.dataset.planClose = "";
+    close.textContent = "Close";
+    actions.append(close);
+
+    dialog.append(closeButton, header, body, actions);
+    overlay.appendChild(dialog);
+    const finish = () => {
+      document.removeEventListener("keydown", onKeyDown);
+      deactivateModal();
+      overlay.remove();
+      resolve(true);
+    };
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") finish();
+    };
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay || event.target.closest("[data-plan-close]")) finish();
+    });
+    document.addEventListener("keydown", onKeyDown);
+    document.body.appendChild(overlay);
+    const deactivateModal = activateModal(overlay, { initialFocus: () => overlay.querySelector("[data-plan-close]") });
+  });
+}
+
+async function openMarketplaceInstallPlan(template = null) {
+  const api = getMarketplaceInstallPlanApi();
+  if (!template?.id) {
+    showToast("Select a marketplace package before viewing its install plan.", "warning");
+    return;
+  }
+  if (!api) {
+    showToast("Install plan preview is not available in this build.", "warning");
+    return;
+  }
+  const label = template.displayName || template.id;
+  // The plan is composed for one node (its platform resolves the template and
+  // its disk verdict), and the node picker stays live while the request is in
+  // flight, so the node is captured here and pinned on the dialog. Reading it
+  // again after the await could label a plan for node A as node B's.
+  const requestNodeId = getSelectedNodeId();
+  const requestNodeLabel = getSelectedNode()?.displayName || requestNodeId;
+  try {
+    showToast(`Building the install plan for ${label}...`, "info");
+    const plan = await api.getInstallPlan({ templateId: template.id, nodeId: requestNodeId });
+    // The operator may have selected another package or another node while the
+    // plan was being built; never open a plan against a stale selection.
+    if (marketplaceSelectedTemplateId !== template.id) return;
+    if (getSelectedNodeId() !== requestNodeId) {
+      showToast("The selected node changed while the install plan was being built. Open the plan again.", "warning");
+      return;
+    }
+    await createMarketplaceInstallPlanDialog(template, plan || {}, { nodeLabel: requestNodeLabel });
+  } catch (error) {
+    showToast(normalizeIpcErrorMessage(error, "Install plan could not be built."), "error");
+  }
 }
 
 function getFilteredMarketplaceTemplates() {
@@ -20187,6 +20427,336 @@ function getSteamCmdUpdateErrorMessage(error) {
     PATH_NOT_ALLOWED: "The saved server install directory is not safe. Review the instance configuration before retrying.",
   };
   return messages[code] || getAgentErrorMessage(error, "Server files could not be updated.");
+}
+
+// ---------------------------------------------------------------------------
+// V2-G bullet 7: Workload transfer (Instances page).
+// workload.transferPreview / workload.transfer shipped with full IPC and
+// preload support but had no renderer caller, so the bullet was unreachable.
+// The flow is preview-first by contract: the preview RUNS the transfer pipeline
+// up to the target's restore preview (source backup, archive pull, target
+// import, placeholder registration), so the dialog says that plainly instead of
+// implying a no-op. The destructive restore phase then requires the same
+// typed-phrase confirmation the Docker volume removal and fleet stop flows use.
+// ---------------------------------------------------------------------------
+let workloadTransferInFlight = false;
+
+function getWorkloadTransferApi() {
+  const api = getDesktopApiState().api;
+  if (typeof api?.workload?.transferPreview !== "function" || typeof api?.workload?.transfer !== "function") {
+    return null;
+  }
+  return api.workload;
+}
+
+function getWorkloadTransferTargetNodes(sourceNodeId) {
+  return (nodesState.nodes || []).filter((node) => node.kind === "agent" && node.id !== sourceNodeId && node.enabled !== false);
+}
+
+function formatWorkloadTransferStep(step = {}) {
+  const label = String(step.step || "step");
+  if (step.ok === false) {
+    return `${label}: failed (${step.errorCode || "TRANSFER_STEP_FAILED"})${step.errorMessage ? ` - ${step.errorMessage}` : ""}`;
+  }
+  const details = [];
+  if (step.backupId) details.push(`backup ${step.backupId}`);
+  if (step.instanceId) details.push(`instance ${step.instanceId}`);
+  if (step.targetInstanceId && step.targetInstanceId !== step.instanceId) details.push(`target ${step.targetInstanceId}`);
+  if (Number.isFinite(step.bytes)) details.push(`${step.bytes} bytes`);
+  // The transfer takes its source backup without pinning a consistency option,
+  // so the service falls back to a crash-consistent snapshot of a running
+  // server. That has to be visible at the confirmation gate that authorizes the
+  // destructive restore over the target's data — otherwise the operator
+  // approves an archive whose consistency was never disclosed.
+  if (step.consistency) details.push(`consistency ${step.consistency}`);
+  if (step.verdict) details.push(`verdict ${step.verdict}`);
+  if (step.created === true) details.push("created");
+  if (step.created === false) details.push("reused");
+  if (step.deleted === true) details.push("deleted");
+  return `${label}: ok${details.length ? ` (${details.join(", ")})` : ""}`;
+}
+
+// The transfer service attaches its per-step trail to the thrown error
+// (error.steps / error.details.steps, see src/ipc/workloadIpc.js). Read every
+// known location and fall back to an honest "no records" statement rather than
+// inventing a trail.
+function getWorkloadTransferSteps(error) {
+  const candidates = [error?.steps, error?.details?.steps, error?.payload?.error?.details?.steps];
+  return candidates.find((candidate) => Array.isArray(candidate)) || [];
+}
+
+function formatWorkloadTransferStepTrail(steps) {
+  const list = Array.isArray(steps) ? steps : [];
+  if (!list.length) return "No per-step records were returned for this request.";
+  return list.map(formatWorkloadTransferStep).join(" | ");
+}
+
+function createWorkloadTransferTargetDialog({ sourceNode, targetNodes, instanceLabel, defaultTargetInstanceId } = {}) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "app-modal-backdrop";
+    const dialog = document.createElement("section");
+    dialog.className = "app-modal";
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-modal", "true");
+    dialog.setAttribute("aria-label", "Transfer workload");
+    dialog.tabIndex = -1;
+    const closeButton = document.createElement("button");
+    closeButton.className = "app-modal__close";
+    closeButton.type = "button";
+    closeButton.dataset.transferCancel = "";
+    closeButton.setAttribute("aria-label", "Close");
+    closeButton.textContent = "×";
+    const header = document.createElement("div");
+    header.className = "app-modal__header";
+    header.append(
+      createTextElement("p", "Workload transfer", "eyebrow"),
+      createTextElement("h2", `Transfer ${instanceLabel}`),
+      createTextElement("p", `The source workload stays on ${sourceNode?.displayName || "the source node"}. AnxOS runs a read-only restore preview on the target first, but that preview still creates a source backup, imports an archive on the target, and registers a temporary placeholder instance there. The destructive restore only runs after you confirm it.`),
+    );
+    const targetField = document.createElement("label");
+    targetField.className = "settings-field";
+    const targetSelect = document.createElement("select");
+    (Array.isArray(targetNodes) ? targetNodes : []).forEach((node) => {
+      // A registered node that is offline still satisfies the "another Agent
+      // node exists" rule, so its reachability is stated here rather than
+      // discovered after the operator has committed to a target.
+      const connection = getNodeConnectionState(node);
+      const reachable = connection.state === "Connected" || connection.state === "Degraded";
+      const suffix = reachable ? "" : ` — ${connection.label || "not reachable"}`;
+      targetSelect.append(new Option(`${node.displayName || node.id}${suffix}`, node.id));
+    });
+    targetField.append(createTextElement("span", "Target Agent node"), targetSelect);
+    const instanceField = document.createElement("label");
+    instanceField.className = "settings-field";
+    const instanceInput = document.createElement("input");
+    instanceInput.type = "text";
+    instanceInput.autocomplete = "off";
+    instanceInput.value = defaultTargetInstanceId || "";
+    instanceField.append(createTextElement("span", "Instance id on the target"), instanceInput);
+    const note = createTextElement("p", "The target instance id defaults to the source instance id. The confirmed restore replaces that instance's data on the target.", "settings-note");
+    const error = createTextElement("span", "", "settings-field-error");
+    error.hidden = true;
+    const actions = document.createElement("div");
+    actions.className = "settings-actions";
+    const confirm = document.createElement("button");
+    confirm.className = "inline-action inline-action--primary";
+    confirm.type = "button";
+    confirm.dataset.transferOk = "";
+    confirm.textContent = "Run Preview";
+    const cancel = document.createElement("button");
+    cancel.className = "inline-action";
+    cancel.type = "button";
+    cancel.dataset.transferCancel = "";
+    cancel.textContent = "Cancel";
+    actions.append(confirm, cancel);
+    dialog.append(closeButton, header, targetField, instanceField, note, error, actions);
+    overlay.appendChild(dialog);
+    const close = (value) => {
+      document.removeEventListener("keydown", onKeyDown);
+      deactivateModal();
+      overlay.remove();
+      resolve(value);
+    };
+    const submit = () => {
+      const targetNodeId = targetSelect.value;
+      const targetInstanceId = instanceInput.value.trim();
+      if (!targetNodeId) {
+        error.textContent = "Select a target node.";
+        error.hidden = false;
+        return;
+      }
+      // Mirrors the transfer service's instance-id contract so a malformed id
+      // is refused here instead of after an archive has been imported.
+      if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{1,63}$/.test(targetInstanceId)) {
+        error.textContent = "Enter a valid target instance id (letters, digits, dash, or underscore; 2-64 characters).";
+        error.hidden = false;
+        instanceInput.focus();
+        return;
+      }
+      close({ targetNodeId, targetInstanceId });
+    };
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") close(null);
+    };
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay || event.target.closest("[data-transfer-cancel]")) close(null);
+      if (event.target.closest("[data-transfer-ok]")) submit();
+    });
+    document.addEventListener("keydown", onKeyDown);
+    document.body.appendChild(overlay);
+    const deactivateModal = activateModal(overlay, { initialFocus: () => targetSelect });
+  });
+}
+
+async function openWorkloadTransfer(selectedInstance = findInstance()) {
+  const api = getWorkloadTransferApi();
+  if (!api) {
+    showToast("Workload transfer is not available in this build.", "warning");
+    return;
+  }
+  if (!selectedInstance) {
+    showToast("Select an instance before transferring a workload.", "warning");
+    return;
+  }
+  if (workloadTransferInFlight || instanceActionRequestInFlight || instancesRequestInFlight) return;
+  if (blockProtectedAction("Unlock AnxOS to transfer workloads between nodes.")) return;
+  if (securityState?.localOwnerAuthenticated !== true) {
+    showToast("Unlock AnxOS to transfer workloads between nodes.", "warning");
+    return;
+  }
+  const sourceNode = getSelectedNode();
+  const sourceNodeId = getSelectedNodeId();
+  if (sourceNode?.kind !== "agent") {
+    showToast("Workload transfer requires the instance's node to be a registered Agent node.", "warning");
+    return;
+  }
+  const targetNodes = getWorkloadTransferTargetNodes(sourceNodeId);
+  if (!targetNodes.length) {
+    showToast("Register at least one other Agent node before transferring a workload.", "warning");
+    return;
+  }
+  const label = selectedInstance.displayName || selectedInstance.id;
+  const sourceInstanceId = selectedInstance.id;
+  const selection = await createWorkloadTransferTargetDialog({
+    sourceNode,
+    targetNodes,
+    instanceLabel: label,
+    defaultTargetInstanceId: sourceInstanceId,
+  });
+  if (!selection) {
+    showToast("Transfer canceled.");
+    return;
+  }
+  // The dialog was open across an await, so re-check the guard that was tested
+  // before it: another instance action may have started while the operator was
+  // choosing a target, and the preview below is not free of side effects.
+  if (instanceActionRequestInFlight) {
+    showToast("Another instance action is already running.", "warning");
+    return;
+  }
+  const targetNode = targetNodes.find((node) => node.id === selection.targetNodeId) || null;
+  const targetLabel = targetNode?.displayName || selection.targetNodeId;
+  const requestContext = createNodeActionContext("workload-transfer");
+  workloadTransferInFlight = true;
+  // Reuse the page's existing in-flight guard so every other instance action
+  // button is disabled for the whole preview + transfer window.
+  instanceActionRequestInFlight = true;
+  updateInstanceActionButtons();
+  try {
+    showToast(`Running the transfer preview for ${label} on ${targetLabel}...`, "info");
+    const preview = await api.transferPreview(getNodeScopedPayload(requestContext, {
+      sourceNodeId,
+      targetNodeId: selection.targetNodeId,
+      instanceId: sourceInstanceId,
+      targetInstanceId: selection.targetInstanceId,
+      backupName: `${sourceInstanceId} workload transfer backup`,
+    }));
+    if (!isNodeActionStillCurrent(requestContext)) return;
+    if (preview?.ok === false) {
+      throw Object.assign(new Error(preview.error?.message || "The transfer preview failed."), {
+        code: preview.error?.code || "WORKLOAD_PREVIEW_FAILED",
+      });
+    }
+    const previewSteps = Array.isArray(preview?.steps) ? preview.steps : [];
+    const warnings = Array.isArray(preview?.conflict?.warnings) ? preview.conflict.warnings : [];
+    const verdict = String(preview?.verdict || preview?.conflict?.verdict || "unknown");
+    const resolvedTargetInstanceId = String(preview?.targetInstanceId || selection.targetInstanceId);
+    const confirmed = await createSecurityConfirmation({
+      title: `Transfer ${label} to ${targetLabel}?`,
+      // One line per item, separated by "; " rather than newlines: the shared
+      // confirmation dialog renders its message into a single paragraph, where
+      // "\n" collapses and the per-step list would run together unreadably.
+      message: [
+        `Restore verdict on ${targetLabel}: ${verdict}.`,
+        `Target instance: ${resolvedTargetInstanceId}.`,
+        `Warnings: ${warnings.length ? warnings.join(", ") : "none reported"}.`,
+        `Preview steps already completed on the target (real resources, not a dry run): ${previewSteps.length ? previewSteps.map(formatWorkloadTransferStep).join("; ") : "No steps were recorded."}`,
+        `Confirming runs the destructive restore on ${targetLabel}, replacing the target instance's data. ${sourceNode.displayName || sourceNodeId} keeps its workload and its backup.`,
+      ].join(" "),
+      phrase: resolvedTargetInstanceId,
+      confirmLabel: "Transfer Workload",
+    });
+    if (!confirmed) {
+      showToast("Transfer canceled. The preview cleaned up the target-side import it created.", "info");
+      return;
+    }
+    showToast(`Transferring ${label} to ${targetLabel}...`, "info");
+    const result = await api.transfer(getNodeScopedPayload(requestContext, {
+      sourceNodeId,
+      targetNodeId: selection.targetNodeId,
+      instanceId: sourceInstanceId,
+      targetInstanceId: resolvedTargetInstanceId,
+      backupId: preview?.backupId || undefined,
+      confirmOverwrite: true,
+    }));
+    // The outcome of a destructive cross-node transfer is always reported, even
+    // if the operator switched the selected node while it was running: the
+    // source and target are already captured above, so the notification stays
+    // accurate and the operator is never left without the result.
+    const steps = Array.isArray(result?.steps) ? result.steps : [];
+    const failed = steps.filter((step) => step?.ok === false);
+    const summary = failed.length
+      ? `${failed.length} of ${steps.length} step(s) failed`
+      : `${steps.length} step(s) completed`;
+    showToast(
+      failed.length
+        ? `Workload transfer of ${label} finished with failures. ${summary}. Review the operation trail before retrying.`
+        : `Workload transfer of ${label} to ${targetLabel} completed. ${summary}.`,
+      failed.length ? "warning" : "success",
+    );
+    createNotification({
+      category: "Instances",
+      severity: failed.length ? "warning" : "success",
+      title: failed.length ? "Workload transfer finished with failures" : "Workload transfer completed",
+      message: `${label}: ${sourceNodeId} -> ${targetLabel} (instance ${result?.targetInstanceId || resolvedTargetInstanceId}). ${summary}.${failed.length ? ` Failed steps: ${failed.map((step) => `${step.step} (${step.errorCode || "TRANSFER_STEP_FAILED"})`).join(", ")}` : ""}`,
+      dedupKey: `workload-transfer:${sourceInstanceId}:${selection.targetNodeId}:${failed.length ? "failed" : "ok"}`,
+      relatedInstanceId: sourceInstanceId,
+      relatedNodeId: selection.targetNodeId,
+      relatedWorkspace: "instances",
+      actions: ["openInstances", "openOperations"],
+      resolved: failed.length === 0,
+      technicalDetails: formatWorkloadTransferStepTrail(steps),
+    });
+    // A failed refresh must not turn a completed destructive transfer into a
+    // reported failure: the transfer already succeeded and is reported above.
+    await refreshInstances({ refreshMetrics: false }).catch(() => {});
+  } catch (error) {
+    // Same rule as the success path: a failed transfer is always reported. A
+    // node switch mid-flight must not swallow a partial-failure trail.
+    const steps = getWorkloadTransferSteps(error);
+    const failedStep = [...steps].reverse().find((step) => step?.ok === false) || null;
+    const code = getAgentErrorCode(error) || "WORKLOAD_TRANSFER_FAILED";
+    // normalizeIpcErrorMessage strips the Electron IPC prefix and keeps the
+    // transfer service's own code + detail line, which getAgentErrorMessage
+    // would reduce to a bare code for the transfer-specific error codes.
+    const message = normalizeIpcErrorMessage(error, "Workload transfer failed.");
+    showToast(
+      failedStep
+        ? `Workload transfer failed at ${failedStep.step} (${failedStep.errorCode || code}): ${message}`
+        : `Workload transfer failed (${code}): ${message}`,
+      "error",
+    );
+    createNotification({
+      category: "Instances",
+      severity: "error",
+      title: "Workload transfer failed",
+      message: `${label}: ${sourceNodeId} -> ${targetLabel}. ${steps.length ? formatWorkloadTransferStepTrail(steps) : "No per-step records were returned for this request."}`,
+      dedupKey: `workload-transfer:${sourceInstanceId}:${selection.targetNodeId}:failed`,
+      relatedInstanceId: sourceInstanceId,
+      relatedNodeId: selection.targetNodeId,
+      relatedDiagnosticCode: code,
+      relatedWorkspace: "instances",
+      actions: ["openOperations", "openDiagnostics"],
+      resolved: false,
+      technicalDetails: steps.length ? formatWorkloadTransferStepTrail(steps) : `${code}: ${message}`,
+    });
+    await refreshInstances({ refreshMetrics: false }).catch(() => {});
+  } finally {
+    workloadTransferInFlight = false;
+    instanceActionRequestInFlight = false;
+    updateInstanceActionButtons();
+  }
 }
 
 async function runInstanceAction(actionName) {
@@ -34449,6 +35019,7 @@ function renderNodes() {
   }
   syncFleetControls();
   renderFleetSummary();
+  renderNetworkInventory();
   renderNodePicker();
 }
 
@@ -34630,6 +35201,305 @@ function renderFleetSummary() {
       row.append(body);
       fleetRows.append(row);
     });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// V2-H bullet 2: Network inventory (Nodes page).
+// The Agent host already reported interfaces, listening ports, and
+// cross-interface conflicts through networkInventory:get, but no renderer code
+// called it, so the roadmap bullet was unreachable. This card is strictly
+// read-only: it displays what the selected Agent node reported, highlights the
+// port conflicts the Agent detected, and discloses row counts, truncation and
+// unsupported platforms honestly instead of showing an empty table.
+// ---------------------------------------------------------------------------
+const NETWORK_INVENTORY_MAX_RENDERED_LISTENERS = 200;
+
+function getNetworkInventoryApi() {
+  const api = getDesktopApiState().api;
+  return typeof api?.networkInventory?.get === "function" ? api.networkInventory : null;
+}
+
+function setNetworkInventoryStatus(label, tone = "planned") {
+  if (!networkInventoryStatus) return;
+  networkInventoryStatus.textContent = label;
+  networkInventoryStatus.className = `status-pill status-pill--${tone}`;
+}
+
+function setNetworkInventoryMessage(message) {
+  if (networkInventoryMessage) networkInventoryMessage.textContent = message;
+}
+
+function resetNetworkInventoryState(nodeId = null) {
+  networkInventoryState = { nodeId, status: "idle", data: null, error: null, loadedAt: 0 };
+}
+
+function isNetworkInventoryListenerSupported(data = {}) {
+  // supported === false means the Agent host could not enumerate listeners on
+  // its platform (the Agent reports this explicitly); interfaces are still
+  // reported in that case, so the two halves are disclosed separately.
+  return data?.supported !== false;
+}
+
+function formatNetworkListenerEndpoint(listener = {}) {
+  const address = String(listener.localAddress || "unknown");
+  const port = Number.isInteger(listener.localPort) ? listener.localPort : "?";
+  return `${String(listener.protocol || "unknown").toUpperCase()} ${address}:${port}`;
+}
+
+function formatNetworkListenerProcess(listener = {}) {
+  if (listener.processName) return `Process ${listener.processName}${Number.isInteger(listener.pid) ? ` (PID ${listener.pid})` : ""}`;
+  if (Number.isInteger(listener.pid)) return `PID ${listener.pid}`;
+  return "Process name unavailable";
+}
+
+function formatNetworkInventoryError(entry) {
+  if (typeof entry === "string") return entry;
+  return String(entry?.message || entry?.source || "The Agent host reported a network inventory problem.");
+}
+
+function renderNetworkInventoryInterfaces(container, data) {
+  const interfaces = Array.isArray(data?.interfaces) ? data.interfaces : [];
+  container.append(createTextElement("h4", `Interfaces (${interfaces.length})`));
+  if (!interfaces.length) {
+    container.append(createEmptyState("No network interfaces were reported by this node."));
+    return;
+  }
+  const list = document.createElement("div");
+  list.className = "security-list network-inventory-list";
+  list.setAttribute("role", "list");
+  list.setAttribute("aria-label", "Network interfaces");
+  interfaces.forEach((entry) => {
+    const item = document.createElement("article");
+    item.className = "security-list-item";
+    const body = document.createElement("div");
+    body.className = "node-health-card-body";
+    body.append(
+      createTextElement("strong", String(entry?.name || "Unnamed interface")),
+      createTextElement("p", `${entry?.address || "No address"} · ${entry?.family || "Unknown family"} · ${entry?.internal === true ? "internal" : "external"}`, "security-event-meta"),
+      createTextElement("p", `MAC ${entry?.mac || "Unavailable"}${entry?.cidr ? ` · ${entry.cidr}` : ""}`, "security-event-meta"),
+    );
+    item.append(body);
+    list.append(item);
+  });
+  container.append(list);
+}
+
+function renderNetworkInventoryListeners(container, data) {
+  const listeners = Array.isArray(data?.listeners) ? data.listeners : [];
+  const conflicts = Array.isArray(data?.conflicts) ? data.conflicts : [];
+  const listenerSupported = isNetworkInventoryListenerSupported(data);
+  const conflictKeys = new Set(conflicts.map((entry) => `${entry?.protocol}:${entry?.port}`));
+  container.append(createTextElement("h4", `Listening ports (${listeners.length}${listenerSupported ? "" : " reported"})`));
+  if (!listenerSupported) {
+    container.append(createTextElement("p", "Listener enumeration is not supported on this node's platform. Interface inventory above is still reported.", "settings-note"));
+  }
+  if (data?.listenersTruncated === true) {
+    container.append(createTextElement("p", `Truncated: the platform reported more listener rows than the Agent's read cap (${Number(data.listenersDropped) || 0} row(s) dropped) and they are not included below.`, "settings-note"));
+  }
+  if (!listeners.length) {
+    container.append(createEmptyState(listenerSupported
+      ? "No listening ports were reported by this node."
+      : "No listening ports are available because this platform is not supported."));
+  } else {
+    const rendered = listeners.slice(0, NETWORK_INVENTORY_MAX_RENDERED_LISTENERS);
+    const list = document.createElement("div");
+    list.className = "security-list network-inventory-list";
+    list.setAttribute("role", "list");
+    list.setAttribute("aria-label", "Listening ports");
+    rendered.forEach((entry) => {
+      const conflicted = conflictKeys.has(`${entry?.protocol}:${entry?.localPort}`);
+      const item = document.createElement("article");
+      item.className = "security-list-item network-inventory-listener";
+      item.classList.toggle("is-conflict", conflicted);
+      item.dataset.portConflict = conflicted ? "true" : "false";
+      const row = document.createElement("div");
+      row.className = "security-card-row";
+      const body = document.createElement("div");
+      body.className = "node-health-card-body";
+      body.append(
+        createTextElement("strong", formatNetworkListenerEndpoint(entry)),
+        createTextElement("p", formatNetworkListenerProcess(entry), "security-event-meta"),
+      );
+      row.append(body, createNodeBadge(conflicted ? "Port conflict" : String(entry?.state || "Listening"), conflicted ? "warning" : "planned"));
+      item.append(row);
+      list.append(item);
+    });
+    container.append(list);
+    if (listeners.length > rendered.length) {
+      container.append(createTextElement("p", `Showing the first ${rendered.length} of ${listeners.length} listener rows in this view.`, "settings-note"));
+    }
+  }
+
+  if (conflicts.length) {
+    container.append(createTextElement("h4", `Port conflicts (${conflicts.length})`));
+    const conflictList = document.createElement("div");
+    conflictList.className = "security-list network-inventory-list";
+    conflictList.setAttribute("role", "list");
+    conflictList.setAttribute("aria-label", "Port conflicts");
+    conflicts.forEach((entry) => {
+      const item = document.createElement("article");
+      item.className = "security-list-item network-inventory-listener is-conflict";
+      const body = document.createElement("div");
+      body.className = "node-health-card-body";
+      const addresses = Array.isArray(entry?.addresses) ? entry.addresses : [];
+      const processes = Array.isArray(entry?.processes) ? entry.processes : [];
+      body.append(
+        createTextElement("strong", `${String(entry?.protocol || "unknown").toUpperCase()} port ${entry?.port ?? "?"}`),
+        createTextElement("p", `Bound on multiple addresses: ${addresses.join(", ") || "addresses unavailable"}`, "security-event-meta"),
+        createTextElement("p", `Processes: ${processes.join(", ") || "process names unavailable"}`, "security-event-meta"),
+      );
+      item.append(body);
+      conflictList.append(item);
+    });
+    container.append(conflictList);
+  } else if (listeners.length && listenerSupported) {
+    container.append(createTextElement("p", "No cross-interface port conflicts detected.", "settings-note"));
+  }
+}
+
+function renderNetworkInventoryData(container, data, nodeLabel) {
+  const interfaces = Array.isArray(data?.interfaces) ? data.interfaces : [];
+  const listeners = Array.isArray(data?.listeners) ? data.listeners : [];
+  const conflicts = Array.isArray(data?.conflicts) ? data.conflicts : [];
+  const errors = Array.isArray(data?.errors) ? data.errors : [];
+  const listenerSupported = isNetworkInventoryListenerSupported(data);
+
+  if (!listenerSupported) {
+    setNetworkInventoryStatus("Limited", "warning");
+  } else if (conflicts.length) {
+    setNetworkInventoryStatus(`${conflicts.length} conflict${conflicts.length === 1 ? "" : "s"}`, "warning");
+  } else {
+    setNetworkInventoryStatus("OK", "ok");
+  }
+
+  const source = data?.listenerSource || "unavailable";
+  const summary = `Host ${data?.hostname || nodeLabel} · ${data?.platform || "platform unknown"} · ${interfaces.length} interface${interfaces.length === 1 ? "" : "s"} · ${listeners.length} listener${listeners.length === 1 ? "" : "s"} · source ${source} · read ${formatHealthCheckedAt(networkInventoryState.loadedAt)}.`;
+  setNetworkInventoryMessage(listenerSupported
+    ? summary
+    : `${summary} Listener enumeration is not supported on this platform, so listening ports may be incomplete.`);
+
+  if (networkInventoryOverview) {
+    networkInventoryOverview.hidden = false;
+    networkInventoryOverview.replaceChildren();
+    [
+      ["Host", data?.hostname || nodeLabel],
+      ["Platform", data?.platform || "Unknown"],
+      ["Interfaces", interfaces.length],
+      ["Listeners", listeners.length],
+      ["Conflicts", conflicts.length],
+      ["Listener source", source],
+      ["Listener support", listenerSupported ? "Supported" : "Unsupported"],
+    ].forEach(([label, value]) => appendDetailPair(networkInventoryOverview, label, String(value)));
+  }
+
+  renderNetworkInventoryInterfaces(container, data);
+  renderNetworkInventoryListeners(container, data);
+  if (errors.length) {
+    container.append(createTextElement("h4", `Reported problems (${errors.length})`));
+    errors.forEach((entry) => container.append(createTextElement("p", formatNetworkInventoryError(entry), "settings-note")));
+  }
+}
+
+function syncNetworkInventoryControls(selectedNode, isAgentNode) {
+  const api = getNetworkInventoryApi();
+  const locked = securityState?.localOwnerAuthenticated !== true;
+  const ready = Boolean(isAgentNode && api) && !locked;
+  const loading = ready && (networkInventoryState.status === "loading" || networkInventoryState.status === "idle");
+  networkInventoryActionButtons.forEach((button) => {
+    if (!button.dataset.defaultLabel) {
+      button.dataset.defaultLabel = button.textContent || "Load Network Inventory";
+    }
+    button.hidden = !ready;
+    button.disabled = !ready || loading;
+    button.textContent = loading
+      ? "Loading..."
+      : networkInventoryState.status === "ready"
+        ? "Refresh Network Inventory"
+        : button.dataset.defaultLabel;
+  });
+}
+
+function renderNetworkInventory() {
+  if (!networkInventoryPanel) return;
+  const agentNodes = (nodesState.nodes || []).filter((node) => node.kind === "agent");
+  networkInventoryPanel.hidden = agentNodes.length === 0;
+  if (networkInventoryPanel.hidden) {
+    resetNetworkInventoryState();
+    return;
+  }
+
+  const selectedNode = getSelectedNode();
+  const isAgentNode = selectedNode?.kind === "agent";
+  const selectedNodeId = selectedNode?.id || null;
+  // A node switch invalidates the previous node's inventory immediately; the
+  // auto-load at the end of this function then reads the new node exactly once.
+  if (networkInventoryState.nodeId !== selectedNodeId) {
+    resetNetworkInventoryState(selectedNodeId);
+  }
+
+  const nodeLabel = selectedNode?.displayName || selectedNodeId || "the selected node";
+  const api = getNetworkInventoryApi();
+  const locked = securityState?.localOwnerAuthenticated !== true;
+  if (networkInventoryBody) networkInventoryBody.replaceChildren();
+  if (networkInventoryOverview) networkInventoryOverview.hidden = true;
+
+  if (locked) {
+    setNetworkInventoryStatus("Locked", "planned");
+    setNetworkInventoryMessage("Unlock AnxOS to inspect this node's network inventory.");
+  } else if (!api) {
+    setNetworkInventoryStatus("Unavailable", "warning");
+    setNetworkInventoryMessage("Network inventory is not available in this build.");
+  } else if (!isAgentNode) {
+    setNetworkInventoryStatus("Agent node required", "planned");
+    setNetworkInventoryMessage("Network inventory is reported by an Agent host. Select a registered Agent node to inspect its interfaces and listening ports.");
+  } else if (networkInventoryState.status === "loading" || networkInventoryState.status === "idle") {
+    setNetworkInventoryStatus("Loading", "planned");
+    setNetworkInventoryMessage(`Reading interfaces and listening ports from ${nodeLabel}...`);
+  } else if (networkInventoryState.status === "error") {
+    setNetworkInventoryStatus("Unavailable", "critical");
+    setNetworkInventoryMessage(networkInventoryState.error || "Network inventory request failed.");
+  } else {
+    renderNetworkInventoryData(networkInventoryBody || document.createElement("div"), networkInventoryState.data || {}, nodeLabel);
+  }
+
+  syncNetworkInventoryControls(selectedNode, isAgentNode);
+  if (isAgentNode && api && !locked && networkInventoryState.status === "idle") {
+    loadNetworkInventory(selectedNodeId);
+  }
+}
+
+async function loadNetworkInventory(nodeId = getSelectedNodeId()) {
+  const api = getNetworkInventoryApi();
+  if (!api) return;
+  if (networkInventoryRequestInFlight) return;
+  if (networkInventoryState.nodeId !== nodeId) {
+    resetNetworkInventoryState(nodeId);
+  }
+  const requestContext = createNodeActionContext("network-inventory");
+  networkInventoryRequestInFlight = true;
+  networkInventoryState = { ...networkInventoryState, nodeId, status: "loading", error: null };
+  renderNetworkInventory();
+  try {
+    const result = await api.get(getNodeScopedPayload(requestContext));
+    if (!isNodeRequestCurrent(requestContext)) return;
+    if (result?.ok === false) {
+      // wrapExpectedAgentRead resolves expected Agent failures as { ok:false,
+      // error } instead of rejecting, so both shapes are handled.
+      const message = normalizeIpcErrorMessage(result.error?.message, "Network inventory request failed.");
+      networkInventoryState = { nodeId, status: "error", data: null, error: message, loadedAt: 0 };
+      showToast(message, "error");
+      return;
+    }
+    networkInventoryState = { nodeId, status: "ready", data: result || {}, error: null, loadedAt: Date.now() };
+  } catch (error) {
+    if (!isNodeRequestCurrent(requestContext)) return;
+    const message = normalizeIpcErrorMessage(error, "Network inventory request failed.");
+    networkInventoryState = { nodeId, status: "error", data: null, error: message, loadedAt: 0 };
+    showToast(message, "error");
+  } finally {
+    networkInventoryRequestInFlight = false;
+    renderNetworkInventory();
   }
 }
 
@@ -38359,6 +39229,9 @@ document.querySelectorAll('[data-instance-action="rename"]').forEach((button) =>
 document.querySelectorAll('[data-instance-action="duplicate"]').forEach((button) => {
   button.addEventListener("click", () => runInstanceAction("duplicate"));
 });
+document.querySelectorAll('[data-instance-action="transfer-workload"]').forEach((button) => {
+  button.addEventListener("click", () => openWorkloadTransfer());
+});
 document.querySelectorAll('[data-instance-action="open-folder"]').forEach((button) => {
   button.addEventListener("click", () => runInstanceAction("open-folder"));
 });
@@ -39331,6 +40204,9 @@ fleetActionButtons.forEach((button) => {
     if (fleetAction === "start" || fleetAction === "stop") return runFleetBatchActionFromUi(fleetAction);
     return undefined;
   });
+});
+networkInventoryActionButtons.forEach((button) => {
+  button.addEventListener("click", () => loadNetworkInventory(getSelectedNodeId()));
 });
 nodeDetailsModal?.addEventListener("click", async (event) => {
   const healthButton = event.target.closest("[data-node-health-action]");

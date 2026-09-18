@@ -15932,3 +15932,24 @@ html[data-ui-generation="v1.9"] .marketplace-card .inline-action {
     justify-content: flex-start;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Network inventory (V2-H bullet 2) — read-only Nodes page card.
+   Additive only: the card reuses .settings-section, .nodes-toolbar,
+   .security-summary-grid, .security-list and .security-list-item. These three
+   rules add the port-conflict highlight and bound the scroll area so a long
+   listener list cannot stretch the page.
+   --------------------------------------------------------------------------- */
+.network-inventory-list {
+  max-height: 420px;
+  overflow: auto;
+}
+
+.network-inventory-listener.is-conflict {
+  border-color: rgba(247, 178, 103, 0.5);
+  background: rgba(247, 178, 103, 0.08);
+}
+
+.network-inventory-listener.is-conflict strong {
+  color: rgba(255, 219, 173, 0.96);
+}
