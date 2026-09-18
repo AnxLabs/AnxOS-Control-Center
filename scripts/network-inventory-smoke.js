@@ -101,8 +101,8 @@ function buildWindowsNetstatRowCapFixture() {
 }
 
 async function testWindowsParsing() {
-  const rows = service.parseWindowsNetstatListeners(WINDOWS_NETSTAT_FIXTURE);
-  assert.deepStrictEqual(rows, [
+  const parsed = service.parseWindowsNetstatListeners(WINDOWS_NETSTAT_FIXTURE);
+  assert.deepStrictEqual(parsed.rows, [
     { protocol: "tcp", localAddress: "0.0.0.0", localPort: 135, state: "LISTENING", pid: 1232, processName: null },
     { protocol: "tcp", localAddress: "127.0.0.1", localPort: 5354, state: "LISTENING", pid: 4880, processName: null },
     { protocol: "tcp", localAddress: "0.0.0.0", localPort: 5354, state: "LISTENING", pid: 9001, processName: null },
@@ -111,7 +111,32 @@ async function testWindowsParsing() {
     { protocol: "tcp", localAddress: "[::]", localPort: 135, state: "LISTENING", pid: 1232, processName: null },
     { protocol: "udp", localAddress: "0.0.0.0", localPort: 5353, state: null, pid: 4880, processName: null },
     { protocol: "udp", localAddress: "[::]", localPort: 5353, state: null, pid: 4880, processName: null },
-  ], "Windows parsing: LISTENING rows + UDP rows kept, ESTABLISHED/malformed rows and the duplicate dropped.");
+  ], "Windows parsing: listener rows kept state-agnostically (foreign port 0), ESTABLISHED rows and malformed rows dropped.");
+  assert(parsed.rawTcpRows > 0, "parse telemetry must count raw TCP rows.");
+  assert.strictEqual(parsed.tcpRowsParsed, 6, "parse telemetry must count parsed TCP listener rows.");
+
+  // Locale independence (review P1-3): a non-English state word in the fixed
+  // state column parses identically — the foreign-port-0 shape is the
+  // listener selector, not the state word.
+  const localeFixture = [
+    "  Proto  Local Address          Foreign Address        State           PID",
+    "  TCP    0.0.0.0:135            0.0.0.0:0              ÉCOUTE          1232",
+    "  TCP    192.168.1.10:445       10.0.0.5:445           ESTABLISHED     900",
+  ].join("\r\n");
+  const localeParsed = service.parseWindowsNetstatListeners(localeFixture);
+  assert.deepStrictEqual(localeParsed.rows, [
+    { protocol: "tcp", localAddress: "0.0.0.0", localPort: 135, state: "ÉCOUTE", pid: 1232, processName: null },
+  ], "A non-English state word must still parse as a listener (foreign port 0).");
+  assert.strictEqual(localeParsed.rawTcpRows, 2, "Telemetry must count the raw TCP rows including the established one.");
+
+  // Parse-telemetry honesty: raw TCP rows that defeat the heuristic surface
+  // as an error, never as a silently empty inventory.
+  const telemetryFixture = [
+    "  Proto  Local Address          Foreign Address        State           PID",
+    "  TCP    10.1.1.1:8443          10.0.0.9:9999          WEIRD           100",
+  ].join("\r\n");
+  assert.strictEqual(service.parseWindowsNetstatListeners(telemetryFixture).rawTcpRows, 1,
+    "Raw TCP rows must be counted even when none parse as listeners.");
 }
 
 async function testSsParsing() {
@@ -143,7 +168,7 @@ async function testLinuxNetstatParsing() {
 }
 
 async function testConflictDetection() {
-  const windowsRows = service.parseWindowsNetstatListeners(WINDOWS_NETSTAT_FIXTURE);
+  const windowsRows = service.parseWindowsNetstatListeners(WINDOWS_NETSTAT_FIXTURE).rows;
   assert.deepStrictEqual(service.detectPortConflicts(windowsRows), [
     { reason: "multiple_bind_addresses", protocol: "tcp", port: 5354, addresses: ["0.0.0.0", "127.0.0.1"], processes: [] },
     { reason: "multiple_bind_addresses", protocol: "tcp", port: 27015, addresses: ["10.0.0.5", "192.168.1.10"], processes: [] },

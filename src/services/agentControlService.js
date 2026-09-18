@@ -967,6 +967,21 @@ async function updateLinuxAgent(options = {}) {
         diagnostics.logError("agent-control", "update-linux-agent-rollback", rollbackError, {}, { file: "service-manager" });
       }
     }
+    // Review P1-2: the stop succeeded but the update failed — the agent
+    // must not stay down until manual intervention. Best-effort restart
+    // mirrors the swap script's own restart-on-rollback behavior; a failed
+    // restart is reported in the error details, never silent.
+    try {
+      await start();
+      error.restartAttempted = true;
+      error.agentRestarted = true;
+      diagnostics.log("warn", "agent-control", "update-linux-agent-restart", "The Linux Agent update failed; the agent was restarted on the previous runtime.", {}, { file: "service-manager" });
+    } catch (restartError) {
+      error.restartAttempted = true;
+      error.agentRestarted = false;
+      error.restartErrorCode = restartError?.code || "LINUX_AGENT_RESTART_FAILED";
+      diagnostics.logError("agent-control", "update-linux-agent-restart", restartError, {}, { file: "service-manager" });
+    }
     error.steps = error.steps || steps;
     throw error;
   } finally {

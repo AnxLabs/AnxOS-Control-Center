@@ -42,6 +42,10 @@ const SWAP_STATUS = {
   FAILED_BACKUP: "failed-backup",
   FAILED_PUBLISH: "failed-publish",
   FAILED_ROLLED_BACK: "failed-rolled-back",
+  // The publish failed AND the backup restore also failed: neither runtime
+  // is in place. Distinct from FAILED_ROLLED_BACK so the orchestrator can
+  // report rolledBack honestly (review P1-1 — `|| true` masking).
+  FAILED_ROLLBACK_FAILED: "failed-rollback-failed",
   FAILED_RESTART: "failed-restart",
 };
 
@@ -102,7 +106,10 @@ function buildPostExitSwapScript({ unitName = LINUX_AGENT_UNIT_NAME, runtimeRoot
     "    exit 1",
     "  fi",
     '  if ! mv "$STAGED" "$RUNTIME"; then',
-    '    mv "$BACKUP" "$RUNTIME" || true',
+    '    if ! mv "$BACKUP" "$RUNTIME"; then',
+    `      printf '%s\\n' ${shQuote(SWAP_STATUS.FAILED_ROLLBACK_FAILED)} > "$RESULT"`,
+    "      exit 1",
+    "    fi",
     '    systemctl --user start "$UNIT" >/dev/null 2>&1 || true',
     `    printf '%s\\n' ${shQuote(SWAP_STATUS.FAILED_ROLLED_BACK)} > "$RESULT"`,
     "    exit 1",
@@ -365,10 +372,16 @@ async function runLinuxAgentSelfUpdate(options = {}) {
       throw fail("LINUX_AGENT_SWAP_OUTCOME_UNKNOWN", "The post-exit swap unit finished without writing a result marker. Inspect `journalctl --user` and the update record before retrying.", { scriptPath, resultPath, backupRoot, stagedRoot });
     }
     if (swapStatus !== SWAP_STATUS.COMPLETE) {
+      // Review P1-1: FAILED_ROLLBACK_FAILED means neither runtime is in
+      // place — the orchestrator must not claim the previous runtime was
+      // restored for that outcome.
       const rolledBack = swapStatus === SWAP_STATUS.FAILED_ROLLED_BACK;
-      mark("swap", "failed", rolledBack
+      const message = rolledBack
         ? `The swap failed and the previous runtime was restored from ${backupRoot}.`
-        : `The swap failed (${swapStatus}); the previous runtime backup is at ${backupRoot}.`);
+        : swapStatus === SWAP_STATUS.FAILED_ROLLBACK_FAILED
+          ? `The swap failed AND the backup restore failed — neither runtime is in place. The backup is at ${backupRoot}.`
+          : `The swap failed (${swapStatus}); the previous runtime backup is at ${backupRoot}.`;
+      mark("swap", "failed", message);
       throw fail("LINUX_AGENT_SWAP_FAILED", `The post-exit swap failed (${swapStatus}).`, { swapStatus, rolledBack, backupRoot, stagedRoot, scriptPath });
     }
     mark("swap", "complete", `Previous runtime preserved at ${backupRoot}; the staged runtime was published with an atomic rename.`);

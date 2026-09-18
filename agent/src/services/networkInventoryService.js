@@ -85,10 +85,17 @@ function normalizeListenerProtocol(value) {
   return null;
 }
 
-// Windows `netstat -ano`: Proto Local Foreign [State] PID. TCP rows carry a
-// LISTENING state; UDP rows have no state column and every row is a listener.
+// Windows `netstat -ano`: Proto Local Foreign State PID. The TCP state word
+// is LOCALE-DEPENDENT ("LISTENING", "ÉCOUTE", "ABHÖREN", ...) but the column
+// POSITIONS are fixed, and a listening row's foreign address is always the
+// wildcard-with-port-0 form (0.0.0.0:0 / [::]:0). So listeners are selected
+// state-agnostically: TCP row whose foreign endpoint parses with port 0.
+// Parse telemetry (rawTcpRows/tcpRowsParsed) reports when raw TCP rows
+// existed but none matched, so a shape that breaks the heuristic surfaces
+// as telemetry instead of a silently empty inventory (review P1-3).
 function parseWindowsNetstatListeners(stdout) {
   const rows = [];
+  let rawTcpRows = 0;
   for (const rawLine of String(stdout || "").split(/\r?\n/)) {
     const fields = rawLine.trim().split(/\s+/);
     if (fields.length < 4) {
@@ -98,6 +105,9 @@ function parseWindowsNetstatListeners(stdout) {
     if (!protocol) {
       continue;
     }
+    if (protocol === "tcp") {
+      rawTcpRows += 1;
+    }
     const local = splitHostPort(fields[1]);
     if (!local) {
       continue;
@@ -105,13 +115,16 @@ function parseWindowsNetstatListeners(stdout) {
     let pid = null;
     let state = null;
     if (protocol === "tcp") {
-      if (fields[3] !== "LISTENING") {
+      const foreign = splitHostPort(fields[2] || "");
+      // A listening socket's foreign endpoint is the wildcard with port 0.
+      if (!foreign || foreign.port !== 0) {
         continue;
       }
-      state = fields[3];
-      pid = Number(fields[4]);
+      state = fields[3] || null;
+      pid = Number(fields[4] ?? fields[3]);
     } else {
-      // UDP rows are "Proto Local Foreign PID": the last column is the pid.
+      // UDP rows are "Proto Local Foreign PID": the last column is the pid,
+      // and every row is a bound socket.
       pid = Number(fields[fields.length - 1]);
     }
     if (!Number.isInteger(pid) || pid < 0) {
@@ -126,7 +139,8 @@ function parseWindowsNetstatListeners(stdout) {
       processName: null,
     });
   }
-  return dedupeListenerRows(rows);
+  const deduped = dedupeListenerRows(rows);
+  return { rows: deduped, rawTcpRows, tcpRowsParsed: deduped.filter((row) => row.protocol === "tcp").length };
 }
 
 function findSsLocalAddressField(fields) {
@@ -284,8 +298,16 @@ async function collectWindowsListeners() {
     };
   }
 
-  const capped = capListenerRows(parseWindowsNetstatListeners(result.stdout));
+  const parsed = parseWindowsNetstatListeners(result.stdout);
+  const capped = capListenerRows(parsed.rows);
   const errors = [];
+  // Parse telemetry (review P1-3): raw TCP rows that produced no parsed
+  // listener rows mean the row shape defeated the heuristic (e.g. an
+  // unexpected locale variant) — disclose it instead of returning a
+  // silently-empty inventory.
+  if (parsed.rawTcpRows > 0 && parsed.tcpRowsParsed === 0) {
+    errors.push(`netstat: ${parsed.rawTcpRows} TCP rows were read but none parsed as listeners (unexpected output shape or locale variant).`);
+  }
   try {
     const nameByPid = await resolveWindowsProcessNames(capped.rows);
     for (const row of capped.rows) {
