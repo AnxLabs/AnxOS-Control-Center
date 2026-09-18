@@ -31,6 +31,7 @@ const {
   rotateLocalAgentCredentials,
   snapshotLocalAgentCredential,
 } = require("./localAgentPairingService");
+const { LINUX_AGENT_UNIT_NAME, runLinuxAgentSelfUpdate } = require("../shared/linuxAgentSelfUpdate");
 
 const SERVICE_NAME = WINDOWS_AGENT_TASK_NAME;
 const LOCAL_AGENT_DISPLAY_NAME = "This PC";
@@ -746,6 +747,15 @@ function writeLocalAgentUpdateRecord(record = {}) {
 }
 
 async function updateLocalAgent(options = {}) {
+  if (process.platform === "linux") {
+    const linuxService = await getServiceState();
+    if (linuxService.installed && linuxService.type === "systemd-user") {
+      // V2-G wave 5: on a managed Linux host the update must go through the
+      // post-exit swap flow; the generic stop/replace/start body below stays
+      // the fallback for unitless Linux runtimes (managed child or manual).
+      return updateLinuxAgent(options);
+    }
+  }
   if (operationInFlight) throw Object.assign(new Error("Another Agent operation is already running."), { code: "AGENT_OPERATION_BUSY" });
   operationInFlight = "update";
   const steps = [
@@ -837,6 +847,124 @@ async function updateLocalAgent(options = {}) {
         if (fs.existsSync(configBackup)) fs.copyFileSync(configBackup, getRuntimeConfigPath());
       } catch (rollbackError) {
         diagnostics.logError("agent-control", "update-local-agent-rollback", rollbackError, {}, { file: "service-manager" });
+      }
+    }
+    error.steps = error.steps || steps;
+    throw error;
+  } finally {
+    operationInFlight = null;
+  }
+}
+
+// V2-G wave 5: Linux twin of the Windows updateLocalAgent flow. The agent
+// cannot swap its own runtime while running, so the update stops the agent,
+// stages the pinned bundled runtime next to the live root, and lets a
+// short-lived systemd-run --user transient unit perform the
+// backup-before-swap publish plus the unit restart once the agent has exited
+// (the Windows scheduled-task pattern's Linux twin). Requires the managed
+// systemd user unit because the post-exit swap script drives stop/start
+// through systemctl --user; unitless Linux runtimes keep the generic flow.
+async function updateLinuxAgent(options = {}) {
+  if (process.platform !== "linux") {
+    throw Object.assign(new Error("The Linux Agent self-update flow is only available on Linux hosts."), { code: "PLATFORM_UNSUPPORTED" });
+  }
+  if (operationInFlight) throw Object.assign(new Error("Another Agent operation is already running."), { code: "AGENT_OPERATION_BUSY" });
+  operationInFlight = "update-linux-agent";
+  const steps = [
+    installerStep("detect", "Check Agent version"),
+    installerStep("backup", "Back up Agent configuration"),
+    installerStep("stop", "Stop Local Agent"),
+    installerStep("swap", "Swap runtime via post-exit swap unit"),
+    installerStep("reconnect", "Reconnect to Local Agent"),
+    installerStep("verify", "Verify health"),
+  ];
+  const mark = (id, state, message) => {
+    const step = steps.find((entry) => entry.id === id);
+    if (step) {
+      step.state = state;
+      step.message = message || step.message;
+      step.at = new Date().toISOString();
+    }
+  };
+  let backup = null;
+  try {
+    const before = await getStatus();
+    const update = getLocalAgentUpdateState(before);
+    mark("detect", "complete", `${update.installedVersion || "Unknown"} -> ${update.bundledVersion}`);
+    if (update.agentNewerThanDesktop && options.force !== true) {
+      throw Object.assign(new Error("The Local Agent is newer than this Desktop build. Install a newer AnxOS Control Center before changing the Agent runtime."), { code: "AGENT_NEWER_THAN_DESKTOP", steps, update });
+    }
+    if (!update.versionMismatch && options.force !== true) {
+      mark("backup", "skipped", "No update is required.");
+      mark("stop", "skipped", "No update is required.");
+      mark("swap", "skipped", "Bundled runtime already matches.");
+      mark("reconnect", "skipped", "No restart was required.");
+      mark("verify", "complete", "Local Agent already matches the bundled runtime.");
+      return { ok: true, updated: false, update, steps, status: before };
+    }
+    const service = before.service;
+    if (!service?.installed || service.type !== "systemd-user") {
+      throw Object.assign(new Error("The Linux Agent background startup must be installed before the runtime can be updated."), {
+        code: "LINUX_AGENT_UNIT_NOT_INSTALLED",
+        steps,
+        recoverySuggestion: "Install background startup from Agent Control, then retry the update.",
+      });
+    }
+    const runtime = getBundledLocalAgentRuntime();
+    if (!runtime.exists) {
+      throw Object.assign(new Error("Bundled Local Agent runtime is missing or incomplete."), { code: "LOCAL_AGENT_RUNTIME_MISSING", steps });
+    }
+    backup = backupLocalAgentState("linux-agent-update");
+    mark("backup", "complete", "Configuration and identity state were backed up.");
+
+    operationInFlight = null;
+    await stop({ force: false }).catch(async () => stop({ force: true }));
+    operationInFlight = "update-linux-agent";
+    mark("stop", "complete", "Local Agent stopped; the swap unit owns the restart.");
+
+    const linuxUpdate = await runLinuxAgentSelfUpdate({
+      runtimeRoot: runtime.runtimeRoot,
+      sourceRoot: runtime.runtimeRoot,
+      sourceVersion: getBundledLocalAgentVersion("unavailable"),
+      installedVersion: update.installedVersion || null,
+      updateDir: getAgentUpdateDirectory(),
+      unitName: LINUX_AGENT_UNIT_NAME,
+      reason: "linux-agent-update",
+    });
+    mark("swap", "complete", `Post-exit swap published the pinned runtime (previous runtime preserved at ${linuxUpdate.backupRoot}).`);
+
+    operationInFlight = null;
+    await start();
+    operationInFlight = "update-linux-agent";
+    mark("reconnect", "complete", "Desktop reconnected to the updated Local Agent.");
+
+    const afterUpdate = getLocalAgentUpdateState(await getStatus());
+    const bundledVersion = getBundledLocalAgentVersion(null);
+    if (bundledVersion && afterUpdate.installedVersion && compareVersions(afterUpdate.installedVersion, bundledVersion) !== 0) {
+      throw Object.assign(new Error("Local Agent restarted but did not report the bundled runtime version."), { code: "LOCAL_AGENT_UPDATE_VERIFY_FAILED", steps, update: afterUpdate });
+    }
+    mark("verify", "complete", "Local Agent health verified after update.");
+    lastRestartReason = "Updated Linux Agent runtime from AnxOS";
+    lastError = null;
+    return {
+      ok: true,
+      updated: true,
+      update: afterUpdate,
+      previousUpdate: update,
+      backup,
+      linuxUpdate,
+      steps,
+      status: await getStatus(),
+    };
+  } catch (error) {
+    lastError = { code: error.code || "LINUX_AGENT_UPDATE_FAILED", message: error.message };
+    diagnostics.logError("agent-control", "update-linux-agent", error, { backupRoot: backup?.backupRoot || null, steps }, { file: "service-manager" });
+    if (backup?.backupRoot) {
+      try {
+        const configBackup = path.join(backup.backupRoot, "config", "agent-runtime.json");
+        if (fs.existsSync(configBackup)) fs.copyFileSync(configBackup, getRuntimeConfigPath());
+      } catch (rollbackError) {
+        diagnostics.logError("agent-control", "update-linux-agent-rollback", rollbackError, {}, { file: "service-manager" });
       }
     }
     error.steps = error.steps || steps;

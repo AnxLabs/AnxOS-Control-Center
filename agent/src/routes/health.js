@@ -1,3 +1,4 @@
+const fs = require("fs");
 const { getDeviceIdentity } = require("../services/deviceIdentityService");
 const { getConfiguredApiPermissions } = require("../permissions");
 
@@ -53,6 +54,33 @@ function computeHealthMode(permissions) {
   return isWriteEnabled(permissions) ? "read-write" : "read-only";
 }
 
+// V2-G wave 5: honest agent self-update capability reporting. The mechanism
+// names what the product actually implements today: on Windows the update is
+// driven through the scheduled-task lifecycle (stop, re-register the startup
+// task against the bundled runtime, restart), and on Linux through the
+// systemd user unit plus a post-exit swap driven from Agent Control.
+// Platforms without one of those mechanisms (or a Linux host where systemd is
+// not the init system) must not claim support.
+function detectLinuxSystemd() {
+  try {
+    return fs.existsSync("/run/systemd/system");
+  } catch {
+    return false;
+  }
+}
+
+function getAgentUpdateCapability(platform = process.platform, systemdPresent = detectLinuxSystemd()) {
+  if (platform === "win32") {
+    return { supported: true, mechanism: "windows-scheduled-task" };
+  }
+  if (platform === "linux") {
+    return systemdPresent
+      ? { supported: true, mechanism: "linux-systemd" }
+      : { supported: false, mechanism: null };
+  }
+  return { supported: false, mechanism: null };
+}
+
 function buildAgentCapabilities(identity = {}) {
   const platform = identity.platform || process.platform;
   const windows = platform === "win32";
@@ -67,6 +95,7 @@ function buildAgentCapabilities(identity = {}) {
     supportsFileRoots: true,
     supportsPublicAccess: true,
     supportsPlayit: true,
+    agentUpdate: getAgentUpdateCapability(platform),
     unsupportedActions: {
       ...(windows
         ? {
@@ -111,6 +140,8 @@ module.exports = {
   _test: {
     buildAgentCapabilities,
     computeHealthMode,
+    detectLinuxSystemd,
+    getAgentUpdateCapability,
     isWriteEnabled,
   },
 };
