@@ -1,11 +1,22 @@
-const crypto = require("crypto");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { app, dialog, shell } = require("electron");
 const packageJson = require("../../package.json");
 const { sanitizeForDiagnostics } = require("../shared/redaction");
-const { StructuredLogger, safeWriteJson } = require("../shared/structuredLogger");
+const {
+  StructuredLogger,
+  correlationFields,
+  correlationMetadata,
+  createCorrelationId,
+  createCorrelationScope,
+  currentCorrelation,
+  currentCorrelationId,
+  isCorrelationId,
+  runWithCorrelationScope,
+  safeWriteJson,
+  withOperationScope,
+} = require("../shared/structuredLogger");
 const { buildEnvironmentReadinessSummary } = require("./readinessService");
 const { getReleaseInfo } = require("../shared/releaseConfig");
 const { getBundledLocalAgentVersion } = require("./localAgentRuntimeService");
@@ -92,6 +103,41 @@ function captureSnapshot(extra = {}) {
   return { runtimeState, readinessSummary: buildReadinessFromRuntime(), latestErrorExists: fs.existsSync(path.join(getDirectory(), "latest-error.json")), logDirectory: getDirectory() };
 }
 
-function correlationId(prefix = "diag") { return `${prefix}-${crypto.randomUUID()}`; }
+// V2-J bullet 2: the desktop entry point of the shared correlation primitive
+// (`src/shared/structuredLogger.js`, canonical field `correlationId`).
+//
+// `correlationId()` keeps its historical `<prefix>-<uuid>` output and now mints
+// through the shared generator, which accepts the prefix only as a conforming
+// lowercase operation label (anything else falls back to `corr`), so a caller
+// can never turn input into a path/token-shaped id. `withOperationScope()` /
+// `runWithCorrelationScope()` open the request/operation scope: every
+// `log()`/`logError()` line written inside it carries the scope's
+// `correlationId` automatically, and job records, workload log lines and Agent
+// action audit lines stamped inside it join on the same value. Callers that own
+// a boundary but not the whole call stack can instead read `currentCorrelationId()`
+// or spread `correlationMetadata()` / `correlationFields()`.
+function correlationId(prefix = "diag") { return createCorrelationId(prefix); }
 
-module.exports = { buildReadinessFromRuntime, captureSnapshot, correlationId, exportBundle, getDirectory, log, logError, logger, openFolder, readLogs, copySummary, updateRuntimeState };
+module.exports = {
+  buildReadinessFromRuntime,
+  captureSnapshot,
+  correlationFields,
+  correlationId,
+  correlationMetadata,
+  createCorrelationId,
+  createCorrelationScope,
+  currentCorrelation,
+  currentCorrelationId,
+  exportBundle,
+  getDirectory,
+  isCorrelationId,
+  log,
+  logError,
+  logger,
+  openFolder,
+  readLogs,
+  copySummary,
+  runWithCorrelationScope,
+  updateRuntimeState,
+  withOperationScope,
+};

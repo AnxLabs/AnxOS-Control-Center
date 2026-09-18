@@ -22,6 +22,9 @@ const { wrapExpectedAgentRead } = require("./expectedAgentError");
 const { requireNodeContext } = require("./nodeContext");
 const { createIpcError } = require("../shared/ipcError");
 const { MAX_BACKUP_ARCHIVE_BYTES } = require("../shared/backupLimits");
+// V2-J bullet 2: the operation scope every backup action enters, so the durable
+// job it mints and the Agent-side archive work join on one id.
+const { runWithCorrelationScope } = require("../shared/structuredLogger");
 
 async function writeFileAtomically(filePath, content) {
   const temporaryPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
@@ -36,7 +39,7 @@ async function writeFileAtomically(filePath, content) {
 
 async function invokeBackupOperation(operation) {
   try {
-    return await operation();
+    return await runWithCorrelationScope({ prefix: "backup" }, operation);
   } catch (error) {
     throw createIpcError(error, {
       code: "BACKUP_REQUEST_FAILED",

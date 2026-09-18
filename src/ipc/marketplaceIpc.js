@@ -28,6 +28,10 @@ const { normalizeIpcError } = require("../shared/ipcError");
 const { sanitizeForDiagnostics } = require("../shared/redaction");
 const safeConsole = require("../shared/safeConsole");
 const crypto = require("crypto");
+// V2-J bullet 2: the operation scope every marketplace action enters. The scope
+// id is the one the install job and the Agent-side install record carry, so a
+// support report can join the IPC request line to the job it produced.
+const { runWithCorrelationScope } = require("../shared/structuredLogger");
 
 let progressForwarderRegistered = false;
 
@@ -242,7 +246,10 @@ async function invokeMarketplaceOperation(operation, context = {}) {
     nodeId: context.nodeId || null, instanceName: context.instanceName || null,
   });
   try {
-    const result = await operation(requestId);
+    // `requestId` keeps its existing marketplace-local contract (a bare uuid a
+    // handler may persist on an install record); the correlation scope is the
+    // separate cross-subsystem id the job and Agent lines join on.
+    const result = await runWithCorrelationScope({ prefix: "marketplace" }, () => operation(requestId));
     safeConsole.info("[Marketplace][IPC] response", { stage: "ipc.response", requestId, ok: result?.ok !== false, status: result?.status || 200, elapsedMs: Date.now() - startedAt });
     return result;
   } catch (error) {

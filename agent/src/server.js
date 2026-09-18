@@ -41,6 +41,21 @@ const { handleStats, handleSystemSummary } = require("./routes/system");
 
 const config = getConfig();
 const { logger } = require("./services/diagnosticsLogger");
+// V2-J bullet 2: the Agent side of the shared correlation primitive. An
+// authorized request is dispatched inside a correlation scope, so the Agent's
+// own log lines, its action audit lines and the workload log lines it writes
+// join on one id. When the desktop sent a valid opaque id in the correlation
+// header that id is adopted verbatim (same operation, both processes);
+// otherwise a local one is minted. Any other header value is ignored rather
+// than sanitized, so request input can never become a log field.
+const { CORRELATION_HEADER, isCorrelationId, runWithCorrelationScope } = require("../../src/shared/structuredLogger");
+
+function runWithRequestScope(request, fn) {
+  const header = request.headers?.[CORRELATION_HEADER];
+  const supplied = typeof header === "string" ? header.trim() : "";
+  const requested = isCorrelationId(supplied) ? supplied : null;
+  return runWithCorrelationScope({ prefix: "agent", correlationId: requested }, fn);
+}
 const originalConsoleError = console.error.bind(console);
 console.error = (...args) => { originalConsoleError(...args); logger.write("error", "console-error", args.map((value) => value?.message || String(value)).join(" "), { arguments: args }, { file: "agent" }); };
 const rateBuckets = new Map();
@@ -536,7 +551,7 @@ async function handleRequest(request, response) {
     // /enroll/*, and /pairing/* remain reachable for detection and re-enroll.
     assertEnrollmentGate(url.pathname, config);
 
-    const result = await routeRequest(request, url);
+    const result = await runWithRequestScope(request, () => routeRequest(request, url));
     sendResult(response, result);
   } catch (error) {
     const statusCode = error.statusCode || 500;

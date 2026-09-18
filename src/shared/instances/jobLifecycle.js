@@ -14,6 +14,17 @@
 // - Terminal states are immutable once written; transitions are appended to the
 //   per-record event log as redacted audit events.
 //
+// Correlation (V2-J bullet 2): a job record carries the `correlationId` of the
+// user operation that requested it when one is available — either passed
+// explicitly as `createJob({ correlationId })` or inherited from the ambient
+// operation scope (`withOperationScope`/`runWithCorrelationScope` in
+// `src/shared/structuredLogger.js`, the canonical id module). The field is
+// omitted entirely when neither exists, so records minted outside a scope are
+// byte-identical to before and every existing smoke that asserts record shape
+// keeps passing. `jobId` remains the durable primary key; `correlationId` is
+// the additive join key back to the desktop/Agent log lines of the same
+// operation.
+//
 // Pending-job expiry (V2-G): a job may be minted with `expiresAt` (epoch ms or
 // an ISO date string). A node may also configure `defaultPendingJobTtlMs`:
 // pending NON-destructive jobs then lapse once they are older than that TTL —
@@ -36,6 +47,7 @@ const crypto = require("crypto");
 const fs = require("fs/promises");
 const path = require("path");
 const { sanitizeForDiagnostics } = require("../redaction");
+const { correlationMetadata } = require("../structuredLogger");
 
 const JOB_STATES = Object.freeze({
   ENQUEUED: "enqueued",
@@ -224,6 +236,7 @@ function publicJob(record) {
     id: record.id,
     idempotencyKey: record.idempotencyKey || null,
     type: record.type,
+    ...(record.correlationId ? { correlationId: record.correlationId } : {}),
     target: record.target,
     owner: record.owner,
     state: record.state,
@@ -283,6 +296,11 @@ function emitAudit(record, action, outcome, detail) {
       action,
       outcome,
       state: record.state,
+      // V2-J: the audit record is the operation timeline entry for this job, so
+      // it carries the same correlation id as the durable record when one
+      // exists. Absent (not null) otherwise, keeping the emitted event shape
+      // unchanged for jobs minted outside a correlation scope.
+      ...(record.correlationId ? { correlationId: record.correlationId } : {}),
       target: record.target,
       detail: detail === undefined ? null : sanitizeJobValue(detail),
     });
@@ -599,6 +617,9 @@ async function createJob(options = {}) {
     id: `job_${crypto.randomBytes(16).toString("hex")}`,
     idempotencyKey,
     type,
+    // V2-J: explicit caller id wins, otherwise the ambient operation scope.
+    // Spread so an uncorrelated job keeps the previous record shape exactly.
+    ...correlationMetadata(options.correlationId),
     target: sanitizeTarget(options.target),
     owner: sanitizeOwner(options.owner),
     state: JOB_STATES.ENQUEUED,

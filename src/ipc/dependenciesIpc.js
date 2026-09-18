@@ -15,10 +15,13 @@ const { audit, requirePermission } = require("../services/securityService");
 const { requireNodeContext } = require("./nodeContext");
 const { normalizeIpcError } = require("../shared/ipcError");
 const requireDependencyNodeContext = requireNodeContext;
+// V2-J bullet 2: the operation scope every dependency action enters, so the
+// install record, its diagnostics line and the Agent install job join on one id.
+const { runWithCorrelationScope } = require("../shared/structuredLogger");
 
 function invokeDependencyOperation(operation, operationName = "dependencies:request") {
   return Promise.resolve()
-    .then(operation)
+    .then(() => runWithCorrelationScope({ prefix: "dependencies" }, operation))
     .catch((error) => {
       const normalized = normalizeIpcError(error, {
         code: "DEPENDENCY_REQUEST_FAILED",

@@ -41,6 +41,9 @@ const { audit, requirePermission } = require("../services/securityService");
 const { wrapExpectedAgentRead } = require("./expectedAgentError");
 const { requireNodeContext } = require("./nodeContext");
 const { createIpcError } = require("../shared/ipcError");
+// V2-J bullet 2: the operation scope every Docker action enters, so the durable
+// job it mints and the Agent actions it triggers join on one id.
+const { runWithCorrelationScope } = require("../shared/structuredLogger");
 
 function requireDockerNodeContext(payload = {}, operation = "request") {
   return requireNodeContext(payload, `Docker ${operation}`);
@@ -53,7 +56,7 @@ function requireDockerRead(payload = {}, operation = "request", target = null) {
 
 function invokeDockerOperation(operation) {
   return Promise.resolve()
-    .then(operation)
+    .then(() => runWithCorrelationScope({ prefix: "docker" }, operation))
     .catch((error) => {
       throw createIpcError(error, {
         code: "DOCKER_REQUEST_FAILED",

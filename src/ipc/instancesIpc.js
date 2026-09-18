@@ -41,6 +41,9 @@ const { wrapExpectedAgentRead } = require("./expectedAgentError");
 const { requireNodeContext } = require("./nodeContext");
 const { createIpcError } = require("../shared/ipcError");
 const { setAuditEventEmitter } = require("../shared/instances/jobLifecycle");
+// V2-J bullet 2: the operation scope every instance action enters, so the
+// durable job it mints and the workload log lines it writes join on one id.
+const { runWithCorrelationScope } = require("../shared/structuredLogger");
 
 function getInstanceErrorMessage(error) {
   const code = error?.payload?.error?.code || error?.code;
@@ -55,7 +58,11 @@ function getInstanceErrorMessage(error) {
 
 async function invokeInstanceOperation(operation) {
   try {
-    return await operation();
+    // The scope wraps the operation, not the whole handler: a job executes
+    // inline (jobLifecycle awaits its own run), so a scope entered here reaches
+    // the job record, its audit events, the Agent request and the workload log
+    // writes. Only the handler-level requireNodeContext() stays outside.
+    return await runWithCorrelationScope({ prefix: "instance" }, operation);
   } catch (error) {
     const wrapped = createIpcError(error, {
       code: "INSTANCE_REQUEST_FAILED",

@@ -12,6 +12,21 @@ const {
   tokenFingerprint,
   writeAgentConfigSettings,
 } = require("../shared/agentTokenStore");
+const { CORRELATION_HEADER, currentCorrelationId } = require("../shared/structuredLogger");
+
+// V2-J bullet 2: desktop → Agent correlation. Every Agent request carries the
+// id of the operation scope that issued it, so the Agent can adopt the same id
+// for its route scope, its action audit lines and the workload log lines it
+// writes. The value is minted locally in the opaque `<prefix>-<uuid>` shape and
+// is never accepted from user input, so this header cannot smuggle anything
+// into an Agent-side log field.
+function applyCorrelationHeader(headers) {
+  const correlationId = currentCorrelationId();
+  if (correlationId) {
+    headers[CORRELATION_HEADER] = correlationId;
+  }
+  return headers;
+}
 
 const DEFAULT_BACKEND_MODE = "local";
 const DEFAULT_AGENT_URL = "http://127.0.0.1:47131";
@@ -703,6 +718,8 @@ async function requestJson(pathname, options = {}) {
     if (body !== null) {
       headers["Content-Type"] = "application/json";
     }
+
+    applyCorrelationHeader(headers);
 
     const requestUrl = buildAgentUrl(pathname, configOverride);
     logAgentRequestPayload(pathname, {
@@ -1456,6 +1473,8 @@ async function requestBuffer(pathname, options = {}) {
       headers["Content-Type"] = "application/json";
     }
 
+    applyCorrelationHeader(headers);
+
     const requestUrl = buildAgentUrl(pathname, configOverride);
     const response = await fetch(requestUrl, {
       method,
@@ -1555,6 +1574,7 @@ async function requestStream(pathname, options = {}) {
     };
     if (config.token) headers.Authorization = `Bearer ${config.token}`;
     if (body !== null) headers["Content-Type"] = "application/json";
+    applyCorrelationHeader(headers);
 
     const requestUrl = buildAgentUrl(pathname, configOverride);
     const response = await fetch(requestUrl, {

@@ -2,6 +2,10 @@ const { ipcMain } = require("electron");
 const workloadTransferService = require("../services/workloadTransferService");
 const { audit, requireLocalOwnerAuthenticated, requirePermission } = require("../services/securityService");
 const { createIpcError } = require("../shared/ipcError");
+// V2-J bullet 2: the operation scope every transfer action enters, so the
+// source-side backup, the target-side import and both nodes' Agent actions all
+// join on the operation that requested them.
+const { runWithCorrelationScope } = require("../shared/structuredLogger");
 
 const WORKLOAD_IPC_ERROR_OPTIONS = {
   code: "WORKLOAD_REQUEST_FAILED",
@@ -38,7 +42,7 @@ function attachTransferSteps(wrapped, error) {
 
 async function invokeWorkloadOperation(operation, { auditStepTrail = false } = {}) {
   try {
-    return await operation();
+    return await runWithCorrelationScope({ prefix: "transfer" }, operation);
   } catch (error) {
     if (auditStepTrail) {
       const steps = error?.details?.steps || error?.payload?.error?.details?.steps;

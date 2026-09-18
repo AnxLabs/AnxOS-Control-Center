@@ -9,6 +9,7 @@ const zlib = require("zlib");
 const javaRuntimeResolver = require("../minecraftJavaRuntime");
 const bundledRuntimePaths = require("../bundledRuntimePaths");
 const jobLifecycle = require("./jobLifecycle");
+const { correlationMetadata, createCorrelationId, runWithCorrelationScope } = require("../structuredLogger");
 const {
   buildConfigModel,
   getAdapter,
@@ -4736,7 +4737,14 @@ async function getJavaVersionForLog(executable) {
   return output ? redactLogLine(output) : "unknown";
 }
 
-async function appendLog(instanceId, streamName, chunk) {
+// V2-J bullet 2: workload (instance) log lines are written with an optional
+// correlation id. `metadata.correlationId` is used when the caller knows the
+// operation that produced the line (e.g. a job run passes its own id); otherwise
+// the ambient operation scope is used. The key is omitted entirely when neither
+// exists, so lines written outside a correlation scope are byte-identical to
+// before and `readLogs` (the Agent's reader path) only surfaces the field when
+// it is genuinely present.
+async function appendLog(instanceId, streamName, chunk, metadata = {}) {
   const filePath = logPath(instanceId, streamName);
   const lines = String(chunk || "").split(/\r?\n/).filter(Boolean);
 
@@ -4746,11 +4754,13 @@ async function appendLog(instanceId, streamName, chunk) {
 
   await rotateLogIfNeeded(filePath);
 
+  const correlation = correlationMetadata(metadata?.correlationId);
   const payload = lines.map((line) => {
     return JSON.stringify({
       at: nowIso(),
       stream: streamName,
       message: redactLogLine(line),
+      ...correlation,
     });
   }).join("\n");
 
@@ -4926,15 +4936,23 @@ async function startInstanceImpl(instanceId, options = {}) {
 
   let child;
 
+  // A workload can outlive the operation that started it by days, and the
+  // child's pipes are async resources created by this call, so they would
+  // inherit the caller's operation scope and stamp every later console line
+  // with a request that long ago returned. The run gets its own id instead; it
+  // is also passed explicitly at the two appendLog sites below, so the
+  // attribution does not depend on async-context internals.
+  const runCorrelationId = createCorrelationId("instance");
+
   try {
-    child = childProcess.spawn(config.executable, config.args, {
+    child = runWithCorrelationScope({ correlationId: runCorrelationId }, () => childProcess.spawn(config.executable, config.args, {
       cwd: workingDirectory,
       env: buildSpawnEnvironment(config),
       detached: false,
       shell: false,
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
-    });
+    }));
   } catch {
     const failedConfig = await updateRuntimeState(config.id, {
       state: INSTANCE_STATES.FAILED,
@@ -4996,7 +5014,7 @@ async function startInstanceImpl(instanceId, options = {}) {
 
   child.stdout.on("data", (chunk) => {
     const text = String(chunk || "");
-    appendLog(config.id, "stdout", chunk).catch(() => {});
+    appendLog(config.id, "stdout", chunk, { correlationId: runCorrelationId }).catch(() => {});
     appendProcessTail(runningProcesses.get(config.id), "stdout", chunk);
     if (isFiveMInstance(config) && FIVEM_LICENSE_FAILURE_PATTERN.test(text)) {
       const entry = runningProcesses.get(config.id);
@@ -5023,7 +5041,7 @@ async function startInstanceImpl(instanceId, options = {}) {
 
   child.stderr.on("data", (chunk) => {
     const text = String(chunk || "");
-    appendLog(config.id, "stderr", chunk).catch(() => {});
+    appendLog(config.id, "stderr", chunk, { correlationId: runCorrelationId }).catch(() => {});
     const entry = runningProcesses.get(config.id);
     appendProcessTail(entry, "stderr", chunk);
     const benignPalworldStderr = isBenignPalworldStderrOutput(config, text, {
@@ -6426,6 +6444,12 @@ module.exports = {
     parseTpsFromMessages,
     normalizeShellWrapperArgs,
     formatCommandForLog,
+    // V2-J: the workload log writer/reader pair, exposed so correlation-id
+    // propagation through instance log lines can be proven hermetically
+    // (scripts/correlation-id-smoke.js) without starting a real workload.
+    appendLog,
+    logPath,
+    readRecentLines,
     isBenignPalworldStderrOutput,
     getRestartBackoffDecision,
     getResourceCounts() {
