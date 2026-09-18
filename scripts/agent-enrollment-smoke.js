@@ -38,6 +38,9 @@ function request(body) { return { body: JSON.stringify(body), method: "POST", he
 async function main() {
   let config = makeConfig();
 
+  // 0. Bootstrap path: with no persisted record the first enrollment is open.
+  assert.strictEqual(enrollmentService.readEnrollmentRecord(), null, "First enrollment must start with no existing record (bootstrap path).");
+
   // 1. Version negotiation: supported protocol window succeeds.
   const started = handlePublicEnrollment(request({ minProtocolVersion: 1, maxProtocolVersion: 1 }), url("/api/v1/enroll/start"), config);
   assert.strictEqual(started.statusCode, 200, "Supported protocol window should start enrollment.");
@@ -193,6 +196,61 @@ async function main() {
   const desktop = enrollmentService.evaluateSpawnEnvironment({ ANXHUB_CONFIG_DIR: path.join(os.tmpdir(), "AnxOS", "config") });
   assert.strictEqual(desktop.spawnContract, "desktop", "A canonical config dir is a desktop spawn.");
   assert.strictEqual(desktop.diagnostic, null, "A desktop spawn must not emit a diagnostic.");
+
+  // 12. Security P1: re-pairing an existing (non-revoked) enrollment requires
+  // the existing credential. A fresh caller-chosen token is refused with the
+  // distinct repair code and cannot mutate the record; an explicit previous
+  // credential authorizes the re-pair. Re-enrollment after revocation (step 10)
+  // stays open as the recovery path.
+  const recoveryStart = handlePublicEnrollment(request({}), url("/api/v1/enroll/start"), config);
+  const recoveryToken = "anxos_enrollment-recovery-token-value-0123456789";
+  const recovered = handlePublicEnrollment(
+    request({ enrollNonce: recoveryStart.body.enrollNonce, agentToken: recoveryToken }),
+    url("/api/v1/enroll/complete"),
+    config,
+  );
+  assert.strictEqual(recovered.statusCode, 200, "Re-enrollment after revocation must be allowed (recovery path).");
+  const beforeUnauthorized = enrollmentService.readEnrollmentRecord();
+  const unauthorizedStart = handlePublicEnrollment(request({}), url("/api/v1/enroll/start"), config);
+  assert.throws(
+    () => handlePublicEnrollment(
+      request({ enrollNonce: unauthorizedStart.body.enrollNonce, agentToken: "anxos_enrollment-unauthorized-token-0123456789" }),
+      url("/api/v1/enroll/complete"),
+      config,
+    ),
+    (error) => error.code === "ENROLL_REPAIR_REQUIRES_EXISTING_CREDENTIAL" && error.statusCode === 403,
+    "A re-pair without the existing credential must be refused with the distinct repair code.",
+  );
+  assert.deepStrictEqual(enrollmentService.readEnrollmentRecord(), beforeUnauthorized, "A refused re-pair must not mutate the enrollment record.");
+  const authorizedStart = handlePublicEnrollment(request({}), url("/api/v1/enroll/start"), config);
+  const rotatedToken = "anxos_enrollment-rotated-token-value-0123456789";
+  const authorized = handlePublicEnrollment(
+    request({ enrollNonce: authorizedStart.body.enrollNonce, agentToken: rotatedToken, previousAgentToken: recoveryToken }),
+    url("/api/v1/enroll/complete"),
+    config,
+  );
+  assert.strictEqual(authorized.statusCode, 200, "Re-pair with the existing credential must be allowed.");
+  assert.strictEqual(enrollmentService.readEnrollmentRecord().tokenFingerprint, tokenFingerprint(rotatedToken), "An authorized re-pair must bind the new credential.");
+
+  // 13. The live credential IS accepted on purpose, and that must stay visible.
+  // The desktop's repair flow pairs a node (rotating the shared config token) and
+  // then completes enrollment with the rotated credential, while the persisted
+  // record fingerprint is still stale — a record-bound-only gate refuses that
+  // legitimate re-pair (proved by scripts/multi-node-fleet-smoke.js, which fails
+  // 403 where it asserts 200). Pinning the acceptance here means a future
+  // tightening cannot land silently: it has to update this pin and confront the
+  // residual that /api/v1/pairing/* is pre-auth and can install a credential, so
+  // this gate is defense-in-depth rather than an authorization boundary.
+  const rotatedLiveCredential = "anxos_enrollment-live-credential-0123456789";
+  config.token = rotatedLiveCredential;
+  const liveStart = handlePublicEnrollment(request({}), url("/api/v1/enroll/start"), config);
+  const liveAuthorized = handlePublicEnrollment(
+    request({ enrollNonce: liveStart.body.enrollNonce, agentToken: rotatedLiveCredential }),
+    url("/api/v1/enroll/complete"),
+    config,
+  );
+  assert.strictEqual(liveAuthorized.statusCode, 200, "The live credential must authorize a re-pair: the pair-then-enroll repair flow depends on it.");
+  assert.strictEqual(enrollmentService.readEnrollmentRecord().tokenFingerprint, tokenFingerprint(rotatedLiveCredential), "A live-credential re-pair binds the presented credential.");
 
   console.log("agent:enroll:smoke passed");
 }

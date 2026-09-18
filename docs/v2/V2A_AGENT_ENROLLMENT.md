@@ -203,6 +203,17 @@ The record binds exactly one tuple:
    open question O1), a fresh/bound **agent token**, and an explicit **pinned instance
    root** that the client asserts (normally the desktop spawn root). Agent:
    - validates the nonce (exists, unexpired, single-use);
+   - **repair-authority gate** (V2-I hardening, 2026-09-18): when an enrollment record
+     already exists and is not `revoked`, the caller must also prove possession of the
+     credential already in force — either the record-bound fingerprint or the agent's live
+     credential (accepted spellings: `previousAgentToken` / `previousCredential`, or the
+     same token re-presented as `agentToken`). Without it the request is refused with
+     `ENROLL_REPAIR_REQUIRES_EXISTING_CREDENTIAL` (403), audited, and **nothing is
+     mutated**. Rationale: completion alone accepted any caller-chosen token, so any client
+     that could reach the agent port could re-pair and drop its `scopes`, escalating to
+     full profile permissions — that made the scoped-token guarantee non-binding. First
+     enrollment (no record) and re-enrollment after `revoked` remain open; the latter is
+     audited as `ENROLL_REENROLL_AFTER_REVOCATION`.
    - captures its **actual resolved identity** from `deviceIdentityService.getDeviceIdentity()`
      (not anything the client claims) and the **actual** `config.instanceRoot`;
    - verifies the pinned root either matches the actual root or is explicitly accepted as
@@ -210,6 +221,12 @@ The record binds exactly one tuple:
    - stores `tokenFingerprint` (never the raw token), sets state `enrolled`, and attaches
      the binding to the persisted agent config;
    - returns `enrollmentId`, bound identity, root, versions, and a public fingerprint.
+   - **Known residual (recorded, owner-scoped follow-up):** a holder of a *scoped*
+     credential can still re-pair with that same credential and drop its scopes, because
+     "possessing the existing credential" is the accepted authority. Closing that requires
+     an owner-authorized scope-change path (owner-tier bearer or a separate approval
+     token); the desktop does not use `/enroll/complete` today, so it is not reachable
+     from the product UI.
 4. **Authenticated use:** every subsequent request presents the token; the agent compares
    fingerprint to the enrollment record **and** re-verifies that `config.instanceRoot` is
    unchanged and the identity deviceId is unchanged. Discrepancy ⇒ `NODE_BINDING_MISMATCH`

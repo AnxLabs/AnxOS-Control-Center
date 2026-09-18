@@ -264,6 +264,88 @@ function startEnrollment(body = {}) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Security hardening (V2-I): re-pairing an EXISTING, non-revoked enrollment must
+// prove possession of a credential the agent already trusts. Completion refuses
+// unless the caller presents either the credential on the record
+// (record.tokenFingerprint) or the agent's LIVE credential (config.token).
+//
+// The live credential is accepted because that is what the legitimate repair
+// flow needs: the desktop pairs the node (nodeService.pairNodeFromCode ->
+// POST /api/v1/pairing/complete), which rotates the shared config token, and then
+// completes enrollment with the rotated credential. The persisted record
+// fingerprint stays stale until the binding self-heals, so a record-bound-only
+// gate refuses that legitimate re-pair — scripts/multi-node-fleet-smoke.js
+// exercises the exact sequence and fails against a record-bound gate (verified:
+// 403 where it asserts 200).
+//
+// RESIDUAL — PROVEN, NOT FIXED HERE. This gate is defense-in-depth, NOT an
+// authorization boundary. /api/v1/pairing/start is pre-auth and hands the
+// pairing code back to the same caller, and /api/v1/pairing/complete sets
+// config.token to a caller-chosen value, so an unauthenticated client that can
+// reach the agent port can install a credential and then satisfy the live
+// credential branch. An independent adversarial review reproduced that end to
+// end: a control re-pair without pairing was refused 403, while the
+// pair-then-enroll sequence succeeded 200 and rebound the record's
+// tokenFingerprint with caller-chosen scopes. Closing it requires an
+// authorization decision on the pairing surface itself (pairing must not be
+// usable by the same unauthenticated caller who redeems it), tracked in the
+// security queue of docs/v2/V2_CAMPAIGN_QUEUES.md.
+//
+// First enrollment (no record) stays open — that is the bootstrap path.
+// Re-enrollment after revocation stays open — that is the recovery path — and is
+// recorded as a distinct audit event so revoke-then-reenroll is visible.
+// ---------------------------------------------------------------------------
+const ENROLL_REPAIR_REQUIRES_EXISTING_CREDENTIAL = "ENROLL_REPAIR_REQUIRES_EXISTING_CREDENTIAL";
+const ENROLL_REENROLL_AFTER_REVOCATION = "ENROLL_REENROLL_AFTER_REVOCATION";
+const ENROLL_REPAIR_AUTHORIZED = "ENROLL_REPAIR_AUTHORIZED";
+
+function auditEnrollmentEvent(level, message, code, context = {}) {
+  try {
+    // Only non-secret metadata (ids, states, modes) is ever passed here; token
+    // material is never included in an audit context.
+    if (level === "warn") logger.warn("enrollment", message, { ...context, code }, { file: "enrollment", errorCode: code });
+    else logger.info("enrollment", message, { ...context, code }, { file: "enrollment", errorCode: code });
+  } catch {
+    // Audit must never block or alter an enrollment decision.
+  }
+}
+
+function resolveLiveCredentialFingerprint(config = {}) {
+  return tokenFingerprint(config?.token) || config?.tokenStatus?.fingerprint || null;
+}
+
+// Read-only: never mutates the enrollment record, so a refused re-pair leaves
+// the persisted binding (and its scopes) exactly as it was.
+function assertRepairAuthorization(previous, body = {}, config = {}) {
+  if (!previous) return { mode: "first-enrollment" };
+  if (previous.state === AGENT_STATE_REVOKED) return { mode: "after-revocation" };
+  // Record fingerprint plus the live credential: the live branch is what the
+  // pair-then-enroll repair flow depends on (see the header comment).
+  const trustedFingerprints = new Set([
+    previous.tokenFingerprint || null,
+    resolveLiveCredentialFingerprint(config),
+  ].filter(Boolean));
+  const suppliedPrevious = String(body?.previousAgentToken || body?.previousCredential || "").trim();
+  const suppliedNew = String(body?.agentToken || body?.permanentToken || "").trim();
+  const previousFingerprint = suppliedPrevious ? tokenFingerprint(suppliedPrevious) : null;
+  const newFingerprint = suppliedNew ? tokenFingerprint(suppliedNew) : null;
+  if (previousFingerprint && trustedFingerprints.has(previousFingerprint)) return { mode: "previous-credential" };
+  // Re-presenting the current credential as the new one is also proof of
+  // possession (the caller must know the existing token to supply it).
+  if (newFingerprint && trustedFingerprints.has(newFingerprint)) return { mode: "presented-credential" };
+  auditEnrollmentEvent("warn", "Enrollment re-pair refused: the existing Agent credential is required", ENROLL_REPAIR_REQUIRES_EXISTING_CREDENTIAL, {
+    enrollmentId: previous.enrollmentId || null,
+    state: previous.state || null,
+  });
+  throw enrollmentError(
+    ENROLL_REPAIR_REQUIRES_EXISTING_CREDENTIAL,
+    "This Agent is already enrolled. Re-pairing requires the existing Agent credential; revoke the enrollment first to recover a lost credential.",
+    403,
+    { enrollmentId: previous.enrollmentId || null, state: previous.state || null },
+  );
+}
+
 function resolvePinnedInstanceRoot(body, config) {
   const pinned = String(body?.instanceRoot || "").trim();
   if (!pinned) return { pinned: null, root: config.instanceRoot };
@@ -299,6 +381,10 @@ function completeEnrollment(body = {}, config = {}) {
   // without rotating identity or rewriting the previous binding.
   const scopes = parseEnrollmentScopes(body?.scopes);
   const previous = readEnrollmentRecord();
+  // Security P1: an existing, non-revoked enrollment may only be re-paired by a
+  // caller proving possession of the existing credential. Evaluated BEFORE any
+  // mutation so a refused attempt cannot rotate identity or rewrite the record.
+  const repairAuthorization = assertRepairAuthorization(previous, body, config);
   const previousFingerprints = [...(previous?.previousFingerprints || [])];
   if (previous?.state === AGENT_STATE_ENROLLED && previous?.tokenFingerprint) {
     // Re-enrollment revokes the previous binding: the old fingerprint is kept
@@ -351,6 +437,21 @@ function completeEnrollment(body = {}, config = {}) {
     fingerprint: record.tokenFingerprint,
   };
   writeEnrollmentRecord(record);
+  // Positive audit is emitted only after the record is durably written, so the
+  // audit trail never claims a re-enrollment that did not happen.
+  if (repairAuthorization.mode === "after-revocation") {
+    auditEnrollmentEvent("info", "Enrollment completed after revocation (recovery re-enrollment)", ENROLL_REENROLL_AFTER_REVOCATION, {
+      previousEnrollmentId: previous?.enrollmentId || null,
+      revokedAtIso: previous?.revokedAtIso || null,
+      enrollmentId: record.enrollmentId,
+    });
+  } else if (repairAuthorization.mode === "previous-credential" || repairAuthorization.mode === "presented-credential") {
+    auditEnrollmentEvent("info", "Enrollment re-pair authorized by an existing Agent credential", ENROLL_REPAIR_AUTHORIZED, {
+      previousEnrollmentId: previous?.enrollmentId || null,
+      enrollmentId: record.enrollmentId,
+      authorization: repairAuthorization.mode,
+    });
+  }
   return {
     statusCode: 200,
     body: {
