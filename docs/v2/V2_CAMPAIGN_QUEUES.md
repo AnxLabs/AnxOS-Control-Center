@@ -6,6 +6,13 @@
 
 Last full-rebuild: cycle 10 close (HEAD f1b07f1).
 
+### Cycle-12 queue deltas
+
+- **SECURITY queue: F1 / F1b / F2 / F3 CLOSED (43aeef7).** The pairing surface now authorizes on an enrolled node — loopback origin or a credential the agent trusts, else `PAIRING_REQUIRES_EXISTING_CREDENTIAL` (403) — evaluated before any mutation, with first pairing and post-revocation recovery unchanged. Covered by the new `agent:pairing-credential-gate:smoke` (6 legs, teeth proven by disabling the gate), and the permission-matrix contract row for the pairing status route was updated with added teeth. **Lesson recorded: the enrollment-gate-only fix this campaign was about to make would have closed nothing**, because the record self-heals to the live credential; the authorization rule belongs on the surface that installs the credential.
+- **REGRESSION queue: one PRODUCT REGRESSION introduced by the security fix, disclosed and being fixed.** The desktop's own remote repair does not present the credential it holds (`agentControlService.startPairingSession` posts no header; `nodeService.postPairingComplete` posts only code+token), so remote re-pair of an enrolled node fails even when the desktop HAS a valid credential. No smoke catches it (`node:remote-pairing-target:smoke` runs its own mock server; `multi-node:fleet:smoke` re-pairs over loopback only). **Follow-up lane DISPATCHED** to attach the stored node credential to both calls. The unrecoverable case (remote node whose credential is LOST) stays an on-host action by design and must be documented for operators.
+- **SECURITY queue OPEN (new, not yet scoped): F4 — Host header trust + no CORS.** The agent builds the returned `agentUrl` from `request.headers.host` and sends no `Access-Control-Allow-*` headers. The DNS-rebinding precondition is proven; whether a real browser can complete the attack is UNPROVEN. Candidate fix: a Host allowlist (loopback + configured agentUrl) and explicit CORS denial. Needs a lane; low urgency until proven browser-reachable.
+- **SECURITY queue OPEN (recorded limitation):** loopback trust is absolute, so an on-host reverse proxy in front of the agent port would make remote callers appear loopback. A corrupt `enrollment.json` now fails the pairing routes closed (500) instead of allowing pairing — intended, but untested.
+
 ### Cycle-11 queue deltas
 
 - **SECURITY queue: one P1 OPENED, PROVEN, and deliberately NOT closed** — now REFINED by a read-only security lane, which found the exploit is CHEAPER and the fix surface WIDER than first recorded. Severity depends entirely on reachability:
