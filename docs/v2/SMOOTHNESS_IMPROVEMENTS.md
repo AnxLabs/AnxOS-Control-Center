@@ -106,12 +106,12 @@ Session: 2026-09-19 09:08:32 → 10:30:31. **562 IPC requests, 187,489 ms cumula
 | Worst channel by total time | `docker:getSnapshot` — 39 calls, **85,464 ms = 46 % of all IPC time** |
 | Worst duty cycle measured | docker poll: **33 consecutive 5 s cycles, ~45 % of a 160 s window inside the snapshot path** |
 | Slowest single call | `marketplace:searchProviderPacks` — **9,588 ms** |
-| Most-called channel | `instances:getLogs` — 831 calls, 63 ms avg |
+| Most-called channel | `instances:getLogs` — **8 calls** in this session, 65.1 ms avg, 117 ms max |
 | Main-process work before window construction | **109 ms** (app-ready → create-window) |
 
 | Id | Improvement | Evidence | Size | Wave |
 | --- | --- | --- | --- | --- |
-| SMOOTH-3003 | **Tail-read instance logs instead of reading the whole file every 2 s.** `readRecentLines` does `readFile` → `split` → `slice(-limit)`, so the **entire file** is read and split to return 200 lines | **measured**: 831 calls, 63 ms avg, 229 ms max; cost grows with log size while payload stays fixed — this is the "app feels heavier after a while" symptom | small–medium | 2 |
+| SMOOTH-3003 | **Tail-read instance logs instead of reading the whole file every 2 s.** `readRecentLines` does `readFile` → `split` → `slice(-limit)`, so the **entire file** is read and split to return 200 lines | **measured**: session `instances:getLogs` was **8 calls, 65.1 ms avg, 117 ms max**; cost grows with log size while payload stays fixed — this is the "app feels heavier after a while" symptom. **Corrected by the independent audit:** an earlier draft quoted *831 calls, 63 ms avg, 229 ms max* here, which is the **whole-file aggregate for 2026-09-05→19**, not this session. Post-fix tail read independently re-measured (median of 7, warmed cache): whole-file → tail read is **282.1 ms → 1.06 ms** on a 92.5 MB log. Semantic parity was also independently checked: 20 structured cases + 400 randomised fuzz cases, new vs pre-fix, **0 mismatches** | small–medium | 2 |
 | SMOOTH-3001 | **Fetch the four docker resource lists in parallel** — today `await listImages` → `listVolumes` → `listNetworks` → `listComposeProjects`, ~281 ms serial vs ~116 ms if concurrent, and the whole batch is fired unconditionally from the snapshot render every 5 s | **measured**: one cycle 15:30:52.167 → :54.656, 33 cycles in 160 s, ~45 % duty | trivial (parallel) | 2 |
 | SMOOTH-3002 | **Stop spawning 9–13 docker CLI processes per poll cycle.** `probeDocker` runs `--version`, `info`, `compose version` sequentially, then six more (incl. `docker stats --no-stream`) **per 5 s ≈ 156 spawns/min** | **measured**: snapshot wall 2,156 ms median; per-command split **needs-measurement** | medium | 2 |
 | SMOOTH-3006 | **Stop writing the 38 KB runtime-state synchronously on periodic render paths.** `diagnostics:capture` runs `fs.writeFileSync` of a **38,655-byte** state plus a `readdirSync`+`statSync` sweep of ~35 log files, from every 5 s public-access and docker render — and it blocks the main-process event loop, delaying *every* concurrent IPC reply | **measured**: 107 calls, avg 11 ms, max 27 ms | small | 2 |
@@ -119,7 +119,7 @@ Session: 2026-09-19 09:08:32 → 10:30:31. **562 IPC requests, 187,489 ms cumula
 | SMOOTH-3005 | **Don't make instance start/stop wait for a full re-list before reporting success** — `instances.start` (measured 1,501 ms) then `instances:list` (267 ms) before the row settles | **measured** for both components; ordering code-path-proven | small | 2 (needs `app.js`) |
 | SMOOTH-3004 | **Don't gate the dashboard on a 1.5–3.8 s public-access snapshot**, and issue its five calls together instead of in two sequential phases; there is no renderer-side timeout, so a hung agent holds it for 12 s | **measured**: avg 1,543 ms, max 3,761 ms over 10 calls | small | 2 (needs `app.js`) |
 | SMOOTH-3007 | **One round trip per agent-control poll, not two sequential** — `agentControl:list` (avg 1,765 ms) then `diagnostics:read`, on a 3 s interval ⇒ ~60 % duty | **measured** cadence | small | 2 (needs `app.js`) |
-| SMOOTH-3010 | **Stop the alert scheduler re-fetching the instance list the UI already has** | **measured**: `implicit-node-fallback-selected` exactly **3×/min at :31** for the whole session — the scheduler's calls, not renderer calls | medium | 2 |
+| SMOOTH-3010 | **Stop the alert scheduler re-fetching the instance list the UI already has** | **measured**: `implicit-node-fallback-selected` exactly **3×/min at :31** for the whole session — the scheduler's calls, not renderer calls. **Coverage hole found by the independent audit, then closed:** the guard was load-bearing but had *no* test — setting `INSTANCE_SNAPSHOT_MAX_AGE_MS` to `-1` left all four candidate suites green. `scripts/instance-snapshot-reuse-smoke.js` now fails naming the reuse invariant (10 checks, mutation-proven, `instance-snapshot-reuse:smoke`). Residual gap: the suite covers the module's functions, **not** the `main.js` call-site wiring | medium | 2 |
 | SMOOTH-3008 | **Short timeout plus one retry beats a 30 s hold on interactive reads.** `REQUEST_TIMEOUT_MS = 30000` is the default for nearly every read, and in-flight guards then suppress retries — so a slow agent becomes a 30 s stuck spinner | code-path-proven; no timeout event observed in this session | small | 2 |
 | SMOOTH-3009 | **Stop serialising the Console open behind the instance list** — `showPage("console")` waits on `refreshInstances()` (267 ms) only to learn the active instance id, which is often already known | code-path-proven; component measured | small | 2 (needs `app.js`) |
 | SMOOTH-3013 | **Coalesce paired diagnostics captures and tail-read on the error path.** Captures fired **in pairs 10 ms apart** (14 calls in 3 s), and every error entry does a full `readFileSync` + split of `renderer.log` (400 KB) and `live.log` (1.0 MB) | **measured** pairing; the full-file read is code-path-proven with size evidence | small | 2 |
@@ -139,9 +139,38 @@ Session: 2026-09-19 09:08:32 → 10:30:31. **562 IPC requests, 187,489 ms cumula
 
 ### The measurement gap, and the cheapest fix for it
 
-**No IPC or Agent payload-size instrumentation exists anywhere.** `ipc.log` records durations only, never bytes, so payload sizes are unmeasured except where code bounds them (`runtime-state.json` 38,655 B; diagnostic reads capped at 400 lines; docker 3–5 containers). **Proposal (not a change): add a byte count to the existing IPC wrapper** — one field, and every future smoothness question about payload cost becomes answerable.
+**Payload-size instrumentation now exists — opt-in, and honest about what it does NOT measure.** `ipc.log` records durations only by default, never bytes. `main.js` now additionally records `context.payloadBytes`, **gated behind `ANXOS_IPC_BYTE_METRICS=1`** so the default path stays byte-identical to before. When enabled it measures only payloads whose size is cheap to read — strings via `Buffer.byteLength`, buffers and typed arrays via `.byteLength` — and **deliberately skips objects and arrays rather than re-serialising them**, because `JSON.stringify` on a ~10 MB payload measured **51.7 ms**, which is more than many of the calls it would be measuring.
+
+**Two consequences to keep straight, because misreading them is easy:**
+1. An **absent** `payloadBytes` means *not measured*, never *zero bytes*.
+2. The **heaviest channels** — instance snapshots, docker snapshots — are exactly the object-payload channels that report **nothing**. This instrument does not cover the payloads we most want to size; it covers the cheap-to-read ones.
+
+Measured cost of enabling it on a 10 MiB string payload: **3.95 ms/call**; the skip path on a ~10 MB object: **~0.0002 ms/call**. Locked by `scripts/ipc-payload-instrument-smoke.js` (`ipc-payload-instrument:smoke`), which extracts the shipped function text from `main.js` rather than testing a copy. The end-to-end path — a real channel emitting a real `payloadBytes` line — is **UNVERIFIED**; only the helper contract and the source wiring are proven.
 
 **One thing this audit could not measure, and it corroborates a fix already shipped:** `nodes:select` appears **0 times** in the entire `ipc.log`, even though the session contains three node-switch attempts — because the renderer's `resetNodeScopedRendererState` threw (the `restartScheduleList` `ReferenceError`) *before* the `await nodes.select(...)` line, so the switch aborted before issuing any IPC. The switch's cost is therefore inferred from code structure, not measured. That is independent confirmation of the F2 root cause from a different instrument.
+
+### Independent audit of the wave-2 claims — what it found
+
+A separate read-only auditor re-tested three wave-2 claims against the code and against
+generated artifacts, not against this register's narrative. It changed three statements
+in this document, and recording that is the entire point of running it:
+
+| Claim | Verdict |
+| --- | --- |
+| SMOOTH-3003 tail read | **Code and semantics VERIFIED** — 20 structured cases + 400 randomised fuzz cases against the pre-fix implementation, **0 mismatches**; the bounded read was confirmed by instrumenting `fs` (a 5,242,848-byte file read **65,537 bytes, zero `readFile` calls**). The cited point *timings* were **not reproduced** (282.1 ms vs the cited 199.6 ms) — the direction and order of magnitude were, not the figures. |
+| SMOOTH-3010 scheduler reuse | **Fix VERIFIED as implemented and load-bearing; the implied test coverage REFUTED.** Setting the window to `-1` left four candidate suites green, and `grep` found **zero** suites referencing the guard — the invariant was uncovered. **Closed since** (see the row above); the call-site wiring in `main.js` remains uncovered. |
+| D-9 Palworld dedup | **Dedup VERIFIED; the stated harm UNSUPPORTED.** The sole production consumer (`agent/src/services/backupService.js:543`) already dedups at line 553, before any per-candidate work, and the divergence table itself says *"Harmless for a backup that de-duplicates paths."* The fix is correct and cheap; only the impact wording was overstated, and it has been corrected. |
+
+**Three evidence defects this register carried, all now corrected:** the SMOOTH-3003 row
+and the "most-called channel" fact quoted a **whole-file aggregate** as though it were
+this session; the SMOOTH-3010 row implied a coverage story that mutation testing
+disproved; and the measurement-gap section still described the payload-byte instrument
+as a *proposal* after it had already landed.
+
+**One claim is not evidenced either way:** commit `3b3dcbc` cites "rc:validate 278/278
+PASS" and a 500-case fuzz run, but no artifact in the tree records those specific runs.
+The substantive parity result was independently reproduced, so the claim holds in
+effect — but the cited run itself cannot be checked from the repository.
 
 ### How to read the counts
 
@@ -163,8 +192,9 @@ was found to have wrongly merged two distinct defects, and 37 when the data-path
 audit landed. Both changes are recorded because the register's count is only worth
 anything if its arithmetic is auditable.
 
-`SMOOTH-3xxx` entries from the data-path audit are appended below when that lane
-reports.
+`SMOOTH-3xxx` entries come from the data-path audit and are tabulated above; the two
+implementation waves that acted on this register are `8afcf35` (renderer) and `3b3dcbc`
+(data path).
 
 A number in this register is a claim only when the Evidence column says
 **measured**. Everything else is a proven code path plus a judgement about felt
