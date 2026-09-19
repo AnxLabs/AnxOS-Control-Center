@@ -156,7 +156,7 @@ function assertDesktopDependencyGraph(archivePath) {
     assert.deepStrictEqual(missing, [], `${path.relative(rootDir, archivePath)} has missing local desktop dependencies:\n${missing.join("\n")}`);
     assert([...visited].some((entry) => entry.includes(`${path.sep}src${path.sep}services${path.sep}`)), `${path.relative(rootDir, archivePath)} desktop dependency graph did not resolve src/services.`);
   } finally {
-    fs.rmSync(extractedRoot, { recursive: true, force: true });
+    fs.rmSync(extractedRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 }
 

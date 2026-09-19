@@ -121,7 +121,7 @@ async function main() {
     console.log("Dashboard node routing smoke checks passed.");
   } finally {
     await Promise.all([agentA.close(), agentB.close()]);
-    fs.rmSync(temp, { recursive: true, force: true });
+    fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 }
 

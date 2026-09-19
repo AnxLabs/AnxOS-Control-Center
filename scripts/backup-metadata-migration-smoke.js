@@ -239,13 +239,13 @@ async function main() {
     "A pre-schema schedule store must not fail to load when another reader already wrote the pre-migration copy.",
   );
 
-  fs.rmSync(testRoot, { recursive: true, force: true });
+  fs.rmSync(testRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   console.log("Backup metadata migration smoke checks passed.");
 }
 
 main().catch((error) => {
   try {
-    fs.rmSync(testRoot, { recursive: true, force: true });
+    fs.rmSync(testRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   } catch {}
   console.error(error);
   process.exit(1);

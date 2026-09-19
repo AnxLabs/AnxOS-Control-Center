@@ -160,7 +160,7 @@ async function main() {
   } finally {
     remote.close();
     local.close();
-    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 }
 

@@ -266,7 +266,7 @@ async function main() {
   // The Agent runtime requires this module without "electron" installed.
   assertModuleWorksWithoutElectron(modulePath, fs.mkdtempSync(path.join(os.tmpdir(), "anxos-long-operation-agent-safe-")));
 
-  fs.rmSync(root, { recursive: true, force: true });
+  fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   console.log("Long-operation framework smoke checks passed.");
 }
 

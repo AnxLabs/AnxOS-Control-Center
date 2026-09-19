@@ -117,7 +117,7 @@ async function cleanupElectron() {
     qaEnvironment = null;
   }
   if (qaUserDataDir) {
-    fs.rmSync(qaUserDataDir, { recursive: true, force: true });
+    fs.rmSync(qaUserDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     qaUserDataDir = null;
   }
 }

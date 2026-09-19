@@ -27,7 +27,7 @@ async function main() {
   await longOperations.cancelOperation("cancel-marketplace-download");
   assert.strictEqual(abortController.signal.aborted, true, "Marketplace cancellation should abort the real HTTP controller.");
 
-  fs.rmSync(root, { recursive: true, force: true });
+  fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   console.log("Operation domain cancellation smoke checks passed.");
 }
 

@@ -58,5 +58,5 @@ assert(fs.readdirSync(root).some((name) => name.startsWith("ssh-profiles.json.co
 assert.strictEqual(fs.readdirSync(root).some((name) => name.endsWith(".tmp")), false, "Atomic SSH profile writes should clean temporary files.");
 
 service.dispose();
-fs.rmSync(root, { recursive: true, force: true });
+fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 console.log("SSH profile store smoke checks passed.");

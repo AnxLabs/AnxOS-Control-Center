@@ -125,13 +125,13 @@ async function main() {
   assert(appSource.includes("Delete (removes all instance data)"), "Delete confirmation must state that it removes all instance data.");
   assert(appSource.includes("Forget (keeps data on disk)"), "Forget confirmation must state that it keeps data on disk.");
 
-  fs.rmSync(root, { recursive: true, force: true });
+  fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   console.log("alpha-loop-backup-smoke passed");
 }
 
 main().catch((error) => {
   try {
-    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   } catch {}
   console.error(error);
   process.exit(1);

@@ -476,7 +476,7 @@ async function main() {
     await stopAgentProcess(agentA.child);
     await stopAgentProcess(agentB.child);
     if (transferRoot) {
-      try { fs.rmSync(transferRoot, { recursive: true, force: true }); } catch {}
+      try { fs.rmSync(transferRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); } catch {}
     }
   }
 }

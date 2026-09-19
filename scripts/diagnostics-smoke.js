@@ -164,4 +164,4 @@ async function main() {
   console.log("Diagnostics smoke checks passed.");
 }
 
-main().finally(() => fs.rmSync(temp, { recursive: true, force: true })).catch((error) => { console.error(error.stack || error.message); process.exitCode = 1; });
+main().finally(() => fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })).catch((error) => { console.error(error.stack || error.message); process.exitCode = 1; });

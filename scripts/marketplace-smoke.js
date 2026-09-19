@@ -24,7 +24,7 @@ process.env.ANXHUB_CONFIG_DIR = smokeConfigRoot;
 // Pin the instance root inside the smoke's temp tree so every configuration
 // lands hermetically.
 process.env.AGENT_INSTANCE_ROOT = path.join(smokeConfigRoot, "instances");
-process.on("exit", () => fs.rmSync(smokeConfigRoot, { recursive: true, force: true }));
+process.on("exit", () => fs.rmSync(smokeConfigRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
 
 // V2-D install transactions: the wrapped install executors mint durable V2-A
 // jobs; point the shared job store at a hermetic temp root for this smoke.
@@ -1337,7 +1337,7 @@ async function assertFiveMSetupLifecycle() {
       process.env.AGENT_INSTANCE_ROOT = previousRoot;
     }
     delete require.cache[servicePath];
-    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 }
 
@@ -1391,7 +1391,7 @@ async function assertFiveMInstallerStartBypassesSetupGuard() {
       process.env.AGENT_INSTANCE_ROOT = previousRoot;
     }
     delete require.cache[servicePath];
-    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 }
 
@@ -1567,7 +1567,7 @@ async function assertStoppedAndStaleInstancesCanBeDeleted() {
       process.env.AGENT_INSTANCE_ROOT = previousRoot;
     }
     delete require.cache[servicePath];
-    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 }
 
@@ -1652,7 +1652,7 @@ async function assertScriptMarketplaceStartupIsNotJarWrapped() {
       process.env.AGENT_INSTANCE_ROOT = previousRoot;
     }
     delete require.cache[servicePath];
-    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 }
 
@@ -1699,7 +1699,7 @@ async function assertPaperMetadataBackfill() {
       process.env.AGENT_INSTANCE_ROOT = previousRoot;
     }
     delete require.cache[servicePath];
-    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 }
 
@@ -1739,7 +1739,7 @@ async function assertMinecraftPropertiesVersionBackfill() {
       process.env.AGENT_INSTANCE_ROOT = previousRoot;
     }
     delete require.cache[servicePath];
-    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 }
 
@@ -1793,7 +1793,7 @@ async function assertOldVanillaInstallerMetadataBackfill() {
       process.env.AGENT_INSTANCE_ROOT = previousRoot;
     }
     delete require.cache[servicePath];
-    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 }
 
@@ -2848,7 +2848,7 @@ async function assertCalendarMinecraftVersionMetadata() {
       process.env.AGENT_INSTANCE_ROOT = previousRoot;
     }
     delete require.cache[servicePath];
-    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 }
 
@@ -3353,7 +3353,7 @@ async function assertProviderInstallSupport() {
       }
     }
   } finally {
-    fs.rmSync(cfSecretRoot, { recursive: true, force: true });
+    fs.rmSync(cfSecretRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 
   assert.strictEqual(marketplaceInstallService._test.safeArchivePath("config/example.toml"), "config/example.toml");

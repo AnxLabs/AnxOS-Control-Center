@@ -134,7 +134,7 @@ async function main() {
 }
 
 main()
-  .finally(() => fs.rmSync(root, { recursive: true, force: true }))
+  .finally(() => fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
   .catch((error) => {
     console.error(error.stack || error.message);
     process.exitCode = 1;

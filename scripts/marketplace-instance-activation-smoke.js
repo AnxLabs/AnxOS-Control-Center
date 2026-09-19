@@ -53,7 +53,7 @@ async function main() {
   );
   const secondRecovery = await instanceService.recoverIncompleteInstallations();
   assert.deepStrictEqual(secondRecovery, { repaired: [], failures: [] }, "Recovery must be idempotent.");
-  fs.rmSync(root, { recursive: true, force: true });
+  fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   console.log("Marketplace instance activation smoke checks passed.");
 }
 

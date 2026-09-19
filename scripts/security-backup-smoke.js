@@ -248,7 +248,7 @@ async function main() {
   assert.notStrictEqual(newRetryOperation.id, failedRetryOperation.id, "Retry must create a new operation id, not reuse the failed one.");
   assert.strictEqual(newRetryOperation.status, "complete", "The new retry attempt should complete successfully once the underlying failure condition is fixed.");
   await backupService.deleteBackup(retryResult.backup.id);
-  fs.rmSync(retryInstancePath, { recursive: true, force: true });
+  fs.rmSync(retryInstancePath, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 
   const created = await backupService.createBackup({ instanceId, type: "world", name: "Smoke world", createdBy: "smoke" });
   assert(created.backup.id, "Backup should have an id.");
@@ -406,13 +406,13 @@ async function main() {
     assert(!/window\.prompt|prompt\(|window\.confirm|confirm\(/.test(body), `${functionName} should use AnxOS modals instead of browser dialogs.`);
   });
 
-  fs.rmSync(root, { recursive: true, force: true });
+  fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   console.log("Security and backup smoke checks passed.");
 }
 
 main().catch((error) => {
   try {
-    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   } catch {}
   console.error(error);
   process.exit(1);

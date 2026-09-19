@@ -388,5 +388,5 @@ function phaseWireup() {
 }
 
 main()
-  .finally(() => fs.rmSync(temp, { recursive: true, force: true }))
+  .finally(() => fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
   .catch((error) => { console.error(error.stack || error.message); process.exitCode = 1; });

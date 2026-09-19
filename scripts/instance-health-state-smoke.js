@@ -57,7 +57,7 @@ async function main() {
   await instanceService.deleteInstance("ready-health-smoke");
   await instanceService.deleteInstance("degraded-health-smoke");
   instanceService.disposeInstanceService();
-  fs.rmSync(root, { recursive: true, force: true });
+  fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   console.log("Instance health state smoke checks passed.");
 }
 

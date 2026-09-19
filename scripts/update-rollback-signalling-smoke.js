@@ -275,5 +275,5 @@ try {
   console.error(error);
   process.exitCode = 1;
 } finally {
-  fs.rmSync(outputDir, { recursive: true, force: true });
+  fs.rmSync(outputDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 }

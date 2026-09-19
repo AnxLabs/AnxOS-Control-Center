@@ -105,7 +105,7 @@ function listen(server) {
     console.log("Agent compatibility smoke checks passed.");
   } finally {
     server.close();
-    fs.rmSync(tempDir, { recursive: true, force: true });
+    fs.rmSync(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 })().catch((error) => {
   console.error(error.stack || error.message);

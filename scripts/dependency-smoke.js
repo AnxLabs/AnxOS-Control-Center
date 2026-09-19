@@ -46,7 +46,7 @@ function assertHermeticAgentConfig(realBefore) {
 
 const realAgentConfigBefore = snapshotRealAgentConfig();
 process.on("exit", () => {
-  try { fs.rmSync(smokeConfigRoot, { recursive: true, force: true }); } catch {}
+  try { fs.rmSync(smokeConfigRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); } catch {}
 });
 
 const {

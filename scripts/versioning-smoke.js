@@ -164,7 +164,7 @@ const currentReleaseText = currentReleaseNotes;
   manager.loadStore();
   assert.strictEqual(manager.storeError?.code, "UPDATE_STORE_CORRUPT", "corrupt update state should produce a stable recovery error.");
   assert(fs.readdirSync(tempRoot).some((name) => name.startsWith("updates.json.corrupt-")), "corrupt update state should be preserved.");
-fs.rmSync(tempRoot, { recursive: true, force: true });
+fs.rmSync(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 
   // RC-retry provenance: an immutable suffix tag overrides release provenance only,

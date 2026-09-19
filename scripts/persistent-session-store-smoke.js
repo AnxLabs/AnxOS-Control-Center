@@ -29,5 +29,5 @@ assert.throws(() => security._test.writePersistentSessionFile(payload), (error) 
 assert(fs.readdirSync(root).some((name) => name.startsWith("session.dat.corrupt-") && name.endsWith(".backup")), "Corrupt remembered-session state should be preserved.");
 assert.strictEqual(fs.readdirSync(root).some((name) => name.endsWith(".tmp")), false, "Remembered-session writes should not leave temporary files.");
 
-fs.rmSync(root, { recursive: true, force: true });
+fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 console.log("Persistent session store smoke checks passed.");

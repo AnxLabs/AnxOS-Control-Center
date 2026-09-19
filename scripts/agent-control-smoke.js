@@ -120,7 +120,7 @@ async function main() {
     console.log("Agent Control smoke checks passed.");
   } finally {
     await control.stop({ force: true }).catch(() => {});
-    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 }
 

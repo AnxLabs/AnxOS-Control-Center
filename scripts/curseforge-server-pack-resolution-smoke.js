@@ -501,7 +501,7 @@ async function main() {
     agentClient.listInstanceFiles = original.listInstanceFiles;
     agentClient.readInstanceFile = original.readInstanceFile;
     global.fetch = original.fetch;
-    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 }
 

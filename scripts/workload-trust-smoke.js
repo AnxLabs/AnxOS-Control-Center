@@ -516,7 +516,7 @@ async function assertRealIntegrationPaths() {
       "The on-disk compose gate must refuse a declared sandboxed service with a host mount.",
     );
   } finally {
-    fs.rmSync(composeDir, { recursive: true, force: true });
+    fs.rmSync(composeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 
   // 10d. Real instance create/update path.
@@ -586,7 +586,7 @@ async function assertRealIntegrationPaths() {
     else process.env.AGENT_INSTANCE_ROOT = previousRoot;
     if (previousRoots === undefined) delete process.env.AGENT_INSTANCE_EXECUTABLE_ROOTS;
     else process.env.AGENT_INSTANCE_EXECUTABLE_ROOTS = previousRoots;
-    fs.rmSync(instanceRoot, { recursive: true, force: true });
+    fs.rmSync(instanceRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 }
 

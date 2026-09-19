@@ -146,7 +146,7 @@ async function main() {
         "The resolved executable must be a probed candidate or the docker PATH fallback.");
     } finally {
       process.env.PATH = originalPath;
-      try { fs.rmSync(probeDir, { recursive: true }); } catch {}
+      try { fs.rmSync(probeDir, { recursive: true, maxRetries: 5, retryDelay: 100 }); } catch {}
     }
   } else {
     const resolved = await resolveDockerExecutable();

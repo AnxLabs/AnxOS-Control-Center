@@ -212,7 +212,7 @@ async function main() {
   } finally {
     if (slowInterval) clearInterval(slowInterval);
     await close(server);
-    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 
   console.log("Update download safety smoke passed.");

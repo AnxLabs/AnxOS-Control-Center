@@ -39,5 +39,5 @@ try {
   }
   console.log("Bundled runtime smoke checks passed.");
 } finally {
-  fs.rmSync(root, { recursive: true, force: true });
+  fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 }

@@ -124,7 +124,7 @@ async function main() {
       artifacts: resolved,
     }, null, 2)}\n`);
     fs.copyFileSync(path.join(root, "docs", "THIRD_PARTY_RUNTIMES.md"), path.join(stagingRoot, "THIRD_PARTY_RUNTIMES.md"));
-    fs.rmSync(backupRoot, { recursive: true, force: true });
+    fs.rmSync(backupRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     if (fs.existsSync(outputRoot)) fs.renameSync(outputRoot, backupRoot);
     try {
       fs.renameSync(stagingRoot, outputRoot);
@@ -132,10 +132,10 @@ async function main() {
       if (fs.existsSync(backupRoot) && !fs.existsSync(outputRoot)) fs.renameSync(backupRoot, outputRoot);
       throw error;
     }
-    fs.rmSync(backupRoot, { recursive: true, force: true });
+    fs.rmSync(backupRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     console.log(`Prepared ${resolved.length} verified Windows runtime bundles.`);
   } finally {
-    fs.rmSync(stagingRoot, { recursive: true, force: true });
+    fs.rmSync(stagingRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 }
 

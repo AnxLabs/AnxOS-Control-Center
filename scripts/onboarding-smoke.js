@@ -218,5 +218,5 @@ try {
 
   console.log("Onboarding smoke checks passed.");
 } finally {
-  fs.rmSync(tempRoot, { recursive: true, force: true });
+  fs.rmSync(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 }

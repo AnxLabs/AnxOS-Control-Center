@@ -31,7 +31,7 @@ async function main() {
   assert.strictEqual(repaired.processRunning, false);
 
   await instanceService.deleteInstance("stale-pid-smoke");
-  fs.rmSync(root, { recursive: true, force: true });
+  fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   console.log("Instance stale PID recovery smoke checks passed.");
 }
 

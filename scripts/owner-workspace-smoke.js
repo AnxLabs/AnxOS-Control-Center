@@ -207,7 +207,7 @@ async function main() {
   assert.throws(() => workspace.getCommandCatalog(), /Owner access is required/, "Logout should immediately remove command access.");
 
   process.env.ANXOS_FORCE_PRODUCTION = "1";
-  fs.rmSync(process.env.ANXHUB_CONFIG_DIR, { recursive: true, force: true });
+  fs.rmSync(process.env.ANXHUB_CONFIG_DIR, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   security = reload(securityPath);
   workspace = reload(workspacePath);
   await assert.rejects(

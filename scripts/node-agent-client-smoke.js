@@ -141,7 +141,7 @@ async function main() {
     console.log("Node-aware Agent client smoke checks passed.");
   } finally {
     await Promise.all([agentA.close(), agentB.close(), agentC.close()]);
-    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 }
 

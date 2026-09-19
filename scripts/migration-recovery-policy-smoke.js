@@ -397,8 +397,8 @@ async function main() {
 
 main()
   .finally(() => {
-    fs.rmSync(instanceRoot, { recursive: true, force: true });
-    fs.rmSync(configRoot, { recursive: true, force: true });
+    fs.rmSync(instanceRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    fs.rmSync(configRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   })
   .catch((error) => {
     console.error(error);

@@ -130,7 +130,7 @@ assert.strictEqual(playitProvider.publicAddress, "example.playit.gg");
   assert.strictEqual(reconciled[0].providerResourceStatus, "detected", "Playit reconciliation must distinguish detected provider resources from AnxOS-created records.");
   registry.deleteAccessService(service.id, { configDir: tempRoot });
   assert.strictEqual(registry.listAccessServices({ configDir: tempRoot }).length, 0, "Access service delete must persist.");
-  fs.rmSync(tempRoot, { recursive: true, force: true });
+  fs.rmSync(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 }
 
 {
@@ -165,7 +165,7 @@ assert.strictEqual(playitProvider.publicAddress, "example.playit.gg");
   assert.strictEqual(reconciled[0].publicAddress, null, "Tailscale service must not invent a public address.");
   const ipv4Preferred = registry._test.selectTailscaleEndpoint({ ...reconciled[0], privateAddress: null, addressPreference: "ipv4" }, {});
   assert.strictEqual(ipv4Preferred.address, "100.64.0.10:7777", "Tailscale IPv4 preference should produce a private IPv4 endpoint.");
-  fs.rmSync(tempRoot, { recursive: true, force: true });
+  fs.rmSync(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 }
 
 {
@@ -193,7 +193,7 @@ assert.strictEqual(playitProvider.publicAddress, "example.playit.gg");
     "corrupt Public Access state must not silently clear service records.",
   );
   assert(fs.readdirSync(tempRoot).some((name) => name.startsWith(`${registry.DEFAULT_FILE_NAME}.corrupt-`)), "corrupt Public Access state should be preserved.");
-  fs.rmSync(tempRoot, { recursive: true, force: true });
+  fs.rmSync(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 }
 
 {
@@ -226,7 +226,7 @@ assert.strictEqual(playitProvider.publicAddress, "example.playit.gg");
   registry.deleteAccessService(palworldPublic.id, { configDir: tempRoot });
   registry.deleteAccessService(palworldPrivate.id, { configDir: tempRoot });
   assert.strictEqual(registry.listAccessServices({ configDir: tempRoot }).length, 0, "Instance access cleanup must be able to delete linked services.");
-  fs.rmSync(tempRoot, { recursive: true, force: true });
+  fs.rmSync(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 }
 
 {
@@ -284,7 +284,7 @@ assert.strictEqual(playitProvider.publicAddress, "example.playit.gg");
     publicHostname: "bad-url.example.com",
     localServiceUrl: "tcp://127.0.0.1:8082",
   }, { configDir: tempRoot }), /HTTP or HTTPS/, "Cloudflare must reject non-HTTP local service URLs.");
-  fs.rmSync(tempRoot, { recursive: true, force: true });
+  fs.rmSync(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 }
 
 const readiness = publicAccess._test.summarizePublicAccessReadiness({

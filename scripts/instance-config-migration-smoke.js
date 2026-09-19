@@ -133,7 +133,7 @@ async function main() {
   }, null, 2));
 }
 
-main().finally(() => fs.rmSync(root, { recursive: true, force: true })).catch((error) => {
+main().finally(() => fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })).catch((error) => {
   console.error(error);
   process.exitCode = 1;
 });

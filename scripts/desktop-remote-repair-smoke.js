@@ -333,7 +333,7 @@ async function main() {
     await new Promise((resolve) => server.close(resolve));
     clearEnrollmentRecord();
     pairingRoute._test.reset();
-    fs.rmSync(smokeRoot, { recursive: true, force: true });
+    fs.rmSync(smokeRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 }
 

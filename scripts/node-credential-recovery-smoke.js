@@ -144,5 +144,5 @@ assert.strictEqual(
   "The selected legacy node must recover from the existing configured Agent token even when its saved URL differs.",
 );
 
-fs.rmSync(temporaryRoot, { recursive: true, force: true });
+fs.rmSync(temporaryRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 console.log("Node credential recovery smoke checks passed.");

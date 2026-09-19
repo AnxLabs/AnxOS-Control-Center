@@ -115,5 +115,5 @@ main()
   })
   .finally(() => {
     console.error = originalConsoleError;
-    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });

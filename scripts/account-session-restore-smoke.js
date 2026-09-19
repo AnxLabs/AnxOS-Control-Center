@@ -51,7 +51,7 @@ async function withTempService(fn) {
   try {
     await fn(configDir);
   } finally {
-    fs.rmSync(configDir, { recursive: true, force: true });
+    fs.rmSync(configDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     clearServiceCache();
   }
 }

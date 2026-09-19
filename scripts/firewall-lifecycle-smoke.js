@@ -285,6 +285,6 @@ assert(ipcSource.includes("publicAccess:applyFirewallRule") && ipcSource.include
   console.log("firewall-lifecycle-smoke passed");
 })().catch((error) => {
   console.error(error);
-  try { fs.rmSync(smokeRoot, { recursive: true, force: true }); } catch {}
+  try { fs.rmSync(smokeRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); } catch {}
   process.exit(1);
 });

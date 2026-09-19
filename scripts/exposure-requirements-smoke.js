@@ -728,6 +728,6 @@ assert.strictEqual(typeof agentRoute._test.classifyExposureRequirements, "functi
   console.log("exposure-requirements-smoke passed");
 })().catch((error) => {
   console.error(error);
-  try { fs.rmSync(smokeRoot, { recursive: true, force: true }); } catch {}
+  try { fs.rmSync(smokeRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); } catch {}
   process.exit(1);
 });

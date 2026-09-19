@@ -36,5 +36,5 @@ assert.deepStrictEqual(store.read(), session, "Explicit recovery replacement sho
 assert(fs.readdirSync(root).some((name) => name.includes(".recovery-") && name.endsWith(".backup")), "Recovery replacement must preserve the unreadable encrypted state.");
 assert.strictEqual(fs.readdirSync(root).some((name) => name.endsWith(".tmp")), false, "Atomic session writes should clean temporary files.");
 
-fs.rmSync(root, { recursive: true, force: true });
+fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 console.log("Secure session store smoke checks passed.");

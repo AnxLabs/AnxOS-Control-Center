@@ -420,7 +420,7 @@ async function main() {
     await stopAgentProcess(agentA.child);
     await stopAgentProcess(agentB.child);
     if (fleetRoot) {
-      try { fs.rmSync(fleetRoot, { recursive: true, force: true }); } catch {}
+      try { fs.rmSync(fleetRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); } catch {}
     }
   }
 }

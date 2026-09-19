@@ -251,7 +251,7 @@ async function main() {
 
 main().catch((error) => {
   try {
-    fsSync.rmSync(testRoot, { recursive: true, force: true });
+    fsSync.rmSync(testRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   } catch {}
   console.error(error);
   process.exit(1);

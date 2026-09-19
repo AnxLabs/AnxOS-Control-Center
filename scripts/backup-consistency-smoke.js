@@ -251,13 +251,13 @@ async function main() {
   });
   assert.strictEqual(restarted.attempted && restarted.restarted, true, "A normal restart must still be reported as attempted+restarted.");
 
-  fs.rmSync(root, { recursive: true, force: true });
+  fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   console.log("backup-consistency-smoke passed");
 }
 
 main().catch((error) => {
   try {
-    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   } catch {}
   console.error(error);
   process.exit(1);

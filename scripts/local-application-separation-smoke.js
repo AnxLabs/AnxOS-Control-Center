@@ -54,7 +54,7 @@ function writeJson(filePath, value) {
 
     console.log("Local Application separation smoke checks passed.");
   } finally {
-    fs.rmSync(tempDir, { recursive: true, force: true });
+    fs.rmSync(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 })().catch((error) => {
   console.error(error.stack || error.message);

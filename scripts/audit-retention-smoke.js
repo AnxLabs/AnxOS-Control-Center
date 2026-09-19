@@ -332,10 +332,10 @@ function main() {
 Promise.resolve()
   .then(main)
   .catch((error) => {
-    try { fs.rmSync(root, { recursive: true, force: true }); } catch {}
+    try { fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); } catch {}
     console.error(error);
     process.exit(1);
   })
   .then(() => {
-    try { fs.rmSync(root, { recursive: true, force: true }); } catch {}
+    try { fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); } catch {}
   });

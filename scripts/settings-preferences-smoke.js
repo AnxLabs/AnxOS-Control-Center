@@ -71,5 +71,5 @@ try {
 
   console.log("Settings preference smoke checks passed.");
 } finally {
-  fs.rmSync(root, { recursive: true, force: true });
+  fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 }

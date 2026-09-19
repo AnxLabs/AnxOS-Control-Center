@@ -100,7 +100,7 @@ function close(server) {
     console.log("Global Agent configuration isolation smoke checks passed.");
   } finally {
     await Promise.all([legacy, nodeA, nodeB].map((agent) => close(agent.server)));
-    fs.rmSync(tempDir, { recursive: true, force: true });
+    fs.rmSync(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 })().catch((error) => {
   console.error(error.stack || error.message);

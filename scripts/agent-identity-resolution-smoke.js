@@ -102,5 +102,5 @@ try {
   console.error(error.stack || error.message);
   process.exitCode = 1;
 } finally {
-  fs.rmSync(root, { recursive: true, force: true });
+  fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 }

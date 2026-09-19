@@ -384,13 +384,13 @@ async function main() {
   assertTreeUnchanged("source after route checks", sourceBeforeCross, snapshotTree(sourcePath));
   assertTreeUnchanged("target after route checks", targetBeforeRollback, snapshotTree(instanceDir(TARGET_ID)));
 
-  fs.rmSync(root, { recursive: true, force: true });
+  fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   console.log("restore-targeting-smoke passed");
 }
 
 main().catch((error) => {
   try {
-    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   } catch {}
   console.error(error);
   process.exit(1);

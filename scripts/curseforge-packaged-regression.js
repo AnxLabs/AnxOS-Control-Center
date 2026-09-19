@@ -63,7 +63,7 @@ function runCleanConfigProbe() {
     });
     assert.strictEqual(probe.status, 0, `Clean config probe failed: ${probe.stderr || probe.stdout}`);
   } finally {
-    fs.rmSync(tempRoot, { recursive: true, force: true });
+    fs.rmSync(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 }
 
@@ -174,7 +174,7 @@ function assertDownloadAuthenticationCoverage() {
     });
     assert.strictEqual(probe.status, 0, `Download auth probe failed: ${probe.stderr || probe.stdout}`);
   } finally {
-    fs.rmSync(tempRoot, { recursive: true, force: true });
+    fs.rmSync(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 }
 

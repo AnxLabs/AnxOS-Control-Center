@@ -82,7 +82,7 @@ async function main() {
   console.log("Local Owner authentication smoke checks passed.");
 }
 
-main().finally(() => fs.rmSync(root, { recursive: true, force: true })).catch((error) => {
+main().finally(() => fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })).catch((error) => {
   console.error(error.stack || error.message);
   process.exitCode = 1;
 });

@@ -203,7 +203,7 @@ async function main() {
     console.log("Marketplace install selected-node smoke checks passed.");
   } finally {
     global.fetch = originalFetch;
-    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 }
 

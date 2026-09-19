@@ -115,7 +115,7 @@ function makeHarness({ swapStatus = "complete", writeResult = true, scheduleFail
 }
 
 function cleanupRoots(states) {
-  states.forEach((state) => fs.rmSync(state.root, { recursive: true, force: true }));
+  states.forEach((state) => fs.rmSync(state.root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
 }
 
 async function expectError(code, run) {

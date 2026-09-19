@@ -115,7 +115,7 @@ async function main() {
     console.log("Node credential repair smoke checks passed.");
   } finally {
     global.fetch = originalFetch;
-    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 }
 

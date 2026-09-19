@@ -94,7 +94,7 @@ function createLocalAgent() {
     console.log("Local node removal smoke checks passed.");
   } finally {
     await close(server);
-    fs.rmSync(tempDir, { recursive: true, force: true });
+    fs.rmSync(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 })().catch((error) => {
   console.error(error.stack || error.message);

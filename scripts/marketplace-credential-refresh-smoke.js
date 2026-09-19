@@ -127,7 +127,7 @@ async function main() {
     global.fetch = originalFetch;
     console.error = originalConsoleError;
     console.info = originalConsoleInfo;
-    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 }
 

@@ -20,7 +20,7 @@ const repoRoot = path.join(__dirname, "..");
 // residue tripwire caught exactly this).
 const agentDataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "anxos-authority-roots-"));
 process.on("exit", () => {
-  try { fs.rmSync(agentDataRoot, { recursive: true, force: true }); } catch {}
+  try { fs.rmSync(agentDataRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); } catch {}
 });
 
 const PERMISSIONS_PATH = path.join(repoRoot, "agent", "src", "permissions.js");
@@ -64,7 +64,7 @@ function loadPermissionsModule() {
 function loadSecurityService() {
   const configRoot = fs.mkdtempSync(path.join(os.tmpdir(), "anxos-authority-config-"));
   process.env.ANXHUB_CONFIG_DIR = path.join(configRoot, "config");
-  fs.rmSync(configRoot, { recursive: true, force: true });
+  fs.rmSync(configRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   delete require.cache[require.resolve(SECURITY_PATH)];
   return require(SECURITY_PATH);
 }
@@ -256,7 +256,7 @@ async function testLiveAgentProfiles() {
     assert.strictEqual((await fetch(`${url}/api/v1/stats`, { headers: { Authorization: `Bearer ${token}` } })).status, 200, "Local wildcard must keep current installs working.");
   } finally {
     await waitForAgentExit(agent);
-    fs.rmSync(configDir, { recursive: true, force: true });
+    fs.rmSync(configDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 }
 

@@ -262,13 +262,13 @@ async function main() {
     "await chooseBackupType(\"Schedule world-only backups?\", findInstance(instanceId) || null)",
   ].forEach((needle) => assert(appSource.includes(needle), `Backup world-scope renderer pinning missing: ${needle}`));
 
-  fs.rmSync(root, { recursive: true, force: true });
+  fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   console.log("backup-world-scopes-smoke passed");
 }
 
 main().catch((error) => {
   try {
-    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   } catch {}
   console.error(error);
   process.exit(1);

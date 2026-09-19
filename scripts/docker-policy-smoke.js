@@ -233,12 +233,12 @@ async function main() {
     assert.strictEqual(granted.allowed, true, "A granted compose project must pass the gate (no engine call happens in the gate).");
 
     const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), "anxos-compose-empty-"));
-    fs.rmSync(emptyDir, { recursive: true, force: true });
+    fs.rmSync(emptyDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     const passthrough = await assertComposePolicy({ projectDirectory: emptyDir });
     assert.strictEqual(passthrough, null, "A directory without a compose file must pass through for the engine to diagnose.");
-    fs.rmSync(emptyDir, { recursive: true, force: true });
+    fs.rmSync(emptyDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   } finally {
-    fs.rmSync(composeProbeDir, { recursive: true, force: true });
+    fs.rmSync(composeProbeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 
   console.log("docker:policy:smoke passed");
