@@ -97,7 +97,12 @@ async function withTempService(fn, options = {}) {
     if (options.platform) {
       Object.defineProperty(process, "platform", originalPlatformDescriptor);
     }
-    fs.rmSync(root, { recursive: true, force: true });
+    // Retries are not optional on Windows: this cleanup runs immediately after a
+    // real child process exited, and a directory whose last handle is still
+    // closing fails with ENOTEMPTY/EBUSY rather than waiting. That produced an
+    // intermittent gate failure (observed once in three rc:validate runs, then
+    // 16/16 clean standalone) which is a harness defect, not a product one.
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 }
 
