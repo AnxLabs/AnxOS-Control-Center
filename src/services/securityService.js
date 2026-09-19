@@ -22,6 +22,8 @@ const {
   getNode,
 } = require("./nodeService");
 const diagnostics = require("./diagnosticsService");
+const auditRetentionPolicy = require("../shared/auditRetentionPolicy");
+const { sanitizeForDiagnostics } = require("../shared/redaction");
 
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 const PERSISTENT_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -1142,6 +1144,83 @@ function getAuditFolderForOpen() {
   return path.dirname(getAuditPath());
 }
 
+// V2-I: audit retention / access review / export.
+//
+// The store is append-only and this module never rewrites or deletes it: these
+// functions read the audit log, apply the shared retention policy
+// (`src/shared/auditRetentionPolicy.js`) to bound what a review or export may
+// see, and return redacted projections. Enforcement (actually rewriting the
+// log) is deliberately not automatic — deleting audit data is a user-approval
+// action, so `getAuditRetentionReport` reports what the policy would prune.
+function readAuditLogRecords() {
+  let content;
+  try {
+    content = fs.readFileSync(getAuditPath(), "utf8");
+  } catch {
+    return [];
+  }
+  const records = [];
+  for (const line of content.split(/\r?\n/)) {
+    if (!line) continue;
+    try {
+      const parsed = JSON.parse(line);
+      records.push(parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : { at: null, action: null, outcome: null });
+    } catch {
+      // An unparseable line is retained as a placeholder with no raw content,
+      // so the policy classifies it `unknown` (protected) and the line is
+      // counted rather than silently vanishing from the review.
+      records.push({ at: null, action: "(unparseable-audit-line)", outcome: "unknown", target: null, reason: null });
+    }
+  }
+  return records;
+}
+
+function getAuditRetentionReport(options = {}) {
+  requirePermission("settings:write", "audit-log");
+  const records = readAuditLogRecords();
+  const plan = auditRetentionPolicy.applyRetention(records, options);
+  const prunedByClass = {};
+  for (const entry of plan.pruned) {
+    prunedByClass[entry.classification.class] = (prunedByClass[entry.classification.class] || 0) + 1;
+  }
+  return sanitizeForDiagnostics({
+    policy: auditRetentionPolicy.describeRetentionPolicy(),
+    enforced: false,
+    enforcementNote: "This is the retention decision; no audit record is removed by this call.",
+    refused: plan.refused,
+    refusalReason: plan.refusalReason,
+    windowMs: plan.windowMs,
+    maxRecords: plan.maxRecords,
+    cutoff: plan.cutoff,
+    totalRecords: records.length,
+    prunedCount: plan.prunedCount,
+    keptCount: plan.keptCount,
+    prunedByClass,
+    protectedRetained: plan.protectedRetained,
+  });
+}
+
+function getAuditAccessReview(options = {}) {
+  requirePermission("settings:write", "audit-log");
+  const records = readAuditLogRecords();
+  const plan = auditRetentionPolicy.applyRetention(records, options);
+  return auditRetentionPolicy.buildAccessReview(plan.kept, options);
+}
+
+function exportAuditWindow(options = {}) {
+  requirePermission("settings:write", "audit-log");
+  const records = readAuditLogRecords();
+  const plan = auditRetentionPolicy.applyRetention(records, options);
+  const exported = auditRetentionPolicy.buildAuditExport(plan.kept, options);
+  return {
+    json: exported.json,
+    recordCount: exported.recordCount,
+    redacted: true,
+    deterministic: true,
+    maxExportRecords: exported.maxExportRecords,
+  };
+}
+
 function checkRateLimit(key, limit, windowMs) {
   const now = Date.now();
   const bucket = rateBuckets.get(key) || [];
@@ -1891,6 +1970,7 @@ module.exports = {
     migrateLegacyOwnerUsers,
     normalizeSecurityState,
     parsePersistentSessionRecord,
+    readAuditLogRecords,
     readPersistentSessionFile,
     writePersistentSessionFile,
   },
@@ -1898,8 +1978,11 @@ module.exports = {
   checkRateLimit,
   disableRemoteAccess,
   emergencySecurityAction,
+  exportAuditWindow,
   generateReplacementAgentToken,
+  getAuditAccessReview,
   getAuditFolderForOpen,
+  getAuditRetentionReport,
   getSecurityDashboard,
   getStatus,
   login,
