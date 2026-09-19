@@ -19,6 +19,7 @@ const curseforgeProvider = require("./providers/curseforgeProvider");
 const { sanitizeForDiagnostics } = require("../shared/redaction");
 const { normalizeDiskEvidence } = require("../shared/diskSpace");
 const { CLASSIFICATIONS, classifyServerCompatibility } = require("../shared/marketplaceServerCompatibility");
+const { evaluatePublisherTrust } = require("../shared/publisherTrustPolicy");
 const longOperations = require("../shared/longOperationService");
 const {
   MARKETPLACE_JOB_TYPES,
@@ -2847,6 +2848,7 @@ async function continueProviderPackInstall(context = {}) {
     manualFiles = {},
     operationId = null,
     signal = null,
+    trustVerdict = null,
   } = context;
 
   const nodeId = agentConfig?.nodeId || options?.nodeId || null;
@@ -2954,6 +2956,7 @@ async function continueProviderPackInstall(context = {}) {
     status: "completed",
     instance: { ...(createResult?.instance || createResult || {}), ...activatedInstance, id: instanceId, displayName: instancePayload.displayName, installationState: "active" },
     metadata,
+    trust: trustVerdict,
     progress: [{ label: "Done", status: "complete", detail: "Marketplace pack installed." }],
   };
 }
@@ -3101,6 +3104,46 @@ function buildPackInstallSubject(payload = {}) {
     : providerProjectId;
 }
 
+// V2-D publisher trust (docs/v2/V2D_MARKETPLACE_RUNTIMES_WAVE1.md §3 item 5;
+// roadmap V2-D bullets 7-8). The trust verdict for a provider pack, from the
+// facts this path actually holds:
+//
+//   provider      modrinth / curseforge / anxhub — a third-party marketplace
+//                 identity, never an AnxOS signing identity
+//   declaredHash  the provider's own per-file hash when it publishes one
+//                 (Modrinth publishes sha1/sha512 per file; CurseForge
+//                 publishes none). It describes individual pack files, not the
+//                 archive this path downloads.
+//   computedHash  ALWAYS null: the pack archive is never hashed here, so no
+//                 provider hash is ever compared against the bytes on disk. No
+//                 integrity match can be established and the verdict can never
+//                 be `verified` — an honest gap in the current code, not a
+//                 policy default.
+function resolveProviderPackDeclaredHash(provider, options = {}) {
+  if (provider !== "modrinth") {
+    return null;
+  }
+  const files = Array.isArray(options.modrinthSelectedVersion?.files) ? options.modrinthSelectedVersion.files : [];
+  const hashes = files.find((file) => file?.hashes && typeof file.hashes === "object")?.hashes || {};
+  if (hashes.sha512) return { algorithm: "sha512", value: String(hashes.sha512).toLowerCase() };
+  if (hashes.sha1) return { algorithm: "sha1", value: String(hashes.sha1).toLowerCase() };
+  return null;
+}
+
+function evaluatePackPublisherTrust(provider, options = {}) {
+  return evaluatePublisherTrust({
+    kind: "pack",
+    id: options.providerProjectId || options.projectId || null,
+    provider,
+  }, {
+    provider,
+    sourceUrl: options.modrinthSelectedVersion?.files?.[0]?.url || null,
+    declaredHash: resolveProviderPackDeclaredHash(provider, options),
+    computedHash: null,
+    executable: true,
+  });
+}
+
 async function installPack(payload = {}) {
   const subject = buildPackInstallSubject(payload);
   const controller = new AbortController();
@@ -3216,6 +3259,22 @@ async function executeInstallPack(payload = {}, context = {}) {
       serverCompatibilityConfirmed: resolvedMetadata.serverCompatibilityConfirmed,
     });
   }
+  // Publisher trust is evaluated for the real pack before any content is
+  // downloaded or executed. The verdict rides the provider install operation
+  // metadata, which the existing Marketplace downloads read path already
+  // surfaces (no new channel).
+  const trustVerdict = evaluatePackPublisherTrust(provider, options);
+  options.trustVerdict = trustVerdict;
+  logMarketplaceInstallStep("Publisher trust evaluated for provider pack.", {
+    step: "PUBLISHER_TRUST_EVALUATED",
+    provider,
+    providerProjectId: options.providerProjectId || null,
+    verdict: trustVerdict.verdict,
+    code: trustVerdict.code,
+    publisherKind: trustVerdict.publisherKind,
+    executable: trustVerdict.executable,
+    requiresReview: trustVerdict.requiresReview,
+  });
   logMarketplaceInstallStep("Resolved Marketplace install target.", {
     provider,
     operation: "install-target",
@@ -3245,6 +3304,7 @@ async function executeInstallPack(payload = {}, context = {}) {
   const installOperation = createProviderInstallOperation(payload, { nodeId: installNodeId, instanceId, controller: context?.controller || null });
   const operationId = installOperation.operation.id;
   const signal = installOperation.signal;
+  updateProviderInstallOperation(operationId, { trustVerdict });
   instancePayload.installationOperationId = operationId;
   let created = false;
   let createResult = null;
@@ -3284,6 +3344,7 @@ async function executeInstallPack(payload = {}, context = {}) {
       manualFiles: {},
       operationId,
       signal,
+      trustVerdict,
     });
   } catch (error) {
     logMarketplaceInstallFailure(error, {
@@ -3331,6 +3392,7 @@ async function executeInstallPack(payload = {}, context = {}) {
         status: "waiting-manual-download",
         instance: { ...(createResult?.instance || createResult || {}), id: instanceId, displayName: instancePayload.displayName },
         manualDownload: getPublicManualInstall(session),
+        trust: trustVerdict,
         progress: [{ label: "Waiting for Manual Download", status: "waiting", detail: "A required modpack file needs manual download." }],
       };
     }
@@ -3352,6 +3414,7 @@ async function executeInstallPack(payload = {}, context = {}) {
       originalName: error?.name || null,
       originalMessage: error?.message || null,
       retention,
+      trust: trustVerdict,
     });
   }
 }
@@ -3895,6 +3958,8 @@ module.exports = {
     createManualDownloadRequiredError,
     createRestrictedCurseForgeFileError,
     createDeduper,
+    evaluatePackPublisherTrust,
+    resolveProviderPackDeclaredHash,
     ensureCurseForgeServerPackCandidate,
     ensureProviderPackDependencies,
     ensureModrinthServerCapable,

@@ -26,6 +26,7 @@ const {
 } = require("./marketplaceInstallJobService");
 const longOperations = require("../shared/longOperationService");
 const { resolveTemplateDependencyIds } = require("../shared/marketplaceDependencies");
+const { evaluatePublisherTrust } = require("../shared/publisherTrustPolicy");
 const { redactString, sanitize } = require("../shared/redaction");
 const { normalizeDiskEvidence } = require("../shared/diskSpace");
 
@@ -3861,6 +3862,39 @@ async function setInstanceInstallStage(instanceId, stage, agentConfig = null, ex
   }
 }
 
+// V2-D publisher trust (docs/v2/V2D_MARKETPLACE_RUNTIMES_WAVE1.md §3 item 5;
+// roadmap V2-D bullets 7-8). Computes the trust verdict for the exact template
+// about to be installed, from the facts this path actually holds:
+//
+//   provider      template.provenance.source ("anxos-catalog" for the shipped
+//                 catalog) or an explicit template.provider
+//   declaredHash  template.checksum — null for every entry in the shipped
+//                 catalog (readTemplatesFile defaults it to null)
+//   computedHash  ALWAYS null: this install path downloads the artifact but
+//                 never hashes it, so no integrity match can be established
+//                 and the verdict can never be `verified`. That is the honest
+//                 state of the code today, not an oversight in the policy.
+//   executable    the resolved installer type runs content when it is not
+//                 "no-install"
+function evaluateInstallPublisherTrust(template = {}, manifest = {}) {
+  const installerType = manifest?.installerType || getTemplateInstallerType(template) || "";
+  return evaluatePublisherTrust(template, {
+    provider: template.provenance?.source || template.provider || "",
+    sourceUrl: firstTemplateDownloadUrl(template),
+    declaredHash: template.checksum ?? null,
+    computedHash: null,
+    executable: installerType ? installerType !== "no-install" : undefined,
+  });
+}
+
+// The first concrete download URL a template declares, used only as publisher
+// evidence (the URL host class) in the trust verdict.
+function firstTemplateDownloadUrl(template = {}) {
+  const downloads = normalizeTemplateDownloads(template);
+  const withUrl = downloads.find((download) => typeof download?.url === "string" && download.url);
+  return withUrl?.url || template.downloadSource?.url || template.downloadSource?.urlTemplate || null;
+}
+
 // The idempotency-key subject must be the identity the executor actually
 // uses — slugify(options.id || options.name || template.id) (templateValue
 // id, the instance id on disk). Exposed through _test so the transaction
@@ -3930,10 +3964,27 @@ async function executeInstallTemplate(payload = {}, context = {}) {
   }
   const manifestValidation = validateMarketplaceTemplate(template);
   pushStep(progress, "Validate template", "complete", `${template.id} is installable as ${manifestValidation.installerType}.`);
+  // Publisher trust is evaluated for the real entry before any content is
+  // downloaded or executed, and the verdict travels with the install record so
+  // the existing Marketplace downloads read path surfaces it (no new channel).
+  const trustVerdict = evaluateInstallPublisherTrust(template, manifestValidation);
+  pushStep(progress, "Validate publisher trust", trustVerdict.verdict === "verified" ? "complete" : "skipped", `${trustVerdict.operatorTitle}. ${trustVerdict.operatorMessage}`);
+  console.info("[Marketplace][Trust]", {
+    stage: "trust.evaluated",
+    timestamp: new Date().toISOString(),
+    requestId,
+    templateId: template.id,
+    verdict: trustVerdict.verdict,
+    code: trustVerdict.code,
+    publisherKind: trustVerdict.publisherKind,
+    executable: trustVerdict.executable,
+    requiresReview: trustVerdict.requiresReview,
+  });
 
   const options = normalizeMarketplaceInstallOptions(template, payload.options || {});
   const installNodeId = payload.nodeId || getSelectedNodeId();
   const parentRecord = createInstallTaskRecord(template, { ...options, nodeId: installNodeId });
+  updateDownload(parentRecord, { trustVerdict });
   const ports = template.category === "Minecraft"
     ? [resolveMinecraftPort(options, template.defaultPorts)]
     : parsePorts(options.ports || options.port, template.defaultPorts);
@@ -3980,6 +4031,7 @@ async function executeInstallTemplate(payload = {}, context = {}) {
         instance: result.container,
         container: result.container,
         progress,
+        trust: trustVerdict,
         downloads: sanitizeDownloads(getDownloadsForNode(installNodeId)).downloads,
       };
     } catch (error) {
@@ -3994,6 +4046,7 @@ async function executeInstallTemplate(payload = {}, context = {}) {
         templateId: template.id,
         installerType: manifestValidation.installerType,
         runtimeType: "docker",
+        trust: trustVerdict,
         stage: error?.details?.stage || "Create instance",
         retryable: error?.details?.retryable ?? true,
       });
@@ -4237,6 +4290,7 @@ async function executeInstallTemplate(payload = {}, context = {}) {
       template,
       instance: startedInstance,
       progress,
+      trust: trustVerdict,
       downloads: sanitizeDownloads(getDownloadsForNode(installNodeId)).downloads,
     };
   } catch (error) {
@@ -4271,6 +4325,7 @@ async function executeInstallTemplate(payload = {}, context = {}) {
       installerType: manifestValidation.installerType,
       runtimeType: template.startupType || template.runtime || template.instanceType || null,
       installContext,
+      trust: trustVerdict,
       stage: failureStage,
       childTaskState: sanitizeDownloads({ downloads: getInstallSessionRecords(parentRecord) }).downloads,
       timestamp: new Date().toISOString(),
@@ -4295,6 +4350,8 @@ module.exports = {
     assertInstallerResult,
     createInstallerResultError,
     createInstallerResultOk,
+    evaluateInstallPublisherTrust,
+    firstTemplateDownloadUrl,
     getEffectiveInstallerTimeoutMs,
     getTemplateInstallerType,
     getTemplateInstallPlan,
