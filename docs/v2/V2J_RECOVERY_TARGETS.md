@@ -122,3 +122,197 @@ so it is flagged rather than edited. Until it is reconciled, the recovery-time
 target for **world data** carries this as a residual risk: a declined transfer
 preview against a target whose instance id already exists must not be run
 (`docs/RECOVERY_MODEL.md:157-160`).
+
+## Downgrade: what a rollback does to schema-versioned data
+
+**Every statement in this section is code-grounded. No downgrade has been
+executed — not on a real host, not in a sandbox, not hermetically.** There is no
+downgrade drill result anywhere in this repository, and nothing below may be
+reported as one. What was done is: read each store's schema constant and refusal
+path, and make the update manifest state the difference between an application
+rollback and a data-schema rollback. The hermetic smoke
+`scripts/update-rollback-signalling-smoke.js` proves the signalling, not the
+downgrade.
+
+### The distinction the manifest used to hide
+
+An **application rollback** replaces the installed binaries with an older build.
+A **data-schema rollback** would rewrite the stored records back to an older
+schema. AnxOS does not do the second one: every store below refuses a record
+whose schema is newer than the build's own and leaves the file exactly as the
+newer build wrote it. So after a downgrade the data is preserved on disk and the
+older build cannot read it. The old manifest `rollback` block
+(`preservesUserData` / `preservesInstances` / `preservesBackups: true`) was
+literally true and read as "a rollback is safe", which is where the dishonesty
+was.
+
+### Per-store downgrade behaviour
+
+"Read behaviour in an older build" is the refusal the older build raises when it
+meets a newer schema. "Outcome" is `readable` (no schema change to meet),
+`preserved + refused` (data intact, store unusable in that build), or `unknown`.
+No store in this table rewrites a newer-schema record on read, so **no store here
+is at risk of data loss from the refusal path itself**.
+
+| Store | Schema constant (`file:line`) | Ver | Refusal in an older build (`file:line`) | Outcome | Oldest build that reads it |
+| --- | --- | --- | --- | --- | --- |
+| Instance configuration | `src/shared/instances/instanceServiceCore.js:76` | 2 | `INSTANCE_CONFIG_SCHEMA_UNSUPPORTED` (409) at `instanceServiceCore.js:3486` | preserved + refused | Build 200 |
+| Node registry (`nodes.json`) | `src/services/nodeService.js:22` | 3 | `NODE_SCHEMA_UNSUPPORTED` at `nodeService.js:990` | preserved + refused | Build 150 |
+| Node credential store | `src/services/nodeCredentialStore.js:6` | 2 | `NODE_CREDENTIAL_SCHEMA_UNSUPPORTED` at `nodeCredentialStore.js:66` | preserved + refused | Build 150 |
+| Update store (`updates.json`) | `src/services/updateManager.js:29` | 2 | `UPDATE_STORE_SCHEMA_UNSUPPORTED` at `updateManager.js:546`; `saveStore()` then refuses to write | preserved + refused | Build 150 |
+| Marketplace provider config | `src/services/providerConfigService.js:5` | 2 | `MARKETPLACE_CONFIG_SCHEMA_UNSUPPORTED` at `providerConfigService.js:132` | preserved + refused | Build 150 |
+| Encrypted session state | `src/services/secureSessionStore.js:7` | 1 | `SECURE_SESSION_SCHEMA_UNSUPPORTED` at `secureSessionStore.js:109` | readable | any build that knows the store |
+| Agent runtime config | `src/shared/agentRuntimeConfigStore.js:4` | 1 | `AGENT_RUNTIME_CONFIG_FUTURE_VERSION` at `agentRuntimeConfigStore.js:30` | readable | any build that knows the store |
+| Agent backup metadata | `agent/src/services/backupService.js:23` | 1 | `BACKUP_METADATA_SCHEMA_UNSUPPORTED` (409) at `backupService.js:676` | readable | any build that knows the store |
+| Agent backup schedules | `agent/src/services/backupService.js:24` | 1 | `BACKUP_SCHEDULE_SCHEMA_UNSUPPORTED` (409) at `backupService.js:598` | readable | any build that knows the store |
+| Agent backup destinations | `agent/src/services/backupDestinationService.js:49` | 1 | `BACKUP_DESTINATION_SCHEMA_UNSUPPORTED` (409) at `backupDestinationService.js:248` | readable | any build that knows the store |
+| Agent device identity | `agent/src/services/deviceIdentityService.js:11` | 2 | `DEVICE_IDENTITY_SCHEMA_UNSUPPORTED` at `deviceIdentityService.js:72` | preserved + refused | Build 202 |
+| 17 further schema-versioned stores (all schema 1) | listed in the manifest at `rollback.dataSchemaRollback.coverage.unenumeratedConstants` | 1 | not read individually by this lane | readable by the baseline rule; refusal path **UNPROVEN** | any build that knows the store |
+
+Reading the table: a downgrade to Build 199 degrades **instance configuration**
+(Build 200) on the desktop and **device identity** (Build 202) on the agent. The
+node registry, node credentials, update store and marketplace config are already
+readable by Build 199 because those schemas date from Build 150.
+
+**UNPROVEN in this table.** (a) No downgrade was performed, so "preserved +
+refused" is read from the refusal code, not observed. (b) The 17 unenumerated
+stores are at schema 1, so no older build meets a newer schema in them — but
+their refusal paths were not read and are not claimed. (c) The `file:line`
+citations are pointers that a refactor can move; the manifest re-reads the
+schema *versions* from the code on every generation and the smoke asserts each
+citation still lands on the declaration it names, but a citation is not evidence
+on its own.
+
+### Where the numbers come from
+
+- **Schema versions: read from the code**, not hardcoded.
+  `scripts/write-update-manifest.js` locates `const <NAME>_SCHEMA_VERSION = <n>;`
+  in each store's source at generation time and cites the `file:line`
+  (`readSchemaConstant`, `scanSchemaConstants`). A store whose constant cannot be
+  read reports `schemaVersion: null` and `UNKNOWN`.
+- **"Oldest build that reads it": hardcoded, with a drift guard.** There is no
+  declaration in the code that links a schema version to the build that
+  introduced it, so these are declared in `SCHEMA_STORES`
+  (`scripts/write-update-manifest.js:126`) from schema history — the bump commit
+  and the `release.json` build committed with it (instance schema 2 at commit
+  `65b5ad2`, build 200; node registry schema 3 / node credentials schema 2 /
+  update store schema 2 / marketplace config schema 2 at build 150; agent device
+  identity schema 2 at commit `e4a12f2`, build 202). Each declaration is pinned
+  to `declaredForSchemaVersion`; if the code reports a different version the
+  minimum build is discarded and the store reports `UNKNOWN`
+  (`minimumBuildSource: "stale-declaration ..."`), so the list cannot drift
+  silently.
+- **A `DEGRADED` verdict additionally requires the refusal literal to exist in
+  the cited source** (`refusalCodeVerifiedInSource`). If it is missing, the store
+  reports `UNKNOWN` and claims nothing about preservation.
+- **`UNKNOWN` is the default.** With no candidate downgrade build named, every
+  bumped store is `UNKNOWN`; an unreadable source, an unenumerated bumped store,
+  a stale declaration, or an unverified refusal path all produce `UNKNOWN`.
+  Nothing falls back to `SAFE`.
+
+### The manifest contract
+
+`npm run updates:manifest` now emits, alongside the unchanged preservation
+flags, a `rollback.applicationRollback` block and a
+`rollback.dataSchemaRollback` block. Actual shape (abridged, Build 203 manifest
+generated with `ANXOS_ROLLBACK_CANDIDATE_BUILD=199`):
+
+```json
+"rollback": {
+  "preservesUserData": true,
+  "preservesInstances": true,
+  "preservesBackups": true,
+  "rollbackMetadataRequired": true,
+  "preservationIsNotReadability": true,
+  "preservationScope": "These three flags describe data preservation during a binary downgrade. They do not assert that the downgraded build can read the preserved records; see dataSchemaRollback.",
+  "applicationRollback": {
+    "inAppDowngradeSupported": false,
+    "capabilityNote": "AnxOS does not implement an in-app downgrade. An older build is installed by the operator (or by the OS installer), and the application cannot make that operation schema-safe.",
+    "description": "Replacing the installed binaries with an older build. User data, instances and backups are not deleted.",
+    "dataSchemaIsNotRolledBack": true
+  },
+  "dataSchemaRollback": {
+    "direction": "forward-only",
+    "candidateBuild": 199,
+    "candidateBuildSource": "env:ANXOS_ROLLBACK_CANDIDATE_BUILD",
+    "noDowngradeDrill": true,
+    "stores": [
+      {
+        "id": "instance-config",
+        "component": "desktop",
+        "schemaVersion": 2,
+        "schemaVersionSource": "src/shared/instances/instanceServiceCore.js:76 (INSTANCE_CONFIG_SCHEMA_VERSION)",
+        "minimumBuild": 200,
+        "minimumBuildSource": "declared-schema-history",
+        "declaredForSchemaVersion": 2,
+        "refusalCode": "INSTANCE_CONFIG_SCHEMA_UNSUPPORTED",
+        "refusalSource": "src/shared/instances/instanceServiceCore.js:3486",
+        "refusalCodeVerifiedInSource": true,
+        "refusalPreservesData": true,
+        "downgradeStatus": "DEGRADED",
+        "downgradeStatusSource": "candidate build 199 < minimum build 200",
+        "downgradeEffect": "preserved-not-readable"
+      }
+    ],
+    "components": {
+      "desktop": { "readAllStoresFloorBuild": 200, "floorComplete": true, "status": "DEGRADED", "storeCount": 7 },
+      "agent": { "readAllStoresFloorBuild": 202, "floorComplete": true, "status": "DEGRADED", "storeCount": 5 }
+    },
+    "summary": {
+      "status": "DEGRADED",
+      "downgradeIsSafe": false,
+      "counts": { "safe": 26, "degraded": 2, "unknown": 0 },
+      "degradedStores": ["instance-config", "agent-device-identity"],
+      "unknownStores": []
+    },
+    "coverage": { "enumerated": 11, "unenumerated": 17, "unenumeratedConstants": ["..."] }
+  }
+}
+```
+
+`readAllStoresFloorBuild` is the single number an operator needs: rolling back
+below the **desktop** floor (200) degrades instance configuration, and below the
+**agent** floor (202) degrades device identity. The desktop and the agent are
+listed separately because a desktop downgrade does not downgrade the bundled
+Agent runtime. `status` is the worst of the stores, so a `DEGRADED` store can
+never be averaged away by `SAFE` ones.
+
+### The updater's signalling change
+
+`src/services/updateManager.js` now reads the contract and refuses to imply that
+a downgrade is safe:
+
+- `normalizeRollbackGuidance` (`updateManager.js:279`) reduces the manifest's
+  block, and reports the **worse** of the declared summary status and the status
+  of every store it lists — so a manifest claiming `SAFE` overall while listing a
+  degraded store is corrected rather than trusted. A manifest carrying only the
+  old preservation flags has `contractPresent: false` and status `UNKNOWN`.
+- `evaluateRollbackGuidance` (`updateManager.js:320`) compares the **running**
+  build against each store's minimum build. `rollbackIsSafe` is true only for an
+  explicit contract whose every store is `SAFE` *and* a running build at or above
+  every store minimum; every other path, including "nothing to compare", is
+  false. `installedBuildVsDataSchema` is `older` / `not-older` / `unknown` (never
+  a bare false for an unknown state).
+- `resolveUpdateResult` (`updateManager.js:695`) attaches that evaluation to the
+  update result and logs an explicit `Rollback caveat.` warning
+  (`ROLLBACK_CONTRACT_MISSING` or `ROLLBACK_DEGRADED_OR_UNREADABLE`) when the
+  contract is missing, the downgrade is degraded, or the installed build is older
+  than the data schema.
+
+**Limitation:** the renderer (`app.js`) is not owned by this lane and does not
+render `rollbackGuidance` yet, so today the warning reaches the update status
+payload and the update log, not the operator's screen. That is a follow-up, not
+a claim.
+
+### Follow-ups (not done here)
+
+- Register `updates:rollback-signalling:smoke` →
+  `node scripts/update-rollback-signalling-smoke.js` in `package.json`, which
+  would also add it to the `rc:validate` suite set.
+- `scripts/validate-release-artifacts.js` still validates only the preservation
+  flags of its fixture manifest; it does not yet require the data-schema contract
+  to be present and consistent in a real release manifest.
+- Render `rollbackGuidance` in the update UI so the caveat is visible to an
+  operator rather than only to the log.
+- Run the downgrade drill (item 9 in "Drills that have NOT run") — the only way
+  any row above becomes `VERIFIED (drill)`.

@@ -245,6 +245,141 @@ function pickLatestPublishedRelease(releases, options = {}) {
     .find(hasSupportedUpdateAsset) || null;
 }
 
+// ---------------------------------------------------------------------------
+// Downgrade signalling.
+//
+// The update manifest's older `rollback` block asserted only that a rollback
+// preserves user data, instances and backups. That is true and incomplete: the
+// on-disk stores carry schema versions a downgraded build refuses to read, so a
+// rollback can preserve data and still degrade functionality. These helpers read
+// the manifest's data-schema contract and never let an unassessable or degraded
+// downgrade present itself as safe.
+// ---------------------------------------------------------------------------
+
+const ROLLBACK_STATUSES = { SAFE: "SAFE", DEGRADED: "DEGRADED", UNKNOWN: "UNKNOWN" };
+const ROLLBACK_STATUS_RANK = { SAFE: 0, UNKNOWN: 1, DEGRADED: 2 };
+
+function normalizeRollbackStatus(value) {
+  const candidate = String(value || "").trim().toUpperCase();
+  return ROLLBACK_STATUSES[candidate] ? candidate : ROLLBACK_STATUSES.UNKNOWN;
+}
+
+function worstRollbackStatus(statuses) {
+  let worst = ROLLBACK_STATUSES.SAFE;
+  for (const status of statuses) {
+    const normalized = normalizeRollbackStatus(status);
+    if (ROLLBACK_STATUS_RANK[normalized] > ROLLBACK_STATUS_RANK[worst]) worst = normalized;
+  }
+  return worst;
+}
+
+// A manifest without the data-schema contract (any pre-change release) yields a
+// guidance object whose contract is absent and whose status is UNKNOWN — never
+// SAFE, because nothing in that manifest establishes downgrade safety.
+function normalizeRollbackGuidance(rollback) {
+  if (!rollback || typeof rollback !== "object" || Array.isArray(rollback)) return null;
+  const dataSchema = rollback.dataSchemaRollback && typeof rollback.dataSchemaRollback === "object" && !Array.isArray(rollback.dataSchemaRollback)
+    ? rollback.dataSchemaRollback
+    : null;
+  const stores = (Array.isArray(dataSchema?.stores) ? dataSchema.stores : [])
+    .filter((store) => store && typeof store === "object" && typeof store.id === "string")
+    .map((store) => ({
+      id: store.id,
+      component: typeof store.component === "string" ? store.component : null,
+      label: typeof store.label === "string" ? store.label : null,
+      schemaVersion: Number.isInteger(store.schemaVersion) ? store.schemaVersion : null,
+      minimumBuild: Number.isInteger(store.minimumBuild) ? store.minimumBuild : null,
+      downgradeStatus: normalizeRollbackStatus(store.downgradeStatus),
+      downgradeEffect: typeof store.downgradeEffect === "string" ? store.downgradeEffect : "unknown",
+      refusalCode: typeof store.refusalCode === "string" ? store.refusalCode : null,
+    }));
+  const contractPresent = rollback.preservationIsNotReadability === true && stores.length > 0;
+  // Distrust a manifest that claims SAFE overall while a store it lists is
+  // degraded: the reported status is the worse of the two.
+  const dataSchemaStatus = contractPresent
+    ? worstRollbackStatus([dataSchema?.summary?.status || ROLLBACK_STATUSES.UNKNOWN, ...stores.map((store) => store.downgradeStatus)])
+    : ROLLBACK_STATUSES.UNKNOWN;
+  return {
+    contractPresent,
+    preservesUserData: rollback.preservesUserData === true,
+    preservesInstances: rollback.preservesInstances === true,
+    preservesBackups: rollback.preservesBackups === true,
+    preservationIsNotReadability: rollback.preservationIsNotReadability === true,
+    inAppDowngradeSupported: rollback.applicationRollback?.inAppDowngradeSupported === true,
+    dataSchemaDirection: typeof dataSchema?.direction === "string" ? dataSchema.direction : "unknown",
+    dataSchemaStatus,
+    declaredDataSchemaStatus: dataSchema?.summary?.status || null,
+    stores,
+  };
+}
+
+// Compares the RUNNING build against the stores the manifest says are
+// schema-versioned. A running build below a store's minimum build means this
+// installation is older than data already on disk (typically after an unsafe
+// rollback), which must be warned about rather than passed over.
+function evaluateRollbackGuidance(guidance, runningBuild) {
+  const build = Number.isInteger(runningBuild) ? runningBuild : null;
+  if (!guidance) {
+    return {
+      available: false,
+      contractPresent: false,
+      rollbackIsSafe: false,
+      dataSchemaStatus: ROLLBACK_STATUSES.UNKNOWN,
+      dataSchemaDirection: "unknown",
+      readAllStoresFloorBuild: null,
+      blockedStores: [],
+      installedBuildVsDataSchema: "unknown",
+      warning: "This update source publishes no data-schema rollback contract, so rolling back to an older build cannot be presented as safe.",
+    };
+  }
+
+  const withMinimum = guidance.stores.filter((store) => Number.isInteger(store.minimumBuild));
+  const blockedStores = build === null ? [] : withMinimum.filter((store) => build < store.minimumBuild);
+  const installedBuildVsDataSchema = build === null || withMinimum.length === 0
+    ? "unknown"
+    : blockedStores.length
+      ? "older"
+      : "not-older";
+  const readAllStoresFloorBuild = withMinimum.length
+    ? Math.max(...withMinimum.map((store) => store.minimumBuild))
+    : null;
+
+  // Only an explicit contract that reports SAFE for every store AND a running
+  // build at or above every store minimum may be called safe. Every other path,
+  // including "nothing to compare", is false.
+  const rollbackIsSafe = guidance.contractPresent
+    && guidance.dataSchemaStatus === ROLLBACK_STATUSES.SAFE
+    && installedBuildVsDataSchema === "not-older";
+
+  let warning = null;
+  if (!guidance.contractPresent) {
+    warning = "This update manifest carries no data-schema rollback contract (only user-data preservation). Rolling back to an older build cannot be presented as safe on this manifest.";
+  } else if (installedBuildVsDataSchema === "older") {
+    warning = `The installed build (Build ${build}) is older than the data schema written by Build ${readAllStoresFloorBuild}: ${blockedStores.map((store) => store.label || store.id).join(", ")}. Data is preserved on disk but is not readable until the installation is upgraded back to a build that supports that schema.`;
+  } else if (guidance.dataSchemaStatus === ROLLBACK_STATUSES.DEGRADED) {
+    warning = "A rollback to an older build is reported DEGRADED by this update manifest: at least one store is preserved but unreadable by the older build.";
+  }
+
+  return {
+    available: true,
+    contractPresent: guidance.contractPresent,
+    rollbackIsSafe,
+    dataSchemaStatus: guidance.dataSchemaStatus,
+    declaredDataSchemaStatus: guidance.declaredDataSchemaStatus,
+    dataSchemaDirection: guidance.dataSchemaDirection,
+    preservationOnly: !guidance.contractPresent && guidance.preservesUserData,
+    readAllStoresFloorBuild,
+    blockedStores: blockedStores.map((store) => ({
+      id: store.id,
+      label: store.label,
+      minimumBuild: store.minimumBuild,
+      refusalCode: store.refusalCode,
+    })),
+    installedBuildVsDataSchema,
+    warning,
+  };
+}
+
 function normalizeManifestRelease(manifest, sourceUrl) {
   const rawAssets = Array.isArray(manifest?.assets) ? manifest.assets : [];
   const latestVersion = normalizeVersion(manifest?.version || manifest?.tag_name || manifest?.name);
@@ -261,6 +396,7 @@ function normalizeManifestRelease(manifest, sourceUrl) {
     body: manifest?.body || manifest?.notes || manifest?.releaseNotes || "",
     html_url: manifest?.html_url || manifest?.releaseUrl || sourceUrl,
     published_at: manifest?.published_at || manifest?.publishedAt || null,
+    rollbackGuidance: normalizeRollbackGuidance(manifest?.rollback),
     assets: rawAssets.map(normalizeManifestAsset).filter(Boolean),
   };
 }
@@ -552,6 +688,20 @@ class UpdateManager extends EventEmitter {
     const hasUpdate = Boolean(latestVersion && compareReleaseBuilds({ version: latestVersion, build: latestBuild }, { version: currentVersion, build: currentBuild }) > 0 && asset);
     const latestLabel = release?.releaseLabel || formatReleaseLabel(latestVersion, latestBuild, release?.channel || "");
     const currentLabel = currentRelease.compactLabel;
+    // Downgrade signalling: an update check must never imply that going back to
+    // an older build is safe. A missing contract, a degraded store, or a running
+    // build below the data schema all produce an explicit warning instead of
+    // silent, preservation-only guidance.
+    const rollbackGuidance = evaluateRollbackGuidance(release?.rollbackGuidance, currentBuild);
+    if (rollbackGuidance.warning) {
+      this.log("Rollback caveat.", {
+        code: rollbackGuidance.contractPresent ? "ROLLBACK_DEGRADED_OR_UNREADABLE" : "ROLLBACK_CONTRACT_MISSING",
+        installedBuild: currentBuild,
+        dataSchemaStatus: rollbackGuidance.dataSchemaStatus,
+        installedBuildVsDataSchema: rollbackGuidance.installedBuildVsDataSchema,
+        message: rollbackGuidance.warning,
+      }, "warn");
+    }
     return {
       hasUpdate,
       skipped,
@@ -569,6 +719,7 @@ class UpdateManager extends EventEmitter {
       releaseUrl: release?.html_url || sourceUrl || `https://github.com/${UPDATE_REPOSITORY}/releases`,
       publishedAt: release?.published_at || null,
       sourceUrl,
+      rollbackGuidance,
       asset: asset ? {
         name: asset.name,
         size: asset.size,
@@ -907,17 +1058,22 @@ class UpdateManager extends EventEmitter {
 }
 
 module.exports = {
+  ROLLBACK_STATUSES,
   UPDATE_STATUS_CHANNEL,
   UPDATE_STORE_SCHEMA_VERSION,
   UpdateManager,
   compareVersions,
   compareReleaseBuilds,
+  evaluateRollbackGuidance,
   extractReleaseBuild,
   formatReleaseLabel,
+  normalizeRollbackGuidance,
+  normalizeRollbackStatus,
   normalizeVersion,
   pickLatestPublishedRelease,
   parseWebsiteConfigRelease,
   pickUpdateAsset,
   resolveRedirectUrl,
   verifyUpdateArtifact,
+  worstRollbackStatus,
 };
