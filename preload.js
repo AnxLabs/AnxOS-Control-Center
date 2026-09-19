@@ -258,6 +258,14 @@ const desktopApi = {
     getProviderPackDetails: (payload = {}) => invokeMarketplace("marketplace:getProviderPackDetails", payload),
     getImportSupport: () => invokeMarketplace("marketplace:getImportSupport"),
     getInstallPlan: (payload = {}) => invokeMarketplace("marketplace:getInstallPlan", payload),
+    // V2-D catalog transfer (src/ipc/marketplaceIpc.js). Both are read-tier; the
+    // transfer document is returned to the renderer / supplied by it, and the
+    // renderer owns the save/open. exportCatalog takes the export options
+    // ({ catalog?, userEntries?, entries?, now?, source? }); importCatalog takes
+    // { document, existingEntries? } where document is the exported JSON string
+    // or object.
+    exportCatalog: (payload = {}) => invokeMarketplace("marketplace:exportCatalog", payload),
+    importCatalog: (payload = {}) => invokeMarketplace("marketplace:importCatalog", payload),
     importCommunityTemplate: (payload = {}) => invokeMarketplace("marketplace:importCommunityTemplate", payload),
     installTemplate: (payload) => invokeMarketplace("marketplace:installTemplate", payload),
     installPack: (payload) => invokeMarketplace("marketplace:installPack", payload),
@@ -469,6 +477,13 @@ const desktopApi = {
     lockOwnerWorkspace: () => ipcRenderer.invoke("security:lockOwnerWorkspace"),
     emergencyAction: (payload = {}) => ipcRenderer.invoke("security:emergencyAction", payload),
     openAuditFolder: () => ipcRenderer.invoke("security:openAuditFolder"),
+    // V2-I audit retention / access review / export (src/ipc/securityIpc.js).
+    // Each is gated inside securityService by settings:write (audit-log); the
+    // handler throws a typed IPC error rather than returning ok:false, so the
+    // plain invoke form matches the rest of the security namespace.
+    getAuditRetentionReport: (payload = {}) => ipcRenderer.invoke("security:getAuditRetentionReport", payload),
+    getAuditAccessReview: (payload = {}) => ipcRenderer.invoke("security:getAuditAccessReview", payload),
+    exportAuditWindow: (payload = {}) => ipcRenderer.invoke("security:exportAuditWindow", payload),
   },
   ownerWorkspace: {
     getStatus: () => ipcRenderer.invoke("ownerWorkspace:getStatus"),

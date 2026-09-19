@@ -14,6 +14,9 @@ const {
   revokeAgentToken,
   generateReplacementAgentToken,
   getAuditFolderForOpen,
+  getAuditRetentionReport,
+  getAuditAccessReview,
+  exportAuditWindow,
   updateRemoteAccessSettings,
   updateSessionSecuritySettings,
   disableRemoteAccess,
@@ -74,6 +77,13 @@ function registerSecurityIpc() {
     await shell.openPath(folder);
     return { opened: true };
   }, "security:openAuditFolder"));
+  // V2-I audit retention / access review / export. Each securityService function
+  // already gates itself with requirePermission("settings:write", "audit-log") —
+  // the same in-service guard chain as security:openAuditFolder above — so the
+  // IPC layer passes the options payload through and adds no second gate.
+  ipcMain.handle("security:getAuditRetentionReport", async (_, payload = {}) => invokeSecurityOperation(() => getAuditRetentionReport(payload), "security:getAuditRetentionReport"));
+  ipcMain.handle("security:getAuditAccessReview", async (_, payload = {}) => invokeSecurityOperation(() => getAuditAccessReview(payload), "security:getAuditAccessReview"));
+  ipcMain.handle("security:exportAuditWindow", async (_, payload = {}) => invokeSecurityOperation(() => exportAuditWindow(payload), "security:exportAuditWindow"));
 }
 
 module.exports = {

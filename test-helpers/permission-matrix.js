@@ -150,6 +150,12 @@ const IPC_FAMILIES = [
       "security:updateSessionSettings", "security:updateRemoteAccess", "security:disableRemoteAccess",
       "security:rotateAgentToken", "security:revokeAgentToken", "security:generateReplacementAgentToken",
       "security:emergencyAction", "security:openAuditFolder",
+      // V2-I audit retention / access review / export (V2-I exposure wave). Each
+      // securityService function gates itself with
+      // requirePermission("settings:write", "audit-log") — the same
+      // security-service guard chain as security:openAuditFolder, so they stay in
+      // this family; the IPC layer adds no second gate.
+      "security:getAuditRetentionReport", "security:getAuditAccessReview", "security:exportAuditWindow",
     ],
   },
   {
@@ -417,6 +423,11 @@ const IPC_FAMILIES = [
       "marketplace:listTemplates", "marketplace:getMinecraftVersions", "marketplace:searchProviderPacks",
       "marketplace:getProviderPackVersions", "marketplace:getProviderPackDetails", "marketplace:getInstallPlan",
       "marketplace:getImportSupport", "marketplace:getDownloads",
+      // V2-D catalog transfer (V2-I exposure wave): export serializes the catalog
+      // this tier already lists, and import is a non-mutating validation/preview
+      // (importCatalog never writes the catalog) — both are read tier, exactly
+      // like marketplace:getInstallPlan above.
+      "marketplace:exportCatalog", "marketplace:importCatalog",
     ],
   },
   {

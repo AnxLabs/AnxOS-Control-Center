@@ -22,6 +22,7 @@ const {
   searchProviderPacks,
 } = require("../services/marketplaceInstallService");
 const { audit, requirePermission } = require("../services/securityService");
+const { exportCatalog, importCatalog } = require("../services/catalogTransferService");
 const { requireNodeContext } = require("./nodeContext");
 const { openExternalUrl } = require("../services/externalUrlService");
 const { normalizeIpcError } = require("../shared/ipcError");
@@ -337,6 +338,29 @@ function registerMarketplaceIpc() {
     return getTemplateInstallPlanPreview(payload);
   }));
   ipcMain.handle("marketplace:getImportSupport", async () => invokeMarketplaceOperation(() => { requirePermission("marketplace:read", "import-support"); return getImportSupport(); }));
+  // V2-D catalog transfer (src/services/catalogTransferService.js). Both channels
+  // sit at the read tier: export serializes the catalog the read tier can already
+  // list, and import is a non-mutating validation/preview (the same shape as
+  // marketplace:getInstallPlan) that returns accepted/rejected/unchanged entries
+  // and never writes the catalog — so neither widens what a read actor can see.
+  //
+  // No file dialog is opened here. The repository has no shared save/open helper
+  // (each IPC family inlines its own dialog with its own filters), and the
+  // service contract already hands the transfer document back to the caller, so
+  // export returns the document and the renderer owns saving it; import takes the
+  // document in the payload and the renderer owns reading it.
+  ipcMain.handle("marketplace:exportCatalog", async (_, payload = {}) => invokeMarketplaceOperation(() => {
+    requirePermission("marketplace:read", "catalog-transfer");
+    // Service contract: exportCatalog(options) -> { document, json, bytes, entryCount, schemaVersion, limits }.
+    return exportCatalog(payload);
+  }));
+  ipcMain.handle("marketplace:importCatalog", async (_, payload = {}) => invokeMarketplaceOperation(() => {
+    requirePermission("marketplace:read", "catalog-transfer");
+    // Service contract: importCatalog(input, options). `payload.document` is the
+    // export document (JSON string or object); the rest of the payload is passed
+    // through as options (existingEntries is the only option import reads).
+    return importCatalog(payload.document, payload);
+  }));
   ipcMain.handle("marketplace:importCommunityTemplate", async (_, payload = {}) => invokeMarketplaceOperation(() => {
     requirePermission("marketplace:install", payload?.template?.id || payload?.id || "community-template");
     audit({ action: "marketplace.communityTemplate.import", target: payload?.template?.id || payload?.id || "community-template" });
