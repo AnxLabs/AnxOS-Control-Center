@@ -6,6 +6,19 @@
 
 Last full-rebuild: cycle 10 close (HEAD f1b07f1).
 
+### Cycle-17 queue deltas (Wave B: reachability, the last absent item, rollback honesty)
+
+- **ROADMAP GAP queue — the V2-E contract lane found TEN divergences between the shipped adapters and any sane contract, and recorded them instead of smoothing the prose.** The ones that matter as queue items:
+  - **D-4 (product decision): only SteamCMD adapters have an in-place update.** Minecraft, FiveM and Terraria have no update path at all, and the agent exposes only `/steamcmd/update*`. Whether a Minecraft version upgrade is expected outside a reinstall is an **owner decision**, not an engineering gap.
+  - **D-5 (documented limitation): four recognised families — terraria, valheim, rust, cs2 — have no config adapter** and return `UNSUPPORTED_GAME_CONFIG`. The contract now asserts this rather than leaving it implied.
+  - **D-10 (uneven verification): every game template declares `installer.verifyFiles` except the Minecraft templates.** Routed to the marketplace lane: decide whether that is deliberate.
+  - **D-1/D-2 (design): readiness is one shared log regex plus a port probe, not a per-adapter capability**, with two game-specific behaviours implemented as family string branches. They work, but a new adapter cannot declare its own readiness signal.
+  - **D-8: no version pinning outside SteamCMD** — Minecraft persists `minecraftVersion` and nothing compares it.
+  - **D-3: installation is three unrelated mechanisms** (core installation sessions, the separate SteamCMD session protocol, generated marketplace scripts).
+- **REGRESSION queue: D-9 FIXED.** The Palworld world-scope candidate list carried a duplicate — with the default install directory the first entry normalised to exactly the second — so consumers summing sizes or listing scopes counted the same tree twice. De-duplicated at the point the collision is produced.
+- **HARNESS queue: an ORPHANED SMOKE WAS FOUND AND WIRED.** `scripts/game-server-config-smoke.js` — the only smoke exercising the config-adapter write path directly — had **no npm alias**, so `rc:validate` had never run it. Registered as `game-server-config:smoke`. This is the third time this campaign has found a test that existed but was not in the gate; treat "the suite passes" as a claim about the suites that RAN.
+- **Reachability queue: the catalog-transfer and audit-retention services are now reachable from the app** (five channels + preload exposure, with matrix rows), verified by two-layer behavioral smokes that load the real preload and register the real IPC modules. Two honest limits recorded: **catalog import does not persist** (no write channel exists, so a renderer must consume the result through whatever path the app defines), and the **tier choice is a judgement** — the catalog service enforces no tier, so both channels were placed at read tier by analogy with the read-only install-plan preview. If importing a foreign catalog should be install-tier, that row changes.
+
 ### Cycle-16 queue deltas (Wave A: closing the absent V2-H/D/I/J items)
 
 - **AGENT-DISCIPLINE queue — NEW RULE, learned the hard way: dependency state is a shared resource and only the orchestrator may mutate it.** During Wave A a lane ran a targeted `npm install <pkg> --no-save --no-package-lock`, which **pruned `node_modules` to zero** and broke the tree for every other lane for a window (it was already partial at 103 entries before that). The lane self-reported the action unprompted, repaired it with `npm ci`, and verified recovery (230 packages, Electron binary present, manifests untouched) — which is the behaviour that made this diagnosable rather than mysterious. **Rules adopted:** no lane may run `npm install`/`npm ci`/`npm uninstall` or otherwise change dependency state; a lane that hits a genuinely missing module reports it and stops. Only the orchestrator restores the environment, and only after every lane has stopped.
