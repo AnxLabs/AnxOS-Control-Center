@@ -190,6 +190,17 @@ const instanceNetworkPortInput = document.querySelector("[data-instance-network-
 const instanceNetworkAddButton = document.querySelector("[data-instance-network-add]");
 const instanceNetworkSummary = document.querySelector("[data-instance-network-summary]");
 const instanceNetworkDetails = document.querySelectorAll("[data-instance-network-detail]");
+// V2-E restart schedules: the panel owns its list, its empty state, its status
+// pill and its request state. All five were referenced by
+// renderInstanceRestartSchedules / refreshRestartSchedules but never declared,
+// so every call threw `ReferenceError: restartScheduleList is not defined`
+// before the panel could render. Reads of an undeclared identifier always throw
+// in a classic script, so this was not a benign "falsy guard".
+const restartScheduleList = document.querySelector("[data-restart-schedule-list]");
+const restartScheduleEmpty = document.querySelector("[data-restart-schedule-empty]");
+const restartScheduleStatus = document.querySelector("[data-restart-schedule-status]");
+let restartSchedulesState = { supported: true, instanceId: null, schedules: [] };
+let restartSchedulesRequestInFlight = false;
 const instanceRawJson = document.querySelector("[data-instance-raw-json]");
 const instanceAdvancedInputs = document.querySelectorAll("[data-instance-advanced]");
 const instanceFilesList = document.querySelector("[data-instance-files-list]");
@@ -1135,6 +1146,10 @@ const jobsState = {
   loaded: false,
   loading: false,
   error: null,
+  // F5: true when the jobs route itself is unsupported by the node's Agent
+  // (version skew), so the panel says "Agent too old for this view" instead of
+  // implying the node simply has nothing to show.
+  unsupported: false,
   pendingIds: new Set(),
 };
 const maintenanceState = {
@@ -23834,6 +23849,8 @@ function renderDurableJobs() {
 
   if (busy) {
     setJobsStatusPill("Loading");
+  } else if (jobsState.unsupported) {
+    setJobsStatusPill("Agent update required", "status-pill--warning");
   } else if (jobsState.error) {
     setJobsStatusPill("Unavailable", "status-pill--critical");
   } else if (jobsState.jobs.length) {
@@ -23847,11 +23864,13 @@ function renderDurableJobs() {
     const nodeLabel = getSelectedNode()?.displayName || getSelectedNode()?.name || getSelectedNodeId();
     jobsMessage.textContent = busy
       ? "Loading durable jobs..."
-      : jobsState.error
-        ? jobsState.error
-        : jobsState.jobs.length
-          ? `${jobsState.total} durable job${jobsState.total === 1 ? "" : "s"} tracked for ${nodeLabel}. Cancel is offered only for jobs that support it.`
-          : `No durable jobs recorded for ${nodeLabel}. Instance start, stop, restart, create, and update jobs will appear here while they run.`;
+      : jobsState.unsupported
+        ? AGENT_JOBS_VIEW_UNSUPPORTED_MESSAGE
+        : jobsState.error
+          ? jobsState.error
+          : jobsState.jobs.length
+            ? `${jobsState.total} durable job${jobsState.total === 1 ? "" : "s"} tracked for ${nodeLabel}. Cancel is offered only for jobs that support it.`
+            : `No durable jobs recorded for ${nodeLabel}. Instance start, stop, restart, create, and update jobs will appear here while they run.`;
   }
 
   if (!jobsList) return;
@@ -23859,6 +23878,17 @@ function renderDurableJobs() {
 
   if (busy && !jobsState.jobs.length) {
     jobsList.append(createEmptyState("Loading durable jobs...", "notification-empty"));
+    return;
+  }
+
+  if (jobsState.unsupported && !jobsState.jobs.length) {
+    const skew = document.createElement("div");
+    skew.className = "notification-empty";
+    skew.append(
+      createTextElement("strong", "Agent update required."),
+      createTextElement("span", AGENT_JOBS_VIEW_UNSUPPORTED_MESSAGE),
+    );
+    jobsList.append(skew);
     return;
   }
 
@@ -23976,12 +24006,15 @@ async function loadDurableJobs(options = {}) {
     jobsState.jobs = Array.isArray(result?.jobs) ? result.jobs : [];
     jobsState.total = Number.isFinite(Number(result?.total)) ? Number(result.total) : jobsState.jobs.length;
     jobsState.error = null;
+    jobsState.unsupported = false;
   } catch (error) {
     if (!isNodeRequestCurrent(context)) {
       jobsState.loading = false;
       return;
     }
-    jobsState.error = normalizeIpcErrorMessage(error, "Durable jobs could not be loaded.");
+    // F5: a 404/unsupported jobs route is version skew, not an empty node.
+    jobsState.unsupported = isAgentJobsViewUnsupported(error);
+    jobsState.error = jobsState.unsupported ? AGENT_JOBS_VIEW_UNSUPPORTED_MESSAGE : normalizeIpcErrorMessage(error, "Durable jobs could not be loaded.");
   }
   jobsState.loading = false;
   jobsState.loaded = true;
@@ -33991,7 +34024,24 @@ function isNodeActionStillCurrent(context, message = "Node changed. Action cance
   return false;
 }
 
-function clearDashboardForNodeSwitch(message = "Loading selected node...") {
+// F1 (runtime acceptance pass, cycle 20): these fields are the VALUE position of
+// the Dashboard Network and Runtime cards. A node switch previously wrote the
+// transient status sentence "Switching to <node>..." straight into them, via
+// resetNodeScopedRendererState(message) -> clearDashboardMetricsForActiveTarget.
+// A metric value is a reading or an honest placeholder; it is never a status
+// message. The switch status is presented separately by the friendly summary
+// (selectedSystemStatus / computerStatus) and the sidebar footer, so only these
+// two placeholders are allowed through.
+const DASHBOARD_METRIC_PLACEHOLDERS = Object.freeze(["Checking...", "Unavailable"]);
+
+function resolveDashboardMetricPlaceholder(placeholder) {
+  return DASHBOARD_METRIC_PLACEHOLDERS.includes(placeholder)
+    ? placeholder
+    : DASHBOARD_METRIC_PLACEHOLDERS[0];
+}
+
+function clearDashboardForNodeSwitch(placeholder = DASHBOARD_METRIC_PLACEHOLDERS[0]) {
+  const value = resolveDashboardMetricPlaceholder(placeholder);
   [
     "cpuUsage",
     "memoryUsage",
@@ -34001,26 +34051,27 @@ function clearDashboardForNodeSwitch(message = "Loading selected node...") {
     "osVersion",
     "runtimeUptime",
     "runtimeCpuTemp",
-  ].forEach((field) => setField(field, message));
+  ].forEach((field) => setField(field, value));
 }
 
-function clearDashboardMetricsForActiveTarget(message = "Unavailable") {
-  clearDashboardForNodeSwitch(message);
-  setField("hostname", message);
-  setField("platform", message);
-  setField("cpuModel", message);
-  setField("cpuCores", message);
-  setField("memoryAvailable", message);
-  setField("memoryTotal", message);
-  setField("diskFree", message);
-  setField("diskMount", message);
-  setField("diskTotal", message);
-  setField("networkUsage", message);
-  setField("networkDownload", message);
-  setField("networkUpload", message);
-  setField("networkTotalDownload", message);
-  setField("networkTotalUpload", message);
-  setField("uptime", message);
+function clearDashboardMetricsForActiveTarget(placeholder = DASHBOARD_METRIC_PLACEHOLDERS[0]) {
+  const value = resolveDashboardMetricPlaceholder(placeholder);
+  clearDashboardForNodeSwitch(value);
+  setField("hostname", value);
+  setField("platform", value);
+  setField("cpuModel", value);
+  setField("cpuCores", value);
+  setField("memoryAvailable", value);
+  setField("memoryTotal", value);
+  setField("diskFree", value);
+  setField("diskMount", value);
+  setField("diskTotal", value);
+  setField("networkUsage", value);
+  setField("networkDownload", value);
+  setField("networkUpload", value);
+  setField("networkTotalDownload", value);
+  setField("networkTotalUpload", value);
+  setField("uptime", value);
   setField("temperature", "Unavailable");
 }
 
@@ -34107,7 +34158,7 @@ function resetNodeScopedRendererState(message = "Loading selected node...") {
     error: message,
   };
 
-  clearDashboardMetricsForActiveTarget(message);
+  clearDashboardMetricsForActiveTarget(DASHBOARD_METRIC_PLACEHOLDERS[0]);
   updateAmpPanelLink(null);
   setMinecraftPageUnavailable("Loading", message);
   renderPlayitUnavailable(message);
@@ -34124,6 +34175,7 @@ function resetNodeScopedRendererState(message = "Loading selected node...") {
   jobsState.loaded = false;
   jobsState.loading = false;
   jobsState.error = null;
+  jobsState.unsupported = false;
   jobsState.pendingIds.clear();
   renderDurableJobs();
 
@@ -36011,6 +36063,33 @@ function getFleetTargetNodes() {
   return (nodesState.nodes || []).filter((node) => node.kind === "agent" && nodeMatchesGroupFilter(node, groupFilter));
 }
 
+// F5 (runtime acceptance pass, cycle 20): an Agent that predates the jobs route
+// answers HTTP 404 with the code the client already produces for that shape —
+// NOT_FOUND (observed 2026-09-19 in .dev-logs/live.log: GET
+// /api/v1/jobs?limit=100 against an older node Agent returned
+// {"error":{"code":"NOT_FOUND"}} with status 404). The endpoint-unsupported
+// family below mirrors src/services/agentClient.js isCompatibilityFallbackAllowed
+// so both sides classify the same signal the same way. "This node has no jobs"
+// and "this node's Agent cannot answer the jobs view" are different truths and
+// must not share the empty state's copy.
+const AGENT_JOBS_VIEW_UNSUPPORTED_CODES = Object.freeze([
+  "NOT_FOUND",
+  "ENDPOINT_NOT_SUPPORTED",
+  "NOT_SUPPORTED",
+  "METHOD_NOT_ALLOWED",
+  "CAPABILITY_MISSING",
+]);
+
+const AGENT_JOBS_VIEW_UNSUPPORTED_MESSAGE =
+  "Agent update required. This node's Agent is too old to report jobs; update or restart the Agent, then refresh.";
+
+function isAgentJobsViewUnsupported(source = null) {
+  const code = String(source?.code || source?.errorCode || "").toUpperCase();
+  if (code && AGENT_JOBS_VIEW_UNSUPPORTED_CODES.includes(code)) return true;
+  const status = Number(source?.status || source?.statusCode || 0);
+  return status === 404 || status === 405;
+}
+
 function formatFleetInventory(entry) {
   if (entry.instances.available) {
     const running = entry.instances.runningInstanceCount || 0;
@@ -36021,7 +36100,9 @@ function formatFleetInventory(entry) {
 
 function formatFleetJobs(entry) {
   if (!entry.jobs.available) {
-    return entry.jobs.message || "Job records unavailable.";
+    return isAgentJobsViewUnsupported(entry.jobs)
+      ? AGENT_JOBS_VIEW_UNSUPPORTED_MESSAGE
+      : entry.jobs.message || "Job records unavailable.";
   }
   const parts = Object.entries(entry.jobs.byState || {})
     .sort(([left], [right]) => left.localeCompare(right))
@@ -36553,8 +36634,14 @@ async function selectNode(nodeId) {
   nodeSwitchInProgress = true;
   const context = getNodeRequestContext("select-node");
   syncNodeSelectorControls();
-  resetNodeScopedRendererState(`Switching to ${getSelectedNode()?.displayName || nodesState.selectedNodeId}...`);
   try {
+    // The reset lives inside the try so the finally below is a genuine
+    // unconditional exit from the "switching" state. It used to sit before the
+    // try, so any synchronous throw in it (an undeclared identifier in a
+    // node-scoped renderer, for instance) escaped past the finally and left
+    // nodeSwitchInProgress stuck true: the sidebar reported "Switching node..."
+    // forever and reloadActiveNodeData never ran.
+    resetNodeScopedRendererState(`Switching to ${getSelectedNode()?.displayName || nodesState.selectedNodeId}...`);
     if (desktopApiState.hasNodes) {
       try {
         const persistedState = await desktopApiState.api.nodes.select(nodesState.selectedNodeId);
