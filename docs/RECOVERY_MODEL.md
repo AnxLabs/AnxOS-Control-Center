@@ -152,12 +152,17 @@ is not deleted by the failure path). Per-step records are retained on both
 success and failure, so the failing step is always identifiable. The source
 node's workload and backup are not modified by a failed or declined transfer.
 
-Known exception (verified in the current code, not an accepted behavior): the
-declined-preview path invokes the placeholder cleanup without checking whether a
-placeholder was created, so a declined preview against a node that already has an
-instance with the target id can delete that existing instance. Do not run a
-transfer preview whose target instance already exists until the cleanup is gated
-on the placeholder-created flag the way the failure path is.
+Formerly a known exception, now fixed (P0, found by the cycle-10 adversarial
+audit and independently by the documentation review): the declined-preview path
+used to invoke the placeholder cleanup without checking whether a placeholder
+had been created, so a declined preview against a node that already had an
+instance under the target id deleted that pre-existing instance. The decline
+branch is now gated on the created placeholder the same way the failure path is
+(`src/services/workloadTransferService.js` — `context.placeholderCreated ===
+true && !context.importedBackupConsumed`), and the survival of a pre-existing
+target instance across a declined preview is pinned by a regression leg in
+`scripts/workload-transfer-smoke.js`. A declined preview no longer deletes
+anything it did not create.
 
 ## Desktop updates
 

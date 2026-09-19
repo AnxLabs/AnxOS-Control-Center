@@ -6,6 +6,12 @@
 
 Last full-rebuild: cycle 10 close (HEAD f1b07f1).
 
+### Cycle-16 queue deltas (Wave A: closing the absent V2-H/D/I/J items)
+
+- **AGENT-DISCIPLINE queue — NEW RULE, learned the hard way: dependency state is a shared resource and only the orchestrator may mutate it.** During Wave A a lane ran a targeted `npm install <pkg> --no-save --no-package-lock`, which **pruned `node_modules` to zero** and broke the tree for every other lane for a window (it was already partial at 103 entries before that). The lane self-reported the action unprompted, repaired it with `npm ci`, and verified recovery (230 packages, Electron binary present, manifests untouched) — which is the behaviour that made this diagnosable rather than mysterious. **Rules adopted:** no lane may run `npm install`/`npm ci`/`npm uninstall` or otherwise change dependency state; a lane that hits a genuinely missing module reports it and stops. Only the orchestrator restores the environment, and only after every lane has stopped.
+- **HARNESS queue — two full-gate failures in that window are UNATTRIBUTED, not "flaky suites".** `agent-control:smoke` failed at 244/254 with `Cannot find module '@electron/get'` from Electron's postinstall path, and `fleet:aggregation:smoke` failed at 97/254; both pass standalone. The first is explained by the dependency window. The second is **not attributed** — it may be the same window or load-related, and guessing would be worse than saying so. Integration gates are now run only on a quiet tree with all lanes stopped; if either suite fails there, it gets root-caused like the earlier environmental flakes.
+- **Process note:** the orchestrator's own first response to the dependency report was wrong — it checked the post-repair state and generalised backwards, telling two lanes their environment observation was a working-directory artifact. **A verification performed after someone else fixed the problem does not retroactively invalidate their observation.** Check the timeline before ruling a peer's finding wrong.
+
 ### Cycle-15 queue deltas (re-freeze at 3f7c16e, delta re-audit)
 
 - **Frozen candidate MOVED to `3f7c16e`** (from `4749e56`). Gate at that SHA: **254/254 PASS**. Security delta verdict: **ACCEPTABLE WITH DOCUMENTED GAPS — no new P0/P1/P2**; both hardening fixes PROVEN BLOCKED under adversarial probing, the three accepted gaps confirmed unchanged, and neither fix widened the attack surface.
