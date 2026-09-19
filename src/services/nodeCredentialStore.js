@@ -2,6 +2,10 @@ const fs = require("fs");
 const path = require("path");
 const { app } = require("electron");
 const { decryptPayload, encryptPayload } = require("./secureSessionStore");
+const {
+  decideMigrationRecovery,
+  verifyRecoveryPoint,
+} = require("../shared/migrationRecoveryPolicy");
 
 const NODE_CREDENTIAL_SCHEMA_VERSION = 2;
 let cachedStore = null;
@@ -92,12 +96,86 @@ function readStore() {
   }
   const legacyNodes = parsed?.nodes && typeof parsed.nodes === "object" && !Array.isArray(parsed.nodes) ? parsed.nodes : {};
   const backupPath = `${filePath}.schema-v${schemaVersion}.backup`;
-  if (!fs.existsSync(backupPath)) {
+  const backupExisted = fs.existsSync(backupPath);
+  if (!backupExisted) {
     writeEncryptedStore(backupPath, legacyNodes);
+  }
+  // V2-J bullet 6: the legacy plaintext store is migrated to the encrypted
+  // envelope only behind a recovery point that was read back and verified.
+  // Unlike a byte copy, this recovery point is a RE-ENCODE (the legacy file was
+  // plaintext), so verification is a parse check plus a decrypt-and-compare of
+  // the logical node payload. An unverified copy is refused, not warned past.
+  const recoveryVerification = verifyEncryptedCredentialRecoveryPoint(backupPath, legacyNodes);
+  const recoveryVerdict = decideMigrationRecovery({
+    storeId: "node-credentials",
+    fromSchemaVersion: schemaVersion,
+    toSchemaVersion: NODE_CREDENTIAL_SCHEMA_VERSION,
+    recoveryPoint: { canTake: true, taken: fs.existsSync(backupPath), verified: recoveryVerification.verified },
+    // The legacy plaintext store is the source being migrated; once overwritten
+    // there is no other copy to rebuild the credentials from.
+    reconstructible: { isReconstructible: false, source: null },
+  });
+  if (recoveryVerdict.verdict !== "proceed") {
+    if (!backupExisted) {
+      try {
+        fs.rmSync(backupPath, { force: true });
+      } catch {}
+    }
+    throw new NodeCredentialStoreError(
+      "Saved node credentials could not be migrated safely because the pre-migration recovery point could not be verified.",
+      "NODE_CREDENTIAL_MIGRATION_RECOVERY_UNVERIFIED",
+      { storeId: "node-credentials", reason: recoveryVerdict.reason, verification: recoveryVerification.reason },
+    );
   }
   const migrated = { schemaVersion: NODE_CREDENTIAL_SCHEMA_VERSION, nodes: legacyNodes };
   writeStore(migrated);
   return migrated;
+}
+
+// Deterministic key-ordered serialization so a JSON round-trip of the same
+// object always compares equal regardless of key insertion order.
+function canonicalJson(value) {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value === undefined ? null : value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalJson).join(",")}]`;
+  }
+  return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(",")}}`;
+}
+
+// Verification for the node-credential recovery point: read it back, confirm it
+// is a parseable envelope, then decrypt it with the recovery point's own path
+// and confirm the logical node payload matches the legacy nodes being migrated.
+// This proves the recovery point is readable and holds the same credentials; it
+// does NOT prove a restore into a working installation would succeed.
+function verifyEncryptedCredentialRecoveryPoint(backupPath, expectedNodes) {
+  let raw;
+  try {
+    raw = fs.readFileSync(backupPath);
+  } catch {
+    raw = null;
+  }
+  const parsedCheck = verifyRecoveryPoint({
+    mode: "json",
+    copy: raw,
+    expect: (value) => Number.isInteger(value.schemaVersion) && value.encrypted !== null && typeof value.encrypted === "object",
+  });
+  if (!parsedCheck.verified) return parsedCheck;
+  try {
+    const envelope = JSON.parse(raw.toString("utf8"));
+    const decrypted = decryptPayload(envelope.encrypted, backupPath);
+    const decryptedNodes = decrypted && typeof decrypted === "object" && !Array.isArray(decrypted) ? decrypted.nodes : null;
+    if (!decryptedNodes || typeof decryptedNodes !== "object" || Array.isArray(decryptedNodes)) {
+      return { ...parsedCheck, verified: false, reason: "recovery_point_payload_unreadable" };
+    }
+    if (canonicalJson(decryptedNodes) !== canonicalJson(expectedNodes || {})) {
+      return { ...parsedCheck, verified: false, reason: "recovery_point_payload_mismatch" };
+    }
+    return { ...parsedCheck, reason: "encrypted_recovery_point_verified" };
+  } catch {
+    return { ...parsedCheck, verified: false, reason: "recovery_point_payload_unreadable" };
+  }
 }
 
 function writeEncryptedStore(filePath, nodes) {

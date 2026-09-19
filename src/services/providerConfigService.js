@@ -1,6 +1,10 @@
 const fs = require("fs");
 const path = require("path");
 const { decryptPayload, encryptPayload } = require("./secureSessionStore");
+const {
+  decideMigrationRecovery,
+  verifyRecoveryPoint,
+} = require("../shared/migrationRecoveryPolicy");
 
 const MARKETPLACE_CONFIG_SCHEMA_VERSION = 2;
 
@@ -100,6 +104,48 @@ function writeEncryptedConfig(filePath, config) {
   fs.renameSync(tempPath, filePath);
 }
 
+// Deterministic key-ordered serialization so a JSON round-trip of the same
+// object always compares equal regardless of key insertion order.
+function canonicalJson(value) {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value === undefined ? null : value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalJson).join(",")}]`;
+  }
+  return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(",")}}`;
+}
+
+// Verification for the marketplace recovery point: read it back, confirm it is
+// a parseable envelope, then decrypt it with the recovery point's own path and
+// confirm the logical configuration matches what is being migrated. This proves
+// the recovery point is readable and holds the same configuration; it does NOT
+// prove a restore into a working installation would succeed.
+function verifyEncryptedMarketplaceRecoveryPoint(backupPath, expectedConfig) {
+  let raw;
+  try {
+    raw = fs.readFileSync(backupPath);
+  } catch {
+    raw = null;
+  }
+  const parsedCheck = verifyRecoveryPoint({
+    mode: "json",
+    copy: raw,
+    expect: (value) => Number.isInteger(value.schemaVersion) && value.encrypted !== null && typeof value.encrypted === "object",
+  });
+  if (!parsedCheck.verified) return parsedCheck;
+  try {
+    const envelope = JSON.parse(raw.toString("utf8"));
+    const decrypted = normalizeMarketplaceConfig(decryptPayload(envelope.encrypted, backupPath));
+    if (canonicalJson(decrypted) !== canonicalJson(normalizeMarketplaceConfig(expectedConfig))) {
+      return { ...parsedCheck, verified: false, reason: "recovery_point_payload_mismatch" };
+    }
+    return { ...parsedCheck, reason: "encrypted_recovery_point_verified" };
+  } catch {
+    return { ...parsedCheck, verified: false, reason: "recovery_point_payload_unreadable" };
+  }
+}
+
 function readMarketplaceConfig(options = {}) {
   const configPath = getMarketplaceConfigPath();
   if (!fs.existsSync(configPath)) {
@@ -151,7 +197,35 @@ function readMarketplaceConfig(options = {}) {
   } else {
     normalized = normalizeMarketplaceConfig(parsed);
     const backupPath = `${configPath}.schema-v${schemaVersion}.backup`;
-    if (!fs.existsSync(backupPath)) writeEncryptedConfig(backupPath, normalized);
+    const backupExisted = fs.existsSync(backupPath);
+    if (!backupExisted) writeEncryptedConfig(backupPath, normalized);
+    // V2-J bullet 6: the legacy marketplace config is re-encoded into the
+    // encrypted envelope only behind a recovery point that was read back and
+    // verified. The recovery point is a RE-ENCODE of a plaintext original, so
+    // verification is a parse check plus a decrypt-and-compare of the logical
+    // configuration. An unverified copy is refused, not warned past.
+    const recoveryVerification = verifyEncryptedMarketplaceRecoveryPoint(backupPath, normalized);
+    const recoveryVerdict = decideMigrationRecovery({
+      storeId: "marketplace-provider-config",
+      fromSchemaVersion: schemaVersion,
+      toSchemaVersion: MARKETPLACE_CONFIG_SCHEMA_VERSION,
+      recoveryPoint: { canTake: true, taken: fs.existsSync(backupPath), verified: recoveryVerification.verified },
+      // An owner-supplied credential can later replace a lost one, but the
+      // stored provider key itself cannot be rebuilt from anywhere.
+      reconstructible: { isReconstructible: false, source: null },
+    });
+    if (recoveryVerdict.verdict !== "proceed") {
+      if (!backupExisted) {
+        try {
+          fs.rmSync(backupPath, { force: true });
+        } catch {}
+      }
+      throw createMarketplaceConfigError(
+        "MARKETPLACE_CONFIG_MIGRATION_RECOVERY_UNVERIFIED",
+        "Marketplace provider configuration could not be migrated safely because the pre-migration recovery point could not be verified.",
+        { storeId: "marketplace-provider-config", reason: recoveryVerdict.reason, verification: recoveryVerification.reason },
+      );
+    }
     writeEncryptedConfig(configPath, normalized);
   }
   clearMarketplaceConfigRecoveryState();

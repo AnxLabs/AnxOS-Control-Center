@@ -18,6 +18,10 @@ const {
   serializeDocument,
 } = require("../gameServerConfigManager");
 const { evaluateWorkloadTrust, TRUST_DECLARATION_FIELDS } = require("../workloadTrustPolicy");
+const {
+  decideMigrationRecovery,
+  verifyRecoveryPoint,
+} = require("../migrationRecoveryPolicy");
 
 let runtimeConfigProvider = () => ({
   instanceRoot: process.env.AGENT_INSTANCE_ROOT || path.join(process.cwd(), "instances"),
@@ -3491,8 +3495,43 @@ async function loadInstanceConfig(instanceId) {
     }
     if (schemaVersion < INSTANCE_CONFIG_SCHEMA_VERSION) {
       const backupPath = `${filePath}.schema-v${schemaVersion}.backup`;
-      if (!await pathExists(backupPath)) {
+      const originalBytes = await fs.readFile(filePath);
+      const backupExisted = await pathExists(backupPath);
+      if (!backupExisted) {
         await fs.copyFile(filePath, backupPath, fsSync.constants.COPYFILE_EXCL);
+      }
+      // V2-J bullet 6: the risky migration below only runs behind a recovery
+      // point that was read back and verified. A copy that was written but
+      // never checked is `unverified`, and unverified is refused — not warned
+      // past. A single instance record is not reconstructible from anywhere
+      // else, so there is no reconstructible escape hatch here.
+      let recoveryBytes = null;
+      try {
+        recoveryBytes = await fs.readFile(backupPath);
+      } catch {
+        recoveryBytes = null;
+      }
+      const recoveryVerification = verifyRecoveryPoint({ mode: "bytes", original: originalBytes, copy: recoveryBytes });
+      const recoveryTaken = await pathExists(backupPath);
+      const recoveryVerdict = decideMigrationRecovery({
+        storeId: "instance-config",
+        fromSchemaVersion: schemaVersion,
+        toSchemaVersion: INSTANCE_CONFIG_SCHEMA_VERSION,
+        recoveryPoint: { canTake: true, taken: recoveryTaken, verified: recoveryVerification.verified },
+        reconstructible: { isReconstructible: false, source: null },
+      });
+      if (recoveryVerdict.verdict !== "proceed") {
+        // Drop only a copy this operation created, so an operator never trusts
+        // a `.schema-vN.backup` that failed verification. A pre-existing copy is
+        // left untouched: it may be the only recovery point.
+        if (!backupExisted && recoveryTaken) {
+          await fs.rm(backupPath, { force: true }).catch(() => {});
+        }
+        throw createInstanceError("INSTANCE_CONFIG_MIGRATION_RECOVERY_UNVERIFIED", 500, {
+          storeId: "instance-config",
+          reason: recoveryVerdict.reason,
+          verification: recoveryVerification.reason,
+        });
       }
       // Build 200 has one deliberately narrow migration: preserve the Build 199
       // record while adding the durable failed-install state and recovery fields.
