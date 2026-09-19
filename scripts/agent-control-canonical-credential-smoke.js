@@ -10,6 +10,22 @@ function writeJson(filePath, payload) {
   fs.writeFileSync(filePath, `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 });
 }
 
+// V2-J bullet 6: migrating the legacy global Agent config now plants a durable,
+// never-replaced `.schema-v0.backup`. This smoke rewrites that legacy file for
+// different scenarios, which is exactly the state verify-or-refuse refuses, so
+// each rewrite must start from a clean recovery point.
+function writeLegacyAgentConfig(filePath, payload) {
+  const directory = path.dirname(filePath);
+  if (fs.existsSync(directory)) {
+    for (const name of fs.readdirSync(directory)) {
+      if (/^agent\.json\.schema-v\d+\.backup$/.test(name)) {
+        fs.rmSync(path.join(directory, name), { force: true });
+      }
+    }
+  }
+  writeJson(filePath, payload);
+}
+
 function listen(server) {
   return new Promise((resolve, reject) => {
     server.once("error", reject);
@@ -99,7 +115,7 @@ async function main() {
       }],
       removedLocalAgents: [],
     });
-    writeJson(agentConfigPath, beforeGlobalConfig);
+    writeLegacyAgentConfig(agentConfigPath, beforeGlobalConfig);
     assert.strictEqual(credentials.setNodeToken("anxlab", "stale-node-token"), true, "Smoke setup should begin with the rejected node credential.");
 
     const staleHealthRequest = nodes.checkNodeHealth("anxlab");
@@ -135,7 +151,7 @@ async function main() {
       nodes: [],
       removedLocalAgents: [],
     });
-    writeJson(agentConfigPath, { backendMode: "agent", agentUrl: localUrl, agentToken: "local-token" });
+    writeLegacyAgentConfig(agentConfigPath, { backendMode: "agent", agentUrl: localUrl, agentToken: "local-token" });
     const global = await control.listAgents({ selectedNodeId: "application-host" });
     assert.strictEqual(global.configured?.state, "Running", "Global local Agent context should continue to use the local/global credential.");
     assert(localRecords.some((record) => record.pathname === "/api/v1/stats" && record.auth === "Bearer local-token"), "Local/global Agent /stats must use the global credential.");

@@ -18,6 +18,7 @@ const { parsePairingCode } = require("../shared/agentPairing");
 const { AGENT_STATUS, classifyAgentError, createAgentStatusSnapshot } = require("../shared/agentStatus");
 const { generateAgentToken, tokenFingerprint } = require("../shared/agentTokenStore");
 const { readAgentRuntimeConfig } = require("../shared/agentRuntimeConfigStore");
+const { decideMigrationRecovery, verifyRecoveryPoint } = require("../shared/migrationRecoveryPolicy");
 
 const NODE_SCHEMA_VERSION = 3;
 const DEFAULT_LOCAL_AGENT_PORT = 47131;
@@ -996,7 +997,40 @@ function readNodeState() {
     }
     if (schemaVersion < NODE_SCHEMA_VERSION) {
       const backupPath = `${nodesPath}.schema-v${schemaVersion}.backup`;
-      if (!fs.existsSync(backupPath)) fs.copyFileSync(nodesPath, backupPath);
+      const originalBytes = fs.readFileSync(nodesPath);
+      const backupExisted = fs.existsSync(backupPath);
+      if (!backupExisted) fs.copyFileSync(nodesPath, backupPath);
+      // V2-J bullet 6: the registry rewrite below only runs behind a recovery
+      // point that was read back and verified. An unverified copy is refused,
+      // not warned past. A node registry carries enrollment and token state that
+      // cannot be rebuilt from anywhere else.
+      let recoveryBytes = null;
+      try {
+        recoveryBytes = fs.readFileSync(backupPath);
+      } catch {
+        recoveryBytes = null;
+      }
+      const recoveryVerification = verifyRecoveryPoint({ mode: "bytes", original: originalBytes, copy: recoveryBytes });
+      const recoveryTaken = fs.existsSync(backupPath);
+      const recoveryVerdict = decideMigrationRecovery({
+        storeId: "node-registry",
+        fromSchemaVersion: schemaVersion,
+        toSchemaVersion: NODE_SCHEMA_VERSION,
+        recoveryPoint: { canTake: true, taken: recoveryTaken, verified: recoveryVerification.verified },
+        reconstructible: { isReconstructible: false, source: null },
+      });
+      if (recoveryVerdict.verdict !== "proceed") {
+        // Drop only a copy this operation created, so an operator never trusts a
+        // `.schema-vN.backup` that failed verification. A pre-existing copy is
+        // left untouched: it may be the only recovery point.
+        if (!backupExisted && recoveryTaken) {
+          try { fs.rmSync(backupPath, { force: true }); } catch {}
+        }
+        throw Object.assign(new Error("Node configuration could not be migrated safely because the pre-migration recovery point could not be verified."), {
+          code: "NODE_CONFIG_MIGRATION_RECOVERY_UNVERIFIED",
+          details: { storeId: "node-registry", reason: recoveryVerdict.reason, verification: recoveryVerification.reason },
+        });
+      }
     }
   }
   const state = migrateState(parsed);

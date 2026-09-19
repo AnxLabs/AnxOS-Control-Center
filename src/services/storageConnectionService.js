@@ -3,6 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const { app, safeStorage } = require("electron");
 const { Client } = require("ssh2");
+const { decideMigrationRecovery, verifyRecoveryPoint } = require("../shared/migrationRecoveryPolicy");
 
 const LOCAL_STORAGE_ID = "local";
 const STORAGE_CONNECTIONS_SCHEMA_VERSION = 1;
@@ -141,7 +142,39 @@ function readStore() {
   };
   if (schemaVersion < STORAGE_CONNECTIONS_SCHEMA_VERSION) {
     const backupPath = `${filePath}.schema-v${schemaVersion}.backup`;
-    if (!fs.existsSync(backupPath)) fs.copyFileSync(filePath, backupPath, fs.constants.COPYFILE_EXCL);
+    const originalBytes = fs.readFileSync(filePath);
+    const backupExisted = fs.existsSync(backupPath);
+    if (!backupExisted) fs.copyFileSync(filePath, backupPath, fs.constants.COPYFILE_EXCL);
+    // V2-J bullet 6: the rewrite below only runs behind a recovery point that
+    // was read back and verified. An unverified copy is refused, not warned
+    // past. Stored SFTP connection state cannot be rebuilt from anywhere else.
+    let recoveryBytes = null;
+    try {
+      recoveryBytes = fs.readFileSync(backupPath);
+    } catch {
+      recoveryBytes = null;
+    }
+    const recoveryVerification = verifyRecoveryPoint({ mode: "bytes", original: originalBytes, copy: recoveryBytes });
+    const recoveryTaken = fs.existsSync(backupPath);
+    const recoveryVerdict = decideMigrationRecovery({
+      storeId: "storage-connections",
+      fromSchemaVersion: schemaVersion,
+      toSchemaVersion: STORAGE_CONNECTIONS_SCHEMA_VERSION,
+      recoveryPoint: { canTake: true, taken: recoveryTaken, verified: recoveryVerification.verified },
+      reconstructible: { isReconstructible: false, source: null },
+    });
+    if (recoveryVerdict.verdict !== "proceed") {
+      if (!backupExisted && recoveryTaken) {
+        try { fs.rmSync(backupPath, { force: true }); } catch {}
+      }
+      throw new StorageConnectionError("Storage connection state could not be migrated safely because the pre-migration recovery point could not be verified.", {
+        code: "STORAGE_CONNECTION_MIGRATION_RECOVERY_UNVERIFIED",
+        status: 500,
+        storeId: "storage-connections",
+        reason: recoveryVerdict.reason,
+        verification: recoveryVerification.reason,
+      });
+    }
     writeStore(normalized);
   }
   return normalized;

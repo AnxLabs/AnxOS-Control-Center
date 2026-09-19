@@ -10,6 +10,7 @@ const { openExternalUrl } = require("./externalUrlService");
 const { OFFICIAL_SITE_ORIGIN } = require("../shared/officialSite");
 const { sanitize, sanitizeForDiagnostics } = require("../shared/redaction");
 const { getReleaseInfo } = require("../shared/releaseConfig");
+const { decideMigrationRecovery, verifyRecoveryPoint } = require("../shared/migrationRecoveryPolicy");
 
 const DEFAULT_UPDATE_REPOSITORY = "AnxLabs/AnxOS-Control-Center-Releases";
 const UPDATE_REPOSITORY = normalizeUpdateRepository(process.env.ANXOS_UPDATE_REPOSITORY) || DEFAULT_UPDATE_REPOSITORY;
@@ -558,7 +559,48 @@ class UpdateManager extends EventEmitter {
     this.pendingInstall = store.pendingInstall && typeof store.pendingInstall === "object" ? sanitize(store.pendingInstall) : null;
     if (schemaVersion < UPDATE_STORE_SCHEMA_VERSION) {
       const backupPath = `${this.storePath}.schema-v${schemaVersion}.backup`;
-      if (!fs.existsSync(backupPath)) fs.copyFileSync(this.storePath, backupPath, fs.constants.COPYFILE_EXCL);
+      const originalBytes = fs.readFileSync(this.storePath);
+      const backupExisted = fs.existsSync(backupPath);
+      if (!backupExisted) fs.copyFileSync(this.storePath, backupPath, fs.constants.COPYFILE_EXCL);
+      // V2-J bullet 6: the rewrite below only runs behind a recovery point that
+      // was read back and verified. An unverified copy is refused, not warned
+      // past. This store refuses through its own degraded `storeError` channel
+      // (as UPDATE_STORE_CORRUPT / UPDATE_STORE_SCHEMA_UNSUPPORTED do) rather
+      // than throwing, because loadStore runs during startup IPC registration
+      // and a throw there would abort initialization. The refusal still writes
+      // nothing, so the store stays byte-identical.
+      let recoveryBytes = null;
+      try {
+        recoveryBytes = fs.readFileSync(backupPath);
+      } catch {
+        recoveryBytes = null;
+      }
+      const recoveryVerification = verifyRecoveryPoint({ mode: "bytes", original: originalBytes, copy: recoveryBytes });
+      const recoveryTaken = fs.existsSync(backupPath);
+      const recoveryVerdict = decideMigrationRecovery({
+        storeId: "update-store",
+        fromSchemaVersion: schemaVersion,
+        toSchemaVersion: UPDATE_STORE_SCHEMA_VERSION,
+        recoveryPoint: { canTake: true, taken: recoveryTaken, verified: recoveryVerification.verified },
+        // Skipped versions and a handed-off install target are operator state
+        // that cannot be rebuilt from anywhere else.
+        reconstructible: { isReconstructible: false, source: null },
+      });
+      if (recoveryVerdict.verdict !== "proceed") {
+        if (!backupExisted && recoveryTaken) {
+          try { fs.rmSync(backupPath, { force: true }); } catch {}
+        }
+        this.skippedVersions = new Set();
+        this.pendingInstall = null;
+        this.storeError = {
+          code: "UPDATE_STORE_MIGRATION_RECOVERY_UNVERIFIED",
+          message: "Saved update preferences could not be migrated safely because the pre-migration recovery point could not be verified. The original file was preserved.",
+          reason: recoveryVerdict.reason,
+          verification: recoveryVerification.reason,
+        };
+        this.state.error = this.storeError.message;
+        return;
+      }
       this.saveStore();
     }
   }

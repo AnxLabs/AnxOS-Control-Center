@@ -4,6 +4,7 @@ const os = require("os");
 const path = require("path");
 const { app } = require("electron");
 const { getReleaseInfo } = require("../shared/releaseConfig");
+const { decideMigrationRecovery, verifyRecoveryPoint } = require("../shared/migrationRecoveryPolicy");
 
 const APPLICATION_HOST_NODE_ID = "application-host";
 const APPLICATION_HOST_SCHEMA_VERSION = 1;
@@ -48,7 +49,37 @@ function readOrCreateHostId() {
   }
   if (schemaVersion < APPLICATION_HOST_SCHEMA_VERSION) {
     const backupPath = `${filePath}.schema-v${schemaVersion}.backup`;
-    if (!fs.existsSync(backupPath)) fs.copyFileSync(filePath, backupPath, fs.constants.COPYFILE_EXCL);
+    const originalBytes = fs.readFileSync(filePath);
+    const backupExisted = fs.existsSync(backupPath);
+    if (!backupExisted) fs.copyFileSync(filePath, backupPath, fs.constants.COPYFILE_EXCL);
+    // V2-J bullet 6: the risky rewrite below only runs behind a recovery point
+    // that was read back and verified. A copy that was written but never checked
+    // is `unverified`, and unverified is refused — not warned past. The host
+    // identity is a random UUID that is not reconstructible from anywhere else.
+    let recoveryBytes = null;
+    try {
+      recoveryBytes = fs.readFileSync(backupPath);
+    } catch {
+      recoveryBytes = null;
+    }
+    const recoveryVerification = verifyRecoveryPoint({ mode: "bytes", original: originalBytes, copy: recoveryBytes });
+    const recoveryTaken = fs.existsSync(backupPath);
+    const recoveryVerdict = decideMigrationRecovery({
+      storeId: "application-host-identity",
+      fromSchemaVersion: schemaVersion,
+      toSchemaVersion: APPLICATION_HOST_SCHEMA_VERSION,
+      recoveryPoint: { canTake: true, taken: recoveryTaken, verified: recoveryVerification.verified },
+      reconstructible: { isReconstructible: false, source: null },
+    });
+    if (recoveryVerdict.verdict !== "proceed") {
+      if (!backupExisted && recoveryTaken) {
+        try { fs.rmSync(backupPath, { force: true }); } catch {}
+      }
+      throw Object.assign(new Error("Application host identity could not be migrated safely because the pre-migration recovery point could not be verified."), {
+        code: "APPLICATION_HOST_MIGRATION_RECOVERY_UNVERIFIED",
+        details: { storeId: "application-host-identity", reason: recoveryVerdict.reason, verification: recoveryVerification.reason },
+      });
+    }
     writeHostIdentity(filePath, { schemaVersion: APPLICATION_HOST_SCHEMA_VERSION, hostId: parsed.hostId });
   }
   return parsed.hostId;

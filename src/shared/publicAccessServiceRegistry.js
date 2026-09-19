@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const { decideMigrationRecovery, verifyRecoveryPoint } = require("./migrationRecoveryPolicy");
 
 const SCHEMA_VERSION = 1;
 const DEFAULT_FILE_NAME = "public-access-services.json";
@@ -339,7 +340,38 @@ function readRegistry(options = {}) {
   const state = normalizeState(parsed);
   if (schemaVersion < SCHEMA_VERSION) {
     const backupPath = `${filePath}.schema-v${schemaVersion}.backup`;
-    if (!fs.existsSync(backupPath)) fs.copyFileSync(filePath, backupPath, fs.constants.COPYFILE_EXCL);
+    const originalBytes = fs.readFileSync(filePath);
+    const backupExisted = fs.existsSync(backupPath);
+    if (!backupExisted) fs.copyFileSync(filePath, backupPath, fs.constants.COPYFILE_EXCL);
+    // V2-J bullet 6: the registry rewrite below only runs behind a recovery
+    // point that was read back and verified. An unverified copy is refused, not
+    // warned past. Published access routes cannot be rebuilt from anywhere else.
+    let recoveryBytes = null;
+    try {
+      recoveryBytes = fs.readFileSync(backupPath);
+    } catch {
+      recoveryBytes = null;
+    }
+    const recoveryVerification = verifyRecoveryPoint({ mode: "bytes", original: originalBytes, copy: recoveryBytes });
+    const recoveryTaken = fs.existsSync(backupPath);
+    const recoveryVerdict = decideMigrationRecovery({
+      storeId: "public-access-registry",
+      fromSchemaVersion: schemaVersion,
+      toSchemaVersion: SCHEMA_VERSION,
+      recoveryPoint: { canTake: true, taken: recoveryTaken, verified: recoveryVerification.verified },
+      reconstructible: { isReconstructible: false, source: null },
+    });
+    if (recoveryVerdict.verdict !== "proceed") {
+      if (!backupExisted && recoveryTaken) {
+        try { fs.rmSync(backupPath, { force: true }); } catch {}
+      }
+      throw createAccessServiceError(
+        "PUBLIC_ACCESS_MIGRATION_RECOVERY_UNVERIFIED",
+        "Public Access state could not be migrated safely because the pre-migration recovery point could not be verified.",
+        { storeId: "public-access-registry", reason: recoveryVerdict.reason, verification: recoveryVerification.reason },
+        500,
+      );
+    }
     atomicWriteJson(filePath, state);
   }
   return state;

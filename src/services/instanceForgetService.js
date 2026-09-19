@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const { app } = require("electron");
+const { decideMigrationRecovery, verifyRecoveryPoint } = require("../shared/migrationRecoveryPolicy");
 
 const FORGOTTEN_SCHEMA_VERSION = 1;
 const DEFAULT_NODE_ID = "application-host";
@@ -70,7 +71,37 @@ function readStore() {
   };
   if (schemaVersion < FORGOTTEN_SCHEMA_VERSION) {
     const backupPath = `${filePath}.schema-v${schemaVersion}.backup`;
-    if (!fs.existsSync(backupPath)) fs.copyFileSync(filePath, backupPath, fs.constants.COPYFILE_EXCL);
+    const originalBytes = fs.readFileSync(filePath);
+    const backupExisted = fs.existsSync(backupPath);
+    if (!backupExisted) fs.copyFileSync(filePath, backupPath, fs.constants.COPYFILE_EXCL);
+    // V2-J bullet 6: the rewrite below only runs behind a verified recovery
+    // point. An unverified copy is refused, not warned past. The forgotten-instance
+    // ledger is operator state that cannot be rebuilt from anywhere else.
+    let recoveryBytes = null;
+    try {
+      recoveryBytes = fs.readFileSync(backupPath);
+    } catch {
+      recoveryBytes = null;
+    }
+    const recoveryVerification = verifyRecoveryPoint({ mode: "bytes", original: originalBytes, copy: recoveryBytes });
+    const recoveryTaken = fs.existsSync(backupPath);
+    const recoveryVerdict = decideMigrationRecovery({
+      storeId: "forgotten-instances",
+      fromSchemaVersion: schemaVersion,
+      toSchemaVersion: FORGOTTEN_SCHEMA_VERSION,
+      recoveryPoint: { canTake: true, taken: recoveryTaken, verified: recoveryVerification.verified },
+      reconstructible: { isReconstructible: false, source: null },
+    });
+    if (recoveryVerdict.verdict !== "proceed") {
+      if (!backupExisted && recoveryTaken) {
+        try { fs.rmSync(backupPath, { force: true }); } catch {}
+      }
+      throw new ForgottenInstanceStoreError(
+        "Forgotten-instance state could not be migrated safely because the pre-migration recovery point could not be verified.",
+        "FORGOTTEN_INSTANCE_MIGRATION_RECOVERY_UNVERIFIED",
+        { storeId: "forgotten-instances", reason: recoveryVerdict.reason, verification: recoveryVerification.reason },
+      );
+    }
     writeStore(state);
   }
   return state;

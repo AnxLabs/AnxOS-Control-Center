@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const { app } = require("electron");
+const { decideMigrationRecovery, verifyRecoveryPoint } = require("../shared/migrationRecoveryPolicy");
 
 const SETTINGS_SCHEMA_VERSION = 1;
 const ONBOARDING_VERSION = 1;
@@ -195,9 +196,40 @@ function readPreferences() {
   if (!exists) {
     settings["interface.guidedMode"] = true;
   } else if (schemaVersion < SETTINGS_SCHEMA_VERSION || !raw.settings) {
-    const backupPath = `${getSettingsPath()}.schema-v${schemaVersion}.backup`;
-    if (!fs.existsSync(backupPath)) {
-      fs.copyFileSync(getSettingsPath(), backupPath, fs.constants.COPYFILE_EXCL);
+    const settingsPath = getSettingsPath();
+    const backupPath = `${settingsPath}.schema-v${schemaVersion}.backup`;
+    const originalBytes = fs.readFileSync(settingsPath);
+    const backupExisted = fs.existsSync(backupPath);
+    if (!backupExisted) {
+      fs.copyFileSync(settingsPath, backupPath, fs.constants.COPYFILE_EXCL);
+    }
+    // V2-J bullet 6: the rewrite below only runs behind a recovery point that
+    // was read back and verified. An unverified copy is refused, not warned
+    // past. Operator preferences cannot be rebuilt from anywhere else.
+    let recoveryBytes = null;
+    try {
+      recoveryBytes = fs.readFileSync(backupPath);
+    } catch {
+      recoveryBytes = null;
+    }
+    const recoveryVerification = verifyRecoveryPoint({ mode: "bytes", original: originalBytes, copy: recoveryBytes });
+    const recoveryTaken = fs.existsSync(backupPath);
+    const recoveryVerdict = decideMigrationRecovery({
+      storeId: "settings-preferences",
+      fromSchemaVersion: schemaVersion,
+      toSchemaVersion: SETTINGS_SCHEMA_VERSION,
+      recoveryPoint: { canTake: true, taken: recoveryTaken, verified: recoveryVerification.verified },
+      reconstructible: { isReconstructible: false, source: null },
+    });
+    if (recoveryVerdict.verdict !== "proceed") {
+      if (!backupExisted && recoveryTaken) {
+        try { fs.rmSync(backupPath, { force: true }); } catch {}
+      }
+      throw new SettingsStoreError(
+        "Saved preferences could not be migrated safely because the pre-migration recovery point could not be verified.",
+        "SETTINGS_STORE_MIGRATION_RECOVERY_UNVERIFIED",
+        { storeId: "settings-preferences", reason: recoveryVerdict.reason, verification: recoveryVerification.reason },
+      );
     }
     persistSettings(settings);
   }

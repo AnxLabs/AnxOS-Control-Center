@@ -6,6 +6,7 @@ const { app, shell, session, Notification } = require("electron");
 const { getStatus, requireOwner, audit } = require("./securityService");
 const { getSystemSnapshot } = require("./systemService");
 const { getAgentConfigPath, readAgentSettings, testConnection } = require("./agentClient");
+const { decideMigrationRecovery, verifyRecoveryPoint } = require("../shared/migrationRecoveryPolicy");
 
 const WORKSPACE_VERSION = 1;
 const REDACTED = "[redacted]";
@@ -174,7 +175,37 @@ function readState() {
   const normalized = normalizeState(raw);
   if (version < WORKSPACE_VERSION) {
     const backupPath = `${filePath}.schema-v${version}.backup`;
-    if (!fs.existsSync(backupPath)) fs.copyFileSync(filePath, backupPath, fs.constants.COPYFILE_EXCL);
+    const originalBytes = fs.readFileSync(filePath);
+    const backupExisted = fs.existsSync(backupPath);
+    if (!backupExisted) fs.copyFileSync(filePath, backupPath, fs.constants.COPYFILE_EXCL);
+    // V2-J bullet 6: the workspace rewrite below only runs behind a recovery
+    // point that was read back and verified. An unverified copy is refused, not
+    // warned past. Operator pages, notes and API history cannot be rebuilt from
+    // anywhere else.
+    let recoveryBytes = null;
+    try {
+      recoveryBytes = fs.readFileSync(backupPath);
+    } catch {
+      recoveryBytes = null;
+    }
+    const recoveryVerification = verifyRecoveryPoint({ mode: "bytes", original: originalBytes, copy: recoveryBytes });
+    const recoveryTaken = fs.existsSync(backupPath);
+    const recoveryVerdict = decideMigrationRecovery({
+      storeId: "owner-workspace",
+      fromSchemaVersion: version,
+      toSchemaVersion: WORKSPACE_VERSION,
+      recoveryPoint: { canTake: true, taken: recoveryTaken, verified: recoveryVerification.verified },
+      reconstructible: { isReconstructible: false, source: null },
+    });
+    if (recoveryVerdict.verdict !== "proceed") {
+      if (!backupExisted && recoveryTaken) {
+        try { fs.rmSync(backupPath, { force: true }); } catch {}
+      }
+      throw Object.assign(new Error("Owner Workspace state could not be migrated safely because the pre-migration recovery point could not be verified."), {
+        code: "OWNER_WORKSPACE_MIGRATION_RECOVERY_UNVERIFIED",
+        details: { storeId: "owner-workspace", reason: recoveryVerdict.reason, verification: recoveryVerification.reason },
+      });
+    }
   }
   if (version < WORKSPACE_VERSION || !Array.isArray(raw.builtInPages) || raw.builtInPages.length !== BUILT_IN_PAGES.length || !raw.contents?.notes) {
     writeState(normalized);

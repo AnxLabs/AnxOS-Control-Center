@@ -147,7 +147,18 @@ function reloadAgentControlService(root) {
     assert.strictEqual(reloadedConfig.agentToken, config.agentToken, "Reloaded node config should use the newly paired credential from the canonical node credential store.");
     await assertProtectedEndpointsUseToken(agentUrl, reloadedConfig.agentToken, "stale-before-restart");
     const agentClient = require("../src/services/agentClient");
-    fs.writeFileSync(agentClient.getAgentConfigPath(), `${JSON.stringify({ backendMode: "agent", agentUrl, agentToken: "stale-global-token" }, null, 2)}\n`, { mode: 0o600 });
+    // V2-J bullet 6: the first-run create above leaves a durable, never-replaced
+    // `.schema-v0.backup` of the legacy default config. Overwriting agent.json
+    // with a DIFFERENT legacy file while that recovery point survives is the
+    // state verify-or-refuse correctly refuses, so this deliberate stale-config
+    // simulation must start from a clean recovery point.
+    const agentConfigPath = agentClient.getAgentConfigPath();
+    for (const name of fs.readdirSync(path.dirname(agentConfigPath))) {
+      if (/^agent\.json\.schema-v\d+\.backup$/.test(name)) {
+        fs.rmSync(path.join(path.dirname(agentConfigPath), name), { force: true });
+      }
+    }
+    fs.writeFileSync(agentConfigPath, `${JSON.stringify({ backendMode: "agent", agentUrl, agentToken: "stale-global-token" }, null, 2)}\n`, { mode: 0o600 });
     const reloadedControl = reloadAgentControlService(root);
     const controlStatus = await reloadedControl.listAgents({ selectedNodeId: paired.node.id });
     assert.strictEqual(controlStatus.activeAgent?.nodeId, paired.node.id, "Agent Control should keep the paired node active after desktop reload.");

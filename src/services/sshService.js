@@ -6,6 +6,7 @@ const path = require("path");
 const { Client } = require("ssh2");
 const { getAllNodesSync, getSelectedNodeId } = require("./nodeService");
 const { redactString } = require("../shared/redaction");
+const { decideMigrationRecovery, verifyRecoveryPoint } = require("../shared/migrationRecoveryPolicy");
 
 const DEV_SSH_PROFILES_PATH = path.resolve(__dirname, "..", "..", "config", "ssh-profiles.json");
 const SSH_TIMEOUTS = Object.freeze({
@@ -205,7 +206,38 @@ function readProfilesConfig() {
 
     if (schemaVersion < SSH_PROFILES_SCHEMA_VERSION) {
       const backupPath = `${profilesPath}.schema-v${schemaVersion}.backup`;
-      if (!fs.existsSync(backupPath)) fs.copyFileSync(profilesPath, backupPath, fs.constants.COPYFILE_EXCL);
+      const originalBytes = fs.readFileSync(profilesPath);
+      const backupExisted = fs.existsSync(backupPath);
+      if (!backupExisted) fs.copyFileSync(profilesPath, backupPath, fs.constants.COPYFILE_EXCL);
+      // V2-J bullet 6: the profiles rewrite below only runs behind a recovery
+      // point that was read back and verified. An unverified copy is refused,
+      // not warned past. Saved SSH targets and credentials cannot be rebuilt
+      // from anywhere else.
+      let recoveryBytes = null;
+      try {
+        recoveryBytes = fs.readFileSync(backupPath);
+      } catch {
+        recoveryBytes = null;
+      }
+      const recoveryVerification = verifyRecoveryPoint({ mode: "bytes", original: originalBytes, copy: recoveryBytes });
+      const recoveryTaken = fs.existsSync(backupPath);
+      const recoveryVerdict = decideMigrationRecovery({
+        storeId: "ssh-profiles",
+        fromSchemaVersion: schemaVersion,
+        toSchemaVersion: SSH_PROFILES_SCHEMA_VERSION,
+        recoveryPoint: { canTake: true, taken: recoveryTaken, verified: recoveryVerification.verified },
+        reconstructible: { isReconstructible: false, source: null },
+      });
+      if (recoveryVerdict.verdict !== "proceed") {
+        if (!backupExisted && recoveryTaken) {
+          try { fs.rmSync(backupPath, { force: true }); } catch {}
+        }
+        throw new SshServiceError("SSH profiles configuration could not be migrated safely because the pre-migration recovery point could not be verified.", {
+          code: "SSH_PROFILES_MIGRATION_RECOVERY_UNVERIFIED",
+          status: 500,
+          details: { storeId: "ssh-profiles", reason: recoveryVerdict.reason, verification: recoveryVerification.reason },
+        });
+      }
     }
     if (schemaVersion < SSH_PROFILES_SCHEMA_VERSION || JSON.stringify(config) !== originalConfig) {
       writeProfilesConfig(config);

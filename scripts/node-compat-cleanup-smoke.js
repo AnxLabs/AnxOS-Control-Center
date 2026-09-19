@@ -15,6 +15,16 @@ const agentClient = require("../src/services/agentClient");
 fs.mkdirSync(tempDir, { recursive: true });
 
 function writeNodes(selectedNodeId) {
+  // V2-J bullet 6: the node migration now writes a durable recovery point that
+  // is deliberately NEVER replaced. Each call below simulates a fresh
+  // installation state, so it must clear that recovery point too — otherwise a
+  // later call hands the migration a different legacy source than the recorded
+  // recovery point and verify-or-refuse correctly refuses.
+  for (const name of fs.readdirSync(process.env.ANXHUB_CONFIG_DIR)) {
+    if (/^nodes\.json\.schema-v\d+\.backup$/.test(name)) {
+      fs.rmSync(path.join(process.env.ANXHUB_CONFIG_DIR, name), { force: true });
+    }
+  }
   fs.writeFileSync(getNodesPath(), `${JSON.stringify({
     schemaVersion: 2,
     selectedNodeId,

@@ -24,6 +24,7 @@ const {
 const diagnostics = require("./diagnosticsService");
 const auditRetentionPolicy = require("../shared/auditRetentionPolicy");
 const { sanitizeForDiagnostics } = require("../shared/redaction");
+const { decideMigrationRecovery, verifyRecoveryPoint } = require("../shared/migrationRecoveryPolicy");
 
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 const PERSISTENT_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -281,7 +282,37 @@ function readSecurityFile(filePath, options = {}) {
   const state = normalizeSecurityState(parsed);
   if (options.migrate === true && schemaVersion < SECURITY_SCHEMA_VERSION) {
     const backupPath = `${filePath}.schema-v${schemaVersion}.backup`;
-    if (!fs.existsSync(backupPath)) fs.copyFileSync(filePath, backupPath, fs.constants.COPYFILE_EXCL);
+    const originalBytes = fs.readFileSync(filePath);
+    const backupExisted = fs.existsSync(backupPath);
+    if (!backupExisted) fs.copyFileSync(filePath, backupPath, fs.constants.COPYFILE_EXCL);
+    // V2-J bullet 6: the security-state rewrite below only runs behind a
+    // recovery point that was read back and verified. An unverified copy is
+    // refused, not warned past. Owner users, trusted devices and agent tokens
+    // cannot be rebuilt from anywhere else.
+    let recoveryBytes = null;
+    try {
+      recoveryBytes = fs.readFileSync(backupPath);
+    } catch {
+      recoveryBytes = null;
+    }
+    const recoveryVerification = verifyRecoveryPoint({ mode: "bytes", original: originalBytes, copy: recoveryBytes });
+    const recoveryTaken = fs.existsSync(backupPath);
+    const recoveryVerdict = decideMigrationRecovery({
+      storeId: "security-state",
+      fromSchemaVersion: schemaVersion,
+      toSchemaVersion: SECURITY_SCHEMA_VERSION,
+      recoveryPoint: { canTake: true, taken: recoveryTaken, verified: recoveryVerification.verified },
+      reconstructible: { isReconstructible: false, source: null },
+    });
+    if (recoveryVerdict.verdict !== "proceed") {
+      if (!backupExisted && recoveryTaken) {
+        try { fs.rmSync(backupPath, { force: true }); } catch {}
+      }
+      throw Object.assign(new Error("Security state could not be migrated safely because the pre-migration recovery point could not be verified."), {
+        code: "SECURITY_STORE_MIGRATION_RECOVERY_UNVERIFIED",
+        details: { storeId: "security-state", reason: recoveryVerdict.reason, verification: recoveryVerification.reason },
+      });
+    }
     writeSecurityState(state);
   }
   return state;
@@ -431,7 +462,37 @@ function parsePersistentSessionRecord({ preserveFailure = false } = {}) {
   }
   if (schemaVersion < PERSISTENT_SESSION_SCHEMA_VERSION) {
     const backupPath = `${filePath}.schema-v${schemaVersion}.backup`;
-    if (!fs.existsSync(backupPath)) fs.copyFileSync(filePath, backupPath, fs.constants.COPYFILE_EXCL);
+    const originalBytes = fs.readFileSync(filePath);
+    const backupExisted = fs.existsSync(backupPath);
+    if (!backupExisted) fs.copyFileSync(filePath, backupPath, fs.constants.COPYFILE_EXCL);
+    // V2-J bullet 6: the remembered-session envelope rewrite below only runs
+    // behind a recovery point that was read back and verified. An unverified
+    // copy is refused, not warned past. The encrypted session payload cannot be
+    // rebuilt from anywhere else.
+    let recoveryBytes = null;
+    try {
+      recoveryBytes = fs.readFileSync(backupPath);
+    } catch {
+      recoveryBytes = null;
+    }
+    const recoveryVerification = verifyRecoveryPoint({ mode: "bytes", original: originalBytes, copy: recoveryBytes });
+    const recoveryTaken = fs.existsSync(backupPath);
+    const recoveryVerdict = decideMigrationRecovery({
+      storeId: "persistent-session-state",
+      fromSchemaVersion: schemaVersion,
+      toSchemaVersion: PERSISTENT_SESSION_SCHEMA_VERSION,
+      recoveryPoint: { canTake: true, taken: recoveryTaken, verified: recoveryVerification.verified },
+      reconstructible: { isReconstructible: false, source: null },
+    });
+    if (recoveryVerdict.verdict !== "proceed") {
+      if (!backupExisted && recoveryTaken) {
+        try { fs.rmSync(backupPath, { force: true }); } catch {}
+      }
+      throw Object.assign(new Error("Remembered session state could not be migrated safely because the pre-migration recovery point could not be verified."), {
+        code: "PERSISTENT_SESSION_MIGRATION_RECOVERY_UNVERIFIED",
+        details: { storeId: "persistent-session-state", reason: recoveryVerdict.reason, verification: recoveryVerification.reason },
+      });
+    }
     writePersistentSessionRecordAtomic({ ...record, schemaVersion: PERSISTENT_SESSION_SCHEMA_VERSION });
   }
   return record;
@@ -443,7 +504,7 @@ function readPersistentSessionFile() {
     record = parsePersistentSessionRecord({ preserveFailure: true });
     return record ? decryptLocalSession(record) : null;
   } catch (error) {
-    if (error?.code === "PERSISTENT_SESSION_SCHEMA_UNSUPPORTED") return null;
+    if (["PERSISTENT_SESSION_SCHEMA_UNSUPPORTED", "PERSISTENT_SESSION_MIGRATION_RECOVERY_UNVERIFIED"].includes(error?.code)) return null;
     const filePath = getPersistentSessionPath();
     const backupPath = `${filePath}.undecryptable-${Date.now()}.backup`;
     try { fs.copyFileSync(filePath, backupPath, fs.constants.COPYFILE_EXCL); } catch {}

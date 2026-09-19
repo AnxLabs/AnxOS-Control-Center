@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const { getDefaultConfigDirectory } = require("./secureSessionStore");
+const { decideMigrationRecovery, verifyRecoveryPoint } = require("../shared/migrationRecoveryPolicy");
 
 const OWNER_ACCOUNTS_FILE = "owner-accounts.json";
 const OWNER_ACCOUNTS_SCHEMA_VERSION = 1;
@@ -65,7 +66,37 @@ function readOwnerAccountsFile(configDirectory = getDefaultConfigDirectory()) {
   };
   if (schemaVersion < OWNER_ACCOUNTS_SCHEMA_VERSION) {
     const backupPath = `${filePath}.schema-v${schemaVersion}.backup`;
-    if (!fs.existsSync(backupPath)) fs.copyFileSync(filePath, backupPath, fs.constants.COPYFILE_EXCL);
+    const originalBytes = fs.readFileSync(filePath);
+    const backupExisted = fs.existsSync(backupPath);
+    if (!backupExisted) fs.copyFileSync(filePath, backupPath, fs.constants.COPYFILE_EXCL);
+    // V2-J bullet 6: the authorization rewrite below only runs behind a
+    // recovery point that was read back and verified. An unverified copy is
+    // refused, not warned past. Owner authorization state cannot be rebuilt
+    // from anywhere else and a wrong migration could lock out the owner.
+    let recoveryBytes = null;
+    try {
+      recoveryBytes = fs.readFileSync(backupPath);
+    } catch {
+      recoveryBytes = null;
+    }
+    const recoveryVerification = verifyRecoveryPoint({ mode: "bytes", original: originalBytes, copy: recoveryBytes });
+    const recoveryTaken = fs.existsSync(backupPath);
+    const recoveryVerdict = decideMigrationRecovery({
+      storeId: "owner-accounts",
+      fromSchemaVersion: schemaVersion,
+      toSchemaVersion: OWNER_ACCOUNTS_SCHEMA_VERSION,
+      recoveryPoint: { canTake: true, taken: recoveryTaken, verified: recoveryVerification.verified },
+      reconstructible: { isReconstructible: false, source: null },
+    });
+    if (recoveryVerdict.verdict !== "proceed") {
+      if (!backupExisted && recoveryTaken) {
+        try { fs.rmSync(backupPath, { force: true }); } catch {}
+      }
+      throw Object.assign(new Error("Owner account authorization state could not be migrated safely because the pre-migration recovery point could not be verified."), {
+        code: "OWNER_ACCOUNT_MIGRATION_RECOVERY_UNVERIFIED",
+        details: { storeId: "owner-accounts", reason: recoveryVerdict.reason, verification: recoveryVerification.reason },
+      });
+    }
     atomicWriteJson(filePath, { schemaVersion: OWNER_ACCOUNTS_SCHEMA_VERSION, ...normalized });
   }
   return normalized;

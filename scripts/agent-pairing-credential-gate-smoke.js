@@ -56,6 +56,15 @@ const BOOTSTRAP_TOKEN = "anxos_first-enrollment-credential-value-0123456789";
 const configPath = path.join(configDir, "agent.json");
 
 function writeConfigFile(token) {
+  // V2-J bullet 6: the Agent config migration writes a durable, never-replaced
+  // `.schema-v0.backup`. This smoke rewrites the legacy global config with a
+  // different token for each leg, which is exactly the state verify-or-refuse
+  // refuses, so each leg must start from a clean recovery point.
+  for (const name of fs.readdirSync(configDir)) {
+    if (/^agent\.json\.schema-v\d+\.backup$/.test(name)) {
+      fs.rmSync(path.join(configDir, name), { force: true });
+    }
+  }
   fs.writeFileSync(configPath, `${JSON.stringify({ backendMode: "agent", agentUrl: "http://127.0.0.1:47131", agentToken: token }, null, 2)}\n`, { mode: 0o600 });
 }
 

@@ -27,6 +27,17 @@ function resetConfig() {
   removeIfExists(nodes.getNodesPath());
   removeIfExists(nodes.getNodeCredentialsPath());
   removeIfExists(path.join(process.env.ANXHUB_CONFIG_DIR, "agent.json"));
+  // V2-J bullet 6: the migration writes a durable recovery point that is
+  // deliberately NEVER replaced. A leg that deletes the store to simulate a
+  // fresh installation must delete that recovery point too — otherwise it hands
+  // the next leg a stale pre-migration copy, and the verify-or-refuse policy
+  // correctly refuses to overwrite the only recovery point with a different
+  // source.
+  for (const name of fs.readdirSync(process.env.ANXHUB_CONFIG_DIR)) {
+    if (/\.(schema-v\d+|pre-migration-v\d+)\.backup$/.test(name)) {
+      removeIfExists(path.join(process.env.ANXHUB_CONFIG_DIR, name));
+    }
+  }
 }
 
 async function listStoredNodes() {
