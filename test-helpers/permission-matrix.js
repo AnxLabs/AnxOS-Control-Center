@@ -692,6 +692,24 @@ const REST_FAMILIES = [
   { id: "rest-marketplace-read", tier: "marketplace:read", publicRoute: false, routes: [{ method: "GET", path: "/api/v1/marketplace/curseforge/status" }] },
   { id: "rest-public-access-read", tier: "public-access:read", publicRoute: false, routes: [{ method: "GET", path: "/api/v1/playit/status" }] },
   { id: "rest-public-access-write", tier: "public-access:write", publicRoute: false, routes: [{ method: "POST", path: "/api/v1/public-access/matrix-probe" }] },
+  {
+    // V2-H reverse-proxy/certificate lifecycle: the read path returns the
+    // recorded routes, certificate lifecycle states, and the explicit
+    // activation/issuance "unsupported in this build" blocks.
+    id: "rest-public-access-reverse-proxy-read",
+    tier: "public-access:read",
+    publicRoute: false,
+    routes: [{ method: "GET", path: "/api/v1/public-access/reverse-proxy" }],
+  },
+  {
+    // Write tier for the apply endpoint. The probe body is intentionally empty
+    // so route validation refuses it (REVERSE_PROXY_HOSTNAME_REQUIRED) before
+    // anything is persisted — the tier is exercised with no side effect.
+    id: "rest-public-access-reverse-proxy-write",
+    tier: "public-access:write",
+    publicRoute: false,
+    routes: [{ method: "POST", path: "/api/v1/public-access/reverse-proxy/routes", body: {} }],
+  },
   { id: "rest-amp-read", tier: "instance:read", publicRoute: false, routes: [{ method: "GET", path: "/api/v1/amp/status" }] },
   { id: "rest-diagnostics", tier: "owner", publicRoute: false, routes: [{ method: "GET", path: "/api/v1/diagnostics" }] },
   { id: "rest-agent-task", tier: "agent:manage", publicRoute: false, routes: [{ method: "GET", path: "/api/v1/system/agent-task" }] },

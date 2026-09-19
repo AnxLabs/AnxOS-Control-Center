@@ -4,6 +4,10 @@ const {
   getPublicAccessSnapshot,
   listPublicAccessServices,
 } = require("../services/publicAccessProviderService");
+const {
+  applyReverseProxyRoute,
+  getReverseProxySnapshot,
+} = require("../services/reverseProxyService");
 const { execFile } = require("child_process");
 const { buildWindowsFirewallRule } = require("../../../src/shared/windowsFirewallRule");
 
@@ -182,6 +186,19 @@ async function handlePublicAccess(request, url) {
       catch (error) { return errorResponse(error); }
     }
   }
+  if (url.pathname === "/api/v1/public-access/reverse-proxy" && request.method === "GET") {
+    // V2-H reverse-proxy/certificate lifecycle: read current route + certificate
+    // state. Activation and issuance are reported as unsupported in this build;
+    // this read never claims traffic is routed or a certificate exists.
+    try { return { statusCode: 200, body: await getReverseProxySnapshot() }; }
+    catch (error) { return errorResponse(error); }
+  }
+  if (url.pathname === "/api/v1/public-access/reverse-proxy/routes" && request.method === "POST") {
+    // Validate + record a route definition. The response reports applied:false
+    // because AnxOS does not write proxy configuration in this build.
+    try { return { statusCode: 200, body: await applyReverseProxyRoute(await readRequestJson(request)) }; }
+    catch (error) { return errorResponse(error); }
+  }
   const deleteMatch = url.pathname.match(/^\/api\/v1\/public-access\/services\/([^/]+)$/);
   if (request.method === "DELETE" && deleteMatch) {
     try {
@@ -208,9 +225,11 @@ module.exports = {
   handlePublicAccess,
   _test: {
     MANAGED_RULE_PREFIX,
+    applyReverseProxyRoute,
     buildWindowsFirewallRuleInventoryScript,
     createWindowsFirewallRule,
     deleteWindowsFirewallRule,
+    getReverseProxySnapshot,
     isAnxOsManagedFirewallRuleName,
     listWindowsFirewallRules,
     parseManagedFirewallRuleList,

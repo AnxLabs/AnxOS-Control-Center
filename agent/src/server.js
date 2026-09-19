@@ -313,7 +313,7 @@ async function routeRequest(request, url) {
     return handleFilesMutate(request);
   }
 
-  if (pathname === "/api/v1/public-access/snapshot" || pathname === "/api/v1/public-access/services" || pathname.startsWith("/api/v1/public-access/services/") || pathname === "/api/v1/public-access/firewall-rule") {
+  if (pathname === "/api/v1/public-access/snapshot" || pathname === "/api/v1/public-access/services" || pathname.startsWith("/api/v1/public-access/services/") || pathname === "/api/v1/public-access/firewall-rule" || pathname === "/api/v1/public-access/reverse-proxy" || pathname.startsWith("/api/v1/public-access/reverse-proxy/")) {
     return handlePublicAccess(request, url);
   }
 
