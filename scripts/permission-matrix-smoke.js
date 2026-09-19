@@ -962,7 +962,18 @@ function runCoverageEnforcement() {
   // function, so a NEW IPC module can never bypass the matrix.
   const ipcDir = path.join(rootDir, "src", "ipc");
   const ipcModules = fs.readdirSync(ipcDir).filter((file) => file.endsWith(".js"));
-  const knownNonRegistrars = new Set(["nodeContext.js", "expectedAgentError.js"]);
+  const knownNonRegistrars = new Set([
+    "nodeContext.js",
+    "expectedAgentError.js",
+    // ipcHandlerInstrumentation.js is registration INFRASTRUCTURE, not a registrar:
+    // it replaces ipcMain.handle to time, log and instrument whatever gets registered,
+    // and declares no channel of its own. It therefore has nothing for the matrix to
+    // cover — loading it in the coverage exercise would contribute zero channels and
+    // would not put anything under enforcement. Declared here explicitly so the
+    // classification is a recorded decision rather than silence; if it ever gains a
+    // channel literal, this entry must be removed and matrix rows added instead.
+    "ipcHandlerInstrumentation.js",
+  ]);
   for (const file of ipcModules) {
     if (knownNonRegistrars.has(file)) continue;
     assert(loadedIpcModuleFiles.has(file), `src/ipc module ${file} is not loaded by the coverage exercise (add it to the registration list or the known-non-registrar set).`);
