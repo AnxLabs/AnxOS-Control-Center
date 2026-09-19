@@ -6,8 +6,13 @@ const {
 } = require("../services/publicAccessProviderService");
 const {
   applyReverseProxyRoute,
+  getExposureDiagnosticsSnapshot,
   getReverseProxySnapshot,
 } = require("../services/reverseProxyService");
+const {
+  assertExposureRequestSatisfiable,
+  classifyExposureRequest,
+} = require("../../../src/shared/exposureRequirementsPolicy");
 const { execFile } = require("child_process");
 const { buildWindowsFirewallRule } = require("../../../src/shared/windowsFirewallRule");
 
@@ -143,6 +148,32 @@ function errorResponse(error) {
   };
 }
 
+// V2-H: classify what an exposure request requires (HTTP routing vs raw TCP/UDP)
+// and what the named provider declares. A combination that cannot be satisfied
+// is a typed refusal (the assert throws), never a silent fallback to another
+// mechanism. "unknown" is returned as an outcome, never as satisfiable:true.
+function classifyExposureRequirements(payload = {}) {
+  assertExposureRequestSatisfiable(payload);
+  const classification = classifyExposureRequest(payload);
+  return {
+    ok: true,
+    outcome: classification.outcome,
+    satisfiable: classification.satisfiable,
+    provisionable: classification.outcome === "satisfiable",
+    reason: classification.reason,
+    message: classification.message,
+    protocol: classification.protocol,
+    transport: classification.transport,
+    workloadKind: classification.workloadKind,
+    requestedMechanism: classification.requestedMechanism,
+    recommendedMechanism: classification.recommendedMechanism,
+    mechanism: classification.mechanism,
+    providerId: classification.providerId,
+    provider: classification.provider,
+    providerLimits: classification.providerLimits,
+  };
+}
+
 async function handlePublicAccess(request, url) {
   if (request.method === "GET" && url.pathname === "/api/v1/public-access/snapshot") {
     return {
@@ -199,6 +230,27 @@ async function handlePublicAccess(request, url) {
     try { return { statusCode: 200, body: await applyReverseProxyRoute(await readRequestJson(request)) }; }
     catch (error) { return errorResponse(error); }
   }
+  // V2-H: new, additive surfaces under the already-dispatched reverse-proxy
+  // path prefix (agent/src/server.js forwards only an allowlist of prefixes and
+  // is owned elsewhere). Neither changes an existing endpoint's request or
+  // response shape.
+  if (url.pathname === "/api/v1/public-access/reverse-proxy/diagnostics" && request.method === "GET") {
+    // Per exposed workload: last DNS error, last certificate error (from the
+    // real certificate state), last provider error, and residual billable
+    // resources. An unestablished state is reported "unknown", and the payload
+    // always carries the explicit provisioning state vocabulary
+    // known-succeeded / known-failed / unknown. It never implies provisioning
+    // succeeded.
+    try { return { statusCode: 200, body: await getExposureDiagnosticsSnapshot() }; }
+    catch (error) { return errorResponse(error); }
+  }
+  if (url.pathname === "/api/v1/public-access/reverse-proxy/requirements" && request.method === "POST") {
+    // Distinguish HTTP routing from raw TCP/UDP requirements and report the
+    // provider's declared protocol/mechanism limits. An unsatisfiable
+    // combination is a typed refusal (e.g. HTTP routing for a UDP workload).
+    try { return { statusCode: 200, body: classifyExposureRequirements(await readRequestJson(request)) }; }
+    catch (error) { return errorResponse(error); }
+  }
   const deleteMatch = url.pathname.match(/^\/api\/v1\/public-access\/services\/([^/]+)$/);
   if (request.method === "DELETE" && deleteMatch) {
     try {
@@ -227,8 +279,10 @@ module.exports = {
     MANAGED_RULE_PREFIX,
     applyReverseProxyRoute,
     buildWindowsFirewallRuleInventoryScript,
+    classifyExposureRequirements,
     createWindowsFirewallRule,
     deleteWindowsFirewallRule,
+    getExposureDiagnosticsSnapshot,
     getReverseProxySnapshot,
     isAnxOsManagedFirewallRuleName,
     listWindowsFirewallRules,
