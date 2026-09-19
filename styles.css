@@ -16010,3 +16010,107 @@ html[data-ui-generation="v1.9"] .marketplace-card .inline-action {
 .network-inventory-listener.is-conflict strong {
   color: rgba(255, 219, 173, 0.96);
 }
+
+/* ---------------------------------------------------------------------------
+   V2-D / V2-J / V2-H operator surfaces (additive).
+   - .publisher-trust-notice: publisher-trust verdict copy on the Marketplace
+     install review and on each Download Manager record.
+   - .update-rollback-caveat: the downgrade caveat in the update modal.
+   - .public-access-reverse-proxy-form: the route definition form.
+   Reuses the existing card/pill/color tokens; no layout is redesigned.
+   --------------------------------------------------------------------------- */
+.publisher-trust-notice {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.34);
+}
+
+.publisher-trust-notice strong {
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+
+.publisher-trust-notice p,
+.publisher-trust-notice small {
+  margin: 0;
+  overflow-wrap: break-word;
+}
+
+.publisher-trust-notice--ok {
+  border-color: rgba(69, 224, 143, 0.28);
+  background: rgba(69, 224, 143, 0.08);
+}
+
+.publisher-trust-notice--warning {
+  border-color: rgba(255, 190, 92, 0.34);
+  background: rgba(117, 74, 19, 0.2);
+}
+
+.publisher-trust-notice--critical {
+  border-color: rgba(255, 107, 138, 0.38);
+  background: rgba(112, 26, 52, 0.24);
+}
+
+.publisher-trust-notice__blocked {
+  color: rgba(255, 214, 224, 0.96);
+}
+
+.update-rollback-caveat {
+  display: grid;
+  gap: 4px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.34);
+}
+
+.update-rollback-caveat strong {
+  font-size: 12px;
+}
+
+.update-rollback-caveat p,
+.update-rollback-caveat small {
+  margin: 0;
+  overflow-wrap: break-word;
+}
+
+.update-rollback-caveat--ok {
+  border-color: rgba(69, 224, 143, 0.28);
+  background: rgba(69, 224, 143, 0.08);
+}
+
+.update-rollback-caveat--warning {
+  border-color: rgba(255, 190, 92, 0.34);
+  background: rgba(117, 74, 19, 0.2);
+}
+
+.update-rollback-caveat--critical {
+  border-color: rgba(255, 107, 138, 0.38);
+  background: rgba(112, 26, 52, 0.24);
+}
+
+.public-access-reverse-proxy-form {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.public-access-reverse-proxy-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+.public-access-reverse-proxy-form-hint {
+  margin: 0;
+  overflow-wrap: break-word;
+}
+
+.public-access-reverse-proxy-route {
+  overflow-wrap: break-word;
+}

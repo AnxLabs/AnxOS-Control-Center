@@ -1077,6 +1077,31 @@
                 <div class="playit-tunnel-list" data-public-access-firewall-list></div>
                 <div class="settings-actions public-access-actions" data-public-access-firewall-actions aria-label="Firewall rule actions"></div>
               </article>
+
+              <article class="status-card public-access-reverse-proxy" data-public-access-reverse-proxy-card>
+                <div class="status-card__top">
+                  <span class="service-icon">RP</span>
+                  <span class="status-pill status-pill--planned" data-public-access-reverse-proxy-pill>Not checked</span>
+                </div>
+                <h3>Reverse Proxy &amp; Certificates</h3>
+                <p data-public-access-reverse-proxy-summary>AnxOS records route definitions and reads certificate metadata. This build does not write proxy configuration and does not issue certificates.</p>
+                <div class="playit-tunnel-list" data-public-access-reverse-proxy-list></div>
+                <div class="public-access-unsupported" data-public-access-reverse-proxy-notice aria-live="polite"></div>
+                <form class="public-access-reverse-proxy-form" data-public-access-reverse-proxy-form>
+                  <div class="public-access-reverse-proxy-form-grid">
+                    <label class="settings-field"><span>Hostname</span><input type="text" autocomplete="off" spellcheck="false" placeholder="app.example.com" data-public-access-reverse-proxy-field="hostname"></label>
+                    <label class="settings-field"><span>Upstream host</span><input type="text" autocomplete="off" spellcheck="false" placeholder="127.0.0.1" data-public-access-reverse-proxy-field="upstreamHost"></label>
+                    <label class="settings-field"><span>Upstream port</span><input type="number" min="1" max="65535" step="1" data-public-access-reverse-proxy-field="upstreamPort"></label>
+                    <label class="settings-field"><span>TLS mode</span><select data-public-access-reverse-proxy-field="tlsMode"><option value="none">None</option><option value="manual">Manual certificate</option><option value="managed">Managed (not issued in this build)</option></select></label>
+                    <label class="settings-field"><span>Path prefix</span><input type="text" autocomplete="off" spellcheck="false" value="/" data-public-access-reverse-proxy-field="pathPrefix"></label>
+                  </div>
+                  <p class="public-access-reverse-proxy-form-hint">AnxOS validates and stores this route definition only. No proxy configuration is written and no certificate is issued.</p>
+                  <div class="settings-actions public-access-actions">
+                    <button class="inline-action" type="submit" data-public-access-reverse-proxy-apply>Record Route</button>
+                  </div>
+                </form>
+                <div class="settings-actions public-access-actions" data-public-access-reverse-proxy-actions aria-label="Reverse proxy actions"></div>
+              </article>
             </div>
           </section>
         </section>
@@ -4863,6 +4888,7 @@
             <span data-update-progress-text>Preparing download...</span>
           </div>
           <section class="update-release-notes" data-update-release-notes hidden aria-label="Release notes"></section>
+          <section class="update-rollback-caveat" data-update-rollback-caveat hidden aria-label="Rollback caveat"></section>
         </div>
         <footer class="app-modal__actions">
           <button class="inline-action" type="button" data-update-action="skip">Skip This Version</button>

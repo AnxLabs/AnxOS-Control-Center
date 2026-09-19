@@ -14,9 +14,17 @@ const {
   listPublicAccessServices,
   listWindowsFirewallRules,
 } = require("../services/publicAccessProviderService");
+const agentClient = require("../services/agentClient");
 const { audit, requirePermission } = require("../services/securityService");
 const { createIpcError, normalizeIpcError } = require("../shared/ipcError");
 const { requireNodeContext } = require("./nodeContext");
+
+// V2-H reverse-proxy / certificate lifecycle. The Agent owns the state; the
+// desktop only reads it and records route definitions. `forNode` is the same
+// node-scoped Agent client serviceRouter uses, so no second transport is
+// introduced here.
+const REVERSE_PROXY_SNAPSHOT_PATH = "/api/v1/public-access/reverse-proxy";
+const REVERSE_PROXY_APPLY_PATH = "/api/v1/public-access/reverse-proxy/routes";
 
 const EXPECTED_PUBLIC_ACCESS_ERROR_CODES = new Set([
   "UNAUTHORIZED",
@@ -56,6 +64,24 @@ const EXPECTED_PUBLIC_ACCESS_ERROR_CODES = new Set([
   "FIREWALL_RULE_DELETE_FAILED",
   "FIREWALL_RULE_UNMANAGED",
   "FIREWALL_RULE_NAME_REQUIRED",
+  // V2-H reverse-proxy lifecycle: structured refusals that should not be
+  // logged as unexpected failures.
+  "NODE_NOT_AGENT",
+  "REVERSE_PROXY_ROUTE_CONFLICT",
+  "REVERSE_PROXY_ROUTE_LIMIT_EXCEEDED",
+  "REVERSE_PROXY_ROUTE_INVALID",
+  "REVERSE_PROXY_SCHEMA_UNSUPPORTED",
+  "REVERSE_PROXY_REGISTRY_CORRUPT",
+  "REVERSE_PROXY_CERTIFICATE_REGISTRY_CORRUPT",
+  "REVERSE_PROXY_HOSTNAME_REQUIRED",
+  "REVERSE_PROXY_HOSTNAME_INVALID",
+  "REVERSE_PROXY_UPSTREAM_REQUIRED",
+  "REVERSE_PROXY_UPSTREAM_INVALID",
+  "REVERSE_PROXY_UPSTREAM_PORT_INVALID",
+  "REVERSE_PROXY_UPSTREAM_PORT_NOT_ALLOWED",
+  "REVERSE_PROXY_UPSTREAM_PROTOCOL_INVALID",
+  "REVERSE_PROXY_TLS_MODE_INVALID",
+  "REVERSE_PROXY_PATH_INVALID",
 ]);
 const expectedPublicAccessLogState = new Map();
 const EXPECTED_PUBLIC_ACCESS_LOG_INTERVAL_MS = 60 * 1000;
@@ -138,6 +164,18 @@ function wrapPublicAccessOperation(operation) {
     .catch((error) => ({ ok: false, error: sanitizePublicAccessError(error) }));
 }
 
+// V2-H reverse-proxy read/apply. The Agent is the only authority for route and
+// certificate state; these helpers exist so the smoke can drive the exact
+// request the handler makes.
+function getReverseProxySnapshotForNode(payload = {}) {
+  return agentClient.forNode(payload.nodeId).get(REVERSE_PROXY_SNAPSHOT_PATH);
+}
+
+function applyReverseProxyRouteForNode(payload = {}) {
+  const { nodeId, ...route } = payload;
+  return agentClient.forNode(nodeId).post(REVERSE_PROXY_APPLY_PATH, route);
+}
+
 function registerPublicAccessIpc() {
   ipcMain.handle("publicAccess:getSnapshot", async (_, payload = {}) => invokePublicAccessRead("publicAccess:getSnapshot", () => { requirePermission("public-access:read", payload.nodeId); return getPublicAccessSnapshot(requireNodeContext(payload, "Public Access snapshot")); }));
   ipcMain.handle("publicAccess:listServices", async (_, payload = {}) => invokePublicAccessRead("publicAccess:listServices", () => { requirePermission("public-access:read", payload.nodeId); return listPublicAccessServices(requireNodeContext(payload, "Public Access services")); }));
@@ -192,6 +230,21 @@ function registerPublicAccessIpc() {
     audit({ action: "publicAccess.controlPlayit", target: payload.action || "playit" });
     return controlPlayitService(payload);
   }));
+  // V2-H reverse-proxy / certificate state: the read is a node-scoped Agent
+  // read (no mutation); apply records a route definition and is audited. Both
+  // keep the family guard order (permission first for reads, node context then
+  // permission for writes) so the locked sweep denies before any transport
+  // work starts.
+  ipcMain.handle("publicAccess:getReverseProxy", async (_, payload = {}) => invokePublicAccessRead("publicAccess:getReverseProxy", () => {
+    requirePermission("public-access:read", payload.nodeId);
+    return getReverseProxySnapshotForNode(requireNodeContext(payload, "Reverse-proxy state"));
+  }));
+  ipcMain.handle("publicAccess:applyReverseProxyRoute", async (_, payload = {}) => wrapPublicAccessOperation(() => {
+    requireNodeContext(payload, "Reverse-proxy route apply");
+    requirePermission("instance:write", "public-access-reverse-proxy");
+    audit({ action: "publicAccess.applyReverseProxyRoute", target: payload.hostname || "reverse-proxy" });
+    return applyReverseProxyRouteForNode(payload);
+  }));
 }
 
 module.exports = {
@@ -201,5 +254,9 @@ module.exports = {
     invokePublicAccessRead,
     isExpectedPublicAccessError,
     sanitizePublicAccessError,
+    getReverseProxySnapshotForNode,
+    applyReverseProxyRouteForNode,
+    REVERSE_PROXY_SNAPSHOT_PATH,
+    REVERSE_PROXY_APPLY_PATH,
   },
 };

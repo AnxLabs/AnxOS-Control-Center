@@ -663,6 +663,7 @@ const updateLastCheck = document.querySelector("[data-update-last-check]");
 const updateAboutStatus = document.querySelector("[data-update-about-status]");
 const updateReleaseDate = document.querySelector("[data-update-release-date]");
 const updateReleaseNotes = document.querySelector("[data-update-release-notes]");
+const updateRollbackCaveat = document.querySelector("[data-update-rollback-caveat]");
 const securityGate = document.querySelector("[data-security-gate]");
 const localSetupGate = document.querySelector("[data-local-setup-gate]");
 const securityForm = document.querySelector("[data-security-form]");
@@ -884,6 +885,11 @@ let activeMarketplaceOperationId = null;
 let activeMarketplaceInstallNodeId = null;
 let marketplaceLocalDownloadEntries = [];
 let latestMarketplaceDownloads = [];
+// V2-D publisher trust: the last verdict seen per template. The verdict object
+// is produced by the main process (it rides the install result and each
+// download record); the renderer only caches it so the install review surface
+// can show the same operator copy before the next install starts.
+const marketplaceTrustVerdicts = new Map();
 let marketplaceDownloadsRequestSerial = 0;
 // Resource existence is authoritative data; transient work is an overlay keyed
 // by the stable resource id. An operation must never decide whether its owner
@@ -8476,6 +8482,297 @@ async function refreshPublicAccessFirewall() {
   if (!isNodeRequestCurrent(requestContext)) return null;
   renderPublicAccessFirewallRules(result);
   return result;
+}
+
+// V2-H reverse-proxy + certificate surface.
+//
+// Honesty rules this renderer must uphold, because they are the point of the
+// surface:
+//   - A certificate counts as valid ONLY when the Agent reported
+//     `verified === true` together with `expiryVerified === true` and the
+//     lifecycle state is a usable one. An unreadable expiry is `unknown` and is
+//     never rendered as valid.
+//   - A recorded route is never described as live: apply results carry
+//     `applied:false` with REVERSE_PROXY_ACTIVATION_UNAVAILABLE, so the surface
+//     says the record was stored and no proxy configuration was written.
+//   - Managed TLS stays `pending`; nothing was issued by this build.
+const REVERSE_PROXY_CERTIFICATE_STATES = Object.freeze(["none", "pending", "issued", "expiring", "expired", "failed", "unknown"]);
+
+function describeRouteCertificate(certificate = null) {
+  const source = certificate && typeof certificate === "object" ? certificate : {};
+  const rawState = typeof source.state === "string" ? source.state.toLowerCase() : "unknown";
+  const state = REVERSE_PROXY_CERTIFICATE_STATES.includes(rawState) ? rawState : "unknown";
+  const tlsMode = ["none", "manual", "managed"].includes(source.tlsMode) ? source.tlsMode : "none";
+  // Only the pair the Agent reports counts: a verification result AND a
+  // readable expiry. Either one missing means "not valid".
+  const valid = source.verified === true && source.expiryVerified === true && (state === "issued" || state === "expiring");
+  const expiresAt = typeof source.expiresAt === "string" && source.expiresAt ? source.expiresAt : null;
+  const daysRemaining = Number.isFinite(source.daysRemaining) ? source.daysRemaining : null;
+  const stateLabel = {
+    none: tlsMode === "none" ? "No TLS requested" : "No certificate recorded",
+    pending: "Not issued (pending)",
+    issued: valid ? "Valid" : "Expiry unreadable — not valid",
+    expiring: valid ? "Valid — expiring soon" : "Expiry unreadable — not valid",
+    expired: "Expired",
+    failed: "Issuance failed",
+    unknown: "Unknown — expiry unreadable",
+  }[state];
+  const tone = valid
+    ? (state === "expiring" ? "status-pill--warning" : "status-pill--ok")
+    : (state === "expired" || state === "failed" ? "status-pill--critical" : "status-pill--planned");
+  const detailParts = [];
+  if (expiresAt) {
+    detailParts.push(`Expires ${expiresAt}${daysRemaining === null ? "" : ` (${daysRemaining} day${Math.abs(daysRemaining) === 1 ? "" : "s"})`}`);
+  } else if (state !== "none" && state !== "pending") {
+    detailParts.push("Expiry could not be read, so this certificate is not reported as valid.");
+  }
+  if (source.issuer) detailParts.push(`Issuer ${source.issuer}`);
+  if (typeof source.message === "string" && source.message) detailParts.push(source.message);
+  if (source.issuanceSupported === false && tlsMode === "managed") detailParts.push("AnxOS does not issue certificates in this build.");
+  return {
+    tlsMode,
+    state,
+    valid,
+    expiryKnown: Boolean(expiresAt),
+    stateLabel,
+    tone,
+    expiresAt,
+    daysRemaining,
+    issuer: typeof source.issuer === "string" ? source.issuer : null,
+    detail: detailParts.join(" "),
+  };
+}
+
+// The read payload carries a `certificate` per route; the apply payload carries
+// the applied route plus one top-level `certificate` and a raw persisted route
+// list. This normalizes both into route rows with a certificate each.
+function normalizeReverseProxyRouteRows(result = null) {
+  const source = result && typeof result === "object" ? result : {};
+  const rawRoutes = Array.isArray(source.routes) ? source.routes : [];
+  const appliedRoute = source.route && typeof source.route === "object" ? source.route : null;
+  const appliedCertificate = source.certificate && typeof source.certificate === "object" ? source.certificate : null;
+  const rows = rawRoutes
+    .filter((route) => route && typeof route === "object")
+    .map((route) => ({
+      route,
+      certificate: route.certificate && typeof route.certificate === "object"
+        ? route.certificate
+        : (appliedRoute && route.id === appliedRoute.id ? appliedCertificate : null),
+    }));
+  if (appliedRoute && !rows.some((row) => row.route?.id === appliedRoute.id)) {
+    rows.push({ route: appliedRoute, certificate: appliedCertificate });
+  }
+  return rows;
+}
+
+function describeReverseProxyStatus(result = null) {
+  if (!result || typeof result !== "object" || result.ok === false) {
+    return {
+      available: false,
+      message: result?.error?.message || "Reverse-proxy state is unavailable for this node.",
+      routes: [],
+    };
+  }
+  const activation = result.activation && typeof result.activation === "object" ? result.activation : null;
+  const issuance = result.certificateIssuance && typeof result.certificateIssuance === "object" ? result.certificateIssuance : null;
+  const lifecycle = result.certificateLifecycle && typeof result.certificateLifecycle === "object" ? result.certificateLifecycle : null;
+  const routes = normalizeReverseProxyRouteRows(result).map((row) => ({
+    id: row.route?.id || null,
+    name: row.route?.name || null,
+    hostname: row.route?.hostname || null,
+    pathPrefix: row.route?.pathPrefix || "/",
+    upstream: row.route?.upstream && typeof row.route.upstream === "object"
+      ? { host: row.route.upstream.host || null, port: Number.isFinite(row.route.upstream.port) ? row.route.upstream.port : null }
+      : null,
+    upstreamProtocol: row.route?.upstreamProtocol || "http",
+    certificate: describeRouteCertificate(row.certificate),
+  }));
+  const appliedRequest = Object.prototype.hasOwnProperty.call(result, "applied") && result.applied !== undefined;
+  return {
+    available: true,
+    supported: result.supported !== false,
+    appliedRequest,
+    applied: result.applied === true,
+    routeCount: Number.isFinite(result.routeCount) ? result.routeCount : routes.length,
+    maxRoutes: Number.isFinite(result.maxRoutes) ? result.maxRoutes : null,
+    routes,
+    validCertificateCount: routes.filter((route) => route.certificate.valid).length,
+    activationUnavailable: activation?.supported === false,
+    activationCode: activation?.code || null,
+    activationMessage: typeof activation?.message === "string" ? activation.message : "",
+    issuanceUnavailable: issuance?.supported === false,
+    issuanceMessage: typeof issuance?.message === "string" ? issuance.message : "",
+    lifecycleOverall: typeof lifecycle?.overall === "string" ? lifecycle.overall : null,
+    upstreamReachability: result.upstreamReachability && typeof result.upstreamReachability === "object" ? result.upstreamReachability : null,
+  };
+}
+
+function getPublicAccessReverseProxyElements() {
+  return {
+    list: document.querySelector("[data-public-access-reverse-proxy-list]"),
+    pill: document.querySelector("[data-public-access-reverse-proxy-pill]"),
+    summary: document.querySelector("[data-public-access-reverse-proxy-summary]"),
+    notice: document.querySelector("[data-public-access-reverse-proxy-notice]"),
+    actions: document.querySelector("[data-public-access-reverse-proxy-actions]"),
+  };
+}
+
+function renderPublicAccessReverseProxy(result = null, elements = null) {
+  const scope = elements || getPublicAccessReverseProxyElements();
+  const { list, pill, summary, notice, actions } = scope;
+  if (!list || !summary) return null;
+  const status = describeReverseProxyStatus(result);
+  list.replaceChildren();
+  if (notice) notice.replaceChildren();
+  if (actions) {
+    actions.replaceChildren();
+    const refreshButton = document.createElement("button");
+    refreshButton.type = "button";
+    refreshButton.className = "inline-action";
+    refreshButton.textContent = "Refresh Routes";
+    refreshButton.addEventListener("click", () => { refreshPublicAccessReverseProxy().catch(() => null); });
+    actions.append(refreshButton);
+  }
+  if (!status.available) {
+    setPublicAccessFirewallPill(pill, "Unavailable", "status-pill--warning");
+    setPublicAccessFirewallMessage(summary, status.message);
+    return status;
+  }
+  if (status.supported === false) {
+    setPublicAccessFirewallPill(pill, "Unsupported", "status-pill--planned");
+    setPublicAccessFirewallMessage(summary, "This Agent does not support reverse-proxy state yet. No route was changed.");
+    return status;
+  }
+
+  const routeCount = status.routes.length;
+  setPublicAccessFirewallPill(
+    pill,
+    routeCount ? `${routeCount} recorded — not active` : "None",
+    routeCount ? "status-pill--planned" : "status-pill--planned",
+  );
+  setPublicAccessFirewallMessage(summary, routeCount
+    ? `AnxOS stores these route definitions. ${status.validCertificateCount} of ${routeCount} certificate record${routeCount === 1 ? "" : "s"} report a readable, verified expiry.`
+    : "No reverse-proxy routes are recorded for this node. AnxOS never writes proxy configuration in this build.");
+
+  if (notice) {
+    // Applied outcomes and capability gaps are stated explicitly rather than
+    // left for the operator to infer from a green route row.
+    if (status.appliedRequest && status.applied === false) {
+      notice.append(createTextElement("p", `Route recorded but NOT applied: ${status.activationMessage || "no proxy configuration is written in this build."}`));
+    } else if (status.activationUnavailable && routeCount) {
+      notice.append(createTextElement("p", status.activationMessage || "AnxOS does not write proxy configuration in this build, so no traffic is routed."));
+    }
+    if (status.issuanceUnavailable) {
+      notice.append(createTextElement("p", status.issuanceMessage || "AnxOS does not issue certificates in this build; a managed request stays pending."));
+    }
+    if (status.upstreamReachability && status.upstreamReachability.reachable === false) {
+      notice.append(createTextElement("p", `Upstream check: ${status.upstreamReachability.message || "the upstream did not accept a connection."}`));
+    }
+  }
+
+  status.routes.forEach((route) => {
+    const row = document.createElement("article");
+    row.className = "playit-tunnel-item public-access-reverse-proxy-route";
+    row.dataset.publicAccessReverseProxyRoute = route.id || route.hostname || "";
+    const top = document.createElement("div");
+    top.className = "playit-tunnel-item__top";
+    top.append(createTextElement("strong", route.name || route.hostname || route.id || "Route"));
+    const certificatePill = document.createElement("span");
+    certificatePill.className = `status-pill ${route.certificate.tone}`;
+    certificatePill.dataset.publicAccessReverseProxyCertificate = route.certificate.state;
+    certificatePill.dataset.publicAccessReverseProxyCertificateValid = route.certificate.valid ? "true" : "false";
+    certificatePill.textContent = route.certificate.stateLabel;
+    top.append(certificatePill);
+    row.append(top);
+    const upstreamText = route.upstream
+      ? `${route.hostname || "?"}${route.pathPrefix} → ${route.upstreamProtocol}://${route.upstream.host}:${route.upstream.port}`
+      : `${route.hostname || "Route destination unavailable"}`;
+    row.append(createTextElement("span", upstreamText));
+    if (route.certificate.detail) {
+      row.append(createTextElement("small", route.certificate.detail));
+    }
+    list.append(row);
+  });
+  return status;
+}
+
+function readPublicAccessReverseProxyForm(form = document.querySelector("[data-public-access-reverse-proxy-form]")) {
+  const field = (name) => {
+    const input = form && typeof form.querySelector === "function"
+      ? form.querySelector(`[data-public-access-reverse-proxy-field="${name}"]`)
+      : null;
+    return input && typeof input.value === "string" ? input.value.trim() : "";
+  };
+  const portText = field("upstreamPort");
+  const port = Number.parseInt(portText, 10);
+  return {
+    hostname: field("hostname"),
+    upstreamHost: field("upstreamHost"),
+    upstreamPort: Number.isInteger(port) ? port : null,
+    tlsMode: field("tlsMode") || "none",
+    pathPrefix: field("pathPrefix") || "/",
+  };
+}
+
+async function refreshPublicAccessReverseProxy() {
+  const desktopApi = getDesktopApiState().api?.publicAccess;
+  if (typeof desktopApi?.getReverseProxy !== "function") {
+    renderPublicAccessReverseProxy({ ok: false, error: { message: "Reverse-proxy state is not available in this build." } });
+    return null;
+  }
+  const requestContext = getNodeRequestContext("public-access-reverse-proxy");
+  const payload = getNodeScopedPayload(requestContext);
+  const result = await desktopApi.getReverseProxy(payload);
+  if (!isNodeRequestCurrent(requestContext)) return null;
+  renderPublicAccessReverseProxy(result);
+  return result;
+}
+
+async function applyPublicAccessReverseProxyRoute(event) {
+  event?.preventDefault?.();
+  const desktopApi = getDesktopApiState().api?.publicAccess;
+  if (typeof desktopApi?.applyReverseProxyRoute !== "function") {
+    showToast("Reverse-proxy route recording is not available in this build.", "warning");
+    return;
+  }
+  const fields = readPublicAccessReverseProxyForm();
+  if (!fields.hostname || !fields.upstreamHost || !Number.isInteger(fields.upstreamPort)) {
+    showToast("Enter a hostname, upstream host, and upstream port before recording a route.", "warning");
+    return;
+  }
+  if (fields.tlsMode === "managed") {
+    // State the limitation before the request so the operator is not surprised
+    // by a `pending` certificate afterwards.
+    showToast("Managed TLS is recorded as a request only. AnxOS does not issue certificates in this build.", "warning");
+  }
+  const requestContext = createNodeActionContext("public-access-reverse-proxy-apply");
+  try {
+    const result = await desktopApi.applyReverseProxyRoute({
+      nodeId: requestContext.nodeId,
+      hostname: fields.hostname,
+      upstream: { host: fields.upstreamHost, port: fields.upstreamPort },
+      upstreamProtocol: "http",
+      tlsMode: fields.tlsMode,
+      pathPrefix: fields.pathPrefix,
+    });
+    if (!isNodeActionStillCurrent(requestContext)) return;
+    if (result?.ok === false) {
+      throw Object.assign(new Error(result.error?.message || "Reverse-proxy route could not be recorded."), {
+        code: result.error?.code || "REVERSE_PROXY_ROUTE_FAILED",
+      });
+    }
+    // Render the apply result directly (not a follow-up read) so the
+    // applied:false / activation-unavailable statement stays on screen.
+    renderPublicAccessReverseProxy(result);
+    showToast(
+      result?.applied === true
+        ? "Reverse-proxy route applied."
+        : "Route recorded. No proxy configuration was written and no certificate was issued.",
+      result?.applied === true ? "success" : "warning",
+    );
+  } catch (error) {
+    showToast(getFriendlyStatusFailureMessage(error, "Reverse-proxy route could not be recorded.", "Check the hostname, upstream host and port, then try again."), "error");
+  }
 }
 
 function getPublicAccessPublicAddress() {
@@ -16405,6 +16702,80 @@ function getCreateServerReviewItems(template) {
   return items;
 }
 
+// V2-D publisher trust. The main process already decided the verdict and
+// attached the policy's operator copy to it (operatorTitle / operatorMessage /
+// operatorAction from shared/publisherTrustPolicy). The renderer must display
+// that copy verbatim and must never soften it, so this helper only reads the
+// fields — it never authors trust wording of its own.
+function describePublisherTrustNotice(verdict = null) {
+  if (!verdict || typeof verdict !== "object") {
+    return null;
+  }
+  const title = typeof verdict.operatorTitle === "string" ? verdict.operatorTitle.trim() : "";
+  const body = typeof verdict.operatorMessage === "string" ? verdict.operatorMessage.trim() : "";
+  const action = typeof verdict.operatorAction === "string" ? verdict.operatorAction.trim() : "";
+  if (!title && !body && !action) {
+    return null;
+  }
+  const severity = ["ok", "warning", "critical"].includes(verdict.severity) ? verdict.severity : "warning";
+  // Only the policy's own explicit verified flag counts as verified.
+  const verified = verdict.verdict === "verified" && verdict.verified === true && verdict.allowInstall === true;
+  const installBlocked = verdict.allowInstall === false;
+  return {
+    verdict: typeof verdict.verdict === "string" && verdict.verdict ? verdict.verdict : "unknown",
+    severity,
+    verified,
+    title: title || "Publisher trust unknown",
+    body,
+    action,
+    requiresReview: verdict.requiresReview === true,
+    installBlocked,
+  };
+}
+
+function createPublisherTrustNotice(notice = null, className = "publisher-trust-notice") {
+  if (!notice) {
+    return null;
+  }
+  const section = document.createElement("section");
+  section.className = `${className} publisher-trust-notice--${notice.severity}`;
+  section.dataset.publisherTrustVerdict = notice.verdict;
+  section.dataset.publisherTrustSeverity = notice.severity;
+  section.dataset.publisherTrustVerified = notice.verified ? "true" : "false";
+  if (notice.requiresReview) section.dataset.publisherTrustReview = "required";
+  section.append(createTextElement("strong", notice.title));
+  if (notice.body) section.append(createTextElement("p", notice.body));
+  if (notice.action) section.append(createTextElement("small", notice.action));
+  if (notice.installBlocked) {
+    const blocked = createTextElement("p", "AnxOS refuses to install this package because the integrity check failed.");
+    blocked.className = "publisher-trust-notice__blocked";
+    section.append(blocked);
+  }
+  return section;
+}
+
+function rememberMarketplaceTrustVerdict(templateId, verdict) {
+  const key = typeof templateId === "string" && templateId ? templateId : templateId?.id;
+  if (!key || !verdict || typeof verdict !== "object") {
+    return null;
+  }
+  marketplaceTrustVerdicts.set(key, verdict);
+  return verdict;
+}
+
+function getMarketplaceTrustVerdictForTemplate(template) {
+  const templateId = typeof template === "string" ? template : template?.id;
+  if (!templateId) {
+    return null;
+  }
+  const cached = marketplaceTrustVerdicts.get(templateId);
+  if (cached) {
+    return cached;
+  }
+  const record = latestMarketplaceDownloads.find((entry) => entry?.templateId === templateId && entry?.trustVerdict);
+  return record?.trustVerdict || null;
+}
+
 function renderMarketplaceInstallSummary(template) {
   if (!marketplaceInstallSummary) return;
   renderMarketplaceReadiness();
@@ -16476,7 +16847,12 @@ function renderMarketplaceInstallSummary(template) {
     });
     overview.append(unsupported, actions);
   }
+  const trustNotice = createPublisherTrustNotice(
+    describePublisherTrustNotice(getMarketplaceTrustVerdictForTemplate(template)),
+    "marketplace-summary-section",
+  );
   marketplaceInstallSummary.append(
+    ...(trustNotice ? [trustNotice] : []),
     overview,
     createMarketplaceSummarySection("Deployment configuration", getCreateServerReviewItems(template)),
     createMarketplaceSummarySection("Runtime requirements", getMarketplaceRequirementItems(template)),
@@ -18412,10 +18788,15 @@ function renderMarketplaceDownloads(downloads = []) {
       actions.append(retry);
     }
 
+    // V2-D publisher trust: the verdict rides the download record, so the
+    // operator sees the policy's own wording while the install is still
+    // cancellable rather than only after it finished.
+    rememberMarketplaceTrustVerdict(download.templateId, download.trustVerdict);
+    const trustNotice = createPublisherTrustNotice(describePublisherTrustNotice(download.trustVerdict));
     if (dependencyDownload) {
-      item.append(header, bar, errorPanel, buildDependencyInstallPanel(download), meta, metadata, actionText, logs, actions);
+      item.append(...[header, bar, errorPanel, trustNotice, buildDependencyInstallPanel(download), meta, metadata, actionText, logs, actions].filter(Boolean));
     } else {
-      item.append(header, bar, errorPanel, meta, metadata, actionText, logs, actions);
+      item.append(...[header, bar, errorPanel, trustNotice, meta, metadata, actionText, logs, actions].filter(Boolean));
     }
     downloadList.append(item);
   });
@@ -19473,6 +19854,10 @@ async function completeMarketplaceInstallResult(result, template, providerInstal
   setMarketplaceManualRecoveryState(null);
   renderMarketplaceProgress(result?.progress || []);
   renderMarketplaceDownloads(result?.downloads || []);
+  // The install result carries the trust verdict the main process evaluated
+  // before any content was downloaded or executed; keep it so the install
+  // review surface shows the same operator copy on the next open.
+  rememberMarketplaceTrustVerdict(template?.id, result?.trust || null);
   if (providerInstall) {
     await refreshMarketplaceDownloads();
   }
@@ -27290,6 +27675,11 @@ async function refreshPlayitStatus() {
       renderPublicAccessSnapshot(snapshot);
       refreshPublicAccessFirewall().catch((error) => {
         console.warn("[Public Access] Firewall rule inventory refresh failed.", {
+          message: error?.message || String(error),
+        });
+      });
+      refreshPublicAccessReverseProxy().catch((error) => {
+        console.warn("[Public Access] Reverse-proxy state refresh failed.", {
           message: error?.message || String(error),
         });
       });
@@ -38484,6 +38874,63 @@ function renderUpdateProgress(progress = null) {
   updateProgressText.textContent = percent === null ? `${received} downloaded of ${total}.` : `${percent}% downloaded (${received} of ${total}).`;
 }
 
+// V2-J bullet 6: an update check must never imply that a downgrade is safe.
+// The evaluated guidance from updateManager is the only source of truth, and
+// the renderer trusts the explicit `rollbackIsSafe === true` boolean and
+// nothing else — an absent, UNKNOWN or DEGRADED contract can therefore never
+// be shown as "safe to roll back".
+function describeRollbackCaveat(guidance = null) {
+  if (!guidance || typeof guidance !== "object") {
+    return null;
+  }
+  const rollbackIsSafe = guidance.rollbackIsSafe === true;
+  const warning = typeof guidance.warning === "string" ? guidance.warning.trim() : "";
+  // Nothing to say: no warning from the evaluator and no explicit safety claim.
+  if (!warning && !rollbackIsSafe) {
+    return null;
+  }
+  const blockedStores = Array.isArray(guidance.blockedStores) ? guidance.blockedStores : [];
+  const blockedLabels = blockedStores
+    .map((store) => store?.label || store?.id || "")
+    .filter(Boolean);
+  const storeDetail = blockedLabels.length ? `Stores affected: ${blockedLabels.join(", ")}.` : "";
+  if (rollbackIsSafe) {
+    return {
+      safe: true,
+      tone: "ok",
+      title: "Rollback reported safe",
+      body: "This update manifest declares a data-schema rollback contract that reports SAFE for every store, and the installed build is at or above the schema floor.",
+      detail: storeDetail,
+    };
+  }
+  const severe = guidance.installedBuildVsDataSchema === "older"
+    || ["degraded", "failed"].includes(String(guidance.dataSchemaStatus || "").toLowerCase());
+  return {
+    safe: false,
+    tone: severe ? "critical" : "warning",
+    title: severe ? "Rollback may leave data unreadable" : "Rollback cannot be confirmed safe",
+    body: warning || "This update source does not establish that rolling back to an older build keeps existing data readable.",
+    detail: storeDetail,
+  };
+}
+
+function renderUpdateRollbackCaveat(guidance = null, container = updateRollbackCaveat) {
+  if (!container) return;
+  const caveat = describeRollbackCaveat(guidance);
+  container.replaceChildren();
+  if (!caveat) {
+    container.hidden = true;
+    delete container.dataset.rollbackSafe;
+    return;
+  }
+  container.hidden = false;
+  container.className = `update-rollback-caveat update-rollback-caveat--${caveat.tone}`;
+  container.dataset.rollbackSafe = caveat.safe ? "true" : "false";
+  container.append(createTextElement("strong", caveat.title));
+  if (caveat.body) container.append(createTextElement("p", caveat.body));
+  if (caveat.detail) container.append(createTextElement("small", caveat.detail));
+}
+
 function sanitizeMarkdownText(value) {
   // Quotes are escaped too: renderMarkdownLite interpolates captured URLs
   // into a double-quoted href attribute, so an unescaped `"` in release-note
@@ -38652,6 +39099,11 @@ function renderUpdateModal(mode = getUpdateModeFromState()) {
       });
     });
   }
+
+  // V2-J bullet 6: show the downgrade caveat wherever the update is offered.
+  // The check result carries the evaluated guidance on state.latest, so it is
+  // available even when the surface is showing an up-to-date/error mode.
+  renderUpdateRollbackCaveat(update.rollbackGuidance || updateUiState?.latest?.rollbackGuidance || null);
 
   if (updatePrimaryButton) {
     updatePrimaryButton.disabled = mode === "downloading";
@@ -40358,6 +40810,9 @@ maintenanceActionButtons.forEach((button) => {
       if (confirmed) resetRendererUiState();
     }
   });
+});
+document.querySelector("[data-public-access-reverse-proxy-form]")?.addEventListener("submit", (event) => {
+  applyPublicAccessReverseProxyRoute(event).catch(() => null);
 });
 document.querySelectorAll("[data-update-action]").forEach((button) => {
   button.addEventListener("click", async () => {

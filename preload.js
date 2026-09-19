@@ -207,6 +207,8 @@ const desktopApi = {
     applyFirewallRule: (payload = {}) => ipcRenderer.invoke("publicAccess:applyFirewallRule", payload),
     listFirewallRules: (payload = {}) => ipcRenderer.invoke("publicAccess:listFirewallRules", payload),
     deleteFirewallRule: (payload = {}) => ipcRenderer.invoke("publicAccess:deleteFirewallRule", payload),
+    getReverseProxy: (payload = {}) => ipcRenderer.invoke("publicAccess:getReverseProxy", payload),
+    applyReverseProxyRoute: (payload = {}) => ipcRenderer.invoke("publicAccess:applyReverseProxyRoute", payload),
   },
   docker: {
     getSnapshot: (payload = {}) => invokeAgentFeature("docker:getSnapshot", payload),

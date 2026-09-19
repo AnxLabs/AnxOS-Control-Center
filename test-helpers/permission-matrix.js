@@ -549,6 +549,8 @@ const IPC_FAMILIES = [
       "publicAccess:getSnapshot", "publicAccess:listServices", "publicAccess:getPlayitStatus",
       "publicAccess:getPlayitLogs", "publicAccess:listPlayitTunnels",
       "publicAccess:previewFirewallRule", "publicAccess:listFirewallRules",
+      // V2-H reverse-proxy/certificate state read (Agent-owned; no mutation).
+      "publicAccess:getReverseProxy",
     ],
   },
   {
@@ -556,7 +558,11 @@ const IPC_FAMILIES = [
     tier: "instance:write",
     guard: "permission",
     allow: ["owner-unlocked"],
-    channels: ["publicAccess:createService", "publicAccess:deleteService", "publicAccess:createFirewallRule", "publicAccess:applyFirewallRule", "publicAccess:deleteFirewallRule", "publicAccess:controlPlayit"],
+    channels: ["publicAccess:createService", "publicAccess:deleteService", "publicAccess:createFirewallRule", "publicAccess:applyFirewallRule", "publicAccess:deleteFirewallRule", "publicAccess:controlPlayit",
+      // V2-H reverse-proxy route apply: records a route definition only. The
+      // Agent reports applied:false (no proxy configuration is written), so the
+      // write tier matches the other public-access mutations.
+      "publicAccess:applyReverseProxyRoute"],
   },
   {
     id: "amp-read",
