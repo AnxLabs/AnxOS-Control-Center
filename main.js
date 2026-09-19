@@ -107,6 +107,32 @@ console.error = (...args) => {
   diagnostics.log("error", "desktop", "console-error", args.map((value) => value?.message || String(value)).join(" "), { arguments: args }, { file: "desktop" });
 };
 
+// SMOOTH-3011: opt-in IPC payload-size instrumentation.
+//
+// `context.durationMs` on the completed IPC record is this project's timing
+// instrument, but it says nothing about HOW MUCH was moved, so a payload-cost
+// change (e.g. trimming an instance snapshot) has no direct measurement. This
+// records `context.payloadBytes` alongside `durationMs` to close that gap.
+//
+// The default path is deliberately untouched: measurement is gated on an
+// environment flag read once at module load, and when it is off the completed
+// context object literal is exactly what it was before. The gate is not just
+// about the flag check — measuring at all is only worth it for payloads whose
+// size is cheap to read. Strings and binary buffers expose their byte length
+// without allocating; object/array payloads do not, and re-serializing a
+// multi-megabyte instance snapshot (or docker/log tail) purely to count its
+// bytes would cost more than the IPC call being measured. Those are skipped by
+// design and report no `payloadBytes`, rather than paying to measure them.
+const IPC_PAYLOAD_BYTES_ENABLED = process.env.ANXOS_IPC_BYTE_METRICS === "1";
+
+// >>> ipc-payload-metrics:measure (self-contained; extracted and executed verbatim by scripts/ipc-payload-instrument-smoke.js) <<<
+function measureIpcPayloadBytes(value) {
+  if (typeof value === "string") return Buffer.byteLength(value, "utf8");
+  if (Buffer.isBuffer(value) || value instanceof ArrayBuffer || ArrayBuffer.isView(value)) return value.byteLength;
+  return null;
+}
+// <<< ipc-payload-metrics:measure <<<
+
 function instrumentIpcHandlers() {
   const register = ipcMain.handle.bind(ipcMain);
   ipcMain.handle = (channel, listener) => register(channel, async (...args) => {
@@ -125,7 +151,12 @@ function instrumentIpcHandlers() {
       if (channel === "instances:list") {
         try { require("./src/services/alertService").publishInstanceSnapshot(args[1]?.nodeId, result); } catch {}
       }
-      diagnostics.log("info", "ipc", channel, "IPC request completed", { durationMs: Date.now() - startedAt }, { file: "ipc", correlationId });
+      const completedContext = { durationMs: Date.now() - startedAt };
+      if (IPC_PAYLOAD_BYTES_ENABLED) {
+        const payloadBytes = measureIpcPayloadBytes(result);
+        if (payloadBytes !== null) completedContext.payloadBytes = payloadBytes;
+      }
+      diagnostics.log("info", "ipc", channel, "IPC request completed", completedContext, { file: "ipc", correlationId });
       return result;
     } catch (error) {
       diagnostics.logError("ipc", channel, error, { durationMs: Date.now() - startedAt }, { file: "ipc", correlationId });
