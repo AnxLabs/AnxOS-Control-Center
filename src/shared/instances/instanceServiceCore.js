@@ -4578,7 +4578,12 @@ async function deleteInstance(instanceId) {
         // correct answer is 404 rather than a misleading idempotent success.
         throw createInstanceError("INSTANCE_NOT_FOUND", 404);
       }
-      await fs.rm(basePath, { recursive: true, force: true });
+      // The instance tree is the server child's working directory and the guard
+      // above only proves the *wrapper* PID is gone; a detached runtime can still
+      // hold a handle in the tree. One bounded retry absorbs a brief Windows
+      // handle-release window without masking a persistent holder (retries
+      // exhaust and the original error still propagates).
+      await fs.rm(basePath, { recursive: true, force: true, maxRetries: 1 });
       runningProcesses.delete(id);
       metricsSamples.delete(id);
       resetRestartBackoff(id);
@@ -4608,7 +4613,10 @@ async function deleteInstance(instanceId) {
 
   try {
     const existed = await pathExists(instancePath(config.id));
-    await fs.rm(instancePath(config.id), { recursive: true, force: true });
+    // Same reasoning as the stale-record branch above: the recursive delete can
+    // race a Windows handle still being released by the (possibly detached)
+    // runtime, so allow one bounded retry. A live holder still fails as before.
+    await fs.rm(instancePath(config.id), { recursive: true, force: true, maxRetries: 1 });
     runningProcesses.delete(config.id);
     metricsSamples.delete(config.id);
     resetRestartBackoff(config.id);
