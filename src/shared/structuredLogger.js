@@ -160,6 +160,52 @@ function safeWriteJson(filePath, value) {
   } catch { return false; }
 }
 
+// SMOOTH-3013: reading the last N lines of a log by reading the whole file and
+// splitting it costs more as the file grows while the returned payload stays
+// fixed (renderer.log is ~400 KB, live.log ~1 MB). Read only the tail instead.
+// The window widens only when it cannot yet prove it holds more than
+// `lineLimit` complete lines, so the returned text is identical to a whole-file
+// read.
+const LOG_TAIL_READ_BYTES = 64 * 1024;
+
+function readLogTailText(filePath, lineLimit) {
+  const limit = Number.isFinite(lineLimit) ? Math.trunc(lineLimit) : 0;
+  if (limit <= 0) {
+    // Legacy semantics: the caller's slice(-0) returned the whole list, so a
+    // non-positive limit still needs a whole-file read.
+    return fs.readFileSync(filePath, "utf8");
+  }
+  const { size } = fs.statSync(filePath);
+  let windowBytes = LOG_TAIL_READ_BYTES;
+  for (;;) {
+    const start = size > windowBytes ? size - windowBytes : 0;
+    // Anchor one byte before the window when possible so a window that begins
+    // exactly at a line boundary keeps its first line intact.
+    const readStart = start > 0 ? start - 1 : 0;
+    const length = size - readStart;
+    const buffer = Buffer.allocUnsafe(length);
+    const handle = fs.openSync(filePath, "r");
+    let read = 0;
+    try {
+      while (read < length) {
+        const bytesRead = fs.readSync(handle, buffer, read, length - read, readStart + read);
+        if (bytesRead <= 0) break;
+        read += bytesRead;
+      }
+    } finally { fs.closeSync(handle); }
+
+    let content = buffer.subarray(0, read).toString("utf8");
+    if (readStart > 0 && content.charCodeAt(0) !== 10) {
+      // The window cut a line in half: drop the leading partial line.
+      const firstBreak = content.indexOf("\n");
+      content = firstBreak === -1 ? "" : content.slice(firstBreak + 1);
+    }
+    const lineCount = content === "" ? 0 : content.split(/\r?\n/).filter(Boolean).length;
+    if (start === 0 || lineCount > lineLimit) return content;
+    windowBytes = Math.min(size, windowBytes * 2);
+  }
+}
+
 class StructuredLogger {
   constructor(options = {}) {
     this.directory = options.directory;
@@ -241,6 +287,7 @@ module.exports = {
   currentCorrelation,
   currentCorrelationId,
   isCorrelationId,
+  readLogTailText,
   resolveEntryCorrelationId,
   runWithCorrelationScope,
   safeWriteJson,

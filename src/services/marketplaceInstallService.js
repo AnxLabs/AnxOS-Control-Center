@@ -21,6 +21,9 @@ const { normalizeDiskEvidence } = require("../shared/diskSpace");
 const { CLASSIFICATIONS, classifyServerCompatibility } = require("../shared/marketplaceServerCompatibility");
 const { evaluatePublisherTrust } = require("../shared/publisherTrustPolicy");
 const longOperations = require("../shared/longOperationService");
+// SMOOTH-3011: reuse the established order-preserving bounded fan-out rather
+// than adding a second concurrency primitive.
+const { runWithConcurrency } = require("./fleetService");
 const {
   MARKETPLACE_JOB_TYPES,
   buildMarketplaceInstallKey,
@@ -28,6 +31,9 @@ const {
 } = require("./marketplaceInstallJobService");
 
 const INSTALL_FOLDERS = ["mods", "config", "defaultconfigs", "kubejs", "kubejs/scripts", "world", "logs", "backups"];
+
+// SMOOTH-3011: peak concurrent Modrinth card-enrichment provider calls.
+const MODRINTH_ENRICH_CONCURRENCY_LIMIT = 4;
 const PAPER_DOWNLOADS_API = "https://fill.papermc.io/v3";
 const FORGE_PROMOTIONS_URL = "https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json";
 const FORGE_MAVEN_METADATA_URL = "https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml";
@@ -3861,7 +3867,13 @@ async function enrichCurseForgeSearchResults(result = {}, payload = {}, config =
 
 async function enrichModrinthSearchResults(result = {}, payload = {}) {
   const results = Array.isArray(result.results) ? result.results : [];
-  const enriched = await Promise.all(results.map(async (project) => {
+  // SMOOTH-3011: this fan-out previously issued one provider version call per
+  // search result simultaneously (`Promise.all` over every card), which is the
+  // burst behind the 9,588 ms / 7,561 ms `marketplace:searchProviderPacks`
+  // measurements. Bound the in-flight calls instead. `runWithConcurrency`
+  // preserves input order, and each task keeps its own try/catch, so the
+  // returned payload is identical — only the peak request count changes.
+  const enriched = await runWithConcurrency(results.map((project) => async () => {
     const projectId = project.providerProjectId || project.id || project.slug;
     try {
       ensureModrinthServerCapable(project);
@@ -3901,7 +3913,7 @@ async function enrichModrinthSearchResults(result = {}, payload = {}) {
         },
       };
     }
-  }));
+  }), MODRINTH_ENRICH_CONCURRENCY_LIMIT);
   return { ...result, results: enriched };
 }
 

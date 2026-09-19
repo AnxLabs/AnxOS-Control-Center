@@ -499,6 +499,43 @@ function getAlertStoreStatus() {
 const DEFAULT_EVALUATION_INTERVAL_MS = 60 * 1000;
 let evaluationTimer = null;
 
+// SMOOTH-3010: the desktop renderer already polls the instance list every ~5 s
+// (instances:list). The scheduler used to make its own agent round trip every
+// 60 s (`serviceRouter.listInstances({})`), which duplicated that fetch and
+// re-triggered the implicit-node fallback on every call (measured:
+// implicit-node-fallback-selected exactly 3x/min at :31 for a whole session).
+// Publish the payload the renderer already received and let an evaluation pass
+// reuse it while it is fresh and for the same node. When nothing fresh has been
+// published (no window polling, or a different node is selected) the caller
+// falls back to a real fetch, so alerts keep working unchanged.
+const INSTANCE_SNAPSHOT_MAX_AGE_MS = 20000;
+let instanceSnapshot = null;
+
+function publishInstanceSnapshot(nodeId, payload) {
+  if (!payload || !Array.isArray(payload.instances)) return;
+  instanceSnapshot = { nodeId: nodeId || null, at: Date.now(), payload };
+}
+
+function getInstanceSnapshot(nodeId, maxAgeMs = INSTANCE_SNAPSHOT_MAX_AGE_MS) {
+  if (!instanceSnapshot) return null;
+  if ((instanceSnapshot.nodeId || null) !== (nodeId || null)) return null;
+  if (Date.now() - instanceSnapshot.at > maxAgeMs) return null;
+  return instanceSnapshot.payload;
+}
+
+function resetInstanceSnapshot() {
+  instanceSnapshot = null;
+}
+
+// The scheduler's one decision: reuse a fresh snapshot for the same node, or
+// make the fetch. `fetcher` is supplied by the caller (it owns the service
+// router), which keeps this module free of an agent dependency.
+async function resolveInstanceSnapshot(nodeId, fetcher) {
+  const shared = getInstanceSnapshot(nodeId);
+  if (shared) return shared;
+  return fetcher();
+}
+
 // Pure mapper: desktop node/instance/backup state → the evaluator's snapshot.
 function buildAlertSnapshot({ nodes = [], instances = [], backups = [], now = Date.now() } = {}) {
   return {
@@ -582,9 +619,14 @@ module.exports = {
   evaluateAlerts,
   getActiveAlerts,
   getAlertStoreStatus,
+  getInstanceSnapshot,
+  INSTANCE_SNAPSHOT_MAX_AGE_MS,
   isWithinQuietHours,
   listAlerts,
+  publishInstanceSnapshot,
   resetAlertService,
+  resetInstanceSnapshot,
+  resolveInstanceSnapshot,
   resolveStorePath,
   runAlertEvaluation,
   startAlertScheduler,

@@ -118,6 +118,13 @@ function instrumentIpcHandlers() {
     diagnostics.log("info", "ipc", channel, "IPC request started", {}, { file: "ipc", correlationId });
     try {
       const result = await listener(...args);
+      // SMOOTH-3010: share the instance list the renderer already polls with the
+      // alert scheduler, so an evaluation pass does not repeat the agent fetch
+      // (or re-trigger the implicit-node fallback). Best-effort: a share failure
+      // must never affect the IPC reply.
+      if (channel === "instances:list") {
+        try { require("./src/services/alertService").publishInstanceSnapshot(args[1]?.nodeId, result); } catch {}
+      }
       diagnostics.log("info", "ipc", channel, "IPC request completed", { durationMs: Date.now() - startedAt }, { file: "ipc", correlationId });
       return result;
     } catch (error) {
@@ -1057,9 +1064,15 @@ app.whenReady().then(async () => {
     const serviceRouter = require("./src/services/serviceRouter");
     alertService.startAlertScheduler({
       collectState: async () => {
+        // SMOOTH-3010: prefer the instance list the renderer just polled for the
+        // same node; only make our own agent round trip when nothing fresh is
+        // shared (e.g. no window polling). The previous code fetched
+        // unconditionally, duplicating the renderer's request and re-emitting
+        // the implicit-node fallback on every evaluation.
+        const effectiveNodeId = nodeService.getSelectedNodeId() || nodeService.APPLICATION_HOST_NODE_ID;
         const [nodesPayload, instancesPayload] = await Promise.all([
           nodeService.listNodes({ discoverLocalAgent: false, refreshIdentity: false }).catch(() => ({ nodes: [] })),
-          serviceRouter.listInstances({}).catch(() => ({ instances: [] })),
+          alertService.resolveInstanceSnapshot(effectiveNodeId, () => serviceRouter.listInstances({}).catch(() => ({ instances: [] }))),
         ]);
         return {
           nodes: nodesPayload?.nodes || [],

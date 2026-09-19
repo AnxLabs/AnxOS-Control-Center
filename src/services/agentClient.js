@@ -38,6 +38,12 @@ const FILE_WRITE_RETRY_DELAY_MS = 250;
 const TRANSIENT_FILE_WRITE_ERROR_CODES = new Set(["UND_ERR_SOCKET", "ECONNRESET", "EPIPE"]);
 const DOCKER_REQUEST_TIMEOUT_MS = 12000;
 const PUBLIC_ACCESS_REQUEST_TIMEOUT_MS = 12000;
+// SMOOTH-3008: interactive reads a user is waiting on (small, polled status
+// reads) should fail fast and be retried once rather than hold a spinner for
+// the 30 s default — the renderer's in-flight guard suppresses its own retry,
+// so a slow agent became a 30 s stuck spinner. Writes and the SteamCMD budgets
+// (610000/310000) are deliberately untouched. Worst case here is 2 x 8 s = 16 s.
+const INTERACTIVE_READ_TIMEOUT_MS = 8000;
 const VALID_BACKEND_MODES = new Set(["local", "agent", "auto"]);
 
 let environmentLoaded = false;
@@ -404,9 +410,13 @@ function getAgentConfig(configOverride = null) {
   };
 }
 
-function buildAgentUrl(pathname, configOverride = null) {
-  const config = getAgentConfig(configOverride);
-  const baseUrl = config.url.endsWith("/") ? config.url : `${config.url}/`;
+// SMOOTH-3012: build the request URL from an already-resolved config. The
+// request helpers resolve the config once per request; without this they called
+// getAgentConfig a second time through buildAgentUrl(), which on the
+// local/application-host backend is synchronous filesystem work done twice for
+// one request.
+function buildAgentUrlFromConfig(pathname, config = {}) {
+  const baseUrl = String(config.url || DEFAULT_AGENT_URL).endsWith("/") ? String(config.url || DEFAULT_AGENT_URL) : `${config.url || DEFAULT_AGENT_URL}/`;
   try {
     return new URL(pathname, baseUrl).toString();
   } catch (error) {
@@ -427,6 +437,10 @@ function buildAgentUrl(pathname, configOverride = null) {
       },
     });
   }
+}
+
+function buildAgentUrl(pathname, configOverride = null) {
+  return buildAgentUrlFromConfig(pathname, getAgentConfig(configOverride));
 }
 
 function logAgentRequestFailure(pathname, status, errorCode = null, details = {}) {
@@ -732,7 +746,7 @@ async function requestJson(pathname, options = {}) {
 
     applyCorrelationHeader(headers);
 
-    const requestUrl = buildAgentUrl(pathname, configOverride);
+    const requestUrl = buildAgentUrlFromConfig(pathname, config);
     logAgentRequestPayload(pathname, {
       method,
       targetLabel,
@@ -826,7 +840,7 @@ async function requestJson(pathname, options = {}) {
       : getTransportErrorCode(error) || "AGENT_UNAVAILABLE";
     const requestUrl = (() => {
       try {
-        return buildAgentUrl(pathname, configOverride);
+        return buildAgentUrlFromConfig(pathname, config);
       } catch (urlError) {
         return urlError?.payload?.error?.details?.invalidUrl || null;
       }
@@ -863,6 +877,43 @@ async function requestJson(pathname, options = {}) {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+// SMOOTH-3008: an interactive read is an idempotent GET a user is actively
+// waiting on. It uses the short timeout and one retry on a timeout or a
+// transient transport failure. A non-GET is refused outright so a retry can
+// never duplicate a mutation.
+function isRetryableInteractiveReadFailure(error) {
+  const code = error?.code || error?.payload?.error?.code || null;
+  if (code === "AGENT_TIMEOUT") return true;
+  if (code !== "AGENT_UNAVAILABLE") return false;
+  const causeCode = error?.payload?.error?.details?.causeCode || error?.cause?.code || null;
+  return ["ECONNRESET", "EPIPE", "UND_ERR_SOCKET", "UND_ERR_CONNECT_TIMEOUT"].includes(causeCode);
+}
+
+async function interactiveRead(pathname, options = {}) {
+  const method = String(options.method || "GET").toUpperCase();
+  if (method !== "GET") {
+    throw new AgentClientError("Interactive reads must be idempotent GET requests.", {
+      code: "INTERACTIVE_READ_METHOD_INVALID",
+      payload: {
+        error: {
+          code: "INTERACTIVE_READ_METHOD_INVALID",
+          message: "Interactive reads must be idempotent GET requests.",
+        },
+      },
+    });
+  }
+  let lastError = null;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      return await requestJson(pathname, { timeoutMs: INTERACTIVE_READ_TIMEOUT_MS, ...options });
+    } catch (error) {
+      lastError = error;
+      if (attempt + 1 >= 2 || !isRetryableInteractiveReadFailure(error)) break;
+    }
+  }
+  throw lastError;
 }
 
 function unwrapPayload(payload, key) {
@@ -1078,7 +1129,9 @@ async function getHealth(configOverride = null, options = {}) {
 }
 
 async function getDiagnostics(configOverride = null) {
-  return requestJson("/api/v1/diagnostics", { config: configOverride });
+  // SMOOTH-3008: polled on the ~3 s agent-control loop; a 30 s hold here is the
+  // stuck-spinner symptom. Small status payload, so the interactive budget applies.
+  return interactiveRead("/api/v1/diagnostics", { config: configOverride });
 }
 
 function isCompatibilityFallbackAllowed(error = {}) {
@@ -1486,7 +1539,7 @@ async function requestBuffer(pathname, options = {}) {
 
     applyCorrelationHeader(headers);
 
-    const requestUrl = buildAgentUrl(pathname, configOverride);
+    const requestUrl = buildAgentUrlFromConfig(pathname, config);
     const response = await fetch(requestUrl, {
       method,
       headers,
@@ -1532,7 +1585,7 @@ async function requestBuffer(pathname, options = {}) {
       : getTransportErrorCode(error) || "AGENT_UNAVAILABLE";
     const requestUrl = (() => {
       try {
-        return buildAgentUrl(pathname, configOverride);
+        return buildAgentUrlFromConfig(pathname, config);
       } catch (urlError) {
         return urlError?.payload?.error?.details?.invalidUrl || null;
       }
@@ -1587,7 +1640,7 @@ async function requestStream(pathname, options = {}) {
     if (body !== null) headers["Content-Type"] = "application/json";
     applyCorrelationHeader(headers);
 
-    const requestUrl = buildAgentUrl(pathname, configOverride);
+    const requestUrl = buildAgentUrlFromConfig(pathname, config);
     const response = await fetch(requestUrl, {
       method,
       headers,
@@ -1630,7 +1683,7 @@ async function requestStream(pathname, options = {}) {
       : getTransportErrorCode(error) || "AGENT_UNAVAILABLE";
     const requestUrl = (() => {
       try {
-        return buildAgentUrl(pathname, configOverride);
+        return buildAgentUrlFromConfig(pathname, config);
       } catch (urlError) {
         return urlError?.payload?.error?.details?.invalidUrl || null;
       }
@@ -3383,7 +3436,9 @@ async function installDependencies(payload = {}, configOverride = null) {
 }
 
 async function getWindowsAgentTask(configOverride = null) {
-  return requestJson("/api/v1/system/agent-task", { config: configOverride });
+  // SMOOTH-3008: the agent-control poll itself (measured avg 1,765 ms); the
+  // interactive budget replaces a 30 s hold.
+  return interactiveRead("/api/v1/system/agent-task", { config: configOverride });
 }
 
 async function repairWindowsAgentTask(configOverride = null) {
@@ -3453,6 +3508,10 @@ module.exports = {
   _test: {
     getAgentTransportErrorMessage,
     getTransportErrorCode,
+    interactiveRead,
+    isRetryableInteractiveReadFailure,
+    buildAgentUrlFromConfig,
+    INTERACTIVE_READ_TIMEOUT_MS,
   },
   AgentClientError,
   beginInstallationSession,

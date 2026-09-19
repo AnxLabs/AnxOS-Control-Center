@@ -550,26 +550,81 @@ function buildDockerCapabilityState({ installed = false, daemonRunning = false, 
   };
 }
 
-async function probeDocker() {
-  const executable = await resolveDockerExecutable();
-  const versionResult = executable.found
-    ? await exec(executable.executablePath, ["--version"])
-    : { ok: false, errorCode: "DOCKER_MISSING", stdout: "", stderr: "", resolvedExecutablePath: executable.executablePath };
-  const installed = versionResult.ok && Boolean(versionResult.stdout);
-  const infoResult = installed
-    ? await exec(executable.executablePath, ["info"])
-    : { ok: false, errorCode: "DOCKER_MISSING", stdout: "", stderr: "", resolvedExecutablePath: executable.executablePath };
-  const daemonRunning = installed && infoResult.ok;
-  const unavailableError = installed && !daemonRunning ? classifyDockerFailure(infoResult) : null;
+// SMOOTH-3002: the capability probe (`docker --version`, `docker info`,
+// `docker compose version` plus the executable filesystem sweep) is re-run on
+// every 5 s snapshot, i.e. it re-spawns three processes per poll even though a
+// Docker install changes on human timescales, not on a poll. Cache the fully
+// healthy probe for a bounded window so a poll does not re-spawn it.
+// Only the healthy result is cached: an unhealthy probe (missing docker,
+// daemon down, permission denied) is re-probed on every call, so a daemon
+// start/stop or a fresh install is observed on the next poll and a rejected
+// probe can never poison the cache.
+const DOCKER_PROBE_CACHE_TTL_MS = 10000;
 
-  const dockerVersion = parseDockerVersion(versionResult.stdout);
+let dockerProbeCacheValue = null;
+let dockerProbeCacheExpiresAt = 0;
+let dockerProbeCacheInFlight = null;
+// Test instrument: how many times the probe body actually executed.
+let dockerProbeRunCount = 0;
+
+function resetDockerProbeCache() {
+  dockerProbeCacheValue = null;
+  dockerProbeCacheExpiresAt = 0;
+  dockerProbeCacheInFlight = null;
+  dockerProbeRunCount = 0;
+}
+
+// One probe, shared by concurrent callers (the snapshot and
+// ensureDockerAvailable can ask within the same tick).
+async function loadDockerProbe() {
+  const now = Date.now();
+  if (dockerProbeCacheValue && dockerProbeCacheExpiresAt > now) {
+    return dockerProbeCacheValue;
+  }
+  if (dockerProbeCacheInFlight) {
+    return dockerProbeCacheInFlight;
+  }
+
+  const inFlight = (async () => {
+    dockerProbeRunCount += 1;
+    const executable = await resolveDockerExecutable();
+    const versionResult = executable.found
+      ? await exec(executable.executablePath, ["--version"])
+      : { ok: false, errorCode: "DOCKER_MISSING", stdout: "", stderr: "", resolvedExecutablePath: executable.executablePath };
+    const installed = versionResult.ok && Boolean(versionResult.stdout);
+    const infoResult = installed
+      ? await exec(executable.executablePath, ["info"])
+      : { ok: false, errorCode: "DOCKER_MISSING", stdout: "", stderr: "", resolvedExecutablePath: executable.executablePath };
+    const daemonRunning = installed && infoResult.ok;
+    const unavailableError = installed && !daemonRunning ? classifyDockerFailure(infoResult) : null;
+    const dockerVersion = parseDockerVersion(versionResult.stdout);
+    const composeVersion = installed ? await getComposeVersion(executable.executablePath).catch(() => null) : null;
+
+    return { executable, installed, daemonRunning, unavailableError, dockerVersion, composeVersion };
+  })();
+
+  dockerProbeCacheInFlight = inFlight;
+  try {
+    const value = await inFlight;
+    if (value.installed && value.daemonRunning) {
+      dockerProbeCacheValue = value;
+      dockerProbeCacheExpiresAt = Date.now() + DOCKER_PROBE_CACHE_TTL_MS;
+    }
+    return value;
+  } finally {
+    dockerProbeCacheInFlight = null;
+  }
+}
+
+async function probeDocker() {
+  const { executable, installed, daemonRunning, unavailableError, dockerVersion, composeVersion } = await loadDockerProbe();
   return {
     executable,
     installed,
     daemonRunning,
     ...buildDockerCapabilityState({ installed, daemonRunning, errorCode: unavailableError?.code || null, version: dockerVersion }),
     dockerVersion,
-    composeVersion: installed ? await getComposeVersion(executable.executablePath).catch(() => null) : null,
+    composeVersion,
     version: dockerVersion,
     message: !installed
       ? "Docker is not installed or is not available on PATH for this node."
@@ -1297,4 +1352,13 @@ module.exports = {
   pullComposeProject,
   buildComposeProject,
   validateComposeConfig,
+  // Test-only hooks (SMOOTH-3002): prove the probe cache hermetically without
+  // a real Docker daemon.
+  _test: {
+    probeDocker,
+    resetDockerProbeCache,
+    getProbeRunCount() {
+      return dockerProbeRunCount;
+    },
+  },
 };

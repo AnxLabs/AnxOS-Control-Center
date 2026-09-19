@@ -13,6 +13,7 @@ const {
   currentCorrelation,
   currentCorrelationId,
   isCorrelationId,
+  readLogTailText,
   runWithCorrelationScope,
   safeWriteJson,
   withOperationScope,
@@ -33,6 +34,11 @@ const bundledAgentVersion = getBundledLocalAgentVersion("unavailable");
 const logger = new StructuredLogger({ directory: getDirectory(), source: "desktop", processName: "main", appVersion: releaseInfo.compactLabel, agentVersion: bundledAgentVersion });
 let runtimeState = { applicationRunning: true, appVersion: releaseInfo.compactLabel, release: releaseInfo, packageVersion: packageJson.version, agentVersion: bundledAgentVersion, platform: process.platform, architecture: process.arch, currentWorkspace: "startup" };
 
+// SMOOTH-3006: minimum spacing between two synchronous persistence passes of
+// the runtime state (write of runtime-state.json + log-directory sweep).
+const CAPTURE_PERSIST_INTERVAL_MS = 4000;
+let lastCapturePersistAt = 0;
+
 function buildReadinessFromRuntime(state = runtimeState) {
   const base = { ...state };
   delete base.readinessSummary;
@@ -44,10 +50,13 @@ function buildReadinessFromRuntime(state = runtimeState) {
   });
 }
 
-function updateRuntimeState(patch = {}) {
+function updateRuntimeState(patch = {}, options = {}) {
   const next = sanitizeForDiagnostics({ ...runtimeState, ...patch, updatedAt: new Date().toISOString() });
   runtimeState = sanitizeForDiagnostics({ ...next, readinessSummary: buildReadinessFromRuntime(next) });
-  logger.snapshot("runtime-state.json", runtimeState);
+  // `persist: false` keeps the in-memory state (and therefore every returned
+  // snapshot) fresh while skipping the synchronous 38 KB disk write. Existing
+  // callers pass no options and keep writing exactly as before.
+  if (options.persist !== false) logger.snapshot("runtime-state.json", runtimeState);
   return runtimeState;
 }
 
@@ -69,7 +78,7 @@ function logError(source, operation, error, context = {}, options = {}) {
 
 function parseLines(filePath, limit) {
   try {
-    return fs.readFileSync(filePath, "utf8").split(/\r?\n/).filter(Boolean).slice(-limit).map((line) => { try { return JSON.parse(line); } catch { return null; } }).filter(Boolean);
+    return readLogTailText(filePath, limit).split(/\r?\n/).filter(Boolean).slice(-limit).map((line) => { try { return JSON.parse(line); } catch { return null; } }).filter(Boolean);
   } catch { return []; }
 }
 
@@ -98,8 +107,18 @@ async function exportBundle(parentWindow = null) {
 }
 
 function captureSnapshot(extra = {}) {
-  updateRuntimeState(extra);
-  logger.cleanup();
+  // SMOOTH-3006/3013: this runs from periodic render paths every 5 s and, on an
+  // error burst, fired in pairs ~10 ms apart. Each call previously rewrote the
+  // 38 KB runtime-state.json synchronously and swept the log directory with
+  // readdirSync+statSync, blocking the main-process event loop and delaying
+  // every concurrent IPC reply. Coalesce the disk work to at most one pass per
+  // window; the in-memory state and the returned snapshot are recomputed on
+  // every call, so the payload is unchanged.
+  const now = Date.now();
+  const persist = now - lastCapturePersistAt >= CAPTURE_PERSIST_INTERVAL_MS;
+  if (persist) lastCapturePersistAt = now;
+  updateRuntimeState(extra, { persist });
+  if (persist) logger.cleanup();
   return { runtimeState, readinessSummary: buildReadinessFromRuntime(), latestErrorExists: fs.existsSync(path.join(getDirectory(), "latest-error.json")), logDirectory: getDirectory() };
 }
 

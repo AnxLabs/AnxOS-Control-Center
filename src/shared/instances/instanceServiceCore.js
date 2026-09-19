@@ -5878,20 +5878,75 @@ async function getStatus(instanceId) {
   return publicConfigDetailed(await backfillInstanceVersion(config));
 }
 
+// SMOOTH-3003: the log tail is read in bounded windows instead of reading the
+// whole file and splitting it. The window only widens when it cannot prove it
+// holds more than `lineLimit` complete lines yet, so the returned value is
+// identical to the previous whole-file implementation.
+const LOG_TAIL_READ_BYTES = 64 * 1024;
+
+function parseRecentLogLines(content, lineLimit, filePath) {
+  return content.split(/\r?\n/).filter(Boolean).slice(-lineLimit).map((line) => {
+    try {
+      return JSON.parse(line);
+    } catch {
+      return {
+        at: null,
+        stream: path.basename(filePath, ".log"),
+        message: redactLogLine(line),
+      };
+    }
+  });
+}
+
+async function readFileWindow(filePath, start, length) {
+  const buffer = Buffer.allocUnsafe(length);
+  const handle = await fs.open(filePath, "r");
+  try {
+    let read = 0;
+    while (read < length) {
+      const { bytesRead } = await handle.read(buffer, read, length - read, start + read);
+      if (bytesRead <= 0) {
+        break;
+      }
+      read += bytesRead;
+    }
+    return buffer.subarray(0, read);
+  } finally {
+    await handle.close();
+  }
+}
+
 async function readRecentLines(filePath, lineLimit) {
   try {
-    const content = await fs.readFile(filePath, "utf8");
-    return content.split(/\r?\n/).filter(Boolean).slice(-lineLimit).map((line) => {
-      try {
-        return JSON.parse(line);
-      } catch {
-        return {
-          at: null,
-          stream: path.basename(filePath, ".log"),
-          message: redactLogLine(line),
-        };
+    const limit = Number.isFinite(lineLimit) ? Math.trunc(lineLimit) : 0;
+    if (limit <= 0) {
+      // Legacy semantics: slice(-0) returned the whole list, so a non-positive
+      // limit still needs a full read.
+      const content = await fs.readFile(filePath, "utf8");
+      return parseRecentLogLines(content, lineLimit, filePath);
+    }
+
+    const { size } = await fs.stat(filePath);
+    let windowBytes = LOG_TAIL_READ_BYTES;
+    for (;;) {
+      const start = size > windowBytes ? size - windowBytes : 0;
+      // Anchor one byte before the window when possible: a window that begins
+      // exactly at a line boundary must keep its first line intact.
+      const readStart = start > 0 ? start - 1 : 0;
+      const buffer = await readFileWindow(filePath, readStart, size - readStart);
+      let content = buffer.toString("utf8");
+      if (readStart > 0 && content.charCodeAt(0) !== 10) {
+        // The window cut a line in half: the leading partial line is not a
+        // real log entry, so drop it before counting.
+        const firstBreak = content.indexOf("\n");
+        content = firstBreak === -1 ? "" : content.slice(firstBreak + 1);
       }
-    });
+      const lineCount = content === "" ? 0 : content.split(/\r?\n/).filter(Boolean).length;
+      if (start === 0 || lineCount > limit) {
+        return parseRecentLogLines(content, lineLimit, filePath);
+      }
+      windowBytes = Math.min(size, windowBytes * 2);
+    }
   } catch (error) {
     if (error?.code === "ENOENT") {
       return [];
