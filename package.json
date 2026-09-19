@@ -49,6 +49,7 @@
     "instance-snapshot-wiring:smoke": "node scripts/instance-snapshot-wiring-smoke.js",
     "instances:delete-race:smoke": "node scripts/instance-delete-race-smoke.js",
     "ipc-payload-instrument:smoke": "node scripts/ipc-payload-instrument-smoke.js",
+    "ipc-wiring-runtime:smoke": "node scripts/ipc-wiring-runtime-smoke.js",
     "rm-sync-retry-guard:smoke": "node scripts/rm-sync-retry-guard-smoke.js",
     "operations:domain-cancellation:smoke": "node scripts/operation-domain-cancellation-smoke.js",
     "docker:smoke": "node scripts/docker-smoke.js",
