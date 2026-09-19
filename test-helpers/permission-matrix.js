@@ -364,7 +364,14 @@ const IPC_FAMILIES = [
     tier: "dependencies:read",
     guard: "permission",
     allow: ["owner-unlocked", "operator-unlocked", "viewer-unlocked"],
-    channels: ["dependencies:getCatalog", "dependencies:check", "dependencies:plan"],
+    channels: [
+      "dependencies:getCatalog", "dependencies:check", "dependencies:plan",
+      // V2-I dependency provenance report. Read tier: it reads THIS
+      // application tree's package.json/lockfile/triage record (names,
+      // versions and public npm integrity hashes, no credential material) and
+      // resolves its own paths in main, so a renderer cannot redirect it.
+      "dependencies:getProvenanceReport",
+    ],
   },
   {
     id: "dependencies-install",
@@ -478,11 +485,25 @@ const IPC_FAMILIES = [
     channels: ["networkInventory:get"],
   },
   {
+    // V2-I workload trust vocabulary (src/shared/workloadTrustPolicy.js).
+    // READ tier, not the settings:write tier of the transfer family below:
+    // neither channel writes anything — getTrustPolicy projects the static tier
+    // ladder and evaluateTrust runs the pure policy against a representative
+    // declaration — so this follows the recorded read-only precedent
+    // (marketplace:getInstallPlan at marketplace:read). The token chosen is
+    // settings:read because the panel is an access-control reference living on
+    // the Security page beside Roles & Permissions, and `permission` (not
+    // local-owner+permission) matches every other read family. Deliberately NOT
+    // settings:write: no tier is persisted here, because the tier is a field on
+    // a workload definition enforced in main at container/instance create.
     id: "settings-read",
     tier: "settings:read",
     guard: "permission",
     allow: ["owner-unlocked", "operator-unlocked", "viewer-unlocked"],
-    channels: ["settings:getPreferences"],
+    channels: [
+      "settings:getPreferences",
+      "workload:getTrustPolicy", "workload:evaluateTrust",
+    ],
   },
   {
     id: "settings-permissions-read",

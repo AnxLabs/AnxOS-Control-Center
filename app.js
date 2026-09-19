@@ -1708,6 +1708,20 @@ function getDesktopApiState() {
       typeof api?.dependencies?.plan === "function" &&
       typeof api?.dependencies?.install === "function" &&
       typeof api?.dependencies?.getCatalog === "function",
+    // V2-I surfaces exposed by this wave. Each is capability-checked so a
+    // build without the channel renders an honest "unavailable" state instead
+    // of a dead control.
+    hasCatalogTransfer:
+      typeof api?.marketplace?.exportCatalog === "function" &&
+      typeof api?.marketplace?.importCatalog === "function",
+    hasAuditExport:
+      typeof api?.security?.getAuditRetentionReport === "function" &&
+      typeof api?.security?.getAuditAccessReview === "function" &&
+      typeof api?.security?.exportAuditWindow === "function",
+    hasWorkloadTrust:
+      typeof api?.workload?.getTrustPolicy === "function" &&
+      typeof api?.workload?.evaluateTrust === "function",
+    hasDependencyProvenance: typeof api?.dependencies?.getProvenanceReport === "function",
     hasInstances:
       typeof api?.instances?.list === "function" &&
       typeof api?.instances?.create === "function" &&
@@ -4551,6 +4565,10 @@ function showPage(pageName) {
 
   if (safePageName === "security") {
     refreshSecurityState();
+    // Derive the active section from the DOM rather than from
+    // `activeSecuritySection`: showPage runs during early startup, before that
+    // binding is initialized, and reading it there would throw.
+    handleSecuritySectionActivated(document.querySelector("[data-security-section-target].is-active")?.dataset.securitySectionTarget || "status");
   }
 
   if (safePageName === "owner-workspace") {
@@ -38214,6 +38232,795 @@ function setActiveAgentControlSection(section = activeAgentControlSection || "st
   });
 }
 
+// ---------------------------------------------------------------------------
+// V2-I surfaces exposed by this wave
+//   * V2-D catalog transfer        (Marketplace page)
+//   * V2-I audit retention/review/export (Security page)
+//   * V2-I workload trust levels   (Security page)
+//   * V2-I dependency provenance   (Agent Control page)
+//
+// Every panel below renders what the main process returns. None of them
+// decides anything: the retention decision, the trust verdict and the
+// provenance verdict are all computed in main and displayed here unchanged.
+// ---------------------------------------------------------------------------
+
+let catalogTransferExport = null;
+let catalogTransferImport = null;
+let catalogTransferRequestInFlight = false;
+let auditExportRetention = null;
+let auditExportReview = null;
+let auditExportDocument = null;
+let auditExportRequestInFlight = false;
+let workloadTrustPolicy = null;
+let workloadTrustVerdict = null;
+let workloadTrustRequestInFlight = false;
+let dependencyProvenanceReport = null;
+let dependencyProvenanceRequestInFlight = false;
+
+// Label/value grid that renders exactly what it is given (no shared security
+// fallback state), so each panel reports its own load state honestly.
+function renderLabelValueGrid(container, fields) {
+  if (!container) return;
+  container.replaceChildren();
+  fields.forEach(([label, value]) => {
+    appendDetailPair(container, label, value === undefined || value === null || value === "" ? "-" : value);
+  });
+}
+
+function setSurfacePill(element, label, tone) {
+  if (!element) return;
+  element.className = `status-pill ${tone || "status-pill--planned"}`;
+  element.textContent = label;
+}
+
+function appendResultItem(container, { title, message, tone = "ok", badge = null } = {}) {
+  if (!container) return;
+  const item = document.createElement("div");
+  item.className = "security-list-item";
+  const row = document.createElement("div");
+  row.className = "security-card-row";
+  const body = document.createElement("div");
+  body.append(
+    createTextElement("strong", title || "Result"),
+    createTextElement("p", message || ""),
+  );
+  row.append(body, createSecurityBadgeElement(badge || tone, tone));
+  item.appendChild(row);
+  container.appendChild(item);
+}
+
+function formatByteCount(value) {
+  const bytes = Number(value);
+  return Number.isFinite(bytes) && bytes > 0 ? `${bytes} bytes` : "0 bytes";
+}
+
+function countLabel(value) {
+  const count = Number(value);
+  return Number.isFinite(count) ? String(count) : "-";
+}
+
+// ---------------------------------------------------------------------------
+// V2-D catalog transfer (Marketplace page)
+// ---------------------------------------------------------------------------
+function catalogTransferStatusPill() {
+  return document.querySelector("[data-catalog-transfer-status]");
+}
+
+function catalogTransferLimitsOf(result) {
+  if (!result) return [];
+  if (Array.isArray(result.offlineLimits)) return result.offlineLimits;
+  return Array.isArray(result.limits) ? result.limits : [];
+}
+
+function renderCatalogTransferSummary() {
+  const container = document.querySelector("[data-catalog-transfer-summary]");
+  const exported = catalogTransferExport;
+  const imported = catalogTransferImport;
+  renderLabelValueGrid(container, [
+    ["Document", exported ? `${countLabel(exported.entryCount)} entries exported` : imported ? "Validated (not persisted)" : "Not built"],
+    ["Schema version", exported?.schemaVersion ?? imported?.schemaVersion ?? null],
+    ["Bytes", exported ? formatByteCount(exported.bytes) : imported ? formatByteCount(imported.documentBytes) : null],
+    ["Accepted", imported ? countLabel(imported.counts?.accepted) : null],
+    ["Rejected", imported ? countLabel(imported.counts?.rejected) : null],
+    ["Unchanged", imported ? countLabel(imported.counts?.unchanged) : null],
+  ]);
+}
+
+function renderCatalogTransferResults() {
+  const container = document.querySelector("[data-catalog-transfer-results]");
+  if (!container) return;
+  container.replaceChildren();
+  const exported = catalogTransferExport;
+  const imported = catalogTransferImport;
+  if (!exported && !imported) {
+    container.appendChild(createEmptyState("No export built and no import validated yet."));
+    return;
+  }
+  if (exported && !imported) {
+    appendResultItem(container, {
+      title: "Export ready",
+      message: `${countLabel(exported.entryCount)} entries serialized into a byte-stable, sorted document. It is in the document box below; copy it to a file to move this catalog.`,
+      tone: "ok",
+      badge: "Exported",
+    });
+  }
+  if (!imported) return;
+  appendResultItem(container, {
+    title: "Import validated — not persisted",
+    message: "This build has no channel that writes the catalog, so nothing was added to the installed catalog. The entries below were validated and discarded.",
+    tone: "warning",
+    badge: "Not saved",
+  });
+  const accepted = Array.isArray(imported.accepted) ? imported.accepted : [];
+  accepted.forEach((entry) => {
+    const trust = entry.trust || {};
+    appendResultItem(container, {
+      title: `Accepted · ${entry.kind}: ${entry.id}`,
+      message: trust.message || `Verdict: ${trust.verdict || "unknown"}.`,
+      tone: trust.verified === true ? "ok" : "warning",
+      badge: trust.verdict || "unverified",
+    });
+  });
+  (Array.isArray(imported.rejected) ? imported.rejected : []).forEach((entry) => {
+    appendResultItem(container, {
+      title: `Refused · ${entry.kind || "entry"}: ${entry.id || "(no id)"}`,
+      message: `${entry.code || "REJECTED"} — ${entry.message || "Refused by the catalog import policy."}`,
+      tone: "critical",
+      badge: entry.code || "refused",
+    });
+  });
+  (Array.isArray(imported.unchanged) ? imported.unchanged : []).forEach((entry) => {
+    appendResultItem(container, {
+      title: `Unchanged · ${entry.kind || "entry"}: ${entry.id || "(no id)"}`,
+      message: "Already present and byte-identical, so it was left alone.",
+      tone: "ok",
+      badge: "unchanged",
+    });
+  });
+}
+
+function renderCatalogTransferLimits() {
+  const container = document.querySelector("[data-catalog-transfer-limits]");
+  if (!container) return;
+  container.replaceChildren();
+  const importLimits = catalogTransferLimitsOf(catalogTransferImport);
+  const limits = importLimits.length ? importLimits : catalogTransferLimitsOf(catalogTransferExport);
+  if (!limits.length) {
+    container.appendChild(createEmptyState("Offline installation limits appear after an export or import."));
+    return;
+  }
+  limits.forEach((limit) => {
+    appendResultItem(container, {
+      title: limit.title || limit.code || "Offline limit",
+      message: limit.detail || "",
+      tone: "warning",
+      badge: limit.code || "limit",
+    });
+  });
+}
+
+function renderCatalogTransferState() {
+  renderCatalogTransferSummary();
+  renderCatalogTransferResults();
+  renderCatalogTransferLimits();
+}
+
+function renderCatalogTransferDocument() {
+  const textarea = document.querySelector("[data-catalog-transfer-document]");
+  if (!textarea || !catalogTransferExport) return;
+  const json = String(catalogTransferExport.json || "");
+  const cap = 200000;
+  textarea.value = json.length > cap ? `${json.slice(0, cap)}\n… truncated for display; the full document is ${formatByteCount(catalogTransferExport.bytes)}.` : json;
+}
+
+async function runCatalogTransferAction(action) {
+  const desktopApiState = getDesktopApiState();
+  const status = catalogTransferStatusPill();
+  if (!desktopApiState.hasCatalogTransfer) {
+    setSurfacePill(status, "Unavailable", "status-pill--warning");
+    showToast("Catalog transfer is unavailable in this build.", "error");
+    return;
+  }
+  if (action === "clear") {
+    catalogTransferExport = null;
+    catalogTransferImport = null;
+    const textarea = document.querySelector("[data-catalog-transfer-document]");
+    if (textarea) textarea.value = "";
+    setSurfacePill(status, "Idle", "status-pill--planned");
+    renderCatalogTransferState();
+    return;
+  }
+  if (action === "copy-export") {
+    if (!catalogTransferExport?.json) {
+      showToast("Build an export before copying it.", "warning");
+      return;
+    }
+    await copyText(String(catalogTransferExport.json));
+    showToast("Catalog transfer document copied.");
+    return;
+  }
+  if (catalogTransferRequestInFlight) return;
+  catalogTransferRequestInFlight = true;
+  try {
+    if (action === "export") {
+      setSurfacePill(status, "Exporting", "status-pill--planned");
+      const catalog = Array.isArray(marketplaceCatalog?.templates) ? marketplaceCatalog.templates : [];
+      const result = await desktopApiState.api.marketplace.exportCatalog({ catalog });
+      catalogTransferExport = result || null;
+      catalogTransferImport = null;
+      renderCatalogTransferDocument();
+      setSurfacePill(status, "Exported", "status-pill--ok");
+      showToast(`Exported ${countLabel(result?.entryCount)} catalog entries.`);
+    } else if (action === "validate") {
+      const textarea = document.querySelector("[data-catalog-transfer-document]");
+      const document_ = String(textarea?.value || "").trim();
+      if (!document_) {
+        showToast("Paste an exported catalog document first.", "warning");
+        return;
+      }
+      setSurfacePill(status, "Validating", "status-pill--planned");
+      // Pass the catalog this build can already list, so the service applies
+      // its real duplicate/conflict rules: an entry already present and
+      // identical is reported unchanged, and one that differs is refused
+      // rather than silently overwriting.
+      const existingEntries = (Array.isArray(marketplaceCatalog?.templates) ? marketplaceCatalog.templates : [])
+        .filter((template) => template && template.id)
+        .map((template) => ({ kind: "template", id: template.id, content: template }));
+      const result = await desktopApiState.api.marketplace.importCatalog({ document: document_, existingEntries });
+      catalogTransferImport = result || null;
+      const rejected = catalogTransferImport?.counts?.rejected || 0;
+      setSurfacePill(status, rejected ? "Validated with refusals" : "Validated (not saved)", rejected ? "status-pill--warning" : "status-pill--ok");
+      showToast(`Validated ${countLabel(catalogTransferImport?.counts?.accepted)} entries; nothing was written to the catalog.`, rejected ? "warning" : null);
+    }
+  } catch (error) {
+    const message = normalizeIpcErrorMessage(error, "Catalog transfer request failed.");
+    const locked = /PERMISSION_DENIED|LOGIN_REQUIRED|OWNER_REQUIRED|FORBIDDEN|Unlock AnxOS/i.test(message);
+    setSurfacePill(status, locked ? "Locked" : "Request failed", locked ? "status-pill--warning" : "status-pill--critical");
+    showToast(message, "error");
+  } finally {
+    catalogTransferRequestInFlight = false;
+    renderCatalogTransferState();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// V2-I audit retention / access review / export (Security page)
+// ---------------------------------------------------------------------------
+function auditExportStatusPill() {
+  return document.querySelector("[data-audit-export-status]");
+}
+
+function renderAuditExportSummary() {
+  const container = document.querySelector("[data-audit-export-summary]");
+  const retention = auditExportRetention;
+  const exported = auditExportDocument;
+  renderLabelValueGrid(container, [
+    ["Retention policy", retention ? `v${retention.policy?.policyVersion ?? "-"} · ${retention.policy?.windowDays ?? "-"} day window · ${retention.policy?.maxRecords ?? "-"} record cap` : "Not loaded"],
+    ["Total records", retention ? countLabel(retention.totalRecords) : null],
+    ["Prunable by policy", retention ? countLabel(retention.prunedCount) : null],
+    ["Retained", retention ? countLabel(retention.keptCount) : null],
+    ["Retention refused", retention ? (retention.refused ? (retention.refusalReason || "Yes") : "No") : null],
+    ["Export records", exported ? countLabel(exported.recordCount) : auditExportReview ? countLabel(auditExportReview.recordCount) : null],
+  ]);
+  const note = document.querySelector("[data-audit-export-note]");
+  if (note && retention) {
+    note.textContent = `${retention.enforcementNote || "Retention is reported, never enforced."} Export refuses a window above ${
+      countLabel(exported?.maxExportRecords ?? retention.policy?.maxExportRecords)
+    } records or above the supported span instead of truncating it.`;
+  }
+}
+
+function renderAuditExportReview() {
+  const body = document.querySelector("[data-audit-export-review]");
+  if (!body) return;
+  body.replaceChildren();
+  const review = auditExportReview;
+  const entries = Array.isArray(review?.entries) ? review.entries : [];
+  if (!entries.length) {
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 7;
+    cell.textContent = review
+      ? `No access-review entries in the window (${countLabel(review.recordCount)} records, ${countLabel(review.undatedRecords)} undated).`
+      : "Load the access review to list who did what over the window.";
+    row.appendChild(cell);
+    body.appendChild(row);
+    return;
+  }
+  entries.forEach((entry) => {
+    const row = document.createElement("tr");
+    [
+      entry.actorReference || "(no actor)",
+      entry.action || "unknown",
+      entry.outcome || "unknown",
+      entry.protected === true ? `${entry.class} (protected)` : entry.class || "unknown",
+      countLabel(entry.count),
+      formatSecurityTime(entry.firstSeen),
+      formatSecurityTime(entry.lastSeen),
+    ].forEach((text) => row.appendChild(createTextElement("td", text)));
+    body.appendChild(row);
+  });
+}
+
+function renderAuditExportPreview() {
+  const textarea = document.querySelector("[data-audit-export-preview]");
+  if (!textarea) return;
+  if (!auditExportDocument?.json) {
+    textarea.value = "";
+    return;
+  }
+  const json = String(auditExportDocument.json || "");
+  const cap = 200000;
+  textarea.value = json.length > cap ? `${json.slice(0, cap)}\n… truncated for display.` : json;
+}
+
+async function runAuditExportAction(action) {
+  const desktopApiState = getDesktopApiState();
+  const status = auditExportStatusPill();
+  if (!desktopApiState.hasAuditExport) {
+    setSurfacePill(status, "Unavailable", "status-pill--warning");
+    showToast("Audit export is unavailable in this build.", "error");
+    return;
+  }
+  if (action === "clear") {
+    auditExportRetention = null;
+    auditExportReview = null;
+    auditExportDocument = null;
+    setSurfacePill(status, "Not loaded", "status-pill--planned");
+    renderAuditExportSummary();
+    renderAuditExportReview();
+    renderAuditExportPreview();
+    return;
+  }
+  if (action === "copy") {
+    if (!auditExportDocument?.json) {
+      showToast("Export the window before copying it.", "warning");
+      return;
+    }
+    await copyText(String(auditExportDocument.json));
+    showToast("Redacted audit export copied.");
+    return;
+  }
+  if (auditExportRequestInFlight) return;
+  auditExportRequestInFlight = true;
+  setSurfacePill(status, "Loading", "status-pill--planned");
+  try {
+    if (action === "refresh") {
+      auditExportRetention = await desktopApiState.api.security.getAuditRetentionReport({});
+      const refused = auditExportRetention?.refused === true;
+      setSurfacePill(status, refused ? "Retention refused" : "Retention ready", refused ? "status-pill--warning" : "status-pill--ok");
+      showToast(refused ? "The retention cap cannot be met without pruning a protected record, so nothing would be pruned." : "Retention decision loaded.", refused ? "warning" : null);
+    } else if (action === "review") {
+      auditExportReview = await desktopApiState.api.security.getAuditAccessReview({});
+      setSurfacePill(status, "Access review loaded", "status-pill--ok");
+      showToast(`Access review loaded for ${countLabel(auditExportReview?.recordCount)} records.`);
+    } else if (action === "export") {
+      auditExportDocument = await desktopApiState.api.security.exportAuditWindow({});
+      setSurfacePill(status, "Export ready", "status-pill--ok");
+      showToast(`Redacted export built for ${countLabel(auditExportDocument?.recordCount)} records.`);
+    }
+  } catch (error) {
+    const message = normalizeIpcErrorMessage(error, "Audit export request failed. Owner authorization may be required.");
+    const locked = /PERMISSION_DENIED|LOGIN_REQUIRED|OWNER_REQUIRED|FORBIDDEN|Unlock AnxOS/i.test(message);
+    setSurfacePill(status, locked ? "Locked" : "Unavailable", locked ? "status-pill--warning" : "status-pill--critical");
+    showToast(message, "error");
+  } finally {
+    auditExportRequestInFlight = false;
+    renderAuditExportSummary();
+    renderAuditExportReview();
+    renderAuditExportPreview();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// V2-I workload trust levels (Security page)
+// ---------------------------------------------------------------------------
+function workloadTrustField(name) {
+  return document.querySelector(`[data-workload-trust-field="${name}"]`);
+}
+
+function workloadTrustLabelFor(policy, key) {
+  return policy?.capabilityLabels?.[key] || key;
+}
+
+function renderWorkloadTrustLevels() {
+  const body = document.querySelector("[data-workload-trust-levels]");
+  if (!body) return;
+  body.replaceChildren();
+  const policy = workloadTrustPolicy;
+  const levels = Array.isArray(policy?.levels) ? policy.levels : [];
+  if (!levels.length) {
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 5;
+    cell.textContent = "Workload trust levels are not loaded.";
+    row.appendChild(cell);
+    body.appendChild(row);
+    return;
+  }
+  levels.forEach((level) => {
+    const permits = level.allowedCapabilities.map((key) => workloadTrustLabelFor(policy, key)).join(", ") || "None";
+    const refuses = level.deniedCapabilities.map((key) => workloadTrustLabelFor(policy, key)).join(", ") || "None";
+    const contractParts = [];
+    if (level.requiresNonAdminExecution === true) contractParts.push("non-admin execution");
+    if (Array.isArray(level.requiredResourceLimits) && level.requiredResourceLimits.length) contractParts.push(`limits: ${level.requiredResourceLimits.join(", ")}`);
+    const row = document.createElement("tr");
+    [
+      level.level,
+      countLabel(level.rank),
+      permits,
+      refuses,
+      contractParts.join(" · ") || "None",
+    ].forEach((text) => row.appendChild(createTextElement("td", text)));
+    body.appendChild(row);
+  });
+}
+
+function renderWorkloadTrustSelects() {
+  const kindSelect = workloadTrustField("kind");
+  const tierSelect = workloadTrustField("tier");
+  if (kindSelect) {
+    kindSelect.replaceChildren();
+    const kinds = Array.isArray(workloadTrustPolicy?.kinds) ? workloadTrustPolicy.kinds : [];
+    const options = kinds.length ? kinds : [];
+    options.forEach((kind) => {
+      const option = document.createElement("option");
+      option.value = kind;
+      option.textContent = kind;
+      kindSelect.appendChild(option);
+    });
+    if (!options.length) {
+      const option = document.createElement("option");
+      option.value = "container-create";
+      option.textContent = "container-create";
+      kindSelect.appendChild(option);
+    }
+  }
+  if (tierSelect) {
+    tierSelect.replaceChildren();
+    const none = document.createElement("option");
+    none.value = "";
+    none.textContent = "No declaration";
+    tierSelect.appendChild(none);
+    (Array.isArray(workloadTrustPolicy?.levels) ? workloadTrustPolicy.levels : []).forEach((level) => {
+      const option = document.createElement("option");
+      option.value = level.level;
+      option.textContent = level.level;
+      tierSelect.appendChild(option);
+    });
+  }
+}
+
+function renderWorkloadTrustCapabilities() {
+  const container = document.querySelector("[data-workload-trust-capabilities]");
+  if (!container) return;
+  container.replaceChildren();
+  const keys = Array.isArray(workloadTrustPolicy?.capabilityKeys) ? workloadTrustPolicy.capabilityKeys : [];
+  if (!keys.length) {
+    container.appendChild(createEmptyState("Capabilities are not loaded."));
+    return;
+  }
+  keys.forEach((key) => {
+    const label = document.createElement("label");
+    label.className = "console-toggle";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.dataset.workloadTrustCapability = key;
+    label.append(input, createTextElement("span", workloadTrustLabelFor(workloadTrustPolicy, key)));
+    container.appendChild(label);
+  });
+}
+
+function renderWorkloadTrustResidual() {
+  const container = document.querySelector("[data-workload-trust-residual]");
+  if (!container) return;
+  container.replaceChildren();
+  const residual = workloadTrustPolicy?.residualHostPrivileges;
+  if (!residual) {
+    container.appendChild(createEmptyState("Residual host privileges appear after the policy loads."));
+    return;
+  }
+  appendResultItem(container, { title: "Not a kernel-enforced boundary", message: residual.summary || "No summary reported.", tone: "warning", badge: "policy only" });
+  [["Applies on every host", residual.shared], ["Windows", residual.windows], ["Linux", residual.linux]].forEach(([title, lines]) => {
+    if (!Array.isArray(lines) || !lines.length) return;
+    lines.forEach((line) => appendResultItem(container, { title, message: line, tone: "warning", badge: "residual" }));
+  });
+}
+
+function collectWorkloadTrustDeclaration() {
+  const capabilities = {};
+  document.querySelectorAll("[data-workload-trust-capability]").forEach((input) => {
+    capabilities[input.dataset.workloadTrustCapability] = input.checked === true;
+  });
+  const tier = workloadTrustField("tier");
+  return {
+    kind: workloadTrustField("kind")?.value || "container-create",
+    trustLevel: tier?.value || null,
+    user: workloadTrustField("user")?.value || null,
+    memory: workloadTrustField("memory")?.value || null,
+    cpus: workloadTrustField("cpus")?.value || null,
+    capabilities,
+  };
+}
+
+function renderWorkloadTrustVerdict() {
+  const container = document.querySelector("[data-workload-trust-verdict]");
+  const refusals = document.querySelector("[data-workload-trust-refusals]");
+  const verdict = workloadTrustVerdict;
+  if (!verdict) {
+    renderLabelValueGrid(container, [["Verdict", "Not evaluated"]]);
+    if (refusals) {
+      refusals.replaceChildren();
+      refusals.appendChild(createEmptyState("Evaluate a declaration to see the policy's refusals."));
+    }
+    return;
+  }
+  const requiredLimits = Array.isArray(verdict.limits?.required) ? verdict.limits.required : [];
+  const missingLimits = Array.isArray(verdict.limits?.missing) ? verdict.limits.missing : [];
+  renderLabelValueGrid(container, [
+    ["Verdict", verdict.allowed ? "Accepted" : "Refused"],
+    ["Execution path", verdict.kind],
+    ["Declared tier", verdict.declaredTier || "No declaration"],
+    ["Required tier", verdict.requiredTier || "Unsupported by every level"],
+    ["Effective tier", verdict.effectiveTier || "-"],
+    ["Requested capabilities", Array.isArray(verdict.capabilityLabels) && verdict.capabilityLabels.length ? verdict.capabilityLabels.join(", ") : "None"],
+    ["Execution identity", verdict.identity?.detail || (verdict.identity?.nonAdmin ? "Confirmed non-admin" : "Undetermined")],
+    ["Resource limits", requiredLimits.length ? `${requiredLimits.join(", ")} required · missing: ${missingLimits.length ? missingLimits.join(", ") : "none"}` : "No contract limits at this tier"],
+  ]);
+  if (!refusals) return;
+  refusals.replaceChildren();
+  const items = Array.isArray(verdict.refusals) ? verdict.refusals : [];
+  if (!items.length) {
+    refusals.appendChild(createEmptyState("The policy raised no refusals for this declaration."));
+    return;
+  }
+  items.forEach((item) => appendResultItem(refusals, {
+    title: item.code || "Refusal",
+    message: item.message || "",
+    tone: "critical",
+    badge: item.capability || "refused",
+  }));
+}
+
+async function loadWorkloadTrustPolicy() {
+  const desktopApiState = getDesktopApiState();
+  const status = document.querySelector("[data-workload-trust-status]");
+  if (!desktopApiState.hasWorkloadTrust) {
+    workloadTrustPolicy = null;
+    setSurfacePill(status, "Unavailable", "status-pill--warning");
+    renderWorkloadTrustLevels();
+    renderWorkloadTrustSelects();
+    renderWorkloadTrustCapabilities();
+    renderWorkloadTrustResidual();
+    return;
+  }
+  if (workloadTrustRequestInFlight) return;
+  workloadTrustRequestInFlight = true;
+  setSurfacePill(status, "Loading", "status-pill--planned");
+  try {
+    workloadTrustPolicy = await desktopApiState.api.workload.getTrustPolicy({});
+    setSurfacePill(status, "Loaded", "status-pill--ok");
+  } catch (error) {
+    workloadTrustPolicy = null;
+    const message = normalizeIpcErrorMessage(error, "Workload trust policy is unavailable.");
+    const locked = /PERMISSION_DENIED|LOGIN_REQUIRED|OWNER_REQUIRED|FORBIDDEN|Unlock AnxOS/i.test(message);
+    setSurfacePill(status, locked ? "Locked" : "Unavailable", locked ? "status-pill--warning" : "status-pill--critical");
+    showToast(message, "error");
+  } finally {
+    workloadTrustRequestInFlight = false;
+    renderWorkloadTrustLevels();
+    renderWorkloadTrustSelects();
+    renderWorkloadTrustCapabilities();
+    renderWorkloadTrustResidual();
+  }
+}
+
+async function evaluateWorkloadTrustDeclaration() {
+  const desktopApiState = getDesktopApiState();
+  const status = document.querySelector("[data-workload-trust-status]");
+  if (!desktopApiState.hasWorkloadTrust) {
+    setSurfacePill(status, "Unavailable", "status-pill--warning");
+    showToast("Workload trust is unavailable in this build.", "error");
+    return;
+  }
+  if (workloadTrustRequestInFlight) return;
+  workloadTrustRequestInFlight = true;
+  setSurfacePill(status, "Evaluating", "status-pill--planned");
+  try {
+    workloadTrustVerdict = await desktopApiState.api.workload.evaluateTrust(collectWorkloadTrustDeclaration());
+    const allowed = workloadTrustVerdict?.allowed === true;
+    setSurfacePill(status, allowed ? "Accepted" : "Refused", allowed ? "status-pill--ok" : "status-pill--critical");
+    showToast(allowed ? "The policy accepts this declaration." : "The policy refuses this declaration.", allowed ? null : "warning");
+  } catch (error) {
+    workloadTrustVerdict = null;
+    const message = normalizeIpcErrorMessage(error, "Workload trust evaluation failed.");
+    const locked = /PERMISSION_DENIED|LOGIN_REQUIRED|OWNER_REQUIRED|FORBIDDEN|Unlock AnxOS/i.test(message);
+    setSurfacePill(status, locked ? "Locked" : "Evaluation failed", locked ? "status-pill--warning" : "status-pill--critical");
+    showToast(message, "error");
+  } finally {
+    workloadTrustRequestInFlight = false;
+    renderWorkloadTrustVerdict();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// V2-I dependency provenance + advisory status (Agent Control page)
+// ---------------------------------------------------------------------------
+function renderDependencyProvenance() {
+  const summary = document.querySelector("[data-provenance-summary]");
+  const list = document.querySelector("[data-provenance-list]");
+  const advisory = document.querySelector("[data-provenance-advisory]");
+  const report = dependencyProvenanceReport;
+  const summaryData = report?.summary || null;
+  renderLabelValueGrid(summary, [
+    ["Direct dependencies", summaryData ? countLabel(summaryData.directDependencies) : "Not loaded"],
+    ["Trusted", summaryData ? countLabel(summaryData.trusted) : null],
+    ["Unverified", summaryData ? countLabel(summaryData.unverified) : null],
+    ["Executable", summaryData ? countLabel(summaryData.executable) : null],
+    ["Advisory recorded", summaryData ? countLabel(summaryData.advisory?.recorded) : null],
+    ["Advisory unknown", summaryData ? countLabel(summaryData.advisory?.unknown) : null],
+  ]);
+  if (list) {
+    list.replaceChildren();
+    const dependencies = Array.isArray(report?.dependencies) ? report.dependencies : [];
+    if (!dependencies.length) {
+      const row = document.createElement("tr");
+      const cell = document.createElement("td");
+      cell.colSpan = 6;
+      cell.textContent = report?.ok === false
+        ? (report.reason || "The provenance report could not be read.")
+        : "Choose Load Provenance Report to read this installation's dependency tree.";
+      row.appendChild(cell);
+      list.appendChild(row);
+    } else {
+      dependencies.forEach((dependency) => {
+        const integrity = dependency.integrity || {};
+        const row = document.createElement("tr");
+        [
+          dependency.name,
+          dependency.resolvedVersion || "Unresolved",
+          dependency.publisherKind || "-",
+          dependency.verdict || "unknown",
+          integrity.independentlyVerified === true ? "Established match" : integrity.present === true ? "Declared only" : "None",
+          dependency.advisory?.status || "unknown",
+        ].forEach((text) => row.appendChild(createTextElement("td", text)));
+        list.appendChild(row);
+      });
+    }
+  }
+  if (!advisory) return;
+  advisory.replaceChildren();
+  if (!report) {
+    advisory.appendChild(createEmptyState("The advisory feed statement appears after the report loads."));
+    return;
+  }
+  const feed = report.advisory || {};
+  const artifact = feed.artifact || {};
+  appendResultItem(advisory, {
+    title: "Advisory source",
+    message: `${feed.code || "unknown"} — feed: ${feed.feed === null || feed.feed === undefined ? "none" : String(feed.feed)} · independently verified: ${feed.verified === true ? "yes" : "no"}`,
+    tone: "warning",
+    badge: feed.status || "triage-only",
+  });
+  appendResultItem(advisory, {
+    title: artifact.present ? "Triage record" : "No triage record",
+    message: artifact.present
+      ? `${artifact.path || "triage record"} · ${countLabel(artifact.entryCount)} entries${artifact.scannedAt ? ` · scanned ${formatSecurityTime(artifact.scannedAt)}` : ""}`
+      : "No advisory triage record was found, so every dependency reports advisory status unknown.",
+    tone: "warning",
+    badge: artifact.present ? "present" : "absent",
+  });
+  appendResultItem(advisory, {
+    title: "Clean dependencies",
+    message: `${countLabel(summaryData?.advisory?.clean)} dependencies are reported advisory-free. No code path in this build can claim a package is free of advisories; absence from the triage record is unknown, not clean.`,
+    tone: "warning",
+    badge: "clean: 0",
+  });
+}
+
+async function loadDependencyProvenance() {
+  const desktopApiState = getDesktopApiState();
+  const status = document.querySelector("[data-provenance-status]");
+  if (!desktopApiState.hasDependencyProvenance) {
+    dependencyProvenanceReport = null;
+    setSurfacePill(status, "Unavailable", "status-pill--warning");
+    renderDependencyProvenance();
+    return;
+  }
+  if (dependencyProvenanceRequestInFlight) return;
+  dependencyProvenanceRequestInFlight = true;
+  setSurfacePill(status, "Loading", "status-pill--planned");
+  try {
+    const report = await desktopApiState.api.dependencies.getProvenanceReport({});
+    if (report?.ok === false && report?.error) {
+      dependencyProvenanceReport = null;
+      setSurfacePill(status, "Unavailable", "status-pill--critical");
+      showToast(normalizeIpcErrorMessage(report.error, "Dependency provenance is unavailable."), "error");
+    } else {
+      dependencyProvenanceReport = report || null;
+      const ok = dependencyProvenanceReport?.ok !== false;
+      setSurfacePill(status, ok ? "Loaded" : "Unavailable", ok ? "status-pill--ok" : "status-pill--critical");
+      if (!ok) showToast(dependencyProvenanceReport?.reason || "The dependency provenance report could not be read.", "error");
+    }
+  } catch (error) {
+    dependencyProvenanceReport = null;
+    setSurfacePill(status, "Unavailable", "status-pill--critical");
+    showToast(normalizeIpcErrorMessage(error, "Dependency provenance is unavailable."), "error");
+  } finally {
+    dependencyProvenanceRequestInFlight = false;
+    renderDependencyProvenance();
+  }
+}
+
+// Lazy-load a security section's data the first time it is opened, so a
+// privileged audit read is never issued from a page nobody asked for.
+function handleSecuritySectionActivated(section) {
+  if (section === "audit-export" && !auditExportRetention && !auditExportRequestInFlight) {
+    runAuditExportAction("refresh");
+  }
+  if (section === "workload-trust" && !workloadTrustPolicy && !workloadTrustRequestInFlight) {
+    loadWorkloadTrustPolicy();
+  }
+}
+
+renderCatalogTransferState();
+renderAuditExportSummary();
+renderAuditExportReview();
+renderAuditExportPreview();
+renderWorkloadTrustLevels();
+renderWorkloadTrustSelects();
+renderWorkloadTrustCapabilities();
+renderWorkloadTrustResidual();
+renderWorkloadTrustVerdict();
+renderDependencyProvenance();
+
+document.querySelector('[data-page="marketplace"]')?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-catalog-transfer-action]");
+  if (!button) return;
+  runCatalogTransferAction(button.dataset.catalogTransferAction || "");
+});
+
+document.querySelector('[data-page="security"]')?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-audit-export-action]");
+  if (button) {
+    runAuditExportAction(button.dataset.auditExportAction || "");
+    return;
+  }
+  const trustButton = event.target.closest("[data-workload-trust-action]");
+  if (trustButton) {
+    const action = trustButton.dataset.workloadTrustAction;
+    if (action === "evaluate") {
+      evaluateWorkloadTrustDeclaration();
+    } else if (action === "clear") {
+      workloadTrustVerdict = null;
+      document.querySelectorAll("[data-workload-trust-capability]").forEach((input) => { input.checked = false; });
+      ["user", "memory", "cpus"].forEach((name) => {
+        const field = workloadTrustField(name);
+        if (field) field.value = "";
+      });
+      const tierSelect = workloadTrustField("tier");
+      if (tierSelect) tierSelect.value = "";
+      setSurfacePill(document.querySelector("[data-workload-trust-status]"), workloadTrustPolicy ? "Loaded" : "Not loaded", workloadTrustPolicy ? "status-pill--ok" : "status-pill--planned");
+      renderWorkloadTrustVerdict();
+    }
+  }
+});
+
+document.querySelector('[data-page="agent-control"]')?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-provenance-action]");
+  if (!button) return;
+  const action = button.dataset.provenanceAction;
+  if (action === "copy") {
+    if (!dependencyProvenanceReport) {
+      showToast("Load the provenance report before copying it.", "warning");
+      return;
+    }
+    copyText(JSON.stringify(dependencyProvenanceReport, null, 2)).then(() => showToast("Dependency provenance report copied."));
+  } else {
+    loadDependencyProvenance();
+  }
+});
+
 const SECURITY_SECTION_ALIASES = {
   revocations: "sessions",
 };
@@ -41263,7 +42070,9 @@ document.querySelector('[data-security-action="enable-remote-control"]')?.addEve
 document.querySelector('[data-page="security"]')?.addEventListener("click", async (event) => {
   const sectionButton = event.target.closest("[data-security-section-target]");
   if (sectionButton) {
-    setActiveSecuritySection(sectionButton.dataset.securitySectionTarget || "status");
+    const section = sectionButton.dataset.securitySectionTarget || "status";
+    setActiveSecuritySection(section);
+    handleSecuritySectionActivated(section);
     return;
   }
   const recommendationButton = event.target.closest("[data-security-recommendation]");

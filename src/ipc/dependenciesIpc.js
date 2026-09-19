@@ -10,6 +10,12 @@ const {
   finalizeDependencyInstallRecord,
   updateDependencyInstallRecord,
 } = require("../services/marketplaceService");
+// V2-I bullet 5: the dependency provenance / advisory report
+// (src/services/dependencyService.js). It reads THIS application tree's
+// package.json + lockfile, never the selected node's host dependencies, which
+// is why it needs no node context and arrives under a distinct channel name
+// from serviceRouter's host-dependency catalog above.
+const { getDependencyCatalog: getDependencyProvenanceReport } = require("../services/dependencyService");
 const diagnostics = require("../services/diagnosticsService");
 const { audit, requirePermission } = require("../services/securityService");
 const { requireNodeContext } = require("./nodeContext");
@@ -42,6 +48,14 @@ function invokeDependencyOperation(operation, operationName = "dependencies:requ
 
 function registerDependenciesIpc() {
   ipcMain.handle("dependencies:getCatalog", async (_, payload = {}) => invokeDependencyOperation(() => { requirePermission("dependencies:read", payload.nodeId); return getDependencyCatalog(requireDependencyNodeContext(payload, "dependency catalog")); }, "dependencies:getCatalog"));
+  // Read-only provenance report. No options are forwarded from the renderer:
+  // the report's rootDir/manifest/lockfile inputs are resolved in main, so a
+  // renderer can neither point it at an arbitrary path nor substitute a
+  // manifest. The read tier matches dependencies:getCatalog.
+  ipcMain.handle("dependencies:getProvenanceReport", async () => invokeDependencyOperation(() => {
+    requirePermission("dependencies:read", "dependency-provenance");
+    return getDependencyProvenanceReport();
+  }, "dependencies:getProvenanceReport"));
   ipcMain.handle("dependencies:check", async (_, payload = {}) => invokeDependencyOperation(async () => {
     requirePermission("dependencies:read", payload.nodeId);
     requireDependencyNodeContext(payload, "dependency detection");

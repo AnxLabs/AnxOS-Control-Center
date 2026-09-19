@@ -12146,6 +12146,14 @@ button:disabled {
   }
 }
 
+/* V2-I surfaces added this wave. Both render full-width tables (the tier
+   ladder and the access-review projection), so they take the whole workspace
+   width exactly like the Security Event Log spans two columns above. */
+.settings-shell--security-control > [data-security-section="workload-trust"],
+.settings-shell--security-control > [data-security-section="audit-export"] {
+  grid-column: 1 / -1;
+}
+
 .security-summary-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

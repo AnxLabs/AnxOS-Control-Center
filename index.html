@@ -1743,6 +1743,38 @@
               </aside>
             </div>
           </section>
+
+          <section class="settings-section settings-section--wide" aria-label="Catalog transfer">
+            <div class="settings-section__header">
+              <div>
+                <h2>Catalog Transfer</h2>
+                <p>Export the curated catalog as a byte-stable document, or validate an imported catalog document without touching the installed catalog.</p>
+              </div>
+              <span class="status-pill status-pill--planned" data-catalog-transfer-status>Idle</span>
+            </div>
+            <p class="settings-note">Export serializes the templates this catalog already lists. Import is a validation preview only: this build has no channel that writes the catalog, so a validated import is never persisted. An imported entry never carries established integrity.</p>
+            <div class="settings-actions">
+              <button class="inline-action" type="button" data-catalog-transfer-action="export">Export Catalog</button>
+              <button class="inline-action" type="button" data-catalog-transfer-action="copy-export">Copy Document</button>
+              <button class="inline-action" type="button" data-catalog-transfer-action="validate">Validate Import</button>
+              <button class="inline-action" type="button" data-catalog-transfer-action="clear">Clear</button>
+            </div>
+            <div class="security-summary-grid" data-catalog-transfer-summary aria-live="polite">
+              <div><span>Document</span><strong>Not built</strong></div>
+              <div><span>Entries</span><strong>0</strong></div>
+              <div><span>Bytes</span><strong>0</strong></div>
+            </div>
+            <label class="settings-field settings-field--wide">
+              <span>Transfer document (JSON)</span>
+              <textarea rows="5" spellcheck="false" autocomplete="off" placeholder="Paste an exported catalog-transfer document here, then choose Validate Import." data-catalog-transfer-document></textarea>
+            </label>
+            <div class="security-list" data-catalog-transfer-results role="list" aria-live="polite">
+              <div class="security-empty-state">No export built and no import validated yet.</div>
+            </div>
+            <div class="security-list" data-catalog-transfer-limits role="list" aria-live="polite">
+              <div class="security-empty-state">Offline installation limits appear after an export or import.</div>
+            </div>
+          </section>
         </section>
 
         <section class="page" data-page="instances">
@@ -3245,6 +3277,7 @@
                 <div class="settings-category-group">
                   <p class="settings-category-group__label">Access Control</p>
                   <button type="button" data-security-section-target="permissions">Roles & Permissions</button>
+                  <button type="button" data-security-section-target="workload-trust">Workload Trust</button>
                   <button type="button" data-security-section-target="remote">Remote Access</button>
                   <button type="button" data-security-section-target="owner">Owner Authorization</button>
                 </div>
@@ -3262,6 +3295,7 @@
                 <div class="settings-category-group">
                   <p class="settings-category-group__label">Advanced</p>
                   <button type="button" data-security-section-target="audit">Audit Log</button>
+                  <button type="button" data-security-section-target="audit-export">Audit Export</button>
                   <button type="button" data-security-section-target="diagnostics">Security Diagnostics</button>
                   <button type="button" data-security-section-target="developer">Developer</button>
                 </div>
@@ -3394,6 +3428,60 @@
               </div>
               <div class="security-list" data-security-permissions role="list" aria-live="polite">
                 <div class="security-empty-state">Loading permissions...</div>
+              </div>
+            </section>
+
+            <section class="settings-section settings-section--wide" data-security-section="workload-trust">
+              <div class="settings-section__header">
+                <div>
+                  <h2>Workload Trust</h2>
+                  <p>The tier ladder a workload declaration is evaluated against, and the policy's verdict for a declaration you describe here. Enforcement stays in the main process — this view grants nothing.</p>
+                </div>
+                <span class="status-pill status-pill--planned" data-workload-trust-status>Not loaded</span>
+              </div>
+              <p class="settings-note">Tier names are a policy vocabulary, not a kernel-enforced sandbox. A process workload can never reach <code>sandboxed</code>. The declared tier is validated when a workload is created (container create / instance create); this build does not persist a per-instance tier field, so there is no saved tier to change here.</p>
+              <div class="security-table-wrap">
+                <table class="security-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Tier</th>
+                      <th scope="col">Rank</th>
+                      <th scope="col">Permits</th>
+                      <th scope="col">Refuses</th>
+                      <th scope="col">Contract</th>
+                    </tr>
+                  </thead>
+                  <tbody data-workload-trust-levels aria-live="polite">
+                    <tr><td colspan="5">Loading workload trust levels...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="settings-section__header">
+                <div>
+                  <h3>Check a declaration</h3>
+                  <p>Name the execution path, the tier a workload declares, and the capabilities it requests. The main process evaluates the real policy and reports the verdict.</p>
+                </div>
+              </div>
+              <div class="settings-grid">
+                <label class="settings-field"><span>Execution path</span><select data-workload-trust-field="kind"></select></label>
+                <label class="settings-field"><span>Declared tier</span><select data-workload-trust-field="tier"></select></label>
+                <label class="settings-field"><span>Non-admin user (uid)</span><input type="text" autocomplete="off" placeholder="e.g. 1000" data-workload-trust-field="user"></label>
+                <label class="settings-field"><span>Memory limit</span><input type="text" autocomplete="off" placeholder="e.g. 512m" data-workload-trust-field="memory"></label>
+                <label class="settings-field"><span>CPU limit</span><input type="text" autocomplete="off" placeholder="e.g. 1" data-workload-trust-field="cpus"></label>
+              </div>
+              <div class="security-filter-row" data-workload-trust-capabilities></div>
+              <div class="settings-actions">
+                <button class="inline-action" type="button" data-workload-trust-action="evaluate">Evaluate Declaration</button>
+                <button class="inline-action" type="button" data-workload-trust-action="clear">Clear</button>
+              </div>
+              <div class="security-summary-grid" data-workload-trust-verdict aria-live="polite">
+                <div><span>Verdict</span><strong>Not evaluated</strong></div>
+              </div>
+              <div class="security-list" data-workload-trust-refusals role="list" aria-live="polite">
+                <div class="security-empty-state">Evaluate a declaration to see the policy's refusals.</div>
+              </div>
+              <div class="security-list" data-workload-trust-residual role="list" aria-live="polite">
+                <div class="security-empty-state">Residual host privileges appear after the policy loads.</div>
               </div>
             </section>
 
@@ -3656,6 +3744,54 @@
                 <button class="inline-action" type="button" data-security-action="open-audit-folder">Open Audit Log Folder</button>
                 <button class="inline-action" type="button" data-security-action="clear-event-display">Clear Local Display</button>
               </div>
+            </section>
+
+            <section class="settings-section settings-section--wide" data-security-section="audit-export">
+              <div class="settings-section__header">
+                <div>
+                  <h2>Audit Export</h2>
+                  <p>The bounded, redacted, byte-identical-diffable export of an audit window, plus the retention decision and the access-review projection that bound it. Retention is reported, never enforced: this build does not rewrite or delete the audit log.</p>
+                </div>
+                <span class="status-pill status-pill--planned" data-audit-export-status>Not loaded</span>
+              </div>
+              <div class="security-summary-grid" data-audit-export-summary aria-live="polite">
+                <div><span>Retention policy</span><strong>Not loaded</strong></div>
+                <div><span>Total records</span><strong>-</strong></div>
+                <div><span>Prunable by policy</span><strong>-</strong></div>
+                <div><span>Retained</span><strong>-</strong></div>
+                <div><span>Retention refused</span><strong>-</strong></div>
+                <div><span>Export records</span><strong>-</strong></div>
+              </div>
+              <div class="settings-actions">
+                <button class="inline-action" type="button" data-audit-export-action="refresh">Refresh Retention Report</button>
+                <button class="inline-action" type="button" data-audit-export-action="review">Load Access Review</button>
+                <button class="inline-action" type="button" data-audit-export-action="export">Export Window</button>
+                <button class="inline-action" type="button" data-audit-export-action="copy">Copy Export</button>
+                <button class="inline-action" type="button" data-audit-export-action="clear">Clear</button>
+              </div>
+              <p class="settings-note" data-audit-export-note>Export refuses a window that is over the record cap or too wide rather than truncating it. Every field is projected through the shared diagnostics redactor.</p>
+              <div class="security-table-wrap">
+                <table class="security-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Actor</th>
+                      <th scope="col">Action</th>
+                      <th scope="col">Outcome</th>
+                      <th scope="col">Class</th>
+                      <th scope="col">Count</th>
+                      <th scope="col">First seen</th>
+                      <th scope="col">Last seen</th>
+                    </tr>
+                  </thead>
+                  <tbody data-audit-export-review aria-live="polite">
+                    <tr><td colspan="7">Load the access review to list who did what over the window.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <label class="settings-field settings-field--wide">
+                <span>Export document (JSON, redacted)</span>
+                <textarea rows="6" readonly spellcheck="false" placeholder="Choose Export Window to generate the redacted document." data-audit-export-preview></textarea>
+              </label>
             </section>
 
             <section class="settings-section settings-section--security-diagnostics" data-security-section="diagnostics">
@@ -3950,6 +4086,48 @@
               </div>
               <div class="download-list" data-dependency-list>
                 <div class="docker-empty-state"><strong>No dependency check yet</strong><span>Check dependencies on the selected node before installing Marketplace templates. Missing packages can be prepared from this panel.</span></div>
+              </div>
+            </section>
+            <section class="settings-section settings-section--wide" data-agent-control-section="health">
+              <div class="settings-section__header">
+                <div>
+                  <h2>Dependency Provenance</h2>
+                  <p>Provenance verdicts and advisory status for this application's own declared dependencies. This is the installed application tree, not the selected node's host packages.</p>
+                </div>
+                <span class="status-pill status-pill--planned" data-provenance-status>Not loaded</span>
+              </div>
+              <p class="settings-note">A lockfile hash is a declared hash, never an independently established match, so no dependency in this tree is reported <code>verified</code>. Advisory status is <code>recorded</code> or <code>unknown</code> — never a clean bill of health, because absence from the triage record is not evidence.</p>
+              <div class="settings-actions">
+                <button class="inline-action" type="button" data-provenance-action="load">Load Provenance Report</button>
+                <button class="inline-action" type="button" data-provenance-action="copy">Copy Report</button>
+              </div>
+              <div class="security-summary-grid" data-provenance-summary aria-live="polite">
+                <div><span>Direct dependencies</span><strong>Not loaded</strong></div>
+                <div><span>Trusted</span><strong>-</strong></div>
+                <div><span>Unverified</span><strong>-</strong></div>
+                <div><span>Executable</span><strong>-</strong></div>
+                <div><span>Advisory recorded</span><strong>-</strong></div>
+                <div><span>Advisory unknown</span><strong>-</strong></div>
+              </div>
+              <div class="security-table-wrap">
+                <table class="security-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Dependency</th>
+                      <th scope="col">Version</th>
+                      <th scope="col">Publisher</th>
+                      <th scope="col">Verdict</th>
+                      <th scope="col">Integrity</th>
+                      <th scope="col">Advisory</th>
+                    </tr>
+                  </thead>
+                  <tbody data-provenance-list aria-live="polite">
+                    <tr><td colspan="6">Choose Load Provenance Report to read this installation's dependency tree.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="security-list" data-provenance-advisory role="list" aria-live="polite">
+                <div class="security-empty-state">The advisory feed statement appears after the report loads.</div>
               </div>
             </section>
             <section class="settings-section agent-operations-panel" data-agent-control-section="lifecycle">

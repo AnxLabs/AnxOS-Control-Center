@@ -289,6 +289,10 @@ const desktopApi = {
     check: (payload = {}) => ipcRenderer.invoke("dependencies:check", payload),
     plan: (payload = {}) => ipcRenderer.invoke("dependencies:plan", payload),
     install: (payload = {}) => ipcRenderer.invoke("dependencies:install", payload),
+    // V2-I dependency provenance / advisory report for THIS application tree
+    // (src/services/dependencyService.js). Distinct from getCatalog above,
+    // which returns the selected node's host dependency catalog.
+    getProvenanceReport: (payload = {}) => ipcRenderer.invoke("dependencies:getProvenanceReport", payload),
   },
   instances: {
     list: (payload = {}) => invokeAgentFeature("instances:list", payload),
@@ -354,6 +358,12 @@ const desktopApi = {
   workload: {
     transferPreview: (payload = {}) => ipcRenderer.invoke("workload:transferPreview", payload),
     transfer: (payload = {}) => ipcRenderer.invoke("workload:transfer", payload),
+    // V2-I workload trust levels (src/shared/workloadTrustPolicy.js). Both are
+    // read-only projections evaluated in main: getTrustPolicy returns the tier
+    // ladder; evaluateTrust returns the policy verdict for a representative
+    // declaration. Neither persists a tier or grants anything.
+    getTrustPolicy: (payload = {}) => ipcRenderer.invoke("workload:getTrustPolicy", payload),
+    evaluateTrust: (payload = {}) => ipcRenderer.invoke("workload:evaluateTrust", payload),
   },
   nodes: {
     list: () => ipcRenderer.invoke("nodes:list"),
