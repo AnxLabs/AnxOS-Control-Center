@@ -12612,9 +12612,12 @@ function renderGameConfigPanel() {
   }
 
   if (gameConfigTitle) gameConfigTitle.textContent = model?.label ? `${model.label} Configuration` : "Game Configuration";
-  if (gameConfigSearchInput && gameConfigSearchInput.value !== gameConfigState.query) {
-    gameConfigSearchInput.value = gameConfigState.query;
-  }
+  // The search box is deliberately never written back from here. `gameConfigState.query`
+  // is synced from the input on every `input` event (see the listener near the bottom of
+  // this file), so a rebuild always reads the user's live text. Projecting the state back
+  // into the box would let a rebuild that lands inside the debounce window overwrite an
+  // in-flight edit with the previous query, which the pending flush would then read back
+  // and persist — silently discarding the edit, including a clear.
   if (gameConfigAdvancedInput) {
     gameConfigAdvancedInput.checked = Boolean(gameConfigState.showAdvanced);
   }
@@ -40599,17 +40602,24 @@ minecraftPropertyInputs.forEach((input) => {
   input.addEventListener("change", syncInstanceConfigDirtyState);
 });
 // Rebuilding the filtered field list on every keystroke is the expensive half of
-// searching here, so the rebuild is debounced. `gameConfigState.query` is set
-// with the latest value at flush time, and the field edits themselves (SMOOTH-2002)
-// no longer rebuild at all, so nothing is lost between keystrokes.
-// 80 ms, not the 120 ms used by the other search boxes here: the acceptance
-// script scripts/stabilization-ui-qa.js types into this box, waits 100 ms, and
-// then asserts the filtered result is on screen. The debounce must stay inside
-// that window or the acceptance run turns timing-dependent.
-gameConfigSearchInput?.addEventListener("input", debounce(() => {
-  gameConfigState.query = gameConfigSearchInput.value || "";
+// searching here, so only the rebuild is debounced — at 120 ms, matching the other
+// list-filter boxes in this file. (There is no single file-wide value: the
+// docker-log and marketplace-version boxes use longer windows for their own
+// reasons.) The query itself is synced from the box on the
+// event, before any rebuild can run: the input is the source of truth for an
+// in-flight edit, so a rebuild triggered by something else inside the debounce
+// window (a toggle, a category switch) filters on the live text instead of the
+// last flushed value, and `renderGameConfigPanel()` never writes a stale query
+// back into the box. A clear therefore cannot be undone by a pending rebuild.
+// The field edits themselves (SMOOTH-2002) do not rebuild at all, so nothing is
+// lost between keystrokes.
+const rebuildGameConfigSearch = debounce(() => {
   renderGameConfigPanel();
-}, 80));
+}, 120);
+gameConfigSearchInput?.addEventListener("input", () => {
+  gameConfigState.query = gameConfigSearchInput.value || "";
+  rebuildGameConfigSearch();
+});
 gameConfigAdvancedInput?.addEventListener("change", () => {
   gameConfigState.showAdvanced = Boolean(gameConfigAdvancedInput.checked);
   renderGameConfigPanel();
