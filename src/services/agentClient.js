@@ -4,6 +4,7 @@ const { Readable } = require("stream");
 const dotenv = require("dotenv");
 const { app } = require("electron");
 const {
+  AGENT_CONFIG_SCHEMA_VERSION,
   isWeakAgentToken,
   parseAgentPairingPayload,
   readAgentConfigFile,
@@ -99,6 +100,16 @@ function normalizeBackendMode(value) {
 function getDefaultAgentSettings() {
   const tokenStatus = getSharedAgentTokenStatus();
   return {
+    // A freshly created config must already be at the CURRENT schema. Without
+    // this, `ensureAgentConfigFile` wrote a legacy (no-version) file, which the
+    // migration then upgraded while planting a `.schema-v0.backup` of a random
+    // default token. Deleting the config to reset it recreated a DIFFERENT
+    // legacy default, and the fail-closed migration-recovery policy introduced
+    // in cycle 21 then refused it permanently (hash mismatch) where it used to
+    // silently recreate — verified by probe. Creating at the current version
+    // means a first run involves no migration and leaves no stale recovery
+    // point behind.
+    schemaVersion: AGENT_CONFIG_SCHEMA_VERSION,
     backendMode: DEFAULT_BACKEND_MODE,
     agentUrl: DEFAULT_AGENT_URL,
     agentToken: tokenStatus.token || "",
