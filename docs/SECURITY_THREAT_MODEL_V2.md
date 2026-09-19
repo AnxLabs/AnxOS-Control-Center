@@ -41,9 +41,19 @@ static-only scan of cycle 14 is `docs/v2/V2_CAMPAIGN_QUEUES.md:24`.
 ### 2.1 Renderer ⟷ desktop main (Electron)
 
 - The renderer is created with `contextIsolation: true`, `nodeIntegration: false`
-  and `sandbox: true` (`main.js:614-618`; also `:691-695`, `:740-743`, `:842-846`).
-- Window-open and navigation are denied or handed to the external-URL allowlist:
-  `main.js:956-968`.
+  and `sandbox: true` (`main.js:604-606`; also `:681-683`, `:729-731`, `:831-834`).
+  *(Re-anchored 2026-09-19: the previous citations were ~11 lines stale after the
+  startup-path refactor. The claims were re-verified against the current source; only
+  the line numbers had drifted.)*
+- Window-open and navigation are denied, or handed to the external-URL handler:
+  `main.js:622`, `:629`, `:945`, `:952`.
+  **Precision correction:** this is a **protocol** allowlist (`http:`/`https:`/`mailto:`),
+  **not** a host allowlist. When `allowedHosts` is absent — which it is at every call
+  site above — any host is accepted and opened in the OS browser
+  (`src/services/externalUrlService.js:1-18`). The previous wording ("the external-URL
+  allowlist") read as host-restricted and overstated the control. `shell.openExternal`
+  is denial-of-privilege by construction, so this is a wording defect rather than a
+  vulnerability — but the wording was wrong.
 - The renderer reaches privileged functionality only through the preload bridge;
   the exposed surface is pinned by `scripts/preload-exposure-contract-smoke.js`
   (registered as `preload-exposure-contract:smoke`).
@@ -291,6 +301,33 @@ name from an attacker's.
   (`docs/MASTER_ROADMAP.md:300`).
 - The Mimosa scan at `3f7c16e` is incomplete evidence and attaches **no**
   security claim (`docs/v2/V2_CAMPAIGN_QUEUES.md:11-12`).
+- **The Mimosa deep scan re-run at `ff9d10a` COMPLETED and is SEALED**
+  (`sha256:2ff5119642b552cb6e714f84c0b0b9199447e28f5a16610c5b27390964c64a0b`,
+  1012 findings, 255 packages scanned, dependency check completed) — **and it still
+  attaches NO security claim.** Every finding is **unvalidated** (0 investigated), the
+  result carries `verdictEffect: none`, and its evidence boundary is
+  `static_only_no_runtime_execution`. A completed scan whose findings were never
+  investigated is not a clean verdict, and it is not reported as one here.
+
+---
+
+### 6.7 The remote-administration policy is NOT wired — it protects nothing at runtime
+
+`src/shared/remoteAdminPolicy.js` is built, exported, and covered by a passing smoke,
+and its header reads like a live control ("strong authentication for remote
+administration"). **It is not enforced anywhere in the request path.** It is required
+only by its own smoke (`scripts/remote-admin-authorization-smoke.js:38`), which carries
+`REMOTE_ADMIN_ENFORCEMENT_WIRED = false` (`:506`) and prints
+`[skip] request-layer enforcement is not wired in this build (owner decision)` (`:511`).
+
+The consequence, stated plainly: origin is consulted for authorization **nowhere** on
+the Agent except the pairing gate, so a valid Agent token — or an unscoped enrolled
+credential — can reach `owner` (enroll/revoke) and `agent:manage` (credential rotation)
+from anywhere the Agent is reachable. This is the owner's standing permissive-by-origin
+decision, recorded here so a reader cannot mistake the module for a control that is
+protecting the system. Wiring it is an **owner decision**, not an engineering default:
+the options are to keep permissive-by-origin, to require opt-in (`AGENT_REMOTE_ADMIN`
+plus family scopes), or to narrow enforcement to the credential-operation routes only.
 
 ---
 
