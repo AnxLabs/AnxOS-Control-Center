@@ -37533,7 +37533,7 @@ function renderOnboardingPrepareNodeStep(container) {
 }
 
 function renderOnboardingFirstServerStep(container) {
-  const instances = Array.isArray(instancesState?.instances) ? instancesState.instances : [];
+  const instances = getInstances();
   const ready = instances.length > 0;
   container.append(createTextElement("p", "Marketplace uses supported providers and the Local Agent to check dependencies and install into managed storage. You will review the template before anything is installed."));
   container.append(onboardingStatus("First server", ready ? "Completed" : "Current", ready ? "ok" : "warning", ready ? `${instances.length} managed ${instances.length === 1 ? "server is" : "servers are"} available.` : "Choose a Marketplace template to create your first server."));
