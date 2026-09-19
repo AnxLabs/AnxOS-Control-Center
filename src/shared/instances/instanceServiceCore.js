@@ -6199,11 +6199,18 @@ function getWorldScopeCandidates(config = {}) {
   const family = inferGameFamily(config);
   if (family === "palworld") {
     const installDirectory = getPalworldInstallDirectory(config);
-    return [
+    // The install directory defaults to "server", so the first candidate
+    // normalizes to exactly the second one and the list carried a duplicate
+    // (found by the game-adapter contract audit, divergence D-9). A duplicated
+    // scope candidate is not harmless: consumers sum sizes and report scopes per
+    // entry, so the same tree was counted and shown twice. De-duplicated here
+    // rather than at the call sites, because this is where the collision is
+    // produced.
+    return [...new Set([
       normalizeInstanceDataRelativePath(`${installDirectory}/Pal/Saved`),
       normalizeInstanceDataRelativePath("server/Pal/Saved"),
       normalizeInstanceDataRelativePath("Pal/Saved"),
-    ];
+    ])];
   }
   if (family === "fivem") {
     // FXServer runs with cwd data/server: txAdmin operator data (txData) and
