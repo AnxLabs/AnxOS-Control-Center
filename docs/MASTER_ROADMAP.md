@@ -155,7 +155,7 @@ Automated checks, live UI acceptance, real workload behavior, and packaged relea
 
 **Depends on:** V2-A; installs use V2-C/D services.
 
-**Status:** Implementation: Partial — the Wave-1 dashboard/app-card slice and the ownership model shipped; actionable alerts are not reachable (§V2-J bullet 3) and the responsive browser workflows are deferred (§V2-B bullet 6). Acceptance: NOT VERIFIED — operator walkthrough drill queued. Evidence: `instances:runtime:smoke`, `instances:deletion:smoke`, `steamcmd:instance-update:smoke`, `instances:ownership:smoke`, `cross-page:selected-target:smoke`, `dashboard:node-routing:smoke`, `dashboard:metrics:smoke`; adoption code at `src/shared/instances/instanceServiceCore.js:1138-1159`.
+**Status:** Implementation: Partial — the Wave-1 dashboard/app-card slice and the ownership model shipped, and actionable alerts became reachable in cycle 14 (§V2-J bullet 3); the responsive browser workflows are deferred (§V2-B bullet 6). Acceptance: NOT VERIFIED — operator walkthrough drill queued. Evidence: `instances:runtime:smoke`, `instances:deletion:smoke`, `steamcmd:instance-update:smoke`, `instances:ownership:smoke`, `cross-page:selected-target:smoke`, `dashboard:node-routing:smoke`, `dashboard:metrics:smoke`; adoption code at `src/shared/instances/instanceServiceCore.js:1138-1159`.
 
 - [ ] Create a useful home dashboard with node health, storage pressure, running apps, game servers, failed jobs and actionable alerts. *(Actionable alerts are not reachable — see V2-J bullet 3.)*
 - [ ] Provide app cards, categories, search, favorites and launch links with real service status.
@@ -293,11 +293,11 @@ Automated checks, live UI acceptance, real workload behavior, and packaged relea
 
 **Depends on:** All implemented V2 tracks; monitoring basics start earlier.
 
-**Status:** Implementation: Partial — health unification, correlation IDs, redacted diagnostics and controlled updates ship; alert surfacing is **unreachable** (bullet 3) and schema rollback is not implemented (bullet 6). Acceptance: NOT VERIFIED — induced-failure drill queued. Evidence: `dashboard:metrics:smoke`, `node-health:smoke`, `instances:health-summary:smoke`, `correlation-id:smoke`, `diagnostics:smoke`, `redaction:smoke`, `updates:download-safety:smoke`, `agent:self-update:smoke`, `agent:compatibility:smoke`.
+**Status:** Implementation: Partial — health unification, correlation IDs, redacted diagnostics, controlled updates and (since cycle 14) alert surfacing ship; schema rollback is not implemented (bullet 6) and the RTO/RPO targets and drill results are outstanding (bullet 8). Acceptance: NOT VERIFIED — induced-failure drill queued, and the alert panel has no runtime evidence. Evidence: `dashboard:metrics:smoke`, `node-health:smoke`, `instances:health-summary:smoke`, `correlation-id:smoke`, `diagnostics:smoke`, `redaction:smoke`, `updates:download-safety:smoke`, `agent:self-update:smoke`, `agent:compatibility:smoke`, `alert-engine:smoke`, `preload-exposure-contract:smoke`.
 
 - [x] Unify node, application, container and game-server health with timestamps and stale/unknown states.
 - [x] Correlate user operations, backend jobs, Agent actions and workload logs through stable IDs.
-- [ ] Provide alerts for disk pressure, failure, offline agents, backup age and resource exhaustion with deduplication and quiet recovery behavior. *(The alert engine is wired to a bounded evaluation loop and dedup/quiet-recovery are smoke-covered, but the desktop alert channels have no renderer caller as of the audited SHA — the surface is unreachable; see `docs/API_SURFACE_V2.md` §2.)*
+- [x] Provide alerts for disk pressure, failure, offline agents, backup age and resource exhaustion with deduplication and quiet recovery behavior. *(Was unreachable at the audited SHA; wired in cycle 14 — the Notifications page now lists active alerts and acknowledges them, with the preload exposure covered behaviorally by `preload-exposure-contract:smoke`. Runtime rendering is still unverified, because no Electron launch has been performed; see the acceptance line above.)*
 - [x] Add redacted diagnostic exports and documented retention/storage budgets.
 - [x] Establish controlled updates for Control Center, backend, Agents, templates and workloads with compatibility checks.
 - [ ] Take and verify required recovery points before risky migrations; distinguish application rollback from data-schema rollback. *(Schema rollback is not implemented; container image rollback is an open decision — see V2-C bullet 6.)*
