@@ -13,6 +13,27 @@ const DOCKER_SOCKET_HINT = /docker\.sock/i;
 // always resolves it.
 const yaml = require("js-yaml");
 
+// V2-I workload trust levels (src/shared/workloadTrustPolicy.js). This layer is
+// ADDITIVE and can only ever add refusals: the deny-by-default grant gate below
+// keeps its exact decisions, and a `policyGrant` can never lift a trust-level
+// refusal. A grant answers "may this option ever be used on this host?"; the
+// declared trust level answers "may THIS workload ask for it?". When the two
+// disagree the stricter one wins.
+const { evaluateWorkloadTrust } = require("./workloadTrustPolicy");
+
+// A trust refusal is reported in the same { key, label } shape as a dangerous-
+// option denial so every existing consumer (createContainer's error message,
+// preflightContainerCreate's findings) names the exceeded capability without a
+// second code path. The capability is part of the key so two refusals with the
+// same code but different capabilities never collapse into one.
+function trustDenialKey(item) {
+  return `workloadTrust:${item.code}:${item.capability || "general"}`;
+}
+
+function toTrustDenial(item) {
+  return { key: trustDenialKey(item), label: item.message, trust: true, capability: item.capability || null };
+}
+
 function splitList(value) {
   if (Array.isArray(value)) {
     return value.map((entry) => String(entry).trim()).filter(Boolean);
@@ -97,7 +118,15 @@ function policeContainerRequest(payload = {}) {
     seen.add(flag.key);
     return true;
   });
-  return { allowed: denials.length === 0, flags, denials };
+  // V2-I: the workload trust verdict is appended AFTER the grant filter, so an
+  // explicit grant cannot lift a tier refusal (see the module note above).
+  const trust = evaluateWorkloadTrust(payload, { kind: "container-create" });
+  for (const item of trust.refusals) {
+    const denial = toTrustDenial(item);
+    if (denials.some((existing) => existing.key === denial.key)) continue;
+    denials.push(denial);
+  }
+  return { allowed: denials.length === 0, flags, denials, trust };
 }
 
 // Volume data is the only current cleanup kind that touches persistent data;
@@ -215,6 +244,19 @@ function policeComposeDocument(document, grant = {}) {
     }
   }
   const denials = flags.filter((flag) => grant[flag.key] !== true);
+  // V2-I: per-service trust verdict, appended after the grant filter for the
+  // same reason as policeContainerRequest — a grant never lifts a tier refusal.
+  // The compose service is evaluated as `compose-service` because the engine
+  // executes the file itself, so `pid: host` is honored there (unlike the
+  // container-create surface, which never emits --pid).
+  for (const [name, service] of Object.entries(services)) {
+    const trust = evaluateWorkloadTrust(service, { kind: "compose-service" });
+    for (const item of trust.refusals) {
+      const denial = { service: name, ...toTrustDenial(item) };
+      if (denials.some((existing) => existing.key === denial.key && existing.service === name)) continue;
+      denials.push(denial);
+    }
+  }
   return { services: Object.keys(services), flags, denials, allowed: denials.length === 0 };
 }
 

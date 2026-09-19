@@ -17,6 +17,7 @@ const {
   mergeSubmittedValues,
   serializeDocument,
 } = require("../gameServerConfigManager");
+const { evaluateWorkloadTrust, TRUST_DECLARATION_FIELDS } = require("../workloadTrustPolicy");
 
 let runtimeConfigProvider = () => ({
   instanceRoot: process.env.AGENT_INSTANCE_ROOT || path.join(process.cwd(), "instances"),
@@ -1165,6 +1166,59 @@ function normalizeOwnership(value, existingConfig, payload) {
   });
 }
 
+// V2-I workload trust levels (src/shared/workloadTrustPolicy.js, V2-I bullets
+// 4–5). Instance workloads are host PROCESSES: they run as the AnxOS Agent
+// identity, so no instance is ever `sandboxed`, and the runtime cannot honor a
+// container capability. Two consequences are enforced here rather than being
+// left to chance:
+//   - a definition that asks for a container-only capability (privileged, host
+//     networking, host mounts, devices, host PID namespace, engine socket) is
+//     refused, instead of the unknown field being silently dropped by the
+//     config allowlist below;
+//   - an instance may not declare a trust level its own definition does not
+//     justify (e.g. `sandboxed` on a workload that cannot prove a non-admin
+//     identity or omits the required resource limits).
+// Both are additive: a definition that declares nothing keeps the exact
+// validation it had before this policy existed.
+// The accepted declaration spellings live in the policy module so the two
+// cannot drift.
+function instanceTrustDefinition(config = {}, payload = {}) {
+  const source = payload && typeof payload === "object" ? payload : {};
+  const definition = {
+    ports: config.ports,
+    memory: config.memoryLimit || source.memory || null,
+    cpus: source.cpus ?? source.cpuLimit ?? null,
+    runAs: source.runAs,
+    user: source.user ?? source.runAs,
+    privileged: source.privileged,
+    network: source.network,
+    networkMode: source.networkMode ?? source.network_mode,
+    pid: source.pid,
+    volumes: source.volumes,
+    binds: source.binds,
+    mounts: source.mounts,
+    devices: source.devices ?? source.device,
+  };
+  for (const field of TRUST_DECLARATION_FIELDS) {
+    if (source[field] !== undefined) definition[field] = source[field];
+  }
+  return definition;
+}
+
+function assertInstanceWorkloadTrust(config, payload) {
+  const verdict = evaluateWorkloadTrust(instanceTrustDefinition(config, payload), { kind: "process" });
+  if (verdict.allowed) {
+    return verdict;
+  }
+  const primary = verdict.refusals[0];
+  throw createInstanceError(primary.code, primary.statusCode, {
+    capability: primary.capability || null,
+    declaredTrustLevel: verdict.declaredTier,
+    requiredTrustLevel: verdict.requiredTier,
+    refusals: verdict.refusals.map((item) => ({ code: item.code, capability: item.capability, message: item.message })),
+  });
+}
+
 function normalizeInstanceConfig(payload, existingConfig = null) {
   const createdAt = existingConfig?.createdAt || nowIso();
   const id = existingConfig?.id || validateInstanceId(payload.id);
@@ -1276,6 +1330,11 @@ function normalizeInstanceConfig(payload, existingConfig = null) {
   ) {
     throw createInstanceError("RUNTIME_FIELDS_READ_ONLY");
   }
+
+  // V2-I: refuse an unjustified trust declaration or an unhonorable capability
+  // before the record is written. Placed after the existing checks so their
+  // error precedence is unchanged.
+  assertInstanceWorkloadTrust(config, payload);
 
   return config;
 }
@@ -4391,6 +4450,10 @@ async function updateInstance(instanceId, payload = {}) {
     : next;
   assertExecutableAllowed(resolvedNext.executable);
   assertSafeArguments(resolvedNext.args);
+  // V2-I: an update may not loosen the workload's trust posture either — it is
+  // the same allowlist that create uses, so a capability cannot be smuggled in
+  // through PATCH after a clean create.
+  assertInstanceWorkloadTrust(resolvedNext, payload);
   await saveInstanceConfig(resolvedNext);
   return publicConfig(resolvedNext);
 }
