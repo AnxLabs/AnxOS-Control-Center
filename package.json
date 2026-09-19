@@ -263,6 +263,7 @@
     "global-search:smoke": "node scripts/global-search-smoke.js",
     "command-palette:smoke": "node scripts/command-palette-smoke.js",
     "renderer-safety:smoke": "node scripts/renderer-safety-smoke.js",
+    "smoothness-wasted-work:smoke": "node scripts/smoothness-wasted-work-smoke.js",
     "amp-panel-url-gate:smoke": "node scripts/amp-panel-url-gate-smoke.js",
     "preload-exposure-contract:smoke": "node scripts/preload-exposure-contract-smoke.js",
     "reverse-proxy:smoke": "node scripts/reverse-proxy-smoke.js",

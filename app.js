@@ -27,6 +27,9 @@ const notificationSummaryFields = document.querySelectorAll("[data-notification-
 const copyButtons = document.querySelectorAll("[data-copy]");
 const navItems = document.querySelectorAll("[data-page-target]");
 const pages = document.querySelectorAll("[data-page]");
+// Tracked active page; empty until showPage() runs or the lazy DOM fallback in
+// getActivePageName() fills it in.
+let activePageName = "";
 const ownerWorkspaceNav = document.querySelector("[data-owner-workspace-nav]");
 const ownerWorkspaceToggle = document.querySelector("[data-owner-workspace-toggle]");
 const ownerWorkspaceNavPages = document.querySelector("[data-owner-workspace-nav-pages]");
@@ -902,6 +905,9 @@ let latestMarketplaceDownloads = [];
 // can show the same operator copy before the next install starts.
 const marketplaceTrustVerdicts = new Map();
 let marketplaceDownloadsRequestSerial = 0;
+// True only while an install is running its own 1 s download poller. The 2 s
+// refresh task reads this so the download source never has two live owners.
+let marketplaceInstallPollActive = false;
 // Resource existence is authoritative data; transient work is an overlay keyed
 // by the stable resource id. An operation must never decide whether its owner
 // remains mounted in the renderer.
@@ -1068,6 +1074,9 @@ let monacoEditorSubscription = null;
 let monacoEditorStateSyncPaused = false;
 let filesDividerDragState = null;
 let filesPanelDragState = null;
+// Last value written to --files-sticky-offset, so an unchanged resize pass can
+// skip the style write.
+let filesStickyOffsetPx = null;
 let fileEditorWordWrapEnabled = true;
 let fileEditorMinimapEnabled = false;
 let activeConsoleInstanceId = null;
@@ -3044,10 +3053,71 @@ function logInstanceLifecycle(message, details = {}) {
 
 function debounce(callback, waitMs = 120) {
   let timeoutId = null;
-  return (...args) => {
+  let latestArgs = null;
+  const debounced = (...args) => {
+    latestArgs = args;
     window.clearTimeout(timeoutId);
-    timeoutId = window.setTimeout(() => callback(...args), waitMs);
+    timeoutId = window.setTimeout(() => {
+      timeoutId = null;
+      const pending = latestArgs;
+      latestArgs = null;
+      callback(...pending);
+    }, waitMs);
   };
+  // Run the pending trailing call now. Used where the event stream can end
+  // before the timer does — a debounced persistence must not drop its final
+  // value because the user navigated away inside the debounce window.
+  debounced.flush = () => {
+    if (timeoutId === null) return;
+    window.clearTimeout(timeoutId);
+    timeoutId = null;
+    const pending = latestArgs;
+    latestArgs = null;
+    callback(...pending);
+  };
+  return debounced;
+}
+
+// rAF-coalescing throttle: at most one pending animation frame per instance,
+// always called with the LATEST arguments. This is the right primitive for
+// scroll, resize, mousemove and drag paths: those events fire far faster than
+// the compositor paints, so collapsing them to one call per frame removes the
+// redundant work while keeping the feedback inside the same frame the user
+// sees. `debounce` is the wrong tool there — it would hold the update until
+// the user stops, so a drag or a scroll would visibly lag instead of smoothing.
+// `.flush()` applies the latest pending args immediately (needed when an event
+// stream ends before the frame does, e.g. the final mouseup of a drag) and
+// `.cancel()` drops them.
+function rafThrottle(callback) {
+  let frameId = null;
+  let latestArgs = null;
+  const run = () => {
+    frameId = null;
+    if (latestArgs === null) return;
+    const args = latestArgs;
+    latestArgs = null;
+    callback(...args);
+  };
+  const throttled = (...args) => {
+    latestArgs = args;
+    if (frameId !== null) return;
+    frameId = window.requestAnimationFrame(run);
+  };
+  throttled.flush = () => {
+    if (frameId !== null) {
+      window.cancelAnimationFrame(frameId);
+      frameId = null;
+    }
+    run();
+  };
+  throttled.cancel = () => {
+    if (frameId !== null) {
+      window.cancelAnimationFrame(frameId);
+      frameId = null;
+    }
+    latestArgs = null;
+  };
+  return throttled;
 }
 
 function getPageDisplayName(pageName) {
@@ -3330,7 +3400,15 @@ function updateFilesStickyOffsets() {
 
   const connectHeight = filesConnectBar?.offsetHeight || 0;
   const passwordHeight = filesPasswordPrompt && !filesPasswordPrompt.hidden ? (filesPasswordPrompt.offsetHeight || 0) + 14 : 0;
-  fileManagerShell.style.setProperty("--files-sticky-offset", `${connectHeight + passwordHeight}px`);
+  const nextOffset = connectHeight + passwordHeight;
+  // The offsetHeight reads force layout and setting the custom property
+  // invalidates style, so on a resize — where this runs per frame — skip the
+  // write entirely when nothing actually moved.
+  if (filesStickyOffsetPx === nextOffset) {
+    return;
+  }
+  filesStickyOffsetPx = nextOffset;
+  fileManagerShell.style.setProperty("--files-sticky-offset", `${nextOffset}px`);
 }
 
 function syncFilesResizeSeparator(separator, value, min, max) {
@@ -3355,9 +3433,15 @@ function setFilesExplorerWidth(value, options = {}) {
     } catch {}
   }
 
-  window.requestAnimationFrame(() => {
-    monacoEditorInstance?.layout?.();
-  });
+  // Monaco re-layout is expensive and the CSS custom property above is what
+  // actually reflows the pane, so a live drag passes layout: false and the
+  // editor is re-laid-out once, by the drag-end call (stopFilesDividerDrag).
+  // Non-drag callers (keyboard, reset, init) still get one rAF-coalesced layout.
+  if (options.layout !== false) {
+    window.requestAnimationFrame(() => {
+      monacoEditorInstance?.layout?.();
+    });
+  }
 }
 
 function setFilesStorageWidth(value, options = {}) {
@@ -3439,7 +3523,7 @@ function updateFilesDividerDrag(clientX) {
   }
 
   const delta = clientX - filesDividerDragState.startX;
-  setFilesExplorerWidth(filesDividerDragState.startWidth + delta, { persist: false });
+  setFilesExplorerWidth(filesDividerDragState.startWidth + delta, { persist: false, layout: false });
 }
 
 function stopFilesDividerDrag() {
@@ -4377,6 +4461,10 @@ function showPage(pageName) {
   pages.forEach((page) => {
     page.classList.toggle("is-active", page.dataset.page === safePageName);
   });
+  // The tracked value is set at exactly the point the DOM becomes authoritative
+  // (the loop above), so every getActivePageName() call before this line and
+  // after it observes the same page it would have observed by querying the DOM.
+  activePageName = safePageName;
 
   storeLastPageName(safePageName);
 
@@ -4477,7 +4565,14 @@ function showPage(pageName) {
 }
 
 function getActivePageName() {
-  return document.querySelector(".page.is-active")?.dataset.page || "dashboard";
+  // showPage keeps this in sync, so the common case (32 call sites, 15 polling
+  // timers, one of them at 1 Hz) is a plain variable read instead of a
+  // document-wide ".page.is-active" query on every tick. The query is kept as a
+  // lazy fallback for any page activated without going through showPage.
+  if (!activePageName) {
+    activePageName = document.querySelector(".page.is-active")?.dataset.page || "dashboard";
+  }
+  return activePageName;
 }
 
 function setAgentControlField(name, value) {
@@ -12576,8 +12671,17 @@ function renderGameConfigPanel() {
     .filter((field) => !gameConfigState.activeCategory || field.category === gameConfigState.activeCategory)
     .forEach((field) => gameConfigFields.append(createGameConfigField(field)));
 
+  updateGameConfigStatusLine();
+}
+
+// The dirty/restart/status tail is shared by the full render and the in-place
+// field edit, so a keystroke and a rebuild can never disagree about the status
+// line. `getChangedGameConfigValues()` is computed once and reused.
+function updateGameConfigStatusLine() {
+  const model = gameConfigState.model;
+  const changed = getChangedGameConfigValues();
   const dirty = isGameConfigDirty();
-  const restartRequired = (model.fields || []).some((field) => field.restartRequired && Object.prototype.hasOwnProperty.call(getChangedGameConfigValues(), field.key));
+  const restartRequired = (model?.fields || []).some((field) => field.restartRequired && Object.prototype.hasOwnProperty.call(changed, field.key));
   setGameConfigStatus(dirty ? (restartRequired ? "Unsaved changes · restart required" : "Unsaved changes") : "Saved");
   syncInstanceConfigDirtyState();
 }
@@ -12668,9 +12772,27 @@ function updateGameConfigField(field, input) {
   if (field.sensitive) {
     gameConfigState.touchedSecrets.add(field.key);
   }
-  gameConfigState.values = collectGameConfigValues();
+  // In-place edit. This used to call renderGameConfigPanel(), which did
+  // replaceChildren() on the field container — so every keystroke destroyed and
+  // recreated the focused input, losing the caret and the selection (and any
+  // IME composition) while rebuilding every other field's DOM. Only this
+  // field's own state is touched now, which is also exactly what the rebuild
+  // used to recompute for it.
+  gameConfigState.values[field.key] = normalizeGameConfigInputValue(field, input);
   delete gameConfigState.fieldErrors[field.key];
-  renderGameConfigPanel();
+
+  const wrapper = input.closest?.(".instance-game-config-field") || null;
+  wrapper?.classList.toggle(
+    "is-modified",
+    Object.prototype.hasOwnProperty.call(getChangedGameConfigValues(), field.key),
+  );
+  const error = wrapper?.querySelector(".instance-game-config-error") || null;
+  if (error) {
+    error.textContent = "";
+    error.hidden = true;
+  }
+
+  updateGameConfigStatusLine();
 }
 
 function resetGameConfigToCurrent() {
@@ -13148,10 +13270,13 @@ function syncConsoleLogSearch() {
   }
 
   [...instancesLogList.querySelectorAll("li")].forEach((row) => {
-    const text = row.textContent.toLowerCase();
     const stream = row.dataset.stream || "";
     const severity = row.dataset.severity || "info";
-    const matchesQuery = !query || text.includes(query);
+    // Read (and lowercase) the row text only when a query must actually be
+    // matched. With an empty search box — the normal case, and one this runs on
+    // a 2 s cadence — the old code extracted the full text of every rendered
+    // row for a comparison that was always true.
+    const matchesQuery = !query || row.textContent.toLowerCase().includes(query);
     const matchesFilter =
       filter === "all" ||
       filter === stream ||
@@ -20138,6 +20263,7 @@ async function installMarketplaceTemplate(event) {
   startMarketplaceInstallProgressListener();
   const providerInstall = isProviderMarketplaceTemplate(template) && desktopApiState.hasMarketplaceProviderInstall;
   const downloadPoll = providerInstall ? null : window.setInterval(refreshMarketplaceDownloads, 1000);
+  marketplaceInstallPollActive = Boolean(downloadPoll);
 
   try {
     if (!isNodeActionStillCurrent(requestContext)) return;
@@ -20251,6 +20377,7 @@ async function installMarketplaceTemplate(event) {
     if (downloadPoll) {
       window.clearInterval(downloadPoll);
     }
+    marketplaceInstallPollActive = false;
     stopMarketplaceInstallProgressListener();
     activeMarketplaceInstallNodeId = null;
     marketplaceInstallInFlight = false;
@@ -20324,9 +20451,13 @@ function getInstanceFormValue(name) {
 }
 
 function setInstanceFormMessage(message) {
-  if (instanceFormMessage) {
-    instanceFormMessage.textContent = message;
-  }
+  if (!instanceFormMessage) return;
+  // The create-instance form sets the same static hint on every keystroke of
+  // every field. Skip the write when the text is already correct rather than
+  // debouncing it: the hint must appear on the first keystroke, and a single
+  // textContent assignment is all this costs when it does change.
+  if (instanceFormMessage.textContent === message) return;
+  instanceFormMessage.textContent = message;
 }
 
 function getMarketplaceDownloadErrorSummary(download = {}) {
@@ -38274,28 +38405,78 @@ function getSettingSearchEntries() {
   });
 }
 
-function renderSettingsSearch() {
-  if (!settingsSearchResults || !settingsSearchInput) return;
-  const query = settingsSearchInput.value.trim().toLowerCase();
-  settingsSearchResults.replaceChildren();
-  settingsSearchResults.hidden = !query;
-  if (!query) return;
-  const matches = getSettingSearchEntries().filter((entry) => entry.haystack.includes(query)).slice(0, 8);
-  if (!matches.length) {
-    const empty = document.createElement("p");
-    empty.textContent = "No matching settings.";
-    settingsSearchResults.append(empty);
-    return;
+const SETTINGS_SEARCH_RESULT_LIMIT = 8;
+// Result buttons are a fixed pool that is only rebuilt if something else clears
+// the container (clearRestrictedSettingsState). A keystroke then rewrites
+// textContent/hidden on existing nodes instead of creating up to 8 elements and
+// binding 8 fresh click listeners.
+const settingsSearchResultPool = { buttons: [], empty: null };
+let settingsSearchMatches = [];
+let settingsSearchDelegateBound = false;
+
+function ensureSettingsSearchResultPool() {
+  if (!settingsSearchResults) return null;
+  if (settingsSearchResultPool.buttons.length && settingsSearchResultPool.buttons[0].parentNode === settingsSearchResults) {
+    return settingsSearchResultPool;
   }
-  matches.forEach((entry) => {
+  settingsSearchResults.replaceChildren();
+  const buttons = [];
+  for (let index = 0; index < SETTINGS_SEARCH_RESULT_LIMIT; index += 1) {
     const button = document.createElement("button");
     button.type = "button";
-    button.textContent = entry.title;
-    button.addEventListener("click", () => {
-      setActiveSettingsCategory(entry.category, entry.selector);
-      settingsSearchResults.hidden = true;
-    });
+    button.hidden = true;
+    button.dataset.settingsSearchIndex = String(index);
+    buttons.push(button);
     settingsSearchResults.append(button);
+  }
+  const empty = document.createElement("p");
+  empty.textContent = "No matching settings.";
+  empty.hidden = true;
+  settingsSearchResults.append(empty);
+  settingsSearchResultPool.buttons = buttons;
+  settingsSearchResultPool.empty = empty;
+  return settingsSearchResultPool;
+}
+
+// One delegated listener for the whole result list, bound once. The pool above
+// survives re-renders, so per-result listeners are not needed at all.
+function bindSettingsSearchResultDelegate() {
+  if (settingsSearchDelegateBound || !settingsSearchResults) return;
+  settingsSearchDelegateBound = true;
+  settingsSearchResults.addEventListener("click", (event) => {
+    const button = event.target?.closest?.("[data-settings-search-index]") || null;
+    if (!button) return;
+    const entry = settingsSearchMatches[Number(button.dataset.settingsSearchIndex)];
+    if (!entry) return;
+    setActiveSettingsCategory(entry.category, entry.selector);
+    settingsSearchResults.hidden = true;
+  });
+}
+
+function renderSettingsSearch() {
+  if (!settingsSearchResults || !settingsSearchInput) return;
+  const pool = ensureSettingsSearchResultPool();
+  if (!pool) return;
+  bindSettingsSearchResultDelegate();
+  const query = settingsSearchInput.value.trim().toLowerCase();
+  settingsSearchResults.hidden = !query;
+  if (!query) {
+    settingsSearchMatches = [];
+    pool.buttons.forEach((button) => { button.hidden = true; });
+    pool.empty.hidden = true;
+    return;
+  }
+  const matches = getSettingSearchEntries()
+    .filter((entry) => entry.haystack.includes(query))
+    .slice(0, SETTINGS_SEARCH_RESULT_LIMIT);
+  settingsSearchMatches = matches;
+  pool.empty.hidden = matches.length > 0;
+  pool.buttons.forEach((button, index) => {
+    const entry = matches[index];
+    button.hidden = !entry;
+    if (!entry) return;
+    button.textContent = entry.title;
+    button.dataset.settingsCategory = entry.category || "";
   });
 }
 
@@ -39654,7 +39835,9 @@ sidebar?.addEventListener("mouseleave", () => {
   sidebarHoverExpansionLocked = false;
   setSidebarHoverExpanded(false);
 });
-window.addEventListener("resize", syncSidebarViewportState);
+// Window resize fires per pixel of a window drag and this re-evaluates the
+// sidebar's media queries and classes, so it is rAF-coalesced.
+window.addEventListener("resize", rafThrottle(syncSidebarViewportState));
 
 consoleSearchInput?.addEventListener("input", debounce(filterConsoleRows, 120));
 consoleClearButton?.addEventListener("click", clearConsoleRows);
@@ -39795,21 +39978,41 @@ loadStorageConnections();
 setupFileTransferEvents();
 setFilesStorageWidth(readFilesPanelWidth(FILES_STORAGE_WIDTH_STORAGE_KEY, DEFAULT_FILES_STORAGE_WIDTH, MIN_FILES_STORAGE_WIDTH, MAX_FILES_STORAGE_WIDTH), { persist: false });
 setFilesDetailsWidth(readFilesPanelWidth(FILES_DETAILS_WIDTH_STORAGE_KEY, DEFAULT_FILES_DETAILS_WIDTH, MIN_FILES_DETAILS_WIDTH, MAX_FILES_DETAILS_WIDTH), { persist: false });
-window.addEventListener("resize", () => {
+// Window resize fires per pixel of a window drag, and each pass re-lays-out the
+// SSH terminal, re-reads the files sticky offsets and re-lays-out Monaco, so it
+// is coalesced to one pass per animation frame.
+window.addEventListener("resize", rafThrottle(() => {
   resizeActiveSshSession();
   updateFilesStickyOffsets();
   monacoEditorInstance?.layout?.();
+}));
+// The drag updaters are gated before any work. With no drag in progress this
+// listener now costs two boolean checks instead of two full width setters (each
+// of which reads and writes the DOM), and while a drag is live it is coalesced
+// to at most one rAF per frame with the latest pointer position.
+const applyFilesDragPointerMove = rafThrottle((clientX) => {
+  updateFilesDividerDrag(clientX);
+  updateFilesPanelResize(clientX);
 });
 window.addEventListener("mousemove", (event) => {
+  if (!filesDividerDragState && !filesPanelDragState) return;
+  applyFilesDragPointerMove(event.clientX);
+});
+window.addEventListener("mouseup", (event) => {
+  // Drop the pending frame and apply the mouseup position synchronously: the
+  // release point is the authoritative end of the drag, and letting the last
+  // coalesced frame win could end the drag a frame short of it.
+  applyFilesDragPointerMove.cancel();
   updateFilesDividerDrag(event.clientX);
   updateFilesPanelResize(event.clientX);
-});
-window.addEventListener("mouseup", () => {
   stopFilesDividerDrag();
   stopFilesPanelResize();
 });
 window.addEventListener("beforeunload", () => {
   refreshTaskIds.forEach((intervalId) => window.clearInterval(intervalId));
+  // The marketplace scroll position is persisted on a trailing debounce, so
+  // flush the pending write before the window goes away.
+  persistMarketplaceViewStateDebounced.flush();
   if (marketplaceProgressRenderTimer) {
     window.clearTimeout(marketplaceProgressRenderTimer);
   }
@@ -39976,7 +40179,10 @@ filesDivider?.addEventListener("dblclick", () => {
   setFilesExplorerWidth(DEFAULT_FILES_EXPLORER_WIDTH);
 });
 fileEditor?.addEventListener("input", syncFileEditorDirtyState);
-fileEditor?.addEventListener("scroll", syncFileEditorLineScroll);
+// The line-number gutter only has to track the editor's scroll offset, and
+// scroll events outpace paints, so this is rAF-coalesced rather than debounced:
+// the gutter must stay attached during the scroll, not snap after it stops.
+fileEditor?.addEventListener("scroll", rafThrottle(syncFileEditorLineScroll));
 fileEditor?.addEventListener("keydown", (event) => {
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
     event.preventDefault();
@@ -40212,15 +40418,26 @@ marketplaceProviderLoader?.addEventListener("change", () => { persistMarketplace
 marketplaceProviderReleaseChannel?.addEventListener("change", () => { persistMarketplaceViewState(); loadMarketplaceProviderPacks({ reset: true }); });
 marketplaceProviderSort?.addEventListener("change", () => { persistMarketplaceViewState(); loadMarketplaceProviderPacks({ reset: true }); });
 marketplaceLoadMoreButton?.addEventListener("click", () => loadMarketplaceProviderPacks({ reset: false }));
-marketplaceGrid?.addEventListener("scroll", () => {
-  persistMarketplaceViewState();
+// The scroll handler ran on every scroll event, and each pass serialised the
+// whole view state to localStorage and then read the grid's scroll geometry.
+// It is now one rAF-coalesced pass per frame: the geometry is read ONCE into
+// locals and reused by the predicate, and the persistence (which only needs to
+// reflect where the user ended up, not every intermediate pixel) is trailing-
+// debounced. The load-more trigger itself is NOT debounced — deferring it would
+// only delay the next page.
+const persistMarketplaceViewStateDebounced = debounce(persistMarketplaceViewState, 250);
+const handleMarketplaceGridScroll = rafThrottle(() => {
+  if (!marketplaceGrid) return;
+  persistMarketplaceViewStateDebounced();
   if (!isMarketplaceProviderBrowserActive() || !marketplaceProviderHasMore || marketplaceProviderRequestInFlight) {
     return;
   }
-  if (marketplaceGrid.scrollTop + marketplaceGrid.clientHeight >= marketplaceGrid.scrollHeight - 160) {
+  const { scrollTop, clientHeight, scrollHeight } = marketplaceGrid;
+  if (scrollTop + clientHeight >= scrollHeight - 160) {
     loadMarketplaceProviderPacks({ reset: false });
   }
 });
+marketplaceGrid?.addEventListener("scroll", handleMarketplaceGridScroll);
 downloadRefreshButton?.addEventListener("click", refreshMarketplaceDownloads);
 marketplaceWizard?.addEventListener("submit", installMarketplaceTemplate);
 createServerBackButton?.addEventListener("click", () => moveCreateServerWizard(-1));
@@ -40242,12 +40459,20 @@ marketplaceVersionToggle?.addEventListener("click", () => {
     loadMarketplaceVersions(template);
   }
 });
-marketplaceVersionSearch?.addEventListener("input", () => {
+// Typing, not scrolling: this re-filters and re-renders the version list, so it
+// uses the trailing-edge debounce every other search box in this file uses
+// (120 ms). Deferred filtering is the point here — an intermediate keystroke's
+// filtered list is never what the user reads.
+marketplaceVersionSearch?.addEventListener("input", debounce(() => {
   marketplaceVersionQuery = marketplaceVersionSearch.value || "";
   marketplaceVersionRenderLimit = 80;
   renderMarketplaceVersionList();
-});
-marketplaceVersionList?.addEventListener("scroll", () => {
+}, 120));
+// Infinite-scroll load-more. rAF-coalesced: this only extends the render window
+// when the user reaches the bottom, and deferring it to the next frame is still
+// imperceptible, whereas debouncing it would delay the next page until the user
+// stopped scrolling.
+marketplaceVersionList?.addEventListener("scroll", rafThrottle(() => {
   if (!marketplaceVersionList || marketplaceVersionList.scrollTop + marketplaceVersionList.clientHeight < marketplaceVersionList.scrollHeight - 48) {
     return;
   }
@@ -40256,8 +40481,8 @@ marketplaceVersionList?.addEventListener("scroll", () => {
     marketplaceVersionRenderLimit += 80;
     renderMarketplaceVersionList();
   }
-});
-getMarketplaceField("version")?.addEventListener("input", renderMarketplaceVersionList);
+}));
+getMarketplaceField("version")?.addEventListener("input", debounce(renderMarketplaceVersionList, 120));
 document.querySelectorAll("[data-instance-backup-action]").forEach((button) => {
   button.addEventListener("click", () => handleInstanceBackupAction(button.dataset.instanceBackupAction));
 });
@@ -40329,7 +40554,11 @@ document.querySelector('[data-instance-action="copy-console"]')?.addEventListene
 instancesDownloadLogButtons.forEach((button) => {
   button.addEventListener("click", downloadInstanceLogs);
 });
-instanceConsoleSearchInput?.addEventListener("input", syncConsoleLogSearch);
+// Per-keystroke textContent filtering over every rendered log row: debounced
+// like the other search boxes here. The filter itself still runs on the latest
+// input value (syncConsoleLogSearch reads it live), so only the intermediate
+// keystrokes are skipped.
+instanceConsoleSearchInput?.addEventListener("input", debounce(syncConsoleLogSearch, 120));
 instanceConsoleFilterSelect?.addEventListener("change", syncConsoleLogSearch);
 instanceConsoleWrapInput?.addEventListener("change", syncConsoleWrap);
 instanceConsoleAutoscrollInput?.addEventListener("change", syncInstanceConsoleScrollMode);
@@ -40369,10 +40598,18 @@ minecraftPropertyInputs.forEach((input) => {
   input.addEventListener("input", syncInstanceConfigDirtyState);
   input.addEventListener("change", syncInstanceConfigDirtyState);
 });
-gameConfigSearchInput?.addEventListener("input", () => {
+// Rebuilding the filtered field list on every keystroke is the expensive half of
+// searching here, so the rebuild is debounced. `gameConfigState.query` is set
+// with the latest value at flush time, and the field edits themselves (SMOOTH-2002)
+// no longer rebuild at all, so nothing is lost between keystrokes.
+// 80 ms, not the 120 ms used by the other search boxes here: the acceptance
+// script scripts/stabilization-ui-qa.js types into this box, waits 100 ms, and
+// then asserts the filtered result is on screen. The debounce must stay inside
+// that window or the acceptance run turns timing-dependent.
+gameConfigSearchInput?.addEventListener("input", debounce(() => {
   gameConfigState.query = gameConfigSearchInput.value || "";
   renderGameConfigPanel();
-});
+}, 80));
 gameConfigAdvancedInput?.addEventListener("change", () => {
   gameConfigState.showAdvanced = Boolean(gameConfigAdvancedInput.checked);
   renderGameConfigPanel();
@@ -40555,7 +40792,11 @@ settingsInputs.forEach((input) => {
 settingsCategoryButtons.forEach((button) => {
   button.addEventListener("click", () => setActiveSettingsCategory(button.dataset.settingsCategoryTarget || "general"));
 });
-settingsSearchInput?.addEventListener("input", renderSettingsSearch);
+// getSettingSearchEntries() reads section.textContent for every authorized
+// section across the whole (CSS-hidden, not detached) settings document, so the
+// search is debounced on the input edge; the render itself is now cheap
+// (SMOOTH-2017 updates a pooled result list instead of rebuilding it).
+settingsSearchInput?.addEventListener("input", debounce(renderSettingsSearch, 120));
 settingsResetCategoryButtons.forEach((button) => {
   button.addEventListener("click", () => resetSettings(button.dataset.settingsResetCategory || null));
 });
@@ -41219,8 +41460,13 @@ document.addEventListener("click", () => {
     closeNodePicker();
   }
 });
-window.addEventListener("resize", positionNodePicker);
-window.addEventListener("scroll", positionNodePicker, true);
+// Both of these only reposition an already-rendered popup, so one call per
+// animation frame with the latest scroll/resize state is all that is ever
+// visible — and scroll fires far faster than the compositor paints. The
+// capture-phase scroll listener in particular runs for every scroll event in
+// the document, so it is the hottest registration here.
+window.addEventListener("resize", rafThrottle(positionNodePicker));
+window.addEventListener("scroll", rafThrottle(positionNodePicker), true);
 document.querySelector('[data-node-action="open-add"]')?.addEventListener("click", () => setNodeModalVisible(true));
 document.querySelector('[data-node-action="refresh"]')?.addEventListener("click", refreshNodes);
 document.querySelector('[data-node-action="save"]')?.addEventListener("click", saveNodeFromSettings);
@@ -41333,7 +41579,11 @@ agentBeginnerSummary?.addEventListener("click", (event) => {
   if (action) runAgentControlAction(action);
 });
 dependencyButtons.forEach((button) => button.addEventListener("click", () => runDependencyAction(button.dataset.dependencyAction)));
-agentLogSearch?.addEventListener("input", renderAgentLogs);
+// The viewer rebuild (textContent over the bounded log window plus the
+// diagnostics overview/issues/support-preview and the node-health refresh) is
+// debounced on input; it reads the search box live at render time, so the
+// trailing render always uses the latest query.
+agentLogSearch?.addEventListener("input", debounce(renderAgentLogs, 120));
 agentLogSeverity?.addEventListener("change", renderAgentLogs);
 agentLogSource?.addEventListener("change", renderAgentLogs);
 agentLogWrap?.addEventListener("change", renderAgentLogs);
@@ -41543,24 +41793,43 @@ registerRefreshTask(() => {
 registerRefreshTask(() => {
   if (!shouldSkipNodeScopedPolling() && ["dashboard", "playit"].includes(getActivePageName())) refreshPlayitStatus();
 }, 5000);
+// Instances are owned on the Instances page by startInstancesPagePolling()
+// (5 s, and it additionally holds off while an instance action is in flight and
+// stops itself on navigation). This task used to refresh instances there too at
+// the same 5 s, so the page ran two timers for one source; it now covers only
+// the pages that have no other owner (the dashboard's instance cards and the
+// console workspace).
 registerRefreshTask(() => {
   if (shouldSkipNodeScopedPolling()) return;
-  if (getActivePageName() === "instances" || getActivePageName() === "dashboard" || getActivePageName() === "console") {
+  if (getActivePageName() === "dashboard" || getActivePageName() === "console") {
     refreshInstances();
   }
 }, 5000);
+// Console LOGS have dedicated state-aware owners: syncMonitoringConsolePolling()
+// (2 s, Console page, respects the pause checkbox and the selected instance) and
+// syncInstanceConsolePolling() (2 s, Instances console tab). The 3 s log fetch
+// that used to live here was a duplicate of those — and a slower one — so the
+// log buffer was requested twice over from two unsynchronised schedules.
+// Console METRICS keep this task: nothing else refreshes them periodically, and
+// they are a different source with a different cadence.
 registerRefreshTask(() => {
   if (shouldSkipNodeScopedPolling()) return;
   if (getActivePageName() === "console") {
     refreshConsoleMetrics();
-    refreshConsoleLogs({ silent: true });
   }
 }, 3000);
 registerRefreshTask(() => {
+  // An install in flight owns the download list through its own 1 s poller
+  // (progress feedback is the point of that poller); this task resumes
+  // ownership as soon as it is cleared, so exactly one of the two is ever
+  // registered to touch that source.
+  if (marketplaceInstallPollActive) return;
   if (!shouldSkipNodeScopedPolling() && getActivePageName() === "marketplace") {
     refreshMarketplaceDownloads();
   }
 }, 2000);
-registerRefreshTask(() => {
-  if (getActivePageName() === "agent-control" && !document.hidden) refreshAgentControl();
-}, 5000);
+// Agent control is owned entirely by startAgentControlPolling() (3 s): showPage
+// starts and stops it with the page, it honours document.hidden, and
+// refreshAgentControl() already drops a repeated call while one is in flight.
+// The 5 s task that used to be here was a second, slower timer for the same
+// source, so removing it also removes the case where the two interleaved.
