@@ -45,6 +45,8 @@
     "operations:renderer-lifecycle:smoke": "node scripts/resource-operation-lifecycle-smoke.js",
     "instances:metrics-lifecycle:smoke": "node scripts/instance-metrics-lifecycle-smoke.js",
     "instances:health-summary:smoke": "node scripts/instance-health-summary-smoke.js",
+    "instance-snapshot-reuse:smoke": "node scripts/instance-snapshot-reuse-smoke.js",
+    "ipc-payload-instrument:smoke": "node scripts/ipc-payload-instrument-smoke.js",
     "operations:domain-cancellation:smoke": "node scripts/operation-domain-cancellation-smoke.js",
     "docker:smoke": "node scripts/docker-smoke.js",
     "docker:policy:smoke": "node scripts/docker-policy-smoke.js",
