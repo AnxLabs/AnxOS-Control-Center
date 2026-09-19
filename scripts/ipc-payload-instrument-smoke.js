@@ -1,16 +1,23 @@
 #!/usr/bin/env node
 "use strict";
 
-// SMOOTH-3011: hermetic smoke for the opt-in IPC payload-size instrument in main.js.
+// SMOOTH-3011: hermetic smoke for the opt-in IPC payload-size instrument.
+//
+// SOURCE OF TRUTH: the instrument was extracted out of main.js into
+// `src/ipc/ipcHandlerInstrumentation.js` (so the wrapper is require-able and
+// testable without Electron). This suite reads THAT module as text and executes
+// the shipped measurement function from it. `main.js` now only invokes the
+// module; the main.js call site is pinned separately by
+// scripts/instance-snapshot-wiring-smoke.js.
 //
 // What this proves:
-//   1. The measurement function that main.js actually ships produces an EXACT
-//      byte count for known payloads (extracted from main.js source and executed
-//      verbatim — this is not a re-implementation copy).
+//   1. The measurement function the desktop actually ships produces an EXACT
+//      byte count for known payloads (extracted from the module source and
+//      executed verbatim — this is not a re-implementation copy).
 //   2. The GATE is wired as claimed: `payloadBytes` is attached only inside the
 //      env-gated branch, the default `{ durationMs }` record is unchanged, the
 //      error path is untouched, and the live path really CALLS the measured
-//      function (all asserted against main.js source in phase A). Phase C then
+//      function (all asserted against the module source in phase A). Phase C then
 //      exercises a test-local mirror of that wiring, so it proves the LOGIC of the
 //      gate rather than the shipped bytes — the end-to-end path, a real channel
 //      emitting a real payloadBytes line, remains UNVERIFIED.
@@ -23,27 +30,27 @@
 //      timing-margin defect this project has been removing. These are observations,
 //      and they are labelled machine-specific.
 //
-// Hermetic: reads main.js as text, touches no network, no Electron, no node_modules.
+// Hermetic: reads the module as text, touches no network, no Electron, no node_modules.
 
 const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
 
 const ROOT = path.resolve(__dirname, "..");
-const MAIN_PATH = path.join(ROOT, "main.js");
+const MAIN_PATH = path.join(ROOT, "src", "ipc", "ipcHandlerInstrumentation.js");
 const mainSource = fs.readFileSync(MAIN_PATH, "utf8");
 
 const MEASURE_START = "// >>> ipc-payload-metrics:measure";
 const MEASURE_END = "// <<< ipc-payload-metrics:measure";
 
 // ---------------------------------------------------------------------------
-// Extract the shipped measurement function from main.js source.
+// Extract the shipped measurement function from the instrumentation module source.
 // ---------------------------------------------------------------------------
 function extractMeasureFunction() {
   const start = mainSource.indexOf(MEASURE_START);
-  assert.notStrictEqual(start, -1, "main.js must carry the ipc-payload-metrics:measure start marker.");
+  assert.notStrictEqual(start, -1, "the instrumentation module must carry the ipc-payload-metrics:measure start marker.");
   const end = mainSource.indexOf(MEASURE_END, start);
-  assert.notStrictEqual(end, -1, "main.js must carry the ipc-payload-metrics:measure end marker.");
+  assert.notStrictEqual(end, -1, "the instrumentation module must carry the ipc-payload-metrics:measure end marker.");
   const block = mainSource.slice(start, end);
   assert(
     block.includes("function measureIpcPayloadBytes"),
@@ -67,8 +74,17 @@ function phaseSourceWiring() {
     "The byte instrument must be gated on ANXOS_IPC_BYTE_METRICS === \"1\".",
   );
   assert(
-    mainSource.includes("if (IPC_PAYLOAD_BYTES_ENABLED) {"),
+    mainSource.includes("if (payloadBytesEnabled) {"),
     "The gate must guard the measurement call so the default path stays unchanged.",
+  );
+  // ...and the gate the guard reads must BE the module-load env read. The
+  // extracted wrapper takes the flag as an injectable option defaulting to that
+  // constant (so both states are testable without mutating the environment); this
+  // asserts the default is still bound to the env flag and has not been re-homed
+  // or defaulted to a literal.
+  assert(
+    mainSource.includes("payloadBytesEnabled = IPC_PAYLOAD_BYTES_ENABLED,"),
+    "The payload-byte gate must default to the module-load env read IPC_PAYLOAD_BYTES_ENABLED, not a literal or a call-time env read.",
   );
   assert(
     mainSource.includes("const completedContext = { durationMs: Date.now() - startedAt };"),
@@ -79,20 +95,20 @@ function phaseSourceWiring() {
     "payloadBytes must only be attached when the payload was cheaply measurable.",
   );
   // The measure function must actually be CALLED on the live path. Without this,
-  // extraction could keep testing a function that main.js no longer calls — a
+  // extraction could keep testing a function the live path no longer calls — a
   // rewiring elsewhere would leave this suite green while the instrument emitted
   // nothing, which is the whole failure mode this file exists to prevent.
   const markerStart = mainSource.indexOf(MEASURE_START);
   const markerEnd = mainSource.indexOf(MEASURE_END);
   assert(
     markerStart !== -1 && markerEnd !== -1,
-    "main.js must carry both ipc-payload-metrics markers for the call site to be checkable.",
+    "the instrumentation module must carry both ipc-payload-metrics markers for the call site to be checkable.",
   );
   const wiringOnly =
     mainSource.slice(0, markerStart) + mainSource.slice(markerEnd + MEASURE_END.length);
   assert(
     wiringOnly.includes("measureIpcPayloadBytes(result)"),
-    "The live IPC path must call measureIpcPayloadBytes(result) OUTSIDE the extracted block; otherwise this suite tests a function main.js no longer calls.",
+    "The live IPC path must call measureIpcPayloadBytes(result) OUTSIDE the extracted block; otherwise this suite tests a function the live path no longer calls.",
   );
   assert(
     mainSource.includes('"IPC request completed", completedContext,'),
@@ -105,7 +121,7 @@ function phaseSourceWiring() {
   );
   assert(
     !mainSource.includes("JSON.stringify(result)") && !mainSource.includes("JSON.stringify(response)"),
-    "main.js must never re-serialize an IPC result to size it.",
+    "the instrumentation module must never re-serialize an IPC result to size it.",
   );
   console.log("phase A  source wiring: ok");
 }
@@ -227,7 +243,7 @@ function phaseOverhead(measure) {
 }
 
 function main() {
-  console.log("ipc-payload-instrument-smoke: main.js payload-size instrument");
+  console.log("ipc-payload-instrument-smoke: IPC payload-size instrument (src/ipc/ipcHandlerInstrumentation.js)");
   const measure = extractMeasureFunction();
   phaseSourceWiring();
   phaseExactCounts(measure);

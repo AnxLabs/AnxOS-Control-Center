@@ -20,6 +20,7 @@ const Module = require("module");
 const path = require("path");
 
 const { pinAgentRoots } = require("../test-helpers/pin-agent-roots");
+const { normalizeSource } = require("../test-helpers/source-normalize");
 
 const smokeRoot = pinAgentRoots("anx-alert-engine-");
 const configDir = process.env.ANXHUB_CONFIG_DIR;
@@ -278,9 +279,26 @@ function phaseCorruptQuarantine() {
 // start/stop idempotent.
 async function phaseSchedulerWiring() {
   const alertService = require("../src/services/alertService");
-  const source = fs.readFileSync(path.join(__dirname, "..", "main.js"), "utf8");
-  assert(source.includes("startAlertScheduler"), "main.js must start the alert scheduler (otherwise the engine is dead code).");
-  assert(source.includes("stopAlertScheduler"), "main.js must stop the alert scheduler on quit.");
+  // Strengthened: `source.includes("startAlertScheduler")` was satisfied by a
+  // comment or an unused import, so it could not detect the scheduler being
+  // unwired while the suite stayed green. Assert the exact CALL EXPRESSIONS
+  // instead, against a comment-stripped source (same technique as
+  // scripts/ipc-payload-instrument-smoke.js).
+  //
+  // What this proves: the calls exist as text in shipped source, outside any
+  // comment. What it CANNOT prove: runtime reachability — that the callback
+  // actually ran. The collector's behaviour is covered by
+  // scripts/instance-snapshot-wiring-smoke.js and the call ORDER by the same
+  // suite; the live startup path itself is not exercised here.
+  const source = normalizeSource(fs.readFileSync(path.join(__dirname, "..", "main.js"), "utf8"));
+  assert(
+    source.includes("alertService.startAlertScheduler({ collectState: createAlertStateCollector({ nodeService, alertService, serviceRouter }), });"),
+    "main.js must start the alert scheduler with the extracted state collector (otherwise the engine is dead code).",
+  );
+  assert(
+    source.includes("alertService.stopAlertScheduler();"),
+    "main.js must stop the alert scheduler on quit.",
+  );
 
   const mapped = alertService.buildAlertSnapshot({
     nodes: [{ id: "node-a", connection: { status: "offline" }, disk: { usagePercent: 97 } }],
