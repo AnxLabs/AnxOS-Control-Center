@@ -48,9 +48,10 @@ jobs:
         run: node scripts/verify-website-config-vs-stable.js
 
       - name: Deploy website to Cloudflare Pages
-        uses: cloudflare/pages-action@v1
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          projectName: ${{ vars.CLOUDFLARE_PAGES_PROJECT || secrets.CLOUDFLARE_PAGES_PROJECT }}
-          directory: website-source/website
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_PAGES_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT || secrets.CLOUDFLARE_PAGES_PROJECT }}
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4 pages deploy website-source/website --project-name "$CLOUDFLARE_PAGES_PROJECT" --branch "${GITHUB_REF_NAME:-dev}" --commit-dirty=true
