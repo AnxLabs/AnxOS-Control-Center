@@ -4,16 +4,21 @@ const os = require("os");
 const path = require("path");
 
 const instanceService = require("../src/shared/instances/instanceServiceCore");
+const { allowlistedCommand } = require("./test-helpers/allowlisted-executable");
 
 async function main() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "anx-stale-pid-"));
   instanceService.configureInstanceService({ getConfig: () => ({ instanceRoot: root }) });
+  const command = allowlistedCommand({
+    nodeScript: "process.exit(0)",
+    shellScript: "exit 0",
+  });
   await instanceService.createInstance({
     id: "stale-pid-smoke",
     name: "Stale PID Smoke",
     type: "custom-command",
-    executable: process.execPath,
-    args: ["-e", "process.exit(0)"],
+    executable: command.executable,
+    args: command.args,
   });
 
   const configPath = path.join(root, "stale-pid-smoke", "config.json");

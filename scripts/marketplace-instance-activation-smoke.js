@@ -4,17 +4,27 @@ const os = require("os");
 const path = require("path");
 
 const instanceService = require("../src/shared/instances/instanceServiceCore");
+const { allowlistedCommand } = require("./test-helpers/allowlisted-executable");
 
 async function main() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "anx-marketplace-activation-"));
   instanceService.configureInstanceService({ getConfig: () => ({ instanceRoot: root }) });
 
+  const activationCommand = allowlistedCommand({
+    nodeScript: "setTimeout(() => {}, 1000)",
+    shellScript: "exec sleep 300",
+  });
+  const interruptedCommand = allowlistedCommand({
+    nodeScript: "process.exit(0)",
+    shellScript: "exit 0",
+  });
+
   await instanceService.createInstance({
     id: "activation-smoke",
     name: "Activation Smoke",
     type: "node-app",
-    executable: process.execPath,
-    args: ["-e", "setTimeout(() => {}, 1000)"],
+    executable: activationCommand.executable,
+    args: activationCommand.args,
     installationState: "installing",
   });
   assert.strictEqual((await instanceService.listInstances()).instances.length, 0, "Incomplete installs must not appear in normal instance listings.");
@@ -34,8 +44,8 @@ async function main() {
     id: "interrupted-install-smoke",
     name: "Interrupted Install Smoke",
     type: "node-app",
-    executable: process.execPath,
-    args: ["-e", "process.exit(0)"],
+    executable: interruptedCommand.executable,
+    args: interruptedCommand.args,
     installationState: "installing",
   });
   const recovery = await instanceService.recoverIncompleteInstallations();

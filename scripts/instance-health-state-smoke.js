@@ -4,6 +4,7 @@ const os = require("os");
 const path = require("path");
 
 const instanceService = require("../src/shared/instances/instanceServiceCore");
+const { allowlistedCommand } = require("./test-helpers/allowlisted-executable");
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -22,12 +23,23 @@ async function main() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "anx-instance-health-"));
   instanceService.configureInstanceService({ getConfig: () => ({ instanceRoot: root }) });
 
+  // The readiness probe is a stdout line match (instanceServiceCore.js), so the
+  // POSIX fixture prints the same marker and then holds the process open.
+  const readyCommand = allowlistedCommand({
+    nodeScript: "console.log('Done (0.1s)! For help, type help'); setInterval(() => {}, 1000)",
+    shellScript: "echo 'Done (0.1s)! For help, type help'; exec sleep 300",
+  });
+  const degradedCommand = allowlistedCommand({
+    nodeScript: "setInterval(() => {}, 1000)",
+    shellScript: "exec sleep 300",
+  });
+
   await instanceService.createInstance({
     id: "ready-health-smoke",
     name: "Ready Health Smoke",
     type: "custom-command",
-    executable: process.execPath,
-    args: ["-e", "console.log('Done (0.1s)! For help, type help'); setInterval(() => {}, 1000)"],
+    executable: readyCommand.executable,
+    args: readyCommand.args,
     startupTimeoutMs: 1000,
   });
   await instanceService.startInstance("ready-health-smoke");
@@ -42,8 +54,8 @@ async function main() {
     id: "degraded-health-smoke",
     name: "Degraded Health Smoke",
     type: "custom-command",
-    executable: process.execPath,
-    args: ["-e", "setInterval(() => {}, 1000)"],
+    executable: degradedCommand.executable,
+    args: degradedCommand.args,
     startupTimeoutMs: 50,
   });
   await instanceService.startInstance("degraded-health-smoke");
