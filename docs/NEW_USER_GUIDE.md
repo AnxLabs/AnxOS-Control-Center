@@ -44,7 +44,9 @@ The desktop app always represents this computer as the local application host. R
 
 To add a remote system:
 
-1. Open **Agent Control** on the Agent machine or run `npm run agent:pair`.
+1. On the machine running the Agent, generate a pairing code: open AnxOS
+   Control Center on that machine and use **Agent Control** to generate one, or
+   on a headless node run `npm run agent:pair` in a source checkout.
 2. Copy the generated pairing code.
 3. In the desktop app, open **Agent Control -> Agent Connection**.
 4. Paste the pairing code.
@@ -201,6 +203,33 @@ To unlock, open the **Security** page and sign in with the local owner account y
 - Docker unavailable: check Docker installation and daemon state on the selected node.
 - File permission error: verify the selected profile, Agent filesystem root, and requested path.
 - Marketplace setup required: open the instance details or setup action instead of reinstalling.
+
+## Uninstalling AnxOS
+
+Removing the desktop application and deleting your server data are separate
+actions. Uninstalling the app removes the application itself; it does not delete
+managed server folders, instance files, or backups.
+
+Windows:
+
+1. Open **Settings -> Apps -> Installed apps**.
+2. Find **AnxOS Control Center** and select **Uninstall**.
+
+Linux `.deb` install:
+
+```bash
+sudo apt remove anxos-control-center
+```
+
+AppImage: delete the AppImage file.
+
+To also remove the Local Agent's automatic startup on a Windows machine, open
+**Agent Control** and use **Uninstall** (this removes the background service
+registration; it does not delete server data). On Linux, remove the `anxos-agent`
+user unit through your normal service management if you installed it separately.
+
+After uninstalling, do not delete server folders or backups unless you are sure
+the data is no longer needed.
 
 ## Modes
 

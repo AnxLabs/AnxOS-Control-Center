@@ -1,7 +1,8 @@
 const assert = require("assert");
 
-// V2-D catalog export/import smoke (roadmap V2-D bullet 8; the gap recorded in
-// docs/KNOWN_LIMITATIONS.md "Two V2-D roadmap items remain missing").
+// V2-D catalog export/import smoke (roadmap V2-D bullet 8; the shipped state and
+// its honest limits are recorded in docs/KNOWN_LIMITATIONS.md "Publisher trust
+// and catalog export/import are shipped, with honesty caveats").
 //
 // Hermetic: no network, no agent, no electron, no filesystem. Everything is
 // driven through the service's public functions, and the fixtures are validated

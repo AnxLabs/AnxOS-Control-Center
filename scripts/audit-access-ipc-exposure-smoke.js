@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 // Behavioral exposure coverage for the V2-I audit retention / access review /
 // export channels (`security:getAuditRetentionReport`, `security:getAuditAccessReview`,
-// `security:exportAuditWindow`) — the roadmap gap recorded in
+// `security:exportAuditWindow`) — this smoke closed the gap once recorded in
 // docs/MASTER_ROADMAP.md ("the three functions have no IPC channel or renderer
-// surface yet, so nothing in the running app can invoke them").
+// surface yet, so nothing in the running app can invoke them"); the roadmap
+// annotation now records the wiring this smoke pins.
 //
 // Two layers, both real (the scripts/preload-exposure-contract-smoke.js technique):
 //

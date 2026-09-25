@@ -29,6 +29,10 @@ release-artifacts/
 .mimosa/
 .v2c/
 
+# Local Python virtualenvs (documentation/build helper tooling, never source).
+.venv/
+venv/
+
 # Agent mode runtime data if bind mounts are used instead of named volumes.
 config/marketplace.json
 config/agent.json

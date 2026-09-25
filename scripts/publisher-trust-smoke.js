@@ -1,8 +1,9 @@
 const assert = require("assert");
 
 // V2-D publisher-trust smoke (roadmap V2-D bullets 7-8;
-// docs/v2/V2D_MARKETPLACE_RUNTIMES_WAVE1.md §3 item 5; the gap recorded in
-// docs/KNOWN_LIMITATIONS.md "Two V2-D roadmap items remain missing").
+// docs/v2/V2D_MARKETPLACE_RUNTIMES_WAVE1.md §3 item 5; the shipped state and
+// its honest limits are recorded in docs/KNOWN_LIMITATIONS.md "Publisher trust
+// and catalog export/import are shipped, with honesty caveats").
 //
 // Hermetic: no network, no agent, no electron. The pure policy is exercised
 // directly, and the two real integration points are exercised through the

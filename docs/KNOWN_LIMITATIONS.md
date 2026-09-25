@@ -74,14 +74,22 @@ These limitations are acceptable for Private Alpha if they are clearly communica
 ## V2 Campaign Surfaces
 
 These limitations reflect the current `dev` line and the campaign records in
-`docs/v2/`. They are current as of cycle 9; do not treat a queued validation as
+`docs/v2/`. They are current as of cycle 25; do not treat a queued validation as
 already performed.
 
-- **Live acceptance is outstanding for several V2 gates.** Docker engine live
-  acceptance (single/multi-container app, bad image, occupied port, missing
-  volume, failed update), the two-node live drill, the V2-B operator
-  walkthrough, and the clean-host Debian install are contract-covered by smokes
-  but not yet exercised live. Do not claim live support from smoke coverage.
+- **Live acceptance is partially executed, not complete.** The desktop has been
+  launched and inspected in real windows (cycles 19–21), which confirmed the
+  alerts and durable-jobs panels, the Docker surface, Public Access, and owner
+  authentication at runtime, and closed the node-switch and status-as-metric
+  defects. Still outstanding: the wider Docker engine live list (bad image,
+  occupied port, missing volume, failed update — `docker:smoke` passes against
+  the real socket, but the destructive list has no harness and would mutate
+  container state), the operator walkthrough's config-write and recovery paths,
+  live-window acceptance of the cycle-25 renderer panels, and onboarding on a
+  genuinely fresh install (`qa:acceptance` dismisses the welcome flow without
+  asserting on it). The clean-host Debian install and the live Linux
+  self-update swap remain externally blocked on hardware. Do not claim live
+  support from smoke coverage.
 - **Linux Agent self-update is validated hermetically only.** The ordered
   swap/rollback semantics are pinned by `agent:self-update:smoke` with injected
   seams, but the flow has not been run on a real Linux host with a genuine
@@ -103,33 +111,38 @@ already performed.
   verdict, and the preview's own status self-heal can report a target state that
   differs from the immediately following confirmed restore. Treat the preview as
   a decision aid, not a guarantee.
-- **Scheduled restarts are not serialized against in-flight jobs.** A scheduled
-  restart does not currently check for an open durable job on the target
-  instance (reliability queue Y2, not landed). Concurrent scheduling and
-  long-running jobs on one instance are untested together. At-least-once restart
-  after an agent crash between execution and store write (a benign double
-  restart) is accepted and documented (Y3).
+- **Scheduled restarts are serialized against in-flight jobs (Y2 closed).** A
+  due restart checks for a non-terminal durable job on the target instance and
+  skips the window with `INSTANCE_BUSY` (or fails closed with
+  `JOB_QUERY_FAILED` when the job store is unreadable) rather than killing the
+  job; the skipped cycle keeps its cadence
+  (`agent/src/services/restartScheduleService.js`). One accepted remainder:
+  at-least-once restart after an agent crash between execution and store write
+  (a benign double restart) is accepted and documented (Y3).
 - **Runtime pins are an operator guard, not a security control.** Pin identity
   is client-supplied, so a caller holding `dependencies:write` can claim another
   workload's id and bypass the cross-workload check. Pins also have no renderer
   or desktop IPC surface yet; unpinning is an Agent REST operation.
 - **Network inventory is read-only with known parser caveats.** It is discovery
-  only, supported on Windows and Linux, has no renderer consumption yet, and is
-  capped at 1000 listener rows. A wildcard and a specific address bound on the
-  same UDP port can be reported as a conflict even though it is a legitimate
-  bind combination; treat UDP conflicts as advisory.
-- **Workload transfer has no renderer UI yet, and its "preview" is not a pure
-  read.** The preview channel creates a source backup, pulls and imports the
-  archive, and registers a target placeholder before stopping for confirmation.
-  Only full-scope backups transfer, and the effective size ceiling is the target
+  only, supported on Windows and Linux, consumed by the Security page inventory
+  panel (`app.js` `networkInventory*`), and capped at 1000 listener rows. A
+  wildcard and a specific address bound on the same UDP port can be reported as
+  a conflict even though it is a legitimate bind combination; treat UDP
+  conflicts as advisory.
+- **Workload transfer's "preview" is not a pure read.** The renderer flow ships
+  (instance action → target dialog → preview → typed confirmation), but the
+  preview channel creates a source backup, pulls and imports the archive, and
+  registers a target placeholder before stopping for confirmation. Only
+  full-scope backups transfer, and the effective size ceiling is the target
   Agent's base64 HTTP body cap (about 192 MiB of raw archive for the default
   256 MiB cap), not the 512 MiB archive limit.
-- **Workload-transfer decline can delete a pre-existing target instance.** The
-  declined-preview path runs the placeholder cleanup without checking whether the
-  transfer created the placeholder (the failure path does gate on that flag).
-  Until this is fixed, do not run a transfer preview whose target node already
-  has an instance with the target id. Verified in the current code; see
-  `docs/OPERATOR_NOTES_V2.md` §9 and `docs/RECOVERY_MODEL.md`.
+- **Workload-transfer decline no longer deletes a pre-existing target instance
+  (fixed).** The declined-preview path deletes a placeholder only when the
+  transfer itself created it — it gates on `context.placeholderCreated === true`
+  and an unconsumed import (`src/services/workloadTransferService.js`), mirroring
+  the failure path's identical guard. The pre-existing target's payload and
+  identity survive a declined preview, pinned by
+  `scripts/workload-transfer-smoke.js`.
 - **Backup destinations are API/IPC-only and include no key recovery.** There is
   one built-in local destination plus SFTP; remote copies are encrypted with
   AES-256-GCM using `AGENT_BACKUP_ENCRYPTION_KEY`. There is no key escrow and no
@@ -140,12 +153,17 @@ already performed.
 - **The browser surface is a read-only agent-served management page, not full
   desktop parity.** It is loopback-only with short-lived sessions, and does not
   expose the full desktop workflow set.
-- **Two V2-D roadmap items remain missing.** The publisher-trust warning for
-  third-party executable content is not shipped, and catalog export/import is not
-  implemented. Treat third-party executable catalog content as unverified. (The
-  install-plan preview is no longer API-only: a read-only plan dialog for curated
-  templates shipped in cycle 11. Provider packs still have no plan preview by
-  design, because plans compose from the curated catalog.)
+- **Publisher trust and catalog export/import are shipped, with honesty
+  caveats.** The publisher-trust notice renders from the policy's own exported
+  copy and fails closed, and catalog export/import is schema-versioned and
+  refuses an unjustified `verified` declaration. But `verified` is **not
+  reachable from production data** — nothing hashes a downloaded artifact and
+  there is no PKI, so curated templates evaluate `unsigned-executable` and
+  provider packs `unverified-publisher` — and a `hash-mismatch` verdict is
+  advisory (no install is blocked yet). Catalog import validates and reports
+  without persisting. Treat third-party executable catalog content as
+  unverified. (The install-plan preview remains a read-only dialog for curated
+  templates; provider packs still have no plan preview by design.)
 - **Job expiry is opt-in.** Without an explicit `expiresAt` or a configured
   default pending-job TTL, nothing expires; destructive approvals never lapse by
   default.

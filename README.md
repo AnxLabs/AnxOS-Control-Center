@@ -16,8 +16,8 @@ Current public app metadata comes from `release.json`:
 
 ```json
 {
-  "version": "1.9",
-  "build": 199,
+  "version": "2.0",
+  "build": 203,
   "channel": "Private Alpha"
 }
 ```
@@ -235,8 +235,8 @@ Public release metadata lives in `release.json`:
 
 ```json
 {
-  "version": "1.9",
-  "build": 199,
+  "version": "2.0",
+  "build": 203,
   "channel": "Private Alpha"
 }
 ```
