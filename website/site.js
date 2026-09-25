@@ -325,7 +325,7 @@ function createAssetCard(asset, release) {
   meta.textContent = assetLabel(asset);
   const help = document.createElement("small");
   help.textContent = asset.platform === "windows"
-    ? asset.packageType === "portable" ? "Portable build for Windows x64 systems when the installer is not appropriate." : "Recommended installer for Windows 10 and Windows 11 x64."
+    ? asset.packageType === "portable" ? "Portable build for Windows x64 systems when the installer is not appropriate." : "Recommended installer for Windows 11 x64."
     : asset.packageType === "deb" ? "For Debian and Ubuntu-based systems." : "Portable Linux package for distributions that support AppImage.";
   body.append(title, meta, help);
   card.append(body, createDownloadButton(asset, release, asset.key === "windows-setup" || asset.key === "linux-appimage"));
@@ -382,7 +382,7 @@ function renderDownloadPage(release) {
       heading.textContent = windowsSetup ? "Windows installer ready" : `Recommended for ${platformLabel(detectedPlatform)}`;
       const meta = document.createElement("p");
       meta.textContent = primaryAsset.platform === "windows"
-        ? "Recommended setup for Windows 10 and Windows 11 x64. Downloads only start when you choose a button."
+        ? "Recommended setup for Windows 11 x64. Downloads only start when you choose a button."
         : "Recommended package for this device. Windows downloads remain available below.";
       const facts = document.createElement("ul");
       facts.className = "download-primary__facts";

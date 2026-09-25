@@ -196,7 +196,7 @@ assert(index.includes("The AnxOS Local Agent securely connects the desktop app t
 });
 assert(gettingStartedRoute.includes(`<link rel="canonical" href="${officialOrigin}/getting-started">`) && gettingStartedRoute.includes("First server workflow"), "Getting Started must be a clean direct route.");
 assert(systemRequirementsRoute.includes(`<link rel="canonical" href="${officialOrigin}/system-requirements">`) && systemRequirementsRoute.includes("System Requirements"), "System Requirements must be a clean direct route.");
-["Windows 10 or Windows 11, 64-bit", "64-bit Intel or AMD processor", "4 GB RAM", "2 GB free storage", "Administrator access", "8 GB RAM or more", "SSD storage", "Hardware virtualization", "AnxOS itself does not provide game-server hosting capacity", "computer must remain powered on", "Playit, Tailscale, Cloudflare Tunnel, or router port forwarding"].forEach((copy) => {
+["Windows 11, 64-bit", "64-bit Intel or AMD processor", "4 GB RAM", "2 GB free storage", "Administrator access", "8 GB RAM or more", "SSD storage", "Hardware virtualization", "AnxOS itself does not provide game-server hosting capacity", "computer must remain powered on", "Playit, Tailscale, Cloudflare Tunnel, or router port forwarding"].forEach((copy) => {
   assert(systemRequirementsRoute.includes(copy), `System Requirements page must include: ${copy}`);
 });
 assert(windowsInstallationRoute.includes(`<link rel="canonical" href="${officialOrigin}/windows-installation">`) && windowsInstallationRoute.includes("Install AnxOS and Prepare This PC"), "Windows Installation must be a clean direct route.");

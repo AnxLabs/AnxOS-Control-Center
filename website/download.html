@@ -71,7 +71,7 @@
           <h1 id="download-title">Download AnxOS for Windows</h1>
           <p class="lede">Install AnxOS Control Center and set up the Local Agent so this PC can manage servers, files, backups, dependencies, and public access.</p>
           <div class="alpha-warning" role="note">
-            This is an early testing release for invited users. Some Windows workflows have not completed full clean-machine validation. Expect bugs and back up important data.
+            This is an early testing release for invited users. It passed automated validation and a real-host install, upgrade, repair, and uninstall acceptance on Windows 11; clean-machine and Linux verification remain in progress. Expect bugs and back up important data.
           </div>
           <div class="download-status" data-download-status role="status">Checking the latest published release for the official Windows installer...</div>
           <div class="download-primary" data-primary-download aria-live="polite">
@@ -111,7 +111,7 @@
         <article class="download-info-card" id="system-requirements">
           <h2>System requirements</h2>
           <ul>
-            <li>Windows 10 or Windows 11 on a 64-bit processor.</li>
+            <li>Windows 11 on a 64-bit processor.</li>
             <li>At least 4 GB RAM and 2 GB free storage for the app and Local Agent; servers and backups need additional space.</li>
             <li>Internet access for downloads, updates, templates, and dependency installers.</li>
             <li>Administrator approval is required when installing the Local Agent service or managed dependencies.</li>
@@ -123,7 +123,7 @@
             <li>Choose Download AnxOS for Windows unless you specifically need the portable build.</li>
             <li>Open the installer, launch AnxOS Control Center, then choose Use This PC during onboarding.</li>
             <li>The Local Agent setup runs inside AnxOS and does not require Node.js, terminal commands, JSON editing, or token copying.</li>
-            <li>If Windows SmartScreen appears on an unsigned private-alpha build, verify the filename and release notes before continuing.</li>
+            <li>Windows SmartScreen may still warn on a new signed release because AnxOS is distributed directly through GitHub. Choose More info → Run anyway if you downloaded it from the official release page.</li>
           </ul>
         </article>
         <article class="download-info-card">
