@@ -68,6 +68,15 @@ temporary files and moves archives without committed metadata into
 `quarantine/` (timestamped rename) instead of deleting them; recovery stays
 idempotent and quarantined copies stay out of listings and retention.
 
+### Quarantine
+
+`<backupRoot>/quarantine/` holds backup archives that startup recovery found
+without committed metadata. Quarantine is deliberately operator-managed: nothing
+auto-prunes it, quarantined archives are excluded from listings and retention,
+and AnxOS never restores, renames, or deletes them. They still occupy
+backup-root disk space — disk-space checks count quarantined bytes — so
+reclaiming that space is an explicit operator action outside AnxOS.
+
 ## Instances
 
 Runtime PID reconciliation detects live configured and detached processes.

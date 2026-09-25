@@ -19,8 +19,11 @@
 //      pre-existing recovery point is never deleted or rewritten.
 //
 // What this does NOT prove: that restoring any recovery point would succeed, or
-// that a restored installation works. No restore drill has run in this
-// repository. See migrationRecoveryPolicy.js for the same caveat.
+// that a restored installation works. That create -> restore path is covered
+// byte-for-byte by the hermetic, disposable restore drill
+// (`npm run restore-drill:smoke`, scripts/restore-drill-smoke.js); a real-host
+// restore drill remains outstanding. See migrationRecoveryPolicy.js for the
+// same caveat.
 
 const assert = require("assert");
 const crypto = require("crypto");
@@ -678,6 +681,10 @@ async function main() {
     },
     corruptRecoveryPointsWereSameLengthDifferentBytes: true,
     preExistingRecoveryPointsNeverDeleted: true,
+    // Scoped to THIS sweep, which does not restore anything: the repository does
+    // ship a hermetic disposable restore drill (`npm run restore-drill:smoke`,
+    // scripts/restore-drill-smoke.js), but this run performs no restore, so the
+    // field stays false rather than claiming a recovery this smoke did not make.
     restoreDrillRun: false,
     stores: results.map((entry) => entry.store),
   }, null, 2));

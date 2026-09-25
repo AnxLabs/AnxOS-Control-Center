@@ -38,9 +38,12 @@
 // source, or that its JSON envelope is parseable and structurally expected.
 // It does NOT prove that restoring the recovery point would succeed, that the
 // restore path is correct, that the backup is complete relative to every
-// dependent file, or that the migrated store is semantically correct. No
-// restore drill has been run anywhere in this repository, so a "verified"
-// recovery point is evidence of a faithful copy, not of a working recovery.
+// dependent file, or that the migrated store is semantically correct. A
+// hermetic, disposable restore drill (`npm run restore-drill:smoke`) does prove
+// the backup create -> restore path byte-for-byte inside a temp tree, but no
+// restore drill has yet been run against a real host's data, so a "verified"
+// recovery point is evidence of a faithful copy, not of a working recovery on
+// live state.
 //
 // The policy is deliberately free of filesystem access so it can be unit-tested
 // without a temp tree; call sites do the reading and pass the results in.

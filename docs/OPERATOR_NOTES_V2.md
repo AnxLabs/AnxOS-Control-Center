@@ -140,6 +140,14 @@ exists but whose archive file is missing refuses with `BACKUP_ARCHIVE_MISSING`
 compressed, 512 MiB expanded, 256 MiB per entry, and 100,000 entries; archives
 above a ceiling fail rather than risking process exhaustion.
 
+**Quarantine.** Agent startup recovery moves an archive that has no committed
+metadata into `<backupRoot>/quarantine/` (timestamped rename) instead of deleting
+it. Quarantined archives are operator-managed: AnxOS never lists them as backups,
+never applies retention to them, never restores them, and never deletes them.
+They stay excluded from listings and retention indefinitely, but they still
+occupy backup-root disk space — disk-space checks count them — so reclaiming that
+space is an explicit operator action outside AnxOS.
+
 ## 5. Scheduled restarts
 
 Per-instance restart schedules are persisted agent-side and evaluated on a
