@@ -1,5 +1,5 @@
 const assert = require("assert");
-const { execFileSync } = require("child_process");
+const { execFileSync, spawnSync } = require("child_process");
 const fs = require("fs");
 const Module = require("module");
 const os = require("os");
@@ -878,6 +878,11 @@ function assertInstallerResultContract() {
   );
 }
 
+function isCommandAvailable(command) {
+  const result = spawnSync(command, ["-v"], { stdio: "ignore" });
+  return !result.error;
+}
+
 async function assertNestedArchiveInstallerExtraction() {
   const template = findTemplate("terraria-tshock");
   const script = marketplaceService._test.buildTemplateInstallerScript(template);
@@ -895,6 +900,17 @@ async function assertNestedArchiveInstallerExtraction() {
     if (process.platform === "win32") {
       await extractNestedFixture(path.join(dataDir, "tshock.zip"), path.join(dataDir, "server"));
     } else {
+      // The generated archive installer shells out to the platform `unzip`
+      // command and exits 127 with "unzip is required..." when it is absent.
+      // rc:validate auto-discovers every *:smoke script, so an unmet host
+      // precondition must skip this leg cleanly (exit 0, PRECONDITION_NOT_MET)
+      // instead of failing the gate; same convention as
+      // scripts/network-inventory-smoke.js. Hosts that provide unzip run this
+      // leg unchanged.
+      if (!isCommandAvailable("unzip")) {
+        console.log("marketplace-smoke: nested archive extraction leg skipped (PRECONDITION_NOT_MET: requires the unzip command on PATH)");
+        return;
+      }
       execFileSync("bash", [scriptPath], { cwd: dataDir });
     }
     const expectedPath = path.join(dataDir, "server", "TShock.Server");
