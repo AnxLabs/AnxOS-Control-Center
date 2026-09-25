@@ -146,6 +146,56 @@ function atomicWriteJson(filePath, payload) {
   fs.renameSync(tempPath, filePath);
 }
 
+// V2-J bullet 6 addendum: a STRUCTURAL repair (schema version already current
+// but the record shape differs) rewrites the operator's pages, notes and API
+// history with no schema-version transition for the recovery policy to decide
+// on, so the read-back verification is applied directly. A fresh
+// `.pre-repair.backup` copy must be byte-identical to the pre-repair file; a
+// pre-existing copy is never overwritten (one-time — it holds the oldest
+// pre-repair state) and is accepted once it reads back as a parseable
+// workspace object, because later repairs legitimately follow operator edits.
+// This path is additive: it fails closed only when no verified recovery point
+// can be produced or read back.
+function takePreRepairRecoveryPoint(filePath, originalBytes) {
+  const backupPath = `${filePath}.pre-repair.backup`;
+  const backupExisted = fs.existsSync(backupPath);
+  if (!backupExisted) {
+    try {
+      fs.copyFileSync(filePath, backupPath, fs.constants.COPYFILE_EXCL);
+    } catch (error) {
+      throw Object.assign(new Error("Owner Workspace structural repair was refused because the pre-repair recovery point could not be written."), {
+        code: "OWNER_WORKSPACE_PRE_REPAIR_RECOVERY_UNAVAILABLE",
+        details: { causeCode: error?.code || "COPY_FAILED" },
+      });
+    }
+  }
+  let recoveryBytes = null;
+  try {
+    recoveryBytes = fs.readFileSync(backupPath);
+  } catch {
+    recoveryBytes = null;
+  }
+  const verification = backupExisted
+    ? verifyRecoveryPoint({ mode: "json", copy: recoveryBytes })
+    : verifyRecoveryPoint({ mode: "bytes", original: originalBytes, copy: recoveryBytes });
+  if (!verification.verified) {
+    if (!backupExisted && fs.existsSync(backupPath)) {
+      try { fs.rmSync(backupPath, { force: true }); } catch {}
+    }
+    throw Object.assign(new Error("Owner Workspace structural repair was refused because the pre-repair recovery point could not be verified."), {
+      code: "OWNER_WORKSPACE_PRE_REPAIR_RECOVERY_UNVERIFIED",
+      details: { verification: verification.reason, copyExistedBeforeRepair: backupExisted },
+    });
+  }
+  console.info("[OwnerWorkspace] Pre-repair recovery point verified before structural repair.", {
+    filePath,
+    recoveryPoint: backupPath,
+    reused: backupExisted,
+    verification: verification.reason,
+  });
+  return backupPath;
+}
+
 function readState() {
   const filePath = getWorkspacePath();
   if (!fs.existsSync(filePath)) {
@@ -208,6 +258,12 @@ function readState() {
     }
   }
   if (version < WORKSPACE_VERSION || !Array.isArray(raw.builtInPages) || raw.builtInPages.length !== BUILT_IN_PAGES.length || !raw.contents?.notes) {
+    // A structural repair (version already current, shape differs) has no
+    // schema-version gate above, so it takes its own verified recovery point
+    // before the destructive rewrite.
+    if (version === WORKSPACE_VERSION) {
+      takePreRepairRecoveryPoint(filePath, fs.readFileSync(filePath));
+    }
     writeState(normalized);
   }
   return normalized;

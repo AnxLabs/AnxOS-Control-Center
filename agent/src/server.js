@@ -644,6 +644,11 @@ async function startServer() {
   if (backupRecovery.removed.length) {
     logger.info("startup-recovery", "Interrupted backup artifacts were removed.", backupRecovery, { file: "agent" });
   }
+  if (backupRecovery.quarantined.length) {
+    // Orphaned archives are preserved, never deleted: the operator needs to
+    // know where the possibly-recoverable copies were moved.
+    logger.info("startup-recovery", "Orphaned backup archives were quarantined instead of deleted.", { quarantined: backupRecovery.quarantined }, { file: "agent" });
+  }
   // V2-A job lifecycle: re-observe jobs that were in flight when the agent
   // (or the desktop client that owns the session) restarted, so no server
   // operation is orphaned by a client crash.

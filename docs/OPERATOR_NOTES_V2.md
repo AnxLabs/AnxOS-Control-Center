@@ -134,7 +134,9 @@ any mutation and refuse with a stable code on: `BACKUP_ARCHIVE_LIMIT_EXCEEDED`
 (413), `BACKUP_ARCHIVE_INVALID`, `BACKUP_ARCHIVE_COMPRESSION_UNSAFE`,
 `BACKUP_ARCHIVE_CHECKSUM_INVALID`, `BACKUP_ARCHIVE_UNSUPPORTED_ENTRY`,
 `BACKUP_ARCHIVE_EMPTY`, `BACKUP_ARCHIVE_PATH_UNSAFE`, and
-`BACKUP_ARCHIVE_HASH_MISMATCH` (all 400). Implemented ceilings are 512 MiB
+`BACKUP_ARCHIVE_HASH_MISMATCH` (all 400). A restore whose metadata record
+exists but whose archive file is missing refuses with `BACKUP_ARCHIVE_MISSING`
+(404) before any state is touched. Implemented ceilings are 512 MiB
 compressed, 512 MiB expanded, 256 MiB per entry, and 100,000 entries; archives
 above a ceiling fail rather than risking process exhaustion.
 

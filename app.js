@@ -19793,6 +19793,7 @@ function getBackupErrorMessage(error, fallback = "Backup operation failed.") {
     RESTORE_DISK_SPACE_INSUFFICIENT: "There is not enough free space to restore this backup.",
     RESTORE_SNAPSHOT_DISK_SPACE_INSUFFICIENT: "There is not enough free space to create the restore safety snapshot.",
     BACKUP_ARCHIVE_INVALID: "This backup archive is invalid or damaged.",
+    BACKUP_ARCHIVE_MISSING: "The backup's archive file is missing from backup storage. The backup metadata exists, but the archive cannot be found; nothing was replaced.",
     BACKUP_NOT_FOUND: "This backup is no longer available. Refresh the backup list and try again.",
     RESTORE_INSTANCE_STOP_FAILED: "The server could not be stopped safely, so no files were replaced.",
     RESTORE_ROLLBACK_FAILED: "Restore failed and AnxOS could not complete the automatic rollback. Review diagnostics before starting this server.",

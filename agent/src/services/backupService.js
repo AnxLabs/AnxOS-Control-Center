@@ -17,6 +17,11 @@ const {
 
 const BACKUP_FORMAT = "tar.gz";
 const BACKUP_EXTENSION = ".tar.gz";
+// Orphaned archives (metadata lost or corrupt) are moved into this
+// subdirectory instead of being deleted: a missing metadata file must never
+// destroy a possibly-recoverable recovery point. The directory lives under the
+// backup root so the move stays on the same filesystem.
+const BACKUP_QUARANTINE_DIRECTORY = "quarantine";
 const DEFAULT_RETENTION_COUNT = 10;
 const DEFAULT_RETENTION_DAYS = 30;
 const TAR_BLOCK_SIZE = 512;
@@ -447,6 +452,10 @@ function archivePath(backupId) {
   return path.join(getBackupRoot(), `${backupId}${BACKUP_EXTENSION}`);
 }
 
+function quarantineRoot() {
+  return path.join(getBackupRoot(), BACKUP_QUARANTINE_DIRECTORY);
+}
+
 function schedulesPath() {
   return path.join(getBackupRoot(), "schedules.json");
 }
@@ -578,7 +587,13 @@ async function listMetadataFiles() {
   await ensureBackupRoot();
   const entries = await fs.readdir(getBackupRoot(), { withFileTypes: true });
   return entries
-    .filter((entry) => entry.isFile() && entry.name.endsWith(".json") && entry.name !== "schedules.json")
+    // Quarantined artifacts live in a subdirectory: excluding it explicitly
+    // keeps orphaned copies out of every listing, retention, and size path
+    // even if a future entry type made them discoverable here.
+    .filter((entry) => entry.isFile()
+      && entry.name !== BACKUP_QUARANTINE_DIRECTORY
+      && entry.name.endsWith(".json")
+      && entry.name !== "schedules.json")
     .map((entry) => path.join(getBackupRoot(), entry.name));
 }
 
@@ -1242,6 +1257,28 @@ async function rollbackRestoreFromSafetySnapshot(instancePath, safetyBackup) {
   return { rolledBack: true, safetyBackupId: safetyBackup.id };
 }
 
+// A metadata record whose archive file is gone is a recovery problem, not a
+// raw filesystem failure: ENOENT from the archive read/extract is mapped to a
+// coded, 404-class error while every other error (digest mismatch, invalid
+// archive, path safety) passes through unchanged. Used only by the restore
+// flow, so the rollback path keeps its existing error behavior.
+async function runRestoreArchiveStep(backup, step) {
+  try {
+    return await step();
+  } catch (error) {
+    // Only a genuinely missing archive file is reclassified: the guard on the
+    // failing path keeps an unrelated ENOENT (for example from the extraction
+    // destination) from being reported with the wrong code.
+    if (error?.code === "ENOENT" && error.path && path.resolve(error.path) === path.resolve(backup.path)) {
+      throw createBackupError("BACKUP_ARCHIVE_MISSING", 404, {
+        backupId: backup.id,
+        archiveName: backup.archiveName || path.basename(backup.path),
+      });
+    }
+    throw error;
+  }
+}
+
 async function restoreBackup(payload = {}) {
   const backup = await readBackupMetadata(payload.backupId);
   const sourceInstanceId = backup.instanceId;
@@ -1300,7 +1337,7 @@ async function restoreBackup(payload = {}) {
   let targetWasRunning = null;
   try {
     instancePath = await getInstancePath(targetInstanceId);
-    const validation = await validateArchiveFile(backup.path, backup.archiveSha256);
+    const validation = await runRestoreArchiveStep(backup, () => validateArchiveFile(backup.path, backup.archiveSha256));
 
     const { before } = await stopInstanceAndWait(targetInstanceId, {
       stopFailed: "RESTORE_INSTANCE_STOP_FAILED",
@@ -1325,11 +1362,11 @@ async function restoreBackup(payload = {}) {
         }
         await fs.rm(targetPath, { recursive: true, force: true });
       }
-      await extractTarGzArchive(backup.path, instancePath, backup.archiveSha256);
+      await runRestoreArchiveStep(backup, () => extractTarGzArchive(backup.path, instancePath, backup.archiveSha256));
     } else if (sameTarget) {
       await fs.rm(instancePath, { recursive: true, force: true });
       await fs.mkdir(instancePath, { recursive: true, mode: 0o700 });
-      await extractTarGzArchive(backup.path, instancePath, backup.archiveSha256);
+      await runRestoreArchiveStep(backup, () => extractTarGzArchive(backup.path, instancePath, backup.archiveSha256));
       if (!await fs.stat(path.join(instancePath, "config.json")).then((stats) => stats.isFile(), () => false)) {
         throw createBackupError("RESTORE_VERIFICATION_FAILED", 500);
       }
@@ -1345,7 +1382,7 @@ async function restoreBackup(payload = {}) {
       try {
         await fs.rm(stagingPath, { recursive: true, force: true });
         await fs.mkdir(stagingPath, { recursive: true, mode: 0o700 });
-        await extractTarGzArchive(backup.path, stagingPath, backup.archiveSha256);
+        await runRestoreArchiveStep(backup, () => extractTarGzArchive(backup.path, stagingPath, backup.archiveSha256));
         if (!await fs.stat(path.join(stagingPath, "config.json")).then((stats) => stats.isFile(), () => false)) {
           throw createBackupError("RESTORE_VERIFICATION_FAILED", 500);
         }
@@ -1538,6 +1575,7 @@ async function recoverBackupArtifacts() {
   await ensureBackupRoot();
   const entries = await fs.readdir(getBackupRoot(), { withFileTypes: true });
   const removed = [];
+  const quarantined = [];
   for (const entry of entries) {
     if (!entry.isFile()) continue;
     const filePath = path.join(getBackupRoot(), entry.name);
@@ -1549,12 +1587,28 @@ async function recoverBackupArtifacts() {
     if (entry.name.endsWith(BACKUP_EXTENSION)) {
       const backupId = entry.name.slice(0, -BACKUP_EXTENSION.length);
       if (!await fs.stat(metadataPath(backupId)).then((stats) => stats.isFile(), () => false)) {
-        await fs.rm(filePath, { force: true });
-        removed.push({ file: entry.name, reason: "archive-without-metadata" });
+        // A lost or corrupt metadata file must never destroy the archive: the
+        // copy may still be recoverable, so it is moved into the quarantine
+        // subdirectory (renamed with a timestamp) and left on disk for an
+        // operator instead of being deleted.
+        await fs.mkdir(quarantineRoot(), { recursive: true, mode: 0o700 });
+        // The ISO timestamp is normalized to a filesystem-safe form: the raw
+        // colon form is invalid in Windows file names.
+        const stamp = nowIso().replace(/[:.]/g, "-");
+        let quarantineFile = `${backupId}.${stamp}.orphan${BACKUP_EXTENSION}`;
+        let attempt = 0;
+        // A colliding name gets a suffix instead of overwriting an earlier
+        // quarantined copy — quarantine never destroys anything either.
+        while (await fs.stat(path.join(quarantineRoot(), quarantineFile)).then(() => true, () => false)) {
+          attempt += 1;
+          quarantineFile = `${backupId}.${stamp}.orphan-${attempt}${BACKUP_EXTENSION}`;
+        }
+        await fs.rename(filePath, path.join(quarantineRoot(), quarantineFile));
+        quarantined.push({ file: entry.name, quarantineFile, reason: "archive-without-metadata" });
       }
     }
   }
-  return { removed };
+  return { removed, quarantined };
 }
 
 function stopBackupScheduler() {

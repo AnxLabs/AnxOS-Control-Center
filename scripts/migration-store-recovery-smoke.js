@@ -2,7 +2,12 @@
 "use strict";
 
 // V2-J bullet 6 store sweep: proves the verify-or-refuse policy is wired into
-// the client-side stores that migrated behind an UNVERIFIED recovery point.
+// the stores that migrated behind an UNVERIFIED recovery point, including the
+// agent-side device identity whose v0/v1->v2 rewrite mints new random ids. A
+// closing leg covers the Owner Workspace STRUCTURAL repair (schema version
+// already current, shape differs), which has no version transition and
+// therefore takes its own one-time `.pre-repair.backup` read-back-verified
+// byte copy before the destructive rewrite.
 //
 // For each wired store this smoke runs two legs against a fresh temp tree:
 //
@@ -152,6 +157,7 @@ async function main() {
   const agentRuntimeConfigStore = require("../src/shared/agentRuntimeConfigStore");
   const agentTokenStore = require("../src/shared/agentTokenStore");
   const publicAccessServiceRegistry = require("../src/shared/publicAccessServiceRegistry");
+  const deviceIdentityService = require("../agent/src/services/deviceIdentityService");
 
   function setConfigDir(dir) {
     const configDir = path.join(dir, "config");
@@ -535,7 +541,127 @@ async function main() {
     refusal: { mode: "throw", code: "OWNER_WORKSPACE_MIGRATION_RECOVERY_UNVERIFIED" },
   });
 
-  assert.strictEqual(covered.length, 15, `expected 15 wired stores covered, saw ${covered.length}`);
+  // ---------------------------------------------------------------------------
+  // 16. agent device identity — readOrCreateDeviceId v0/v1->v2 rewrite. The
+  //     rewrite mints a NEW random agentInstallationId / agentIdentityGeneration
+  //     that cannot be reconstructed, so the pre-upgrade record is the only
+  //     recovery point.
+  // ---------------------------------------------------------------------------
+  await runCase({
+    name: "agent-device-identity",
+    prepare(dir) {
+      this._file = path.join(dir, "device-identity.json");
+      this._backup = `${this._file}.schema-v1.backup`;
+      process.env.AGENT_IDENTITY_PATH = this._file;
+      this._legacy = writeJsonFile(this._file, { schemaVersion: 1, deviceId: "device-recovery-smoke-0001" });
+    },
+    paths() {
+      return { filePath: this._file, backupPath: this._backup, legacyBytes: this._legacy };
+    },
+    run: () => deviceIdentityService.getDeviceIdentity(),
+    verifyMigrated(filePath) {
+      const migrated = readJson(filePath);
+      assert.strictEqual(migrated.schemaVersion, deviceIdentityService.DEVICE_IDENTITY_SCHEMA_VERSION, "device identity schema must advance");
+      assert.strictEqual(migrated.deviceId, "device-recovery-smoke-0001", "migration must not rotate the device lineage");
+    },
+    refusal: { mode: "throw", code: "DEVICE_IDENTITY_MIGRATION_RECOVERY_UNVERIFIED" },
+  });
+
+  // ---------------------------------------------------------------------------
+  // Owner Workspace STRUCTURAL repair: current schema version, different shape.
+  // There is no version transition for the policy to gate, so the repair takes
+  // its own one-time `.pre-repair.backup` byte copy and verifies it by read-back
+  // before the destructive writeState.
+  // ---------------------------------------------------------------------------
+  {
+    const runAsOwner = (fn) => {
+      const real = securityService.requireOwner;
+      securityService.requireOwner = () => ({ id: "smoke-owner", role: "Owner" });
+      try {
+        return fn();
+      } finally {
+        securityService.requireOwner = real;
+      }
+    };
+
+    const dir = fs.mkdtempSync(path.join(root, "repair-"));
+    const configDir = setConfigDir(dir);
+    const repairFilePath = path.join(configDir, "owner-workspace", "workspace.json");
+    const repairBackupPath = `${repairFilePath}.pre-repair.backup`;
+    const firstLegacy = writeJsonFile(repairFilePath, {
+      version: ownerWorkspaceService.WORKSPACE_VERSION,
+      selectedPageId: "existing-custom",
+      customPages: [{ id: "existing-custom", title: "Existing Custom", builtIn: false, pinned: true }],
+      contents: { "existing-custom": { markdown: "keep me" } },
+    });
+    const repaired = runAsOwner(() => ownerWorkspaceService.getWorkspace());
+    assert(fs.existsSync(repairBackupPath), "a structural repair must take the pre-repair recovery point before writing");
+    assert.deepStrictEqual(
+      fs.readFileSync(repairBackupPath),
+      firstLegacy,
+      "the pre-repair recovery point must be a byte copy of the pre-repair workspace",
+    );
+    assert.ok(repaired.pages.some((page) => page.id === "existing-custom"), "a structural repair must preserve operator pages");
+    assert.strictEqual(repaired.contents["existing-custom"].markdown, "keep me", "a structural repair must preserve operator content");
+    assert.ok(
+      Array.isArray(readJson(repairFilePath).builtInPages) && readJson(repairFilePath).builtInPages.length > 0,
+      "the structural repair must rewrite the workspace shape to the current built-in pages",
+    );
+
+    // One-time: a later structural repair must reuse, never overwrite, the
+    // oldest pre-repair recovery point.
+    writeJsonFile(repairFilePath, {
+      version: ownerWorkspaceService.WORKSPACE_VERSION,
+      selectedPageId: "existing-custom",
+      customPages: [],
+      contents: {},
+    });
+    runAsOwner(() => ownerWorkspaceService.getWorkspace());
+    assert.deepStrictEqual(
+      fs.readFileSync(repairBackupPath),
+      firstLegacy,
+      "a pre-existing pre-repair recovery point must never be overwritten",
+    );
+
+    // A pre-existing pre-repair recovery point that cannot be read back as a
+    // workspace object refuses the repair and leaves both files untouched.
+    const refusalDir = fs.mkdtempSync(path.join(root, "repair-refuse-"));
+    const refusalConfigDir = setConfigDir(refusalDir);
+    const refusalFilePath = path.join(refusalConfigDir, "owner-workspace", "workspace.json");
+    const refusalBackupPath = `${refusalFilePath}.pre-repair.backup`;
+    const refusalWorkspace = writeJsonFile(refusalFilePath, {
+      version: ownerWorkspaceService.WORKSPACE_VERSION,
+      selectedPageId: "existing-custom",
+      customPages: [],
+      contents: {},
+    });
+    fs.writeFileSync(refusalBackupPath, "{not-json\n");
+    const refusalBackupBefore = hashFile(refusalBackupPath);
+    let repairRefusalError = null;
+    try {
+      runAsOwner(() => ownerWorkspaceService.getWorkspace());
+    } catch (error) {
+      repairRefusalError = error;
+    }
+    assert(repairRefusalError !== null, "an unverifiable pre-repair recovery point must refuse the structural repair");
+    assert.strictEqual(
+      repairRefusalError.code,
+      "OWNER_WORKSPACE_PRE_REPAIR_RECOVERY_UNVERIFIED",
+      `refusal must name the invariant (observed ${repairRefusalError.code})`,
+    );
+    assert.deepStrictEqual(
+      fs.readFileSync(refusalFilePath),
+      refusalWorkspace,
+      "a refused structural repair must leave the workspace byte-identical",
+    );
+    assert.strictEqual(
+      hashFile(refusalBackupPath),
+      refusalBackupBefore,
+      "an unverifiable pre-existing recovery point must never be rewritten",
+    );
+  }
+
+  assert.strictEqual(covered.length, 16, `expected 16 wired stores covered, saw ${covered.length}`);
 
   console.log(JSON.stringify({
     status: "PASS",
@@ -544,6 +670,12 @@ async function main() {
     proceededWithVerifiedRecoveryPoint: results.length,
     refusedOnUnverifiableRecoveryPoint: results.length,
     refusedLeavesStoreByteIdentical: results.length,
+    ownerWorkspaceStructuralRepair: {
+      preRepairRecoveryPointTakenBeforeWrite: true,
+      preRepairRecoveryPointVerifiedByReadBack: true,
+      preRepairRecoveryPointIsOneTime: true,
+      refusedWhenPreRepairRecoveryPointUnverifiable: true,
+    },
     corruptRecoveryPointsWereSameLengthDifferentBytes: true,
     preExistingRecoveryPointsNeverDeleted: true,
     restoreDrillRun: false,
@@ -558,5 +690,6 @@ main()
   })
   .finally(() => {
     delete process.env.ANXHUB_CONFIG_DIR;
+    delete process.env.AGENT_IDENTITY_PATH;
     fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });

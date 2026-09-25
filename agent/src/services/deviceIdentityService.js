@@ -3,6 +3,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const packageJson = require("../../package.json");
+const { decideMigrationRecovery, verifyRecoveryPoint } = require("../../../src/shared/migrationRecoveryPolicy");
 // V2-A identity model (docs/v2/V2A_IDENTITY_MODEL.md §3.2): the agent mints
 // deviceId (stable per device lineage), agentInstallationId (stable per
 // installation) and agentIdentityGeneration (intentionally rotated on
@@ -82,9 +83,42 @@ function readOrCreateDeviceId() {
   }
   const record = normalizeIdentityRecord(parsed);
   if (schemaVersion !== DEVICE_IDENTITY_SCHEMA_VERSION) {
-    // Preserve the pre-upgrade record so an operator can always recover it.
+    // V2-J bullet 6: the v0/v1->v2 rewrite MINTS new random
+    // agentInstallationId / agentIdentityGeneration, so it is irreversible and
+    // not reconstructible from anywhere else. Mirror the policy-gated stores:
+    // take the pre-upgrade recovery point, read it back and verify it
+    // byte-for-byte BEFORE the rewrite, and refuse with
+    // DEVICE_IDENTITY_MIGRATION_RECOVERY_UNVERIFIED when it cannot be verified.
+    // A device with no prior identity is minted fresh above and never reaches
+    // this branch.
     const backupPath = `${identityPath}.schema-v${schemaVersion}.backup`;
-    if (!fs.existsSync(backupPath)) fs.copyFileSync(identityPath, backupPath, fs.constants.COPYFILE_EXCL);
+    const originalBytes = fs.readFileSync(identityPath);
+    const backupExisted = fs.existsSync(backupPath);
+    if (!backupExisted) fs.copyFileSync(identityPath, backupPath, fs.constants.COPYFILE_EXCL);
+    let recoveryBytes = null;
+    try {
+      recoveryBytes = fs.readFileSync(backupPath);
+    } catch {
+      recoveryBytes = null;
+    }
+    const recoveryVerification = verifyRecoveryPoint({ mode: "bytes", original: originalBytes, copy: recoveryBytes });
+    const recoveryTaken = fs.existsSync(backupPath);
+    const recoveryVerdict = decideMigrationRecovery({
+      storeId: "agent-device-identity",
+      fromSchemaVersion: schemaVersion,
+      toSchemaVersion: DEVICE_IDENTITY_SCHEMA_VERSION,
+      recoveryPoint: { canTake: true, taken: recoveryTaken, verified: recoveryVerification.verified },
+      reconstructible: { isReconstructible: false, source: null },
+    });
+    if (recoveryVerdict.verdict !== "proceed") {
+      if (!backupExisted && recoveryTaken) {
+        try { fs.rmSync(backupPath, { force: true }); } catch {}
+      }
+      throw Object.assign(new Error("Agent device identity could not be migrated safely because the pre-migration recovery point could not be verified."), {
+        code: "DEVICE_IDENTITY_MIGRATION_RECOVERY_UNVERIFIED",
+        details: { storeId: "agent-device-identity", reason: recoveryVerdict.reason, verification: recoveryVerification.reason },
+      });
+    }
     writeIdentity(identityPath, record);
   }
   return record;
