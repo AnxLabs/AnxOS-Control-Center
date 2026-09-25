@@ -4808,7 +4808,12 @@ function getAgentControlOverviewTarget(payload = agentControlState) {
   return payload.local || payload;
 }
 
-function isAgentTargetRunning(target = {}) {
+function isAgentTargetRunning(target = null) {
+  // Callers pass the resolved overview target, which is null on a fresh profile
+  // (agentControlState has not loaded yet). A null target is simply not running;
+  // the previous `= {}` default only covered `undefined` and threw on null,
+  // which left onboarding steps 3 and 4 rendering empty with a raw error toast.
+  if (!target) return false;
   return target.running === true || target.state === "Running" || target.state === "Connected";
 }
 
@@ -37835,10 +37840,15 @@ function isAccountRestorationPending() {
 function shouldRequireAccountBeforeOnboarding() {
   const desktopApiState = getDesktopApiState();
   if (!desktopApiState.hasAccount) return false;
-  if (isAccountRestorationPending()) return true;
-  if (accountState.authenticated === true) return false;
-  if (accountState.configured === false) return false;
-  return true;
+  // The gate's only job is ordering: the first-run flow must not appear before
+  // the account state is known, so the welcome waits for restoration to
+  // resolve. A signed-out device does NOT require an account — the setup guide
+  // documents the account as optional and local setup as account-free, and the
+  // wizard's sign-in step says it can be skipped. `configured` means the
+  // account service exists (the bundled `website/account-config.js` ships with
+  // the app), not that the user opted in; treating it as "account required"
+  // hid the welcome and the entire wizard on every fresh install.
+  return isAccountRestorationPending();
 }
 
 function shouldBlockOnboardingForAccount() {
