@@ -54,7 +54,13 @@ const platformTargets = {
 
 function parseTargets() {
   const platformArg = process.argv.find((arg) => arg.startsWith("--platform="));
-  const raw = (platformArg ? platformArg.slice("--platform=".length) : process.env.ANXOS_PACKAGING_SMOKE_TARGETS || "win,linux")
+  // Default to the host platform. A hardcoded "win,linux" default made the whole
+  // check skip (exit 0, PRECONDITION_NOT_MET) whenever the other platform's
+  // artifacts were absent, so rc:validate's packaging:smoke step never validated
+  // a local candidate and Windows packaging stayed ungated. Explicit --platform
+  // or ANXOS_PACKAGING_SMOKE_TARGETS still select any combination.
+  const defaultTargets = process.platform === "win32" ? "win" : "linux";
+  const raw = (platformArg ? platformArg.slice("--platform=".length) : process.env.ANXOS_PACKAGING_SMOKE_TARGETS || defaultTargets)
     .split(",")
     .map((entry) => entry.trim().toLowerCase())
     .filter(Boolean);
@@ -113,6 +119,29 @@ const forbiddenRuntimeNames = new Set([
   "owner-accounts.json",
 ]);
 
+// @electron/asar v3 listPackage() emits entries with a leading backslash on
+// Windows (e.g. "\main.js") while the expected lists use "/main.js", so every
+// asar entry and expected entry must be separator-normalized before comparison.
+function normalizeAsarEntry(entry) {
+  return String(entry).replace(/\\/g, "/").replace(/^\/+/, "");
+}
+
+// Regression leg: a synthetic Windows-style listing must normalize to the
+// slash-delimited names and still match the required/forbidden entries, so the
+// path-separator fix cannot silently regress on Windows.
+function assertAsarEntryNormalization() {
+  const normalized = ["\\main.js", "/app.js"].map(normalizeAsarEntry);
+  assert.deepStrictEqual(normalized, ["main.js", "app.js"], "asar entry normalization must convert separators and strip leading separators.");
+  const requiredEntryNames = new Set(requiredEntries.map(normalizeAsarEntry));
+  for (const entry of normalized) {
+    assert(requiredEntryNames.has(entry), `asar entry normalization must still match required entry ${entry}`);
+  }
+  const forbiddenEntryNames = new Set(forbiddenEntries.map(normalizeAsarEntry));
+  assert(forbiddenEntryNames.has("agent/.env"), "asar entry normalization must apply to forbidden entry comparison.");
+}
+
+assertAsarEntryNormalization();
+
 function walkFiles(directory) {
   const entries = [];
   if (!fs.existsSync(directory)) return entries;
@@ -125,6 +154,51 @@ function walkFiles(directory) {
   }
   return entries;
 }
+
+// The desktop dependency scan must read code, not documentation: a
+// `require("...")` that appears only inside a comment is not a loadable
+// dependency, but a plain regex would report it as missing. Strip line and
+// block comments while preserving string literals so URLs ("https://...") and
+// other string content are not truncated.
+function stripSourceComments(source) {
+  const output = [];
+  let state = "code";
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index];
+    const next = source[index + 1];
+    if (state === "code") {
+      if (char === "/" && next === "/") { state = "line"; index += 1; continue; }
+      if (char === "/" && next === "*") { state = "block"; index += 1; continue; }
+      if (char === "'") state = "single";
+      else if (char === '"') state = "double";
+      else if (char === "`") state = "template";
+      output.push(char);
+    } else if (state === "line") {
+      if (char === "\n") { state = "code"; output.push(char); }
+    } else if (state === "block") {
+      if (char === "*" && next === "/") { state = "code"; index += 1; }
+      else if (char === "\n") output.push(char);
+    } else {
+      output.push(char);
+      if (char === "\\") { output.push(next || ""); index += 1; }
+      else if ((state === "single" && char === "'") || (state === "double" && char === '"') || (state === "template" && char === "`")) state = "code";
+    }
+  }
+  return output.join("");
+}
+
+function localRequireRequests(source) {
+  return [...stripSourceComments(source).matchAll(/require\(\s*["']([^"']+)["']\s*\)/g)].map((match) => match[1]);
+}
+
+// Regression leg: commented requires must not be treated as loadable
+// dependencies, so this cannot silently regress into the comment false-positive.
+function assertDependencyScanIgnoresComments() {
+  const sample = 'const kept = require("./kept"); // require("./line-comment")\n/* require("./block-comment") */';
+  assert.deepStrictEqual(localRequireRequests(sample), ["./kept"], "desktop dependency scan must ignore requires inside comments.");
+}
+
+assertDependencyScanIgnoresComments();
 
 function assertDesktopDependencyGraph(archivePath) {
   const extractedRoot = fs.mkdtempSync(path.join(os.tmpdir(), "anxos-desktop-runtime-"));
@@ -141,8 +215,7 @@ function assertDesktopDependencyGraph(archivePath) {
     visited.add(resolvedPath);
     if (path.extname(resolvedPath) === ".json") return;
     const source = fs.readFileSync(resolvedPath, "utf8");
-    for (const match of source.matchAll(/require\(\s*["']([^"']+)["']\s*\)/g)) {
-      const request = match[1];
+    for (const request of localRequireRequests(source)) {
       if (!request.startsWith(".")) continue;
       const dependency = resolveLocal(resolvedPath, request);
       if (dependency) visit(dependency);
@@ -184,14 +257,14 @@ for (const artifact of selectedTargetConfigs.flatMap((target) => target.artifact
 
 for (const archivePath of selectedTargetConfigs.flatMap((target) => target.asarArchives)) {
   assert(fs.existsSync(archivePath), `Missing app.asar: ${path.relative(rootDir, archivePath)}`);
-  const entries = new Set(asar.listPackage(archivePath));
+  const entries = new Set(asar.listPackage(archivePath).map(normalizeAsarEntry));
 
   for (const entry of requiredEntries) {
-    assert(entries.has(entry), `${path.relative(rootDir, archivePath)} is missing ${entry}`);
+    assert(entries.has(normalizeAsarEntry(entry)), `${path.relative(rootDir, archivePath)} is missing ${entry}`);
   }
 
   for (const entry of forbiddenEntries) {
-    assert(!entries.has(entry), `${path.relative(rootDir, archivePath)} must not include runtime file ${entry}`);
+    assert(!entries.has(normalizeAsarEntry(entry)), `${path.relative(rootDir, archivePath)} must not include runtime file ${entry}`);
   }
 
   const release = JSON.parse(asar.extractFile(archivePath, "release.json").toString("utf8"));
