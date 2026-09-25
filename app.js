@@ -15122,6 +15122,7 @@ function getAgentErrorMessage(error, fallback = "Instance request failed.") {
     MARKETPLACE_INSTALL_FAILED: "Template install failed.",
     FIVEM_LICENSE_REQUIRED: "FiveM needs a valid license key in server.cfg before it can start.",
     FIVEM_SETUP_REQUIRED: "FiveM setup is required before this server can start.",
+    FIVEM_RESOURCES_REQUIRED: "FiveM server resources are missing; reinstall this server so players can spawn.",
     INVALID_FIVEM_LICENSE_KEY: "Enter a valid FiveM license key from Cfx.re Keymaster.",
   };
 
@@ -21690,9 +21691,14 @@ async function runInstanceAction(actionName) {
     } else {
       console.warn(`[Instances] ${actionName} failed.`, error);
       if ((actionName === "start" || actionName === "restart") && getAgentErrorCode(error) === "FIVEM_SETUP_REQUIRED") {
-        await openFiveMSetup(selectedInstance, {
-          message: "FiveM setup is required before this server can start.",
-        });
+        const readiness = error?.readiness || error?.details?.readiness || null;
+        if (readiness?.reasonCode === "RESOURCES_MISSING") {
+          showToast(readiness.message || "FiveM server resources are missing; reinstall this server so players can spawn.", "warning");
+        } else {
+          await openFiveMSetup(selectedInstance, {
+            message: "FiveM setup is required before this server can start.",
+          });
+        }
         await refreshInstances({ refreshMetrics: false });
         return;
       }

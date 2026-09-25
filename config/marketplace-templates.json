@@ -1046,14 +1046,31 @@
         "fileName": "fx.tar.xz",
         "required": true,
         "overwrite": true
+      },
+      {
+        "type": "url",
+        "resolver": "fivem-server-data",
+        "destination": "data/cfx-server-data.tar.gz",
+        "fileName": "cfx-server-data.tar.gz",
+        "ref": "refs/heads/master",
+        "required": true,
+        "overwrite": true
       }
     ],
     "installer": {
       "type": "archive",
       "archive": "fx.tar.xz",
       "extractDir": "server",
+      "additionalArchives": [
+        {
+          "archive": "cfx-server-data.tar.gz",
+          "extractDir": "server/resources",
+          "stripComponents": 2
+        }
+      ],
       "verifyFiles": [
-        "server/run.sh"
+        "server/run.sh",
+        "server/resources/[managers]/spawnmanager/fxmanifest.lua"
       ],
       "timeoutMs": 900000
     },
@@ -1080,12 +1097,29 @@
             "fileName": "server.zip",
             "required": true,
             "overwrite": true
+          },
+          {
+            "type": "url",
+            "resolver": "fivem-server-data",
+            "destination": "data/cfx-server-data.tar.gz",
+            "fileName": "cfx-server-data.tar.gz",
+            "ref": "refs/heads/master",
+            "required": true,
+            "overwrite": true
           }
         ],
         "installer": {
           "archive": "server.zip",
+          "additionalArchives": [
+            {
+              "archive": "cfx-server-data.tar.gz",
+              "extractDir": "server/resources",
+              "stripComponents": 2
+            }
+          ],
           "verifyFiles": [
-            "server/FXServer.exe"
+            "server/FXServer.exe",
+            "server/resources/[managers]/spawnmanager/fxmanifest.lua"
           ]
         },
         "startup": {
@@ -1099,7 +1133,7 @@
         },
         "installMetadata": {
           "source": "runtime.fivem.net Windows FXServer artifacts",
-          "notes": "A Cfx.re license key must be added to server.cfg before start."
+          "notes": "Installs the FXServer artifact plus the official cfx-server-data resources (spawnmanager, mapmanager, map, and default gamemode). A Cfx.re license key must be added to server.cfg before start."
         }
       }
     },
@@ -1113,7 +1147,11 @@
           "sets sv_projectName \"{name}\"",
           "sets sv_projectDesc \"Managed by AnxOS\"",
           "sv_maxclients 32",
-          "sv_licenseKey \"CHANGE_ME_FIVEM_LICENSE_KEY\""
+          "sv_licenseKey \"CHANGE_ME_FIVEM_LICENSE_KEY\"",
+          "# Spawn-critical Cfx.re resources (validated against the packaged FXServer build).",
+          "ensure mapmanager",
+          "ensure spawnmanager",
+          "ensure basic-gamemode"
         ]
       }
     ],
@@ -1122,7 +1160,7 @@
     "installMetadata": {
       "method": "fivem-artifact",
       "source": "runtime.fivem.net Linux FXServer artifacts",
-      "notes": "Requires tar with xz support. A Cfx.re license key must be added to server.cfg before start."
+      "notes": "Requires tar with xz support. Installs the FXServer artifact plus the official cfx-server-data resources (spawnmanager, mapmanager, map, and default gamemode). A Cfx.re license key must be added to server.cfg before start."
     },
     "configNotes": "Edit server.cfg and replace CHANGE_ME_FIVEM_LICENSE_KEY with a valid Cfx.re license key before starting.",
     "installScript": [

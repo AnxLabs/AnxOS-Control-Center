@@ -2166,6 +2166,20 @@ async function resolveFiveMDownload(download = {}, options = {}, context = {}) {
   };
 }
 
+async function resolveFiveMServerDataDownload(download = {}) {
+  const ref = String(download.ref || "refs/heads/master").trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9._/-]{0,120}$/.test(ref) || ref.includes("..")) {
+    throw createMarketplaceError("FiveM server data ref is invalid.", "INVALID_TEMPLATE_CATALOG", { ref });
+  }
+  // Official Cfx.re server data pack (cfx-server-data) — provides the stock
+  // resources (mapmanager, spawnmanager, gamemode, maps) a FiveM client needs
+  // before it can spawn into the world.
+  return {
+    url: `https://codeload.github.com/citizenfx/cfx-server-data/tar.gz/${ref}`,
+    version: ref.replace(/^refs\/(?:heads|tags)\//, ""),
+  };
+}
+
 async function resolveVanillaDownload(download, options = {}, context = {}) {
   const manifest = await fetchJson(download.manifestUrl || MOJANG_VERSION_MANIFEST_URL, "Mojang version lookup", context);
   const requestedVersion = options.version || download.version || "latest";
@@ -2238,6 +2252,10 @@ async function resolveDownloadUrl(download, options = {}, context = {}) {
     return resolveFiveMDownload(download, options, context);
   }
 
+  if (download.resolver === "fivem-server-data") {
+    return resolveFiveMServerDataDownload(download);
+  }
+
   if (download.resolver === "mojang-vanilla") {
     return resolveVanillaDownload(download, options, context);
   }
@@ -2276,8 +2294,36 @@ function normalizeArchiveVerifyFile(filePath, extractDir) {
   return normalizedFile.startsWith(prefix) ? normalizedFile.slice(prefix.length) : normalizedFile;
 }
 
+function buildAdditionalArchiveExtractionPowerShell(installer) {
+  const lines = [];
+  for (const entry of normalizeAdditionalArchives(installer)) {
+    lines.push(`# Additional archive: ${entry.archive} -> ${entry.extractDir}`);
+    lines.push(`$additionalArchive = ${psSingleQuote(entry.archive)}`);
+    lines.push(`$additionalDir = ${psSingleQuote(entry.extractDir)}`);
+    lines.push("New-Item -ItemType Directory -Force -Path $additionalDir | Out-Null");
+    if (/\.zip$/i.test(entry.archive)) {
+      if (entry.stripComponents > 0) {
+        throw createMarketplaceError("Zip additional archives do not support stripComponents.", "INVALID_TEMPLATE_CATALOG", { archive: entry.archive });
+      }
+      lines.push("Expand-Archive -Path $additionalArchive -DestinationPath $additionalDir -Force");
+    } else if (/\.tar\.xz$/i.test(entry.archive)) {
+      throw createMarketplaceError("Windows installs cannot extract .tar.xz additional archives.", "INVALID_TEMPLATE_CATALOG", { archive: entry.archive });
+    } else if (/\.tar\.gz$|\.tgz$|\.tar$/i.test(entry.archive)) {
+      const flags = /\.tar\.gz$|\.tgz$/i.test(entry.archive) ? "-xzf" : "-xf";
+      lines.push(`tar ${flags} $additionalArchive -C $additionalDir${entry.stripComponents > 0 ? ` --strip-components=${entry.stripComponents}` : ""}`);
+      lines.push(`if ($LASTEXITCODE -ne 0) { throw ${psSingleQuote(`Failed to extract ${entry.archive}.`)} }`);
+    } else {
+      throw createMarketplaceError("Additional archive type is not supported.", "INVALID_TEMPLATE_CATALOG", { archive: entry.archive });
+    }
+  }
+  return lines;
+}
+
 function buildWindowsArchiveInstallerScript(installer) {
-  const archivePath = normalizeInstanceFilePath(installer.archive || getPrimaryArtifactPath(installer.template || {}, {}));
+  const archive = installer.archive || getPrimaryArtifactPath(installer.template || {}, {});
+  assertSafeInstallerArchive(archive);
+  const archivePath = normalizeInstanceFilePath(archive);
+  assertSafeInstallerExtractDir(installer.extractDir);
   const extractDir = normalizeInstanceFilePath(installer.extractDir || "server");
   if (!/\.zip$/i.test(archivePath)) {
     throw createMarketplaceError("Windows archive installers currently require a .zip archive.", "INSTALLER_TYPE_UNSUPPORTED", {
@@ -2295,6 +2341,7 @@ function buildWindowsArchiveInstallerScript(installer) {
     `$extractDir = ${psSingleQuote(extractDir)}`,
     "New-Item -ItemType Directory -Force -Path $extractDir | Out-Null",
     "Expand-Archive -Path $archivePath -DestinationPath $extractDir -Force",
+    ...buildAdditionalArchiveExtractionPowerShell(installer),
     `$expectedFiles = @(${expectedFiles.map(psSingleQuote).join(", ")})`,
     "if ($expectedFiles.Count -gt 0) {",
     "  $missing = $false",
@@ -2426,8 +2473,85 @@ function buildSteamCmdInstallerArgs(installer = {}, installDirOverride = null) {
   return args;
 }
 
+// Additional archive paths end up inside tar/unzip shell commands, so they must
+// stay relative to the instance directory. Mirrors the reject-".." discipline in
+// src/shared/agentRuntimePayload.js: absolute paths, ".." fragments and drive or
+// scheme separators are refused before any script is generated.
+function hasUnsafeInstancePathSegments(value) {
+  const normalized = String(value || "").replace(/\\/g, "/");
+  return normalized.startsWith("/") || normalized.includes("..") || normalized.includes(":");
+}
+
+// The top-level installer.extractDir becomes the tar/unzip extraction target
+// and the PowerShell Expand-Archive destination, so it must satisfy the same
+// containment rule as additionalArchives entries before any script is built.
+function assertSafeInstallerExtractDir(extractDir) {
+  if (hasUnsafeInstancePathSegments(extractDir)) {
+    throw createMarketplaceError("Installer extractDir must not use absolute paths or \"..\" segments.", "INVALID_TEMPLATE_CATALOG", { extractDir });
+  }
+}
+
+// The top-level installer.archive is interpolated as the tar/unzip source argument
+// and as the PowerShell Expand-Archive -Path, so a ".." or absolute value would read
+// outside the instance directory. Same containment rule as additionalArchives entries.
+function assertSafeInstallerArchive(archive) {
+  if (hasUnsafeInstancePathSegments(archive)) {
+    throw createMarketplaceError("Installer archive must not use absolute paths or \"..\" segments.", "INVALID_TEMPLATE_CATALOG", { archive });
+  }
+}
+
+function normalizeAdditionalArchives(installer = {}) {
+  const entries = Array.isArray(installer.additionalArchives) ? installer.additionalArchives : [];
+  return entries.map((entry) => {
+    if (hasUnsafeInstancePathSegments(entry?.archive) || hasUnsafeInstancePathSegments(entry?.extractDir)) {
+      throw createMarketplaceError("Additional archive entries must not use absolute paths or \"..\" segments.", "INVALID_TEMPLATE_CATALOG", { entry });
+    }
+    const archive = normalizeInstanceFilePath(entry?.archive || "");
+    const extractDir = normalizeInstanceFilePath(entry?.extractDir || "");
+    const stripComponents = Number.isInteger(entry?.stripComponents) ? entry.stripComponents : 0;
+    if (!archive || !extractDir || stripComponents < 0) {
+      throw createMarketplaceError("Additional archive entries require archive, extractDir and a non-negative stripComponents.", "INVALID_TEMPLATE_CATALOG", { entry });
+    }
+    return { archive, extractDir, stripComponents };
+  });
+}
+
+function buildAdditionalArchiveExtractionShell(installer) {
+  const lines = [];
+  for (const entry of normalizeAdditionalArchives(installer)) {
+    const tarFlags = /\.tar\.xz$/i.test(entry.archive) ? "-xJf"
+      : /\.tar\.gz$|\.tgz$/i.test(entry.archive) ? "-xzf"
+        : /\.tar$/i.test(entry.archive) ? "-xf"
+          : "";
+    lines.push(`# Additional archive: ${entry.archive} -> ${entry.extractDir}`);
+    lines.push(`mkdir -p ${shellQuote(entry.extractDir)}`);
+    if (tarFlags) {
+      lines.push("if ! command -v tar >/dev/null 2>&1; then");
+      lines.push(`  echo ${shellQuote(`tar is required to extract ${entry.archive}.`)} >&2`);
+      lines.push("  exit 127");
+      lines.push("fi");
+      lines.push(`tar ${tarFlags} ${shellQuote(entry.archive)} -C ${shellQuote(entry.extractDir)}${entry.stripComponents > 0 ? ` --strip-components=${entry.stripComponents}` : ""}`);
+    } else if (/\.zip$/i.test(entry.archive)) {
+      if (entry.stripComponents > 0) {
+        throw createMarketplaceError("Zip additional archives do not support stripComponents.", "INVALID_TEMPLATE_CATALOG", { archive: entry.archive });
+      }
+      lines.push("if ! command -v unzip >/dev/null 2>&1; then");
+      lines.push(`  echo ${shellQuote(`unzip is required to extract ${entry.archive}.`)} >&2`);
+      lines.push("  exit 127");
+      lines.push("fi");
+      lines.push(`unzip -o ${shellQuote(entry.archive)} -d ${shellQuote(entry.extractDir)}`);
+    } else {
+      throw createMarketplaceError("Additional archive type is not supported.", "INVALID_TEMPLATE_CATALOG", { archive: entry.archive });
+    }
+  }
+  return lines;
+}
+
 function buildArchiveInstallerScript(installer) {
-  const archivePath = installer.archive || getPrimaryArtifactPath(installer.template || {}, {});
+  const archive = installer.archive || getPrimaryArtifactPath(installer.template || {}, {});
+  assertSafeInstallerArchive(archive);
+  const archivePath = normalizeInstanceFilePath(archive);
+  assertSafeInstallerExtractDir(installer.extractDir);
   const extractDir = installer.extractDir || "server";
   const stripComponents = Number.isInteger(installer.stripComponents) ? installer.stripComponents : 0;
   const tarFlags = String(archivePath).endsWith(".tar.xz") ? "-xJf" : String(archivePath).endsWith(".tar.gz") || String(archivePath).endsWith(".tgz") ? "-xzf" : "";
@@ -2494,6 +2618,7 @@ function buildArchiveInstallerScript(installer) {
       `EXTRACT_DIR=${shellQuote(extractDir)}`,
       "mkdir -p \"$EXTRACT_DIR\"",
       `tar ${tarFlags} ${shellQuote(archivePath)} -C "$EXTRACT_DIR"${stripComponents > 0 ? ` --strip-components=${stripComponents}` : ""}`,
+      ...buildAdditionalArchiveExtractionShell(installer),
       ...singleRootNormalization,
       "",
     ].join("\n");
@@ -2508,9 +2633,10 @@ function buildArchiveInstallerScript(installer) {
     "fi",
     `EXTRACT_DIR=${shellQuote(extractDir)}`,
     "mkdir -p \"$EXTRACT_DIR\"",
-    `unzip -o ${shellQuote(archivePath)} -d "$EXTRACT_DIR"`,
-    ...nestedArchiveExtraction,
-    ...singleRootNormalization,
+      `unzip -o ${shellQuote(archivePath)} -d "$EXTRACT_DIR"`,
+      ...nestedArchiveExtraction,
+      ...buildAdditionalArchiveExtractionShell(installer),
+      ...singleRootNormalization,
     "",
   ].join("\n");
 }
@@ -2531,7 +2657,7 @@ function buildTemplateInstallerScript(template) {
   if (installer.type === "archive") {
     return buildArchiveInstallerScript({
       ...installer,
-      archive: normalizeInstanceFilePath(installer.archive || getPrimaryArtifactPath(template)),
+      archive: installer.archive,
       template,
     });
   }
@@ -3403,7 +3529,7 @@ async function runTemplateInstaller(template, options, instanceId, progress, age
     const script = windowsArchiveInstaller
       ? buildWindowsArchiveInstallerScript({
         ...template.installer,
-        archive: normalizeInstanceFilePath(template.installer.archive || getPrimaryArtifactPath(template)),
+        archive: template.installer.archive,
         template,
       })
       : buildTemplateInstallerScript(template);
@@ -4345,6 +4471,8 @@ module.exports = {
     buildSteamCmdInstallerArgs,
     buildResolvedVersionMetadata,
     buildTemplateInstallerScript,
+    buildArchiveInstallerScript,
+    buildWindowsArchiveInstallerScript,
     categorizeMinecraftVersion,
     compareMinecraftVersions,
     assertInstallerResult,

@@ -222,3 +222,49 @@ Running log of release-hardening fixes.
 - `ui-polish-smoke.js` now normalizes CRLF to LF when loading source files, so
   its exact string assertions pass on Windows checkouts instead of failing on
   whitespace only.
+
+## 2026-09-23 — FiveM spawn-resource provisioning and public-endpoint diagnosis
+
+- A FiveM client could connect to the Anxlab FXServer but stalled forever on
+  "Starting game" with an empty F8 console. Root cause: the `fivem` template
+  installed only the FXServer artifact and wrote a `server.cfg` without resource
+  `ensure` lines, so the instance ran zero gameplay resources (client "Required
+  resources" empty, `/info.json` showed only `hardcap`). Nothing can spawn a
+  player without `mapmanager`/`spawnmanager`/gamemode/map.
+- The template now downloads the official `cfx-server-data` pack (new
+  `fivem-server-data` resolver in `src/services/marketplaceService.js`) and
+  extracts it into `server/resources` through a new generic
+  `installer.additionalArchives` mechanism (Linux tar and Windows PowerShell
+  installer scripts, `--strip-components` support, unsupported combinations
+  fail loudly). `verifyFiles` now includes
+  `server/resources/[managers]/spawnmanager/fxmanifest.lua`, so a resource-less
+  install can no longer pass verification.
+- Generated configs (`config/marketplace-templates.json`, Windows platform and
+  `getDefaultFiveMServerConfig`) only `ensure` the resources this artifact
+  actually ships: `mapmanager`, `spawnmanager`, `basic-gamemode`. Live
+  validation showed `chat`, `sessionmanager`, `hardcap` and `rconlog` are not
+  ensureable in FXServer `1.0.0.35805` ("Couldn't find resource ...").
+- `evaluateFiveMReadiness` now gates startup on the spawn resources in addition
+  to the license key, returning `RESOURCES_MISSING` with the missing resource
+  list and a reinstall suggested action; `persistFiveMReadiness` surfaces
+  `FIVEM_RESOURCES_REQUIRED` and the renderer shows the message instead of
+  opening the license dialog for that cause.
+- On the Anxlab node the instance was repaired in place (cfx-server-data
+  extracted into `data/server/resources`, ensures appended) and verified: the
+  server reported `Found 19 resources`, started `mapmanager`, `spawnmanager`,
+  `basic-gamemode` and the map; a real FiveM client downloaded the required
+  resources, reached `HS_HOSTED`, spawned in-world (screenshot + client log),
+  and the agent adopted the instance as Running. The shared readiness gate was
+  deployed to the Anxlab checkout and verified there against missing,
+  provisioned and live fixtures.
+- The repeated `citizen-server-impl` server-list errors were diagnosed, not
+  papered over: FXServer serves HTTPS on 30120 (verified HTTP 200 locally), the
+  self-query targets the node's dynamic public IP, and it fails because the
+  LAN/NAT cannot hairpin back to the public address; this is a reachability
+  symptom, separate from the spawn bug. Public reachability from outside the
+  LAN remains unverified from the development network.
+- Coverage: `npm run marketplace:smoke` (template/download/script assertions and
+  the FiveM setup lifecycle now proves `RESOURCES_MISSING` before resources and
+  READY after), `npm run game-server-config:smoke` (readiness across
+  none/partial/full resource sets), plus the runtime, health-summary and
+  config-migration suites.

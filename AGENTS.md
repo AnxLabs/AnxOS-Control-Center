@@ -389,6 +389,33 @@ Use this section to accumulate verified project knowledge over time. Add entries
 - **Resolution:** The example would propagate the failure and display an actionable error state.
 - **Lesson:** Validate both success and failure paths, and never infer backend success from a UI event alone.
 
+### 2026-09-23 — FiveM client hung on "Starting game" (missing spawn resources)
+
+- **Problem:** A FiveM client connected to the Anxlab FXServer and then sat
+  indefinitely on "Starting game" with an empty F8 console, while the server
+  logged repeated public-endpoint server-list query failures.
+- **Cause:** The marketplace FiveM template provisioned only the FXServer
+  artifact and generated a `server.cfg` with no resource `ensure` lines, so the
+  instance had no gameplay resources at all (client "Required resources" was
+  empty and `/info.json` listed only `hardcap`). Without `mapmanager`,
+  `spawnmanager` and a gamemode, the client can never spawn. The server-list
+  errors were a separate NAT-hairpin symptom: the node cannot reach its own
+  dynamic public IP even though its HTTPS endpoint works (verified locally).
+- **Resolution:** The template now downloads the official `cfx-server-data`
+  pack (`fivem-server-data` resolver) and extracts it into `server/resources`
+  via a new generic `installer.additionalArchives` step; the generated config
+  ensures `mapmanager`, `spawnmanager` and `basic-gamemode` (validated against
+  the packaged artifact — `chat`/`sessionmanager`/`hardcap`/`rconlog` are not
+  ensureable in this build); install verification includes a spawn-resource
+  manifest; `evaluateFiveMReadiness` gates startup on the required spawn
+  resources (`RESOURCES_MISSING`); and the renderer no longer opens the license
+  dialog for that cause.
+- **Lesson:** "Process running" and "license configured" are not "playable".
+  Instance readiness must verify the resources required for the player
+  lifecycle (install verification plus a pre-start gate), and log-only
+  symptoms such as server-list or NAT errors must be classified separately from
+  spawn blockers.
+
 ## Future Improvements
 
 Keep optional ideas separate from active work. An item in this list is not authorization to implement it.

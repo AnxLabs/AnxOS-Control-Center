@@ -190,6 +190,29 @@ async function testFiveM(root) {
   assert.match(text, /sv_licenseKey "cfxk_test_secret_123456"/);
   assert.match(text, /set onesync on/);
   assert.doesNotMatch(JSON.stringify(saved), /cfxk_test_secret_123456/);
+
+  const defaultConfig = instanceService.getDefaultFiveMServerConfig({ id, displayName: "FiveM Config Smoke", ports: [30120] });
+  assert.match(defaultConfig, /ensure mapmanager/);
+  assert.match(defaultConfig, /ensure spawnmanager/);
+  assert.match(defaultConfig, /ensure basic-gamemode/);
+  assert.match(defaultConfig, /sv_licenseKey "CHANGE_ME_FIVEM_LICENSE_KEY"/);
+
+  const missingResources = await instanceService.evaluateFiveMReadiness(await instanceService.getStatus(id));
+  assert.strictEqual(missingResources.reasonCode, "RESOURCES_MISSING", "FiveM instance without resources must not report ready.");
+  assert.deepStrictEqual(missingResources.spawnResources?.missing, ["mapmanager", "spawnmanager"], "Both spawn resources should be listed as missing.");
+
+  const mapResourceDir = path.join(root, id, "data", "server", "resources", "[managers]", "mapmanager");
+  await fs.mkdir(mapResourceDir, { recursive: true });
+  await fs.writeFile(path.join(mapResourceDir, "fxmanifest.lua"), "fx_version 'cerulean'\n", "utf8");
+  const partialResources = await instanceService.evaluateFiveMReadiness(await instanceService.getStatus(id));
+  assert.strictEqual(partialResources.reasonCode, "RESOURCES_MISSING", "A partially provisioned FiveM instance must not report ready.");
+  assert.deepStrictEqual(partialResources.spawnResources?.missing, ["spawnmanager"], "Only the still-missing resource should be reported.");
+
+  const spawnResourceDir = path.join(root, id, "data", "server", "resources", "[managers]", "spawnmanager");
+  await fs.mkdir(spawnResourceDir, { recursive: true });
+  await fs.writeFile(path.join(spawnResourceDir, "fxmanifest.lua"), "fx_version 'cerulean'\n", "utf8");
+  const readyResources = await instanceService.evaluateFiveMReadiness(await instanceService.getStatus(id));
+  assert.strictEqual(readyResources.reasonCode, "READY", "FiveM readiness should be ready once spawn resources exist.");
 }
 
 async function testUnsupportedAndTraversal(root) {

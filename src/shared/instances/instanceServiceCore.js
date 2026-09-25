@@ -98,6 +98,13 @@ const FIVEM_LICENSE_PLACEHOLDERS = new Set([
   "XXXX",
 ]);
 const FIVEM_LICENSE_FAILURE_PATTERN = /Invalid key format specified|Could not authenticate server license key|HTTP 429/i;
+const FIVEM_RESOURCES_RELATIVE_PATH = "server/resources";
+// Spawn-critical resources from the official cfx-server-data pack: without both
+// on disk a FiveM client connects, loads the map, and waits forever for a spawn
+// that never arrives ("Starting game" hang).
+const FIVEM_REQUIRED_SPAWN_RESOURCES = Object.freeze(["mapmanager", "spawnmanager"]);
+const FIVEM_RESOURCE_MANIFEST_FILES = Object.freeze(["fxmanifest.lua", "__resource.lua"]);
+const FIVEM_RESOURCE_SCAN_MAX_DEPTH = 3;
 const DEFAULT_EXECUTABLE_ROOTS = [
   "/bin",
   "/usr/bin",
@@ -459,6 +466,17 @@ function parseSteamCmdUpdateProgress(output = "", previous = {}) {
   };
 }
 
+function parseSteamCmdDownloadedBytes(output = "") {
+  const text = String(output || "");
+  const pattern = /update state\s*\(0x61\)[^\n]*?progress:\s*[\d.]+%?\s*\(\s*(\d+)\s*\/\s*(\d+)\s*\)/gi;
+  let downloaded = 0;
+  let match;
+  while ((match = pattern.exec(text)) !== null) {
+    downloaded = Math.max(downloaded, Number(match[1]) || 0);
+  }
+  return downloaded;
+}
+
 function recordSteamCmdUpdateOutput(session, stream, chunk) {
   if (!session?.updateState) return;
   const text = String(chunk || "");
@@ -542,7 +560,11 @@ async function executeSteamCmdUpdate(instanceId, request = {}) {
   const installDir = String(config.steamInstallDir || "server").trim();
   if (!/^[A-Za-z0-9][A-Za-z0-9._/-]{0,120}$/.test(installDir) || path.isAbsolute(installDir) || installDir.includes("..")) throw createInstanceError("PATH_NOT_ALLOWED", 403);
   const workingDirectory = resolveRelativeManagedPath(config.id, "data", "data");
-  const args = ["+force_install_dir", installDir, "+login", "anonymous", "+app_update", String(config.steamAppId), "validate", "+quit"];
+  // SteamCMD resolves a relative +force_install_dir against its own root, not
+  // the spawn cwd, so the instance install path must be absolute or the update
+  // downloads into a stray directory while the live install stays stale.
+  const installDirectory = resolveInstanceDataPath(config.id, installDir).path;
+  const args = ["+force_install_dir", installDirectory, "+login", "anonymous", "+app_update", String(config.steamAppId), "validate", "+quit"];
   const manifestRelative = `${installDir}/steamapps/appmanifest_${config.steamAppId}.acf`;
   const manifestPath = resolveRelativeManagedPath(config.id, `data/${manifestRelative}`, "data");
   const readBuildId = async () => {
@@ -570,8 +592,9 @@ async function executeSteamCmdUpdate(instanceId, request = {}) {
   }).finally(() => { session.child = null; session.cancel = null; });
   const buildIdAfter = await readBuildId();
   const output = `${stdout}\n${stderr}`;
+  const downloadedBytes = parseSteamCmdDownloadedBytes(output);
   const successMarker = new RegExp(`Success!\\s+App\\s+['"]?${config.steamAppId}['"]?\\s+fully installed`, "i").test(output);
-  const details = { operationId: session.operationId, appId: config.steamAppId, args, exitCode: result.exitCode, signal: result.signal || null, timeoutMs, durationMs: Date.now() - startedAt, stdout, stderr, manifest: manifestRelative, buildIdBefore, buildIdAfter, successMarker };
+  const details = { operationId: session.operationId, appId: config.steamAppId, args, installDirectory, exitCode: result.exitCode, signal: result.signal || null, timeoutMs, durationMs: Date.now() - startedAt, stdout, stderr, manifest: manifestRelative, buildIdBefore, buildIdAfter, downloadedBytes, successMarker };
   if (cancelled) throw createInstanceError("STEAMCMD_UPDATE_CANCELLED", 409, details);
   if (timedOut) throw createInstanceError("STEAMCMD_UPDATE_TIMEOUT", 504, details);
   if (result.exitCode !== 0) throw createInstanceError(classifySteamCmdFailure(output), 422, details);
@@ -581,6 +604,11 @@ async function executeSteamCmdUpdate(instanceId, request = {}) {
   for (const relative of verifyFiles) {
     const target = resolveRelativeManagedPath(config.id, `data/${relative}`, "data");
     if (!await pathExists(target)) throw createInstanceError("STEAMCMD_UPDATE_ARTIFACTS_MISSING", 422, { ...details, missing: relative });
+  }
+  // A download that leaves the instance manifest untouched means SteamCMD
+  // wrote elsewhere; report the update as not applied instead of success.
+  if (downloadedBytes > 0 && buildIdBefore !== null && buildIdAfter === buildIdBefore) {
+    throw createInstanceError("STEAMCMD_UPDATE_NOT_APPLIED", 422, details);
   }
   await saveInstanceConfig({
     ...config,
@@ -1906,6 +1934,13 @@ function getDefaultFiveMServerConfig(config = {}) {
     'sets sv_projectDesc "Managed by AnxOS"',
     "sv_maxclients 32",
     'sv_licenseKey "CHANGE_ME_FIVEM_LICENSE_KEY"',
+    "# Default Cfx.re resources provisioned from cfx-server-data during install.",
+    "# Only resources bundled with the FXServer artifact are ensured: chat,",
+    "# sessionmanager, hardcap and rconlog are not ensureable in the packaged",
+    "# FXServer build and would log \"Couldn't find resource\" on every start.",
+    "ensure mapmanager",
+    "ensure spawnmanager",
+    "ensure basic-gamemode",
     "",
   ].join("\n");
 }
@@ -1935,6 +1970,50 @@ function isValidFiveMLicenseKey(value) {
   return /^[A-Za-z0-9]{32}$/.test(key) || /^cfxk_[A-Za-z0-9_-]+$/.test(key);
 }
 
+async function findFiveMResourceDirectory(resourcesRoot, resourceName, depth = 0) {
+  if (depth > FIVEM_RESOURCE_SCAN_MAX_DEPTH) {
+    return null;
+  }
+  let entries = [];
+  try {
+    entries = await fs.readdir(resourcesRoot, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    if (entry.name === resourceName) return path.join(resourcesRoot, entry.name);
+    const nested = await findFiveMResourceDirectory(path.join(resourcesRoot, entry.name), resourceName, depth + 1);
+    if (nested) return nested;
+  }
+  return null;
+}
+
+async function inspectFiveMSpawnResources(config) {
+  const resourcesRoot = path.join(path.dirname(getFiveMConfigPath(config.id)), "resources");
+  const missing = [];
+  for (const resourceName of FIVEM_REQUIRED_SPAWN_RESOURCES) {
+    const resourceDir = await findFiveMResourceDirectory(resourcesRoot, resourceName);
+    let hasManifest = false;
+    if (resourceDir) {
+      for (const manifestName of FIVEM_RESOURCE_MANIFEST_FILES) {
+        if (await pathExists(path.join(resourceDir, manifestName))) {
+          hasManifest = true;
+          break;
+        }
+      }
+    }
+    if (!hasManifest) missing.push(resourceName);
+  }
+  return {
+    ready: missing.length === 0,
+    path: FIVEM_RESOURCES_RELATIVE_PATH,
+    required: [...FIVEM_REQUIRED_SPAWN_RESOURCES],
+    missing,
+    checkedAt: nowIso(),
+  };
+}
+
 function buildFiveMReadiness(reasonCode, config = {}, extra = {}) {
   const ready = reasonCode === "READY";
   const messages = {
@@ -1944,17 +2023,24 @@ function buildFiveMReadiness(reasonCode, config = {}, extra = {}) {
     LICENSE_MISSING: "FiveM setup requires a license key before startup.",
     LICENSE_PLACEHOLDER: "FiveM setup requires replacing the placeholder license key.",
     LICENSE_INVALID: "FiveM setup requires a valid Cfx.re license key.",
+    RESOURCES_MISSING: "FiveM server resources are missing; players cannot spawn without mapmanager and spawnmanager.",
   };
+  const suggestedActions = {
+    CONFIG_MISSING: "Restore or redeploy server.cfg, then add a Cfx.re license key.",
+    LICENSE_MISSING: "Open Configure FiveM and paste a license key from the official Cfx.re Keymaster service.",
+    LICENSE_PLACEHOLDER: "Open Configure FiveM and replace the placeholder with a license key from the official Cfx.re Keymaster service.",
+    LICENSE_INVALID: "Open Configure FiveM and paste a valid Cfx.re license key (cfxk_-prefixed or 32-character).",
+    RESOURCES_MISSING: "Reinstall this FiveM instance so the official cfx-server-data resources (mapmanager, spawnmanager) are provisioned.",
+  };
+  const licenseRequired = reasonCode === "CONFIG_MISSING" || reasonCode.startsWith("LICENSE_");
   return {
     ready,
     setupRequired: !ready && reasonCode !== "NOT_FIVEM",
     reasonCode,
     message: messages[reasonCode] || messages.LICENSE_MISSING,
-    requiredField: ready || reasonCode === "NOT_FIVEM" ? null : "sv_licenseKey",
+    requiredField: ready || reasonCode === "NOT_FIVEM" ? null : licenseRequired ? "sv_licenseKey" : null,
     configPath: FIVEM_CONFIG_RELATIVE_PATH,
-    suggestedAction: ready || reasonCode === "NOT_FIVEM"
-      ? null
-      : "Open Configure FiveM and paste a license key from the official Cfx.re Keymaster service.",
+    suggestedAction: ready || reasonCode === "NOT_FIVEM" ? null : suggestedActions[reasonCode] || suggestedActions.LICENSE_MISSING,
     hasConfiguredLicenseKey: ready,
     checkedAt: nowIso(),
     templateId: config.templateId || null,
@@ -1991,7 +2077,15 @@ async function evaluateFiveMReadiness(config) {
     return buildFiveMReadiness("CONFIG_MISSING", config);
   }
   const configText = await readFiveMConfigText(config);
-  return buildFiveMReadiness(getFiveMLicenseReason(configText), config);
+  const licenseReason = getFiveMLicenseReason(configText);
+  if (licenseReason !== "READY") {
+    return buildFiveMReadiness(licenseReason, config);
+  }
+  const spawnResources = await inspectFiveMSpawnResources(config);
+  if (!spawnResources.ready) {
+    return buildFiveMReadiness("RESOURCES_MISSING", config, { spawnResources });
+  }
+  return buildFiveMReadiness("READY", config, { spawnResources });
 }
 
 async function persistFiveMReadiness(config, readiness) {
@@ -2008,12 +2102,12 @@ async function persistFiveMReadiness(config, readiness) {
     ? {
       setupRequired: null,
       setupReadiness: readiness,
-      failureReason: config.failureReason === "FIVEM_LICENSE_REQUIRED" || config.failureReason === "FIVEM_SETUP_REQUIRED" ? null : config.failureReason,
+      failureReason: ["FIVEM_LICENSE_REQUIRED", "FIVEM_SETUP_REQUIRED", "FIVEM_RESOURCES_REQUIRED"].includes(config.failureReason) ? null : config.failureReason,
       state: config.state === INSTANCE_STATES.SETUP_REQUIRED ? INSTANCE_STATES.STOPPED : config.state,
     }
     : {
       setupRequired: {
-        code: "FIVEM_LICENSE_REQUIRED",
+        code: readiness.reasonCode === "RESOURCES_MISSING" ? "FIVEM_RESOURCES_REQUIRED" : "FIVEM_LICENSE_REQUIRED",
         reasonCode: readiness.reasonCode,
         message: readiness.message,
         requiredField: readiness.requiredField,
@@ -6651,6 +6745,7 @@ module.exports = {
   INSTANCE_STATES,
   INSTANCE_CONFIG_SCHEMA_VERSION,
   INSTANCE_TYPES: [...INSTANCE_TYPES],
+  FIVEM_REQUIRED_SPAWN_RESOURCES: [...FIVEM_REQUIRED_SPAWN_RESOURCES],
   createInstance: createInstanceWithJob,
   duplicateInstance,
   deleteInstance,
@@ -6672,6 +6767,7 @@ module.exports = {
   executeInstallationPhase,
   executeSteamCmdUpdate,
   parseSteamCmdUpdateProgress,
+  parseSteamCmdDownloadedBytes,
   classifySteamCmdFailure,
   resolveSteamCmdExecutable,
   instanceFileExists,
@@ -6683,6 +6779,8 @@ module.exports = {
   readMinecraftProperties,
   repairNeoForgeRuntime,
   refreshFiveMReadiness,
+  evaluateFiveMReadiness,
+  getDefaultFiveMServerConfig,
   renameInstance,
   renameInstanceFile,
   restartInstance: restartInstanceWithJob,

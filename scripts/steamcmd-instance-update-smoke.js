@@ -3,6 +3,7 @@ const fs = require("fs");
 const {
   classifySteamCmdFailure,
   parseSteamCmdUpdateProgress,
+  parseSteamCmdDownloadedBytes,
 } = require("../src/shared/instances/instanceServiceCore");
 const core = fs.readFileSync("src/shared/instances/instanceServiceCore.js", "utf8");
 const routes = fs.readFileSync("agent/src/routes/instances.js", "utf8");
@@ -24,6 +25,9 @@ assert(core.includes("STEAMCMD_UPDATE_REQUIRES_STOPPED"));
 assert(core.includes("STEAMCMD_UPDATE_ARTIFACTS_MISSING"));
 assert(core.includes("STEAMCMD_UPDATE_NOT_CONFIRMED"), "SteamCMD exit code alone must not be treated as a successful update.");
 assert(core.includes("STEAMCMD_UPDATE_BUILD_UNVERIFIED"), "SteamCMD updates must verify the installed app manifest build.");
+assert(core.includes("resolveInstanceDataPath(config.id, installDir)"), "SteamCMD force_install_dir must resolve to the instance's absolute data install path.");
+assert(!core.includes('"+force_install_dir", installDir,'), "SteamCMD must never receive a relative install directory.");
+assert(core.includes("STEAMCMD_UPDATE_NOT_APPLIED"), "SteamCMD downloads that leave the instance manifest unchanged must not be reported as applied.");
 assert(core.includes("buildIdBefore") && core.includes("buildIdAfter"), "SteamCMD updates must record before/after build evidence.");
 assert(core.includes("steamBuildId: buildIdAfter"), "Verified Steam build metadata must be persisted.");
 assert(core.includes("if (existing.child) throw createInstanceError(\"STEAMCMD_UPDATE_CONFLICT\""), "Only an actively running installer may block update-session recovery.");
@@ -73,6 +77,22 @@ assert.deepStrictEqual(
   parseSteamCmdUpdateProgress("Success! App '2394010' fully installed."),
   { stage: "success", label: "Finished successfully.", percent: 100 },
 );
+assert.strictEqual(
+  parseSteamCmdDownloadedBytes(" Update state (0x61) downloading, progress: 81.04 (3997029801 / 4932070576)"),
+  3997029801,
+  "Downloaded bytes must be parsed from SteamCMD download progress.",
+);
+assert.strictEqual(
+  parseSteamCmdDownloadedBytes(" Update state (0x81) verifying update, progress: 28.27 (1394322501 / 4932070576)"),
+  0,
+  "Verification progress must not count as downloaded content.",
+);
+assert.strictEqual(
+  parseSteamCmdDownloadedBytes(" Update state (0x61) downloading, progress: 30.00 (300 / 1000)\n Update state (0x61) downloading, progress: 90.00 (900 / 1000)"),
+  900,
+  "The highest downloaded byte count must win.",
+);
+assert.strictEqual(parseSteamCmdDownloadedBytes("Success! App '2394010' fully installed."), 0);
 assert.strictEqual(classifySteamCmdFailure("ERROR! Invalid App ID"), "STEAMCMD_APP_ID_INVALID");
 assert.strictEqual(classifySteamCmdFailure("Could not connect to Steam network"), "STEAMCMD_NETWORK_UNAVAILABLE");
 assert.strictEqual(classifySteamCmdFailure("Account does not own this license"), "STEAMCMD_AUTHORIZATION_FAILED");

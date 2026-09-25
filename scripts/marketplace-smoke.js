@@ -1274,6 +1274,28 @@ function assertFiveMStartupSafety() {
   assert(instanceSource.includes("Invalid key format specified|Could not authenticate server license key|HTTP 429"), "Shared instance service should detect FiveM license/auth log failures.");
   assert(instanceSource.includes("suppressRestart"), "Shared instance service should suppress restart loops for known FiveM license failures.");
   assert(instanceSource.includes("detectFromMinecraftStatus"), "Shared instance service should keep a Minecraft status-query fallback for version detection.");
+  assert(instanceSource.includes("RESOURCES_MISSING"), "Shared instance service should flag FiveM instances that are missing spawn resources.");
+  assert(instanceSource.includes("FIVEM_REQUIRED_SPAWN_RESOURCES"), "Shared instance service should declare the required FiveM spawn resources.");
+  assert(instanceSource.includes("ensure spawnmanager"), "Default FiveM server.cfg should start spawnmanager.");
+
+  assert(configLines.includes("ensure mapmanager"), "FiveM server.cfg should start mapmanager.");
+  assert(configLines.includes("ensure spawnmanager"), "FiveM server.cfg should start spawnmanager.");
+  assert(configLines.includes("ensure basic-gamemode"), "FiveM server.cfg should start the default gamemode.");
+  const serverDataDownload = (fivem.downloads || []).find((download) => download.resolver === "fivem-server-data");
+  assert(serverDataDownload, "FiveM install should download the official cfx-server-data resources.");
+  assert.strictEqual(serverDataDownload.destination, "data/cfx-server-data.tar.gz", "FiveM server data should land at a stable data path.");
+  const resourcesArchive = (fivem.installer?.additionalArchives || []).find((entry) => entry.archive === "cfx-server-data.tar.gz");
+  assert(resourcesArchive, "FiveM installer should extract the server data archive.");
+  assert.strictEqual(resourcesArchive.extractDir, "server/resources", "FiveM resources should extract into server/resources.");
+  assert.strictEqual(resourcesArchive.stripComponents, 2, "FiveM resources archive should strip the repository/root folders.");
+  assert((fivem.installer?.verifyFiles || []).some((file) => file.includes("spawnmanager/fxmanifest.lua")), "FiveM install should verify a spawn resource manifest before finishing.");
+  const generatedScript = marketplaceService._test.buildTemplateInstallerScript(fivem);
+  assert(generatedScript.includes("cfx-server-data.tar.gz"), "Generated FiveM installer script should extract the downloaded server data archive.");
+  assert(generatedScript.includes("server/resources"), "Generated FiveM installer script should target server/resources.");
+  assert(generatedScript.includes("--strip-components=2"), "Generated FiveM installer script should strip the resources archive root.");
+  const windowsInstaller = fivem.platforms?.windows?.installer || {};
+  assert((windowsInstaller.additionalArchives || []).some((entry) => entry.extractDir === "server/resources"), "Windows FiveM install should also provision server resources.");
+  assert((fivem.platforms?.windows?.downloads || []).some((download) => download.resolver === "fivem-server-data"), "Windows FiveM install should download the server data archive.");
   const appSource = fs.readFileSync(appPath, "utf8");
   assert(appSource.includes("Configure FiveM") && appSource.includes("saveFiveMLicenseKey"), "Renderer should expose a guided FiveM setup action.");
 }
@@ -1321,7 +1343,21 @@ async function assertFiveMSetupLifecycle() {
     const listing = await instanceService.listInstanceFiles("fivem-license-smoke", "server");
     assert(listing.entries.some((entry) => entry.name === "server.cfg"), "FiveM server.cfg should remain accessible after setup-required start block.");
     const saveResult = await instanceService.saveFiveMLicenseKey("fivem-license-smoke", "cfxk_valid_smoke_key_12345");
-    assert.strictEqual(saveResult.readiness.ready, true, "Saving a valid FiveM key should make readiness ready.");
+    assert.strictEqual(saveResult.readiness.ready, false, "A valid FiveM license alone must not report ready while spawn resources are missing.");
+    assert.strictEqual(saveResult.readiness.reasonCode, "RESOURCES_MISSING", "FiveM readiness should flag missing spawn resources.");
+    assert.strictEqual(saveResult.readiness.requiredField, null, "Missing FiveM resources should not require another license field.");
+    assert.deepStrictEqual(saveResult.readiness.spawnResources?.missing, ["mapmanager", "spawnmanager"], "FiveM readiness should list every missing spawn resource.");
+    await assert.rejects(
+      () => instanceService.startInstance("fivem-license-smoke"),
+      (error) => error?.code === "FIVEM_SETUP_REQUIRED" && error?.readiness?.reasonCode === "RESOURCES_MISSING"
+    );
+    const resourcesGateStatus = await instanceService.getStatus("fivem-license-smoke");
+    assert.strictEqual(resourcesGateStatus.setupRequired?.code, "FIVEM_RESOURCES_REQUIRED", "FiveM setup state should report the resource cause when resources are missing.");
+    await instanceService.writeInstanceFile("fivem-license-smoke", "server/resources/[managers]/mapmanager/fxmanifest.lua", "fx_version 'cerulean'\ngame 'gta5'\n");
+    await instanceService.writeInstanceFile("fivem-license-smoke", "server/resources/[managers]/spawnmanager/fxmanifest.lua", "fx_version 'cerulean'\ngame 'gta5'\n");
+    const provisionedResult = await instanceService.saveFiveMLicenseKey("fivem-license-smoke", "cfxk_valid_smoke_key_12345");
+    assert.strictEqual(provisionedResult.readiness.ready, true, "FiveM readiness should be ready once spawn resources are present.");
+    assert.deepStrictEqual(provisionedResult.readiness.spawnResources?.missing, [], "FiveM readiness should report no missing resources once provisioned.");
     const updated = await instanceService.readInstanceFile("fivem-license-smoke", "server/server.cfg");
     assert(updated.content.includes('endpoint_add_udp "0.0.0.0:30120"'), "Saving FiveM key should preserve unrelated server.cfg content.");
     assert(updated.content.includes('# sv_licenseKey "commented-out-key"'), "Saving FiveM key should preserve commented license examples.");
@@ -1454,6 +1490,15 @@ async function assertFailedMarketplaceInstallRetainsInstanceAndRetriesReuse() {
           headers: { get: () => null },
           text: async () => "",
           arrayBuffer: async () => Buffer.from("fx-archive-data").buffer,
+        };
+      }
+      if (href === "https://codeload.github.com/citizenfx/cfx-server-data/tar.gz/refs/heads/master") {
+        return {
+          ok: true,
+          status: 200,
+          headers: { get: () => null },
+          text: async () => "",
+          arrayBuffer: async () => Buffer.from("cfx-server-data-archive").buffer,
         };
       }
       throw new Error(`Unexpected mocked fetch URL: ${href}`);
@@ -2386,6 +2431,9 @@ async function assertSharedTemplateInstallFlowMatrix() {
       if (href === "https://mock.local/tshock.zip" || href === "https://mock.local/velocity.jar" || href === "https://mock.local/mojang/server.jar" || href.includes("runtime.fivem.net/artifacts/fivem/build_proot_linux/master/12345-fx/fx.tar.xz")) {
         return binaryResponse(`asset:${href}`);
       }
+      if (href === "https://codeload.github.com/citizenfx/cfx-server-data/tar.gz/refs/heads/master") {
+        return binaryResponse("cfx-server-data-archive");
+      }
       throw new Error(`Unexpected template smoke URL: ${href}`);
     };
 
@@ -2442,6 +2490,7 @@ async function assertSharedTemplateInstallFlowMatrix() {
       if (Array.isArray(instance.args) && instance.args.includes("runtime/marketplace-install.sh")) {
         files.set(`${instanceId}:server/TShock.Server`, "tshock");
         files.set(`${instanceId}:server/run.sh`, "#!/usr/bin/env bash\n");
+        files.set(`${instanceId}:server/resources/[managers]/spawnmanager/fxmanifest.lua`, "fx_version 'cerulean'\n");
       }
       instances.set(instanceId, { ...instance, state: "Running", pid: 1234 });
       return { instance: instances.get(instanceId) };

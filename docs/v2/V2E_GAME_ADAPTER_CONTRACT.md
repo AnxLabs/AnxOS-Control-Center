@@ -113,13 +113,15 @@ declared adapter capabilities (divergences **D-1**, **D-2**).
 
 **Gate.** `readiness.gate` means readiness can *block startup*, not merely
 report. Exactly one shipped adapter has this: FiveM. Its gate is
-`evaluateFiveMReadiness` (`src/shared/instances/instanceServiceCore.js:1980-1992`),
+`evaluateFiveMReadiness` (`src/shared/instances/instanceServiceCore.js:2071-2090`),
 which returns `setupRequired: true` with `reasonCode` in
-`CONFIG_MISSING | LICENSE_MISSING | LICENSE_PLACEHOLDER | LICENSE_INVALID`
-(`:1934-1959`), and the license must match 32 alphanumerics or a `cfxk_` prefix
-(`:1926-1932`). The gate is re-evaluated and persisted on demand (`:1993-2027`,
-`:2029-2060`) and a runtime license failure is also classified from output
-(`:96`, `:5082-5088`, `:5131-5137`).
+`CONFIG_MISSING | LICENSE_MISSING | LICENSE_PLACEHOLDER | LICENSE_INVALID |
+RESOURCES_MISSING` (`:2018-2050`), the license must match 32 alphanumerics or a
+`cfxk_` prefix (`:1966-1972`), and both spawn resources `mapmanager` and
+`spawnmanager` must exist on disk under `server/resources` (`:105-107`,
+`:1993-2016`). The gate is re-evaluated and persisted on demand (`:2092-2126`,
+`:2128-2159`) and a runtime license failure is also classified from output
+(`:100`, `:5224`, `:5273`).
 
 ## 4. Version resolution and pinning rules
 
@@ -137,10 +139,12 @@ defaults `"latest"` to `manifest.latest.release` (`:2169-2202`).
 
 1. **Only SteamCMD adapters pin.** A SteamCMD adapter persists `steamAppId` and
    the resolved `steamInstallDir` (`src/services/marketplaceService.js:2708-2714`)
-   and, after an update, `steamBuildId` (`src/shared/instances/instanceServiceCore.js:581-586`).
+   and, after an update, `steamBuildId` (`src/shared/instances/instanceServiceCore.js:605-611`).
    The update compares `buildIdBefore` against `buildIdAfter` and reports
-   `buildChanged` (`:552,567,587`), and verifies `Success! App <id> fully
-   installed` plus the app manifest before declaring success (`:569,575`).
+   `buildChanged` (`:571,586,612`), and verifies `Success! App <id> fully
+   installed` plus the app manifest before declaring success (`:589,595`). A
+   successful download that leaves the manifest build unchanged is rejected as
+   `STEAMCMD_UPDATE_NOT_APPLIED` (`:602-604`).
 2. **Minecraft persists a version identity but never compares it.** The
    requested version is persisted at install (`src/services/marketplaceService.js:2685-2707`)
    and `minecraftVersion` is stored on the instance
@@ -214,7 +218,7 @@ the code — or the reverse — fails the smoke.
 | lifecycle.logs | YES | `src/shared/instances/instanceServiceCore.js:5865` |
 | lifecycle.metrics | YES | `src/shared/instances/instanceServiceCore.js:6452` |
 | readiness.signal | YES | shared log pattern `src/shared/instances/instanceServiceCore.js:5089` plus port probe `:5303-5345` |
-| readiness.gate | NO | no pre-start gate; `evaluateFiveMReadiness` returns `NOT_FIVEM` for this family (`:1938,1980-1992`) |
+| readiness.gate | NO | no pre-start gate; `evaluateFiveMReadiness` returns `NOT_FIVEM` for this family (`:2071-2073,2071-2090`) |
 | readiness.gameSpecific | NO | no family branch in the readiness path for Minecraft |
 | version.resolveAtInstall | YES | template `configurationSchema` includes `version`; `src/services/marketplaceService.js:1900,2171` honour `options.version`; persisted `:3499-3534` |
 | version.detect | YES | `src/shared/instances/instanceServiceCore.js:3375-3435` |
@@ -241,13 +245,13 @@ the code — or the reverse — fails the smoke.
 | lifecycle.logs | YES | `src/shared/instances/instanceServiceCore.js:5865` |
 | lifecycle.metrics | YES | `src/shared/instances/instanceServiceCore.js:6452` |
 | readiness.signal | YES | shared log pattern `:5089` plus port probe `:5303-5345` |
-| readiness.gate | NO | `evaluateFiveMReadiness` returns `NOT_FIVEM` (`:1938`) |
+| readiness.gate | NO | `evaluateFiveMReadiness` returns `NOT_FIVEM` (`:2071-2073`) |
 | readiness.gameSpecific | YES | startup-timeout suppression `:5291` and benign stderr classification `:3733-3761`, used at `:5110-5123` |
 | version.resolveAtInstall | NO | SteamCMD templates resolve no version; `resolveDownloadUrl` falls through to the URL template for them (`src/services/marketplaceService.js:2245`) |
 | version.detect | YES | app manifest `buildid` (`src/services/marketplaceService.js:3544-3575`) |
 | version.detectFromArtifact | YES | the app manifest belongs to the installed artifact (`steamapps/appmanifest_2394010.acf`) |
-| version.pin | YES | `steamAppId` and `steamBuildId` persisted and compared (`src/shared/instances/instanceServiceCore.js:581-586`, `:552,567,587`) |
-| update.inPlace | YES | `executeSteamCmdUpdate` (`src/shared/instances/instanceServiceCore.js:528-588`) |
+| version.pin | YES | `steamAppId` and `steamBuildId` persisted and compared (`src/shared/instances/instanceServiceCore.js:605-611`, `:571,586,612`) |
+| update.inPlace | YES | `executeSteamCmdUpdate` (`src/shared/instances/instanceServiceCore.js:543-612`) |
 | update.rollback | NO | a failed update is reported with `buildIdBefore` but no build is restored |
 | backup.worldScope | YES | `src/shared/instances/instanceServiceCore.js:6199-6207` |
 
@@ -255,8 +259,8 @@ the code — or the reverse — fails the smoke.
 
 | Capability | Status | Evidence (code path) |
 | --- | --- | --- |
-| install.provision | YES | `config/marketplace-templates.json` `fivem` installerType `archive-download`, resolver `fivem-linux` |
-| install.artifactVerify | YES | `installer.verifyFiles` `server/run.sh` and `server/FXServer.exe` |
+| install.provision | YES | `config/marketplace-templates.json` `fivem` installerType `archive-download`, resolver `fivem-linux`, plus the official `cfx-server-data` pack (resolver `fivem-server-data`, `src/services/marketplaceService.js:2169`) extracted into `server/resources` via `installer.additionalArchives` (`:2474-2530`) |
+| install.artifactVerify | YES | `installer.verifyFiles` `server/run.sh`, `server/FXServer.exe` and `server/resources/[managers]/spawnmanager/fxmanifest.lua` |
 | install.sessionPhases | NO | archive installs run a generated script, not the installation-session protocol (`src/services/marketplaceService.js:2518-2544`) |
 | config.adapter | YES | `src/shared/gameServerConfigManager.js:239-246` |
 | config.resolvePath | YES | `src/shared/instances/instanceServiceCore.js:6250-6257` (`server/server.cfg`, write-guarded) |
@@ -268,8 +272,8 @@ the code — or the reverse — fails the smoke.
 | lifecycle.logs | YES | `src/shared/instances/instanceServiceCore.js:5865` |
 | lifecycle.metrics | YES | `src/shared/instances/instanceServiceCore.js:6452` |
 | readiness.signal | YES | shared log pattern `:5089` plus port probe `:5303-5345` |
-| readiness.gate | YES | `evaluateFiveMReadiness` (`:1980-1992`), readiness model `:1934-1959`, key rules `:1926-1932`, persistence `:1993-2027`, refresh `:2029-2060` |
-| readiness.gameSpecific | YES | the license gate plus runtime license-failure classification (`:96`, `:5082-5088`, `:5131-5137`) |
+| readiness.gate | YES | `evaluateFiveMReadiness` (`:2071-2090`), readiness model `:2018-2050`, key rules `:1966-1972`, spawn-resource check `:1993-2016`, persistence `:2092-2126`, refresh `:2128-2159` |
+| readiness.gameSpecific | YES | the license gate, the spawn-resource gate and runtime license-failure classification (`:100`, `:5224`, `:5273`) |
 | version.resolveAtInstall | YES | artifact version extracted from the FiveM listing (`src/services/marketplaceService.js:2162-2166`) and persisted (`:3499-3534`) |
 | version.detect | YES | `data/metadata.json` re-read (`src/shared/instances/instanceServiceCore.js:3070-3094`) |
 | version.detectFromArtifact | NO | nothing inspects the extracted FXServer tree; the value is whatever the installer wrote |
@@ -295,7 +299,7 @@ the code — or the reverse — fails the smoke.
 | lifecycle.logs | YES | `src/shared/instances/instanceServiceCore.js:5865` |
 | lifecycle.metrics | YES | `src/shared/instances/instanceServiceCore.js:6452` |
 | readiness.signal | YES | shared log pattern `:5089` plus port probe `:5303-5345` |
-| readiness.gate | NO | `evaluateFiveMReadiness` returns `NOT_FIVEM` (`:1938`) |
+| readiness.gate | NO | `evaluateFiveMReadiness` returns `NOT_FIVEM` (`:2071-2073`) |
 | readiness.gameSpecific | NO | no family branch in the readiness path for Terraria |
 | version.resolveAtInstall | YES | `github-release` returns the release tag name (`src/services/marketplaceService.js:2136-2140`), persisted `:3499-3534` |
 | version.detect | YES | `data/metadata.json` re-read (`src/shared/instances/instanceServiceCore.js:3070-3094`) |
@@ -322,13 +326,13 @@ the code — or the reverse — fails the smoke.
 | lifecycle.logs | YES | `src/shared/instances/instanceServiceCore.js:5865` |
 | lifecycle.metrics | YES | `src/shared/instances/instanceServiceCore.js:6452` |
 | readiness.signal | YES | shared log pattern `:5089` plus port probe `:5303-5345` |
-| readiness.gate | NO | `evaluateFiveMReadiness` returns `NOT_FIVEM` (`:1938`) |
+| readiness.gate | NO | `evaluateFiveMReadiness` returns `NOT_FIVEM` (`:2071-2073`) |
 | readiness.gameSpecific | NO | no family branch in the readiness path for Valheim |
 | version.resolveAtInstall | NO | SteamCMD templates resolve no version (`src/services/marketplaceService.js:2245`) |
 | version.detect | YES | app manifest `buildid` (`src/services/marketplaceService.js:3544-3575`) |
 | version.detectFromArtifact | YES | the app manifest belongs to the installed artifact |
-| version.pin | YES | `steamAppId` and `steamBuildId` persisted and compared (`src/shared/instances/instanceServiceCore.js:581-586`, `:552,567,587`) |
-| update.inPlace | YES | `executeSteamCmdUpdate` (`src/shared/instances/instanceServiceCore.js:528-588`); template metadata migration `:139-144`, `:504-526` |
+| version.pin | YES | `steamAppId` and `steamBuildId` persisted and compared (`src/shared/instances/instanceServiceCore.js:605-611`, `:571,586,612`) |
+| update.inPlace | YES | `executeSteamCmdUpdate` (`src/shared/instances/instanceServiceCore.js:543-612`); template metadata migration `:139-144`, `:519-541` |
 | update.rollback | NO | a failed update is reported but no build is restored |
 | backup.worldScope | NO | `getWorldScopeCandidates` returns `[]` for this family (`src/shared/instances/instanceServiceCore.js:6215`) |
 
@@ -349,13 +353,13 @@ the code — or the reverse — fails the smoke.
 | lifecycle.logs | YES | `src/shared/instances/instanceServiceCore.js:5865` |
 | lifecycle.metrics | YES | `src/shared/instances/instanceServiceCore.js:6452` |
 | readiness.signal | YES | shared log pattern `:5089` plus port probe `:5303-5345` |
-| readiness.gate | NO | `evaluateFiveMReadiness` returns `NOT_FIVEM` (`:1938`) |
+| readiness.gate | NO | `evaluateFiveMReadiness` returns `NOT_FIVEM` (`:2071-2073`) |
 | readiness.gameSpecific | NO | no family branch in the readiness path for Rust |
 | version.resolveAtInstall | NO | SteamCMD templates resolve no version (`src/services/marketplaceService.js:2245`) |
 | version.detect | YES | app manifest `buildid` (`src/services/marketplaceService.js:3544-3575`) |
 | version.detectFromArtifact | YES | the app manifest belongs to the installed artifact |
-| version.pin | YES | `steamAppId` and `steamBuildId` persisted and compared (`src/shared/instances/instanceServiceCore.js:581-586`, `:552,567,587`) |
-| update.inPlace | YES | `executeSteamCmdUpdate` (`src/shared/instances/instanceServiceCore.js:528-588`); template metadata migration `:139-144`, `:504-526` |
+| version.pin | YES | `steamAppId` and `steamBuildId` persisted and compared (`src/shared/instances/instanceServiceCore.js:605-611`, `:571,586,612`) |
+| update.inPlace | YES | `executeSteamCmdUpdate` (`src/shared/instances/instanceServiceCore.js:543-612`); template metadata migration `:139-144`, `:519-541` |
 | update.rollback | NO | a failed update is reported but no build is restored |
 | backup.worldScope | NO | `getWorldScopeCandidates` returns `[]` for this family (`src/shared/instances/instanceServiceCore.js:6215`) |
 
@@ -376,13 +380,13 @@ the code — or the reverse — fails the smoke.
 | lifecycle.logs | YES | `src/shared/instances/instanceServiceCore.js:5865` |
 | lifecycle.metrics | YES | `src/shared/instances/instanceServiceCore.js:6452` |
 | readiness.signal | YES | shared log pattern `:5089` plus port probe `:5303-5345` |
-| readiness.gate | NO | `evaluateFiveMReadiness` returns `NOT_FIVEM` (`:1938`) |
+| readiness.gate | NO | `evaluateFiveMReadiness` returns `NOT_FIVEM` (`:2071-2073`) |
 | readiness.gameSpecific | NO | no family branch in the readiness path for CS2 |
 | version.resolveAtInstall | NO | SteamCMD templates resolve no version (`src/services/marketplaceService.js:2245`) |
 | version.detect | YES | app manifest `buildid` (`src/services/marketplaceService.js:3544-3575`) |
 | version.detectFromArtifact | YES | the app manifest belongs to the installed artifact |
-| version.pin | YES | `steamAppId` and `steamBuildId` persisted and compared (`src/shared/instances/instanceServiceCore.js:581-586`, `:552,567,587`) |
-| update.inPlace | YES | `executeSteamCmdUpdate` (`src/shared/instances/instanceServiceCore.js:528-588`); template metadata migration `:139-144`, `:504-526` |
+| version.pin | YES | `steamAppId` and `steamBuildId` persisted and compared (`src/shared/instances/instanceServiceCore.js:605-611`, `:571,586,612`) |
+| update.inPlace | YES | `executeSteamCmdUpdate` (`src/shared/instances/instanceServiceCore.js:543-612`); template metadata migration `:139-144`, `:519-541` |
 | update.rollback | NO | a failed update is reported but no build is restored |
 | backup.worldScope | NO | `getWorldScopeCandidates` returns `[]` for this family (`src/shared/instances/instanceServiceCore.js:6215`) |
 
@@ -391,25 +395,31 @@ the code — or the reverse — fails the smoke.
 ## 6. The update and rollback story
 
 **One in-place update path exists: SteamCMD.** It is a session-based protocol
-(`beginSteamCmdUpdateSession` `src/shared/instances/instanceServiceCore.js:379-421`,
-`executeSteamCmdUpdate` `:528-588`), exposed as agent routes
+(`beginSteamCmdUpdateSession` `src/shared/instances/instanceServiceCore.js:383-425`,
+`executeSteamCmdUpdate` `:543-612`), exposed as agent routes
 `/steamcmd/update/session`, `/status`, `/migrate`, `/update`
 (`agent/src/routes/instances.js:407-425`). Its rules:
 
 - The instance must be `Stopped` or `Failed` and have no live process, else
-  `STEAMCMD_UPDATE_REQUIRES_STOPPED` (`:389-394`, `:531-534`).
+  `STEAMCMD_UPDATE_REQUIRES_STOPPED` (`:393-398`, `:545-549`).
 - The instance must carry `installerType: "steamcmd-native"` and an integer
-  `steamAppId`, else `STEAMCMD_UPDATE_UNSUPPORTED` (`:381-383`, `:530`).
-- The update runs `+force_install_dir <dir> +login anonymous +app_update <id> validate +quit`
-  (`:541`) with the install directory validated against traversal (`:539`).
+  `steamAppId`, else `STEAMCMD_UPDATE_UNSUPPORTED` (`:385-386`, `:545`).
+- The update runs `+force_install_dir <absolute data install dir> +login anonymous
+  +app_update <id> validate +quit` (`:559-560`) with the install directory
+  validated against traversal (`:554`) and resolved to an absolute path under
+  `data/`: SteamCMD resolves a relative `+force_install_dir` against its own
+  root, not the spawn working directory, so a relative value would install into
+  a stray directory while the instance stays stale.
 - Success requires exit 0, the `Success! App <id> fully installed` marker, a
-  readable app manifest, and every declared verify file present
-  (`:569-580`); failures are classified as `STEAMCMD_APP_ID_INVALID`,
+  readable app manifest, and every declared verify file present (`:594-601`);
+  when SteamCMD reported downloaded bytes, the instance manifest build must also
+  have changed, else the update is rejected as `STEAMCMD_UPDATE_NOT_APPLIED`
+  (`:602-604`). Failures are classified as `STEAMCMD_APP_ID_INVALID`,
   `STEAMCMD_AUTHORIZATION_FAILED`, `STEAMCMD_NETWORK_UNAVAILABLE` or
-  `STEAMCMD_UPDATE_FAILED` (`:496-502`).
+  `STEAMCMD_UPDATE_FAILED` (`:511-517`).
 - Legacy template metadata is migrated to native SteamCMD metadata
-  (`:139-144`, `:504-526`) and refuses with `STEAMCMD_METADATA_MIGRATION_REQUIRED`
-  when the template is unknown (`:508`).
+  (`:139-144`, `:519-541`) and refuses with `STEAMCMD_METADATA_MIGRATION_REQUIRED`
+  when the template is unknown (`:523`).
 
 **Everything else has no update operation.** Minecraft, FiveM and Terraria have
 no adapter-level update: the only update routes are the SteamCMD ones. Updating
@@ -418,7 +428,7 @@ overwrites the artifact; that is a reinstall, not a versioned upgrade, and this
 document does not describe it as one.
 
 **Rollback does not exist for any adapter.** A failed SteamCMD update reports
-`buildIdBefore`/`buildIdAfter` and the manifest path (`:570`) but restores
+`buildIdBefore`/`buildIdAfter` and the manifest path (`:590`) but restores
 nothing. `update.rollback` is `NO` for all seven shipped adapters.
 
 ## 7. Configuration and file-layout expectations
@@ -477,13 +487,13 @@ adapters disagree with each other or with the contract's own rules.
 | Id | Divergence | Evidence |
 | --- | --- | --- |
 | **D-1** | **Readiness is not an adapter capability.** The contract requires `readiness.signal`, but no adapter declares one: every game gets the same log regex and port probe, hardcoded in the core. A game whose readiness never matches that regex and never listens is only ever reported as `timeout`/`degraded`. | `src/shared/instances/instanceServiceCore.js:5089`, `:5303-5345`, `:5286-5300` |
-| **D-2** | **The two game-specific readiness behaviours are family branches, not adapter declarations.** Palworld's timeout suppression and benign-stderr filter, and FiveM's license gate, are selected by `isPalworldRuntimeCandidate`/`isFiveMInstance` — string matching on tags, ids and argv — not by an adapter capability. A new adapter cannot declare either. | `:3708-3718`, `:5291`, `:3733-3761`, `:1877-1888`, `:1980-1992` |
+| **D-2** | **The two game-specific readiness behaviours are family branches, not adapter declarations.** Palworld's timeout suppression and benign-stderr filter, and FiveM's license gate, are selected by `isPalworldRuntimeCandidate`/`isFiveMInstance` — string matching on tags, ids and argv — not by an adapter capability. A new adapter cannot declare either. | `:3708-3718`, `:5291`, `:3733-3761`, `:1909-1924`, `:2071-2090` |
 | **D-3** | **Installation is three unrelated mechanisms.** (a) the core installation-session protocol for forge/neoforge/quilt; (b) the SteamCMD session, which is a separate protocol and cannot run through (a); (c) generated marketplace install scripts for every other installer type. Only (a) and (b) are adapter-facing; (c) lives in the desktop app. | `:126-134`, `:236-267`, `:295-359`, `:379-421`, `src/services/marketplaceService.js:2518-2544` |
-| **D-4** | **Updates are optional in practice.** The contract requires no update capability, and only SteamCMD adapters have one. Minecraft, FiveM and Terraria have no adapter update path at all; the agent exposes only `/steamcmd/update*`. | `agent/src/routes/instances.js:407-425`, `:528-588` |
+| **D-4** | **Updates are optional in practice.** The contract requires no update capability, and only SteamCMD adapters have one. Minecraft, FiveM and Terraria have no adapter update path at all; the agent exposes only `/steamcmd/update*`. | `agent/src/routes/instances.js:407-425`, `:543-612` |
 | **D-5** | **Four recognized families have no configuration adapter.** The core recognizes terraria, valheim, rust and cs2, but `ADAPTERS` has only minecraft, palworld and fivem, so the config editor refuses those four with `UNSUPPORTED_GAME_CONFIG`. | `src/shared/instances/instanceServiceCore.js:1698-1703`, `src/shared/gameServerConfigManager.js:222-247`, `:6258`, `:6335` |
 | **D-6** | **World scope is inconsistent across SteamCMD families.** Palworld declares save-data candidates; Valheim, Rust and CS2 — installed by the same SteamCMD mechanism and recognized by the same family switch — declare none, so their saves fall back to the generic `data/world` candidate. | `:6198-6215` |
 | **D-7** | **"Version detection" means three different things.** Minecraft inspects artifacts and pings the server; SteamCMD families read the installed app manifest; FiveM and Terraria merely re-read the metadata the installer wrote. The contract separates these with `version.detectFromArtifact`, and FiveM/Terraria are `NO` on that row. | `:3067-3126`, `:3308-3320`, `src/services/marketplaceService.js:3544-3575`, `src/shared/instances/instanceServiceCore.js:3070-3094` |
-| **D-8** | **No version pinning outside SteamCMD.** Only SteamCMD persists a version identity that a later operation compares. Minecraft persists `minecraftVersion` but nothing consumes it; FiveM and Terraria persist a display version only. There is no "run version X" guarantee for any non-SteamCMD adapter. | `:1265`, `:552,567,587`, `src/services/marketplaceService.js:2685-2707` |
+| **D-8** | **No version pinning outside SteamCMD.** Only SteamCMD persists a version identity that a later operation compares. Minecraft persists `minecraftVersion` but nothing consumes it; FiveM and Terraria persist a display version only. There is no "run version X" guarantee for any non-SteamCMD adapter. | `:1265`, `:571,586,612`, `src/services/marketplaceService.js:2685-2707` |
 | **D-9** | **Palworld's world-scope candidate list contains a duplicate.** `getPalworldInstallDirectory` defaults to `server`, and the literal `server/Pal/Saved` candidate is appended alongside the derived one, so the list can repeat. Harmless for a backup that de-duplicates paths; recorded because the contract cites the list. | `:6199-6207` (returns `["server/Pal/Saved", "server/Pal/Saved", "Pal/Saved"]` for a default install) |
 | **D-10** | **Installer verification is uneven.** Palworld, Valheim, Rust, CS2, FiveM and Terraria declare `installer.verifyFiles`; the Minecraft templates declare downloads but no verification files, so a Minecraft install has no post-install artifact check at the template level. | `config/marketplace-templates.json` (`minecraft-*` vs the others), `src/services/marketplaceService.js:2289-2291` |
 
