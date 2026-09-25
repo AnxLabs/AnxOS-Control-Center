@@ -5162,10 +5162,7 @@ function renderAgentControlState(payload = agentControlState) {
   setField("dashboardAgentVersion", runtime?.version || local.agentVersion || local.identity?.agentVersion
     ? `Agent ${runtime?.version || local.agentVersion || local.identity?.agentVersion}`
     : "Version unavailable");
-  if (agentControlStatus) {
-    agentControlStatus.textContent = agentStatus.primary;
-    agentControlStatus.className = `status-pill status-pill--${getAgentStatusPillTone(agentStatus)}`;
-  }
+  setAgentControlStatusPill(agentStatus.primary, getAgentStatusPillTone(agentStatus));
   if (agentStatusDot) {
     agentStatusDot.dataset.agentState = getNodeVisualState({ id: local.nodeId || local.targetType || "agent-control", agentStatus });
   }
@@ -6526,11 +6523,22 @@ async function refreshAgentLogs() {
   try { agentLogEntries = (await api.read({ limit: DIAGNOSTIC_LOG_LIMIT }))?.entries || []; renderAgentLogs(); } catch (error) { if (agentLogViewer) agentLogViewer.textContent = normalizeIpcErrorMessage(error, "Logs unavailable."); }
 }
 
+function setAgentControlStatusPill(label, tone = "warning") {
+  if (!agentControlStatus) return;
+  agentControlStatus.textContent = label;
+  agentControlStatus.className = `status-pill status-pill--${tone}`;
+}
+
 async function refreshAgentControl({ includeConfig = false } = {}) {
   const api = getDesktopApiState().api?.agentControl;
-  if (!api || agentControlBusy || agentControlRefreshInFlight) return;
+  if (!api) {
+    setAgentControlStatusPill("Unavailable");
+    return;
+  }
+  if (agentControlBusy || agentControlRefreshInFlight) return;
   if (isAuthRecoveryLocked()) {
     if (agentControlMessage) agentControlMessage.textContent = "Unlock AnxOS to manage Agent connections.";
+    setAgentControlStatusPill("Unavailable");
     return;
   }
   agentControlRefreshInFlight = true;
@@ -6548,6 +6556,7 @@ async function refreshAgentControl({ includeConfig = false } = {}) {
     await refreshAgentLogs();
   } catch (error) {
     if (agentControlMessage) agentControlMessage.textContent = normalizeIpcErrorMessage(error, "Agent Control unavailable.");
+    setAgentControlStatusPill("Unavailable");
   } finally {
     agentControlRefreshInFlight = false;
   }
@@ -10675,7 +10684,8 @@ function renderPublicAccessSnapshot(snapshot = {}) {
     setField("publicAccessServiceName", service.name || "Public service");
     setField("publicAccessProvider", service.providerName || snapshot.connectedProvider || "Playit.gg");
     setField("publicAccessServices", `${snapshot.services.length} service${snapshot.services.length === 1 ? "" : "s"}`);
-    setField("publicAccessActiveTunnels", `${Number(snapshot.activeTunnels || 0)} active`);
+    const serviceActive = service.status === "Public" || service.status === "Provider running";
+    setField("publicAccessActiveTunnels", serviceActive ? "1 active" : service.publicAddress ? "1 configured" : "None");
     setField("publicAccessActivity", snapshot.recentActivity?.[0]?.label || "Status checked");
   } else {
     selectedPublicAccessServiceId = null;
@@ -14503,6 +14513,8 @@ function updateInstanceActionButtons() {
   document.querySelectorAll(".instance-quick-actions [data-instance-action='stop']").forEach((button) => {
     button.hidden = Boolean(selectedInstance && !isInstanceRunning(selectedInstance));
   });
+
+  syncInstanceConsoleActionButtons();
 }
 
 function setInstancesLoading(isLoading) {
@@ -15255,6 +15267,14 @@ function filterInstanceRows() {
   });
 }
 
+function syncInstanceConsoleActionButtons() {
+  const hasLines = Boolean(instancesLogList?.childElementCount);
+  instanceActionButtons.forEach((button) => {
+    const action = button.dataset.instanceAction;
+    if (action === "clear-console" || action === "copy-console") button.disabled = !hasLines;
+  });
+}
+
 function clearInstanceLogs(message = "Select an instance and refresh logs.") {
   instancesLogList?.replaceChildren();
 
@@ -15269,6 +15289,8 @@ function clearInstanceLogs(message = "Select an instance and refresh logs.") {
   if (instancesLogCount) {
     instancesLogCount.textContent = "0 lines";
   }
+
+  syncInstanceConsoleActionButtons();
 }
 
 function renderInstanceLogs(payload) {
@@ -15309,6 +15331,8 @@ function renderInstanceLogs(payload) {
   if (instancesLogCount) {
     instancesLogCount.textContent = `${entries.length} ${entries.length === 1 ? "line" : "lines"}`;
   }
+
+  syncInstanceConsoleActionButtons();
 }
 
 function getAgentErrorMessage(error, fallback = "Instance request failed.") {
@@ -15569,7 +15593,15 @@ function renderMarketplaceReadiness() {
   const dependencySummary = summarizeDependencyStatus(latestDependencyResult);
   const activeQueueItems = marketplaceLocalDownloadEntries.length + (activeMarketplaceOperationId ? 1 : 0);
   const agentStatus = getActiveAgentStatusSnapshot();
-  setMarketplaceReadinessField("node", `${formatMarketplaceSelectedNodeLabel()} · ${agentStatus.primary}`);
+  const target = resolveActiveManagementTarget();
+  const targetState = target.targetType === "application-host"
+    ? "Agent node required"
+    : !target.reachable
+      ? "Offline"
+      : !target.authenticated
+        ? "Authentication required"
+        : agentStatus.primary;
+  setMarketplaceReadinessField("node", `${formatMarketplaceSelectedNodeLabel()} · ${targetState}`);
   setMarketplaceReadinessField("installer", getDesktopApiState().hasMarketplace ? "Ready" : "Unavailable");
   setMarketplaceReadinessField("dependencies", latestDependencyResult ? dependencySummary.label : "Not checked");
   setMarketplaceReadinessField("queue", activeQueueItems ? `${activeQueueItems} active` : "Idle");
@@ -23874,6 +23906,16 @@ function renderNotificationCenter() {
   loadNotificationHistory();
   updateNotificationCategoryOptions();
   updateNotificationSummaries();
+  const unreadCount = notificationState.items.filter((item) => !item.read).length;
+  const clearableReadCount = notificationState.items.filter((item) => item.read && !item.pinned && !(item.severity === "critical" && item.resolved === false)).length;
+  const clearableNoncriticalCount = notificationState.items.filter((item) => item.severity !== "critical" && !item.pinned).length;
+  notificationActionButtons.forEach((button) => {
+    const action = button.dataset.notificationAction;
+    if (action === "mark-all-read") button.disabled = unreadCount === 0;
+    else if (action === "clear-read") button.disabled = clearableReadCount === 0;
+    else if (action === "clear-noncritical") button.disabled = clearableNoncriticalCount === 0;
+    else if (action === "clear-all") button.disabled = notificationState.items.length === 0;
+  });
   notificationFilterButtons.forEach((button) => {
     const active = button.dataset.notificationFilter === notificationState.filter;
     button.classList.toggle("is-active", active);
@@ -24507,7 +24549,11 @@ function renderOperationsCenter() {
   const runningCount = operations.filter((operation) => ["queued", "running", "waiting"].includes(operation.status)).length;
   const completedCount = operations.filter((operation) => operation.status === "completed").length;
   const failedCount = operations.filter((operation) => operation.status === "failed").length;
+  const clearableCount = operations.filter((operation) => ["completed", "failed", "canceled"].includes(operation.status)).length;
   const lastOperation = operations[0] || null;
+  operationActionButtons.forEach((button) => {
+    if (button.dataset.operationAction === "clear-completed") button.disabled = clearableCount === 0;
+  });
   operationSummaryFields.forEach((field) => {
     const key = field.dataset.operationsSummary;
     if (key === "running") field.textContent = String(runningCount);
@@ -33165,6 +33211,12 @@ async function applyWorkspaceWindowContext(context = {}) {
     return;
   }
   await ensureWorkspaceMarketplaceCatalog();
+  // The template browser is hidden in this surface, so the marketplace copy
+  // ("Installable templates appear as cards.") would be false once the guided
+  // setup modal is dismissed. Point to the only working path instead.
+  if (marketplaceSelectedMeta) {
+    marketplaceSelectedMeta.textContent = "Use Back to choose a template in Marketplace, then continue here.";
+  }
   window.setTimeout(() => {
     if (!document.querySelector("[data-first-server-modal]")) openFirstServerGuide();
   }, 0);
@@ -34767,7 +34819,7 @@ function getNodeConnectionState(node) {
 
 function getNodeStatusLabel(node) {
   const state = getNodeConnectionState(node);
-  if (node?.kind === "application-host") return "Healthy";
+  if (node?.kind === "application-host") return normalizeNodeHealthState(getSharedNodeHealthModel(node).state);
   return state.label;
 }
 
@@ -34811,6 +34863,14 @@ function nodeHealthTone(state = "Unknown") {
   if (normalized === "Healthy") return "ok";
   if (normalized === "Warning" || normalized === "Unknown" || normalized === "Not Tested" || normalized === "Unavailable") return "warning";
   if (normalized === "Degraded") return "critical";
+  return "planned";
+}
+
+function getNodeHealthVisualState(health = {}) {
+  const state = normalizeNodeHealthState(health?.state);
+  if (state === "Healthy") return "online";
+  if (state === "Degraded") return "error";
+  if (state === "Warning" || state === "Unknown" || state === "Not Tested" || state === "Unavailable") return "warning";
   return "planned";
 }
 
@@ -36052,7 +36112,8 @@ function openNodeDetails(nodeId) {
     nodeDetailsSummary.textContent = `${getNodeTypeLabel(node)} · ${connectionState.label} · ${health.issueCount} health issue${health.issueCount === 1 ? "" : "s"}`;
   }
   if (nodeDetailsBadges) {
-    const badges = [createNodeBadge(getNodeStatusLabel(node), visualState)];
+    const badgeState = node.kind === "application-host" ? getNodeHealthVisualState(health) : visualState;
+    const badges = [createNodeBadge(getNodeStatusLabel(node), badgeState)];
     if (isWindowsAgentNode(node)) {
       badges.push(createNodeBadge("Windows node", "planned"));
       if (getNodeCapabilities(node).supportsGameServers !== true) {
@@ -36384,19 +36445,21 @@ function renderNodes() {
     }
     nodes.forEach((node) => {
       if (!nodeMatchesGroupFilter(node, groupFilter)) return;
-      const state = getNodeVisualState(node);
+      const connectionVisualState = getNodeVisualState(node);
       const connectionState = getNodeConnectionState(node);
       const health = getSharedNodeHealthModel(node);
+      const state = node.kind === "application-host" ? getNodeHealthVisualState(health) : connectionVisualState;
       const item = document.createElement("article");
       item.className = "download-item node-card";
-      item.dataset.agentState = state;
+      item.dataset.agentState = connectionVisualState;
       item.classList.toggle("is-selected", node.id === getSelectedNodeId());
-      item.append(createAgentRobotIcon(state));
+      item.append(createAgentRobotIcon(connectionVisualState));
       const body = document.createElement("div");
       body.className = "agent-node-copy node-card__body";
       const header = document.createElement("div");
       header.className = "node-card__header";
       const titleGroup = document.createElement("div");
+      titleGroup.className = "node-card__title-group";
       const title = document.createElement("strong");
       title.textContent = node.displayName || node.id;
       const detail = document.createElement("small");
