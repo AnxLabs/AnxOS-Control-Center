@@ -33,6 +33,7 @@
     "qa:acceptance": "node scripts/qa-acceptance.js",
     "qa:onboarding": "node scripts/onboarding-fresh-install-smoke.js",
     "qa:responsive": "node scripts/responsive-mobile-ui-qa.js",
+    "qa:second-machine": "node scripts/second-machine-acceptance.js",
     "qa:smoke": "node scripts/qa-acceptance.js",
     "qa:classification:smoke": "node scripts/qa-classification-smoke.js",
     "rc:subprocess:smoke": "node scripts/rc-validate-subprocess-smoke.js",
