@@ -179,13 +179,13 @@ fs.rmSync(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 1
 
   const priorTag = process.env.ANXOS_RELEASE_TAG;
   try {
-    process.env.ANXOS_RELEASE_TAG = "v2.0-build203-rc1";
+    process.env.ANXOS_RELEASE_TAG = "v2.0-build204-rc1";
     const retryRelease = buildReleaseInfo(readReleaseConfig());
-    assert.strictEqual(retryRelease.artifactVersion, "2.0-build203", "RC retry must keep v2.0 artifact filenames.");
-    assert.strictEqual(retryRelease.tag, "v2.0-build203-rc1", "RC retry must apply the RC tag for release provenance.");
-    assert.strictEqual(retryRelease.releaseUrl, "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v2.0-build203-rc1", "RC retry release URL must reference the RC tag.");
+    assert.strictEqual(retryRelease.artifactVersion, "2.0-build204", "RC retry must keep v2.0 artifact filenames.");
+    assert.strictEqual(retryRelease.tag, "v2.0-build204-rc1", "RC retry must apply the RC tag for release provenance.");
+    assert.strictEqual(retryRelease.releaseUrl, "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v2.0-build204-rc1", "RC retry release URL must reference the RC tag.");
     const assetUrl = `${retryRelease.releaseRepositoryUrl}/releases/download/${retryRelease.tag}/AnxOS-Control-Center-Setup-${retryRelease.artifactVersion}.exe`;
-    assert.strictEqual(assetUrl, "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build203-rc1/AnxOS-Control-Center-Setup-2.0-build203.exe", "RC retry asset URL must use the RC tag with a v2.0 filename.");
+    assert.strictEqual(assetUrl, "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build204-rc1/AnxOS-Control-Center-Setup-2.0-build204.exe", "RC retry asset URL must use the RC tag with a v2.0 filename.");
   } finally {
     if (priorTag === undefined) {
       delete process.env.ANXOS_RELEASE_TAG;
