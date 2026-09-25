@@ -17988,6 +17988,14 @@ function renderCreateServerPackageSummary(template) {
   appendCreateServerFact(createServerPackageSummary, "Estimated size", template.estimatedSize || template.downloadSize || "Calculated during preflight");
 }
 
+// Create-server steps run on an Agent node; the application host is not a
+// deployment target. This is the single predicate shared by the node-step
+// summary and validateCreateServerStep so the visible readiness fact can never
+// report "Connected/ready" for a target the wizard refuses.
+function isCreateServerAgentNodeReady(target) {
+  return Boolean(target) && target.reachable && target.authenticated && target.targetType !== "application-host";
+}
+
 function renderCreateServerNodeSummary() {
   if (!createServerNodeSummary) return;
   createServerNodeSummary.replaceChildren();
@@ -17995,8 +18003,12 @@ function renderCreateServerNodeSummary() {
   const node = getSelectedNode();
   const memory = node ? formatNodeMemory(node) : "Metrics unavailable";
   const storage = node ? formatNodeStorage(node) : "Metrics unavailable";
+  const nodeReady = isCreateServerAgentNodeReady(target);
+  const connectionLabel = target.targetType === "application-host"
+    ? "Agent node required"
+    : target.connectionState?.state || (target.reachable ? "Connected" : "Offline");
   appendCreateServerFact(createServerNodeSummary, "Node", target.name);
-  appendCreateServerFact(createServerNodeSummary, "Connection", target.connectionState?.state || (target.reachable ? "Connected" : "Offline"), target.reachable && target.authenticated ? "ready" : "blocked");
+  appendCreateServerFact(createServerNodeSummary, "Connection", connectionLabel, nodeReady ? "ready" : "blocked");
   appendCreateServerFact(createServerNodeSummary, "Operating system", target.operatingSystem || target.platform || "Unknown");
   appendCreateServerFact(createServerNodeSummary, "Architecture", target.architecture || "Unknown");
   appendCreateServerFact(createServerNodeSummary, "Memory", memory);
@@ -18101,7 +18113,7 @@ function validateCreateServerStep(step, { report = true } = {}) {
   }
   if (step === "node" || step === "runtime") {
     const target = resolveActiveManagementTarget();
-    if (!target.reachable || !target.authenticated || target.targetType === "application-host") {
+    if (!isCreateServerAgentNodeReady(target)) {
       if (report) setMarketplaceMessage("Select a connected Agent node first. Choose a connected node in the node switcher, or pair one in Agent Control, then continue.", "error");
       return false;
     }

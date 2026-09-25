@@ -31,6 +31,7 @@
     "qa:release": "node scripts/release-validation.js --tier=release",
     "qa:dirty-check": "node scripts/release-validation.js --dirty-check",
     "qa:acceptance": "node scripts/qa-acceptance.js",
+    "renderer:monaco-worker-csp:smoke": "node scripts/monaco-worker-csp-smoke.js",
     "qa:onboarding": "node scripts/onboarding-fresh-install-smoke.js",
     "qa:responsive": "node scripts/responsive-mobile-ui-qa.js",
     "qa:second-machine": "node scripts/second-machine-acceptance.js",
