@@ -85,6 +85,41 @@ assertInstallerRejected(marketplaceService.buildWindowsArchiveInstallerScript, {
   additionalArchives: [{ archive: "pack.zip", extractDir: "..\\outside", stripComponents: 0 }],
 }, "windows additionalArchives extractDir traversal");
 
+// C0 control characters (including \n, \r, \t and NUL) are interpolated into the
+// generated installer script's comment/command lines, so a newline in a catalog
+// path could inject a command. They must be refused by the same containment
+// check on every builder before any script text is produced.
+const CONTROL_CHARACTER_PATHS = ["pack\n.tar.gz", "pack\r.zip", "pack\t.tar.xz", "pack\u0000.zip"];
+for (const archive of CONTROL_CHARACTER_PATHS) {
+  for (const [platform, build] of INSTALLER_BUILDERS) {
+    assertInstallerRejected(build, { archive, extractDir: "server" }, `${platform} installer.archive control characters ${JSON.stringify(archive)}`);
+  }
+}
+for (const extractDir of CONTROL_CHARACTER_PATHS) {
+  assertInstallerRejected(marketplaceService.buildArchiveInstallerScript, { archive: "server/pack.tar.gz", extractDir }, `linux installer.extractDir control characters ${JSON.stringify(extractDir)}`);
+  assertInstallerRejected(marketplaceService.buildWindowsArchiveInstallerScript, { archive: "tshock.zip", extractDir }, `windows installer.extractDir control characters ${JSON.stringify(extractDir)}`);
+}
+assertInstallerRejected(marketplaceService.buildArchiveInstallerScript, {
+  archive: "server/pack.tar.gz",
+  extractDir: "server",
+  additionalArchives: [{ archive: "cfx\n-server-data.tar.gz", extractDir: "server/resources", stripComponents: 0 }],
+}, "linux additionalArchives archive control characters");
+assertInstallerRejected(marketplaceService.buildArchiveInstallerScript, {
+  archive: "server/pack.tar.gz",
+  extractDir: "server",
+  additionalArchives: [{ archive: "cfx-server-data.tar.gz", extractDir: "server/resources\nrm -rf outside", stripComponents: 0 }],
+}, "linux additionalArchives extractDir control characters");
+assertInstallerRejected(marketplaceService.buildWindowsArchiveInstallerScript, {
+  archive: "tshock.zip",
+  extractDir: "server",
+  additionalArchives: [{ archive: "pack\n.zip", extractDir: "server/resources", stripComponents: 0 }],
+}, "windows additionalArchives archive control characters");
+assertInstallerRejected(marketplaceService.buildWindowsArchiveInstallerScript, {
+  archive: "tshock.zip",
+  extractDir: "server",
+  additionalArchives: [{ archive: "pack.zip", extractDir: "server\nresources", stripComponents: 0 }],
+}, "windows additionalArchives extractDir control characters");
+
 // Legitimate relative paths keep building on both platforms.
 const linuxArchive = marketplaceService.buildArchiveInstallerScript({ archive: "server/pack.tar.gz", extractDir: "server/resources" });
 assert(linuxArchive.includes("EXTRACT_DIR='server/resources'"), "The linux builder must accept a nested relative extractDir.");

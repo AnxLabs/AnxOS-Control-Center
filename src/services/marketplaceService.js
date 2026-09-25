@@ -2475,11 +2475,14 @@ function buildSteamCmdInstallerArgs(installer = {}, installDirOverride = null) {
 
 // Additional archive paths end up inside tar/unzip shell commands, so they must
 // stay relative to the instance directory. Mirrors the reject-".." discipline in
-// src/shared/agentRuntimePayload.js: absolute paths, ".." fragments and drive or
-// scheme separators are refused before any script is generated.
+// src/shared/agentRuntimePayload.js: absolute paths, ".." fragments, drive or
+// scheme separators, and C0 control characters are refused before any script is
+// generated. Control characters matter because entry.archive/extractDir are
+// interpolated into the generated installer script's comment lines, where a
+// newline would start a new, attacker-controlled command line.
 function hasUnsafeInstancePathSegments(value) {
   const normalized = String(value || "").replace(/\\/g, "/");
-  return normalized.startsWith("/") || normalized.includes("..") || normalized.includes(":");
+  return normalized.startsWith("/") || normalized.includes("..") || normalized.includes(":") || /[\u0000-\u001f]/.test(normalized);
 }
 
 // The top-level installer.extractDir becomes the tar/unzip extraction target
@@ -2487,7 +2490,7 @@ function hasUnsafeInstancePathSegments(value) {
 // containment rule as additionalArchives entries before any script is built.
 function assertSafeInstallerExtractDir(extractDir) {
   if (hasUnsafeInstancePathSegments(extractDir)) {
-    throw createMarketplaceError("Installer extractDir must not use absolute paths or \"..\" segments.", "INVALID_TEMPLATE_CATALOG", { extractDir });
+    throw createMarketplaceError("Installer extractDir must not use absolute paths, \"..\" segments, or control characters.", "INVALID_TEMPLATE_CATALOG", { extractDir });
   }
 }
 
@@ -2496,7 +2499,7 @@ function assertSafeInstallerExtractDir(extractDir) {
 // outside the instance directory. Same containment rule as additionalArchives entries.
 function assertSafeInstallerArchive(archive) {
   if (hasUnsafeInstancePathSegments(archive)) {
-    throw createMarketplaceError("Installer archive must not use absolute paths or \"..\" segments.", "INVALID_TEMPLATE_CATALOG", { archive });
+    throw createMarketplaceError("Installer archive must not use absolute paths, \"..\" segments, or control characters.", "INVALID_TEMPLATE_CATALOG", { archive });
   }
 }
 
@@ -2504,7 +2507,7 @@ function normalizeAdditionalArchives(installer = {}) {
   const entries = Array.isArray(installer.additionalArchives) ? installer.additionalArchives : [];
   return entries.map((entry) => {
     if (hasUnsafeInstancePathSegments(entry?.archive) || hasUnsafeInstancePathSegments(entry?.extractDir)) {
-      throw createMarketplaceError("Additional archive entries must not use absolute paths or \"..\" segments.", "INVALID_TEMPLATE_CATALOG", { entry });
+      throw createMarketplaceError("Additional archive entries must not use absolute paths, \"..\" segments, or control characters.", "INVALID_TEMPLATE_CATALOG", { entry });
     }
     const archive = normalizeInstanceFilePath(entry?.archive || "");
     const extractDir = normalizeInstanceFilePath(entry?.extractDir || "");
