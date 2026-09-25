@@ -1704,6 +1704,54 @@ function getPairingProofCredential(nodeId) {
   }
 }
 
+// Opens a pairing session on an Agent. Like postPairingComplete it presents the
+// credential the desktop already holds as proof of possession, so a legitimate
+// re-pair of an enrolled node keeps working while an unauthenticated caller is
+// still refused by the Agent.
+async function postPairingStart(agentUrl, payload = {}, options = {}) {
+  const endpoint = `${normalizeUrl(agentUrl)}/api/v1/pairing/start`;
+  const controller = new AbortController();
+  const timeoutMs = Math.max(100, Number(options.timeoutMs) || 15000);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const proofNodeId = options.nodeId ? String(options.nodeId) : resolveNodeIdForPairingUrl(agentUrl);
+  const proofCredential = getPairingProofCredential(proofNodeId);
+  const requestBody = proofCredential ? { ...payload, previousAgentToken: proofCredential } : payload;
+  let response;
+  try {
+    response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(requestBody),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    const timedOut = error?.name === "AbortError" || controller.signal.aborted;
+    throw Object.assign(new Error(timedOut
+      ? "Opening an Agent pairing session timed out. Check the connection and try again."
+      : "The Agent pairing session could not be opened. Check the Agent URL and connection."), {
+      code: timedOut ? "PAIRING_TIMEOUT" : "PAIRING_UNREACHABLE",
+      retryAvailable: false,
+      details: {
+        operation: "pairing-start",
+        causeCode: error?.cause?.code || error?.code || null,
+        timeoutMs: timedOut ? timeoutMs : null,
+      },
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+  let body = null;
+  try { body = await response.json(); } catch {}
+  if (!response.ok) {
+    throw Object.assign(new Error(body?.error?.message || `Opening an Agent pairing session failed with HTTP ${response.status}.`), {
+      code: body?.error?.code || "PAIRING_START_FAILED",
+      status: response.status,
+      retryAvailable: false,
+    });
+  }
+  return body || {};
+}
+
 async function postPairingComplete(agentUrl, payload = {}, options = {}) {
   const endpoint = `${normalizeUrl(agentUrl)}/api/v1/pairing/complete`;
   const controller = new AbortController();
@@ -2003,4 +2051,4 @@ async function deleteNode(nodeId, options = {}) {
 async function selectNode(nodeId) { getNode(nodeId); const state = readNodeState(); writeNodeState({ ...state, selectedNodeId: nodeId || APPLICATION_HOST_NODE_ID }); return listNodes({ discoverLocalAgent: false, refreshIdentity: false }); }
 async function testNode(nodeId) { return checkNodeHealth(nodeId || getSelectedNodeId(), { timeoutMs: 8000 }); }
 
-module.exports = { APPLICATION_HOST_NODE_ID, HEALTH_STATES, NODE_SCHEMA_VERSION, checkAllNodeHealth, checkNodeHealth, deleteNode, disconnectNode, getAllNodesSync, getExecutionTarget, getNode, getNodeAgentConfig, getNodeCredentialStatus, getNodeCredentialsPath, getNodesPath, getSelectedNodeId, listNodes, mergeAgentNodes, migrateState, pairNodeFromCode, reconnectNode, recordAuthenticatedNodeHealth, repairNodeCredential, resolveNodeForAgentIdentity, saveNode, selectNode, testNode, testNodeConnectionPayload, updateNodeHealthState, _test: { attemptAgentEnrollmentRevocation, buildNodeCapabilities, compareAgentVersions, formatAgentCompatibilityMessage, getAgentCompatibilityReport, getNodeReportedCapabilities, normalizeAgentApiMajor, normalizeAgentCapabilitiesMetadata, normalizeAgentProtocolVersion, normalizeNodeGroup, parseComparableAgentVersion, postPairingComplete, setNodeManualDisconnect } };
+module.exports = { APPLICATION_HOST_NODE_ID, HEALTH_STATES, NODE_SCHEMA_VERSION, checkAllNodeHealth, checkNodeHealth, deleteNode, disconnectNode, getAllNodesSync, getExecutionTarget, getNode, getNodeAgentConfig, getNodeCredentialStatus, getNodeCredentialsPath, getNodesPath, getSelectedNodeId, listNodes, mergeAgentNodes, migrateState, pairNodeFromCode, postPairingComplete, postPairingStart, reconnectNode, recordAuthenticatedNodeHealth, repairNodeCredential, resolveNodeForAgentIdentity, saveNode, selectNode, testNode, testNodeConnectionPayload, updateNodeHealthState, _test: { attemptAgentEnrollmentRevocation, buildNodeCapabilities, compareAgentVersions, formatAgentCompatibilityMessage, getAgentCompatibilityReport, getNodeReportedCapabilities, normalizeAgentApiMajor, normalizeAgentCapabilitiesMetadata, normalizeAgentProtocolVersion, normalizeNodeGroup, parseComparableAgentVersion, postPairingComplete, setNodeManualDisconnect } };

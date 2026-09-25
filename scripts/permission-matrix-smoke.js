@@ -274,6 +274,7 @@ try {
 const security = require("../src/services/securityService");
 const agentPermissions = require("../agent/src/permissions");
 const enrollRoutes = require("../agent/src/routes/enroll");
+const mobileClaimRoute = require("../agent/src/routes/mobileClaimPage");
 const agentAuth = require("../agent/src/auth");
 const { tokenFingerprint } = require("../src/shared/agentTokenStore");
 const auditLogPath = path.join(configDirectory, "audit.log");
@@ -611,10 +612,15 @@ function crossCheckTableAgainstRealFunctions() {
   assert(enrollRoutes.PUBLIC_ENROLL_PATHS.has("/api/v1/enroll/status"), "Enroll status must remain a public handshake path.");
 
   // Unauthenticated remote: every non-public route is refused by the real
-  // bearer gate; public routes stay reachable through one of the three
-  // pre-auth paths (health, the enrollment/pairing handshake, or the ui
-  // browser entry bypass).
-  const preAuthHandshakePaths = new Set([...enrollRoutes.PUBLIC_ENROLL_PATHS, matrix.PAIRING_STATUS_PATH]);
+  // bearer gate; public routes stay reachable through one of the pre-auth
+  // paths (health, the enrollment/pairing handshake, the ui browser entry
+  // bypass, or the browser-reachable mobile claim page that
+  // agent/src/server.js serves before the bearer gate).
+  const preAuthHandshakePaths = new Set([
+    ...enrollRoutes.PUBLIC_ENROLL_PATHS,
+    matrix.PAIRING_STATUS_PATH,
+    mobileClaimRoute.CLAIM_PAGE_PATH,
+  ]);
   for (const family of matrix.REST_FAMILIES) {
     const route = family.routes[0];
     const expected = matrix.expectedRestOutcome(family, "unauthenticated-remote");
@@ -1012,12 +1018,22 @@ function runCoverageEnforcement() {
   // Review P1-3: REST coverage must ALSO cover route files' literals, not
   // just server.js literals — routes living only in agent/src/routes are
   // invisible to the server scrape.
+  //
+  // Browser page routes served outside /api/v1 (the mobile claim page) are not
+  // API families, so they are allowed BY NAME here: a new non-/api/v1 public
+  // route must be added to this set (and to the matrix) before the coverage
+  // gate accepts it.
+  const PAGE_ROUTE_PATHS = new Set([mobileClaimRoute.CLAIM_PAGE_PATH]);
   const serverSource = fs.readFileSync(path.join(rootDir, "agent", "src", "server.js"), "utf8");
   const serverSegments = new Set();
   for (const match of serverSource.matchAll(/\/api\/v1\/([a-z0-9_-]+)/g)) serverSegments.add(match[1]);
   const coveredSegments = new Set();
   for (const family of matrix.REST_FAMILIES) {
     for (const route of family.routes) {
+      if (!route.path.startsWith("/api/v1/")) {
+        assert(PAGE_ROUTE_PATHS.has(route.path), `REST family ${family.id} route ${route.path} is neither an /api/v1 route nor a known browser page route.`);
+        continue;
+      }
       const match = route.path.match(/^\/api\/v1\/([a-z0-9_-]+)/);
       assert(match, `REST family ${family.id} route ${route.path} is not an /api/v1 route.`);
       coveredSegments.add(match[1]);

@@ -572,6 +572,13 @@ const agentPairingTargetName = document.querySelector("[data-agent-pairing-targe
 const agentPairingTargetUrl = document.querySelector("[data-agent-pairing-target-url]");
 const agentGeneratedTokenInput = document.querySelector("[data-agent-generated-token]");
 const agentGeneratedTokenNote = document.querySelector("[data-agent-generated-token-note]");
+const agentMobileClaim = document.querySelector("[data-agent-mobile-claim]");
+const agentMobileQr = document.querySelector("[data-agent-mobile-qr]");
+const agentMobileNode = document.querySelector("[data-agent-mobile-node]");
+const agentMobileFingerprint = document.querySelector("[data-agent-mobile-fingerprint]");
+const agentMobileUrl = document.querySelector("[data-agent-mobile-url]");
+const agentMobileClaimCode = document.querySelector("[data-agent-mobile-claim-code]");
+const agentMobileAdapter = document.querySelector("[data-agent-mobile-adapter]");
 const agentControlSectionButtons = document.querySelectorAll("[data-agent-control-section-target]");
 const agentControlSections = document.querySelectorAll("[data-agent-control-section]");
 let agentControlState = null;
@@ -586,6 +593,8 @@ let activeAgentPairingExpiresAt = "";
 let activeAgentPairingExpiryTimer = null;
 let activeAgentPairingTarget = null;
 let activeAgentGeneratedToken = "";
+let activeMobilePairingClaim = "";
+let activeMobilePairingClaimNodeId = "";
 const remoteDiagnosticsInFlight = new Set();
 const remoteDiagnosticsLastCapturedAt = new Map();
 let latestDependencyResult = null;
@@ -4597,6 +4606,14 @@ function setAgentControlField(name, value) {
   agentControlFields.forEach((field) => { if (field.dataset.agentControlField === name) field.textContent = value ?? "Unavailable"; });
 }
 
+// The Lifecycle card carries a second, richer details grid so the panel is as
+// informative as the page around it instead of showing one thin strip of tiles.
+const agentLifecycleFields = document.querySelectorAll("[data-agent-lifecycle-field]");
+
+function setAgentLifecycleField(name, value) {
+  agentLifecycleFields.forEach((field) => { if (field.dataset.agentLifecycleField === name) field.textContent = value ?? "Unavailable"; });
+}
+
 function renderAgentSetupSummary(local = {}) {
   const configured = Boolean(local.config?.name || local.port || local.agentUrl);
   if (agentSetupSummary) {
@@ -4742,6 +4759,32 @@ function renderAgentGeneratedTokenControls() {
     agentGeneratedTokenNote.textContent = activeAgentGeneratedToken
       ? "This token is not saved automatically. Copy it now and configure the same token on the Agent and Control Center."
       : "Only newly generated tokens are shown here. Existing saved Agent tokens remain protected and masked.";
+  }
+}
+
+// Mobile claim panel: shows the QR + claim metadata for the node the claim was
+// minted for. A claim is explicit (the Desktop minted it for one node), so the
+// panel reflects the last claim and is cleared only when a new one replaces it.
+function renderMobilePairingClaim(result = null) {
+  if (result) {
+    activeMobilePairingClaim = String(result.claimCode || "");
+    activeMobilePairingClaimNodeId = String(result.nodeId || "");
+    if (agentMobileQr && result.qrDataUrl) agentMobileQr.src = result.qrDataUrl;
+    if (agentMobileNode) agentMobileNode.textContent = result.nodeName || "Unavailable";
+    if (agentMobileFingerprint) agentMobileFingerprint.textContent = result.tokenFingerprint || "Unavailable";
+    if (agentMobileUrl) agentMobileUrl.textContent = result.agentUrl || "Unavailable";
+    if (agentMobileAdapter) agentMobileAdapter.textContent = result.adapterUrl || "Not configured";
+    if (agentMobileClaimCode) agentMobileClaimCode.textContent = activeMobilePairingClaim || "Unavailable";
+  }
+  const hasClaim = Boolean(activeMobilePairingClaim);
+  if (agentMobileClaim) agentMobileClaim.hidden = !hasClaim;
+  if (!hasClaim) {
+    if (agentMobileQr) agentMobileQr.removeAttribute("src");
+    if (agentMobileNode) agentMobileNode.textContent = "Unavailable";
+    if (agentMobileFingerprint) agentMobileFingerprint.textContent = "Unavailable";
+    if (agentMobileUrl) agentMobileUrl.textContent = "Unavailable";
+    if (agentMobileAdapter) agentMobileAdapter.textContent = "Unavailable";
+    if (agentMobileClaimCode) agentMobileClaimCode.textContent = "Unavailable";
   }
 }
 
@@ -5040,10 +5083,19 @@ function renderAgentControlState(payload = agentControlState) {
   setAgentControlField("memory", formatAgentMemory(runtime));
   setAgentControlField("cpu", formatAgentCpu(runtime));
   setAgentControlField("clients", String(local.connectedClients || 0));
-  setAgentControlField("platform", `${local.operatingSystem || "Unknown"} · ${local.architecture || "Unknown"}`);
+  setAgentControlField("platform", `${local.operatingSystem || local.identity?.operatingSystem || local.agentIdentity?.operatingSystem || "Unknown"} · ${local.architecture || local.identity?.architecture || local.agentIdentity?.architecture || "Unknown"}`);
   setAgentControlField("protocol", `${local.apiVersion || "v1"} / ${local.protocolVersion || 1}`);
   setAgentControlField("heartbeat", local.lastHeartbeat ? formatDateTime(local.lastHeartbeat) : "Unavailable");
+  setAgentLifecycleField("url", runtime?.url || local.agentUrl);
+  setAgentLifecycleField("hostname", local.name || runtime?.hostname || local.hostname || local.identity?.hostname);
+  setAgentLifecycleField("protocol", `${local.apiVersion || "v1"} / ${local.protocolVersion || 1}`);
+  setAgentLifecycleField("latency", Number.isFinite(runtime?.latencyMs ?? local.latencyMs) ? `${runtime?.latencyMs ?? local.latencyMs} ms` : "Unavailable");
+  setAgentLifecycleField("memory", formatAgentMemory(runtime));
+  setAgentLifecycleField("cpu", formatAgentCpu(runtime));
+  setAgentLifecycleField("clients", String(local.connectedClients || 0));
+  setAgentLifecycleField("deviceId", local.identity?.deviceId || local.agentIdentity?.deviceId || local.deviceId);
   renderAgentCompatibilityCard(local, runtime);
+  renderMobilePairingClaim();
   agentControlButtons.forEach((button) => {
     const action = button.dataset.agentControlAction;
     const disabled = busy
@@ -5060,6 +5112,8 @@ function renderAgentControlState(payload = agentControlState) {
       || (action === "updateAgent" && !isLocalTarget && remoteUpdate.supported !== true)
       || (action === "generateToken" && typeof getDesktopApiState().api?.nodes?.generateToken !== "function")
       || (action === "copyToken" && !activeAgentGeneratedToken)
+      || (action === "pairMobileDevice" && isLocalTarget)
+      || (action === "copyMobileClaim" && !activeMobilePairingClaim)
       || (action === "openDataFolder" && !isLocalTarget)
       || (action === "copyUrl" && !local.agentUrl)
       || (action === "copyId" && !local.identity?.deviceId);
@@ -5068,7 +5122,15 @@ function renderAgentControlState(payload = agentControlState) {
       button.title = "Requires an updated Agent.";
       button.setAttribute("aria-description", "Requires an updated Agent.");
     } else if (action === "updateAgent" && !isLocalTarget) {
-      button.title = "Automatic updating is available only for the Local Agent. Update this remote Agent on its node, then refresh its version.";
+      button.title = remoteUpdate.supported
+        ? "Upload this Desktop's bundled Agent runtime to the node over SSH, restart its Agent, and verify it. Instances on that node stop during the restart."
+        : getRemoteAgentUpdateBlockMessage(remoteUpdate);
+      button.setAttribute("aria-description", button.title);
+    } else if (action === "pairMobileDevice" && isLocalTarget) {
+      button.title = "Pair mobile devices to a node Agent. This is the application host — pair it from Pair This Agent instead.";
+      button.setAttribute("aria-description", button.title);
+    } else if (action === "copyMobileClaim" && !activeMobilePairingClaim) {
+      button.title = "Create a mobile claim first.";
       button.setAttribute("aria-description", button.title);
     } else if (["repairAgent", "installService", "uninstallService", "enableAutoStart", "disableAutoStart"].includes(action) && serviceNeedsElevation) {
       button.title = "Run AnxOS Control Center as Administrator, then retry this Agent service action.";
@@ -6423,7 +6485,10 @@ async function runAgentControlAction(action) {
   if (blockProtectedAction(action === "start" || action === "installLocalAgent" || action === "repairAgent"
     ? "Unlock AnxOS to start the Local Agent."
     : "Unlock AnxOS to manage Agent connections.")) return;
-  const destructive = { stop: ["Stop local Agent?", "Active Agent operations will disconnect."], forceRestart: ["Force restart local Agent?", "The Agent process will be terminated immediately."], repairAgent: ["Repair local Agent?", "Background registration will be reinstalled and the Agent restarted."], stopOldLocalAgentAndRepair: ["Stop Old Local Agent and Repair?", "AnxOS will stop only a verified old AnxOS Local Agent process, recreate local credentials, and repair Windows startup registration."], updateAgent: ["Update Local Agent?", "AnxOS will back up Agent configuration, stop the Local Agent, repair the bundled runtime registration, restart it, and verify health."], uninstallService: ["Uninstall Agent background service?", "Automatic startup will be removed."], resetConfig: ["Reset Agent configuration?", "Current settings will be backed up before defaults are restored."] }[action];
+  const actionTarget = getAgentControlOverviewTarget();
+  const isLocalActionTarget = isAgentTargetLocal(actionTarget);
+  const remoteUpdateSupport = isLocalActionTarget ? { supported: false, reason: "local" } : getRemoteAgentUpdateSupport(actionTarget);
+  const destructive = { stop: ["Stop local Agent?", "Active Agent operations will disconnect."], forceRestart: ["Force restart local Agent?", "The Agent process will be terminated immediately."], repairAgent: ["Repair local Agent?", "Background registration will be reinstalled and the Agent restarted."], stopOldLocalAgentAndRepair: ["Stop Old Local Agent and Repair?", "AnxOS will stop only a verified old AnxOS Local Agent process, recreate local credentials, and repair Windows startup registration."], updateAgent: remoteUpdateSupport.supported ? ["Update the Agent on this node?", "AnxOS will upload this Desktop's bundled Agent runtime to the node over SSH, back up the live runtime, restart the node's Agent, and verify it. Instances running on that node stop during the restart."] : ["Update Local Agent?", "AnxOS will back up Agent configuration, stop the Local Agent, repair the bundled runtime registration, restart it, and verify health."], pairMobileDevice: ["Pair a mobile device to this node?", "The node's Agent credential is replaced with a new one for the phone. This Desktop switches to the new credential automatically; any other device still using the old one loses access until it is re-paired."], uninstallService: ["Uninstall Agent background service?", "Automatic startup will be removed."], resetConfig: ["Reset Agent configuration?", "Current settings will be backed up before defaults are restored."] }[action];
   if (destructive && !(await createSecurityConfirmation({ title: destructive[0], message: destructive[1], confirmLabel: "Continue" }))) return;
   if (action === "refresh") {
     await refreshAgentControl({ includeConfig: true });
@@ -6441,6 +6506,8 @@ async function runAgentControlAction(action) {
     copyPairingCode: "Copy Agent pairing code",
     generateToken: "Generate Agent token",
     copyToken: "Copy Agent token",
+    pairMobileDevice: "Pair Mobile Device",
+    copyMobileClaim: "Copy Mobile Claim",
     learnLocalAgent: "Learn about Local Agent",
     useRemoteAgent: "Use Remote Agent",
     rotateToken: "Rotate Agent token",
@@ -6510,6 +6577,24 @@ async function runAgentControlAction(action) {
       if (!activeAgentGeneratedToken) throw new Error("Generate a token before copying.");
       await navigator.clipboard.writeText(activeAgentGeneratedToken);
       showToast("Agent token copied.", "success");
+    }
+    else if (action === "pairMobileDevice") {
+      const target = getAgentControlOverviewTarget();
+      if (isAgentTargetLocal(target)) throw new Error("Pair mobile devices to a node Agent. The application host is paired from Pair This Agent.");
+      const targetNodeId = target?.nodeId || getSelectedNodeId();
+      const nodesApi = getDesktopApiState().api?.nodes;
+      if (typeof nodesApi?.createMobilePairing !== "function") throw new Error("Mobile pairing is unavailable in this build.");
+      const result = await nodesApi.createMobilePairing(targetNodeId);
+      renderMobilePairingClaim(result);
+      if (agentControlMessage) {
+        agentControlMessage.textContent = `Mobile claim ready for ${result?.nodeName || "the node"} (credential ${result?.tokenFingerprint || "unknown"}). The claim carries this node's new credential — show it only to your own device.`;
+      }
+      showToast(`Mobile claim ready for ${result?.nodeName || "the node"}. Scan the QR or copy the claim code.`, "success");
+    }
+    else if (action === "copyMobileClaim") {
+      if (!activeMobilePairingClaim) throw new Error("Create a mobile claim before copying.");
+      await navigator.clipboard.writeText(activeMobilePairingClaim);
+      showToast("Mobile claim code copied.", "success");
     }
     else if (action === "useRemoteAgent") {
       showToast("Remote Agent mode stays available. Add or select a remote node from the node picker or Agent Connection settings.", "info");

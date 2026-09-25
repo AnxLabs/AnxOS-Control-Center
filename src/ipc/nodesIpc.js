@@ -14,6 +14,8 @@ const {
   testNodeConnectionPayload,
 } = require("../services/nodeService");
 const { restorePersistedActiveNode, setActiveNode } = require("../services/activeNodeSelectionService");
+const { updateRemoteAgent } = require("../services/remoteAgentUpdateService");
+const { createMobilePairing } = require("../services/mobilePairingService");
 const { getFleetSummary, runFleetBatchAction } = require("../services/fleetService");
 const { generateAgentToken } = require("../shared/agentTokenStore");
 const { audit, getStatus, requireLocalOwnerAuthenticated, requirePermission } = require("../services/securityService");
@@ -112,6 +114,36 @@ function registerNodesIpc() {
     const paired = await pairNodeFromCode(payload);
     audit({ action: "node.pair-agent", target: paired.node?.id || paired.selectedNodeId || "paired-node" });
     return setActiveNode(paired.selectedNodeId, { reason: "agent-pairing", state: paired });
+  }));
+  // Remote Agent push update: the Desktop stages its bundled Agent runtime on a
+  // Linux node over SSH, backs up and swaps the live runtime, restarts the
+  // managed systemd user unit, and verifies the new routes. Owner-only because
+  // it writes to the node and the Agent restart stops that node's instances.
+  ipcMain.handle("nodes:updateAgent", async (_, payload = {}) => invokeNodeOperation(async () => {
+    const context = requireNodeContext(payload, "node agent update");
+    requireLocalOwnerAuthenticated("nodes:update-agent", "Unlock AnxOS to update a node Agent.");
+    requirePermission("settings:write", context.nodeId);
+    audit({ action: "node.update-agent", target: context.nodeId });
+    try {
+      return await updateRemoteAgent(context.nodeId);
+    } catch (error) {
+      // The node reports a newer Agent than this Desktop bundles; the service
+      // refuses the downgrade, so point the user at the supported path.
+      if (error?.code === "AGENT_DOWNGRADE_REFUSED") {
+        throw Object.assign(error, { suggestion: "Update AnxOS Control Center to get a newer bundled Agent instead of downgrading this node." });
+      }
+      throw error;
+    }
+  }));
+  // Mobile pairing: mints and installs a fresh node credential for a phone and
+  // returns the claim (QR + claim string). Owner-only because it hands out a
+  // credential that grants full access to the node.
+  ipcMain.handle("nodes:createMobilePairing", async (_, payload = {}) => invokeNodeOperation(async () => {
+    const context = requireNodeContext(payload, "node mobile pairing");
+    requireLocalOwnerAuthenticated("nodes:create-mobile-pairing", "Unlock AnxOS to pair a mobile device.");
+    requirePermission("settings:write", context.nodeId);
+    audit({ action: "node.create-mobile-pairing", target: context.nodeId });
+    return createMobilePairing(context.nodeId);
   }));
 }
 

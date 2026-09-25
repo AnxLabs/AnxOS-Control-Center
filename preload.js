@@ -383,6 +383,8 @@ const desktopApi = {
     credentialStatus: (nodeId) => ipcRenderer.invoke("nodes:credentialStatus", { nodeId }),
     repairCredential: (payload = {}) => ipcRenderer.invoke("nodes:repairCredential", payload),
     generateToken: () => ipcRenderer.invoke("nodes:generateToken"),
+    updateAgent: (nodeId) => ipcRenderer.invoke("nodes:updateAgent", { nodeId }),
+    createMobilePairing: (nodeId) => ipcRenderer.invoke("nodes:createMobilePairing", { nodeId }),
   },
   // V2-J Wave 1 alert surface (src/ipc/alertsIpc.js). Both channels are
   // local-owner gated in main; the plain invoke form matches the node-scoped

@@ -472,6 +472,8 @@ const IPC_FAMILIES = [
     channels: [
       "nodes:save", "nodes:delete", "nodes:disconnect", "nodes:reconnect", "nodes:pair",
       "nodes:repairCredential", "nodes:generateToken", "nodes:fleetBatch", "nodes:testConnection",
+      "nodes:updateAgent",
+      "nodes:createMobilePairing",
     ],
   },
   {
@@ -780,6 +782,15 @@ const REST_FAMILIES = [
     publicRoute: true,
     internalAuthorization: PAIRING_INTERNAL_AUTHORIZATION,
     routes: [{ method: "GET", path: PAIRING_STATUS_PATH }],
+  },
+  {
+    id: "rest-mobile-claim-page",
+    // Browser-reachable pairing page (phone camera apps refuse anxos:// links):
+    // pre-auth by design because the claim URL is the capability, exactly like
+    // the QR. Rate-limited, strictly validated, served no-store/no-referrer.
+    tier: null,
+    publicRoute: true,
+    routes: [{ method: "GET", path: "/pair" }],
   },
   {
     id: "rest-ui-session",

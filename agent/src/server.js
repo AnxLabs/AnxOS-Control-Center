@@ -35,6 +35,7 @@ const { handleUiBootstrap, handleUiBootstrapCode, handleUiSession, handleUiSessi
 const { validateSessionToken } = require("./services/sessionService");
 const { CROSS_ORIGIN_DENIED, HOST_NOT_ALLOWED, assertTrustedRequest } = require("./services/hostTrustPolicy");
 const { handlePairing } = require("./routes/pairing");
+const { CLAIM_PAGE_PATH, handleMobileClaimPage } = require("./routes/mobileClaimPage");
 const { authorizeApiPermission } = require("./permissions");
 const { handlePlayitSnapshot, handlePlayitStatus, handlePublicAccessPlayit } = require("./routes/playit");
 const { handlePublicAccess } = require("./routes/publicAccess");
@@ -469,6 +470,17 @@ async function handleRequest(request, response) {
       const pairingResult = await handlePairing(request, url, config);
       if (pairingResult) {
         sendResult(response, pairingResult);
+        return;
+      }
+    }
+    // Browser-reachable mobile claim page: phone camera apps cannot open the
+    // anxos:// claim, so the QR can point here instead. Pre-auth by design (the
+    // claim URL is the capability), rate-limited, strictly validated, no-store.
+    if (url.pathname === CLAIM_PAGE_PATH && request.method === "GET") {
+      checkRateLimit(`claim-page:${address}`, 60, 60 * 1000);
+      const claimPage = handleMobileClaimPage(request, url);
+      if (claimPage) {
+        sendResult(response, claimPage);
         return;
       }
     }

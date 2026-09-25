@@ -4142,6 +4142,16 @@
                 <div><span>Uptime</span><strong data-agent-control-field="uptime">Unavailable</strong></div>
                 <div><span>Last heartbeat</span><strong data-agent-control-field="heartbeat">Unavailable</strong></div>
               </div>
+              <div class="agent-section-grid agent-lifecycle-grid">
+                <div><span>Endpoint</span><strong data-agent-lifecycle-field="url">Unavailable</strong></div>
+                <div><span>Hostname</span><strong data-agent-lifecycle-field="hostname">Unavailable</strong></div>
+                <div><span>Protocol</span><strong data-agent-lifecycle-field="protocol">Unavailable</strong></div>
+                <div><span>Latency</span><strong data-agent-lifecycle-field="latency">Unavailable</strong></div>
+                <div><span>Memory</span><strong data-agent-lifecycle-field="memory">Unavailable</strong></div>
+                <div><span>CPU</span><strong data-agent-lifecycle-field="cpu">Unavailable</strong></div>
+                <div><span>Connected clients</span><strong data-agent-lifecycle-field="clients">Unavailable</strong></div>
+                <div><span>Device ID</span><strong data-agent-lifecycle-field="deviceId">Unavailable</strong></div>
+              </div>
             </section>
             <section class="settings-section settings-section--wide agent-local-installer" data-agent-local-installer data-agent-control-section="installation">
               <div class="settings-section__header">
@@ -4180,8 +4190,24 @@
               <div class="settings-actions">
                 <button class="primary-button" type="button" data-agent-control-action="startPairingSession">Generate Pairing Code</button>
                 <button class="inline-action" type="button" data-agent-control-action="copyPairingCode" disabled>Copy Pairing Code</button>
+                <button class="inline-action" type="button" data-agent-control-action="pairMobileDevice">Pair Mobile Device</button>
+                <button class="inline-action" type="button" data-agent-control-action="copyMobileClaim" disabled>Copy Mobile Claim</button>
               </div>
               <p class="settings-note">Open Add Node on the other Control Center, paste this temporary code, and select Pair Agent. Codes expire and can be used only once.</p>
+              <div class="agent-mobile-claim" data-agent-mobile-claim hidden>
+                <img class="agent-mobile-claim__qr" data-agent-mobile-qr alt="Mobile pairing QR code" width="180" height="180" />
+                <div class="agent-mobile-claim__body">
+                  <div><span>Node</span><strong data-agent-mobile-node>Unavailable</strong></div>
+                  <div><span>Agent address</span><strong data-agent-mobile-url>Unavailable</strong></div>
+                  <div><span>Adapter (browser)</span><strong data-agent-mobile-adapter>Unavailable</strong></div>
+                  <div><span>Credential</span><strong data-agent-mobile-fingerprint>Unavailable</strong></div>
+                  <div>
+                    <span>Claim code</span>
+                    <code class="agent-mobile-claim__code" data-agent-mobile-claim-code>Unavailable</code>
+                  </div>
+                  <p class="settings-note">Scan this with the ANXOS mobile app — open <strong>Pair this device</strong> and press <strong>Scan QR Code</strong>. Phone camera apps cannot open <code>anxos://</code> links, so they report the code as unusable. You can also press <strong>Copy Mobile Claim</strong> and paste it into the app's code field. The claim replaces the node's Agent credential with a new one for the phone — this Desktop switches to it automatically, and the claim stays valid until the node is repaired or re-paired.</p>
+                </div>
+              </div>
             </section>
             <section class="settings-section settings-section--wide" data-agent-control-section="updates">
               <div class="settings-section__header">
