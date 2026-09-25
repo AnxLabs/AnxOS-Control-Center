@@ -50,6 +50,11 @@ To add a remote system:
 4. Paste the pairing code.
 5. Click **Pair Agent**, then **Test Connection**.
 
+A standalone Agent on another machine listens on `127.0.0.1` only until you opt
+in. On that machine, set `AGENT_HOST` to its LAN or tailnet address and restart
+the Agent before pairing. Prefer a concrete address over `0.0.0.0`; the Agent
+prints a startup warning when it is exposed on every interface.
+
 Nodes can also be organized with an optional **group** label and filtered by it
 in the node toolbar. Groups are labels only; they do not grant or restrict
 access.

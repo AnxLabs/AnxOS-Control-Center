@@ -244,9 +244,13 @@ wildcard bind a rebinding page's `pairing/start` would still succeed; its
 `agentUrl` no longer reflects the hostile host
 (`agent/src/routes/pairing.js:132-139`), and the pairing credential gate still
 applies to an enrolled node. The strict allowlist requires a concrete bind.
-The standalone Agent defaults to `0.0.0.0`
-(`agent/src/config.js:10`), while the Control Center's own local Agent defaults
-to `127.0.0.1` (`src/services/agentControlService.js:69`). Follow-up option
+Both the standalone Agent and the Control Center's own local Agent now default
+to `127.0.0.1` (`agent/src/config.js:15`,
+`src/services/agentControlService.js:69`); a wildcard bind is an explicit
+opt-in (`AGENT_HOST`, or `host` in the runtime config) that the Agent reports
+with a loud startup diagnostic (`agent/src/config.js:129-165`). A remote node
+therefore sets `AGENT_HOST` explicitly; a concrete interface address is
+recommended because it also enforces the strict allowlist. Follow-up option
 recorded and **not implemented**: an operator-configured allowed-host list; the
 desktop already stores an unused `allowedOrigins` setting
 (`src/services/agentControlService.js:69`).
@@ -395,10 +399,11 @@ document does not duplicate them.
 | Rendering/preload/Agent boundary detail | `docs/SECURITY_BOUNDARIES.md` |
 | Known limitations and downgrade behaviour | `docs/KNOWN_LIMITATIONS.md`, `docs/OPERATOR_NOTES_V2.md` §14 |
 
-Minimum posture for a remote node: **bind the Agent to a concrete address** (do
-not rely on a wildcard bind), keep the pairing credential, do not place the Agent
-port behind an on-host reverse proxy, and add the node's DNS name to its
-`agent_url`/`agentUrl` if it is reached by name.
+Minimum posture for a remote node: **set `AGENT_HOST` explicitly on the Agent
+machine and prefer a concrete address** (the Agent is loopback-only by default,
+and a wildcard bind is neither required nor strict), keep the pairing credential,
+do not place the Agent port behind an on-host reverse proxy, and add the node's
+DNS name to its `agent_url`/`agentUrl` if it is reached by name.
 
 ---
 

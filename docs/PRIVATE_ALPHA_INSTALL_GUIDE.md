@@ -94,6 +94,11 @@ An Agent is required for:
 - Backups for managed server data
 - Agent Control diagnostics and service management
 
+A standalone Agent binds `127.0.0.1` (loopback) by default. To connect a remote
+system, set `AGENT_HOST` on the Agent machine to its LAN or tailnet address and
+restart the Agent. Prefer a concrete address over `0.0.0.0`; the Agent prints a
+startup warning when it is exposed on every interface.
+
 ## First Launch
 
 On first launch, AnxOS shows a welcome/setup experience.

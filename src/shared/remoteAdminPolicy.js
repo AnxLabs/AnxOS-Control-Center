@@ -6,10 +6,12 @@
 // ------------------------------
 // Before this policy a single bearer credential — or a legacy enrollment with
 // no scopes at all — reached the full Agent API from any address the Agent was
-// reachable on. The Agent binds `0.0.0.0` by default (agent/src/config.js
-// DEFAULT_HOST), so "reachable on the LAN" and "remote administration" were
-// the same thing: possession of the token was the only requirement, and the
-// token was not required to be scoped to anything.
+// reachable on. A standalone Agent used to bind `0.0.0.0` by default
+// (agent/src/config.js DEFAULT_HOST); the default is now loopback, and remote
+// reachability is an explicit `AGENT_HOST` opt-in. Whenever the Agent is
+// reachable from the LAN, "reachable" and "remote administration" are the same
+// thing: possession of the token was the only requirement, and the token was
+// not required to be scoped to anything.
 //
 // THE RULE (chosen, not inherited)
 // --------------------------------

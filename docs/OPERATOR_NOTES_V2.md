@@ -436,11 +436,13 @@ What this means in practice:
 - On a **locked** desktop the stored credential is unavailable, so remote re-pair
   is refused until the owner unlocks. Fail-safe by design.
 
-If the Agent is network-reachable, remember that this gate is one layer: a
-default desktop-spawned Agent binds loopback only, while a standalone Agent
-defaults to all interfaces and needs a firewall rule that you create
-deliberately. Loopback trust is absolute, so do not put a reverse proxy in front
-of the Agent port — remote callers would then look local to this check.
+If the Agent is network-reachable, remember that this gate is one layer: both
+the default desktop-spawned Agent and a standalone Agent bind loopback only.
+Reaching a standalone node from another machine is an explicit opt-in — set
+`AGENT_HOST` on that machine (prefer a concrete LAN/tailnet address) and add a
+firewall rule you create deliberately. Loopback trust is absolute, so do not put
+a reverse proxy in front of the Agent port — remote callers would then look
+local to this check.
 
 ## 13. Which Host names and origins the Agent answers for
 
@@ -468,13 +470,16 @@ Two consequences worth knowing before you need them:
   in `agent.json`. Otherwise the name is not on the allowlist and requests to it
   are refused. A remote Agent reached by IP address needs no configuration — IP
   literals are always accepted, because rebinding cannot produce one.
-- **A wildcard bind (`AGENT_HOST=0.0.0.0` or `::`) is deliberately not strict.**
-  Deciding whether an arbitrary name resolves to a local address would require a
-  DNS lookup on the request path, which the Agent does not do. So on a wildcard
-  bind any syntactically valid host is accepted, and the pairing `agentUrl` is
-  still reported as the configured address rather than the caller's. **If you
-  want the strict allowlist, bind a concrete address.** The Control Center's
-  own local Agent already binds `127.0.0.1`.
+- **A wildcard bind (`AGENT_HOST=0.0.0.0` or `::`) is deliberately not strict,
+  and is now an explicit opt-in.** Deciding whether an arbitrary name resolves
+  to a local address would require a DNS lookup on the request path, which the
+  Agent does not do. So on a wildcard bind any syntactically valid host is
+  accepted, and the pairing `agentUrl` is still reported as the configured
+  address rather than the caller's. **If you want the strict allowlist, bind a
+  concrete address.** Both the Control Center's own local Agent and a standalone
+  Agent with no `AGENT_HOST` now default to `127.0.0.1`; a remote node must set
+  `AGENT_HOST` explicitly (prefer its concrete LAN/tailnet address), and the
+  Agent prints a loud startup warning whenever the resolved host is a wildcard.
 
 Loopback is trusted absolutely here as well as in the pairing gate (§12), so an
 on-host reverse proxy in front of the Agent port defeats **both** gates: every

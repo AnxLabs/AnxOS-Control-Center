@@ -24,6 +24,10 @@
 //      is refused on state changes and preflights, while the Agent's own browser
 //      UI origin (same-origin) completes the real bootstrap -> session -> page
 //      flow end to end.
+//   E. Safe bind default — with no AGENT_HOST and no runtime host the standalone
+//      Agent binds loopback only (and does not answer on a machine interface
+//      address), an explicit wildcard bind emits the loud startup diagnostic,
+//      and an explicitly set concrete address stays quiet.
 const assert = require("assert");
 const fs = require("fs");
 const http = require("http");
@@ -44,6 +48,8 @@ const TOKEN = "anxos_host-trust-smoke-credential-0123456789";
 const REBIND_HOST = "rebind.attacker.test:47131";
 const CONCRETE_AGENT_URL = "http://configured-agent.test:47131";
 const WILDCARD_AGENT_URL = "http://wildcard-configured.test:47131";
+// The stable phrase leg E asserts on in the wildcard startup diagnostic.
+const WILDCARD_DIAGNOSTIC_MARKER = "exposed on every interface";
 
 // ---------------------------------------------------------------------------
 // Raw HTTP: only a hand-built request can carry a hostile Host header.
@@ -118,7 +124,7 @@ async function waitForAgent(port) {
   throw new Error("Spawned Agent did not become reachable.");
 }
 
-async function spawnAgent({ name, bindHost, agentUrl }) {
+async function spawnAgent({ name, bindHost, agentUrl, isolateHostEnv = false }) {
   const home = path.join(smokeRoot, name);
   const configDir = path.join(home, "config");
   const configPath = path.join(configDir, "agent.json");
@@ -127,22 +133,39 @@ async function spawnAgent({ name, bindHost, agentUrl }) {
   fs.mkdirSync(logDir, { recursive: true });
   fs.writeFileSync(configPath, `${JSON.stringify({ backendMode: "agent", agentUrl, agentToken: TOKEN }, null, 2)}\n`, { mode: 0o600 });
   const port = await getFreePort();
+  const env = {
+    ...process.env,
+    ANXHUB_CONFIG_DIR: configDir,
+    ANXHUB_AGENT_CONFIG_PATH: configPath,
+    AGENT_ENROLLMENT_PATH: path.join(configDir, "enrollment.json"),
+    AGENT_PORT: String(port),
+    AGENT_TOKEN: TOKEN,
+    AGENT_IDENTITY_PATH: path.join(home, "identity.json"),
+    AGENT_INSTANCE_ROOT: path.join(home, "instances"),
+    AGENT_FILE_ROOTS: smokeRoot,
+    ANXOS_LOG_DIR: logDir,
+    AGENT_API_RATE_LIMIT_PER_MINUTE: "5000",
+  };
+  if (bindHost) {
+    env.AGENT_HOST = bindHost;
+  }
+  if (isolateHostEnv) {
+    // Default-resolution leg: remove every inherited way a listen address could
+    // be injected (env, runtime config, a user-level agent.env) and point HOME
+    // at the per-test tree so the machine's own agent.env cannot leak in. The
+    // repo-level .env is always loaded by the Agent, so leg E1 additionally
+    // asserts that file does not set AGENT_HOST.
+    delete env.AGENT_HOST;
+    delete env.ANXOS_AGENT_RUNTIME_CONFIG;
+    delete env.ANXHUB_AGENT_ENV_PATH;
+    delete env.ANXOS_AGENT_ENV_PATH;
+    env.HOME = home;
+    env.USERPROFILE = home;
+    env.XDG_CONFIG_HOME = path.join(home, ".config");
+  }
   const child = spawn(process.execPath, [path.join(root, "agent", "src", "server.js")], {
     cwd: path.join(root, "agent"),
-    env: {
-      ...process.env,
-      ANXHUB_CONFIG_DIR: configDir,
-      ANXHUB_AGENT_CONFIG_PATH: configPath,
-      AGENT_ENROLLMENT_PATH: path.join(configDir, "enrollment.json"),
-      AGENT_HOST: bindHost,
-      AGENT_PORT: String(port),
-      AGENT_TOKEN: TOKEN,
-      AGENT_IDENTITY_PATH: path.join(home, "identity.json"),
-      AGENT_INSTANCE_ROOT: path.join(home, "instances"),
-      AGENT_FILE_ROOTS: smokeRoot,
-      ANXOS_LOG_DIR: logDir,
-      AGENT_API_RATE_LIMIT_PER_MINUTE: "5000",
-    },
+    env,
     stdio: ["ignore", "pipe", "pipe"],
   });
   let output = "";
@@ -173,6 +196,39 @@ function readAllLogs(directory) {
   };
   if (fs.existsSync(directory)) walk(directory);
   return text;
+}
+
+function firstNonInternalIpv4() {
+  return Object.values(os.networkInterfaces())
+    .flat()
+    .find((entry) => entry && entry.family === "IPv4" && !entry.internal)?.address;
+}
+
+async function waitForCondition(check, label, timeoutMs = 10000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (check()) return;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`Timed out waiting for ${label}.`);
+}
+
+// A direct connect attempt to one specific address: the only honest proof that
+// a loopback-only bind does not answer there. Any transport failure counts as
+// "not reachable"; a completed response means the bind accepts that address.
+function probeAddress({ host, port, timeoutMs = 1500 }) {
+  return new Promise((resolve) => {
+    const request = http.request(
+      { host, port, method: "GET", path: "/api/v1/health", headers: { Host: `${host}:${port}` }, setHost: false, timeout: timeoutMs },
+      (response) => {
+        response.resume();
+        resolve({ answered: true, status: response.statusCode });
+      },
+    );
+    request.on("timeout", () => request.destroy(new Error("probe-timeout")));
+    request.on("error", () => resolve({ answered: false }));
+    request.end();
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -468,11 +524,80 @@ async function runOriginLegs() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Leg E: safe bind default. The standalone Agent must bind loopback with no
+// AGENT_HOST / runtime host; a wildcard bind is an explicit opt-in that is
+// diagnosed loudly; an explicitly set concrete address stays quiet.
+// ---------------------------------------------------------------------------
+async function runDefaultBindLegs() {
+  // E1: no AGENT_HOST, no runtime host => loopback default, loopback only.
+  // The repo-level .env is always loaded by the Agent, so this leg is only
+  // hermetic while that file does not itself set AGENT_HOST; fail loudly if it
+  // ever does rather than silently testing a configured bind.
+  const repoEnvPath = path.join(root, ".env");
+  if (fs.existsSync(repoEnvPath)) {
+    assert(
+      !/^\s*AGENT_HOST\s*=/m.test(fs.readFileSync(repoEnvPath, "utf8")),
+      "E1: the repo .env sets AGENT_HOST; the default-resolution leg is not hermetic until that is removed.",
+    );
+  }
+  const defaultAgent = await spawnAgent({ name: "default-bind-agent", agentUrl: CONCRETE_AGENT_URL, isolateHostEnv: true });
+  try {
+    const listeningLine = `AnxOS Agent listening on http://127.0.0.1:${defaultAgent.port}`;
+    await waitForCondition(() => defaultAgent.output().includes(listeningLine), "the loopback listening line");
+    const logs = readAllLogs(defaultAgent.logDir);
+    assert(logs.includes('"message":"AnxOS Agent listening"'), "E1: the startup line must be logged.");
+    assert(logs.includes('"host":"127.0.0.1"'), "E1: the resolved default host must be loopback in the logs.");
+    assert(!defaultAgent.output().includes("0.0.0.0"), "E1: the default bind must not be a wildcard.");
+    assert(!logs.includes('"operation":"host-bind"'), "E1: the loopback default must not emit the wildcard diagnostic.");
+
+    // The actual security property: a loopback-only bind does not answer on a
+    // machine interface address.
+    const interfaceHost = firstNonInternalIpv4();
+    if (interfaceHost) {
+      const remote = await probeAddress({ host: interfaceHost, port: defaultAgent.port });
+      assert.strictEqual(remote.answered, false, `E1: a loopback-only bind must not answer on ${interfaceHost} (got status ${remote.status}).`);
+    }
+    console.log(`leg E1 passed: the standalone default is loopback only${interfaceHost ? " and does not answer on the machine interface address" : " (no non-internal interface on this host to probe)"}`);
+  } finally {
+    await defaultAgent.stop();
+  }
+
+  // E2: an explicit wildcard bind is loud and actionable.
+  const wildcardAgent = await spawnAgent({ name: "wildcard-diagnostic-agent", bindHost: "0.0.0.0", agentUrl: WILDCARD_AGENT_URL });
+  try {
+    await waitForCondition(() => wildcardAgent.output().includes(WILDCARD_DIAGNOSTIC_MARKER), "the wildcard startup diagnostic", 5000);
+    const output = wildcardAgent.output();
+    assert(output.includes("strict Host allowlist"), "E2: the diagnostic must explain the concrete-address allowlist trade-off.");
+    assert(output.includes("default is loopback"), "E2: the diagnostic must name loopback as the default.");
+    assert(output.includes("concrete interface address"), "E2: the diagnostic must recommend a concrete interface address.");
+    const logs = readAllLogs(wildcardAgent.logDir);
+    assert(logs.includes('"operation":"host-bind"'), "E2: the wildcard diagnostic must be logged.");
+    assert(logs.includes(WILDCARD_DIAGNOSTIC_MARKER), "E2: the logged diagnostic must carry the actionable text.");
+    console.log("leg E2 passed: an explicit wildcard bind emits the loud, actionable startup diagnostic");
+  } finally {
+    await wildcardAgent.stop();
+  }
+
+  // E3: an explicitly set concrete address stays quiet.
+  const concreteAgent = await spawnAgent({ name: "concrete-explicit-agent", bindHost: "127.0.0.1", agentUrl: CONCRETE_AGENT_URL });
+  try {
+    await waitForCondition(() => concreteAgent.output().includes(`AnxOS Agent listening on http://127.0.0.1:${concreteAgent.port}`), "the loopback listening line");
+    assert(!concreteAgent.output().includes(WILDCARD_DIAGNOSTIC_MARKER), "E3: an explicit concrete address must not emit the wildcard diagnostic.");
+    const logs = readAllLogs(concreteAgent.logDir);
+    assert(!logs.includes('"operation":"host-bind"'), "E3: an explicit concrete address must not log the wildcard diagnostic.");
+    console.log("leg E3 passed: an explicitly set concrete address binds quietly");
+  } finally {
+    await concreteAgent.stop();
+  }
+}
+
 async function main() {
   runPolicyLegs();
   await runConcreteBindLegs();
   await runWildcardBindLegs();
   await runOriginLegs();
+  await runDefaultBindLegs();
   console.log("agent:host-trust:smoke passed");
 }
 

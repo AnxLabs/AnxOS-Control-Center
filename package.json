@@ -525,14 +525,14 @@
     "@xterm/xterm": "^6.0.0",
     "bcryptjs": "^3.0.3",
     "dotenv": "^17.4.2",
-    "js-yaml": "^4.3.0",
+    "js-yaml": "^4.3.2",
     "monaco-editor": "^0.55.1",
     "qrcode": "^1.5.4",
     "ssh2": "^1.17.0",
     "unzipper": "^0.12.5"
   },
   "overrides": {
-    "dompurify": "3.4.12"
+    "dompurify": "3.4.16"
   },
   "allowScripts": {
     "electron-winstaller@5.4.0": true,

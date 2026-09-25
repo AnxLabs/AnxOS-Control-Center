@@ -80,10 +80,14 @@ git rev-parse HEAD
 git rev-list --left-right --count origin/dev...HEAD
 ```
 
-Start or restart Agent:
+Start or restart Agent. Without `AGENT_HOST` a standalone Agent binds loopback
+only (`127.0.0.1`); the line below is the explicit opt-in for remote
+reachability, and a concrete LAN/tailnet address is safer than `0.0.0.0` (it
+also gets the strict Host allowlist):
 
 ```sh
 cd <repo>/agent
+# Explicit opt-in: bind every interface. Prefer a concrete address for a remote node.
 AGENT_HOST=0.0.0.0 AGENT_PORT=<port> npm start
 ```
 

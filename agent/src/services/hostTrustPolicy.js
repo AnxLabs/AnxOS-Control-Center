@@ -69,6 +69,20 @@ function isIpLiteral(value) {
 }
 
 /**
+ * Whether a raw Host value carries a `%` outside a bracketed IPv6 literal.
+ *
+ * A `%` is only legitimate here inside brackets (`[fe80::1%25eth0]`), where the
+ * zone is contained by the brackets and `parseHostValue` intentionally strips
+ * it. Anywhere else the same strip would validate only the pre-`%` prefix while
+ * another component may read the raw value as a different host — the class of
+ * validation/use mismatch this module refuses outright rather than parses.
+ */
+function hasUnbracketedZone(value) {
+  const raw = typeof value === "string" ? value.trim() : "";
+  return raw.includes("%") && !raw.startsWith("[");
+}
+
+/**
  * Parse a raw Host header value (or a URL hostname) into
  * `{ name, port, literal, token }`, or null when it is missing/malformed.
  * `name` is the lowercased host with the port and IPv6 brackets removed.
@@ -208,6 +222,12 @@ function evaluateHost(hostValue, config = {}) {
   if (typeof hostValue !== "string" || !hostValue.trim()) {
     return { allowed: false, code: HOST_NOT_ALLOWED, reason: "missing-host-header" };
   }
+  // Fail closed on `%` smuggling: the IPv6-zone strip must never turn a
+  // non-bracketed value (`127.0.0.1%2fevil.com`) into an allowlisted name.
+  // Bracketed IPv6 literals keep their zone support.
+  if (hasUnbracketedZone(hostValue)) {
+    return { allowed: false, code: HOST_NOT_ALLOWED, reason: "malformed-host-header" };
+  }
   const parsed = parseHostValue(hostValue);
   if (!parsed) {
     return { allowed: false, code: HOST_NOT_ALLOWED, reason: "malformed-host-header" };
@@ -242,8 +262,7 @@ function isEchoableAgentHost(hostValue, config = {}) {
   // reflected. A `%` is only ever legitimate here inside a bracketed IPv6
   // literal, so anything else carrying one is refused outright rather than
   // parsed.
-  const raw = typeof hostValue === "string" ? hostValue.trim() : "";
-  if (raw.includes("%") && !raw.startsWith("[")) return false;
+  if (hasUnbracketedZone(hostValue)) return false;
   const parsed = parseHostValue(hostValue);
   if (!parsed || isWildcardBind(parsed.name)) return false;
   if (parsed.literal) return true;

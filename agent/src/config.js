@@ -6,8 +6,13 @@ const {
 } = require("../../src/shared/agentTokenStore");
 const { readAgentRuntimeConfig } = require("../../src/shared/agentRuntimeConfigStore");
 const { logger } = require("./services/diagnosticsLogger");
+const { isWildcardBind } = require("./services/hostTrustPolicy");
 
-const DEFAULT_HOST = "0.0.0.0";
+// Safe default: a standalone Agent binds loopback only. Reaching it from another
+// machine is an explicit opt-in (AGENT_HOST, or `host` in the runtime config), and
+// a concrete interface address is preferred because it also gets the strict Host
+// allowlist in hostTrustPolicy.js; a wildcard bind cannot enforce that allowlist.
+const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 47131;
 const DEFAULT_REQUEST_TIMEOUT_MS = 120000;
 const DEFAULT_FILE_WRITE_TIMEOUT_MS = 300000;
@@ -116,6 +121,49 @@ function loadEnvironment() {
   ].filter(Boolean).forEach(loadEnvFile);
 }
 
+// Resolve the listen address. Prefer an explicit AGENT_HOST, then the runtime
+// config, then the loopback default. A wildcard resolution (0.0.0.0 / ::) is an
+// explicit opt-in that exposes the Agent on every interface and disables the
+// strict Host allowlist, so it gets a loud, actionable diagnostic. A concrete
+// address gets no diagnostic; neither does the loopback default.
+function resolveHost(runtime = {}) {
+  const envHost = String(process.env.AGENT_HOST || "").trim();
+  const runtimeHost = String(runtime.host || "").trim();
+  const host = envHost || runtimeHost || DEFAULT_HOST;
+  const source = envHost ? "env" : runtimeHost ? "runtime" : "default";
+  if (!isWildcardBind(host)) {
+    return { host, source };
+  }
+
+  const diagnostic =
+    "[AnxOS Agent] The resolved listen address is the wildcard \"" +
+    `${host}", so the Agent is exposed on every interface and any syntactically ` +
+    "valid Host header is accepted (the strict Host allowlist only applies to a " +
+    "concrete bind). This exposure is an explicit opt-in: the default is loopback " +
+    `(${DEFAULT_HOST}). Prefer a concrete interface address (for example this ` +
+    "machine's LAN or tailnet address) to expose the Agent only there and get the " +
+    "strict Host allowlist.";
+
+  return { host, source, diagnostic };
+}
+
+// Emitted once per process: getConfig() is called on request paths too, and a
+// security warning repeated per request would be noise rather than a signal.
+let wildcardHostDiagnosticEmitted = false;
+
+function emitWildcardHostDiagnostic(diagnostic) {
+  if (wildcardHostDiagnosticEmitted) {
+    return;
+  }
+  wildcardHostDiagnosticEmitted = true;
+  try {
+    logger.warn("host-bind", "Wildcard listen address exposes the Agent on every interface", { diagnostic }, { file: "config" });
+  } catch {
+    // Logging must never break config resolution.
+  }
+  console.warn(diagnostic);
+}
+
 function getConfig() {
   loadEnvironment();
   const runtime = readRuntimeConfig();
@@ -137,8 +185,12 @@ function getConfig() {
   if (instanceRoot.diagnostic) {
     emitInstanceRootDiagnostic(instanceRoot.diagnostic);
   }
+  const hostResolution = resolveHost(runtime);
+  if (hostResolution.diagnostic) {
+    emitWildcardHostDiagnostic(hostResolution.diagnostic);
+  }
   return {
-    host: process.env.AGENT_HOST || runtime.host || DEFAULT_HOST,
+    host: hostResolution.host,
     port: readInteger(process.env.AGENT_PORT || runtime.port, DEFAULT_PORT),
     agentUrl: configuredAgentUrl,
     token: tokenStatus.token || "",
