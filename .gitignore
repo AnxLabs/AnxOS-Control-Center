@@ -52,6 +52,7 @@ agent/*.log
 release-build.json
 resources/hardware-telemetry/
 resources/bundled-runtimes/
+resources/agent-runtime-node-modules/
 tools/windows-hardware-telemetry/bin/
 tools/windows-hardware-telemetry/obj/
 

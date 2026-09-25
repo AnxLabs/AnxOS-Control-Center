@@ -10,7 +10,7 @@
     "agent/src",
     "src/shared",
     "src/services",
-    "node_modules/dotenv",
+    "node_modules",
     "config/agent.example.json",
     "config/marketplace-templates.json"
   ],

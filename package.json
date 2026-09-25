@@ -18,6 +18,7 @@
     "dist:linux": "node scripts/run-electron-builder.js --linux deb AppImage --x64",
     "hardware-telemetry:build": "node scripts/build-windows-hardware-telemetry.js",
     "runtimes:prepare:win": "node scripts/prepare-windows-runtime-bundle.js",
+    "agent-runtime:prepare": "node scripts/prepare-agent-runtime-dependencies.js",
     "runtimes:bundle:smoke": "node scripts/bundled-runtime-smoke.js",
     "build:increment": "node scripts/release-config.js build:increment",
     "version:set": "node scripts/release-config.js version:set",
@@ -426,11 +427,12 @@
         ]
       },
       {
-        "from": "node_modules/dotenv",
-        "to": "local-agent-runtime/node_modules/dotenv",
+        "from": "resources/agent-runtime-node-modules",
+        "to": "local-agent-runtime/node_modules",
         "filter": [
-          "lib/**/*",
-          "package.json"
+          "**/*",
+          "!**/*.map",
+          "!**/.git/**"
         ]
       },
       {

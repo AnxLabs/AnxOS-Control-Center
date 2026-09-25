@@ -6,6 +6,7 @@ const os = require("os");
 const path = require("path");
 const asar = require("@electron/asar");
 const { buildReleaseInfo, readReleaseConfig } = require("../src/shared/releaseConfig");
+const { resolveRuntimeClosure } = require("./agent-runtime-dependency-closure");
 
 const rootDir = path.resolve(__dirname, "..");
 const distDir = path.join(rootDir, "dist");
@@ -298,6 +299,15 @@ for (const target of selectedTargets) {
     assert(!forbiddenRuntimeNames.has(name), `Local Agent runtime must not include ${path.relative(rootDir, entryPath)}`);
     assert(!entryPath.endsWith(".map"), `Local Agent runtime must not include source maps: ${path.relative(rootDir, entryPath)}`);
   }
+  // Hermetic dependency-closure leg: resolve the packaged Agent's real require
+  // graph strictly inside the packaged runtime tree (never the repository
+  // node_modules above dist), so a dropped dependency can never ship again.
+  // Electron is host-provided by ELECTRON_RUN_AS_NODE and optional native
+  // bindings are intentionally absent.
+  const runtimeClosure = resolveRuntimeClosure(runtimeRoot);
+  assert.deepStrictEqual(runtimeClosure.relativeMissing, [], `Local Agent runtime (${target}) has missing relative requires:\n${runtimeClosure.relativeMissing.map((entry) => `- ${entry.chain}`).join("\n")}`);
+  assert.deepStrictEqual(runtimeClosure.missing, [], `Local Agent runtime (${target}) is missing required modules:\n${runtimeClosure.missing.map((entry) => `- ${entry.name} (${entry.chain})`).join("\n")}`);
+  console.log(`Local Agent runtime dependency closure verified for ${target}: ${runtimeClosure.packages.map((entry) => `${entry.name}@${entry.version}`).join(", ")}.`);
 }
 
 const linuxResources = path.join(distDir, "linux-unpacked", "resources");

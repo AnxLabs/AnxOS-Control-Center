@@ -5,14 +5,17 @@ const AGENT_RUNTIME_MANIFEST = path.join("config", "local-agent-runtime.json");
 
 // The bundled runtime manifest is the single source of truth for what an Agent
 // runtime contains; package.json extraResources publishes the same paths into
-// resources/local-agent-runtime for packaged builds. These fallbacks exist so a
-// stripped development checkout still resolves the same payload shape.
+// resources/local-agent-runtime for packaged builds. node_modules is the staged
+// dependency closure (scripts/prepare-agent-runtime-dependencies.js), not the
+// repository tree, so enumerating it yields exactly the packages the Agent
+// requires. These fallbacks exist so a stripped development checkout still
+// resolves the same payload shape.
 const FALLBACK_INCLUDED_PATHS = [
   "agent/package.json",
   "agent/src",
   "src/shared",
   "src/services",
-  "node_modules/dotenv",
+  "node_modules",
   "config/agent.example.json",
   "config/marketplace-templates.json",
 ];
@@ -89,8 +92,9 @@ function enumerateRuntimePayload(runtimeRoot) {
     : FALLBACK_EXCLUDED_PATTERNS
   ).map(String);
 
-  // Explicitly included paths are trusted over exclusions: node_modules/dotenv
-  // is included even though node_modules is not part of the payload by default.
+  // Explicitly included paths are trusted over exclusions, so the manifest's
+  // node_modules entry is enumerated even when an exclusion pattern would
+  // otherwise match files inside it.
   const explicitlyIncluded = new Set(includedPaths);
   const isExcluded = (relativePath) => {
     if (explicitlyIncluded.has(relativePath)) return false;

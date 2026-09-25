@@ -26,6 +26,19 @@ if (increment) {
 const info = buildReleaseInfo(nextRelease);
 console.log(`Packaging AnxOS Control Center ${info.compactLabel}`);
 
+// The packaged Agent runtime is published from a staged dependency closure
+// (extraResources -> resources/agent-runtime-node-modules). Staging runs for
+// every platform target and fails the build when a required package is missing.
+const agentRuntimeDeps = spawnSync(process.execPath, [path.join(__dirname, "prepare-agent-runtime-dependencies.js")], {
+  cwd: process.cwd(),
+  stdio: "inherit",
+  shell: false,
+});
+if (agentRuntimeDeps.error || agentRuntimeDeps.status !== 0) {
+  console.error(agentRuntimeDeps.error?.message || "Agent runtime dependency staging failed.");
+  process.exit(agentRuntimeDeps.status || 1);
+}
+
 if (builderArgs.includes("--win") || process.platform === "win32") {
   const runtimeBuild = spawnSync(process.execPath, [path.join(__dirname, "prepare-windows-runtime-bundle.js")], {
     cwd: process.cwd(),

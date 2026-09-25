@@ -619,7 +619,7 @@ function buildManifest(options = {}) {
         "local-agent-runtime/agent/src/server.js",
         "local-agent-runtime/src/shared",
         "local-agent-runtime/src/services",
-        "local-agent-runtime/node_modules/dotenv",
+        "local-agent-runtime/node_modules",
         "local-agent-runtime/config/agent.example.json",
         "local-agent-runtime/config/marketplace-templates.json",
         "local-agent-runtime/local-agent-runtime.json",

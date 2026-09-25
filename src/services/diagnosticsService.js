@@ -2,7 +2,6 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { app, dialog, shell } = require("electron");
-const packageJson = require("../../package.json");
 const { sanitizeForDiagnostics } = require("../shared/redaction");
 const {
   StructuredLogger,
@@ -31,8 +30,21 @@ function getDirectory() {
 }
 const releaseInfo = getReleaseInfo();
 const bundledAgentVersion = getBundledLocalAgentVersion("unavailable");
+// The packaged Agent runtime does not ship the desktop root package.json (it is
+// not part of the runtime manifest), so the app manifest is read defensively
+// instead of being hard-required: a hard require failed module load in packaged
+// Agent processes and silently disabled this whole service. Desktop builds
+// still read the real manifest; runtime builds fall back to the release config.
+function readPackageVersion() {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(__dirname, "..", "..", "package.json"), "utf8")).version || null;
+  } catch {
+    return null;
+  }
+}
+const packageVersion = readPackageVersion() || releaseInfo.version;
 const logger = new StructuredLogger({ directory: getDirectory(), source: "desktop", processName: "main", appVersion: releaseInfo.compactLabel, agentVersion: bundledAgentVersion });
-let runtimeState = { applicationRunning: true, appVersion: releaseInfo.compactLabel, release: releaseInfo, packageVersion: packageJson.version, agentVersion: bundledAgentVersion, platform: process.platform, architecture: process.arch, currentWorkspace: "startup" };
+let runtimeState = { applicationRunning: true, appVersion: releaseInfo.compactLabel, release: releaseInfo, packageVersion, agentVersion: bundledAgentVersion, platform: process.platform, architecture: process.arch, currentWorkspace: "startup" };
 
 // SMOOTH-3006: minimum spacing between two synchronous persistence passes of
 // the runtime state (write of runtime-state.json + log-directory sweep).
@@ -100,7 +112,7 @@ async function exportBundle(parentWindow = null) {
   const result = await dialog.showSaveDialog(parentWindow || undefined, { title: "Export AnxOS Diagnostic Bundle", defaultPath: `anxos-diagnostics-${new Date().toISOString().replace(/[:.]/g, "-")}.json`, filters: [{ name: "JSON", extensions: ["json"] }] });
   if (result.canceled || !result.filePath) return { canceled: true };
   const release = getReleaseInfo();
-  const bundle = sanitizeForDiagnostics({ generatedAt: new Date().toISOString(), application: { name: "AnxOS Control Center", version: release.versionLabel, build: release.buildLabel, channel: release.channel, releaseLabel: release.compactLabel, packageVersion: packageJson.version, platform: os.platform(), release: os.release(), architecture: os.arch() }, agentVersion: getBundledLocalAgentVersion("unavailable"), readinessSummary: buildReadinessFromRuntime(), runtimeState, latestError: (() => { try { return JSON.parse(fs.readFileSync(path.join(getDirectory(), "latest-error.json"), "utf8")); } catch { return null; } })(), logs: readLogs({ limit: 500 }).entries });
+  const bundle = sanitizeForDiagnostics({ generatedAt: new Date().toISOString(), application: { name: "AnxOS Control Center", version: release.versionLabel, build: release.buildLabel, channel: release.channel, releaseLabel: release.compactLabel, packageVersion, platform: os.platform(), release: os.release(), architecture: os.arch() }, agentVersion: getBundledLocalAgentVersion("unavailable"), readinessSummary: buildReadinessFromRuntime(), runtimeState, latestError: (() => { try { return JSON.parse(fs.readFileSync(path.join(getDirectory(), "latest-error.json"), "utf8")); } catch { return null; } })(), logs: readLogs({ limit: 500 }).entries });
   fs.writeFileSync(result.filePath, `${JSON.stringify(bundle, null, 2)}\n`, { mode: 0o600 });
   log("info", "diagnostics", "export", "Sanitized diagnostic bundle exported", { destinationType: "user-selected-json" });
   return { canceled: false, exported: true };
