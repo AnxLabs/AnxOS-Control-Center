@@ -56,21 +56,114 @@ function withTimeout(promise, timeoutMs, label) {
   ]).finally(() => clearTimeout(timer));
 }
 
+// Wait until the first-run flow has actually settled before touching the nav.
+// The welcome is deferred by ~350ms after setup detection resolves
+// (app.js maybeOpenOnboardingWelcome), so polling the real readiness state
+// instead of sleeping is what makes this deterministic; returning before that
+// point is what let a late welcome intercept the Files navigation click. The
+// predicate mirrors stabilization-ui-qa.js's first-experience observation.
+async function waitForFirstExperienceSettled(window) {
+  try {
+    await window.waitForFunction(() => {
+      const readExpression = (expression) => {
+        try { return window.eval(expression); } catch { return undefined; }
+      };
+      const surfaceVisible = (selector) => {
+        const node = document.querySelector(selector);
+        if (!node || node.hidden) return false;
+        const box = node.getBoundingClientRect();
+        return box.width > 0 && box.height > 0;
+      };
+      const gateVisible = [
+        "[data-security-gate]",
+        "[data-local-setup-gate]",
+        "[data-onboarding-welcome]",
+        "[data-onboarding-wizard]",
+      ].some(surfaceVisible);
+      const setupDetectionResolved = readExpression("setupDetectionResolved");
+      const onboardingNeeded = readExpression("typeof shouldShowOnboardingWelcome === 'function' ? shouldShowOnboardingWelcome() : undefined");
+      return setupDetectionResolved === true && (gateVisible || onboardingNeeded === false);
+    }, null, { timeout: 15_000 });
+  } catch {
+    const observed = await window.evaluate(() => {
+      const readExpression = (expression) => {
+        try { return window.eval(expression); } catch { return "unreadable"; }
+      };
+      const surface = (selector) => {
+        const node = document.querySelector(selector);
+        if (!node) return "missing";
+        return node.hidden ? "hidden" : "visible";
+      };
+      return {
+        setupDetectionResolved: readExpression("setupDetectionResolved"),
+        onboardingNeeded: readExpression("typeof shouldShowOnboardingWelcome === 'function' ? shouldShowOnboardingWelcome() : 'unreadable'"),
+        onboardingWelcome: surface("[data-onboarding-welcome]"),
+      };
+    }).catch(() => "unreadable");
+    throw new Error(`First-run state never settled before navigation: ${redact(JSON.stringify(observed))}`);
+  }
+}
+
+// Dismiss first-run overlays the way scripts/qa-acceptance.js does, but with
+// every dismissal verified instead of swallowed: an active modal marks the app
+// shell inert and its backdrop intercepts pointer events, so proceeding before
+// the overlay is hidden turns the next click into a timeout. DOM clicks are
+// used because a backdrop can block Playwright's actionability-checked click
+// even when the trigger is visible and enabled. Repeats while dismissing one
+// surface reveals the next, bounded to terminate deterministically.
 async function dismissFirstRunOverlays(window) {
-  const welcomeSkip = window.locator('[data-onboarding-welcome] [data-onboarding-action="skip"]');
-  if (await welcomeSkip.count() && await welcomeSkip.isVisible().catch(() => false)) {
-    await welcomeSkip.evaluate((element) => element.click());
-    await window.locator("[data-onboarding-welcome]").waitFor({ state: "hidden", timeout: 5_000 }).catch(() => {});
+  const dismissed = [];
+  for (let pass = 0; pass < 4; pass += 1) {
+    const welcomeSkip = window.locator('[data-onboarding-welcome] [data-onboarding-action="skip"]').first();
+    if (await welcomeSkip.count() && await welcomeSkip.isVisible().catch(() => false)) {
+      await welcomeSkip.evaluate((element) => element.click());
+      await window.locator("[data-onboarding-welcome]").waitFor({ state: "hidden", timeout: ACTION_TIMEOUT_MS });
+      dismissed.push("onboarding-welcome");
+      continue;
+    }
+    const useDevice = window.locator('[data-local-setup-action="use-device"]').first();
+    if (await useDevice.count() && await useDevice.isVisible().catch(() => false)) {
+      await useDevice.evaluate((element) => element.click());
+      await window.locator("[data-local-setup-gate]").waitFor({ state: "hidden", timeout: ACTION_TIMEOUT_MS });
+      dismissed.push("local-setup-gate");
+      continue;
+    }
+    const dismissUpdate = window.locator('[data-update-modal] [data-update-action="dismiss"]').first();
+    if (await dismissUpdate.count() && await dismissUpdate.isVisible().catch(() => false)) {
+      await dismissUpdate.evaluate((element) => element.click());
+      await window.locator("[data-update-modal]").waitFor({ state: "hidden", timeout: ACTION_TIMEOUT_MS });
+      dismissed.push("update-modal");
+      continue;
+    }
+    break;
   }
-  const useDevice = window.locator('[data-local-setup-action="use-device"]');
-  if (await useDevice.count() && await useDevice.isVisible().catch(() => false)) {
-    await useDevice.evaluate((element) => element.click());
-    await window.locator("[data-local-setup-gate]").waitFor({ state: "hidden", timeout: 5_000 }).catch(() => {});
+  return dismissed;
+}
+
+// The nav can only be clicked once no overlay marks the shell inert and no
+// backdrop sits over it.
+async function waitForOverlaysCleared(window) {
+  try {
+    await window.waitForFunction(() => {
+      if (document.querySelector('[data-modal-active="true"]')) return false;
+      return !Array.from(document.querySelectorAll(".app-modal-backdrop")).some((node) => !node.hidden);
+    }, null, { timeout: ACTION_TIMEOUT_MS });
+  } catch {
+    throw new Error("First-run overlay did not clear before the Files navigation; the next click would be intercepted.");
   }
-  const dismissUpdate = window.locator('[data-update-modal] [data-update-action="dismiss"]').first();
-  if (await dismissUpdate.count() && await dismissUpdate.isVisible().catch(() => false)) {
-    await dismissUpdate.evaluate((element) => element.click());
-    await window.locator("[data-update-modal]").waitFor({ state: "hidden", timeout: 5_000 }).catch(() => {});
+}
+
+// If a delayed first-run surface appears after the initial dismissal, dismiss
+// it, wait for the overlay to clear, and retry the click exactly once; a
+// second failure is propagated rather than swallowed.
+async function clickNavWithOverlayRetry(window, locator) {
+  try {
+    await locator.click({ timeout: 3_000 });
+    return;
+  } catch (error) {
+    await dismissFirstRunOverlays(window);
+    await waitForOverlaysCleared(window);
+    await locator.click({ timeout: ACTION_TIMEOUT_MS });
   }
 }
 
@@ -102,8 +195,9 @@ async function main() {
     });
     window.on("pageerror", (error) => rendererErrors.push(redact(`pageerror: ${error.stack || error.message}`)));
     await window.waitForLoadState("domcontentloaded");
-    await window.waitForTimeout(500);
+    await waitForFirstExperienceSettled(window);
     await dismissFirstRunOverlays(window);
+    await waitForOverlaysCleared(window);
 
     // Instrument window.Worker before Monaco lazily loads on first file open.
     await window.evaluate(() => {
@@ -127,7 +221,7 @@ async function main() {
     // Open the Files page the way a user does.
     const filesNav = window.locator('[data-page-target="files"]').first();
     await filesNav.scrollIntoViewIfNeeded().catch(() => {});
-    await filesNav.click({ timeout: ACTION_TIMEOUT_MS });
+    await clickNavWithOverlayRetry(window, filesNav);
     await window.locator('[data-page="files"]').waitFor({ state: "visible", timeout: ACTION_TIMEOUT_MS });
 
     // Select the local filesystem connection and connect.
