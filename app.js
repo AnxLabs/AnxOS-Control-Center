@@ -1168,6 +1168,11 @@ const jobsState = {
   // (version skew), so the panel says "Agent too old for this view" instead of
   // implying the node simply has nothing to show.
   unsupported: false,
+  // The list IPC reads this desktop's own job store (instancesIpc.js
+  // instances:jobs:list always queries getLocalJobService()), so a remote or
+  // local-agent selection cannot be listed from here. True means the panel says
+  // that plainly instead of showing this computer's jobs under the node's name.
+  scopeUnavailable: false,
   pendingIds: new Set(),
 };
 const maintenanceState = {
@@ -11903,6 +11908,22 @@ function getInstanceConnectionHost(instance = null) {
   }
 }
 
+// The connection host is a node-supplied instance field, so it is validated as
+// a bare host before it is ever rendered into an href: a value carrying URL
+// structure ("/", "@", "?", "#", ":") could otherwise retarget the launch link
+// to another site (the scheme is pinned to plain HTTP, so this is a link-target
+// hardening, not script-execution prevention). Rejected values hide the link
+// rather than substituting a different destination.
+const INSTANCE_CONNECTION_HOST_PATTERN = /^(?:localhost|(?:\d{1,3}\.){3}\d{1,3}|\[[0-9a-fA-F:.]+\]|[a-zA-Z0-9_](?:[a-zA-Z0-9_-]{0,61}[a-zA-Z0-9_])?(?:\.[a-zA-Z0-9_](?:[a-zA-Z0-9_-]{0,61}[a-zA-Z0-9_])?)*)$/;
+
+function isSafeInstanceConnectionHost(value) {
+  const host = String(value || "").trim();
+  if (!host || host.length > 253) {
+    return false;
+  }
+  return INSTANCE_CONNECTION_HOST_PATTERN.test(host);
+}
+
 // V2-B Wave 1 launch-link primitive (docs/v2/V2B_DASHBOARD_APPS_WAVE1.md §3.2):
 // a best-effort HTTP URL for web-facing services. The scheme is never guessed
 // beyond plain HTTP, so callers only render the link when the service is
@@ -11912,7 +11933,11 @@ function getInstanceServiceUrl(instance = null) {
   if (!port) {
     return "";
   }
-  return `http://${getInstanceConnectionHost(instance)}:${port}`;
+  const host = getInstanceConnectionHost(instance);
+  if (!isSafeInstanceConnectionHost(host)) {
+    return "";
+  }
+  return `http://${host}:${port}`;
 }
 
 // Shared with the dashboard app cards so the ownership wording can never drift
@@ -17944,7 +17969,7 @@ function validateCreateServerStep(step, { report = true } = {}) {
   if (step === "node" || step === "runtime") {
     const target = resolveActiveManagementTarget();
     if (!target.reachable || !target.authenticated || target.targetType === "application-host") {
-      if (report) setMarketplaceMessage("Select a connected Agent node before deployment.", "error");
+      if (report) setMarketplaceMessage("Select a connected Agent node first. Choose a connected node in the node switcher, or pair one in Agent Control, then continue.", "error");
       return false;
     }
     if (step === "runtime" && !getDesktopApiState().hasMarketplace) {
@@ -23515,7 +23540,10 @@ function updateNotificationSummaries() {
   });
   if (notificationNavCount) {
     notificationNavCount.hidden = unread === 0;
-    notificationNavCount.textContent = String(Math.min(unread, 99));
+    // The badge is a compact indicator, not an exact counter: past 99 it must
+    // read "99+" so it is never mistaken for a real count that disagrees with
+    // the Notifications page. The exact number stays in the aria-label.
+    notificationNavCount.textContent = unread > 99 ? "99+" : String(unread);
     notificationNavCount.setAttribute("aria-label", `${unread} unread notification${unread === 1 ? "" : "s"}`);
   }
 }
@@ -24140,6 +24168,8 @@ function renderDurableJobs() {
 
   if (busy) {
     setJobsStatusPill("Loading");
+  } else if (jobsState.scopeUnavailable) {
+    setJobsStatusPill("This computer only", "status-pill--planned");
   } else if (jobsState.unsupported) {
     setJobsStatusPill("Agent update required", "status-pill--warning");
   } else if (jobsState.error) {
@@ -24155,13 +24185,15 @@ function renderDurableJobs() {
     const nodeLabel = getSelectedNode()?.displayName || getSelectedNode()?.name || getSelectedNodeId();
     jobsMessage.textContent = busy
       ? "Loading durable jobs..."
-      : jobsState.unsupported
-        ? AGENT_JOBS_VIEW_UNSUPPORTED_MESSAGE
-        : jobsState.error
-          ? jobsState.error
-          : jobsState.jobs.length
-            ? `${jobsState.total} durable job${jobsState.total === 1 ? "" : "s"} tracked for ${nodeLabel}. Cancel is offered only for jobs that support it.`
-            : `No durable jobs recorded for ${nodeLabel}. Instance start, stop, restart, create, and update jobs will appear here while they run.`;
+      : jobsState.scopeUnavailable
+        ? AGENT_JOBS_REMOTE_NODE_MESSAGE
+        : jobsState.unsupported
+          ? AGENT_JOBS_VIEW_UNSUPPORTED_MESSAGE
+          : jobsState.error
+            ? jobsState.error
+            : jobsState.jobs.length
+              ? `${jobsState.total} durable job${jobsState.total === 1 ? "" : "s"} tracked for ${nodeLabel}. Cancel is offered only for jobs that support it.`
+              : `No durable jobs recorded for ${nodeLabel}. Instance start, stop, restart, create, and update jobs will appear here while they run.`;
   }
 
   if (!jobsList) return;
@@ -24169,6 +24201,17 @@ function renderDurableJobs() {
 
   if (busy && !jobsState.jobs.length) {
     jobsList.append(createEmptyState("Loading durable jobs...", "notification-empty"));
+    return;
+  }
+
+  if (jobsState.scopeUnavailable && !jobsState.jobs.length) {
+    const scoped = document.createElement("div");
+    scoped.className = "notification-empty";
+    scoped.append(
+      createTextElement("strong", "Job history is local to this computer."),
+      createTextElement("span", AGENT_JOBS_REMOTE_NODE_MESSAGE),
+    );
+    jobsList.append(scoped);
     return;
   }
 
@@ -24283,6 +24326,22 @@ async function loadDurableJobs(options = {}) {
     return;
   }
   if (jobsState.loading) return;
+
+  // The list IPC reads this desktop's own job store, so it can only answer for
+  // the local application host. For any other selected node, state that plainly
+  // instead of returning this computer's jobs labelled with the node's name.
+  if (!isJobsScopeApplicationHost()) {
+    jobsState.jobs = [];
+    jobsState.total = 0;
+    jobsState.error = null;
+    jobsState.unsupported = false;
+    jobsState.scopeUnavailable = true;
+    jobsState.loading = false;
+    jobsState.loaded = true;
+    renderDurableJobs();
+    return;
+  }
+  jobsState.scopeUnavailable = false;
 
   const context = getNodeRequestContext("instance-jobs");
   jobsState.loading = true;
@@ -28713,9 +28772,16 @@ function startDockerPagePolling() {
       stopDockerPagePolling();
       return;
     }
-    if (document.hidden || !dockerWorkspaceState?.ready) {
+    if (document.hidden) {
       return;
     }
+    // Retry even when the workspace is not ready. The previous gate skipped the
+    // refresh while the workspace was not ready, so a transient failure (daemon
+    // restarting, Agent briefly unreachable, node switch) left the page stuck on
+    // its error state until a manual Refresh click. Repeating the refresh is
+    // safe: it has an in-flight guard, a node-context guard, a request timeout,
+    // and bounded Agent polling backoff, so an unreachable node is retried at a
+    // backing-off cadence instead of never.
     refreshDockerStatus();
     if (dockerActiveTab === "stats" && selectedDockerContainerId) {
       refreshDockerSelectedStats();
@@ -34467,6 +34533,7 @@ function resetNodeScopedRendererState(message = "Loading selected node...") {
   jobsState.loading = false;
   jobsState.error = null;
   jobsState.unsupported = false;
+  jobsState.scopeUnavailable = false;
   jobsState.pendingIds.clear();
   renderDurableJobs();
 
@@ -36374,6 +36441,22 @@ const AGENT_JOBS_VIEW_UNSUPPORTED_CODES = Object.freeze([
 const AGENT_JOBS_VIEW_UNSUPPORTED_MESSAGE =
   "Agent update required. This node's Agent is too old to report jobs; update or restart the Agent, then refresh.";
 
+// The durable-jobs panel reads this desktop's own job store (instancesIpc.js
+// instances:jobs:list always queries getLocalJobService()). Job records live in
+// the process that executes the operation, so only the local application host
+// can be listed from here; a remote or local-agent node's jobs are recorded on
+// that node. Say so instead of showing this computer's jobs under its name.
+const AGENT_JOBS_REMOTE_NODE_MESSAGE =
+  "This panel lists the job history of this computer only. Jobs executed on a remote or local-agent node are recorded on that node; select this computer (Application Host) to see its jobs.";
+
+function isJobsScopeApplicationHost() {
+  const node = getSelectedNode();
+  if (!node) {
+    return getSelectedNodeId() === "application-host";
+  }
+  return node.kind === "application-host" || node.local === true || node.id === "application-host";
+}
+
 function isAgentJobsViewUnsupported(source = null) {
   const code = String(source?.code || source?.errorCode || "").toUpperCase();
   if (code && AGENT_JOBS_VIEW_UNSUPPORTED_CODES.includes(code)) return true;
@@ -36757,7 +36840,7 @@ function renderNetworkInventory() {
   }
 }
 
-async function loadNetworkInventory(nodeId = getSelectedNodeId()) {
+async function loadNetworkInventory(nodeId = getSelectedNodeId(), options = {}) {
   const api = getNetworkInventoryApi();
   if (!api) return;
   if (networkInventoryRequestInFlight) return;
@@ -36768,6 +36851,11 @@ async function loadNetworkInventory(nodeId = getSelectedNodeId()) {
   networkInventoryRequestInFlight = true;
   networkInventoryState = { ...networkInventoryState, nodeId, status: "loading", error: null };
   renderNetworkInventory();
+  // Automatic loads (panel render, node selection) keep failures inline in the
+  // panel: at startup the local Agent may not be listening yet, and a stale
+  // "Agent is not responding" toast there was alarming and wrong. Only a
+  // user-initiated load raises a toast.
+  const notify = options.userInitiated === true;
   try {
     const result = await api.get(getNodeScopedPayload(requestContext));
     if (!isNodeRequestCurrent(requestContext)) return;
@@ -36776,7 +36864,7 @@ async function loadNetworkInventory(nodeId = getSelectedNodeId()) {
       // error } instead of rejecting, so both shapes are handled.
       const message = normalizeIpcErrorMessage(result.error?.message, "Network inventory request failed.");
       networkInventoryState = { nodeId, status: "error", data: null, error: message, loadedAt: 0 };
-      showToast(message, "error");
+      if (notify) showToast(message, "error");
       return;
     }
     networkInventoryState = { nodeId, status: "ready", data: result || {}, error: null, loadedAt: Date.now() };
@@ -36784,7 +36872,7 @@ async function loadNetworkInventory(nodeId = getSelectedNodeId()) {
     if (!isNodeRequestCurrent(requestContext)) return;
     const message = normalizeIpcErrorMessage(error, "Network inventory request failed.");
     networkInventoryState = { nodeId, status: "error", data: null, error: message, loadedAt: 0 };
-    showToast(message, "error");
+    if (notify) showToast(message, "error");
   } finally {
     networkInventoryRequestInFlight = false;
     renderNetworkInventory();
@@ -42484,7 +42572,7 @@ fleetActionButtons.forEach((button) => {
   });
 });
 networkInventoryActionButtons.forEach((button) => {
-  button.addEventListener("click", () => loadNetworkInventory(getSelectedNodeId()));
+  button.addEventListener("click", () => loadNetworkInventory(getSelectedNodeId(), { userInitiated: true }));
 });
 nodeDetailsModal?.addEventListener("click", async (event) => {
   const healthButton = event.target.closest("[data-node-health-action]");

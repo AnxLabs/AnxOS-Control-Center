@@ -69,8 +69,10 @@ function extractConstExpression(name) {
 const DECLARATIONS = [
   extractConstBlock("AGENT_JOBS_VIEW_UNSUPPORTED_CODES"),
   extractConstExpression("AGENT_JOBS_VIEW_UNSUPPORTED_MESSAGE"),
+  extractConstExpression("AGENT_JOBS_REMOTE_NODE_MESSAGE"),
 ].filter(Boolean).join("\n");
 assert(DECLARATIONS.includes("AGENT_JOBS_VIEW_UNSUPPORTED_CODES"), "app.js must declare AGENT_JOBS_VIEW_UNSUPPORTED_CODES.");
+assert(DECLARATIONS.includes("AGENT_JOBS_REMOTE_NODE_MESSAGE"), "app.js must declare AGENT_JOBS_REMOTE_NODE_MESSAGE.");
 
 const EXTRACTED = [
   "isAgentJobsViewUnsupported",
@@ -140,7 +142,7 @@ function createHarness(jobsState) {
   };
   vm.createContext(context);
   vm.runInContext(
-    `${DECLARATIONS}\n${EXTRACTED}\nthis.isAgentJobsViewUnsupported = isAgentJobsViewUnsupported;\nthis.formatFleetJobs = formatFleetJobs;\nthis.renderDurableJobs = renderDurableJobs;\nthis.AGENT_JOBS_VIEW_UNSUPPORTED_MESSAGE = AGENT_JOBS_VIEW_UNSUPPORTED_MESSAGE;`,
+    `${DECLARATIONS}\n${EXTRACTED}\nthis.isAgentJobsViewUnsupported = isAgentJobsViewUnsupported;\nthis.formatFleetJobs = formatFleetJobs;\nthis.renderDurableJobs = renderDurableJobs;\nthis.AGENT_JOBS_VIEW_UNSUPPORTED_MESSAGE = AGENT_JOBS_VIEW_UNSUPPORTED_MESSAGE;\nthis.AGENT_JOBS_REMOTE_NODE_MESSAGE = AGENT_JOBS_REMOTE_NODE_MESSAGE;`,
     context,
   );
   return { list, message, pill, context };
@@ -253,6 +255,19 @@ check("the durable-jobs panel still renders the empty state for a genuine empty 
   assert(/Anxlab/.test(headline), "The empty state must name the selected node.");
   assert(!/too old to report jobs/.test(rendered), "The empty state must not claim version skew.");
   assert.strictEqual(pill.textContent, "0 tracked", "A genuine empty store reports zero tracked jobs.");
+});
+
+check("a non-host node renders the local-store scope, not a false empty state", () => {
+  const state = emptyJobsState({ scopeUnavailable: true });
+  const { list, message, pill, context } = createHarness(state);
+  context.renderDurableJobs();
+  const rendered = collectText(list);
+  const headline = collectText(message);
+  assert(/job history of this computer only/.test(rendered), `A non-host node must explain the list scope, got ${JSON.stringify(rendered)}.`);
+  assert(!/No durable jobs recorded/.test(rendered), "A non-host node must not claim it has no durable jobs.");
+  assert(!/No durable jobs recorded/.test(headline), "The jobs message must not imply a non-host node has no jobs.");
+  assert(/job history of this computer only/.test(headline), "The jobs message must state the list scope.");
+  assert.strictEqual(pill.textContent, "This computer only", "The status pill must name the scope.");
 });
 
 check("a genuine jobs failure keeps its own distinct state", () => {

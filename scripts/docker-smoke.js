@@ -204,7 +204,6 @@ async function main() {
     "withTimeout(",
     "data-docker-recovery-action",
     "updateDockerInspectorTabs(false)",
-    "document.hidden || !dockerWorkspaceState?.ready",
     "logDockerDiagnostic(\"snapshot-success\"",
     "createSecurityConfirmation({ title: \"Remove Docker image?\"",
     "createSecurityConfirmation({ title: \"Remove Docker volume?\"",
@@ -220,6 +219,11 @@ async function main() {
   ].forEach((needle) => assert(indexSource.includes(needle), `Docker workspace markup guard missing: ${needle}`));
   const fastFailureBody = appSource.match(/function getDockerFastFailure\(\) \{[\s\S]*?\n\}/)?.[0] || "";
   assert(!fastFailureBody.includes("getCurrentAgentHealthTarget") && !fastFailureBody.includes("getNodeVisualState"), "Docker refresh must not be blocked by stale Agent Control or node visual state.");
+  // The page poll must keep retrying while the workspace is NOT ready: gating on
+  // readiness stalled the page on a transient failure until a manual Refresh.
+  const dockerPollBody = appSource.match(/function startDockerPagePolling\(\) \{[\s\S]*?\n\}/)?.[0] || "";
+  assert(dockerPollBody.includes("refreshDockerStatus()"), "Docker page polling must refresh the workspace.");
+  assert(!dockerPollBody.includes("!dockerWorkspaceState?.ready"), "Docker page polling must retry while the workspace is not ready instead of stalling until a manual refresh.");
   const createActionBody = appSource.match(/async function handleDockerAction\(actionName\) \{[\s\S]*?\n  const definition = getDockerActionDefinition/)?.[0] || "";
   assert(createActionBody.includes("focusDockerCreateForm") && createActionBody.includes("Create Container form"), "Docker create action should route users to the in-page form.");
   assert(!/window\.prompt|prompt\(|window\.confirm|confirm\(/.test(createActionBody), "Docker create action must not use browser dialogs.");

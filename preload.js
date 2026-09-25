@@ -330,8 +330,10 @@ const desktopApi = {
     updateRestartSchedule: (instanceId, scheduleId, payload = {}, options = {}) => ipcRenderer.invoke("instances:updateRestartSchedule", { ...options, ...payload, instanceId, scheduleId }),
     deleteRestartSchedule: (instanceId, scheduleId, options = {}) => ipcRenderer.invoke("instances:deleteRestartSchedule", { ...options, instanceId, scheduleId }),
     evaluateRestartSchedules: (instanceId, options = {}) => ipcRenderer.invoke("instances:evaluateRestartSchedules", { ...options, instanceId }),
-    // V2-A durable jobs: the read/cancel surface for job records owned by the
-    // selected node. Payloads mirror src/ipc/instancesIpc.js exactly:
+    // V2-A durable jobs: the read/cancel surface for this desktop's own job
+    // records. The IPC reads the local job store, so the list is meaningful for
+    // the application-host node only; payloads still carry the selected nodeId
+    // for permission scoping. Payloads mirror src/ipc/instancesIpc.js exactly:
     //   list   -> { nodeId, limit?, type?, instanceId? }
     //   get    -> { nodeId, jobId }
     //   cancel -> { nodeId, jobId, instanceId?, reason? }

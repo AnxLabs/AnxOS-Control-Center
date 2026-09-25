@@ -626,8 +626,8 @@ function buildPlayitProviderState(snapshot = {}, context = {}) {
       unsupportedCreateReason: "The detected Playit integration does not expose a safe local API for creating provider tunnels from AnxOS yet. AnxOS can save the access service record and reconcile it after Playit reports the tunnel.",
     },
     recoveryAction: snapshot.installed
-      ? "Use the Playit service or CLI to manage tunnel lifecycle, then refresh AnxOS."
-      : "Install and configure Playit.gg on the selected node. Dependency Manager can detect whether the CLI is available.",
+      ? "Manage the tunnel in Playit itself (playit.gg), then refresh AnxOS to see the new state."
+      : "Install and configure Playit.gg on the selected node. AnxOS can check whether Playit is installed.",
   });
 }
 

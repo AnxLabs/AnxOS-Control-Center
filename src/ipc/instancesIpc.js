@@ -84,8 +84,11 @@ function registerInstanceHandler(channel, handler) {
 }
 
 // Job records live in the process that executes the operation. The desktop
-// main owns the local application-host node's store; remote nodes own theirs
-// in the Agent and are re-observed through the Agent jobs REST surface.
+// main owns the local application-host node's store, so instances:jobs:list/get
+// read that store only; the selected nodeId is still required and used as the
+// permission target. Remote nodes own their jobs in the Agent and are surfaced
+// separately through the Agent jobs REST route (fleet reads) — the desktop list
+// does not route to them, and the renderer states that scope explicitly.
 function getLocalJobService() {
   // Lazy require: keeps module load free of electron-dependent services so
   // existing IPC smokes can mock the surfaces they exercise.

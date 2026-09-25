@@ -5200,7 +5200,12 @@ body.is-resizing-files * {
   font-weight: 600;
 }
 
-.instances-summary-card span:not(.instances-summary-card__icon) {
+/* Label typography applies to the card's own label span only. The previous
+   selector (`.instances-summary-card span:not(.instances-summary-card__icon)`)
+   also matched the two value spans nested inside <strong> on the
+   Starting/Stopping card, forcing them to display:block so "0 / 0" rendered as
+   three stacked lines and lost the value typography. */
+.instances-summary-card > div > span {
   display: block;
   color: rgba(224, 214, 239, 0.62);
   font-size: 0.72rem;

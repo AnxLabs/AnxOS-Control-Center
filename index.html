@@ -1675,7 +1675,7 @@
                   <section class="create-server-step-panel" data-create-server-step-panel="node" hidden>
                     <p class="eyebrow">Deployment Target</p>
                     <div class="create-server-node-summary" data-create-server-node-summary></div>
-                    <p class="settings-note">Unavailable nodes remain visible in the target selector with their current connection state.</p>
+                    <p class="settings-note">AnxOS deploys to the node selected in the main AnxOS window. Use its node switcher to choose a connected computer, then continue here.</p>
                   </section>
                   <section class="create-server-step-panel" data-create-server-step-panel="runtime" hidden>
                     <p class="eyebrow">Runtime & Dependencies</p>
@@ -1720,7 +1720,7 @@
                     </div>
                   </section>
                   <footer class="create-server-wizard-actions">
-                    <p class="ssh-password-note create-server-validation-message" data-marketplace-message aria-live="polite">Templates create instances through the existing Debian agent API.</p>
+                    <p class="ssh-password-note create-server-validation-message" data-marketplace-message aria-live="polite">Choose a package, review each step, then deploy to a connected node.</p>
                     <button class="inline-action" type="button" data-create-server-back>Back</button>
                     <button class="inline-action" type="button" data-create-server-next>Next</button>
                     <button class="inline-action inline-action--primary" type="submit" data-marketplace-install>Deploy</button>
@@ -1783,7 +1783,7 @@
               <div class="instances-toolbar__title">
                 <p class="eyebrow">Universal Runtime</p>
                 <h1>Instances</h1>
-                <p class="lede">Create, monitor, and control long-running services managed by the Debian agent.</p>
+                <p class="lede">Create, monitor, and control long-running services on your connected systems.</p>
               </div>
             </div>
 
@@ -2877,9 +2877,9 @@
                 <span class="instance-state" data-console-state>Unknown</span>
               </div>
               <div class="console-metric-grid">
-                <article><span>CPU</span><strong data-console-metric="cpu">Coming soon</strong></article>
-                <article><span>RAM</span><strong data-console-metric="ram">Coming soon</strong></article>
-                <article><span>Network</span><strong>Coming soon</strong></article>
+                <article><span>CPU</span><strong data-console-metric="cpu">Select a server</strong></article>
+                <article><span>RAM</span><strong data-console-metric="ram">Select a server</strong></article>
+                <article><span>Network</span><strong title="Instance network throughput is not reported by the Agent; Docker containers report it on the Docker page.">Not reported</strong></article>
               </div>
               <dl class="docker-details-list console-details-list">
                 <div><dt>PID</dt><dd data-console-detail="pid">Unavailable</dd></div>
@@ -4649,7 +4649,7 @@
             <section class="settings-section settings-section--security" data-settings-category="security" data-settings-capability="canManageAdvancedSecurity" data-settings-keywords="security owner lock timeout token audit sessions secrets mask">
               <div class="settings-section__header"><div><h3>Security</h3><p>Advanced security policy, audit, and token controls are available only to the Owner.</p></div><span class="owner-only-badge">Owner Only</span></div>
               <div class="settings-grid">
-                <label class="settings-check settings-check--toggle" title="Owner authorization is already enforced by protected IPC paths. This policy toggle is not available yet."><input type="checkbox" data-setting="security.requireOwnerForSensitiveActions" disabled><span>Require Owner authentication before sensitive actions</span></label>
+                <label class="settings-check settings-check--toggle" title="Owner authorization is already required for sensitive actions. This policy toggle is not available yet."><input type="checkbox" data-setting="security.requireOwnerForSensitiveActions" disabled><span>Require Owner authentication before sensitive actions</span></label>
                 <label class="settings-check settings-check--toggle" title="Inactivity locking policy controls are not available yet."><input type="checkbox" data-setting="security.lockAfterInactivity" disabled><span>Lock the application after inactivity</span></label>
                 <label class="settings-field" title="Inactivity locking policy controls are not available yet."><span>Inactivity timeout minutes</span><input type="number" min="1" max="240" data-setting="security.inactivityTimeoutMinutes" disabled></label>
                 <label class="settings-check settings-check--toggle" title="Secrets are already masked by default. This policy toggle is not available yet."><input type="checkbox" data-setting="security.maskSecrets" disabled><span>Mask secrets by default</span></label>
@@ -4689,7 +4689,7 @@
             </section>
 
             <section class="settings-section settings-section--storage" data-settings-category="storage" data-settings-keywords="storage cache logs temporary marketplace downloads application data cleanup maintenance">
-              <div class="settings-section__header"><div><h3>Storage</h3><p>Cache sizes and cleanup are handled in Maintenance through trusted desktop IPC.</p></div><span class="status-pill status-pill--ok">Available</span></div>
+              <div class="settings-section__header"><div><h3>Storage</h3><p>Cache sizes and cleanup are handled in Maintenance.</p></div><span class="status-pill status-pill--ok">Available</span></div>
               <div class="settings-actions"><button class="inline-action" type="button" data-diagnostics-action="open">Open logs folder</button><button class="inline-action" type="button" data-page-target="maintenance">Open Maintenance</button></div>
             </section>
 
