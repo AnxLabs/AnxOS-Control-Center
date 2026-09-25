@@ -1,6 +1,6 @@
 # Private Alpha Release Process
 
-1. Start from a clean committed `main` checkout.
+1. Start from a clean committed `dev` checkout.
 2. Run `npm ci`, `npm run versioning:smoke`, `npm run rc:validate`, and `npm run packaging:smoke`.
 3. Configure Azure Trusted Signing secrets for signed Windows releases:
    `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`,
