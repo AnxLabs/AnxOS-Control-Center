@@ -72,6 +72,9 @@ function requireStyle(needle, message) {
   'id: "updates.check"',
   'id: "updates.install"',
   'id: "owner.refresh"',
+  'id: "workspace.refresh-active"',
+  'shortcut: "Ctrl+Shift+R"',
+  'id: `nav.shortcut.${page}`',
 ].forEach((needle) => requireApp(needle, `Command registry missing ${needle}.`));
 
 assert(
@@ -106,6 +109,13 @@ assert(
     app.includes('event.key === "ArrowUp"') &&
     app.includes('event.key === "Enter"'),
   "Command Palette shortcut and keyboard navigation must be wired.",
+);
+assert(
+  app.includes('"1": "dashboard"') &&
+    app.includes('"5": "agent-control"') &&
+    app.includes("refreshActiveWorkspace()") &&
+    app.includes("!document.body.classList.contains(\"has-open-modal\")"),
+  "Primary workspace shortcuts and modal-safe active refresh must be wired.",
 );
 assert(
   app.includes("COMMAND_PALETTE_RECENTS_STORAGE_KEY,") &&

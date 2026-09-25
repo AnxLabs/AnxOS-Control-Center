@@ -84,6 +84,118 @@ function writeJson(filePath, payload) {
   fs.writeFileSync(filePath, `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 });
 }
 
+// The IPC boundary rejects any Instances call with no selected node
+// (src/ipc/nodeContext.js), which is exactly how instances:clearLogs failed at
+// runtime from the two renderer console paths: the calls carried no nodeId and
+// every other call site did. Static source scanning is the only way to catch a
+// missing node context without booting Electron, so this guard parses each
+// direct renderer `...api.instances.<method>(...)` call expression and fails
+// when its own arguments carry no node context.
+function lineNumberAt(source, index) {
+  return source.slice(0, index).split("\n").length;
+}
+
+function readCallArguments(source, openIndex) {
+  let depth = 0;
+  let quote = "";
+  let escaped = false;
+  for (let index = openIndex; index < source.length; index += 1) {
+    const char = source[index];
+    const next = source[index + 1];
+    if (quote) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === quote) {
+        quote = "";
+      }
+      continue;
+    }
+    if (char === "/" && next === "/") {
+      const lineEnd = source.indexOf("\n", index);
+      index = lineEnd === -1 ? source.length : lineEnd;
+      continue;
+    }
+    if (char === "/" && next === "*") {
+      const commentEnd = source.indexOf("*/", index + 2);
+      index = commentEnd === -1 ? source.length : commentEnd + 1;
+      continue;
+    }
+    if (char === "\"" || char === "'" || char === "`") {
+      quote = char;
+      continue;
+    }
+    if (char === "(") {
+      depth += 1;
+      continue;
+    }
+    if (char === ")") {
+      depth -= 1;
+      if (depth === 0) {
+        return source.slice(openIndex + 1, index);
+      }
+    }
+  }
+  return null;
+}
+
+const RENDERER_NODE_CONTEXT_MARKERS = /getNodeScopedPayload|getNodeRequestContext|createNodeActionContext|nodeId\s*:/;
+const RENDERER_INSTANCE_CALL_ALLOWLIST = [
+  {
+    // createInstanceFromForm stamps the action context onto the payload one
+    // line before the call (`payload.nodeId = requestContext.nodeId;`), so the
+    // object form cannot carry the marker inline. The required assignment is
+    // asserted alongside the allowlist so deleting it fails this guard.
+    method: "create",
+    argument: /^payload$/,
+    required: "payload.nodeId = requestContext.nodeId;",
+  },
+];
+
+function scanRendererInstanceCalls(source) {
+  const report = { checked: 0, allowlisted: 0, violations: [], unverifiable: [] };
+  const pattern = /\.api\.instances\.([A-Za-z]+)\s*\(/g;
+  let match;
+  while ((match = pattern.exec(source)) !== null) {
+    const method = match[1];
+    const line = lineNumberAt(source, match.index);
+    const args = readCallArguments(source, match.index + match[0].length - 1);
+    if (args === null) {
+      report.unverifiable.push(`${method} (app.js:${line})`);
+      continue;
+    }
+    report.checked += 1;
+    if (RENDERER_NODE_CONTEXT_MARKERS.test(args)) {
+      continue;
+    }
+    const normalized = args.trim();
+    const allowlisted = RENDERER_INSTANCE_CALL_ALLOWLIST.find((entry) => entry.method === method && entry.argument.test(normalized));
+    if (allowlisted && source.includes(allowlisted.required)) {
+      report.allowlisted += 1;
+      continue;
+    }
+    report.violations.push(`${method} (app.js:${line})`);
+  }
+  return report;
+}
+
+function scanRendererDynamicInstanceCalls(source) {
+  const violations = [];
+  let checked = 0;
+  const pattern = /\.api\.instances\[([^\]]+)\]\s*\(/g;
+  let match;
+  while ((match = pattern.exec(source)) !== null) {
+    const line = lineNumberAt(source, match.index);
+    const args = readCallArguments(source, match.index + match[0].length - 1);
+    checked += 1;
+    if (args === null || !args.includes("getNodeScopedPayload")) {
+      violations.push(`${match[1]} (app.js:${line})`);
+    }
+  }
+  return { checked, violations };
+}
+
 async function main() {
   const agentA = await startInstanceAgent("node-a", "token-a");
   const agentB = await startInstanceAgent("node-b", "token-b");
@@ -160,10 +272,23 @@ async function main() {
     assert(appSource.includes("latestInstancesSnapshot = null"), "Renderer should clear old instance snapshots on switch.");
     assert(appSource.includes("desktopApiState.api.instances.list(getNodeScopedPayload(requestContext))"), "Renderer should list instances for selected node.");
     assert(preloadSource.includes('sendCommand: (instanceId, command, options = {}) => ipcRenderer.invoke("instances:sendCommand", { ...options, instanceId, command })'), "Console commands must preserve the renderer-captured node context through preload.");
+    assert(preloadSource.includes('clearLogs: (instanceId, options = {}) => ipcRenderer.invoke("instances:clearLogs", { instanceId, ...options })'), "Clear-logs must preserve the renderer-captured node context through preload.");
     assert(instancesIpcSource.includes("registerInstanceHandler") && instancesIpcSource.includes("requireNodeContext(payload, channel)"), "Every Instances IPC handler must reject an omitted node context.");
     assert(appSource.includes("const requestContext = createNodeActionContext(\"instance-create\")"), "Instance create should bind an action context.");
     assert(appSource.includes("const requestContext = createNodeActionContext(`instance-${actionName}`)"), "Instance actions should bind node action context.");
     assert(appSource.includes("if (!isNodeActionStillCurrent(requestContext)) return;"), "Instance actions should guard stale node changes.");
+
+    // Regression guard for the clear-logs NODE_REQUIRED runtime bug: the two
+    // console clear paths omitted the node context the IPC layer requires.
+    const rendererCallReport = scanRendererInstanceCalls(appSource);
+    assert.strictEqual(rendererCallReport.violations.length, 0, `Renderer instances calls must carry a node context on the call itself; missing on: ${rendererCallReport.violations.join(", ")}`);
+    assert.strictEqual(rendererCallReport.unverifiable.length, 0, `Renderer instances call scanner could not verify: ${rendererCallReport.unverifiable.join(", ")}`);
+    assert(rendererCallReport.checked >= 30, `Renderer instances call scan looks vacuous: only ${rendererCallReport.checked} call sites checked.`);
+    assert.strictEqual(rendererCallReport.allowlisted, 1, `Expected exactly one allowlisted non-literal node-context call site (create), found ${rendererCallReport.allowlisted}.`);
+    const dynamicCallReport = scanRendererDynamicInstanceCalls(appSource);
+    assert(dynamicCallReport.checked >= 3, `Expected dynamic instances dispatch sites to scan, found ${dynamicCallReport.checked}.`);
+    assert.strictEqual(dynamicCallReport.violations.length, 0, `Dynamic instances dispatch must pass getNodeScopedPayload; missing on: ${dynamicCallReport.violations.join(", ")}`);
+    assert(appSource.includes("getNodeScopedPayload(requestContext, { stream: \"all\" })"), "Console clear-logs must send the selected node context.");
 
     console.log("Instances node routing smoke checks passed.");
   } finally {

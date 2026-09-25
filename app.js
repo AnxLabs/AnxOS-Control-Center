@@ -27,6 +27,7 @@ const notificationSummaryFields = document.querySelectorAll("[data-notification-
 const copyButtons = document.querySelectorAll("[data-copy]");
 const navItems = document.querySelectorAll("[data-page-target]");
 const pages = document.querySelectorAll("[data-page]");
+document.addEventListener("visibilitychange", syncPagePollingForVisibility);
 // Tracked active page; empty until showPage() runs or the lazy DOM fallback in
 // getActivePageName() fills it in.
 let activePageName = "";
@@ -4447,6 +4448,30 @@ function setOwnerWorkspaceNavVisible(visible) {
   }
 }
 
+function syncPagePollingForVisibility() {
+  if (document.hidden) {
+    stopAgentControlPolling();
+    stopNodeRefreshPolling();
+    stopDockerPagePolling();
+    stopInstancesPagePolling();
+    stopInstanceConsolePolling();
+    stopMonitoringConsolePolling();
+    stopOwnerAnalyticsPolling();
+    return;
+  }
+
+  const page = getActivePageName();
+  if (page === "agent-control") startAgentControlPolling();
+  if (page === "nodes") startNodeRefreshPolling();
+  if (page === "docker") startDockerPagePolling();
+  if (page === "instances") {
+    startInstancesPagePolling();
+    syncInstanceConsolePolling();
+  }
+  if (page === "console") syncMonitoringConsolePolling();
+  if (page === "owner-workspace") startOwnerAnalyticsPolling();
+}
+
 function showPage(pageName) {
   const safePageName = getSafePageName(pageName);
   if (safePageName === "owner-workspace" && !isOwnerWorkspaceAuthorized()) {
@@ -4473,7 +4498,7 @@ function showPage(pageName) {
   if (safePageName === "agent-control") {
     loadAgentSettings();
     refreshAgentControl({ includeConfig: true });
-    startAgentControlPolling();
+    if (!document.hidden) startAgentControlPolling();
   } else {
     stopAgentControlPolling();
   }
@@ -4509,15 +4534,17 @@ function showPage(pageName) {
 
   if (safePageName === "docker") {
     refreshDockerStatus();
-    startDockerPagePolling();
+    if (!document.hidden) startDockerPagePolling();
   } else {
     stopDockerPagePolling();
   }
 
   if (safePageName === "instances") {
     refreshInstances();
-    startInstancesPagePolling();
-    syncInstanceConsolePolling();
+    if (!document.hidden) {
+      startInstancesPagePolling();
+      syncInstanceConsolePolling();
+    }
   } else {
     stopInstancesPagePolling();
     stopInstanceConsolePolling();
@@ -4541,7 +4568,7 @@ function showPage(pageName) {
     refreshInstances().then(() => {
       refreshConsoleMetrics();
       refreshConsoleLogs({ silent: true });
-      syncMonitoringConsolePolling();
+      if (!document.hidden) syncMonitoringConsolePolling();
     }).catch((error) => {
       console.warn("[Console] Initial refresh failed.", error);
       renderConsoleWorkspace();
@@ -4587,13 +4614,80 @@ function showPage(pageName) {
 
   if (safePageName === "owner-workspace") {
     refreshOwnerWorkspace();
-    startOwnerAnalyticsPolling();
+    if (!document.hidden) startOwnerAnalyticsPolling();
   } else {
     stopOwnerAnalyticsPolling();
   }
 
   updateTitlebar(safePageName);
   getDesktopApiState().api?.diagnostics?.capture?.({ currentWorkspace: safePageName }).catch(() => {});
+}
+
+async function refreshActiveWorkspace() {
+  const page = getActivePageName();
+  // Only the active page's refreshers are invoked: building the task list
+  // eagerly ran every workspace refresh (Agent config, marketplace downloads,
+  // files discovery, security, alerts, backups, ...) on a single refresh.
+  let refreshTasks;
+  switch (page) {
+    case "dashboard":
+      refreshTasks = [refreshDashboard(), refreshInstances(), refreshDockerStatus(), refreshPlayitStatus(), refreshAgentControl()];
+      break;
+    case "nodes":
+      refreshTasks = [refreshNodes(), refreshFleetSummary()];
+      break;
+    case "agent-control":
+      refreshTasks = [refreshAgentControl({ includeConfig: true })];
+      break;
+    case "marketplace":
+      refreshTasks = [refreshMarketplace(), refreshMarketplaceDownloads()];
+      break;
+    case "instances":
+      refreshTasks = [refreshInstances()];
+      break;
+    case "playit":
+      refreshTasks = [refreshPlayitStatus()];
+      break;
+    case "docker":
+      refreshTasks = [refreshDockerStatus()];
+      break;
+    case "files":
+      refreshTasks = [filesConnectionState.connected ? refreshCurrentFilesDirectory() : refreshFilesDiscovery()];
+      break;
+    case "console":
+      refreshTasks = [refreshInstances().then(() => {
+        refreshConsoleMetrics();
+        return refreshConsoleLogs({ silent: true });
+      })];
+      break;
+    case "backups":
+      refreshTasks = [refreshBackups()];
+      break;
+    case "operations":
+      refreshTasks = [loadDurableJobs()];
+      break;
+    case "notifications":
+      refreshTasks = [loadAlerts()];
+      break;
+    case "security":
+      refreshTasks = [refreshSecurityState()];
+      break;
+    default:
+      refreshTasks = null;
+  }
+
+  if (!refreshTasks) {
+    showToast(`${getPageDisplayName(page)} is already up to date.`, "info");
+    return;
+  }
+
+  const results = await Promise.allSettled(refreshTasks);
+  const failed = results.filter((result) => result.status === "rejected");
+  if (failed.length === results.length) {
+    throw failed[0].reason;
+  }
+  const pageLabel = getPageDisplayName(page);
+  showToast(failed.length ? `${pageLabel} refreshed with warnings.` : `${pageLabel} refreshed.`, failed.length ? "warning" : "success");
 }
 
 function getActivePageName() {
@@ -13582,6 +13676,7 @@ async function sendInstanceConsoleCommand(event) {
 
 async function clearInstanceConsole() {
   const selectedInstance = findInstance();
+  const requestContext = createNodeActionContext("instance-console-clear");
 
   if (!selectedInstance || !(await createSecurityConfirmation({
     title: `Clear logs for ${selectedInstance.displayName || selectedInstance.id}?`,
@@ -13592,9 +13687,10 @@ async function clearInstanceConsole() {
   }
 
   try {
-    await getDesktopApiState().api.instances.clearLogs(selectedInstance.id, {
+    if (!isNodeActionStillCurrent(requestContext)) return;
+    await getDesktopApiState().api.instances.clearLogs(selectedInstance.id, getNodeScopedPayload(requestContext, {
       stream: instancesLogStreamSelect?.value || "all",
-    });
+    }));
     clearInstanceLogs("Logs cleared.");
     showToast("Logs cleared.");
   } catch (error) {
@@ -25489,6 +25585,30 @@ function getCommandRegistry() {
         keywords: [entry.id, "workspace", "page"],
         execute: () => showPage(entry.id),
       })),
+    ...[
+      ["dashboard", "Ctrl+1"],
+      ["instances", "Ctrl+2"],
+      ["marketplace", "Ctrl+3"],
+      ["nodes", "Ctrl+4"],
+      ["agent-control", "Ctrl+5"],
+    ].map(([page, shortcut]) => createCommand({
+      id: `nav.shortcut.${page}`,
+      title: `Switch to ${getPageDisplayName(page)}`,
+      description: "Jump to a primary workspace without leaving the current task.",
+      category: "Navigation",
+      shortcut,
+      keywords: [page, "workspace", "switch", "jump"],
+      execute: () => showPage(page),
+    })),
+    createCommand({
+      id: "workspace.refresh-active",
+      title: "Refresh Current Workspace",
+      description: "Refresh the data for the workspace currently in view.",
+      category: "Application",
+      shortcut: "Ctrl+Shift+R",
+      keywords: ["reload", "sync", "update", "refresh"],
+      execute: refreshActiveWorkspace,
+    }),
     createCommand({
       id: "search.open",
       title: "Open Global Search",
@@ -30354,6 +30474,7 @@ async function clearConsoleRows() {
   }
 
   const instance = getActiveConsoleInstance();
+  const requestContext = createNodeActionContext("console-clear");
   if (!(await createSecurityConfirmation({
     title: instance ? `Clear logs for ${instance.displayName || instance.id}?` : "Clear console output?",
     message: instance
@@ -30366,7 +30487,8 @@ async function clearConsoleRows() {
 
   if (instance && getDesktopApiState().hasInstances) {
     try {
-      await getDesktopApiState().api.instances.clearLogs(instance.id, { stream: "all" });
+      if (!isNodeActionStillCurrent(requestContext)) return;
+      await getDesktopApiState().api.instances.clearLogs(instance.id, getNodeScopedPayload(requestContext, { stream: "all" }));
     } catch (error) {
       console.warn("[Console] Clear logs failed.", error);
       showToast(getAgentErrorMessage(error, "Clear logs failed."));
@@ -41242,6 +41364,31 @@ window.addEventListener("keydown", (event) => {
 
   handleGlobalSearchKeydown(event);
   if (event.defaultPrevented) return;
+
+  const keyboardTarget = event.target instanceof HTMLElement ? event.target : null;
+  const isEditing = Boolean(keyboardTarget?.matches("input, textarea, select, [contenteditable='true']") || keyboardTarget?.closest(".monaco-editor"));
+  if (!event.defaultPrevented && !isEditing && !document.body.classList.contains("has-open-modal") && !event.altKey && (event.ctrlKey || event.metaKey)) {
+    const workspaceShortcuts = {
+      "1": "dashboard",
+      "2": "instances",
+      "3": "marketplace",
+      "4": "nodes",
+      "5": "agent-control",
+    };
+    const shortcutPage = !event.shiftKey ? workspaceShortcuts[event.key] : null;
+    if (shortcutPage) {
+      event.preventDefault();
+      showPage(shortcutPage);
+      return;
+    }
+    if (event.shiftKey && event.key.toLowerCase() === "r") {
+      event.preventDefault();
+      // Holding the shortcut must not queue repeated full-workspace sweeps.
+      if (event.repeat) return;
+      refreshActiveWorkspace().catch((error) => showToast(normalizeIpcErrorMessage(error, "Workspace refresh failed."), "error"));
+      return;
+    }
+  }
 
   if (!event.defaultPrevented && !event.altKey && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "b") {
     event.preventDefault();
