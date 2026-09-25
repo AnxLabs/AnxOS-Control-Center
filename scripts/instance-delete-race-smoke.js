@@ -220,10 +220,14 @@ function powershellAvailable() {
 }
 
 async function main() {
+  // rc:validate auto-discovers every *:smoke suite and also runs on the Linux
+  // RC job; an unmet Windows precondition must skip cleanly (exit 0 with an
+  // explicit marker) instead of failing the gate. Same PRECONDITION_NOT_MET
+  // convention as scripts/monaco-worker-csp-smoke.js and
+  // scripts/packaging-artifact-smoke.js.
   if (process.platform !== "win32") {
-    console.error(`instance-delete-race-smoke requires Windows; got platform "${process.platform}".`);
-    process.exitCode = 1;
-    return;
+    console.log(`instance-delete-race-smoke skipped (PRECONDITION_NOT_MET: requires Windows for exclusive-handle file locking; got platform "${process.platform}")`);
+    process.exit(0);
   }
   if (!powershellAvailable()) {
     console.error("instance-delete-race-smoke could not acquire an exclusive Windows handle: powershell.exe unavailable.");
