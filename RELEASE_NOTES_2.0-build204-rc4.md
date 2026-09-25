@@ -1,11 +1,11 @@
-# Release Notes — AnxOS Control Center v2.0 build 204 (release candidate v2.0-build204-rc1)
+# Release Notes — AnxOS Control Center v2.0 build 204 (Private Alpha release candidate)
 
 **Channel:** Private Alpha
 **Status:** Release candidate — first-run reliability, security hardening, and recovery safeguards
 
-This file is the release body for the tagged release candidate
-`v2.0-build204-rc1`. The product identity is Build 204 of AnxOS Control Center
-v2.0 (Private Alpha); the canonical untagged notes live in
+This file is the release body for the tagged release candidate named by the
+release itself (see the release title/tag). The product identity is Build 204 of
+AnxOS Control Center v2.0 (Private Alpha); the canonical untagged notes live in
 `RELEASE_NOTES_2.0-build204.md`.
 
 Build 204 consolidates the cycle-26 work on top of the published Build 203
