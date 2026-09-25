@@ -13,6 +13,8 @@ const SSH_TIMEOUTS = Object.freeze({
   connect: 10000,
   authentication: 15000,
   shell: 15000,
+  command: 60000,
+  commandOutput: 4 * 1024 * 1024,
 });
 const DEFAULT_SHELL_COLS = 120;
 const DEFAULT_SHELL_ROWS = 32;
@@ -714,6 +716,22 @@ class SshService extends EventEmitter {
     return profile;
   }
 
+  getProfileForNode(nodeId, options = {}) {
+    const requested = trimValue(nodeId);
+    if (!requested) return null;
+    const config = readProfilesConfig();
+    const matches = config.profiles.filter((profile) => profile.nodeId === requested);
+    if (matches.length === 0) return null;
+    // Prefer key auth unless the caller explicitly wants another profile: most
+    // calls are unattended maintenance (for example the remote Agent update),
+    // which cannot use password profiles. A node can have several assigned
+    // profiles, so insertion order must not decide.
+    if (options.authType) {
+      return matches.find((profile) => profile.authType === options.authType) || null;
+    }
+    return matches.find((profile) => profile.authType === "privateKey") || matches[0];
+  }
+
   validateProfile(profile) {
     const missingFields = [];
 
@@ -1170,6 +1188,122 @@ class SshService extends EventEmitter {
     const cols = Number.isFinite(size.cols) ? Math.max(40, Math.min(500, Math.floor(size.cols))) : DEFAULT_SHELL_COLS;
     session.stream.setWindow(rows, cols, 0, 0);
     return { sessionId };
+  }
+
+  // One-shot command execution for unattended maintenance flows such as the
+  // remote Agent update. Deliberately stricter than the interactive terminal:
+  // key authentication only, a previously approved host identity, bounded
+  // capture, and the connection always closed on completion or timeout. This is
+  // a service-level primitive; renderer access stays behind the IPC permission
+  // gates of the flow that uses it (no renderer channel is registered for it).
+  runCommand(profileId, command, options = {}) {
+    const profile = this.getProfile(profileId);
+    const script = String(command || "");
+    if (!script.trim()) {
+      throw new SshServiceError("A command is required.", { code: "SSH_COMMAND_REQUIRED" });
+    }
+    if (profile.authType !== "privateKey") {
+      throw new SshServiceError("Unattended SSH commands require a key-based SSH profile.", { code: "SSH_COMMAND_KEY_AUTH_REQUIRED" });
+    }
+    const knownHost = readKnownHosts()[knownHostId(profile)];
+    const expectedFingerprint = trimValue(knownHost?.fingerprint);
+    if (!expectedFingerprint) {
+      throw new SshServiceError("This SSH host identity has not been approved yet. Open the SSH terminal, approve the host key, then retry.", {
+        code: "SSH_HOST_KEY_NOT_APPROVED",
+      });
+    }
+
+    const connectConfig = this.buildConnectConfig(profile, {});
+    let hostKeyMismatch = false;
+    connectConfig.hostVerifier = (key) => {
+      const matches = fingerprintHostKey(key) === expectedFingerprint;
+      if (!matches) hostKeyMismatch = true;
+      return matches;
+    };
+
+    const timeoutMs = Number.isFinite(options.timeoutMs) ? Math.max(1000, Math.floor(options.timeoutMs)) : SSH_TIMEOUTS.command;
+    const maxOutputBytes = Number.isFinite(options.maxOutputBytes) ? Math.max(4096, Math.floor(options.maxOutputBytes)) : SSH_TIMEOUTS.commandOutput;
+    const stdin = options.stdin === undefined ? null : options.stdin;
+
+    return new Promise((resolve, reject) => {
+      const client = this.createClient();
+      let settled = false;
+      let truncated = false;
+      const stdoutChunks = [];
+      const stderrChunks = [];
+      let capturedBytes = 0;
+      const timer = setTimeout(() => {
+        finish(new SshServiceError(`SSH command timed out after ${timeoutMs} ms.`, { code: "SSH_COMMAND_TIMEOUT", retryable: true }));
+      }, timeoutMs);
+
+      const finish = (error, result) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        try {
+          client.end();
+        } catch {}
+        if (error) {
+          error.sshOutput = { stdout: stdoutChunks.join(""), stderr: stderrChunks.join(""), truncated };
+          reject(error);
+          return;
+        }
+        resolve(result);
+      };
+
+      const capture = (chunks) => (chunk) => {
+        if (capturedBytes >= maxOutputBytes) {
+          truncated = true;
+          return;
+        }
+        const text = Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
+        capturedBytes += Buffer.byteLength(text, "utf8");
+        if (capturedBytes > maxOutputBytes) {
+          truncated = true;
+          chunks.push(text.slice(0, Math.max(0, maxOutputBytes - (capturedBytes - Buffer.byteLength(text, "utf8")))));
+          return;
+        }
+        chunks.push(text);
+      };
+
+      client.on("error", (error) => {
+        const code = hostKeyMismatch
+          ? "SSH_HOST_KEY_MISMATCH"
+          : error?.level === "client-authentication"
+            ? "SSH_AUTHENTICATION_FAILED"
+            : "SSH_COMMAND_CONNECT_FAILED";
+        finish(new SshServiceError(
+          hostKeyMismatch
+            ? "The SSH host identity changed and no longer matches the approved fingerprint."
+            : `SSH command connection failed: ${error?.message || "unknown error"}.`,
+          { code, retryable: code === "SSH_COMMAND_CONNECT_FAILED" },
+        ));
+      });
+
+      client.on("ready", () => {
+        client.exec(script, (error, stream) => {
+          if (error) {
+            finish(new SshServiceError(`SSH command could not be started: ${error.message}.`, { code: "SSH_COMMAND_EXEC_FAILED", retryable: true }));
+            return;
+          }
+          stream.on("data", capture(stdoutChunks));
+          stream.stderr?.on("data", capture(stderrChunks));
+          stream.on("close", (code, signal) => {
+            finish(null, {
+              code: Number.isInteger(code) ? code : null,
+              signal: signal || null,
+              stdout: stdoutChunks.join(""),
+              stderr: stderrChunks.join(""),
+              truncated,
+            });
+          });
+          if (stdin !== null && stdin !== undefined) stream.end(stdin);
+          else stream.end();
+        });
+      });
+
+      client.connect(connectConfig);
+    });
   }
 
   dispose() {

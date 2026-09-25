@@ -148,6 +148,35 @@ details, see `API_SURFACE_V2.md`.
 
 Open **Agent Control** for beginner summaries, local/remote Agent state, diagnostics, logs, and support bundle previews. Use **Copy Summary** or **Export Bundle** instead of pasting raw logs.
 
+## Updating AnxOS
+
+Control Center updates from inside the app; you do not need the repository or a
+terminal.
+
+1. Open **Settings -> Updates**, or use the **Update** badge that appears in the
+   sidebar when a newer build is available.
+2. Select **Check for Updates**. Updates are also checked automatically on
+   startup.
+3. When an update is available, review the version and release notes in the
+   update window, then select **Download & Install**. The app verifies the
+   download and restarts into the new build. **Later** postpones the update;
+   **Skip This Version** hides that release until a newer one appears.
+4. After the download finishes, a banner offers **Restart Now** to install it or
+   **Later** to keep working on the current build.
+
+The Local Agent updates separately, and only when its version does not match the
+Desktop:
+
+1. Open **Agent Control**.
+2. If a compatibility banner appears, select **Update Agent** and confirm.
+3. AnxOS backs up the Agent configuration, stops the Agent, repairs the bundled
+   runtime, restarts it, and verifies health. Instances running on that node stop
+   during the restart.
+
+For a remote node, the same action uploads this Desktop's bundled Agent runtime
+to the node and restarts it. If the node's Agent is newer than this Desktop,
+install a newer Control Center first instead of downgrading the Agent.
+
 ## After Restarting AnxOS
 
 After you close and reopen AnxOS (or after an upgrade restart), saved node credentials start locked again. The app remembers who you are signed in as online, but privileged local credentials are only released after you unlock the local owner account on this device.

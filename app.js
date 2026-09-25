@@ -4768,6 +4768,35 @@ function isAgentTargetLocal(target = {}) {
   return target.local === true || target.targetType === "local-agent";
 }
 
+function getSshProfileForNode(nodeId = getSelectedNodeId()) {
+  // A node can carry several SSH profiles; unattended Agent updates need the
+  // key-based one, so preference must not depend on insertion order.
+  const matches = sshProfilesState.profiles.filter((profile) => profile.nodeId === nodeId);
+  return matches.find((profile) => profile.authType === "privateKey") || matches[0] || null;
+}
+
+// Remote Agent push updates run in main over SSH against the node's managed
+// systemd user unit. The renderer only decides whether the button is offered;
+// main re-checks platform, key auth, approved host identity, and the unit.
+function getRemoteAgentUpdateSupport(target = getAgentControlOverviewTarget()) {
+  if (!target || isAgentTargetLocal(target)) return { supported: false, reason: "local" };
+  const nodeId = target.nodeId || getSelectedNodeId();
+  if (!nodeId || nodeId === "application-host") return { supported: false, reason: "local" };
+  const node = (nodesState.nodes || []).find((candidate) => candidate.id === nodeId) || null;
+  const platform = String(node?.platform || node?.applicationHost?.platform || "").toLowerCase();
+  if (platform && platform !== "linux") return { supported: false, reason: "platform", nodeId, node };
+  const profile = getSshProfileForNode(nodeId);
+  if (!profile) return { supported: false, reason: "profile", nodeId, node };
+  if (profile.authType !== "privateKey") return { supported: false, reason: "key", nodeId, node, profile };
+  return { supported: true, reason: "ready", nodeId, node, profile };
+}
+
+function getRemoteAgentUpdateBlockMessage(support = {}) {
+  if (support.reason === "platform") return "Automatic Agent updates over SSH are available for Linux nodes only.";
+  if (support.reason === "key") return "The node's SSH profile must use key authentication for an unattended Agent update.";
+  return "Assign an SSH profile to this node before updating its Agent from this Desktop.";
+}
+
 function getAgentTargetLabel(target = {}) {
   if (target.nodeId && target.nodeId === getSelectedNodeId()) return "Active Node Agent";
   if (target.targetType === "global-configured-agent" || target.targetType === "configured-agent") return "Configured Agent";
@@ -4972,6 +5001,7 @@ function renderAgentControlState(payload = agentControlState) {
   const running = runtime?.serviceState === "running" || isAgentTargetRunning(local);
   const busy = agentControlBusy || Boolean(local.operationInFlight);
   const isLocalTarget = isAgentTargetLocal(local);
+  const remoteUpdate = isLocalTarget ? { supported: false, reason: "local" } : getRemoteAgentUpdateSupport(local);
   const capabilities = runtime?.capabilities || {};
   const lifecycleSupported = capabilities.lifecycle === true || (isLocalTarget && local.lifecycleSupported !== false);
   const repairSupported = capabilities.repair === true || lifecycleSupported;
@@ -5027,7 +5057,7 @@ function renderAgentControlState(payload = agentControlState) {
       || (action === "enableAutoStart" && (!lifecycleSupported || service.enabled || serviceNeedsElevation))
       || (action === "disableAutoStart" && (!lifecycleSupported || !service.enabled || serviceNeedsElevation))
       || (action === "rotateToken" && !isLocalTarget)
-      || (action === "updateAgent" && !isLocalTarget)
+      || (action === "updateAgent" && !isLocalTarget && remoteUpdate.supported !== true)
       || (action === "generateToken" && typeof getDesktopApiState().api?.nodes?.generateToken !== "function")
       || (action === "copyToken" && !activeAgentGeneratedToken)
       || (action === "openDataFolder" && !isLocalTarget)
@@ -6405,7 +6435,7 @@ async function runAgentControlAction(action) {
     reconnect: "Reconnect Agent",
     repairAgent: "Repair local Agent",
     checkUpdates: "Check Agent updates",
-    updateAgent: "Update Local Agent",
+    updateAgent: isLocalActionTarget ? "Update Local Agent" : "Update Node Agent",
     installLocalAgent: "Install Local Agent",
     startPairingSession: "Generate Agent pairing code",
     copyPairingCode: "Copy Agent pairing code",
@@ -6432,7 +6462,7 @@ async function runAgentControlAction(action) {
   const operationId = startOperation({
     type: "Agent",
     title: agentOperationLabels[action] || `Agent ${action}`,
-    target: getAgentControlOverviewTarget()?.identity?.hostname || "Local Agent",
+    target: actionTarget?.identity?.hostname || actionTarget?.displayName || actionTarget?.name || "Local Agent",
     step: "Request sent to Agent Control.",
   });
   try {
@@ -6509,9 +6539,22 @@ async function runAgentControlAction(action) {
       showToast(status?.update?.state || "Local Agent update state checked.", status?.update?.updateAvailable ? "warning" : "info");
     }
     else if (action === "updateAgent") {
-      const result = await api.updateLocalAgent({ force: false });
-      if (result?.updated === false) showToast("Local Agent is already current.", "info");
-      else showToast("Local Agent updated and reconnected.", "success");
+      if (!isLocalActionTarget) {
+        if (!remoteUpdateSupport.supported) throw new Error(getRemoteAgentUpdateBlockMessage(remoteUpdateSupport));
+        const nodesApi = getDesktopApiState().api?.nodes;
+        if (typeof nodesApi?.updateAgent !== "function") throw new Error("Remote Agent update is unavailable in this build.");
+        const result = await nodesApi.updateAgent(remoteUpdateSupport.nodeId);
+        const nodeName = result?.nodeName || remoteUpdateSupport.node?.displayName || "the node";
+        if (agentControlMessage) {
+          agentControlMessage.textContent = `Agent updated on ${nodeName}: ${result?.payloadFiles || 0} files published from the bundled runtime${result?.backupDir ? `; the previous runtime is backed up on the node at ${result.backupDir}` : ""}.`;
+        }
+        showToast(`Agent updated on ${nodeName}.`, "success");
+        await refreshNodes();
+      } else {
+        const result = await api.updateLocalAgent({ force: false });
+        if (result?.updated === false) showToast("Local Agent is already current.", "info");
+        else showToast("Local Agent updated and reconnected.", "success");
+      }
     }
     else if (action === "rotateToken") { await api.pairLocalAgent({ rotate: true, reason: "manual-rotation" }); await api.restart(); }
     else if (action === "copyUrl") { await navigator.clipboard.writeText(getAgentControlOverviewTarget()?.agentUrl || ""); showToast("Agent URL copied.", "success"); }
@@ -6565,11 +6608,16 @@ async function runAgentCompatibilityAction(action) {
       await runAgentControlAction("updateAgent");
       return;
     }
+    const remoteSupport = getRemoteAgentUpdateSupport(getAgentControlOverviewTarget());
+    if (remoteSupport.supported) {
+      await runAgentControlAction("updateAgent");
+      return;
+    }
     setActiveAgentControlSection("updates");
     const updateButton = document.querySelector('[data-agent-control-action="updateAgent"]');
     updateButton?.focus();
     if (agentControlMessage) {
-      agentControlMessage.textContent = "Automatic updates are available for the Local Agent. For this remote node, use its existing Agent install/update workflow, then choose Refresh Version.";
+      agentControlMessage.textContent = `${getRemoteAgentUpdateBlockMessage(remoteSupport)} Then choose Refresh Version.`;
     }
     return;
   }
