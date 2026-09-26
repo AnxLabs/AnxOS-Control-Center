@@ -1407,14 +1407,44 @@ async function assertFiveMInstallerStartBypassesSetupGuard() {
   delete require.cache[servicePath];
   const instanceService = require(servicePath);
 
+  // The helper commands run Node so they behave identically on every platform
+  // (Windows has no dependable bash). The instance spawn environment merges
+  // this PATH last, so the helper resolves the same Node that runs this smoke
+  // even from a bare shell where Node is not on PATH (for example WSL invoked
+  // with the bundled Node directly).
+  const installerEnvironment = {
+    PATH: [path.dirname(process.execPath), process.env.PATH].filter(Boolean).join(path.delimiter),
+  };
+  // A helper left alive by an assertion failure holds its working directory
+  // inside the temp tree, so the recursive delete below would fail with EPERM
+  // and mask the real error. Track the helper PIDs so teardown can always
+  // release the tree, even when instance-service liveness checks disagree.
+  const helperPids = [];
+  const killHelperProcesses = () => {
+    for (const pid of helperPids) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+        // Already exited.
+      }
+    }
+  };
+
   try {
     await instanceService.createInstance({
       id: "fivem-installer-smoke",
       displayName: "FiveM Installer Smoke",
       type: "custom-command",
       workingDirectory: "data/server",
-      executable: "bash",
-      args: ["-lc", "exit 0"],
+      // The installer helper must outlive the status read below. A helper that
+      // has already exited cannot be distinguished from a blocked start by a
+      // later status read: FiveM readiness legitimately reports Setup Required
+      // for an unconfigured instance at rest (the state
+      // marketplaceService.waitForInstanceInstaller treats as a clean
+      // installer exit).
+      executable: "node",
+      args: ["-e", "setInterval(() => {}, 1000)"],
+      environment: installerEnvironment,
       restartPolicy: "never",
       tags: ["fivem"],
       templateId: "fivem",
@@ -1427,28 +1457,59 @@ async function assertFiveMInstallerStartBypassesSetupGuard() {
     // Installer starts (archive extraction etc.) run through the start pipeline
     // with role "installer" and must not be blocked by runtime readiness checks.
     const installerStart = await instanceService.startInstance("fivem-installer-smoke", { role: "installer" });
+    if (installerStart?.pid) helperPids.push(installerStart.pid);
     assert(installerStart, "An installer-role start must be allowed while FiveM setup is incomplete.");
+    assert.notStrictEqual(installerStart.state, "Setup Required", "Installer-role start must not mark the instance setup-required.");
     const status = await instanceService.getStatus("fivem-installer-smoke");
     assert(!["Setup Required"].includes(status.state), "Installer-role start must not mark the instance setup-required.");
-    // The installer command exits quickly; wait for the process to be reaped so
-    // the smoke does not leak a child process or a running instance record.
+    // The helper is stopped explicitly so the smoke does not leak a child
+    // process or a running instance record.
+    await instanceService.stopInstance("fivem-installer-smoke");
+    await instanceService.deleteInstance("fivem-installer-smoke");
+
+    // An installer helper that exits cleanly must end in a terminal state the
+    // marketplace treats as a completed installer run. The bounded wait is on
+    // the terminal transition itself, so it cannot race the helper's exit.
+    await instanceService.createInstance({
+      id: "fivem-installer-exit-smoke",
+      displayName: "FiveM Installer Exit Smoke",
+      type: "custom-command",
+      workingDirectory: "data/server",
+      executable: "node",
+      args: ["-e", "process.exit(0)"],
+      environment: installerEnvironment,
+      restartPolicy: "never",
+      tags: ["fivem"],
+      templateId: "fivem",
+    });
+    const exitStart = await instanceService.startInstance("fivem-installer-exit-smoke", { role: "installer" });
+    if (exitStart?.pid) helperPids.push(exitStart.pid);
+    let installerExit = null;
     for (let waited = 0; waited < 5000; waited += 100) {
-      const current = await instanceService.getStatus("fivem-installer-smoke");
+      const current = await instanceService.getStatus("fivem-installer-exit-smoke");
       if (["Stopped", "Failed", "Setup Required"].includes(current.state)) {
+        installerExit = current;
         break;
       }
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    await instanceService.stopInstance("fivem-installer-smoke").catch(() => {});
-    await instanceService.deleteInstance("fivem-installer-smoke");
+    assert(installerExit, "An installer helper that exits must reach a terminal state.");
+    assert(
+      installerExit.state === "Stopped"
+        || installerExit.state === "Setup Required"
+        || (installerExit.state === "Failed" && Number(installerExit.exitCode) === 0 && installerExit.failureReason === "EARLY_CLEAN_EXIT"),
+      `Installer-role clean exit must be a clean installer exit, saw ${installerExit.state}/${installerExit.failureReason}.`
+    );
+    await instanceService.deleteInstance("fivem-installer-exit-smoke");
   } finally {
     if (previousRoot === undefined) {
       delete process.env.AGENT_INSTANCE_ROOT;
     } else {
       process.env.AGENT_INSTANCE_ROOT = previousRoot;
     }
+    killHelperProcesses();
     delete require.cache[servicePath];
-    fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 }
 
@@ -1663,8 +1724,15 @@ async function assertScriptMarketplaceStartupIsNotJarWrapped() {
     const started = await instanceService.startInstance("script-startup-smoke");
     assert.deepStrictEqual(started.args, ["run.js"], "Script startup must not inject -jar.");
     assert.strictEqual(started.executable, "node", "Script startup should preserve the configured executable.");
-    await new Promise((resolve) => setTimeout(resolve, 250));
-    const status = await instanceService.getStatus("script-startup-smoke");
+    // The child exits asynchronously; poll for the diagnosed early exit instead
+    // of a fixed sleep so a loaded machine cannot lose the race before the exit
+    // is recorded (a stale-pid reconcile can otherwise be observed first).
+    let status = null;
+    for (let i = 0; i < 50; i += 1) {
+      status = await instanceService.getStatus("script-startup-smoke");
+      if (status.failureReason === "EARLY_CLEAN_EXIT") break;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
     assert.notStrictEqual(status.failureReason, "SERVER_JAR_MISSING", "Script startup should not require a server jar.");
     assert.strictEqual(status.failureReason, "EARLY_CLEAN_EXIT", "Clean early script exit should be diagnosed instead of treated as running.");
 
