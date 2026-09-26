@@ -241,6 +241,14 @@ jobs:
       - name: Build Linux packages
         run: npm run dist:linux -- --publish never --no-increment-build
 
+      # The Agent .deb is attached to the release only; it is never an updater
+      # candidate. `dist:linux` above already staged
+      # resources/agent-runtime-node-modules (run-electron-builder.js), so the
+      # build reuses that verified closure with --no-refresh-deps and only
+      # downloads the official Node 22 linux-x64 runtime.
+      - name: Build Agent Debian package
+        run: npm run agent:deb:build -- --download-node --no-refresh-deps
+
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -249,6 +257,8 @@ jobs:
             dist/AnxOS-Control-Center-*.deb
             dist/AnxOS-Control-Center-*.AppImage
             dist/latest-linux.yml
+            dist/AnxOS-Agent-*.deb
+            dist/AnxOS-Agent-*.deb.sha256
           if-no-files-found: error
           retention-days: 14
 
