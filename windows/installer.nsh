@@ -6,7 +6,7 @@
   Pop $0
   Pop $3
   ${If} $0 != 0
-    MessageBox MB_ICONSTOP "AnxOS Agent startup configuration failed (code $0). Installation cannot continue."
+    MessageBox MB_ICONEXCLAMATION "AnxOS Control Center was installed, but the Local Agent could not be confirmed started (code $0).$\r$\n$\r$\nLaunch AnxOS Control Center from the Start menu, open Agent Connection, and select Repair Local Agent. You can also re-run this installer."
     Abort
   ${EndIf}
 !macroend
