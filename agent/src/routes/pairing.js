@@ -1,6 +1,10 @@
 const { createPairingSessionPayload, normalizePairingCode } = require("../../../src/shared/agentPairing");
 const { generateAgentToken, tokenFingerprint, writeAgentConfigToken } = require("../../../src/shared/agentTokenStore");
-const { AGENT_STATE_ENROLLED, readEnrollmentRecord } = require("../services/enrollmentService");
+const {
+  AGENT_STATE_ENROLLED,
+  readEnrollmentRecord,
+  recoverRevokedEnrollmentFromPairing,
+} = require("../services/enrollmentService");
 const { getDeviceIdentity } = require("../services/deviceIdentityService");
 const { isEchoableAgentHost, trustedAgentAuthority } = require("../services/hostTrustPolicy");
 const { logger } = require("../services/diagnosticsLogger");
@@ -101,8 +105,9 @@ function assertPairingAuthorization(request, config = {}) {
   }, { file: "pairing", errorCode: PAIRING_REQUIRES_EXISTING_CREDENTIAL });
   const error = new Error(
     "This Agent is already enrolled. Re-pairing it over the network requires the existing Agent credential. "
-    + "Run `npm run agent:pair` on the Agent machine (or use AnxOS Control Center on that machine), "
-    + "or revoke the enrollment first to recover a lost credential.",
+    + "On the Agent machine, open AnxOS Control Center → Agent Control → Connect this computer; "
+    + "on a headless server, run `sudo anxos-agent pair` and paste the full pairing code into Add Computer. "
+    + "If the credential was lost, revoke the enrollment on the Agent machine and pair again.",
   );
   error.code = PAIRING_REQUIRES_EXISTING_CREDENTIAL;
   error.statusCode = 403;
@@ -211,14 +216,34 @@ function completePairing(request, config = {}) {
   writeAgentConfigToken(configPath, permanentToken, {
     backendMode: "agent",
     agentUrl: activeSession.agentUrl,
+    // Explicit pairing provenance: this overwrites a prior "generated" marker so
+    // the credential is no longer treated as a self-generated one.
+    tokenOrigin: "pairing",
   });
   config.token = permanentToken;
   config.tokenStatus = {
     ...(config.tokenStatus || {}),
     configured: true,
     source: "pairing",
+    tokenOrigin: "pairing",
     fingerprint: tokenFingerprint(permanentToken),
   };
+  // Revoked-enrollment recovery: a re-pair after `unpair` must reach the same
+  // end state as completeEnrollment's after-revocation recovery, or the fresh
+  // credential authorizes nothing and every authenticated route keeps answering
+  // 410 REVOKED. The helper acts only when the CURRENT record is revoked; for
+  // enrolled/pending/unenrolled/missing records it is a read-only no-op. A
+  // recovery failure must not turn an installed credential into a failed
+  // pairing, so it is logged (fingerprints/states only) and the pairing result
+  // stays honest — enrollment/status will surface the persistent state.
+  let recoveredEnrollment = null;
+  try {
+    recoveredEnrollment = recoverRevokedEnrollmentFromPairing(config, tokenFingerprint(permanentToken));
+  } catch (error) {
+    logger.warn("pairing", "Enrollment recovery after revocation failed; the revoked record remains.", {
+      code: error?.code || "ENROLLMENT_RECOVERY_FAILED",
+    }, { file: "pairing", errorCode: error?.code || "ENROLLMENT_RECOVERY_FAILED" });
+  }
   const pairedSession = activeSession;
   activeSession = null;
   return {
@@ -229,6 +254,15 @@ function completePairing(request, config = {}) {
     agentUrl: pairedSession.agentUrl,
     identity: getDeviceIdentity(),
     tokenFingerprint: tokenFingerprint(permanentToken),
+    // Only present when a revoked record was actually recovered. Public-safe:
+    // state and id only, never credential material.
+    ...(recoveredEnrollment ? {
+      enrollment: {
+        state: recoveredEnrollment.state,
+        enrollmentId: recoveredEnrollment.enrollmentId,
+        recoveredFromRevocation: true,
+      },
+    } : {}),
   };
 }
 

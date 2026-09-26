@@ -12,6 +12,10 @@
 //   - happy path: discovery -> stage (tar on stdin) -> backup-before-publish
 //     swap -> verify -> record;
 //   - verify failure: rollback runs and the record says rolled-back;
+//   - package-managed refusal: a node whose Agent runs from the systemd SYSTEM
+//     unit (.deb install) is refused with REMOTE_AGENT_UPDATE_PACKAGE_MANAGED
+//     before any stage/swap/backup command runs, while a desktop-managed user
+//     unit keeps winning when both units exist;
 //   - teeth: the swap-ordering invariant rejects a publish-before-stop script.
 const assert = require("assert");
 const fs = require("fs");
@@ -95,6 +99,18 @@ function assertSwapOrderingInvariant(script) {
   assert(ps && ps.entrypoint === "/home/anx/Projects/AnxOS-Control-Center/agent/src/server.js", "ps fallback must locate the entrypoint");
   assert.strictEqual(_test.parseExecStartValue(""), null);
   assert.strictEqual(_test.shellQuote("a'b"), "'a'\\''b'");
+
+  const sections = _test.parseDiscoverySections("--- exec ---\nuser-value\n--- system-exec ---\nsystem-value\n--- system-active ---\nactive\n--- ps ---\nps-value\n--- node ---\n/usr/bin/node\n");
+  assert.strictEqual(sections.get("exec"), "user-value", "user-unit section must not absorb the system probes");
+  assert.strictEqual(sections.get("system-exec"), "system-value");
+  assert.strictEqual(sections.get("system-active"), "active");
+  assert.strictEqual(sections.get("ps"), "ps-value");
+  const discovery = _test.buildDiscoveryCommand("anxos-agent");
+  assert(discovery.includes("systemctl --user show 'anxos-agent' -p ExecStart --value"), "the user-unit probe must stay first and unchanged");
+  assert(discovery.includes("systemctl show 'anxos-agent' -p ExecStart --value"), "the discovery must also probe the system unit");
+  assert(discovery.includes("systemctl is-active 'anxos-agent'"), "the discovery must probe system is-active");
+  assert(discovery.includes("systemctl is-enabled 'anxos-agent'"), "the discovery must probe system is-enabled");
+  assert(!/systemctl --user stop/.test(discovery), "discovery must never stop a unit");
 }
 
 // ---------------------------------------------------------------------------
@@ -508,6 +524,120 @@ const discoveryStdout = "--- exec ---\n{ path=/usr/bin/node ; argv[]=/usr/bin/no
     assert.strictEqual(calls.length, 3, `${label} must reach discovery + stage + swap, saw ${calls.length}`);
   }
   console.log("Phase 5e passed: older, equal, unknown and non-semver node Agents still update.");
+}
+
+// ---------------------------------------------------------------------------
+// Phase 5f: package-managed nodes. A node whose Agent runs from the systemd
+// SYSTEM unit (the .deb install) must be refused with a typed error before any
+// stage/swap/backup command runs: replacing root-owned package files from the
+// Desktop would fight dpkg ownership and the node's own update path.
+// ---------------------------------------------------------------------------
+function packageManagedDiscoveryStdout({ systemExec = true, systemActive = "active", systemEnabled = "enabled" } = {}) {
+  return [
+    "--- exec ---",
+    "",
+    "--- system-exec ---",
+    systemExec
+      ? "{ path=/usr/lib/anxos-agent/node/bin/node ; argv[]=/usr/lib/anxos-agent/node/bin/node /usr/lib/anxos-agent/agent/src/server.js ; ignore_errors=no }"
+      : "",
+    "--- system-active ---",
+    systemActive,
+    "--- system-enabled ---",
+    systemEnabled,
+    "--- ps ---",
+    systemExec ? "/usr/lib/anxos-agent/node/bin/node /usr/lib/anxos-agent/agent/src/server.js" : "",
+    "--- node ---",
+    "/usr/bin/node",
+    "",
+  ].join("\n");
+}
+
+async function assertPackageManagedRefusal(label, discoveryOutput, expectedSystemDetails) {
+  const calls = [];
+  let failure = null;
+  try {
+    await updateRemoteAgent("node-key", baseOptions({
+      runner: async (profileId, command, options = {}) => {
+        calls.push({ command, stdin: options.stdin || null });
+        if (command.includes("ExecStart")) return { code: 0, stdout: discoveryOutput, stderr: "" };
+        throw new Error(`a package-managed node must not run further commands: ${command.slice(0, 80)}`);
+      },
+      healthProbe: async () => ({ connected: true, networkInventoryOk: false, agentVersion: "0.1.0" }),
+    }));
+  } catch (error) {
+    failure = error;
+  }
+  assert(failure, `${label}: a package-managed node must be refused`);
+  assert.strictEqual(failure.code, "REMOTE_AGENT_UPDATE_PACKAGE_MANAGED", `${label}: expected REMOTE_AGENT_UPDATE_PACKAGE_MANAGED, saw ${failure?.code}`);
+  assert(/package-managed/i.test(failure.message), `${label}: the refusal must name the package-managed cause`);
+  assert(failure.message.includes("sudo anxos-agent update"), `${label}: the refusal must point at the node-local update path`);
+  assert.strictEqual(calls.length, 1, `${label}: the refusal must stop right after discovery, saw ${calls.length} command(s)`);
+  const forbidden = calls.filter((call) => /tar -xzf -|SWAP_OK|BACKUP_OK|BACKUP=|systemctl --user stop/.test(call.command));
+  assert.deepStrictEqual(forbidden, [], `${label}: no stage/swap/backup command may run against a package-managed node`);
+  if (expectedSystemDetails) {
+    for (const [key, value] of Object.entries(expectedSystemDetails)) {
+      assert.strictEqual(failure.details?.[key], value, `${label}: refusal details.${key} drifted`);
+    }
+  }
+  return failure;
+}
+
+{
+  const systemOnly = await assertPackageManagedRefusal(
+    "system unit ExecStart",
+    packageManagedDiscoveryStdout(),
+    { systemActive: "active", systemEnabled: "enabled" }
+  );
+  assert.strictEqual(systemOnly.details?.systemUnit?.entrypoint, "/usr/lib/anxos-agent/agent/src/server.js", "the refusal must name the discovered system entrypoint");
+
+  // A unit whose ExecStart cannot be read (permissions/older systemd) is still
+  // package-managed when is-enabled proves the unit exists.
+  await assertPackageManagedRefusal(
+    "system unit probes only",
+    packageManagedDiscoveryStdout({ systemExec: false, systemActive: "inactive", systemEnabled: "enabled" }),
+    { systemActive: "inactive", systemEnabled: "enabled" }
+  );
+
+  // A desktop-managed node that also carries a stray system unit keeps its
+  // user-unit behavior: the user unit wins, and the push update proceeds.
+  const bothUnitsStdout = [
+    "--- exec ---",
+    "{ path=/usr/bin/node ; argv[]=/usr/bin/node /srv/anxos/app/agent/src/server.js ; ignore_errors=no }",
+    "--- system-exec ---",
+    "{ path=/usr/lib/anxos-agent/node/bin/node ; argv[]=/usr/lib/anxos-agent/node/bin/node /usr/lib/anxos-agent/agent/src/server.js ; ignore_errors=no }",
+    "--- system-active ---",
+    "active",
+    "--- system-enabled ---",
+    "enabled",
+    "--- ps ---",
+    "/usr/bin/node /srv/anxos/app/agent/src/server.js",
+    "--- node ---",
+    "/usr/bin/node",
+    "",
+  ].join("\n");
+  const calls = [];
+  const runner = async (profileId, command, options = {}) => {
+    calls.push({ command, stdin: options.stdin || null });
+    if (command.includes("ExecStart")) return { code: 0, stdout: bothUnitsStdout, stderr: "" };
+    if (command.includes("tar -xzf -")) return { code: 0, stdout: "STAGE_OK\n512", stderr: "" };
+    if (command.includes("SWAP_OK")) return { code: 0, stdout: "BACKUP_OK\nSTOP_OK\nPUBLISH_OK\nSWAP_OK", stderr: "" };
+    throw new Error(`unexpected command: ${command.slice(0, 80)}`);
+  };
+  let probes = 0;
+  const result = await updateRemoteAgent("node-key", baseOptions({
+    runner,
+    healthProbe: async () => {
+      probes += 1;
+      return probes === 1
+        ? { connected: true, networkInventoryOk: false, agentVersion: "0.1.0" }
+        : { connected: true, networkInventoryOk: true, agentVersion: "0.1.0" };
+    },
+  }));
+  assert.strictEqual(result.ok, true, "a user-unit node with a stray system unit must still update");
+  assert.strictEqual(result.runtimeRoot, "/srv/anxos/app", "the user unit must win for desktop-managed nodes");
+  assert.strictEqual(calls.length, 3, `expected discovery + stage + swap, saw ${calls.length}`);
+  assert(!calls.some((call) => /\/usr\/lib\/anxos-agent/.test(call.command)), "the system unit path must never be pushed to");
+  console.log("Phase 5f passed: package-managed nodes refused before stage/swap/backup; user units still win.");
 }
 
 assert.strictEqual(typeof getRemoteUpdateDirectory(), "string");

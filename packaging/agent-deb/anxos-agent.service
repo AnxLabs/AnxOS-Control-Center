@@ -1,0 +1,26 @@
+[Unit]
+Description=AnxOS Agent
+After=network.target
+
+[Service]
+Type=simple
+User=anxos-agent
+Group=anxos-agent
+WorkingDirectory=/var/lib/anxos-agent
+Environment=ANXHUB_CONFIG_DIR=/var/lib/anxos-agent/config
+Environment=AGENT_HOST=127.0.0.1
+Environment=AGENT_PORT=47131
+Environment=AGENT_INSTANCE_ROOT=/var/lib/anxos-agent/instances
+Environment=AGENT_BACKUP_ROOT=/var/lib/anxos-agent/backups
+Environment=ANXOS_LOG_DIR=/var/log/anxos-agent
+Environment=NODE_ENV=production
+# Read AFTER the defaults above so operators can override them. The file is
+# optional; the leading '-' keeps the unit valid before it is created.
+EnvironmentFile=-/etc/anxos-agent/agent.env
+ExecStart=/usr/lib/anxos-agent/node/bin/node /usr/lib/anxos-agent/agent/src/server.js
+Restart=on-failure
+RestartSec=3
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

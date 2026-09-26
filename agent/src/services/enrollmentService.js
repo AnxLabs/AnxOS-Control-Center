@@ -5,6 +5,7 @@ const packageJson = require("../../package.json");
 const {
   generateAgentToken,
   isWeakAgentToken,
+  preserveTargetOwnership,
   tokenFingerprint,
   writeAgentConfigToken,
 } = require("../../../src/shared/agentTokenStore");
@@ -58,6 +59,10 @@ function writeEnrollmentRecord(record) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
   fs.writeFileSync(tempPath, `${JSON.stringify({ ...record, schemaVersion: ENROLLMENT_SCHEMA_VERSION }, null, 2)}\n`, { mode: 0o600 });
+  // Same ownership invariant as the agent config store: a root-run CLI rewrite
+  // must never leave the record root-owned, or the service user cannot read the
+  // enrollment it just wrote.
+  preserveTargetOwnership(tempPath, filePath);
   fs.renameSync(tempPath, filePath);
 }
 
@@ -428,12 +433,14 @@ function completeEnrollment(body = {}, config = {}) {
   writeAgentConfigToken(configPath, rawToken, {
     backendMode: "agent",
     agentUrl: String(body?.agentUrl || "").trim() || undefined,
+    tokenOrigin: "enrollment",
   });
   config.token = rawToken;
   config.tokenStatus = {
     ...(config.tokenStatus || {}),
     configured: true,
     source: "enrollment",
+    tokenOrigin: "enrollment",
     fingerprint: record.tokenFingerprint,
   };
   writeEnrollmentRecord(record);
@@ -466,13 +473,89 @@ function completeEnrollment(body = {}, config = {}) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Pairing recovery for a revoked node.
+//
+// `unpair` revokes the persisted enrollment. A later /pairing/complete (desktop
+// or TUI re-pair) installs a new credential, but used to leave the revoked
+// record in place, so every authenticated route answered 410 REVOKED forever
+// even though the new credential was valid. The enrollment recovery model
+// already treats `revoked` as recoverable — assertRepairAuthorization returns
+// mode "after-revocation" and completeEnrollment re-enrolls — so pairing must
+// reach the same end state: a fresh `enrolled` record bound to the newly paired
+// credential, with the same shape completeEnrollment writes.
+//
+// ONLY a record whose CURRENT state is revoked is ever touched. Enrolled,
+// pending, unenrolled, missing, and foreign-identity records are left exactly
+// as they are (return null, no mutation). The caller invokes this AFTER the new
+// credential is persisted, so the record never points at a credential that was
+// not yet stored. Fingerprints only; raw token material is never accepted,
+// stored, or logged.
+function recoverRevokedEnrollmentFromPairing(config = {}, pairedTokenFingerprint = null) {
+  const existing = readEnrollmentRecord();
+  if (!existing || existing.state !== AGENT_STATE_REVOKED) return null;
+  const fingerprint = pairedTokenFingerprint || config?.tokenStatus?.fingerprint || tokenFingerprint(config?.token) || null;
+  if (!fingerprint) return null;
+  const identity = getDeviceIdentity();
+  const record = {
+    schemaVersion: ENROLLMENT_SCHEMA_VERSION,
+    state: AGENT_STATE_ENROLLED,
+    enrollmentId: newEnrollmentId(),
+    identityPath: getIdentityPath(),
+    nodeIdentity: {
+      deviceId: identity.deviceId,
+      hostname: identity.hostname,
+      platform: identity.platform,
+      architecture: identity.architecture,
+      agentVersion: identity.agentVersion,
+    },
+    agentInstallationId: identity.agentInstallationId,
+    agentIdentityGeneration: identity.agentIdentityGeneration,
+    instanceRoot: config.instanceRoot,
+    protocolVersion: 1,
+    apiMajorVersion: 1,
+    tokenFingerprint: fingerprint,
+    // History only: the revoked record's own fingerprint is normally nulled at
+    // revocation, so its surviving history carries forward.
+    previousFingerprints: [...(existing.previousFingerprints || []), existing.tokenFingerprint].filter(Boolean),
+    recoveredFromRevocation: true,
+    enrolledAtIso: new Date().toISOString(),
+    legacyMigrated: false,
+    revokedAtIso: null,
+    revokeReason: null,
+  };
+  writeEnrollmentRecord(record);
+  // Same audit event completeEnrollment emits for the after-revocation mode, so
+  // revoke-then-re-pair stays visible whichever surface performed the recovery.
+  auditEnrollmentEvent("info", "Enrollment completed after revocation (recovery re-enrollment)", ENROLL_REENROLL_AFTER_REVOCATION, {
+    previousEnrollmentId: existing.enrollmentId || null,
+    revokedAtIso: existing.revokedAtIso || null,
+    enrollmentId: record.enrollmentId,
+  });
+  return record;
+}
+
 // Auto-migrate an existing persisted shared token (current session) into an
 // enrolled record so the enrollment upgrade does not break running installs.
 // A fresh generated token is NOT auto-enrolled; it stays unenrolled.
+//
+// Provenance gate: the persisted `tokenOrigin` distinguishes a credential this
+// agent generated for itself from a legacy persisted one. A generated
+// credential resolves as "shared-config" on every start after the first, which
+// is exactly why the origin must be read from the config instead of inferred
+// from the resolution source. Only "generated" skips migration; an absent
+// origin (pre-provenance installs), "pairing", "enrollment", and
+// "desktop-rotation" all keep the legacy behavior. The origin is read from the
+// top-level config field, or from the resolved token status that getConfig()
+// carries into the runtime config.
 function migrateLegacyBinding(config = {}) {
   const existing = readEnrollmentRecord();
   if (existing && [AGENT_STATE_ENROLLED, AGENT_STATE_PENDING, AGENT_STATE_REVOKED].includes(existing.state)) {
     return { migrated: false, reason: existing.state === AGENT_STATE_PENDING ? "pending" : "record-exists", record: existing };
+  }
+  const tokenOrigin = config.tokenOrigin ?? config.tokenStatus?.tokenOrigin ?? null;
+  if (tokenOrigin === "generated") {
+    return { migrated: false, reason: "self-generated-credential", record: existing };
   }
   const tokenStatus = config.tokenStatus || {};
   if (tokenStatus.source !== "shared-config" || !tokenStatus.fingerprint || !config.token) {
@@ -587,6 +670,7 @@ function rotateEnrollmentCredential(config = {}) {
   writeAgentConfigToken(configPath, token, {
     backendMode: "agent",
     agentUrl: undefined,
+    tokenOrigin: "enrollment",
   });
   const rotatedIdentity = rotateAgentIdentityGeneration();
   const updated = {
@@ -602,6 +686,7 @@ function rotateEnrollmentCredential(config = {}) {
     ...(config.tokenStatus || {}),
     configured: true,
     source: "enrollment",
+    tokenOrigin: "enrollment",
     fingerprint: updated.tokenFingerprint,
   };
   return {
@@ -679,6 +764,7 @@ module.exports = {
   migrateLegacyBinding,
   parseEnrollmentScopes,
   readEnrollmentRecord,
+  recoverRevokedEnrollmentFromPairing,
   resolveEnrollmentScopeContext,
   revokeEnrollment,
   rotateEnrollmentCredential,

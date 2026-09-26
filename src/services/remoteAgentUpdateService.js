@@ -87,6 +87,23 @@ function parsePsEntrypoint(output = "") {
   return null;
 }
 
+// Discovery output is sectioned by literal `--- label ---` markers. Extraction
+// is marker-driven (not a regex between two fixed markers) so the system-unit
+// probes can be added without ever being misread as the desktop-managed user
+// unit; a user unit and a system unit are parsed independently.
+function parseDiscoverySections(output = "") {
+  const sections = new Map();
+  const text = String(output || "");
+  const markerPattern = /^--- ([a-z][a-z0-9-]*) ---[^\S\r\n]*$/gm;
+  const matches = [...text.matchAll(markerPattern)];
+  for (let index = 0; index < matches.length; index += 1) {
+    const valueStart = matches[index].index + matches[index][0].length;
+    const valueEnd = index + 1 < matches.length ? matches[index + 1].index : text.length;
+    sections.set(matches[index][1], text.slice(valueStart, valueEnd).trim());
+  }
+  return sections;
+}
+
 function runtimeRootFromEntrypoint(entrypoint) {
   const normalized = String(entrypoint || "").replace(/\\/g, "/").replace(/\/+$/, "");
   const suffix = "/agent/src/server.js";
@@ -101,6 +118,12 @@ function buildDiscoveryCommand(unitName = LINUX_AGENT_UNIT_NAME) {
     "set -eu",
     'echo "--- exec ---"',
     `systemctl --user show ${shellQuote(unitName)} -p ExecStart --value 2>/dev/null || true`,
+    'echo "--- system-exec ---"',
+    `systemctl show ${shellQuote(unitName)} -p ExecStart --value 2>/dev/null || true`,
+    'echo "--- system-active ---"',
+    `systemctl is-active ${shellQuote(unitName)} 2>/dev/null || true`,
+    'echo "--- system-enabled ---"',
+    `systemctl is-enabled ${shellQuote(unitName)} 2>/dev/null || true`,
     'echo "--- ps ---"',
     "ps -eo args= 2>/dev/null | grep -F 'agent/src/server.js' | grep -v grep | head -n 3 || true",
     'echo "--- node ---"',
@@ -303,9 +326,33 @@ async function updateRemoteAgent(nodeId, options = {}) {
   const discovery = await run(profile.id, buildDiscoveryCommand(unitName), { timeoutMs: DEFAULT_COMMAND_TIMEOUT_MS }).catch((error) => {
     throw fail(error.code || "REMOTE_AGENT_UPDATE_SSH_FAILED", error.message, { sshOutput: error.sshOutput || null });
   });
-  const execStartMatch = discovery.stdout.match(/--- exec ---\r?\n([\s\S]*?)\r?\n--- ps ---/);
-  const psMatch = discovery.stdout.match(/--- ps ---\r?\n([\s\S]*?)\r?\n--- node ---/);
-  const located = parseExecStartValue(execStartMatch?.[1] || "") || parsePsEntrypoint(psMatch?.[1] || "");
+  const sections = parseDiscoverySections(discovery.stdout);
+  const userUnit = parseExecStartValue(sections.get("exec") || "");
+  const systemExecOutput = sections.get("system-exec") || "";
+  const systemUnit = parseExecStartValue(systemExecOutput);
+  const systemActive = (sections.get("system-active") || "").trim().toLowerCase();
+  const systemEnabled = (sections.get("system-enabled") || "").trim().toLowerCase();
+  // Positive evidence only: a parsed ExecStart, an active unit, or an explicit
+  // is-enabled existence state. "disabled"/"not-found"/"" are ambiguous across
+  // systemd versions and must not by themselves classify a node.
+  const systemUnitFound = Boolean(systemUnit)
+    || ["active", "activating", "reloading", "deactivating"].includes(systemActive)
+    || ["enabled", "enabled-runtime", "static", "alias", "indirect", "masked", "generated", "linked"].includes(systemEnabled);
+  if (!userUnit && systemUnitFound) {
+    mark("discover", "failed", "The node's Agent is package-managed (systemd system unit).");
+    throw fail(
+      "REMOTE_AGENT_UPDATE_PACKAGE_MANAGED",
+      "The node's Agent is package-managed: it runs from the systemd system unit `anxos-agent` installed by the .deb package. Update it on the node instead of pushing runtime files — run `sudo anxos-agent update --check` and install the newer package per the node's install guide, or reinstall the package. Desktop push updates apply only to nodes whose Agent runs from a systemd user unit.",
+      {
+        unitName,
+        systemUnit: systemUnit ? { entrypoint: systemUnit.entrypoint, nodePath: systemUnit.nodePath } : null,
+        systemActive: systemActive || null,
+        systemEnabled: systemEnabled || null,
+        discovery: discovery.stdout.slice(0, 2000),
+      }
+    );
+  }
+  const located = userUnit || parsePsEntrypoint(sections.get("ps") || "");
   const runtimeRoot = located ? runtimeRootFromEntrypoint(located.entrypoint) : null;
   if (!runtimeRoot) {
     throw fail("REMOTE_AGENT_UPDATE_UNIT_NOT_FOUND", "The Agent systemd user unit or runtime root could not be located on the node.", { discovery: discovery.stdout.slice(0, 2000) });
@@ -427,6 +474,7 @@ module.exports = {
     buildRollbackScript,
     buildStageCommand,
     buildSwapScript,
+    parseDiscoverySections,
     parseExecStartValue,
     parsePsEntrypoint,
     runtimeRootFromEntrypoint,

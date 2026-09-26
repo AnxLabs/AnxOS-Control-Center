@@ -41,10 +41,37 @@ function base64UrlDecodeJson(value) {
   }
 }
 
+// Ownership-preserving atomic replace. A root-run CLI (`anxos-agent unpair`)
+// rewrites a config file owned by the service user; creating the temp file as
+// root and renaming it over the target silently changed the target's owner to
+// root, and the service user then got EACCES on its own config
+// (AGENT_CONFIG_CORRUPT on the next pairing/enrollment write). When the target
+// already exists, hand the temp file the target's uid/gid before the rename so
+// ownership survives. POSIX-only: without process.getuid (Windows) there is no
+// ownership to preserve, and a non-root writer that cannot chown keeps the
+// pre-existing rename behavior instead of failing the write. The temp file's
+// 0600 mode is set at creation and chown does not alter it.
+function preserveTargetOwnership(tempPath, targetPath) {
+  if (typeof process.getuid !== "function") return false;
+  let targetStat;
+  try {
+    targetStat = fs.statSync(targetPath);
+  } catch {
+    return false;
+  }
+  try {
+    fs.chownSync(tempPath, targetStat.uid, targetStat.gid);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function atomicWriteJson(filePath, payload) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
   fs.writeFileSync(tempPath, `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 });
+  preserveTargetOwnership(tempPath, filePath);
   fs.renameSync(tempPath, filePath);
 }
 
@@ -176,11 +203,35 @@ function resolveSharedAgentToken(options = {}) {
     source = "generated";
   }
 
+  // Provenance of the credential itself, distinct from this run's resolution
+  // source: a token generated on a previous start still resolves as
+  // "shared-config", so the origin must be read back from the persisted config.
+  // "generated" is what keeps a self-generated credential unenrolled across
+  // restarts (see enrollmentService.migrateLegacyBinding).
+  const persistedTokenOrigin = trimValue(config.tokenOrigin) || null;
+  const tokenOrigin = source === "generated"
+    ? "generated"
+    : source === "environment-bootstrap"
+      ? null
+      : persistedTokenOrigin;
+
   if (shouldWrite && (!usableStoredToken || weakStoredTokenReplaced || storedToken !== token)) {
-    writeAgentConfigToken(configPath, token, {
+    const updates = {
       backendMode: config.backendMode || DEFAULT_AGENT_CONFIG.backendMode,
       agentUrl: config.agentUrl || DEFAULT_AGENT_CONFIG.agentUrl,
-    });
+    };
+    if (source === "generated") {
+      updates.tokenOrigin = "generated";
+    } else if (source === "environment-bootstrap") {
+      // The stored credential is being replaced by an environment bootstrap, so
+      // any previous provenance no longer describes the current credential. An
+      // absent value keeps the legacy migration behavior for env-bootstrap
+      // installs; `undefined` drops the key from the serialized config.
+      updates.tokenOrigin = undefined;
+    }
+    // source === "shared-config": the credential is unchanged, so its persisted
+    // provenance (whatever it is, including "generated") is left untouched.
+    writeAgentConfigToken(configPath, token, updates);
   }
 
   const envTokenPresent = Boolean(environmentToken);
@@ -191,6 +242,7 @@ function resolveSharedAgentToken(options = {}) {
     token,
     configPath,
     source,
+    tokenOrigin,
     configured: Boolean(token),
     generated: source === "generated",
     environmentTokenPresent: envTokenPresent,
@@ -206,7 +258,9 @@ function resolveSharedAgentToken(options = {}) {
 function rotateSharedAgentToken(options = {}) {
   const configPath = resolveAgentConfigPath(options);
   const token = generateAgentToken();
-  writeAgentConfigToken(configPath, token, options.updates || {});
+  // A rotation is a desktop/operator-owned credential unless the caller states
+  // otherwise; an explicit `updates.tokenOrigin` overrides this default.
+  writeAgentConfigToken(configPath, token, { tokenOrigin: "desktop-rotation", ...(options.updates || {}) });
   return {
     token,
     configPath,
@@ -285,6 +339,7 @@ module.exports = {
   getCandidateConfigPaths,
   isWeakAgentToken,
   parseAgentPairingPayload,
+  preserveTargetOwnership,
   resolveAgentConfigPath,
   resolveSharedAgentToken,
   rotateSharedAgentToken,

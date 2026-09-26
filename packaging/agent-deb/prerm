@@ -1,0 +1,23 @@
+#!/bin/sh
+# AnxOS Agent pre-removal script.
+#
+# On remove the service is stopped and disabled; upgrades leave the running
+# service alone. Runtime data under /var/lib/anxos-agent and /var/log/anxos-agent
+# is never touched here.
+set -eu
+
+SERVICE_NAME="anxos-agent.service"
+
+case "${1:-}" in
+  remove|purge)
+    if command -v systemctl >/dev/null 2>&1; then
+      systemctl stop "$SERVICE_NAME" >/dev/null 2>&1 || true
+      systemctl disable "$SERVICE_NAME" >/dev/null 2>&1 || true
+    fi
+    ;;
+  *)
+    # upgrade, deconfigure, failed-upgrade: keep the service running.
+    ;;
+esac
+
+exit 0

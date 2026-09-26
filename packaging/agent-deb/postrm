@@ -1,0 +1,36 @@
+#!/bin/sh
+# AnxOS Agent post-removal script.
+#
+# Runtime data is deliberately preserved on remove and purge. This script never
+# deletes /var/lib/anxos-agent or /var/log/anxos-agent; operators remove those
+# paths manually if they truly want the data gone.
+set -eu
+
+DATA_ROOT="/var/lib/anxos-agent"
+LOG_ROOT="/var/log/anxos-agent"
+CONFIG_ROOT="/etc/anxos-agent"
+
+if command -v systemctl >/dev/null 2>&1; then
+  systemctl daemon-reload >/dev/null 2>&1 || true
+fi
+
+case "${1:-}" in
+  remove)
+    echo "AnxOS Agent removed. Service stopped and disabled."
+    echo "Data was kept at $DATA_ROOT and $LOG_ROOT; delete it manually if you really want it gone."
+    ;;
+  purge)
+    echo "AnxOS Agent purged. Data was kept on purpose at these exact paths:"
+    echo "  $DATA_ROOT (config, instances, backups)"
+    echo "  $LOG_ROOT"
+    if [ -d "$CONFIG_ROOT" ]; then
+      echo "  $CONFIG_ROOT (operator configuration)"
+    fi
+    echo "Delete them manually if you really want them gone."
+    ;;
+  *)
+    # upgrade, abort-install, abort-upgrade, disappear: nothing to report.
+    ;;
+esac
+
+exit 0

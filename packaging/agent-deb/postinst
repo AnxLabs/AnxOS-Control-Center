@@ -1,0 +1,84 @@
+#!/bin/sh
+# AnxOS Agent post-installation script.
+#
+# Idempotent: safe on fresh install and on upgrade. It never fails the install
+# because the service could not start immediately (for example inside a
+# container without a running systemd); operators get the check command instead.
+set -eu
+
+SERVICE_NAME="anxos-agent.service"
+AGENT_USER="anxos-agent"
+AGENT_GROUP="anxos-agent"
+DATA_ROOT="/var/lib/anxos-agent"
+LOG_ROOT="/var/log/anxos-agent"
+CONFIG_ROOT="/etc/anxos-agent"
+
+create_agent_account() {
+  if ! getent group "$AGENT_GROUP" >/dev/null 2>&1; then
+    groupadd --system "$AGENT_GROUP"
+  fi
+  if ! getent passwd "$AGENT_USER" >/dev/null 2>&1; then
+    useradd --system \
+      --gid "$AGENT_GROUP" \
+      --home-dir "$DATA_ROOT" \
+      --no-create-home \
+      --shell /usr/sbin/nologin \
+      --comment "AnxOS Agent service account" \
+      "$AGENT_USER"
+  fi
+}
+
+prepare_directories() {
+  # Runtime data is never deleted by the package; these calls are idempotent and
+  # only adjust ownership/mode of the directories themselves, never their
+  # contents. config/ stays user-private (0700); the other roots are 0750.
+  install -d -m 0750 -o "$AGENT_USER" -g "$AGENT_GROUP" "$DATA_ROOT"
+  install -d -m 0750 -o "$AGENT_USER" -g "$AGENT_GROUP" "$DATA_ROOT/instances"
+  install -d -m 0750 -o "$AGENT_USER" -g "$AGENT_GROUP" "$DATA_ROOT/backups"
+  install -d -m 0700 -o "$AGENT_USER" -g "$AGENT_GROUP" "$DATA_ROOT/config"
+  install -d -m 0750 -o "$AGENT_USER" -g "$AGENT_GROUP" "$LOG_ROOT"
+  install -d -m 0750 -o root -g "$AGENT_GROUP" "$CONFIG_ROOT"
+}
+
+grant_docker_group() {
+  # Best-effort only: Docker is optional and managed workloads need the socket.
+  if command -v usermod >/dev/null 2>&1 && getent group docker >/dev/null 2>&1; then
+    usermod -aG docker "$AGENT_USER" >/dev/null 2>&1 || true
+  fi
+}
+
+reload_and_enable() {
+  previous_version="${1:-}"
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    systemctl enable --now "$SERVICE_NAME" >/dev/null 2>&1 || true
+    # dpkg passes the previously installed version as $2 on upgrade. On an
+    # already-active unit `enable --now` is a no-op, so the running process
+    # would keep serving the previous payload until a manual restart;
+    # try-restart applies the new payload immediately. Best effort only: a
+    # restart that cannot happen must never fail the package.
+    if [ -n "$previous_version" ]; then
+      if systemctl try-restart "$SERVICE_NAME" >/dev/null 2>&1; then
+        echo "AnxOS Agent upgraded: the running service was restarted to load the new package."
+      fi
+    fi
+  fi
+}
+
+case "${1:-configure}" in
+  configure)
+    create_agent_account
+    prepare_directories
+    grant_docker_group
+    reload_and_enable "${2:-}"
+    echo "AnxOS Agent installed."
+    echo "Connect it from AnxOS Control Center, or run 'sudo anxos-agent' on this host."
+    echo "Service status: systemctl status anxos-agent"
+    echo "Optional overrides: copy /etc/anxos-agent/agent.env.example to /etc/anxos-agent/agent.env"
+    ;;
+  *)
+    # abort-upgrade, abort-remove, abort-deconfigure, ... need no action.
+    ;;
+esac
+
+exit 0

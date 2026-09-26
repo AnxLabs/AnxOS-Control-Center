@@ -1,0 +1,19 @@
+Package: anxos-agent
+Version: {{VERSION}}
+Section: utils
+Priority: optional
+Architecture: {{ARCH}}
+Depends: libc6 (>= 2.28), libstdc++6
+Recommends: ca-certificates
+Installed-Size: {{INSTALLED_SIZE}}
+Maintainer: AnxOS <noreply@anxos.local>
+Homepage: https://anxoscontrolcenter.org
+Description: AnxOS Agent - remote control endpoint for AnxOS Control Center
+ The AnxOS Agent is the headless server-side endpoint used by AnxOS Control
+ Center to manage instances, Docker workloads, backups and public access on a
+ Debian or Ubuntu host. It bundles an official Node.js 22 LTS Linux runtime and
+ installs as a systemd service listening on 127.0.0.1:47131 by default.
+ .
+ Remote network access is opt-in through /etc/anxos-agent/agent.env.
+ User data lives in /var/lib/anxos-agent and /var/log/anxos-agent and is
+ deliberately preserved by both remove and purge.
