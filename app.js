@@ -42906,6 +42906,9 @@ nodePickerTrigger?.addEventListener("keydown", (event) => {
   }
 });
 nodePicker?.addEventListener("click", (event) => {
+  if (!event.target.closest("[data-node-picker-option]")) {
+    return;
+  }
   event.stopPropagation();
 });
 nodePicker?.addEventListener("keydown", async (event) => {

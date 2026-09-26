@@ -1,3 +1,18 @@
+// Node switching smoke checks.
+//
+// 2026-09-26 — Node picker background-click dismiss:
+//   The node picker popover is anchored directly above the sidebar footer, so
+//   while open it overlaps the bottom sidebar nav items (including Settings).
+//   The popover click handler must NOT stop propagation for clicks on its
+//   non-option background/padding: those clicks fall through to the
+//   document-level dismiss and close the popover on the first click (the next
+//   click then reaches the previously covered nav item). Only clicks on
+//   [data-node-picker-option] keep stopPropagation, and option clicks still
+//   select + close. The assertions below pin that contract so an unconditional
+//   popover stopPropagation cannot be reintroduced, and a small harness runs
+//   the handler extracted from app.js against synthetic events to verify the
+//   fall-through/stop behavior itself.
+
 const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
@@ -67,6 +82,67 @@ includesAll(appSource, [
   "sidebarFooter.dataset.tooltip = `${nodeName} | ${nodeSwitchInProgress ? \"Switching node\" : connectionState.secondary}`;",
   "badge.textContent = node.id === getSelectedNodeId() ? \"Current\" : connectionState.label;",
 ], "Node picker interaction");
+
+includesAll(compact(appSource), [
+  'nodePicker?.addEventListener("click", (event) => { if (!event.target.closest("[data-node-picker-option]")) { return; } event.stopPropagation(); });',
+  'option.addEventListener("click", async (event) => { event.stopPropagation(); closeNodePicker(); await selectNode(node.id || "application-host"); });',
+], "Node picker background dismiss");
+assert(
+  !compact(appSource).includes('nodePicker?.addEventListener("click", (event) => { event.stopPropagation(); });'),
+  "Node picker must not unconditionally swallow background clicks; clicks outside options must reach the document dismiss.",
+);
+
+function extractRegisteredHandler(source, marker, label) {
+  const start = source.indexOf(marker);
+  assert(start !== -1, `Missing ${label} registration: ${marker}`);
+  const end = source.indexOf("});", start);
+  assert(end !== -1, `Unterminated ${label} handler: ${marker}`);
+  return source.slice(start, end + 3);
+}
+
+const nodePickerClickRegistered = {};
+const nodePickerClickSnippet = extractRegisteredHandler(
+  appSource,
+  'nodePicker?.addEventListener("click"',
+  "node picker click",
+);
+new Function("nodePicker", `"use strict";\n${nodePickerClickSnippet}`)({
+  addEventListener: (type, handler) => {
+    nodePickerClickRegistered[type] = handler;
+  },
+});
+assert.strictEqual(
+  typeof nodePickerClickRegistered.click,
+  "function",
+  "Node picker click handler must register through addEventListener.",
+);
+
+function makeNodePickerClickEvent(optionTarget) {
+  return {
+    stopped: false,
+    target: {
+      closest: (selector) => (selector === "[data-node-picker-option]" ? optionTarget : null),
+    },
+    stopPropagation() {
+      this.stopped = true;
+    },
+  };
+}
+
+const nodePickerBackgroundClick = makeNodePickerClickEvent(null);
+nodePickerClickRegistered.click(nodePickerBackgroundClick);
+assert.strictEqual(
+  nodePickerBackgroundClick.stopped,
+  false,
+  "Click on the node picker background must fall through to the document dismiss.",
+);
+const nodePickerOptionClick = makeNodePickerClickEvent({});
+nodePickerClickRegistered.click(nodePickerOptionClick);
+assert.strictEqual(
+  nodePickerOptionClick.stopped,
+  true,
+  "Click on a node picker option must keep stopPropagation.",
+);
 
 includesAll(appSource, [
   'if (activePageName === "dashboard")',
