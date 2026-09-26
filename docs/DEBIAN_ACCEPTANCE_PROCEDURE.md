@@ -1,7 +1,8 @@
 # Debian 12 x64 Acceptance Procedure
 
 Ready-to-execute acceptance procedure for the AnxOS Control Center `.deb` on a
-real Debian 12 x64 host. It is derived from
+real Debian 12 x64 host. Appendix A extends the same procedure to the headless
+Agent package (`AnxOS-Agent-<version>.deb`). It is derived from
 `docs/PRIVATE_ALPHA_RC_REAL_MACHINE_TEST_SHEET.md` (the PA-RC test IDs),
 `docs/PRIVATE_ALPHA_INSTALL_GUIDE.md`, and the `linux` job in
 `.github/workflows/windows-release.yml`.
@@ -370,6 +371,148 @@ stage directory, and the record's `status` reflecting `complete` or
 stage and backup paths (redacted), desktop record JSON, node Agent journal,
 health and network-inventory results from the verify loop.
 
+## Appendix A — Headless Agent package (`.deb`): install, verify, uninstall
+
+This appendix covers the headless Agent package, which is separate from the
+Control Center `.deb` in steps 0-9. It is an install → verify → pair → uninstall
+pass against the frozen Build 205 contract in `docs/HEADLESS_AGENT_INSTALL.md`.
+
+Markers: `[AJ-HW]` needs a real supported host (the Control Center host can
+serve as the pairing desktop); `[AJ-CRED]` needs AJ's sudo or desktop unlock.
+
+Preconditions: a published `AnxOS-Agent-<version>.deb` and `SHA256SUMS` on the
+release page. The workflow changes that produce or publish the package are
+approval-gated; if no artifact is published, mark A1-A5 `BLOCKED` and do not
+fabricate a candidate. A Build 205 candidate can also be produced locally from
+the repository build script (`node scripts/build-agent-deb.js --download-node`);
+that does not make it published.
+
+### A0 — Build 205 verification record (WSL2, already executed)
+
+A1-A5 plus the A6 unpair/re-pair leg were executed against the Build 205 `.deb`
+on WSL2 Ubuntu 24.04 with systemd and passed: install, system service, TUI/CLI,
+fresh-Agent non-enrollment across service restarts and a VM reboot
+(`tokenOrigin: "generated"`), Control-Center-style remote pairing `200`, the
+credential gate `403` without the credential, replay `401`, health/stats with
+the token, `remove` plus `purge` data preservation, reinstall
+identity/enrollment preservation, and the `update --check` states against a
+local test endpoint. Honest limits: WSL2 is representative but uses a WSL2
+kernel, not bare metal; arm64 is mechanism-only; Linux artifacts are not
+code-signed. This record does not replace the bare-metal run below, and the
+release workflow wiring remains approval-gated.
+
+### A1 — Candidate identity
+
+```bash
+sha256sum AnxOS-Agent-<version>.deb
+sha256sum -c SHA256SUMS --ignore-missing    # expect: AnxOS-Agent-...deb: OK
+uname -m; cat /etc/os-release               # x64; Debian 11+ or Ubuntu 22.04+
+```
+
+Expected: architecture `x86_64`, a supported distribution (glibc >= 2.28), and
+a checksum that matches `SHA256SUMS`. Record the `.deb` filename, SHA-256, host,
+and UTC window. If the artifact is not published, stop here and record `BLOCKED`.
+
+**Evidence:** command outputs, checksum result, `/etc/os-release`.
+
+### A2 — Install and service check
+
+```bash
+sudo apt install ./AnxOS-Agent-<version>.deb
+anxos-agent --version
+sudo systemctl status anxos-agent.service --no-pager
+sudo anxos-agent service status
+anxos-agent status
+ss -ltnp | grep <agent-port>                # default bind is 127.0.0.1
+```
+
+Expected: `apt` installs without missing-asset errors, `anxos-agent --version`
+reports the package version, the system unit is running, and the listener is
+loopback-only until network access is opted in. `[AJ-CRED]` The sudo password is
+entered by the operator and never captured.
+
+**Evidence:** apt output, `--version`, unit status, `ss -ltnp`, storage listing
+of `/var/lib/anxos-agent/{config,instances,backups}` and `/var/log/anxos-agent`.
+
+### A3 — Pair and reach a real node
+
+```bash
+anxos-agent pair                            # one-time code, valid 10 minutes
+```
+
+In the desktop: **Add Computer → Connect a headless server** → enter the code →
+confirm the displayed identity → wait for the node to come online. Then confirm
+`anxos-agent status` reports the node as paired and that the service survives a
+restart:
+
+```bash
+sudo anxos-agent service restart
+anxos-agent status
+```
+
+The pairing code is temporary sensitive material: redact it from every
+screenshot and never record it. Pair promptly after opting into network access —
+a reachable unpaired Agent can be claimed by anyone who can reach it.
+
+**Evidence:** pairing screens (code redacted), node identity summary, status
+after restart, service journal.
+
+### A4 — Update check (no install)
+
+```bash
+anxos-agent update --check
+# controlled states without touching a public channel:
+ANXOS_AGENT_UPDATE_SOURCE=<local-release-endpoint> anxos-agent update --check
+```
+
+Expected: one of `update-available` (with download, checksum, and install
+lines), `current` (including when the installed package is newer than the
+release — no downgrade is suggested), or `unknown` with an honest reason
+(offline, unreadable source, or a development/source install with no package
+identity). Do not install from this check and do not modify any public channel.
+
+**Evidence:** command output for each state exercised, unchanged
+`anxos-agent --version`.
+
+### A5 — Uninstall with data preservation
+
+```bash
+du -sh /var/lib/anxos-agent; find /var/lib/anxos-agent -maxdepth 2 | head -n 40
+sudo apt remove anxos-agent
+sudo systemctl status anxos-agent.service --no-pager   # expect: not found/inactive
+du -sh /var/lib/anxos-agent                             # must match the recorded inventory
+```
+
+Expected: the package and unit are gone, while `/var/lib/anxos-agent` (servers,
+settings, backups) is unchanged; `/var/log/anxos-agent` and
+`/etc/anxos-agent/agent.env` remain as well.
+
+**Evidence:** before/after inventory, apt output, unit status, preserved-data
+listing.
+
+### A6 — Unpair and re-pair recovery
+
+Run after A3, while the node is paired. This proves the documented unpair
+journey and the revoked-node recovery behavior:
+
+```bash
+sudo anxos-agent unpair --yes
+anxos-agent status                    # revoked / not paired
+ls -l /var/lib/anxos-agent/config/agent.json   # owner/group preserved after the root-run write
+anxos-agent pair                      # fresh one-time code for re-pairing
+# In the desktop: Add Computer → Connect a headless server → enter the code
+anxos-agent status                    # paired again
+```
+
+Expected: `unpair` revokes the enrollment and clears the stored credential while
+preserving instances, backups, and configuration; the config file keeps its
+original owner so the service user is not locked out; authenticated routes
+answer `410 REVOKED` while the node is unpaired; and re-pairing restores the
+revoked enrollment instead of leaving the node dead-ended.
+
+**Evidence:** unpair output, status before/after, config ownership listing,
+pairing result.
+
 ## Step 10 — Evidence-return template
 
 Copy, fill, and return with the artifact hashes and screenshots attached:
@@ -393,6 +536,12 @@ step              result (PASS/FAIL/BLOCKED/NOT RUN)   evidence file(s)         
 8 uninstall       ...                                  dpkg status, preserved-data listing, inventory
 9 self-update A   ...                                  last-linux-update.json, swap-*.result, journal
 9 self-update B   ...                                  remote-last-update.json, node listing, health/inventory
+A1 agent pkg id   ...                                  sha256sum, SHA256SUMS check, os-release
+A2 agent install  ...                                  apt output, unit status, ss -ltnp, storage listing
+A3 agent pairing  ...                                  pairing screens (code redacted), status, journal
+A4 agent update   ...                                  update --check output for each state, version unchanged
+A5 agent uninstall ...                                 unit status, preserved-data inventory
+A6 agent re-pair  ...                                  unpair output, status, config ownership, pairing result
 defects: <ID / severity / actual behavior>
 self-update honest limit recorded: <yes/no + note>
 secret-exposure review done by: <name / UTC>
@@ -409,3 +558,4 @@ secret-exposure review done by: <name / UTC>
 | 7 update check | PA-RC-14 (check only) |
 | 8 uninstall/data preservation | PA-RC-17 analog |
 | 9 self-update drill | The recorded `KNOWN_LIMITATIONS` item "Linux Agent self-update is validated hermetically only" |
+| A1-A6 headless Agent package | PA-RC-05 and PA-RC-17 analogs on the headless Agent path; A6 covers unpair/re-pair recovery |

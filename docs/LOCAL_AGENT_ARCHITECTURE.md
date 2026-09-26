@@ -1,6 +1,18 @@
 # Local Agent Architecture
 
-The Local Agent path lets AnxOS Control Center manage the user's own Windows PC without requiring the developer Debian Agent. It reuses the existing Agent API, node registry, Marketplace, Files, Backups, Public Access, dependency, diagnostics, and Agent Control surfaces.
+The Local Agent path lets AnxOS Control Center manage the user's own Windows PC. It reuses the existing Agent API, node registry, Marketplace, Files, Backups, Public Access, dependency, diagnostics, and Agent Control surfaces.
+
+## Surfaces
+
+One Agent runtime powers three surfaces. Pairing, identity, authentication, and lifecycle logic have one authoritative implementation in the Agent runtime; the surfaces present or transport that logic and do not reimplement it.
+
+- **Control Center Agent Control GUI (desktop).** The page that installs, starts, stops, pairs, updates, and diagnoses the Local Agent and remote Agents.
+- **`anxos-agent` CLI/TUI (headless).** The terminal surface for a Linux server with no desktop. `anxos-agent` opens the TUI; subcommands cover `status`, `pair`, `service status|start|stop|restart`, `logs`, `diagnostics`, `update --check`, `unpair`, `--help`, and `--version`.
+- **Control Center protocol/API.** The authenticated HTTP API and node protocol used by the desktop client and by every Agent surface.
+
+Packaging follows the same split: Windows builds embed the runtime outside `app.asar` (see **Runtime Packaging** below), and Linux ships the official `AnxOS-Agent-<version>.deb` package (Debian 11+/Ubuntu 22.04+ x64, glibc >= 2.28) with the `anxos-agent.service` systemd system unit, data in `/var/lib/anxos-agent`, and logs in `/var/log/anxos-agent`. Install and pairing steps are in `docs/HEADLESS_AGENT_INSTALL.md`.
+
+The permission-profile contract stays unchanged: the desktop spawns its Local Agent with `ANXHUB_CONFIG_DIR`, which resolves the profile to `local-owner`; a standalone or remote Agent without that contract resolves to `restricted`, where every capability must come from explicit configuration or an explicit per-principal grant (fail-closed). Build 205 adds surfaces, not new trust: no authentication, authorization, loopback, or redaction check was weakened, and full tokens still never appear in the UI, logs, or diagnostics.
 
 ## Components
 
@@ -22,6 +34,20 @@ The Local Agent reports health, version, platform, operating system, architectur
 Local pairing is automatic and restricted to the local machine. Full tokens are never shown in the UI or logs. Diagnostics may show fingerprints only when needed for troubleshooting.
 
 Remote Agent token workflows remain supported and separate from Local Agent pairing.
+
+### Token provenance
+
+The persisted `tokenOrigin` on the Agent credential decides whether a start may auto-migrate an existing credential into an enrollment record:
+
+- `generated` — this Agent minted the credential for itself. A generated token never auto-enrolls; the node stays unenrolled across restarts and reboots until pairing or enrollment completes explicitly.
+- `pairing`, `enrollment`, `desktop-rotation` — explicit pairing, enrollment, and desktop/operator rotation credentials keep the legacy migration behavior.
+- Absent (pre-provenance installs) and environment-bootstrap credentials keep the legacy migration behavior as well. An environment bootstrap drops the key so those installs stay migratable.
+
+Pairing completion persists `tokenOrigin: "pairing"`, which clears a previous `generated` marker, and enrollment persists `tokenOrigin: "enrollment"`.
+
+### Revoked-enrollment recovery
+
+`unpair` revokes the enrollment, and removing a node from Control Center attempts the same revocation. A revoked record makes authenticated routes answer `410 REVOKED` until the node is enrolled again. Completing a new pairing or enrollment against a revoked record restores it (`recoveredFromRevocation: true`) instead of leaving the node dead-ended, so re-pairing a revoked node is a supported recovery path. For any other record state the recovery step is a read-only no-op, and a recovery failure is logged with fingerprints and states only while the pairing result stays honest.
 
 ## Runtime Packaging
 

@@ -28,6 +28,8 @@ gates:
 - `V1_AUDIT_TRAIL_DECISION.md`
 - `OPERATOR_NOTES_V2.md` (V2 operator-facing behavior reference)
 - `API_SURFACE_V2.md` (V2 Agent endpoint and desktop IPC contract reference)
+- `HEADLESS_AGENT_INSTALL.md` (headless Agent install, update, unpair, and
+  verification status)
 
 When a current document conflicts with a build-numbered report, the current
 document controls.

@@ -8,7 +8,7 @@
 | Agent authentication and live recovery | `npm run agent:token:smoke`, `npm run agent-errors:smoke`, `npm run node:agent-pairing:smoke`, `npm run agent-control:canonical-credential:smoke` |
 | Multi-node health isolation | `npm run node:independent-health:smoke` |
 | Agent API authorization | `npm run agent:api-authorization:smoke` |
-| Marketplace | `npm run marketplace:smoke`, `npm run marketplace:install-selected-node:smoke`, `npm run curseforge:server-pack-resolution:smoke` |
+| Marketplace | `npm run marketplace:smoke`, `npm run marketplace:error-bridge:smoke`, `npm run marketplace:install-selected-node:smoke`, `npm run curseforge:server-pack-resolution:smoke` |
 | Marketplace certification | `npm run marketplace:certification:smoke` |
 | Instances | `npm run instances:runtime:smoke`, `npm run instances:deletion:smoke`, `npm run instances:file-security:smoke` |
 | Instance metadata migration | `npm run instances:config-migration:smoke` |
@@ -53,6 +53,11 @@
 | Modal keyboard/focus behavior | `npm run ui:modal-behavior:smoke` |
 | Architecture documentation | `npm run docs:architecture:smoke` |
 | Packaging source/fixture | `npm run packaging:smoke`, `npm run release:artifacts:smoke`, `npm run versioning:smoke`, `npm run updates:download-safety:smoke` |
+| Headless Agent packaging | `npm run agent:package:smoke` |
+| Agent package upgrade restart | `npm run agent:package:smoke`; on-node after `sudo apt install ./AnxOS-Agent-<newer>.deb`: `systemctl show -p MainPID -p ActiveEnterTimestamp anxos-agent.service` |
+| Headless Agent CLI/TUI | `npm run agent:cli:smoke`, `npm run agent:cli-pairing:smoke`, `npm run agent:tui:smoke`, `npm run agent:golden-path:smoke` |
+| Headless Agent service/update/unpair | `npm run agent:service:smoke`, `npm run agent:update:smoke`, `npm run agent:unpair:smoke` |
+| Add Computer flow | `npm run add-computer:smoke` |
 | Exact candidate artifacts | `npm run artifacts:validate` (requires built artifacts; absence is `PRECONDITION_NOT_MET`) |
 | Full source-tree RC gate | `npm run rc:validate` |
 | Agent-focused gate | `npm run agent:validate` |

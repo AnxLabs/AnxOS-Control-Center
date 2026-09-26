@@ -32,6 +32,7 @@ npm run ui:polish:smoke
 npm run website:smoke
 npm run account:smoke
 npm run marketplace:smoke
+npm run marketplace:error-bridge:smoke
 npm run dependencies:smoke
 npm run public-access:smoke
 npm run diagnostics:smoke
@@ -176,3 +177,72 @@ curl -fsS http://127.0.0.1:<port>/api/v1/health
 ss -ltnp
 tail -n 120 <repo>/.dev-logs/live.log
 ```
+
+## Headless Agent (Linux `.deb`)
+
+Install and pairing steps are in `docs/HEADLESS_AGENT_INSTALL.md`. These commands
+use the packaged Agent's loopback default. `sudo` is required for service
+control and the full status; pairing works without `sudo` via loopback.
+
+```sh
+anxos-agent --help
+anxos-agent --version
+anxos-agent status
+sudo anxos-agent service status
+sudo anxos-agent service start
+sudo anxos-agent service stop
+sudo anxos-agent service restart
+anxos-agent pair
+anxos-agent logs
+anxos-agent diagnostics
+anxos-agent update --check
+anxos-agent unpair
+```
+
+System-level service and log checks:
+
+```sh
+sudo systemctl status anxos-agent.service --no-pager
+sudo journalctl -u anxos-agent.service --since '<UTC start>' --until '<UTC end>'
+ss -ltnp | grep <agent-port>
+ls -la /var/log/anxos-agent
+anxos-agent logs
+```
+
+Data locations: `/var/lib/anxos-agent/{config,instances,backups}` and
+`/etc/anxos-agent/agent.env`.
+
+Package upgrade restart: on upgrade the `.deb` `postinst` attempts
+`systemctl try-restart anxos-agent.service` so the new payload is live
+immediately; fresh installs are unchanged. Verify without restarting manually:
+
+```sh
+sudo apt install ./AnxOS-Agent-<newer>.deb
+anxos-agent --version
+systemctl show -p MainPID -p ActiveEnterTimestamp anxos-agent.service
+```
+
+A successful restart prints `AnxOS Agent upgraded: the running service was
+restarted to load the new package.`; `MainPID` and `ActiveEnterTimestamp` must
+change. On hosts without systemd the restart is a best-effort no-op.
+
+Headless Agent smoke coverage (run them the same way as other smokes, by npm
+script name):
+
+- `agent:package:smoke` — Agent `.deb` payload closure and package contract.
+- `agent:cli:smoke` — the `anxos-agent` command surface against a real,
+  isolated Agent process.
+- `agent:cli-pairing:smoke` — CLI pairing, single-use codes, the credential
+  gate, and token provenance across restarts.
+- `agent:service:smoke` — service-manager unit detection, root gates, and the
+  guarantee that uninstall removes only the unit file.
+- `agent:update:smoke` — `update --check` states and the no-downgrade rule.
+- `agent:unpair:smoke` — unpair confirmation, revocation, credential clearing,
+  data preservation, and config ownership.
+- `agent:tui:smoke` — TUI rendering across terminal widths and heights.
+- `agent:golden-path:smoke` — real Agent boot, Control-Center-style pairing,
+  enrollment, a minimal instance lifecycle, and restart persistence.
+- `add-computer:smoke` — the Add Computer two-path flow contract in the GUI.
+
+Pairing codes are one-time, valid for 10 minutes, and must never be recorded in
+test evidence. Redact codes and tokens from screenshots and logs.

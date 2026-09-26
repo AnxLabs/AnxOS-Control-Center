@@ -44,18 +44,42 @@ The desktop app always represents this computer as the local application host. R
 
 To add a remote system:
 
-1. On the machine running the Agent, generate a pairing code: open AnxOS
-   Control Center on that machine and use **Agent Control** to generate one, or
-   on a headless node run `npm run agent:pair` in a source checkout.
-2. Copy the generated pairing code.
-3. In the desktop app, open **Agent Control -> Agent Connection**.
-4. Paste the pairing code.
-5. Click **Pair Agent**, then **Test Connection**.
+1. On the machine running the Agent, allow this computer to reach it when the
+   two machines are different computers:
+   - Windows (the Agent is included with Control Center): open **Agent Control →
+     Connect this computer** and turn on **Another computer will connect to this
+     one**.
+   - Headless Debian 11+/Ubuntu 22.04+ x64 server: run `sudo anxos-agent`, open
+     **Pair**, and press **n** to allow network access for your network, or pin
+     `AGENT_HOST` in `/etc/anxos-agent/agent.env` and restart the service. The
+     install steps are in `docs/HEADLESS_AGENT_INSTALL.md`.
+2. Generate the pairing code on that machine:
+   - Windows: choose **Generate Pairing Code** in Agent Control and copy the
+     full code.
+   - Headless: choose **Pair** in the TUI, or run `anxos-agent pair`, and copy
+     the full code. If the Agent is still loopback-only, `pair` prints a notice
+     with this remedy before showing the code.
+3. Copy the full pairing code (the long value, not only the short
+   `ANX-XXXX-XXXX-XXXX` reference). It is one-time and valid for 10 minutes.
+4. In the desktop app, open **Add Computer**.
+5. Choose the matching path (**This computer** or **Connect a headless server**)
+   and paste the code.
+6. Confirm the Agent identity the app shows, then wait for the node to come
+   online.
 
-A standalone Agent on another machine listens on `127.0.0.1` only until you opt
-in. On that machine, set `AGENT_HOST` to its LAN or tailnet address and restart
-the Agent before pairing. Prefer a concrete address over `0.0.0.0`; the Agent
-prints a startup warning when it is exposed on every interface.
+The packaged or standalone Agent on another machine listens on `127.0.0.1` only
+until you opt in, and a code generated without that opt-in advertises
+`127.0.0.1`, which a different computer cannot use. Prefer a concrete LAN or
+tailnet address over `0.0.0.0`; a wildcard bind exposes the Agent on every
+interface and loses the strict Host check. Pair promptly after enabling network
+access: while the Agent is reachable and not yet paired, anyone who can reach it
+could claim it.
+
+Developer and source checkouts only: running the Agent from a repository
+checkout is a development path, not normal use. There, `npm run agent:pair`
+prints a temporary pairing code and `AGENT_HOST` in the environment sets the
+bind. Normal use installs the official Agent package on Linux, or lets the
+Control Center installer set up and manage the Agent on Windows.
 
 Nodes can also be organized with an optional **group** label and filtered by it
 in the node toolbar. Groups are labels only; they do not grant or restrict
@@ -69,6 +93,11 @@ Agent only allows an owner-tier credential to do this, so a restricted node may
 refuse the revocation and the app will say so. This is expected: the node is
 removed from this device either way, but a refused revocation is never shown as
 a success.
+
+Re-pairing is the recovery path for a revoked node. On a headless server,
+`sudo anxos-agent unpair` revokes the enrollment and clears the stored
+credential; pairing that node again with a fresh code restores its enrollment
+instead of leaving it permanently rejected with `410 REVOKED`.
 
 
 ## Guided Setup
@@ -184,6 +213,11 @@ For a remote node, the same action uploads this Desktop's bundled Agent runtime
 to the node and restarts it. If the node's Agent is newer than this Desktop,
 install a newer Control Center first instead of downgrading the Agent.
 
+On a headless server, `anxos-agent update --check` is read-only and reports
+whether a newer package is published, or that this install has no package
+identity (development or source install). It never suggests a downgrade;
+install an offered update with the printed `apt` command.
+
 ## After Restarting AnxOS
 
 After you close and reopen AnxOS (or after an upgrade restart), saved node credentials start locked again. The app remembers who you are signed in as online, but privileged local credentials are only released after you unlock the local owner account on this device.
@@ -225,8 +259,17 @@ AppImage: delete the AppImage file.
 
 To also remove the Local Agent's automatic startup on a Windows machine, open
 **Agent Control** and use **Uninstall** (this removes the background service
-registration; it does not delete server data). On Linux, remove the `anxos-agent`
-user unit through your normal service management if you installed it separately.
+registration; it does not delete server data).
+
+On Linux, an Agent installed from the official package is removed separately:
+
+```bash
+sudo apt remove anxos-agent
+```
+
+That keeps servers, settings, and backups in `/var/lib/anxos-agent` (see
+`docs/HEADLESS_AGENT_INSTALL.md`). If you installed the Agent from a source
+checkout, remove its user unit through your normal service management instead.
 
 After uninstalling, do not delete server folders or backups unless you are sure
 the data is no longer needed.
