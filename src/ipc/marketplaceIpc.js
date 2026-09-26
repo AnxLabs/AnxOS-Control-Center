@@ -235,6 +235,8 @@ function getMarketplaceRecoverySuggestion(code) {
     DOWNLOAD_NOT_FOUND: "Choose another server version or retry later.",
     DOWNLOAD_FAILED: "Check the network connection and retry.",
     EXECUTABLE_NOT_FOUND: "The installer completed but the expected server executable was missing.",
+    JAVA_VERSION_UNSUPPORTED: "Choose a server version that runs on the node's installed Java, or install the required Java version on the node, then retry.",
+    START_FAILED: "Open the instance logs for the startup error, fix it, then start the server again.",
   };
   return suggestions[code] || "Review the technical details, then retry when the underlying issue is fixed.";
 }

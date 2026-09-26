@@ -43,16 +43,24 @@ async function invokeMarketplace(channel, payload) {
     : await ipcRenderer.invoke(channel, payload);
 
   if (result && result.ok === false && result.error) {
-    const error = new Error(result.error.message || result.error.friendlyMessage || "Marketplace request failed.");
-    error.code = result.error.code || "MARKETPLACE_REQUEST_FAILED";
-    error.details = result.error.details || {};
-    error.friendlyMessage = result.error.friendlyMessage || error.message;
-    error.suggestion = result.error.suggestion || error.details.suggestion || null;
-    error.retryable = result.error.retryable === true;
-    error.status = result.error.status?.code || null;
-    error.provider = result.error.provider?.id || null;
-    error.diagnostics = result.error.diagnostics || error.details.diagnostics || null;
-    throw error;
+    const details = result.error.details || {};
+    const message = result.error.message || result.error.friendlyMessage || "Marketplace request failed.";
+    // The rejection must be a plain object: contextBridge rebuilds Error
+    // instances in the renderer world and drops custom properties such as
+    // code/details, which broke the renderer's dependency auto-recovery path.
+    throw {
+      name: result.error.name || "MarketplaceRequestError",
+      message,
+      code: result.error.code || "MARKETPLACE_REQUEST_FAILED",
+      details,
+      friendlyMessage: result.error.friendlyMessage || message,
+      suggestion: result.error.suggestion || details.suggestion || null,
+      retryable: result.error.retryable === true,
+      status: result.error.status?.code || null,
+      provider: result.error.provider?.id || null,
+      diagnostics: result.error.diagnostics || details.diagnostics || null,
+      stack: result.error.stack || null,
+    };
   }
 
   return result;

@@ -68,13 +68,237 @@ function getAgentScript() { return getBundledLocalAgentRuntime().agentScript; }
 function getAppRoot() { return getBundledLocalAgentRuntime().workingDirectory; }
 function defaults() { return { name: `${os.hostname()} Agent`, host: "127.0.0.1", port: 47131, allowedOrigins: [], allowedFolders: [os.homedir(), getAgentInstancesDirectory(), getAgentBackupsDirectory()], storageRoots: [getAgentInstancesDirectory(), getAgentBackupsDirectory()], autoStart: false, updateChannel: "stable", loggingLevel: "info", connectionTimeoutMs: 10000, heartbeatIntervalMs: 5000, restartPolicy: "on-failure", ownerMachine: true, accountAssociation: null }; }
 function readConfig() { return readAgentRuntimeConfig(getRuntimeConfigPath(), { defaults: defaults() }); }
+
+// P1-A (Build 205): a second computer can only pair with an Agent it can
+// actually reach. The desktop always spawns the Local Agent on loopback, and
+// agent/src/routes/pairing.js echoes the request Host, so the minted code
+// advertises whatever address the desktop used to call the Agent. These
+// helpers are the only place that changes the Local Agent bind for pairing,
+// and the opt-in marker lets the default loopback bind be restored when the
+// operator turns the option back off.
+const PAIRING_NETWORK_OPT_IN_KEY = "pairingNetworkOptIn";
+const LOOPBACK_BIND_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "::ffff:127.0.0.1"]);
+
+function parseIpv4Address(value) {
+  const parts = String(value || "").trim().split(".");
+  if (parts.length !== 4) return null;
+  const octets = parts.map((part) => (/^\d{1,3}$/.test(part) ? Number(part) : NaN));
+  if (octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)) return null;
+  return octets;
+}
+
+function localIpv4Addresses() {
+  const addresses = [];
+  let interfaces = null;
+  try { interfaces = os.networkInterfaces(); } catch { interfaces = null; }
+  for (const entries of Object.values(interfaces || {})) {
+    for (const entry of entries || []) {
+      const family = String(entry?.family || "");
+      if (family !== "IPv4" && family !== "4") continue;
+      if (entry.internal) continue;
+      const address = String(entry.address || "").trim();
+      if (parseIpv4Address(address)) addresses.push(address);
+    }
+  }
+  return [...new Set(addresses)];
+}
+
+function isReachableIpv4Candidate(value) {
+  const octets = parseIpv4Address(value);
+  if (!octets) return false;
+  // 169.254.0.0/16 is link-local/APIPA: present on many machines but not a
+  // meaningful address for another computer to reach.
+  return !(octets[0] === 169 && octets[1] === 254);
+}
+
+function pickReachableIpv4Address(addresses = localIpv4Addresses()) {
+  const usable = addresses.filter(isReachableIpv4Candidate);
+  const preferred = usable.find((address) => {
+    const [first, second] = parseIpv4Address(address);
+    return (first === 192 && second === 168)
+      || first === 10
+      || (first === 172 && second >= 16 && second <= 31)
+      || (first === 100 && second >= 64 && second <= 127); // CGNAT / tailnet
+  });
+  return preferred || usable[0] || "";
+}
+
+function isLoopbackAgentUrl(value) {
+  try {
+    return ["127.0.0.1", "localhost", "::1", "[::1]"].includes(new URL(String(value)).hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
+function resolvePairingNetworkPlan(config = {}) {
+  const addresses = localIpv4Addresses();
+  const configuredHost = String(config.host || "").trim();
+  if (addresses.includes(configuredHost)) {
+    return { configuredHost, reachableHost: configuredHost, currentBindingReachable: true };
+  }
+  if (configuredHost === "0.0.0.0") {
+    return { configuredHost, reachableHost: pickReachableIpv4Address(addresses), currentBindingReachable: true };
+  }
+  return { configuredHost, reachableHost: pickReachableIpv4Address(addresses), currentBindingReachable: false };
+}
+
+function pairingNetworkWarning(changedBinding) {
+  const exposure = changedBinding
+    ? "The Local Agent now listens on all network interfaces until you turn this option off."
+    : "The Local Agent already listens on a network address.";
+  return `${exposure} Pair promptly: while a reachable Agent is not yet paired, anyone who can reach it could claim it.`;
+}
+
+// Single bind-eligibility rule shared by config validation and the pairing
+// restore plan, so the two can never drift.
+function isBindableAgentHost(host) {
+  const candidate = String(host || "").trim();
+  return LOOPBACK_BIND_HOSTS.has(candidate.toLowerCase()) || candidate === "0.0.0.0" || localIpv4Addresses().includes(candidate);
+}
+
+// Display/decision state for the pairing network opt-in. `alreadyReachable`
+// mirrors exactly what enableLocalAgentNetworkAccessForPairing decides, and
+// `managedOptIn` says whether the service wrote the marker (it owns the bind)
+// or the user configured the reachable bind themselves (it does not).
+function getLocalAgentPairingNetworkState(config = readConfig()) {
+  const plan = resolvePairingNetworkPlan(config);
+  const marker = config?.[PAIRING_NETWORK_OPT_IN_KEY];
+  return {
+    configuredHost: plan.configuredHost || null,
+    reachableHost: plan.reachableHost || null,
+    alreadyReachable: plan.currentBindingReachable === true,
+    managedOptIn: Boolean(marker && typeof marker === "object"),
+    previousHost: marker && typeof marker === "object" ? String(marker.previousHost || "").trim() || null : null,
+  };
+}
+
+// The address recorded when the opt-in widened the bind may no longer exist on
+// this machine (network changed, adapter removed). Returning to it is
+// impossible, so plan a safe loopback fallback with a clear note instead of
+// erroring. Pure planning: no config write and no process action here.
+function planLocalAgentPairingRestore(config = {}) {
+  const marker = config?.[PAIRING_NETWORK_OPT_IN_KEY];
+  const currentHost = String(config?.host || "").trim() || null;
+  if (!marker || typeof marker !== "object") return { restore: false, host: currentHost };
+  const recordedHost = String(marker.previousHost || "127.0.0.1").trim() || "127.0.0.1";
+  if (!isBindableAgentHost(recordedHost)) {
+    return {
+      restore: true,
+      host: "127.0.0.1",
+      recordedHost,
+      fallbackToLoopback: true,
+      note: `The address recorded when network pairing was enabled (${recordedHost}) is no longer available on this computer; the Local Agent was restored to this-computer-only listening (127.0.0.1) instead.`,
+    };
+  }
+  return { restore: true, host: recordedHost, recordedHost, fallbackToLoopback: false, note: null };
+}
+
+async function enableLocalAgentNetworkAccessForPairing(config) {
+  const plan = resolvePairingNetworkPlan(config);
+  const port = Number(config.port) > 0 ? Number(config.port) : 47131;
+  if (!plan.reachableHost) {
+    throw Object.assign(new Error("This computer has no network address another computer can reach. Connect to your network (or a tailnet), then try again."), {
+      code: "PAIRING_NETWORK_ADDRESS_UNAVAILABLE",
+    });
+  }
+  if (plan.currentBindingReachable) {
+    // The Agent is already reachable: report that honestly and keep the user's
+    // configuration. No opt-in marker is written, because the service does not
+    // own a bind the user configured (there is nothing to restore later).
+    return {
+      enabled: true,
+      alreadyReachable: true,
+      changedBinding: false,
+      restored: false,
+      host: plan.configuredHost || null,
+      reachableAddress: plan.reachableHost,
+      reachableUrl: `http://${plan.reachableHost}:${port}`,
+      wildcard: plan.configuredHost === "0.0.0.0",
+      warning: pairingNetworkWarning(false),
+    };
+  }
+  const previousHost = String(config.host || "127.0.0.1").trim() || "127.0.0.1";
+  const nextConfig = {
+    ...config,
+    host: "0.0.0.0",
+    [PAIRING_NETWORK_OPT_IN_KEY]: { host: "0.0.0.0", previousHost, enabledAt: new Date().toISOString() },
+  };
+  saveConfig(nextConfig);
+  try {
+    await restart();
+  } catch (error) {
+    // A failed opt-in must not silently leave the widened bind behind: put the
+    // previous binding back and report the failure honestly.
+    const rollback = { ...config, host: previousHost };
+    delete rollback[PAIRING_NETWORK_OPT_IN_KEY];
+    try { saveConfig(rollback); } catch {}
+    try { await start(); } catch {}
+    throw Object.assign(new Error(`Network pairing could not be enabled because the Local Agent did not restart on the network address. The previous listening address (${previousHost}) was restored.`), {
+      code: "PAIRING_NETWORK_RESTART_FAILED",
+      details: { cause: error?.code || error?.message || "restart failed", previousHost },
+    });
+  }
+  diagnostics.log("info", "agent-control", "pairing-network-access", "Local Agent network access enabled for pairing", {
+    host: "0.0.0.0",
+    previousHost,
+    reachableUrl: `http://${plan.reachableHost}:${port}`,
+  }, { file: "service-manager" });
+  return {
+    enabled: true,
+    alreadyReachable: false,
+    changedBinding: true,
+    restored: false,
+    host: "0.0.0.0",
+    reachableAddress: plan.reachableHost,
+    reachableUrl: `http://${plan.reachableHost}:${port}`,
+    wildcard: true,
+    warning: pairingNetworkWarning(true),
+  };
+}
+
+async function restoreLocalAgentPairingBinding(config) {
+  const plan = planLocalAgentPairingRestore(config);
+  if (!plan.restore) return { restored: false, host: plan.host };
+  let host = plan.host;
+  let fallbackToLoopback = plan.fallbackToLoopback === true;
+  let note = plan.note || null;
+  const saveRestoreConfig = (targetHost) => {
+    const nextConfig = { ...config, host: targetHost };
+    delete nextConfig[PAIRING_NETWORK_OPT_IN_KEY];
+    saveConfig(nextConfig);
+  };
+  try {
+    saveRestoreConfig(host);
+  } catch (error) {
+    // Defensive net for an address that becomes unbindable between planning and
+    // saving: still return to loopback, never leave the widened bind behind.
+    if (fallbackToLoopback || error?.code !== "AGENT_HOST_INVALID" || host === "127.0.0.1") throw error;
+    host = "127.0.0.1";
+    fallbackToLoopback = true;
+    note = `The address recorded when network pairing was enabled (${plan.recordedHost || "unknown"}) is no longer available on this computer; the Local Agent was restored to this-computer-only listening (127.0.0.1) instead.`;
+    saveRestoreConfig(host);
+  }
+  let restartError = null;
+  try {
+    const running = (await getStatus().catch(() => null))?.running === true;
+    if (running) await restart();
+  } catch (error) {
+    restartError = error?.code || error?.message || "AGENT_RESTART_FAILED";
+    diagnostics.log("warn", "agent-control", "pairing-network-restore", `The Local Agent binding was restored to ${host} but the Agent did not restart cleanly.`, { restartError }, { file: "service-manager" });
+  }
+  diagnostics.log("info", "agent-control", "pairing-network-restore", "Local Agent network pairing binding restored for local-only pairing", { host, recordedHost: plan.recordedHost || null, hostFallback: fallbackToLoopback, restartError }, { file: "service-manager" });
+  return { restored: true, host, recordedHost: plan.recordedHost || null, fallbackToLoopback, note, restartError };
+}
+
 function validateConfig(input = {}) {
   const value = { ...defaults(), ...input };
   value.name = String(value.name || "").trim().slice(0, 80);
   value.host = String(value.host || "127.0.0.1").trim();
   value.port = Number(value.port);
   if (!value.name) throw Object.assign(new Error("Agent name is required."), { code: "AGENT_NAME_REQUIRED" });
-  if (!/^(127\.0\.0\.1|0\.0\.0\.0|localhost|::1)$/i.test(value.host)) throw Object.assign(new Error("Listening address must be local or all interfaces."), { code: "AGENT_HOST_INVALID" });
+  const hostAllowed = isBindableAgentHost(value.host);
+  if (!hostAllowed) throw Object.assign(new Error("Listening address must be loopback, all interfaces, or one of this computer's own network addresses."), { code: "AGENT_HOST_INVALID" });
   if (!Number.isInteger(value.port) || value.port < 1024 || value.port > 65535) throw Object.assign(new Error("Port must be between 1024 and 65535."), { code: "AGENT_PORT_INVALID" });
   for (const key of ["allowedOrigins", "allowedFolders", "storageRoots"]) value[key] = [...new Set((Array.isArray(value[key]) ? value[key] : []).map((entry) => String(entry).trim()).filter(Boolean))].slice(0, 50);
   value.connectionTimeoutMs = Math.min(120000, Math.max(1000, Number(value.connectionTimeoutMs) || 10000));
@@ -1103,17 +1327,66 @@ function getNodePairingCredential(nodeId) {
   }
 }
 
+// The Windows Local Agent is not a node record, so its credential never comes
+// from the node store. The desktop holds it through the local pairing service
+// (protected credential store, with the legacy agent.json recovery inside it).
+// Presenting it lets an already-enrolled local Agent accept a re-pair minted
+// over its own network address instead of refusing the request with 403.
+function getLocalAgentPairingCredential() {
+  try {
+    return String(snapshotLocalAgentCredential()?.agentToken || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function getPairingCredential(target = {}) {
+  if (target.kind === "windows-local-agent") {
+    const localCredential = getLocalAgentPairingCredential();
+    if (localCredential) return localCredential;
+  }
+  return getNodePairingCredential(target.nodeId);
+}
+
 async function startPairingSession(options = {}) {
   const target = getPairingSessionTarget(options);
+  const localTarget = target.local === true || target.kind === "windows-local-agent";
+  const allowNetworkAccess = options.allowNetworkAccess === true;
+  let networkAccess = null;
+  if (localTarget && allowNetworkAccess) {
+    // Mint through the machine's reachable address so the echoed Host (and
+    // therefore the code's agentUrl) is the address the second computer can
+    // use. The bind is widened only when the current one cannot be reached.
+    networkAccess = await enableLocalAgentNetworkAccessForPairing(readConfig());
+  } else if (localTarget) {
+    // Default-off path: keep today's local-only behavior and undo a binding a
+    // previous opt-in changed, so the safety default is preserved.
+    const restore = await restoreLocalAgentPairingBinding(readConfig());
+    networkAccess = {
+      enabled: false,
+      alreadyReachable: false,
+      changedBinding: false,
+      restored: restore.restored === true,
+      restoredHost: restore.restored ? restore.host : null,
+      restoreNote: restore.restored ? restore.note || null : null,
+      restartError: restore.restartError || null,
+      host: restore.host || null,
+      reachableUrl: null,
+      warning: null,
+    };
+  }
   if (target.kind === "windows-local-agent") {
     if (!(await getStatus())?.running) {
       await start();
     }
   }
-  const pairingCredential = getNodePairingCredential(target.nodeId);
+  const mintTarget = localTarget && networkAccess?.enabled && networkAccess.reachableUrl
+    ? { ...target, agentUrl: networkAccess.reachableUrl }
+    : target;
+  const pairingCredential = getPairingCredential(target);
   let response;
   try {
-    response = await fetch(`${target.agentUrl}/api/v1/pairing/start`, {
+    response = await fetch(`${mintTarget.agentUrl}/api/v1/pairing/start`, {
       method: "POST",
       // The Agent gate accepts `x-agent-token` (and Bearer). Omit the header
       // entirely when there is no stored credential so an unenrolled Agent is
@@ -1121,10 +1394,12 @@ async function startPairingSession(options = {}) {
       ...(pairingCredential ? { headers: { "x-agent-token": pairingCredential } } : {}),
     });
   } catch (error) {
-    throw Object.assign(new Error(`Remote Agent at ${target.agentUrl} is unreachable. Pairing code generation was not redirected to the Windows Local Agent.`), {
+    throw Object.assign(new Error(localTarget
+      ? `The Local Agent at ${mintTarget.agentUrl} is unreachable. ${networkAccess?.enabled ? "This computer may not be able to reach its own network address; turn the network option off to pair from this computer, or retry." : "Check that the Local Agent service is running, then retry."}`
+      : `Remote Agent at ${mintTarget.agentUrl} is unreachable. Check the address and network, then retry.`), {
       code: "PAIRING_AGENT_UNREACHABLE",
       details: {
-        agentUrl: target.agentUrl,
+        agentUrl: mintTarget.agentUrl,
         nodeId: target.nodeId,
         targetName: target.name,
         reachable: false,
@@ -1135,10 +1410,16 @@ async function startPairingSession(options = {}) {
   const payload = await response.json().catch(() => null);
   if (!response.ok || !payload?.pairingCode) {
     const unsupported = response.status === 404 || response.status === 405;
-    throw Object.assign(new Error(payload?.error?.message || (unsupported ? `Pairing endpoint is not supported by the Agent at ${target.agentUrl}.` : `Agent pairing setup could not start at ${target.agentUrl}.`)), {
+    const enrolledRefusal = payload?.error?.code === "PAIRING_REQUIRES_EXISTING_CREDENTIAL" || response.status === 403;
+    const fallbackMessage = unsupported
+      ? `Pairing endpoint is not supported by the Agent at ${mintTarget.agentUrl}.`
+      : `Agent pairing setup could not start at ${mintTarget.agentUrl}.`;
+    throw Object.assign(new Error(localTarget && enrolledRefusal
+      ? "The Local Agent is already enrolled and refused the network pairing request because this computer could not present a credential it trusts. Turn the network option off and generate the code over loopback, or repair the Local Agent from Agent Control."
+      : payload?.error?.message || fallbackMessage), {
       code: payload?.error?.code || "PAIRING_START_FAILED",
       details: {
-        agentUrl: target.agentUrl,
+        agentUrl: mintTarget.agentUrl,
         nodeId: target.nodeId,
         targetName: target.name,
         reachable: response.ok,
@@ -1146,12 +1427,24 @@ async function startPairingSession(options = {}) {
       },
     });
   }
-  const returnedAgentUrl = normalizePairingTargetUrl(payload.agentUrl || target.agentUrl) || target.agentUrl;
+  const returnedAgentUrl = normalizePairingTargetUrl(payload.agentUrl || mintTarget.agentUrl) || mintTarget.agentUrl;
+  if (localTarget && networkAccess?.enabled && isLoopbackAgentUrl(returnedAgentUrl)) {
+    throw Object.assign(new Error(`The Local Agent advertised ${returnedAgentUrl} instead of the reachable address ${networkAccess.reachableUrl}. Turn the network option off to pair from this computer, or retry.`), {
+      code: "PAIRING_NETWORK_ADDRESS_NOT_ADVERTISED",
+      details: {
+        agentUrl: returnedAgentUrl,
+        requestedAgentUrl: mintTarget.agentUrl,
+        reachableUrl: networkAccess.reachableUrl,
+        nodeId: target.nodeId,
+      },
+    });
+  }
   diagnostics.log("info", "agent-control", "pairing-session", "Temporary Agent pairing session started", {
     agentUrl: returnedAgentUrl,
-    requestedAgentUrl: target.agentUrl,
+    requestedAgentUrl: mintTarget.agentUrl,
     nodeId: target.nodeId,
     targetName: target.name,
+    networkAccess: networkAccess?.enabled === true,
     expiresAt: payload.expiresAt || null,
   }, { file: "service-manager" });
   return {
@@ -1160,11 +1453,12 @@ async function startPairingSession(options = {}) {
     displayCode: payload.displayCode || null,
     expiresAt: payload.expiresAt || null,
     agentUrl: returnedAgentUrl,
-    requestedAgentUrl: target.agentUrl,
+    requestedAgentUrl: mintTarget.agentUrl,
     nodeId: target.nodeId,
     targetName: target.name,
     targetKind: target.kind,
     local: target.local,
+    networkAccess,
     identity: payload.identity || null,
   };
 }
@@ -1889,7 +2183,7 @@ async function listAgents(options = {}) {
     hostname: selectedNode.hostname || selectedNode.agentIdentity?.hostname || selectedNode.applicationHost?.hostname || null,
   };
   return {
-    local,
+    local: { ...local, pairingNetwork: getLocalAgentPairingNetworkState(local.config) },
     configured,
     remote,
     selectedNodeId,
@@ -2110,14 +2404,23 @@ module.exports = {
     classifyLegacyWindowsServiceOwnership,
     classifyWindowsTaskOwnership,
     compareVersions,
+    enableLocalAgentNetworkAccessForPairing,
     expectedWindowsServiceCommand,
     getAgentScript,
+    getLocalAgentPairingNetworkState,
     inspectWindowsAgentScheduledTask,
     getLocalAgentUpdateState,
     getRegistrationStatusFromServiceState,
     getLocalAgentStartupSummary,
+    isBindableAgentHost,
+    isLoopbackAgentUrl,
     isVerifiedOldLocalAgentProcess,
+    localIpv4Addresses,
     parseWindowsNetstatListener,
+    pickReachableIpv4Address,
+    planLocalAgentPairingRestore,
+    PAIRING_NETWORK_OPT_IN_KEY,
+    resolvePairingNetworkPlan,
   },
   captureRemoteDiagnostics,
   createUiBootstrapCode,

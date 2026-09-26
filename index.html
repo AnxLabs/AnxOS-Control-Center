@@ -565,7 +565,7 @@
               <button class="inline-action dashboard-launcher" type="button" data-dashboard-action="backups"><span>Protect</span><strong>Backups</strong></button>
               <button class="inline-action dashboard-launcher" type="button" data-dashboard-action="marketplace"><span>Browse</span><strong>Marketplace</strong></button>
               <button class="inline-action dashboard-launcher" type="button" data-dashboard-action="docker"><span>Operate</span><strong>Docker</strong></button>
-              <button class="inline-action dashboard-launcher" type="button" data-dashboard-action="nodes"><span>Connect</span><strong>Add Node</strong></button>
+              <button class="inline-action dashboard-launcher" type="button" data-dashboard-action="nodes"><span>Connect</span><strong>Add Computer</strong></button>
             </div>
             <div class="dashboard-friendly-empty" data-dashboard-friendly-empty hidden></div>
           </section>
@@ -4003,7 +4003,7 @@
                 <div class="settings-category-group">
                   <p class="settings-category-group__label">Connections</p>
                   <button type="button" data-agent-control-section-target="connection">Agent Connection</button>
-                  <button type="button" data-agent-control-section-target="pairing">Pair This Agent</button>
+                  <button type="button" data-agent-control-section-target="pairing">Connect this computer</button>
                   <button type="button" data-agent-control-section-target="remote">Remote Agent</button>
                 </div>
                 <div class="settings-category-group">
@@ -4172,29 +4172,36 @@
               <div class="download-list" data-agent-local-installer-steps>
                 <div class="docker-empty-state"><strong>No install has run yet</strong><span>AnxOS will prepare the managed runtime, create secure credentials, start the Agent, and reconnect automatically.</span></div>
               </div>
+              <p class="settings-note">Uninstalling AnxOS Control Center removes the application only. Servers, settings, and backups are kept.</p>
             </section>
             <section class="settings-section settings-section--wide agent-pairing-setup" data-agent-pairing-setup data-agent-control-section="pairing">
               <div class="settings-section__header">
                 <div>
-                  <h2>Pair This Agent</h2>
-                  <p>Generate a temporary pairing code for another Control Center. The permanent credential is created automatically during pairing.</p>
+                  <h2>Connect this computer to AnxOS</h2>
+                  <p>Generate a temporary pairing code, then enter it on the Control Center that will manage this computer. The permanent credential is created automatically during pairing.</p>
                 </div>
-                <span class="status-pill status-pill--planned" data-agent-pairing-status>Not paired</span>
+                <span class="status-pill status-pill--planned" data-agent-pairing-status>No code yet</span>
+              </div>
+              <p class="settings-note">Open AnxOS Control Center on your main computer → Add Computer, then paste the full pairing code. Codes expire and can be used only once.</p>
+              <div class="agent-pairing-network-option">
+                <label class="settings-check settings-check--toggle"><input type="checkbox" data-agent-pairing-network-opt-in><span>Another computer will connect to this one</span></label>
+                <p class="settings-note" data-agent-pairing-network-note>Off (default): the pairing code works only on this computer. Turn this on to show a code for another computer on the same network or tailnet, and let this computer's Agent accept its connection.</p>
               </div>
               <div class="security-summary-grid">
                 <div><span>Pairing Agent</span><strong data-agent-pairing-target-name>Windows Local Agent</strong></div>
                 <div><span>Address</span><strong data-agent-pairing-target-url>http://127.0.0.1:47131</strong></div>
-                <div><span>Pairing code</span><strong data-agent-pairing-code>Not generated</strong></div>
+                <div><span>Session reference</span><strong data-agent-pairing-reference>Not generated</strong></div>
                 <div><span>Expires</span><strong data-agent-pairing-expires>Unavailable</strong></div>
                 <div><span>Agent address</span><strong data-agent-pairing-url>Unavailable</strong></div>
               </div>
+              <label class="settings-field settings-field--wide"><span>Pairing code — paste this into Add Computer</span><textarea class="agent-mobile-claim__code" rows="3" readonly data-agent-pairing-full-code placeholder="Not generated" aria-label="Pairing code to paste into Add Computer"></textarea></label>
+              <p class="settings-note" data-agent-pairing-result-note hidden></p>
               <div class="settings-actions">
                 <button class="primary-button" type="button" data-agent-control-action="startPairingSession">Generate Pairing Code</button>
                 <button class="inline-action" type="button" data-agent-control-action="copyPairingCode" disabled>Copy Pairing Code</button>
                 <button class="inline-action" type="button" data-agent-control-action="pairMobileDevice">Pair Mobile Device</button>
                 <button class="inline-action" type="button" data-agent-control-action="copyMobileClaim" disabled>Copy Mobile Claim</button>
               </div>
-              <p class="settings-note">Open Add Node on the other Control Center, paste this temporary code, and select Pair Agent. Codes expire and can be used only once.</p>
               <div class="agent-mobile-claim" data-agent-mobile-claim hidden>
                 <img class="agent-mobile-claim__qr" data-agent-mobile-qr alt="Mobile pairing QR code" width="180" height="180" />
                 <div class="agent-mobile-claim__body">
@@ -4394,9 +4401,9 @@
             <div>
               <p class="eyebrow">Infrastructure</p>
               <h1>Nodes</h1>
-              <p class="lede">You're managing this device. Add a remote node only if you want to control another PC or server.</p>
+              <p class="lede">This PC runs AnxOS. Add another desktop computer or headless server when you want AnxOS to manage it too.</p>
             </div>
-            <button class="primary-button" type="button" data-node-action="open-add">Add Node</button>
+            <button class="primary-button" type="button" data-node-action="open-add">Add Computer</button>
           </header>
 
           <div class="nodes-dashboard" data-nodes-dashboard>
@@ -4914,32 +4921,74 @@
       <section class="app-modal app-modal--node" role="dialog" aria-modal="true" aria-labelledby="node-modal-title" tabindex="-1">
         <header class="modal-header">
           <div>
-            <p class="eyebrow">Remote Agent</p>
-            <h2 id="node-modal-title" data-node-modal-title>Add Node</h2>
+            <p class="eyebrow">Connect a machine</p>
+            <h2 id="node-modal-title" data-node-modal-title>Add Computer</h2>
           </div>
           <button class="icon-action" type="button" aria-label="Close node form" data-node-action="close-modal">&times;</button>
         </header>
         <div class="node-modal-body">
           <div class="node-modal-intro">
-            <p class="settings-note node-form-guidance">One machine or server = one independently running AnxOS Agent. Use Pair with Code for automatic setup, or open Advanced Manual Setup for recovery and development.</p>
+            <p class="settings-note node-form-guidance">One machine or server = one independently running AnxOS Agent. Choose how you are adding this computer below, then enter its pairing code in Pair with Code.</p>
             <div class="settings-message" data-node-form-status hidden></div>
+          </div>
+          <div class="node-path-grid" data-node-path-chooser>
+            <details class="node-path-card" open>
+              <summary>
+                <span class="node-path-card__heading"><strong>Desktop computer</strong><small>Windows or desktop Linux</small></span>
+                <span class="node-path-card__hint">Install AnxOS there</span>
+              </summary>
+              <div class="node-path-card__body">
+                <p>Installing AnxOS Control Center on that computer includes the Agent, so AnxOS can prepare it for you.</p>
+                <ol class="node-path-steps">
+                  <li>Install AnxOS Control Center on that computer.</li>
+                  <li>Open <strong>Agent Control</strong> in that installation.</li>
+                  <li>Select <strong>Connect this computer</strong>.</li>
+                  <li>Turn on <strong>Another computer will connect to this one</strong> so this Control Center can reach it.</li>
+                  <li>Select <strong>Generate Pairing Code</strong>, then copy the full code. Both computers must be on the same network or tailnet.</li>
+                  <li>Paste the full code in <strong>Pair with Code</strong> below.</li>
+                </ol>
+                <div class="settings-actions">
+                  <button class="inline-action" type="button" data-node-action="open-release-page">Download AnxOS Control Center</button>
+                </div>
+              </div>
+            </details>
+            <details class="node-path-card">
+              <summary>
+                <span class="node-path-card__heading"><strong>Headless server</strong><small>Debian or Ubuntu</small></span>
+                <span class="node-path-card__hint">Install the Agent package</span>
+              </summary>
+              <div class="node-path-card__body">
+                <p>The AnxOS Agent package ships with this release and is listed on the releases page once this build is published. If it is not listed yet, use <strong>Advanced Manual Setup</strong> below or check again after publication.</p>
+                <ol class="node-path-steps">
+                  <li>Download <code>AnxOS-Agent-&lt;version&gt;.deb</code> from the releases page, then install it on the server: <code>sudo apt install ./AnxOS-Agent-*.deb</code></li>
+                  <li>Run the guided setup: <code>sudo anxos-agent</code></li>
+                  <li>To let this Control Center reach the server, use <strong>Allow network access</strong> for your network. Choose <strong>Pair</strong>, press <strong>n</strong>, and confirm the prompt.</li>
+                  <li>Copy the full pairing code shown — or run <code>sudo anxos-agent pair</code> and copy the code it prints.</li>
+                  <li>Paste the full code in <strong>Pair with Code</strong> below.</li>
+                </ol>
+                <div class="settings-actions">
+                  <button class="inline-action" type="button" data-node-action="open-release-page">Open Releases Page</button>
+                </div>
+              </div>
+            </details>
           </div>
           <div class="node-modal-layout">
             <section class="settings-section node-pairing-section" data-node-pairing-section>
-              <div class="settings-section__header"><div><h3>Pair with Code</h3><p>Recommended. Enter the temporary pairing code displayed by Agent setup. No manual token setup is required.</p></div><span class="status-pill status-pill--ok">Recommended</span></div>
-              <label class="settings-field settings-field--wide"><span>Pairing code</span><textarea rows="3" data-node-pairing-code placeholder="ANX-4K7P-92DM" autocomplete="off" spellcheck="false"></textarea><small class="settings-field-error" data-node-field-error="pairingCode"></small></label>
+              <div class="settings-section__header"><div><h3>Pair with Code</h3><p>Paste the full pairing code from the machine you are adding (the long code that starts with ANX-XXXX-XXXX-XXXX). No manual token setup is required.</p></div><span class="status-pill status-pill--ok">Recommended</span></div>
+              <label class="settings-field settings-field--wide"><span>Full pairing code</span><textarea rows="3" data-node-pairing-code placeholder="ANX-4K7P-92DM.eyJ0eXBlIjoiYW54b3MtYWdlbnQtdGVtcG9yYXJ5LXBhaXJpbmci..." autocomplete="off" spellcheck="false"></textarea><small class="settings-field-error" data-node-field-error="pairingCode"></small></label>
               <div class="settings-actions node-pairing-actions">
                 <button class="primary-button" type="button" data-node-action="pair-code">Pair Agent</button>
                 <button class="inline-action" type="button" data-node-action="paste-pairing-code">Paste Pairing Code</button>
               </div>
               <div class="settings-actions settings-actions--secondary" data-node-pairing-retry hidden>
                 <button class="inline-action" type="button" data-node-action="restart-pairing">Restart Pairing</button>
-                <button class="inline-action" type="button" data-node-action="pairing-retry-help">Generate New Pairing Code</button>
+                <button class="inline-action" type="button" data-node-action="pairing-retry-help">Get a New Pairing Code</button>
                 <button class="inline-action" type="button" data-node-action="cancel-pairing">Cancel</button>
               </div>
             </section>
             <section class="settings-section node-manual-section" data-node-manual-section>
-              <div class="settings-section__header"><div><h3>Advanced Manual Setup</h3><p>Use direct Agent URL and token only for development, recovery, older Agents, or headless workflows.</p></div><span class="status-pill status-pill--planned">Advanced</span></div>
+              <details class="node-manual-details">
+              <summary class="settings-section__header"><div><h3>Advanced Manual Setup</h3><p>Use direct Agent URL and token only for development, recovery, older Agents, or manual networking setups.</p></div><span class="status-pill status-pill--planned">Advanced</span></summary>
               <div class="settings-grid nodes-form-grid">
                 <label class="settings-field"><span>Node name</span><input type="text" data-node-field="displayName" placeholder="My Server" maxlength="80"><small class="settings-field-error" data-node-field-error="displayName"></small></label>
                 <label class="settings-field"><span>Agent URL</span><input type="url" data-node-field="agentUrl" placeholder="http://192.168.1.50:47131"><small class="settings-field-error" data-node-field-error="agentUrl"></small></label>
@@ -4973,10 +5022,11 @@
               </div>
               <div class="settings-actions node-form-actions">
                 <button class="inline-action" type="button" data-node-action="test-form">Test Connection</button>
-                <button class="primary-button" type="button" data-node-action="save">Register Node</button>
+                <button class="primary-button" type="button" data-node-action="save">Save Computer</button>
                 <button class="inline-action" type="button" data-node-action="close-modal">Cancel</button>
-                <button class="inline-action" type="button" data-node-action="delete">Delete Selected</button>
+                <button class="inline-action" type="button" data-node-action="delete">Delete Computer</button>
               </div>
+              </details>
             </section>
           </div>
         </div>

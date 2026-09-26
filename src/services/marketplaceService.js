@@ -1893,12 +1893,28 @@ function inferNeoForgeMinecraftVersion(version) {
   return modern ? `1.${Number.parseInt(modern[1], 10)}.${Number.parseInt(modern[2], 10)}` : "";
 }
 
+// PaperMC's API exposes the minimum Java major each game version runs on. Read
+// it defensively: older API shapes or proxy projects may omit it, in which
+// case the pre-flight compatibility guard stays out of the way.
+function getPaperJavaMinimum(entry) {
+  const minimum = Number(entry?.version?.java?.version?.minimum ?? entry?.java?.version?.minimum);
+  return Number.isInteger(minimum) && minimum > 0 ? minimum : null;
+}
+
 async function resolvePaperDownload(download, options = {}, context = {}) {
   const project = download.project || "paper";
   const projectUrl = `https://fill.papermc.io/v3/projects/${encodeURIComponent(project)}`;
   const versionsPayload = await fetchJson(`${projectUrl}/versions`, "Paper version lookup", context);
   const requestedVersion = options.version || download.version || "latest";
   const versionEntries = Array.isArray(versionsPayload?.versions) ? versionsPayload.versions : [];
+  const javaMinimumByVersion = new Map();
+  for (const entry of versionEntries) {
+    const id = entry?.version?.id;
+    const javaMinimum = getPaperJavaMinimum(entry);
+    if (id && javaMinimum) {
+      javaMinimumByVersion.set(String(id), javaMinimum);
+    }
+  }
   const candidateVersions = String(requestedVersion).toLowerCase() === "latest"
     ? versionEntries.map((entry) => entry?.version?.id).filter(Boolean)
     : [requestedVersion];
@@ -1920,6 +1936,7 @@ async function resolvePaperDownload(download, options = {}, context = {}) {
         build: selectedBuild.id || selectedBuild.build,
         checksum: serverDownload.checksums?.sha256 || null,
         size: serverDownload.size || null,
+        javaMinimum: javaMinimumByVersion.get(String(version)) || null,
       };
     }
   }
@@ -2209,9 +2226,12 @@ async function resolveVanillaDownload(download, options = {}, context = {}) {
     });
   }
 
+  const javaMinimum = Number(versionPayload?.javaVersion?.majorVersion);
+
   return {
     url,
     version: versionId,
+    javaMinimum: Number.isInteger(javaMinimum) && javaMinimum > 0 ? javaMinimum : null,
   };
 }
 
@@ -3151,6 +3171,78 @@ async function startAndWaitForInstanceInstaller(instanceId, timeoutMs, agentConf
   return waitForInstanceInstaller(instanceId, timeoutMs, agentConfig, context);
 }
 
+// B3 honest readiness: a start request is not a running server. Watch the
+// instance until it reports ready, stays alive past its readiness window, or
+// dies. A process that exits (or crash-loops) before becoming ready is a
+// failed start, never a successful install. An unrecognizable status (local or
+// stubbed backends) returns unverified so completion is never blocked on
+// missing information.
+const START_READINESS_POLL_MS = 1000;
+const START_READINESS_MIN_WAIT_MS = 10000;
+const START_READINESS_MAX_WAIT_MS = 75000;
+// A fast crash-restart cycle can alternate Failed/Starting between 1 s samples
+// (Failed -> Starting -> Failed), so a consecutive-sample rule can miss it
+// entirely and report the crash-loop as readiness pending. Counting failed
+// samples across the whole window keeps the documented tolerance for a single
+// transient crash that recovers while still failing a start that keeps dying.
+const START_READINESS_FAILED_SAMPLE_LIMIT = 2;
+
+async function waitForStartedInstanceReadiness(instanceId, agentConfig = null) {
+  const firstStatus = await agentClient.getInstanceStatus(instanceId, agentConfig).catch(() => null);
+  let last = firstStatus?.instance || firstStatus || null;
+  if (!last || !last.state) {
+    return { verified: false, ready: false, failed: false, instance: last };
+  }
+
+  const startupTimeoutMs = Number(last.startupTimeoutMs);
+  const waitMs = Math.min(
+    Math.max(Number.isFinite(startupTimeoutMs) ? startupTimeoutMs + 5000 : START_READINESS_MIN_WAIT_MS, START_READINESS_MIN_WAIT_MS),
+    START_READINESS_MAX_WAIT_MS
+  );
+  const deadline = Date.now() + waitMs;
+  let failedSamples = 0;
+
+  for (;;) {
+    const state = String(last.state || "");
+    if (state === "Setup Required") {
+      return { verified: true, ready: false, failed: false, instance: last };
+    }
+    if (state === "Running") {
+      const readiness = last.readinessState === undefined || last.readinessState === null
+        ? "unknown"
+        : String(last.readinessState).toLowerCase();
+      if (readiness === "failed") {
+        return { verified: true, ready: false, failed: true, instance: last };
+      }
+      // "ready" is a live server; "timeout" means the process stayed alive for
+      // the full startup window without opening its port; "unknown" covers
+      // runtimes that predate readiness tracking. Only "failed" is a crash.
+      return { verified: true, ready: readiness === "ready", failed: false, instance: last };
+    }
+    if (state === "Failed" || state === "Stopped") {
+      // The agent may be inside an automatic restart cycle. A single failed
+      // sample that recovers into Running is tolerated, but the second failed
+      // sample anywhere in the window is terminal — including the alternating
+      // crash-loop that never produces two consecutive failures.
+      failedSamples += 1;
+      if (failedSamples >= START_READINESS_FAILED_SAMPLE_LIMIT) {
+        return { verified: true, ready: false, failed: true, instance: last };
+      }
+    }
+
+    if (Date.now() >= deadline) {
+      return { verified: true, ready: false, failed: false, instance: last };
+    }
+    await new Promise((resolve) => setTimeout(resolve, START_READINESS_POLL_MS));
+    const next = await agentClient.getInstanceStatus(instanceId, agentConfig).catch(() => null);
+    const nextInstance = next?.instance || next || null;
+    if (!nextInstance || !nextInstance.state) {
+      return { verified: false, ready: false, failed: false, instance: last };
+    }
+    last = nextInstance;
+  }
+}
+
 function getSteamCmdInstallArtifactPaths(template) {
   const installer = template.installer || {};
   const installDir = normalizeInstanceFilePath(installer.installDir || "server");
@@ -3723,7 +3815,52 @@ async function persistMarketplaceMetadata(instanceId, metadata, agentConfig = nu
   return cleanMetadata;
 }
 
-async function downloadOneToInstance(template, download, options, instanceId, progress, agentConfig = null, parentRecord = null) {
+// The Java major the selected node reported in the dependency check that
+// already ran for this install. null means "no reliable information" (local
+// backend, non-Java templates, detection failure) so the pre-flight guard
+// stays out of the way instead of guessing.
+function resolveAvailableJavaMajor(dependencyCheck = null) {
+  const dependencies = Array.isArray(dependencyCheck?.dependencies) ? dependencyCheck.dependencies : [];
+  const java = dependencies.find((dependency) => String(dependency?.id || dependency?.name || "").toLowerCase() === "java");
+  if (!java || java.installed !== true) {
+    return null;
+  }
+  const major = Number.parseInt(String(java.version || "").match(/(\d+)/)?.[1] || "", 10);
+  return Number.isInteger(major) && major > 0 ? major : null;
+}
+
+// Pre-flight refusal for a resolved server artifact that needs a newer Java
+// than the node provisioned. Only resolver results that actually expose a
+// minimum Java major (Paper, Vanilla) are guarded; everything else keeps the
+// previous behavior and relies on startup readiness reporting.
+function assertResolvedJavaCompatible(resolved, availableJavaMajor, context = {}) {
+  const requiredJavaMajor = Number(resolved?.javaMinimum);
+  if (!Number.isInteger(requiredJavaMajor) || requiredJavaMajor <= 0) {
+    return;
+  }
+  if (!Number.isInteger(availableJavaMajor) || availableJavaMajor <= 0) {
+    return;
+  }
+  if (availableJavaMajor >= requiredJavaMajor) {
+    return;
+  }
+  const versionLabel = resolved?.version ? String(resolved.version) : "This server version";
+  throw createMarketplaceError(
+    `${versionLabel} requires Java ${requiredJavaMajor}, but the selected node has Java ${availableJavaMajor}. `
+      + `Choose a version that runs on Java ${availableJavaMajor} (for Minecraft, 1.21.11) or install Java ${requiredJavaMajor} on the node, then retry the install.`,
+    "JAVA_VERSION_UNSUPPORTED",
+    {
+      ...context,
+      step: "Resolve download",
+      requiredJavaMajor,
+      availableJavaMajor,
+      resolvedVersion: resolved?.version || null,
+      retryable: false,
+    }
+  );
+}
+
+async function downloadOneToInstance(template, download, options, instanceId, progress, agentConfig = null, parentRecord = null, runtimeAvailability = null) {
   const destination = normalizeInstanceFilePath(download.destination || download.fileName || "server.jar");
   const fileName = fileNameFromDestination(destination);
   const downloadRequired = download.required === true;
@@ -3799,6 +3936,7 @@ async function downloadOneToInstance(template, download, options, instanceId, pr
     appendDownloadLog(record, { step: "Resolve download", message: `Resolving ${fileName}.` });
     pushStep(progress, "Resolve download", "running", `Resolving ${fileName}.`);
     resolved = await resolveDownloadUrl(download, options, baseContext);
+    assertResolvedJavaCompatible(resolved, runtimeAvailability?.availableJavaMajor, baseContext);
     appendDownloadLog(record, { step: "Resolve download", message: `Resolved ${resolved.url || "download URL"}.`, url: resolved.url });
     pushStep(progress, "Resolve download", "complete", `Resolved ${fileName}${resolved.version ? ` for ${resolved.version}` : ""}${resolved.build ? ` build ${resolved.build}` : ""}.`);
   } catch (error) {
@@ -3813,7 +3951,11 @@ async function downloadOneToInstance(template, download, options, instanceId, pr
       networkCode: error?.details?.networkCode,
       body: error?.details?.body,
     });
-    updateDownload(record, { status: "failed", error: error?.message || "Download resolver failed.", canRetry: true });
+    // Non-retryable resolver failures (for example JAVA_VERSION_UNSUPPORTED,
+    // where the node cannot satisfy the required Java) must not offer a Retry
+    // that would fail identically.
+    const retryable = getErrorDetails(error).retryable !== false;
+    updateDownload(record, { status: "failed", error: error?.message || "Download resolver failed.", canRetry: retryable });
     if (downloadRequired) {
       throw error;
     }
@@ -3950,7 +4092,7 @@ async function downloadOneToInstance(template, download, options, instanceId, pr
   }
 }
 
-async function downloadToInstance(template, options, instanceId, progress, agentConfig = null, parentRecord = null) {
+async function downloadToInstance(template, options, instanceId, progress, agentConfig = null, parentRecord = null, runtimeAvailability = null) {
   const templateDownloads = normalizeTemplateDownloads(template);
   if (!templateDownloads.length) {
     pushStep(progress, "Download files", "skipped", "No direct download is required for this template.");
@@ -3961,7 +4103,7 @@ async function downloadToInstance(template, options, instanceId, progress, agent
   const metadata = {};
   let downloaded = false;
   for (const download of templateDownloads) {
-    const result = await downloadOneToInstance(template, download, options, instanceId, progress, agentConfig, parentRecord);
+    const result = await downloadOneToInstance(template, download, options, instanceId, progress, agentConfig, parentRecord, runtimeAvailability);
     downloaded = downloaded || Boolean(result.downloaded);
     if (result.metadata) {
       Object.entries(result.metadata).forEach(([key, value]) => {
@@ -4120,10 +4262,11 @@ async function executeInstallTemplate(payload = {}, context = {}) {
   const instancePayload = buildInstancePayload(template, options, ports);
   const installContext = validateInstallContext(buildInstallContext(payload, template, options, instancePayload));
 
+  let installDependencyCheck = null;
   try {
     console.info("[Marketplace][Stage]", { stage: "dependencies.start", timestamp: new Date().toISOString(), requestId, nodeId: installNodeId, templateId: template.id });
     updateDownload(parentRecord, { stage: "Check dependencies", progress: 10 });
-    await ensureTemplateDependencies(template, { ...options, nodeId: installNodeId }, agentConfig, progress, parentRecord);
+    installDependencyCheck = await ensureTemplateDependencies(template, { ...options, nodeId: installNodeId }, agentConfig, progress, parentRecord);
     console.info("[Marketplace][Stage]", { stage: "dependencies.complete", timestamp: new Date().toISOString(), requestId, nodeId: installNodeId, templateId: template.id });
   } catch (error) {
     console.error("[Marketplace][Stage]", { stage: "dependencies.error", timestamp: new Date().toISOString(), requestId, nodeId: installNodeId, templateId: template.id, errorCode: error?.code || null, errorMessage: error?.message || null });
@@ -4251,7 +4394,9 @@ async function executeInstallTemplate(payload = {}, context = {}) {
 
     assertInstallNotAborted(context);
     await setInstanceInstallStage(createdInstanceId, "archive-download", agentConfig);
-    const downloadResult = await downloadToInstance(template, options, createdInstanceId, progress, agentConfig, parentRecord);
+    const downloadResult = await downloadToInstance(template, options, createdInstanceId, progress, agentConfig, parentRecord, {
+      availableJavaMajor: resolveAvailableJavaMajor(installDependencyCheck),
+    });
     console.info("[Marketplace][Stage]", { stage: "download.complete", timestamp: new Date().toISOString(), requestId, nodeId: installNodeId, templateId: template.id, instanceId: createdInstanceId });
     const installerStageLabel = manifestValidation.installerType === "steamcmd-native" ? "Install SteamCMD app" : "Extract files";
     await setInstanceInstallStage(createdInstanceId, "archive-extract", agentConfig);
@@ -4381,7 +4526,35 @@ async function executeInstallTemplate(payload = {}, context = {}) {
       updateDownload(parentRecord, { stage: "Optional start", progress: 92 });
       const started = await agentClient.startInstance(createdInstanceId, agentConfig);
       startedInstance = started.instance || started;
-      pushStep(progress, "Optional start", "complete", "Instance start requested.");
+      const startReadiness = await waitForStartedInstanceReadiness(createdInstanceId, agentConfig);
+      if (startReadiness.failed) {
+        const failedInstance = startReadiness.instance || {};
+        const stoppedWithoutReason = String(failedInstance.state || "") === "Stopped";
+        const failureReason = failedInstance.failureReason || (stoppedWithoutReason ? "PROCESS_EXITED" : "STARTUP_FAILED");
+        throw createMarketplaceError(
+          `The server process exited before it became ready (${failureReason}${failedInstance.exitCode !== undefined && failedInstance.exitCode !== null ? `, exit code ${failedInstance.exitCode}` : ""}). Open the instance logs for the startup error, fix it, then start the server again.`,
+          "START_FAILED",
+          {
+            templateId: template.id,
+            instanceId: createdInstanceId,
+            step: "Optional start",
+            failureReason,
+            exitCode: failedInstance.exitCode ?? null,
+            state: failedInstance.state || null,
+            healthState: failedInstance.healthState || null,
+            readinessState: failedInstance.readinessState || null,
+            retryable: true,
+          }
+        );
+      }
+      pushStep(
+        progress,
+        "Optional start",
+        "complete",
+        startReadiness.ready
+          ? "Instance started and reported ready."
+          : "Instance start requested; readiness is still pending."
+      );
     } else {
       const skipReason = setupRequiredResult?.readiness?.setupRequired
         ? "Start skipped: FiveM setup is required before this server can start."
@@ -4479,6 +4652,7 @@ module.exports = {
     categorizeMinecraftVersion,
     compareMinecraftVersions,
     assertInstallerResult,
+    assertResolvedJavaCompatible,
     createInstallerResultError,
     createInstallerResultOk,
     evaluateInstallPublisherTrust,
@@ -4491,6 +4665,7 @@ module.exports = {
     normalizeTemplateDownloads,
     normalizeTemplateTags,
     registerCancellationSmokeRecord: (id, controller) => downloads.set(id, { id, nodeId: "smoke-node", status: "running", canCancel: true, canRetry: false, controller }),
+    resolveAvailableJavaMajor,
     resolveTemplateForPlatform,
     parsePorts,
     resolveMarketplaceAgentConfig,
@@ -4498,6 +4673,7 @@ module.exports = {
     validateMarketplaceCatalog,
     validateMarketplaceTemplate,
     validateInstallContext,
+    waitForStartedInstanceReadiness,
   },
   cancelDownload,
   createDependencyInstallRecord,

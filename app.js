@@ -566,7 +566,11 @@ const agentSetupSummary = document.querySelector("[data-agent-setup-summary]");
 const agentLocalInstallerStatus = document.querySelector("[data-agent-local-installer-status]");
 const agentLocalInstallerSteps = document.querySelector("[data-agent-local-installer-steps]");
 const agentPairingStatus = document.querySelector("[data-agent-pairing-status]");
-const agentPairingCode = document.querySelector("strong[data-agent-pairing-code]");
+const agentPairingCode = document.querySelector("textarea[data-agent-pairing-full-code]");
+const agentPairingReference = document.querySelector("[data-agent-pairing-reference]");
+const agentPairingNetworkOptIn = document.querySelector("[data-agent-pairing-network-opt-in]");
+const agentPairingNetworkNote = document.querySelector("[data-agent-pairing-network-note]");
+const agentPairingResultNote = document.querySelector("[data-agent-pairing-result-note]");
 const agentPairingExpires = document.querySelector("[data-agent-pairing-expires]");
 const agentPairingUrl = document.querySelector("[data-agent-pairing-url]");
 const agentPairingTargetName = document.querySelector("[data-agent-pairing-target-name]");
@@ -590,9 +594,18 @@ let agentControlLastRuntimeSnapshot = null;
 let agentCompatibilityDismissedKey = "";
 let agentCompatibilityNoticeKey = "";
 let activeAgentPairingCode = "";
+let activeAgentPairingReference = "";
+let activeAgentPairingNetwork = null;
 let activeAgentPairingExpiresAt = "";
 let activeAgentPairingExpiryTimer = null;
 let activeAgentPairingTarget = null;
+// P1-A (Build 205) reversibility: the service persists the network opt-in in
+// the Agent config (config.pairingNetworkOptIn). The renderer hydrates the
+// checkbox from that marker so a restart cannot show "Off (default)" while the
+// Agent still listens on the network, and tracks the user's uncommitted choice
+// so the 3-second refresh cannot clobber a toggle that has not been applied yet.
+let activeAgentPairingNetworkPersisted = false;
+let activeAgentPairingNetworkUserChoice = null;
 let activeAgentGeneratedToken = "";
 let activeMobilePairingClaim = "";
 let activeMobilePairingClaimNodeId = "";
@@ -624,7 +637,7 @@ function getModalFocusables(container) {
     .filter((element) => !element.hidden && element.getClientRects().length > 0);
 }
 
-function activateModal(overlay, { initialFocus = null } = {}) {
+function activateModal(overlay, { initialFocus = null, focusOptions = null } = {}) {
   if (!overlay || overlay.dataset.modalActive === "true") return () => {};
   const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   const appShell = document.querySelector(".app-shell");
@@ -654,7 +667,7 @@ function activateModal(overlay, { initialFocus = null } = {}) {
   overlay.addEventListener("keydown", trapFocus);
   requestAnimationFrame(() => {
     const target = initialFocus?.() || initialFocus || getModalFocusables(overlay)[0] || overlay.querySelector('[role="dialog"]');
-    target?.focus?.();
+    target?.focus?.(focusOptions || undefined);
   });
   return () => {
     if (overlay.dataset.modalActive !== "true") return;
@@ -749,6 +762,8 @@ const nodeTokenNote = document.querySelector("[data-node-token-note]");
 const nodeTokenSetup = document.querySelector("[data-node-token-setup]");
 const nodePairingCodeInput = document.querySelector("[data-node-pairing-code]");
 const nodePairingRetryActions = document.querySelector("[data-node-pairing-retry]");
+const nodePathChooser = document.querySelector("[data-node-path-chooser]");
+const nodeAdvancedSetup = document.querySelector(".node-manual-details");
 const nodeDetailsModal = document.querySelector("[data-node-details-modal]");
 const nodeDetailsTitle = document.querySelector("[data-node-details-title]");
 const nodeDetailsSummary = document.querySelector("[data-node-details-summary]");
@@ -1469,7 +1484,7 @@ const ONBOARDING_STEPS = [
   {
     id: "connect-agent",
     title: "Connect Local Agent",
-    description: "Install, start, and securely pair the Local Agent that performs trusted management work.",
+    description: "Set up the Local Agent on this computer, or connect another computer or server from Add Computer.",
   },
   {
     id: "prepare-node",
@@ -1494,7 +1509,7 @@ const ONBOARDING_STEPS = [
 ];
 const ONBOARDING_SETUP_TYPES = [
   ["this-pc", "Use This PC", "Install and pair the Local Agent on this computer."],
-  ["remote", "Connect a Remote Server", "Skip Local Agent setup and add a remote Windows or Linux Agent."],
+  ["remote", "Connect a Remote Server", "Skip Local Agent setup here and add another desktop computer or headless server from Add Computer."],
   ["both", "Configure Both", "Prepare this computer now and keep remote servers available."],
 ];
 const PAGE_INTRODUCTIONS = {
@@ -2080,7 +2095,7 @@ function getFriendlyDashboardState() {
   } else if (instancesLoaded && !instances.length) {
     next = { title: "Create your first server", detail: "Browse the Marketplace and install a supported server.", action: "marketplace" };
   } else if (!remoteNodes.length) {
-    next = { title: "Add a remote system", detail: "Connect another Windows or Linux system when you are ready.", action: "nodes" };
+    next = { title: "Add a computer", detail: "Open Add Computer to connect another desktop computer or headless server when you are ready.", action: "nodes" };
   } else if (!getCurrentSettings()["playit.address"]) {
     next = { title: "Configure public access", detail: "Public Access can make supported services reachable.", action: "playit" };
   }
@@ -4753,14 +4768,20 @@ function renderLocalAgentInstallerSteps(steps = []) {
 function renderAgentPairingSetup(session = null, options = {}) {
   if (session?.pairingCode) {
     activeAgentPairingCode = session.pairingCode;
+    activeAgentPairingReference = session.displayCode || session.pairingCode.split(".")[0] || "";
     activeAgentPairingExpiresAt = session.expiresAt || "";
+    activeAgentPairingNetwork = session.networkAccess || null;
   } else if (options.clearCode) {
     activeAgentPairingCode = "";
+    activeAgentPairingReference = "";
     activeAgentPairingExpiresAt = "";
+    activeAgentPairingNetwork = null;
   }
   if (activeAgentPairingCode && activeAgentPairingExpiresAt && Date.parse(activeAgentPairingExpiresAt) <= Date.now()) {
     activeAgentPairingCode = "";
+    activeAgentPairingReference = "";
     activeAgentPairingExpiresAt = "";
+    activeAgentPairingNetwork = null;
   }
   if (activeAgentPairingExpiryTimer) {
     clearTimeout(activeAgentPairingExpiryTimer);
@@ -4788,11 +4809,14 @@ function renderAgentPairingSetup(session = null, options = {}) {
   }
   if (agentPairingStatus) {
     const paired = options.paired === true;
-    agentPairingStatus.textContent = paired ? "Paired" : activeAgentPairingCode ? "Waiting for Control Center" : "Not paired";
+    agentPairingStatus.textContent = paired ? "Paired" : activeAgentPairingCode ? "Code ready" : "No code yet";
     agentPairingStatus.className = `status-pill ${paired ? "status-pill--ok" : activeAgentPairingCode ? "status-pill--warning" : "status-pill--planned"}`;
   }
   if (agentPairingCode) {
-    agentPairingCode.textContent = session?.displayCode || activeAgentPairingCode || "Not generated";
+    agentPairingCode.value = activeAgentPairingCode || "";
+  }
+  if (agentPairingReference) {
+    agentPairingReference.textContent = activeAgentPairingReference || "Not generated";
   }
   if (agentPairingExpires) {
     agentPairingExpires.textContent = activeAgentPairingExpiresAt ? formatDateTime(activeAgentPairingExpiresAt) : "Unavailable";
@@ -4800,7 +4824,116 @@ function renderAgentPairingSetup(session = null, options = {}) {
   if (agentPairingUrl) {
     agentPairingUrl.textContent = session?.agentUrl || "Unavailable";
   }
+  if (agentPairingNetworkOptIn) {
+    agentPairingNetworkOptIn.disabled = !target.local;
+    if (!target.local) {
+      agentPairingNetworkOptIn.checked = false;
+      activeAgentPairingNetworkUserChoice = null;
+    } else if (session) {
+      // A freshly minted session is the applied state: the opt-in was either
+      // used for this code (enabled) or the mint restored loopback for it. An
+      // already-reachable Agent is enabled WITHOUT a marker — the service does
+      // not take ownership of a user-configured bind — so `persisted` requires
+      // changedBinding, and the active code itself keeps the state visible.
+      agentPairingNetworkOptIn.checked = session.networkAccess?.enabled === true;
+      activeAgentPairingNetworkPersisted = session.networkAccess?.enabled === true && session.networkAccess?.changedBinding === true;
+      activeAgentPairingNetworkUserChoice = null;
+    } else {
+      agentPairingNetworkOptIn.checked = shouldShowAgentPairingNetworkEnabled({
+        persisted: activeAgentPairingNetworkPersisted,
+        userChoice: activeAgentPairingNetworkUserChoice,
+        alreadyReachableActive: isActiveAgentPairingAlreadyReachable(),
+      });
+    }
+  }
+  renderAgentPairingNetworkNote(target);
+  if (agentPairingResultNote) {
+    const network = activeAgentPairingNetwork;
+    if (activeAgentPairingCode && network) {
+      agentPairingResultNote.hidden = false;
+      agentPairingResultNote.textContent = network.enabled
+        ? network.alreadyReachable
+          ? `Network pairing is on. This Agent already accepts connections on your network; this code advertises ${network.reachableUrl || session?.agentUrl || "a network address"}. The other computer must be able to reach that address (same network or tailnet). ${network.warning || ""}`.trim()
+          : `Network pairing is on. This code advertises ${network.reachableUrl || session?.agentUrl || "a network address"}; the other computer must be able to reach that address (same network or tailnet). ${network.warning || ""}`.trim()
+        : network.restored
+          ? network.restoreNote
+            ? `${network.restoreNote} This code works only on this computer.`
+            : "Network access was turned off and the Local Agent returned to this-computer-only listening. This code works only on this computer."
+          : "This code works only on this computer.";
+    } else {
+      agentPairingResultNote.hidden = true;
+      agentPairingResultNote.textContent = "";
+    }
+  }
   document.querySelector('[data-agent-control-action="copyPairingCode"]')?.toggleAttribute("disabled", !activeAgentPairingCode);
+}
+
+function getAgentPairingNetworkPersistedState(target = null) {
+  const marker = target?.config?.pairingNetworkOptIn;
+  return Boolean(marker && typeof marker === "object");
+}
+
+// The service deliberately writes no opt-in marker when the Local Agent is
+// already reachable (it does not take ownership of a user-configured bind), so
+// the active code is the evidence for that display state.
+function isActiveAgentPairingAlreadyReachable() {
+  return Boolean(activeAgentPairingCode
+    && activeAgentPairingNetwork?.enabled === true
+    && activeAgentPairingNetwork?.alreadyReachable === true);
+}
+
+// The 3-second refresh must not revert the checkbox while a code minted with
+// network access is still active, even when no opt-in marker exists. The user's
+// uncommitted choice still wins over both sources.
+function shouldShowAgentPairingNetworkEnabled({ persisted = false, userChoice = null, alreadyReachableActive = false } = {}) {
+  if (userChoice !== null) return userChoice;
+  return persisted === true || alreadyReachableActive === true;
+}
+
+// Reachability exactly as the service decides it (same interface list, same
+// wildcard rule). Falls back to the wildcard-only heuristic for payloads that
+// predate the derived field.
+function getLocalPairingNetworkOverviewState() {
+  const target = getAgentControlOverviewTarget();
+  const state = target?.pairingNetwork;
+  if (state && typeof state === "object") return state;
+  const host = String(target?.config?.host || "").trim();
+  return { configuredHost: host || null, alreadyReachable: host === "0.0.0.0" };
+}
+
+function renderAgentPairingNetworkNote(target = activeAgentPairingTarget || getAgentPairingTargetPayload()) {
+  if (!agentPairingNetworkNote) return;
+  if (!target.local) {
+    agentPairingNetworkNote.textContent = "This option applies when a different computer will connect to this one.";
+    return;
+  }
+  // An already-reachable Agent has no service-owned marker (the service does
+  // not take ownership of a user-configured bind), so turning this option on or
+  // off never changes its listening setting; the option only controls what a
+  // new code advertises. Say exactly that instead of implying a restore.
+  if (isActiveAgentPairingAlreadyReachable()) {
+    agentPairingNetworkNote.textContent = agentPairingNetworkOptIn?.checked
+      ? `On (this Agent already accepts connections on your network): this code advertises ${activeAgentPairingNetwork?.reachableUrl || "its network address"}. The other computer must be able to reach that address (same network or tailnet). Turning this option off will not change the Agent's listening setting.`
+      : "This Agent already accepts connections on your network, so turning this option off will not change that setting; the next code will work only on this computer.";
+    return;
+  }
+  if (agentPairingNetworkOptIn?.checked) {
+    // When no code has been generated in this panel session, the On state can
+    // only have come from the persisted marker, so say that instead of implying
+    // the bind just changed.
+    const persistedOnly = activeAgentPairingNetworkPersisted && activeAgentPairingNetworkUserChoice === null && !activeAgentPairingCode;
+    agentPairingNetworkNote.textContent = persistedOnly
+      ? "On (saved from a previous pairing): the Local Agent keeps accepting network connections until you turn this off. Generating a code now advertises this computer's network address; the other computer must be able to reach it (same network or tailnet)."
+      : "On: the pairing code will advertise this computer's network address. The other computer must be able to reach that address (same network or tailnet).";
+    return;
+  }
+  if (activeAgentPairingNetworkPersisted) {
+    // Turning the checkbox off does not restart the Agent by itself: the
+    // restore runs with the next Generate, so the note states exactly that.
+    agentPairingNetworkNote.textContent = "Turning this off takes effect when you generate the next code: the Local Agent returns to this-computer-only listening, and the next code works only on this computer.";
+    return;
+  }
+  agentPairingNetworkNote.textContent = "Off (default): the pairing code works only on this computer. Turn this on to show a code for another computer on the same network or tailnet, and let this computer's Agent accept its connection.";
 }
 
 function getAgentPairingTargetPayload() {
@@ -5135,6 +5268,9 @@ function renderAgentControlState(payload = agentControlState) {
   const local = getAgentControlOverviewTarget(payload);
   if (!local) return;
   agentControlState = payload;
+  // Hydrate the network opt-in from the persisted service state (the marker the
+  // service writes when it widens the bind) before the pairing panel renders.
+  activeAgentPairingNetworkPersisted = getAgentPairingNetworkPersistedState(local);
   syncAgentPairingTargetForSelection();
   renderAgentPairingSetup(null, {
     paired: local.pairing?.configured === true ||
@@ -5228,7 +5364,7 @@ function renderAgentControlState(payload = agentControlState) {
         : getRemoteAgentUpdateBlockMessage(remoteUpdate);
       button.setAttribute("aria-description", button.title);
     } else if (action === "pairMobileDevice" && isLocalTarget) {
-      button.title = "Pair mobile devices to a node Agent. This is the application host — pair it from Pair This Agent instead.";
+      button.title = "Pair mobile devices to a node Agent. This is the application host — use Connect this computer to AnxOS instead.";
       button.setAttribute("aria-description", button.title);
     } else if (action === "copyMobileClaim" && !activeMobilePairingClaim) {
       button.title = "Create a mobile claim first.";
@@ -6603,6 +6739,20 @@ async function runAgentControlAction(action) {
   const remoteUpdateSupport = isLocalActionTarget ? { supported: false, reason: "local" } : getRemoteAgentUpdateSupport(actionTarget);
   const destructive = { stop: ["Stop local Agent?", "Active Agent operations will disconnect."], forceRestart: ["Force restart local Agent?", "The Agent process will be terminated immediately."], repairAgent: ["Repair local Agent?", "Background registration will be reinstalled and the Agent restarted."], stopOldLocalAgentAndRepair: ["Stop Old Local Agent and Repair?", "AnxOS will stop only a verified old AnxOS Local Agent process, recreate local credentials, and repair Windows startup registration."], updateAgent: remoteUpdateSupport.supported ? ["Update the Agent on this node?", "AnxOS will upload this Desktop's bundled Agent runtime to the node over SSH, back up the live runtime, restart the node's Agent, and verify it. Instances running on that node stop during the restart."] : ["Update Local Agent?", "AnxOS will back up Agent configuration, stop the Local Agent, repair the bundled runtime registration, restart it, and verify health."], pairMobileDevice: ["Pair a mobile device to this node?", "The node's Agent credential is replaced with a new one for the phone. This Desktop switches to the new credential automatically; any other device still using the old one loses access until it is re-paired."], uninstallService: ["Uninstall Agent background service?", "Automatic startup will be removed."], resetConfig: ["Reset Agent configuration?", "Current settings will be backed up before defaults are restored."] }[action];
   if (destructive && !(await createSecurityConfirmation({ title: destructive[0], message: destructive[1], confirmLabel: "Continue" }))) return;
+  if (action === "startPairingSession" && getAgentPairingTargetPayload().local === true && agentPairingNetworkOptIn?.checked === true) {
+    // When the Agent is already reachable, the service writes no opt-in marker
+    // and the bind is not touched: the confirmation must not promise a restore
+    // it cannot perform.
+    const alreadyReachable = getLocalPairingNetworkOverviewState().alreadyReachable === true;
+    const confirmed = await createSecurityConfirmation({
+      title: "Allow another computer to reach this Agent?",
+      message: alreadyReachable
+        ? "This Agent already accepts network connections, so its listening setting will not change. Turning this network option off later will not change that setting either; the option only controls whether new pairing codes advertise your network address. While the Agent is reachable and not yet paired, anyone who can reach it could claim it. Pair promptly and prefer a private network or tailnet."
+        : "This computer's Local Agent will listen on all network interfaces until you turn the network option off and generate a new code. Turning the option off restores this-computer-only listening when you generate the next code, so this code stays reachable until then. While the Agent is reachable and not yet paired, anyone who can reach it could claim it. Pair promptly and prefer a private network or tailnet.",
+      confirmLabel: "Allow Network Access",
+    });
+    if (!confirmed) return;
+  }
   if (action === "refresh") {
     await refreshAgentControl({ includeConfig: true });
     return;
@@ -6660,16 +6810,19 @@ async function runAgentControlAction(action) {
     else if (action === "startPairingSession") {
       if (typeof api.startPairingSession !== "function") throw new Error("Agent pairing setup is unavailable in this build.");
       const target = getAgentPairingTargetPayload();
+      const allowNetworkAccess = target.local === true && agentPairingNetworkOptIn?.checked === true;
       activeAgentPairingTarget = target;
       renderAgentPairingSetup(null, { clearCode: true });
-      const session = await api.startPairingSession(target);
+      const session = await api.startPairingSession({ ...target, allowNetworkAccess });
       const wrongTargetMessage = getWrongPairingTargetMessage(session);
       if (wrongTargetMessage) {
         renderAgentPairingSetup(null, { clearCode: true });
         throw new Error(wrongTargetMessage);
       }
       renderAgentPairingSetup(session);
-      showToast("Pairing code generated.", "success");
+      showToast(allowNetworkAccess
+        ? "Network pairing code generated. The other computer must be able to reach the displayed address."
+        : "Pairing code generated.", "success");
     }
     else if (action === "copyPairingCode") {
       renderAgentPairingSetup(null);
@@ -6693,7 +6846,7 @@ async function runAgentControlAction(action) {
     }
     else if (action === "pairMobileDevice") {
       const target = getAgentControlOverviewTarget();
-      if (isAgentTargetLocal(target)) throw new Error("Pair mobile devices to a node Agent. The application host is paired from Pair This Agent.");
+      if (isAgentTargetLocal(target)) throw new Error("Pair mobile devices to a node Agent. The application host is connected from Connect this computer to AnxOS.");
       const targetNodeId = target?.nodeId || getSelectedNodeId();
       const nodesApi = getDesktopApiState().api?.nodes;
       if (typeof nodesApi?.createMobilePairing !== "function") throw new Error("Mobile pairing is unavailable in this build.");
@@ -36053,6 +36206,21 @@ async function copyNodeAgentToken() {
   }
 }
 
+// Reuse the existing update helper so the download button always points at the
+// same release page the app updates from, instead of a second hardcoded URL.
+async function openNodeReleasePage() {
+  const desktopApiState = getDesktopApiState();
+  try {
+    if (typeof desktopApiState.api?.updates?.openRelease === "function") {
+      await desktopApiState.api.updates.openRelease();
+      return;
+    }
+    window.open("https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/latest", "_blank", "noopener,noreferrer");
+  } catch {
+    showToast("Release page could not be opened.", "error");
+  }
+}
+
 function setNodeModalVisible(isVisible, node = null) {
   if (!nodeModal) return;
   nodeModal.hidden = !isVisible;
@@ -36065,9 +36233,11 @@ function setNodeModalVisible(isVisible, node = null) {
     setNodePairingRetryVisible(false);
     if (nodePairingCodeInput) nodePairingCodeInput.value = "";
     setNodeFormBusy(false, "");
-    if (nodeModalTitle) nodeModalTitle.textContent = nodeEditId ? "Edit Node" : "Add Node";
+    if (nodeModalTitle) nodeModalTitle.textContent = nodeEditId ? "Edit Computer" : "Add Computer";
+    if (nodePathChooser) nodePathChooser.hidden = Boolean(nodeEditId);
+    if (nodeAdvancedSetup) nodeAdvancedSetup.open = Boolean(nodeEditId);
     const saveButton = nodeModal.querySelector('[data-node-action="save"]');
-    if (saveButton) saveButton.textContent = nodeEditId ? "Save Node" : "Register Node";
+    if (saveButton) saveButton.textContent = "Save Computer";
     const deleteButton = nodeModal.querySelector('[data-node-action="delete"]');
     if (deleteButton) deleteButton.hidden = !nodeEditId;
     nodeFields.forEach((field) => {
@@ -36093,7 +36263,24 @@ function setNodeModalVisible(isVisible, node = null) {
       }
     });
     if (!nodeModalCleanup) {
-      nodeModalCleanup = activateModal(nodeModal, { initialFocus: () => nodeModal.querySelector("[data-node-field=\"displayName\"]") });
+      const addMode = !nodeEditId;
+      nodeModalCleanup = activateModal(nodeModal, {
+        initialFocus: () => (nodeEditId
+          ? nodeModal.querySelector("[data-node-field=\"displayName\"]")
+          : nodePairingCodeInput),
+        // In Add mode the pairing textarea sits below the intro and the path
+        // cards; focusing it without preventScroll scrolls the modal body down
+        // on short windows and hides the guidance the modal opens with.
+        focusOptions: addMode ? { preventScroll: true } : null,
+      });
+      if (addMode) {
+        const modalBody = nodeModal.querySelector(".node-modal-body");
+        // Runs after activateModal's focus frame; pin the body to the top so the
+        // header and both path cards are the first thing the user sees.
+        requestAnimationFrame(() => {
+          if (modalBody) modalBody.scrollTop = 0;
+        });
+      }
     }
     updateNodeTokenControls();
   } else if (nodeModalCleanup) {
@@ -36430,8 +36617,8 @@ function renderNodes() {
   if (nodeMessage) {
     const remoteCount = (nodesState.nodes || []).filter((node) => node.kind === "agent").length;
     nodeMessage.textContent = remoteCount > 0
-      ? `${remoteCount} Agent node(s) registered. The application host remains available.`
-      : "The application host is selected. Register an Agent node to manage another machine.";
+      ? `${remoteCount} computer${remoteCount === 1 ? "" : "s"} added. This PC remains available.`
+      : "This PC is selected. Add another computer or server to manage another machine.";
   }
 
   if (nodeList) {
@@ -36450,7 +36637,7 @@ function renderNodes() {
       const action = document.createElement("button");
       action.type = "button";
       action.className = "primary-button";
-      action.textContent = "Add Node";
+      action.textContent = "Add Computer";
       action.addEventListener("click", () => setNodeModalVisible(true));
       empty.append(title, copy, action);
       nodeList.append(empty);
@@ -37349,7 +37536,7 @@ async function pairNodeFromSettings(options = {}) {
   }
   const pairingCode = String(nodePairingCodeInput?.value || "").trim();
   if (!pairingCode) {
-    setNodePairingError("Paste the temporary pairing code displayed by the Agent.");
+    setNodePairingError("Paste the full pairing code shown on the machine you are adding.");
     showToast("Pairing code is required.", "warning");
     return;
   }
@@ -37443,15 +37630,15 @@ function restartNodePairingEntry() {
     nodePairingCodeInput.focus();
   }
   nodePairingLastSubmittedCode = "";
-  setNodePairingError("Paste the new temporary pairing code displayed by Agent setup.");
+  setNodePairingError("Paste the new full pairing code shown on the machine you are adding.");
   setNodePairingRetryVisible(false);
-  setNodeFormBusy(false, "Restart pairing from Agent setup, then paste the new code here.");
+  setNodeFormBusy(false, "Get a new pairing code on that machine, then paste it here.");
 }
 
 function showNodePairingRetryHelp() {
   setNodePairingRetryVisible(true);
-  setNodePairingError("Open Agent Setup on that machine, select Generate New Pairing Code, then paste the new code here.");
-  showToast("Open Agent Setup and generate a new pairing code.", "warning");
+  setNodePairingError("Open Agent setup on that machine for a new code: on Windows or desktop Linux use Agent Control → Connect this computer; on a headless server run sudo anxos-agent and choose Pair. If this Control Center must reach that computer, turn on the network option first, then paste the new full code here.");
+  showToast("Get a new pairing code on that machine, then paste it here.", "warning");
 }
 
 async function pasteNodePairingCode() {
@@ -38016,10 +38203,14 @@ function setOnboardingWelcomeVisible(visible) {
   }
 }
 
-function maybeOpenOnboardingWelcome(settings = getCurrentSettings()) {
-  if (!shouldShowOnboardingWelcome(settings)) return;
+function maybeOpenOnboardingWelcome(initialSettings = getCurrentSettings()) {
+  if (!shouldShowOnboardingWelcome(initialSettings)) return;
   const generation = ++onboardingOpenGeneration;
   window.setTimeout(() => {
+    // Re-check the state that is current at fire time: the welcome may have
+    // been dismissed, skipped, or completed during the delay, and the
+    // snapshot captured before the timer was armed would incorrectly re-open it.
+    const settings = getCurrentSettings();
     if (generation !== onboardingOpenGeneration || !shouldShowOnboardingWelcome(settings)) return;
     if (settings["onboarding.started"] === true) {
       setOnboardingWizardVisible(true);
@@ -38104,6 +38295,12 @@ function renderOnboardingLocalOwnerStep(container) {
 
 function renderOnboardingConnectAgentStep(container) {
   container.append(createTextElement("p", "The Local Agent is the trusted service that installs servers, manages files, creates backups, and checks system health. The desktop interface never replaces its authorization checks."));
+  container.append(createTextElement(
+    "p",
+    onboardingUsesLocalAgent()
+      ? "AnxOS prepares and pairs the Local Agent on this computer for you. To connect another desktop computer, install AnxOS Control Center there, open Agent Control, and select Connect this computer."
+      : "To connect another desktop computer or headless server, open Add Computer on this Control Center and follow the Desktop computer or Headless server steps.",
+  ));
   renderOnboardingInstallLocalAgentStep(container);
   renderOnboardingPairSecurelyStep(container);
 }
@@ -38303,10 +38500,10 @@ function getOnboardingAgentSummary() {
 
 function renderOnboardingInstallLocalAgentStep(container) {
   if (!onboardingUsesLocalAgent()) {
-    container.append(onboardingStatus("Local Agent", "Skipped", "planned", "You chose remote-only setup. AnxOS will not install the Local Agent on this PC."));
+    container.append(onboardingStatus("Local Agent", "Skipped", "planned", "You chose remote-only setup. AnxOS will not install the Local Agent on this PC. Add the other computer or server from Add Computer when you are ready."));
     const actions = document.createElement("div");
     actions.className = "onboarding-inline-actions";
-    const remote = createTextElement("button", "Add Remote Server", "primary-button");
+    const remote = createTextElement("button", "Add Computer", "primary-button");
     remote.type = "button";
     remote.addEventListener("click", () => { setOnboardingWizardVisible(false); showPage("nodes"); setNodeModalVisible(true); });
     actions.append(remote);
@@ -38353,11 +38550,12 @@ function renderOnboardingInstallLocalAgentStep(container) {
 
 function renderOnboardingPairSecurelyStep(container) {
   if (!onboardingUsesLocalAgent()) {
-    container.append(onboardingStatus("Local pairing", "Skipped", "planned", "Remote Agent pairing stays available from Agent Connection settings."));
+    container.append(onboardingStatus("Local pairing", "Skipped", "planned", "No Local Agent on this PC. Add another desktop computer or headless server from Add Computer when you are ready."));
     return;
   }
   const agent = getLocalAgentOnboardingStatus();
   container.append(onboardingStatus("Secure local connection", agent.authenticated ? "Paired" : "Needs pairing", agent.authenticated ? "ok" : "warning", agent.authenticated ? "Credentials are stored locally and only the fingerprint is shown." : "AnxOS can repair local credentials automatically without token copying."));
+  container.append(createTextElement("p", "Another desktop computer connects the same way: install AnxOS Control Center there, open Agent Control, select Connect this computer, then enter its code in Add Computer on this Control Center."));
   appendOnboardingTechnicalDetails(container, "Pairing details", [
     ["Authentication", agent.authenticated ? "Successful" : "Not paired"],
     ["Token fingerprint", agent.pairing?.fingerprint || "Unavailable"],
@@ -38458,7 +38656,7 @@ function renderOnboardingStorageStep(container) {
 }
 
 function renderOnboardingRemoteSummary(container) {
-  container.append(createTextElement("p", onboardingUsesRemoteAgent() ? "Add a remote Windows or Linux Agent when you are ready." : "Remote servers are optional and can be added later."));
+  container.append(createTextElement("p", onboardingUsesRemoteAgent() ? "Add a desktop computer or headless server when you are ready." : "Another computer or server is optional and can be added later."));
   const remoteNodes = (nodesState.nodes || []).filter((node) => node.kind === "agent");
   const grid = document.createElement("div");
   grid.className = "onboarding-status-grid";
@@ -38473,7 +38671,7 @@ function renderOnboardingRemoteSummary(container) {
   container.append(grid);
   const actions = document.createElement("div");
   actions.className = "onboarding-inline-actions";
-  const add = createTextElement("button", "Add a Remote System", "primary-button");
+  const add = createTextElement("button", "Add Computer", "primary-button");
   add.type = "button";
   add.addEventListener("click", () => { setOnboardingWizardVisible(false); showPage("nodes"); setNodeModalVisible(true); });
   const skip = createTextElement("button", "Skip for Now", "inline-action");
@@ -42754,6 +42952,7 @@ document.querySelector('[data-node-action="test"]')?.addEventListener("click", t
 document.querySelector('[data-node-action="delete"]')?.addEventListener("click", deleteSelectedNode);
 document.querySelector('[data-node-action="generate-token"]')?.addEventListener("click", generateNodeAgentToken);
 document.querySelector('[data-node-action="copy-token"]')?.addEventListener("click", copyNodeAgentToken);
+document.querySelectorAll('[data-node-action="open-release-page"]').forEach((button) => button.addEventListener("click", openNodeReleasePage));
 document.querySelector('[data-node-action="pair-code"]')?.addEventListener("click", pairNodeFromSettings);
 document.querySelector('[data-node-action="paste-pairing-code"]')?.addEventListener("click", pasteNodePairingCode);
 document.querySelector('[data-node-action="restart-pairing"]')?.addEventListener("click", restartNodePairingEntry);
@@ -42847,6 +43046,12 @@ document.querySelector("[data-agent-compatibility-card]")?.addEventListener("cli
 agentDeveloperButtons.forEach((button) => button.addEventListener("click", () => runAgentDeveloperAction(button.dataset.agentDeveloperAction)));
 agentControlSectionButtons.forEach((button) => {
   button.addEventListener("click", () => setActiveAgentControlSection(button.dataset.agentControlSectionTarget || "status"));
+});
+agentPairingNetworkOptIn?.addEventListener("change", () => {
+  // Record the user's choice so the refresh poll cannot overwrite it before the
+  // next Generate applies it; the note then says when it takes effect.
+  activeAgentPairingNetworkUserChoice = agentPairingNetworkOptIn.checked;
+  renderAgentPairingNetworkNote();
 });
 setActiveAgentControlSection(activeAgentControlSection);
 agentBeginnerSummary?.addEventListener("click", (event) => {
