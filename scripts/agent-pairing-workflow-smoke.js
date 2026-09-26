@@ -116,6 +116,16 @@ function reloadAgentControlService(root) {
   process.env.ANXHUB_CONFIG_DIR = controlConfig;
   const port = await getFreePort();
   const agentUrl = `http://127.0.0.1:${port}`;
+  // resolveAgentConfigPath() prefers an EXISTING candidate over the missing
+  // ANXHUB_CONFIG_DIR entry, so the isolated Agent config must exist before the
+  // first spawn — otherwise the Agent reads (and pairing rewrites) the repo's
+  // agent/config/agent.json dev fixture. An empty credential is the fresh
+  // install state: the Agent generates and persists its own on first start.
+  fs.writeFileSync(
+    path.join(agentConfig, "agent.json"),
+    `${JSON.stringify({ backendMode: "agent", agentUrl, agentToken: "" }, null, 2)}\n`,
+    { mode: 0o600 },
+  );
   let child = spawnAgentProcess(root, agentConfig, port, temp);
   try {
     await waitForAgent(agentUrl);

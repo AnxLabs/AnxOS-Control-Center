@@ -78,6 +78,8 @@ async function main() {
   assert.strictEqual(record.nodeIdentity.deviceId, completed.body.identity.deviceId, "Record must bind the agent's actual deviceId.");
   assert.strictEqual(record.instanceRoot, config.instanceRoot, "Record must pin the resolved instance root.");
   assert.strictEqual(record.agentInstallationId, completed.body.identity.agentInstallationId, "Record must bind agentInstallationId.");
+  const enrolledConfigFile = JSON.parse(fs.readFileSync(path.join(configDir, "agent.json"), "utf8"));
+  assert.strictEqual(enrolledConfigFile.tokenOrigin, "enrollment", "Completing an enrollment must persist tokenOrigin=enrollment.");
   const recordMode = fs.statSync(enrollmentService.getEnrollmentPath()).mode & 0o777;
   if (process.platform !== "win32") {
     assert.strictEqual(recordMode, 0o600, "Enrollment record must be written with 0600 permissions.");
@@ -134,6 +136,59 @@ async function main() {
   const migrationAgain = enrollmentService.migrateLegacyBinding(legacyConfig);
   assert.strictEqual(migrationAgain.migrated, false, "Migration must not run twice for an enrolled record.");
 
+  // 7b. Credential provenance gates auto-migration. A self-generated credential
+  // must NOT be auto-enrolled: it persists and later resolves as
+  // "shared-config", which is exactly how a fresh install used to become an
+  // enrolled node with a credential Control Center never saw (the live defect).
+  // Every other provenance (absent = pre-provenance installs, "pairing",
+  // "enrollment", "desktop-rotation") keeps the legacy migration behavior.
+  const provenanceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "anxos-agent-enroll-provenance-"));
+  const provenanceDir = path.join(provenanceRoot, "config");
+  process.env.AGENT_ENROLLMENT_PATH = path.join(provenanceDir, "enrollment.json");
+  const provenanceToken = "anxos_provenance-smoke-shared-token-value-0123456789";
+  const provenanceConfigPath = path.join(provenanceDir, "agent.json");
+  writeAgentConfigToken(provenanceConfigPath, provenanceToken);
+  const provenanceStatus = {
+    configPath: provenanceConfigPath,
+    configured: true,
+    source: "shared-config",
+    tokenOrigin: "generated",
+    fingerprint: tokenFingerprint(provenanceToken),
+  };
+  const generatedConfig = {
+    instanceRoot: path.join(provenanceRoot, "instances"),
+    token: provenanceToken,
+    tokenOrigin: "generated",
+    tokenStatus: { ...provenanceStatus },
+  };
+  const generatedMigration = enrollmentService.migrateLegacyBinding(generatedConfig);
+  assert.strictEqual(generatedMigration.migrated, false, "A self-generated credential must not auto-enroll.");
+  assert.strictEqual(generatedMigration.reason, "self-generated-credential", "The skip must be reported as self-generated-credential.");
+  assert.strictEqual(enrollmentService.readEnrollmentRecord(), null, "Skipping migration must not write an enrollment record.");
+  // The runtime shape: getConfig() carries the resolved status, so the origin
+  // may only be present inside tokenStatus.
+  const statusOnlyMigration = enrollmentService.migrateLegacyBinding({
+    instanceRoot: generatedConfig.instanceRoot,
+    token: provenanceToken,
+    tokenStatus: { ...provenanceStatus },
+  });
+  assert.strictEqual(statusOnlyMigration.migrated, false, "The generated provenance carried by tokenStatus must also block migration.");
+  assert.strictEqual(statusOnlyMigration.reason, "self-generated-credential", "The tokenStatus skip must use the same reason.");
+  for (const origin of [undefined, "pairing", "enrollment", "desktop-rotation"]) {
+    process.env.AGENT_ENROLLMENT_PATH = path.join(provenanceDir, `enrollment-${origin || "absent"}.json`);
+    const migration = enrollmentService.migrateLegacyBinding({
+      instanceRoot: generatedConfig.instanceRoot,
+      token: provenanceToken,
+      tokenOrigin: origin,
+      tokenStatus: { ...provenanceStatus, tokenOrigin: origin },
+    });
+    assert.strictEqual(migration.migrated, true, `tokenOrigin ${origin || "absent"} must keep the legacy migration behavior.`);
+    assert.strictEqual(migration.record.state, "enrolled", "A migrated record must be enrolled.");
+    assert.strictEqual(migration.record.legacyMigrated, true, "A migrated record must be flagged as legacy-migrated.");
+    assert.strictEqual(migration.record.tokenFingerprint, tokenFingerprint(provenanceToken), "Migration must bind the persisted credential.");
+  }
+  process.env.AGENT_ENROLLMENT_PATH = path.join(legacyDir, "enrollment.json");
+
   // 8. Binding drift refuses authenticated use with NODE_BINDING_MISMATCH.
   const driftedConfig = { ...legacyConfig, instanceRoot: path.join(legacyRoot, "elsewhere") };
   assert.throws(
@@ -159,6 +214,8 @@ async function main() {
   const afterRotate = enrollmentService.readEnrollmentRecord();
   assert.ok(afterRotate.previousFingerprints.includes(rotated.body.previousFingerprint), "Rotation must append the previous fingerprint.");
   assert.strictEqual(config.token, rotated.body.token, "In-memory credential must follow the rotation.");
+  const rotatedConfigFile = JSON.parse(fs.readFileSync(path.join(configDir, "agent.json"), "utf8"));
+  assert.strictEqual(rotatedConfigFile.tokenOrigin, "enrollment", "Credential rotation must persist tokenOrigin=enrollment.");
   const beforeRotateGeneration = afterRotate.agentIdentityGeneration;
   const rotatedAgain = handleEnrollmentManagement(request({}), url("/api/v1/credentials/rotate"), config);
   assert.notStrictEqual(rotatedAgain.body.agentIdentityGeneration, beforeRotateGeneration, "Each rotation must bump the identity generation.");

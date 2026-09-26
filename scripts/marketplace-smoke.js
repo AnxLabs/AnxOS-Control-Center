@@ -838,8 +838,13 @@ function assertMarketplaceIpcErrorSerialization() {
     assert(
       preloadSource.includes("async function invokeMarketplace") &&
         preloadSource.includes("result.ok === false") &&
-        preloadSource.includes("error.details = result.error.details"),
-      "Preload should reconstruct Marketplace errors with code/details from the IPC envelope."
+        preloadSource.includes("const details = result.error.details || {}") &&
+        preloadSource.includes("code: result.error.code ||"),
+      "Preload should reject with a plain object carrying code/details from the IPC envelope (custom Error properties do not survive the contextBridge)."
+    );
+    assert(
+      !/const error = new Error\(result\.error\.message \|\| result\.error\.friendlyMessage/.test(preloadSource),
+      "Marketplace errors must not be rebuilt as Error instances before crossing the contextBridge."
     );
   } finally {
     Module._load = originalLoad;
@@ -2959,6 +2964,14 @@ function assertMinecraftTemplatesStillPass() {
     assert(Array.isArray(template.downloads) && template.downloads.length > 0, `${template.id} should keep downloads.`);
     assert(template.installScript.includes("generate-eula"), `${template.id} should keep EULA generation.`);
     assert(template.configurationSchema.includes("acceptEula"), `${template.id} should require EULA acceptance.`);
+    // B3: the product provisions Java 21 for Minecraft. A "latest" default
+    // resolves to Minecraft 26.x, which requires Java 25 and crash-loops, so
+    // every Minecraft template must pin a 1.21.x default. Explicit newer
+    // versions stay selectable and are refused pre-flight when incompatible.
+    assert(
+      /^1\.21\.\d+$/.test(String(template.minecraftVersion || "")),
+      `${template.id} should pin a Minecraft 1.21.x default compatible with the provisioned Java 21 runtime.`
+    );
   }
 }
 

@@ -365,6 +365,15 @@ async function runSpawnedAgentLegs() {
   fs.mkdirSync(agentConfigDir, { recursive: true });
   const port = await getFreePort();
   const agentUrl = `http://127.0.0.1:${port}`;
+  // resolveAgentConfigPath() prefers an EXISTING candidate over the missing
+  // temp ANXHUB_AGENT_CONFIG_PATH/ANXHUB_CONFIG_DIR entries, so the isolated
+  // config file must exist before the Agent spawns — otherwise the Agent reads
+  // (and pairing rewrites) the repo's agent/config/agent.json dev fixture.
+  fs.writeFileSync(
+    path.join(agentConfigDir, "agent.json"),
+    `${JSON.stringify({ backendMode: "agent", agentUrl, agentToken: BOOTSTRAP_TOKEN }, null, 2)}\n`,
+    { mode: 0o600 },
+  );
   const child = spawn(process.execPath, [path.join(root, "agent", "src", "server.js")], {
     cwd: path.join(root, "agent"),
     env: {

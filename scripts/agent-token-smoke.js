@@ -5,6 +5,13 @@ const path = require("path");
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "anxos-agent-token-"));
 process.env.ANXHUB_CONFIG_DIR = path.join(root, "config");
+// resolveAgentConfigPath() prefers an EXISTING candidate over a missing one, so
+// the temp config file must exist before the first resolve — otherwise this
+// smoke reads (and rewrites) the repo's config/agent.json instead of its own
+// isolated tree.
+const smokeConfigPath = path.join(process.env.ANXHUB_CONFIG_DIR, "agent.json");
+fs.mkdirSync(path.dirname(smokeConfigPath), { recursive: true });
+fs.writeFileSync(smokeConfigPath, `${JSON.stringify({ backendMode: "agent", agentUrl: "http://127.0.0.1:47131", agentToken: "" }, null, 2)}\n`, { mode: 0o600 });
 
 const {
   AGENT_CONFIG_SCHEMA_VERSION,
@@ -12,6 +19,7 @@ const {
   parseAgentPairingPayload,
   resolveSharedAgentToken,
   rotateSharedAgentToken,
+  writeAgentConfigToken,
 } = require("../src/shared/agentTokenStore");
 const { isAuthorized } = require("../agent/src/auth");
 const { handleHealth } = require("../agent/src/routes/health");
@@ -22,6 +30,95 @@ function request(headers = {}) {
 
 function auth(headers, config = { token: "shared-token" }, pathname = "/api/v1/stats") {
   return isAuthorized(request(headers), config, pathname);
+}
+
+// B1 ownership invariant: a root-run CLI rewrite (`sudo anxos-agent unpair`)
+// must not turn a config owned by the service user into a root-owned file. On
+// POSIX and as root we simulate the packaged install by chowning the target to
+// a foreign uid/gid and assert the atomic writer preserves it. Windows has no
+// uid/gid to preserve (process.getuid is unavailable), so the leg is an
+// explicit SKIP there; a non-root POSIX run asserts the same-owner invariant
+// and reports that the foreign-owner simulation was skipped.
+function ownershipPreservationLeg() {
+  if (process.platform === "win32" || typeof process.getuid !== "function") {
+    console.log("SKIP (win32): atomic-writer ownership preservation is POSIX-only and cannot be asserted on this platform.");
+    return;
+  }
+  const ownershipDir = path.join(root, "ownership");
+  const ownershipPath = path.join(ownershipDir, "agent.json");
+  fs.mkdirSync(ownershipDir, { recursive: true });
+  fs.writeFileSync(
+    ownershipPath,
+    `${JSON.stringify({ backendMode: "agent", agentUrl: "http://127.0.0.1:47131", agentToken: "" }, null, 2)}\n`,
+    { mode: 0o600 },
+  );
+  const initial = fs.statSync(ownershipPath);
+  let expectedUid = initial.uid;
+  let expectedGid = initial.gid;
+  let simulatedForeignOwner = false;
+  if (process.getuid() === 0) {
+    try {
+      fs.chownSync(ownershipPath, 12345, 12345);
+      const foreign = fs.statSync(ownershipPath);
+      expectedUid = foreign.uid;
+      expectedGid = foreign.gid;
+      simulatedForeignOwner = true;
+    } catch {
+      // Cannot simulate a foreign owner from this process.
+    }
+  }
+  const token = `anxos_${"e".repeat(40)}`;
+  writeAgentConfigToken(ownershipPath, token, {});
+  const after = fs.statSync(ownershipPath);
+  assert.strictEqual(after.uid, expectedUid, `the atomic writer must preserve the target uid (${expectedUid}), got ${after.uid}.`);
+  assert.strictEqual(after.gid, expectedGid, `the atomic writer must preserve the target gid (${expectedGid}), got ${after.gid}.`);
+  assert.strictEqual(after.mode & 0o777, 0o600, "the atomic writer must preserve mode 0600.");
+  assert.strictEqual(JSON.parse(fs.readFileSync(ownershipPath, "utf8")).agentToken, token, "the ownership leg must still write the payload.");
+  if (simulatedForeignOwner) {
+    console.log(`ownership leg passed: root-equivalent atomic write preserved uid=${expectedUid} gid=${expectedGid} mode=0600`);
+  } else {
+    console.log("SKIP (posix non-root): foreign-owner simulation requires root; same-owner uid/gid and mode 0600 preservation were asserted instead.");
+  }
+}
+
+// Deterministic branch coverage for the B1 fix, runnable on every platform:
+// stub POSIX availability and observe the atomic writer handing the temp file
+// the TARGET's uid/gid before the rename, and skipping the chown entirely when
+// no target exists. This is the behavior the POSIX leg asserts against a real
+// filesystem; here it is asserted against the call contract itself.
+function ownershipBranchLeg() {
+  const branchDir = path.join(root, "ownership-branch");
+  fs.mkdirSync(branchDir, { recursive: true });
+  const targetPath = path.join(branchDir, "agent.json");
+  const token = `anxos_${"d".repeat(40)}`;
+  fs.writeFileSync(targetPath, `${JSON.stringify({ schemaVersion: AGENT_CONFIG_SCHEMA_VERSION, backendMode: "agent", agentUrl: "http://127.0.0.1:47131", agentToken: "" }, null, 2)}\n`, { mode: 0o600 });
+
+  const realGetuid = process.getuid;
+  const realChownSync = fs.chownSync;
+  const realStatSync = fs.statSync;
+  const chownCalls = [];
+  try {
+    process.getuid = () => 0;
+    fs.statSync = (candidate, ...rest) => (candidate === targetPath ? { uid: 4242, gid: 4343 } : realStatSync(candidate, ...rest));
+    fs.chownSync = (candidate, uid, gid) => { chownCalls.push({ candidate, uid, gid }); };
+    writeAgentConfigToken(targetPath, token, {});
+    assert.strictEqual(chownCalls.length, 1, "an existing target must trigger exactly one chown per replace.");
+    assert.strictEqual(chownCalls[0].uid, 4242, "the temp file must receive the target's uid.");
+    assert.strictEqual(chownCalls[0].gid, 4343, "the temp file must receive the target's gid.");
+    assert(chownCalls[0].candidate !== targetPath && chownCalls[0].candidate.startsWith(`${targetPath}.`), "the chown must target the temp file, never the target path.");
+    assert.strictEqual(JSON.parse(fs.readFileSync(targetPath, "utf8")).agentToken, token, "the replace must still persist the payload.");
+
+    chownCalls.length = 0;
+    const freshPath = path.join(branchDir, "fresh.json");
+    writeAgentConfigToken(freshPath, token, {});
+    assert.strictEqual(chownCalls.length, 0, "a missing target must not trigger a chown.");
+    assert.strictEqual(JSON.parse(fs.readFileSync(freshPath, "utf8")).agentToken, token, "the fresh write must still persist the payload.");
+  } finally {
+    process.getuid = realGetuid;
+    fs.chownSync = realChownSync;
+    fs.statSync = realStatSync;
+  }
+  console.log("ownership branch leg passed: temp file chowned to the target uid/gid before rename; missing target skips chown");
 }
 
 function main() {
@@ -51,6 +148,16 @@ function main() {
   const first = resolveSharedAgentToken();
   assert(first.token && first.token.length > 30, "Shared token should be generated when missing.");
   assert(fs.existsSync(first.configPath), "Shared token should be persisted.");
+  assert.strictEqual(first.tokenOrigin, "generated", "A self-generated credential must report tokenOrigin=generated.");
+  const firstPersisted = JSON.parse(fs.readFileSync(first.configPath, "utf8"));
+  assert.strictEqual(firstPersisted.tokenOrigin, "generated", "A self-generated credential must persist tokenOrigin=generated.");
+
+  // Restart view: a persisted generated credential resolves as shared-config
+  // but keeps its generated provenance, which is what keeps it unenrolled.
+  const restarted = resolveSharedAgentToken();
+  assert.strictEqual(restarted.source, "shared-config", "A persisted credential must resolve as shared-config on restart.");
+  assert.strictEqual(restarted.tokenOrigin, "generated", "A persisted generated credential must keep its provenance across restarts.");
+  assert.strictEqual(restarted.token, first.token, "A restart must reuse the persisted credential.");
 
   process.env.AGENT_TOKEN = "stale-shell-token";
   const conflict = resolveSharedAgentToken();
@@ -60,17 +167,39 @@ function main() {
 
   const configPath = path.join(process.env.ANXHUB_CONFIG_DIR, "agent.json");
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  // Each legacy-config rewrite needs a FRESH verified recovery point: a stale
+  // .schema-v0.backup from the first migration would fail verification against
+  // this new original (and the store is right to refuse that).
+  fs.rmSync(`${configPath}.schema-v0.backup`, { force: true });
   fs.writeFileSync(configPath, `${JSON.stringify({ backendMode: "agent", agentUrl: "http://127.0.0.1:47131", agentToken: "test-token" }, null, 2)}\n`);
   delete process.env.AGENT_TOKEN;
   const replaced = resolveSharedAgentToken();
   assert.notStrictEqual(replaced.token, "test-token", "Weak default token should be replaced.");
   assert.strictEqual(replaced.weakStoredTokenReplaced, true, "Weak token replacement should be reported.");
+  assert.strictEqual(replaced.tokenOrigin, "generated", "A replaced weak token is self-generated and must be marked generated.");
+  assert.strictEqual(JSON.parse(fs.readFileSync(configPath, "utf8")).tokenOrigin, "generated", "The generated provenance must be persisted.");
   assert.strictEqual(JSON.parse(fs.readFileSync(configPath, "utf8")).schemaVersion, AGENT_CONFIG_SCHEMA_VERSION, "Legacy Agent config should migrate to the current schema.");
   assert(fs.existsSync(`${configPath}.schema-v0.backup`), "Legacy Agent config migration should preserve the original file.");
+
+  // Environment bootstrap: adopting an env token must not claim generated
+  // provenance, and must clear a stale marker so the credential keeps the
+  // legacy migration behavior on the next start.
+  const envBootstrapToken = "anxos_environment-bootstrap-token-value-0123456789";
+  fs.writeFileSync(configPath, `${JSON.stringify({ schemaVersion: AGENT_CONFIG_SCHEMA_VERSION, backendMode: "agent", agentUrl: "http://127.0.0.1:47131", agentToken: "", tokenOrigin: "generated" }, null, 2)}\n`, { mode: 0o600 });
+  process.env.AGENT_TOKEN = envBootstrapToken;
+  const bootstrapped = resolveSharedAgentToken();
+  delete process.env.AGENT_TOKEN;
+  assert.strictEqual(bootstrapped.source, "environment-bootstrap", "An env token must resolve as environment-bootstrap.");
+  assert.strictEqual(bootstrapped.tokenOrigin, null, "An environment bootstrap credential must not claim generated provenance.");
+  assert.strictEqual(bootstrapped.token, envBootstrapToken, "The environment token must be adopted.");
+  assert.strictEqual(JSON.parse(fs.readFileSync(configPath, "utf8")).tokenOrigin, undefined, "Adopting an environment token must clear stale generated provenance.");
 
   const rotated = rotateSharedAgentToken();
   assert(rotated.fingerprint && !rotated.fingerprint.includes(rotated.token), "Rotation should provide only a fingerprint for display.");
   assert.notStrictEqual(rotated.token, replaced.token, "Rotation should create a new token.");
+  assert.strictEqual(JSON.parse(fs.readFileSync(configPath, "utf8")).tokenOrigin, "desktop-rotation", "Rotation must persist desktop-rotation provenance.");
+  rotateSharedAgentToken({ updates: { tokenOrigin: "pairing" } });
+  assert.strictEqual(JSON.parse(fs.readFileSync(configPath, "utf8")).tokenOrigin, "pairing", "Explicit caller updates must override the rotation provenance default.");
 
   const pairing = createAgentPairingPayload({ agentUrl: "http://10.0.0.5:47131" });
   assert(pairing.code.startsWith("ANXOS-PAIR."), "Pairing export should produce an AnxOS pairing code.");
@@ -148,6 +277,8 @@ function main() {
     "Corrupt device identity must not generate a replacement identity.",
   );
 
+    ownershipPreservationLeg();
+    ownershipBranchLeg();
     console.log("Agent token smoke checks passed.");
   });
 }

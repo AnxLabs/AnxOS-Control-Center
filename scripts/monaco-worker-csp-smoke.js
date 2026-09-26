@@ -36,6 +36,11 @@ const artifactDir = path.join(root, "artifacts", "monaco-worker-csp", timestamp)
 fs.mkdirSync(artifactDir, { recursive: true });
 
 const ACTION_TIMEOUT_MS = 10_000;
+// Clearing the first-run overlays is the one step that depends on the machine
+// being idle: under load the welcome/gate surfaces appear late and dismissal
+// can take well past the general action budget. Keep the success criteria
+// (overlays must be gone before the next navigation) but give it headroom.
+const OVERLAY_CLEAR_TIMEOUT_MS = 30_000;
 const GLOBAL_TIMEOUT_MS = 120_000;
 const CLEANUP_TIMEOUT_MS = 12_000;
 
@@ -140,17 +145,61 @@ async function dismissFirstRunOverlays(window) {
   return dismissed;
 }
 
+function overlaysAreClear(window) {
+  return window.evaluate(() => {
+    if (document.querySelector('[data-modal-active="true"]')) return false;
+    return !Array.from(document.querySelectorAll(".app-modal-backdrop")).some((node) => !node.hidden);
+  });
+}
+
 // The nav can only be clicked once no overlay marks the shell inert and no
-// backdrop sits over it.
+// backdrop sits over it. A first-run surface can still appear after the initial
+// dismissal: the welcome is deferred ~350ms after setup detection
+// (app.js maybeOpenOnboardingWelcome) and a concurrent settings load re-arms
+// that timer from a snapshot taken before "skip" was persisted, so it can open
+// late and would then never clear on its own. Keep dismissing while waiting
+// instead of failing on the first late overlay; the success criterion is
+// unchanged (no overlay may remain before the next navigation).
 async function waitForOverlaysCleared(window) {
-  try {
-    await window.waitForFunction(() => {
-      if (document.querySelector('[data-modal-active="true"]')) return false;
-      return !Array.from(document.querySelectorAll(".app-modal-backdrop")).some((node) => !node.hidden);
-    }, null, { timeout: ACTION_TIMEOUT_MS });
-  } catch {
-    throw new Error("First-run overlay did not clear before the Files navigation; the next click would be intercepted.");
+  const deadline = Date.now() + OVERLAY_CLEAR_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    if (await overlaysAreClear(window).catch(() => false)) return;
+    await dismissFirstRunOverlays(window).catch(() => {});
+    await window.waitForTimeout(250);
   }
+  const observed = await window.evaluate(() => {
+    const describe = (node) => {
+      if (!node) return { present: false };
+      const style = getComputedStyle(node);
+      const box = node.getBoundingClientRect();
+      return {
+        present: true,
+        hiddenAttribute: node.hidden === true,
+        display: style.display,
+        visibility: style.visibility,
+        opacity: style.opacity,
+        inert: node.inert === true,
+        modalActive: node.dataset.modalActive || null,
+        className: node.className,
+        rect: { width: Math.round(box.width), height: Math.round(box.height) },
+      };
+    };
+    return {
+      activeModalOverlays: Array.from(document.querySelectorAll('[data-modal-active="true"]')).map(describe),
+      visibleBackdrops: Array.from(document.querySelectorAll(".app-modal-backdrop"))
+        .filter((node) => !node.hidden)
+        .map(describe),
+      overlaySurfaces: [
+        "[data-security-gate]",
+        "[data-local-setup-gate]",
+        "[data-onboarding-welcome]",
+        "[data-onboarding-wizard]",
+        "[data-update-modal]",
+        "[data-node-modal]",
+      ].map((selector) => ({ selector, state: describe(document.querySelector(selector)) })),
+    };
+  }).catch((error) => ({ error: `overlay state unreadable: ${error?.message || error}` }));
+  throw new Error(`First-run overlay did not clear before the Files navigation; the next click would be intercepted. Overlay state at timeout: ${redact(JSON.stringify(observed))}`);
 }
 
 // If a delayed first-run surface appears after the initial dismissal, dismiss
