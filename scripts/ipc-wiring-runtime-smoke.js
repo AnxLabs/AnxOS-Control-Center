@@ -82,14 +82,24 @@ const DRIVEN_CALLS = 3;
 // single-digit milliseconds; 15 s is a wide environmental cushion, not a
 // boot-latency measurement. The bootstrap budget is larger because it spans
 // process warm-up, the whenReady startup sequence and the first renderer calls.
-// The watchdog must exceed the sum of the budgets that can elapse in one run,
-// otherwise it pre-empts a diagnosable failure with "timed out".
+// The load-state budget covers the first window's domcontentloaded under
+// full-gate load (the whole `*:smoke` sweep running concurrently), where a
+// cold start was observed to exceed the previous 8 s Playwright default while
+// the same commit passed standalone; the assertion is unchanged, only the
+// budget and the timeout diagnostics are. The watchdog must exceed the sum of
+// the budgets that can elapse in one run, otherwise it pre-empts a diagnosable
+// failure with "timed out".
 // ---------------------------------------------------------------------------
+const LOAD_STATE_BUDGET_MS = 30000;
 const CONDITION_BUDGET_MS = 15000;
 const BOOTSTRAP_BUDGET_MS = 45000;
 const CONDITION_POLL_MS = 100;
 const MAX_WAIT_BUDGETS_PER_RUN = 10; // observes 1 bootstrap + up to 9 conditions today
-const WATCHDOG_MS = BOOTSTRAP_BUDGET_MS + MAX_WAIT_BUDGETS_PER_RUN * CONDITION_BUDGET_MS + 30000;
+const WATCHDOG_MS = LOAD_STATE_BUDGET_MS + BOOTSTRAP_BUDGET_MS + MAX_WAIT_BUDGETS_PER_RUN * CONDITION_BUDGET_MS + 30000;
+
+// Labels of waits in flight right now, so a load-state timeout can report what
+// else was outstanding instead of failing opaquely.
+const pendingWaits = new Set();
 
 function redacted(value) {
   return String(value || "").replace(/(token|password|secret|authorization|cookie|session)[=:]\S+/gi, "$1=[redacted]");
@@ -130,25 +140,81 @@ async function waitForCondition(appProcess, { label, probe, budgetMs = CONDITION
   const attempts = Math.max(1, Math.ceil(budgetMs / intervalMs));
   const startedAt = Date.now();
   let lastState = "no observation recorded";
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    if (appProcess && (appProcess.exitCode !== null || appProcess.signalCode !== null)) {
-      throw new Error(
-        `${label} can never become true: the application exited (code=${appProcess.exitCode} signal=${appProcess.signalCode}) after ${Date.now() - startedAt} ms. Last observed state: ${lastState}`,
-      );
+  pendingWaits.add(label);
+  try {
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      if (appProcess && (appProcess.exitCode !== null || appProcess.signalCode !== null)) {
+        throw new Error(
+          `${label} can never become true: the application exited (code=${appProcess.exitCode} signal=${appProcess.signalCode}) after ${Date.now() - startedAt} ms. Last observed state: ${lastState}`,
+        );
+      }
+      try {
+        const observation = await probe();
+        lastState = redacted(observation.state);
+        if (observation.ready) return observation.value;
+      } catch (error) {
+        lastState = redacted(`probe could not observe anything: ${error?.message || String(error)}`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
     }
-    try {
-      const observation = await probe();
-      lastState = redacted(observation.state);
-      if (observation.ready) return observation.value;
-    } catch (error) {
-      lastState = redacted(`probe could not observe anything: ${error?.message || String(error)}`);
-    }
-    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    throw new Error(
+      `${label} did not become true within ${Date.now() - startedAt} ms of polling ` +
+      `(budget ${budgetMs} ms, ${attempts} polls at ${intervalMs} ms). Last observed state: ${lastState}`,
+    );
+  } finally {
+    pendingWaits.delete(label);
   }
-  throw new Error(
-    `${label} did not become true within ${Date.now() - startedAt} ms of polling ` +
-    `(budget ${budgetMs} ms, ${attempts} polls at ${intervalMs} ms). Last observed state: ${lastState}`,
-  );
+}
+
+// The main window's load-state gate. On timeout, dump the state that would
+// otherwise be lost with the Playwright error: URL/title/readyState, process
+// liveness, renderer errors captured so far, the tail of main-process output
+// and any waits still in flight.
+async function waitForMainWindowLoad(page, appProcess, rendererErrors, mainLogs) {
+  const label = "the main window must reach domcontentloaded";
+  pendingWaits.add(label);
+  try {
+    await page.waitForLoadState("domcontentloaded", { timeout: LOAD_STATE_BUDGET_MS });
+  } catch (error) {
+    throw new Error(`${label} within ${LOAD_STATE_BUDGET_MS} ms: ${error?.message || error}\n${await collectLoadStateDiagnostics(page, appProcess, rendererErrors, mainLogs)}`);
+  } finally {
+    pendingWaits.delete(label);
+  }
+}
+
+async function collectLoadStateDiagnostics(page, appProcess, rendererErrors, mainLogs) {
+  // Bound every probe: with the renderer hung, an unbounded title/evaluate call
+  // would burn the full default timeout per probe before the real error printed.
+  const settleWithin = (promise, timeoutMs, fallback) => {
+    let timer;
+    return Promise.race([
+      promise,
+      new Promise((resolve) => { timer = setTimeout(() => resolve(fallback), timeoutMs); }),
+    ]).finally(() => clearTimeout(timer));
+  };
+  const lines = [];
+  try {
+    lines.push(`page.url=${redacted(page.url())}`);
+  } catch (error) {
+    lines.push(`page.url unreadable: ${error?.message || error}`);
+  }
+  try {
+    lines.push(`page.title=${redacted(await settleWithin(page.title(), 5000, "<unreadable within 5 s>"))}`);
+  } catch (error) {
+    lines.push(`page.title unreadable: ${error?.message || error}`);
+  }
+  try {
+    const readyState = await settleWithin(page.evaluate(() => document.readyState), 5000, "<unreadable within 5 s>");
+    lines.push(`document.readyState=${readyState}`);
+  } catch (error) {
+    lines.push(`document.readyState unreadable: ${error?.message || error}`);
+  }
+  lines.push(`app process: exitCode=${appProcess?.exitCode ?? null} signalCode=${appProcess?.signalCode ?? null}`);
+  lines.push(`pending waits: ${pendingWaits.size ? [...pendingWaits].join(" | ") : "none"}`);
+  lines.push(rendererErrors.length ? `renderer errors (${rendererErrors.length}): ${rendererErrors.slice(-5).join(" | ")}` : "renderer errors: none captured");
+  const mainTail = mainLogs.slice(-8).map((entry) => entry.trim()).filter(Boolean);
+  if (mainTail.length) lines.push(`main-process tail: ${mainTail.join(" | ")}`);
+  return `  load-state diagnostics:\n    ${lines.join("\n    ")}`;
 }
 
 async function main() {
@@ -180,8 +246,13 @@ async function main() {
     appProcess.stderr?.on("data", onMainOutput);
 
     const page = await app.firstWindow();
-    page.setDefaultTimeout(8000);
-    await page.waitForLoadState("domcontentloaded");
+    const rendererErrors = [];
+    page.on("console", (message) => {
+      if (message.type() === "error") rendererErrors.push(redacted(`console-error: ${message.text()}`));
+    });
+    page.on("pageerror", (error) => rendererErrors.push(redacted(`pageerror: ${error?.stack || error?.message || String(error)}`)));
+    page.setDefaultTimeout(LOAD_STATE_BUDGET_MS);
+    await waitForMainWindowLoad(page, appProcess, rendererErrors, mainLogs);
 
     // Bootstrap: the preload bridge must exist in the renderer's main world and
     // at least one IPC record must already be in the log. If the running lane
