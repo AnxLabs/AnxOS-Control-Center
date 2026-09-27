@@ -2,7 +2,8 @@ const ASSET_MATCHERS = {
   windows: (name) => /\.exe$/i.test(name) && /setup/i.test(name),
   "windows-portable": (name) => /\.exe$/i.test(name) && /portable/i.test(name),
   "linux-appimage": (name) => /\.appimage$/i.test(name),
-  "linux-deb": (name) => /\.deb$/i.test(name),
+  "linux-deb": (name) => /\.deb$/i.test(name) && /control-center/i.test(name),
+  "linux-agent-deb": (name) => /\.deb$/i.test(name) && /agent/i.test(name),
 };
 const OFFICIAL_RELEASE_REPOSITORY = "AnxLabs/AnxOS-Control-Center-Releases";
 
