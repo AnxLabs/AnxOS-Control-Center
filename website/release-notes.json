@@ -1,6 +1,31 @@
 [
   {
     "version": "2.0",
+    "build": 205,
+    "channel": "Private Alpha",
+    "tag": "v2.0-build205-rc3",
+    "date": "September 26, 2026",
+    "datetime": "2026-09-27",
+    "title": "AnxOS Control Center v2.0 — Build 205",
+    "summary": "Build 205 makes the Agent usable on a headless server and brings the same Agent runtime to every surface: the Control Center Agent Control GUI, the `anxos-agent` CLI/TUI, and the Control Center protocol/API. Pairing, identity, authentication, and lifecycle logic keep one authoritative implementation",
+    "changes": [
+      "**Headless Agent CLI/TUI.** A Linux server with no desktop can install the Agent and manage it from the terminal. Running `anxos-agent` opens the TUI, with subcommands for `status`, `pair`, `service status|start|stop|restart`, `logs`, `diagnostics`, `update --check`, `unpair`, `--help`, and `--version`.",
+      "**Official Agent package.** `AnxOS-Agent-<version>.deb` for Debian 11+/Ubuntu 22.04+ x64 (glibc >= 2.28), installed as the `anxos-agent.service` systemd system unit, with an `AnxOS-Agent-<version>.deb.sha256` checksum file published alongside the package in `sha256sum -c` format so the download can be verified before install.",
+      "**Add Computer, redesigned.** Adding a computer now offers both paths — a desktop computer or a headless server — with the instructions and pairing steps for each, instead of a single ambiguous flow.",
+      "**Pairing friction.** The headless path no longer requires a source checkout or developer commands; pairing uses a one-time code from the TUI or `anxos-agent pair`, entered under Add Computer.",
+      "**Honest status on headless nodes.** Status, logs, and diagnostics come from the same runtime as the desktop surfaces, so a headless Agent reports the same state the GUI would show instead of a reduced summary.",
+      "**Headless pairing presentation.** The Agent CLI/TUI now shows the full pasteable pairing code — with the short `ANX-XXXX-XXXX-XXXX` kept separately as a reference code — exactly as Control Center redeems it, closing the golden-path gap where the short reference code alone was rejected as invalid.",
+      "**Marketplace dependency recovery.** Structured Marketplace errors now cross the Control Center IPC bridge intact (`code`, suggestion, and `details.missingDependencies` are preserved), so the \"prepare node / missing Java\" recovery path is offered instead of dead-ending.",
+      "**Minecraft defaults and honest install outcomes.** Minecraft templates now default to a Java-21-compatible version (1.21.11); Paper/Vanilla pre-flight refuses a version that needs a newer Java with a clear required-vs-available message; and an install whose started process crash-loops now fails honestly (`START_FAILED`) instead of reporting Complete.",
+      "**Package upgrade applies immediately.** Upgrading the Agent `.deb` now best-effort restarts the running service (`systemctl try-restart`) so the new payload takes effect without a manual restart; fresh installs are unchanged.",
+      "**Safety defaults are unchanged.** The Agent binds loopback (`127.0.0.1`) by default; enabling another computer to connect is an explicit opt-in. While a reachable Agent is not yet paired, anyone who can reach it could claim it, so pair promptly.",
+      "Pairing codes are one-time and valid for 10 minutes. Full tokens never appear in the UI, logs, or diagnostics; no authentication, authorization, loopback, or redaction check was weakened in this build.",
+      "Supported headless platforms: Debian 11+ and Ubuntu 22.04+ x64 with glibc >= 2.28. Other distributions and architectures are not supported."
+    ],
+    "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v2.0-build205-rc3"
+  },
+  {
+    "version": "2.0",
     "build": 204,
     "channel": "Private Alpha",
     "tag": "v2.0-build204-rc4",
