@@ -2,6 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
+    <script>document.documentElement.classList.add("js");setTimeout(function(){if(!window.__anxMotionReady){document.documentElement.classList.remove("js")}},5000);</script>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>AnxOS Control Center | Account</title>
     <meta name="description" content="Review your AnxOS account devices, sessions, and security state.">
@@ -22,27 +23,30 @@
     <script src="/site.js" defer></script>
   </head>
   <body data-standalone-route="account">
+    <a class="skip-link" href="#main">Skip to content</a>
     <header class="site-header">
-      <a class="brand" href="/" aria-label="AnxOS home">
-        <span class="brand-mark"><img data-logo src="/assets/anxos-logo.png" alt=""></span>
-        <span class="brand-copy"><strong data-config="brandName">AnxOS</strong><span>Account</span></span>
-      </a>
-      <button class="site-menu-button" type="button" data-site-menu-toggle aria-expanded="false" aria-controls="site-nav">Menu</button>
-      <nav class="site-nav" id="site-nav" data-site-nav aria-label="Primary">
-        <a href="/release-notes.html">Release</a>
-        <a href="/release-notes.html">Release Notes</a>
-        <a href="/features">Features</a>
-        <a href="/getting-started">Getting Started</a>
-        <a href="/download">Download</a>
-        <a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a>
-        <a class="site-nav__cta" href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a>
-        <a href="/profile" data-auth-nav="signed-in" hidden>Profile</a>
-        <button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button>
-      </nav>
+      <div class="site-header__inner">
+        <a class="brand" href="/" aria-label="AnxOS home">
+          <span class="brand-mark"><img data-logo src="/assets/anxos-logo.png" alt=""></span>
+          <span class="brand-copy"><strong data-config="brandName">AnxOS</strong><span>Local-first server control</span></span>
+        </a>
+        <button class="site-menu-button" type="button" data-site-menu-toggle aria-expanded="false" aria-controls="site-nav">Menu</button>
+        <nav class="site-nav" id="site-nav" data-site-nav aria-label="Primary">
+          <a href="/features">Features</a>
+          <a href="/getting-started">Getting Started</a>
+          <a href="/setup">Setup</a>
+          <a href="/download">Download</a>
+          <a href="/release-notes.html">Release Notes</a>
+          <a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a>
+          <a class="site-nav__cta" href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a>
+          <a href="/profile" data-auth-nav="signed-in" hidden>Profile</a>
+          <button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button>
+        </nav>
+      </div>
     </header>
-    <main id="account-page">
+    <main id="main">
       <section id="account" class="section-shell account-route account-route--active" data-account-route="account">
-        <div class="account-route__copy">
+        <div class="account-route__copy" data-reveal>
           <p class="eyebrow">Account</p>
           <h2>AnxOS Account</h2>
           <p>Review devices, sessions, account security, password recovery, and signed-in account status.</p>
@@ -77,7 +81,7 @@
                 <button class="button button-ghost" type="button" data-auth-action="signout">Sign Out</button>
               </div>
             </div>
-            <div class="profile-summary-card">
+            <div class="profile-summary-card" data-reveal>
               <div class="profile-avatar" data-profile-avatar aria-hidden="true">A</div>
               <div>
                 <strong data-profile-summary-name>AnxOS Account</strong>
@@ -86,7 +90,7 @@
               <a class="button button-ghost" href="/profile">Edit Profile</a>
             </div>
             <div class="account-dashboard-grid">
-              <section class="account-subpanel" id="account-devices">
+              <section class="account-subpanel" id="account-devices" data-reveal data-reveal-delay="1">
                 <div class="account-subpanel__heading">
                   <h4>My Devices</h4>
                   <div class="account-subpanel__actions">
@@ -96,7 +100,7 @@
                 </div>
                 <div data-account-devices class="account-list"></div>
               </section>
-              <section class="account-subpanel">
+              <section class="account-subpanel" data-reveal data-reveal-delay="2">
                 <div class="account-subpanel__heading">
                   <h4>Active Sessions</h4>
                   <div class="account-subpanel__actions">
@@ -107,7 +111,7 @@
                 </div>
                 <div data-account-sessions class="account-list"></div>
               </section>
-              <section class="account-subpanel" id="account-security">
+              <section class="account-subpanel" id="account-security" data-reveal data-reveal-delay="3">
                 <div class="account-subpanel__heading">
                   <div>
                     <h4>Security History</h4>
@@ -125,7 +129,7 @@
                 </div>
                 <div data-account-events class="account-list"></div>
               </section>
-              <section class="account-subpanel account-cleanup-panel">
+              <section class="account-subpanel account-cleanup-panel" data-reveal data-reveal-delay="3">
                 <div class="account-subpanel__heading">
                   <div>
                     <h4>Account Data Cleanup</h4>
@@ -148,16 +152,11 @@
 
     </main>
     <footer class="site-footer">
-      <div><strong>AnxOS Control Center</strong><span>© 2026 AnxOS Control Center · anxoscontrolcenter.org</span></div>
-      <nav aria-label="Footer">
-        <a href="/">Home</a>
-        <a href="/download">Download</a>
-        <a href="/features">Features</a>
-        <a href="/getting-started">Getting Started</a>
-        <a href="/release-notes.html">Release Notes</a>
-        <a href="/account?section=security">Security</a>
-        <a data-config-href="repositoryUrl" href="https://github.com/AnxLabs/AnxOS-Control-Center-Releases">GitHub</a>
-      <a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a><a href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button></nav>
+      <div class="site-footer__brand"><strong>AnxOS Control Center</strong><span>© 2026 AnxOS Control Center · anxoscontrolcenter.org</span><span class="site-footer__note">Private Alpha · <a href="/security-privacy">Security &amp; Privacy</a></span></div>
+      <nav class="site-footer__nav" aria-label="Footer">
+        <a href="/">Home</a><a href="/features">Features</a><a href="/getting-started">Getting Started</a><a href="/setup">Setup</a><a href="/download">Download</a><a href="/release-notes.html">Release Notes</a><a href="/security-privacy">Security</a><a href="/faq">FAQ</a><a data-config-href="repositoryUrl" href="https://github.com/AnxLabs/AnxOS-Control-Center-Releases">GitHub</a>
+        <a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a><a href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button>
+      </nav>
     </footer>
     <div class="toast-region" data-toast-region aria-live="polite" aria-atomic="true"></div>
     <div class="confirm-modal" data-confirm-modal data-cleanup-modal hidden>

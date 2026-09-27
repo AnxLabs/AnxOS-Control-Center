@@ -2,9 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
+    <script>document.documentElement.classList.add("js");setTimeout(function(){if(!window.__anxMotionReady){document.documentElement.classList.remove("js")}},5000);</script>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>AnxOS Control Center | Features</title>
-    <meta name="description" content="Explore AnxOS Control Center features for servers, remote nodes, files, diagnostics, and operations.">
+    <meta name="description" content="See what AnxOS Control Center 2.0 does: add this PC or remote AnxOS Agent nodes, install game servers from the Marketplace, and run console, files, logs, health, backups, updates, and public access from one desktop app.">
     <meta name="robots" content="index,follow">
     <meta name="theme-color" content="#07020f">
     <link rel="canonical" href="https://anxoscontrolcenter.org/features">
@@ -14,6 +15,15 @@
     <link rel="icon" type="image/png" sizes="16x16" href="/assets/favicon-16.png">
     <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
     <link rel="manifest" href="/site.webmanifest">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="AnxOS Control Center">
+    <meta property="og:title" content="AnxOS Control Center | Features">
+    <meta property="og:description" content="A local-first desktop control center for the machines you own: add nodes, install game servers, and operate them day to day. Private Alpha, Version 2.0 Build 205.">
+    <meta property="og:url" content="https://anxoscontrolcenter.org/features">
+    <meta property="og:image" content="https://anxoscontrolcenter.org/assets/social-preview.png?v=04c80a572768">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="AnxOS Control Center | Features">
+    <meta name="twitter:description" content="A local-first desktop control center for the machines you own: add nodes, install game servers, and operate them day to day.">
     <link rel="stylesheet" href="/styles.css">
     <script src="/config.js" defer></script>
     <script src="/account-config.js" defer></script>
@@ -22,6 +32,7 @@
     <script src="/site.js" defer></script>
   </head>
   <body data-standalone-route="features">
+    <a class="skip-link" href="#main">Skip to content</a>
     <svg class="svg-defs" aria-hidden="true">
       <symbol id="icon-download" viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v3h16v-3"/></symbol>
       <symbol id="icon-github" viewBox="0 0 24 24"><path d="M9 19c-4 1.5-4-2-5-2.5M15 22v-3.5c0-1 .2-1.4-.5-2 2.6-.3 5.5-1.3 5.5-6a4.7 4.7 0 0 0-1.3-3.3c.1-.3.5-1.7-.1-3.2 0 0-1.1-.3-3.5 1.3a12.2 12.2 0 0 0-6.2 0C6.5 3.7 5.4 4 5.4 4c-.6 1.5-.2 2.9-.1 3.2A4.7 4.7 0 0 0 4 10.5c0 4.7 2.9 5.7 5.5 6-.7.6-.7 1.2-.6 2V22"/></symbol>
@@ -32,72 +43,283 @@
       <symbol id="icon-refresh" viewBox="0 0 24 24"><path d="M20 6v5h-5M4 18v-5h5M18.5 9A7 7 0 0 0 6.7 6.7L4 9m16 6-2.7 2.3A7 7 0 0 1 5.5 15"/></symbol>
       <symbol id="icon-file" viewBox="0 0 24 24"><path d="M14 3H6v18h12V7zM14 3v4h4M8 13h8M8 17h5"/></symbol>
       <symbol id="icon-node" viewBox="0 0 24 24"><path d="M12 4v6M12 14v6M6 10h12M6 14h12M5 8h2v8H5zM17 8h2v8h-2z"/></symbol>
+      <symbol id="icon-monitor" viewBox="0 0 24 24"><path d="M4 5h16v10H4zM9 19h6M12 15v4"/></symbol>
+      <symbol id="icon-globe" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/></symbol>
     </svg>
 
-    <header class="site-header">
-      <a class="brand" href="/" aria-label="AnxOS home">
-        <span class="brand-mark"><img data-logo src="/assets/anxos-logo.png" alt=""></span>
-        <span class="brand-copy"><strong data-config="brandName">AnxOS</strong><span>Features</span></span>
-      </a>
-      <button class="site-menu-button" type="button" data-site-menu-toggle aria-expanded="false" aria-controls="site-nav">Menu</button>
-      <nav class="site-nav" id="site-nav" data-site-nav aria-label="Primary">
-        <a href="/release-notes.html">Release Notes</a>
-        <a href="/features">Features</a>
-        <a href="/getting-started">Getting Started</a>
-        <a href="/setup">Setup Guide</a>
-        <a href="/download">Download</a>
-        <a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a>
-        <a class="site-nav__cta" href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a>
-        <a href="/profile" data-auth-nav="signed-in" hidden>Profile</a>
-        <button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button>
-      </nav>
-    </header>
-    <main id="features-page">
-      <section id="features" class="section-shell">
-        <div class="section-heading">
+    <header class="site-header"><div class="site-header__inner"><a class="brand" href="/" aria-label="AnxOS home"><span class="brand-mark"><img data-logo src="/assets/anxos-logo.png" alt=""></span><span class="brand-copy"><strong data-config="brandName">AnxOS</strong><span>Local-first server control</span></span></a><button class="site-menu-button" type="button" data-site-menu-toggle aria-expanded="false" aria-controls="site-nav">Menu</button><nav class="site-nav" id="site-nav" data-site-nav aria-label="Primary"><a href="/features">Features</a><a href="/getting-started">Getting Started</a><a href="/setup">Setup</a><a href="/download">Download</a><a href="/release-notes.html">Release Notes</a><a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a><a class="site-nav__cta" href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button></nav></div></header>
+
+    <main id="main">
+      <section id="overview" class="section-shell hero">
+        <div class="hero-copy" data-reveal>
           <p class="eyebrow">Features</p>
           <h1>Built for server work</h1>
+          <p class="lede">AnxOS Control Center is a local-first desktop workspace for the machines you own. Add this PC or a remote AnxOS Agent node, install game servers from the Marketplace, and run the day-to-day operations from one window.</p>
+          <div>
+            <span class="badge badge--alpha">Private Alpha</span>
+            <span class="badge">Version 2.0 · Build 205</span>
+          </div>
+          <div class="hero-actions">
+            <a class="button button--primary" href="/download">Download AnxOS</a>
+            <a class="button button--ghost" href="/getting-started">First server workflow</a>
+          </div>
         </div>
-        <div class="feature-grid">
-          <article class="feature-card"><svg><use href="#icon-server"></use></svg><h3>Minecraft server management</h3><p>Create, monitor, start, stop, and inspect Minecraft instances from one desktop workspace.</p></article>
-          <article class="feature-card"><svg><use href="#icon-package"></use></svg><h3>Modpack marketplace installs</h3><p>Browse provider packs and install CurseForge or Modrinth servers with guided manual-download recovery.</p></article>
-          <article class="feature-card"><svg><use href="#icon-node"></use></svg><h3>Remote Windows and Linux agent support</h3><p>Connect the app to a Windows or Linux node for controlled file, command, and service operations.</p></article>
-          <article class="feature-card"><svg><use href="#icon-terminal"></use></svg><h3>Logs, files, commands, and stats</h3><p>Work inside logs, file tools, command panels, server stats, and runtime views without changing apps.</p></article>
-          <article class="feature-card"><svg><use href="#icon-refresh"></use></svg><h3>Auto-update support</h3><p>Use Check for update to pull the newest GitHub release when a new build is published.</p></article>
-        </div>
-      </section>
-
-      <section id="local-agent" class="section-shell local-agent-section">
-        <div class="section-heading">
-          <p class="eyebrow">Local Agent</p>
-          <h2>Run Everything on Your Own PC</h2>
-          <p class="section-copy">The AnxOS Local Agent securely connects the desktop app to services running on your computer. It handles server processes, files, dependencies, backups, and networking while keeping your data on your own machine.</p>
-          <p class="section-copy">Normal Windows users do not need Anx's Debian server. The Local Agent can run as a Windows service, remote servers remain optional, authentication is configured automatically, and you can stop or uninstall it when you no longer need it.</p>
-        </div>
-        <div class="local-agent-grid">
-          <article class="feature-card"><svg><use href="#icon-node"></use></svg><h3>Runs Locally</h3><p>Manage servers and files on This PC without sending work to a developer-owned Debian machine.</p></article>
-          <article class="feature-card"><svg><use href="#icon-package"></use></svg><h3>Automatic Setup</h3><p>AnxOS installs the managed Agent runtime and prepares the folders it needs from inside the app.</p></article>
-          <article class="feature-card"><svg><use href="#icon-refresh"></use></svg><h3>Starts with Windows</h3><p>The Local Agent can run as a Windows service, so the desktop app does not need to stay open.</p></article>
-          <article class="feature-card"><svg><use href="#icon-shield"></use></svg><h3>No Token Copying</h3><p>Local pairing is handled automatically on your own computer without asking you to paste Agent tokens.</p></article>
-          <article class="feature-card"><svg><use href="#icon-server"></use></svg><h3>Remote Servers Optional</h3><p>You can still add a VPS, NAS, Debian server, Windows Server, or Raspberry Pi later.</p></article>
-          <article class="feature-card"><svg><use href="#icon-terminal"></use></svg><h3>Easy Repair and Updates</h3><p>Agent diagnostics, repair, and updates stay inside AnxOS instead of requiring terminal commands.</p></article>
+        <div class="hero__visual" data-reveal data-reveal-delay="2">
+          <picture>
+            <source type="image/webp" srcset="/assets/product/control-center-dashboard.webp">
+            <img class="shot shot--hero" src="/assets/product/control-center-dashboard.png" width="1500" height="950" loading="lazy" alt="The AnxOS Control Center dashboard showing this computer's status, running servers, node health, metrics freshness, and a recommended next step to create a server.">
+          </picture>
         </div>
       </section>
 
+      <section id="control-plane" class="section">
+        <div class="section-shell">
+          <div class="section-head" data-reveal>
+            <p class="eyebrow">One control plane</p>
+            <h2>One control plane for machines you own</h2>
+            <p class="section-copy">Every machine AnxOS manages is a node. This PC runs Control Center with its built-in local Agent; other computers run the official AnxOS Agent and appear in the same Nodes view. The hardware, the network, and the data stay yours.</p>
+          </div>
+          <div class="split">
+            <ul class="trust-list" data-reveal>
+              <li class="trust-item"><strong>This PC</strong>The computer running Control Center is managed locally. On Windows the built-in Local Agent can run as a service, so the desktop app does not need to stay open.</li>
+              <li class="trust-item"><strong>Remote Agent nodes</strong>Add a Windows desktop or a headless Debian/Ubuntu server by installing the official AnxOS Agent there and pairing it with a one-time code.</li>
+              <li class="trust-item"><strong>Node health</strong>The Nodes view summarizes total, online, and offline nodes, Docker availability, connected Agent state, and health issues to review.</li>
+            </ul>
+            <div data-reveal data-reveal-delay="2">
+              <picture>
+                <source type="image/webp" srcset="/assets/product/control-center-nodes.webp">
+                <img class="shot" src="/assets/product/control-center-nodes.png" width="1500" height="950" loading="lazy" alt="The Nodes view with this PC registered as a local Windows Desktop node: one total node, one online, zero offline, and a node health warning with three issues to review.">
+              </picture>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="add-computer" class="section">
+        <div class="section-shell">
+          <div class="section-head" data-reveal>
+            <p class="eyebrow">Add computers</p>
+            <h2>Add any computer in minutes</h2>
+            <p class="section-copy">Whether the machine sits next to you or in a rack, adding it follows the same idea: install, generate a one-time pairing code on that machine, and paste it here once. Normal setup never asks you to copy an Agent token.</p>
+          </div>
+          <div class="split">
+            <div data-reveal>
+              <div class="grid-2">
+                <article class="feature">
+                  <span class="feature__icon"><svg><use href="#icon-monitor"></use></svg></span>
+                  <h3>Desktop computer</h3>
+                  <p>Install AnxOS Control Center on that PC, open <strong>Agent Control</strong>, turn on &ldquo;Another computer will connect to this one&rdquo;, then generate a pairing code and paste it into <strong>Pair with Code</strong> here. Both computers need to be on the same network or tailnet.</p>
+                </article>
+                <article class="feature">
+                  <span class="feature__icon"><svg><use href="#icon-terminal"></use></svg></span>
+                  <h3>Headless server</h3>
+                  <p>Install the official AnxOS Agent package on Debian 11+ or Ubuntu 22.04+ x64. It runs as a systemd service with its own CLI/TUI, shows a pairing code, and appears in Nodes after you paste it here once.</p>
+                </article>
+              </div>
+              <div class="route-actions">
+                <a class="button button--ghost" href="/setup">Open the setup guide</a>
+              </div>
+            </div>
+            <div data-reveal data-reveal-delay="2">
+              <picture>
+                <source type="image/webp" srcset="/assets/product/control-center-add-computer.webp">
+                <img class="shot" src="/assets/product/control-center-add-computer.png" width="1500" height="950" loading="lazy" alt="The Add Computer dialog with two paths: install AnxOS on a desktop computer, or install the Agent package on a headless Debian or Ubuntu server, then paste a full one-time pairing code.">
+              </picture>
+            </div>
+          </div>
+          <div class="callout callout--info" data-reveal>
+            <strong>Pair with Code is the recommended path</strong>
+            <p>Direct Agent URL and token setup is an Advanced option for development, recovery, or older Agents &mdash; normal setup never requires it.</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="marketplace" class="section">
+        <div class="section-shell">
+          <div class="section-head" data-reveal>
+            <p class="eyebrow">Marketplace</p>
+            <h2>Run servers and game servers</h2>
+            <p class="section-copy">The Marketplace installs server templates onto the node you choose, and the console, files, logs, health, and backups attach to whatever you create.</p>
+          </div>
+          <div class="split">
+            <ul class="trust-list" data-reveal>
+              <li class="trust-item"><strong>Minecraft Java editions and modpacks</strong>Browse templates such as Vanilla and Paper and install them on the selected node.</li>
+              <li class="trust-item"><strong>SteamCMD titles</strong>Palworld, Valheim, Rust, Counter-Strike 2, and Terraria.</li>
+              <li class="trust-item"><strong>FiveM &mdash; Experimental</strong>Labeled Experimental in the Marketplace and requires your own FiveM license key.</li>
+            </ul>
+            <div data-reveal data-reveal-delay="2">
+              <picture>
+                <source type="image/webp" srcset="/assets/product/control-center-marketplace.webp">
+                <img class="shot" src="/assets/product/control-center-marketplace.png" width="1180" height="780" loading="lazy" alt="The Marketplace with template search and category filters, a target node selector, and Minecraft Vanilla and Minecraft Paper templates shown as available.">
+              </picture>
+            </div>
+          </div>
+          <div class="flow" data-reveal>
+            <div class="flow-step">
+              <span class="flow-step__index">1</span>
+              <strong>Create</strong>
+              <p>Pick a template and a target node. Prepare Node makes sure the runtimes the template needs are present first.</p>
+            </div>
+            <div class="flow-step">
+              <span class="flow-step__index">2</span>
+              <strong>Starting</strong>
+              <p>The template installs and boots. Instances follows the server from starting to running.</p>
+            </div>
+            <div class="flow-step">
+              <span class="flow-step__index">3</span>
+              <strong>Running</strong>
+              <p>Console, files, logs, health, and backups are available for the running server.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="operations" class="section">
+        <div class="section-shell">
+          <div class="section-head" data-reveal>
+            <p class="eyebrow">Operations</p>
+            <h2>Operate it day to day</h2>
+            <p class="section-copy">Server work is more than pressing Start. These are the tools you live in once an instance exists.</p>
+          </div>
+          <div class="grid-3">
+            <article class="feature" data-reveal data-reveal-delay="1">
+              <span class="feature__icon"><svg><use href="#icon-terminal"></use></svg></span>
+              <h3>Console and commands</h3>
+              <p>Send commands and read the output live, on this PC or a remote Agent node. Longer jobs are tracked as background operations.</p>
+            </article>
+            <article class="feature" data-reveal data-reveal-delay="2">
+              <span class="feature__icon"><svg><use href="#icon-file"></use></svg></span>
+              <h3>Files</h3>
+              <p>Browse, edit, upload, and download instance files from the same window as the console.</p>
+            </article>
+            <article class="feature" data-reveal data-reveal-delay="3">
+              <span class="feature__icon"><svg><use href="#icon-shield"></use></svg></span>
+              <h3>Logs and diagnostics</h3>
+              <p>Sanitized logs with fingerprinted credentials: diagnostics are designed to strip secrets before you read or share them.</p>
+            </article>
+            <article class="feature" data-reveal data-reveal-delay="4">
+              <span class="feature__icon"><svg><use href="#icon-server"></use></svg></span>
+              <h3>Health and metrics</h3>
+              <p>Node health, issue counts, and metrics freshness roll up on the Dashboard so problems surface early.</p>
+            </article>
+            <article class="feature" data-reveal data-reveal-delay="5">
+              <span class="feature__icon"><svg><use href="#icon-package"></use></svg></span>
+              <h3>Backups</h3>
+              <p>Back up and restore server data from the app, and keep copies on storage you control.</p>
+            </article>
+            <article class="feature" data-reveal data-reveal-delay="6">
+              <span class="feature__icon"><svg><use href="#icon-refresh"></use></svg></span>
+              <h3>Updates</h3>
+              <p>Check for Control Center updates inside Settings. Windows builds are code-signed; Linux packages and the Agent ship with SHA-256 checksums.</p>
+            </article>
+          </div>
+          <div class="split">
+            <div data-reveal>
+              <h3>Updates stay visible</h3>
+              <p class="section-copy">Settings &rsaquo; Updates shows the current version and build, the release channel, the last update check, and whether a newer release exists.</p>
+              <ul class="trust-list">
+                <li class="trust-item"><strong>Signed Windows installer</strong>The Windows installer is code-signed. Linux packages and the Agent are not code-signed and ship with SHA-256 checksums.</li>
+                <li class="trust-item"><strong>Version 2.0 · Build 205</strong>Private Alpha, September 26, 2026.</li>
+              </ul>
+            </div>
+            <div data-reveal data-reveal-delay="2">
+              <picture>
+                <source type="image/webp" srcset="/assets/product/control-center-settings-updates.webp">
+                <img class="shot" src="/assets/product/control-center-settings-updates.png" width="1500" height="950" loading="lazy" alt="Settings showing the Updates panel: Version 2.0, Build 205, the Private Alpha channel, the last update check, and the status You're up to date.">
+              </picture>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="public-access" class="section">
+        <div class="section-shell">
+          <div class="section-head" data-reveal>
+            <p class="eyebrow">Public access</p>
+            <h2>Reach it from anywhere, on your terms</h2>
+            <p class="section-copy">Nothing is exposed until you set it up. Public Access shows the state of each provider so you always know what is reachable, and from where.</p>
+          </div>
+          <div class="split">
+            <div class="platform-grid" data-reveal>
+              <article class="platform-card">
+                <h3>Playit.gg</h3>
+                <span class="pill pill--ok">Integrated</span>
+                <p>Create and manage the tunnel in Playit (playit.gg), then refresh AnxOS to see the current state.</p>
+              </article>
+              <article class="platform-card">
+                <h3>Cloudflare Tunnel</h3>
+                <span class="pill pill--info">Needs cloudflared</span>
+                <p>Install cloudflared on the node, then refresh Public Access in AnxOS.</p>
+              </article>
+              <article class="platform-card">
+                <h3>Tailscale</h3>
+                <span class="pill">Tailnet-only</span>
+                <p>Sign in to Tailscale on the node. Sharing stays inside your tailnet.</p>
+              </article>
+              <article class="platform-card">
+                <h3>Port forwarding</h3>
+                <span class="pill">Router-level</span>
+                <p>Manual: you configure the forward on your router and own the firewall rules.</p>
+              </article>
+              <p class="platform-note">Provider states such as stopped, not installed, and authentication required are shown directly in the app.</p>
+            </div>
+            <div data-reveal data-reveal-delay="2">
+              <picture>
+                <source type="image/webp" srcset="/assets/product/control-center-public-access.webp">
+                <img class="shot" src="/assets/product/control-center-public-access.png" width="1500" height="950" loading="lazy" alt="Public Access showing one configured Playit.gg tunnel and provider states for Playit.gg, Cloudflare Tunnel (not installed), and Tailscale (authentication required).">
+              </picture>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="local-agent" class="section section--band">
+        <div class="section-shell">
+          <div class="section-head" data-reveal>
+            <p class="eyebrow">Local Agent</p>
+            <h2>Run Everything on Your Own PC</h2>
+            <p class="section-copy">The AnxOS Local Agent securely connects the desktop app to services running on your computer. It handles server processes, files, dependencies, backups, and networking while keeping your data on your own machine.</p>
+            <p class="section-copy">Normal Windows users do not need a separate Debian or Ubuntu server. The Local Agent can run as a Windows service, remote servers remain optional, authentication is configured automatically, and you can stop or uninstall it when you no longer need it.</p>
+          </div>
+          <div class="local-agent-grid">
+            <article class="feature-card" data-reveal data-reveal-delay="1"><svg><use href="#icon-node"></use></svg><h3>Runs Locally</h3><p>Manage servers and files on This PC without sending work to a developer-owned Debian machine.</p></article>
+            <article class="feature-card" data-reveal data-reveal-delay="2"><svg><use href="#icon-package"></use></svg><h3>Automatic Setup</h3><p>AnxOS installs the managed Agent runtime and prepares the folders it needs from inside the app.</p></article>
+            <article class="feature-card" data-reveal data-reveal-delay="3"><svg><use href="#icon-refresh"></use></svg><h3>Starts with Windows</h3><p>The Local Agent can run as a Windows service, so the desktop app does not need to stay open.</p></article>
+            <article class="feature-card" data-reveal data-reveal-delay="4"><svg><use href="#icon-shield"></use></svg><h3>No Token Copying</h3><p>Local pairing is handled automatically on your own computer without asking you to paste Agent tokens.</p></article>
+            <article class="feature-card" data-reveal data-reveal-delay="5"><svg><use href="#icon-server"></use></svg><h3>Remote Servers Optional</h3><p>Remote nodes are optional: add another desktop or a headless Debian/Ubuntu machine whenever you need one.</p></article>
+            <article class="feature-card" data-reveal data-reveal-delay="6"><svg><use href="#icon-terminal"></use></svg><h3>Easy Repair and Updates</h3><p>Agent diagnostics, repair, and updates stay inside AnxOS instead of requiring terminal commands.</p></article>
+          </div>
+          <div class="grid-2">
+            <div data-reveal>
+              <div class="callout callout--info">
+                <strong>Local by default</strong>
+                <p>The Agent serves AnxOS on the local machine over loopback (localhost). Remote access is not enabled by default; exposure through Public Access providers is opt-in.</p>
+              </div>
+            </div>
+            <div data-reveal data-reveal-delay="2">
+              <div class="callout callout--ok">
+                <strong>One-time pairing codes, no token copying</strong>
+                <p>Adding a computer generates a one-time pairing code on that machine. Paste it once into Pair with Code and the node appears; normal setup never asks you to read tokens from config files.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="get-started" class="section">
+        <div class="section-shell">
+          <div class="cta-band" data-reveal>
+            <h2>Ready to run your first server?</h2>
+            <p>Download AnxOS Control Center for Windows 11 x64 or Linux (.deb / .AppImage, x64), then follow the first server workflow.</p>
+            <div class="cta-actions">
+              <a class="button button--primary" href="/download">Download AnxOS</a>
+              <a class="button button--ghost" href="/setup">Setup guide</a>
+            </div>
+          </div>
+        </div>
+      </section>
     </main>
-    <footer class="site-footer">
-      <div><strong>AnxOS Control Center</strong><span>© 2026 AnxOS Control Center · anxoscontrolcenter.org</span></div>
-      <nav aria-label="Footer">
-        <a href="/">Home</a>
-        <a href="/download">Download</a>
-        <a href="/features">Features</a>
-        <a href="/getting-started">Getting Started</a>
-        <a href="/setup">Setup Guide</a>
-        <a href="/release-notes.html">Release Notes</a>
-        <a href="/security-privacy">Security</a>
-        <a href="/faq">FAQ</a>
-        <a data-config-href="repositoryUrl" href="https://github.com/AnxLabs/AnxOS-Control-Center-Releases">GitHub</a>
-      <a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a><a href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button></nav>
-    </footer>
+
+    <footer class="site-footer"><div class="site-footer__brand"><strong>AnxOS Control Center</strong><span>© 2026 AnxOS Control Center · anxoscontrolcenter.org</span><span class="site-footer__note">Private Alpha · <a href="/security-privacy">Security &amp; Privacy</a></span></div><nav class="site-footer__nav" aria-label="Footer"><a href="/">Home</a><a href="/features">Features</a><a href="/getting-started">Getting Started</a><a href="/setup">Setup</a><a href="/download">Download</a><a href="/release-notes.html">Release Notes</a><a href="/security-privacy">Security</a><a href="/faq">FAQ</a><a data-config-href="repositoryUrl" href="https://github.com/AnxLabs/AnxOS-Control-Center-Releases">GitHub</a><a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a><a href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button></nav></footer>
   </body>
 </html>

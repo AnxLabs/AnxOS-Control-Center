@@ -2,17 +2,35 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
+    <script>document.documentElement.classList.add("js");setTimeout(function(){if(!window.__anxMotionReady){document.documentElement.classList.remove("js")}},5000);</script>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>AnxOS Control Center | Setup Guide</title>
-    <meta name="description" content="Set up AnxOS Control Center, connect an Agent, prepare a node, create a game server, and help friends join—no terminal experience required.">
+    <meta name="description" content="Set up AnxOS Control Center on this Windows PC, add another desktop computer, or pair a headless Debian or Ubuntu server with the official Agent package.">
     <meta name="robots" content="index,follow">
     <meta name="theme-color" content="#07020f">
     <link rel="canonical" href="https://anxoscontrolcenter.org/setup">
     <link rel="icon" href="/favicon.ico" sizes="any">
     <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+    <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/assets/favicon-16.png">
     <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
     <link rel="manifest" href="/site.webmanifest">
     <link rel="stylesheet" href="/styles.css">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="AnxOS Control Center">
+    <meta property="og:title" content="AnxOS Control Center | Setup Guide">
+    <meta property="og:description" content="Three paths to a managed server: this Windows PC, another desktop computer, or a headless Debian or Ubuntu server with the official Agent package.">
+    <meta property="og:url" content="https://anxoscontrolcenter.org/setup">
+    <meta property="og:image" content="https://anxoscontrolcenter.org/assets/social-preview.png?v=04c80a572768">
+    <meta property="og:image:secure_url" content="https://anxoscontrolcenter.org/assets/social-preview.png?v=04c80a572768">
+    <meta property="og:image:type" content="image/png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:alt" content="AnxOS Control Center social preview showing the dashboard on a dark purple background.">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="AnxOS Control Center | Setup Guide">
+    <meta name="twitter:description" content="Three paths to a managed server: this Windows PC, another desktop computer, or a headless Debian or Ubuntu server with the official Agent package.">
+    <meta name="twitter:image" content="https://anxoscontrolcenter.org/assets/social-preview.png?v=04c80a572768">
     <script src="/config.js" defer></script>
     <script src="/account-config.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
@@ -20,70 +38,453 @@
     <script src="/site.js" defer></script>
   </head>
   <body data-standalone-route="setup">
+    <a class="skip-link" href="#main">Skip to content</a>
     <svg class="svg-defs" aria-hidden="true">
       <symbol id="icon-download" viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v3h16v-3"/></symbol>
       <symbol id="icon-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-5-5 5 5-5 5"/></symbol>
       <symbol id="icon-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
       <symbol id="icon-copy" viewBox="0 0 24 24"><path d="M9 9h11v11H9zM4 4h11v5M4 4v11h5"/></symbol>
+      <symbol id="icon-terminal" viewBox="0 0 24 24"><path d="m5 7 5 5-5 5M12 17h7"/></symbol>
+      <symbol id="icon-server" viewBox="0 0 24 24"><path d="M4 5h16v5H4zM4 14h16v5H4zM7 7.5h.01M7 16.5h.01M11 7.5h6M11 16.5h6"/></symbol>
+      <symbol id="icon-github" viewBox="0 0 24 24"><path d="M9 19c-4 1.5-4-2-5-2.5M15 22v-3.5c0-1 .2-1.4-.5-2 2.6-.3 5.5-1.3 5.5-6a4.7 4.7 0 0 0-1.3-3.3c.1-.3.5-1.7-.1-3.2 0 0-1.1-.3-3.5 1.3a12.2 12.2 0 0 0-6.2 0C6.5 3.7 5.4 4 5.4 4c-.6 1.5-.2 2.9-.1 3.2A4.7 4.7 0 0 0 4 10.5c0 4.7 2.9 5.7 5.5 6-.7.6-.7 1.2-.6 2V22"/></symbol>
     </svg>
 
-    <header class="site-header">
-      <a class="brand" href="/" aria-label="AnxOS home">
-        <span class="brand-mark"><img data-logo src="/assets/anxos-logo.png" alt=""></span>
-        <span class="brand-copy"><strong data-config="brandName">AnxOS</strong><span>Setup Guide</span></span>
-      </a>
-      <button class="site-menu-button" type="button" data-site-menu-toggle aria-expanded="false" aria-controls="site-nav">Menu</button>
-      <nav class="site-nav" id="site-nav" data-site-nav aria-label="Primary">
-        <a href="/release-notes.html">Release Notes</a><a href="/features">Features</a><a href="/getting-started">Getting Started</a><a href="/setup" aria-current="page">Setup Guide</a><a href="/download">Download</a>
-        <a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a><a class="site-nav__cta" href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button>
-      </nav>
-    </header>
+    <header class="site-header"><div class="site-header__inner"><a class="brand" href="/" aria-label="AnxOS home"><span class="brand-mark"><img data-logo src="/assets/anxos-logo.png" alt=""></span><span class="brand-copy"><strong data-config="brandName">AnxOS</strong><span>Local-first server control</span></span></a><button class="site-menu-button" type="button" data-site-menu-toggle aria-expanded="false" aria-controls="site-nav">Menu</button><nav class="site-nav" id="site-nav" data-site-nav aria-label="Primary"><a href="/features">Features</a><a href="/getting-started">Getting Started</a><a href="/setup">Setup</a><a href="/download">Download</a><a href="/release-notes.html">Release Notes</a><a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a><a class="site-nav__cta" href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button></nav></div></header>
 
-    <main id="setup-page">
-      <section class="setup-hero section-shell" aria-labelledby="setup-title">
-        <div>
-          <p class="eyebrow">First server, step by step</p>
-          <h1 id="setup-title">From download to game night</h1>
-          <p class="lede">Set up AnxOS, create your first server, and share it with friends using guided controls—no terminal knowledge needed.</p>
-          <div class="hero-actions"><a class="button button-primary" href="/download"><svg><use href="#icon-download"></use></svg><span>Download AnxOS</span></a><a class="button button-secondary" href="/signup">Create an account</a></div>
+    <main id="main">
+      <section class="section-shell" aria-labelledby="setup-title">
+        <div class="section-heading" data-reveal>
+          <p class="eyebrow">Setup guide</p>
+          <p class="badge badge--alpha">Private Alpha</p>
+          <h1 id="setup-title">Set up AnxOS</h1>
+          <p class="section-copy">Three paths lead to the same place: a computer that Control Center manages. Install AnxOS on this Windows PC, add another desktop computer, or pair a headless Debian or Ubuntu server. Every path ends with a one-time pairing code from <strong>Add Computer</strong>, and no path needs manual tokens or file editing.</p>
+          <div class="hero-actions">
+            <a class="button button-primary" href="/download"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#icon-download"></use></svg><span>Download AnxOS</span></a>
+            <a class="button button-secondary" href="/windows-installation"><span>Windows installation guide</span></a>
+          </div>
         </div>
-        <nav class="setup-progress" aria-label="Setup guide steps">
-          <p><strong>10 steps</strong><span>About 20–40 minutes, plus server downloads</span></p>
-          <ol>
-            <li><span class="setup-progress__item"><span>1</span>Download</span></li><li><span class="setup-progress__item"><span>2</span>Install</span></li><li><span class="setup-progress__item"><span>3</span>Sign in</span></li><li><span class="setup-progress__item"><span>4</span>Agent</span></li><li><span class="setup-progress__item"><span>5</span>Prepare</span></li><li><span class="setup-progress__item"><span>6</span>Create</span></li><li><span class="setup-progress__item"><span>7</span>Manage</span></li><li><span class="setup-progress__item"><span>8</span>Share</span></li><li><span class="setup-progress__item"><span>9</span>Connect</span></li><li><span class="setup-progress__item"><span>10</span>Fix issues</span></li>
-          </ol>
-        </nav>
+        <div class="path-cards">
+          <a class="path-card" href="/windows-installation" data-reveal>
+            <span class="path-card__head"><strong>This Windows PC</strong><span class="badge badge--ok">Start here</span></span>
+            <span class="path-card__body">
+              <p>Install AnxOS Control Center, complete onboarding, and let the app set up the Local Agent on this computer. The Windows installation guide has the full detail.</p>
+            </span>
+          </a>
+          <article class="path-card" data-reveal data-reveal-delay="1">
+            <span class="path-card__head"><strong>Another desktop computer</strong><span class="badge badge--info">Desktop</span></span>
+            <span class="path-card__body">
+              <p>Install AnxOS on that computer, open <strong>Agent Control → Connect this computer</strong>, turn on <strong>Another computer will connect to this one</strong>, and generate a pairing code. Then paste the full code under <strong>Add Computer</strong> in your main Control Center.</p>
+              <p class="platform-note">The desktop walkthrough below follows this flow step by step.</p>
+            </span>
+          </article>
+          <article class="path-card" data-reveal data-reveal-delay="2">
+            <span class="path-card__head"><strong>Headless Linux server</strong><span class="badge badge--info">Debian / Ubuntu</span></span>
+            <span class="path-card__body">
+              <p>Install the official Agent package on a server with no desktop, open the TUI, and pair it with a one-time code.</p>
+              <p class="platform-note">The command walkthrough below covers the whole install.</p>
+            </span>
+          </article>
+        </div>
       </section>
 
-      <div class="setup-layout section-shell">
-        <div class="setup-steps">
-          <section class="setup-step" id="download-anxos" aria-labelledby="step-1-title"><div class="setup-step__number" aria-hidden="true">1</div><div class="setup-step__body"><p class="eyebrow">Get the app</p><h2 id="step-1-title">Download AnxOS</h2><p>Open the <a href="/download">official download page</a> and choose the package for this computer.</p><div class="setup-choice-grid"><article><h3>Windows installer</h3><p>Recommended for most Windows users. It installs AnxOS and adds normal shortcuts.</p></article><article><h3>Windows portable</h3><p>Runs without a full installation. Keep the executable in a folder you can find again.</p></article><article><h3>Linux AppImage</h3><p>A portable Linux build. Download it, allow it to run, then open it.</p></article><article><h3>Linux .deb</h3><p>Recommended for Debian and Ubuntu-based distributions.</p></article></div><aside class="setup-callout setup-callout--info"><strong>Publisher verification</strong><p>The Windows installer is signed. Windows may pause briefly while it verifies the publisher; confirm the publisher details before continuing.</p></aside><a class="button button-primary" href="/download"><svg><use href="#icon-download"></use></svg><span>View all downloads</span></a></div></section>
-
-          <section class="setup-step" id="install-launch" aria-labelledby="step-2-title"><div class="setup-step__number" aria-hidden="true">2</div><div class="setup-step__body"><p class="eyebrow">On this computer</p><h2 id="step-2-title">Install and launch</h2><div class="setup-platforms"><article><h3>Windows</h3><ol><li>Open the downloaded installer.</li><li>Confirm the verified publisher and follow the setup screens.</li><li>Approve administrator access if Windows asks; it is only needed for protected install or service changes.</li><li>Launch AnxOS Control Center.</li></ol></article><article><h3>Linux AppImage</h3><ol><li>In your file manager, open the file’s <strong>Properties</strong>.</li><li>Under Permissions, enable <strong>Allow executing file as program</strong>.</li><li>Double-click the AppImage to launch it.</li></ol><details><summary>Command fallback</summary><div class="command-row"><code>chmod +x AnxOS-Control-Center-*.AppImage</code><button type="button" data-copy-text="chmod +x AnxOS-Control-Center-*.AppImage" aria-label="Copy AppImage permission command"><svg><use href="#icon-copy"></use></svg><span>Copy</span></button></div></details></article><article><h3>Linux .deb</h3><ol><li>Open the package in your software installer.</li><li>Select <strong>Install</strong> and enter your administrator password when requested.</li><li>Launch AnxOS from your applications menu.</li></ol><details><summary>Command fallback</summary><div class="command-row"><code>sudo apt install ./AnxOS-Control-Center-*.deb</code><button type="button" data-copy-text="sudo apt install ./AnxOS-Control-Center-*.deb" aria-label="Copy Debian install command"><svg><use href="#icon-copy"></use></svg><span>Copy</span></button></div></details></article></div></div></section>
-
-          <section class="setup-step" id="local-owner" aria-labelledby="step-3-title"><div class="setup-step__number" aria-hidden="true">3</div><div class="setup-step__body"><p class="eyebrow">Your account</p><h2 id="step-3-title">Sign in and create the Local Owner</h2><ol class="setup-checklist"><li>Sign in with your AnxOS account, or choose <strong>Create account</strong>.</li><li>Complete the first-run <strong>Local Owner</strong> setup.</li><li>Store the Local Owner credentials somewhere secure and separate from the server.</li></ol><aside class="setup-callout setup-callout--warning"><strong>Keep these credentials private</strong><p>Local Owner credentials protect privileged node operations on this installation. They are distinct from a game-server login and should not be shared with players.</p></aside></div></section>
-
-          <section class="setup-step" id="connect-agent" aria-labelledby="step-4-title"><div class="setup-step__number" aria-hidden="true">4</div><div class="setup-step__body"><p class="eyebrow">Connect the worker</p><h2 id="step-4-title">Connect the Local Agent</h2><p>The <strong>Local Agent</strong> runs server work on this computer. A <strong>remote Agent</strong> runs on another PC, VPS, NAS, or server that you choose to manage.</p><ol class="setup-checklist"><li>Open <strong>Agent Control</strong>.</li><li>Choose the Local Agent and select <strong>Install</strong> or <strong>Start</strong>. Approve administrator access only if the service installation requires it.</li><li>If pairing is requested, generate or enter the temporary pairing code shown by Agent setup. The permanent credential is created automatically.</li><li>When the Agent says <strong>Waiting for Control Center</strong>, return to AnxOS and confirm the pending connection.</li></ol><div class="status-guide"><article><span class="status-pill status-pill--offline">Offline</span><p>The Agent is stopped or unreachable. Start it and check that this node is selected.</p></article><article><span class="status-pill status-pill--warning">Unauthorized</span><p>The saved pairing is not accepted. Pair again from Agent Control; do not paste permanent tokens.</p></article><article><span class="status-pill status-pill--warning">Login Required</span><p>Sign in to AnxOS, then retry the protected action.</p></article></div><aside class="setup-callout setup-callout--success"><strong>Ready to continue</strong><p>Agent Control shows the selected node as connected and authorized.</p></aside><div class="setup-platforms"><article><h3>Connect a headless server</h3><p>On a Debian 11+ or Ubuntu 22.04+ x64 server without a desktop, install the official Agent package instead. The package ships with the Build 205 release. Until that release is published, the Agent package does not appear on the releases page yet; when it is available, download <code>AnxOS-Agent-&lt;version&gt;.deb</code> and its checksum file <code>AnxOS-Agent-&lt;version&gt;.deb.sha256</code> from the <a href="https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/latest">Agent releases page</a>, then run these two commands on the server. Linux packages are not code-signed, so the checksum is the integrity check.</p><div class="command-row"><code>sha256sum -c AnxOS-Agent-*.deb.sha256</code><button type="button" data-copy-text="sha256sum -c AnxOS-Agent-*.deb.sha256" aria-label="Copy Agent checksum verification command"><svg><use href="#icon-copy"></use></svg><span>Copy</span></button></div><div class="command-row"><code>sudo apt install ./AnxOS-Agent-*.deb</code><button type="button" data-copy-text="sudo apt install ./AnxOS-Agent-*.deb" aria-label="Copy Agent package install command"><svg><use href="#icon-copy"></use></svg><span>Copy</span></button></div><p>Before pairing, allow network access on the server: run <code>sudo anxos-agent</code>, open <strong>Pair</strong>, and press <code>n</code> (or set <code>AGENT_HOST</code> to the server&rsquo;s LAN or tailnet address in <code>/etc/anxos-agent/agent.env</code> and restart the service). Then choose <strong>Pair</strong> or run <code>anxos-agent pair</code>, copy the <strong>full</strong> pairing code (the short <code>ANX-XXXX-XXXX-XXXX</code> reference is not enough), and paste it into Control Center under <strong>Add Computer → Connect a headless server</strong>. Both computers must be on the same network or tailnet. Pair promptly: a reachable Agent that is not paired can be claimed by anyone who can reach it.</p></article></div></div></section>
-
-          <section class="setup-step" id="prepare-node" aria-labelledby="step-5-title"><div class="setup-step__number" aria-hidden="true">5</div><div class="setup-step__body"><p class="eyebrow">Check prerequisites</p><h2 id="step-5-title">Prepare the node</h2><ol class="setup-checklist"><li>Open <strong>Prepare Node</strong> or <strong>Dependencies</strong>.</li><li>Run a scan for Java, Docker, SteamCMD, .NET, Playit, Tailscale, and the other supported dependencies.</li><li>Use the graphical <strong>Install</strong> or <strong>Repair</strong> action for anything your chosen server needs.</li><li>Scan again and confirm required items pass.</li></ol><aside class="setup-callout setup-callout--info"><strong>Install only what you need</strong><p>Requirements vary by server type. A Minecraft Java server needs a compatible Java runtime; a Steam-based game may need SteamCMD; some templates use Docker or .NET.</p></aside></div></section>
-
-          <section class="setup-step" id="create-server" aria-labelledby="step-6-title"><div class="setup-step__number" aria-hidden="true">6</div><div class="setup-step__body"><p class="eyebrow">Your first instance</p><h2 id="step-6-title">Create the first server</h2><ol class="setup-checklist"><li>Open <strong>Marketplace</strong>.</li><li>Choose a template or provider—for example, a Minecraft server or a CurseForge modpack.</li><li>Select the node, memory limit, server port, and install location.</li><li>Review the summary, then start the installation.</li></ol><aside class="setup-callout setup-callout--warning"><strong>Minecraft requires EULA acceptance</strong><p>Read the Minecraft EULA and accept it only if you agree. We recommend turning off <strong>Start after install</strong> until you have reviewed the EULA and server configuration.</p></aside></div></section>
-
-          <section class="setup-step" id="manage-server" aria-labelledby="step-7-title"><div class="setup-step__number" aria-hidden="true">7</div><div class="setup-step__body"><p class="eyebrow">Operate safely</p><h2 id="step-7-title">Start and manage the server</h2><ol class="setup-checklist"><li>Open <strong>Instances</strong> and select the new server.</li><li>Review its configuration, then choose <strong>Start</strong>.</li><li>Watch <strong>Logs</strong> and <strong>Console</strong> until the server reports that it is ready.</li><li>Use the AnxOS <strong>Stop</strong> or <strong>Restart</strong> controls so the server can shut down safely.</li><li>Use <strong>Files</strong>, <strong>Backups</strong>, and the configuration pages for routine management.</li></ol></div></section>
-
-          <section class="setup-step" id="public-access" aria-labelledby="step-8-title"><div class="setup-step__number" aria-hidden="true">8</div><div class="setup-step__body"><p class="eyebrow">Optional sharing</p><h2 id="step-8-title">Let friends join</h2><p>Open <strong>Public Access</strong>, select the server’s node and service, then choose an access method.</p><div class="setup-choice-grid"><article><h3>Playit</h3><p>The easiest public option for supported TCP or UDP game services, without router port forwarding. Install or start Playit, create the service, then copy the reported public address.</p></article><article><h3>Tailscale</h3><p>Private access for devices approved in your tailnet. It does not make the server public to the internet; friends must join your tailnet.</p></article><article><h3>Cloudflare Tunnel</h3><p>Available for supported HTTP and HTTPS services. The current workflow is not for raw UDP game-server ports, so it is generally not the Minecraft game address.</p></article><article><h3>Manual networking</h3><p>Only forward a port if you understand your router and firewall. Expose the single required service port, never broad ranges or management ports.</p></article></div><aside class="setup-callout setup-callout--warning"><strong>Expose the minimum</strong><p>Do not publish Agent, administration, file-management, database, or other unnecessary ports. Copy the shareable address from the active service card in Public Access.</p></aside></div></section>
-
-          <section class="setup-step" id="connect-server" aria-labelledby="step-9-title"><div class="setup-step__number" aria-hidden="true">9</div><div class="setup-step__body"><p class="eyebrow">Join the game</p><h2 id="step-9-title">Connect to the server</h2><ol class="setup-checklist"><li>Copy the server address from the instance or active Public Access service.</li><li>In Minecraft, choose <strong>Multiplayer → Add Server</strong>; in another game, open its server browser or direct-connect screen.</li><li>Paste the address, save it, and connect.</li></ol><dl class="address-guide"><div><dt>Localhost</dt><dd><code>localhost</code> works only on the computer running the server.</dd></div><div><dt>LAN address</dt><dd>Use the node’s private network address for devices on the same home or office network.</dd></div><div><dt>Public address</dt><dd>Use the address shown by Playit or another configured public method for friends outside your network.</dd></div></dl></div></section>
-
-          <section class="setup-step" id="troubleshooting" aria-labelledby="step-10-title"><div class="setup-step__number" aria-hidden="true">10</div><div class="setup-step__body"><p class="eyebrow">Quick fixes</p><h2 id="step-10-title">Troubleshooting</h2><div class="troubleshooting-grid"><article><h3>Agent Offline</h3><p>Open Agent Control, start the Agent, select the correct node, and retry.</p></article><article><h3>Agent Unauthorized</h3><p>Remove the failed pairing and pair again with a fresh temporary code.</p></article><article><h3>Dependency missing</h3><p>Run Prepare Node, use Install or Repair, then scan again.</p></article><article><h3>Port already in use</h3><p>Stop the other service or choose a different unused port in the instance configuration.</p></article><article><h3>EULA not accepted</h3><p>Read the Minecraft EULA; if you agree, accept it in the instance’s EULA or configuration view.</p></article><article><h3>Java version mismatch</h3><p>Check the template’s Java requirement, install that runtime in Dependencies, and select it for the server.</p></article><article><h3>Server starts then stops</h3><p>Open Logs and read the final error. Check memory, dependencies, configuration, and free disk space.</p></article><article><h3>Public address unavailable</h3><p>Confirm the provider is installed, connected, and supports the service protocol; then refresh Public Access.</p></article><article><h3>Diagnostics and logs</h3><p>Open <strong>Diagnostics</strong> to export a sanitized diagnostics bundle. Use the instance <strong>Logs</strong> and <strong>Console</strong> pages for server output.</p></article></div><aside class="setup-callout setup-callout--info"><strong>Share diagnostics, not secrets</strong><p>Use the built-in diagnostics export when asking for help. Never post passwords, pairing credentials, account tokens, or private keys.</p></aside></div></section>
+      <section class="section-shell" aria-labelledby="desktop-walkthrough-title">
+        <div class="section-heading" data-reveal>
+          <p class="eyebrow">Path 1 · Desktop</p>
+          <h2 id="desktop-walkthrough-title">Desktop walkthrough</h2>
+          <p class="section-copy">Ten steps from the download to a game night, on Windows or on a Linux desktop. On Windows the <a style="color:var(--ax-accent-strong);text-decoration:underline" href="/windows-installation">Windows installation guide</a> follows the same flow with more platform detail.</p>
         </div>
-      </div>
+        <div class="steps steps--detailed">
+          <article class="step">
+            <span class="step__index" aria-hidden="true">1</span>
+            <div class="step__body">
+              <h3>Download AnxOS</h3>
+              <p>Open the download page and choose the package for this computer: the signed Windows installer, Windows portable, Linux .deb, or Linux AppImage. The download page only lists files from the official GitHub Release.</p>
+            </div>
+          </article>
+          <article class="step">
+            <span class="step__index" aria-hidden="true">2</span>
+            <div class="step__body">
+              <h3>Install and launch</h3>
+              <p>Run the installer and follow its screens. On Windows, Approve administrator access if it is requested and launch AnxOS Control Center from the Start menu or desktop shortcut. On Linux, install the .deb with your software installer or mark the AppImage as executable and open it.</p>
+            </div>
+          </article>
+          <article class="step">
+            <span class="step__index" aria-hidden="true">3</span>
+            <div class="step__body">
+              <h3>Sign in and create the Local Owner</h3>
+              <p>Sign in with your AnxOS account or create one, then complete the first-run <strong>Local Owner</strong> setup for this installation. Local Owner credentials unlock privileged actions on this node: keep them private and separate from game-server logins.</p>
+            </div>
+          </article>
+          <article class="step">
+            <span class="step__index" aria-hidden="true">4</span>
+            <div class="step__body">
+              <h3>Connect the Local Agent</h3>
+              <p>If this is the computer you installed on, open <strong>Agent Control</strong> and install or start the Local Agent, approving the service installation if Windows asks. If Control Center is connecting to another desktop, on that computer turn on <strong>Another computer will connect to this one</strong> and choose <strong>Generate Pairing Code</strong>, then paste the full code under <strong>Add Computer</strong> here. Pairing is one-time; the connection is automatic after that.</p>
+            </div>
+          </article>
+          <article class="step">
+            <span class="step__index" aria-hidden="true">5</span>
+            <div class="step__body">
+              <h3>Prepare the node</h3>
+              <p>Open <strong>Prepare Node</strong> and scan for the tools your server needs: Java, Docker, SteamCMD, .NET, FFmpeg, and tunnel providers among others. Use the graphical <strong>Install</strong> or <strong>Repair</strong> action for anything missing, then scan again.</p>
+            </div>
+          </article>
+          <article class="step">
+            <span class="step__index" aria-hidden="true">6</span>
+            <div class="step__body">
+              <h3>Create the first server</h3>
+              <p>Open <strong>Marketplace</strong>, pick a template such as a Minecraft server or modpack, and choose the node, memory limit, server port, and install location. Review the summary and start the installation. Minecraft servers ask you to read and accept the EULA before they will run.</p>
+            </div>
+          </article>
+          <article class="step">
+            <span class="step__index" aria-hidden="true">7</span>
+            <div class="step__body">
+              <h3>Start and manage the server</h3>
+              <p>Open <strong>Instances</strong>, review the configuration, and start the server. Watch <strong>Logs</strong> and <strong>Console</strong> until it reports ready, and use the AnxOS <strong>Stop</strong> and <strong>Restart</strong> controls so shutdowns stay safe. Files and Backups live on the same pages.</p>
+            </div>
+          </article>
+          <article class="step">
+            <span class="step__index" aria-hidden="true">8</span>
+            <div class="step__body">
+              <h3>Let friends join</h3>
+              <p>Open <strong>Public Access</strong> and choose an access method: Playit for a public game address without router changes, Tailscale for a private tailnet, Cloudflare Tunnel for supported HTTP services, or manual port forwarding if you understand your router. Expose the game port only, never management ports.</p>
+            </div>
+          </article>
+          <article class="step">
+            <span class="step__index" aria-hidden="true">9</span>
+            <div class="step__body">
+              <h3>Connect to the server</h3>
+              <p>Copy the address from the instance or the active Public Access card. In Minecraft use <strong>Multiplayer → Add Server</strong>; in other games open the server browser or direct-connect screen. <code>localhost</code> works only on this computer, the LAN address works on the same network, and the public address works anywhere.</p>
+            </div>
+          </article>
+          <article class="step">
+            <span class="step__index" aria-hidden="true">10</span>
+            <div class="step__body">
+              <h3>Troubleshooting</h3>
+              <p>If something stalls, the troubleshooting section below covers Agent Offline, Agent Unauthorized, missing dependencies, port conflicts, EULA and Java problems, crashed starts, and public addresses — including the headless-specific cases.</p>
+            </div>
+          </article>
+        </div>
+        <aside class="callout callout--ok" data-reveal>
+          <strong>You don’t need a terminal</strong>
+          <p>On a desktop, AnxOS installs and updates itself and the Local Agent is set up from inside the app. Only the headless server path below uses terminal commands — and every command has a copy button.</p>
+        </aside>
+        <div class="download-help install-links">
+          <a href="/windows-installation">Windows installation guide</a>
+          <a href="/getting-started">Getting Started</a>
+          <a href="/system-requirements">System Requirements</a>
+        </div>
+      </section>
 
-      <section class="setup-finish section-shell" aria-labelledby="finish-title"><span class="setup-finish__icon"><svg><use href="#icon-check"></use></svg></span><div><p class="eyebrow">You’re ready</p><h2 id="finish-title">Build your first server</h2><p>Keep this guide open beside AnxOS and work through one step at a time.</p></div><a class="button button-primary" href="/download"><span>Open the app and start setup</span><svg><use href="#icon-arrow"></use></svg></a></section>
+      <section class="section-shell" aria-labelledby="headless-title">
+        <div class="section-heading" data-reveal>
+          <p class="eyebrow">Path 2 · Headless</p>
+          <h2 id="headless-title">Add a headless server</h2>
+          <p class="section-copy">For a Debian 11+ or Ubuntu 22.04+ x64 server with no desktop. The Agent is a systemd system service, and the whole setup is one package install plus a one-time pairing code pasted into <strong>Add Computer</strong>.</p>
+        </div>
+        <div class="platform-grid">
+          <article class="platform-card" data-reveal>
+            <h3>Debian 11+ x64</h3>
+            <p>The official <code>AnxOS-Agent-&lt;version&gt;.deb</code> package, installed as <code>anxos-agent.service</code>. Requires glibc 2.28 or newer and systemd.</p>
+          </article>
+          <article class="platform-card" data-reveal data-reveal-delay="1">
+            <h3>Ubuntu 22.04+ x64</h3>
+            <p>Same package and service unit. The Agent listens on loopback (<code>127.0.0.1</code>) by default; connecting another computer is an explicit opt-in.</p>
+          </article>
+          <article class="platform-card" data-reveal data-reveal-delay="2">
+            <h3>Not supported</h3>
+            <p>Other distributions and architectures are not supported. Do not force-install a package built for a different architecture.</p>
+          </article>
+        </div>
+        <aside class="callout callout--info" data-reveal>
+          <strong>This path is a terminal, but only briefly</strong>
+          <p>A headless server has no desktop, so setup runs in a terminal on that server. It is a handful of copy-paste commands, and the Agent package is not code-signed — verify the published SHA-256 checksum before installing.</p>
+        </aside>
+        <div class="steps steps--detailed">
+          <article class="step">
+            <span class="step__index" aria-hidden="true">1</span>
+            <div class="step__body">
+              <h3>Download the Agent package</h3>
+              <p>On the release page, download the Agent package and its checksum file into one folder: <code>AnxOS-Agent-&lt;version&gt;.deb</code> and <code>AnxOS-Agent-&lt;version&gt;.deb.sha256</code>.</p>
+              <div class="command-row">
+                <code>sha256sum -c AnxOS-Agent-&lt;version&gt;.deb.sha256</code>
+                <button type="button" data-copy-text="sha256sum -c AnxOS-Agent-&lt;version&gt;.deb.sha256" aria-label="Copy checksum verification command"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#icon-copy"></use></svg><span>Copy</span></button>
+              </div>
+              <p class="platform-note">Expected result: the package file name followed by <strong>OK</strong>. Not code-signed — the published SHA-256 checksum is the integrity check. If the check fails, delete the file and download it again; never install a package whose checksum does not match.</p>
+            </div>
+          </article>
+          <article class="step">
+            <span class="step__index" aria-hidden="true">2</span>
+            <div class="step__body">
+              <h3>Install the package</h3>
+              <p>Run this in the folder with the downloaded package. <code>apt</code> resolves dependencies from your configured repositories and installs the <code>anxos-agent.service</code> unit.</p>
+              <div class="command-row">
+                <code>sudo apt install ./AnxOS-Agent-&lt;version&gt;.deb</code>
+                <button type="button" data-copy-text="sudo apt install ./AnxOS-Agent-&lt;version&gt;.deb" aria-label="Copy apt install command"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#icon-copy"></use></svg><span>Copy</span></button>
+              </div>
+              <p>If <code>apt</code> cannot run, use the <code>dpkg</code> fallback:</p>
+              <div class="command-row">
+                <code>sudo dpkg -i ./AnxOS-Agent-&lt;version&gt;.deb || sudo apt-get -f install</code>
+                <button type="button" data-copy-text="sudo dpkg -i ./AnxOS-Agent-&lt;version&gt;.deb || sudo apt-get -f install" aria-label="Copy dpkg fallback install command"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#icon-copy"></use></svg><span>Copy</span></button>
+              </div>
+              <p>Confirm the installed version:</p>
+              <div class="command-row">
+                <code>anxos-agent --version</code>
+                <button type="button" data-copy-text="anxos-agent --version" aria-label="Copy version check command"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#icon-copy"></use></svg><span>Copy</span></button>
+              </div>
+              <p class="platform-note">Your <code>sudo</code> password is entered by you and is never captured or recorded.</p>
+            </div>
+          </article>
+          <article class="step">
+            <span class="step__index" aria-hidden="true">3</span>
+            <div class="step__body">
+              <h3>Check the service</h3>
+              <p>The package installs a systemd system unit named <code>anxos-agent.service</code>. Check it with either view:</p>
+              <div class="command-row">
+                <code>sudo systemctl status anxos-agent.service --no-pager</code>
+                <button type="button" data-copy-text="sudo systemctl status anxos-agent.service --no-pager" aria-label="Copy systemd status command"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#icon-copy"></use></svg><span>Copy</span></button>
+              </div>
+              <div class="command-row">
+                <code>sudo anxos-agent service status</code>
+                <button type="button" data-copy-text="sudo anxos-agent service status" aria-label="Copy Agent service status command"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#icon-copy"></use></svg><span>Copy</span></button>
+              </div>
+              <p class="platform-note"><code>sudo</code> is needed for service control and the full status. Pairing over loopback works without <code>sudo</code>.</p>
+            </div>
+          </article>
+          <article class="step">
+            <span class="step__index" aria-hidden="true">4</span>
+            <div class="step__body">
+              <h3>Open the TUI</h3>
+              <p>Run <code>anxos-agent</code> with no arguments to open the terminal interface. It shows the same state the desktop surfaces would: service, identity, pairing, system metrics, updates, and logs. The frame below is real output from a fresh install.</p>
+              <div class="command-row">
+                <code>anxos-agent</code>
+                <button type="button" data-copy-text="anxos-agent" aria-label="Copy TUI open command"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#icon-copy"></use></svg><span>Copy</span></button>
+              </div>
+            </div>
+          </article>
+          <article class="step">
+            <span class="step__index" aria-hidden="true">5</span>
+            <div class="step__body">
+              <h3>Pair with a one-time code</h3>
+              <p>Choose <strong>Pair</strong> in the TUI, or run:</p>
+              <div class="command-row">
+                <code>anxos-agent pair</code>
+                <button type="button" data-copy-text="anxos-agent pair" aria-label="Copy pairing command"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#icon-copy"></use></svg><span>Copy</span></button>
+              </div>
+              <p>Copy the <strong>full pairing code</strong> — the long value printed under <strong>Pairing code (paste into Add Computer):</strong> — not only the short <code style="white-space:nowrap">ANX-XXXX-XXXX-XXXX</code> reference code, which identifies the session on screen. Codes are one-time and valid for 10 minutes; the code may wrap across lines because whitespace is ignored when you paste it.</p>
+              <p class="platform-note">Treat a pairing code as temporary sensitive material: do not record it, screenshot it, or paste it into a bug report.</p>
+            </div>
+          </article>
+          <article class="step">
+            <span class="step__index" aria-hidden="true">6</span>
+            <div class="step__body">
+              <h3>Allow network access only when needed</h3>
+              <p>If Control Center runs on this same server, skip this step. If another computer will connect, open the TUI with <code>sudo anxos-agent</code>, choose <strong>Pair</strong>, and press <strong>n</strong> to allow network access for your network. You can instead pin <code>AGENT_HOST=&lt;LAN-or-tailnet-IP&gt;</code> in <code>/etc/anxos-agent/agent.env</code> and restart the service.</p>
+              <p class="platform-note">Prefer a concrete LAN or tailnet address over <code>0.0.0.0</code>: a wildcard bind exposes the Agent on every interface. While a reachable Agent is not yet paired, anyone who can reach it could claim it — pair promptly.</p>
+            </div>
+          </article>
+          <article class="step">
+            <span class="step__index" aria-hidden="true">7</span>
+            <div class="step__body">
+              <h3>Add the server in Control Center</h3>
+              <p>Open <strong>Add Computer</strong> and choose <strong>Headless server</strong>. Paste the full pairing code into <strong>Pair with Code</strong> — the recommended path — and confirm the Agent identity the app shows before accepting. Wait for the node to come online.</p>
+              <p class="platform-note">Advanced Manual Setup (URL and token) exists for development or recovery only. Normal setup never needs manual tokens or JSON editing.</p>
+            </div>
+          </article>
+          <article class="step">
+            <span class="step__index" aria-hidden="true">8</span>
+            <div class="step__body">
+              <h3>Verify the connection</h3>
+              <p><code>anxos-agent status</code> reports reachability, service state, and enrollment on the server side. It always exits <code>0</code> by contract, so read the printed fields instead of the exit code.</p>
+              <div class="command-row">
+                <code>anxos-agent status</code>
+                <button type="button" data-copy-text="anxos-agent status" aria-label="Copy Agent status command"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#icon-copy"></use></svg><span>Copy</span></button>
+              </div>
+            </div>
+          </article>
+          <article class="step">
+            <span class="step__index" aria-hidden="true">9</span>
+            <div class="step__body">
+              <h3>Keep it updated</h3>
+              <p>The update check is read-only and never downloads or installs anything. <strong>update-available</strong> prints the download, checksum, and install command; <strong>current</strong> means nothing newer is published; <strong>unknown</strong> means the release source could not be read.</p>
+              <div class="command-row">
+                <code>anxos-agent update --check</code>
+                <button type="button" data-copy-text="anxos-agent update --check" aria-label="Copy update check command"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#icon-copy"></use></svg><span>Copy</span></button>
+              </div>
+              <p class="platform-note">Install an offered update with its printed <code>apt</code> command. Upgrading the package restarts the service so the new version takes over; servers, settings, and backups stay in <code>/var/lib/anxos-agent</code>.</p>
+            </div>
+          </article>
+          <article class="step">
+            <span class="step__index" aria-hidden="true">10</span>
+            <div class="step__body">
+              <h3>Unpair or remove</h3>
+              <p><code>unpair</code> revokes this node’s enrollment and clears the stored credential while keeping servers, backups, and configuration. Re-pair with a fresh code to restore enrollment.</p>
+              <div class="command-row">
+                <code>sudo anxos-agent unpair</code>
+                <button type="button" data-copy-text="sudo anxos-agent unpair" aria-label="Copy unpair command"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#icon-copy"></use></svg><span>Copy</span></button>
+              </div>
+              <div class="command-row">
+                <code>anxos-agent pair</code>
+                <button type="button" data-copy-text="anxos-agent pair" aria-label="Copy re-pair command"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#icon-copy"></use></svg><span>Copy</span></button>
+              </div>
+              <p>Removing the package keeps all data:</p>
+              <div class="command-row">
+                <code>sudo apt remove anxos-agent</code>
+                <button type="button" data-copy-text="sudo apt remove anxos-agent" aria-label="Copy package removal command"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#icon-copy"></use></svg><span>Copy</span></button>
+              </div>
+              <p class="platform-note">Servers, settings, and backups remain in <code>/var/lib/anxos-agent</code>. Delete that folder only when you are sure the data is no longer needed.</p>
+            </div>
+          </article>
+        </div>
+        <div class="section-heading" data-reveal>
+          <p class="eyebrow">Agent TUI · real output</p>
+          <p class="section-copy">What a fresh headless install looks like in the terminal:</p>
+          <div class="tui" style="overflow-x:auto" role="img" aria-label="AnxOS Agent TUI from a fresh headless install: service active, pairing not_paired, update current">
+            <div class="tui__title"><span>AnxOS Agent</span></div>
+            <div class="tui__line"><strong>Agent</strong></div>
+            <div class="tui__line">&nbsp;&nbsp;State&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;active, enabled (system unit)</div>
+            <div class="tui__line">&nbsp;&nbsp;Version&nbsp;&nbsp;&nbsp;&nbsp;0.1.0 · linux x64</div>
+            <div class="tui__line">&nbsp;&nbsp;Identity&nbsp;&nbsp;&nbsp;dev-01</div>
+            <div class="tui__line">&nbsp;&nbsp;Pairing&nbsp;&nbsp;&nbsp;&nbsp;not_paired</div>
+            <div class="tui__line">&nbsp;&nbsp;Address&nbsp;&nbsp;&nbsp;&nbsp;http://127.0.0.1:47131</div>
+            <div class="tui__line">&nbsp;&nbsp;Credential readable (fingerprint 7c2f)</div>
+            <div class="tui__line"><strong>Service</strong></div>
+            <div class="tui__line">&nbsp;&nbsp;Unit&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;active, enabled (system unit)</div>
+            <div class="tui__line">&nbsp;&nbsp;Note&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Package-managed unit; use the system package manager for changes.</div>
+            <div class="tui__line"><strong>System</strong></div>
+            <div class="tui__line">&nbsp;&nbsp;CPU&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;3.2% · 4 cores</div>
+            <div class="tui__line">&nbsp;&nbsp;Memory&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;3.00 GB / 8.00 GB (38%)</div>
+            <div class="tui__line">&nbsp;&nbsp;Disk&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;384 GB free of 500 GB (23% used)</div>
+            <div class="tui__line"><strong>Update</strong></div>
+            <div class="tui__line">&nbsp;&nbsp;Current&nbsp;&nbsp;&nbsp;&nbsp;0.1.0</div>
+            <div class="tui__line">&nbsp;&nbsp;Latest&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;0.1.0 (up to date)</div>
+            <div class="tui__line">p pair · r refresh · s restart · l logs · u update · ? help · q quit</div>
+          </div>
+          <p class="platform-note">Abridged from a real Agent session on a fresh install — the Logs section is omitted, and the frame scrolls sideways on narrow screens.</p>
+        </div>
+        <aside class="callout callout--ok" data-reveal>
+          <strong>No developer tooling required</strong>
+          <p>Setup needs no SSH, Git, npm, Node.js, manual tokens, or JSON editing. You download two files, verify the checksum, install one package, and paste one pairing code into the app.</p>
+        </aside>
+      </section>
+
+      <section class="section-shell" aria-labelledby="faq-title">
+        <div class="section-heading" data-reveal>
+          <p class="eyebrow">Quick fixes</p>
+          <h2 id="faq-title">Common issues and fixes</h2>
+          <p class="section-copy">The same fixes apply to every path; the headless-only cases are listed last. Use the built-in diagnostics export when you ask for help.</p>
+        </div>
+        <div class="faq-list">
+          <details class="faq-item">
+            <summary>Agent Offline</summary>
+            <div class="faq-item__a">
+              <p>Open <strong>Agent Control</strong>, start the Agent, select the correct node, and retry. On a headless server, check the service first:</p>
+              <div class="command-row">
+                <code>sudo systemctl status anxos-agent.service --no-pager</code>
+                <button type="button" data-copy-text="sudo systemctl status anxos-agent.service --no-pager" aria-label="Copy systemd status command"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#icon-copy"></use></svg><span>Copy</span></button>
+              </div>
+            </div>
+          </details>
+          <details class="faq-item">
+            <summary>Agent Unauthorized</summary>
+            <p>Remove the failed pairing and pair again with a fresh one-time code — from Agent Control on a desktop, or <code>anxos-agent pair</code> on a server. Permanent credentials are created by pairing and are never displayed.</p>
+          </details>
+          <details class="faq-item">
+            <summary>Dependency missing</summary>
+            <p>Run <strong>Prepare Node</strong>, use <strong>Install</strong> or <strong>Repair</strong> for the missing item, then scan again. On a headless server, automatic dependency installs may need passwordless sudo for the Agent service account; without it the app shows the exact package to install with your normal sudo session.</p>
+          </details>
+          <details class="faq-item">
+            <summary>Port already in use</summary>
+            <p>Stop the other service or choose a different unused port in the instance configuration. On a server, this shows which process holds a port:</p>
+            <div class="command-row">
+              <code>ss -ltnp</code>
+              <button type="button" data-copy-text="ss -ltnp" aria-label="Copy port listing command"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#icon-copy"></use></svg><span>Copy</span></button>
+            </div>
+          </details>
+          <details class="faq-item">
+            <summary>EULA not accepted</summary>
+            <p>Read the Minecraft EULA; if you agree, accept it in the instance’s EULA or configuration view, then start the server again.</p>
+          </details>
+          <details class="faq-item">
+            <summary>Java version mismatch</summary>
+            <p>Check the template’s Java requirement, install that runtime in <strong>Prepare Node</strong>, and select it for the server. A Minecraft version that needs a newer Java is refused before install with the required and available versions shown, instead of failing later.</p>
+          </details>
+          <details class="faq-item">
+            <summary>Server starts then stops</summary>
+            <p>Open <strong>Logs</strong> and read the final error. Check memory, dependencies, configuration, and free disk space.</p>
+          </details>
+          <details class="faq-item">
+            <summary>Public address unavailable</summary>
+            <p>Confirm the provider is installed and connected, and that it supports this service’s protocol, then refresh <strong>Public Access</strong>. Cloudflare Tunnel covers HTTP and HTTPS services, not raw game ports.</p>
+          </details>
+          <details class="faq-item">
+            <summary>Diagnostics and logs</summary>
+            <p>Open <strong>Diagnostics</strong> to export a sanitized bundle, and use the instance <strong>Logs</strong> and <strong>Console</strong> pages for server output. On a headless server, <code>anxos-agent diagnostics</code> and <code>/var/log/anxos-agent</code> do the same. Never paste unredacted logs, pairing codes, tokens, or keys.</p>
+          </details>
+          <details class="faq-item">
+            <summary>Headless: service not running</summary>
+            <div class="faq-item__a">
+              <p>Check both views, then start the service:</p>
+              <div class="command-row">
+                <code>sudo anxos-agent service start</code>
+                <button type="button" data-copy-text="sudo anxos-agent service start" aria-label="Copy service start command"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#icon-copy"></use></svg><span>Copy</span></button>
+              </div>
+              <div class="command-row">
+                <code>anxos-agent logs</code>
+                <button type="button" data-copy-text="anxos-agent logs" aria-label="Copy logs command"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#icon-copy"></use></svg><span>Copy</span></button>
+              </div>
+              <p>If it stops again, check the log directory <code>/var/log/anxos-agent</code> for the first error.</p>
+            </div>
+          </details>
+          <details class="faq-item">
+            <summary>Headless: sudo required</summary>
+            <p>Installing the package, service control, the full status, unpair, and upgrades use <code>sudo</code>. Pairing itself works without <code>sudo</code> over loopback.</p>
+          </details>
+          <details class="faq-item">
+            <summary>Headless: checksum mismatch</summary>
+            <p>Delete the downloaded package and fetch it again from the official release page. Never install a package whose checksum does not match.</p>
+          </details>
+          <details class="faq-item">
+            <summary>Headless: pairing code expired or rejected</summary>
+            <div class="faq-item__a">
+              <p>Pairing codes are one-time and valid for 10 minutes — run <code>anxos-agent pair</code> again for a fresh one. <strong>Add Computer</strong> accepts the full long code under <strong>Pairing code (paste into Add Computer):</strong>, not the short <code style="white-space:nowrap">ANX-XXXX-XXXX-XXXX</code> reference alone.</p>
+              <div class="command-row">
+                <code>anxos-agent pair</code>
+                <button type="button" data-copy-text="anxos-agent pair" aria-label="Copy new pairing code command"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#icon-copy"></use></svg><span>Copy</span></button>
+              </div>
+            </div>
+          </details>
+          <details class="faq-item">
+            <summary>Headless: Agent unreachable from Control Center</summary>
+            <div class="faq-item__a">
+              <p>Confirm the service is running and network access was allowed, verify from the server itself, then check the firewall or cloud security group:</p>
+              <div class="command-row">
+                <code>curl -fsS http://&lt;host&gt;:&lt;agent-port&gt;/api/v1/health</code>
+                <button type="button" data-copy-text="curl -fsS http://<host>:<agent-port>/api/v1/health" aria-label="Copy health check command"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#icon-copy"></use></svg><span>Copy</span></button>
+              </div>
+            </div>
+          </details>
+        </div>
+        <aside class="callout callout--warn" data-reveal>
+          <strong>Share diagnostics, not secrets</strong>
+          <p>Use the built-in diagnostics export when asking for help. Never post passwords, pairing codes, account tokens, or private keys.</p>
+        </aside>
+      </section>
+
+      <section class="section-shell" data-reveal>
+        <div class="cta-band">
+          <h2>Ready to set up?</h2>
+          <p>Download AnxOS, or open the Windows installation guide if this PC is your first node.</p>
+          <div class="cta-actions">
+            <a class="button button-primary" href="/download"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#icon-download"></use></svg><span>Download AnxOS</span></a>
+            <a class="button button-ghost" href="/windows-installation">Windows installation guide</a>
+            <a class="button button-ghost" href="/release-notes.html">Release Notes</a>
+          </div>
+        </div>
+      </section>
     </main>
 
-    <aside class="setup-sticky-cta" aria-label="Download AnxOS"><span>Ready to begin?</span><a class="button button-primary" href="/download"><svg><use href="#icon-download"></use></svg><span>Download AnxOS</span></a></aside>
-    <footer class="site-footer"><div><strong>AnxOS Control Center</strong><span>© 2026 AnxOS Control Center · anxoscontrolcenter.org</span></div><nav aria-label="Footer"><a href="/">Home</a><a href="/download">Download</a><a href="/features">Features</a><a href="/getting-started">Getting Started</a><a href="/setup" aria-current="page">Setup Guide</a><a href="/release-notes.html">Release Notes</a><a href="/security-privacy">Security</a><a href="/faq">FAQ</a><a data-config-href="repositoryUrl" href="https://github.com/AnxLabs/AnxOS-Control-Center-Releases">GitHub</a></nav></footer>
+    <footer class="site-footer"><div class="site-footer__brand"><strong>AnxOS Control Center</strong><span>© 2026 AnxOS Control Center · anxoscontrolcenter.org</span><span class="site-footer__note">Private Alpha · <a href="/security-privacy">Security &amp; Privacy</a></span></div><nav class="site-footer__nav" aria-label="Footer"><a href="/">Home</a><a href="/features">Features</a><a href="/getting-started">Getting Started</a><a href="/setup">Setup</a><a href="/download">Download</a><a href="/release-notes.html">Release Notes</a><a href="/security-privacy">Security</a><a href="/faq">FAQ</a><a data-config-href="repositoryUrl" href="https://github.com/AnxLabs/AnxOS-Control-Center-Releases">GitHub</a><a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a><a href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button></nav></footer>
     <div class="toast-region" data-toast-region aria-live="polite" aria-atomic="true"></div>
   </body>
 </html>

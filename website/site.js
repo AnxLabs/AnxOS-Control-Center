@@ -115,6 +115,7 @@ function downloadKeyToArtifactKey(key) {
     windowsMsi: "windows-msi",
     linuxAppImage: "linux-appimage",
     linuxDeb: "linux-deb",
+    linuxAgentDeb: "linux-agent-deb",
   }[key] || key;
 }
 
@@ -138,9 +139,14 @@ function findDownloadAsset(release, key) {
 }
 
 function setDownloadStatus(message, tone = "warn") {
+  const text = message === null || message === undefined ? "" : String(message);
   document.querySelectorAll("[data-download-status]").forEach((node) => {
-    node.textContent = message;
+    node.textContent = text;
     node.dataset.tone = tone;
+    // An empty status is a neutral/silent state: hide the node so no stale or
+    // alarming copy lingers, and un-hide it the next time there is a message.
+    if (text) node.removeAttribute("hidden");
+    else node.setAttribute("hidden", "");
   });
 }
 
@@ -322,12 +328,19 @@ function createAssetCard(asset, release) {
   const title = document.createElement("h3");
   title.textContent = asset.installerType;
   const meta = document.createElement("p");
-  meta.textContent = assetLabel(asset);
+  meta.textContent = asset.fileName || "";
   const help = document.createElement("small");
   help.textContent = asset.platform === "windows"
     ? asset.packageType === "portable" ? "Portable build for Windows x64 systems when the installer is not appropriate." : "Recommended installer for Windows 11 x64."
-    : asset.packageType === "deb" ? "For Debian and Ubuntu-based systems." : "Portable Linux package for distributions that support AppImage.";
-  body.append(title, meta, help);
+    : asset.packageType === "agent-deb" ? "Headless Agent package for Debian 11+ / Ubuntu 22.04+ x64 servers, installed as the anxos-agent.service systemd unit."
+      : asset.packageType === "deb" ? "Control Center desktop app package for Debian and Ubuntu-based systems."
+        : "Portable Linux package for distributions that support AppImage.";
+  body.append(title, meta);
+  const artifactMeta = createArtifactMetaLine(asset);
+  if (artifactMeta) body.append(artifactMeta);
+  const integrity = createArtifactIntegrityLine(asset, release);
+  if (integrity) body.append(integrity);
+  body.append(help);
   card.append(body, createDownloadButton(asset, release, asset.key === "windows-setup" || asset.key === "linux-appimage"));
   return card;
 }
@@ -344,18 +357,21 @@ function renderReleaseSummary(release) {
   });
   document.querySelectorAll("[data-download-release-body]").forEach((node) => {
     node.textContent = release.releaseBody || "No release body was published for this GitHub Release.";
+    enhanceInlineReleaseText(node);
   });
   document.querySelectorAll("[data-download-checksum]").forEach((node) => {
     node.replaceChildren();
-    if (!release.checksumAssets.length) {
+    const checksumAssets = Array.isArray(release.checksumAssets) ? release.checksumAssets : [];
+    if (!checksumAssets.length) {
       node.textContent = "No checksum manifest is attached to this release yet. Verify that the filename and GitHub release match before installing.";
       return;
     }
+    const checksumAsset = checksumAssets.find((asset) => /sha256sums|checksums/i.test(String(asset?.fileName || ""))) || checksumAssets[0];
     const label = document.createElement("span");
     label.textContent = "Checksum manifest: ";
     const link = document.createElement("a");
-    link.href = release.checksumAssets[0].downloadUrl;
-    link.textContent = release.checksumAssets[0].fileName;
+    link.href = checksumAsset.downloadUrl;
+    link.textContent = checksumAsset.fileName;
     link.setAttribute("rel", "noopener noreferrer");
     link.setAttribute("target", "_blank");
     node.append(label, link);
@@ -437,6 +453,7 @@ function renderDownloadPage(release) {
       other.append(item);
     });
   }
+  refreshCopyControls();
 }
 
 function renderDownloadFailure(error) {
@@ -451,48 +468,57 @@ function renderDownloadFailure(error) {
     INVALID_RELEASE_JSON: "Release metadata is unavailable. Use the GitHub release page or try again later.",
     REPOSITORY_NOT_CONFIGURED: "Release metadata is unavailable. Use the GitHub release page or try again later.",
   }[error?.code] || "Release metadata is unavailable. Use the GitHub release page or try again later.";
-  setDownloadStatus(message, "warn");
   const panel = document.querySelector("[data-download-page]");
-  if (panel) {
-    panel.dataset.state = "error";
-    document.querySelectorAll("[data-download-version], [data-download-build], [data-download-channel], [data-download-date]").forEach((node) => { node.textContent = "Unavailable"; });
-    document.querySelectorAll("[data-primary-download]").forEach((node) => {
-      node.replaceChildren();
-      const heading = document.createElement("h3");
-      heading.textContent = "Download information unavailable";
-      const copy = document.createElement("p");
-      copy.textContent = message;
-      node.append(heading, copy);
-    });
-    document.querySelectorAll("[data-download-platforms]").forEach((node) => {
-      node.replaceChildren();
-      const card = document.createElement("article");
-      card.className = "download-card download-card--empty";
-      const body = document.createElement("div");
-      const heading = document.createElement("h3");
-      heading.textContent = "No downloadable release is currently available.";
-      const copy = document.createElement("p");
-      copy.textContent = message;
-      const note = document.createElement("small");
-      note.textContent = "Use Retry to check again.";
-      body.append(heading, copy, note);
-      card.append(body);
-      node.append(card);
-    });
-    document.querySelectorAll("[data-other-downloads]").forEach((node) => {
-      node.replaceChildren();
-      const item = document.createElement("li");
-      item.textContent = "No downloadable release is currently available.";
-      node.append(item);
-    });
-    document.querySelectorAll("[data-download-release-body]").forEach((node) => {
-      node.textContent = "Release notes could not be loaded from the public release source.";
-    });
-    document.querySelectorAll("[data-download-checksum]").forEach((node) => {
-      node.textContent = "Checksum information is unavailable until release metadata loads.";
-    });
-    document.querySelectorAll("[data-download-error]").forEach((node) => { node.textContent = message; });
+  if (!panel) {
+    // Pages without a download workspace (homepage, features, ...) already show
+    // the release from config.js, so a failed release lookup must stay silent
+    // there instead of surfacing an alarming network error.
+    setDownloadStatus("", "silent");
+    return;
   }
+  setDownloadStatus(message, "warn");
+  panel.dataset.state = "error";
+  document.querySelectorAll("[data-download-version], [data-download-build], [data-download-channel], [data-download-date]").forEach((node) => { node.textContent = "Unavailable"; });
+  document.querySelectorAll("[data-primary-download]").forEach((node) => {
+    node.replaceChildren();
+    const heading = document.createElement("h3");
+    heading.textContent = "Download information unavailable";
+    const copy = document.createElement("p");
+    copy.textContent = message;
+    node.append(heading, copy);
+  });
+  document.querySelectorAll("[data-download-platforms]").forEach((node) => {
+    node.replaceChildren();
+    const card = document.createElement("article");
+    card.className = "download-card download-card--empty";
+    const body = document.createElement("div");
+    const heading = document.createElement("h3");
+    heading.textContent = "No downloadable release is currently available.";
+    const copy = document.createElement("p");
+    copy.textContent = message;
+    const note = document.createElement("small");
+    note.textContent = "Use Retry to check again.";
+    body.append(heading, copy, note);
+    card.append(body);
+    node.append(card);
+  });
+  document.querySelectorAll("[data-other-downloads]").forEach((node) => {
+    node.replaceChildren();
+    const item = document.createElement("li");
+    item.textContent = "No downloadable release is currently available.";
+    node.append(item);
+  });
+  document.querySelectorAll("[data-file]").forEach((node) => {
+    node.textContent = "Not available in the latest published release.";
+  });
+  document.querySelectorAll("[data-download-release-body]").forEach((node) => {
+    node.textContent = "Release notes could not be loaded from the public release source.";
+  });
+  document.querySelectorAll("[data-download-checksum]").forEach((node) => {
+    node.textContent = "Checksum information is unavailable until release metadata loads.";
+  });
+  document.querySelectorAll("[data-download-error]").forEach((node) => { node.textContent = message; });
+  refreshCopyControls();
 }
 
 function showDownloadStartupFallback(error) {
@@ -523,6 +549,64 @@ async function applyDownloads(options = {}) {
   }
 }
 
+function appendInlineReleaseText(node, value) {
+  const text = String(value ?? "");
+  const pattern = /\*\*([^*]+)\*\*|`([^`]+)`/g;
+  let cursor = 0;
+  let match;
+  while ((match = pattern.exec(text))) {
+    if (match.index > cursor) node.append(document.createTextNode(text.slice(cursor, match.index)));
+    const element = document.createElement(match[1] !== undefined ? "strong" : "code");
+    element.textContent = match[1] !== undefined ? match[1] : match[2];
+    node.append(element);
+    cursor = match.index + match[0].length;
+  }
+  if (cursor < text.length) node.append(document.createTextNode(text.slice(cursor)));
+}
+
+// Release prose (summaries, GitHub release bodies) arrives as plain text that
+// carries lightweight inline markdown. Re-render it once as safe inline elements
+// so literal **bold** and `code` markers never reach the visitor. textContent
+// only: release data is never interpreted as HTML.
+function enhanceInlineReleaseText(element) {
+  if (!element) return;
+  const text = String(element.textContent || "");
+  if (!text || (!text.includes("**") && !text.includes("`"))) return;
+  element.replaceChildren();
+  appendInlineReleaseText(element, text);
+}
+
+const RELEASE_NOTES_VISIBLE_COUNT = 6;
+
+function gracefulReleaseSummary(value) {
+  const text = String(value || "").trim();
+  if (!text || /[.!?]["')\]]?$/.test(text)) return text;
+  const sentenceEnd = text.lastIndexOf(". ");
+  if (sentenceEnd >= 60) return text.slice(0, sentenceEnd + 1);
+  return `${text.replace(/[\s,;:]+$/, "")}…`;
+}
+
+function createOlderReleasesDisclosure(releases, firstIndex) {
+  const details = document.createElement("details");
+  details.className = "release-notes-history";
+  const summary = document.createElement("summary");
+  summary.textContent = `Show older releases (${releases.length - firstIndex})`;
+  details.append(summary);
+  const note = document.createElement("p");
+  note.className = "platform-note";
+  note.textContent = "Older entries are historical and may reference internal engineering details from earlier builds.";
+  details.append(note);
+  const list = document.createElement("div");
+  list.className = "release-notes-history__list";
+  list.style.display = "grid";
+  list.style.gap = "16px";
+  releases.slice(firstIndex).forEach((release, offset) => {
+    list.append(createReleaseNoteCard(release, firstIndex + offset));
+  });
+  details.append(list);
+  return details;
+}
+
 function createReleaseNoteCard(release, index = 0) {
   const card = document.createElement("article");
   card.className = index === 0 ? "release-note-card release-note-card--latest" : "release-note-card";
@@ -548,6 +632,7 @@ function createReleaseNoteCard(release, index = 0) {
   heading.append(titleGroup, date);
   const summary = document.createElement("p");
   summary.textContent = release.summary || "";
+  enhanceInlineReleaseText(summary);
   const list = document.createElement("ul");
   const sections = Array.isArray(release.sections) ? release.sections : [];
   const sectionNodes = [];
@@ -561,7 +646,7 @@ function createReleaseNoteCard(release, index = 0) {
       const sectionList = document.createElement("ul");
       section.items.forEach((change) => {
         const item = document.createElement("li");
-        item.textContent = change;
+        appendInlineReleaseText(item, change);
         sectionList.append(item);
       });
       wrap.append(sectionHeading, sectionList);
@@ -570,7 +655,7 @@ function createReleaseNoteCard(release, index = 0) {
   } else {
     (release.changes || []).forEach((change) => {
       const item = document.createElement("li");
-      item.textContent = change;
+      appendInlineReleaseText(item, change);
       list.append(item);
     });
   }
@@ -596,7 +681,12 @@ function applyReleaseNotes() {
   const releases = Array.isArray(config.releaseNotes) ? config.releaseNotes : [];
   const latest = releases[0];
   document.querySelectorAll("[data-release-latest-summary]").forEach((node) => {
-    node.textContent = latest?.summary || "Latest AnxOS release notes.";
+    const full = String(latest?.summary || "Latest AnxOS release notes.");
+    // The release-summary-card paragraph is line-clamped by CSS, so end it at a
+    // sentence boundary instead of cutting mid-clause. The full text stays in
+    // the newest release note card below.
+    node.textContent = node.closest(".release-summary-card") ? gracefulReleaseSummary(full) : full;
+    enhanceInlineReleaseText(node);
   });
   document.querySelectorAll("[data-release-notes]").forEach((container) => {
     container.replaceChildren();
@@ -611,7 +701,12 @@ function applyReleaseNotes() {
       container.append(empty);
       return;
     }
-    releases.forEach((release, index) => container.append(createReleaseNoteCard(release, index)));
+    releases.forEach((release, index) => {
+      if (index < RELEASE_NOTES_VISIBLE_COUNT) container.append(createReleaseNoteCard(release, index));
+    });
+    if (releases.length > RELEASE_NOTES_VISIBLE_COUNT) {
+      container.append(createOlderReleasesDisclosure(releases, RELEASE_NOTES_VISIBLE_COUNT));
+    }
   });
 }
 
@@ -2231,6 +2326,18 @@ function bindSiteNavigation() {
   nav.addEventListener("click", (event) => {
     if (event.target.closest("a")) closeSiteMenu();
   });
+  // The mobile scrim is pointer-events: none, so a tap on the dimmed page would
+  // otherwise activate the content behind the open menu. The first tap outside
+  // the panel and the toggle only dismisses the menu.
+  document.addEventListener("click", (event) => {
+    const openNav = document.querySelector(".site-nav.is-open");
+    if (!openNav) return;
+    const target = event.target;
+    if (target && target.nodeType === 1 && (openNav.contains(target) || toggle === target || toggle.contains(target))) return;
+    closeSiteMenu();
+    event.preventDefault();
+    event.stopPropagation();
+  }, true);
   window.addEventListener("keydown", (event) => {
     if (event.key === "Escape") closeSiteMenu();
   });
@@ -2246,6 +2353,8 @@ function bindDownloadControls() {
 
 function bindCopyControls() {
   document.querySelectorAll("[data-copy-text]").forEach((button) => {
+    if (copyControlBoundButtons.has(button)) return;
+    copyControlBoundButtons.add(button);
     button.addEventListener("click", async () => {
       const label = button.querySelector("span");
       try {
@@ -2315,10 +2424,219 @@ async function applyRouteState() {
   lastAppliedRoute = activeRoute;
 }
 
+/* ---------------------------------------------------------------------------
+ * Website redesign enhancements (additive, null-safe)
+ * ---------------------------------------------------------------------------
+ * Hooks contract (markup opts in, CSS styles; pages/CSS are authored separately):
+ *   [data-reveal]                  html.js hides it until .is-revealed is added
+ *   [data-reveal-delay="1".."6"]   sets --reveal-i (clamped 1..6) for stagger
+ *   [data-sequence]                gains .is-running once 25% visible
+ *   [data-typing]                  one-shot typing of a [data-typing-target]
+ *                                  child's text, or of the element matched by
+ *                                  data-typing-source when no target exists
+ *   [data-release-summary]         config.releaseNotes[0].summary
+ *   [data-release-meta]            "Version x · Build y · channel · Released z"
+ *   [data-config-text="<key>"]     latestVersion|buildNumber|channel|
+ *                                  releaseDate|releaseLabel
+ *   .artifact-row__meta            size/date/arch, only when actually provided
+ *   .artifact-row__integrity       "Signed installer" (Windows setup only) or
+ *                                  "SHA-256 checksum" (never a Linux signature)
+ * Every initializer runs from initializeWebsite() inside its own try/catch and
+ * only touches markup that opts in through the attributes above.
+ * ------------------------------------------------------------------------- */
+
+const REVEAL_DELAY_MAX = 6;
+const TYPING_CHARACTER_INTERVAL_MS = 12;
+const CONFIG_TEXT_KEYS = new Set(["latestVersion", "buildNumber", "channel", "releaseDate", "releaseLabel"]);
+
+let motionEngineInitialized = false;
+let typingEngineInitialized = false;
+const typingInitializedElements = new WeakSet();
+const copyControlBoundButtons = new WeakSet();
+
+function prefersReducedMotion() {
+  try {
+    return Boolean(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  } catch {
+    return false;
+  }
+}
+
+function initializeMotionEngine() {
+  if (motionEngineInitialized) return;
+  motionEngineInitialized = true;
+  if (prefersReducedMotion() || typeof window.IntersectionObserver !== "function") {
+    window.__anxMotionReady = true;
+    return;
+  }
+  const revealNodes = Array.from(document.querySelectorAll("[data-reveal]"));
+  if (revealNodes.length) {
+    const revealObserver = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) return;
+        entry.target.classList.add("is-revealed");
+        revealObserver.unobserve(entry.target);
+      });
+    }, { threshold: 0.2, rootMargin: "0px 0px -8% 0px" });
+    revealNodes.forEach((node) => {
+      const delay = Number.parseInt(node.dataset.revealDelay || "", 10);
+      if (Number.isFinite(delay)) {
+        node.style.setProperty("--reveal-i", String(Math.min(REVEAL_DELAY_MAX, Math.max(1, delay))));
+      }
+      revealObserver.observe(node);
+    });
+  }
+  const sequenceNodes = Array.from(document.querySelectorAll("[data-sequence]"));
+  if (sequenceNodes.length) {
+    const sequenceObserver = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) return;
+        entry.target.classList.add("is-running");
+        sequenceObserver.unobserve(entry.target);
+      });
+    }, { threshold: 0.25 });
+    sequenceNodes.forEach((node) => sequenceObserver.observe(node));
+  }
+  window.__anxMotionReady = true;
+}
+
+function resolveTypingPlan(node) {
+  const target = node.querySelector("[data-typing-target]");
+  if (target) return { target, text: target.textContent || "" };
+  const sourceSelector = String(node.dataset.typingSource || "").trim();
+  if (sourceSelector) {
+    let source = null;
+    try {
+      source = document.querySelector(sourceSelector);
+    } catch {
+      source = null;
+    }
+    if (!source) return null;
+    return { target: node, text: source.textContent || "" };
+  }
+  return { target: node, text: node.textContent || "" };
+}
+
+function runTypingAnimation(target, text) {
+  if (typeof window.requestAnimationFrame !== "function") return;
+  target.textContent = "";
+  let startedAt = null;
+  const step = (timestamp) => {
+    if (startedAt === null) startedAt = timestamp;
+    const visibleCount = Math.min(text.length, Math.floor((timestamp - startedAt) / TYPING_CHARACTER_INTERVAL_MS) + 1);
+    target.textContent = text.slice(0, visibleCount);
+    if (visibleCount < text.length) window.requestAnimationFrame(step);
+  };
+  window.requestAnimationFrame(step);
+}
+
+function initializeTypingEngine() {
+  if (typingEngineInitialized) return;
+  typingEngineInitialized = true;
+  if (prefersReducedMotion() || typeof window.IntersectionObserver !== "function") return;
+  const pending = Array.from(document.querySelectorAll("[data-typing]"))
+    .filter((node) => !typingInitializedElements.has(node))
+    .map((node) => ({ node, plan: resolveTypingPlan(node) }))
+    .filter((entry) => entry.plan && entry.plan.text);
+  if (!pending.length) return;
+  const typingObserver = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (!entry.isIntersecting) return;
+      typingObserver.unobserve(entry.target);
+      const record = pending.find((item) => item.node === entry.target);
+      if (!record || typingInitializedElements.has(record.node)) return;
+      typingInitializedElements.add(record.node);
+      runTypingAnimation(record.plan.target, record.plan.text);
+    });
+  }, { threshold: 0.2 });
+  pending.forEach((record) => typingObserver.observe(record.node));
+}
+
+function applyReleaseDataHydration() {
+  const releases = Array.isArray(config.releaseNotes) ? config.releaseNotes : [];
+  const latestSummary = String(releases[0]?.summary || "").trim();
+  if (latestSummary) {
+    document.querySelectorAll("[data-release-summary]").forEach((node) => {
+      node.textContent = latestSummary;
+      enhanceInlineReleaseText(node);
+    });
+  }
+  const metaParts = [];
+  if (config.latestVersion) metaParts.push(`Version ${config.latestVersion}`);
+  if (config.buildNumber) metaParts.push(`Build ${config.buildNumber}`);
+  if (config.channel) metaParts.push(String(config.channel));
+  if (config.releaseDate) metaParts.push(`Released ${config.releaseDate}`);
+  document.querySelectorAll("[data-release-meta]").forEach((node) => {
+    node.textContent = metaParts.join(" · ");
+  });
+  document.querySelectorAll("[data-config-text]").forEach((node) => {
+    const key = String(node.dataset.configText || "");
+    if (!CONFIG_TEXT_KEYS.has(key)) return;
+    const value = config[key];
+    if (value === null || value === undefined) return;
+    const text = String(value).trim();
+    if (text) node.textContent = text;
+  });
+}
+
+function createArtifactMetaLine(asset) {
+  const fields = [];
+  if (asset.fileSizeLabel) fields.push(String(asset.fileSizeLabel));
+  const rawDate = asset.publishedAt || asset.releasedAt || asset.updatedAt || asset.date;
+  if (rawDate) {
+    const dateLabel = formatReleaseDate(rawDate);
+    if (dateLabel && dateLabel !== "Unavailable") fields.push(dateLabel);
+  }
+  if (asset.architecture) fields.push(String(asset.architecture));
+  if (!fields.length) return null;
+  const node = document.createElement("p");
+  node.className = "artifact-row__meta";
+  node.textContent = fields.join(" · ");
+  return node;
+}
+
+function createArtifactIntegrityLine(asset, release) {
+  let label = "";
+  if (asset.platform === "windows" && asset.packageType === "setup") {
+    label = "Signed installer";
+  } else if (asset.checksumAsset || (Array.isArray(release?.checksumAssets) && release.checksumAssets.length)) {
+    label = "SHA-256 checksum";
+  }
+  if (!label) return null;
+  const node = document.createElement("p");
+  node.className = "artifact-row__integrity";
+  node.textContent = label;
+  return node;
+}
+
+function refreshCopyControls() {
+  try {
+    bindCopyControls();
+  } catch (error) {
+    logWebsiteDiagnostic("warn", "copy-controls-refresh", error);
+  }
+}
+
 function initializeWebsite() {
   try {
     redirectToCanonicalSiteOrigin();
     applyConfigText();
+    try {
+      applyReleaseDataHydration();
+    } catch (error) {
+      logWebsiteDiagnostic("warn", "release-hydration", error);
+    }
+    try {
+      initializeMotionEngine();
+    } catch (error) {
+      document.documentElement.classList.remove("js");
+      logWebsiteDiagnostic("warn", "motion-engine", error);
+    }
+    try {
+      initializeTypingEngine();
+    } catch (error) {
+      logWebsiteDiagnostic("warn", "typing-engine", error);
+    }
     applyDownloads().catch((error) => showDownloadStartupFallback(error));
     applyReleaseNotes();
     applyActiveNavigation();

@@ -4,7 +4,7 @@
   const CACHE_TTL_MS = 10 * 60 * 1000;
   const REQUEST_TIMEOUT_MS = 9000;
   const SOURCE_ARCHIVE_NAMES = new Set(["Source code (zip)", "Source code (tar.gz)"]);
-  const ARTIFACT_ORDER = ["windows-setup", "windows-portable", "windows-msi", "linux-appimage", "linux-deb"];
+  const ARTIFACT_ORDER = ["windows-setup", "windows-portable", "windows-msi", "linux-appimage", "linux-deb", "linux-agent-deb"];
   const CHECKSUM_PATTERN = /(^sha256sums$|^checksums\.txt$|\.sha256$|sha256)/i;
   const OFFICIAL_RELEASE_REPOSITORY = Object.freeze({ owner: "AnxLabs", repo: "AnxOS-Control-Center-Releases" });
 
@@ -108,7 +108,14 @@
       return { platform: "linux", packageType: "appimage", installerType: "Linux AppImage", key: "linux-appimage" };
     }
     if (lower.endsWith(".deb")) {
-      return { platform: "linux", packageType: "deb", installerType: "Linux .deb", key: "linux-deb" };
+      // Two .deb assets can ship in the same GitHub release: the headless Agent
+      // package (AnxOS-Agent-<version>.deb) and the Control Center desktop
+      // package (AnxOS-Control-Center-<version>.deb). Classify by filename so
+      // the desktop `linuxDeb` route never binds the Agent package.
+      if (/^anxos-agent(?:[-_.]|$)/.test(lower)) {
+        return { platform: "linux", packageType: "agent-deb", installerType: "Agent .deb", key: "linux-agent-deb" };
+      }
+      return { platform: "linux", packageType: "deb", installerType: "Control Center .deb", key: "linux-deb" };
     }
     return null;
   }

@@ -2,9 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
+    <script>document.documentElement.classList.add("js");setTimeout(function(){if(!window.__anxMotionReady){document.documentElement.classList.remove("js")}},5000);</script>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>AnxOS Control Center | Getting Started</title>
-    <meta name="description" content="Get started with AnxOS Control Center, the AnxOS Agent, Prepare Node, Marketplace, Operations, Diagnostics, Files, and Node Health.">
+    <meta name="description" content="Install AnxOS Control Center, add a computer, and run your first game server: Windows 11 x64 or Debian/Ubuntu x64, 4 GB RAM minimum, and one administrator step for the Local Agent.">
     <meta name="robots" content="index,follow">
     <meta name="theme-color" content="#07020f">
     <link rel="canonical" href="https://anxoscontrolcenter.org/getting-started">
@@ -14,6 +15,15 @@
     <link rel="icon" type="image/png" sizes="16x16" href="/assets/favicon-16.png">
     <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
     <link rel="manifest" href="/site.webmanifest">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="AnxOS Control Center">
+    <meta property="og:title" content="AnxOS Control Center | Getting Started">
+    <meta property="og:description" content="Three moves to a running server: install AnxOS Control Center, add a computer, and create and run your first server. Private Alpha, Version 2.0 Build 205.">
+    <meta property="og:url" content="https://anxoscontrolcenter.org/getting-started">
+    <meta property="og:image" content="https://anxoscontrolcenter.org/assets/social-preview.png?v=04c80a572768">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="AnxOS Control Center | Getting Started">
+    <meta name="twitter:description" content="Three moves to a running server: install AnxOS Control Center, add a computer, and create and run your first server.">
     <link rel="stylesheet" href="/styles.css">
     <script src="/config.js" defer></script>
     <script src="/account-config.js" defer></script>
@@ -22,6 +32,7 @@
     <script src="/site.js" defer></script>
   </head>
   <body data-standalone-route="getting-started">
+    <a class="skip-link" href="#main">Skip to content</a>
     <svg class="svg-defs" aria-hidden="true">
       <symbol id="icon-download" viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v3h16v-3"/></symbol>
       <symbol id="icon-github" viewBox="0 0 24 24"><path d="M9 19c-4 1.5-4-2-5-2.5M15 22v-3.5c0-1 .2-1.4-.5-2 2.6-.3 5.5-1.3 5.5-6a4.7 4.7 0 0 0-1.3-3.3c.1-.3.5-1.7-.1-3.2 0 0-1.1-.3-3.5 1.3a12.2 12.2 0 0 0-6.2 0C6.5 3.7 5.4 4 5.4 4c-.6 1.5-.2 2.9-.1 3.2A4.7 4.7 0 0 0 4 10.5c0 4.7 2.9 5.7 5.5 6-.7.6-.7 1.2-.6 2V22"/></symbol>
@@ -32,79 +43,247 @@
       <symbol id="icon-refresh" viewBox="0 0 24 24"><path d="M20 6v5h-5M4 18v-5h5M18.5 9A7 7 0 0 0 6.7 6.7L4 9m16 6-2.7 2.3A7 7 0 0 1 5.5 15"/></symbol>
       <symbol id="icon-file" viewBox="0 0 24 24"><path d="M14 3H6v18h12V7zM14 3v4h4M8 13h8M8 17h5"/></symbol>
       <symbol id="icon-node" viewBox="0 0 24 24"><path d="M12 4v6M12 14v6M6 10h12M6 14h12M5 8h2v8H5zM17 8h2v8h-2z"/></symbol>
+      <symbol id="icon-monitor" viewBox="0 0 24 24"><path d="M4 5h16v10H4zM9 19h6M12 15v4"/></symbol>
+      <symbol id="icon-globe" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/></symbol>
     </svg>
 
-    <header class="site-header">
-      <a class="brand" href="/" aria-label="AnxOS home">
-        <span class="brand-mark"><img data-logo src="/assets/anxos-logo.png" alt=""></span>
-        <span class="brand-copy"><strong data-config="brandName">AnxOS</strong><span>Getting Started</span></span>
-      </a>
-      <button class="site-menu-button" type="button" data-site-menu-toggle aria-expanded="false" aria-controls="site-nav">Menu</button>
-      <nav class="site-nav" id="site-nav" data-site-nav aria-label="Primary">
-        <a href="/release-notes.html">Release Notes</a>
-        <a href="/features">Features</a>
-        <a href="/getting-started">Getting Started</a>
-        <a href="/setup">Setup Guide</a>
-        <a href="/download">Download</a>
-        <a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a>
-        <a class="site-nav__cta" href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a>
-        <a href="/profile" data-auth-nav="signed-in" hidden>Profile</a>
-        <button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button>
-      </nav>
-    </header>
-    <main id="getting-started-page">
-      <section id="getting-started" class="section-shell install-layout getting-started-hero">
-        <div class="install-hero-copy">
-          <p class="eyebrow">Getting Started</p>
-          <h1>First server workflow</h1>
-          <p class="section-copy">These steps match the current desktop workflow. AnxOS does not install unsupported runtimes or approve remote access without your action.</p>
-        </div>
-        <div class="steps steps--detailed">
-          <article><span>1</span><p>Download AnxOS Control Center for Windows or Linux.</p></article>
-          <article><span>2</span><p>Install and launch the desktop application.</p></article>
-          <article><span>3</span><p>Start the local AnxOS Agent or connect a remote Agent.</p></article>
-          <article><span>4</span><p>Add or select the Node you want to manage.</p></article>
-          <article><span>5</span><p>Open Prepare Node to verify Java, Docker, SteamCMD, Node.js, Python, and other required runtimes.</p></article>
-          <article><span>6</span><p>Install your first Marketplace server after dependency checks pass.</p></article>
-          <article><span>7</span><p>Monitor the server through Operations, Diagnostics, Files, and Node Health.</p></article>
-        </div>
-        <div class="download-help install-links">
-          <a data-download="windows" href="/download">Windows download</a>
-          <a data-download="linuxDeb" href="/download">Linux download</a>
-          <a data-config-href="releaseUrl" href="/download">GitHub releases</a>
+    <header class="site-header"><div class="site-header__inner"><a class="brand" href="/" aria-label="AnxOS home"><span class="brand-mark"><img data-logo src="/assets/anxos-logo.png" alt=""></span><span class="brand-copy"><strong data-config="brandName">AnxOS</strong><span>Local-first server control</span></span></a><button class="site-menu-button" type="button" data-site-menu-toggle aria-expanded="false" aria-controls="site-nav">Menu</button><nav class="site-nav" id="site-nav" data-site-nav aria-label="Primary"><a href="/features">Features</a><a href="/getting-started">Getting Started</a><a href="/setup">Setup</a><a href="/download">Download</a><a href="/release-notes.html">Release Notes</a><a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a><a class="site-nav__cta" href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button></nav></div></header>
+
+    <main id="main">
+      <section id="overview" class="section">
+        <div class="section-shell">
+          <div class="section-head" data-reveal>
+            <p class="eyebrow">Getting Started</p>
+            <h1>First server workflow</h1>
+            <p class="section-copy">Three moves: install AnxOS Control Center, add a computer, and create and run your first server. This walkthrough follows the current desktop workflow; the full headless path lives in the setup guide.</p>
+            <div>
+              <span class="badge badge--alpha">Private Alpha</span>
+            </div>
+            <div class="hero-actions">
+              <a class="button button--primary" href="/download">Download AnxOS</a>
+              <a class="button button--ghost" href="/setup">Setup guide</a>
+            </div>
+          </div>
+          <div class="flow" data-reveal data-reveal-delay="1">
+            <div class="flow-step">
+              <span class="flow-step__index">1</span>
+              <strong>Install AnxOS</strong>
+              <p>Windows 11 x64 installer, or the Linux .deb / .AppImage on x64.</p>
+            </div>
+            <div class="flow-step">
+              <span class="flow-step__index">2</span>
+              <strong>Add a computer</strong>
+              <p>Use this PC, or pair another desktop or a headless Agent with a one-time code.</p>
+            </div>
+            <div class="flow-step">
+              <span class="flow-step__index">3</span>
+              <strong>Create and run a server</strong>
+              <p>Pick a Marketplace template, create it, and start it on the node.</p>
+            </div>
+          </div>
         </div>
       </section>
 
-      <section id="install" class="section-shell install-layout getting-started-install">
-        <div class="install-hero-copy">
-          <p class="eyebrow">Install Guide</p>
-          <h2>Install in a few steps</h2>
-        </div>
-        <div class="steps">
-          <article><span>1</span><p>Download the installer for your platform.</p></article>
-          <article><span>2</span><p>Run the Windows setup, install the `.deb`, or mark the AppImage executable.</p></article>
-          <article><span>3</span><p>Open AnxOS, connect your remote node, then use Marketplace, Instances, Files, Console, and Stats.</p></article>
+      <section id="walkthrough" class="section">
+        <div class="section-shell">
+          <div class="section-head" data-reveal>
+            <p class="eyebrow">Desktop walkthrough</p>
+            <h2>Run your first server on Windows</h2>
+            <p class="section-copy">This is the desktop sequence in the current app. Every step happens inside AnxOS; no terminal commands are needed on Windows.</p>
+          </div>
+          <div class="steps steps--detailed">
+            <article data-reveal data-reveal-delay="1">
+              <span>1</span>
+              <div class="step__body">
+                <strong>Download the Windows installer</strong>
+                <p>Get the signed Windows 11 x64 installer from the download page. Linux users can take the .deb or .AppImage instead.</p>
+              </div>
+            </article>
+            <article data-reveal data-reveal-delay="2">
+              <span>2</span>
+              <div class="step__body">
+                <strong>Open the installer</strong>
+                <p>Run the setup. If SmartScreen shows its blue warning for a new publisher, choose More info, then Run anyway.</p>
+              </div>
+            </article>
+            <article data-reveal data-reveal-delay="3">
+              <span>3</span>
+              <div class="step__body">
+                <strong>Launch AnxOS and complete onboarding</strong>
+                <p>Creating an account is optional; local mode works offline on your own machine.</p>
+              </div>
+            </article>
+            <article data-reveal data-reveal-delay="4">
+              <span>4</span>
+              <div class="step__body">
+                <strong>Install the Local Agent</strong>
+                <p>Allow the administrator permission prompt once so AnxOS can install and start the managed Agent on this PC.</p>
+              </div>
+            </article>
+            <article data-reveal data-reveal-delay="5">
+              <span>5</span>
+              <div class="step__body">
+                <strong>Add this PC as a node</strong>
+                <p>The computer running Control Center is offered as a node, so you can start without pairing anything.</p>
+              </div>
+            </article>
+            <article data-reveal data-reveal-delay="6">
+              <span>6</span>
+              <div class="step__body">
+                <strong>Run Prepare Node</strong>
+                <p>AnxOS scans for Java, SteamCMD, Docker, and other runtimes the templates need and lists what is missing.</p>
+              </div>
+            </article>
+            <article data-reveal data-reveal-delay="6">
+              <span>7</span>
+              <div class="step__body">
+                <strong>Install required dependencies</strong>
+                <p>Approve the installs Prepare Node recommends, then open the Marketplace.</p>
+              </div>
+            </article>
+            <article data-reveal data-reveal-delay="6">
+              <span>8</span>
+              <div class="step__body">
+                <strong>Create and start your first server</strong>
+                <p>Pick a template and the target node, create the server, and start it. Instances shows it move from starting to running.</p>
+              </div>
+            </article>
+          </div>
+          <div class="split">
+            <div data-reveal>
+              <div class="callout callout--info">
+                <strong>Adding a headless Debian or Ubuntu server instead?</strong>
+                <p>Install the official AnxOS Agent .deb on Debian 11+ or Ubuntu 22.04+ x64. It runs as a systemd service with its own CLI/TUI and shows a one-time pairing code; paste that code into Pair with Code on this machine and the node appears in Nodes.</p>
+              </div>
+              <div class="route-actions">
+                <a class="button button--ghost" href="/setup">Full headless setup path</a>
+              </div>
+            </div>
+            <div data-reveal data-reveal-delay="2">
+              <picture>
+                <source type="image/webp" srcset="/assets/product/control-center-add-computer.webp">
+                <img class="shot" src="/assets/product/control-center-add-computer.png" width="1500" height="950" loading="lazy" alt="The Add Computer dialog with two paths: install AnxOS on a desktop computer, or install the Agent package on a headless Debian or Ubuntu server, then paste a full one-time pairing code.">
+              </picture>
+            </div>
+          </div>
         </div>
       </section>
 
+      <section id="pick-machine" class="section">
+        <div class="section-shell">
+          <div class="section-head" data-reveal>
+            <p class="eyebrow">Choose your machine</p>
+            <h2>Pick your machine</h2>
+            <p class="section-copy">Any of these paths ends in the same place: a node in AnxOS with a server you can start.</p>
+          </div>
+          <div class="path-cards">
+            <article class="path-card" data-reveal data-reveal-delay="1">
+              <div class="path-card__head"><h3>Windows PC</h3><span class="pill pill--ok">Recommended</span></div>
+              <div class="path-card__body">
+                <p>Windows 11 x64 with administrator access for one install step.</p>
+                <a class="button button--ghost" href="/windows-installation">Windows installation guide</a>
+              </div>
+            </article>
+            <article class="path-card" data-reveal data-reveal-delay="2">
+              <div class="path-card__head"><h3>Another desktop PC</h3><span class="pill">Desktop path</span></div>
+              <div class="path-card__body">
+                <p>Install AnxOS Control Center on that computer, generate a pairing code in Agent Control, and add it from this machine.</p>
+                <a class="button button--ghost" href="/setup">Setup guide</a>
+              </div>
+            </article>
+            <article class="path-card" data-reveal data-reveal-delay="3">
+              <div class="path-card__head"><h3>Headless Debian or Ubuntu</h3><span class="pill pill--info">Agent .deb</span></div>
+              <div class="path-card__body">
+                <p>Install the official AnxOS Agent package (Debian 11+ / Ubuntu 22.04+ x64), then pair it with a one-time code.</p>
+                <a class="button button--ghost" href="/setup">Setup guide</a>
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section id="requirements" class="section">
+        <div class="section-shell">
+          <div class="section-head" data-reveal>
+            <p class="eyebrow">Before you start</p>
+            <h2>What you'll need</h2>
+          </div>
+          <div class="grid-2">
+            <ul class="trust-list" data-reveal>
+              <li class="trust-item"><strong>Windows 11 x64, or Debian/Ubuntu x64</strong>Control Center runs on Windows 11 x64; Linux builds cover Debian/Ubuntu x64 as .deb or .AppImage. Headless servers use the Agent .deb on Debian 11+ or Ubuntu 22.04+ x64.</li>
+              <li class="trust-item"><strong>4 GB RAM minimum</strong>For the app and the Local Agent; game servers and backups need more.</li>
+              <li class="trust-item"><strong>Your machine stays on</strong>A server keeps running only while the computer hosting it is powered on.</li>
+              <li class="trust-item"><strong>Admin or sudo for one install step</strong>Windows administrator permission for the Local Agent; sudo on Linux for the Agent package.</li>
+            </ul>
+            <div data-reveal data-reveal-delay="2">
+              <div class="callout callout--warn">
+                <strong>AnxOS does not provide hosting capacity</strong>
+                <p>The machine is yours to provide: this PC, another desktop, or a headless server you own or rent. AnxOS manages what runs on it and does not sell hosting.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="after-first-server" class="section">
+        <div class="section-shell">
+          <div class="section-head" data-reveal>
+            <p class="eyebrow">Day two</p>
+            <h2>After your first server</h2>
+            <p class="section-copy">Everything below is one click away from the server's view in the app.</p>
+          </div>
+          <div class="grid-3">
+            <article class="feature" data-reveal data-reveal-delay="1">
+              <span class="feature__icon"><svg><use href="#icon-terminal"></use></svg></span>
+              <h3>Console</h3>
+              <p>Run commands and watch output while the server is live.</p>
+            </article>
+            <article class="feature" data-reveal data-reveal-delay="2">
+              <span class="feature__icon"><svg><use href="#icon-file"></use></svg></span>
+              <h3>Files</h3>
+              <p>Browse and edit server files without leaving AnxOS.</p>
+            </article>
+            <article class="feature" data-reveal data-reveal-delay="3">
+              <span class="feature__icon"><svg><use href="#icon-shield"></use></svg></span>
+              <h3>Logs</h3>
+              <p>Read sanitized logs with fingerprinted credentials instead of exposed secrets.</p>
+            </article>
+            <article class="feature" data-reveal data-reveal-delay="4">
+              <span class="feature__icon"><svg><use href="#icon-server"></use></svg></span>
+              <h3>Health</h3>
+              <p>Node health, issue counts, and metrics freshness at a glance.</p>
+            </article>
+            <article class="feature" data-reveal data-reveal-delay="5">
+              <span class="feature__icon"><svg><use href="#icon-package"></use></svg></span>
+              <h3>Backups</h3>
+              <p>Back up server data from the app and restore it when needed.</p>
+            </article>
+            <article class="feature" data-reveal data-reveal-delay="6">
+              <span class="feature__icon"><svg><use href="#icon-globe"></use></svg></span>
+              <h3>Public access</h3>
+              <p>Playit.gg, Cloudflare Tunnel (with cloudflared), Tailscale (tailnet-only), or manual port forwarding.</p>
+            </article>
+          </div>
+          <div class="route-actions">
+            <a class="button button--ghost" href="/features">See everything AnxOS does</a>
+          </div>
+        </div>
+      </section>
+
+      <section id="get-started" class="section">
+        <div class="section-shell">
+          <div class="cta-band" data-reveal>
+            <h2>Download AnxOS and run your first server</h2>
+            <p>Version 2.0 · Build 205 · Private Alpha. Windows 11 x64 installer; Linux .deb and .AppImage for x64.</p>
+            <div class="cta-actions">
+              <a class="button button--primary" href="/download">Download AnxOS</a>
+              <a class="button button--ghost" href="/setup">Setup guide</a>
+            </div>
+          </div>
+        </div>
+      </section>
     </main>
-    <footer class="site-footer">
-      <div><strong>AnxOS Control Center</strong><span>© 2026 AnxOS Control Center · anxoscontrolcenter.org</span></div>
-      <nav aria-label="Footer">
-        <a href="/">Home</a>
-        <a href="/download">Download</a>
-        <a href="/features">Features</a>
-        <a href="/getting-started">Getting Started</a>
-        <a href="/setup">Setup Guide</a>
-        <a href="/release-notes.html">Release Notes</a>
-        <a href="/security-privacy">Security</a>
-        <a href="/faq">FAQ</a>
-        <a data-config-href="repositoryUrl" href="https://github.com/AnxLabs/AnxOS-Control-Center-Releases">GitHub</a>
-        <a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a>
-        <a href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a>
-        <a href="/profile" data-auth-nav="signed-in" hidden>Profile</a>
-        <button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button>
-      </nav>
-    </footer>
+
+    <footer class="site-footer"><div class="site-footer__brand"><strong>AnxOS Control Center</strong><span>© 2026 AnxOS Control Center · anxoscontrolcenter.org</span><span class="site-footer__note">Private Alpha · <a href="/security-privacy">Security &amp; Privacy</a></span></div><nav class="site-footer__nav" aria-label="Footer"><a href="/">Home</a><a href="/features">Features</a><a href="/getting-started">Getting Started</a><a href="/setup">Setup</a><a href="/download">Download</a><a href="/release-notes.html">Release Notes</a><a href="/security-privacy">Security</a><a href="/faq">FAQ</a><a data-config-href="repositoryUrl" href="https://github.com/AnxLabs/AnxOS-Control-Center-Releases">GitHub</a><a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a><a href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button></nav></footer>
   </body>
 </html>

@@ -190,7 +190,8 @@ assert(downloadRoute.includes('href="/system-requirements"') && downloadHtmlRout
 assert(downloadRoute.includes('src="/site.js"') && downloadRoute.includes('src="/release-download-service.js"') && downloadRoute.includes('href="/styles.css"'), "Download route assets must be root-safe.");
 assert(featuresRoute.includes(`<link rel="canonical" href="${officialOrigin}/features">`) && featuresRoute.includes("Built for server work"), "Features must be a clean direct route.");
 assert(index.includes("Run Everything on Your Own PC") && featuresRoute.includes("Run Everything on Your Own PC"), "Website must explain the Local Agent on the homepage and features route.");
-assert(index.includes("The AnxOS Local Agent securely connects the desktop app to services running on your computer.") && featuresRoute.includes("Normal Windows users do not need Anx's Debian server."), "Local Agent copy must be beginner-friendly and make local ownership clear.");
+// Public copy clarified: the Local Agent explanation names the platform, not an unexplained person's server.
+assert(index.includes("The AnxOS Local Agent securely connects the desktop app to services running on your computer.") && featuresRoute.includes("Normal Windows users do not need a separate Debian or Ubuntu server."), "Local Agent copy must be beginner-friendly and make local ownership clear.");
 ["Runs Locally", "Automatic Setup", "Starts with Windows", "No Token Copying", "Remote Servers Optional", "Easy Repair and Updates"].forEach((label) => {
   assert(index.includes(label) && featuresRoute.includes(label), `Local Agent feature card ${label} must appear on public website pages.`);
 });
@@ -214,7 +215,8 @@ assert(securityPrivacyRoute.includes(`<link rel="canonical" href="${officialOrig
 assert(!/guarantee|guaranteed|military-grade|zero[- ]knowledge/i.test(securityPrivacyRoute), "Security and Privacy page must not make unsupported security or legal guarantees.");
 assert(faqRoute.includes(`<link rel="canonical" href="${officialOrigin}/faq">`) && faqRoute.includes("Common Questions"), "FAQ must be a clean direct route.");
 [
-  "Do I need Anx's Debian server?",
+  // Public copy clarified: "Anx's Debian server" read as an unexplained person's name, so the question names the platform instead.
+  "Do I need a separate Debian or Ubuntu server?",
   "Does AnxOS host the server for me?",
   "Does my PC need to stay on?",
   "Can I use a remote server instead?",
@@ -258,7 +260,8 @@ assert(!site.includes("hashParams") && !site.includes("hash.indexOf"), "Website 
   const html = read(file);
   const hashLinks = Array.from(html.matchAll(/\s(?:href|src)=["']([^"']*#[^"']*)["']/g))
     .map((match) => match[1])
-    .filter((value) => !value.startsWith("#icon-"));
+    // `#main` is the intentional accessible skip-link anchor; hash routing stays forbidden (assertions above).
+    .filter((value) => !value.startsWith("#icon-") && value !== "#main");
   assert.strictEqual(hashLinks.length, 0, `${file} must not contain hash-fragment website links: ${hashLinks.join(", ")}`);
 });
 

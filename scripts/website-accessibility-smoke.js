@@ -34,7 +34,8 @@ for (const file of publicPages) {
   assert(html.includes("data-site-menu-toggle") && html.includes('aria-expanded="false"') && html.includes('aria-controls="site-nav"'), `${file} must expose an accessible mobile menu toggle.`);
   assert(html.includes("data-site-nav") && html.includes('aria-label="Primary"'), `${file} must expose a labelled primary navigation.`);
   assert(/<h1[\s>]/.test(html), `${file} must include a page-level h1.`);
-  assert(!/\s(?:href|src)=["'][^"']*#[^"']*["']/.test(html.replace(/href="#icon-[^"]+"/g, "")), `${file} must not rely on hash-fragment navigation.`);
+  // `#icon-*` and the `#main` skip-link anchor are exempt; every other hash fragment remains forbidden.
+  assert(!/\s(?:href|src)=["'][^"']*#[^"']*["']/.test(html.replace(/href="#icon-[^"]+"/g, "").replace(/href="#main"/g, "")), `${file} must not rely on hash-fragment navigation.`);
 }
 
 assert(download.includes("Download AnxOS for Windows"), "Download page must keep the primary Windows CTA visible without JavaScript.");

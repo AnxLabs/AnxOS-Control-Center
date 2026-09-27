@@ -59,6 +59,34 @@ function readReleaseNotes() {
   }
 }
 
+// Keep generated summaries sentence-complete: prefer the last sentence boundary within the cap,
+// otherwise cut at a word boundary and mark the cut with an ellipsis.
+function truncateSummary(text, maxLength = 600) {
+  const trimmed = String(text || "").trim();
+  if (trimmed.length <= maxLength) {
+    return trimmed;
+  }
+
+  let sentenceEnd = -1;
+  const sentenceMatcher = /[.!?][)"'\]]?(?=\s|$)/g;
+  let match = sentenceMatcher.exec(trimmed);
+  while (match) {
+    if (match.index >= maxLength) {
+      break;
+    }
+    sentenceEnd = match.index + match[0].length;
+    match = sentenceMatcher.exec(trimmed);
+  }
+  if (sentenceEnd > 0) {
+    return trimmed.slice(0, sentenceEnd);
+  }
+
+  const window = trimmed.slice(0, maxLength);
+  const wordEnd = window.lastIndexOf(" ");
+  const clipped = (wordEnd > 0 ? window.slice(0, wordEnd) : window).replace(/[\s,;:]+$/, "");
+  return `${clipped}…`;
+}
+
 // Parse the RELEASE_NOTES_*.md file for a build into title/summary/changes.
 function readMarkdownReleaseNotes(version, build) {
   const notesFile = path.join(rootDir, `RELEASE_NOTES_${version}-build${build}.md`);
@@ -70,7 +98,7 @@ function readMarkdownReleaseNotes(version, build) {
     const lines = raw.split(/\r?\n/);
     const title = (lines.find((line) => line.startsWith("# ")) || "").replace(/^#\s+/, "").trim() || `AnxOS ${version} Build ${build}`;
     const firstParagraph = lines.find((line, index) => index > 0 && line.trim() && !line.startsWith("#") && !line.startsWith("**"));
-    const summary = (firstParagraph || `Latest AnxOS-Control-Center release.`).trim().slice(0, 300);
+    const summary = truncateSummary(firstParagraph || `Latest AnxOS-Control-Center release.`);
     const changes = lines
       .filter((line) => line.startsWith("- "))
       .map((line) => line.replace(/^- /, "").trim())

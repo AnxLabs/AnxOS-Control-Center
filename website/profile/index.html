@@ -2,6 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
+    <script>document.documentElement.classList.add("js");setTimeout(function(){if(!window.__anxMotionReady){document.documentElement.classList.remove("js")}},5000);</script>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>AnxOS Control Center | Profile</title>
     <meta name="description" content="Review your AnxOS profile and account details.">
@@ -22,26 +23,30 @@
     <script src="/site.js" defer></script>
   </head>
   <body data-standalone-route="profile">
+    <a class="skip-link" href="#main">Skip to content</a>
     <header class="site-header">
-      <a class="brand" href="/" aria-label="AnxOS home">
-        <span class="brand-mark"><img data-logo src="/assets/anxos-logo.png" alt=""></span>
-        <span class="brand-copy"><strong data-config="brandName">AnxOS</strong><span>Profile</span></span>
-      </a>
-      <button class="site-menu-button" type="button" data-site-menu-toggle aria-expanded="false" aria-controls="site-nav">Menu</button>
-      <nav class="site-nav" id="site-nav" data-site-nav aria-label="Primary">
-        <a href="/release-notes.html">Release Notes</a>
-        <a href="/features">Features</a>
-        <a href="/getting-started">Getting Started</a>
-        <a href="/download">Download</a>
-        <a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a>
-        <a class="site-nav__cta" href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a>
-        <a href="/profile" data-auth-nav="signed-in" hidden>Profile</a>
-        <button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button>
-      </nav>
+      <div class="site-header__inner">
+        <a class="brand" href="/" aria-label="AnxOS home">
+          <span class="brand-mark"><img data-logo src="/assets/anxos-logo.png" alt=""></span>
+          <span class="brand-copy"><strong data-config="brandName">AnxOS</strong><span>Local-first server control</span></span>
+        </a>
+        <button class="site-menu-button" type="button" data-site-menu-toggle aria-expanded="false" aria-controls="site-nav">Menu</button>
+        <nav class="site-nav" id="site-nav" data-site-nav aria-label="Primary">
+          <a href="/features">Features</a>
+          <a href="/getting-started">Getting Started</a>
+          <a href="/setup">Setup</a>
+          <a href="/download">Download</a>
+          <a href="/release-notes.html">Release Notes</a>
+          <a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a>
+          <a class="site-nav__cta" href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a>
+          <a href="/profile" data-auth-nav="signed-in" hidden>Profile</a>
+          <button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button>
+        </nav>
+      </div>
     </header>
-    <main id="profile-page">
+    <main id="main">
       <section id="profile" class="section-shell account-route account-route--active" data-account-route="profile">
-        <div class="account-route__copy">
+        <div class="account-route__copy" data-reveal>
           <p class="eyebrow">Profile</p>
           <h2>Identity and preferences</h2>
           <p>Manage account identity fields separately from devices, sessions, and security controls.</p>
@@ -65,7 +70,7 @@
             </div>
           </div>
           <div data-auth-view="signed-in" hidden>
-            <div class="profile-header-card">
+            <div class="profile-header-card" data-reveal>
               <div class="profile-avatar profile-avatar--large" data-profile-avatar aria-hidden="true">A</div>
               <div>
                 <span class="badge" data-profile-role>Account</span>
@@ -100,7 +105,7 @@
                 <span class="form-message" role="status" data-auth-message="profile"></span>
               </div>
             </form>
-            <section class="account-subpanel profile-details">
+            <section class="account-subpanel profile-details" data-reveal data-reveal-delay="1">
               <div class="account-subpanel__heading"><h4>Account Details</h4></div>
               <dl class="profile-detail-grid">
                 <div><dt>Email</dt><dd data-account-email></dd></div>
@@ -110,7 +115,7 @@
                 <div><dt>Status</dt><dd data-profile-status>Active</dd></div>
               </dl>
             </section>
-            <section class="account-subpanel">
+            <section class="account-subpanel" data-reveal data-reveal-delay="2">
               <div class="account-subpanel__heading"><h4>Connected AnxOS Apps</h4><a class="button button-ghost" href="/account?section=devices">Manage Devices</a></div>
               <div data-profile-devices class="account-list"></div>
             </section>
@@ -121,16 +126,11 @@
 
     </main>
     <footer class="site-footer">
-      <div><strong>AnxOS Control Center</strong><span>© 2026 AnxOS Control Center · anxoscontrolcenter.org</span></div>
-      <nav aria-label="Footer">
-        <a href="/">Home</a>
-        <a href="/download">Download</a>
-        <a href="/features">Features</a>
-        <a href="/getting-started">Getting Started</a>
-        <a href="/release-notes.html">Release Notes</a>
-        <a href="/account?section=security">Security</a>
-        <a data-config-href="repositoryUrl" href="https://github.com/AnxLabs/AnxOS-Control-Center-Releases">GitHub</a>
-      <a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a><a href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button></nav>
+      <div class="site-footer__brand"><strong>AnxOS Control Center</strong><span>© 2026 AnxOS Control Center · anxoscontrolcenter.org</span><span class="site-footer__note">Private Alpha · <a href="/security-privacy">Security &amp; Privacy</a></span></div>
+      <nav class="site-footer__nav" aria-label="Footer">
+        <a href="/">Home</a><a href="/features">Features</a><a href="/getting-started">Getting Started</a><a href="/setup">Setup</a><a href="/download">Download</a><a href="/release-notes.html">Release Notes</a><a href="/security-privacy">Security</a><a href="/faq">FAQ</a><a data-config-href="repositoryUrl" href="https://github.com/AnxLabs/AnxOS-Control-Center-Releases">GitHub</a>
+        <a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a><a href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button>
+      </nav>
     </footer>
     <div class="confirm-modal" data-confirm-modal hidden>
       <div class="confirm-modal__backdrop" data-confirm-modal-cancel></div>

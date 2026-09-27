@@ -2,6 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
+    <script>document.documentElement.classList.add("js");setTimeout(function(){if(!window.__anxMotionReady){document.documentElement.classList.remove("js")}},5000);</script>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>AnxOS Control Center | Sign In</title>
     <meta name="description" content="Sign in to your AnxOS account.">
@@ -22,28 +23,32 @@
     <script src="/site.js" defer></script>
   </head>
   <body data-standalone-route="signin">
+    <a class="skip-link" href="#main">Skip to content</a>
     <header class="site-header">
-      <a class="brand" href="/" aria-label="AnxOS home">
-        <span class="brand-mark"><img data-logo src="/assets/anxos-logo.png" alt=""></span>
-        <span class="brand-copy"><strong data-config="brandName">AnxOS</strong><span>Sign In</span></span>
-      </a>
-      <button class="site-menu-button" type="button" data-site-menu-toggle aria-expanded="false" aria-controls="site-nav">Menu</button>
-      <nav class="site-nav" id="site-nav" data-site-nav aria-label="Primary">
-        <a href="/release-notes.html">Release Notes</a>
-        <a href="/features">Features</a>
-        <a href="/getting-started">Getting Started</a>
-        <a href="/download">Download</a>
-        <a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a>
-        <a class="site-nav__cta" href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a>
-        <a href="/profile" data-auth-nav="signed-in" hidden>Profile</a>
-        <button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button>
-      </nav>
+      <div class="site-header__inner">
+        <a class="brand" href="/" aria-label="AnxOS home">
+          <span class="brand-mark"><img data-logo src="/assets/anxos-logo.png" alt=""></span>
+          <span class="brand-copy"><strong data-config="brandName">AnxOS</strong><span>Local-first server control</span></span>
+        </a>
+        <button class="site-menu-button" type="button" data-site-menu-toggle aria-expanded="false" aria-controls="site-nav">Menu</button>
+        <nav class="site-nav" id="site-nav" data-site-nav aria-label="Primary">
+          <a href="/features">Features</a>
+          <a href="/getting-started">Getting Started</a>
+          <a href="/setup">Setup</a>
+          <a href="/download">Download</a>
+          <a href="/release-notes.html">Release Notes</a>
+          <a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a>
+          <a class="site-nav__cta" href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a>
+          <a href="/profile" data-auth-nav="signed-in" hidden>Profile</a>
+          <button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button>
+        </nav>
+      </div>
     </header>
-    <main id="signin-page">
+    <main id="main">
       <section id="signin" class="section-shell account-route account-route--active" data-account-route="signin">
         <div class="auth-shell">
           <div class="auth-card" data-auth-view="loading" hidden>
-            <div class="auth-card__header">
+            <div class="auth-card__header" data-reveal>
               <p class="eyebrow">AnxOS Account</p>
               <h2>Checking your session</h2>
               <p>Preparing account sign-in. You can still sign in if session verification takes longer than expected.</p>
@@ -51,9 +56,9 @@
             <p class="form-message" role="status" data-auth-message="signin-loading">Verifying account state...</p>
           </div>
           <div class="auth-card" data-auth-view="signed-out">
-            <div class="auth-card__header">
+            <div class="auth-card__header" data-reveal>
               <p class="eyebrow">AnxOS Account</p>
-              <h2>Welcome back</h2>
+              <h1>Welcome back</h1>
               <p>Sign in to sync cloud and remote account features. Local Owner Login stays private to the desktop app.</p>
             </div>
             <div class="account-unavailable" data-account-unavailable hidden>
@@ -76,7 +81,7 @@
             </form>
           </div>
           <div class="auth-card" data-auth-view="signed-in" hidden>
-            <div class="auth-card__header">
+            <div class="auth-card__header" data-reveal>
               <p class="eyebrow">AnxOS Account</p>
               <h2>Already signed in</h2>
               <p>You are signed in as <strong data-account-email>this AnxOS account</strong>.</p>
@@ -88,7 +93,7 @@
             </div>
             <p class="form-message" role="status" data-auth-message="signin-state"></p>
           </div>
-          <ul class="auth-feature-list" aria-label="AnxOS account features">
+          <ul class="auth-feature-list" data-reveal data-reveal-delay="1" aria-label="AnxOS account features">
             <li>Device approvals without sharing passwords with the desktop app.</li>
             <li>Cloud-ready profile, devices, sessions, and security history.</li>
             <li>Separate from Local Owner Login and Single-Device Mode.</li>
@@ -99,16 +104,11 @@
 
     </main>
     <footer class="site-footer">
-      <div><strong>AnxOS Control Center</strong><span>© 2026 AnxOS Control Center · anxoscontrolcenter.org</span></div>
-      <nav aria-label="Footer">
-        <a href="/">Home</a>
-        <a href="/download">Download</a>
-        <a href="/features">Features</a>
-        <a href="/getting-started">Getting Started</a>
-        <a href="/release-notes.html">Release Notes</a>
-        <a href="/account?section=security">Security</a>
-        <a data-config-href="repositoryUrl" href="https://github.com/AnxLabs/AnxOS-Control-Center-Releases">GitHub</a>
-      <a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a><a href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button></nav>
+      <div class="site-footer__brand"><strong>AnxOS Control Center</strong><span>© 2026 AnxOS Control Center · anxoscontrolcenter.org</span><span class="site-footer__note">Private Alpha · <a href="/security-privacy">Security &amp; Privacy</a></span></div>
+      <nav class="site-footer__nav" aria-label="Footer">
+        <a href="/">Home</a><a href="/features">Features</a><a href="/getting-started">Getting Started</a><a href="/setup">Setup</a><a href="/download">Download</a><a href="/release-notes.html">Release Notes</a><a href="/security-privacy">Security</a><a href="/faq">FAQ</a><a data-config-href="repositoryUrl" href="https://github.com/AnxLabs/AnxOS-Control-Center-Releases">GitHub</a>
+        <a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a><a href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button>
+      </nav>
     </footer>
     <div class="confirm-modal" data-confirm-modal hidden>
       <div class="confirm-modal__backdrop" data-confirm-modal-cancel></div>

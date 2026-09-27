@@ -2,12 +2,28 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
+    <script>document.documentElement.classList.add("js");setTimeout(function(){if(!window.__anxMotionReady){document.documentElement.classList.remove("js")}},5000);</script>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>AnxOS Control Center | System Requirements</title>
-    <meta name="description" content="Review Windows system requirements for AnxOS Control Center, the Local Agent, game servers, backups, Docker, and public access providers.">
+    <meta name="description" content="Requirements for the Windows and Linux Control Center and for headless Debian/Ubuntu Agent nodes, plus the hosting and public access facts you need before you start.">
     <meta name="robots" content="index,follow">
     <meta name="theme-color" content="#07020f">
     <link rel="canonical" href="https://anxoscontrolcenter.org/system-requirements">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="AnxOS Control Center">
+    <meta property="og:title" content="AnxOS Control Center | System Requirements">
+    <meta property="og:description" content="Windows and Linux Control Center requirements, headless Agent node requirements, and hosting facts. Private Alpha, Version 2.0 Build 205.">
+    <meta property="og:url" content="https://anxoscontrolcenter.org/system-requirements">
+    <meta property="og:image" content="https://anxoscontrolcenter.org/assets/social-preview.png?v=04c80a572768">
+    <meta property="og:image:secure_url" content="https://anxoscontrolcenter.org/assets/social-preview.png?v=04c80a572768">
+    <meta property="og:image:type" content="image/png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:alt" content="AnxOS Control Center social preview with the official AnxOS logo.">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="AnxOS Control Center | System Requirements">
+    <meta name="twitter:description" content="Windows and Linux Control Center requirements, headless Agent node requirements, and hosting facts.">
+    <meta name="twitter:image" content="https://anxoscontrolcenter.org/assets/social-preview.png?v=04c80a572768">
     <link rel="icon" href="/favicon.ico" sizes="any">
     <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
     <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png">
@@ -22,6 +38,7 @@
     <script src="/site.js" defer></script>
   </head>
   <body data-standalone-route="system-requirements">
+    <a class="skip-link" href="#main">Skip to content</a>
     <svg class="svg-defs" aria-hidden="true">
       <symbol id="icon-download" viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v3h16v-3"/></symbol>
       <symbol id="icon-github" viewBox="0 0 24 24"><path d="M9 19c-4 1.5-4-2-5-2.5M15 22v-3.5c0-1 .2-1.4-.5-2 2.6-.3 5.5-1.3 5.5-6a4.7 4.7 0 0 0-1.3-3.3c.1-.3.5-1.7-.1-3.2 0 0-1.1-.3-3.5 1.3a12.2 12.2 0 0 0-6.2 0C6.5 3.7 5.4 4 5.4 4c-.6 1.5-.2 2.9-.1 3.2A4.7 4.7 0 0 0 4 10.5c0 4.7 2.9 5.7 5.5 6-.7.6-.7 1.2-.6 2V22"/></symbol>
@@ -34,96 +51,262 @@
       <symbol id="icon-node" viewBox="0 0 24 24"><path d="M12 4v6M12 14v6M6 10h12M6 14h12M5 8h2v8H5zM17 8h2v8h-2z"/></symbol>
     </svg>
 
-    <header class="site-header">
-      <a class="brand" href="/" aria-label="AnxOS home">
-        <span class="brand-mark"><img data-logo src="/assets/anxos-logo.png" alt=""></span>
-        <span class="brand-copy"><strong data-config="brandName">AnxOS</strong><span>System Requirements</span></span>
-      </a>
-      <button class="site-menu-button" type="button" data-site-menu-toggle aria-expanded="false" aria-controls="site-nav">Menu</button>
-      <nav class="site-nav" id="site-nav" data-site-nav aria-label="Primary">
-        <a href="/release-notes.html">Release Notes</a>
-        <a href="/features">Features</a>
-        <a href="/getting-started">Getting Started</a>
-        <a href="/setup">Setup Guide</a>
-        <a href="/download">Download</a>
-        <a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a>
-        <a class="site-nav__cta" href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a>
-        <a href="/profile" data-auth-nav="signed-in" hidden>Profile</a>
-        <button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button>
-      </nav>
-    </header>
+    <header class="site-header"><div class="site-header__inner"><a class="brand" href="/" aria-label="AnxOS home"><span class="brand-mark"><img data-logo src="/assets/anxos-logo.png" alt=""></span><span class="brand-copy"><strong data-config="brandName">AnxOS</strong><span>Local-first server control</span></span></a><button class="site-menu-button" type="button" data-site-menu-toggle aria-expanded="false" aria-controls="site-nav">Menu</button><nav class="site-nav" id="site-nav" data-site-nav aria-label="Primary"><a href="/features">Features</a><a href="/getting-started">Getting Started</a><a href="/setup">Setup</a><a href="/download">Download</a><a href="/release-notes.html">Release Notes</a><a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a><a class="site-nav__cta" href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button></nav></div></header>
 
-    <main id="system-requirements-page">
+    <main id="main">
       <section class="section-shell">
-        <div class="section-heading">
-          <p class="eyebrow">Windows requirements</p>
+        <div class="section-head" data-reveal>
+          <p class="eyebrow">Platform support</p>
           <h1>System Requirements</h1>
-          <p class="section-copy">AnxOS Control Center runs the desktop app and can install the Local Agent on your own Windows PC. Resource needs depend on the server software and templates you choose.</p>
+          <p class="section-copy">AnxOS Control Center runs on Windows 11 x64 and on Debian/Ubuntu x64, and the official Agent package covers headless Linux servers. What your servers actually need depends on the templates you choose.</p>
+          <div>
+            <span class="badge badge--alpha">Private Alpha</span>
+            <span class="badge">Version 2.0 · Build 205</span>
+          </div>
         </div>
-        <div class="download-detail-grid requirements-grid">
-          <article class="download-info-card">
-            <h2>Minimum</h2>
-            <ul>
-              <li>Windows 11, 64-bit.</li>
-              <li>64-bit Intel or AMD processor.</li>
-              <li>4 GB RAM for the app, Local Agent, and light testing.</li>
-              <li>2 GB free storage for AnxOS, the Local Agent runtime, logs, and temporary downloads.</li>
-              <li>Internet access for app updates, Marketplace downloads, and dependency installers.</li>
-              <li>Administrator access during Local Agent service installation and some dependency installs.</li>
-            </ul>
+        <div class="platform-grid" data-reveal>
+          <article class="platform-card">
+            <h3>Windows Control Center</h3>
+            <span class="pill pill--info">Windows 11 x64</span>
+            <p>The desktop app and the built-in Local Agent on your own PC, with Administrator access during the Agent install.</p>
           </article>
-          <article class="download-info-card">
-            <h2>Recommended</h2>
-            <ul>
-              <li>8 GB RAM or more for Minecraft and small game servers; larger modpacks usually need more.</li>
-              <li>SSD storage for faster server startup, backups, and world saves.</li>
-              <li>Stable internet connection for downloads, updates, multiplayer, and remote access providers.</li>
-              <li>Hardware virtualization enabled when using Docker or Docker Desktop.</li>
-              <li>Additional storage reserved for instances, worlds, backups, logs, and imported server packs.</li>
-            </ul>
+          <article class="platform-card">
+            <h3>Linux Control Center</h3>
+            <span class="pill pill--info">Debian / Ubuntu x64</span>
+            <p>The same desktop app as .deb and .AppImage packages for Debian and Ubuntu desktops.</p>
           </article>
-          <article class="download-info-card">
-            <h2>Hosting capacity</h2>
-            <ul>
-              <li>AnxOS itself does not provide game-server hosting capacity.</li>
-              <li>Your computer supplies the CPU, RAM, storage, and network bandwidth for local servers.</li>
-              <li>Your computer must remain powered on and connected for locally hosted servers to stay online.</li>
-              <li>Busy public servers may need more RAM, faster storage, and stronger upload bandwidth.</li>
-            </ul>
-          </article>
-          <article class="download-info-card">
-            <h2>Public access</h2>
-            <ul>
-              <li>Friends can join only when your chosen server and network path are reachable.</li>
-              <li>Public access may require Playit, Tailscale, Cloudflare Tunnel, or router port forwarding.</li>
-              <li>Windows Firewall rules may be required for local servers and managed tunnel providers.</li>
-              <li>AnxOS does not enable remote access by default; provider setup depends on your choices.</li>
-            </ul>
+          <article class="platform-card">
+            <h3>Headless Agent</h3>
+            <span class="pill pill--info">Debian 11+ / Ubuntu 22.04+</span>
+            <p>A systemd service for Debian 11+ and Ubuntu 22.04+ servers, with no desktop required.</p>
           </article>
         </div>
-        <div class="download-help">
-          <a href="/download">Download AnxOS for Windows</a>
-          <a href="/getting-started">Installation guide</a>
-          <a href="/features">Local Agent features</a>
+      </section>
+
+      <section class="section-shell">
+        <div class="section-head" data-reveal>
+          <p class="eyebrow">Windows Control Center</p>
+          <h2>Windows 11 x64 desktop PC</h2>
+          <p class="section-copy">The desktop app plus the built-in Local Agent, on the computer that runs your servers.</p>
+        </div>
+        <div class="table-wrap" data-reveal>
+          <table class="table req-table">
+            <caption>Windows 11 x64 requirements</caption>
+            <thead>
+              <tr>
+                <th scope="col">Requirement</th>
+                <th scope="col">Minimum</th>
+                <th scope="col">Recommended</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Operating system</td>
+                <td>Windows 11, 64-bit</td>
+                <td>Current Windows 11 updates</td>
+              </tr>
+              <tr>
+                <td>Processor</td>
+                <td>64-bit Intel or AMD processor</td>
+                <td>Modern multi-core processor</td>
+              </tr>
+              <tr>
+                <td>Memory</td>
+                <td>4 GB RAM</td>
+                <td>8 GB RAM or more for small game servers</td>
+              </tr>
+              <tr>
+                <td>Storage</td>
+                <td>2 GB free storage</td>
+                <td>SSD storage plus room for worlds and backups</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="table-wrap" data-reveal>
+          <table class="table req-table">
+            <caption>Other Windows requirements</caption>
+            <thead>
+              <tr>
+                <th scope="col">Item</th>
+                <th scope="col">Details</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Administrator access</td>
+                <td>Required during Local Agent install and some dependency installs.</td>
+              </tr>
+              <tr>
+                <td>Hardware virtualization</td>
+                <td>Enable in firmware when using Docker or Docker Desktop.</td>
+              </tr>
+              <tr>
+                <td>Internet access</td>
+                <td>For app updates, Marketplace downloads, and dependency installers.</td>
+              </tr>
+              <tr>
+                <td>Windows Firewall</td>
+                <td>Windows may prompt for local servers and tunnel providers.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="note">Light testing fits inside the minimums. Larger modpacks, busy servers, and public access need more RAM, storage, and upload bandwidth.</p>
+      </section>
+
+      <section class="section-shell">
+        <div class="section-head" data-reveal>
+          <p class="eyebrow">Linux Control Center</p>
+          <h2>Debian and Ubuntu desktop</h2>
+          <p class="section-copy">The Control Center desktop app ships as .deb and .AppImage packages for Debian and Ubuntu x64. It expects a working desktop environment for the app window.</p>
+        </div>
+        <div class="table-wrap" data-reveal>
+          <table class="table req-table">
+            <caption>Linux Control Center requirements</caption>
+            <thead>
+              <tr>
+                <th scope="col">Requirement</th>
+                <th scope="col">Minimum</th>
+                <th scope="col">Recommended</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Operating system</td>
+                <td>Debian or Ubuntu, 64-bit</td>
+                <td>Current release with updates</td>
+              </tr>
+              <tr>
+                <td>Package</td>
+                <td>.deb installer or .AppImage</td>
+                <td>Either package, kept current</td>
+              </tr>
+              <tr>
+                <td>Memory</td>
+                <td>4 GB RAM</td>
+                <td>8 GB RAM or more for small game servers</td>
+              </tr>
+              <tr>
+                <td>Storage</td>
+                <td>2 GB free storage</td>
+                <td>SSD storage plus room for instances and backups</td>
+              </tr>
+              <tr>
+                <td>Desktop environment</td>
+                <td>GNOME, KDE, XFCE, or similar</td>
+                <td>Any modern desktop environment</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="table-wrap" data-reveal>
+          <table class="table req-table">
+            <caption>Other Linux requirements</caption>
+            <thead>
+              <tr>
+                <th scope="col">Item</th>
+                <th scope="col">Details</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Permissions</td>
+                <td>sudo or root to install the .deb; the .AppImage runs without installation.</td>
+              </tr>
+              <tr>
+                <td>Internet access</td>
+                <td>For app updates, Marketplace downloads, and dependency installers.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="section section--band">
+        <div class="section-shell">
+          <div class="section-head" data-reveal>
+            <p class="eyebrow">Headless Agent</p>
+            <h2>Debian and Ubuntu servers</h2>
+            <p class="section-copy">The official AnxOS Agent package runs without a desktop environment and is managed through its TUI or from Control Center on another computer.</p>
+          </div>
+          <div class="table-wrap" data-reveal>
+            <table class="table req-table">
+              <caption>Headless Agent node requirements</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Item</th>
+                  <th scope="col">Details</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Operating system</td>
+                  <td>Debian 11+ or Ubuntu 22.04+, x64</td>
+                </tr>
+                <tr>
+                  <td>C library</td>
+                  <td>glibc 2.28 or newer</td>
+                </tr>
+                <tr>
+                  <td>Package</td>
+                  <td>Official AnxOS Agent .deb, installed with root or sudo.</td>
+                </tr>
+                <tr>
+                  <td>Integrity</td>
+                  <td>Not code-signed; verify the published SHA-256 checksum.</td>
+                </tr>
+                <tr>
+                  <td>Service manager</td>
+                  <td>systemd; starts with the machine.</td>
+                </tr>
+                <tr>
+                  <td>Network</td>
+                  <td>Loopback (127.0.0.1) by default; network exposure is an explicit opt-in.</td>
+                </tr>
+                <tr>
+                  <td>Desktop environment</td>
+                  <td>Not required.</td>
+                </tr>
+                <tr>
+                  <td>Memory and storage</td>
+                  <td>4 GB RAM and 2 GB free storage minimum; more for game servers.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-shell">
+          <div class="section-head" data-reveal>
+            <p class="eyebrow">Hosting and network</p>
+            <h2>What keeps servers online</h2>
+            <p class="section-copy">AnxOS is the management layer, not a hosting service. These are the constraints to plan around before you invite players.</p>
+          </div>
+          <ul class="trust-list" data-reveal>
+            <li class="trust-item"><strong>No hosting from AnxOS</strong>AnxOS itself does not provide game-server hosting capacity. Your computer, VPS, or server supplies the CPU, RAM, storage, and upload bandwidth.</li>
+            <li class="trust-item"><strong>Powered on and connected</strong>Your computer must remain powered on and online for locally hosted servers to stay available; a headless node has the same requirement.</li>
+            <li class="trust-item"><strong>A reachable path for players</strong>Shareable addresses come from one of: Playit, Tailscale, Cloudflare Tunnel, or router port forwarding. Playit.gg is the integrated provider, Cloudflare Tunnel and Tailscale are configured on the node, and port forwarding is manual at the router.</li>
+            <li class="trust-item"><strong>Busy servers need more</strong>Full public servers may need more RAM, faster storage, and stronger upload bandwidth than a small private world.</li>
+          </ul>
+          <div class="callout callout--info" data-reveal>
+            <strong>No hosting, no desktop required</strong>
+            <p>AnxOS does not provide game-server hosting capacity, so plan for the hardware and connection yourself. And a headless Linux server needs no desktop environment: the Agent package runs as a systemd service and is managed through its TUI or from Control Center on another computer.</p>
+          </div>
+          <div class="cta-band" data-reveal>
+            <h2>Ready to check your machine?</h2>
+            <p>Download the official installer, or walk through the setup guide before you start.</p>
+            <div class="cta-actions">
+              <a class="button button--primary" href="/download">Download AnxOS</a>
+              <a class="button button--ghost" href="/getting-started">Getting started</a>
+            </div>
+          </div>
         </div>
       </section>
     </main>
 
-    <footer class="site-footer">
-      <div><strong>AnxOS Control Center</strong><span>© 2026 AnxOS Control Center · anxoscontrolcenter.org</span></div>
-      <nav aria-label="Footer">
-        <a href="/">Home</a>
-        <a href="/download">Download</a>
-        <a href="/features">Features</a>
-        <a href="/getting-started">Getting Started</a>
-        <a href="/setup">Setup Guide</a>
-        <a href="/system-requirements" aria-current="page">System Requirements</a>
-        <a href="/release-notes.html">Release Notes</a>
-        <a href="/security-privacy">Security</a>
-        <a href="/faq">FAQ</a>
-        <a data-config-href="repositoryUrl" href="https://github.com/AnxLabs/AnxOS-Control-Center-Releases">GitHub</a>
-        <a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a><a href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button>
-      </nav>
-    </footer>
+    <footer class="site-footer"><div class="site-footer__brand"><strong>AnxOS Control Center</strong><span>© 2026 AnxOS Control Center · anxoscontrolcenter.org</span><span class="site-footer__note">Private Alpha · <a href="/security-privacy">Security &amp; Privacy</a></span></div><nav class="site-footer__nav" aria-label="Footer"><a href="/">Home</a><a href="/features">Features</a><a href="/getting-started">Getting Started</a><a href="/setup">Setup</a><a href="/download">Download</a><a href="/release-notes.html">Release Notes</a><a href="/security-privacy">Security</a><a href="/faq">FAQ</a><a data-config-href="repositoryUrl" href="https://github.com/AnxLabs/AnxOS-Control-Center-Releases">GitHub</a><a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a><a href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button></nav></footer>
   </body>
 </html>

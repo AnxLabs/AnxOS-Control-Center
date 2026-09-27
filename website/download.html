@@ -2,27 +2,28 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
+    <script>document.documentElement.classList.add("js");setTimeout(function(){if(!window.__anxMotionReady){document.documentElement.classList.remove("js")}},5000);</script>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Download AnxOS for Windows | AnxOS Control Center</title>
-    <meta name="description" content="Download the official AnxOS Control Center Windows installer, view system requirements, and get installation help for the Local Agent setup flow.">
+    <title>Download AnxOS Control Center | Windows, Linux, and Agent packages</title>
+    <meta name="description" content="Download AnxOS Control Center for Windows 11 x64 and Debian or Ubuntu x64, plus the headless Agent package. Private Alpha builds published with SHA-256 checksums on GitHub.">
     <meta name="robots" content="index,follow">
     <meta name="theme-color" content="#07020f">
-    <link rel="canonical" href="https://anxoscontrolcenter.org/download">
+    <link rel="canonical" href="https://anxoscontrolcenter.org/download.html">
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="AnxOS Control Center">
     <meta property="og:title" content="Download AnxOS Control Center">
-    <meta property="og:description" content="Download the official Windows installer for AnxOS Control Center and Local Agent setup.">
-    <meta property="og:url" content="https://anxoscontrolcenter.org/download">
-    <meta property="og:image" content="https://anxoscontrolcenter.org/assets/social-preview.png?v=1bbe0a40ca77">
-    <meta property="og:image:secure_url" content="https://anxoscontrolcenter.org/assets/social-preview.png?v=1bbe0a40ca77">
+    <meta property="og:description" content="Official AnxOS Control Center downloads: the signed Windows installer, Linux packages, and the headless Agent for Debian and Ubuntu.">
+    <meta property="og:url" content="https://anxoscontrolcenter.org/download.html">
+    <meta property="og:image" content="https://anxoscontrolcenter.org/assets/social-preview.png?v=04c80a572768">
+    <meta property="og:image:secure_url" content="https://anxoscontrolcenter.org/assets/social-preview.png?v=04c80a572768">
     <meta property="og:image:type" content="image/png">
     <meta property="og:image:width" content="1200">
     <meta property="og:image:height" content="630">
     <meta property="og:image:alt" content="AnxOS Control Center social preview with the official AnxOS logo.">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="Download AnxOS Control Center">
-    <meta name="twitter:description" content="Download the official Windows installer for AnxOS Control Center and Local Agent setup.">
-    <meta name="twitter:image" content="https://anxoscontrolcenter.org/assets/social-preview.png?v=1bbe0a40ca77">
+    <meta name="twitter:description" content="Official AnxOS Control Center downloads: the signed Windows installer, Linux packages, and the headless Agent for Debian and Ubuntu.">
+    <meta name="twitter:image" content="https://anxoscontrolcenter.org/assets/social-preview.png?v=04c80a572768">
     <link rel="icon" href="/favicon.ico" sizes="any">
     <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
     <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png">
@@ -32,62 +33,42 @@
     <link rel="stylesheet" href="/styles.css">
     <script src="/config.js" defer></script>
     <script src="/account-config.js" defer></script>
-    <script src="/release-download-service.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
+    <script src="/release-download-service.js" defer></script>
     <script src="/site.js" defer></script>
   </head>
   <body data-standalone-route="download" data-download-page>
+    <a class="skip-link" href="#main">Skip to content</a>
     <svg class="svg-defs" aria-hidden="true">
       <symbol id="icon-download" viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v3h16v-3"/></symbol>
       <symbol id="icon-github" viewBox="0 0 24 24"><path d="M9 19c-4 1.5-4-2-5-2.5M15 22v-3.5c0-1 .2-1.4-.5-2 2.6-.3 5.5-1.3 5.5-6a4.7 4.7 0 0 0-1.3-3.3c.1-.3.5-1.7-.1-3.2 0 0-1.1-.3-3.5 1.3a12.2 12.2 0 0 0-6.2 0C6.5 3.7 5.4 4 5.4 4c-.6 1.5-.2 2.9-.1 3.2A4.7 4.7 0 0 0 4 10.5c0 4.7 2.9 5.7 5.5 6-.7.6-.7 1.2-.6 2V22"/></symbol>
-      <symbol id="icon-shield" viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.4 2.8 8.5 7 10 4.2-1.5 7-5.6 7-10V6zM9 12l2 2 4-4"/></symbol>
       <symbol id="icon-refresh" viewBox="0 0 24 24"><path d="M20 6v5h-5M4 18v-5h5M18.5 9A7 7 0 0 0 6.7 6.7L4 9m16 6-2.7 2.3A7 7 0 0 1 5.5 15"/></symbol>
+      <symbol id="icon-package" viewBox="0 0 24 24"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3zM4.5 8 12 12.5 19.5 8M12 12.5V21"/></symbol>
+      <symbol id="icon-server" viewBox="0 0 24 24"><path d="M4 5h16v5H4zM4 14h16v5H4zM7 7.5h.01M7 16.5h.01M11 7.5h6M11 16.5h6"/></symbol>
     </svg>
 
-    <header class="site-header">
-      <a class="brand" href="/" aria-label="AnxOS home">
-        <span class="brand-mark"><img data-logo src="/assets/anxos-logo.png" alt=""></span>
-        <span class="brand-copy"><strong data-config="brandName">AnxOS</strong><span>Official downloads</span></span>
-      </a>
-      <button class="site-menu-button" type="button" data-site-menu-toggle aria-expanded="false" aria-controls="site-nav">Menu</button>
-      <nav class="site-nav" id="site-nav" data-site-nav aria-label="Primary">
-        <a href="/release-notes.html">Release Notes</a>
-        <a href="/features">Features</a>
-        <a href="/getting-started">Getting Started</a>
-        <a href="/setup">Setup Guide</a>
-        <a href="/download" aria-current="page">Download</a>
-        <a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a>
-        <a class="site-nav__cta" href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a>
-        <a href="/profile" data-auth-nav="signed-in" hidden>Profile</a>
-        <button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button>
-      </nav>
-    </header>
+    <header class="site-header"><div class="site-header__inner"><a class="brand" href="/" aria-label="AnxOS home"><span class="brand-mark"><img data-logo src="/assets/anxos-logo.png" alt=""></span><span class="brand-copy"><strong data-config="brandName">AnxOS</strong><span>Local-first server control</span></span></a><button class="site-menu-button" type="button" data-site-menu-toggle aria-expanded="false" aria-controls="site-nav">Menu</button><nav class="site-nav" id="site-nav" data-site-nav aria-label="Primary"><a href="/features">Features</a><a href="/getting-started">Getting Started</a><a href="/setup">Setup</a><a href="/download">Download</a><a href="/release-notes.html">Release Notes</a><a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a><a class="site-nav__cta" href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button></nav></div></header>
 
-    <main id="download-page">
+    <main id="main">
       <section class="download-hero section-shell" aria-labelledby="download-title">
-        <div class="download-hero__copy">
-          <p class="eyebrow">Windows installer</p>
-          <p class="release-badge" data-release-badge>Private Alpha</p>
-          <h1 id="download-title">Download AnxOS for Windows</h1>
-          <p class="lede">Install AnxOS Control Center and set up the Local Agent so this PC can manage servers, files, backups, dependencies, and public access.</p>
-          <div class="alpha-warning" role="note">
-            This is an early testing release for invited users. It passed automated validation and a real-host install, upgrade, repair, and uninstall acceptance on Windows 11; clean-machine and Linux verification remain in progress. Expect bugs and back up important data.
-          </div>
-          <div class="download-status" data-download-status role="status">Checking the latest published release for the official Windows installer...</div>
-          <div class="download-primary" data-primary-download aria-live="polite">
-            <h3>Preparing Windows installer</h3>
-            <p>Release metadata is loading. Downloads never start automatically.</p>
-          </div>
-          <div class="release-actions">
-            <button class="button button-secondary" type="button" data-download-retry><svg><use href="#icon-refresh"></use></svg><span>Retry</span></button>
-            <a class="button button-ghost" data-download="windowsPortable" href="/download"><span>Portable Version</span></a>
-            <a class="button button-ghost" data-download-release-link href="/release-notes.html" rel="noopener noreferrer" target="_blank"><svg><use href="#icon-github"></use></svg><span>View Release Notes</span></a>
-            <a class="button button-ghost" href="/windows-installation"><span>Installation Help</span></a>
-            <a class="button button-ghost" href="/system-requirements"><span>System Requirements</span></a>
+        <div class="download-hero__copy" data-reveal>
+          <p class="eyebrow">Official downloads</p>
+          <p class="badge badge--alpha">Private Alpha</p>
+          <h1 id="download-title">Download AnxOS Control Center</h1>
+          <p class="lede">Install AnxOS Control Center on Windows 11 x64, run it on Debian or Ubuntu x64, or add a headless server to your Control Center with the Agent package. Every file comes from the official GitHub Release.</p>
+          <ul class="download-primary__facts">
+            <li data-release-meta>Version 2.0 · Build 205 · Private Alpha · Released September 26, 2026</li>
+            <li>Windows 11 x64</li>
+            <li>Debian / Ubuntu x64</li>
+          </ul>
+          <div class="callout callout--warn">
+            <strong>Early testing release</strong>
+            <p>AnxOS is in Private Alpha. This build passed automated validation and a real-host install, upgrade, repair, and uninstall acceptance run on Windows 11. Linux verification is still in progress, so expect bugs and keep your data backed up.</p>
           </div>
         </div>
-        <aside class="download-version-card" aria-label="Latest release metadata">
+        <aside class="download-version-card" aria-label="Latest published release" data-reveal data-reveal-delay="1">
           <span class="release-card__logo"><img data-logo src="/assets/anxos-logo.png" alt="" aria-hidden="true"></span>
+          <p class="eyebrow">Latest release</p>
           <dl class="release-meta">
             <div><dt>Version</dt><dd data-download-version>Loading</dd></div>
             <div><dt>Build</dt><dd data-download-build>Loading</dd></div>
@@ -97,72 +78,219 @@
         </aside>
       </section>
 
-      <section class="section-shell">
-        <div class="section-heading">
+      <section class="section-shell" aria-labelledby="download-chooser-title">
+        <div class="section-heading" data-reveal>
+          <p class="eyebrow">Start here</p>
+          <h2 id="download-chooser-title">Choose your download</h2>
+          <p class="section-copy">Three paths: a Windows desktop, a Linux desktop, or a headless server that joins your Control Center. Nothing downloads until you choose a button.</p>
+        </div>
+        <div class="download-chooser">
+          <article class="download-option" data-reveal>
+            <span class="feature__icon" style="align-self:start"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#icon-download"></use></svg></span>
+            <div>
+              <h3>I'm installing on Windows</h3>
+              <p>Windows 11 x64. The signed setup adds AnxOS Control Center and the Local Agent to this PC. Use the portable build when you cannot run an installer.</p>
+              <div class="artifact-row">
+                <div>
+                  <strong>Windows installer</strong>
+                  <p class="artifact-row__meta" data-file="windows">Release metadata loading</p>
+                </div>
+                <p class="artifact-row__integrity">Signed installer</p>
+              </div>
+              <div class="artifact-row">
+                <div>
+                  <strong>Portable Version</strong>
+                  <p class="artifact-row__meta" data-file="windowsPortable">Release metadata loading</p>
+                </div>
+              </div>
+              <ul class="download-list">
+                <li data-download-checksum>No checksum manifest is loaded yet.</li>
+              </ul>
+              <div class="download-primary__actions">
+                <a class="button button-primary" data-download="windows" href="/download"><svg><use href="#icon-download"></use></svg><span>Download AnxOS for Windows</span></a>
+                <a class="button button-secondary" data-download="windowsPortable" href="/download"><span>Portable Version</span></a>
+                <a class="button button-ghost" href="/windows-installation"><span>Installation Help</span></a>
+              </div>
+            </div>
+          </article>
+          <article class="download-option" data-reveal data-reveal-delay="1">
+            <span class="feature__icon" style="align-self:start"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#icon-package"></use></svg></span>
+            <div>
+              <h3>I'm installing on Linux</h3>
+              <p>Debian 11+ and Ubuntu 22.04+ x64 desktops. Pick the .deb for Debian-based systems or the AppImage, which runs on most distributions without installing.</p>
+              <div class="artifact-row">
+                <div>
+                  <strong>Control Center .deb</strong>
+                  <p class="artifact-row__meta" data-file="linuxDeb">Release metadata loading</p>
+                </div>
+                <p class="artifact-row__integrity">SHA-256 checksum</p>
+              </div>
+              <div class="artifact-row">
+                <div>
+                  <strong>Linux AppImage</strong>
+                  <p class="artifact-row__meta" data-file="linuxAppImage">Release metadata loading</p>
+                </div>
+                <p class="artifact-row__integrity">SHA-256 checksum</p>
+              </div>
+              <p class="note">These packages are not code-signed. Verify the SHA-256 checksum from the release assets before installing.</p>
+              <div class="download-primary__actions">
+                <a class="button button-primary" data-download="linuxDeb" href="/download"><svg><use href="#icon-download"></use></svg><span>Download .deb</span></a>
+                <a class="button button-secondary" data-download="linuxAppImage" href="/download"><span>Download AppImage</span></a>
+                <a class="button button-ghost" data-config-href="releaseUrl" href="https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v2.0-build205-rc3"><svg><use href="#icon-github"></use></svg><span>Checksums on GitHub</span></a>
+              </div>
+            </div>
+          </article>
+          <article class="download-option" data-reveal data-reveal-delay="2">
+            <span class="feature__icon" style="align-self:start"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#icon-server"></use></svg></span>
+            <div>
+              <h3>I'm adding a headless server</h3>
+              <p>The Agent runs a server without a desktop: Debian 11+ or Ubuntu 22.04+ x64 with glibc 2.28 or newer. It binds loopback by default and is paired with a one-time code.</p>
+              <div class="artifact-row">
+                <div>
+                  <strong>AnxOS-Agent-&lt;version&gt;.deb</strong>
+                  <p class="artifact-row__meta">Installs the <code>anxos-agent.service</code> systemd unit; the matching <code>AnxOS-Agent-&lt;version&gt;.deb.sha256</code> file is published with it</p>
+                </div>
+                <p class="artifact-row__integrity">SHA-256 checksum</p>
+              </div>
+              <div class="download-primary__actions">
+                <a class="button button-primary" href="/setup"><svg><use href="#icon-download"></use></svg><span>Open the Setup Guide</span></a>
+                <a class="button button-secondary" data-download="linuxAgentDeb" href="/download"><svg><use href="#icon-download"></use></svg><span>Download Agent .deb</span></a>
+                <a class="button button-ghost" data-config-href="releaseUrl" href="https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v2.0-build205-rc3"><svg><use href="#icon-github"></use></svg><span>Agent package on GitHub</span></a>
+                <a class="button button-ghost" href="/security-privacy"><span>Security and Privacy</span></a>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="section-shell" aria-labelledby="windows-download-title">
+        <div class="section-heading" data-reveal>
+          <p class="eyebrow">Windows installer</p>
+          <h2 id="windows-download-title">Download AnxOS for Windows</h2>
+          <p class="section-copy">The signed setup executable is the recommended path for most people on Windows 11 x64. The page detects your platform in the browser and never starts a download on its own.</p>
+        </div>
+        <div class="download-status" data-download-status role="status">Checking the latest published release for the official Windows installer...</div>
+        <div class="download-primary" data-primary-download aria-live="polite">
+          <h3>Preparing Windows installer</h3>
+          <p>Release metadata is loading. Downloads never start automatically.</p>
+        </div>
+
+        <div class="section-heading" data-reveal>
           <p class="eyebrow">Manual options</p>
           <h2>Download packages</h2>
+          <p class="section-copy">Every installer asset in the latest published release, including the headless Agent package. Packages appear here only after the release metadata loads.</p>
         </div>
         <div class="download-grid" data-download-platforms aria-live="polite">
           <article class="download-card"><div><h3>Loading packages</h3><p>Release assets are being checked.</p><small>Only real installer assets from the official GitHub Release will appear here.</small></div></article>
         </div>
+        <div class="download-help">
+          <span>Missing packages or a failed load? Retry the release lookup or open the GitHub release directly.</span>
+          <button class="button button-secondary" type="button" data-download-retry><svg><use href="#icon-refresh"></use></svg><span>Retry</span></button>
+          <a data-config-href="releaseUrl" href="https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v2.0-build205-rc3">Open the GitHub release</a>
+        </div>
       </section>
 
-      <section class="section-shell download-detail-grid">
-        <article class="download-info-card" id="system-requirements">
-          <h2>System requirements</h2>
-          <ul>
-            <li>Windows 11 on a 64-bit processor.</li>
-            <li>At least 4 GB RAM and 2 GB free storage for the app and Local Agent; servers and backups need additional space.</li>
-            <li>Internet access for downloads, updates, templates, and dependency installers.</li>
-            <li>Administrator approval is required when installing the Local Agent service or managed dependencies.</li>
+      <section class="section-shell" aria-labelledby="integrity-title">
+        <div class="section-heading" data-reveal>
+          <p class="eyebrow">Verification</p>
+          <h2 id="integrity-title">Security and checksums</h2>
+          <p class="section-copy">Know what is signed and what you have to verify yourself before installing.</p>
+        </div>
+        <div class="grid-2">
+          <article class="card" data-reveal>
+            <h3>Windows installer: signed</h3>
+            <ul class="trust-list">
+              <li class="trust-item"><strong>Code-signed with Azure Trusted Signing</strong>Check the publisher on the SmartScreen prompt before you run the setup.</li>
+              <li class="trust-item"><strong>SmartScreen may still warn</strong>AnxOS is distributed directly through GitHub, so a new build can look unfamiliar. Choose More info and Run anyway only when the file came from the official release page.</li>
+            </ul>
+          </article>
+          <article class="card" data-reveal data-reveal-delay="1">
+            <h3>Linux and Agent packages: not code-signed</h3>
+            <ul class="trust-list">
+              <li class="trust-item"><strong>No Linux signature</strong>The Linux .deb, the AppImage, and the headless Agent .deb are not code-signed.</li>
+              <li class="trust-item"><strong>Verify SHA-256 instead</strong>Compare each package against its published checksum from the release assets before installing.</li>
+            </ul>
+          </article>
+        </div>
+        <div class="integrity-note" data-reveal>
+          <strong>Checksum manifest</strong>
+          <ul class="download-list">
+            <li data-download-checksum>No checksum manifest is loaded yet.</li>
           </ul>
-        </article>
-        <article class="download-info-card" id="install-help">
-          <h2>Install guidance</h2>
-          <ul>
-            <li>Choose Download AnxOS for Windows unless you specifically need the portable build.</li>
-            <li>Open the installer, launch AnxOS Control Center, then choose Use This PC during onboarding.</li>
-            <li>The Local Agent setup runs inside AnxOS and does not require Node.js, terminal commands, JSON editing, or token copying.</li>
-            <li>Windows SmartScreen may still warn on a new signed release because AnxOS is distributed directly through GitHub. Choose More info → Run anyway if you downloaded it from the official release page.</li>
+          <p>Checksum files are published with the other assets in the official GitHub Release.</p>
+          <ul class="download-list">
+            <li><a data-config-href="releaseUrl" href="https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v2.0-build205-rc3">Open the GitHub release page</a> to compare every package against its published SHA-256 file.</li>
+            <li><a href="/security-privacy">Security and Privacy</a> explains how AnxOS handles local data, diagnostics, and account security.</li>
           </ul>
-        </article>
-        <article class="download-info-card">
-          <h2>Security and checksums</h2>
-          <p data-download-checksum>No checksum manifest is loaded yet.</p>
-          <p>Download links are accepted only from official release assets for the configured AnxOS release repository. Release notes are rendered as text, not injected HTML.</p>
-        </article>
-        <article class="download-info-card">
-          <h2>Other downloads</h2>
-          <ul class="download-list" data-other-downloads>
-            <li>Loading available packages...</li>
-          </ul>
-          <p data-download-error></p>
-        </article>
+        </div>
       </section>
 
-      <section class="section-shell download-notes-card">
-        <div>
-          <p class="eyebrow">Release notes</p>
-          <h2>Latest published release</h2>
-          <pre data-download-release-body>No release text loaded yet.</pre>
+      <section class="section-shell" id="system-requirements" aria-labelledby="requirements-title">
+        <div class="section-heading" data-reveal>
+          <p class="eyebrow">Before you install</p>
+          <h2 id="requirements-title">System requirements</h2>
+          <p class="section-copy">AnxOS itself needs modest resources; the servers and backups you run on top of it need their own space.</p>
+        </div>
+        <div class="platform-grid">
+          <article class="platform-card" data-reveal>
+            <h3>Windows desktop</h3>
+            <p>Windows 11 x64 with administrator access during the Local Agent install. 4 GB RAM minimum, 8 GB or more recommended, and 2 GB free storage for the app and Agent.</p>
+          </article>
+          <article class="platform-card" data-reveal data-reveal-delay="1">
+            <h3>Linux desktop</h3>
+            <p>Debian 11+ or Ubuntu 22.04+ x64 with the same memory and storage guidance. Install packages with your distribution's package manager.</p>
+          </article>
+          <article class="platform-card" data-reveal data-reveal-delay="2">
+            <h3>Headless server</h3>
+            <p>Debian 11+ or Ubuntu 22.04+ x64 with glibc 2.28 or newer and systemd for the Agent service. The server must stay powered on and reachable when you manage it.</p>
+          </article>
+          <p class="platform-note">Servers, modpacks, and backups need additional disk space, and internet access is required for downloads, updates, and dependency installers.</p>
+        </div>
+        <div class="download-help" id="install-help">
+          <a href="/system-requirements">System Requirements</a>
+          <a href="/windows-installation">Installation Help</a>
+          <a href="/faq">FAQ</a>
+        </div>
+      </section>
+
+      <section class="section-shell" aria-labelledby="other-downloads-title">
+        <div class="section-heading" data-reveal>
+          <p class="eyebrow">Release</p>
+          <h2 id="other-downloads-title">Other downloads</h2>
+          <p class="section-copy">The full asset list for the newest published release, newest first as GitHub publishes it.</p>
+        </div>
+        <div class="grid-2">
+          <article class="card" data-reveal>
+            <h3>All packages in this release</h3>
+            <ul class="download-list" data-other-downloads>
+              <li>Loading available packages...</li>
+            </ul>
+            <p class="platform-note" data-download-error></p>
+          </article>
+          <article class="card" data-reveal data-reveal-delay="1">
+            <p class="eyebrow">Latest published release</p>
+            <h2 data-release-title>Version 2.0</h2>
+            <p data-release-latest-summary>Latest AnxOS release notes.</p>
+            <div class="release-note-card__actions">
+              <a class="button button-primary" href="/release-notes.html">View Release Notes</a>
+              <a class="button button-ghost" data-config-href="releaseUrl" href="https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v2.0-build205-rc3"><svg><use href="#icon-github"></use></svg><span>GitHub release</span></a>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="section-shell" data-reveal>
+        <div class="cta-band">
+          <h2>Set up your first server</h2>
+          <p>The setup guide walks through installing the app, connecting the Local Agent, preparing the node, and creating your first server without terminal commands or token copying.</p>
+          <div class="cta-actions">
+            <a class="button button-primary" href="/setup">Open the Setup Guide</a>
+            <a class="button button-ghost" href="/getting-started">Getting Started</a>
+          </div>
         </div>
       </section>
     </main>
 
-    <footer class="site-footer">
-      <div><strong>AnxOS Control Center</strong><span>© 2026 AnxOS Control Center · anxoscontrolcenter.org</span></div>
-      <nav aria-label="Footer">
-        <a href="/">Home</a>
-        <a href="/download" aria-current="page">Download</a>
-        <a href="/features">Features</a>
-        <a href="/getting-started">Getting Started</a>
-        <a href="/setup">Setup Guide</a>
-        <a href="/release-notes.html">Release Notes</a>
-        <a href="/security-privacy">Security</a>
-        <a href="/faq">FAQ</a>
-        <a data-config-href="repositoryUrl" href="https://github.com/AnxLabs/AnxOS-Control-Center-Releases" rel="noopener noreferrer">GitHub</a>
-        <a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a><a href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button>
-      </nav>
-    </footer>
+    <footer class="site-footer"><div class="site-footer__brand"><strong>AnxOS Control Center</strong><span>© 2026 AnxOS Control Center · anxoscontrolcenter.org</span><span class="site-footer__note">Private Alpha · <a href="/security-privacy">Security &amp; Privacy</a></span></div><nav class="site-footer__nav" aria-label="Footer"><a href="/">Home</a><a href="/features">Features</a><a href="/getting-started">Getting Started</a><a href="/setup">Setup</a><a href="/download">Download</a><a href="/release-notes.html">Release Notes</a><a href="/security-privacy">Security</a><a href="/faq">FAQ</a><a data-config-href="repositoryUrl" href="https://github.com/AnxLabs/AnxOS-Control-Center-Releases">GitHub</a><a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a><a href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button></nav></footer>
   </body>
 </html>

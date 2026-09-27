@@ -2,12 +2,28 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
+    <script>document.documentElement.classList.add("js");setTimeout(function(){if(!window.__anxMotionReady){document.documentElement.classList.remove("js")}},5000);</script>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>AnxOS Control Center | Local Agent FAQ</title>
-    <meta name="description" content="Answers to common AnxOS Local Agent questions about using your own PC, remote servers, Node.js, pairing, storage, SmartScreen, dependencies, and public access.">
+    <title>AnxOS Control Center | Frequently Asked Questions</title>
+    <meta name="description" content="Plain answers about the AnxOS Local Agent, remote Agent nodes, hosting, pairing, Linux support, SmartScreen, and optional AnxOS accounts.">
     <meta name="robots" content="index,follow">
     <meta name="theme-color" content="#07020f">
     <link rel="canonical" href="https://anxoscontrolcenter.org/faq">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="AnxOS Control Center">
+    <meta property="og:title" content="AnxOS Control Center | Frequently Asked Questions">
+    <meta property="og:description" content="Short, honest answers about the Local Agent, remote nodes, hosting, networking, and accounts.">
+    <meta property="og:url" content="https://anxoscontrolcenter.org/faq">
+    <meta property="og:image" content="https://anxoscontrolcenter.org/assets/social-preview.png?v=04c80a572768">
+    <meta property="og:image:secure_url" content="https://anxoscontrolcenter.org/assets/social-preview.png?v=04c80a572768">
+    <meta property="og:image:type" content="image/png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:alt" content="AnxOS Control Center social preview with the official AnxOS logo.">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="AnxOS Control Center | Frequently Asked Questions">
+    <meta name="twitter:description" content="Short, honest answers about the Local Agent, remote nodes, hosting, networking, and accounts.">
+    <meta name="twitter:image" content="https://anxoscontrolcenter.org/assets/social-preview.png?v=04c80a572768">
     <link rel="icon" href="/favicon.ico" sizes="any">
     <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
     <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png">
@@ -22,6 +38,7 @@
     <script src="/site.js" defer></script>
   </head>
   <body data-standalone-route="faq">
+    <a class="skip-link" href="#main">Skip to content</a>
     <svg class="svg-defs" aria-hidden="true">
       <symbol id="icon-download" viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v3h16v-3"/></symbol>
       <symbol id="icon-github" viewBox="0 0 24 24"><path d="M9 19c-4 1.5-4-2-5-2.5M15 22v-3.5c0-1 .2-1.4-.5-2 2.6-.3 5.5-1.3 5.5-6a4.7 4.7 0 0 0-1.3-3.3c.1-.3.5-1.7-.1-3.2 0 0-1.1-.3-3.5 1.3a12.2 12.2 0 0 0-6.2 0C6.5 3.7 5.4 4 5.4 4c-.6 1.5-.2 2.9-.1 3.2A4.7 4.7 0 0 0 4 10.5c0 4.7 2.9 5.7 5.5 6-.7.6-.7 1.2-.6 2V22"/></symbol>
@@ -34,68 +51,177 @@
       <symbol id="icon-node" viewBox="0 0 24 24"><path d="M12 4v6M12 14v6M6 10h12M6 14h12M5 8h2v8H5zM17 8h2v8h-2z"/></symbol>
     </svg>
 
-    <header class="site-header">
-      <a class="brand" href="/" aria-label="AnxOS home">
-        <span class="brand-mark"><img data-logo src="/assets/anxos-logo.png" alt=""></span>
-        <span class="brand-copy"><strong data-config="brandName">AnxOS</strong><span>FAQ</span></span>
-      </a>
-      <button class="site-menu-button" type="button" data-site-menu-toggle aria-expanded="false" aria-controls="site-nav">Menu</button>
-      <nav class="site-nav" id="site-nav" data-site-nav aria-label="Primary">
-        <a href="/release-notes.html">Release Notes</a>
-        <a href="/features">Features</a>
-        <a href="/getting-started">Getting Started</a>
-        <a href="/setup">Setup Guide</a>
-        <a href="/download">Download</a>
-        <a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a>
-        <a class="site-nav__cta" href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a>
-        <a href="/profile" data-auth-nav="signed-in" hidden>Profile</a>
-        <button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button>
-      </nav>
-    </header>
+    <header class="site-header"><div class="site-header__inner"><a class="brand" href="/" aria-label="AnxOS home"><span class="brand-mark"><img data-logo src="/assets/anxos-logo.png" alt=""></span><span class="brand-copy"><strong data-config="brandName">AnxOS</strong><span>Local-first server control</span></span></a><button class="site-menu-button" type="button" data-site-menu-toggle aria-expanded="false" aria-controls="site-nav">Menu</button><nav class="site-nav" id="site-nav" data-site-nav aria-label="Primary"><a href="/features">Features</a><a href="/getting-started">Getting Started</a><a href="/setup">Setup</a><a href="/download">Download</a><a href="/release-notes.html">Release Notes</a><a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a><a class="site-nav__cta" href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button></nav></div></header>
 
-    <main id="faq-page">
-      <section class="section-shell">
-        <div class="section-heading">
-          <p class="eyebrow">Local Agent FAQ</p>
+    <main id="main">
+      <section class="section-shell hero">
+        <div class="hero-copy" data-reveal>
+          <p class="eyebrow">AnxOS Control Center FAQ</p>
           <h1>Common Questions</h1>
-          <p class="section-copy">These answers describe the intended Windows Local Agent experience for normal users while keeping remote servers optional.</p>
+          <p class="lede">Short, honest answers about the Local Agent, remote nodes, hosting, networking, and accounts. For step-by-step instructions use the <a href="/setup">setup guide</a>, for the security model read <a href="/security-privacy">Security and Privacy</a>, and for hardware details check <a href="/system-requirements">System Requirements</a>.</p>
+          <div>
+            <span class="badge badge--alpha">Private Alpha</span>
+            <span class="badge">Version 2.0 · Build 205</span>
+          </div>
         </div>
-        <div class="download-detail-grid faq-grid">
-          <article class="download-info-card"><h2>Do I need Anx's Debian server?</h2><p>No. Normal users can run AnxOS with the Local Agent on their own Windows PC. Debian remote Agents remain supported for users who want them.</p></article>
-          <article class="download-info-card"><h2>Does AnxOS host the server for me?</h2><p>No. AnxOS manages servers on your PC or on a remote machine you connect. It does not provide hosting capacity by itself.</p></article>
-          <article class="download-info-card"><h2>Does my PC need to stay on?</h2><p>Yes. Locally hosted servers stay online only while your PC is powered on, connected to the network, and the server process is running.</p></article>
-          <article class="download-info-card"><h2>Can I use a remote server instead?</h2><p>Yes. You can connect a remote Windows or Linux Agent instead of using This PC, or skip Local Agent setup during remote-only onboarding.</p></article>
-          <article class="download-info-card"><h2>Can I manage both my PC and a remote server?</h2><p>Yes. AnxOS can show This PC alongside remote servers such as a VPS, NAS, Debian server, Windows Server, or Raspberry Pi.</p></article>
-          <article class="download-info-card"><h2>Does the Local Agent start with Windows?</h2><p>It can. The Local Agent is designed to run as a Windows service so it can start with Windows without leaving the desktop app open.</p></article>
-          <article class="download-info-card"><h2>Do I need Node.js?</h2><p>No. The Local Agent uses an AnxOS-managed runtime, so normal users should not need to install a global Node.js version.</p></article>
-          <article class="download-info-card"><h2>Do I need to copy an Agent token?</h2><p>No. Local pairing is handled automatically on your computer. Remote Agent pairing may still use the existing secure remote workflow.</p></article>
-          <article class="download-info-card"><h2>Can I uninstall the Local Agent?</h2><p>Yes. You can stop or uninstall the Local Agent. User-created instances and backups should not be removed unless an uninstall option explicitly says it will delete them.</p></article>
-          <article class="download-info-card"><h2>Where are my instances stored?</h2><p>Instances are stored in the configured AnxOS instance storage location for the selected node. For This PC, that location is on your own Windows computer.</p></article>
-          <article class="download-info-card"><h2>Why does Windows show a blue SmartScreen warning?</h2><p>Windows SmartScreen may still warn on a new signed release because AnxOS is distributed directly through GitHub. Choose More info → Run anyway if you downloaded it from the official release page.</p></article>
-          <article class="download-info-card"><h2>Is macOS supported?</h2><p>macOS is not listed as a supported Local Agent platform in this release. Do not assume macOS support until it is tested and documented.</p></article>
-          <article class="download-info-card"><h2>Which Linux distributions are supported?</h2><p>The existing remote Debian Agent workflow remains supported. Other Linux distributions should be considered untested unless release notes or docs say otherwise.</p></article>
-          <article class="download-info-card"><h2>Can AnxOS install Java, SteamCMD, and other dependencies?</h2><p>AnxOS can scan for supported dependencies and install some of them through managed flows when technically and legally appropriate.</p></article>
-          <article class="download-info-card"><h2>How do I let friends join my server?</h2><p>Use Public Access options such as Playit, Tailscale, Cloudflare Tunnel, or manual port forwarding. Your provider, firewall, router, and server settings must allow the connection.</p></article>
+        <aside class="hero__visual" data-reveal data-reveal-delay="2" aria-label="What this page covers">
+          <div class="card card--panel">
+            <p class="eyebrow">What this page covers</p>
+            <ul class="trust-list">
+              <li class="trust-item"><strong>Getting started</strong>Platform support, SmartScreen, macOS, Linux, and headless servers.</li>
+              <li class="trust-item"><strong>Machines &amp; Agents</strong>Services, pairing, tokens, dependencies, storage, and uninstalling.</li>
+              <li class="trust-item"><strong>Hosting</strong>Who hosts servers, keeping a PC on, and dependency installs.</li>
+              <li class="trust-item"><strong>Networking</strong>How friends connect through Public Access.</li>
+              <li class="trust-item"><strong>Accounts</strong>Optional sign-in and offline Local mode.</li>
+            </ul>
+          </div>
+        </aside>
+      </section>
+
+      <section class="section-shell">
+        <div class="section-head" data-reveal>
+          <p class="eyebrow">Getting started</p>
+          <h2>Before your first server</h2>
+        </div>
+        <div class="faq-list">
+          <details class="faq-item" data-reveal>
+            <summary>Do I need a separate Debian or Ubuntu server?</summary>
+            <p>No. Normal users run the Local Agent on their own Windows PC. A remote Debian or Ubuntu machine is one way to keep a node online without your PC, but it is optional and you can add it whenever you want one.</p>
+          </details>
+          <details class="faq-item" data-reveal>
+            <summary>Can I run the AnxOS Agent on a headless Linux server?</summary>
+            <p>Yes. The official AnxOS Agent package runs on Debian 11+ and Ubuntu 22.04+ x64 with no desktop environment. It installs as a systemd service, listens on loopback (127.0.0.1) by default, and shows a one-time pairing code in its TUI. Exposing it to your network is an explicit opt-in.</p>
+          </details>
+          <details class="faq-item" data-reveal>
+            <summary>Why does Windows show a blue SmartScreen warning?</summary>
+            <p>The installer is code-signed, but SmartScreen can still warn when a publisher or a build is new to it. Check that the file came from the official release page and look at the publisher name in the signature before you decide. Do not install a build from anywhere else.</p>
+          </details>
+          <details class="faq-item" data-reveal>
+            <summary>Is macOS supported?</summary>
+            <p>No. macOS is not a supported platform in this release. Do not assume macOS support until it is tested and documented.</p>
+          </details>
+          <details class="faq-item" data-reveal>
+            <summary>Which Linux distributions are supported?</summary>
+            <p>The Control Center desktop app ships for Debian and Ubuntu x64 as .deb and .AppImage packages. Headless Agent nodes are supported on Debian 11+ and Ubuntu 22.04+ x64 with glibc 2.28 or newer. Other distributions are untested for now.</p>
+          </details>
+          <details class="faq-item" data-reveal>
+            <summary>Can I check things from my phone?</summary>
+            <p>There is no phone app in this release. The website covers account pages and desktop app activation; day-to-day server management happens in the desktop Control Center. Public Access providers make a game server reachable to other players, but that is gameplay access, not a management app.</p>
+          </details>
+        </div>
+      </section>
+
+      <section class="section-shell">
+        <div class="section-head" data-reveal>
+          <p class="eyebrow">Machines &amp; Agents</p>
+          <h2>Local Agent and remote nodes</h2>
+        </div>
+        <div class="faq-list">
+          <details class="faq-item" data-reveal>
+            <summary>Does the Local Agent start with Windows?</summary>
+            <p>It can. The Windows Local Agent is designed to run as a service, so it can start with Windows without leaving the desktop app open.</p>
+          </details>
+          <details class="faq-item" data-reveal>
+            <summary>Can I use a remote server instead?</summary>
+            <p>Yes. Add a Windows desktop or a headless Debian/Ubuntu server with the official AnxOS Agent package and pair it with a one-time code. You can also skip Local Agent setup during remote-only onboarding.</p>
+          </details>
+          <details class="faq-item" data-reveal>
+            <summary>Can I manage both my PC and a remote server?</summary>
+            <p>Yes. AnxOS can show This PC alongside remote servers such as a VPS, NAS, or home server, and each action targets the node you select.</p>
+          </details>
+          <details class="faq-item" data-reveal>
+            <summary>Do I need Node.js?</summary>
+            <p>No. The Agent uses an AnxOS-managed runtime that the app prepares for you, so you do not install a global Node.js version by hand.</p>
+          </details>
+          <details class="faq-item" data-reveal>
+            <summary>Do I need to copy an Agent token?</summary>
+            <p>No. Local pairing is handled automatically on This PC, and normal setup never asks you to copy a token from a config file. A direct Agent URL + token option exists in Advanced Manual Setup for development or recovery only.</p>
+          </details>
+          <details class="faq-item" data-reveal>
+            <summary>How does pairing work — do I need to copy a token?</summary>
+            <p>Adding a computer generates a one-time pairing code on that machine. Paste it once into Pair with Code in the Control Center and the node appears. The code expires, so generate a fresh one if it ages out. No token copying is involved.</p>
+          </details>
+          <details class="faq-item" data-reveal>
+            <summary>What's the .deb Agent package?</summary>
+            <p>It is the official AnxOS Agent package for headless Linux servers. Install it on Debian 11+ or Ubuntu 22.04+ x64 with sudo; it adds the Agent as a systemd service with a CLI and TUI. The package is not code-signed, so verify the published SHA-256 checksum after downloading.</p>
+          </details>
+          <details class="faq-item" data-reveal>
+            <summary>Can I uninstall the Local Agent?</summary>
+            <p>Yes. You can stop the service or uninstall the Agent. Your instances, worlds, and backups stay on disk unless an uninstall option explicitly says it removes them.</p>
+          </details>
+          <details class="faq-item" data-reveal>
+            <summary>Where are my instances stored?</summary>
+            <p>In the instance storage location configured for the node you picked. For This PC, that is a folder on your own computer that you can change, back up, or move yourself.</p>
+          </details>
+        </div>
+      </section>
+
+      <section class="section-shell">
+        <div class="section-head" data-reveal>
+          <p class="eyebrow">Hosting</p>
+          <h2>Hosting and hardware</h2>
+        </div>
+        <div class="faq-list">
+          <details class="faq-item" data-reveal>
+            <summary>Does AnxOS host the server for me?</summary>
+            <p>No. AnxOS manages servers on hardware you control, and it does not provide hosting capacity by itself. This PC or a remote node supplies the CPU, RAM, storage, and bandwidth.</p>
+          </details>
+          <details class="faq-item" data-reveal>
+            <summary>Does my PC need to stay on?</summary>
+            <p>Yes. A locally hosted server stays online only while your PC is powered on and connected and the instance is running. If that does not work for you, connect a remote node instead.</p>
+          </details>
+          <details class="faq-item" data-reveal>
+            <summary>Can AnxOS install Java, SteamCMD, and other dependencies?</summary>
+            <p>AnxOS can scan for supported dependencies and install some of them through managed flows when the platform and license allow it. Anything it cannot install is reported with instructions instead.</p>
+          </details>
+        </div>
+      </section>
+
+      <section class="section-shell">
+        <div class="section-head" data-reveal>
+          <p class="eyebrow">Networking</p>
+          <h2>Letting other people in</h2>
+        </div>
+        <div class="faq-list">
+          <details class="faq-item" data-reveal>
+            <summary>How do I let friends join my server?</summary>
+            <p>Use Public Access options such as Playit, Tailscale, Cloudflare Tunnel, or manual port forwarding. Playit.gg is the integrated provider; Cloudflare Tunnel and Tailscale are set up on the node itself; port forwarding is configured on your router. Your provider, firewall, router, and server settings all have to allow the connection.</p>
+          </details>
+        </div>
+      </section>
+
+      <section class="section-shell">
+        <div class="section-head" data-reveal>
+          <p class="eyebrow">Accounts</p>
+          <h2>Signing in and local mode</h2>
+        </div>
+        <div class="faq-list">
+          <details class="faq-item" data-reveal>
+            <summary>Do I need an AnxOS account?</summary>
+            <p>No. Sign-in is optional. Local mode works offline with Local Owner access, and servers on This PC do not need cloud account features.</p>
+          </details>
+          <details class="faq-item" data-reveal>
+            <summary>What does signing in change?</summary>
+            <p>Signing in adds cloud and remote account features such as account pages, profile settings, and desktop app activation on the website. Local server work keeps working offline without it.</p>
+          </details>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-shell">
+          <div class="cta-band" data-reveal>
+            <h2>Still deciding?</h2>
+            <p>Follow the setup guide, compare the system requirements, or download the official Windows installer when you are ready.</p>
+            <div class="cta-actions">
+              <a class="button button--primary" href="/download">Download AnxOS</a>
+              <a class="button button--ghost" href="/setup">Setup guide</a>
+              <a class="button button--ghost" href="/system-requirements">System requirements</a>
+            </div>
+          </div>
         </div>
       </section>
     </main>
 
-    <footer class="site-footer">
-      <div><strong>AnxOS Control Center</strong><span>© 2026 AnxOS Control Center · anxoscontrolcenter.org</span></div>
-      <nav aria-label="Footer">
-        <a href="/">Home</a>
-        <a href="/download">Download</a>
-        <a href="/features">Features</a>
-        <a href="/getting-started">Getting Started</a>
-        <a href="/setup">Setup Guide</a>
-        <a href="/windows-installation">Windows Installation</a>
-        <a href="/system-requirements">System Requirements</a>
-        <a href="/release-notes.html">Release Notes</a>
-        <a href="/security-privacy">Security</a>
-        <a href="/faq" aria-current="page">FAQ</a>
-        <a data-config-href="repositoryUrl" href="https://github.com/AnxLabs/AnxOS-Control-Center-Releases">GitHub</a>
-        <a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a><a href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button>
-      </nav>
-    </footer>
+    <footer class="site-footer"><div class="site-footer__brand"><strong>AnxOS Control Center</strong><span>© 2026 AnxOS Control Center · anxoscontrolcenter.org</span><span class="site-footer__note">Private Alpha · <a href="/security-privacy">Security &amp; Privacy</a></span></div><nav class="site-footer__nav" aria-label="Footer"><a href="/">Home</a><a href="/features">Features</a><a href="/getting-started">Getting Started</a><a href="/setup">Setup</a><a href="/download">Download</a><a href="/release-notes.html">Release Notes</a><a href="/security-privacy">Security</a><a href="/faq">FAQ</a><a data-config-href="repositoryUrl" href="https://github.com/AnxLabs/AnxOS-Control-Center-Releases">GitHub</a><a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a><a href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button></nav></footer>
   </body>
 </html>

@@ -2,115 +2,99 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
+    <script>document.documentElement.classList.add("js");setTimeout(function(){if(!window.__anxMotionReady){document.documentElement.classList.remove("js")}},5000);</script>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>AnxOS Control Center | Release Notes</title>
-    <meta name="description" content="Read AnxOS Control Center release notes, current download metadata, and GitHub release links.">
+    <title>AnxOS Control Center Release Notes | Private Alpha builds</title>
+    <meta name="description" content="Release notes for every AnxOS Control Center Private Alpha build, newest first, with download links and the matching GitHub release pages.">
     <meta name="robots" content="index,follow">
     <meta name="theme-color" content="#07020f">
     <link rel="canonical" href="https://anxoscontrolcenter.org/release-notes.html">
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="AnxOS Control Center">
     <meta property="og:title" content="AnxOS Control Center Release Notes">
-    <meta property="og:description" content="Release notes and download metadata for AnxOS Control Center.">
+    <meta property="og:description" content="Release notes for every AnxOS Control Center Private Alpha build, newest first, with download links and GitHub release pages.">
     <meta property="og:url" content="https://anxoscontrolcenter.org/release-notes.html">
-    <meta property="og:image" content="https://anxoscontrolcenter.org/assets/social-preview.png?v=1bbe0a40ca77">
-    <meta property="og:image:secure_url" content="https://anxoscontrolcenter.org/assets/social-preview.png?v=1bbe0a40ca77">
+    <meta property="og:image" content="https://anxoscontrolcenter.org/assets/social-preview.png?v=04c80a572768">
+    <meta property="og:image:secure_url" content="https://anxoscontrolcenter.org/assets/social-preview.png?v=04c80a572768">
     <meta property="og:image:type" content="image/png">
     <meta property="og:image:width" content="1200">
     <meta property="og:image:height" content="630">
     <meta property="og:image:alt" content="AnxOS Control Center social preview with the official AnxOS logo.">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="AnxOS Control Center Release Notes">
-    <meta name="twitter:description" content="Release notes and download metadata for AnxOS Control Center.">
-    <meta name="twitter:image" content="https://anxoscontrolcenter.org/assets/social-preview.png?v=1bbe0a40ca77">
+    <meta name="twitter:description" content="Release notes for every AnxOS Control Center Private Alpha build, newest first, with download links and GitHub release pages.">
+    <meta name="twitter:image" content="https://anxoscontrolcenter.org/assets/social-preview.png?v=04c80a572768">
     <link rel="icon" href="/favicon.ico" sizes="any">
     <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
     <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="/assets/favicon-16.png">
     <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
-    <link rel="manifest" href="site.webmanifest">
-    <link rel="stylesheet" href="styles.css">
-    <script src="config.js" defer></script>
-    <script src="release-download-service.js" defer></script>
-    <script src="site.js" defer></script>
+    <link rel="manifest" href="/site.webmanifest">
+    <link rel="stylesheet" href="/styles.css">
+    <script src="/config.js" defer></script>
+    <script src="/account-config.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
+    <script src="/release-download-service.js" defer></script>
+    <script src="/site.js" defer></script>
   </head>
-  <body>
+  <body data-standalone-route="release-notes">
+    <a class="skip-link" href="#main">Skip to content</a>
     <svg class="svg-defs" aria-hidden="true">
       <symbol id="icon-download" viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v3h16v-3"/></symbol>
       <symbol id="icon-github" viewBox="0 0 24 24"><path d="M9 19c-4 1.5-4-2-5-2.5M15 22v-3.5c0-1 .2-1.4-.5-2 2.6-.3 5.5-1.3 5.5-6a4.7 4.7 0 0 0-1.3-3.3c.1-.3.5-1.7-.1-3.2 0 0-1.1-.3-3.5 1.3a12.2 12.2 0 0 0-6.2 0C6.5 3.7 5.4 4 5.4 4c-.6 1.5-.2 2.9-.1 3.2A4.7 4.7 0 0 0 4 10.5c0 4.7 2.9 5.7 5.5 6-.7.6-.7 1.2-.6 2V22"/></symbol>
-      <symbol id="icon-file" viewBox="0 0 24 24"><path d="M14 3H6v18h12V7zM14 3v4h4M8 13h8M8 17h5"/></symbol>
-      <symbol id="icon-refresh" viewBox="0 0 24 24"><path d="M20 6v5h-5M4 18v-5h5M18.5 9A7 7 0 0 0 6.7 6.7L4 9m16 6-2.7 2.3A7 7 0 0 1 5.5 15"/></symbol>
     </svg>
 
-    <header class="site-header">
-      <a class="brand" href="index.html" aria-label="AnxOS home">
-        <span class="brand-mark"><img data-logo src="/assets/anxos-logo.png" alt=""></span>
-        <span class="brand-copy">
-          <strong data-config="brandName">AnxOS</strong>
-          <span data-config="appName">AnxOS-Control-Center</span>
-        </span>
-      </a>
-      <button class="site-menu-button" type="button" data-site-menu-toggle aria-expanded="false" aria-controls="site-nav">Menu</button>
-      <nav class="site-nav" id="site-nav" data-site-nav aria-label="Primary">
-        <a href="/download">Download</a>
-        <a href="release-notes.html" aria-current="page">Release Notes</a>
-        <a data-config-href="repositoryUrl" href="https://github.com/AnxLabs/AnxOS-Control-Center-Releases">GitHub</a>
-        <a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a>
-        <a class="site-nav__cta" href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a>
-        <a href="/profile" data-auth-nav="signed-in" hidden>Profile</a>
-        <button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button>
+    <header class="site-header"><div class="site-header__inner"><a class="brand" href="/" aria-label="AnxOS home"><span class="brand-mark"><img data-logo src="/assets/anxos-logo.png" alt=""></span><span class="brand-copy"><strong data-config="brandName">AnxOS</strong><span>Local-first server control</span></span></a><button class="site-menu-button" type="button" data-site-menu-toggle aria-expanded="false" aria-controls="site-nav">Menu</button><nav class="site-nav" id="site-nav" data-site-nav aria-label="Primary"><a href="/features">Features</a><a href="/getting-started">Getting Started</a><a href="/setup">Setup</a><a href="/download">Download</a><a href="/release-notes.html">Release Notes</a><a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a><a class="site-nav__cta" href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button></nav></div></header>
 
-      </nav>
-    </header>
-
-    <main id="top">
+    <main id="main">
       <section class="release-hero section-shell" aria-labelledby="release-notes-title">
-        <div>
+        <div data-reveal>
           <p class="eyebrow">Release Notes</p>
           <h1 id="release-notes-title">AnxOS updates</h1>
-          <p class="lede">Version history, download links, and the changes included in each AnxOS-Control-Center release.</p>
+          <p class="lede">Release history for AnxOS Control Center, newest first. Every public build is a Private Alpha release, so changes land quickly and bugs are expected between builds.</p>
+          <ul class="download-primary__facts">
+            <li data-release-meta>Version 2.0 · Build 205 · Private Alpha · Released September 26, 2026</li>
+            <li>Tag <span data-config="releaseTag">v2.0-build205-rc3</span></li>
+          </ul>
           <div class="hero-actions">
-            <a class="button button-primary" data-download="windows" href="/download"><svg><use href="#icon-download"></use></svg><span>Download for Windows</span></a>
-            <a class="button button-secondary" data-download="linuxDeb" href="/download"><svg><use href="#icon-download"></use></svg><span>Download for Linux</span></a>
-            <a class="button button-ghost" data-config-href="releaseUrl" href="/download"><svg><use href="#icon-github"></use></svg><span>GitHub release</span></a>
+            <a class="button button-primary" href="/download"><svg><use href="#icon-download"></use></svg><span>Download for Windows</span></a>
+            <a class="button button-secondary" href="/download"><svg><use href="#icon-download"></use></svg><span>Download for Linux</span></a>
+            <a class="button button-ghost" data-config-href="releaseUrl" href="https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v2.0-build205-rc3"><svg><use href="#icon-github"></use></svg><span>GitHub release</span></a>
           </div>
         </div>
-        <aside class="release-summary-card">
+        <aside class="release-summary-card" aria-label="Current release" data-reveal data-reveal-delay="1">
           <span class="release-card__logo"><img data-logo src="/assets/anxos-logo.png" alt="" aria-hidden="true"></span>
           <div>
-            <span class="badge" data-config="releaseTag">Latest release</span>
-            <h2 data-release-title>Version</h2>
+            <span class="badge badge--alpha" data-config="channel">Private Alpha</span>
+            <h2 data-release-title>Version 2.0</h2>
             <p data-release-latest-summary>Latest AnxOS release notes.</p>
+            <p class="platform-note">This is the current release. Older builds stay listed below as history.</p>
           </div>
         </aside>
       </section>
 
-      <section class="section-shell">
-        <div class="section-heading">
+      <section class="section-shell" aria-labelledby="latest-changes-title">
+        <div class="section-heading" data-reveal>
           <p class="eyebrow">Changelog</p>
-          <h2>Latest changes</h2>
+          <h2 id="latest-changes-title">Latest changes</h2>
+          <p class="section-copy">Newest first — the first entry is the current release and carries the Current release marker; every older entry is kept as history. <span data-release-meta>Version 2.0 · Build 205 · Private Alpha · Released September 26, 2026</span></p>
         </div>
-        <div class="release-notes-list" data-release-notes>
-          <article class="release-note-card">
-            <span class="badge">Loading</span>
-            <h3>Loading release notes...</h3>
+        <div class="release-timeline" data-release-notes>
+          <article class="release release--current">
+            <span class="badge badge--alpha">Private Alpha</span>
+            <span class="badge badge-current">Current release</span>
+            <h3>Loading release notes…</h3>
+            <p>Release entries load from the AnxOS website configuration, with the newest published build first.</p>
           </article>
+        </div>
+        <div class="download-help">
+          <span>Looking for the installer files?</span>
+          <a href="/download">Open the Download page</a>
+          <a data-config-href="releaseUrl" href="https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v2.0-build205-rc3">GitHub release</a>
         </div>
       </section>
     </main>
 
-    <footer class="site-footer">
-      <div>
-        <strong>AnxOS Control Center</strong>
-        <span>© 2026 AnxOS Control Center · anxoscontrolcenter.org</span>
-      </div>
-      <nav aria-label="Footer">
-        <a href="index.html">Home</a>
-        <a href="/download">Download</a>
-        <a href="/features">Features</a>
-        <a href="release-notes.html" aria-current="page">Release Notes</a>
-        <a data-config-href="repositoryUrl" href="https://github.com/AnxLabs/AnxOS-Control-Center-Releases">GitHub</a>
-      <a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a><a href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button></nav>
-    </footer>
+    <footer class="site-footer"><div class="site-footer__brand"><strong>AnxOS Control Center</strong><span>© 2026 AnxOS Control Center · anxoscontrolcenter.org</span><span class="site-footer__note">Private Alpha · <a href="/security-privacy">Security &amp; Privacy</a></span></div><nav class="site-footer__nav" aria-label="Footer"><a href="/">Home</a><a href="/features">Features</a><a href="/getting-started">Getting Started</a><a href="/setup">Setup</a><a href="/download">Download</a><a href="/release-notes.html">Release Notes</a><a href="/security-privacy">Security</a><a href="/faq">FAQ</a><a data-config-href="repositoryUrl" href="https://github.com/AnxLabs/AnxOS-Control-Center-Releases">GitHub</a><a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a><a href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button></nav></footer>
   </body>
 </html>

@@ -2,6 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
+    <script>document.documentElement.classList.add("js");setTimeout(function(){if(!window.__anxMotionReady){document.documentElement.classList.remove("js")}},5000);</script>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>AnxOS Control Center | Device Activation</title>
     <meta name="description" content="Approve or deny an AnxOS Control Center desktop sign-in request.">
@@ -22,29 +23,33 @@
     <script src="/site.js" defer></script>
   </head>
   <body data-standalone-route="activate">
+    <a class="skip-link" href="#main">Skip to content</a>
     <header class="site-header">
-      <a class="brand" href="/" aria-label="AnxOS home">
-        <span class="brand-mark"><img data-logo src="/assets/anxos-logo.png" alt=""></span>
-        <span class="brand-copy">
-          <strong data-config="brandName">AnxOS</strong>
-          <span>Device Activation</span>
-        </span>
-      </a>
-      <button class="site-menu-button" type="button" data-site-menu-toggle aria-expanded="false" aria-controls="site-nav">Menu</button>
-      <nav class="site-nav" id="site-nav" data-site-nav aria-label="Primary">
-        <a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a>
-        <a class="site-nav__cta" href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a>
-        <a href="/profile" data-auth-nav="signed-in" hidden>Profile</a>
-        <button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button>
-        <a href="/release-notes.html">Release Notes</a>
-      </nav>
+      <div class="site-header__inner">
+        <a class="brand" href="/" aria-label="AnxOS home">
+          <span class="brand-mark"><img data-logo src="/assets/anxos-logo.png" alt=""></span>
+          <span class="brand-copy"><strong data-config="brandName">AnxOS</strong><span>Local-first server control</span></span>
+        </a>
+        <button class="site-menu-button" type="button" data-site-menu-toggle aria-expanded="false" aria-controls="site-nav">Menu</button>
+        <nav class="site-nav" id="site-nav" data-site-nav aria-label="Primary">
+          <a href="/features">Features</a>
+          <a href="/getting-started">Getting Started</a>
+          <a href="/setup">Setup</a>
+          <a href="/download">Download</a>
+          <a href="/release-notes.html">Release Notes</a>
+          <a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a>
+          <a class="site-nav__cta" href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a>
+          <a href="/profile" data-auth-nav="signed-in" hidden>Profile</a>
+          <button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button>
+        </nav>
+      </div>
     </header>
 
-    <main id="activate-page">
+    <main id="main">
       <section class="section-shell account-route account-route--active" data-account-route="activate">
         <div class="auth-shell">
           <div class="auth-card">
-            <div class="auth-card__header">
+            <div class="auth-card__header" data-reveal>
               <p class="eyebrow">Device Activation</p>
               <h2>Approve desktop sign-in</h2>
               <p>Review the device code from AnxOS Control Center, then approve or deny access. Opening this page never approves a device automatically.</p>
@@ -68,7 +73,7 @@
               <button class="button button-ghost" type="button" data-device-action="deny" disabled>Deny</button>
             </div>
           </div>
-          <ul class="auth-feature-list" aria-label="Device activation steps">
+          <ul class="auth-feature-list" data-reveal data-reveal-delay="1" aria-label="Device activation steps">
             <li>Device codes expire quickly and can only be used once.</li>
             <li>AnxOS never asks the desktop app for your website password.</li>
             <li>You can revoke approved devices later from your account dashboard.</li>
@@ -77,7 +82,13 @@
       </section>
     </main>
 
-    <footer class="site-footer"><div><strong>AnxOS Control Center</strong><span>© 2026 AnxOS Control Center · anxoscontrolcenter.org</span></div><nav aria-label="Footer"><a href="/">Home</a><a href="/account">Account</a><a data-config-href="repositoryUrl" href="https://github.com/AnxLabs/AnxOS-Control-Center-Releases">GitHub</a><a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a><a href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button></nav></footer>
+    <footer class="site-footer">
+      <div class="site-footer__brand"><strong>AnxOS Control Center</strong><span>© 2026 AnxOS Control Center · anxoscontrolcenter.org</span><span class="site-footer__note">Private Alpha · <a href="/security-privacy">Security &amp; Privacy</a></span></div>
+      <nav class="site-footer__nav" aria-label="Footer">
+        <a href="/">Home</a><a href="/features">Features</a><a href="/getting-started">Getting Started</a><a href="/setup">Setup</a><a href="/download">Download</a><a href="/release-notes.html">Release Notes</a><a href="/security-privacy">Security</a><a href="/faq">FAQ</a><a data-config-href="repositoryUrl" href="https://github.com/AnxLabs/AnxOS-Control-Center-Releases">GitHub</a>
+        <a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a><a href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button>
+      </nav>
+    </footer>
     <div class="confirm-modal" data-confirm-modal hidden>
       <div class="confirm-modal__backdrop" data-confirm-modal-cancel></div>
       <section class="confirm-modal__card" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title" aria-describedby="confirm-modal-message">

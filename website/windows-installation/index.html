@@ -2,9 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
+    <script>document.documentElement.classList.add("js");setTimeout(function(){if(!window.__anxMotionReady){document.documentElement.classList.remove("js")}},5000);</script>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>AnxOS Control Center | Windows Installation Guide</title>
-    <meta name="description" content="Install AnxOS Control Center on Windows, complete onboarding, set up the Local Agent, scan dependencies, and create your first server.">
+    <meta name="description" content="Install AnxOS Control Center on Windows 11 x64, complete onboarding, set up the Local Agent, scan dependencies, and create your first server.">
     <meta name="robots" content="index,follow">
     <meta name="theme-color" content="#07020f">
     <link rel="canonical" href="https://anxoscontrolcenter.org/windows-installation">
@@ -15,6 +16,21 @@
     <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
     <link rel="manifest" href="/site.webmanifest">
     <link rel="stylesheet" href="/styles.css">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="AnxOS Control Center">
+    <meta property="og:title" content="AnxOS Control Center | Windows Installation Guide">
+    <meta property="og:description" content="Install AnxOS Control Center on Windows 11 x64: open the installer, complete onboarding, set up the Local Agent, scan dependencies, and create your first server.">
+    <meta property="og:url" content="https://anxoscontrolcenter.org/windows-installation">
+    <meta property="og:image" content="https://anxoscontrolcenter.org/assets/social-preview.png?v=04c80a572768">
+    <meta property="og:image:secure_url" content="https://anxoscontrolcenter.org/assets/social-preview.png?v=04c80a572768">
+    <meta property="og:image:type" content="image/png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:alt" content="AnxOS Control Center social preview showing the dashboard on a dark purple background.">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="AnxOS Control Center | Windows Installation Guide">
+    <meta name="twitter:description" content="Install AnxOS Control Center on Windows 11 x64: open the installer, complete onboarding, set up the Local Agent, scan dependencies, and create your first server.">
+    <meta name="twitter:image" content="https://anxoscontrolcenter.org/assets/social-preview.png?v=04c80a572768">
     <script src="/config.js" defer></script>
     <script src="/account-config.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
@@ -22,98 +38,209 @@
     <script src="/site.js" defer></script>
   </head>
   <body data-standalone-route="windows-installation">
+    <a class="skip-link" href="#main">Skip to content</a>
     <svg class="svg-defs" aria-hidden="true">
       <symbol id="icon-download" viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v3h16v-3"/></symbol>
-      <symbol id="icon-github" viewBox="0 0 24 24"><path d="M9 19c-4 1.5-4-2-5-2.5M15 22v-3.5c0-1 .2-1.4-.5-2 2.6-.3 5.5-1.3 5.5-6a4.7 4.7 0 0 0-1.3-3.3c.1-.3.5-1.7-.1-3.2 0 0-1.1-.3-3.5 1.3a12.2 12.2 0 0 0-6.2 0C6.5 3.7 5.4 4 5.4 4c-.6 1.5-.2 2.9-.1 3.2A4.7 4.7 0 0 0 4 10.5c0 4.7 2.9 5.7 5.5 6-.7.6-.7 1.2-.6 2V22"/></symbol>
-      <symbol id="icon-server" viewBox="0 0 24 24"><path d="M4 5h16v5H4zM4 14h16v5H4zM7 7.5h.01M7 16.5h.01M11 7.5h6M11 16.5h6"/></symbol>
-      <symbol id="icon-package" viewBox="0 0 24 24"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3zM4.5 8 12 12.5 19.5 8M12 12.5V21"/></symbol>
-      <symbol id="icon-terminal" viewBox="0 0 24 24"><path d="m5 7 5 5-5 5M12 17h7"/></symbol>
       <symbol id="icon-shield" viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.4 2.8 8.5 7 10 4.2-1.5 7-5.6 7-10V6zM9 12l2 2 4-4"/></symbol>
+      <symbol id="icon-server" viewBox="0 0 24 24"><path d="M4 5h16v5H4zM4 14h16v5H4zM7 7.5h.01M7 16.5h.01M11 7.5h6M11 16.5h6"/></symbol>
       <symbol id="icon-refresh" viewBox="0 0 24 24"><path d="M20 6v5h-5M4 18v-5h5M18.5 9A7 7 0 0 0 6.7 6.7L4 9m16 6-2.7 2.3A7 7 0 0 1 5.5 15"/></symbol>
-      <symbol id="icon-file" viewBox="0 0 24 24"><path d="M14 3H6v18h12V7zM14 3v4h4M8 13h8M8 17h5"/></symbol>
-      <symbol id="icon-node" viewBox="0 0 24 24"><path d="M12 4v6M12 14v6M6 10h12M6 14h12M5 8h2v8H5zM17 8h2v8h-2z"/></symbol>
     </svg>
 
-    <header class="site-header">
-      <a class="brand" href="/" aria-label="AnxOS home">
-        <span class="brand-mark"><img data-logo src="/assets/anxos-logo.png" alt=""></span>
-        <span class="brand-copy"><strong data-config="brandName">AnxOS</strong><span>Windows Guide</span></span>
-      </a>
-      <button class="site-menu-button" type="button" data-site-menu-toggle aria-expanded="false" aria-controls="site-nav">Menu</button>
-      <nav class="site-nav" id="site-nav" data-site-nav aria-label="Primary">
-        <a href="/release-notes.html">Release Notes</a>
-        <a href="/features">Features</a>
-        <a href="/getting-started">Getting Started</a>
-        <a href="/setup">Setup Guide</a>
-        <a href="/download">Download</a>
-        <a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a>
-        <a class="site-nav__cta" href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a>
-        <a href="/profile" data-auth-nav="signed-in" hidden>Profile</a>
-        <button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button>
-      </nav>
-    </header>
+    <header class="site-header"><div class="site-header__inner"><a class="brand" href="/" aria-label="AnxOS home"><span class="brand-mark"><img data-logo src="/assets/anxos-logo.png" alt=""></span><span class="brand-copy"><strong data-config="brandName">AnxOS</strong><span>Local-first server control</span></span></a><button class="site-menu-button" type="button" data-site-menu-toggle aria-expanded="false" aria-controls="site-nav">Menu</button><nav class="site-nav" id="site-nav" data-site-nav aria-label="Primary"><a href="/features">Features</a><a href="/getting-started">Getting Started</a><a href="/setup">Setup</a><a href="/download">Download</a><a href="/release-notes.html">Release Notes</a><a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a><a class="site-nav__cta" href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button></nav></div></header>
 
-    <main id="windows-installation-page">
-      <section class="section-shell install-layout">
-        <div class="install-hero-copy">
+    <main id="main">
+      <section class="section-shell" aria-labelledby="windows-title">
+        <div class="section-heading" data-reveal>
           <p class="eyebrow">Windows installation</p>
-          <h1>Install AnxOS and Prepare This PC</h1>
-          <p class="section-copy">This guide follows the normal Windows setup flow. You should not need terminal commands, manual JSON edits, Node.js installation, or Agent token copying.</p>
+          <p class="badge badge--alpha">Private Alpha</p>
+          <h1 id="windows-title">Install AnxOS and Prepare This PC</h1>
+          <p class="section-copy">This guide follows the normal Windows 11 x64 setup flow. You should not need terminal commands, manual JSON edits, Node.js installation, or Agent token copying — the installer sets up the Local Agent for you.</p>
+          <p class="platform-note" data-release-meta>Private Alpha release details</p>
+          <div class="hero-actions">
+            <a class="button button-primary" href="/download"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#icon-download"></use></svg><span>Download AnxOS</span></a>
+            <a class="button button-secondary" href="/system-requirements">System requirements</a>
+          </div>
+        </div>
+        <aside class="callout callout--warn" data-reveal>
+          <strong>Early testing release</strong>
+          <p>AnxOS is in Private Alpha. Keep your data backed up, and prefer the settings this guide recommends until you are comfortable with the app.</p>
+        </aside>
+      </section>
+
+      <section class="section-shell" aria-labelledby="windows-steps-title">
+        <div class="section-heading" data-reveal>
+          <p class="eyebrow">Step by step</p>
+          <h2 id="windows-steps-title">Set up this PC in eleven steps</h2>
+          <p class="section-copy">From the installer to your first server, using the normal Windows flow. Windows may ask for administrator permission once, when the Local Agent service is installed.</p>
         </div>
         <div class="steps steps--detailed">
-          <article><span>1</span><p>Download the Windows installer from the Download page.</p></article>
-          <article><span>2</span><p>Open the installer after the download finishes.</p></article>
-          <article><span>3</span><p>Windows SmartScreen may still warn on a new signed release because AnxOS is distributed directly through GitHub. Choose More info → Run anyway if you downloaded it from the official release page.</p></article>
-          <article><span>4</span><p>Launch AnxOS Control Center from the Start menu or desktop shortcut.</p></article>
-          <article><span>5</span><p>Complete onboarding and choose Use This PC.</p></article>
-          <article><span>6</span><p>Install the Local Agent from inside AnxOS.</p></article>
-          <article><span>7</span><p>Allow administrator permission when Windows asks to install the Local Agent service.</p></article>
-          <article><span>8</span><p>Let AnxOS scan dependencies such as Java, Git, SteamCMD, Docker, FFmpeg, and tunnel providers.</p></article>
-          <article><span>9</span><p>Install required dependencies through AnxOS when a selected Marketplace template needs them.</p></article>
-          <article><span>10</span><p>Open Marketplace.</p></article>
-          <article><span>11</span><p>Create your first server, then use Instances, Files, Backups, Console, and Public Access from This PC.</p></article>
+          <article class="step">
+            <span class="step__index" aria-hidden="true">1</span>
+            <div class="step__body">
+              <h3>Download the Windows installer</h3>
+              <p>Open the download page and get the signed Windows setup from the official GitHub Release.</p>
+            </div>
+          </article>
+          <article class="step">
+            <span class="step__index" aria-hidden="true">2</span>
+            <div class="step__body">
+              <h3>Open the installer</h3>
+              <p>Run the downloaded file after the download finishes. The setup installs AnxOS Control Center and adds the normal Start menu and desktop shortcuts.</p>
+            </div>
+          </article>
+          <article class="step">
+            <span class="step__index" aria-hidden="true">3</span>
+            <div class="step__body">
+              <h3>SmartScreen warning</h3>
+              <p>The installer is code-signed, but Windows SmartScreen can still warn on a newer publisher. Verify the publisher name and that the file name matches the release page — choose <strong>More info → Run anyway</strong> only when both match. If they do not match, cancel and download again from the official release.</p>
+            </div>
+          </article>
+          <article class="step">
+            <span class="step__index" aria-hidden="true">4</span>
+            <div class="step__body">
+              <h3>Launch AnxOS Control Center</h3>
+              <p>Open AnxOS from the Start menu or the desktop shortcut.</p>
+            </div>
+          </article>
+          <article class="step">
+            <span class="step__index" aria-hidden="true">5</span>
+            <div class="step__body">
+              <h3>Complete onboarding</h3>
+              <p>Complete the first-run onboarding and choose <strong>Use This PC</strong> so the app treats this computer as your local node, then sign in or create your account.</p>
+            </div>
+          </article>
+          <article class="step">
+            <span class="step__index" aria-hidden="true">6</span>
+            <div class="step__body">
+              <h3>Install the Local Agent</h3>
+              <p>Open <strong>Agent Control</strong> and install the Local Agent from inside AnxOS. The app pairs with the bundled Agent automatically.</p>
+            </div>
+          </article>
+          <article class="step">
+            <span class="step__index" aria-hidden="true">7</span>
+            <div class="step__body">
+              <h3>Allow administrator permission</h3>
+              <p>Approve the Windows prompt that installs the Local Agent service. This is the only step that needs administrator access.</p>
+            </div>
+          </article>
+          <article class="step">
+            <span class="step__index" aria-hidden="true">8</span>
+            <div class="step__body">
+              <h3>Let AnxOS scan dependencies</h3>
+              <p>AnxOS scans for Java, Git, SteamCMD, Docker, FFmpeg, and tunnel providers, and reports what is missing.</p>
+            </div>
+          </article>
+          <article class="step">
+            <span class="step__index" aria-hidden="true">9</span>
+            <div class="step__body">
+              <h3>Install required dependencies</h3>
+              <p>Install the listed items through AnxOS when a Marketplace template needs them, then run the scan again.</p>
+            </div>
+          </article>
+          <article class="step">
+            <span class="step__index" aria-hidden="true">10</span>
+            <div class="step__body">
+              <h3>Open Marketplace</h3>
+              <p>Open <strong>Marketplace</strong> and choose a template, for example a Minecraft server or modpack.</p>
+            </div>
+          </article>
+          <article class="step">
+            <span class="step__index" aria-hidden="true">11</span>
+            <div class="step__body">
+              <h3>Create your first server</h3>
+              <p>Choose the node, memory, port, and install location, then start the installation. Manage it afterwards from <strong>Instances</strong>, <strong>Files</strong>, <strong>Backups</strong>, <strong>Console</strong>, and <strong>Public Access</strong>.</p>
+            </div>
+          </article>
         </div>
         <div class="download-help install-links">
           <a href="/download">Download Windows installer</a>
           <a href="/system-requirements">System requirements</a>
-          <a href="/features">Local Agent overview</a>
+          <a href="/setup">Setup guide</a>
         </div>
       </section>
 
-      <section class="section-shell">
-        <div class="section-heading">
-          <p class="eyebrow">Troubleshooting</p>
-          <h2>Common Windows setup issues</h2>
+      <section class="section-shell" aria-labelledby="another-computer-title">
+        <div class="section-heading" data-reveal>
+          <p class="eyebrow">More computers</p>
+          <h2 id="another-computer-title">Adding another computer?</h2>
+          <p class="section-copy">This page stays Windows-focused. The setup guide covers the other two paths — and both of them are one-time pairing-code flows, with no manual tokens or file editing.</p>
         </div>
-        <div class="download-detail-grid">
-          <article class="download-info-card"><h3>Windows SmartScreen warning</h3><p>Windows SmartScreen may still warn on a new signed release because AnxOS is distributed directly through GitHub. Choose More info → Run anyway if you downloaded it from the official release page.</p></article>
-          <article class="download-info-card"><h3>Local Agent installation failure</h3><p>Use Retry or Repair in AnxOS. If antivirus software quarantined files, restore the official installer or Agent files before retrying.</p></article>
-          <article class="download-info-card"><h3>Administrator permission denied</h3><p>Sign in to a Windows administrator account or ask the computer owner to approve the Local Agent service installation.</p></article>
-          <article class="download-info-card"><h3>Agent offline</h3><p>Open Agent diagnostics in AnxOS and restart or repair the Local Agent service. The desktop app can run while the service starts.</p></article>
-          <article class="download-info-card"><h3>Port already in use</h3><p>Close the other app using the port or choose a different server port before installing or starting the server.</p></article>
-          <article class="download-info-card"><h3>Antivirus quarantine</h3><p>Only restore files when they came from the official AnxOS release. Then run Local Agent repair so AnxOS can verify the installation.</p></article>
-          <article class="download-info-card"><h3>Docker restart required</h3><p>Finish the Docker Desktop setup or restart Windows when Docker asks before scanning dependencies again.</p></article>
-          <article class="download-info-card"><h3>Windows restart required</h3><p>Restart Windows when an installer or driver requests it, then open AnxOS and retry the setup step.</p></article>
+        <div class="path-cards">
+          <a class="path-card" href="/setup" data-reveal>
+            <span class="path-card__head"><strong>Another desktop computer</strong><span class="badge badge--info">Desktop</span></span>
+            <span class="path-card__body">
+              <p>Install Control Center on that computer, then open <strong>Agent Control → Connect this computer</strong>, turn on <strong>Another computer will connect to this one</strong>, and generate a pairing code. Paste the full code under <strong>Add Computer</strong> in your main Control Center.</p>
+            </span>
+          </a>
+          <a class="path-card" href="/setup" data-reveal data-reveal-delay="1">
+            <span class="path-card__head"><strong>Headless Linux server</strong><span class="badge badge--info">Debian / Ubuntu</span></span>
+            <span class="path-card__body">
+              <p>Install the official Agent package on Debian 11+ or Ubuntu 22.04+ x64, open the TUI, and pair it with a one-time code. The setup guide has the exact commands with copy buttons.</p>
+            </span>
+          </a>
+        </div>
+        <aside class="callout callout--info" data-reveal>
+          <strong>Using Linux instead?</strong>
+          <p>This page stays Windows-focused. The setup guide covers Linux desktop packages and the headless Debian or Ubuntu Agent, and the system requirements page lists both desktop platforms.</p>
+        </aside>
+      </section>
+
+      <section class="section-shell" aria-labelledby="windows-issues-title">
+        <div class="section-heading" data-reveal>
+          <p class="eyebrow">Troubleshooting</p>
+          <h2 id="windows-issues-title">Common Windows setup issues</h2>
+          <p class="section-copy">Known Windows-specific problems and their fixes. For Agent, dependency, and server problems shared with other platforms, see the setup guide.</p>
+        </div>
+        <div class="faq-list">
+          <details class="faq-item">
+            <summary>Windows SmartScreen warning</summary>
+            <p>The installer is code-signed, but SmartScreen can still warn on a newer publisher. Verify the publisher and that the file name matches the release page, then choose <strong>More info → Run anyway</strong> only when both match. If they do not match, cancel and download again.</p>
+          </details>
+          <details class="faq-item">
+            <summary>Local Agent installation failure</summary>
+            <p>Use <strong>Retry</strong> or <strong>Repair</strong> in AnxOS. If antivirus software quarantined files, restore the official installer or Agent files before retrying.</p>
+          </details>
+          <details class="faq-item">
+            <summary>Administrator permission denied</summary>
+            <p>Sign in to a Windows administrator account or ask the computer owner to approve the Local Agent service installation.</p>
+          </details>
+          <details class="faq-item">
+            <summary>Agent offline</summary>
+            <p>Open Agent diagnostics in AnxOS and restart or repair the Local Agent service. The desktop app keeps running while the service starts.</p>
+          </details>
+          <details class="faq-item">
+            <summary>Port already in use</summary>
+            <p>Close the other app using the port or choose a different server port before installing or starting the server.</p>
+          </details>
+          <details class="faq-item">
+            <summary>Antivirus quarantine</summary>
+            <p>Only restore files when they came from the official AnxOS release. Then run Local Agent repair so AnxOS can verify the installation.</p>
+          </details>
+          <details class="faq-item">
+            <summary>Docker restart required</summary>
+            <p>Finish the Docker Desktop setup or restart Windows when Docker asks, then scan dependencies again.</p>
+          </details>
+          <details class="faq-item">
+            <summary>Windows restart required</summary>
+            <p>Restart Windows when an installer or driver requests it, then open AnxOS and retry the setup step.</p>
+          </details>
+        </div>
+      </section>
+
+      <section class="section-shell" data-reveal>
+        <div class="cta-band">
+          <h2>Install and prepare this PC</h2>
+          <p>Download the signed installer, then follow the eleven steps above. The setup guide covers adding another computer whenever you are ready.</p>
+          <div class="cta-actions">
+            <a class="button button-primary" href="/download"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#icon-download"></use></svg><span>Download AnxOS</span></a>
+            <a class="button button-ghost" href="/setup">Setup guide</a>
+            <a class="button button-ghost" href="/release-notes.html">Release Notes</a>
+          </div>
         </div>
       </section>
     </main>
 
-    <footer class="site-footer">
-      <div><strong>AnxOS Control Center</strong><span>© 2026 AnxOS Control Center · anxoscontrolcenter.org</span></div>
-      <nav aria-label="Footer">
-        <a href="/">Home</a>
-        <a href="/download">Download</a>
-        <a href="/features">Features</a>
-        <a href="/getting-started">Getting Started</a>
-        <a href="/setup">Setup Guide</a>
-        <a href="/windows-installation" aria-current="page">Windows Installation</a>
-        <a href="/system-requirements">System Requirements</a>
-        <a href="/release-notes.html">Release Notes</a>
-        <a href="/security-privacy">Security</a>
-        <a href="/faq">FAQ</a>
-        <a data-config-href="repositoryUrl" href="https://github.com/AnxLabs/AnxOS-Control-Center-Releases">GitHub</a>
-        <a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a><a href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button>
-      </nav>
-    </footer>
+    <footer class="site-footer"><div class="site-footer__brand"><strong>AnxOS Control Center</strong><span>© 2026 AnxOS Control Center · anxoscontrolcenter.org</span><span class="site-footer__note">Private Alpha · <a href="/security-privacy">Security &amp; Privacy</a></span></div><nav class="site-footer__nav" aria-label="Footer"><a href="/">Home</a><a href="/features">Features</a><a href="/getting-started">Getting Started</a><a href="/setup">Setup</a><a href="/download">Download</a><a href="/release-notes.html">Release Notes</a><a href="/security-privacy">Security</a><a href="/faq">FAQ</a><a data-config-href="repositoryUrl" href="https://github.com/AnxLabs/AnxOS-Control-Center-Releases">GitHub</a><a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a><a href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button></nav></footer>
+    <div class="toast-region" data-toast-region aria-live="polite" aria-atomic="true"></div>
   </body>
 </html>

@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <script>document.documentElement.classList.add("js");setTimeout(function(){if(!window.__anxMotionReady){document.documentElement.classList.remove("js")}},5000);</script>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Page not found — AnxOS Control Center</title>
+    <meta name="description" content="That page is not available. Return to the AnxOS Control Center home page or jump to downloads, features, setup, FAQ, and release notes.">
+    <meta name="robots" content="noindex">
+    <meta name="theme-color" content="#07020f">
+    <link rel="icon" href="/favicon.ico" sizes="any">
+    <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+    <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/assets/favicon-16.png">
+    <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+    <link rel="manifest" href="/site.webmanifest">
+    <link rel="stylesheet" href="/styles.css">
+    <script src="/config.js" defer></script>
+    <script src="/account-config.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
+    <script src="/release-download-service.js" defer></script>
+    <script src="/site.js" defer></script>
+  </head>
+  <body data-standalone-route="not-found">
+    <a class="skip-link" href="#main">Skip to content</a>
+    <svg class="svg-defs" aria-hidden="true">
+      <symbol id="icon-download" viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v3h16v-3"/></symbol>
+      <symbol id="icon-github" viewBox="0 0 24 24"><path d="M9 19c-4 1.5-4-2-5-2.5M15 22v-3.5c0-1 .2-1.4-.5-2 2.6-.3 5.5-1.3 5.5-6a4.7 4.7 0 0 0-1.3-3.3c.1-.3.5-1.7-.1-3.2 0 0-1.1-.3-3.5 1.3a12.2 12.2 0 0 0-6.2 0C6.5 3.7 5.4 4 5.4 4c-.6 1.5-.2 2.9-.1 3.2A4.7 4.7 0 0 0 4 10.5c0 4.7 2.9 5.7 5.5 6-.7.6-.7 1.2-.6 2V22"/></symbol>
+      <symbol id="icon-server" viewBox="0 0 24 24"><path d="M4 5h16v5H4zM4 14h16v5H4zM7 7.5h.01M7 16.5h.01M11 7.5h6M11 16.5h6"/></symbol>
+      <symbol id="icon-package" viewBox="0 0 24 24"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3zM4.5 8 12 12.5 19.5 8M12 12.5V21"/></symbol>
+      <symbol id="icon-terminal" viewBox="0 0 24 24"><path d="m5 7 5 5-5 5M12 17h7"/></symbol>
+      <symbol id="icon-shield" viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.4 2.8 8.5 7 10 4.2-1.5 7-5.6 7-10V6zM9 12l2 2 4-4"/></symbol>
+      <symbol id="icon-refresh" viewBox="0 0 24 24"><path d="M20 6v5h-5M4 18v-5h5M18.5 9A7 7 0 0 0 6.7 6.7L4 9m16 6-2.7 2.3A7 7 0 0 1 5.5 15"/></symbol>
+      <symbol id="icon-file" viewBox="0 0 24 24"><path d="M14 3H6v18h12V7zM14 3v4h4M8 13h8M8 17h5"/></symbol>
+      <symbol id="icon-node" viewBox="0 0 24 24"><path d="M12 4v6M12 14v6M6 10h12M6 14h12M5 8h2v8H5zM17 8h2v8h-2z"/></symbol>
+      <symbol id="icon-monitor" viewBox="0 0 24 24"><path d="M4 5h16v10H4zM9 19h6M12 15v4"/></symbol>
+      <symbol id="icon-globe" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/></symbol>
+    </svg>
+
+    <header class="site-header"><div class="site-header__inner"><a class="brand" href="/" aria-label="AnxOS home"><span class="brand-mark"><img data-logo src="/assets/anxos-logo.png" alt=""></span><span class="brand-copy"><strong data-config="brandName">AnxOS</strong><span>Local-first server control</span></span></a><button class="site-menu-button" type="button" data-site-menu-toggle aria-expanded="false" aria-controls="site-nav">Menu</button><nav class="site-nav" id="site-nav" data-site-nav aria-label="Primary"><a href="/features">Features</a><a href="/getting-started">Getting Started</a><a href="/setup">Setup</a><a href="/download">Download</a><a href="/release-notes.html">Release Notes</a><a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a><a class="site-nav__cta" href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button></nav></div></header>
+
+    <main id="main">
+      <section class="section-shell section--tight" aria-labelledby="not-found-title">
+        <div class="section-heading" data-reveal>
+          <p class="eyebrow">404</p>
+          <h1 id="not-found-title">That page is not available</h1>
+          <p class="section-copy">The link may be outdated, private, or typed incorrectly. Public AnxOS pages are listed below.</p>
+          <div class="hero-actions">
+            <a class="button button-primary" href="/"><span>Return home</span></a>
+            <a class="button button-secondary" href="/download"><span>Download AnxOS</span></a>
+          </div>
+        </div>
+        <div class="path-cards">
+          <a class="path-card" href="/features" data-reveal data-reveal-delay="1">
+            <span class="path-card__head"><strong>Features</strong></span>
+            <span class="path-card__body"><p>Nodes, the Marketplace, logs, health, backups, and public access in one desktop app.</p></span>
+          </a>
+          <a class="path-card" href="/setup" data-reveal data-reveal-delay="2">
+            <span class="path-card__head"><strong>Setup</strong></span>
+            <span class="path-card__body"><p>Install on this Windows PC, add another desktop computer, or pair a headless Linux server.</p></span>
+          </a>
+          <a class="path-card" href="/faq" data-reveal data-reveal-delay="3">
+            <span class="path-card__head"><strong>FAQ</strong></span>
+            <span class="path-card__body"><p>Straight answers about hosting, pairing, Linux support, SmartScreen, and accounts.</p></span>
+          </a>
+          <a class="path-card" href="/release-notes.html" data-reveal data-reveal-delay="4">
+            <span class="path-card__head"><strong>Release Notes</strong></span>
+            <span class="path-card__body"><p>What shipped in each AnxOS Control Center release, newest first.</p></span>
+          </a>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer"><div class="site-footer__brand"><strong>AnxOS Control Center</strong><span>© 2026 AnxOS Control Center · anxoscontrolcenter.org</span><span class="site-footer__note">Private Alpha · <a href="/security-privacy">Security &amp; Privacy</a></span></div><nav class="site-footer__nav" aria-label="Footer"><a href="/">Home</a><a href="/features">Features</a><a href="/getting-started">Getting Started</a><a href="/setup">Setup</a><a href="/download">Download</a><a href="/release-notes.html">Release Notes</a><a href="/security-privacy">Security</a><a href="/faq">FAQ</a><a data-config-href="repositoryUrl" href="https://github.com/AnxLabs/AnxOS-Control-Center-Releases">GitHub</a><a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a><a href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button></nav></footer>
+  </body>
+</html>
