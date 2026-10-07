@@ -1,6 +1,7 @@
 const fs = require("fs");
 const { getDeviceIdentity } = require("../services/deviceIdentityService");
 const { getConfiguredApiPermissions } = require("../permissions");
+const { createSystemdController } = require("../../../src/shared/instances/serviceManagedRuntime");
 
 // Tokens that let a credential mutate state. API permissions are fail-closed
 // by default for standalone/remote agents (no implicit "*"); the desktop's
@@ -96,6 +97,15 @@ function buildAgentCapabilities(identity = {}) {
     supportsPublicAccess: true,
     supportsPlayit: true,
     agentUpdate: getAgentUpdateCapability(platform),
+    // Additive: instances backed by an OS service the Agent controls but does
+    // not own (ADR 0031 addendum). supportsServiceControl above keeps its
+    // existing meaning (host-level service control) and is intentionally unchanged.
+    serviceManagedInstances: windows
+      ? { supported: false, mechanism: null, allowedUnits: [] }
+      : (() => {
+        const summary = createSystemdController({ platform }).summary();
+        return { supported: summary.supported, mechanism: summary.supported ? summary.mechanism : null, allowedUnits: summary.allowedUnits };
+      })(),
     unsupportedActions: {
       ...(windows
         ? {

@@ -83,6 +83,23 @@ function errorResult(error) {
   });
 }
 
+// Messages for the service-managed instance runtime (systemd-service). Keyed by
+// error code so only these codes are claimed; other SERVICE_* codes elsewhere in
+// the Agent are left to their own handlers.
+const SERVICE_MANAGED_ERROR_MESSAGES = Object.freeze({
+  SERVICE_MANAGED_SPAWN_FORBIDDEN: ["The Agent never launches a service-managed server itself.", "Use start/stop/restart; the service manager owns the process."],
+  SERVICE_MANAGED_OPERATION_UNSUPPORTED: ["This operation is not available for a service-managed instance.", "Console commands, force-kill, edit, duplicate and delete are not supported for it. Use start, stop, restart, status and logs."],
+  SERVICE_STATE_UNVERIFIED: ["The Agent could not read this service's state, so it refused to act.", "Check the service manager is reachable and the unit is allowed, then retry."],
+  SERVICE_UNIT_NOT_ALLOWED: ["This service is not on the Agent's allowlist.", "An operator must add the unit to AGENT_SYSTEMD_UNIT_ALLOWLIST in the Agent environment file."],
+  SERVICE_UNIT_INVALID: ["The service unit name in this instance record is invalid.", "Fix the serviceManager.unit value in the instance config."],
+  SERVICE_MANAGER_INVALID: ["This instance record has no valid service manager definition.", "Fix serviceManager in the instance config."],
+  SERVICE_MANAGER_UNSUPPORTED: ["Service-managed instances need a Linux host with systemd.", "Run this instance on a supported host."],
+  SERVICE_CONTROL_DENIED: ["The Agent is not permitted to control this service.", "An operator must grant the Agent the exact start/stop/restart permission for this unit."],
+  SERVICE_CONTROL_FAILED: ["The service manager reported an error controlling this service.", "Check the service status and logs on the host."],
+  SERVICE_QUERY_FAILED: ["The service manager could not be queried.", "Check systemd is reachable from the Agent."],
+  RESTART_SCHEDULE_SERVICE_MANAGED_UNSUPPORTED: ["Scheduled restarts are not available for a service-managed instance yet.", "Restarts warn players through the server console, which is not exposed for service-managed instances. Restart it manually for now."],
+});
+
 function getRuntimeErrorDetails(error) {
   if (/^(?:INSTALLER_|INSTALLATION_)/.test(String(error?.code || ""))) {
     return {
@@ -138,9 +155,28 @@ function getRuntimeErrorDetails(error) {
         protocol: conflict.protocol || null,
         pid: conflict.pid || null,
         processName: conflict.processName || null,
+        ownerUnknown: conflict.ownerUnknown === true ? true : undefined,
       })) : [],
       userMessage: "One or more configured ports are already in use by another process.",
       suggestion: "Stop the conflicting process or choose different ports before starting this instance.",
+    };
+  }
+  if (error?.code === "PORT_OWNERSHIP_UNVERIFIABLE") {
+    return {
+      code: error.code,
+      reason: error.reason || null,
+      userMessage: "The Agent could not verify who owns this instance's ports, so it refused to start.",
+      suggestion: "Check that the Agent can read /proc on this host, then retry. The start is blocked rather than risk a second copy of a running server.",
+    };
+  }
+  if (typeof error?.code === "string" && Object.prototype.hasOwnProperty.call(SERVICE_MANAGED_ERROR_MESSAGES, error.code)) {
+    const [userMessage, suggestion] = SERVICE_MANAGED_ERROR_MESSAGES[error.code];
+    return {
+      code: error.code,
+      unit: error.unit || undefined,
+      operation: error.operation || undefined,
+      userMessage,
+      suggestion,
     };
   }
   if (error?.code === "FIVEM_SETUP_REQUIRED") {
