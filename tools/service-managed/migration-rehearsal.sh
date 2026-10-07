@@ -114,7 +114,10 @@ for script in postinst prerm postrm; do
   # It happens when the package is built from a Windows checkout instead of a Linux git archive.
   expect "candidate $script has no CR bytes (LF endings)" 0 "$(tr -cd '\r' < "$CTL/$script" | wc -c | tr -d ' ')"
 done
-dpkg-deb -c "$CANDIDATE_DEB" | grep -q "usr/lib/anxos-agent/src/shared/instances/serviceManagedRuntime.js" && ok "candidate ships the service-managed runtime module" || bad "candidate lacks serviceManagedRuntime.js"
+CONTENTS="$(mktemp)"; dpkg-deb -c "$CANDIDATE_DEB" > "$CONTENTS" 2>&1
+# (not `grep -q` on a pipe: under pipefail the early exit breaks dpkg-deb's pipe and reads as a failure)
+[ "$(grep -c 'usr/lib/anxos-agent/src/shared/instances/serviceManagedRuntime.js' "$CONTENTS")" = 1 ] && ok "candidate ships the service-managed runtime module" || bad "candidate lacks serviceManagedRuntime.js"
+rm -f "$CONTENTS"
 CAND_VER="$(dpkg-deb -f "$CANDIDATE_DEB" Version)"; OFF_VER="$(dpkg-deb -f "$OFFICIAL_DEB" Version)"
 dpkg --compare-versions "$CAND_VER" gt "$OFF_VER" && ok "candidate version $CAND_VER sorts after the deployed $OFF_VER" || bad "candidate version $CAND_VER does not sort after $OFF_VER"
 rm -rf "$CTL"
@@ -129,7 +132,7 @@ systemctl show "$UNIT" -p LoadState,ActiveState,SubState,Result,MainPID,ExecMain
 
 echo "== phase 1: backups (the rollback inputs)"
 BK="/var/backups/anxos-adopt-$(date -u +%Y%m%dT%H%M%SZ)"
-mkdir -p "$BK" && cp -a /etc/anxos-agent "$BK/etc-anxos-agent" && cp -a /var/lib/anxos-agent "$BK/var-lib-anxos-agent" && cp "$OFFICIAL_DEB" "$BK/" && ( cd "$BK" && find . -type f -print0 | xargs -0 sha256sum > MANIFEST.sha256 )
+mkdir -p "$BK" && cp -a /etc/anxos-agent "$BK/etc-anxos-agent" && cp -a /var/lib/anxos-agent "$BK/var-lib-anxos-agent" && cp "$OFFICIAL_DEB" "$BK/" && ( cd "$BK" && find . -type f ! -name MANIFEST.sha256 -print0 | xargs -0 sha256sum > MANIFEST.sha256 )
 [ -s "$BK/MANIFEST.sha256" ] && ok "backup written with a sha256 manifest" || bad "backup failed"
 ( cd "$BK" && sha256sum -c MANIFEST.sha256 >/dev/null 2>&1 ) && ok "backup verifies against its manifest" || bad "backup does not verify"
 
