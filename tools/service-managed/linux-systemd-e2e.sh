@@ -142,8 +142,10 @@ def write(state):
 print("fake-fxserver READY pid=%d api_key=hunter2secretvalue" % os.getpid(), flush=True)
 write("STARTING")
 time.sleep(2)
+# Decided once at process start: a running healthy process is unaffected; only the NEXT start sticks.
+STUCK = os.path.exists(NEVER)
 while True:
-    write("STARTING" if os.path.exists(NEVER) else "READY")
+    write("STARTING" if STUCK else "READY")
     time.sleep(2)
 PY
 cat > "/etc/systemd/system/$UNIT" <<EOF
