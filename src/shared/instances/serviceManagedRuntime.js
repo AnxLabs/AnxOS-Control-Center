@@ -117,7 +117,19 @@ function normalizeMainPid(value) {
   return Number.isInteger(pid) && pid > 0 ? pid : null;
 }
 
+// "@1791447278" (systemctl --timestamp=unix) or "Thu 2026-10-08 08:14:38 UTC". Anything else (a local
+// timezone name, "n/a", empty) is unknown rather than guessed.
+function parseSystemdTimestamp(value) {
+  const text = String(value || "").trim();
+  const unix = text.match(/^@(\d+)(?:\.\d+)?$/);
+  if (unix) return Number(unix[1]) * 1000;
+  const utc = text.match(/(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2}) (?:UTC|GMT)$/);
+  if (utc) return Date.UTC(Number(utc[1]), Number(utc[2]) - 1, Number(utc[3]), Number(utc[4]), Number(utc[5]), Number(utc[6]));
+  return null;
+}
+
 function describeFromShow(unit, values) {
+  const activeEnterTimestampMs = parseSystemdTimestamp(values.ActiveEnterTimestamp);
   return {
     unit,
     loadState: values.LoadState || null,
@@ -127,7 +139,8 @@ function describeFromShow(unit, values) {
     mainPid: normalizeMainPid(values.MainPID),
     execMainStatus: Number.isFinite(Number(values.ExecMainStatus)) ? Number(values.ExecMainStatus) : null,
     restartCount: Number.isFinite(Number(values.NRestarts)) ? Number(values.NRestarts) : null,
-    activeEnterTimestamp: values.ActiveEnterTimestamp || null,
+    activeEnterTimestampMs,
+    activeEnterTimestamp: activeEnterTimestampMs === null ? (values.ActiveEnterTimestamp || null) : new Date(activeEnterTimestampMs).toISOString(),
     unitFileState: values.UnitFileState || null,
   };
 }
@@ -220,7 +233,8 @@ function createSystemdController(options = {}) {
   async function describe(unitName) {
     assertSupported();
     const unit = assertUnitAllowed(unitName);
-    const result = await exec(SYSTEMCTL_PATH, ["show", unit, "--no-pager", `--property=${SHOW_PROPERTIES.join(",")}`], { timeout: QUERY_TIMEOUT_MS });
+    // --timestamp=unix: the default prints the host's LOCAL timezone name, which cannot be parsed reliably.
+    const result = await exec(SYSTEMCTL_PATH, ["show", unit, "--no-pager", "--timestamp=unix", `--property=${SHOW_PROPERTIES.join(",")}`], { timeout: QUERY_TIMEOUT_MS });
     if (!result.ok) {
       throw serviceError("SERVICE_QUERY_FAILED", 502, { unit, detail: truncate(result.stderr) });
     }
@@ -283,6 +297,7 @@ module.exports = {
   validateUnitName,
   parseAllowlist,
   parseShowOutput,
+  parseSystemdTimestamp,
   describeFromShow,
   mapSystemdState,
   parseJournal,

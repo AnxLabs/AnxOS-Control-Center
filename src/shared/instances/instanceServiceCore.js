@@ -24,6 +24,7 @@ const {
 } = require("../migrationRecoveryPolicy");
 
 const serviceManagedRuntime = require("./serviceManagedRuntime");
+const serviceManagedOperations = require("./serviceManagedOperations");
 
 let runtimeConfigProvider = () => ({
   instanceRoot: process.env.AGENT_INSTANCE_ROOT || path.join(process.cwd(), "instances"),
@@ -32,8 +33,15 @@ let resolveJavaRuntimeProvider = javaRuntimeResolver.resolveJavaRuntime;
 // Control plane for service-managed instances (ADR 0031 addendum). Replaceable
 // so tests can prove behavior without a real service manager.
 let systemdController = serviceManagedRuntime.createSystemdController();
+// Operations layer (health, players, Safe Restart, history). Dependencies are injectable for tests.
+let serviceOperationsOverrides = {};
+let serviceOperations = null;
 
 function configureInstanceService(options = {}) {
+  if (options.serviceOperationsDeps && typeof options.serviceOperationsDeps === "object") {
+    serviceOperationsOverrides = options.serviceOperationsDeps;
+    serviceOperations = null;
+  }
   if (options.systemdController && typeof options.systemdController.describe === "function") {
     systemdController = options.systemdController;
   }
@@ -235,13 +243,37 @@ async function observeServiceManaged(config) {
       // Informational only; this PID belongs to the service manager.
       externalMainPid: description.mainPid,
       activeEnterTimestamp: description.activeEnterTimestamp,
+      activeEnterTimestampMs: Number.isFinite(description.activeEnterTimestampMs) ? description.activeEnterTimestampMs : null,
+      // Computed here, not in the desktop, so clock skew between the two machines cannot distort it.
+      uptimeSeconds: description.activeState === "active" && Number.isFinite(description.activeEnterTimestampMs) ? Math.max(0, Math.round((Date.now() - description.activeEnterTimestampMs) / 1000)) : null,
       restartCount: description.restartCount,
       unitFileState: description.unitFileState,
     },
   };
 }
 
+function assertNoServiceOperation(config) {
+  if (getServiceOperations().isBusy(config.id)) {
+    throw createInstanceError("SERVICE_OPERATION_IN_PROGRESS", 409, { instanceId: config.id });
+  }
+}
+
+async function controlServiceManaged(config, verb, before) {
+  const unit = serviceManagedRuntime.getServiceUnit(config);
+  const correlationId = Object.values(correlationMetadata())[0] || null;
+  try {
+    await systemdController.control(verb, unit);
+  } catch (error) {
+    await getServiceOperations().recordLifecycle(config, verb, "failed", { correlationId, pre: { mainPid: before.serviceStatus?.externalMainPid ?? null }, error: error?.code || "SERVICE_CONTROL_FAILED" });
+    throw error;
+  }
+  const after = await observeServiceManaged(config);
+  await getServiceOperations().recordLifecycle(config, verb, "succeeded", { correlationId, pre: { mainPid: before.serviceStatus?.externalMainPid ?? null }, post: { mainPid: after.serviceStatus?.externalMainPid ?? null } });
+  return after;
+}
+
 async function startServiceManaged(config) {
+  assertNoServiceOperation(config);
   const observed = await observeServiceManaged(config);
   if (observed.state === INSTANCE_STATES.UNKNOWN) {
     // Unreadable service state is not "stopped": refuse to act blind.
@@ -255,12 +287,13 @@ async function startServiceManaged(config) {
     error.message = "The instance is already running.";
     throw error;
   }
-  await systemdController.control("start", serviceManagedRuntime.getServiceUnit(config));
+  const after = await controlServiceManaged(config, "start", observed);
   await appendLog(config.id, "stdout", `Requested service start: ${config.serviceManager.unit}`).catch(() => {});
-  return publicConfig(await observeServiceManaged(config));
+  return publicConfig(after);
 }
 
 async function stopServiceManaged(config) {
+  assertNoServiceOperation(config);
   const observed = await observeServiceManaged(config);
   if (observed.state === INSTANCE_STATES.UNKNOWN) {
     throw createInstanceError("SERVICE_STATE_UNVERIFIED", 409, { instanceId: config.id, reason: observed.failureReason });
@@ -268,19 +301,20 @@ async function stopServiceManaged(config) {
   if (observed.state === INSTANCE_STATES.STOPPED) {
     return publicConfig(observed);
   }
-  await systemdController.control("stop", serviceManagedRuntime.getServiceUnit(config));
+  const after = await controlServiceManaged(config, "stop", observed);
   await appendLog(config.id, "stdout", `Requested service stop: ${config.serviceManager.unit}`).catch(() => {});
-  return publicConfig(await observeServiceManaged(config));
+  return publicConfig(after);
 }
 
 async function restartServiceManaged(config) {
+  assertNoServiceOperation(config);
   const observed = await observeServiceManaged(config);
   if (observed.state === INSTANCE_STATES.UNKNOWN) {
     throw createInstanceError("SERVICE_STATE_UNVERIFIED", 409, { instanceId: config.id, reason: observed.failureReason });
   }
-  await systemdController.control("restart", serviceManagedRuntime.getServiceUnit(config));
+  const after = await controlServiceManaged(config, "restart", observed);
   await appendLog(config.id, "stdout", `Requested service restart: ${config.serviceManager.unit}`).catch(() => {});
-  return publicConfig(await observeServiceManaged(config));
+  return publicConfig(after);
 }
 
 function normalizeRuntimeJarName(value) {
@@ -6951,6 +6985,84 @@ async function getMetrics(instanceId) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Service-managed operations layer (health, players, Safe Restart, history).
+// Orchestration lives in serviceManagedOperations.js; this wires it to the real world.
+// ---------------------------------------------------------------------------
+
+// Listening sockets from the kernel tables (world-readable): no per-process access is needed, so this
+// works for a service owned by another user. null means "cannot tell", which callers treat as a failure.
+async function readListeningSockets() {
+  if (process.platform !== "linux") return null;
+  if (readProcText("/proc/net/tcp") === null || readProcText("/proc/net/udp") === null) return null;
+  const rows = [
+    ...parseSocketTable("/proc/net/tcp", "tcp"),
+    ...parseSocketTable("/proc/net/tcp6", "tcp6"),
+    ...parseSocketTable("/proc/net/udp", "udp"),
+    ...parseSocketTable("/proc/net/udp6", "udp6"),
+  ];
+  return rows.map((row) => ({ port: Number(row.port), protocol: String(row.protocol).startsWith("tcp") ? "tcp" : "udp" }));
+}
+
+let cachedAgentBuild;
+function readAgentBuild() {
+  if (cachedAgentBuild !== undefined) return cachedAgentBuild;
+  try {
+    const release = JSON.parse(fsSync.readFileSync(path.resolve(__dirname, "..", "..", "..", "agent-release.json"), "utf8"));
+    cachedAgentBuild = {
+      artifactVersion: typeof release.artifactVersion === "string" ? release.artifactVersion : null,
+      releaseTag: typeof release.releaseTag === "string" ? release.releaseTag : null,
+      builtAt: typeof release.builtAt === "string" ? release.builtAt : null,
+    };
+  } catch {
+    cachedAgentBuild = null;
+  }
+  return cachedAgentBuild;
+}
+
+function getServiceOperations() {
+  if (!serviceOperations) {
+    serviceOperations = serviceManagedOperations.createServiceOperations(serviceManagedOperations.defaultDeps({
+      describe: (unit) => systemdController.describe(unit),
+      control: (verb, unit) => systemdController.control(verb, unit),
+      instanceDir: (config) => instancePath(config.id),
+      listListeningSockets: readListeningSockets,
+      agentBuild: readAgentBuild,
+      ...serviceOperationsOverrides,
+    }));
+  }
+  return serviceOperations;
+}
+
+async function loadServiceManagedInstance(instanceId) {
+  const config = await loadInstanceConfig(instanceId);
+  if (!isServiceManaged(config)) {
+    throw createInstanceError("SERVICE_OPERATIONS_UNSUPPORTED", 409, { instanceId: config.id });
+  }
+  return config;
+}
+
+async function getServiceOverview(instanceId, options = {}) {
+  return getServiceOperations().overview(await loadServiceManagedInstance(instanceId), options);
+}
+
+async function preflightSafeRestart(instanceId, options = {}) {
+  return getServiceOperations().preflight(await loadServiceManagedInstance(instanceId), options);
+}
+
+async function startSafeRestart(instanceId, options = {}) {
+  const config = await loadServiceManagedInstance(instanceId);
+  return getServiceOperations().startSafeRestart(config, { ...options, correlationId: options.correlationId || Object.values(correlationMetadata())[0] || null });
+}
+
+async function getServiceOperation(instanceId, operationId) {
+  return getServiceOperations().getOperation(await loadServiceManagedInstance(instanceId), operationId);
+}
+
+async function listServiceHistory(instanceId, options = {}) {
+  return getServiceOperations().readHistory(await loadServiceManagedInstance(instanceId), options);
+}
+
 // Public-boundary guard for everything that writes an instance's tree, its record
 // or its installer state. A service-managed instance is an operator-authored
 // record over a service the Agent does not own: its stub tree is not the
@@ -7018,6 +7130,11 @@ module.exports = {
     reconcileInterruptedInstanceJob,
   },
   configureInstanceService,
+  getServiceOverview,
+  preflightSafeRestart,
+  startSafeRestart,
+  getServiceOperation,
+  listServiceHistory,
   disposeInstanceService,
   shutdownInstanceService,
   listInstanceJobs,
