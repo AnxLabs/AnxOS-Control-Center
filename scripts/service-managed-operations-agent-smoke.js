@@ -20,6 +20,34 @@ async function waitForOperation(agent, id, timeoutMs = 20000) {
   }
 }
 
+
+async function permissionTiers() {
+  // Reads are instance:read; Safe Restart is instance:lifecycle. A read-only principal cannot restart.
+  const readOnly = await startServiceManagedAgent({ operations: true, permissions: "instance:read" });
+  try {
+    let response = await readOnly.api("GET", `${base}/service/overview`);
+    assert.strictEqual(response.status, 200, response.text);
+    response = await readOnly.api("GET", `${base}/service/safe-restart/preflight`);
+    assert.strictEqual(response.status, 200, response.text);
+    response = await readOnly.api("GET", `${base}/service/history`);
+    assert.strictEqual(response.status, 200);
+    response = await readOnly.api("POST", `${base}/service/safe-restart`, { confirm: true });
+    assert.strictEqual(response.status, 403, "a read-only principal must not start a Safe Restart");
+    assert.strictEqual(readOnly.restartCalls().length, 0);
+  } finally {
+    await readOnly.stop();
+  }
+  const lifecycle = await startServiceManagedAgent({ operations: true, permissions: "instance:read,instance:lifecycle" });
+  try {
+    const response = await lifecycle.api("POST", `${base}/service/safe-restart`, { confirm: true });
+    assert.strictEqual(response.status, 202, response.text);
+    await waitForOperation(lifecycle, response.json.operation.id);
+    assert.strictEqual(lifecycle.restartCalls().length, 1);
+  } finally {
+    await lifecycle.stop();
+  }
+}
+
 async function main() {
   const agent = await startServiceManagedAgent({
     operations: true,
@@ -128,6 +156,7 @@ async function main() {
     }
     response = await agent.api("GET", "/api/v1/instances/does-not-exist/service/overview");
     assert.ok(response.status >= 400, "unknown instance");
+    await permissionTiers();
     console.log("service-managed-operations-agent-smoke passed");
   } finally {
     await agent.stop();

@@ -66,7 +66,7 @@ function makeWorld(flags = {}) {
     }
     if (dt < world.delays.pid && !f().pidNeverChanges) return { activeState: "activating", subState: "start", mainPid: 0, enteredMs: world.restartAt, restartCount: world.before.restartCount };
     if (f().pidChangesAgain && dt > world.delays.ready + 500) return { activeState: "active", subState: "running", mainPid: 6000, enteredMs: world.restartAt + world.delays.ready + 400, restartCount: world.before.restartCount };
-    return { activeState: "active", subState: "running", mainPid: 5000, enteredMs: world.restartAt + world.delays.pid, restartCount: world.before.restartCount + (f().crashLoop ? 1 : 0) };
+    return { activeState: "active", subState: "running", mainPid: f().samePidNewTimestamp ? world.before.pid : 5000, enteredMs: world.restartAt + world.delays.pid, restartCount: world.before.restartCount + (f().crashLoop ? 1 : 0) };
   };
 
   world.statusDocument = () => {
@@ -388,6 +388,7 @@ test("Safe Restart never retries a failed restart command", async () => {
 test("Safe Restart: each wait that does not complete is a timeout, never a success", async () => {
   const cases = [
     ["the process never changes", { pidNeverChanges: true }, "new-process"],
+    ["the MainPID is unchanged even though the start time moved", { samePidNewTimestamp: true }, "new-process"],
     ["the listeners never return", { portsNeverReturn: true }, "listeners"],
     ["AnxRP never becomes READY", { neverReady: true }, "ready"],
     ["AnxRP READY but with the OLD boot id", { bootIdUnchanged: true }, "ready"],

@@ -31,6 +31,7 @@ PORT=30120
 API_PORT=47199
 TOKEN="$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 WORK=/var/lib/anxtest
+STATUS_DIR=/var/lib/anxtest-status
 INSTANCE_ID=fivem-fxserver
 PASS=0
 FAIL=0
@@ -66,7 +67,7 @@ cleanup() {
   systemctl stop "$UNIT" 2>/dev/null
   rm -f "/etc/systemd/system/$UNIT" /etc/sudoers.d/anxos-agent-test
   systemctl daemon-reload 2>/dev/null
-  rm -rf "$WORK" /opt/anxtest/fake-fxserver.py
+  rm -rf "$WORK" "$STATUS_DIR" /opt/anxtest/fake-fxserver.py /opt/anxtest/players.count /opt/anxtest/never-ready
   userdel -r agenttest 2>/dev/null
   userdel -r fxtest 2>/dev/null
 }
@@ -77,7 +78,7 @@ start_agent() { # allowlist elevation
   runuser -u agenttest -- env \
     AGENT_HOST=127.0.0.1 AGENT_PORT=$API_PORT AGENT_TOKEN="$TOKEN" AGENT_API_PERMISSIONS='*' \
     ANXHUB_CONFIG_DIR=$WORK/config AGENT_INSTANCE_ROOT=$WORK/instances AGENT_BACKUP_ROOT=$WORK/backups ANXOS_LOG_DIR=$WORK/log \
-    AGENT_SYSTEMD_UNIT_ALLOWLIST="$1" AGENT_SYSTEMD_ELEVATION="$2" NODE_ENV=production HOME=$WORK/home \
+    AGENT_SYSTEMD_UNIT_ALLOWLIST="$1" AGENT_SYSTEMD_ELEVATION="$2" AGENT_SERVICE_STATUS_ROOTS="$STATUS_DIR" NODE_ENV=production HOME=$WORK/home \
     "$NODE" "$APP/agent/src/server.js" >"$WORK/agent.log" 2>&1 &
   wait_for 15 curl -sf -m 2 -H "x-agent-token: $TOKEN" "http://127.0.0.1:$API_PORT/api/v1/health"
 }
@@ -89,14 +90,61 @@ mkdir -p "$WORK"/{config,instances,backups,log,home} /opt/anxtest
 chown -R agenttest:agenttest "$WORK"
 chmod 700 "$WORK/config"
 
+# Stand-in FXServer: TCP+UDP 30120 like the real thing, FXServer-style /dynamic.json and /players.json on
+# the TCP port, and an AnxRP-style status file (STARTING, then READY with a boot id that is new per start).
+# Test knobs (root-owned files): /opt/anxtest/players.count (number, or "down" for HTTP 500) and
+# /opt/anxtest/never-ready (the status file then stays STARTING).
+mkdir -p "$STATUS_DIR" && chown fxtest:fxtest "$STATUS_DIR" && chmod 755 "$STATUS_DIR"
+echo 0 > /opt/anxtest/players.count; chmod 644 /opt/anxtest/players.count
 cat > /opt/anxtest/fake-fxserver.py <<'PY'
-import socket, sys, time, os
-t = socket.socket(socket.AF_INET, socket.SOCK_STREAM); t.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-t.bind(("0.0.0.0", 30120)); t.listen(8)
-u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); u.bind(("0.0.0.0", 30120))
+import http.server, json, os, socket, threading, time, uuid
+PORT = 30120
+STATUS = "/var/lib/anxtest-status/anxrp-status.json"
+PLAYERS = "/opt/anxtest/players.count"
+NEVER = "/opt/anxtest/never-ready"
+BOOT = str(uuid.uuid4())
+START = time.time()
+
+def players():
+    try:
+        return open(PLAYERS).read().strip()
+    except Exception:
+        return "0"
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+    def do_GET(self):
+        value = players()
+        if value == "down":
+            self.send_response(500); self.end_headers(); return
+        n = int(value) if value.isdigit() else 0
+        if self.path == "/dynamic.json":
+            body = {"clients": n}
+        elif self.path == "/players.json":
+            body = [{"name": "player%d" % i, "identifiers": ["license:secret%d" % i]} for i in range(n)]
+        else:
+            self.send_response(404); self.end_headers(); return
+        data = json.dumps(body).encode()
+        self.send_response(200); self.send_header("content-type", "application/json"); self.send_header("content-length", str(len(data))); self.end_headers(); self.wfile.write(data)
+
+server = http.server.ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
+udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); udp.bind(("0.0.0.0", PORT))
+threading.Thread(target=server.serve_forever, daemon=True).start()
+
+def write(state):
+    temp = STATUS + ".tmp"
+    with open(temp, "w") as handle:
+        handle.write(json.dumps({"state": state, "boot_id": BOOT, "framework": {"version": "0.5.0"}, "uptime_sec": int(time.time() - START), "sessions": {"active": 0, "total": 0, "spawned": 0, "with_character": 0}}))
+    os.chmod(temp, 0o644)
+    os.replace(temp, STATUS)
+
 print("fake-fxserver READY pid=%d api_key=hunter2secretvalue" % os.getpid(), flush=True)
+write("STARTING")
+time.sleep(2)
 while True:
-    time.sleep(5); print("fake-fxserver heartbeat", flush=True)
+    write("STARTING" if os.path.exists(NEVER) else "READY")
+    time.sleep(2)
 PY
 cat > "/etc/systemd/system/$UNIT" <<EOF
 [Unit]
@@ -125,7 +173,10 @@ cat > "$WORK/instances/.record.json" <<EOF
 { "id": "$INSTANCE_ID", "type": "systemd-service", "templateId": "fivem", "displayName": "AnxRP (test)",
   "serverSoftware": "FiveM FXServer", "schemaVersion": 2, "installationState": "active", "workingDirectory": "data",
   "ports": [$PORT], "autoStart": false, "restartPolicy": "never",
-  "serviceManager": { "kind": "systemd", "unit": "$UNIT" } }
+  "serviceManager": { "kind": "systemd", "unit": "$UNIT", "operations": {
+      "health": { "kind": "anxrp-status-file", "path": "$STATUS_DIR/anxrp-status.json", "maxAgeSeconds": 60 },
+      "players": { "kind": "fxserver-http", "baseUrl": "http://127.0.0.1:$PORT" },
+      "safeRestart": { "timeoutSeconds": 30 } } } }
 EOF
 mkdir -p "$WORK/instances/$INSTANCE_ID/data" "$WORK/instances/$INSTANCE_ID/logs"
 mv "$WORK/instances/.record.json" "$WORK/instances/$INSTANCE_ID/config.json"
@@ -136,6 +187,13 @@ chown agenttest:agenttest "$WORK/instances" "$WORK/instances/jobs" "$WORK/instan
 chown root:agenttest "$WORK/instances/$INSTANCE_ID" "$WORK/instances/$INSTANCE_ID/data" "$WORK/instances/$INSTANCE_ID/config.json"
 chmod 750 "$WORK/instances/$INSTANCE_ID" "$WORK/instances/$INSTANCE_ID/data" "$WORK/instances/$INSTANCE_ID/logs"
 chmod 640 "$WORK/instances/$INSTANCE_ID/config.json"
+cat > "$WORK/instances/$INSTANCE_ID/deployment.json" <<EOF
+{ "schema": 1,
+  "agentBuild": { "origin": "local-unofficial", "artifactVersion": "2.0-build206", "builtFromCommit": "e2e", "note": "disposable VM" },
+  "rollback": { "artifact": { "name": "rollback.deb", "path": "/opt/anxtest/rollback.deb" }, "backup": { "dir": "$WORK/backups" } },
+  "notes": ["e2e manifest"] }
+EOF
+chown root:agenttest "$WORK/instances/$INSTANCE_ID/deployment.json"; chmod 640 "$WORK/instances/$INSTANCE_ID/deployment.json"
 runuser -u agenttest -- sh -c "echo tamper >> $WORK/instances/$INSTANCE_ID/config.json" 2>/dev/null && bad "agent could modify its own instance record" || ok "agent cannot modify the root-owned instance record"
 RECORD_SHA="$(sha256sum "$WORK/instances/$INSTANCE_ID/config.json" | cut -d' ' -f1)"
 
@@ -226,6 +284,98 @@ expect "systemd auto-restarted it: one process, new PID" 1 "$([ "$MAIN3" != "$MA
 R="$(api GET /api/v1/instances/$INSTANCE_ID/status)"
 expect "agent reports the systemd-restarted service as Running" Running "$(echo "$R" | body | ifield state)"
 expect "agent reports systemd's new PID only as informational" "$MAIN3" "$(echo "$R" | body | ifield serviceStatus.externalMainPid)"
+
+echo "== operations layer on real systemd (status file, FX HTTP, real /proc listeners, --timestamp=unix)"
+OPS="/api/v1/instances/$INSTANCE_ID/service"
+journal_starts() { journalctl -u "$UNIT" --no-pager -o cat 2>/dev/null | grep -c "^Started "; }
+nrestarts() { systemctl show "$UNIT" -p NRestarts --value; }
+wait_ready() { test "$(jget state < "$STATUS_DIR/anxrp-status.json")" = READY; }
+wait_for 15 wait_ready && ok "stand-in reports READY in its status file" || bad "stand-in never reported READY"
+MAINO="$(mainpid)"
+R="$(api GET "$OPS/overview")"; OV="$(echo "$R" | body)"
+expect "overview: 200" 200 "$(echo "$R" | code)"
+expect "overview: MainPID matches real systemd" "$MAINO" "$(echo "$OV" | jget service.systemd.mainPid)"
+expect "overview: uptime computed from a real ActiveEnterTimestamp (--timestamp=unix parses)" 1 "$([ -n "$(echo "$OV" | jget service.systemd.uptimeSeconds)" ] && echo 1 || echo 0)"
+expect "overview: AnxRP READY with a boot id" "true" "$(echo "$OV" | jget service.anxrp.ready)"
+BOOT0="$(echo "$OV" | jget service.anxrp.bootId)"
+expect "overview: boot id present" 1 "$([ -n "$BOOT0" ] && echo 1 || echo 0)"
+expect "overview: players 0 from real HTTP endpoints" 0 "$(echo "$OV" | jget service.players.count)"
+expect "overview: real /proc shows 30120 tcp+udp listening" "true" "$(echo "$OV" | jget service.listeners.allListening)"
+expect "overview: unofficial build flagged from the manifest" "true" "$(echo "$OV" | jget service.deployment.unofficial)"
+expect "overview: missing rollback artifact reported missing" "missing" "$(echo "$OV" | jget service.deployment.rollback.artifact.state)"
+echo "$OV" | grep -q "license:secret" && bad "player identifiers leaked into the overview" || ok "no player identifiers in the overview"
+
+echo 2 > /opt/anxtest/players.count
+R="$(api POST "$OPS/safe-restart" '{"confirm":true}')"
+expect "players connected -> Safe Restart refused (409)" 409 "$(echo "$R" | code)"
+expect "refusal names the players check" players "$(echo "$R" | body | "$NODE" -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{const c=(JSON.parse(d).error.details.checks||[]).find(x=>x.status==="fail");console.log(c?c.id:"")})')"
+expect "refusal left systemd untouched (same MainPID, one process)" "1:$MAINO" "$(procs):$(mainpid)"
+echo down > /opt/anxtest/players.count
+R="$(api POST "$OPS/safe-restart" '{"confirm":true}')"
+expect "unverifiable player count -> refused (409)" 409 "$(echo "$R" | code)"
+expect "unverifiable refusal left systemd untouched" "1:$MAINO" "$(procs):$(mainpid)"
+echo 0 > /opt/anxtest/players.count
+R="$(api POST "$OPS/safe-restart" '{"confirm":true,"expectedMainPid":1}')"
+expect "stale MainPID view -> refused (409)" 409 "$(echo "$R" | code)"
+R="$(api POST "$OPS/safe-restart" '{}')"
+expect "no confirmation -> 400" 400 "$(echo "$R" | code)"
+expect "refusals left systemd untouched" "1:$MAINO" "$(procs):$(mainpid)"
+
+STARTS0="$(journal_starts)"; NR0="$(nrestarts)"
+R="$(api POST "$OPS/safe-restart" "{\"confirm\":true,\"expectedMainPid\":$MAINO,\"expectedUnit\":\"$UNIT\"}")"
+expect "Safe Restart accepted (202)" 202 "$(echo "$R" | code)"
+OPID="$(echo "$R" | body | jget operation.id)"
+R2="$(api POST /api/v1/instances/$INSTANCE_ID/restart '{}')"
+expect "plain restart is refused while a Safe Restart runs (409)" 409 "$(echo "$R2" | code)"
+expect "  ...with SERVICE_OPERATION_IN_PROGRESS" SERVICE_OPERATION_IN_PROGRESS "$(echo "$R2" | body | jget error.code)"
+OUTCOME=""
+for _ in $(seq 1 120); do
+  OUTCOME="$(api GET "$OPS/operations/$OPID" | body | jget operation.outcome)"
+  [ -n "$OUTCOME" ] && break
+  sleep 0.5
+done
+OPJSON="$(api GET "$OPS/operations/$OPID" | body)"
+expect "Safe Restart outcome" succeeded "$OUTCOME"
+expect "every step passed" "preflight:pass,players-recheck:pass,restart:pass,new-process:pass,listeners:pass,ready:pass,stable:pass" "$(echo "$OPJSON" | "$NODE" -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>console.log(JSON.parse(d).operation.steps.map(s=>s.id+":"+s.status).join(",")))')"
+MAINS="$(mainpid)"
+expect "MainPID changed (a real new process)" 1 "$([ "$MAINS" != "$MAINO" ] && echo 1 || echo 0)"
+expect "exactly one workload process afterwards" 1 "$(procs)"
+expect "the operation recorded the new MainPID" "$MAINS" "$(echo "$OPJSON" | jget operation.post.mainPid)"
+BOOT1="$(echo "$OPJSON" | jget operation.post.bootId)"
+expect "new boot id (not the old one)" 1 "$([ -n "$BOOT1" ] && [ "$BOOT1" != "$BOOT0" ] && echo 1 || echo 0)"
+expect "exactly ONE systemd start event for the whole operation" 1 "$(( $(journal_starts) - STARTS0 ))"
+expect "NRestarts unchanged (systemd did not restart it on its own)" "$NR0" "$(nrestarts)"
+HIST="$WORK/instances/$INSTANCE_ID/logs/service-history.jsonl"
+expect "history has started then finished for the operation" "started,finished" "$(grep "\"id\":\"$OPID\"" "$HIST" | "$NODE" -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>console.log(d.trim().split("\n").map(l=>JSON.parse(l).phase).join(",")))')"
+expect "history file is owned by the Agent user, not root" agenttest "$(stat -c %U "$HIST")"
+grep -q "license:secret\|player0" "$HIST" && bad "player data written to the audit file" || ok "no player data in the audit file"
+R="$(api GET "$OPS/history")"
+expect "history API lists the operation first" "$OPID" "$(echo "$R" | body | jget history.0.id)"
+R="$(api POST /api/v1/instances/$INSTANCE_ID/restart '{}')"
+expect "lock released: plain restart works again" 1 "$([ "$(echo "$R" | code)" -lt 300 ] && echo 1 || echo 0)"
+wait_for 15 wait_ready
+
+echo "== Safe Restart that never reaches READY: one restart, then a recorded timeout, no retry"
+touch /opt/anxtest/never-ready
+MAINT="$(mainpid)"; STARTS1="$(journal_starts)"
+R="$(api POST "$OPS/safe-restart" '{"confirm":true}')"
+expect "accepted (202) while the service is still healthy" 202 "$(echo "$R" | code)"
+OPID2="$(echo "$R" | body | jget operation.id)"
+OUTCOME2=""
+for _ in $(seq 1 160); do
+  OUTCOME2="$(api GET "$OPS/operations/$OPID2" | body | jget operation.outcome)"
+  [ -n "$OUTCOME2" ] && break
+  sleep 0.5
+done
+expect "never READY -> timeout (not success)" timeout "$OUTCOME2"
+expect "failing step is 'ready'" fail "$(api GET "$OPS/operations/$OPID2" | body | "$NODE" -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{const s=JSON.parse(d).operation.steps.find(x=>x.id==="ready");console.log(s?s.status:"")})')"
+expect "exactly one restart was issued (no retry after the timeout)" 1 "$(( $(journal_starts) - STARTS1 ))"
+expect "the Agent left the service running; nothing killed it" "active" "$(active)"
+expect "timeout is in the history" timeout "$(api GET "$OPS/history" | body | jget history.0.outcome)"
+rm -f /opt/anxtest/never-ready
+systemctl restart "$UNIT"; wait_for 15 wait_ready
+MAIN3="$(mainpid)"
+expect "operator recovery restart left one process" 1 "$(procs)"
 
 echo "== sudoers is least-privilege"
 runuser -u agenttest -- sudo -n /usr/bin/systemctl restart ssh.service >/dev/null 2>&1 && bad "agent could restart ssh.service" || ok "agent cannot control other units"

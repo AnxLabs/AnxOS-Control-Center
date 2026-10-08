@@ -166,7 +166,7 @@ async function startServiceManagedAgent(options = {}) {
       AGENT_BACKUP_ROOT: path.join(home, "backups"),
       AGENT_FILE_ROOTS: home,
       ANXOS_LOG_DIR: logDir,
-      AGENT_API_PERMISSIONS: "*",
+      AGENT_API_PERMISSIONS: options.permissions || "*",
       AGENT_API_RATE_LIMIT_PER_MINUTE: "20000",
       ...(options.operations ? { AGENT_SERVICE_STATUS_ROOTS: statusDir } : {}),
     },

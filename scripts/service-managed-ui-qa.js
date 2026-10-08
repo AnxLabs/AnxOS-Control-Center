@@ -320,6 +320,9 @@ async function scenarioRunning(report) {
     await eventually("systemd notice is hidden for an ordinary instance", async () => {
       assert.strictEqual(await noticeText(page), "");
     });
+    await eventually("operations panel is hidden for an ordinary instance", async () => {
+      assert.deepStrictEqual(await controls(page, "[data-service-ops]"), []);
+    });
     await eventually("ordinary instance header actions usable again", async () => {
       for (const selector of LOCKED_SELECTORS) {
         const found = await controls(page, selector);
@@ -455,6 +458,8 @@ async function scenarioOperations(report) {
       throw error;
     });
     const warning = await text("[data-service-build-warning]");
+    assert.strictEqual((await controls(page, "[data-service-build-warning]")).length, 1, "the unofficial-build warning is actually visible");
+    assert.strictEqual((await controls(page, "[data-service-rollback]")).length, 1, "rollback visibility is actually shown");
     assert.match(warning, /unofficial\/local build/i, "unofficial build warning");
     assert.match(warning, /cc862de/);
     const rollback = await text("[data-service-rollback]");
