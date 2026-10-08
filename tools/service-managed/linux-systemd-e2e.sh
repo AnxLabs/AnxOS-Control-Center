@@ -290,6 +290,8 @@ OPS="/api/v1/instances/$INSTANCE_ID/service"
 journal_starts() { journalctl -u "$UNIT" --no-pager -o cat 2>/dev/null | grep -c "^Started "; }
 nrestarts() { systemctl show "$UNIT" -p NRestarts --value; }
 wait_ready() { test "$(jget state < "$STATUS_DIR/anxrp-status.json")" = READY; }
+# READY with a boot id other than $1: the new process has rewritten the file (the old file also says READY).
+wait_ready_new() { test "$(jget state < "$STATUS_DIR/anxrp-status.json")" = READY && test "$(jget boot_id < "$STATUS_DIR/anxrp-status.json")" != "$1"; }
 wait_for 15 wait_ready && ok "stand-in reports READY in its status file" || bad "stand-in never reported READY"
 MAINO="$(mainpid)"
 R="$(api GET "$OPS/overview")"; OV="$(echo "$R" | body)"
@@ -344,7 +346,7 @@ expect "the operation recorded the new MainPID" "$MAINS" "$(echo "$OPJSON" | jge
 BOOT1="$(echo "$OPJSON" | jget operation.post.bootId)"
 expect "new boot id (not the old one)" 1 "$([ -n "$BOOT1" ] && [ "$BOOT1" != "$BOOT0" ] && echo 1 || echo 0)"
 expect "exactly ONE systemd start event for the whole operation" 1 "$(( $(journal_starts) - STARTS0 ))"
-expect "NRestarts unchanged (systemd did not restart it on its own)" "$NR0" "$(nrestarts)"
+expect "NRestarts did not rise (a manual restart resets it; systemd did not restart it on its own)" 1 "$([ "$(nrestarts)" -le "$NR0" ] && echo 1 || echo 0)"
 HIST="$WORK/instances/$INSTANCE_ID/logs/service-history.jsonl"
 expect "history has started then finished for the operation" "started,finished" "$(grep "\"id\":\"$OPID\"" "$HIST" | "$NODE" -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>console.log(d.trim().split("\n").map(l=>JSON.parse(l).phase).join(",")))')"
 expect "history file is owned by the Agent user, not root" agenttest "$(stat -c %U "$HIST")"
@@ -353,7 +355,7 @@ R="$(api GET "$OPS/history")"
 expect "history API lists the operation first" "$OPID" "$(echo "$R" | body | jget history.0.id)"
 R="$(api POST /api/v1/instances/$INSTANCE_ID/restart '{}')"
 expect "lock released: plain restart works again" 1 "$([ "$(echo "$R" | code)" -lt 300 ] && echo 1 || echo 0)"
-wait_for 15 wait_ready
+wait_for 20 wait_ready_new "$BOOT1" && ok "stand-in READY again after the plain restart" || bad "stand-in not READY after the plain restart"
 
 echo "== Safe Restart that never reaches READY: one restart, then a recorded timeout, no retry"
 touch /opt/anxtest/never-ready
@@ -373,7 +375,8 @@ expect "exactly one restart was issued (no retry after the timeout)" 1 "$(( $(jo
 expect "the Agent left the service running; nothing killed it" "active" "$(active)"
 expect "timeout is in the history" timeout "$(api GET "$OPS/history" | body | jget history.0.outcome)"
 rm -f /opt/anxtest/never-ready
-systemctl restart "$UNIT"; wait_for 15 wait_ready
+BOOTSTUCK="$(jget boot_id < "$STATUS_DIR/anxrp-status.json")"
+systemctl restart "$UNIT"; wait_for 20 wait_ready_new "$BOOTSTUCK"
 MAIN3="$(mainpid)"
 expect "operator recovery restart left one process" 1 "$(procs)"
 

@@ -51,7 +51,7 @@ function makeWorld(flags = {}) {
   const world = {
     dir, statusPath, instanceDir, clock: T0, calls: [], restartAt: null, flags: { ...flags }, sleeps: 0, onSleep: null,
     delays: { pid: 2000, listeners: 3000, ready: 6000 },
-    before: { pid: 4242, enteredMs: T0 - 3600 * 1000, restartCount: 0, boot: "boot-1" },
+    before: { pid: 4242, enteredMs: T0 - 3600 * 1000, restartCount: flags.restartCountBefore ?? 0, boot: "boot-1" },
     deployment: null, // string content, or null for absent
     statPaths: {},
     players: { clients: 0, roster: [] },
@@ -66,7 +66,7 @@ function makeWorld(flags = {}) {
     }
     if (dt < world.delays.pid && !f().pidNeverChanges) return { activeState: "activating", subState: "start", mainPid: 0, enteredMs: world.restartAt, restartCount: world.before.restartCount };
     if (f().pidChangesAgain && dt > world.delays.ready + 500) return { activeState: "active", subState: "running", mainPid: 6000, enteredMs: world.restartAt + world.delays.ready + 400, restartCount: world.before.restartCount };
-    return { activeState: "active", subState: "running", mainPid: f().samePidNewTimestamp ? world.before.pid : 5000, enteredMs: world.restartAt + world.delays.pid, restartCount: world.before.restartCount + (f().crashLoop ? 1 : 0) };
+    return { activeState: "active", subState: "running", mainPid: f().samePidNewTimestamp ? world.before.pid : 5000, enteredMs: world.restartAt + world.delays.pid, restartCount: f().restartCountResets ? 0 : world.before.restartCount + (f().crashLoop ? 1 : 0) };
   };
 
   world.statusDocument = () => {
@@ -404,6 +404,14 @@ test("Safe Restart: each wait that does not complete is a timeout, never a succe
       assert.equal(service.isBusy(ID), false, `${label}: lock released`);
     } finally { w.cleanup(); }
   }
+});
+
+test("Safe Restart: a manual restart resets NRestarts (real systemd), which is not a failure", async () => {
+  const w = makeWorld({ restartCountBefore: 1, restartCountResets: true });
+  try {
+    const operation = await startAndFinish(w.service(), w.config());
+    assert.equal(operation.outcome, "succeeded", JSON.stringify(operation.steps));
+  } finally { w.cleanup(); }
 });
 
 test("Safe Restart: a service that restarts itself again is a failure (crash-loop guard)", async () => {

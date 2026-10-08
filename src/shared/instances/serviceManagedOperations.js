@@ -625,12 +625,13 @@ function createServiceOperations(deps) {
       if (!(health?.ready && health.bootId && health.bootId !== before.anxrp.bootId)) { step(operation, "ready", "AnxRP READY with a new boot id", "fail", health?.available ? `State ${health.state || "unknown"}, boot ${health.bootId || "none"} (was ${before.anxrp.bootId}).` : `Health unreadable (${health?.error}).`); outcome = "timeout"; failure = "AnxRP did not report READY with a new boot id in time."; return; }
       step(operation, "ready", "AnxRP READY with a new boot id", "pass", `boot ${before.anxrp.bootId} -> ${health.bootId}.`);
 
-      // 4. the service must still be the same new process, and must not have restarted itself meanwhile
+      // 4. the service must still be the same new process, and must not have restarted itself meanwhile.
+      // A manual `systemctl restart` resets NRestarts (real systemd), so the count may only fall or stay; a rise means Restart= fired.
       await deps.sleep(STABLE_DWELL_MS);
       const settled = summarizeSystemd(await deps.describe(unit).catch(() => null), deps.now());
-      const stable = settled && settled.activeState === "active" && settled.mainPid === current.mainPid && (!Number.isFinite(before.systemd.restartCount) || !Number.isFinite(settled.restartCount) || settled.restartCount === before.systemd.restartCount);
+      const stable = settled && settled.activeState === "active" && settled.mainPid === current.mainPid && (!Number.isFinite(before.systemd.restartCount) || !Number.isFinite(settled.restartCount) || settled.restartCount <= before.systemd.restartCount);
       if (!stable) { step(operation, "stable", "Service stable after restart", "fail", "The process changed again or systemd restarted it on its own (possible crash loop)."); outcome = "failed"; failure = "The service did not stay on the new process."; return; }
-      step(operation, "stable", "Service stable after restart", "pass", `MainPID ${settled.mainPid}, NRestarts unchanged.`);
+      step(operation, "stable", "Service stable after restart", "pass", `MainPID ${settled.mainPid}, no automatic systemd restart.`);
       outcome = "succeeded";
       after = { systemd: settled, anxrp: health, players: await readPlayers(operations.players, deps), listeners: listening };
     } catch (error) {
