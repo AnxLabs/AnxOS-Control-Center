@@ -291,9 +291,10 @@ echo "== operations layer on real systemd (status file, FX HTTP, real /proc list
 OPS="/api/v1/instances/$INSTANCE_ID/service"
 journal_starts() { journalctl -u "$UNIT" --no-pager -o cat 2>/dev/null | grep -c "^Started "; }
 nrestarts() { systemctl show "$UNIT" -p NRestarts --value; }
-wait_ready() { test "$(jget state < "$STATUS_DIR/anxrp-status.json")" = READY && test "$(jget pid < "$STATUS_DIR/anxrp-status.json")" = "$(mainpid)"; }
+status_snapshot() { "$NODE" -e "try{const d=JSON.parse(require(\"fs\").readFileSync(\"$STATUS_DIR/anxrp-status.json\",\"utf8\"));console.log([d.state,d.boot_id,d.pid].join(\" \"))}catch(e){console.log(\"- - -\")}"; }
+wait_ready() { set -- $(status_snapshot); test "$1" = READY && test "$3" = "$(mainpid)"; }
 # READY with a boot id other than $1: the new process has rewritten the file (the old file also says READY).
-wait_ready_new() { test "$(jget state < "$STATUS_DIR/anxrp-status.json")" = READY && test "$(jget boot_id < "$STATUS_DIR/anxrp-status.json")" != "$1" && test "$(jget pid < "$STATUS_DIR/anxrp-status.json")" = "$(mainpid)"; }
+wait_ready_new() { local old="$1"; set -- $(status_snapshot); test "$1" = READY && test "$2" != "$old" && test "$3" = "$(mainpid)"; }
 wait_for 15 wait_ready && ok "stand-in reports READY in its status file" || bad "stand-in never reported READY"
 MAINO="$(mainpid)"
 R="$(api GET "$OPS/overview")"; OV="$(echo "$R" | body)"
@@ -379,7 +380,7 @@ expect "exactly one restart was issued (no retry after the timeout)" 1 "$(( $(jo
 expect "the Agent left the service running; nothing killed it" "active" "$(active)"
 expect "timeout is in the history" timeout "$(api GET "$OPS/history" | body | jget history.0.outcome)"
 rm -f /opt/anxtest/never-ready
-BOOTSTUCK="$(jget boot_id < "$STATUS_DIR/anxrp-status.json")"
+BOOTSTUCK="$(set -- $(status_snapshot); echo "$2")"
 systemctl restart "$UNIT"; wait_for 20 wait_ready_new "$BOOTSTUCK"
 MAIN3="$(mainpid)"
 expect "operator recovery restart left one process" 1 "$(procs)"
