@@ -135,7 +135,7 @@ threading.Thread(target=server.serve_forever, daemon=True).start()
 def write(state):
     temp = STATUS + ".tmp"
     with open(temp, "w") as handle:
-        handle.write(json.dumps({"state": state, "boot_id": BOOT, "framework": {"version": "0.5.0"}, "uptime_sec": int(time.time() - START), "sessions": {"active": 0, "total": 0, "spawned": 0, "with_character": 0}}))
+        handle.write(json.dumps({"state": state, "pid": os.getpid(), "boot_id": BOOT, "framework": {"version": "0.5.0"}, "uptime_sec": int(time.time() - START), "sessions": {"active": 0, "total": 0, "spawned": 0, "with_character": 0}}))
     os.chmod(temp, 0o644)
     os.replace(temp, STATUS)
 
@@ -291,9 +291,9 @@ echo "== operations layer on real systemd (status file, FX HTTP, real /proc list
 OPS="/api/v1/instances/$INSTANCE_ID/service"
 journal_starts() { journalctl -u "$UNIT" --no-pager -o cat 2>/dev/null | grep -c "^Started "; }
 nrestarts() { systemctl show "$UNIT" -p NRestarts --value; }
-wait_ready() { test "$(jget state < "$STATUS_DIR/anxrp-status.json")" = READY; }
+wait_ready() { test "$(jget state < "$STATUS_DIR/anxrp-status.json")" = READY && test "$(jget pid < "$STATUS_DIR/anxrp-status.json")" = "$(mainpid)"; }
 # READY with a boot id other than $1: the new process has rewritten the file (the old file also says READY).
-wait_ready_new() { test "$(jget state < "$STATUS_DIR/anxrp-status.json")" = READY && test "$(jget boot_id < "$STATUS_DIR/anxrp-status.json")" != "$1"; }
+wait_ready_new() { test "$(jget state < "$STATUS_DIR/anxrp-status.json")" = READY && test "$(jget boot_id < "$STATUS_DIR/anxrp-status.json")" != "$1" && test "$(jget pid < "$STATUS_DIR/anxrp-status.json")" = "$(mainpid)"; }
 wait_for 15 wait_ready && ok "stand-in reports READY in its status file" || bad "stand-in never reported READY"
 MAINO="$(mainpid)"
 R="$(api GET "$OPS/overview")"; OV="$(echo "$R" | body)"
@@ -364,7 +364,8 @@ touch /opt/anxtest/never-ready
 MAINT="$(mainpid)"; STARTS1="$(journal_starts)"
 R="$(api POST "$OPS/safe-restart" '{"confirm":true}')"
 expect "accepted (202) while the service is still healthy" 202 "$(echo "$R" | code)"
-[ "$(echo "$R" | code)" = 202 ] || echo "      refusal: $(echo "$R" | body | "$NODE" -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{try{console.log(JSON.stringify((JSON.parse(d).error.details.checks||[]).filter(x=>x.status!=="pass")))}catch(e){console.log(d)}})')"
+[ "$(echo "$R" | code)" = 202 ] || echo "      diag: status=$(cat "$STATUS_DIR/anxrp-status.json") procs=$(pgrep -af fake-fxserver | tr '\n' ';') main=$(mainpid) boot1=$BOOT1 flag=$(ls /opt/anxtest/never-ready 2>&1)"
+[ "$(echo "$R" | code)" = 202 ] || echo "      refusal:$(echo "$R" | body | "$NODE" -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{try{console.log(JSON.stringify((JSON.parse(d).error.details.checks||[]).filter(x=>x.status!=="pass")))}catch(e){console.log(d)}})')"
 OPID2="$(echo "$R" | body | jget operation.id)"
 OUTCOME2=""
 for _ in $(seq 1 160); do
