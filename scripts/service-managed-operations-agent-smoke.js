@@ -150,6 +150,8 @@ async function main() {
     assert.strictEqual(response.status, 404);
     response = await agent.api("GET", `${base}/service/operations/..%2F..%2Fetc%2Fpasswd`);
     assert.strictEqual(response.status, 404);
+    response = await agent.api("GET", `${base}/service/operations/%E0%A4%A`);
+    assert.ok(response.status >= 400, "a malformed escape is an error (the shared instance router, not this layer, turns it into a 500)");
     for (const [method, pathname] of [["POST", `${base}/kill`], ["DELETE", base], ["POST", `${base}/duplicate`], ["POST", `${base}/console`]]) {
       const refused = await agent.api(method, pathname, {});
       assert.ok(refused.status >= 400, `${method} ${pathname} must stay refused (got ${refused.status})`);

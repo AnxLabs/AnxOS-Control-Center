@@ -529,7 +529,11 @@ async function handleInstances(request, url) {
       if (request.method === "GET" && sub === "overview") return result(200, { service: await getServiceOverview(serviceInstanceId) });
       if (request.method === "GET" && sub === "history") return result(200, { history: await listServiceHistory(serviceInstanceId, { limit: Math.min(100, Math.max(1, Number(url.searchParams.get("limit")) || 20)) }) });
       if (request.method === "GET" && sub === "safe-restart/preflight") return result(200, { preflight: await preflightSafeRestart(serviceInstanceId, expected) });
-      if (request.method === "GET" && sub.startsWith("operations/")) return result(200, { operation: await getServiceOperation(serviceInstanceId, decodeURIComponent(sub.slice("operations/".length))) });
+      if (request.method === "GET" && sub.startsWith("operations/")) {
+        let operationId = "";
+        try { operationId = decodeURIComponent(sub.slice("operations/".length)); } catch { operationId = ""; }
+        return result(200, { operation: await getServiceOperation(serviceInstanceId, operationId) });
+      }
       if (request.method === "POST" && sub === "safe-restart") {
         const body = parseJsonBody(request);
         const started = await startSafeRestart(serviceInstanceId, {
