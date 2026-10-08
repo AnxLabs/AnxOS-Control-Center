@@ -1,6 +1,6 @@
 # AnxOS Control Center v2.0 — Build 206
 
-**DRAFT — NOT PUBLISHED.** This file is the Build 206 release-notes draft. No Build 206 signed release candidate, release, or tag exists. Publication follows the approval-gated steps in the AnxOS Development Protocol.
+**DRAFT — NOT PUBLISHED.** This file is the Build 206 release notes for the candidate built from `dev` at `e84707b` (PR #1 `d01a269` plus PR #2 `e84707b`). No Build 206 release or tag has been published. Publication follows the approval-gated steps in the AnxOS Development Protocol.
 
 Build 206 adds **service-managed instances**: the Agent can now observe and control an existing OS service (a systemd unit) without ever owning its process. The first use is adopting a production FiveM server that already runs as `anxrp-fxserver.service`, without any risk of the Agent launching a second copy.
 
@@ -10,7 +10,7 @@ One production host (OVH) is **already running a locally built, unsigned `anxos-
 
 - Package: `AnxOS-Agent-2.0-build206.deb`, SHA-256 `59842c83fd66d98084d991cd7d9769ef1e21f26d71dabd695049770394cb979f`, built on Linux from the LF-exact archive of `cc862de` with only `release.json` changed to build 206 in the build copy.
 - The official Build 205 package (SHA-256 `7b9410c0433332d30ebb0d8a0b73aed36902f30063ec36d74403e20e60357acd`) is kept on that host as the rollback artifact.
-- That host's Agent must **not** be self-updated or upgraded until an official release containing this change exists. An official Build 206 release supersedes the temporary package; its contents are expected to be functionally identical to `cc862de` plus this version bump and notes.
+- That host's Agent must **not** be self-updated or upgraded until an official release containing this change exists. The official Build 206 package supersedes it. It is **not** identical: it adds the service operations layer (PR #2: `serviceManagedOperations.js`, the operations routes, `safe-restart` on the lifecycle permission tier, `systemctl show --timestamp=unix`), carries official provenance, and no longer ships a stray `ssh2/lib/protocol/crypto/build/` directory that the temporary package picked up from the build host. Both share the dpkg version string `2.0-build206`, so move a host from one to the other with `dpkg -i` (a same-version reinstall); `apt` will report it as already installed. Either way only the Agent service restarts; a managed service such as FXServer is never restarted by the package.
 
 ## Added
 
@@ -27,6 +27,21 @@ One production host (OVH) is **already running a locally built, unsigned `anxos-
 
 - **Port-conflict check failed open.** The start preflight ignored listening sockets whose owner it could not identify (for example a server running as another user), counted a process owned by another user as dead, and swallowed errors from the check as "no conflict". Unknown owners and unreadable socket tables now block the start for every instance type.
 - **Dependency pre-check on service-managed starts.** Starting a service-managed instance no longer runs the marketplace dependency check or auto-install, so a template's dependencies can never gate or trigger installs on a host whose runtime the Agent does not own.
+
+## Release contents
+
+Build 206 contains exactly two changes, both on the service-managed instance feature:
+
+1. **PR #1 (`d01a269`)**: service-managed instances (native systemd adoption, no-spawn, allowlist and sudoers-pinned control), fail-closed port ownership, desktop support.
+2. **PR #2 (`e84707b`)**: the operations layer (AnxRP health, players, listeners, deployment visibility, Safe Restart, restart history, desktop panel).
+
+## Operator setup for the operations layer
+
+Optional and per host. Without it, service-managed instances behave exactly as described above and Safe Restart is disabled with a stated reason.
+
+- Add `AGENT_SERVICE_STATUS_ROOTS=<directory that holds the AnxRP status file>` to the root-owned `agent.env`, and restart the Agent.
+- Add `serviceManager.operations` to the root-owned instance record (health file, loopback FXServer URL, listeners, timeout).
+- Optionally create the root-owned `deployment.json` beside the record. See `docs/SERVICE_MANAGED_INSTANCES.md` for the formats.
 
 ## Upgrade
 

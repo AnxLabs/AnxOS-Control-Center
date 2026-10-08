@@ -193,6 +193,8 @@ const GLOBAL_ALLOWLIST = new Map([
   ["KeyboardEvent", "host DOM event"],
   ["Element", "host DOM type"],
   ["HTMLElement", "host DOM type"],
+  ["HTMLInputElement", "host DOM type"],
+  ["HTMLTextAreaElement", "host DOM type"],
   ["Node", "host DOM type"],
   ["NodeList", "host DOM type"],
   ["MutationObserver", "host DOM API"],
