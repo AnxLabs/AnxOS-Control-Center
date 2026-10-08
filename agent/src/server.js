@@ -215,7 +215,7 @@ function getRoutePermission(request, pathname) {
   }
   if (pathname === "/api/v1/instances" || pathname.startsWith("/api/v1/instances/")) {
     if (method === "GET") return "instance:read";
-    if (/\/(?:start|stop|restart|kill)$/.test(pathname)) return "instance:lifecycle";
+    if (/\/(?:start|stop|restart|kill|safe-restart)$/.test(pathname)) return "instance:lifecycle";
     if (method === "DELETE") return "instance:delete";
     return "instance:write";
   }

@@ -12428,6 +12428,26 @@ const SERVICE_MANAGED_LOCKED_SELECTORS = Object.freeze([
 ]);
 const serviceManagedLockedControls = new Set();
 
+// First matching selector wins; anything else gets SERVICE_MANAGED_LOCK_REASON. The same
+// table feeds the "Why are some actions unavailable?" list so the two never disagree.
+const SERVICE_MANAGED_LOCK_REASONS = Object.freeze([
+  { selector: '[data-instance-action="force-kill"]', label: "Force kill", reason: "Force kill is unavailable: AnxOS does not own this process, so it will not signal it. Use Restart or Safe Restart; systemd stops the service." },
+  { selector: '[data-instance-action="delete"]', label: "Delete", reason: "Delete is unavailable: this is an operator-defined system service. Use Forget to remove only AnxOS's record of it." },
+  { selector: '[data-instance-action="duplicate"]', label: "Duplicate", reason: "Duplicate is unavailable: a second copy could start a second FXServer on the same ports." },
+  { selector: '[data-instance-backup-action]', label: "Backups", reason: "Backups are unavailable: the service's files live outside the Agent's instance folder, so AnxOS cannot back them up." },
+  { selector: '[data-restart-schedule-action]', label: "Scheduled restarts", reason: "Scheduled restarts are unavailable: they warn players through the server console, which is not exposed for this service. Use Safe Restart manually." },
+  { selector: "[data-instance-console-command], [data-instance-console-form] button", label: "Console commands", reason: "Console commands are unavailable: the service has no console AnxOS can write to. The journal is shown read-only." },
+  { selector: '[data-instance-action="update-steam"], [data-instance-action="repair-neoforge-runtime"], [data-instance-action="reset-runtime"]', label: "Runtime updates and repair", reason: "Runtime updates and repair are unavailable: AnxOS does not manage this service's files or runtime." },
+  { selector: '[data-instance-action="rename"], [data-instance-action="transfer-workload"], [data-instance-action="open-folder"]', label: "Rename, transfer and open folder", reason: "Unavailable: the instance record is operator-authored and read-only to the Agent." },
+  { selector: '[data-instance-file-action]', label: "File changes", reason: "File changes are unavailable: the Agent cannot write the service's real files." },
+]);
+const SERVICE_MANAGED_RUN_LOCK_REASON = "Locked while a Safe Restart is running. Wait for it to finish; the Agent also refuses overlapping restarts.";
+
+function getServiceManagedLockReason(element) {
+  const entry = SERVICE_MANAGED_LOCK_REASONS.find((candidate) => element.matches(candidate.selector));
+  return entry ? entry.reason : SERVICE_MANAGED_LOCK_REASON;
+}
+
 function isServiceManagedInstance(instance = null) {
   return instance?.type === SERVICE_MANAGED_INSTANCE_TYPE;
 }
@@ -12452,7 +12472,10 @@ function buildServiceManagedMessage(instance) {
 function releaseServiceManagedLocks() {
   serviceManagedLockedControls.forEach((element) => {
     element.disabled = false;
-    if (element.title === SERVICE_MANAGED_LOCK_REASON) element.removeAttribute("title");
+    if (element.dataset.serviceManagedTitle !== undefined) {
+      if (element.title === element.dataset.serviceManagedTitle) element.removeAttribute("title");
+      delete element.dataset.serviceManagedTitle;
+    }
     if (element.dataset.serviceManagedPlaceholder !== undefined) {
       element.placeholder = element.dataset.serviceManagedPlaceholder;
       delete element.dataset.serviceManagedPlaceholder;
@@ -12475,11 +12498,14 @@ function applyServiceManagedRestrictions(instance = findInstance()) {
   }
   if (!managed) {
     releaseServiceManagedLocks();
+    syncServiceOps(instance);
     return;
   }
   const lock = (element) => {
+    const reason = getServiceManagedLockReason(element);
     element.disabled = true;
-    element.title = SERVICE_MANAGED_LOCK_REASON;
+    element.title = reason;
+    element.dataset.serviceManagedTitle = reason;
     if (element instanceof HTMLInputElement && element.matches("[data-instance-console-command]") && element.dataset.serviceManagedPlaceholder === undefined) {
       element.dataset.serviceManagedPlaceholder = element.placeholder;
       element.placeholder = "Console commands are not available for this service yet";
@@ -12498,7 +12524,397 @@ function applyServiceManagedRestrictions(instance = findInstance()) {
     if (element.matches('[data-instance-action="forget"]')) return;
     lock(element);
   });
+  // While a Safe Restart runs, plain lifecycle buttons are locked too (the Agent refuses them as well).
+  if (serviceOps.running) {
+    document.querySelectorAll('[data-instance-action="start"], [data-instance-action="stop"], [data-instance-action="restart"]').forEach((element) => {
+      element.disabled = true;
+      element.title = SERVICE_MANAGED_RUN_LOCK_REASON;
+      element.dataset.serviceManagedTitle = SERVICE_MANAGED_RUN_LOCK_REASON;
+      serviceManagedLockedControls.add(element);
+    });
+  }
+  syncServiceOps(instance);
 }
+
+// ---------------------------------------------------------------------------
+// Service-managed operations panel (AnxRP health, players, Safe Restart, history).
+// Presentation and orchestration only: every check and every rule is enforced by the
+// Agent, which refuses a restart that fails any precondition no matter what this does.
+// ---------------------------------------------------------------------------
+const SERVICE_OPS_REFRESH_MS = 8000;
+const SERVICE_OPS_POLL_MS = 1500;
+const serviceOps = {
+  instanceId: null,
+  overview: null,
+  history: [],
+  error: null,
+  loadedAt: 0,
+  loading: false,
+  preflight: null,
+  preflightLoading: false,
+  confirming: false,
+  operation: null,
+  running: false,
+  resultText: "",
+  reloadQueued: false,
+  pollTimer: null,
+};
+
+function serviceOpsRoot() {
+  return document.querySelector("[data-service-ops]");
+}
+
+function serviceOpsQuery(selector) {
+  return serviceOpsRoot()?.querySelector(selector) || null;
+}
+
+function setServiceOpsField(name, value, tone = "") {
+  const element = serviceOpsQuery(`[data-service-field="${name}"]`);
+  if (!element) return;
+  element.textContent = value;
+  element.dataset.tone = tone;
+}
+
+function serviceOpsNode(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+function formatServiceOpsTime(value) {
+  const time = Date.parse(value || "");
+  return Number.isFinite(time) ? new Date(time).toLocaleString() : "Unknown";
+}
+
+function describeServiceOpsError(error) {
+  return error?.details?.userMessage || error?.message || "The request failed.";
+}
+
+function resetServiceOpsForInstance(instanceId) {
+  if (serviceOps.pollTimer) window.clearTimeout(serviceOps.pollTimer);
+  Object.assign(serviceOps, { instanceId, overview: null, history: [], error: null, loadedAt: 0, loading: false, preflight: null, preflightLoading: false, confirming: false, operation: null, running: false, resultText: "", pollTimer: null });
+}
+
+function syncServiceOps(instance) {
+  const root = serviceOpsRoot();
+  if (!root) return;
+  const managed = isServiceManagedInstance(instance);
+  root.hidden = !managed;
+  if (!managed) {
+    if (serviceOps.instanceId) resetServiceOpsForInstance(null);
+    return;
+  }
+  if (serviceOps.instanceId !== instance.id) resetServiceOpsForInstance(instance.id);
+  renderServiceOps(instance);
+  if (!serviceOps.loading && Date.now() - serviceOps.loadedAt > SERVICE_OPS_REFRESH_MS) {
+    void loadServiceOps(instance.id);
+  }
+}
+
+async function loadServiceOps(instanceId) {
+  const api = getDesktopApiState().api?.instances;
+  if (!api?.serviceOverview) return;
+  if (serviceOps.loading) {
+    // A request made before this click may already be carrying older data: reload as soon as it lands.
+    serviceOps.reloadQueued = true;
+    return;
+  }
+  serviceOps.loading = true;
+  let staleLoad = false;
+  const requestContext = getNodeRequestContext("service-ops");
+  try {
+    const [overview, history] = await Promise.all([
+      api.serviceOverview(instanceId, { nodeId: requestContext.nodeId }),
+      api.serviceHistory(instanceId, { nodeId: requestContext.nodeId }),
+    ]);
+    if (!isNodeRequestCurrent(requestContext) || serviceOps.instanceId !== instanceId) {
+      staleLoad = true;
+      return;
+    }
+    serviceOps.overview = overview?.service || overview;
+    serviceOps.history = history?.history || [];
+    serviceOps.error = null;
+  } catch (error) {
+    if (serviceOps.instanceId !== instanceId) return;
+    serviceOps.error = describeServiceOpsError(error);
+  } finally {
+    serviceOps.loading = false;
+    serviceOps.loadedAt = staleLoad ? 0 : Date.now();
+    const instance = findInstance();
+    if (instance && instance.id === instanceId) renderServiceOps(instance);
+    if (serviceOps.reloadQueued) {
+      serviceOps.reloadQueued = false;
+      void loadServiceOps(instanceId);
+    }
+  }
+}
+
+function renderServiceOpsDeployment(overview) {
+  const warning = serviceOpsQuery("[data-service-build-warning]");
+  const rollback = serviceOpsQuery("[data-service-rollback]");
+  const rollbackList = serviceOpsQuery("[data-service-rollback-list]");
+  const deployment = overview?.deployment;
+  if (warning) {
+    let text = "";
+    if (deployment?.declared && deployment.unofficial) {
+      const build = deployment.agentBuild || {};
+      text = `This Agent is an unofficial/local build (${deployment.origin || "unknown origin"}${build.builtFromCommit ? `, commit ${build.builtFromCommit}` : ""}${build.artifactVersion ? `, ${build.artifactVersion}` : ""}). It is not a signed release and it will not be replaced by self-update.`;
+      if (deployment.matchesRunningAgent === false) text += " The deployment manifest describes a different build than the one running.";
+    } else if (deployment && !deployment.declared) {
+      text = deployment.error ? "The deployment manifest could not be read, so the Agent build provenance is unverified." : "Agent build provenance is not declared on this node (no deployment manifest).";
+    }
+    warning.hidden = !text;
+    warning.textContent = text;
+    warning.dataset.level = deployment?.declared && deployment.unofficial ? "unofficial" : "notice";
+  }
+  if (!rollback || !rollbackList) return;
+  rollbackList.replaceChildren();
+  const entries = [];
+  const artifact = deployment?.rollback?.artifact;
+  const backup = deployment?.rollback?.backup;
+  if (artifact) entries.push(`Rollback package: ${artifact.name || "unnamed"}${artifact.sha256 ? ` (sha256 ${String(artifact.sha256).slice(0, 12)}...)` : ""} - ${artifact.state || "unknown"}`);
+  if (backup) entries.push(`Pre-migration backup: ${backup.dir || "unnamed"}${backup.createdAt ? ` (${backup.createdAt})` : ""} - ${backup.state || "unknown"}`);
+  (deployment?.notes || []).forEach((note) => entries.push(String(note)));
+  entries.forEach((entry) => {
+    const item = serviceOpsNode("li", "", entry);
+    if (/- (missing|unverifiable)$/.test(entry)) item.dataset.tone = "warn";
+    rollbackList.append(item);
+  });
+  rollback.hidden = entries.length === 0;
+}
+
+function renderServiceOps(instance) {
+  const root = serviceOpsRoot();
+  if (!root || root.hidden) return;
+  const overview = serviceOps.overview;
+  setServiceOpsField("unit", getServiceManagedUnit(instance) || overview?.unit || "");
+  const errorBox = serviceOpsQuery("[data-service-error]");
+  if (errorBox) {
+    errorBox.hidden = !serviceOps.error;
+    errorBox.textContent = serviceOps.error ? `Operations data unavailable: ${serviceOps.error}` : "";
+  }
+  if (overview) {
+    const systemd = overview.systemd || {};
+    setServiceOpsField("systemdState", systemd.error ? `Unreadable (${systemd.error})` : `${systemd.activeState || "unknown"}${systemd.subState ? ` (${systemd.subState})` : ""}`, systemd.activeState === "active" ? "ok" : "warn");
+    setServiceOpsField("mainPid", systemd.mainPid ? `${systemd.mainPid} - owned by systemd` : "None");
+    setServiceOpsField("uptime", Number.isFinite(systemd.uptimeSeconds) ? formatDuration(systemd.uptimeSeconds) : "Unknown");
+    const anxrp = overview.anxrp || {};
+    let anxrpText = "Unavailable";
+    let anxrpTone = "warn";
+    if (anxrp.available) {
+      anxrpText = anxrp.ready ? "READY" : `${anxrp.state || "Unknown"}${anxrp.stale ? " (stale status file)" : ""} - not ready`;
+      anxrpTone = anxrp.ready ? "ok" : "warn";
+    } else if (anxrp.configured) {
+      anxrpText = `Unreadable (${anxrp.error})`;
+    } else {
+      anxrpText = "Not configured";
+    }
+    setServiceOpsField("anxrpState", anxrpText, anxrpTone);
+    setServiceOpsField("bootId", anxrp.bootId || "Unknown");
+    setServiceOpsField("version", anxrp.version || "Unknown");
+    setServiceOpsField("sessions", anxrp.sessions && Number.isFinite(anxrp.sessions.active) ? `${anxrp.sessions.active} active (AnxRP)` : "Unknown");
+    const players = overview.players || {};
+    setServiceOpsField("players", Number.isFinite(players.count) ? `${players.count} connected` : (players.configured ? "Unverifiable" : "Not configured"), Number.isFinite(players.count) ? "ok" : "warn");
+    const listeners = overview.listeners || {};
+    setServiceOpsField("listeners", listeners.available ? (listeners.allListening ? listeners.ports.map((entry) => `${entry.port} listening`).join(", ") : "A configured port is not listening") : (listeners.configured ? "Unreadable" : "Not configured"), listeners.allListening ? "ok" : "warn");
+    renderServiceOpsDeployment(overview);
+  }
+  renderServiceOpsSafeRestart(overview);
+  renderServiceOpsHistory();
+  renderServiceOpsWhy();
+}
+
+function renderServiceOpsSafeRestart(overview) {
+  const button = serviceOpsQuery("[data-service-safe-restart]");
+  const confirm = serviceOpsQuery("[data-service-safe-confirm]");
+  const cancel = serviceOpsQuery("[data-service-safe-cancel]");
+  const reason = serviceOpsQuery("[data-service-safe-reason]");
+  const checks = serviceOpsQuery("[data-service-preflight]");
+  const progress = serviceOpsQuery("[data-service-progress]");
+  const result = serviceOpsQuery("[data-service-result]");
+  if (!button) return;
+  const availability = overview?.safeRestart;
+  const unavailableReason = !overview ? "Loading service evidence..." : (!availability?.available ? availability?.reason || "Safe Restart is not configured for this instance." : (availability.busy && !serviceOps.running ? "Another operation is running on this service." : ""));
+  button.disabled = Boolean(unavailableReason) || serviceOps.running || serviceOps.preflightLoading || serviceOps.confirming;
+  button.title = unavailableReason || "";
+  reason.textContent = serviceOps.running ? "Safe Restart is running. Lifecycle buttons are locked." : (serviceOps.preflightLoading ? "Running preflight checks..." : unavailableReason);
+  confirm.hidden = !serviceOps.confirming;
+  cancel.hidden = !serviceOps.confirming;
+  confirm.disabled = !(serviceOps.preflight?.ok);
+
+  checks.replaceChildren();
+  const list = serviceOps.preflight?.checks || [];
+  checks.hidden = list.length === 0;
+  list.forEach((check) => {
+    const item = serviceOpsNode("li", `service-ops__check service-ops__check--${check.status}`, `${check.status === "pass" ? "PASS" : "FAIL"} - ${check.label}: ${check.detail || ""}`);
+    item.dataset.checkId = check.id;
+    item.dataset.status = check.status;
+    checks.append(item);
+  });
+
+  progress.replaceChildren();
+  const steps = serviceOps.operation?.steps || [];
+  progress.hidden = steps.length === 0;
+  steps.forEach((step) => {
+    const item = serviceOpsNode("li", `service-ops__step service-ops__step--${step.status}`, `${step.label}${step.detail ? ` - ${step.detail}` : ""}`);
+    item.dataset.stepId = step.id;
+    item.dataset.status = step.status;
+    progress.append(item);
+  });
+
+  const operation = serviceOps.operation;
+  const finished = operation && operation.phase === "finished";
+  result.hidden = !finished && !serviceOps.resultText;
+  if (finished) {
+    const outcome = operation.outcome;
+    const summary = outcome === "succeeded"
+      ? `Safe Restart succeeded: MainPID ${operation.pre?.mainPid ?? "?"} -> ${operation.post?.mainPid ?? "?"}, boot ${operation.pre?.bootId ?? "?"} -> ${operation.post?.bootId ?? "?"}, AnxRP READY.`
+      : `Safe Restart ${outcome}: ${operation.error || "see the steps above"}. Nothing was retried.`;
+    result.textContent = summary;
+    result.dataset.outcome = outcome;
+  } else if (serviceOps.resultText) {
+    result.textContent = serviceOps.resultText;
+    result.dataset.outcome = "refused";
+  }
+}
+
+function renderServiceOpsHistory() {
+  const list = serviceOpsQuery("[data-service-history]");
+  if (!list) return;
+  list.replaceChildren();
+  if (!serviceOps.history.length) {
+    list.append(serviceOpsNode("li", "service-ops__empty", "No operations recorded yet."));
+    return;
+  }
+  serviceOps.history.slice(0, 10).forEach((entry) => {
+    const pids = entry.pre?.mainPid || entry.post?.mainPid ? ` PID ${entry.pre?.mainPid ?? "?"} -> ${entry.post?.mainPid ?? "?"}.` : "";
+    const detail = entry.outcome === "refused" ? ` ${(entry.refusal || []).map((check) => check.label).join("; ")}` : (entry.error ? ` ${entry.error}` : "");
+    const item = serviceOpsNode("li", "service-ops__history-item", `${formatServiceOpsTime(entry.startedAt)} - ${entry.kind} - ${String(entry.outcome || entry.phase || "unknown").toUpperCase()}.${pids}${detail}`);
+    item.dataset.operationId = entry.id;
+    item.dataset.outcome = entry.outcome || "";
+    list.append(item);
+  });
+}
+
+function renderServiceOpsWhy() {
+  const list = serviceOpsQuery("[data-service-why-list]");
+  if (!list || list.childElementCount) return;
+  SERVICE_MANAGED_LOCK_REASONS.forEach((entry) => {
+    const item = serviceOpsNode("li", "");
+    item.append(serviceOpsNode("strong", "", `${entry.label}: `), document.createTextNode(entry.reason));
+    list.append(item);
+  });
+}
+
+async function startServiceSafeRestartPreflight() {
+  const instance = findInstance();
+  const api = getDesktopApiState().api?.instances;
+  if (!instance || !isServiceManagedInstance(instance) || !api?.safeRestartPreflight || serviceOps.running) return;
+  serviceOps.preflightLoading = true;
+  serviceOps.resultText = "";
+  serviceOps.operation = null;
+  renderServiceOps(instance);
+  try {
+    const nodeId = getSelectedNodeId();
+    const answer = await api.safeRestartPreflight(instance.id, { nodeId, expectedMainPid: instance.serviceStatus?.externalMainPid, expectedUnit: getServiceManagedUnit(instance) });
+    serviceOps.preflight = answer?.preflight || answer;
+    serviceOps.confirming = true;
+  } catch (error) {
+    serviceOps.preflight = null;
+    serviceOps.confirming = false;
+    serviceOps.resultText = `Preflight could not run: ${describeServiceOpsError(error)}`;
+  } finally {
+    serviceOps.preflightLoading = false;
+    renderServiceOps(findInstance() || instance);
+  }
+}
+
+function cancelServiceSafeRestart() {
+  serviceOps.confirming = false;
+  serviceOps.preflight = null;
+  serviceOps.resultText = "";
+  renderServiceOps(findInstance());
+}
+
+async function confirmServiceSafeRestart() {
+  const instance = findInstance();
+  const api = getDesktopApiState().api?.instances;
+  if (!instance || !isServiceManagedInstance(instance) || !api?.safeRestart || serviceOps.running || !serviceOps.preflight?.ok) return;
+  const expectedMainPid = serviceOps.preflight.expectedMainPid ?? instance.serviceStatus?.externalMainPid;
+  serviceOps.confirming = false;
+  serviceOps.running = true;
+  serviceOps.resultText = "";
+  applyServiceManagedRestrictions(instance);
+  try {
+    const started = await api.safeRestart(instance.id, { nodeId: getSelectedNodeId(), confirm: true, expectedMainPid: Number.isInteger(expectedMainPid) ? expectedMainPid : undefined, expectedUnit: getServiceManagedUnit(instance) });
+    serviceOps.operation = started?.operation || started;
+    serviceOps.preflight = null;
+    pollServiceSafeRestart(instance.id);
+  } catch (error) {
+    serviceOps.running = false;
+    serviceOps.preflight = error?.details?.checks ? { ok: false, checks: error.details.checks } : null;
+    serviceOps.resultText = `Safe Restart was refused: ${describeServiceOpsError(error)} Nothing was restarted.`;
+    applyServiceManagedRestrictions(findInstance() || instance);
+  }
+}
+
+function pollServiceSafeRestart(instanceId) {
+  const api = getDesktopApiState().api?.instances;
+  const operationId = serviceOps.operation?.id;
+  if (!api?.serviceOperation || !operationId) {
+    serviceOps.running = false;
+    return;
+  }
+  const tick = async () => {
+    serviceOps.pollTimer = null;
+    if (serviceOps.instanceId !== instanceId) return;
+    try {
+      const answer = await api.serviceOperation(instanceId, operationId, { nodeId: getSelectedNodeId() });
+      serviceOps.operation = answer?.operation || answer;
+    } catch (error) {
+      // The Agent may be briefly unreachable while the game restarts; keep polling until it answers.
+      serviceOps.pollTimer = window.setTimeout(tick, SERVICE_OPS_POLL_MS);
+      return;
+    }
+    if (serviceOps.operation?.phase === "finished") {
+      serviceOps.running = false;
+      serviceOps.loadedAt = 0;
+      const instance = findInstance();
+      if (instance) applyServiceManagedRestrictions(instance);
+      void refreshInstances({ silent: true });
+      return;
+    }
+    renderServiceOps(findInstance());
+    serviceOps.pollTimer = window.setTimeout(tick, SERVICE_OPS_POLL_MS);
+  };
+  serviceOps.pollTimer = window.setTimeout(tick, SERVICE_OPS_POLL_MS);
+}
+
+// Keep the evidence fresh while a service-managed instance is selected (the Safe Restart poll covers a running one).
+window.setInterval(() => {
+  const instance = findInstance();
+  if (instance && isServiceManagedInstance(instance) && !serviceOps.running && !document.hidden) syncServiceOps(instance);
+}, 4000);
+
+document.addEventListener("click", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  if (!target) return;
+  if (target.closest("[data-service-refresh]")) {
+    serviceOps.loadedAt = 0;
+    const instance = findInstance();
+    if (instance) {
+      if (serviceOps.loading) serviceOps.reloadQueued = true;
+      else syncServiceOps(instance);
+    }
+  } else if (target.closest("[data-service-safe-restart]")) {
+    void startServiceSafeRestartPreflight();
+  } else if (target.closest("[data-service-safe-confirm]")) {
+    void confirmServiceSafeRestart();
+  } else if (target.closest("[data-service-safe-cancel]")) {
+    cancelServiceSafeRestart();
+  }
+});
 
 // Defense in depth for the handlers: the controls are disabled, but keyboard
 // shortcuts, drag-and-drop and stale state must not reach the Agent either.
@@ -22091,6 +22507,12 @@ async function runInstanceAction(actionName) {
       id: nextId.trim(),
       displayName: `${label} Copy`,
     };
+  }
+
+  if (serviceOps.running && isServiceManagedInstance(selectedInstance) && ["start", "stop", "restart", "forceKill"].includes(actionName)) {
+    showToast("A Safe Restart is running. Wait for it to finish.", "warning");
+    updateInstanceActionButtons();
+    return;
   }
 
   if (actionName === "forceKill" && !canStopInstance(selectedInstance)) {

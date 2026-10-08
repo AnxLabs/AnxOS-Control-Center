@@ -2329,6 +2329,59 @@
                   <span data-service-managed-message>This server runs as a system service. AnxOS can start, stop and restart it and show its status and logs.</span>
                 </div>
               </section>
+              <section class="service-ops" data-service-ops aria-label="Service operations" hidden>
+                <header class="service-ops__head">
+                  <span class="service-ops__badge" data-service-badge>SYSTEMD MANAGED</span>
+                  <span class="service-ops__unit" data-service-field="unit"></span>
+                  <span class="service-ops__owner">systemd owns the process; AnxOS only observes and controls it</span>
+                  <button class="inline-action" type="button" data-service-refresh>Refresh</button>
+                </header>
+                <div class="service-ops__warning" data-service-build-warning role="alert" hidden></div>
+                <div class="service-ops__error" data-service-error role="alert" hidden></div>
+                <div class="service-ops__grid">
+                  <dl class="service-ops__facts" aria-label="systemd">
+                    <div><dt>Service</dt><dd data-service-field="systemdState">Unknown</dd></div>
+                    <div><dt>MainPID (systemd)</dt><dd data-service-field="mainPid">Unknown</dd></div>
+                    <div><dt>Uptime</dt><dd data-service-field="uptime">Unknown</dd></div>
+                  </dl>
+                  <dl class="service-ops__facts" aria-label="AnxRP">
+                    <div><dt>AnxRP health</dt><dd data-service-field="anxrpState">Unknown</dd></div>
+                    <div><dt>Boot ID</dt><dd data-service-field="bootId">Unknown</dd></div>
+                    <div><dt>Framework</dt><dd data-service-field="version">Unknown</dd></div>
+                  </dl>
+                  <dl class="service-ops__facts" aria-label="Players and ports">
+                    <div><dt>Players</dt><dd data-service-field="players">Unknown</dd></div>
+                    <div><dt>Game ports</dt><dd data-service-field="listeners">Unknown</dd></div>
+                    <div><dt>Sessions</dt><dd data-service-field="sessions">Unknown</dd></div>
+                  </dl>
+                </div>
+                <div class="service-ops__rollback" data-service-rollback hidden>
+                  <h5>Rollback and backups</h5>
+                  <ul data-service-rollback-list></ul>
+                </div>
+                <div class="service-ops__safe">
+                  <h5>Safe Restart</h5>
+                  <p class="service-ops__hint">Checks the server is empty and healthy, restarts it exactly once, then waits for a new process, listening ports and AnxRP READY with a new boot ID. It never retries.</p>
+                  <div class="service-ops__actions">
+                    <button class="inline-action" type="button" data-service-safe-restart>Safe Restart</button>
+                    <button class="inline-action instance-danger-action" type="button" data-service-safe-confirm hidden>Confirm: restart now</button>
+                    <button class="inline-action" type="button" data-service-safe-cancel hidden>Cancel</button>
+                    <span class="service-ops__reason" data-service-safe-reason></span>
+                  </div>
+                  <ul class="service-ops__checks" data-service-preflight aria-label="Preflight checks" hidden></ul>
+                  <ol class="service-ops__steps" data-service-progress aria-label="Safe Restart progress" hidden></ol>
+                  <div class="service-ops__result" data-service-result role="status" hidden></div>
+                </div>
+                <div class="service-ops__history">
+                  <h5>Restart history</h5>
+                  <ul data-service-history><li class="service-ops__empty">No operations recorded yet.</li></ul>
+                </div>
+                <p class="service-ops__hint" data-service-journal-note>The Console tab shows the service journal read-only. Console commands are not available for this service.</p>
+                <details class="service-ops__why" data-service-why>
+                  <summary>Why are some actions unavailable?</summary>
+                  <ul data-service-why-list></ul>
+                </details>
+              </section>
               <div class="instance-tabs" role="tablist" aria-label="Instance workspace tabs">
                 <button class="instance-tab is-active" type="button" data-instance-tab="overview">Overview</button>
                 <button class="instance-tab" type="button" data-instance-tab="console">Console</button>

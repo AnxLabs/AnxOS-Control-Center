@@ -280,6 +280,7 @@ const IPC_FAMILIES = [
     channels: [
       "instances:list", "instances:getStatus", "instances:getMetrics", "instances:getLogs",
       "instances:listFiles", "instances:readFile", "instances:listRestartSchedules",
+      "instances:serviceOverview", "instances:serviceHistory", "instances:serviceOperation", "instances:safeRestartPreflight",
       "instances:getMinecraftProperties", "instances:getGameServerConfig", "instances:getFiveMReadiness",
       "instances:jobs:list", "instances:jobs:get",
     ],
@@ -300,7 +301,7 @@ const IPC_FAMILIES = [
     tier: "instance:lifecycle",
     guard: "permission",
     allow: ["owner-unlocked", "operator-unlocked"],
-    channels: ["instances:start", "instances:stop", "instances:restart", "instances:forceKill", "instances:repairNeoForgeRuntime", "instances:jobs:cancel"],
+    channels: ["instances:start", "instances:stop", "instances:restart", "instances:safeRestart", "instances:forceKill", "instances:repairNeoForgeRuntime", "instances:jobs:cancel"],
   },
   {
     id: "instances-delete",

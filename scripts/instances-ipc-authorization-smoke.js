@@ -9,7 +9,7 @@ const serviceNames = [
   "getInstanceStatus", "getFiveMReadiness", "getGameServerConfig", "getMinecraftProperties", "listInstanceFiles", "listInstances",
   "openInstanceFolder", "readInstanceFile", "renameInstance", "renameInstanceFile", "restartInstance",
   "saveGameServerConfig", "saveMinecraftProperties", "saveFiveMLicenseKey", "sendInstanceCommand", "startInstance", "stopInstance",
-  "updateInstance", "writeInstanceFile",
+  "updateInstance", "writeInstanceFile", "getServiceOverview", "preflightSafeRestart", "startSafeRestart", "getServiceOperation", "listServiceHistory",
 ];
 const serviceRouter = Object.fromEntries(serviceNames.map((name) => [name, async () => {
   serviceInvoked = true;

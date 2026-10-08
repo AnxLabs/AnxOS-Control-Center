@@ -897,6 +897,32 @@ async function restartInstance(instanceId, options = {}) {
   return getAgentNodeClient(options).restartInstance(instanceId);
 }
 
+// Service-managed operations: agent-only (a local instance is never service-managed).
+async function getServiceOverview(instanceId, options = {}) {
+  const nodeId = getRequestNodeId(options);
+  return withNodeContext(await agentClient.getServiceOverview(instanceId, getOptionalNodeConfig(options)), nodeId);
+}
+
+async function preflightSafeRestart(instanceId, options = {}) {
+  const nodeId = getRequestNodeId(options);
+  return withNodeContext(await agentClient.preflightSafeRestart(instanceId, { expectedMainPid: options.expectedMainPid, expectedUnit: options.expectedUnit }, getOptionalNodeConfig(options)), nodeId);
+}
+
+async function startSafeRestart(instanceId, options = {}) {
+  const nodeId = getRequestNodeId(options);
+  return withNodeContext(await agentClient.startSafeRestart(instanceId, { confirm: options.confirm === true, expectedMainPid: options.expectedMainPid, expectedUnit: options.expectedUnit }, getOptionalNodeConfig(options)), nodeId);
+}
+
+async function getServiceOperation(instanceId, options = {}) {
+  const nodeId = getRequestNodeId(options);
+  return withNodeContext(await agentClient.getServiceOperation(instanceId, String(options.operationId || ""), getOptionalNodeConfig(options)), nodeId);
+}
+
+async function listServiceHistory(instanceId, options = {}) {
+  const nodeId = getRequestNodeId(options);
+  return withNodeContext(await agentClient.listServiceHistory(instanceId, getOptionalNodeConfig(options)), nodeId);
+}
+
 async function repairNeoForgeRuntime(instanceId, options = {}) {
   if (shouldUseLocalInstances(options)) {
     return localInstanceService.repairNeoForgeRuntime(instanceId, options);
@@ -1179,6 +1205,11 @@ module.exports = {
   updateRestartSchedule,
   deleteRestartSchedule,
   evaluateRestartSchedules,
+  getServiceOverview,
+  preflightSafeRestart,
+  startSafeRestart,
+  getServiceOperation,
+  listServiceHistory,
   planDependencyPreparation,
   pushBackupToDestination,
   readInstanceFile,

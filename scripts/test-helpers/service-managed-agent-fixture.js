@@ -6,6 +6,7 @@
 
 const crypto = require("crypto");
 const fs = require("fs");
+const http = require("http");
 const net = require("net");
 const os = require("os");
 const path = require("path");
@@ -56,7 +57,7 @@ function writeJsonAtomic(file, value) {
 const BACKGROUND_HELPERS = /(?:^|[\\/])(?:docker|unzip|tar|xz|df|ss|ps|lsblk|uptime|uname|whoami|hostname|wmic|powershell|tasklist|netstat|ipconfig)(?:\.exe)?$/i;
 
 const UNIT_STATES = {
-  running: { activeState: "active", subState: "running", result: "success", mainPid: 4242, execMainStatus: 0, restartCount: 0, loadState: "loaded", unitFileState: "enabled", activeEnterTimestamp: "Tue 2026-10-06 10:00:00 UTC" },
+  running: { activeState: "active", subState: "running", result: "success", mainPid: 4242, execMainStatus: 0, restartCount: 0, loadState: "loaded", unitFileState: "enabled", activeEnterTimestamp: "Tue 2026-10-06 10:00:00 UTC", activeEnterTimestampMs: Date.now() - 3600 * 1000 },
   stopped: { activeState: "inactive", subState: "dead", result: "success", mainPid: null, execMainStatus: 0, restartCount: 0, loadState: "loaded", unitFileState: "enabled", activeEnterTimestamp: "Tue 2026-10-06 10:00:00 UTC" },
   failed: { activeState: "failed", subState: "failed", result: "exit-code", mainPid: null, execMainStatus: 1, restartCount: 3, loadState: "loaded", unitFileState: "enabled", activeEnterTimestamp: "Tue 2026-10-06 10:00:00 UTC" },
   starting: { activeState: "activating", subState: "start", result: "success", mainPid: 4300, execMainStatus: 0, restartCount: 0, loadState: "loaded", unitFileState: "enabled", activeEnterTimestamp: "Tue 2026-10-06 10:00:00 UTC" },
@@ -70,6 +71,31 @@ async function startServiceManagedAgent(options = {}) {
   const instanceDir = path.join(instanceRoot, INSTANCE_ID);
   const stateFile = path.join(home, "fake-systemd.json");
   const token = options.token || `anxos_svc-managed-fixture-${crypto.randomBytes(12).toString("hex")}`;
+  // Optional operations layer: a status file, a fake FXServer HTTP endpoint and listener state.
+  const statusDir = path.join(home, "status");
+  const statusFile = path.join(statusDir, "anxrp-status.json");
+  let fxServer = null;
+  let operationsConfig = null;
+  const fxState = { clients: 0, roster: [], down: false };
+  if (options.operations) {
+    fs.mkdirSync(statusDir, { recursive: true });
+    fs.writeFileSync(statusFile, JSON.stringify({ state: "READY", boot_id: "boot-1", framework: { version: "0.5.0" }, uptime_sec: 3600, sessions: { active: 0, total: 0, spawned: 0, with_character: 0 } }));
+    fxServer = http.createServer((request, response) => {
+      if (fxState.down) { request.socket.destroy(); return; }
+      response.setHeader("content-type", "application/json");
+      if (request.url === "/dynamic.json") response.end(JSON.stringify({ clients: fxState.clients }));
+      else if (request.url === "/players.json") response.end(JSON.stringify(fxState.roster));
+      else { response.statusCode = 404; response.end("{}"); }
+    });
+    await new Promise((resolve) => fxServer.listen(0, "127.0.0.1", resolve));
+    const fxPort = fxServer.address().port;
+    operationsConfig = {
+      health: { kind: "anxrp-status-file", path: statusFile, maxAgeSeconds: 600 },
+      players: { kind: "fxserver-http", baseUrl: `http://127.0.0.1:${fxPort}` },
+      listeners: { ports: [30120], protocols: ["tcp", "udp"] },
+      safeRestart: { timeoutSeconds: options.safeRestartTimeoutSeconds || 30 },
+    };
+  }
   for (const dir of [configDir, logDir, path.join(instanceDir, "data"), path.join(instanceDir, "logs")]) fs.mkdirSync(dir, { recursive: true });
 
   fs.writeFileSync(path.join(instanceDir, "config.json"), `${JSON.stringify({
@@ -85,9 +111,10 @@ async function startServiceManagedAgent(options = {}) {
     ports: [30120],
     autoStart: false,
     restartPolicy: "never",
-    serviceManager: { kind: "systemd", unit: UNIT },
+    serviceManager: { kind: "systemd", unit: UNIT, ...(operationsConfig ? { operations: operationsConfig } : {}) },
   }, null, 2)}\n`);
 
+  if (options.deployment) fs.writeFileSync(path.join(instanceDir, "deployment.json"), JSON.stringify(options.deployment, null, 2));
   // Ordinary (Agent-owned) instances alongside the service-managed one, for tests
   // that must prove nothing service-managed leaks into normal instances. They are
   // never started by these tests.
@@ -108,6 +135,10 @@ async function startServiceManagedAgent(options = {}) {
     calls: [],
     spawnAttempts: [],
     failDescribe: options.failDescribe || null,
+    ...(options.operations ? {
+      listeners: [{ port: 30120, protocol: "tcp" }, { port: 30120, protocol: "udp" }],
+      world: { statusFile, bootNumber: 1, restarts: 0, ports: [30120], delays: options.worldDelays || { pid: 500, listeners: 900, ready: 1600 } },
+    } : {}),
     journalError: null,
     journal: [
       { at: "2026-10-06T10:00:00+0000", stream: "journal", message: "fxserver started; api_key=hunter2secretvalue" },
@@ -137,6 +168,7 @@ async function startServiceManagedAgent(options = {}) {
       ANXOS_LOG_DIR: logDir,
       AGENT_API_PERMISSIONS: "*",
       AGENT_API_RATE_LIMIT_PER_MINUTE: "20000",
+      ...(options.operations ? { AGENT_SERVICE_STATUS_ROOTS: statusDir } : {}),
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -176,6 +208,24 @@ async function startServiceManagedAgent(options = {}) {
     api,
     output: () => output,
     unitStates: Object.keys(UNIT_STATES),
+    // Safe Restart world controls (operations: true).
+    statusFile,
+    setPlayers(count) {
+      fxState.clients = count;
+      fxState.roster = Array.from({ length: count }, (_, index) => ({ name: `Player ${index}`, identifiers: [`license:${index}`] }));
+    },
+    setFxDown(down) { fxState.down = Boolean(down); },
+    setWorld(patch) {
+      const state = readJson(stateFile);
+      state.world = { ...state.world, ...patch };
+      writeJsonAtomic(stateFile, state);
+    },
+    writeStatus(document) { fs.writeFileSync(statusFile, JSON.stringify(document)); },
+    historyLines() {
+      const file = path.join(instanceDir, "logs", "service-history.jsonl");
+      return fs.existsSync(file) ? fs.readFileSync(file, "utf8").split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line)) : [];
+    },
+    restartCalls: () => readJson(stateFile).calls.filter(([verb]) => verb === "restart"),
     setUnit(name) {
       const state = readJson(stateFile);
       state.unit = { unit: UNIT, ...UNIT_STATES[name] };
@@ -207,6 +257,7 @@ async function startServiceManagedAgent(options = {}) {
         await Promise.race([exited, delay(5000)]);
       }
       if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+      if (fxServer) await new Promise((resolve) => { fxServer.close(resolve); fxServer.closeAllConnections?.(); });
       fs.rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     },
   };
