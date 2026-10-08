@@ -32,6 +32,11 @@ const {
   saveFiveMLicenseKey,
   writeGameServerConfig,
   startInstance,
+  getServiceOverview,
+  listServiceHistory,
+  preflightSafeRestart,
+  startSafeRestart,
+  getServiceOperation,
   stopInstance,
   updateInstance,
   writeInstanceFile,
@@ -97,6 +102,13 @@ const SERVICE_MANAGED_ERROR_MESSAGES = Object.freeze({
   SERVICE_CONTROL_DENIED: ["The Agent is not permitted to control this service.", "An operator must grant the Agent the exact start/stop/restart permission for this unit."],
   SERVICE_CONTROL_FAILED: ["The service manager reported an error controlling this service.", "Check the service status and logs on the host."],
   SERVICE_QUERY_FAILED: ["The service manager could not be queried.", "Check systemd is reachable from the Agent."],
+  SERVICE_SAFE_RESTART_REFUSED: ["Safe Restart was refused because a precondition failed.", "Nothing was restarted. Review the failed checks, fix them, then try again."],
+  SERVICE_SAFE_RESTART_CONFIRMATION_REQUIRED: ["Safe Restart needs explicit confirmation.", "Confirm the restart in the dialog."],
+  SERVICE_OPERATION_IN_PROGRESS: ["Another operation is already running on this service.", "Wait for it to finish; lifecycle actions are locked meanwhile."],
+  SERVICE_HISTORY_UNWRITABLE: ["The restart history cannot be written, so Safe Restart is disabled.", "Fix the instance logs directory permissions on the host."],
+  SERVICE_OPERATIONS_UNSUPPORTED: ["Service operations only exist for service-managed instances.", "This instance is managed by the Agent; use its normal controls."],
+  SERVICE_OPERATION_NOT_FOUND: ["That operation was not found for this instance.", "Refresh the restart history."],
+  SERVICE_HISTORY_UNREADABLE: ["The restart history could not be read.", "Check the instance logs directory on the host."],
   RESTART_SCHEDULE_SERVICE_MANAGED_UNSUPPORTED: ["Scheduled restarts are not available for a service-managed instance yet.", "Restarts warn players through the server console, which is not exposed for service-managed instances. Restart it manually for now."],
 });
 
@@ -175,6 +187,7 @@ function getRuntimeErrorDetails(error) {
       code: error.code,
       unit: error.unit || undefined,
       operation: error.operation || undefined,
+      checks: Array.isArray(error.checks) ? error.checks.slice(0, 20).map((check) => ({ id: String(check.id), label: String(check.label), status: String(check.status), detail: String(check.detail || "").slice(0, 300) })) : undefined,
       userMessage,
       suggestion,
     };
@@ -501,6 +514,36 @@ async function handleInstances(request, url) {
       return result(200, {
         instance: await restartInstance(restartId),
       });
+    }
+
+    // Service-managed operations layer: read-only evidence plus the single guarded
+    // Safe Restart. GETs are instance:read, POST safe-restart is instance:lifecycle.
+    const serviceOpsMatch = url.pathname.match(/^\/api\/v1\/instances\/([^/]+)\/service(?:\/(overview|history|safe-restart(?:\/preflight)?|operations\/[^/]+))?$/);
+    if (serviceOpsMatch) {
+      const serviceInstanceId = decodeURIComponent(serviceOpsMatch[1]);
+      const sub = serviceOpsMatch[2] || "overview";
+      const expected = {
+        expectedMainPid: url.searchParams.get("expectedMainPid") ? Number(url.searchParams.get("expectedMainPid")) : undefined,
+        expectedUnit: url.searchParams.get("expectedUnit") || undefined,
+      };
+      if (request.method === "GET" && sub === "overview") return result(200, { service: await getServiceOverview(serviceInstanceId) });
+      if (request.method === "GET" && sub === "history") return result(200, { history: await listServiceHistory(serviceInstanceId, { limit: Math.min(100, Math.max(1, Number(url.searchParams.get("limit")) || 20)) }) });
+      if (request.method === "GET" && sub === "safe-restart/preflight") return result(200, { preflight: await preflightSafeRestart(serviceInstanceId, expected) });
+      if (request.method === "GET" && sub.startsWith("operations/")) {
+        let operationId = "";
+        try { operationId = decodeURIComponent(sub.slice("operations/".length)); } catch { operationId = ""; }
+        return result(200, { operation: await getServiceOperation(serviceInstanceId, operationId) });
+      }
+      if (request.method === "POST" && sub === "safe-restart") {
+        const body = parseJsonBody(request);
+        const started = await startSafeRestart(serviceInstanceId, {
+          confirm: body.confirm === true,
+          expectedMainPid: Number.isInteger(body.expectedMainPid) ? body.expectedMainPid : undefined,
+          expectedUnit: typeof body.expectedUnit === "string" ? body.expectedUnit : undefined,
+        });
+        started.completion.catch(() => {});
+        return result(202, { operation: started.operation });
+      }
     }
 
     // V2-E scheduled restarts. Lives under /instances/:id so the central

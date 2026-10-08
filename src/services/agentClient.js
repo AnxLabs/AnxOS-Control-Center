@@ -1500,6 +1500,26 @@ class NodeAgentClient {
     return this.post(`/instances/${encodeInstanceId(instanceId)}/restart`);
   }
 
+  getServiceOverview(instanceId) {
+    return this.get(`/instances/${encodeInstanceId(instanceId)}/service/overview`);
+  }
+
+  preflightSafeRestart(instanceId, expected = {}) {
+    return this.get(`/instances/${encodeInstanceId(instanceId)}/service/safe-restart/preflight${expectedQuery(expected)}`);
+  }
+
+  startSafeRestart(instanceId, body = {}) {
+    return this.post(`/instances/${encodeInstanceId(instanceId)}/service/safe-restart`, body);
+  }
+
+  getServiceOperation(instanceId, operationId) {
+    return this.get(`/instances/${encodeInstanceId(instanceId)}/service/operations/${encodeURIComponent(operationId)}`);
+  }
+
+  listServiceHistory(instanceId) {
+    return this.get(`/instances/${encodeInstanceId(instanceId)}/service/history`);
+  }
+
   deleteInstance(instanceId) {
     return this.delete(`/instances/${encodeInstanceId(instanceId)}`);
   }
@@ -3283,6 +3303,35 @@ async function restartInstance(instanceId, configOverride = null) {
   });
 }
 
+function expectedQuery(expected = {}) {
+  const query = new URLSearchParams();
+  if (Number.isInteger(expected.expectedMainPid)) query.set("expectedMainPid", String(expected.expectedMainPid));
+  if (typeof expected.expectedUnit === "string" && expected.expectedUnit) query.set("expectedUnit", expected.expectedUnit);
+  const text = query.toString();
+  return text ? `?${text}` : "";
+}
+
+// Service-managed operations: remote-only. The local instance service has no service-managed runtime.
+async function getServiceOverview(instanceId, configOverride = null) {
+  return requestJson(`/api/v1/instances/${encodeInstanceId(instanceId)}/service/overview`, { config: configOverride });
+}
+
+async function preflightSafeRestart(instanceId, expected = {}, configOverride = null) {
+  return requestJson(`/api/v1/instances/${encodeInstanceId(instanceId)}/service/safe-restart/preflight${expectedQuery(expected)}`, { config: configOverride });
+}
+
+async function startSafeRestart(instanceId, body = {}, configOverride = null) {
+  return requestJson(`/api/v1/instances/${encodeInstanceId(instanceId)}/service/safe-restart`, { config: configOverride, method: "POST", body });
+}
+
+async function getServiceOperation(instanceId, operationId, configOverride = null) {
+  return requestJson(`/api/v1/instances/${encodeInstanceId(instanceId)}/service/operations/${encodeURIComponent(operationId)}`, { config: configOverride });
+}
+
+async function listServiceHistory(instanceId, configOverride = null) {
+  return requestJson(`/api/v1/instances/${encodeInstanceId(instanceId)}/service/history`, { config: configOverride });
+}
+
 async function deleteInstance(instanceId, configOverride = null) {
   if (shouldUseLocalInstanceService(configOverride)) {
     return getLocalInstanceService().deleteInstance(instanceId);
@@ -3547,6 +3596,11 @@ module.exports = {
   updateRestartSchedule,
   listRestartSchedules,
   evaluateRestartSchedules,
+  getServiceOverview,
+  preflightSafeRestart,
+  startSafeRestart,
+  getServiceOperation,
+  listServiceHistory,
   deleteDockerContainer,
   disconnectDockerNetwork,
   execDockerContainer,

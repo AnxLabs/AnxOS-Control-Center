@@ -76,6 +76,7 @@ const MUTANTS = [
     from: "    card.hidden = !managed;", to: "    card.hidden = false;" },
   { ui: true, name: "ui: settings editable", file: "app.js", test: "service-managed-ui-qa.js",
     from: "    if (element.matches('[data-instance-action=\"forget\"]')) return;\n    lock(element);", to: "    return;" },
+  ...require("./service-managed-operations-mutants"),
   // Port-conflict fail-closed
   { name: "unowned ports ignored (fail open)", file: CORE, test: "port-ownership-fail-closed-smoke.js",
     from: "for (const row of snapshot.unownedPorts || []) {", to: "for (const row of []) {" },
@@ -123,11 +124,19 @@ for (const mutant of MUTANTS) {
     // Working copies are CRLF on Windows; match on LF.
     const source = fs.readFileSync(target, "utf8").replace(/\r\n/g, "\n");
     if (!mutant.control) {
-      if (source.split(mutant.from).length !== 2) {
+      // A mutant is one edit, or several that must all apply together (redundant guards).
+      const edits = mutant.edits || [[mutant.from, mutant.to]];
+      let mutated = source;
+      let applicable = true;
+      for (const [from, to] of edits) {
+        if (mutated.split(from).length !== 2) { applicable = false; break; }
+        mutated = mutated.replace(from, () => to);
+      }
+      if (!applicable) {
         results.push({ name: mutant.name, status: "BAD-MUTANT (pattern not unique/found)" });
         continue;
       }
-      fs.writeFileSync(target, source.replace(mutant.from, () => mutant.to));
+      fs.writeFileSync(target, mutated);
     }
     let run;
     if (mutant.ui) {

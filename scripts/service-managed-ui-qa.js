@@ -31,7 +31,8 @@ const { startServiceManagedAgent } = require("./test-helpers/service-managed-age
 const root = path.resolve(__dirname, "..");
 const artifactDir = process.env.SERVICE_MANAGED_UI_QA_ARTIFACTS || fs.mkdtempSync(path.join(os.tmpdir(), "anx-svc-ui-qa-"));
 fs.mkdirSync(artifactDir, { recursive: true });
-const LOCK_REASON = "Not available for a service-managed instance. The service manager owns this server.";
+// Every locked control explains itself; the wording is specific per control (force kill, delete, ...).
+const isLockReason = (title) => /(?:is|are) unavailable|^Unavailable|Not available for a service-managed instance/.test(String(title || ""));
 const INSTANCE_ID = "fivem-fxserver";
 const PLAIN_ID = "plain-server";
 const TIMEOUT_MS = 20000;
@@ -154,7 +155,7 @@ async function assertLocked(page, label, selectors) {
     assert.ok(found.length > 0, `${label}: expected a visible control for ${selector}`);
     for (const control of found) {
       assert.strictEqual(control.disabled, true, `${label}: ${selector} must be disabled`);
-      assert.strictEqual(control.title, LOCK_REASON, `${label}: ${selector} must explain why`);
+      assert.ok(isLockReason(control.title), `${label}: ${selector} must explain why (title: ${control.title})`);
     }
   }
 }
@@ -319,10 +320,13 @@ async function scenarioRunning(report) {
     await eventually("systemd notice is hidden for an ordinary instance", async () => {
       assert.strictEqual(await noticeText(page), "");
     });
+    await eventually("operations panel is hidden for an ordinary instance", async () => {
+      assert.deepStrictEqual(await controls(page, "[data-service-ops]"), []);
+    });
     await eventually("ordinary instance header actions usable again", async () => {
       for (const selector of LOCKED_SELECTORS) {
         const found = await controls(page, selector);
-        assert.ok(found.length > 0 && found.every((control) => !control.disabled && control.title !== LOCK_REASON), `ordinary instance: ${selector} must be usable again (${JSON.stringify(found)})`);
+        assert.ok(found.length > 0 && found.every((control) => !control.disabled && !isLockReason(control.title)), `ordinary instance: ${selector} must be usable again (${JSON.stringify(found)})`);
       }
     });
     await openTab(page, "console");
@@ -417,10 +421,144 @@ async function scenarioFailed(report) {
   }
 }
 
+async function scenarioOperations(report) {
+  const agent = await startServiceManagedAgent({
+    initial: "running",
+    operations: true,
+    deployment: {
+      schema: 1,
+      agentBuild: { origin: "local-unofficial", artifactVersion: "2.0-build206", builtFromCommit: "cc862de", note: "temporary package" },
+      rollback: { artifact: { name: "AnxOS-Agent-2.0-build205.deb", path: "/nonexistent/AnxOS-Agent-2.0-build205.deb", sha256: "b".repeat(64) }, backup: { dir: "/nonexistent/anxos-agent-backup", createdAt: "2026-10-07T22:20:31Z" } },
+      notes: ["Rollback package kept intact"],
+    },
+  });
+  const ui = await launch(agent);
+  const { page } = ui;
+  const eventually = (label, assertion, timeoutMs) => eventuallyOn(page, label, assertion, timeoutMs);
+  const text = (selector) => page.evaluate((sel) => document.querySelector(sel)?.innerText.replace(/\s+/g, " ").trim() || "", selector);
+  const field = (name) => text(`[data-service-ops] [data-service-field="${name}"]`);
+  try {
+    await waitFor(page, "service-managed row", () => rowInfo(page, INSTANCE_ID));
+    await selectRow(page, INSTANCE_ID);
+
+    // ---- the panel: SYSTEMD MANAGED, systemd facts, AnxRP evidence, players, ports, build, rollback ----
+    await eventually("operations panel loads live evidence", async () => {
+      assert.strictEqual(await text("[data-service-ops] [data-service-badge]"), "SYSTEMD MANAGED");
+      assert.match(await field("mainPid"), /^4242 - owned by systemd$/);
+      assert.match(await field("systemdState"), /^active \(running\)$/);
+      assert.match(await field("uptime"), /\d/);
+      assert.strictEqual(await field("anxrpState"), "READY");
+      assert.strictEqual(await field("bootId"), "boot-1");
+      assert.strictEqual(await field("version"), "0.5.0");
+      assert.strictEqual(await field("players"), "0 connected");
+      assert.match(await field("listeners"), /30120 listening/);
+    }, 20000).catch(async (error) => {
+      const state = await page.evaluate(() => window.eval("JSON.stringify({ id: serviceOps.instanceId, error: serviceOps.error, loading: serviceOps.loading, hasOverview: Boolean(serviceOps.overview), loadedAt: serviceOps.loadedAt })")).catch((e) => String(e));
+      console.error(`panel state: ${state}`);
+      throw error;
+    });
+    const warning = await text("[data-service-build-warning]");
+    assert.strictEqual((await controls(page, "[data-service-build-warning]")).length, 1, "the unofficial-build warning is actually visible");
+    assert.strictEqual((await controls(page, "[data-service-rollback]")).length, 1, "rollback visibility is actually shown");
+    assert.match(warning, /unofficial\/local build/i, "unofficial build warning");
+    assert.match(warning, /cc862de/);
+    const rollback = await text("[data-service-rollback]");
+    assert.match(rollback, /AnxOS-Agent-2\.0-build205\.deb/);
+    assert.match(rollback, /bbbbbbbbbbbb/, "rollback hash prefix");
+    assert.match(rollback, /missing/i, "a rollback path that is not on disk is flagged");
+    assert.match(rollback, /anxos-agent-backup/);
+    await page.locator("[data-service-ops]").screenshot({ path: path.join(artifactDir, "ops-panel.png") });
+
+    // ---- refusals stay refused, each with its own explanation ----
+    await openTab(page, "settings");
+    const forceKill = await controls(page, '[data-instance-action="force-kill"]');
+    await openTab(page, "overview");
+    assert.ok(forceKill.length > 0 && forceKill.every((control) => control.disabled && /does not own this process/.test(control.title)), JSON.stringify(forceKill));
+    await assertLocked(page, "operations scenario", LOCKED_SELECTORS);
+    await page.locator("[data-service-why] summary").click();
+    const why = await text("[data-service-why-list]");
+    for (const label of ["Force kill", "Delete", "Duplicate", "Backups", "Scheduled restarts", "Console commands"]) assert.match(why, new RegExp(label), `why-list covers ${label}`);
+    await page.locator("[data-service-ops]").screenshot({ path: path.join(artifactDir, "ops-why-disabled.png") });
+    await page.locator("[data-service-why] summary").click();
+    await openTab(page, "console");
+    await eventually("journal is read-only in the console", async () => {
+      assert.match(await page.evaluate(() => document.querySelector("[data-instance-panel='console']").innerText), /JOURNAL/);
+      assert.strictEqual((await controls(page, "[data-instance-console-command]"))[0].disabled, true);
+    });
+    await openTab(page, "overview");
+
+    // ---- Safe Restart refused while players are connected: nothing is restarted ----
+    agent.setPlayers(2);
+    await page.locator("[data-service-refresh]").click();
+    await eventually("panel shows the players", async () => assert.strictEqual(await field("players"), "2 connected"), 20000);
+    await page.locator("[data-service-safe-restart]").click();
+    await eventually("preflight lists the failed player check", async () => {
+      const checks = await page.evaluate(() => Array.from(document.querySelectorAll("[data-service-preflight] li")).map((li) => ({ id: li.dataset.checkId, status: li.dataset.status, text: li.innerText })));
+      const players = checks.find((check) => check.id === "players");
+      assert.ok(players && players.status === "fail" && /2 player\(s\) connected/.test(players.text), JSON.stringify(checks));
+    });
+    assert.strictEqual(await page.locator("[data-service-safe-confirm]").isDisabled(), true, "cannot confirm a failed preflight");
+    await page.locator("[data-service-ops]").screenshot({ path: path.join(artifactDir, "ops-preflight-refused.png") });
+    await page.locator("[data-service-safe-cancel]").click();
+    assert.strictEqual(agent.restartCalls().length, 0, "a refused preflight restarted nothing");
+
+    // ---- an unverifiable player count is refused too ----
+    agent.setPlayers(0);
+    agent.setFxDown(true);
+    await page.locator("[data-service-refresh]").click();
+    await page.waitForTimeout(800);
+    await page.locator("[data-service-safe-restart]").click();
+    await eventually("unverifiable players fails the preflight", async () => {
+      const status = await page.evaluate(() => document.querySelector("[data-service-preflight] li[data-check-id='players']")?.dataset.status);
+      assert.strictEqual(status, "fail");
+    });
+    await page.locator("[data-service-safe-cancel]").click();
+    agent.setFxDown(false);
+    assert.strictEqual(agent.restartCalls().length, 0);
+
+    // ---- the real thing: preflight, confirm, progress, result ----
+    await page.locator("[data-service-refresh]").click();
+    await eventually("evidence is healthy again", async () => assert.strictEqual(await field("players"), "0 connected"), 20000);
+    await page.locator("[data-service-safe-restart]").click();
+    await waitFor(page, "preflight passes and Confirm is offered", () => page.evaluate(() => { const b = document.querySelector("[data-service-safe-confirm]"); return b && !b.hidden && !b.disabled; }));
+    await page.locator("[data-service-ops]").screenshot({ path: path.join(artifactDir, "ops-preflight-ok.png") });
+    await page.locator("[data-service-safe-confirm]").click();
+    await waitFor(page, "Safe Restart is running", () => page.evaluate(() => window.eval("serviceOps.running === true")));
+    const lockedWhileRunning = await controls(page, '[data-instance-action="restart"], [data-instance-action="stop"], [data-instance-action="start"]');
+    assert.ok(lockedWhileRunning.every((control) => control.disabled), "lifecycle buttons are locked during Safe Restart");
+    await waitFor(page, "progress steps appear", () => page.evaluate(() => document.querySelectorAll("[data-service-progress] li").length >= 3));
+    await page.locator("[data-service-ops]").screenshot({ path: path.join(artifactDir, "ops-running.png") });
+    await waitFor(page, "Safe Restart finished", () => page.evaluate(() => window.eval("serviceOps.running === false")), 45000);
+    await eventually("result states success with new PID and boot id", async () => {
+      const result = await text("[data-service-result]");
+      assert.match(result, /Safe Restart succeeded: MainPID 4242 -> \d+, boot boot-1 -> boot-2, AnxRP READY/);
+    }, 20000);
+    await eventually("panel shows the new boot id", async () => {
+      assert.strictEqual(await field("bootId"), "boot-2");
+      assert.strictEqual(await field("anxrpState"), "READY");
+    }, 20000);
+    await eventually("history records the success", async () => {
+      assert.match(await text("[data-service-history]"), /SAFE-RESTART - SUCCEEDED\./i);
+    }, 20000);
+    assert.strictEqual(agent.restartCalls().length, 1, "exactly one systemctl restart for the whole flow");
+    assert.deepStrictEqual(agent.spawnAttempts(), [], "the Agent launched no process");
+    await page.locator("[data-service-ops]").screenshot({ path: path.join(artifactDir, "ops-succeeded.png") });
+    await eventually("lifecycle buttons are released after the run", async () => {
+      const restart = await controls(page, '[data-instance-action="restart"]');
+      assert.ok(restart.length > 0 && restart.every((control) => !control.disabled), JSON.stringify(restart));
+    }, 20000);
+    assert.deepStrictEqual(ui.rendererErrors.filter((entry) => !/Unlock AnxOS|AGENT_UNAVAILABLE/i.test(entry)), [], "no renderer errors");
+    report.push("S4 operations: live evidence, unofficial-build + rollback visibility, per-control explanations, refusals with players/unverifiable players, one-click Safe Restart = exactly one restart with progress, result and history");
+  } finally {
+    await ui.close();
+    await agent.stop();
+  }
+}
+
 async function main() {
   const report = [];
   const only = process.argv[2];
-  const scenarios = { running: scenarioRunning, unknown: scenarioUnknown, failed: scenarioFailed };
+  const scenarios = { running: scenarioRunning, unknown: scenarioUnknown, failed: scenarioFailed, operations: scenarioOperations };
   for (const [name, run] of Object.entries(scenarios)) {
     if (only && only !== name) continue;
     await run(report);

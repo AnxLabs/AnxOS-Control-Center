@@ -57,9 +57,49 @@ for (const name of ["spawn", "spawnSync", "exec", "execSync", "execFile", "execF
   };
 }
 
+// ---- Safe Restart "world" (optional): present only when the driver sets state.world. ----
+// A restart drops the process, then brings back (after configurable delays) a new MainPID, the
+// listening ports and a READY status file with a NEW boot id. Failure modes are flags in state.world.
+function writeStatusFile(world, document) {
+  if (!world.statusFile) return;
+  fs.writeFileSync(world.statusFile, JSON.stringify(document));
+}
+
+function beginFakeRestart(state) {
+  const world = state.world;
+  const delays = { pid: 600, listeners: 1200, ready: 2200, ...(world.delays || {}) };
+  const bootNumber = (world.bootNumber || 1) + 1;
+  const newPid = (state.unit.mainPid || 4242) + 1000;
+  const startedAt = Date.now();
+  world.bootNumber = bootNumber;
+  world.restarts = (world.restarts || 0) + 1;
+  Object.assign(state.unit, { activeState: "activating", subState: "start", mainPid: null });
+  state.listeners = [];
+  writeStatusFile(world, { state: "STARTING", boot_id: `boot-${bootNumber}`, uptime_sec: 0 });
+  const patch = (fn) => { const next = read(); fn(next); write(next); };
+  if (!world.pidNeverChanges) {
+    setTimeout(() => patch((next) => Object.assign(next.unit, { activeState: "active", subState: "running", mainPid: newPid, activeEnterTimestampMs: Date.now() })), delays.pid);
+  }
+  setTimeout(() => patch((next) => { next.listeners = world.portsNeverReturn ? [] : (world.ports || [30120]).flatMap((port) => [{ port, protocol: "tcp" }, { port, protocol: "udp" }]); }), delays.listeners);
+  setTimeout(() => {
+    if (world.neverReady) return;
+    writeStatusFile(world, { state: "READY", boot_id: world.bootIdUnchanged ? `boot-${bootNumber - 1}` : `boot-${bootNumber}`, framework: { version: "0.5.0" }, uptime_sec: 1, sessions: { active: 0, total: 0, spawned: 0, with_character: 0 } });
+  }, delays.ready);
+  state.unit.activeEnterTimestampMs = startedAt;
+}
+
 const core = require(path.resolve(process.env.AGENT_REPO_ROOT || path.join(__dirname, "..", ".."), "src", "shared", "instances", "instanceServiceCore"));
 
 core.configureInstanceService({
+  serviceOperationsDeps: {
+    // The host's /proc tables do not exist on the dev box: the driver supplies the listening sockets.
+    listListeningSockets: async () => {
+      const state = read();
+      return Array.isArray(state.listeners) ? state.listeners : null;
+    },
+    agentBuild: () => read().agentBuild || { artifactVersion: "2.0-build206", releaseTag: null, builtAt: null },
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, Math.min(ms, 250))),
+  },
   systemdController: {
     async describe(unit) {
       const state = read();
@@ -76,7 +116,12 @@ core.configureInstanceService({
       state.callLog = [...(state.callLog || []), { verb, unit, at: Date.now() }];
       if (verb === "start") Object.assign(state.unit, { activeState: "active", subState: "running", mainPid: 5000, result: "success" });
       if (verb === "stop") Object.assign(state.unit, { activeState: "inactive", subState: "dead", mainPid: null });
-      if (verb === "restart") Object.assign(state.unit, { activeState: "active", subState: "running", mainPid: (state.unit.mainPid || 5000) + 1, restartCount: (state.unit.restartCount || 0) + 1 });
+      // A manual `systemctl restart` does not touch NRestarts (that counts automatic Restart= only).
+      if (verb === "restart" && state.world) {
+        beginFakeRestart(state);
+      } else if (verb === "restart") {
+        Object.assign(state.unit, { activeState: "active", subState: "running", mainPid: (state.unit.mainPid || 5000) + 1 });
+      }
       write(state);
       return { unit, verb };
     },

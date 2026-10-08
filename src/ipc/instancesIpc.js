@@ -20,6 +20,11 @@ const {
   listInstanceFiles,
   listInstances,
   listRestartSchedules,
+  getServiceOverview,
+  preflightSafeRestart,
+  startSafeRestart,
+  getServiceOperation,
+  listServiceHistory,
   openInstanceFolder,
   readInstanceFile,
   repairNeoForgeRuntime,
@@ -169,6 +174,28 @@ function registerInstancesIpc() {
     requirePermission("instance:lifecycle", payload.instanceId);
     audit({ action: "instance.restart", target: payload.instanceId });
     return restartInstance(payload.instanceId, payload);
+  }));
+  // Service-managed operations: evidence reads are instance:read; Safe Restart is lifecycle and audited.
+  registerInstanceHandler("instances:serviceOverview", async (_, payload = {}) => wrapExpectedAgentRead("instances:serviceOverview", () => {
+    requirePermission("instance:read", payload.instanceId);
+    return getServiceOverview(payload.instanceId, payload);
+  }));
+  registerInstanceHandler("instances:serviceHistory", async (_, payload = {}) => wrapExpectedAgentRead("instances:serviceHistory", () => {
+    requirePermission("instance:read", payload.instanceId);
+    return listServiceHistory(payload.instanceId, payload);
+  }));
+  registerInstanceHandler("instances:serviceOperation", async (_, payload = {}) => wrapExpectedAgentRead("instances:serviceOperation", () => {
+    requirePermission("instance:read", payload.instanceId);
+    return getServiceOperation(payload.instanceId, payload);
+  }));
+  registerInstanceHandler("instances:safeRestartPreflight", async (_, payload = {}) => wrapExpectedAgentRead("instances:safeRestartPreflight", () => {
+    requirePermission("instance:read", payload.instanceId);
+    return preflightSafeRestart(payload.instanceId, payload);
+  }));
+  registerInstanceHandler("instances:safeRestart", async (_, payload = {}) => invokeInstanceOperation(() => {
+    requirePermission("instance:lifecycle", payload.instanceId);
+    audit({ action: "instance.safeRestart", target: payload.instanceId });
+    return startSafeRestart(payload.instanceId, payload);
   }));
   registerInstanceHandler("instances:repairNeoForgeRuntime", async (_, payload = {}) => invokeInstanceOperation(() => {
     requirePermission("instance:lifecycle", payload.instanceId);
