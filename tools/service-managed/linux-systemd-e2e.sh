@@ -362,6 +362,7 @@ touch /opt/anxtest/never-ready
 MAINT="$(mainpid)"; STARTS1="$(journal_starts)"
 R="$(api POST "$OPS/safe-restart" '{"confirm":true}')"
 expect "accepted (202) while the service is still healthy" 202 "$(echo "$R" | code)"
+[ "$(echo "$R" | code)" = 202 ] || echo "      refusal: $(echo "$R" | body | "$NODE" -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{try{console.log(JSON.stringify((JSON.parse(d).error.details.checks||[]).filter(x=>x.status!=="pass")))}catch(e){console.log(d)}})')"
 OPID2="$(echo "$R" | body | jget operation.id)"
 OUTCOME2=""
 for _ in $(seq 1 160); do
