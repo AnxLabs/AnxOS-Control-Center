@@ -226,7 +226,36 @@ function assertCliAndTuiStaged(stageDir, runtimeRoot) {
   }
 }
 
+// Compiler intermediates, host-specific native binaries and build-machine paths must never ship. The
+// bundled Node runtime is excluded: it is an upstream binary distribution with its own contents.
+const BUILD_DEBRIS_FILE = /(?:^|\/)(?:Makefile|binding\.Makefile|config\.gypi)$|\.(?:o|d|mk|obj|a|pdb|node)$/;
+const BUILD_MACHINE_PATH = /\/home\/runner\b|\/runner\/work\b|\/opt\/hostedtoolcache|[A-Za-z]:\\a\\[^\\]+\\/;
+function findBuildDebris(rootDir, runtimeNodeRelative = "usr/lib/anxos-agent/node") {
+  const found = [];
+  for (const entryPath of walk(rootDir)) {
+    const relative = path.relative(rootDir, entryPath).split(path.sep).join("/");
+    if (relative === runtimeNodeRelative || relative.startsWith(`${runtimeNodeRelative}/`)) continue;
+    const stat = fs.statSync(entryPath);
+    if (stat.isDirectory()) {
+      if (path.basename(entryPath) === "build" && fs.existsSync(path.join(path.dirname(entryPath), "binding.gyp"))) found.push(`${relative}/ (node-gyp output)`);
+      continue;
+    }
+    if (BUILD_DEBRIS_FILE.test(relative)) {
+      found.push(relative);
+      continue;
+    }
+    if (stat.size <= 2 * 1024 * 1024 && !/\.(?:md|markdown|txt)$/i.test(relative)) {
+      const text = fs.readFileSync(entryPath, "latin1");
+      const hit = text.match(BUILD_MACHINE_PATH);
+      if (hit) found.push(`${relative} (build-machine path: ${hit[0]})`);
+    }
+  }
+  return found;
+}
+
 function assertForbiddenAbsent(stageDir) {
+  const debris = findBuildDebris(stageDir);
+  assert.deepStrictEqual(debris, [], `staged package contains build debris or build-machine paths:\n${debris.join("\n")}`);
   const violations = [];
   for (const entryPath of walk(stageDir)) {
     const name = path.basename(entryPath);
@@ -391,6 +420,9 @@ function assertDpkgDebBuild(stageDir, outputDir, tempRoot, wrapperPath) {
   for (const relative of ["usr/lib/anxos-agent/node/bin/node", "usr/lib/anxos-agent/agent/src/server.js"]) {
     assert(fs.existsSync(path.join(extractDir, ...relative.split("/"))), `extracted deb must contain ${relative}.`);
   }
+
+  const extractedDebris = findBuildDebris(extractDir);
+  assert.deepStrictEqual(extractedDebris, [], `the built .deb contains build debris or build-machine paths:\n${extractedDebris.join("\n")}`);
 
   const controlDir = path.join(tempRoot, "control");
   const extractControl = spawnSync("dpkg-deb", ["-e", debPath, controlDir], { encoding: "utf8", shell: false });

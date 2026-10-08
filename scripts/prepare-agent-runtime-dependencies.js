@@ -66,7 +66,12 @@ function copyPackageTree(sourceDir, targetDir, skipped) {
       continue;
     }
     if (entry.isDirectory()) {
-      if (EXCLUDED_DIRECTORIES.has(entry.name)) {
+      // node-gyp output (a `build` directory beside a binding.gyp) is never staged. It is compiler
+      // intermediates plus a host-specific native addon, so a CI runner and a developer machine would
+      // otherwise ship different bytes. Packages with an optional addon (ssh2's sshcrypto) fall back to
+      // their pure-JS path, which is the same on every build host.
+      const isNativeBuildOutput = entry.name === "build" && fs.existsSync(path.join(sourceDir, "binding.gyp"));
+      if (EXCLUDED_DIRECTORIES.has(entry.name) || isNativeBuildOutput) {
         skipped.push(sourcePath);
         continue;
       }
