@@ -12205,6 +12205,7 @@ function getInstanceServiceUrl(instance = null) {
 // Shared with the dashboard app cards so the ownership wording can never drift
 // between the instances page and the dashboard (V2-B app slice).
 function getInstanceOwnershipLabel(instance = null) {
+  if (isServiceManagedInstance(instance)) return "Managed by systemd";
   const ownershipLabels = { "anxos-managed": "AnxOS-managed", "imported": "Imported", "external": "External" };
   return ownershipLabels[instance?.ownership] || (instance?.ownership ? String(instance.ownership) : "AnxOS-managed");
 }
@@ -12385,6 +12386,126 @@ function isFiveMSetupRequired(instance = null) {
     instance?.setupRequired ||
     instance?.setupReadiness?.setupRequired
   ));
+}
+
+// Service-managed instances (type "systemd-service", ADR 0031 addendum): an OS
+// service the Agent controls but does not own. AnxOS can start, stop and restart
+// it and read its status and journal. Console commands, force-kill, editing,
+// duplicating, deleting, backups and scheduled restarts are not available (the
+// Agent refuses them too). Everything below is presentation only: renderer
+// hiding is never the security boundary.
+const SERVICE_MANAGED_INSTANCE_TYPE = "systemd-service";
+const SERVICE_MANAGED_LOCK_REASON = "Not available for a service-managed instance. The service manager owns this server.";
+const SERVICE_MANAGED_FAILURE_LABELS = Object.freeze({
+  SERVICE_UNIT_NOT_ALLOWED: "This service is not on the Agent's allowlist, so its state cannot be read.",
+  SERVICE_QUERY_FAILED: "The Agent could not query the service manager.",
+  SERVICE_UNIT_NOT_LOADED: "The service manager has no such unit.",
+  SERVICE_STATE_UNRECOGNIZED: "The service reported a state the Agent does not recognise.",
+  SERVICE_MANAGER_UNSUPPORTED: "Service-managed instances need a Linux host with systemd.",
+  SERVICE_MANAGER_INVALID: "This instance record has no valid service definition.",
+  SERVICE_UNIT_INVALID: "The service unit name in this instance record is invalid.",
+});
+const SERVICE_MANAGED_LOCKED_SELECTORS = Object.freeze([
+  '[data-instance-action="rename"]',
+  '[data-instance-action="duplicate"]',
+  '[data-instance-action="transfer-workload"]',
+  '[data-instance-action="open-folder"]',
+  '[data-instance-action="delete"]',
+  '[data-instance-action="force-kill"]',
+  '[data-instance-action="update-steam"]',
+  '[data-instance-action="repair-neoforge-runtime"]',
+  '[data-instance-action="reset-runtime"]',
+  '[data-instance-file-action="new-folder"]',
+  '[data-instance-file-action="rename"]',
+  '[data-instance-file-action="delete"]',
+  '[data-instance-file-action="save"]',
+  '[data-instance-backup-action="backup-now"]',
+  '[data-instance-backup-action="restore"]',
+  '[data-instance-backup-action="schedule"]',
+  '[data-restart-schedule-action="create"]',
+  "[data-instance-console-command]",
+  "[data-instance-console-form] button",
+]);
+const serviceManagedLockedControls = new Set();
+
+function isServiceManagedInstance(instance = null) {
+  return instance?.type === SERVICE_MANAGED_INSTANCE_TYPE;
+}
+
+function getServiceManagedUnit(instance = null) {
+  return String(instance?.serviceStatus?.unit || instance?.serviceManager?.unit || "").trim();
+}
+
+function describeServiceManagedFailure(code) {
+  return SERVICE_MANAGED_FAILURE_LABELS[code] || "";
+}
+
+function buildServiceManagedMessage(instance) {
+  const unit = getServiceManagedUnit(instance);
+  const subject = unit ? `${unit} is run by systemd` : "This server runs as a system service";
+  const reason = instance?.state === "Unknown" ? describeServiceManagedFailure(instance.failureReason) : "";
+  return `${subject}. AnxOS can start, stop and restart it and show its status and logs; console commands, force-kill, editing, backups and scheduled restarts are not available.${reason ? ` ${reason}` : ""}`;
+}
+
+// Undo only what applyServiceManagedRestrictions did, so the panel updaters that
+// run next recompute each control's own enabled state from scratch.
+function releaseServiceManagedLocks() {
+  serviceManagedLockedControls.forEach((element) => {
+    element.disabled = false;
+    if (element.title === SERVICE_MANAGED_LOCK_REASON) element.removeAttribute("title");
+    if (element.dataset.serviceManagedPlaceholder !== undefined) {
+      element.placeholder = element.dataset.serviceManagedPlaceholder;
+      delete element.dataset.serviceManagedPlaceholder;
+    }
+    if (element instanceof HTMLTextAreaElement && element.dataset.serviceManagedReadonly === "true") {
+      element.readOnly = false;
+      delete element.dataset.serviceManagedReadonly;
+    }
+  });
+  serviceManagedLockedControls.clear();
+}
+
+function applyServiceManagedRestrictions(instance = findInstance()) {
+  const managed = isServiceManagedInstance(instance);
+  const card = document.querySelector("[data-service-managed-card]");
+  if (card) {
+    card.hidden = !managed;
+    const message = card.querySelector("[data-service-managed-message]");
+    if (managed && message) message.textContent = buildServiceManagedMessage(instance);
+  }
+  if (!managed) {
+    releaseServiceManagedLocks();
+    return;
+  }
+  const lock = (element) => {
+    element.disabled = true;
+    element.title = SERVICE_MANAGED_LOCK_REASON;
+    if (element instanceof HTMLInputElement && element.matches("[data-instance-console-command]") && element.dataset.serviceManagedPlaceholder === undefined) {
+      element.dataset.serviceManagedPlaceholder = element.placeholder;
+      element.placeholder = "Console commands are not available for this service yet";
+    }
+    if (element instanceof HTMLTextAreaElement && !element.readOnly) {
+      element.readOnly = true;
+      element.dataset.serviceManagedReadonly = "true";
+    }
+    serviceManagedLockedControls.add(element);
+  };
+  SERVICE_MANAGED_LOCKED_SELECTORS.forEach((selector) => document.querySelectorAll(selector).forEach(lock));
+  // The settings tab edits an Agent-owned instance record and game config files;
+  // neither exists for a service-managed instance. Forget (removes only the
+  // Agent's record) stays available.
+  document.querySelectorAll('[data-instance-panel="settings"] input, [data-instance-panel="settings"] select, [data-instance-panel="settings"] textarea, [data-instance-panel="settings"] button').forEach((element) => {
+    if (element.matches('[data-instance-action="forget"]')) return;
+    lock(element);
+  });
+}
+
+// Defense in depth for the handlers: the controls are disabled, but keyboard
+// shortcuts, drag-and-drop and stale state must not reach the Agent either.
+function refuseServiceManagedAction(instance, actionLabel) {
+  if (!isServiceManagedInstance(instance)) return false;
+  showToast(`${actionLabel} is not available for a service-managed instance.`, "warning");
+  return true;
 }
 
 function canStartInstance(instance) {
@@ -12824,6 +12945,7 @@ function readStoredInstanceTab() {
 
 function setActiveInstanceTab(tabName) {
   activeInstanceTab = tabName === "configuration" ? "settings" : tabName || "overview";
+  window.queueMicrotask(() => applyServiceManagedRestrictions());
   instanceTabs.forEach((button) => {
     const active = button.dataset.instanceTab === activeInstanceTab;
     button.classList.toggle("is-active", active);
@@ -12870,6 +12992,10 @@ function quoteCommandPartForDisplay(value) {
 }
 
 function formatInstanceCommandForDisplay(instance) {
+  if (isServiceManagedInstance(instance)) {
+    const unit = getServiceManagedUnit(instance);
+    return unit ? `systemd \u00b7 ${unit}` : "systemd service";
+  }
   const parts = [
     instance?.executable,
     ...(Array.isArray(instance?.args) ? instance.args : []),
@@ -12878,7 +13004,9 @@ function formatInstanceCommandForDisplay(instance) {
 }
 
 function getInstanceFailureReason(instance) {
+  const serviceManagedReason = isServiceManagedInstance(instance) ? describeServiceManagedFailure(instance?.failureReason) : "";
   return formatInstanceValue(
+    serviceManagedReason ||
     instance?.failureReason ||
     // Marketplace installer failures retain the instance and record the error
     // here instead of deleting it; surface it so the failure is visible.
@@ -13516,6 +13644,7 @@ async function saveInstanceConfiguration(event) {
   if (!selectedInstance || !desktopApiState.hasInstances) {
     return;
   }
+  if (refuseServiceManagedAction(selectedInstance, "Editing settings")) return;
 
   instanceActionRequestInFlight = true;
   syncInstanceConfigDirtyState();
@@ -13561,7 +13690,7 @@ async function loadGameServerConfig() {
   const selectedInstance = findInstance();
   const desktopApiState = getDesktopApiState();
 
-  if (!selectedInstance || !desktopApiState.hasInstances) {
+  if (!selectedInstance || !desktopApiState.hasInstances || isServiceManagedInstance(selectedInstance)) {
     gameConfigState = {
       ...gameConfigState,
       loading: false,
@@ -13670,6 +13799,7 @@ async function saveGameConfigAndRestart() {
   if (!selectedInstance || !desktopApiState.hasInstances || !gameConfigState.model?.supported || !isGameConfigDirty()) {
     return;
   }
+  if (refuseServiceManagedAction(selectedInstance, "Saving server configuration")) return;
 
   instanceActionRequestInFlight = true;
   syncInstanceConfigDirtyState();
@@ -13822,6 +13952,7 @@ async function sendInstanceConsoleCommand(event) {
   if (!command || !selectedInstance) {
     return;
   }
+  if (refuseServiceManagedAction(selectedInstance, "Console commands")) return;
 
   try {
     if (!isNodeActionStillCurrent(requestContext)) return;
@@ -14668,6 +14799,8 @@ function updateInstanceActionButtons() {
   });
 
   syncInstanceConsoleActionButtons();
+  // Last, so it wins over the enable logic above on every refresh of the buttons.
+  applyServiceManagedRestrictions(selectedInstance);
 }
 
 function setInstancesLoading(isLoading) {
@@ -15142,6 +15275,7 @@ if (instanceAdoptButton) {
 }
 
 function setInstanceDetails(instance = null) {
+  releaseServiceManagedLocks();
   const metrics = instance ? getInstanceMetrics(instance.id) : null;
   const metricsPlaceholder = instance && !metrics ? getInstanceMetricsPlaceholder(instance) : null;
   if (instancesDetailsPanel) {
@@ -15193,6 +15327,7 @@ function setInstanceDetails(instance = null) {
     populateInstanceConfigForm(null);
     renderInstanceNetwork(null);
     renderInstanceRestartSchedules(null);
+    applyServiceManagedRestrictions(null);
     if (instanceAddressCopyButton) {
       instanceAddressCopyButton.disabled = true;
     }
@@ -15253,7 +15388,9 @@ function setInstanceDetails(instance = null) {
   }
   setInstanceDetail("command", command || "Unavailable");
   setInstanceDetail("failureReason", getInstanceOperationFailureText(activeOperation) || getInstanceFailureReason(instance));
-  setInstanceDetail("pid", formatInstanceValue(instance.pid));
+  setInstanceDetail("pid", isServiceManagedInstance(instance)
+    ? (instance.serviceStatus?.externalMainPid ? `${instance.serviceStatus.externalMainPid} (owned by systemd)` : "Not owned by the Agent")
+    : formatInstanceValue(instance.pid));
   setInstanceDetail("uptime", metricsPlaceholder || formatDuration(metrics?.uptimeSeconds));
   setInstanceDetail("cpu", metricsPlaceholder || formatInstanceCpu(metrics));
   setInstanceDetail("memory", metricsPlaceholder || formatInstanceMemory(metrics));
@@ -15271,6 +15408,7 @@ function setInstanceDetails(instance = null) {
   if (instanceAddressCopyButton) {
     instanceAddressCopyButton.disabled = !getInstancePrimaryPort(instance);
   }
+  applyServiceManagedRestrictions(instance);
 }
 
 function selectInstance(instanceId, options = {}) {
@@ -19554,6 +19692,9 @@ function handleInstanceBackupAction(action) {
     showToast("Select an instance first.");
     return;
   }
+  if (["backup-now", "restore", "schedule"].includes(action) && refuseServiceManagedAction(selectedInstance, "Backups")) {
+    return;
+  }
 
   if (action === "backup-now") {
     createBackupForInstance(selectedInstance.id);
@@ -20397,6 +20538,7 @@ function handleRestartScheduleAction(action) {
     return;
   }
   if (action === "create") {
+    if (refuseServiceManagedAction(selectedInstance, "Scheduled restarts")) return;
     configureRestartSchedule();
     return;
   }
@@ -21826,6 +21968,12 @@ async function runInstanceAction(actionName) {
 
   const label = selectedInstance.displayName || selectedInstance.id;
   const targetInstanceId = selectedInstance.id;
+
+  if (["rename", "duplicate", "delete", "forceKill", "update-steam", "repair-neoforge-runtime", "transfer-workload"].includes(actionName)
+    && refuseServiceManagedAction(selectedInstance, "This action")) {
+    updateInstanceActionButtons();
+    return;
+  }
 
   if ((actionName === "start" || actionName === "restart") && isFiveMSetupRequired(selectedInstance)) {
     await openFiveMSetup(selectedInstance, {

@@ -335,6 +335,14 @@ async function listRestartSchedules(instanceId = null) {
 
 async function createRestartSchedule(payload = {}) {
   const instanceId = validateInstanceId(payload.instanceId);
+  // A scheduled restart warns players through the instance console first. A
+  // service-managed instance has no console channel yet (phase 2), so a schedule
+  // would restart a live game server with no warning. Refuse it rather than
+  // surprise players; an unreadable instance is left to the normal flow.
+  const target = await getInstanceService().getStatus(instanceId).catch(() => null);
+  if (target?.type === "systemd-service") {
+    throw createRestartScheduleError("RESTART_SCHEDULE_SERVICE_MANAGED_UNSUPPORTED", 409);
+  }
   const schedules = await readSchedules();
   const atMs = now();
   const schedule = buildSchedulePayload({ ...payload, instanceId });

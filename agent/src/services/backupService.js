@@ -854,8 +854,19 @@ async function pruneRetention(instanceId, options = {}) {
   return { pruned, skipped };
 }
 
+// Backups of a service-managed instance would archive an Agent-side stub tree
+// and, for stopped-consistency, stop the production service to do it. Neither
+// is wanted (ADR 0031 addendum, phase 1), so both create and restore refuse.
+async function assertBackupAllowedForInstance(instanceId) {
+  const status = await instanceService.getStatus(instanceId).catch(() => null);
+  if (status?.type === "systemd-service") {
+    throw createBackupError("BACKUP_SERVICE_MANAGED_UNSUPPORTED", 409, { instanceId });
+  }
+}
+
 async function performCreateBackup(payload = {}) {
   const instanceId = validateInstanceId(payload.instanceId);
+  await assertBackupAllowedForInstance(instanceId);
   const type = String(payload.type || "full") === "world" ? "world" : "full";
   const consistency = normalizeBackupConsistency(payload.consistency);
   const instancePath = await getInstancePath(instanceId);
@@ -1291,6 +1302,7 @@ async function restoreBackup(payload = {}) {
   }
   const targetInstanceId = validateInstanceId(payload.targetInstanceId || requestedInstanceId);
   const sameTarget = targetInstanceId === sourceInstanceId;
+  await assertBackupAllowedForInstance(targetInstanceId);
 
   // Preview is a genuinely read-only dry run: it never requires the overwrite
   // confirmation because it never overwrites anything.

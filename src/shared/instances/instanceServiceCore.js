@@ -23,12 +23,20 @@ const {
   verifyRecoveryPoint,
 } = require("../migrationRecoveryPolicy");
 
+const serviceManagedRuntime = require("./serviceManagedRuntime");
+
 let runtimeConfigProvider = () => ({
   instanceRoot: process.env.AGENT_INSTANCE_ROOT || path.join(process.cwd(), "instances"),
 });
 let resolveJavaRuntimeProvider = javaRuntimeResolver.resolveJavaRuntime;
+// Control plane for service-managed instances (ADR 0031 addendum). Replaceable
+// so tests can prove behavior without a real service manager.
+let systemdController = serviceManagedRuntime.createSystemdController();
 
 function configureInstanceService(options = {}) {
+  if (options.systemdController && typeof options.systemdController.describe === "function") {
+    systemdController = options.systemdController;
+  }
   if (typeof options.getConfig === "function") {
     runtimeConfigProvider = options.getConfig;
   }
@@ -161,6 +169,118 @@ function createInstanceError(code, statusCode = 400, details = {}) {
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+// ---------------------------------------------------------------------------
+// Service-managed instances (type "systemd-service"). The OS service manager is
+// the single owner of the process: the Agent observes it and asks systemd to
+// start/stop/restart the unit, and NEVER spawns, signals or adopts the process.
+// Every code path that could launch or kill a process calls
+// assertNotServiceManaged() first so the invariant holds even if a later change
+// routes a service-managed record into an owned-process code path by mistake.
+// ---------------------------------------------------------------------------
+
+const isServiceManaged = serviceManagedRuntime.isServiceManaged;
+
+function assertNotServiceManaged(config, action) {
+  if (isServiceManaged(config)) {
+    throw createInstanceError("SERVICE_MANAGED_SPAWN_FORBIDDEN", 409, {
+      instanceId: config.id || null,
+      action: action || null,
+    });
+  }
+}
+
+function serviceManagedUnsupported(config, operation) {
+  return createInstanceError("SERVICE_MANAGED_OPERATION_UNSUPPORTED", 409, {
+    instanceId: config?.id || null,
+    operation,
+  });
+}
+
+// Derived fresh from the service manager on every call and never persisted:
+// the record on disk stays operator-authored and the Agent holds no PID that it
+// could later mistake for an owned process.
+async function observeServiceManaged(config) {
+  const base = { ...config, pid: null, runtimeProcess: null };
+  let description;
+  try {
+    description = await systemdController.describe(serviceManagedRuntime.getServiceUnit(config));
+  } catch (error) {
+    return {
+      ...base,
+      state: INSTANCE_STATES.UNKNOWN,
+      readinessState: "unknown",
+      failureReason: error?.code || "SERVICE_QUERY_FAILED",
+      serviceStatus: { unit: config.serviceManager?.unit || null, observed: false, error: error?.code || "SERVICE_QUERY_FAILED" },
+    };
+  }
+  const { stateKey, failureReason } = serviceManagedRuntime.mapSystemdState(description);
+  const state = INSTANCE_STATES[stateKey];
+  return {
+    ...base,
+    state,
+    // "ready" here means the unit is active; workload-level readiness (for
+    // example the AnxRP status file) is intentionally not inferred.
+    readinessState: state === INSTANCE_STATES.RUNNING ? "ready" : state === INSTANCE_STATES.STARTING ? "starting" : state === INSTANCE_STATES.STOPPING ? "stopping" : state === INSTANCE_STATES.FAILED ? "failed" : state === INSTANCE_STATES.UNKNOWN ? "unknown" : "stopped",
+    failureReason,
+    exitCode: description.execMainStatus,
+    serviceStatus: {
+      observed: true,
+      manager: serviceManagedRuntime.SERVICE_MANAGER_KIND,
+      unit: description.unit,
+      activeState: description.activeState,
+      subState: description.subState,
+      result: description.result,
+      // Informational only; this PID belongs to the service manager.
+      externalMainPid: description.mainPid,
+      activeEnterTimestamp: description.activeEnterTimestamp,
+      restartCount: description.restartCount,
+      unitFileState: description.unitFileState,
+    },
+  };
+}
+
+async function startServiceManaged(config) {
+  const observed = await observeServiceManaged(config);
+  if (observed.state === INSTANCE_STATES.UNKNOWN) {
+    // Unreadable service state is not "stopped": refuse to act blind.
+    throw createInstanceError("SERVICE_STATE_UNVERIFIED", 409, { instanceId: config.id, reason: observed.failureReason });
+  }
+  if ([INSTANCE_STATES.RUNNING, INSTANCE_STATES.STARTING, INSTANCE_STATES.RESTARTING].includes(observed.state)) {
+    const error = createInstanceError("INSTANCE_ALREADY_RUNNING", 409, {
+      state: "INSTANCE_ALREADY_RUNNING",
+      pid: null,
+    });
+    error.message = "The instance is already running.";
+    throw error;
+  }
+  await systemdController.control("start", serviceManagedRuntime.getServiceUnit(config));
+  await appendLog(config.id, "stdout", `Requested service start: ${config.serviceManager.unit}`).catch(() => {});
+  return publicConfig(await observeServiceManaged(config));
+}
+
+async function stopServiceManaged(config) {
+  const observed = await observeServiceManaged(config);
+  if (observed.state === INSTANCE_STATES.UNKNOWN) {
+    throw createInstanceError("SERVICE_STATE_UNVERIFIED", 409, { instanceId: config.id, reason: observed.failureReason });
+  }
+  if (observed.state === INSTANCE_STATES.STOPPED) {
+    return publicConfig(observed);
+  }
+  await systemdController.control("stop", serviceManagedRuntime.getServiceUnit(config));
+  await appendLog(config.id, "stdout", `Requested service stop: ${config.serviceManager.unit}`).catch(() => {});
+  return publicConfig(await observeServiceManaged(config));
+}
+
+async function restartServiceManaged(config) {
+  const observed = await observeServiceManaged(config);
+  if (observed.state === INSTANCE_STATES.UNKNOWN) {
+    throw createInstanceError("SERVICE_STATE_UNVERIFIED", 409, { instanceId: config.id, reason: observed.failureReason });
+  }
+  await systemdController.control("restart", serviceManagedRuntime.getServiceUnit(config));
+  await appendLog(config.id, "stdout", `Requested service restart: ${config.serviceManager.unit}`).catch(() => {});
+  return publicConfig(await observeServiceManaged(config));
 }
 
 function normalizeRuntimeJarName(value) {
@@ -327,6 +447,7 @@ async function executeInstallationPhase(instanceId, request = {}) {
   let timedOut = false;
   let cancelled = false;
 
+  assertNotServiceManaged(config, "installer-spawn");
   const result = await new Promise((resolve, reject) => {
     let child;
     try {
@@ -578,6 +699,7 @@ async function executeSteamCmdUpdate(instanceId, request = {}) {
   const buildIdBefore = await readBuildId();
   const timeoutMs = Math.min(INSTALLER_TIMEOUT_MAX_MS, Math.max(INSTALLER_TIMEOUT_MIN_MS, Number(request.timeoutMs) || 10 * 60 * 1000));
   const startedAt = Date.now(); let stdout = ""; let stderr = ""; let timedOut = false; let cancelled = false;
+  assertNotServiceManaged(config, "steamcmd-spawn");
   const result = await new Promise((resolve, reject) => {
     let child;
     const steamCmdExecutable = resolveSteamCmdExecutable();
@@ -3074,6 +3196,7 @@ async function runBoundedRepairCommand(config, command, timeoutMs) {
   let stdout = "";
   let stderr = "";
   let timedOut = false;
+  assertNotServiceManaged(config, "repair-spawn");
   const result = await new Promise((resolve, reject) => {
     let child;
     try {
@@ -3776,18 +3899,24 @@ async function inspectSystemProcesses() {
     return {
       processes: Array.isArray(snapshot?.processes) ? snapshot.processes : [],
       ports: Array.isArray(snapshot?.ports) ? snapshot.ports : [],
+      // Listening sockets whose owning process could not be resolved.
+      unownedPorts: Array.isArray(snapshot?.unownedPorts) ? snapshot.unownedPorts : [],
+      complete: snapshot?.complete !== false,
+      unsupported: Boolean(snapshot?.unsupported),
     };
   }
 
   if (process.platform !== "linux") {
-    return { processes: [], ports: [] };
+    // No socket/owner table to read here: the legacy behavior is preserved and
+    // flagged so callers can tell "nothing found" from "cannot look".
+    return { processes: [], ports: [], unownedPorts: [], complete: false, unsupported: true };
   }
 
   let procEntries = [];
   try {
     procEntries = fsSync.readdirSync("/proc", { withFileTypes: true });
   } catch {
-    return { processes: [], ports: [] };
+    return { processes: [], ports: [], unownedPorts: [], complete: false, unsupported: false };
   }
 
   const processes = [];
@@ -3813,6 +3942,10 @@ async function inspectSystemProcesses() {
     });
   }
 
+  // A table that cannot be read is "cannot look", never "no sockets". tcp and
+  // udp (IPv4) always exist on Linux; the IPv6 tables are absent when IPv6 is
+  // disabled, which is a legitimate empty result.
+  const socketTablesReadable = readProcText("/proc/net/tcp") !== null && readProcText("/proc/net/udp") !== null;
   const socketRows = [
     ...parseSocketTable("/proc/net/tcp", "tcp"),
     ...parseSocketTable("/proc/net/tcp6", "tcp6"),
@@ -3829,13 +3962,21 @@ async function inspectSystemProcesses() {
     }
   }
   const ports = [];
+  // Sockets owned by another user have unreadable /proc/<pid>/fd, so they never
+  // resolve to a process. Reporting them here (instead of silently dropping them)
+  // is what lets the conflict check fail closed on an owner it cannot see.
+  const unownedPorts = [];
   for (const row of socketRows) {
-    for (const pid of processesByInode.get(row.inode) || []) {
+    const owners = processesByInode.get(row.inode) || [];
+    if (owners.length === 0) {
+      unownedPorts.push({ port: row.port, protocol: row.protocol, pid: null, inode: row.inode });
+    }
+    for (const pid of owners) {
       ports.push({ port: row.port, protocol: row.protocol, pid, inode: row.inode });
     }
   }
 
-  return { processes, ports };
+  return { processes, ports, unownedPorts, complete: socketTablesReadable, unsupported: false };
 }
 
 function isPalworldRuntimeCandidate(config = {}) {
@@ -4077,18 +4218,60 @@ async function discoverDescendantPortRuntime(config = {}, ancestorPid = null) {
   return null;
 }
 
+// Conservative liveness for conflict decisions. kill(pid, 0) fails with EPERM
+// for a process owned by another user: that process exists, so it must count as
+// present. Only ESRCH proves it is gone.
+function isPidPossiblyAlive(pid) {
+  if (!pid) {
+    return false;
+  }
+  if (typeof processAliveProvider === "function") {
+    return Boolean(processAliveProvider(pid));
+  }
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === "EPERM";
+  }
+}
+
+// Fails CLOSED. A listening socket on a configured port whose owner cannot be
+// determined is reported as a conflict, and a snapshot that cannot be taken at
+// all throws, so "I could not tell" is never read as "no conflict".
 async function findUnrelatedPortConflicts(config = {}) {
   const ports = configuredRuntimePorts(config);
   if (ports.length === 0) {
     return [];
   }
   const spec = await buildDetachedRuntimeSpec(config);
-  const snapshot = await inspectSystemProcesses();
+  let snapshot;
+  try {
+    snapshot = await inspectSystemProcesses();
+  } catch (error) {
+    throw createInstanceError("PORT_OWNERSHIP_UNVERIFIABLE", 409, { reason: "inspection-failed", causeCode: error?.code || null });
+  }
+  if (snapshot.complete === false && !snapshot.unsupported) {
+    throw createInstanceError("PORT_OWNERSHIP_UNVERIFIABLE", 409, { reason: "socket-table-unreadable" });
+  }
   const conflicts = [];
+  for (const row of snapshot.unownedPorts || []) {
+    const port = Number(row.port);
+    if (ports.includes(port)) {
+      conflicts.push({ port, protocol: row.protocol || null, pid: null, processName: null, ownerUnknown: true });
+    }
+  }
   for (const row of snapshot.ports) {
     const port = Number(row.port);
     const pid = normalizePid(row.pid);
-    if (!ports.includes(port) || !pid || !isProcessAlive(pid)) {
+    if (!ports.includes(port)) {
+      continue;
+    }
+    if (!pid) {
+      conflicts.push({ port, protocol: row.protocol || null, pid: null, processName: null, ownerUnknown: true });
+      continue;
+    }
+    if (!isPidPossiblyAlive(pid)) {
       continue;
     }
     const proc = snapshot.processes.find((entry) => normalizePid(entry.pid) === pid) || { pid };
@@ -4217,6 +4400,12 @@ function isCurrentRunningProcess(instanceId, child) {
 }
 
 async function reconcileConfigState(config) {
+  // Service-managed: state comes from the service manager only. This must stay
+  // ahead of detached-runtime discovery so the Agent can never "adopt" the
+  // process the service manager owns.
+  if (isServiceManaged(config)) {
+    return observeServiceManaged(config);
+  }
   const detachedRuntime = await discoverDetachedRuntime(config).catch(() => null);
   if (detachedRuntime) {
     return adoptDiscoveredRuntime(config, detachedRuntime, { reason: "reconcile" });
@@ -4411,6 +4600,10 @@ async function listInstances() {
   for (const id of ids) {
     try {
       let config = await reconcileConfigState(await loadInstanceConfig(id));
+      if (isServiceManaged(config)) {
+        instances.push(await publicConfigDetailed(config));
+        continue;
+      }
       config = await syncNeoForgeScriptRuntimeConfig(config);
       if (config.installationState === "installing") {
         continue;
@@ -4453,6 +4646,10 @@ async function createInstance(payload) {
 
 async function updateInstance(instanceId, payload = {}) {
   const current = await loadInstanceConfig(instanceId);
+  if (isServiceManaged(current)) {
+    // Operator-authored on disk; not editable through the Agent API.
+    throw serviceManagedUnsupported(current, "update");
+  }
 
   if (payload.javaRuntime !== undefined || payload.javaRuntimeOverride !== undefined || payload.requiredJavaMajor !== undefined) {
     throw createInstanceError("JAVA_RUNTIME_SELECTION_AGENT_OWNED", 403);
@@ -4596,7 +4793,11 @@ async function renameInstance(instanceId, displayName) {
 }
 
 async function duplicateInstance(instanceId, payload = {}) {
-  const source = await reconcileConfigState(await loadInstanceConfig(instanceId));
+  const storedSource = await loadInstanceConfig(instanceId);
+  if (isServiceManaged(storedSource)) {
+    throw serviceManagedUnsupported(storedSource, "duplicate");
+  }
+  const source = await reconcileConfigState(storedSource);
   const activePid = source.pid && isProcessAlive(source.pid) ? source.pid : null;
   if (activePid || getActiveRunningProcess(source.id)) {
     throw createInstanceError("INSTANCE_RUNNING", 409);
@@ -4699,6 +4900,13 @@ async function deleteInstance(instanceId) {
     }
 
     throw error;
+  }
+
+  if (isServiceManaged(config)) {
+    // A recursive delete of the instance tree is meaningless for a service the
+    // Agent does not own, and the service must never be touched by it. The
+    // supported way to drop the record is forget (config.json only).
+    throw serviceManagedUnsupported(config, "delete");
   }
 
   if (config.pid && isProcessAlive(config.pid)) {
@@ -5014,7 +5222,11 @@ async function startInstanceImpl(instanceId, options = {}) {
     resetRestartBackoff(instanceId);
   }
 
-  let config = await syncNeoForgeScriptRuntimeConfig(await reconcileConfigState(await loadInstanceConfig(instanceId)));
+  const storedConfig = await loadInstanceConfig(instanceId);
+  if (isServiceManaged(storedConfig)) {
+    return startServiceManaged(storedConfig);
+  }
+  let config = await syncNeoForgeScriptRuntimeConfig(await reconcileConfigState(storedConfig));
   config = await backfillInstanceVersion(config, { force: true });
   if (config.installationState !== "active") {
     const failedInstallation = config.installationState === "failed";
@@ -5063,7 +5275,8 @@ async function startInstanceImpl(instanceId, options = {}) {
     throw error;
   }
 
-  const portConflicts = await findUnrelatedPortConflicts(config).catch(() => []);
+  // No catch: a conflict check that errors must block the start (fail closed).
+  const portConflicts = await findUnrelatedPortConflicts(config);
   if (portConflicts.length > 0) {
     const error = createInstanceError("PORT_IN_USE", 409, {
       field: "ports",
@@ -5147,6 +5360,10 @@ async function startInstanceImpl(instanceId, options = {}) {
   // is also passed explicitly at the two appendLog sites below, so the
   // attribution does not depend on async-context internals.
   const runCorrelationId = createCorrelationId("instance");
+
+  // Last line of defense: no record of a service-managed type may reach the
+  // owned-process spawn below, whatever path got it here.
+  assertNotServiceManaged(config, "start-spawn");
 
   try {
     child = runWithCorrelationScope({ correlationId: runCorrelationId }, () => childProcess.spawn(config.executable, config.args, {
@@ -5521,7 +5738,12 @@ async function startInstanceImpl(instanceId, options = {}) {
 }
 
 async function writeInstanceInput(instanceId, input) {
-  const config = await reconcileConfigState(await loadInstanceConfig(instanceId));
+  const stored = await loadInstanceConfig(instanceId);
+  if (isServiceManaged(stored)) {
+    // Phase 2: the service's console is not exposed to the Agent yet.
+    throw serviceManagedUnsupported(stored, "console-command");
+  }
+  const config = await reconcileConfigState(stored);
   const entry = runningProcesses.get(config.id);
 
   if (!entry?.child?.stdin || !entry.child.stdin.writable) {
@@ -5544,7 +5766,12 @@ async function writeInstanceInput(instanceId, input) {
 }
 
 async function forceKillInstance(instanceId) {
-  const config = await reconcileConfigState(await loadInstanceConfig(instanceId));
+  const stored = await loadInstanceConfig(instanceId);
+  if (isServiceManaged(stored)) {
+    // The Agent never signals a process it does not own.
+    throw serviceManagedUnsupported(stored, "force-kill");
+  }
+  const config = await reconcileConfigState(stored);
   const entry = runningProcesses.get(config.id);
   const pid = entry?.child?.pid || config.pid;
 
@@ -5639,7 +5866,11 @@ async function stopInstance(instanceId, options = {}) {
 }
 
 async function stopInstanceImpl(instanceId, options = {}) {
-  let config = await reconcileConfigState(await loadInstanceConfig(instanceId));
+  const storedConfig = await loadInstanceConfig(instanceId);
+  if (isServiceManaged(storedConfig)) {
+    return stopServiceManaged(storedConfig);
+  }
+  let config = await reconcileConfigState(storedConfig);
   const entry = runningProcesses.get(config.id);
   const trackedRuntimePid = normalizePid(config.runtimeProcess?.pid);
   const entryPid = normalizePid(entry?.child?.pid);
@@ -5757,6 +5988,10 @@ async function stopInstanceImpl(instanceId, options = {}) {
 
 async function restartInstance(instanceId) {
   const config = await loadInstanceConfig(instanceId);
+  if (isServiceManaged(config)) {
+    // One atomic service-manager restart, not stop-then-start.
+    return restartServiceManaged(config);
+  }
   await updateRuntimeState(config.id, {
     state: INSTANCE_STATES.RESTARTING,
   });
@@ -5973,6 +6208,11 @@ async function recoverInstanceJobs() {
 
 async function getStatus(instanceId) {
   let config = await reconcileConfigState(await loadInstanceConfig(instanceId));
+  if (isServiceManaged(config)) {
+    // No NeoForge/FiveM-data/version backfill: those read or write the
+    // instance data tree, which is not this service's runtime tree.
+    return publicConfigDetailed(config);
+  }
   config = await syncNeoForgeScriptRuntimeConfig(config);
   if (isFiveMInstance(config)) {
     config = (await refreshFiveMReadiness(config.id)).config;
@@ -6066,6 +6306,24 @@ async function readLogs(instanceId, options = {}) {
 
   if (!streams.every((entry) => entry === "stdin" || entry === "stdout" || entry === "stderr")) {
     throw createInstanceError("INVALID_LOG_STREAM");
+  }
+
+  if (isServiceManaged(config)) {
+    // The workload's output lives in the service manager's journal. Agent-side
+    // action notes (start/stop requests) are merged in. A journal the Agent may
+    // not read degrades to the Agent-side notes plus an explicit warning entry.
+    const agentEntries = (await Promise.all(streams.map((streamName) => readRecentLines(logPath(config.id, streamName), limit)))).flat();
+    let journalEntries = [];
+    try {
+      journalEntries = (await systemdController.readJournal(serviceManagedRuntime.getServiceUnit(config), limit))
+        .map((entry) => ({ ...entry, message: redactLogLine(entry.message) }));
+    } catch (error) {
+      journalEntries = [{ at: nowIso(), stream: "stderr", message: `Service journal unavailable (${error?.code || "SERVICE_LOGS_FAILED"}).` }];
+    }
+    return {
+      id: config.id,
+      entries: [...agentEntries, ...journalEntries].sort((left, right) => String(left.at || "").localeCompare(String(right.at || ""))).slice(-limit),
+    };
   }
 
   const entries = (await Promise.all(streams.map((streamName) => {
@@ -6693,6 +6951,28 @@ async function getMetrics(instanceId) {
   };
 }
 
+// Public-boundary guard for everything that writes an instance's tree, its record
+// or its installer state. A service-managed instance is an operator-authored
+// record over a service the Agent does not own: its stub tree is not the
+// service's real files, so letting these succeed would only mislead (for example
+// "saving" a server.cfg into an empty stub). Internal callers keep using the
+// unwrapped functions. If the record cannot be read, the real function runs and
+// reports its own error.
+function refuseForServiceManaged(operation, fn) {
+  return async function guardedForServiceManaged(instanceId, ...args) {
+    let config = null;
+    try {
+      config = await loadInstanceConfig(instanceId);
+    } catch {
+      config = null;
+    }
+    if (config && isServiceManaged(config)) {
+      throw serviceManagedUnsupported(config, operation);
+    }
+    return fn(instanceId, ...args);
+  };
+}
+
 module.exports = {
   _test: {
     jobLifecycle,
@@ -6701,6 +6981,8 @@ module.exports = {
     discoverDetachedRuntime,
     evaluateFiveMReadiness,
     findUnrelatedPortConflicts,
+    isPidPossiblyAlive,
+    inspectSystemProcesses,
     getPalworldConfigCandidates,
     getFiveMLicenseReason,
     updateFiveMLicenseInConfig,
@@ -6751,21 +7033,21 @@ module.exports = {
   deleteInstance,
   forgetInstance,
   clearLogs,
-  beginInstallationSession,
-  beginSteamCmdUpdateSession,
+  beginInstallationSession: refuseForServiceManaged("installation", beginInstallationSession),
+  beginSteamCmdUpdateSession: refuseForServiceManaged("steamcmd-update", beginSteamCmdUpdateSession),
   getSteamCmdUpdateStatus,
-  repairLegacySteamCmdMetadata,
-  cancelInstallationSession,
-  closeInstallationSession,
-  createInstanceFolder,
-  deleteInstanceFile,
+  repairLegacySteamCmdMetadata: refuseForServiceManaged("repair-metadata", repairLegacySteamCmdMetadata),
+  cancelInstallationSession: refuseForServiceManaged("installation", cancelInstallationSession),
+  closeInstallationSession: refuseForServiceManaged("installation", closeInstallationSession),
+  createInstanceFolder: refuseForServiceManaged("file-write", createInstanceFolder),
+  deleteInstanceFile: refuseForServiceManaged("file-write", deleteInstanceFile),
   forceKillInstance,
   getMetrics,
   getWorldScopeCandidates,
   readGameServerConfig,
   getStatus,
-  executeInstallationPhase,
-  executeSteamCmdUpdate,
+  executeInstallationPhase: refuseForServiceManaged("installation", executeInstallationPhase),
+  executeSteamCmdUpdate: refuseForServiceManaged("steamcmd-update", executeSteamCmdUpdate),
   parseSteamCmdUpdateProgress,
   parseSteamCmdDownloadedBytes,
   classifySteamCmdFailure,
@@ -6777,19 +7059,19 @@ module.exports = {
   readLogs,
   recoverIncompleteInstallations,
   readMinecraftProperties,
-  repairNeoForgeRuntime,
-  refreshFiveMReadiness,
+  repairNeoForgeRuntime: refuseForServiceManaged("runtime-repair", repairNeoForgeRuntime),
+  refreshFiveMReadiness: refuseForServiceManaged("fivem-readiness", refreshFiveMReadiness),
   evaluateFiveMReadiness,
   getDefaultFiveMServerConfig,
   renameInstance,
-  renameInstanceFile,
+  renameInstanceFile: refuseForServiceManaged("file-write", renameInstanceFile),
   restartInstance: restartInstanceWithJob,
-  saveFiveMLicenseKey,
+  saveFiveMLicenseKey: refuseForServiceManaged("fivem-license", saveFiveMLicenseKey),
   startInstance: startInstanceWithJob,
   stopInstance: stopInstanceWithJob,
   updateInstance: updateInstanceWithJob,
-  writeInstanceFile,
-  writeGameServerConfig,
+  writeInstanceFile: refuseForServiceManaged("file-write", writeInstanceFile),
+  writeGameServerConfig: refuseForServiceManaged("game-config-write", writeGameServerConfig),
   writeInstanceInput,
-  writeMinecraftProperties,
+  writeMinecraftProperties: refuseForServiceManaged("game-config-write", writeMinecraftProperties),
 };

@@ -174,6 +174,12 @@ async function ensureInstanceDependenciesBeforeStart(instanceId, options = {}) {
   }
   const status = await getAgentNodeClient(options).getInstanceStatus(instanceId).catch(() => null);
   const instance = status?.instance || status;
+  // A service-managed instance (for example a systemd unit) runs on a runtime the
+  // operator provisioned; the Agent neither owns nor installs it, so template
+  // dependencies must never gate or trigger installs when starting it.
+  if (instance?.type === "systemd-service") {
+    return;
+  }
   const template = findMarketplaceTemplateById(instance?.templateId);
   const dependencyIds = template ? resolveTemplateDependencyIds(template) : [];
   if (dependencyIds.length === 0) {
