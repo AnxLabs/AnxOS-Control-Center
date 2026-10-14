@@ -490,10 +490,13 @@ async function runRestartProvenanceLegs() {
   );
 
   function provenanceEnv() {
-    const env = agentEnv(port);
-    delete env.AGENT_TOKEN;
+    // An empty (defined) AGENT_TOKEN rather than a deleted one: the Agent's
+    // env-file loader only fills keys that are undefined, so this stops a
+    // developer's repo-root .env from turning the credential into an
+    // environment bootstrap, while still resolving as no environment token.
     return {
-      ...env,
+      ...agentEnv(port),
+      AGENT_TOKEN: "",
       ANXHUB_CONFIG_DIR: provenanceConfigDir,
       ANXHUB_AGENT_CONFIG_PATH: provenanceConfigPath,
       AGENT_ENROLLMENT_PATH: provenanceEnrollmentPath,
