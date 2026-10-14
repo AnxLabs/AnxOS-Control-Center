@@ -56,7 +56,7 @@ the operator presses **Refresh Inventory**.
 
 | Kind | Verified when | Never part of the identity |
 | --- | --- | --- |
-| Host | `deviceId` + `agentInstallationId` + `agentIdentityGeneration` all reported, and `deviceId` matches the node's registered device | hostname, URL |
+| Host | `deviceId` + `agentInstallationId` + `agentIdentityGeneration` all reported, and `deviceId` matches the node's registered device. All three form the key, so re-pairing or credential rotation makes the host and every child resource a new identity (no `firstSeen` or classification carries over) | hostname, URL |
 | Instance | host verified + AnxOS instance id | process id |
 | systemd service | host verified + instance id + unit name | `externalMainPid` (systemd owns it; a restart changes it) |
 | Container | host verified + full 64-hex container ID (from inspect) | name, port |
@@ -85,7 +85,7 @@ AIM-1 ships no classification editor, so everything is shown as Production.
 | Node removed from the registry | Its resources stay stale (`NODE_NOT_REGISTERED`) for 7 days, then are pruned |
 | Concurrent refreshes | Single-flight; a refresh within 10 s returns the previous result (`throttled`) unless forced |
 | Desktop restart | Stored resources load as stale (`NOT_REFRESHED_SINCE_RESTART`) until the next refresh; `firstSeen` survives |
-| Corrupt store | Quarantined once (`.corrupt-<ts>`), inventory restarts empty |
+| Corrupt or malformed store | Moved out of the active path to `.corrupt-<ts>` (renamed, never deleted; a copy plus an empty valid store if the rename is blocked), inventory restarts empty; later restarts do not quarantine again |
 | Store from a newer build | Never overwritten; inventory runs in memory only |
 
 Bounds: 2 nodes in parallel, 2 inspects in parallel, 40 inspects per node,
@@ -107,7 +107,7 @@ reported on the node row.
 
 | Check | Command |
 | --- | --- |
-| Model + service, hermetic (20 tests) | `npm run inventory:smoke` |
+| Model + service, hermetic (22 tests) | `npm run inventory:smoke` |
 | Real Agent, fake systemd: discovery, zero control calls, identity mismatch, auth boundary, unreachable node, MainPID change | `npm run inventory:agent:smoke` |
 | Real Electron UI against a real Agent | `npm run inventory:ui:qa` |
 | Guard chain and tier | `node scripts/permission-matrix-smoke.js` |

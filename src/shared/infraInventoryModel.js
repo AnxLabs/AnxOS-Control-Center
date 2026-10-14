@@ -89,9 +89,11 @@ function buildHostIdentity(healthIdentity = {}, registeredIdentity = null) {
     verified,
     reason: !complete ? "HOST_IDENTITY_INCOMPLETE" : mismatch ? "AGENT_IDENTITY_MISMATCH" : null,
     components,
-    // The dedupe key uses deviceId + installation id: generation rotation on
-    // re-pairing keeps the same host record but changes the identity tuple.
-    key: complete ? `host:${deviceId}:${installationId}` : null,
+    // All three required components form the key (§5.7). Re-pairing or
+    // credential rotation changes agentIdentityGeneration, which makes the
+    // host — and every child resource keyed under it — a new identity: no
+    // firstSeen or classification carries across the rotation (fail closed).
+    key: complete ? `host:${deviceId}:${installationId}:${generation}` : null,
   };
 }
 

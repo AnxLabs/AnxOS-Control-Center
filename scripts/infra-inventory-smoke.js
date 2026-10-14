@@ -121,14 +121,14 @@ test("full discovery: identities, ownership, health, protection, no secrets", as
 
   const host = byKind(snapshot, "host")[0];
   assert.strictEqual(host.identity.verified, true);
-  assert.strictEqual(host.key, "host:dev-1:inst-1");
+  assert.strictEqual(host.key, "host:dev-1:inst-1:gen-1");
   assert.strictEqual(host.capabilities.supportsServiceControl, false);
   assert.deepStrictEqual(host.capabilities.serviceManagedInstances.allowedUnits, ["anxrp-fxserver.service"]);
   assert.strictEqual(host.capabilities.gpu, "not-reported");
 
   const svc = byKind(snapshot, "service-managed-instance")[0];
   assert.strictEqual(svc.identity.verified, true);
-  assert.deepStrictEqual(svc.identity.components, { host: "host:dev-1:inst-1", instanceId: "fivem-fxserver", unit: "anxrp-fxserver.service" });
+  assert.deepStrictEqual(svc.identity.components, { host: "host:dev-1:inst-1:gen-1", instanceId: "fivem-fxserver", unit: "anxrp-fxserver.service" });
   assert.strictEqual(svc.ownership.owner, "systemd");
   assert.strictEqual(svc.capabilities.agentOwnsProcess, false);
   assert.strictEqual(svc.capabilities.unitAllowlisted, true);
@@ -345,6 +345,7 @@ test("corrupt store is quarantined once; newer-schema store is never overwritten
   const empty = inventory.getInventory();
   assert.strictEqual(empty.resources.length, 0);
   assert.ok(empty.store.quarantine.path && fs.existsSync(empty.store.quarantine.path));
+  assert.strictEqual(fs.readFileSync(empty.store.quarantine.path, "utf8"), "{not json", "quarantined bytes preserved (recoverable)");
   await inventory.refreshInventory();
   assert.ok(JSON.parse(fs.readFileSync(corrupt, "utf8")).resources.length > 0);
 
@@ -357,6 +358,65 @@ test("corrupt store is quarantined once; newer-schema store is never overwritten
   assert.strictEqual(result.store.quarantine.code, "INVENTORY_STORE_SCHEMA_UNSUPPORTED");
   assert.ok(result.resources.length > 0, "inventory still works in memory");
   assert.strictEqual(fs.readFileSync(future, "utf8"), futureBody, "newer store left untouched");
+});
+
+test("corrupt store leaves the active path: restarts without a refresh do not re-quarantine", async () => {
+  const { reader } = makeAgent();
+  const dir = fs.mkdtempSync(path.join(tempRoot, "requarantine-"));
+  const store = path.join(dir, "inventory.json");
+  fs.writeFileSync(store, "{still not json");
+  const corruptCopies = () => fs.readdirSync(dir).filter((name) => name.includes(".corrupt-"));
+  setup({ reader, nodes: [agentNode("node-a")], storePath: store });
+  const first = inventory.getInventory();
+  assert.strictEqual(first.store.quarantine.code, "INVALID_JSON");
+  assert.strictEqual(first.store.quarantine.method, "moved");
+  assert.ok(!fs.existsSync(store), "the corrupt file is moved out of the active path");
+  assert.strictEqual(fs.readFileSync(first.store.quarantine.path, "utf8"), "{still not json", "moved file is byte-identical (recoverable)");
+  for (let restart = 0; restart < 3; restart += 1) {
+    clock += 1000;
+    inventory.resetInfrastructureInventory({ keepStore: true });
+    const again = inventory.getInventory();
+    assert.strictEqual(again.store.quarantine, null, `restart ${restart + 1}: nothing quarantined again`);
+  }
+  assert.strictEqual(corruptCopies().length, 1, "exactly one quarantined copy after repeated restarts");
+  // Malformed-structure stores follow the same path.
+  fs.writeFileSync(store, JSON.stringify({ schemaVersion: 1, nodes: [], resources: [null] }));
+  inventory.resetInfrastructureInventory({ keepStore: true });
+  assert.strictEqual(inventory.getInventory().store.quarantine.code, "INVENTORY_STORE_INVALID");
+  inventory.resetInfrastructureInventory({ keepStore: true });
+  assert.strictEqual(inventory.getInventory().store.quarantine, null);
+  assert.strictEqual(corruptCopies().length, 2);
+});
+
+test("host identity rotation: new generation is a new host and new children", async () => {
+  const { reader, world } = makeAgent();
+  setup({ reader, nodes: [agentNode("node-a")] });
+  clock = Date.parse("2026-10-14T10:00:00Z");
+  const before = await inventory.refreshInventory();
+  const oldKeys = new Set(before.resources.map((resource) => resource.key));
+  const oldHost = byKind(before, "host")[0];
+  const oldSvc = byKind(before, "service-managed-instance")[0];
+  // Re-pairing / credential rotation: only agentIdentityGeneration changes.
+  world.identity = identity("dev-1", "inst-1", "gen-2");
+  clock += 3600000;
+  const after = await inventory.refreshInventory({ force: true });
+  const host = byKind(after, "host")[0];
+  assert.strictEqual(byKind(after, "host").length, 1, "the old host identity is not carried alongside");
+  assert.notStrictEqual(host.key, oldHost.key, "host key changes with the generation");
+  assert.strictEqual(host.firstSeen, "2026-10-14T11:00:00.000Z", "host firstSeen not inherited");
+  assert.ok(after.resources.length >= 8, "every kind present after rotation");
+  for (const resource of after.resources) {
+    assert.ok(!oldKeys.has(resource.key), `${resource.kind} ${resource.key} must get a new key`);
+    assert.strictEqual(resource.firstSeen, "2026-10-14T11:00:00.000Z", `${resource.kind} firstSeen not inherited`);
+  }
+  const svc = byKind(after, "service-managed-instance")[0];
+  assert.strictEqual(svc.identity.components.host, host.key);
+  const classifications = {
+    [oldHost.key]: { scope: "non-production", ownerConfirmed: true },
+    [oldSvc.key]: { scope: "non-production", ownerConfirmed: true },
+  };
+  assert.strictEqual(model.applyProtection(host, classifications).protection.scope, "production", "host classification does not survive rotation");
+  assert.strictEqual(model.applyProtection(svc, classifications).protection.scope, "production", "child classification does not survive rotation");
 });
 
 test("structurally malformed stores are quarantined, not fatal", async () => {

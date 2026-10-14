@@ -144,10 +144,33 @@ function safeMessage(value, fallback) {
 // ---------------------------------------------------------------------------
 // Persistence
 // ---------------------------------------------------------------------------
+// Moves the unusable store out of the active path so the next load finds no
+// store and starts clean: one quarantine per corruption, not one per restart.
+// The file is renamed (never deleted), so it stays recoverable. If the rename
+// fails (for example a Windows lock), a copy is kept instead and the active
+// path is replaced with an empty valid store so it is not quarantined again.
 function quarantine(target, code) {
-  const quarantinePath = `${target}.corrupt-${nowMs()}`;
-  try { fs.copyFileSync(target, quarantinePath, fs.constants.COPYFILE_EXCL); } catch {}
-  return { path: quarantinePath, code };
+  let quarantinePath = `${target}.corrupt-${nowMs()}`;
+  for (let suffix = 1; fs.existsSync(quarantinePath); suffix += 1) {
+    quarantinePath = `${target}.corrupt-${nowMs()}-${suffix}`;
+  }
+  try {
+    fs.renameSync(target, quarantinePath);
+    return { path: quarantinePath, code, method: "moved" };
+  } catch {}
+  try {
+    fs.copyFileSync(target, quarantinePath, fs.constants.COPYFILE_EXCL);
+  } catch {
+    // Could neither move nor copy it: keep the original untouched and do not
+    // write over it this session.
+    return { path: null, code, method: "unmovable", readOnly: true };
+  }
+  try {
+    const temp = `${target}.${process.pid}.${nowMs()}.tmp`;
+    fs.writeFileSync(temp, `${JSON.stringify(emptySnapshot(), null, 2)}\n`, { mode: 0o600 });
+    fs.renameSync(temp, target);
+  } catch {}
+  return { path: quarantinePath, code, method: "copied" };
 }
 
 function isPlainObject(value) {
@@ -179,6 +202,7 @@ function loadStore() {
     raw = JSON.parse(fs.readFileSync(target, "utf8"));
   } catch (error) {
     state.quarantine = quarantine(target, error?.code || "INVALID_JSON");
+    if (state.quarantine.readOnly) state.readOnly = true;
     return state;
   }
   const schemaVersion = Number.isInteger(raw?.schemaVersion) ? raw.schemaVersion : 0;
@@ -195,6 +219,7 @@ function loadStore() {
     // Valid JSON with a malformed structure is treated exactly like a corrupt
     // file: quarantined once, inventory restarts empty, IPC stays usable.
     state.quarantine = quarantine(target, "INVENTORY_STORE_INVALID");
+    if (state.quarantine.readOnly) state.readOnly = true;
     return state;
   }
   // Restart recovery: persisted data is last-known, not current.
