@@ -753,6 +753,15 @@ const networkInventoryMessage = document.querySelector("[data-network-inventory-
 const networkInventoryOverview = document.querySelector("[data-network-inventory-overview]");
 const networkInventoryBody = document.querySelector("[data-network-inventory-body]");
 const networkInventoryActionButtons = document.querySelectorAll("[data-network-inventory-action]");
+const infraInventoryPanel = document.querySelector("[data-infra-inventory-panel]");
+const infraInventoryStatus = document.querySelector("[data-infra-inventory-status]");
+const infraInventoryMessage = document.querySelector("[data-infra-inventory-message]");
+const infraInventoryOverview = document.querySelector("[data-infra-inventory-overview]");
+const infraInventoryNodes = document.querySelector("[data-infra-inventory-nodes]");
+const infraInventoryBody = document.querySelector("[data-infra-inventory-body]");
+const infraInventoryKindFilter = document.querySelector("[data-infra-inventory-kind]");
+const infraInventorySearch = document.querySelector("[data-infra-inventory-search]");
+const infraInventoryActionButtons = document.querySelectorAll("[data-infra-inventory-action]");
 const nodeSummaryFields = document.querySelectorAll("[data-node-summary]");
 const nodeModal = document.querySelector("[data-node-modal]");
 const nodeModalTitle = document.querySelector("[data-node-modal-title]");
@@ -863,6 +872,8 @@ let fleetSummarySerial = 0;
 let fleetBatchInFlight = false;
 let networkInventoryState = { nodeId: null, status: "idle", data: null, error: null, loadedAt: 0 };
 let networkInventoryRequestInFlight = false;
+let infraInventoryState = { status: "idle", data: null, error: null };
+let infraInventoryRequestInFlight = false;
 let nodePickerActiveIndex = 0;
 const nodeRequestSerials = new Map();
 let backupRequestInFlight = false;
@@ -37306,6 +37317,7 @@ function renderNodes() {
   syncFleetControls();
   renderFleetSummary();
   renderNetworkInventory();
+  renderInfrastructureInventory();
   renderNodePicker();
 }
 
@@ -37836,6 +37848,242 @@ async function loadNetworkInventory(nodeId = getSelectedNodeId(), options = {}) 
   } finally {
     networkInventoryRequestInFlight = false;
     renderNetworkInventory();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// AIM-1 infrastructure inventory (docs/v2/V2_AUTONOMOUS_INFRASTRUCTURE_PLAN.md).
+// Strictly read-only presentation: it shows what infrastructureInventoryService
+// discovered across registered Agent nodes. Opening the panel reads the stored
+// snapshot only; live discovery runs only when the operator presses Refresh.
+// Stale, unverified and production-protected states are always shown, never
+// hidden behind a green summary.
+// ---------------------------------------------------------------------------
+const INFRA_INVENTORY_MAX_RENDERED_ROWS = 300;
+const INFRA_INVENTORY_KIND_LABELS = {
+  host: "Host",
+  "service-managed-instance": "systemd service",
+  instance: "Instance",
+  container: "Container",
+  volume: "Volume",
+  network: "Network",
+  "compose-project": "Compose project",
+  listener: "Listener",
+};
+const INFRA_INVENTORY_HEALTH_TONES = { healthy: "ok", degraded: "warning", failed: "critical", stopped: "planned", unknown: "planned" };
+
+function getInfraInventoryApi() {
+  const api = getDesktopApiState().api;
+  return typeof api?.infrastructureInventory?.get === "function" ? api.infrastructureInventory : null;
+}
+
+function setInfraInventoryStatus(label, tone = "planned") {
+  if (!infraInventoryStatus) return;
+  infraInventoryStatus.textContent = label;
+  infraInventoryStatus.className = `status-pill status-pill--${tone}`;
+}
+
+function setInfraInventoryMessage(message) {
+  if (infraInventoryMessage) infraInventoryMessage.textContent = message;
+}
+
+function createInfraPill(label, tone) {
+  const pill = document.createElement("span");
+  pill.className = `status-pill status-pill--${tone}`;
+  pill.textContent = label;
+  return pill;
+}
+
+function formatInfraNodeNames(resource, nodesById) {
+  const ids = Array.isArray(resource.nodeIds) && resource.nodeIds.length ? resource.nodeIds : [resource.nodeId];
+  return ids.map((id) => nodesById.get(id)?.name || id).join(", ");
+}
+
+function renderInfraInventoryNodes(data) {
+  if (!infraInventoryNodes) return;
+  infraInventoryNodes.replaceChildren();
+  const nodes = Array.isArray(data?.nodes) ? data.nodes.filter((node) => node.kind === "agent") : [];
+  if (!nodes.length) return;
+  infraInventoryNodes.append(createTextElement("h4", `Nodes (${nodes.length})`));
+  const list = document.createElement("div");
+  list.className = "security-list";
+  nodes.forEach((node) => {
+    const row = document.createElement("article");
+    row.className = "security-list-item";
+    const tone = node.status === "collected" ? (node.hostVerified ? "ok" : "warning") : node.status === "skipped" ? "planned" : "critical";
+    const label = node.status === "collected" ? (node.hostVerified ? "Collected" : "Identity unverified") : node.status === "skipped" ? "Skipped" : "Unavailable";
+    row.append(createInfraPill(label, tone));
+    const failedSections = (node.sections || []).filter((section) => section.status !== "ok");
+    const detail = [
+      node.name,
+      node.code ? `(${node.code})` : "",
+      node.lastSuccessAt ? `· last success ${formatHealthCheckedAt(Date.parse(node.lastSuccessAt))}` : "· never collected",
+      failedSections.length ? `· unread: ${failedSections.map((section) => `${section.name} ${section.code}`).join(", ")}` : "",
+      node.limits?.listenersTruncated ? "· listeners truncated" : "",
+      node.limits?.inspectsSkipped ? `· ${node.limits.inspectsSkipped} not inspected (bound)` : "",
+      node.fromPreviousSession ? "· from previous session" : "",
+    ].filter(Boolean).join(" ");
+    row.append(createTextElement("span", detail));
+    if (node.message && node.status !== "collected") row.append(createTextElement("p", node.message, "settings-note"));
+    list.append(row);
+  });
+  infraInventoryNodes.append(list);
+}
+
+function renderInfraInventoryTable(data) {
+  if (!infraInventoryBody) return;
+  infraInventoryBody.replaceChildren();
+  const resources = Array.isArray(data?.resources) ? data.resources : [];
+  const kind = infraInventoryKindFilter?.value || "all";
+  const query = String(infraInventorySearch?.value || "").trim().toLowerCase();
+  const rows = resources.filter((resource) => (kind === "all" || resource.kind === kind)
+    && (!query || String(resource.name || resource.key || "").toLowerCase().includes(query)));
+  infraInventoryBody.append(createTextElement("h4", `Resources (${rows.length}${rows.length !== resources.length ? ` of ${resources.length}` : ""})`));
+  if (!rows.length) {
+    infraInventoryBody.append(createEmptyState(resources.length ? "No resources match the current filter." : "No resources have been discovered yet. Press Refresh Inventory to run read-only discovery."));
+    return;
+  }
+  const nodesById = new Map((data.nodes || []).map((node) => [node.nodeId, node]));
+  const wrap = document.createElement("div");
+  wrap.className = "security-table-wrap";
+  const table = document.createElement("table");
+  table.className = "security-table";
+  const head = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  ["Kind", "Name", "Node", "Health", "Ownership", "Identity", "Protection", "Last seen"].forEach((label) => {
+    headRow.append(createTextElement("th", label));
+  });
+  head.append(headRow);
+  const body = document.createElement("tbody");
+  rows.slice(0, INFRA_INVENTORY_MAX_RENDERED_ROWS).forEach((resource) => {
+    const row = document.createElement("tr");
+    row.dataset.infraInventoryKey = resource.key;
+    const cell = (content) => {
+      const td = document.createElement("td");
+      if (content instanceof Node) td.append(content); else td.textContent = String(content ?? "");
+      row.append(td);
+      return td;
+    };
+    cell(INFRA_INVENTORY_KIND_LABELS[resource.kind] || resource.kind);
+    const nameCell = cell(resource.name || resource.key);
+    if (resource.kind === "service-managed-instance" && resource.details?.unit) {
+      nameCell.append(createTextElement("div", `unit ${resource.details.unit}${resource.capabilities?.unitAllowlisted === false ? " · not allowlisted" : ""}`, "settings-note"));
+    }
+    cell(formatInfraNodeNames(resource, nodesById));
+    const health = resource.health?.state || "unknown";
+    const healthCell = cell(createInfraPill(health, INFRA_INVENTORY_HEALTH_TONES[health] || "planned"));
+    if (resource.health?.detail) healthCell.title = String(resource.health.detail);
+    cell(resource.ownership?.owner === "systemd" ? "systemd (not owned by the Agent)" : (resource.ownership?.detail || resource.ownership?.owner || "unknown"));
+    const identityCell = cell(createInfraPill(resource.identity?.verified ? "Verified" : "Unverified", resource.identity?.verified ? "ok" : "warning"));
+    if (!resource.identity?.verified && resource.identity?.reason) identityCell.title = resource.identity.reason;
+    const protectionCell = cell(createInfraPill(resource.protection?.scope === "non-production" ? "Non-production" : "Production", resource.protection?.scope === "non-production" ? "planned" : "critical"));
+    protectionCell.title = resource.protection?.reason || "";
+    const seen = resource.lastSeen ? formatHealthCheckedAt(Date.parse(resource.lastSeen)) : "never";
+    const seenCell = cell(resource.stale ? `${seen} · stale` : seen);
+    if (resource.stale) seenCell.title = resource.staleReason || "Not confirmed by the latest refresh.";
+    body.append(row);
+  });
+  table.append(head, body);
+  wrap.append(table);
+  infraInventoryBody.append(wrap);
+  if (rows.length > INFRA_INVENTORY_MAX_RENDERED_ROWS) {
+    infraInventoryBody.append(createTextElement("p", `Showing the first ${INFRA_INVENTORY_MAX_RENDERED_ROWS} of ${rows.length} resources. Narrow the filter to see the rest.`, "settings-note"));
+  }
+}
+
+function renderInfraInventoryOverview(data) {
+  if (!infraInventoryOverview) return;
+  const summary = data?.summary || {};
+  infraInventoryOverview.hidden = false;
+  infraInventoryOverview.replaceChildren();
+  [
+    ["Resources", summary.resources ?? 0],
+    ["Hosts", summary.byKind?.host ?? 0],
+    ["systemd services", summary.byKind?.["service-managed-instance"] ?? 0],
+    ["Stale", summary.stale ?? 0],
+    ["Unverified identity", summary.unverified ?? 0],
+    ["Production-protected", summary.production ?? 0],
+    ["Nodes unavailable", summary.nodesUnavailable ?? 0],
+  ].forEach(([label, value]) => appendDetailPair(infraInventoryOverview, label, String(value)));
+}
+
+function syncInfraInventoryControls(ready) {
+  infraInventoryActionButtons.forEach((button) => {
+    if (!button.dataset.defaultLabel) button.dataset.defaultLabel = button.textContent || "Refresh Inventory";
+    button.hidden = !ready;
+    button.disabled = !ready || infraInventoryRequestInFlight;
+    button.textContent = infraInventoryRequestInFlight ? "Discovering..." : button.dataset.defaultLabel;
+  });
+}
+
+function renderInfrastructureInventory() {
+  if (!infraInventoryPanel) return;
+  const api = getInfraInventoryApi();
+  infraInventoryPanel.hidden = !api;
+  if (!api) return;
+  const locked = securityState?.localOwnerAuthenticated !== true;
+  if (infraInventoryOverview) infraInventoryOverview.hidden = true;
+  if (locked) {
+    infraInventoryNodes?.replaceChildren();
+    infraInventoryBody?.replaceChildren();
+    setInfraInventoryStatus("Locked", "planned");
+    setInfraInventoryMessage("Unlock AnxOS to view the infrastructure inventory.");
+    syncInfraInventoryControls(false);
+    return;
+  }
+  syncInfraInventoryControls(true);
+  if (infraInventoryState.status === "error") {
+    setInfraInventoryStatus("Unavailable", "critical");
+    setInfraInventoryMessage(infraInventoryState.error || "Infrastructure inventory request failed.");
+    return;
+  }
+  const data = infraInventoryState.data;
+  if (!data) {
+    setInfraInventoryStatus(infraInventoryRequestInFlight ? "Loading" : "Not loaded", "planned");
+    setInfraInventoryMessage(infraInventoryRequestInFlight ? "Reading the stored inventory..." : "Inventory has not been loaded.");
+    if (infraInventoryState.status === "idle" && !infraInventoryRequestInFlight) loadInfrastructureInventory();
+    return;
+  }
+  const summary = data.summary || {};
+  if (infraInventoryRequestInFlight) {
+    setInfraInventoryStatus("Discovering", "planned");
+  } else if (!data.generatedAt) {
+    setInfraInventoryStatus("Not discovered", "planned");
+  } else if ((summary.stale || 0) > 0) {
+    setInfraInventoryStatus("Partially stale", "warning");
+  } else if ((summary.nodesUnavailable || 0) > 0) {
+    // Nothing shown is stale, but some registered nodes were not inventoried.
+    setInfraInventoryStatus("Incomplete", "warning");
+  } else {
+    setInfraInventoryStatus("Current", "ok");
+  }
+  const storeNote = data.store?.readOnly ? " The stored inventory was written by a newer build and is not being overwritten." : data.store?.quarantine?.path ? " A corrupt stored inventory was quarantined." : "";
+  setInfraInventoryMessage(data.generatedAt
+    ? `Last discovery ${formatHealthCheckedAt(Date.parse(data.generatedAt))} · read-only, no service was changed.${storeNote}`
+    : `No discovery has run yet. Press Refresh Inventory to run read-only discovery.${storeNote}`);
+  renderInfraInventoryOverview(data);
+  renderInfraInventoryNodes(data);
+  renderInfraInventoryTable(data);
+}
+
+async function loadInfrastructureInventory(options = {}) {
+  const api = getInfraInventoryApi();
+  if (!api || infraInventoryRequestInFlight) return;
+  const refresh = options.refresh === true;
+  infraInventoryRequestInFlight = true;
+  infraInventoryState = { ...infraInventoryState, status: "loading", error: null };
+  renderInfrastructureInventory();
+  try {
+    const result = refresh ? await api.refresh({ force: options.force === true }) : await api.get();
+    infraInventoryState = { status: "ready", data: result || null, error: null };
+    if (refresh && result?.throttled) showToast("Inventory was refreshed moments ago; showing that result.", "info");
+  } catch (error) {
+    const message = normalizeIpcErrorMessage(error, "Infrastructure inventory request failed.");
+    infraInventoryState = { status: "error", data: infraInventoryState.data, error: message };
+    if (refresh) showToast(message, "error");
+  } finally {
+    infraInventoryRequestInFlight = false;
+    renderInfrastructureInventory();
   }
 }
 
@@ -43579,6 +43827,11 @@ fleetActionButtons.forEach((button) => {
 networkInventoryActionButtons.forEach((button) => {
   button.addEventListener("click", () => loadNetworkInventory(getSelectedNodeId(), { userInitiated: true }));
 });
+infraInventoryActionButtons.forEach((button) => {
+  button.addEventListener("click", () => loadInfrastructureInventory({ refresh: true, force: true }));
+});
+infraInventoryKindFilter?.addEventListener("change", () => renderInfrastructureInventory());
+infraInventorySearch?.addEventListener("input", () => renderInfrastructureInventory());
 nodeDetailsModal?.addEventListener("click", async (event) => {
   const healthButton = event.target.closest("[data-node-health-action]");
   if (healthButton) {

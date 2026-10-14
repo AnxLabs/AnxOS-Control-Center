@@ -488,6 +488,17 @@ const IPC_FAMILIES = [
     channels: ["networkInventory:get"],
   },
   {
+    // AIM-1 infrastructure inventory: cross-node read-only discovery. Refresh
+    // issues only allow-listed Agent GETs (infrastructureInventoryService), so
+    // both channels sit in the same read tier and guard chain as
+    // networkInventory:get.
+    id: "infrastructure-inventory",
+    tier: "nodes:read",
+    guard: "local-owner+permission",
+    allow: ["owner-unlocked", "operator-unlocked", "viewer-unlocked"],
+    channels: ["infrastructureInventory:get", "infrastructureInventory:refresh"],
+  },
+  {
     // V2-I workload trust vocabulary (src/shared/workloadTrustPolicy.js).
     // READ tier, not the settings:write tier of the transfer family below:
     // neither channel writes anything — getTrustPolicy projects the static tier

@@ -201,6 +201,10 @@ const desktopApi = {
   networkInventory: {
     get: (payload = {}) => ipcRenderer.invoke("networkInventory:get", payload),
   },
+  infrastructureInventory: {
+    get: () => ipcRenderer.invoke("infrastructureInventory:get"),
+    refresh: (payload = {}) => ipcRenderer.invoke("infrastructureInventory:refresh", payload),
+  },
   publicAccess: {
     getSnapshot: (payload = {}) => ipcRenderer.invoke("publicAccess:getSnapshot", payload),
     listServices: (payload = {}) => ipcRenderer.invoke("publicAccess:listServices", payload),

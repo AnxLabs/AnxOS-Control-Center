@@ -206,7 +206,7 @@ const loadedIpcModuleFiles = new Set([
   "dependenciesIpc.js", "storageWindowIpc.js", "updatesIpc.js", "actionIpc.js",
   "systemIpc.js", "ampIpc.js", "backupsIpc.js", "playitIpc.js",
   "publicAccessIpc.js", "dockerIpc.js", "instancesIpc.js", "marketplaceIpc.js",
-  "maintenanceIpc.js", "nodesIpc.js", "networkInventoryIpc.js", "workloadIpc.js", "ownerWorkspaceIpc.js",
+  "maintenanceIpc.js", "nodesIpc.js", "networkInventoryIpc.js", "infrastructureInventoryIpc.js", "workloadIpc.js", "ownerWorkspaceIpc.js",
   "filesIpc.js", "settingsIpc.js", "sshIpc.js", "alertsIpc.js",
 ]);
 // accountIpc.js delegates to accountAuthIpc.registerAccountAuthIpc (which IS
@@ -258,6 +258,7 @@ try {
   require("../src/ipc/maintenanceIpc").registerMaintenanceIpc();
   require("../src/ipc/nodesIpc").registerNodesIpc();
   require("../src/ipc/networkInventoryIpc").registerNetworkInventoryIpc();
+  require("../src/ipc/infrastructureInventoryIpc").registerInfrastructureInventoryIpc();
   require("../src/ipc/alertsIpc").registerAlertsIpc();
   require("../src/ipc/workloadIpc").registerWorkloadIpc();
   require("../src/ipc/ownerWorkspaceIpc").registerOwnerWorkspaceIpc();
@@ -386,6 +387,7 @@ const DESKTOP_PROBES = {
   "nodes-credential-read": { channel: "nodes:health", payload: { nodeId: "matrix-node-a" } },
   "nodes-write": { channel: "nodes:save", payload: { nodeId: "matrix-node", displayName: "Matrix Node" } },
   "network-inventory": { channel: "networkInventory:get", payload: { nodeId: "matrix-node-a" } },
+  "infrastructure-inventory": { channel: "infrastructureInventory:refresh", payload: {} },
   "alerts-read": { channel: "alerts:list", payload: {} },
   "alerts-write": { channel: "alerts:acknowledge", payload: { id: "alert:NODE_OFFLINE:matrix-node-a" } },
   "settings-read": { channel: "settings:getPreferences" },

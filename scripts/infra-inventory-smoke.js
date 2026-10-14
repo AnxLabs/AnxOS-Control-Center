@@ -1,0 +1,481 @@
+"use strict";
+
+// AIM-1 hermetic smoke: inventory model + desktop inventory service against an
+// injected fake Agent reader. Covers identity (§5.7, CL9), read-only route
+// allow-list, offline/stale handling, skipped nodes, duplicates, identity
+// mismatch, permission boundaries, Docker absence, restart recovery, store
+// quarantine and future-schema refusal, single-flight, unregistered-node
+// retention, bounds, service-managed instances, protection defaults and
+// secret exclusion.
+
+const assert = require("assert");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+
+const model = require("../src/shared/infraInventoryModel");
+const inventory = require("../src/services/infrastructureInventoryService");
+
+const SECRET = "SUPERSECRET-ENV-VALUE-9f3a";
+const FULL_ID = "a".repeat(64);
+const FULL_ID_2 = "b".repeat(64);
+
+function identity(deviceId = "dev-1", installationId = "inst-1", generation = "gen-1") {
+  return { deviceId, agentInstallationId: installationId, agentIdentityGeneration: generation, hostname: `${deviceId}-host`, platform: "linux", agentVersion: "2.0-build206" };
+}
+
+function makeAgent(options = {}) {
+  const world = {
+    identity: options.identity || identity(),
+    allowedUnits: options.allowedUnits || ["anxrp-fxserver.service"],
+    dockerInstalled: options.dockerInstalled !== false,
+    containers: options.containers || [
+      { id: FULL_ID.slice(0, 12), name: "qdrant", image: "qdrant/qdrant:v1.19.2", state: "running", status: "Up 3 hours (healthy)", health: "healthy", ports: ["6333/tcp"] },
+    ],
+    volumes: options.volumes || [{ name: "qdrant-data", driver: "local", scope: "local", containersUsing: ["qdrant"] }],
+    networks: options.networks || [{ id: "123456789abc", name: "ai-box", driver: "bridge", scope: "local" }],
+    projects: options.projects || [{ Name: "ai-box", Status: "running(1)", ConfigFiles: "/srv/ai-box/compose.yaml" }],
+    listeners: options.listeners || [{ protocol: "tcp", localAddress: "127.0.0.1", localPort: 6333, pid: 900, processName: "qdrant" }],
+    instances: options.instances || [
+      { id: "mc-1", displayName: "Minecraft", type: "minecraft", state: "Running", healthState: "healthy" },
+      {
+        id: "fivem-fxserver",
+        displayName: "AnxRP",
+        type: "systemd-service",
+        state: "Running",
+        serviceManager: { kind: "systemd", unit: "anxrp-fxserver.service" },
+        serviceStatus: { observed: true, unit: "anxrp-fxserver.service", activeState: "active", subState: "running", externalMainPid: 4242, uptimeSeconds: 3600, restartCount: 0 },
+        ports: [30120],
+      },
+    ],
+    failures: options.failures || {},
+    calls: [],
+  };
+  const reader = async (pathname, requestOptions) => {
+    world.calls.push({ method: requestOptions?.method || "GET", pathname, config: requestOptions?.config });
+    const failure = Object.entries(world.failures).find(([pattern]) => pathname.startsWith(pattern));
+    if (failure) throw failure[1]();
+    if (pathname === "/api/v1/health") {
+      return { ok: true, identity: world.identity, mode: "read-write", capabilities: { os: "linux", supportsDocker: null, supportsSystemMetrics: true, supportsServiceControl: false, serviceManagedInstances: { supported: true, mechanism: "systemd", allowedUnits: world.allowedUnits } } };
+    }
+    if (pathname === "/api/v1/system/summary") return { hostname: world.identity.hostname, cpu: { cores: 8 }, memory: { total: 16e9 } };
+    if (pathname === "/api/v1/instances") return { instances: world.instances };
+    if (pathname === "/api/v1/network/inventory") return { listeners: world.listeners, listenersTruncated: false };
+    if (pathname === "/api/v1/docker/containers") {
+      return world.dockerInstalled
+        ? { installed: true, daemonRunning: true, containers: world.containers }
+        : { installed: false, daemonRunning: false, message: "Docker is not installed or is not available on PATH for this node.", containers: [] };
+    }
+    const containerInspect = pathname.match(/^\/api\/v1\/docker\/containers\/([^/]+)\/inspect$/);
+    if (containerInspect) {
+      const short = decodeURIComponent(containerInspect[1]);
+      const full = short === FULL_ID.slice(0, 12) ? FULL_ID : short.padEnd(64, "c").slice(0, 64);
+      return { inspect: [{
+        Id: full,
+        Name: "/qdrant",
+        Created: "2026-10-01T00:00:00.000Z",
+        Config: { Image: "qdrant/qdrant:v1.19.2", Env: [`QDRANT__SERVICE__API_KEY=${SECRET}`], Labels: { "com.docker.compose.project": "ai-box", "com.docker.compose.service": "qdrant", "secret.label": SECRET } },
+        HostConfig: { RestartPolicy: { Name: "unless-stopped" } },
+        Mounts: [{ Type: "volume", Name: "qdrant-data", Source: `/var/lib/docker/volumes/${SECRET}` }, { Type: "bind", Source: "/etc/secret", Destination: "/secret" }],
+      }] };
+    }
+    if (pathname === "/api/v1/docker/volumes") return { volumes: world.volumes };
+    const volumeInspect = pathname.match(/^\/api\/v1\/docker\/volumes\/([^/]+)\/inspect$/);
+    if (volumeInspect) return { inspect: [{ Name: decodeURIComponent(volumeInspect[1]), CreatedAt: "2026-09-30T12:00:00Z", Labels: { "com.docker.compose.project": "ai-box" } }] };
+    if (pathname === "/api/v1/docker/networks") return { networks: world.networks };
+    if (pathname === "/api/v1/docker/compose/projects") return { projects: world.projects };
+    throw Object.assign(new Error(`unexpected route ${pathname}`), { status: 404 });
+  };
+  return { world, reader };
+}
+
+function agentNode(id, extra = {}) {
+  return { id, kind: "agent", displayName: id, enabled: true, connection: { status: "online" }, agentIdentity: { deviceId: extra.deviceId || "dev-1" }, ...extra };
+}
+
+let tempRoot;
+let clock;
+function setup({ reader, nodes, storePath }) {
+  inventory.resetInfrastructureInventory();
+  inventory.configureInfrastructureInventory({
+    storePath: storePath || path.join(tempRoot, `inventory-${Math.random().toString(16).slice(2)}.json`),
+    now: () => clock,
+    reader,
+    nodes: () => nodes,
+    agentConfigFor: (nodeId) => ({ nodeId, token: "[test]" }),
+  });
+}
+
+function byKind(snapshot, kind) {
+  return snapshot.resources.filter((resource) => resource.kind === kind);
+}
+
+const tests = [];
+function test(name, fn) { tests.push({ name, fn }); }
+
+test("full discovery: identities, ownership, health, protection, no secrets", async () => {
+  const { reader, world } = makeAgent();
+  const storePath = path.join(tempRoot, "full.json");
+  setup({ reader, nodes: [{ id: "local", kind: "application-host" }, agentNode("node-a")], storePath });
+  const snapshot = await inventory.refreshInventory();
+
+  const host = byKind(snapshot, "host")[0];
+  assert.strictEqual(host.identity.verified, true);
+  assert.strictEqual(host.key, "host:dev-1:inst-1");
+  assert.strictEqual(host.capabilities.supportsServiceControl, false);
+  assert.deepStrictEqual(host.capabilities.serviceManagedInstances.allowedUnits, ["anxrp-fxserver.service"]);
+  assert.strictEqual(host.capabilities.gpu, "not-reported");
+
+  const svc = byKind(snapshot, "service-managed-instance")[0];
+  assert.strictEqual(svc.identity.verified, true);
+  assert.deepStrictEqual(svc.identity.components, { host: "host:dev-1:inst-1", instanceId: "fivem-fxserver", unit: "anxrp-fxserver.service" });
+  assert.strictEqual(svc.ownership.owner, "systemd");
+  assert.strictEqual(svc.capabilities.agentOwnsProcess, false);
+  assert.strictEqual(svc.capabilities.unitAllowlisted, true);
+  assert.strictEqual(svc.health.state, "healthy");
+  assert.strictEqual(svc.details.externalMainPid, 4242);
+
+  const instance = byKind(snapshot, "instance")[0];
+  assert.strictEqual(instance.identity.verified, true);
+  assert.strictEqual(instance.ownership.owner, "anxos-agent");
+
+  const container = byKind(snapshot, "container")[0];
+  assert.strictEqual(container.identity.verified, true);
+  assert.strictEqual(container.identity.components.containerId, FULL_ID);
+  assert.strictEqual(container.identity.components.composeProject, "ai-box");
+  assert.strictEqual(container.ownership.owner, "docker-compose");
+  assert.deepStrictEqual(container.details.volumes, ["qdrant-data"]);
+
+  const volume = byKind(snapshot, "volume")[0];
+  assert.strictEqual(volume.identity.verified, true);
+  assert.strictEqual(volume.identity.components.createdAt, "2026-09-30T12:00:00.000Z");
+  assert.strictEqual(volume.details.persistentData, true);
+
+  assert.strictEqual(byKind(snapshot, "network")[0].identity.verified, false);
+  assert.strictEqual(byKind(snapshot, "compose-project")[0].identity.verified, true);
+  const listener = byKind(snapshot, "listener")[0];
+  assert.strictEqual(listener.identity.verified, false);
+  assert.strictEqual(listener.identity.reason, "PROCESS_IDENTITY_NOT_REPORTED");
+
+  for (const resource of snapshot.resources) {
+    assert.strictEqual(resource.protection.scope, "production", `${resource.key} must default to production`);
+    assert.strictEqual(resource.protection.reason, "UNCLASSIFIED_DEFAULT_PRODUCTION");
+    assert.ok(resource.firstSeen && resource.lastSeen && resource.stale === false);
+  }
+
+  const appHost = snapshot.nodes.find((node) => node.nodeId === "local");
+  assert.strictEqual(appHost.status, "skipped");
+  assert.strictEqual(appHost.code, "APPLICATION_HOST_NOT_AGENT");
+  assert.strictEqual(snapshot.summary.nodesAvailable, 1);
+
+  const persisted = fs.readFileSync(storePath, "utf8");
+  assert.ok(!persisted.includes(SECRET), "persisted inventory must not contain env, label or mount-source secrets");
+  assert.ok(!JSON.stringify(snapshot).includes(SECRET), "returned inventory must not contain secrets");
+  assert.ok(!persisted.includes("/etc/secret"), "bind-mount host paths must not be stored");
+  assert.ok(!persisted.includes("[test]"), "node credentials must not be stored");
+
+  assert.ok(world.calls.length > 0);
+  for (const call of world.calls) {
+    assert.strictEqual(call.method, "GET");
+    assert.ok(inventory.READ_ROUTE_ALLOWLIST.some((pattern) => pattern.test(call.pathname)), `unexpected route ${call.pathname}`);
+  }
+});
+
+test("read-only guard refuses every mutating or unknown route", async () => {
+  for (const [method, pathname] of [
+    ["POST", "/api/v1/instances/fivem-fxserver/restart"],
+    ["POST", "/api/v1/instances/fivem-fxserver/service/safe-restart"],
+    ["GET", "/api/v1/instances/fivem-fxserver/service/overview"],
+    ["POST", "/api/v1/actions/docker.restart"],
+    ["DELETE", "/api/v1/docker/volumes/qdrant-data"],
+    ["GET", "/api/v1/docker/containers/../../etc/inspect"],
+    ["GET", "/api/v1/files/read"],
+    // Allow-listed paths with a mutating method must still be refused.
+    ["POST", "/api/v1/instances"],
+    ["DELETE", "/api/v1/docker/volumes"],
+    ["PUT", "/api/v1/health"],
+  ]) {
+    assert.throws(() => inventory.assertReadRoute(method, pathname), (error) => error.code === "INVENTORY_ROUTE_NOT_ALLOWED", `${method} ${pathname}`);
+  }
+  inventory.assertReadRoute("GET", "/api/v1/instances");
+});
+
+test("offline node keeps last-known resources as stale; lastSeen unchanged", async () => {
+  const { reader, world } = makeAgent();
+  setup({ reader, nodes: [agentNode("node-a")] });
+  clock = Date.parse("2026-10-14T10:00:00Z");
+  const first = await inventory.refreshInventory();
+  const count = first.resources.length;
+  world.failures["/api/v1/health"] = () => Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" });
+  clock += 60000;
+  const second = await inventory.refreshInventory();
+  assert.strictEqual(second.resources.length, count);
+  for (const resource of second.resources) {
+    assert.strictEqual(resource.stale, true);
+    assert.strictEqual(resource.lastSeen, "2026-10-14T10:00:00.000Z");
+  }
+  assert.strictEqual(second.resources[0].staleReason, "NODE_UNREACHABLE");
+  const node = second.nodes[0];
+  assert.strictEqual(node.status, "unavailable");
+  assert.strictEqual(node.lastSuccessAt, "2026-10-14T10:00:00.000Z");
+  assert.strictEqual(second.summary.stale, count);
+});
+
+test("disabled, disconnected and offline nodes are skipped without requests", async () => {
+  const { reader, world } = makeAgent();
+  setup({ reader, nodes: [
+    agentNode("disabled", { enabled: false }),
+    agentNode("manual", { manualDisconnect: true }),
+    agentNode("offline", { connection: { status: "offline" } }),
+    agentNode("authfail", { connection: { status: "authentication_failed" } }),
+  ] });
+  const snapshot = await inventory.refreshInventory();
+  assert.strictEqual(world.calls.length, 0);
+  assert.deepStrictEqual(snapshot.nodes.map((node) => node.code), ["NODE_DISABLED", "NODE_DISCONNECTED", "NODE_OFFLINE", "NODE_AUTHENTICATION_FAILED"]);
+  assert.ok(snapshot.nodes.every((node) => node.status === "skipped"));
+});
+
+test("duplicate registrations of one host and duplicate list rows are merged", async () => {
+  const container = { id: FULL_ID.slice(0, 12), name: "qdrant", state: "running", status: "Up", ports: [] };
+  const { reader } = makeAgent({ containers: [container, { ...container }] });
+  setup({ reader, nodes: [agentNode("node-a"), agentNode("node-a-again")] });
+  const snapshot = await inventory.refreshInventory();
+  const hosts = byKind(snapshot, "host");
+  assert.strictEqual(hosts.length, 1, "one host for two registrations of the same Agent");
+  assert.deepStrictEqual(hosts[0].nodeIds, ["node-a", "node-a-again"]);
+  assert.strictEqual(hosts[0].duplicateNodes, true);
+  const containers = byKind(snapshot, "container");
+  assert.strictEqual(containers.length, 1);
+  assert.ok(snapshot.summary.duplicates >= 1);
+});
+
+test("identity mismatch: no resources are attributed to the node", async () => {
+  const { reader } = makeAgent({ identity: identity("other-device") });
+  setup({ reader, nodes: [agentNode("node-a", { deviceId: "dev-1" })] });
+  const snapshot = await inventory.refreshInventory();
+  assert.strictEqual(snapshot.resources.length, 0);
+  assert.strictEqual(snapshot.nodes[0].status, "unavailable");
+  assert.strictEqual(snapshot.nodes[0].code, "AGENT_IDENTITY_MISMATCH");
+});
+
+test("incomplete host identity: resources listed but unverified", async () => {
+  const { reader } = makeAgent({ identity: { deviceId: "dev-1", hostname: "h" } });
+  setup({ reader, nodes: [agentNode("node-a")] });
+  const snapshot = await inventory.refreshInventory();
+  assert.ok(snapshot.resources.length > 0);
+  assert.ok(snapshot.resources.every((resource) => resource.identity.verified === false));
+  assert.ok(snapshot.resources.every((resource) => resource.key.startsWith("node:node-a")));
+});
+
+test("permission boundaries are reported per section, never as empty lists", async () => {
+  const { reader } = makeAgent({ failures: {
+    "/api/v1/docker": () => Object.assign(new Error("Forbidden"), { status: 403 }),
+    "/api/v1/instances": () => Object.assign(new Error("Unauthorized"), { status: 401 }),
+  } });
+  setup({ reader, nodes: [agentNode("node-a")] });
+  const snapshot = await inventory.refreshInventory();
+  const sections = Object.fromEntries(snapshot.nodes[0].sections.map((section) => [section.name, section]));
+  assert.strictEqual(sections.docker.code, "PERMISSION_DENIED");
+  assert.strictEqual(sections.instances.code, "AUTH_FAILED");
+  assert.strictEqual(sections.listeners.status, "ok");
+  assert.strictEqual(byKind(snapshot, "container").length, 0);
+  assert.strictEqual(byKind(snapshot, "host").length, 1);
+});
+
+test("failed sections keep last-known resources as stale, never drop them", async () => {
+  const { reader, world } = makeAgent();
+  setup({ reader, nodes: [agentNode("node-a")] });
+  const first = await inventory.refreshInventory();
+  const before = Object.fromEntries(model.RESOURCE_KINDS.map((kind) => [kind, byKind(first, kind).length]));
+  assert.ok(before.container > 0 && before.instance > 0 && before["service-managed-instance"] > 0);
+  world.failures["/api/v1/docker"] = () => Object.assign(new Error("Forbidden"), { status: 403 });
+  world.failures["/api/v1/instances"] = () => Object.assign(new Error("Unauthorized"), { status: 401 });
+  const second = await inventory.refreshInventory({ force: true });
+  for (const kind of ["container", "volume", "network", "compose-project"]) {
+    const rows = byKind(second, kind);
+    assert.strictEqual(rows.length, before[kind], `${kind} kept`);
+    assert.ok(rows.every((row) => row.stale && row.staleReason === "PERMISSION_DENIED"), `${kind} stale with PERMISSION_DENIED`);
+  }
+  for (const kind of ["instance", "service-managed-instance"]) {
+    const rows = byKind(second, kind);
+    assert.strictEqual(rows.length, before[kind]);
+    assert.ok(rows.every((row) => row.stale && row.staleReason === "AUTH_FAILED"));
+  }
+  assert.ok(byKind(second, "listener").every((row) => row.stale === false), "readable sections stay fresh");
+  assert.ok(byKind(second, "host").every((row) => row.stale === false));
+  delete world.failures["/api/v1/docker"];
+  delete world.failures["/api/v1/instances"];
+  const third = await inventory.refreshInventory({ force: true });
+  assert.ok(third.resources.every((row) => row.stale === false), "a later successful read clears staleness");
+});
+
+test("Docker not installed: section reported, no Docker follow-up reads", async () => {
+  const { reader, world } = makeAgent({ dockerInstalled: false });
+  setup({ reader, nodes: [agentNode("node-a")] });
+  const snapshot = await inventory.refreshInventory();
+  const docker = snapshot.nodes[0].sections.find((section) => section.name === "docker");
+  assert.strictEqual(docker.code, "DOCKER_NOT_INSTALLED");
+  assert.ok(!world.calls.some((call) => /volumes|networks|compose|inspect/.test(call.pathname)));
+});
+
+test("restart recovery: persisted resources reload stale; firstSeen survives", async () => {
+  const { reader } = makeAgent();
+  const storePath = path.join(tempRoot, "restart.json");
+  setup({ reader, nodes: [agentNode("node-a")], storePath });
+  clock = Date.parse("2026-10-14T10:00:00Z");
+  await inventory.refreshInventory();
+  // Simulate a desktop restart.
+  inventory.resetInfrastructureInventory({ keepStore: true });
+  const reloaded = inventory.getInventory();
+  assert.ok(reloaded.resources.length > 0);
+  assert.ok(reloaded.resources.every((resource) => resource.stale && resource.staleReason === "NOT_REFRESHED_SINCE_RESTART"));
+  assert.ok(reloaded.nodes.every((node) => node.fromPreviousSession === true));
+  clock += 3600000;
+  const refreshed = await inventory.refreshInventory();
+  assert.ok(refreshed.resources.every((resource) => resource.stale === false));
+  assert.ok(refreshed.resources.every((resource) => resource.firstSeen === "2026-10-14T10:00:00.000Z"));
+  assert.ok(refreshed.resources.every((resource) => resource.lastSeen === "2026-10-14T11:00:00.000Z"));
+});
+
+test("corrupt store is quarantined once; newer-schema store is never overwritten", async () => {
+  const { reader } = makeAgent();
+  const corrupt = path.join(tempRoot, "corrupt.json");
+  fs.writeFileSync(corrupt, "{not json");
+  setup({ reader, nodes: [agentNode("node-a")], storePath: corrupt });
+  const empty = inventory.getInventory();
+  assert.strictEqual(empty.resources.length, 0);
+  assert.ok(empty.store.quarantine.path && fs.existsSync(empty.store.quarantine.path));
+  await inventory.refreshInventory();
+  assert.ok(JSON.parse(fs.readFileSync(corrupt, "utf8")).resources.length > 0);
+
+  const future = path.join(tempRoot, "future.json");
+  const futureBody = JSON.stringify({ schemaVersion: 99, nodes: [], resources: [] });
+  fs.writeFileSync(future, futureBody);
+  setup({ reader, nodes: [agentNode("node-a")], storePath: future });
+  const result = await inventory.refreshInventory();
+  assert.strictEqual(result.store.readOnly, true);
+  assert.strictEqual(result.store.quarantine.code, "INVENTORY_STORE_SCHEMA_UNSUPPORTED");
+  assert.ok(result.resources.length > 0, "inventory still works in memory");
+  assert.strictEqual(fs.readFileSync(future, "utf8"), futureBody, "newer store left untouched");
+});
+
+test("single-flight and throttle: concurrent refreshes share one run", async () => {
+  const { reader, world } = makeAgent();
+  setup({ reader, nodes: [agentNode("node-a")] });
+  const [a, b] = await Promise.all([inventory.refreshInventory(), inventory.refreshInventory()]);
+  assert.strictEqual(world.calls.filter((call) => call.pathname === "/api/v1/health").length, 1);
+  assert.strictEqual(b.joined, true);
+  assert.strictEqual(a.resources.length, b.resources.length);
+  const throttled = await inventory.refreshInventory();
+  assert.strictEqual(throttled.throttled, true);
+  assert.strictEqual(world.calls.filter((call) => call.pathname === "/api/v1/health").length, 1);
+  await inventory.refreshInventory({ force: true });
+  assert.strictEqual(world.calls.filter((call) => call.pathname === "/api/v1/health").length, 2);
+});
+
+test("unregistered node: resources stale, then pruned after retention", async () => {
+  const { reader } = makeAgent();
+  const nodes = [agentNode("node-a")];
+  setup({ reader, nodes });
+  clock = Date.parse("2026-10-14T10:00:00Z");
+  await inventory.refreshInventory();
+  nodes.length = 0;
+  clock += 60000;
+  const removed = await inventory.refreshInventory({ force: true });
+  assert.ok(removed.resources.length > 0 && removed.resources.every((resource) => resource.staleReason === "NODE_NOT_REGISTERED"));
+  clock += inventory.UNREGISTERED_RETENTION_MS + 1000;
+  const pruned = await inventory.refreshInventory({ force: true });
+  assert.strictEqual(pruned.resources.length, 0);
+});
+
+test("bounds: listeners and inspect calls are capped and reported", async () => {
+  const listeners = Array.from({ length: 300 }, (_, index) => ({ protocol: "tcp", localAddress: "0.0.0.0", localPort: 10000 + index, pid: 1 }));
+  const containers = Array.from({ length: 60 }, (_, index) => ({ id: `c${String(index).padStart(11, "0")}`, name: `c${index}`, state: "running", status: "Up", ports: [] }));
+  const { reader, world } = makeAgent({ listeners, containers, volumes: [] });
+  setup({ reader, nodes: [agentNode("node-a")] });
+  const snapshot = await inventory.refreshInventory();
+  assert.strictEqual(byKind(snapshot, "listener").length, model.LIMITS.maxListenersPerNode);
+  assert.strictEqual(snapshot.nodes[0].limits.listenersTruncated, true);
+  assert.strictEqual(world.calls.filter((call) => call.pathname.endsWith("/inspect")).length, model.LIMITS.maxInspectsPerNode);
+  assert.strictEqual(snapshot.nodes[0].limits.inspectsSkipped, 20);
+  const uninspected = byKind(snapshot, "container").filter((container) => container.identity.reason === "CONTAINER_NOT_INSPECTED");
+  assert.strictEqual(uninspected.length, 20);
+});
+
+test("service-managed edge cases: unobserved, not allowlisted, MainPID change", async () => {
+  const instances = [{
+    id: "svc", type: "systemd-service", state: "Unknown",
+    serviceManager: { kind: "systemd", unit: "other.service" },
+    serviceStatus: { observed: false, unit: "other.service", error: "SERVICE_QUERY_FAILED" },
+  }];
+  const { reader, world } = makeAgent({ instances });
+  setup({ reader, nodes: [agentNode("node-a")] });
+  let snapshot = await inventory.refreshInventory();
+  let svc = byKind(snapshot, "service-managed-instance")[0];
+  assert.strictEqual(svc.health.state, "unknown", "unreadable service is unknown, never stopped");
+  assert.strictEqual(svc.capabilities.unitAllowlisted, false);
+  const key = svc.key;
+  world.instances = [{ ...instances[0], state: "Running", serviceStatus: { observed: true, unit: "other.service", activeState: "active", externalMainPid: 1 } }];
+  snapshot = await inventory.refreshInventory({ force: true });
+  world.instances = [{ ...instances[0], state: "Running", serviceStatus: { observed: true, unit: "other.service", activeState: "active", externalMainPid: 2 } }];
+  snapshot = await inventory.refreshInventory({ force: true });
+  svc = byKind(snapshot, "service-managed-instance")[0];
+  assert.strictEqual(svc.key, key, "a systemd restart (new MainPID) keeps the same identity");
+  assert.strictEqual(svc.details.externalMainPid, 2);
+});
+
+test("allow-list judgment is not applicable on hosts without service-managed support", async () => {
+  const { reader, world } = makeAgent();
+  const original = reader;
+  const unsupported = async (pathname, options) => {
+    const result = await original(pathname, options);
+    if (pathname === "/api/v1/health") result.capabilities.serviceManagedInstances = { supported: false, mechanism: null, allowedUnits: [] };
+    return result;
+  };
+  setup({ reader: unsupported, nodes: [agentNode("node-a")] });
+  const snapshot = await inventory.refreshInventory();
+  const svc = byKind(snapshot, "service-managed-instance")[0];
+  assert.strictEqual(svc.capabilities.unitAllowlisted, null);
+  assert.ok(world.calls.length > 0);
+});
+
+test("protection: owner-confirmed non-production applies only to verified keys", () => {
+  const verified = { key: "k1", identity: { verified: true } };
+  const unverifiedResource = { key: "k2", identity: { verified: false } };
+  const classifications = {
+    k1: { scope: "non-production", ownerConfirmed: true, confirmedAt: "2026-10-14T00:00:00Z" },
+    k2: { scope: "non-production", ownerConfirmed: true },
+    k3: { scope: "non-production", ownerConfirmed: false },
+  };
+  assert.strictEqual(model.applyProtection(verified, classifications).protection.scope, "non-production");
+  assert.strictEqual(model.applyProtection(unverifiedResource, classifications).protection.scope, "production");
+  assert.strictEqual(model.applyProtection({ key: "k3", identity: { verified: true } }, classifications).protection.scope, "production");
+  assert.strictEqual(model.applyProtection({ key: "k4", identity: { verified: true } }, classifications).protection.reason, "UNCLASSIFIED_DEFAULT_PRODUCTION");
+});
+
+async function main() {
+  tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "anxos-aim1-"));
+  clock = Date.parse("2026-10-14T09:00:00Z");
+  let failed = 0;
+  try {
+    for (const { name, fn } of tests) {
+      try {
+        await fn();
+        console.log(`ok - ${name}`);
+      } catch (error) {
+        failed += 1;
+        console.error(`not ok - ${name}\n${error?.stack || error}`);
+      }
+    }
+  } finally {
+    inventory.resetInfrastructureInventory();
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+  if (failed) {
+    console.error(`infra inventory smoke failed: ${failed}/${tests.length}`);
+    process.exit(1);
+  }
+  console.log(`infra inventory smoke passed: ${tests.length} tests`);
+}
+
+main();
