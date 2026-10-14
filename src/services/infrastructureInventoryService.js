@@ -493,7 +493,14 @@ async function collectNode(node) {
 
   let deduped = model.dedupeResources(resources.filter(Boolean));
   const truncated = deduped.length > model.LIMITS.maxResourcesPerNode;
-  if (truncated) deduped = deduped.slice(0, model.LIMITS.maxResourcesPerNode);
+  if (truncated) {
+    // Rows dropped by the cap are not deletions: every kind that lost rows is
+    // treated as unread, so its previous records are kept as stale.
+    for (const dropped of deduped.slice(model.LIMITS.maxResourcesPerNode)) {
+      if (!unreadKinds[dropped.kind]) unreadKinds[dropped.kind] = "RESOURCE_CAP_TRUNCATED";
+    }
+    deduped = deduped.slice(0, model.LIMITS.maxResourcesPerNode);
+  }
 
   return {
     nodeId: node.id,

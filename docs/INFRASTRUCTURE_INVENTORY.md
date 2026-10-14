@@ -60,7 +60,7 @@ the operator presses **Refresh Inventory**.
 | Instance | host verified + AnxOS instance id | process id |
 | systemd service | host verified + instance id + unit name | `externalMainPid` (systemd owns it; a restart changes it) |
 | Container | host verified + full 64-hex container ID (from inspect); the key also includes name and compose project/service, so a rename or compose move is a new identity | port |
-| Volume | host verified + name + creation timestamp (both also form the key, so a volume recreated under the same name is a new resource) | — |
+| Volume | host verified + name + creation timestamp + driver, all required and all in the key, so a recreated volume or a driver change is a new resource | — |
 | Compose project | host verified + name + config path (both in the key, so a moved project is a new identity) | — |
 | Network, listener | **always unverified** (truncated network ID; listener owners carry no executable path or start time) | — |
 
@@ -86,7 +86,8 @@ AIM-1 ships no classification editor, so everything is shown as Production.
 | Concurrent refreshes | Single-flight; a refresh within 10 s returns the previous result (`throttled`) unless forced |
 | Desktop restart | Stored resources load as stale (`NOT_REFRESHED_SINCE_RESTART`) until the next refresh; `firstSeen` survives |
 | Corrupt or malformed store | Moved out of the active path to `.corrupt-<ts>` (renamed, never deleted), inventory restarts empty; later restarts do not quarantine again. If the rename is blocked: a copy plus an empty valid store; if that replacement is also blocked, the corrupt file is left untouched, a byte-identical copy is reused (no accumulation) and the session runs read-only |
-| Inspect failed or skipped for a previously verified container or volume | The verified record is kept, marked stale (`IDENTITY_NOT_REREAD`); identity and `firstSeen` are not erased |
+| Inspect failed or skipped for a previously verified container or volume | The verified record is kept, marked stale (`IDENTITY_NOT_REREAD`), but only if every component still visible in the list (container name, volume driver) is unchanged; otherwise the changed object is recorded as a new, unverified identity |
+| More resources than the per-node cap | Kinds that lost rows to the cap keep their previous records as stale (`RESOURCE_CAP_TRUNCATED`); nothing is treated as deleted |
 | Store from a newer build | Never overwritten; inventory runs in memory only |
 
 Bounds: 2 nodes in parallel, 2 inspects in parallel, 40 inspects per node,
@@ -108,7 +109,7 @@ reported on the node row.
 
 | Check | Command |
 | --- | --- |
-| Model + service, hermetic (26 tests) | `npm run inventory:smoke` |
+| Model + service, hermetic (29 tests) | `npm run inventory:smoke` |
 | Real Agent, fake systemd: discovery, zero control calls, identity mismatch, auth boundary, unreachable node, MainPID change | `npm run inventory:agent:smoke` |
 | Real Electron UI against a real Agent | `npm run inventory:ui:qa` |
 | Guard chain and tier | `node scripts/permission-matrix-smoke.js` |

@@ -158,6 +158,7 @@ function baseResource(ctx, kind, key, fields) {
   return {
     key,
     matchKey: fields.matchKey || key,
+    listedComponents: fields.listedComponents || null,
     kind,
     nodeId: ctx.nodeId,
     hostKey: ctx.hostKey || null,
@@ -293,6 +294,8 @@ function buildContainerResource(ctx, container = {}, inspect = null) {
     : `container:${shortKey}`;
   return baseResource(ctx, "container", hostScopedKey(ctx, containerKey), {
     matchKey: hostScopedKey(ctx, `container:${shortKey}`),
+    // The list response still shows the name when inspect fails.
+    listedComponents: { name: text(container.name) },
     name,
     identity: complete
       ? { verified: true, reason: null, components: { host: ctx.hostKey, containerId: fullId, composeProject: project, composeService: service, name } }
@@ -323,8 +326,12 @@ function buildVolumeResource(ctx, volume = {}, inspect = null) {
   const name = text(volume.name);
   if (!name) return null;
   const createdAt = isoOrNull(inspect?.CreatedAt);
-  const complete = Boolean(ctx.hostVerified && createdAt);
-  const reason = !ctx.hostVerified ? "HOST_IDENTITY_UNVERIFIED" : inspect ? "VOLUME_CREATED_AT_UNAVAILABLE" : "VOLUME_NOT_INSPECTED";
+  const driver = text(volume.driver) || text(inspect?.Driver);
+  // §5.7 volume tuple: host + name + creation timestamp + driver, all required.
+  const complete = Boolean(ctx.hostVerified && createdAt && driver);
+  const reason = !ctx.hostVerified
+    ? "HOST_IDENTITY_UNVERIFIED"
+    : !inspect ? "VOLUME_NOT_INSPECTED" : !createdAt ? "VOLUME_CREATED_AT_UNAVAILABLE" : "VOLUME_DRIVER_UNAVAILABLE";
   const labels = inspect?.Labels && typeof inspect.Labels === "object" ? inspect.Labels : (volume.labels || {});
   const project = text(labels?.[COMPOSE_PROJECT_LABEL]);
   // The creation time is part of the key: a volume removed and recreated under
@@ -332,13 +339,15 @@ function buildVolumeResource(ctx, volume = {}, inspect = null) {
   // protection classification. Without an observed creation time the key falls
   // back to the name, and such a resource is unverified, so it can never carry
   // a non-production classification (applyProtection) either.
-  const volumeKey = createdAt ? `volume:${name}:${createdAt}` : `volume:${name}`;
+  const volumeKey = complete ? `volume:${name}:${createdAt}:${driver}` : `volume:${name}`;
   return baseResource(ctx, "volume", hostScopedKey(ctx, volumeKey), {
     matchKey: hostScopedKey(ctx, `volume:${name}`),
+    // Components still visible in the list response even when inspect fails.
+    listedComponents: { name, driver },
     name,
     identity: complete
-      ? { verified: true, reason: null, components: { host: ctx.hostKey, name, createdAt, driver: text(volume.driver) } }
-      : unverified(reason, { host: ctx.hostKey, name, createdAt, driver: text(volume.driver) }),
+      ? { verified: true, reason: null, components: { host: ctx.hostKey, name, createdAt, driver } }
+      : unverified(reason, { host: ctx.hostKey, name, createdAt, driver }),
     ownership: project ? { owner: "docker-compose", detail: `Compose project ${project}` } : { owner: "docker", detail: "Named volume" },
     source: "agent-observed",
     health: { state: "unknown", detail: "Volume contents are not probed in AIM-1" },
@@ -503,7 +512,12 @@ function mergeNodeCollection(previousResources = [], collection = {}, now) {
   const fresh = (collection.resources || []).map((resource) => {
     if (resource.identity?.verified !== true && TRANSIENT_IDENTITY_GAPS.has(resource.identity?.reason)) {
       const verifiedBefore = previousVerifiedByMatch.get(resource.matchKey);
-      if (verifiedBefore) {
+      // Only when nothing that is still observable has changed: a rename or a
+      // driver change seen in the list response is an identity change, so the
+      // fresh (unverified) record stands instead of the old verified one.
+      const listedAgrees = Object.entries(resource.listedComponents || {})
+        .every(([component, value]) => value === null || value === undefined || verifiedBefore?.identity?.components?.[component] === value);
+      if (verifiedBefore && listedAgrees) {
         return { ...verifiedBefore, nodeIds: [nodeId], stale: true, staleReason: "IDENTITY_NOT_REREAD" };
       }
     }
