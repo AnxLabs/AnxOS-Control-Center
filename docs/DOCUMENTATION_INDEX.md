@@ -61,6 +61,10 @@ entry disagree, the later cycle entry controls, and the code controls over both.
 - `docs/v2/V2B_DASHBOARD_APPS_WAVE1.md`, `docs/v2/V2C_CONTAINERS_WAVE1.md`,
   `docs/v2/V2D_MARKETPLACE_RUNTIMES_WAVE1.md` — V2-B / V2-C / V2-D milestone
   design briefs.
+- `docs/v2/V2_AUTONOMOUS_INFRASTRUCTURE_PLAN.md` — FROZEN at revision 3.1;
+  PLANNING ONLY, not approved for implementation: Autonomous Infrastructure
+  Management plan (V2-L/V2-M operationalization, milestones AIM-0…AIM-7;
+  decisions D1–D5 resolved; V2-L per-action approval preserved).
 - `docs/v2/BUILD201_STATS_UNAUTHORIZED_REPORT.md` — build-scoped report, treated
   as historical evidence for its named build only.
 
