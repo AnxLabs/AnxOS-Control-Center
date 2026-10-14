@@ -1,8 +1,12 @@
 #!/usr/bin/env node
 const { spawnSync } = require("child_process");
+const fs = require("fs");
+const os = require("os");
 const path = require("path");
 
 const root = path.resolve(__dirname, "..");
+const repoEnvPath = path.join(root, ".env");
+const repoEnvExamplePath = path.join(root, ".env.example");
 const args = new Set(process.argv.slice(2));
 const tierArg = process.argv.find((arg) => arg.startsWith("--tier="));
 const tier = tierArg ? tierArg.slice("--tier=".length) : "release";
@@ -107,9 +111,41 @@ function formatCommand(command, commandArgs) {
   return [command, ...commandArgs].join(" ");
 }
 
+// ampService bootstraps a missing env file by copying .env.example to the
+// repo-root .env, and the Agent always loads <repo>/.env. Checks therefore get
+// a per-run env file so one smoke cannot leak the template's placeholder
+// AGENT_TOKEN into later smokes. The file is seeded from the template up front
+// so the bootstrap never copies a developer's real .env into the temp dir.
+let isolatedEnvDir = null;
+let checkEnv = process.env;
+
+function createIsolatedEnv() {
+  isolatedEnvDir = fs.mkdtempSync(path.join(os.tmpdir(), "anxos-qa-env-"));
+  const isolatedEnvPath = path.join(isolatedEnvDir, ".env");
+  if (fs.existsSync(repoEnvExamplePath)) {
+    fs.copyFileSync(repoEnvExamplePath, isolatedEnvPath);
+  } else {
+    fs.writeFileSync(isolatedEnvPath, "", "utf8");
+  }
+  process.on("exit", () => {
+    fs.rmSync(isolatedEnvDir, { recursive: true, force: true });
+  });
+  checkEnv = {
+    ...process.env,
+    ANXHUB_ENV_PATH: isolatedEnvPath,
+    ANXHUB_ENV_EXAMPLE_PATH: repoEnvExamplePath,
+  };
+}
+
+// Existence only: the repo-root .env may hold real secrets and is never read.
+function repoEnvExists() {
+  return fs.existsSync(repoEnvPath);
+}
+
 function run(command, commandArgs) {
   return spawnSync(command, commandArgs, {
     cwd: root,
+    env: checkEnv,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
@@ -153,6 +189,7 @@ if (!Object.prototype.hasOwnProperty.call(TIERS, tier)) {
 }
 
 const checks = TIERS[tier];
+createIsolatedEnv();
 const initialStatus = gitStatusShort();
 const started = Date.now();
 const timings = [];
@@ -167,6 +204,7 @@ console.log(`[qa] Running ${tier} tier (${checks.length} checks).`);
 for (const [command, commandArgs] of checks) {
   const label = formatCommand(command, commandArgs);
   const before = gitStatusShort();
+  const repoEnvBefore = repoEnvExists();
   const checkStarted = Date.now();
   console.log(`[qa] start ${label}`);
   const result = run(command, commandArgs);
@@ -178,6 +216,12 @@ for (const [command, commandArgs] of checks) {
 
   const after = gitStatusShort();
   if (after !== before) failDirtyTree(label, before, after);
+
+  // .env is gitignored, so the dirty-tree guard cannot see it being created.
+  if (repoEnvExists() !== repoEnvBefore) {
+    console.error(`[qa] ${label} ${repoEnvBefore ? "removed" : "created"} the repo-root .env; checks must use the isolated ANXHUB_ENV_PATH.`);
+    process.exit(1);
+  }
 
   if (result.status !== 0) {
     console.error(`[qa] fail ${label} (${elapsedMs}ms)`);
