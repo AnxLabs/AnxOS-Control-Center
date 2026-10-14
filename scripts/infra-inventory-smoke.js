@@ -388,6 +388,113 @@ test("corrupt store leaves the active path: restarts without a refresh do not re
   assert.strictEqual(corruptCopies().length, 2);
 });
 
+test("quarantine with every rename blocked: read-only, original untouched, one copy across restarts", async () => {
+  const { reader } = makeAgent();
+  const dir = fs.mkdtempSync(path.join(tempRoot, "locked-"));
+  const store = path.join(dir, "inventory.json");
+  fs.writeFileSync(store, "{locked and corrupt");
+  const corruptCopies = () => fs.readdirSync(dir).filter((name) => name.includes(".corrupt-"));
+  const blockedRename = () => { throw Object.assign(new Error("EBUSY: resource busy or locked"), { code: "EBUSY" }); };
+  setup({ reader, nodes: [agentNode("node-a")], storePath: store });
+  inventory.configureInfrastructureInventory({ renameSync: blockedRename });
+  for (let restart = 0; restart < 3; restart += 1) {
+    clock += 1000;
+    inventory.resetInfrastructureInventory({ keepStore: true });
+    const loaded = inventory.getInventory();
+    assert.strictEqual(loaded.store.quarantine.method, "copied-not-replaced", `restart ${restart}: replacement failure is reported`);
+    assert.strictEqual(loaded.store.readOnly, true, `restart ${restart}: session is read-only`);
+    const refreshed = await inventory.refreshInventory({ force: true });
+    assert.ok(refreshed.resources.length > 0, "inventory still works in memory");
+  }
+  assert.strictEqual(fs.readFileSync(store, "utf8"), "{locked and corrupt", "the active corrupt file is never written over");
+  assert.strictEqual(corruptCopies().length, 1, "byte-identical copy reused, not accumulated");
+  assert.strictEqual(fs.readFileSync(path.join(dir, corruptCopies()[0]), "utf8"), "{locked and corrupt");
+  assert.ok(!fs.readdirSync(dir).some((name) => name.endsWith(".tmp")), "no temp file left behind");
+});
+
+test("a transient inspect gap keeps the verified volume and container records (stale)", async () => {
+  const { reader, world } = makeAgent();
+  setup({ reader, nodes: [agentNode("node-a")] });
+  clock = Date.parse("2026-10-14T10:00:00Z");
+  const first = await inventory.refreshInventory();
+  const volume = byKind(first, "volume")[0];
+  const container = byKind(first, "container")[0];
+  assert.ok(volume.identity.verified && container.identity.verified);
+  world.failures["/api/v1/docker/volumes/qdrant-data/inspect"] = () => Object.assign(new Error("timeout"), { code: "AGENT_TIMEOUT" });
+  world.failures[`/api/v1/docker/containers/${FULL_ID.slice(0, 12)}/inspect`] = () => Object.assign(new Error("timeout"), { code: "AGENT_TIMEOUT" });
+  clock += 3600000;
+  const gap = await inventory.refreshInventory({ force: true });
+  for (const [kind, before] of [["volume", volume], ["container", container]]) {
+    const rows = byKind(gap, kind);
+    assert.strictEqual(rows.length, 1, `${kind}: no duplicate unverified record`);
+    assert.strictEqual(rows[0].key, before.key, `${kind}: verified key retained`);
+    assert.strictEqual(rows[0].identity.verified, true, `${kind}: verified identity retained`);
+    assert.strictEqual(rows[0].firstSeen, "2026-10-14T10:00:00.000Z", `${kind}: firstSeen retained`);
+    assert.strictEqual(rows[0].stale, true);
+    assert.strictEqual(rows[0].staleReason, "IDENTITY_NOT_REREAD");
+  }
+  world.failures = {};
+  clock += 3600000;
+  const healed = await inventory.refreshInventory({ force: true });
+  for (const [kind, before] of [["volume", volume], ["container", container]]) {
+    const row = byKind(healed, kind)[0];
+    assert.strictEqual(row.key, before.key);
+    assert.strictEqual(row.stale, false);
+    assert.strictEqual(row.firstSeen, "2026-10-14T10:00:00.000Z", `${kind}: history intact after the gap`);
+  }
+});
+
+test("container rename or compose move with the same Docker ID is a new identity", async () => {
+  const { reader } = makeAgent();
+  let labels = { "com.docker.compose.project": "ai-box", "com.docker.compose.service": "qdrant" };
+  let listedName = "qdrant";
+  const mutable = async (pathname, options) => {
+    const result = await reader(pathname, options);
+    if (pathname === "/api/v1/docker/containers") result.containers = result.containers.map((entry) => ({ ...entry, name: listedName }));
+    if (pathname.startsWith("/api/v1/docker/containers/") && pathname.endsWith("/inspect")) {
+      result.inspect[0].Config.Labels = labels;
+      result.inspect[0].Name = `/${listedName}`;
+    }
+    return result;
+  };
+  setup({ reader: mutable, nodes: [agentNode("node-a")] });
+  clock = Date.parse("2026-10-14T10:00:00Z");
+  const original = byKind(await inventory.refreshInventory(), "container")[0];
+  listedName = "qdrant-renamed";
+  clock += 3600000;
+  const renamed = byKind(await inventory.refreshInventory({ force: true }), "container");
+  assert.strictEqual(renamed.length, 1);
+  assert.strictEqual(renamed[0].identity.components.containerId, original.identity.components.containerId, "same Docker ID");
+  assert.notStrictEqual(renamed[0].key, original.key, "rename changes the key");
+  assert.strictEqual(renamed[0].firstSeen, "2026-10-14T11:00:00.000Z");
+  labels = { "com.docker.compose.project": "other-stack", "com.docker.compose.service": "qdrant" };
+  clock += 3600000;
+  const moved = byKind(await inventory.refreshInventory({ force: true }), "container")[0];
+  assert.notStrictEqual(moved.key, renamed[0].key, "compose move changes the key");
+  const classified = model.applyProtection(moved, { [original.key]: { scope: "non-production", ownerConfirmed: true }, [renamed[0].key]: { scope: "non-production", ownerConfirmed: true } });
+  assert.strictEqual(classified.protection.scope, "production", "no classification carries across");
+});
+
+test("compose project moved to another config path is a new identity", async () => {
+  let configFiles = "/srv/ai-box/compose.yaml";
+  const { reader } = makeAgent();
+  const moving = async (pathname, options) => {
+    const result = await reader(pathname, options);
+    if (pathname === "/api/v1/docker/compose/projects") result.projects = [{ Name: "ai-box", Status: "running(1)", ConfigFiles: configFiles }];
+    return result;
+  };
+  setup({ reader: moving, nodes: [agentNode("node-a")] });
+  clock = Date.parse("2026-10-14T10:00:00Z");
+  const before = byKind(await inventory.refreshInventory(), "compose-project")[0];
+  configFiles = "/opt/new-home/compose.yaml";
+  clock += 3600000;
+  const after = byKind(await inventory.refreshInventory({ force: true }), "compose-project");
+  assert.strictEqual(after.length, 1);
+  assert.notStrictEqual(after[0].key, before.key, "config path change changes the key");
+  assert.strictEqual(after[0].firstSeen, "2026-10-14T11:00:00.000Z");
+  assert.strictEqual(model.applyProtection(after[0], { [before.key]: { scope: "non-production", ownerConfirmed: true } }).protection.scope, "production");
+});
+
 test("host identity rotation: new generation is a new host and new children", async () => {
   const { reader, world } = makeAgent();
   setup({ reader, nodes: [agentNode("node-a")] });

@@ -59,9 +59,9 @@ the operator presses **Refresh Inventory**.
 | Host | `deviceId` + `agentInstallationId` + `agentIdentityGeneration` all reported, and `deviceId` matches the node's registered device. All three form the key, so re-pairing or credential rotation makes the host and every child resource a new identity (no `firstSeen` or classification carries over) | hostname, URL |
 | Instance | host verified + AnxOS instance id | process id |
 | systemd service | host verified + instance id + unit name | `externalMainPid` (systemd owns it; a restart changes it) |
-| Container | host verified + full 64-hex container ID (from inspect) | name, port |
+| Container | host verified + full 64-hex container ID (from inspect); the key also includes name and compose project/service, so a rename or compose move is a new identity | port |
 | Volume | host verified + name + creation timestamp (both also form the key, so a volume recreated under the same name is a new resource) | — |
-| Compose project | host verified + name + config path | — |
+| Compose project | host verified + name + config path (both in the key, so a moved project is a new identity) | — |
 | Network, listener | **always unverified** (truncated network ID; listener owners carry no executable path or start time) | — |
 
 A node whose Agent reports a different device than the one registered is
@@ -85,7 +85,8 @@ AIM-1 ships no classification editor, so everything is shown as Production.
 | Node removed from the registry | Its resources stay stale (`NODE_NOT_REGISTERED`) for 7 days, then are pruned |
 | Concurrent refreshes | Single-flight; a refresh within 10 s returns the previous result (`throttled`) unless forced |
 | Desktop restart | Stored resources load as stale (`NOT_REFRESHED_SINCE_RESTART`) until the next refresh; `firstSeen` survives |
-| Corrupt or malformed store | Moved out of the active path to `.corrupt-<ts>` (renamed, never deleted; a copy plus an empty valid store if the rename is blocked), inventory restarts empty; later restarts do not quarantine again |
+| Corrupt or malformed store | Moved out of the active path to `.corrupt-<ts>` (renamed, never deleted), inventory restarts empty; later restarts do not quarantine again. If the rename is blocked: a copy plus an empty valid store; if that replacement is also blocked, the corrupt file is left untouched, a byte-identical copy is reused (no accumulation) and the session runs read-only |
+| Inspect failed or skipped for a previously verified container or volume | The verified record is kept, marked stale (`IDENTITY_NOT_REREAD`); identity and `firstSeen` are not erased |
 | Store from a newer build | Never overwritten; inventory runs in memory only |
 
 Bounds: 2 nodes in parallel, 2 inspects in parallel, 40 inspects per node,
@@ -107,7 +108,7 @@ reported on the node row.
 
 | Check | Command |
 | --- | --- |
-| Model + service, hermetic (22 tests) | `npm run inventory:smoke` |
+| Model + service, hermetic (26 tests) | `npm run inventory:smoke` |
 | Real Agent, fake systemd: discovery, zero control calls, identity mismatch, auth boundary, unreachable node, MainPID change | `npm run inventory:agent:smoke` |
 | Real Electron UI against a real Agent | `npm run inventory:ui:qa` |
 | Guard chain and tier | `node scripts/permission-matrix-smoke.js` |

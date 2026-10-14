@@ -72,6 +72,8 @@ const overrides = {
   nodes: null,
   agentConfigFor: null,
   persist: true,
+  // Test seam for the quarantine rename path (simulates a locked file).
+  renameSync: null,
 };
 
 let state = null; // { snapshot, loaded, quarantine }
@@ -97,6 +99,7 @@ function resetInfrastructureInventory(options = {}) {
     overrides.nodes = null;
     overrides.agentConfigFor = null;
     overrides.persist = true;
+    overrides.renameSync = null;
   }
 }
 
@@ -144,32 +147,69 @@ function safeMessage(value, fallback) {
 // ---------------------------------------------------------------------------
 // Persistence
 // ---------------------------------------------------------------------------
+function renameFile(from, to) {
+  return (overrides.renameSync || fs.renameSync)(from, to);
+}
+
+// An existing quarantined copy with exactly these bytes, if any. Used so a
+// store that cannot leave the active path is copied once, not once per restart.
+function findIdenticalQuarantine(target, bytes) {
+  const dir = path.dirname(target);
+  const prefix = `${path.basename(target)}.corrupt-`;
+  let names = [];
+  try { names = fs.readdirSync(dir).filter((name) => name.startsWith(prefix)); } catch { return null; }
+  for (const name of names) {
+    const candidate = path.join(dir, name);
+    try {
+      const stat = fs.statSync(candidate);
+      if (stat.isFile() && stat.size === bytes.length && fs.readFileSync(candidate).equals(bytes)) return candidate;
+    } catch {}
+  }
+  return null;
+}
+
 // Moves the unusable store out of the active path so the next load finds no
 // store and starts clean: one quarantine per corruption, not one per restart.
-// The file is renamed (never deleted), so it stays recoverable. If the rename
-// fails (for example a Windows lock), a copy is kept instead and the active
-// path is replaced with an empty valid store so it is not quarantined again.
+// The file is renamed (never deleted), so it stays recoverable.
+//   - Rename blocked (e.g. a Windows lock): keep a copy, then replace the
+//     active path with an empty valid store.
+//   - Replacement also blocked, or no copy possible: the corrupt file stays
+//     at the active path untouched and the session runs read-only (nothing is
+//     written over it). A byte-identical earlier copy is reused, so repeated
+//     restarts do not accumulate copies.
 function quarantine(target, code) {
   let quarantinePath = `${target}.corrupt-${nowMs()}`;
   for (let suffix = 1; fs.existsSync(quarantinePath); suffix += 1) {
     quarantinePath = `${target}.corrupt-${nowMs()}-${suffix}`;
   }
   try {
-    fs.renameSync(target, quarantinePath);
+    renameFile(target, quarantinePath);
     return { path: quarantinePath, code, method: "moved" };
   } catch {}
-  try {
-    fs.copyFileSync(target, quarantinePath, fs.constants.COPYFILE_EXCL);
-  } catch {
-    // Could neither move nor copy it: keep the original untouched and do not
-    // write over it this session.
-    return { path: null, code, method: "unmovable", readOnly: true };
+  let bytes = null;
+  try { bytes = fs.readFileSync(target); } catch {}
+  const existingCopy = bytes ? findIdenticalQuarantine(target, bytes) : null;
+  if (existingCopy) {
+    quarantinePath = existingCopy;
+  } else {
+    try {
+      fs.copyFileSync(target, quarantinePath, fs.constants.COPYFILE_EXCL);
+    } catch {
+      return { path: null, code, method: "unmovable", readOnly: true };
+    }
   }
   try {
     const temp = `${target}.${process.pid}.${nowMs()}.tmp`;
     fs.writeFileSync(temp, `${JSON.stringify(emptySnapshot(), null, 2)}\n`, { mode: 0o600 });
-    fs.renameSync(temp, target);
-  } catch {}
+    try {
+      renameFile(temp, target);
+    } catch (error) {
+      try { fs.unlinkSync(temp); } catch {}
+      throw error;
+    }
+  } catch {
+    return { path: quarantinePath, code, method: "copied-not-replaced", readOnly: true };
+  }
   return { path: quarantinePath, code, method: "copied" };
 }
 

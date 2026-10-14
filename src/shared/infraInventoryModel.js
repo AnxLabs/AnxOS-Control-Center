@@ -49,6 +49,9 @@ const LIMITS = Object.freeze({
 });
 
 const FULL_CONTAINER_ID = /^[0-9a-f]{64}$/;
+// Identity gaps caused by this refresh not reading the object (not by the
+// object itself): the previous verified record is retained instead.
+const TRANSIENT_IDENTITY_GAPS = new Set(["CONTAINER_NOT_INSPECTED", "VOLUME_NOT_INSPECTED"]);
 const COMPOSE_PROJECT_LABEL = "com.docker.compose.project";
 const COMPOSE_SERVICE_LABEL = "com.docker.compose.service";
 
@@ -147,9 +150,14 @@ function healthFromContainer(container = {}) {
 // Resource builders. Each returns a resource or null. `ctx` carries nodeId,
 // hostKey and the host verification result.
 // ---------------------------------------------------------------------------
+// `key` encodes the complete verified identity (§5.7), so any identity change
+// yields a new key and nothing (firstSeen, classification) carries across it.
+// `matchKey` is an identity-independent locator (host scope + kind + listed
+// id or name) used only to recognize a transient read gap on the same object.
 function baseResource(ctx, kind, key, fields) {
   return {
     key,
+    matchKey: fields.matchKey || key,
     kind,
     nodeId: ctx.nodeId,
     hostKey: ctx.hostKey || null,
@@ -275,10 +283,16 @@ function buildContainerResource(ctx, container = {}, inspect = null) {
   const name = text(container.name) || text(String(inspect?.Name || "").replace(/^\//, ""));
   const complete = Boolean(ctx.hostVerified && fullId);
   const reason = !ctx.hostVerified ? "HOST_IDENTITY_UNVERIFIED" : !fullId ? (inspect ? "FULL_CONTAINER_ID_UNAVAILABLE" : "CONTAINER_NOT_INSPECTED") : null;
-  // Keyed by the short id so a container keeps its record across refreshes even
-  // when one refresh could not inspect it; the full id lives in the identity.
   const shortKey = idForKey.slice(0, 12);
-  return baseResource(ctx, "container", hostScopedKey(ctx, `container:${shortKey}`), {
+  // Verified key: every §5.7 component, so a rename or a move to another
+  // compose project/service is a new identity even though the Docker ID stays.
+  // Unverified key: the short id; a transient inspect gap on a previously
+  // verified container is recognized through matchKey (mergeNodeCollection).
+  const containerKey = complete
+    ? `container:${fullId}:${project || ""}/${service || ""}:${name || ""}`
+    : `container:${shortKey}`;
+  return baseResource(ctx, "container", hostScopedKey(ctx, containerKey), {
+    matchKey: hostScopedKey(ctx, `container:${shortKey}`),
     name,
     identity: complete
       ? { verified: true, reason: null, components: { host: ctx.hostKey, containerId: fullId, composeProject: project, composeService: service, name } }
@@ -320,6 +334,7 @@ function buildVolumeResource(ctx, volume = {}, inspect = null) {
   // a non-production classification (applyProtection) either.
   const volumeKey = createdAt ? `volume:${name}:${createdAt}` : `volume:${name}`;
   return baseResource(ctx, "volume", hostScopedKey(ctx, volumeKey), {
+    matchKey: hostScopedKey(ctx, `volume:${name}`),
     name,
     identity: complete
       ? { verified: true, reason: null, components: { host: ctx.hostKey, name, createdAt, driver: text(volume.driver) } }
@@ -365,7 +380,11 @@ function buildComposeProjectResource(ctx, project = {}) {
   const configFiles = text(project.ConfigFiles || project.configFiles, 1000);
   const complete = Boolean(ctx.hostVerified && configFiles);
   const status = String(project.Status || project.status || "");
-  return baseResource(ctx, "compose-project", hostScopedKey(ctx, `compose:${name}`), {
+  // The config path is part of the verified identity and therefore the key: a
+  // project that keeps its name but moves is a new identity.
+  const composeKey = complete ? `compose:${name}:${configFiles}` : `compose:${name}`;
+  return baseResource(ctx, "compose-project", hostScopedKey(ctx, composeKey), {
+    matchKey: hostScopedKey(ctx, `compose:${name}`),
     name,
     identity: complete
       ? { verified: true, reason: null, components: { host: ctx.hostKey, name, configFiles } }
@@ -474,7 +493,20 @@ function mergeNodeCollection(previousResources = [], collection = {}, now) {
     .filter((resource) => Object.prototype.hasOwnProperty.call(unreadKinds, resource.kind))
     .map((resource) => ({ ...resource, stale: true, staleReason: unreadKinds[resource.kind] }));
 
+  // A resource that is unverified only because this refresh could not inspect
+  // it (inspect failed, timed out or the inspect budget ran out) is not a new
+  // identity: keep the previously verified record of the same object, marked
+  // stale, so its identity, firstSeen and history are not erased.
+  const previousVerifiedByMatch = new Map(mine
+    .filter((resource) => resource.identity?.verified === true && resource.matchKey)
+    .map((resource) => [resource.matchKey, resource]));
   const fresh = (collection.resources || []).map((resource) => {
+    if (resource.identity?.verified !== true && TRANSIENT_IDENTITY_GAPS.has(resource.identity?.reason)) {
+      const verifiedBefore = previousVerifiedByMatch.get(resource.matchKey);
+      if (verifiedBefore) {
+        return { ...verifiedBefore, nodeIds: [nodeId], stale: true, staleReason: "IDENTITY_NOT_REREAD" };
+      }
+    }
     const previous = previousByKey.get(resource.key);
     return {
       ...resource,
