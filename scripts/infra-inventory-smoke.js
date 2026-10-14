@@ -359,6 +359,50 @@ test("corrupt store is quarantined once; newer-schema store is never overwritten
   assert.strictEqual(fs.readFileSync(future, "utf8"), futureBody, "newer store left untouched");
 });
 
+test("structurally malformed stores are quarantined, not fatal", async () => {
+  const { reader } = makeAgent();
+  for (const [label, body] of [
+    ["null resource", { schemaVersion: 1, nodes: [], resources: [null] }],
+    ["resource without key", { schemaVersion: 1, nodes: [], resources: [{ kind: "host", nodeId: "n" }] }],
+    ["unknown kind", { schemaVersion: 1, nodes: [], resources: [{ key: "k", kind: "spaceship", nodeId: "n" }] }],
+    ["string node", { schemaVersion: 1, nodes: ["node-a"], resources: [] }],
+    ["array classifications", { schemaVersion: 1, nodes: [], resources: [], classifications: [] }],
+  ]) {
+    const store = path.join(tempRoot, `malformed-${label.replace(/[^a-z0-9]+/gi, "-")}.json`);
+    fs.writeFileSync(store, JSON.stringify(body));
+    setup({ reader, nodes: [agentNode("node-a")], storePath: store });
+    const loaded = inventory.getInventory();
+    assert.strictEqual(loaded.resources.length, 0, label);
+    assert.strictEqual(loaded.store.quarantine.code, "INVENTORY_STORE_INVALID", label);
+    assert.ok(fs.existsSync(loaded.store.quarantine.path), `${label}: quarantined copy kept`);
+    const refreshed = await inventory.refreshInventory({ force: true });
+    assert.ok(refreshed.resources.length > 0, `${label}: inventory usable after quarantine`);
+  }
+});
+
+test("a volume recreated under the same name is a new resource", async () => {
+  const { reader, world } = makeAgent();
+  const original = reader;
+  let createdAt = "2026-09-30T12:00:00Z";
+  const recreating = async (pathname, options) => {
+    const result = await original(pathname, options);
+    if (pathname.startsWith("/api/v1/docker/volumes/") && pathname.endsWith("/inspect")) result.inspect[0].CreatedAt = createdAt;
+    return result;
+  };
+  setup({ reader: recreating, nodes: [agentNode("node-a")] });
+  clock = Date.parse("2026-10-14T10:00:00Z");
+  const first = byKind(await inventory.refreshInventory(), "volume")[0];
+  createdAt = "2026-10-14T10:30:00Z";
+  clock += 3600000;
+  const second = byKind(await inventory.refreshInventory({ force: true }), "volume");
+  assert.strictEqual(second.length, 1, "old volume not carried alongside the new one");
+  assert.notStrictEqual(second[0].key, first.key, "recreated volume gets a new key");
+  assert.strictEqual(second[0].firstSeen, "2026-10-14T11:00:00.000Z", "firstSeen not inherited");
+  const classified = model.applyProtection(second[0], { [first.key]: { scope: "non-production", ownerConfirmed: true } });
+  assert.strictEqual(classified.protection.scope, "production", "old classification does not transfer");
+  assert.ok(world.calls.length > 0);
+});
+
 test("single-flight and throttle: concurrent refreshes share one run", async () => {
   const { reader, world } = makeAgent();
   setup({ reader, nodes: [agentNode("node-a")] });

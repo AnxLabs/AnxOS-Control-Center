@@ -311,7 +311,13 @@ function buildVolumeResource(ctx, volume = {}, inspect = null) {
   const reason = !ctx.hostVerified ? "HOST_IDENTITY_UNVERIFIED" : inspect ? "VOLUME_CREATED_AT_UNAVAILABLE" : "VOLUME_NOT_INSPECTED";
   const labels = inspect?.Labels && typeof inspect.Labels === "object" ? inspect.Labels : (volume.labels || {});
   const project = text(labels?.[COMPOSE_PROJECT_LABEL]);
-  return baseResource(ctx, "volume", hostScopedKey(ctx, `volume:${name}`), {
+  // The creation time is part of the key: a volume removed and recreated under
+  // the same name is a NEW resource (§5.7) and must not inherit firstSeen or a
+  // protection classification. Without an observed creation time the key falls
+  // back to the name, and such a resource is unverified, so it can never carry
+  // a non-production classification (applyProtection) either.
+  const volumeKey = createdAt ? `volume:${name}:${createdAt}` : `volume:${name}`;
+  return baseResource(ctx, "volume", hostScopedKey(ctx, volumeKey), {
     name,
     identity: complete
       ? { verified: true, reason: null, components: { host: ctx.hostKey, name, createdAt, driver: text(volume.driver) } }

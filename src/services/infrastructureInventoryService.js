@@ -150,6 +150,25 @@ function quarantine(target, code) {
   return { path: quarantinePath, code };
 }
 
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isValidStoredResource(resource) {
+  return isPlainObject(resource)
+    && typeof resource.key === "string" && resource.key.length > 0
+    && model.RESOURCE_KINDS.includes(resource.kind)
+    && typeof resource.nodeId === "string"
+    && (resource.nodeIds === undefined || (Array.isArray(resource.nodeIds) && resource.nodeIds.every((id) => typeof id === "string")))
+    && (resource.identity === undefined || isPlainObject(resource.identity))
+    && (resource.health === undefined || isPlainObject(resource.health));
+}
+
+function isValidStoredNode(node) {
+  return isPlainObject(node) && typeof node.nodeId === "string" && node.nodeId.length > 0
+    && (node.sections === undefined || Array.isArray(node.sections));
+}
+
 function loadStore() {
   if (state?.loaded) return state;
   const target = resolveStorePath();
@@ -170,7 +189,11 @@ function loadStore() {
     state.quarantine = { path: null, code: "INVENTORY_STORE_SCHEMA_UNSUPPORTED" };
     return state;
   }
-  if (schemaVersion < 1 || !Array.isArray(raw.resources) || !Array.isArray(raw.nodes)) {
+  if (schemaVersion < 1 || !Array.isArray(raw.resources) || !Array.isArray(raw.nodes)
+    || !raw.resources.every(isValidStoredResource) || !raw.nodes.every(isValidStoredNode)
+    || (raw.classifications !== undefined && (raw.classifications === null || typeof raw.classifications !== "object" || Array.isArray(raw.classifications)))) {
+    // Valid JSON with a malformed structure is treated exactly like a corrupt
+    // file: quarantined once, inventory restarts empty, IPC stays usable.
     state.quarantine = quarantine(target, "INVENTORY_STORE_INVALID");
     return state;
   }

@@ -60,7 +60,7 @@ the operator presses **Refresh Inventory**.
 | Instance | host verified + AnxOS instance id | process id |
 | systemd service | host verified + instance id + unit name | `externalMainPid` (systemd owns it; a restart changes it) |
 | Container | host verified + full 64-hex container ID (from inspect) | name, port |
-| Volume | host verified + name + creation timestamp | — |
+| Volume | host verified + name + creation timestamp (both also form the key, so a volume recreated under the same name is a new resource) | — |
 | Compose project | host verified + name + config path | — |
 | Network, listener | **always unverified** (truncated network ID; listener owners carry no executable path or start time) | — |
 
@@ -107,7 +107,7 @@ reported on the node row.
 
 | Check | Command |
 | --- | --- |
-| Model + service, hermetic (18 tests) | `npm run inventory:smoke` |
+| Model + service, hermetic (20 tests) | `npm run inventory:smoke` |
 | Real Agent, fake systemd: discovery, zero control calls, identity mismatch, auth boundary, unreachable node, MainPID change | `npm run inventory:agent:smoke` |
 | Real Electron UI against a real Agent | `npm run inventory:ui:qa` |
 | Guard chain and tier | `node scripts/permission-matrix-smoke.js` |
