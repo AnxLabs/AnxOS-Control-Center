@@ -525,9 +525,14 @@ function mergeNodeCollection(previousResources = [], collection = {}, now) {
       }
     }
     const previous = previousByKey.get(resource.key);
+    // Other registrations of the same Agent keep their association until they
+    // independently stop reporting the record (stillShared below) or are
+    // removed from the registry; an unavailable twin is not a removal.
+    const otherNodeIds = (previous?.nodeIds || []).filter((id) => id !== nodeId);
     return {
       ...resource,
-      nodeIds: [nodeId],
+      nodeIds: [nodeId, ...otherNodeIds].sort(),
+      duplicateNodes: otherNodeIds.length > 0 || undefined,
       firstSeen: previous?.firstSeen || at,
       lastSeen: at,
       stale: false,
@@ -599,6 +604,9 @@ function summarize(resources = [], nodes = []) {
     nodes: nodes.filter((node) => node.kind === "agent").length,
     nodesAvailable: nodes.filter((node) => node.kind === "agent" && node.status === "collected").length,
     nodesUnavailable: nodes.filter((node) => node.kind === "agent" && node.status !== "collected").length,
+    // Collected, but some section was unread or rows were truncated.
+    nodesPartial: nodes.filter((node) => node.kind === "agent" && node.status === "collected"
+      && ((node.sections || []).some((section) => section.status !== "ok") || node.limits?.truncated === true)).length,
   };
 }
 

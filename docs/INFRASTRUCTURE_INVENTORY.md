@@ -111,7 +111,7 @@ reported on the node row.
 
 | Check | Command |
 | --- | --- |
-| Model + service, hermetic (38 tests) | `npm run inventory:smoke` |
+| Model + service, hermetic (41 tests) | `npm run inventory:smoke` |
 | Real Agent, fake systemd: discovery, zero control calls, identity mismatch, auth boundary, unreachable node, MainPID change | `npm run inventory:agent:smoke` |
 | Real Electron UI against a real Agent | `npm run inventory:ui:qa` |
 | Guard chain and tier | `node scripts/permission-matrix-smoke.js` |

@@ -601,7 +601,12 @@ async function runRefresh() {
   let resources = snapshot.resources;
   const nodeRecords = [];
   for (const { node, collection, skipped } of outcomes) {
-    resources = enforceNodeCap(model.mergeNodeCollection(resources, collection, at), node.id);
+    const capReport = { evicted: 0, freshEvicted: 0, byKind: {} };
+    resources = enforceNodeCap(model.mergeNodeCollection(resources, collection, at), node.id, capReport);
+    if (collection.ok && capReport.evicted > 0) {
+      // Rows removed after stale carry-over are reported like any truncation.
+      collection.limits = { ...(collection.limits || {}), truncated: true, capEvicted: capReport.evicted, capEvictedFresh: capReport.freshEvicted, capEvictedByKind: capReport.byKind };
+    }
     const previous = previousNodes.get(node.id);
     nodeRecords.push(nodeRecord(node, previous, collection.ok
       ? { status: "collected", lastAttemptAt: at, lastSuccessAt: at, sections: collection.sections, hostKey: collection.hostKey, hostVerified: collection.hostVerified, code: collection.hostIdentityReason, limits: collection.limits }
@@ -657,13 +662,18 @@ function capRank(resource) {
 // by this node alone are ranked by kind priority, then fresh before stale,
 // then most recently seen; everything past the bound is evicted. Records shared
 // with other registered nodes are never evicted here.
-function enforceNodeCap(resources, nodeId) {
+function enforceNodeCap(resources, nodeId, capReport = { evicted: 0, freshEvicted: 0, byKind: {} }) {
   const limit = model.LIMITS.maxResourcesPerNode;
   const owned = resources
     .map((resource, index) => ({ resource, index }))
     .filter(({ resource }) => (resource.nodeIds || [resource.nodeId]).includes(nodeId));
   if (owned.length <= limit) return resources;
-  const ranked = [...owned].sort((a, b) => capRank(a.resource) - capRank(b.resource)
+  // Low-cardinality kinds first (fresh or stale); then fresh containers and
+  // listeners before stale ones, so carried-over stale rows never displace
+  // rows confirmed by this refresh.
+  const tier = (resource) => (capRank(resource) < CAP_KIND_PRIORITY.indexOf("container") ? 0 : resource.stale === true ? 2 : 1);
+  const ranked = [...owned].sort((a, b) => tier(a.resource) - tier(b.resource)
+    || capRank(a.resource) - capRank(b.resource)
     || Number(a.resource.stale === true) - Number(b.resource.stale === true)
     || String(b.resource.lastSeen || "").localeCompare(String(a.resource.lastSeen || "")));
   // Overflow records owned by this node alone are evicted; overflow records
@@ -672,6 +682,11 @@ function enforceNodeCap(resources, nodeId) {
   const overflow = ranked.slice(limit);
   const evict = new Set(overflow.filter(({ resource }) => (resource.nodeIds || [resource.nodeId]).length === 1).map(({ index }) => index));
   const detach = new Set(overflow.filter(({ resource }) => (resource.nodeIds || [resource.nodeId]).length > 1).map(({ index }) => index));
+  for (const { resource } of overflow) {
+    capReport.evicted += 1;
+    if (resource.stale !== true) capReport.freshEvicted += 1;
+    capReport.byKind[resource.kind] = (capReport.byKind[resource.kind] || 0) + 1;
+  }
   return resources
     .map((resource, index) => (detach.has(index)
       ? { ...resource, nodeIds: (resource.nodeIds || [resource.nodeId]).filter((id) => id !== nodeId) }

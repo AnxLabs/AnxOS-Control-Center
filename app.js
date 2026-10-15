@@ -38051,8 +38051,10 @@ function renderInfrastructureInventory() {
     setInfraInventoryStatus("Not discovered", "planned");
   } else if ((summary.stale || 0) > 0) {
     setInfraInventoryStatus("Partially stale", "warning");
-  } else if ((summary.nodesUnavailable || 0) > 0) {
-    // Nothing shown is stale, but some registered nodes were not inventoried.
+  } else if ((summary.nodesUnavailable || 0) > 0 || (summary.nodesPartial || 0) > 0 || data.fleetLimit?.overCap === true) {
+    // Nothing shown is stale, but some registered nodes were not inventoried,
+    // a collected node has unread sections or truncation, or the fleet cap
+    // overflowed: never shown as Current.
     setInfraInventoryStatus("Incomplete", "warning");
   } else {
     setInfraInventoryStatus("Current", "ok");

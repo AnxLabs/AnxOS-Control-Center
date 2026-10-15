@@ -669,6 +669,58 @@ test("per-node cap also bounds records shared with an unavailable twin registrat
   assert.ok(keptForB.every((row) => !row.nodeIds.includes("node-a")), "node-a detached from the overflow rows");
 });
 
+test("an unavailable twin registration keeps its association on re-reported records", async () => {
+  const down = new Set();
+  const { reader: base } = makeAgent();
+  const twin = async (pathname, options) => {
+    if (down.has(options?.config?.nodeId)) throw Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" });
+    return base(pathname, options);
+  };
+  setup({ reader: twin, nodes: [agentNode("node-a"), agentNode("node-b")] });
+  const first = byKind(await inventory.refreshInventory(), "host")[0];
+  assert.deepStrictEqual(first.nodeIds, ["node-a", "node-b"]);
+  down.add("node-b");
+  clock += 3600000;
+  const second = await inventory.refreshInventory({ force: true });
+  const host = byKind(second, "host")[0];
+  assert.deepStrictEqual(host.nodeIds, ["node-a", "node-b"], "node-b's association survives its own outage");
+  assert.strictEqual(host.duplicateNodes, true);
+  assert.strictEqual(second.nodes.find((node) => node.nodeId === "node-b").status, "unavailable");
+});
+
+test("post-merge cap keeps fresh rows over stale ones and reports what it evicted", async () => {
+  const { reader, world } = makeAgent({ listeners: [] });
+  world.containers = Array.from({ length: model.LIMITS.maxResourcesPerNode - 1 }, (_, index) => ({ id: `k${String(index).padStart(11, "0")}`, name: `k-${index}`, state: "running", status: "Up" }));
+  world.instances = [];
+  world.projects = [];
+  setup({ reader, nodes: [agentNode("node-a")] });
+  clock = Date.parse("2026-10-14T10:00:00Z");
+  await inventory.refreshInventory();
+  // Docker read now fails (containers carried stale) while 200 listeners arrive.
+  world.failures["/api/v1/docker"] = () => Object.assign(new Error("Forbidden"), { status: 403 });
+  world.listeners = Array.from({ length: 200 }, (_, index) => ({ protocol: "tcp", localAddress: "0.0.0.0", localPort: 20000 + index, pid: 1 }));
+  clock += 3600000;
+  const after = await inventory.refreshInventory({ force: true });
+  assert.ok(after.resources.length <= model.LIMITS.maxResourcesPerNode, "bound holds");
+  assert.strictEqual(byKind(after, "listener").length, 200, "every fresh listener kept");
+  assert.ok(byKind(after, "listener").every((row) => row.stale === false));
+  const limits = after.nodes[0].limits;
+  assert.strictEqual(limits.truncated, true, "post-merge eviction reported as truncation");
+  assert.ok(limits.capEvicted > 0, "eviction count reported");
+  assert.strictEqual(limits.capEvictedFresh, 0, "no fresh row evicted");
+  assert.ok(limits.capEvictedByKind.container > 0, "stale containers absorbed the eviction");
+  assert.strictEqual(after.summary.nodesPartial, 1, "node reported as partial");
+});
+
+test("a collected node with unread sections is partial, not complete", async () => {
+  const { reader } = makeAgent({ failures: { "/api/v1/docker": () => Object.assign(new Error("Forbidden"), { status: 403 }) } });
+  setup({ reader, nodes: [agentNode("node-a")] });
+  const snapshot = await inventory.refreshInventory();
+  assert.strictEqual(snapshot.summary.stale, 0, "first refresh: nothing stale");
+  assert.strictEqual(snapshot.summary.nodesUnavailable, 0);
+  assert.strictEqual(snapshot.summary.nodesPartial, 1, "unread Docker section makes the node partial");
+});
+
 test("node totals count Agent nodes only", async () => {
   const { reader } = makeAgent();
   setup({ reader, nodes: [{ id: "application-host", kind: "application-host", displayName: "This PC" }, agentNode("node-a")] });
