@@ -535,7 +535,11 @@ function mergeNodeCollection(previousResources = [], collection = {}, now) {
         .every(([component, value]) => value === null || value === undefined || verifiedBefore?.identity?.components?.[component] === value);
       if (verifiedBefore && listedAgrees) {
         const otherNodeIds = (verifiedBefore.nodeIds || []).filter((id) => id !== nodeId);
-        return { ...verifiedBefore, nodeIds: [nodeId, ...otherNodeIds].sort(), stale: true, staleReason: "IDENTITY_NOT_REREAD" };
+        const nodeIds = [nodeId, ...otherNodeIds].sort();
+        // Already confirmed by a twin registration during this refresh: this
+        // node's inspect gap does not make it stale (independent of order).
+        if (confirmedByTwin(verifiedBefore)) return { ...verifiedBefore, nodeIds };
+        return { ...verifiedBefore, nodeIds, stale: true, staleReason: "IDENTITY_NOT_REREAD" };
       }
     }
     const previous = previousByKey.get(resource.key);

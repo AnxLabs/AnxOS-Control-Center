@@ -1190,6 +1190,31 @@ test("a twin's unread section does not stale records the other twin confirmed, i
   }
 });
 
+test("a twin's inspect gap does not stale records the other twin just confirmed, in either order", async () => {
+  for (const order of [["node-a", "node-b"], ["node-b", "node-a"]]) {
+    const gapped = new Set();
+    const { reader: base } = makeAgent();
+    const twin = async (pathname, options) => {
+      if (gapped.has(options?.config?.nodeId) && /\/inspect$/.test(pathname)) throw Object.assign(new Error("timeout"), { code: "AGENT_TIMEOUT" });
+      return base(pathname, options);
+    };
+    setup({ reader: twin, nodes: order.map((id) => agentNode(id)) });
+    clock = Date.parse("2026-10-14T10:00:00Z");
+    const first = await inventory.refreshInventory();
+    const container = byKind(first, "container")[0];
+    assert.ok(container.identity.verified);
+    gapped.add("node-b");
+    clock += 3600000;
+    const snapshot = await inventory.refreshInventory({ force: true });
+    const rows = byKind(snapshot, "container");
+    assert.strictEqual(rows.length, 1, `${order.join(",")}: no duplicate unverified record`);
+    assert.strictEqual(rows[0].key, container.key, "verified key retained");
+    assert.strictEqual(rows[0].stale, false, `${order.join(",")}: fresh via node-a`);
+    assert.strictEqual(rows[0].lastSeen, new Date(clock).toISOString());
+    assert.deepStrictEqual(rows[0].nodeIds, ["node-a", "node-b"]);
+  }
+});
+
 test("protection: owner-confirmed non-production applies only to verified keys", () => {
   const verified = { key: "k1", identity: { verified: true } };
   const unverifiedResource = { key: "k2", identity: { verified: false } };
