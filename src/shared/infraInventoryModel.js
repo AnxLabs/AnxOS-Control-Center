@@ -85,12 +85,13 @@ function buildHostIdentity(healthIdentity = {}, registeredIdentity = null) {
   const complete = Boolean(deviceId && installationId && generation);
   const registeredDeviceId = text(registeredIdentity?.deviceId);
   // A node registered for one device must not silently absorb another device's
-  // resources (for example after a reinstall at the same URL).
-  const mismatch = Boolean(complete && registeredDeviceId && registeredDeviceId !== deviceId);
+  // resources (for example after a reinstall at the same URL). Decided on the
+  // two device IDs alone: an incomplete tuple must not hide a definite mismatch.
+  const mismatch = Boolean(deviceId && registeredDeviceId && registeredDeviceId !== deviceId);
   const verified = complete && !mismatch;
   return {
     verified,
-    reason: !complete ? "HOST_IDENTITY_INCOMPLETE" : mismatch ? "AGENT_IDENTITY_MISMATCH" : null,
+    reason: mismatch ? "AGENT_IDENTITY_MISMATCH" : !complete ? "HOST_IDENTITY_INCOMPLETE" : null,
     components,
     // All three required components form the key (§5.7). Re-pairing or
     // credential rotation changes agentIdentityGeneration, which makes the
@@ -365,11 +366,13 @@ function buildVolumeResource(ctx, volume = {}, inspect = null) {
 function buildNetworkResource(ctx, network = {}) {
   const name = text(network.name);
   if (!name) return null;
-  return baseResource(ctx, "network", hostScopedKey(ctx, `network:${name}`), {
+  const networkId = text(network.id, 64);
+  // The network ID is part of the key: a network deleted and recreated under
+  // the same name is a new resource. Networks have no AIM action, so they stay
+  // unverified for action purposes (addendum A7) even with a full ID.
+  return baseResource(ctx, "network", hostScopedKey(ctx, `network:${networkId || "no-id"}:${name}`), {
     name,
-    // Docker lists a truncated network id; networks are inventoried but stay
-    // unverified for action purposes (addendum A7).
-    identity: unverified("NETWORK_FULL_ID_UNAVAILABLE", { host: ctx.hostKey, name, listedId: text(network.id) }),
+    identity: unverified(networkId ? "NETWORK_NOT_ACTIONABLE" : "NETWORK_ID_UNAVAILABLE", { host: ctx.hostKey, name, networkId }),
     ownership: { owner: "docker", detail: text(network.driver) || "network" },
     source: "agent-observed",
     health: { state: "unknown", detail: null },

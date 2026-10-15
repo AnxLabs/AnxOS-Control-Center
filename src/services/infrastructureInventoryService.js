@@ -50,8 +50,6 @@ const READ_ROUTE_ALLOWLIST = Object.freeze([
   /^\/api\/v1\/network\/inventory$/,
   /^\/api\/v1\/instances$/,
   /^\/api\/v1\/docker\/containers$/,
-  /^\/api\/v1\/docker\/volumes$/,
-  /^\/api\/v1\/docker\/networks$/,
   /^\/api\/v1\/docker\/compose\/projects$/,
   /^\/api\/v1\/docker\/containers\/[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\/inspect$/,
   /^\/api\/v1\/docker\/volumes\/[A-Za-z0-9][A-Za-z0-9_.-]{0,254}\/inspect$/,
@@ -266,7 +264,7 @@ function loadStore() {
   state.snapshot = {
     ...emptySnapshot(),
     ...raw,
-    resources: model.markAllStale(raw.resources.slice(0, MAX_TOTAL_RESOURCES), "NOT_REFRESHED_SINCE_RESTART"),
+    resources: model.markAllStale(raw.resources, "NOT_REFRESHED_SINCE_RESTART"),
     nodes: raw.nodes.map((node) => ({ ...node, fromPreviousSession: true })),
     classifications: raw.classifications && typeof raw.classifications === "object" ? raw.classifications : {},
   };
@@ -441,6 +439,7 @@ async function collectNode(node) {
   }
 
   let inspectBudget = model.LIMITS.maxInspectsPerNode;
+  let derivedIncomplete = false;
   let inspectsSkipped = 0;
   const takeBudget = () => {
     if (inspectBudget <= 0) { inspectsSkipped += 1; return false; }
@@ -457,19 +456,45 @@ async function collectNode(node) {
     });
     containers.forEach((container, index) => resources.push(model.buildContainerResource(ctx, container, inspected[index])));
 
-    const volumesPayload = await readSection(sections, "volumes", () => read("/api/v1/docker/volumes", DOCKER_LIST_TIMEOUT_MS));
-    const volumes = Array.isArray(volumesPayload?.volumes) ? volumesPayload.volumes : [];
+    // Volumes and networks are derived from the (bounded) container inspects,
+    // never from GET /api/v1/docker/volumes or /networks: those Agent routes
+    // inspect every container, volume and network with unbounded concurrency on
+    // the host, which the desktop-side budget cannot limit or cancel. Volumes
+    // and networks not attached to any container are therefore not listed.
+    const volumesByName = new Map();
+    const networksByKey = new Map();
+    containers.forEach((container, index) => {
+      const inspect = inspected[index];
+      if (!inspect) return;
+      const containerName = String(container?.name || inspect?.Name || "").replace(/^\//, "") || null;
+      for (const mount of Array.isArray(inspect.Mounts) ? inspect.Mounts : []) {
+        if (mount?.Type !== "volume" || !mount.Name) continue;
+        const entry = volumesByName.get(mount.Name) || { name: mount.Name, driver: mount.Driver || null, containersUsing: [] };
+        if (containerName) entry.containersUsing.push(containerName);
+        volumesByName.set(mount.Name, entry);
+      }
+      for (const [networkName, settings] of Object.entries(inspect?.NetworkSettings?.Networks || {})) {
+        const id = settings && typeof settings.NetworkID === "string" ? settings.NetworkID : null;
+        const key = `${id || ""}:${networkName}`;
+        const entry = networksByKey.get(key) || { name: networkName, id, containers: [] };
+        if (containerName) entry.containers.push(containerName);
+        networksByKey.set(key, entry);
+      }
+    });
+    const volumes = [...volumesByName.values()];
     const volumeInspects = await runWithConcurrency(volumes, INSPECT_CONCURRENCY, async (volume) => {
-      const name = String(volume?.name || "");
-      if (!name || !takeBudget()) return null;
-      try { return firstInspect(await read(`/api/v1/docker/volumes/${encodeURIComponent(name)}/inspect`)); } catch { return null; }
+      if (!takeBudget()) return null;
+      try { return firstInspect(await read(`/api/v1/docker/volumes/${encodeURIComponent(volume.name)}/inspect`)); } catch { return null; }
     });
     volumes.forEach((volume, index) => resources.push(model.buildVolumeResource(ctx, volume, volumeInspects[index])));
-
-    const networksPayload = await readSection(sections, "networks", () => read("/api/v1/docker/networks", DOCKER_LIST_TIMEOUT_MS));
-    for (const network of Array.isArray(networksPayload?.networks) ? networksPayload.networks : []) {
-      resources.push(model.buildNetworkResource(ctx, network));
+    for (const network of networksByKey.values()) resources.push(model.buildNetworkResource(ctx, network));
+    // If any container was not inspected, its volumes and networks are unknown
+    // this time: keep the previous ones (stale) instead of treating them as gone.
+    if (inspected.some((entry, index) => !entry && containers[index]?.id)) {
+      derivedIncomplete = true;
     }
+    sections.push({ name: "volumes", status: "ok", code: null, scope: "attached-to-containers" });
+    sections.push({ name: "networks", status: "ok", code: null, scope: "attached-to-containers" });
     const composePayload = await readSection(sections, "compose", () => read("/api/v1/docker/compose/projects", DOCKER_LIST_TIMEOUT_MS));
     for (const project of Array.isArray(composePayload?.projects) ? composePayload.projects : []) {
       resources.push(model.buildComposeProjectResource(ctx, project));
@@ -486,9 +511,8 @@ async function collectNode(node) {
   const dockerCode = sectionCode("docker");
   markUnread(["container", "volume", "network", "compose-project"], dockerCode);
   if (!dockerCode) {
-    markUnread(["volume"], sectionCode("volumes"));
-    markUnread(["network"], sectionCode("networks"));
     markUnread(["compose-project"], sectionCode("compose"));
+    if (derivedIncomplete) markUnread(["volume", "network"], "DERIVED_FROM_PARTIAL_INSPECT");
   }
 
   let deduped = model.dedupeResources(resources.filter(Boolean));
@@ -583,14 +607,16 @@ async function runRefresh() {
       ? resource
       : { ...resource, stale: true, staleReason: "NODE_NOT_REGISTERED" }))
     .filter((resource) => resource.staleReason !== "NODE_NOT_REGISTERED" || Date.parse(resource.lastSeen || 0) >= cutoff)
-    .slice(0, MAX_TOTAL_RESOURCES)
     .map((resource) => model.applyProtection(resource, snapshot.classifications));
+  const fleetLimit = applyFleetCap(resources);
+  resources = fleetLimit.resources;
 
   const next = {
     ...snapshot,
     schemaVersion: model.INVENTORY_SCHEMA_VERSION,
     generatedAt: at,
     lastRefresh: { startedAt, completedAt: at, durationMs: nowMs() - startedMs },
+    fleetLimit: { maxResources: MAX_TOTAL_RESOURCES, evictedStale: fleetLimit.evictedStale, overCap: fleetLimit.overCap },
     nodes: nodeRecords,
     resources,
   };
@@ -598,6 +624,23 @@ async function runRefresh() {
   persist(next);
   lastCompletedAt = nowMs();
   return next;
+}
+
+// Fleet-wide bound. Only last-known (stale) records are evicted, oldest
+// lastSeen first; records confirmed by this refresh are never dropped. If the
+// fresh records alone exceed the bound, all are kept and the overflow is
+// reported instead of silently slicing rows away.
+function applyFleetCap(resources) {
+  if (resources.length <= MAX_TOTAL_RESOURCES) return { resources, evictedStale: 0, overCap: false };
+  const excess = resources.length - MAX_TOTAL_RESOURCES;
+  const evictable = resources
+    .map((resource, index) => ({ resource, index }))
+    .filter(({ resource }) => resource.stale === true)
+    .sort((a, b) => String(a.resource.lastSeen || "").localeCompare(String(b.resource.lastSeen || "")))
+    .slice(0, excess);
+  const evict = new Set(evictable.map(({ index }) => index));
+  const kept = resources.filter((_, index) => !evict.has(index));
+  return { resources: kept, evictedStale: evict.size, overCap: kept.length > MAX_TOTAL_RESOURCES };
 }
 
 function publicSnapshot(snapshot, extra = {}) {

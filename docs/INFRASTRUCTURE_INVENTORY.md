@@ -35,7 +35,8 @@ deployed Agents need no upgrade (addendum A7):
 | Host summary | `GET /api/v1/system/summary` |
 | Listening ports | `GET /api/v1/network/inventory` |
 | Instances, including systemd service-managed | `GET /api/v1/instances` |
-| Containers, volumes, networks, compose projects | `GET /api/v1/docker/{containers,volumes,networks,compose/projects}` |
+| Containers, compose projects | `GET /api/v1/docker/{containers,compose/projects}` |
+| Volumes and networks | Derived from the bounded container inspects (volume mounts with name and driver; `NetworkSettings` with the full network ID). `GET /api/v1/docker/volumes` and `/networks` are **never** called: those Agent routes inspect every container, volume and network with unbounded concurrency on the host |
 | Full container ID, compose labels, volume creation time | `GET /api/v1/docker/{containers,volumes}/:x/inspect` |
 
 Every request passes `assertReadRoute`: only `GET`, only these exact routes.
@@ -56,13 +57,14 @@ the operator presses **Refresh Inventory**.
 
 | Kind | Verified when | Never part of the identity |
 | --- | --- | --- |
-| Host | `deviceId` + `agentInstallationId` + `agentIdentityGeneration` all reported, and `deviceId` matches the node's registered device. All three form the key, so re-pairing or credential rotation makes the host and every child resource a new identity (no `firstSeen` or classification carries over) | hostname, URL |
+| Host | `deviceId` + `agentInstallationId` + `agentIdentityGeneration` all reported, and `deviceId` matches the node's registered device (a different reported `deviceId` is refused even if the rest of the tuple is missing). All three form the key, so re-pairing or credential rotation makes the host and every child resource a new identity (no `firstSeen` or classification carries over) | hostname, URL |
 | Instance | host verified + AnxOS instance id | process id |
 | systemd service | host verified + instance id + unit name | `externalMainPid` (systemd owns it; a restart changes it) |
 | Container | host verified + full 64-hex container ID (from inspect); the key also includes name and compose project/service, so a rename or compose move is a new identity | port |
 | Volume | host verified + name + creation timestamp + driver, all required and all in the key, so a recreated volume or a driver change is a new resource | — |
 | Compose project | host verified + name + config path (both in the key, so a moved project is a new identity) | — |
-| Network, listener | **always unverified** (truncated network ID; listener owners carry no executable path or start time) | — |
+| Network | **always unverified** for action purposes; the full network ID (from container inspects) and name form the key, so a recreated network is a new resource | — |
+| Listener | **always unverified** (listener owners carry no executable path or start time) | — |
 
 A node whose Agent reports a different device than the one registered is
 refused (`AGENT_IDENTITY_MISMATCH`) and nothing is attributed to it.
@@ -91,7 +93,7 @@ AIM-1 ships no classification editor, so everything is shown as Production.
 | Store from a newer build | Never overwritten; inventory runs in memory only |
 
 Bounds: 2 nodes in parallel, 2 inspects in parallel, 40 inspects per node,
-200 listeners per node, 2,000 resources per node, 20,000 in total; per-request
+200 listeners per node, 2,000 resources per node, 20,000 in total (the fleet cap evicts only the oldest stale records; records confirmed by the refresh are never dropped, and an overflow is reported as `fleetLimit.overCap`); per-request
 timeouts of 8 s (15 s for Docker lists). Truncation and skipped inspects are
 reported on the node row.
 
@@ -109,7 +111,7 @@ reported on the node row.
 
 | Check | Command |
 | --- | --- |
-| Model + service, hermetic (29 tests) | `npm run inventory:smoke` |
+| Model + service, hermetic (33 tests) | `npm run inventory:smoke` |
 | Real Agent, fake systemd: discovery, zero control calls, identity mismatch, auth boundary, unreachable node, MainPID change | `npm run inventory:agent:smoke` |
 | Real Electron UI against a real Agent | `npm run inventory:ui:qa` |
 | Guard chain and tier | `node scripts/permission-matrix-smoke.js` |
@@ -125,7 +127,10 @@ The two smokes also run in the `feature` and `release` tiers of
 - The **Debian Agent registered on 2026-10-14** (`Anxlab`) reports no
   `serviceManagedInstances` capability, so live systemd discovery there will
   appear only after that host runs a Build 206 Agent.
-- Docker's own `GET /api/v1/docker/volumes` inspects every volume and container
-  on the Agent side; on hosts with very many containers that read is heavier
-  than the rest of discovery.
+- **Volumes and networks not attached to any container are not listed**, and
+  attached ones are known only for containers inspected this refresh (40 per
+  node). When some containers were not inspected, previously known volumes and
+  networks are kept as stale (`DERIVED_FROM_PARTIAL_INSPECT`) rather than
+  removed. A bounded Agent-side list route would remove this gap; it needs an
+  Agent change and is deferred.
 - Owner classification of non-production scopes (AIM-0) is not implemented.

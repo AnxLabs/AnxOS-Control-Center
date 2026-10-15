@@ -102,8 +102,12 @@ instead composes the inventory **desktop-side from existing read-only Agent rout
 | Host summary | `GET /api/v1/system/summary` | `system:read` |
 | Listeners | `GET /api/v1/network/inventory` | `system:read` |
 | Instances, incl. service-managed | `GET /api/v1/instances` | `instance:read` |
-| Containers, volumes, networks, compose projects | `GET /api/v1/docker/{containers,volumes,networks,compose/projects}` | `docker:read` |
-| Full container ID, compose labels, volume creation time | `GET /api/v1/docker/{containers,volumes}/:x/inspect` (bounded) | `docker:read` |
+| Containers, compose projects | `GET /api/v1/docker/{containers,compose/projects}` | `docker:read` |
+| Full container ID, compose labels, attached volumes (name, driver) and networks (full ID) | `GET /api/v1/docker/containers/:x/inspect` (bounded) | `docker:read` |
+| Volume creation time | `GET /api/v1/docker/volumes/:x/inspect` (bounded) | `docker:read` |
+
+`GET /api/v1/docker/volumes` and `/networks` are deliberately not used: on the Agent they
+inspect every container, volume and network with unbounded concurrency (PR #4 review, P1).
 
 Reasons: no Agent upgrade or service change is needed to inventory already deployed
 Build 205/206 Agents; no new Agent permission family; and the reads are the same ones

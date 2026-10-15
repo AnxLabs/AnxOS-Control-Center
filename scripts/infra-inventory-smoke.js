@@ -69,20 +69,28 @@ function makeAgent(options = {}) {
     const containerInspect = pathname.match(/^\/api\/v1\/docker\/containers\/([^/]+)\/inspect$/);
     if (containerInspect) {
       const short = decodeURIComponent(containerInspect[1]);
-      const full = short === FULL_ID.slice(0, 12) ? FULL_ID : short.padEnd(64, "c").slice(0, 64);
+      const isQdrant = short === FULL_ID.slice(0, 12);
+      const full = isQdrant ? FULL_ID : short.padEnd(64, "c").slice(0, 64);
+      // Like the real Docker inspect: volume mounts carry name + driver, and
+      // NetworkSettings carries the full network IDs.
+      const volumeMounts = isQdrant
+        ? world.volumes.map((volume) => ({ Type: "volume", Name: volume.name, Driver: volume.driver, Source: `/var/lib/docker/volumes/${SECRET}` }))
+        : [];
+      const networks = isQdrant
+        ? Object.fromEntries(world.networks.map((network) => [network.name, { NetworkID: network.fullId || network.id.padEnd(64, "e") }]))
+        : {};
       return { inspect: [{
         Id: full,
         Name: "/qdrant",
         Created: "2026-10-01T00:00:00.000Z",
         Config: { Image: "qdrant/qdrant:v1.19.2", Env: [`QDRANT__SERVICE__API_KEY=${SECRET}`], Labels: { "com.docker.compose.project": "ai-box", "com.docker.compose.service": "qdrant", "secret.label": SECRET } },
         HostConfig: { RestartPolicy: { Name: "unless-stopped" } },
-        Mounts: [{ Type: "volume", Name: "qdrant-data", Source: `/var/lib/docker/volumes/${SECRET}` }, { Type: "bind", Source: "/etc/secret", Destination: "/secret" }],
+        Mounts: [...volumeMounts, { Type: "bind", Source: "/etc/secret", Destination: "/secret" }],
+        NetworkSettings: { Networks: networks },
       }] };
     }
-    if (pathname === "/api/v1/docker/volumes") return { volumes: world.volumes };
     const volumeInspect = pathname.match(/^\/api\/v1\/docker\/volumes\/([^/]+)\/inspect$/);
-    if (volumeInspect) return { inspect: [{ Name: decodeURIComponent(volumeInspect[1]), CreatedAt: "2026-09-30T12:00:00Z", Labels: { "com.docker.compose.project": "ai-box" } }] };
-    if (pathname === "/api/v1/docker/networks") return { networks: world.networks };
+    if (volumeInspect) return { inspect: [{ Name: decodeURIComponent(volumeInspect[1]), CreatedAt: world.volumeCreatedAt || "2026-09-30T12:00:00Z", Labels: { "com.docker.compose.project": "ai-box" } }] };
     if (pathname === "/api/v1/docker/compose/projects") return { projects: world.projects };
     throw Object.assign(new Error(`unexpected route ${pathname}`), { status: 404 });
   };
@@ -420,19 +428,25 @@ test("a transient inspect gap keeps the verified volume and container records (s
   const volume = byKind(first, "volume")[0];
   const container = byKind(first, "container")[0];
   assert.ok(volume.identity.verified && container.identity.verified);
-  world.failures["/api/v1/docker/volumes/qdrant-data/inspect"] = () => Object.assign(new Error("timeout"), { code: "AGENT_TIMEOUT" });
-  world.failures[`/api/v1/docker/containers/${FULL_ID.slice(0, 12)}/inspect`] = () => Object.assign(new Error("timeout"), { code: "AGENT_TIMEOUT" });
-  clock += 3600000;
-  const gap = await inventory.refreshInventory({ force: true });
-  for (const [kind, before] of [["volume", volume], ["container", container]]) {
-    const rows = byKind(gap, kind);
+  const expectKept = (snapshot, kind, before, reason) => {
+    const rows = byKind(snapshot, kind);
     assert.strictEqual(rows.length, 1, `${kind}: no duplicate unverified record`);
     assert.strictEqual(rows[0].key, before.key, `${kind}: verified key retained`);
     assert.strictEqual(rows[0].identity.verified, true, `${kind}: verified identity retained`);
     assert.strictEqual(rows[0].firstSeen, "2026-10-14T10:00:00.000Z", `${kind}: firstSeen retained`);
     assert.strictEqual(rows[0].stale, true);
-    assert.strictEqual(rows[0].staleReason, "IDENTITY_NOT_REREAD");
-  }
+    assert.strictEqual(rows[0].staleReason, reason, `${kind}: stale reason`);
+  };
+  // Leg 1: only the volume inspect fails (its mount is still observed).
+  world.failures["/api/v1/docker/volumes/qdrant-data/inspect"] = () => Object.assign(new Error("timeout"), { code: "AGENT_TIMEOUT" });
+  clock += 3600000;
+  expectKept(await inventory.refreshInventory({ force: true }), "volume", volume, "IDENTITY_NOT_REREAD");
+  // Leg 2: the container inspect fails too, so its mounts are unknown.
+  world.failures[`/api/v1/docker/containers/${FULL_ID.slice(0, 12)}/inspect`] = () => Object.assign(new Error("timeout"), { code: "AGENT_TIMEOUT" });
+  clock += 3600000;
+  const gap = await inventory.refreshInventory({ force: true });
+  expectKept(gap, "container", container, "IDENTITY_NOT_REREAD");
+  expectKept(gap, "volume", volume, "DERIVED_FROM_PARTIAL_INSPECT");
   world.failures = {};
   clock += 3600000;
   const healed = await inventory.refreshInventory({ force: true });
@@ -445,13 +459,12 @@ test("a transient inspect gap keeps the verified volume and container records (s
 });
 
 test("an identity change visible in the list is not masked by an inspect gap", async () => {
+  // Container: inspect fails while the container list shows a rename.
   const { reader, world } = makeAgent();
   let listedName = "qdrant";
-  let listedDriver = "local";
   const changing = async (pathname, options) => {
     const result = await reader(pathname, options);
     if (pathname === "/api/v1/docker/containers") result.containers = result.containers.map((entry) => ({ ...entry, name: listedName }));
-    if (pathname === "/api/v1/docker/volumes") result.volumes = result.volumes.map((entry) => ({ ...entry, driver: listedDriver }));
     return result;
   };
   setup({ reader: changing, nodes: [agentNode("node-a")] });
@@ -459,41 +472,51 @@ test("an identity change visible in the list is not masked by an inspect gap", a
   const first = await inventory.refreshInventory();
   const oldContainer = byKind(first, "container")[0];
   const oldVolume = byKind(first, "volume")[0];
-  // Inspect fails AND the list shows a rename / driver change.
-  world.failures["/api/v1/docker/volumes/qdrant-data/inspect"] = () => Object.assign(new Error("timeout"), { code: "AGENT_TIMEOUT" });
   world.failures[`/api/v1/docker/containers/${FULL_ID.slice(0, 12)}/inspect`] = () => Object.assign(new Error("timeout"), { code: "AGENT_TIMEOUT" });
   listedName = "qdrant-renamed";
-  listedDriver = "nfs";
   clock += 3600000;
   const second = await inventory.refreshInventory({ force: true });
-  for (const [kind, before] of [["container", oldContainer], ["volume", oldVolume]]) {
-    const rows = byKind(second, kind);
-    assert.strictEqual(rows.length, 1, `${kind}: one record`);
-    assert.notStrictEqual(rows[0].key, before.key, `${kind}: old verified key not reused`);
-    assert.strictEqual(rows[0].identity.verified, false, `${kind}: new identity is unverified until re-read`);
-    assert.strictEqual(rows[0].stale, false);
-    const classified = model.applyProtection(rows[0], { [before.key]: { scope: "non-production", ownerConfirmed: true } });
-    assert.strictEqual(classified.protection.scope, "production", `${kind}: old classification not reapplied`);
-  }
-  assert.strictEqual(byKind(second, "container")[0].name, "qdrant-renamed");
+  const renamed = byKind(second, "container");
+  assert.strictEqual(renamed.length, 1, "container: one record");
+  assert.notStrictEqual(renamed[0].key, oldContainer.key, "container: old verified key not reused");
+  assert.strictEqual(renamed[0].identity.verified, false);
+  assert.strictEqual(renamed[0].name, "qdrant-renamed");
+  assert.strictEqual(model.applyProtection(renamed[0], { [oldContainer.key]: { scope: "non-production", ownerConfirmed: true } }).protection.scope, "production");
+  // The volume's container could not be inspected, so the volume is unknown
+  // this time: kept stale, never treated as deleted.
+  const keptVolume = byKind(second, "volume");
+  assert.strictEqual(keptVolume.length, 1);
+  assert.strictEqual(keptVolume[0].key, oldVolume.key);
+  assert.strictEqual(keptVolume[0].staleReason, "DERIVED_FROM_PARTIAL_INSPECT");
+
+  // Volume: its own inspect fails while the mount (from the container inspect)
+  // shows a driver change.
+  delete world.failures[`/api/v1/docker/containers/${FULL_ID.slice(0, 12)}/inspect`];
+  listedName = "qdrant";
+  clock += 3600000;
+  await inventory.refreshInventory({ force: true });
+  world.failures["/api/v1/docker/volumes/qdrant-data/inspect"] = () => Object.assign(new Error("timeout"), { code: "AGENT_TIMEOUT" });
+  world.volumes = world.volumes.map((volume) => ({ ...volume, driver: "nfs" }));
+  clock += 3600000;
+  const third = await inventory.refreshInventory({ force: true });
+  const changedVolume = byKind(third, "volume");
+  assert.strictEqual(changedVolume.length, 1, "volume: one record");
+  assert.notStrictEqual(changedVolume[0].key, oldVolume.key, "volume: old verified key not reused after a driver change");
+  assert.strictEqual(changedVolume[0].identity.verified, false);
+  assert.strictEqual(changedVolume[0].stale, false);
+  assert.strictEqual(model.applyProtection(changedVolume[0], { [oldVolume.key]: { scope: "non-production", ownerConfirmed: true } }).protection.scope, "production");
 });
 
 test("volume identity requires the driver, and the driver is part of the key", async () => {
-  const { reader } = makeAgent();
-  let driver = "local";
-  const drivers = async (pathname, options) => {
-    const result = await reader(pathname, options);
-    if (pathname === "/api/v1/docker/volumes") result.volumes = result.volumes.map((entry) => ({ ...entry, driver }));
-    return result;
-  };
-  setup({ reader: drivers, nodes: [agentNode("node-a")] });
+  const { reader, world } = makeAgent();
+  setup({ reader, nodes: [agentNode("node-a")] });
   const local = byKind(await inventory.refreshInventory(), "volume")[0];
   assert.strictEqual(local.identity.verified, true);
-  driver = "nfs";
+  world.volumes = world.volumes.map((volume) => ({ ...volume, driver: "nfs" }));
   clock += 3600000;
   const nfs = byKind(await inventory.refreshInventory({ force: true }), "volume")[0];
   assert.notStrictEqual(nfs.key, local.key, "a different driver is a different identity");
-  driver = null;
+  world.volumes = world.volumes.map((volume) => ({ ...volume, driver: null }));
   clock += 3600000;
   const none = byKind(await inventory.refreshInventory({ force: true }), "volume")[0];
   assert.strictEqual(none.identity.verified, false, "no observed driver means unverified");
@@ -514,9 +537,91 @@ test("rows dropped by the per-node cap are kept as stale, not deleted", async ()
   for (const kind of ["volume", "network", "compose-project"]) {
     const rows = byKind(capped, kind);
     assert.strictEqual(rows.length, before[kind], `${kind}: not deleted by the cap`);
-    assert.ok(rows.every((row) => row.stale && row.staleReason === "RESOURCE_CAP_TRUNCATED"), `${kind}: stale with the cap reason`);
+    // Volumes/networks are derived from container inspects, which the bulk
+    // containers exhaust, so they are kept as partial-inspect; compose rows are
+    // pushed past the per-node cap.
+    const expected = kind === "compose-project" ? "RESOURCE_CAP_TRUNCATED" : "DERIVED_FROM_PARTIAL_INSPECT";
+    assert.ok(rows.every((row) => row.stale && row.staleReason === expected), `${kind}: stale with ${expected}`);
     assert.ok(rows.every((row) => row.firstSeen === "2026-10-14T10:00:00.000Z"), `${kind}: history kept`);
   }
+});
+
+test("heavy Agent list routes are never called; volumes and networks come from bounded inspects", async () => {
+  for (const pathname of ["/api/v1/docker/volumes", "/api/v1/docker/networks"]) {
+    assert.throws(() => inventory.assertReadRoute("GET", pathname), (error) => error.code === "INVENTORY_ROUTE_NOT_ALLOWED", pathname);
+  }
+  const { reader, world } = makeAgent({
+    volumes: [{ name: "qdrant-data", driver: "local" }, { name: "qdrant-snapshots", driver: "local" }],
+    networks: [{ id: "net-a", name: "ai-box" }, { id: "net-b", name: "edge" }],
+  });
+  setup({ reader, nodes: [agentNode("node-a")] });
+  const snapshot = await inventory.refreshInventory();
+  assert.ok(!world.calls.some((call) => call.pathname === "/api/v1/docker/volumes" || call.pathname === "/api/v1/docker/networks"), "list routes never requested");
+  assert.deepStrictEqual(byKind(snapshot, "volume").map((volume) => volume.name).sort(), ["qdrant-data", "qdrant-snapshots"]);
+  assert.deepStrictEqual(byKind(snapshot, "network").map((network) => network.name).sort(), ["ai-box", "edge"]);
+  const inspectCalls = world.calls.filter((call) => call.pathname.endsWith("/inspect")).length;
+  assert.ok(inspectCalls <= model.LIMITS.maxInspectsPerNode, `inspects bounded (${inspectCalls})`);
+  const sections = Object.fromEntries(snapshot.nodes[0].sections.map((section) => [section.name, section]));
+  assert.strictEqual(sections.volumes.scope, "attached-to-containers", "partial coverage disclosed");
+});
+
+test("a different reported device is refused even when the rest of the identity is missing", async () => {
+  const { reader, world } = makeAgent({ identity: { deviceId: "other-device", hostname: "h" } });
+  setup({ reader, nodes: [agentNode("node-a", { deviceId: "dev-1" })] });
+  const snapshot = await inventory.refreshInventory();
+  assert.strictEqual(snapshot.nodes[0].code, "AGENT_IDENTITY_MISMATCH");
+  assert.strictEqual(snapshot.resources.length, 0, "nothing attributed to the registered node");
+  assert.deepStrictEqual(world.calls.map((call) => call.pathname), ["/api/v1/health"], "no further reads after the mismatch");
+});
+
+test("a network recreated under the same name is a new resource", async () => {
+  const { reader, world } = makeAgent();
+  setup({ reader, nodes: [agentNode("node-a")] });
+  clock = Date.parse("2026-10-14T10:00:00Z");
+  const before = byKind(await inventory.refreshInventory(), "network")[0];
+  assert.ok(before.identity.components.networkId, "full network ID recorded");
+  world.networks = world.networks.map((network) => ({ ...network, fullId: "f".repeat(64) }));
+  clock += 3600000;
+  const after = byKind(await inventory.refreshInventory({ force: true }), "network");
+  assert.strictEqual(after.length, 1);
+  assert.notStrictEqual(after[0].key, before.key, "new network ID, new key");
+  assert.strictEqual(after[0].firstSeen, "2026-10-14T11:00:00.000Z", "firstSeen not inherited");
+});
+
+test("fleet-wide cap evicts only the oldest stale records and never drops fresh ones", async () => {
+  const perNode = 1990;
+  const down = new Set();
+  const fleetReader = async (pathname, options) => {
+    const nodeId = options?.config?.nodeId;
+    if (down.has(nodeId)) throw Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" });
+    if (pathname === "/api/v1/health") return { identity: { deviceId: `dev-${nodeId}`, agentInstallationId: "i", agentIdentityGeneration: "g" }, capabilities: {} };
+    if (pathname === "/api/v1/docker/containers") {
+      return { installed: true, daemonRunning: true, containers: Array.from({ length: perNode }, (_, index) => ({ id: `${nodeId.slice(-2)}${String(index).padStart(10, "0")}`, name: `c${index}`, state: "running", status: "Up" })) };
+    }
+    if (pathname.endsWith("/inspect")) throw Object.assign(new Error("skip"), { code: "AGENT_TIMEOUT" });
+    if (pathname === "/api/v1/docker/compose/projects") return { projects: [] };
+    if (pathname === "/api/v1/instances") return { instances: [] };
+    if (pathname === "/api/v1/network/inventory") return { listeners: [] };
+    return {};
+  };
+  const nodes = Array.from({ length: 11 }, (_, index) => agentNode(`node-${String(index).padStart(2, "0")}`, { deviceId: `dev-node-${String(index).padStart(2, "0")}` }));
+  setup({ reader: fleetReader, nodes });
+  clock = Date.parse("2026-10-14T10:00:00Z");
+  const first = await inventory.refreshInventory();
+  const total = first.resources.length;
+  assert.ok(total > 20000, `fixture exceeds the fleet cap (${total})`);
+  assert.strictEqual(first.fleetLimit.overCap, true, "overflow is reported");
+  assert.strictEqual(first.fleetLimit.evictedStale, 0, "nothing fresh is evicted");
+  assert.ok(first.resources.every((resource) => resource.stale === false));
+  down.add("node-00");
+  down.add("node-01");
+  clock += 3600000;
+  const second = await inventory.refreshInventory({ force: true });
+  assert.ok(second.fleetLimit.evictedStale > 0, "stale records evicted to make room");
+  assert.strictEqual(second.resources.length, 20000);
+  assert.strictEqual(second.fleetLimit.overCap, false);
+  const freshNow = second.resources.filter((resource) => resource.stale === false).length;
+  assert.strictEqual(freshNow, total - 2 * (perNode + 1), "every fresh record kept");
 });
 
 test("container rename or compose move with the same Docker ID is a new identity", async () => {
