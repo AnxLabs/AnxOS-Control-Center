@@ -367,6 +367,7 @@ const desktopApi = {
     list: (payload = {}) => invokeAgentFeature("backups:list", payload),
     create: (payload = {}) => ipcRenderer.invoke("backups:create", payload),
     restore: (payload = {}) => ipcRenderer.invoke("backups:restore", payload),
+    verify: (backupId, payload = {}) => ipcRenderer.invoke("backups:verify", { ...payload, backupId }),
     delete: (backupId, payload = {}) => ipcRenderer.invoke("backups:delete", { ...payload, backupId }),
     download: (backupId, payload = {}) => ipcRenderer.invoke("backups:download", { ...payload, backupId }),
     import: (payload = {}) => ipcRenderer.invoke("backups:import", payload),
@@ -411,6 +412,48 @@ const desktopApi = {
   alerts: {
     list: () => ipcRenderer.invoke("alerts:list"),
     acknowledge: (id) => ipcRenderer.invoke("alerts:acknowledge", { id }),
+  },
+  // V2-K endpoint registry / connectivity / provider surfaces
+  // (src/ipc/networkIpc.js). The registry CRUD and the desktop-local reads use
+  // the plain invoke form; the diagnostics run and provider sync/test channels
+  // answer expected Agent failures with { ok: false, error }, so they use
+  // invokeAgentFeature and surface a thrown typed error like the other
+  // Agent-touching families.
+  endpoints: {
+    list: (payload = {}) => ipcRenderer.invoke("endpoints:list", payload),
+    discover: (payload = {}) => ipcRenderer.invoke("endpoints:discover", payload),
+    create: (payload = {}) => ipcRenderer.invoke("endpoints:create", payload),
+    update: (id, payload = {}) => ipcRenderer.invoke("endpoints:update", { ...payload, id }),
+    remove: (id, payload = {}) => ipcRenderer.invoke("endpoints:delete", { ...payload, id }),
+    setEnabled: (id, enabled, payload = {}) => ipcRenderer.invoke("endpoints:setEnabled", { ...payload, id, enabled }),
+    associate: (payload = {}) => ipcRenderer.invoke("endpoints:associate", payload),
+    test: (payload = {}) => invokeAgentFeature("endpoints:test", payload),
+  },
+  connectivity: {
+    getDiagnostics: (payload = {}) => ipcRenderer.invoke("connectivity:getDiagnostics", payload),
+    runDiagnostics: (payload = {}) => invokeAgentFeature("connectivity:runDiagnostics", payload),
+  },
+  providers: {
+    getStatus: (payload = {}) => invokeAgentFeature("providers:getStatus", payload),
+    sync: (payload = {}) => invokeAgentFeature("providers:sync", payload),
+  },
+  // V2-K sampled telemetry (src/ipc/telemetryIpc.js): desktop-local store reads
+  // and export use the plain invoke form; clear mutates the store and stays
+  // Owner/Admin-gated in main.
+  telemetry: {
+    getSummary: (payload = {}) => ipcRenderer.invoke("telemetry:getSummary", payload),
+    getSeries: (payload = {}) => ipcRenderer.invoke("telemetry:getSeries", payload),
+    export: (payload = {}) => ipcRenderer.invoke("telemetry:export", payload),
+    clear: () => ipcRenderer.invoke("telemetry:clear"),
+  },
+  // V2-K operational notification journal read (src/ipc/notificationsIpc.js).
+  notifications: {
+    list: (payload = {}) => ipcRenderer.invoke("notifications:list", payload),
+  },
+  // V2-K computer summary read (src/ipc/computersIpc.js). Desktop-local: the
+  // handler defaults nodeId to the selected node / application host.
+  computers: {
+    getSummary: (payload = {}) => ipcRenderer.invoke("computers:getSummary", payload),
   },
   files: {
     listConnections: () => ipcRenderer.invoke("files:listConnections"),

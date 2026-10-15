@@ -208,6 +208,7 @@ const loadedIpcModuleFiles = new Set([
   "publicAccessIpc.js", "dockerIpc.js", "instancesIpc.js", "marketplaceIpc.js",
   "maintenanceIpc.js", "nodesIpc.js", "networkInventoryIpc.js", "infrastructureInventoryIpc.js", "workloadIpc.js", "ownerWorkspaceIpc.js",
   "filesIpc.js", "settingsIpc.js", "sshIpc.js", "alertsIpc.js",
+  "networkIpc.js", "telemetryIpc.js", "notificationsIpc.js", "computersIpc.js",
 ]);
 // accountIpc.js delegates to accountAuthIpc.registerAccountAuthIpc (which IS
 // loaded here); loading it again would double-register the account channels.
@@ -252,11 +253,15 @@ try {
   require("../src/ipc/backupsIpc").registerBackupsIpc();
   require("../src/ipc/playitIpc").registerPlayitIpc();
   require("../src/ipc/publicAccessIpc").registerPublicAccessIpc();
+  require("../src/ipc/networkIpc").registerNetworkIpc();
+  require("../src/ipc/telemetryIpc").registerTelemetryIpc();
+  require("../src/ipc/notificationsIpc").registerNotificationsIpc();
   require("../src/ipc/dockerIpc").registerDockerIpc();
   require("../src/ipc/instancesIpc").registerInstancesIpc();
   require("../src/ipc/marketplaceIpc").registerMarketplaceIpc();
   require("../src/ipc/maintenanceIpc").registerMaintenanceIpc();
   require("../src/ipc/nodesIpc").registerNodesIpc();
+  require("../src/ipc/computersIpc").registerComputersIpc();
   require("../src/ipc/networkInventoryIpc").registerNetworkInventoryIpc();
   require("../src/ipc/infrastructureInventoryIpc").registerInfrastructureInventoryIpc();
   require("../src/ipc/alertsIpc").registerAlertsIpc();
@@ -410,6 +415,20 @@ const DESKTOP_PROBES = {
   "storage-window-open": { channel: "storageWindow:open", serviceRecorded: false },
   "storage-window-internal": { channel: "storageWindow:close", serviceRecorded: false },
   "workload-transfer": { channel: "workload:transferPreview", payload: { sourceNodeId: "matrix-node-a", targetNodeId: "matrix-node-b", sourceInstanceId: "matrix-instance" } },
+  "endpoints-read": { channel: "endpoints:list", payload: {} },
+  "endpoints-write": { channel: "endpoints:create", payload: { name: "matrix-endpoint" } },
+  "endpoints-discover": { channel: "endpoints:discover", payload: { serviceId: "matrix-service" } },
+  "endpoints-test": { channel: "endpoints:test", payload: { endpointId: "matrix-endpoint" } },
+  "connectivity-read": { channel: "connectivity:getDiagnostics", payload: {} },
+  "connectivity-run": { channel: "connectivity:runDiagnostics", payload: {} },
+  "providers-read": { channel: "providers:getStatus", payload: {} },
+  "providers-sync": { channel: "providers:sync", payload: {} },
+  "telemetry-read": { channel: "telemetry:getSummary", payload: {} },
+  "telemetry-export": { channel: "telemetry:export", payload: {} },
+  "telemetry-manage": { channel: "telemetry:clear", payload: {} },
+  "notifications-read": { channel: "notifications:list", payload: {} },
+  "computers-read": { channel: "computers:getSummary", payload: {} },
+  "backups-verify": { channel: "backups:verify", payload: { backupId: "matrix-backup" } },
 };
 
 function channelFamilyMap() {
