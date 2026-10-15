@@ -4512,6 +4512,35 @@
               <div class="download-list" data-fleet-rows></div>
             </section>
 
+            <section class="settings-section settings-section--nodes nodes-panel" data-infra-inventory-panel hidden>
+              <div class="settings-section__header">
+                <div>
+                  <h2>Infrastructure Inventory</h2>
+                  <p>Read-only discovery of hosts, instances, systemd-managed services, containers, volumes, networks and listeners across every registered Agent node. Discovery never changes a service. Unclassified resources are protected as production.</p>
+                </div>
+                <span class="status-pill status-pill--planned" data-infra-inventory-status>Not loaded</span>
+              </div>
+              <div class="nodes-toolbar">
+                <button class="inline-action" type="button" data-infra-inventory-action="refresh">Refresh Inventory</button>
+                <select data-infra-inventory-kind aria-label="Filter inventory by resource kind">
+                  <option value="all">All kinds</option>
+                  <option value="host">Hosts</option>
+                  <option value="service-managed-instance">systemd services</option>
+                  <option value="instance">Instances</option>
+                  <option value="container">Containers</option>
+                  <option value="volume">Volumes</option>
+                  <option value="network">Networks</option>
+                  <option value="compose-project">Compose projects</option>
+                  <option value="listener">Listeners</option>
+                </select>
+                <input type="search" data-infra-inventory-search placeholder="Filter by name" aria-label="Filter inventory by name" />
+                <span class="settings-inline-status" data-infra-inventory-message>Inventory has not been loaded.</span>
+              </div>
+              <div class="security-summary-grid node-health-overview" data-infra-inventory-overview hidden aria-live="polite" aria-label="Infrastructure inventory summary"></div>
+              <div data-infra-inventory-nodes></div>
+              <div data-infra-inventory-body></div>
+            </section>
+
             <section class="settings-section settings-section--nodes nodes-panel" data-network-inventory-panel hidden>
               <div class="settings-section__header">
                 <div>

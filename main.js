@@ -13,6 +13,7 @@ const { registerInstancesIpc } = require("./src/ipc/instancesIpc");
 const { registerMarketplaceIpc } = require("./src/ipc/marketplaceIpc");
 const { registerMaintenanceIpc } = require("./src/ipc/maintenanceIpc");
 const { registerNetworkInventoryIpc } = require("./src/ipc/networkInventoryIpc");
+const { registerInfrastructureInventoryIpc } = require("./src/ipc/infrastructureInventoryIpc");
 const { registerNodesIpc } = require("./src/ipc/nodesIpc");
 const { registerOwnerWorkspaceIpc } = require("./src/ipc/ownerWorkspaceIpc");
 const { registerPlayitIpc } = require("./src/ipc/playitIpc");
@@ -1040,6 +1041,7 @@ app.whenReady().then(async () => {
   registerMaintenanceIpc();
   registerNodesIpc();
   registerNetworkInventoryIpc();
+  registerInfrastructureInventoryIpc();
   registerAlertsIpc();
   // V2-J: the alert engine is inert without a driver. Start a bounded
   // evaluation loop over state the desktop already polls — it adds no new
