@@ -32,6 +32,14 @@ const MINIMUM_DISK_RESERVE_BYTES = 64 * 1024 * 1024;
 // instance keeps running (the historical default), "stopped" copies quiesce
 // the workload first through the instance lifecycle.
 const BACKUP_CONSISTENCY_MODES = new Set(["crash", "stopped"]);
+// Verification lifecycle (additive metadata, schema stays at 1): a newly
+// created record starts "unverified"; verifyBackup observes it into
+// "verified"/"failed"/"corrupt". A record that predates this support has no
+// verification object and is disclosed as "unknown" — never as "unverified",
+// which would claim it was born under the current lifecycle.
+const BACKUP_VERIFICATION_STATES = new Set(["unverified", "verified", "failed", "corrupt", "unknown"]);
+const LEGACY_VERIFICATION_DETAIL = "Backup predates verification support.";
+const BACKUP_VERIFICATION_UNAVAILABLE_DETAIL = "No create-time checksum is recorded for this backup.";
 // States from which a quiesced backup must first bring the instance down;
 // mirrors the stop set the restore flow uses.
 const INSTANCE_ACTIVE_STATES = new Set(["Starting", "Running", "Restarting", "Stopping"]);
@@ -712,10 +720,132 @@ async function readBackupMetadata(backupId) {
   const archive = archivePath(id);
   const size = await getFileSize(archive).catch(() => metadata.size || 0);
   return {
-    ...metadata,
+    ...buildBackupRecord(metadata),
     path: archive,
     size,
   };
+}
+
+// Read-path normalization for the verification disclosure: every consumer of a
+// stored record gets the same shape, and a record without a recognizable
+// verification object is disclosed as legacy "unknown" with the reason. The
+// stored file is never rewritten by reading, so a legacy record keeps its
+// original bytes on disk.
+function normalizeBackupVerification(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value) || !BACKUP_VERIFICATION_STATES.has(value.state)) {
+    return {
+      state: "unknown",
+      method: "sha256",
+      checkedAt: null,
+      detail: LEGACY_VERIFICATION_DETAIL,
+    };
+  }
+  return {
+    state: value.state,
+    method: "sha256",
+    checkedAt: typeof value.checkedAt === "string" && value.checkedAt ? value.checkedAt : null,
+    detail: typeof value.detail === "string" && value.detail ? value.detail : null,
+  };
+}
+
+function buildBackupRecord(metadata) {
+  return {
+    ...metadata,
+    verification: normalizeBackupVerification(metadata?.verification),
+  };
+}
+
+function resolveVerificationCheckedAt(now) {
+  if (now === undefined || now === null) return nowIso();
+  const value = now instanceof Date ? now : new Date(now);
+  return Number.isNaN(value.getTime()) ? nowIso() : value.toISOString();
+}
+
+// Verification observes an existing recovery point; it never rewrites the
+// archive. Expected outcomes (missing archive, undecodable gzip, checksum
+// mismatch, a record with no create-time digest) are persisted and returned as
+// data so the route reports them instead of failing: only an id that names no
+// stored backup throws. Quarantined orphan archives have no metadata record,
+// so they surface here as BACKUP_NOT_FOUND exactly like any other unknown id.
+async function verifyBackup(backupId, options = {}) {
+  const record = await readBackupMetadata(backupId);
+  const checkedAt = resolveVerificationCheckedAt(options.now);
+  let archiveBuffer;
+  try {
+    archiveBuffer = await fs.readFile(record.path);
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return persistVerificationOutcome(record, {
+        state: "failed",
+        method: "sha256",
+        checkedAt,
+        detail: "archive missing",
+      }, { ok: false, code: "BACKUP_ARCHIVE_MISSING" });
+    }
+    const code = error?.code || "BACKUP_ARCHIVE_UNREADABLE";
+    return persistVerificationOutcome(record, {
+      state: "corrupt",
+      method: "sha256",
+      checkedAt,
+      detail: code,
+    }, { ok: false, code });
+  }
+
+  try {
+    // Decompression is attempted before the digest comparison so a truncated
+    // or unreadable archive is classified as corrupt rather than as a checksum
+    // mismatch, while a readable archive whose content was replaced (a valid
+    // gzip that no longer matches the create-time digest) fails below.
+    zlib.gunzipSync(archiveBuffer, { maxOutputLength: MAX_BACKUP_EXPANDED_BYTES });
+  } catch (error) {
+    const code = error?.code || "BACKUP_ARCHIVE_INVALID";
+    return persistVerificationOutcome(record, {
+      state: "corrupt",
+      method: "sha256",
+      checkedAt,
+      detail: code,
+    }, { ok: false, code });
+  }
+
+  const expectedSha256 = String(record.archiveSha256 || "").trim().toLowerCase() || null;
+  const actualSha256 = sha256Hex(archiveBuffer);
+  if (!expectedSha256) {
+    // Without a create-time digest only readability can be observed, so the
+    // record stays honestly unknown instead of being promoted to verified.
+    return persistVerificationOutcome(record, {
+      state: "unknown",
+      method: "sha256",
+      checkedAt,
+      detail: BACKUP_VERIFICATION_UNAVAILABLE_DETAIL,
+    }, { ok: false, code: "BACKUP_CHECKSUM_UNAVAILABLE" });
+  }
+  if (actualSha256 !== expectedSha256) {
+    // The result carries the digests for diagnostics; the persisted detail
+    // stays generic so the metadata file itself never records digest material.
+    return persistVerificationOutcome(record, {
+      state: "failed",
+      method: "sha256",
+      checkedAt,
+      detail: "checksum mismatch",
+    }, { ok: false, code: "BACKUP_ARCHIVE_HASH_MISMATCH", expectedSha256, actualSha256 });
+  }
+  return persistVerificationOutcome(record, {
+    state: "verified",
+    method: "sha256",
+    checkedAt,
+    detail: null,
+  }, { ok: true });
+}
+
+// Persists the observed outcome next to the record (atomic temp+rename through
+// writeJson, so the metadata file stays valid JSON even across a crash) and
+// returns the record with the outcome attached. The derived path field is
+// never written: it is computed on read, exactly like every other write.
+async function persistVerificationOutcome(record, verification, outcome) {
+  const persistedMetadata = { ...record, verification };
+  delete persistedMetadata.path;
+  await writeJson(metadataPath(record.id), persistedMetadata);
+  return { record: { ...record, verification }, ...outcome };
 }
 
 async function listBackups(options = {}) {
@@ -950,6 +1080,10 @@ async function performCreateBackup(payload = {}) {
     sourcePaths,
     archiveName: path.basename(archive),
     status: "complete",
+    // Additive verification lifecycle (schema stays at 1): the record carries
+    // a create-time digest and supports verification, but no check has been
+    // observed yet.
+    verification: { state: "unverified", method: "sha256", checkedAt: null, detail: null },
     // Additive consistency disclosure (schema stays at 1): how the copy was
     // taken and whether the instance had to be stopped and started again.
     // effectiveConsistency may differ from the requested mode when a Stopping
@@ -1513,6 +1647,9 @@ async function importBackup(payload = {}) {
     sourcePaths: ["."],
     archiveName: path.basename(archive),
     status: "imported",
+    // Imported archives carry a digest computed from the stored bytes, so they
+    // start in the same unverified state as a freshly created backup.
+    verification: { state: "unverified", method: "sha256", checkedAt: null, detail: null },
   };
   try {
     await writeJson(metadataPath(backupId), metadata);
@@ -1635,6 +1772,7 @@ module.exports = {
   BACKUP_METADATA_SCHEMA_VERSION,
   BACKUP_SCHEDULE_SCHEMA_VERSION,
   _test: {
+    buildBackupRecord,
     createTarHeader,
     ensureDiskSpace,
     padTarData,
@@ -1663,4 +1801,5 @@ module.exports = {
   saveSchedule,
   startBackupScheduler,
   stopBackupScheduler,
+  verifyBackup,
 };
