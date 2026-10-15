@@ -211,6 +211,32 @@ async function testRowCap() {
   }
 }
 
+async function testLinuxNetstatFallbackErrors() {
+  const run = async (failing) => {
+    service._test.setExecFileForTest((command, args) => {
+      if (command === "ss") return Promise.resolve({ ok: false, stdout: "", stderr: "ss: not found" });
+      const protocol = (args || []).includes("-ulnp") ? "udp" : "tcp";
+      if (command === "netstat" && failing.includes(protocol)) return Promise.resolve({ ok: false, stdout: "", stderr: `netstat ${protocol} failed` });
+      if (command === "netstat") return Promise.resolve({ ok: true, stdout: protocol === "udp" ? LINUX_NETSTAT_UDP_FIXTURE : LINUX_NETSTAT_TCP_FIXTURE, stderr: "" });
+      return Promise.resolve({ ok: false, stdout: "", stderr: "unexpected command" });
+    });
+    try {
+      return await service.collectListeners("linux");
+    } finally {
+      service._test.setExecFileForTest(null);
+    }
+  };
+  const both = await run([]);
+  assert.strictEqual(both.source, "netstat");
+  assert.deepStrictEqual(both.errors, [], "netstat fallback with both protocols read is a complete list");
+  const udpFailed = await run(["udp"]);
+  assert.strictEqual(udpFailed.source, "netstat");
+  assert(udpFailed.rows.length > 0 && udpFailed.rows.every((row) => row.protocol === "tcp"), "only the TCP rows are returned");
+  assert.deepStrictEqual(udpFailed.errors, ["netstat (udp): netstat udp failed"], "a failed fallback protocol must be disclosed");
+  const tcpFailed = await run(["tcp"]);
+  assert.deepStrictEqual(tcpFailed.errors, ["netstat (tcp): netstat tcp failed"]);
+}
+
 async function testInterfaceParsing() {
   const rows = service.collectNetworkInterfaces(INTERFACES_FIXTURE);
   assert.deepStrictEqual(rows, [
@@ -331,6 +357,7 @@ async function main() {
   await testLinuxNetstatParsing();
   await testConflictDetection();
   await testRowCap();
+  await testLinuxNetstatFallbackErrors();
   await testInterfaceParsing();
   await testCollectNetworkInventoryStubbed();
   await testCheckPort();

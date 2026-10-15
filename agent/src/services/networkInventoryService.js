@@ -347,7 +347,12 @@ async function collectLinuxListeners() {
       ...parseLinuxNetstatListeners(netstatTcp.stdout, "tcp"),
       ...parseLinuxNetstatListeners(netstatUdp.stdout, "udp"),
     ]);
-    return { source: "netstat", ...netstatRows, errors: [] };
+    // A fallback protocol that failed is disclosed like a failed ss protocol,
+    // so consumers know the list is partial instead of treating it as complete.
+    const errors = [];
+    if (!netstatTcp.ok) errors.push(describeListenerCommandFailure("netstat (tcp)", netstatTcp));
+    if (!netstatUdp.ok) errors.push(describeListenerCommandFailure("netstat (udp)", netstatUdp));
+    return { source: "netstat", ...netstatRows, errors };
   }
 
   const errors = [];
