@@ -33,6 +33,10 @@ gates:
   inventory: routes used, identity, protection, failure handling, verification)
 - `HEADLESS_AGENT_INSTALL.md` (headless Agent install, update, unpair, and
   verification status)
+- `ENDPOINT_MANAGER.md` (V2-K endpoint registry, migration, and lifecycle
+  reference)
+- `CONNECTIVITY_MODEL.md` (V2-K connectivity diagnostics, graph, and
+  presentation model)
 
 When a current document conflicts with a build-numbered report, the current
 document controls.
