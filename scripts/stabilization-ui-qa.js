@@ -80,6 +80,8 @@ async function visible(page, selector) {
 // ---------------------------------------------------------------------------
 const CONDITION_BUDGET_MS = 10000;
 const BOOTSTRAP_BUDGET_MS = 30000;
+// Same launch budget as onboarding-fresh-install-smoke.js.
+const WELCOME_TIMEOUT_MS = 15000;
 const CONDITION_POLL_MS = 100;
 // Every wait below fails with a diagnostic naming the condition it was waiting for,
 // so this watchdog exists only to catch a step that has NO budget of its own (a hang,
@@ -427,10 +429,13 @@ async function main() {
     const securityGateVisible = await visible(page, "[data-security-gate]");
     let localSetupVisible = await visible(page, "[data-local-setup-gate]");
     // Owner decision (2026-10-14): the onboarding welcome is shown on launch,
-    // as pinned by onboarding-fresh-install-smoke.js. It is deferred by 350 ms,
-    // so wait briefly for it before deciding which surface is in front.
+    // as pinned by onboarding-fresh-install-smoke.js. It is deferred by 350 ms.
+    // This run always uses a fresh profile, so when the device choice is on
+    // screen (and Sign In is not) the welcome is required: its absence fails.
     if (!securityGateVisible && localSetupVisible) {
-      await page.locator("[data-onboarding-welcome]").waitFor({ state: "visible", timeout: 2000 }).catch(() => {});
+      await page.locator("[data-onboarding-welcome]").waitFor({ state: "visible", timeout: WELCOME_TIMEOUT_MS }).catch(() => {
+        throw new Error(`The onboarding welcome did not appear within ${WELCOME_TIMEOUT_MS}ms of launch on a fresh profile.`);
+      });
     }
     const onboardingVisible = await visible(page, "[data-onboarding-welcome]");
     // Unchanged requirement: nothing from First Experience may sit in front of
