@@ -13353,6 +13353,752 @@ body.create-server-window .app-modal--first-server .app-modal__header {
   }
 }
 
+/* ---------------------------------------------------------------------------
+   Network workspace (Endpoint Manager)
+   Same panel language as the Nodes page: semantic tokens only, no literal
+   brand colors, status conveyed by labeled pills (never color alone).
+   --------------------------------------------------------------------------- */
+
+.network-shell,
+.network-page {
+  display: grid;
+  gap: var(--anx-space-3);
+  align-content: start;
+}
+
+.network-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  gap: var(--anx-space-2);
+  align-content: start;
+  align-items: start;
+}
+
+.network-summary-card {
+  min-width: 0;
+  padding: var(--anx-space-2) var(--anx-space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--anx-radius-sm);
+  background: var(--panel);
+}
+
+.network-summary-card span {
+  display: block;
+  color: var(--muted);
+  font-size: var(--anx-text-xs);
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.network-summary-card strong {
+  display: block;
+  margin-top: var(--anx-space-1);
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: var(--anx-text-lg);
+}
+
+.network-panel {
+  gap: var(--anx-space-2);
+  height: auto;
+}
+
+.network-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--anx-space-2);
+  align-items: center;
+}
+
+.network-toolbar .settings-inline-status {
+  flex: 1 1 280px;
+  min-width: min(100%, 220px);
+}
+
+.network-endpoint-list {
+  display: grid;
+  gap: var(--anx-space-2);
+  min-width: 0;
+}
+
+.network-endpoint-card {
+  display: grid;
+  gap: var(--anx-space-2);
+  min-width: 0;
+  padding: var(--anx-space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--anx-radius-md);
+  background: var(--panel);
+  box-shadow: var(--anx-shadow-inset);
+  transition: border-color var(--anx-duration-fast) ease, background var(--anx-duration-fast) ease;
+}
+
+.network-endpoint-card:hover,
+.network-endpoint-card:focus-within {
+  border-color: var(--anx-color-border-strong);
+}
+
+.network-endpoint-card.is-selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.network-endpoint-card__top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--anx-space-2);
+  align-items: start;
+}
+
+.network-endpoint-card__title {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.network-endpoint-card__title strong {
+  overflow-wrap: anywhere;
+  color: var(--text);
+}
+
+.network-endpoint-card__title span {
+  color: var(--muted);
+  font-size: var(--anx-text-xs);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.network-endpoint-card__meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--anx-space-2);
+  margin: 0;
+}
+
+.network-endpoint-card__meta > div {
+  min-width: 0;
+  padding: var(--anx-space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--anx-radius-sm);
+  background: var(--panel-strong);
+}
+
+.network-endpoint-card__meta dt {
+  display: block;
+  color: var(--muted);
+  font-size: var(--anx-text-xs);
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.network-endpoint-card__meta dd {
+  margin: var(--anx-space-1) 0 0;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: var(--anx-text-sm);
+}
+
+.network-endpoint-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--anx-space-1);
+}
+
+.network-endpoint-card__actions .inline-action {
+  min-height: 28px;
+  padding: 4px 8px;
+  font-size: var(--anx-text-xs);
+}
+
+.connectivity-state-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 3px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--anx-radius-pill);
+  background: var(--anx-surface-control);
+  color: var(--muted);
+  font-size: var(--anx-text-xs);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.connectivity-state-pill[data-state="healthy"] {
+  border-color: var(--success);
+  color: var(--success);
+}
+
+.connectivity-state-pill[data-state="degraded"] {
+  border-color: var(--caution);
+  color: var(--caution);
+}
+
+.connectivity-state-pill[data-state="failed"] {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.connectivity-state-pill[data-state="unknown"] {
+  border-color: var(--neutral);
+  color: var(--neutral);
+}
+
+.connectivity-state-pill[data-state="unsupported"],
+.connectivity-state-pill[data-state="not_configured"] {
+  border-color: var(--line);
+  color: var(--muted);
+}
+
+.network-provider-list {
+  display: grid;
+  gap: var(--anx-space-2);
+  min-width: 0;
+}
+
+.network-provider-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--anx-space-2);
+  align-items: center;
+  min-width: 0;
+  padding: var(--anx-space-2) var(--anx-space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--anx-radius-sm);
+  background: var(--panel);
+}
+
+.network-provider-row__info {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.network-provider-row__info strong {
+  overflow-wrap: anywhere;
+  color: var(--text);
+}
+
+.network-provider-row__detail {
+  color: var(--muted);
+  font-size: var(--anx-text-xs);
+}
+
+.network-diagnostics-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--anx-space-2);
+}
+
+.network-diagnostics-summary strong {
+  color: var(--text);
+}
+
+.network-diagnostics-scopes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--anx-space-1);
+}
+
+.network-scope-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--anx-space-2);
+  min-width: 0;
+  padding: var(--anx-space-1) var(--anx-space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--anx-radius-sm);
+  background: var(--panel);
+}
+
+.network-scope-row__label {
+  color: var(--muted);
+  font-size: var(--anx-text-xs);
+  font-weight: 700;
+}
+
+.network-diagnostics-stages {
+  display: grid;
+  gap: var(--anx-space-2);
+  min-width: 0;
+}
+
+.network-diagnostics-stage {
+  display: grid;
+  gap: var(--anx-space-2);
+  min-width: 0;
+  padding: var(--anx-space-3);
+  border: 1px solid var(--line);
+  border-left-width: 3px;
+  border-radius: var(--anx-radius-md);
+  background: var(--panel);
+  transition: border-color var(--anx-duration-fast) ease, background var(--anx-duration-fast) ease;
+}
+
+.network-diagnostics-stage[data-stage-state="healthy"] {
+  border-left-color: var(--success);
+}
+
+.network-diagnostics-stage[data-stage-state="degraded"] {
+  border-left-color: var(--caution);
+}
+
+.network-diagnostics-stage[data-stage-state="failed"] {
+  border-left-color: var(--danger);
+}
+
+.network-diagnostics-stage[data-stage-state="unknown"],
+.network-diagnostics-stage[data-stage-state="unsupported"],
+.network-diagnostics-stage[data-stage-state="not_configured"] {
+  border-left-color: var(--neutral);
+}
+
+.network-diagnostics-stage.is-selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.network-diagnostics-stage__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--anx-space-2);
+}
+
+.network-diagnostics-stage__header strong {
+  overflow-wrap: anywhere;
+  color: var(--text);
+}
+
+.network-diagnostics-stage__detail {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--anx-text-sm);
+}
+
+.network-diagnostics-stage__evidence {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--anx-space-1);
+  margin: 0;
+}
+
+.network-diagnostics-stage__evidence > div {
+  min-width: 0;
+  padding: var(--anx-space-1) var(--anx-space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--anx-radius-sm);
+  background: var(--panel-strong);
+}
+
+.network-diagnostics-stage__evidence dt {
+  color: var(--muted);
+  font-size: var(--anx-text-xs);
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.network-diagnostics-stage__evidence dd {
+  margin: var(--anx-space-1) 0 0;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: var(--anx-text-sm);
+}
+
+.network-diagnostics-stage__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--anx-space-1);
+}
+
+.connectivity-graph {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--anx-space-2);
+  min-width: 0;
+}
+
+.connectivity-node {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--anx-space-2);
+  max-width: 100%;
+  min-height: 34px;
+  padding: var(--anx-space-1) var(--anx-space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--anx-radius-pill);
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--anx-text-sm);
+  cursor: pointer;
+  transition: border-color var(--anx-duration-fast) ease, background var(--anx-duration-fast) ease;
+}
+
+.connectivity-node:hover,
+.connectivity-node:focus-visible,
+.connectivity-node.is-selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.connectivity-node__label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: 700;
+}
+
+.network-graph-summary {
+  margin: var(--anx-space-2) 0 0;
+  color: var(--muted);
+  font-size: var(--anx-text-xs);
+}
+
+.network-empty,
+.network-loading {
+  padding: var(--anx-space-4);
+  border: 1px dashed var(--line);
+  border-radius: var(--anx-radius-md);
+  background: var(--panel);
+  color: var(--muted);
+  text-align: center;
+}
+
+.network-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--anx-space-2) var(--anx-space-3);
+}
+
+.network-form-grid .settings-field--wide,
+.network-form-grid .settings-check--toggle {
+  grid-column: 1 / -1;
+}
+
+.network-form .settings-message {
+  border-color: var(--danger);
+  color: var(--anx-status-danger-text);
+}
+
+@media (max-width: 980px) {
+  .network-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .network-endpoint-card__meta {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .network-form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 720px) {
+  .network-summary-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .network-endpoint-card__top,
+  .network-endpoint-card__meta {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .network-provider-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .network-toolbar {
+    align-items: stretch;
+  }
+
+  .network-toolbar .inline-action {
+    flex: 1 1 44%;
+  }
+
+  .network-toolbar .settings-inline-status {
+    flex-basis: 100%;
+  }
+
+  .connectivity-node {
+    width: 100%;
+  }
+}
+
+html[data-reduce-motion="true"] .network-endpoint-card,
+html[data-reduce-motion="true"] .network-diagnostics-stage,
+html[data-reduce-motion="true"] .connectivity-node {
+  transition: none;
+}
+
+/* ---------------------------------------------------------------------------
+   Instance workspace Network + Performance tabs, and the endpoint picker.
+   Uses the same semantic tokens as the Network workspace; responsive at
+   980/720. The only transition is the picker hover border/background, which
+   is disabled under data-reduce-motion.
+--------------------------------------------------------------------------- */
+
+.instance-network-tab,
+.instance-telemetry-tab {
+  display: grid;
+  gap: var(--anx-space-3);
+  min-width: 0;
+}
+
+[data-instance-network-status][data-tone="error"] {
+  color: var(--danger);
+}
+
+[data-instance-network-status][data-tone="warning"],
+[data-instance-telemetry-status][data-tone="warning"] {
+  color: var(--caution);
+}
+
+[data-instance-telemetry-status][data-tone="error"] {
+  color: var(--danger);
+}
+
+.instance-network-unsupported {
+  margin-top: var(--anx-space-1);
+}
+
+.instance-network-unsupported span:empty {
+  display: none;
+}
+
+.instance-telemetry-ranges {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--anx-surface-control);
+}
+
+.instance-telemetry-range {
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--anx-text-xs);
+  font-weight: 800;
+  line-height: 1;
+  padding: 5px 10px;
+  cursor: pointer;
+  transition: border-color var(--anx-duration-fast) ease, background var(--anx-duration-fast) ease, color var(--anx-duration-fast) ease;
+}
+
+.instance-telemetry-range:hover,
+.instance-telemetry-range:focus-visible {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.instance-telemetry-range.is-active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.instance-telemetry-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--anx-space-2);
+}
+
+.instance-telemetry-summary-card {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: var(--anx-space-2) var(--anx-space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--anx-radius-sm);
+  background: var(--panel);
+}
+
+.instance-telemetry-summary-card > span {
+  color: var(--muted);
+  font-size: var(--anx-text-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.instance-telemetry-summary-card strong {
+  font-size: var(--anx-text-lg);
+  overflow-wrap: anywhere;
+}
+
+.instance-telemetry-summary-card small {
+  color: var(--muted);
+  font-size: var(--anx-text-xs);
+}
+
+.instance-telemetry-charts {
+  display: grid;
+  gap: var(--anx-space-2);
+}
+
+.telemetry-sparkline {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: var(--anx-space-2) var(--anx-space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--anx-radius-sm);
+  background: var(--panel);
+}
+
+.telemetry-sparkline__svg {
+  display: block;
+  width: 100%;
+  height: 48px;
+}
+
+.telemetry-sparkline__line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.telemetry-sparkline__gap {
+  stroke: var(--neutral);
+  stroke-width: 1;
+  stroke-dasharray: 2 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.telemetry-sparkline__latest {
+  color: var(--muted);
+  font-size: var(--anx-text-xs);
+  overflow-wrap: anywhere;
+}
+
+.app-modal--endpoint-picker {
+  width: min(560px, calc(100vw - 28px));
+}
+
+.endpoint-picker-list {
+  display: grid;
+  gap: var(--anx-space-2);
+  margin-top: var(--anx-space-2);
+  max-height: min(52vh, 420px);
+  overflow-y: auto;
+}
+
+.endpoint-picker-choice {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--anx-space-2);
+  align-items: center;
+  width: 100%;
+  padding: var(--anx-space-2) var(--anx-space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--anx-radius-sm);
+  background: var(--anx-surface-control);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--anx-duration-fast) ease, background var(--anx-duration-fast) ease;
+}
+
+.endpoint-picker-choice:hover,
+.endpoint-picker-choice:focus-visible {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.endpoint-picker-choice.is-selected {
+  border-color: var(--accent);
+}
+
+.endpoint-picker-choice:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.endpoint-picker-choice__info {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.endpoint-picker-choice__top {
+  display: flex;
+  align-items: center;
+  gap: var(--anx-space-1);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.endpoint-picker-choice__recommended {
+  color: var(--success);
+  font-size: var(--anx-text-xs);
+  font-weight: 700;
+}
+
+.endpoint-picker-choice__address {
+  color: var(--text);
+  font-size: var(--anx-text-xs);
+  overflow-wrap: anywhere;
+}
+
+.endpoint-picker-choice__detail {
+  color: var(--muted);
+  font-size: var(--anx-text-xs);
+}
+
+.endpoint-picker-choice__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--anx-space-1);
+}
+
+@media (max-width: 980px) {
+  .instance-telemetry-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .endpoint-picker-choice {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .endpoint-picker-choice__meta {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 720px) {
+  .instance-telemetry-summary {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .instance-telemetry-ranges {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .instance-network-tab .network-endpoint-card__top,
+  .instance-network-tab .network-endpoint-card__meta {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+html[data-reduce-motion="true"] .endpoint-picker-choice,
+html[data-reduce-motion="true"] .instance-telemetry-range {
+  transition: none;
+}
+
 .app-modal-backdrop--drawer {
   justify-content: flex-end;
   align-items: stretch;
@@ -17343,3 +18089,136 @@ html[data-ui-generation="v1.9"] .sidebar[data-sidebar-state="collapsed"] [data-t
 .service-ops__result[data-outcome="refused"], .service-ops__result[data-outcome="failed"], .service-ops__result[data-outcome="timeout"] { border-color: rgba(255, 107, 138, 0.5); color: var(--danger); }
 .service-ops__empty { color: var(--muted); list-style: none; margin-left: -18px; }
 .service-ops__why summary { cursor: pointer; font-size: 0.86rem; }
+
+/* ---------------------------------------------------------------------------
+   V2-K renderer surfaces: node details connectivity, the telemetry Settings
+   subgroup, and backup verification pills. These reuse the shared semantic
+   tokens so the drawer, Settings, and Backups keep the AnxOS identity.
+--------------------------------------------------------------------------- */
+
+.settings-subgroup {
+  display: grid;
+  gap: 10px;
+  margin: 4px 0 6px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+.settings-subgroup .settings-section__header {
+  margin-bottom: 0;
+}
+
+.settings-subgroup .settings-section__header h3 {
+  font-size: 0.92rem;
+}
+
+.settings-subgroup .settings-section__header p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.settings-subgroup .settings-grid {
+  gap: 10px;
+}
+
+.settings-section--node-connectivity {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 14px;
+}
+
+.node-connectivity-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 0;
+  color: var(--text);
+  font-size: 0.84rem;
+  line-height: 1.4;
+}
+
+.node-connectivity-stale {
+  margin: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.node-connectivity-endpoints {
+  gap: 8px;
+}
+
+.node-connectivity-endpoint.security-list-item {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.node-connectivity-endpoint__body {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.node-connectivity-endpoint__body strong {
+  overflow-wrap: anywhere;
+  font-size: 0.84rem;
+}
+
+.node-connectivity-endpoint__address {
+  color: var(--muted);
+  font-size: 0.76rem;
+  overflow-wrap: anywhere;
+}
+
+.node-connectivity-loading {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.status-pill--muted {
+  background: var(--panel);
+  border-color: var(--line);
+  color: var(--muted);
+}
+
+.backup-verification-cell {
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.backup-verification-pill {
+  min-height: 22px;
+  padding: 3px 8px;
+  font-size: 0.64rem;
+}
+
+.backup-verify-button {
+  min-height: 26px;
+  margin-left: 8px;
+  padding: 3px 10px;
+  font-size: 0.72rem;
+  vertical-align: middle;
+}
+
+@media (max-width: 760px) {
+  .node-connectivity-endpoint.security-list-item {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .backup-verification-cell {
+    white-space: normal;
+  }
+}

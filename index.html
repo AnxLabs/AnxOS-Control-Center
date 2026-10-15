@@ -437,6 +437,22 @@
             </span>
             <span class="nav-item__label" data-nav-label>Nodes</span>
           </button>
+          <button class="nav-item" type="button" data-page-target="network" data-page-label="Network" data-nav-description="Endpoints, providers and connectivity" data-tooltip="Network" aria-label="Network">
+            <span class="nav-item__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="2.6"></circle>
+                <circle cx="5" cy="5" r="1.9"></circle>
+                <circle cx="19" cy="5" r="1.9"></circle>
+                <circle cx="5" cy="19" r="1.9"></circle>
+                <circle cx="19" cy="19" r="1.9"></circle>
+                <path d="M6.5 6.5 10.2 10.2"></path>
+                <path d="M17.5 6.5 13.8 10.2"></path>
+                <path d="M6.5 17.5 10.2 13.8"></path>
+                <path d="M17.5 17.5 13.8 13.8"></path>
+              </svg>
+            </span>
+            <span class="nav-item__label" data-nav-label>Network</span>
+          </button>
           <button class="nav-item" type="button" data-page-target="agent-control" data-page-label="Agent Control" data-nav-description="Manage AnxOS connections" data-tooltip="Agent Control" aria-label="Agent Control">
             <span class="nav-item__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="M8 9h8M8 13h5M17 15.5v3M15.5 17h3"></path></svg></span>
             <span class="nav-item__label" data-nav-label>Agent Control</span>
@@ -2097,6 +2113,74 @@
                   </form>
                 </div>
 
+                <div class="instance-tab-panel" data-instance-panel="network">
+                  <section class="instance-network-tab" aria-label="Instance endpoints">
+                    <div class="panel-heading">
+                      <div>
+                        <h3>Endpoints</h3>
+                        <span>Saved addresses for this service on the selected computer.</span>
+                      </div>
+                      <span class="status-pill status-pill--planned">Endpoint registry</span>
+                    </div>
+                    <div class="network-toolbar instance-network-toolbar">
+                      <button class="inline-action" type="button" data-instance-network-action="add-endpoint">Add Endpoint</button>
+                      <button class="inline-action" type="button" data-instance-network-action="discover">Discover</button>
+                      <button class="inline-action" type="button" data-instance-network-action="sync-provider">Sync Provider</button>
+                      <button class="inline-action" type="button" data-instance-network-action="run-diagnostics">Run Diagnostics</button>
+                      <button class="inline-action" type="button" data-instance-network-action="copy-address">Copy Address</button>
+                      <span class="settings-inline-status" data-instance-network-status role="status" aria-live="polite">Select an instance to view its endpoints.</span>
+                    </div>
+                    <div class="docker-empty-state instance-network-unsupported" data-instance-network-unsupported hidden>
+                      <strong>Endpoints are not supported for this service on this computer.</strong>
+                      <span data-instance-network-unsupported-detail></span>
+                    </div>
+                    <div class="network-endpoint-list" data-instance-network-endpoints aria-busy="false"></div>
+                    <div class="network-empty" data-instance-network-empty hidden>No endpoints configured for this service yet. Add one to address it from this computer.</div>
+                  </section>
+                  <section class="settings-section network-panel" data-instance-network-diagnostics hidden>
+                    <div class="panel-heading">
+                      <div>
+                        <h3>Connectivity Diagnostics</h3>
+                        <span>Ordered checkpoints from the service process out to the endpoint.</span>
+                      </div>
+                    </div>
+                    <div class="network-diagnostics-summary" data-instance-network-diagnostics-summary></div>
+                    <div class="network-diagnostics-scopes" data-instance-network-diagnostics-scopes aria-label="Reachability scopes"></div>
+                    <div class="network-diagnostics-stages" data-instance-network-diagnostics-stages></div>
+                  </section>
+                  <section class="settings-section network-panel">
+                    <div class="panel-heading">
+                      <div>
+                        <h3>Connectivity Graph</h3>
+                        <span>Service, computer, provider, and endpoint nodes with their current state.</span>
+                      </div>
+                    </div>
+                    <div class="connectivity-graph" data-instance-network-graph hidden></div>
+                    <div class="network-empty" data-instance-network-graph-empty>Run diagnostics to build the connectivity graph.</div>
+                  </section>
+                </div>
+
+                <div class="instance-tab-panel" data-instance-panel="performance">
+                  <section class="instance-telemetry-tab" aria-label="Instance performance history">
+                    <div class="panel-heading">
+                      <div>
+                        <h3>Performance</h3>
+                        <span>Sampled CPU, memory, and uptime history from the local telemetry store.</span>
+                      </div>
+                      <div class="instance-telemetry-ranges" role="group" aria-label="Telemetry range">
+                        <button class="instance-telemetry-range" type="button" data-instance-telemetry-range="1h" aria-pressed="false">1h</button>
+                        <button class="instance-telemetry-range is-active" type="button" data-instance-telemetry-range="6h" aria-pressed="true">6h</button>
+                        <button class="instance-telemetry-range" type="button" data-instance-telemetry-range="24h" aria-pressed="false">24h</button>
+                        <button class="instance-telemetry-range" type="button" data-instance-telemetry-range="7d" aria-pressed="false">7d</button>
+                      </div>
+                    </div>
+                    <span class="settings-inline-status" data-instance-telemetry-status role="status" aria-live="polite">Select an instance to view performance history.</span>
+                    <div class="instance-telemetry-summary" data-instance-telemetry-summary></div>
+                    <div class="instance-telemetry-charts" data-instance-telemetry-charts></div>
+                    <div class="network-empty" data-instance-telemetry-empty hidden>No telemetry samples yet for this service.</div>
+                  </section>
+                </div>
+
                 <div class="instance-tab-panel" data-instance-panel="players">
                   <div class="docker-empty-state" data-minecraft-players-unsupported hidden>
                     <strong>Player information is not supported for this game</strong>
@@ -2385,6 +2469,8 @@
               <div class="instance-tabs" role="tablist" aria-label="Instance workspace tabs">
                 <button class="instance-tab is-active" type="button" data-instance-tab="overview">Overview</button>
                 <button class="instance-tab" type="button" data-instance-tab="console">Console</button>
+                <button class="instance-tab" type="button" data-instance-tab="network">Network</button>
+                <button class="instance-tab" type="button" data-instance-tab="performance">Performance</button>
                 <button class="instance-tab" type="button" data-instance-tab="players">Players</button>
                 <button class="instance-tab" type="button" data-instance-tab="files">Files</button>
                 <button class="instance-tab" type="button" data-instance-tab="backups">Backups</button>
@@ -3038,6 +3124,7 @@
                         <th>Size</th>
                         <th>Created</th>
                         <th>Status</th>
+                        <th>Verification</th>
                       </tr>
                     </thead>
                     <tbody></tbody>
@@ -4559,6 +4646,79 @@
           </div>
         </section>
 
+        <section class="page" data-page="network">
+          <header class="page-header">
+            <div>
+              <p class="eyebrow">Connectivity</p>
+              <h1>Network</h1>
+              <p class="lede">Endpoints, providers and connectivity</p>
+            </div>
+          </header>
+
+          <div class="network-shell network-page" data-network-shell>
+            <section class="network-summary-grid" aria-label="Network summary">
+              <div class="network-summary-card"><span>Endpoints</span><strong data-network-summary="endpoints">0</strong></div>
+              <div class="network-summary-card"><span>Enabled</span><strong data-network-summary="enabled">0</strong></div>
+              <div class="network-summary-card"><span>Issues</span><strong data-network-summary="issues">0</strong></div>
+              <div class="network-summary-card"><span>Providers</span><strong data-network-summary="providers">Unknown</strong></div>
+            </section>
+
+            <section class="settings-section network-panel">
+              <div class="settings-section__header">
+                <div>
+                  <h2>Providers</h2>
+                  <p>Public access providers reported for the selected system / node.</p>
+                </div>
+                <span class="status-pill status-pill--planned" data-network-provider-status>Unknown</span>
+              </div>
+              <div class="network-provider-list" data-network-providers></div>
+              <div class="network-empty" data-network-providers-empty>Unknown — provider status unavailable.</div>
+            </section>
+
+            <section class="settings-section network-panel">
+              <div class="settings-section__header">
+                <div>
+                  <h2>Endpoints</h2>
+                  <p>Saved hosts and addresses that describe how a service can be reached.</p>
+                </div>
+              </div>
+              <div class="network-toolbar">
+                <button class="inline-action" type="button" data-network-action="refresh">Refresh</button>
+                <button class="inline-action" type="button" data-network-action="add-endpoint">Add Endpoint</button>
+                <button class="inline-action" type="button" data-network-action="sync-provider">Sync Providers</button>
+                <button class="inline-action" type="button" data-network-action="run-diagnostics">Run Diagnostics</button>
+                <span class="settings-inline-status" data-network-status role="status" aria-live="polite">Endpoints have not been loaded yet.</span>
+              </div>
+              <div class="network-loading" data-network-loading hidden>Loading endpoints…</div>
+              <div class="network-empty" data-network-empty hidden>No endpoints configured yet. Add an endpoint to describe how a service can be reached.</div>
+              <div class="network-endpoint-list" data-network-endpoint-list></div>
+            </section>
+
+            <section class="settings-section network-panel network-diagnostics-panel" data-network-diagnostics hidden>
+              <div class="settings-section__header">
+                <div>
+                  <h2>Connectivity Diagnostics</h2>
+                  <p>Ordered checkpoints from the service process out to the public endpoint.</p>
+                </div>
+              </div>
+              <div class="network-diagnostics-summary" data-diagnostics-summary></div>
+              <div class="network-diagnostics-scopes" data-diagnostics-scopes aria-label="Reachability scopes"></div>
+              <div class="network-diagnostics-stages" data-diagnostics-stages></div>
+            </section>
+
+            <section class="settings-section network-panel">
+              <div class="settings-section__header">
+                <div>
+                  <h2>Connectivity Graph</h2>
+                  <p>Service, computer, provider, and endpoint nodes with their current state.</p>
+                </div>
+              </div>
+              <div class="network-graph" data-network-graph></div>
+              <div class="network-empty" data-network-graph-empty>Run diagnostics to build the connectivity graph.</div>
+            </section>
+          </div>
+        </section>
+
         <section class="page" data-page="settings">
           <header class="page-header">
             <div>
@@ -4771,7 +4931,7 @@
               <div class="settings-actions"><button class="inline-action" type="button" data-agent-action="test">Test connection</button><button class="inline-action" type="button" data-settings-reset-category="network">Reset Network</button></div>
             </section>
 
-            <section class="settings-section settings-section--performance" data-settings-category="performance" data-settings-keywords="performance hardware acceleration polling logs retention cache marketplace concurrency restart">
+            <section class="settings-section settings-section--performance" data-settings-category="performance" data-settings-keywords="performance hardware acceleration polling logs retention cache marketplace concurrency restart telemetry history sampling interval samples">
               <div class="settings-section__header"><div><h3>Performance</h3><p>Safe runtime limits and refresh preferences. Hardware acceleration changes require restart.</p></div><span class="status-pill status-pill--warning">Some restart</span></div>
               <div class="settings-grid">
                 <label class="settings-check settings-check--toggle" title="Hardware acceleration is configured before app startup and cannot be changed here yet."><input type="checkbox" data-setting="performance.hardwareAcceleration" disabled><span>Hardware acceleration</span></label>
@@ -4780,6 +4940,19 @@
                 <label class="settings-field" title="Log retention is controlled by diagnostics defaults for now."><span>Log retention days</span><input type="number" min="1" max="90" data-setting="performance.logRetentionDays" disabled></label>
                 <label class="settings-field" title="Log rotation size is controlled by diagnostics defaults for now."><span>Maximum log size MB</span><input type="number" min="1" max="100" data-setting="performance.maxLogSizeMb" disabled></label>
                 <label class="settings-field" title="Operation concurrency limits are not available yet."><span>Concurrent background operations</span><input type="number" min="1" max="8" data-setting="performance.backgroundOperationLimit" disabled></label>
+              </div>
+              <div class="settings-subgroup" data-settings-subgroup="telemetry">
+                <div class="settings-section__header">
+                  <div>
+                    <h3>Telemetry history</h3>
+                    <p>Bounded local sampling; no high-frequency polling. Samples stay on this device and older history is pruned by retention.</p>
+                  </div>
+                </div>
+                <div class="settings-grid">
+                  <label class="settings-check settings-check--toggle"><input type="checkbox" data-setting="telemetry.enabled"><span>Record telemetry history</span><small>Stores a coarse local sample of CPU, memory, disk, and uptime on the configured interval.</small></label>
+                  <label class="settings-field"><span>Sampling interval</span><select data-setting="telemetry.samplingIntervalMs"><option value="60000">1 min</option><option value="120000">2 min</option><option value="300000">5 min</option><option value="600000">10 min</option></select><small>Longer intervals reduce storage and background work.</small></label>
+                  <label class="settings-field"><span>Retention days</span><input type="number" min="1" max="30" data-setting="telemetry.retentionDays"><small>Days of history kept before older samples are pruned.</small></label>
+                </div>
               </div>
               <div class="settings-actions"><button class="inline-action" type="button" data-settings-reset-category="performance">Reset Performance</button></div>
             </section>
@@ -5121,6 +5294,111 @@
       </section>
     </div>
 
+    <div class="app-modal-backdrop" data-endpoint-modal hidden>
+      <section class="app-modal app-modal--endpoint" role="dialog" aria-modal="true" aria-labelledby="endpoint-modal-title" tabindex="-1">
+        <header class="app-modal__header">
+          <div>
+            <p class="app-modal__eyebrow">Endpoint</p>
+            <h2 id="endpoint-modal-title" data-endpoint-modal-title>Add Endpoint</h2>
+          </div>
+          <button class="app-modal__close" type="button" aria-label="Close endpoint form" data-endpoint-modal-action="cancel">&times;</button>
+        </header>
+        <form class="app-modal__body network-form" data-endpoint-form novalidate>
+          <input type="hidden" data-endpoint-input="id">
+          <div class="network-form-grid">
+            <label class="settings-field">
+              <span>Name</span>
+              <input type="text" required maxlength="120" autocomplete="off" data-endpoint-input="name" placeholder="Game server LAN address">
+            </label>
+            <label class="settings-field">
+              <span>Type</span>
+              <select data-endpoint-input="type">
+                <option value="lan">LAN</option>
+                <option value="private">Private</option>
+                <option value="tailscale">Tailscale</option>
+                <option value="public">Public</option>
+                <option value="custom">Custom</option>
+              </select>
+            </label>
+            <label class="settings-field">
+              <span>Host</span>
+              <input type="text" required autocomplete="off" spellcheck="false" data-endpoint-input="host" placeholder="192.168.1.50 or host.example.com">
+            </label>
+            <label class="settings-field">
+              <span>Port</span>
+              <input type="number" min="1" max="65535" step="1" data-endpoint-input="port" placeholder="25565">
+            </label>
+            <label class="settings-field">
+              <span>Protocol</span>
+              <select data-endpoint-input="protocol">
+                <option value="">None</option>
+                <option value="tcp">TCP</option>
+                <option value="udp">UDP</option>
+                <option value="http">HTTP</option>
+                <option value="https">HTTPS</option>
+              </select>
+            </label>
+            <label class="settings-field">
+              <span>Provider</span>
+              <select data-endpoint-input="providerId">
+                <option value="">None</option>
+                <option value="playit">Playit</option>
+                <option value="manual">Manual</option>
+              </select>
+            </label>
+            <label class="settings-field">
+              <span>Service</span>
+              <select data-endpoint-input="serviceId">
+                <option value="">None</option>
+              </select>
+            </label>
+            <label class="settings-field">
+              <span>Computer</span>
+              <select data-endpoint-input="computerId">
+                <option value="">None</option>
+              </select>
+            </label>
+            <label class="settings-field settings-field--wide">
+              <span>Notes</span>
+              <textarea rows="3" maxlength="1000" data-endpoint-input="notes" placeholder="Optional note about this address, owner, or purpose"></textarea>
+            </label>
+            <label class="settings-check settings-check--toggle">
+              <input type="checkbox" data-endpoint-input="enabled" checked>
+              <span>Endpoint enabled</span>
+            </label>
+          </div>
+          <div class="settings-message" data-endpoint-form-error role="alert" hidden></div>
+        </form>
+        <footer class="app-modal__actions">
+          <button class="inline-action" type="button" data-endpoint-modal-action="cancel">Cancel</button>
+          <button class="primary-button" type="button" data-endpoint-modal-action="save">Save Endpoint</button>
+        </footer>
+      </section>
+    </div>
+
+    <div class="app-modal-backdrop" data-instance-endpoint-picker hidden>
+      <section class="app-modal app-modal--endpoint-picker" role="dialog" aria-modal="true" aria-labelledby="instance-endpoint-picker-title" tabindex="-1">
+        <header class="app-modal__header">
+          <div>
+            <p class="app-modal__eyebrow">Endpoint</p>
+            <h2 id="instance-endpoint-picker-title" data-instance-endpoint-picker-title>Copy Address</h2>
+          </div>
+          <button class="app-modal__close" type="button" aria-label="Close endpoint picker" data-endpoint-picker-action="cancel">&times;</button>
+        </header>
+        <div class="app-modal__body">
+          <p class="settings-note" data-instance-endpoint-picker-note>Choose an address to copy to the clipboard.</p>
+          <div class="endpoint-picker-list" data-endpoint-picker-list></div>
+          <div class="network-empty" data-endpoint-picker-empty hidden>No endpoints configured for this service yet.</div>
+        </div>
+        <footer class="app-modal__actions">
+          <button class="inline-action" type="button" data-endpoint-picker-action="share-details">Share details…</button>
+          <button class="inline-action" type="button" data-endpoint-picker-action="copy">Copy selected</button>
+          <button class="inline-action" type="button" data-endpoint-picker-action="manage">Manage endpoints</button>
+          <button class="primary-button" type="button" data-endpoint-picker-action="cancel">Cancel</button>
+        </footer>
+      </section>
+    </div>
+
     <div class="app-modal-backdrop app-modal-backdrop--drawer" data-node-details-modal hidden>
       <aside class="node-details-drawer" role="dialog" aria-modal="true" aria-labelledby="node-details-title" tabindex="-1">
         <header class="modal-header node-details-header">
@@ -5157,6 +5435,22 @@
             <div class="security-list node-health-categories" data-node-health-categories role="list" aria-label="Node health categories" aria-live="polite"></div>
           </section>
           <p class="settings-note">Fix All is intentionally unavailable until every remediation can be reviewed, confirmed, ordered safely, and tracked through Operations.</p>
+        </section>
+        <section class="settings-section settings-section--node-connectivity" aria-labelledby="node-connectivity-title" data-node-connectivity>
+          <div class="settings-section__header node-health-header">
+            <div>
+              <h3 id="node-connectivity-title">Connectivity</h3>
+              <p>Saved endpoints, overlay reachability, and contact state from this system's connectivity summary.</p>
+            </div>
+          </div>
+          <p class="node-connectivity-summary" data-node-connectivity-summary role="status" aria-live="polite">Connectivity has not been checked yet.</p>
+          <p class="node-connectivity-stale" data-node-connectivity-stale hidden></p>
+          <div class="security-list node-connectivity-endpoints" data-node-connectivity-endpoints role="list" aria-label="Node endpoints"></div>
+          <div class="settings-actions node-connectivity-actions">
+            <button class="inline-action" type="button" data-node-connectivity-action="refresh">Refresh</button>
+            <button class="inline-action" type="button" data-node-connectivity-action="open-network">Open Network</button>
+            <button class="inline-action" type="button" data-node-connectivity-action="add-endpoint">Add Endpoint</button>
+          </div>
         </section>
         <details class="node-technical-details">
           <summary>Technical details</summary>
@@ -5372,6 +5666,9 @@
     <script src="src/shared/instanceHealthSummary.js"></script>
     <script src="src/shared/instances/minecraftPlayerFiles.js"></script>
     <script src="node_modules/@xterm/xterm/lib/xterm.js"></script>
+    <script src="src/shared/healthModel.js"></script>
+    <script src="src/shared/connectivityDiagnostics.js"></script>
+    <script src="src/shared/connectivityPresentation.js"></script>
     <script src="app.js"></script>
   </body>
 </html>
