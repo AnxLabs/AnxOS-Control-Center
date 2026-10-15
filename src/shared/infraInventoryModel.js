@@ -536,7 +536,15 @@ function mergeNodeCollection(previousResources = [], collection = {}, now) {
   });
 
   const freshKeys = new Set(fresh.map((resource) => resource.key));
-  const merged = [...others, ...carried.filter((resource) => !freshKeys.has(resource.key))];
+  const carriedKeys = new Set(carried.map((resource) => resource.key));
+  // A record shared with other registered nodes (the same Agent registered
+  // twice) that this node no longer reports is not deleted: only this node's
+  // association is removed; the other nodes confirm or stale it on their own.
+  const stillShared = mine
+    .filter((resource) => !freshKeys.has(resource.key) && !carriedKeys.has(resource.key))
+    .filter((resource) => (resource.nodeIds || [resource.nodeId]).some((id) => id !== nodeId))
+    .map((resource) => ({ ...resource, nodeIds: (resource.nodeIds || [resource.nodeId]).filter((id) => id !== nodeId) }));
+  const merged = [...others, ...stillShared, ...carried.filter((resource) => !freshKeys.has(resource.key))];
   const indexByKey = new Map(merged.map((resource, index) => [resource.key, index]));
   for (const resource of fresh) {
     const index = indexByKey.get(resource.key);
@@ -586,9 +594,11 @@ function summarize(resources = [], nodes = []) {
     unverified: unverifiedCount,
     production,
     duplicates,
-    nodes: nodes.length,
-    nodesAvailable: nodes.filter((node) => node.status === "collected").length,
-    nodesUnavailable: nodes.filter((node) => node.status !== "collected").length,
+    // Agent nodes only: the built-in application host is never inventoried and
+    // must not make a complete inventory look incomplete.
+    nodes: nodes.filter((node) => node.kind === "agent").length,
+    nodesAvailable: nodes.filter((node) => node.kind === "agent" && node.status === "collected").length,
+    nodesUnavailable: nodes.filter((node) => node.kind === "agent" && node.status !== "collected").length,
   };
 }
 

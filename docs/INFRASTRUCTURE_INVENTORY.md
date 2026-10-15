@@ -82,14 +82,14 @@ AIM-1 ships no classification editor, so everything is shown as Production.
 | Agent unreachable | Node `unavailable` / `NODE_UNREACHABLE`; its previous resources kept, `stale`, `lastSeen` unchanged |
 | Node disabled, disconnected, recorded offline / auth-failed / incompatible | Skipped without any request, with the reason |
 | A section denied or failing (401, 403, Docker absent, timeout) | Reported per section (`AUTH_FAILED`, `PERMISSION_DENIED`, `DOCKER_NOT_INSTALLED`, …); that section's previous resources kept as stale — a failed read is never treated as deletion |
-| Same Agent registered twice | One host record listing both nodes (`duplicateNodes`) |
+| Same Agent registered twice | One host record listing both nodes (`duplicateNodes`); if one registration stops reporting a shared record, only that node's association is removed and the record stays for the other node |
 | Duplicate rows in one Agent response | Folded (`duplicateCount`) |
 | Node removed from the registry | Its resources stay stale (`NODE_NOT_REGISTERED`) for 7 days, then are pruned |
 | Concurrent refreshes | Single-flight; a refresh within 10 s returns the previous result (`throttled`) unless forced |
 | Desktop restart | Stored resources load as stale (`NOT_REFRESHED_SINCE_RESTART`) until the next refresh; `firstSeen` survives |
 | Corrupt or malformed store | Moved out of the active path to `.corrupt-<ts>` (renamed, never deleted), inventory restarts empty; later restarts do not quarantine again. If the rename is blocked: a copy plus an empty valid store; if that replacement is also blocked, the corrupt file is left untouched, a byte-identical copy is reused (no accumulation) and the session runs read-only |
 | Inspect failed or skipped for a previously verified container or volume | The verified record is kept, marked stale (`IDENTITY_NOT_REREAD`), but only if every component still visible in the list (container name, volume driver) is unchanged; otherwise the changed object is recorded as a new, unverified identity |
-| More resources than the per-node cap | Kinds that lost rows to the cap keep their previous records as stale (`RESOURCE_CAP_TRUNCATED`); nothing is treated as deleted |
+| More resources than the per-node cap | The 2,000-row bound is hard, including stale carry-over. Host, systemd services, instances, compose projects, volumes and networks are kept first; containers, then listeners, absorb the truncation, which is reported on the node row. Kinds cut this refresh keep their previous records as stale (`RESOURCE_CAP_TRUNCATED`) within the bound |
 | Store from a newer build | Never overwritten; inventory runs in memory only |
 
 Bounds: 2 nodes in parallel, 2 inspects in parallel, 40 inspects per node,
@@ -111,7 +111,7 @@ reported on the node row.
 
 | Check | Command |
 | --- | --- |
-| Model + service, hermetic (33 tests) | `npm run inventory:smoke` |
+| Model + service, hermetic (35 tests) | `npm run inventory:smoke` |
 | Real Agent, fake systemd: discovery, zero control calls, identity mismatch, auth boundary, unreachable node, MainPID change | `npm run inventory:agent:smoke` |
 | Real Electron UI against a real Agent | `npm run inventory:ui:qa` |
 | Guard chain and tier | `node scripts/permission-matrix-smoke.js` |

@@ -520,6 +520,8 @@ async function collectNode(node) {
   if (truncated) {
     // Rows dropped by the cap are not deletions: every kind that lost rows is
     // treated as unread, so its previous records are kept as stale.
+    // Same kind priority as enforceNodeCap: containers/listeners are cut first.
+    deduped = [...deduped].sort((a, b) => capRank(a) - capRank(b));
     for (const dropped of deduped.slice(model.LIMITS.maxResourcesPerNode)) {
       if (!unreadKinds[dropped.kind]) unreadKinds[dropped.kind] = "RESOURCE_CAP_TRUNCATED";
     }
@@ -591,7 +593,7 @@ async function runRefresh() {
   let resources = snapshot.resources;
   const nodeRecords = [];
   for (const { node, collection, skipped } of outcomes) {
-    resources = model.mergeNodeCollection(resources, collection, at);
+    resources = enforceNodeCap(model.mergeNodeCollection(resources, collection, at), node.id);
     const previous = previousNodes.get(node.id);
     nodeRecords.push(nodeRecord(node, previous, collection.ok
       ? { status: "collected", lastAttemptAt: at, lastSuccessAt: at, sections: collection.sections, hostKey: collection.hostKey, hostVerified: collection.hostVerified, code: collection.hostIdentityReason, limits: collection.limits }
@@ -624,6 +626,36 @@ async function runRefresh() {
   persist(next);
   lastCompletedAt = nowMs();
   return next;
+}
+
+// Kind order for the per-node bound: low-cardinality kinds are always kept
+// first; containers and listeners (which can number in the thousands) absorb
+// truncation. Truncation is reported on the node row (limits.truncated).
+const CAP_KIND_PRIORITY = ["host", "service-managed-instance", "instance", "compose-project", "volume", "network", "container", "listener"];
+function capRank(resource) {
+  const rank = CAP_KIND_PRIORITY.indexOf(resource.kind);
+  return rank < 0 ? CAP_KIND_PRIORITY.length : rank;
+}
+
+// Per-node bound, re-applied after stale carry-over so preserving last-known
+// records can never grow a node past LIMITS.maxResourcesPerNode. Records owned
+// by this node alone are ranked by kind priority, then fresh before stale,
+// then most recently seen; everything past the bound is evicted. Records shared
+// with other registered nodes are never evicted here.
+function enforceNodeCap(resources, nodeId) {
+  const limit = model.LIMITS.maxResourcesPerNode;
+  const owned = resources
+    .map((resource, index) => ({ resource, index }))
+    .filter(({ resource }) => (resource.nodeIds || [resource.nodeId]).includes(nodeId));
+  if (owned.length <= limit) return resources;
+  const ranked = [...owned].sort((a, b) => capRank(a.resource) - capRank(b.resource)
+    || Number(a.resource.stale === true) - Number(b.resource.stale === true)
+    || String(b.resource.lastSeen || "").localeCompare(String(a.resource.lastSeen || "")));
+  const evict = new Set(ranked
+    .slice(limit)
+    .filter(({ resource }) => (resource.nodeIds || [resource.nodeId]).length === 1)
+    .map(({ index }) => index));
+  return resources.filter((_, index) => !evict.has(index));
 }
 
 // Fleet-wide bound. Only last-known (stale) records are evicted, oldest

@@ -523,27 +523,83 @@ test("volume identity requires the driver, and the driver is part of the key", a
   assert.strictEqual(none.identity.reason, "VOLUME_DRIVER_UNAVAILABLE");
 });
 
-test("rows dropped by the per-node cap are kept as stale, not deleted", async () => {
+test("per-node cap: hard bound, low-cardinality kinds kept, containers absorb truncation", async () => {
   const { reader, world } = makeAgent();
   setup({ reader, nodes: [agentNode("node-a")] });
   clock = Date.parse("2026-10-14T10:00:00Z");
   const first = await inventory.refreshInventory();
   const before = Object.fromEntries(["volume", "network", "compose-project"].map((kind) => [kind, byKind(first, kind).length]));
   assert.ok(before.volume > 0 && before.network > 0 && before["compose-project"] > 0);
-  world.containers = Array.from({ length: model.LIMITS.maxResourcesPerNode + 50 }, (_, index) => ({ id: `d${String(index).padStart(11, "0")}`, name: `bulk-${index}`, state: "running", status: "Up", ports: [] }));
+  const bulk = (prefix) => Array.from({ length: model.LIMITS.maxResourcesPerNode + 50 }, (_, index) => ({ id: `${prefix}${String(index).padStart(11, "0")}`, name: `${prefix}-${index}`, state: "running", status: "Up", ports: [] }));
+  world.containers = bulk("d");
   clock += 3600000;
   const capped = await inventory.refreshInventory({ force: true });
-  assert.strictEqual(capped.nodes[0].limits.truncated, true);
-  for (const kind of ["volume", "network", "compose-project"]) {
+  assert.strictEqual(capped.nodes[0].limits.truncated, true, "truncation reported");
+  assert.ok(capped.resources.length <= model.LIMITS.maxResourcesPerNode, `hard bound (${capped.resources.length})`);
+  // Compose projects are prioritized and stay fresh; volumes and networks are
+  // derived from container inspects the bulk containers exhaust, so they are
+  // kept as stale with their history.
+  const compose = byKind(capped, "compose-project");
+  assert.strictEqual(compose.length, before["compose-project"]);
+  assert.ok(compose.every((row) => row.stale === false), "compose kept fresh under the cap");
+  for (const kind of ["volume", "network"]) {
     const rows = byKind(capped, kind);
-    assert.strictEqual(rows.length, before[kind], `${kind}: not deleted by the cap`);
-    // Volumes/networks are derived from container inspects, which the bulk
-    // containers exhaust, so they are kept as partial-inspect; compose rows are
-    // pushed past the per-node cap.
-    const expected = kind === "compose-project" ? "RESOURCE_CAP_TRUNCATED" : "DERIVED_FROM_PARTIAL_INSPECT";
-    assert.ok(rows.every((row) => row.stale && row.staleReason === expected), `${kind}: stale with ${expected}`);
+    assert.strictEqual(rows.length, before[kind], `${kind}: kept under the cap`);
+    assert.ok(rows.every((row) => row.stale && row.staleReason === "DERIVED_FROM_PARTIAL_INSPECT"), `${kind}: stale, partial inspect`);
     assert.ok(rows.every((row) => row.firstSeen === "2026-10-14T10:00:00.000Z"), `${kind}: history kept`);
   }
+  assert.strictEqual(byKind(capped, "host").length, 1, "host never evicted");
+  // Replacing the capped containers with different IDs must not grow the node
+  // past the bound through stale carry-over.
+  world.containers = bulk("e");
+  clock += 3600000;
+  const replaced = await inventory.refreshInventory({ force: true });
+  assert.ok(replaced.resources.length <= model.LIMITS.maxResourcesPerNode, `still bounded after replacement (${replaced.resources.length})`);
+  assert.strictEqual(byKind(replaced, "compose-project").length, before["compose-project"]);
+  assert.strictEqual(byKind(replaced, "volume").length, before.volume);
+});
+
+test("shared records stay with their other node when one registration stops reporting them", async () => {
+  const down = new Set();
+  const { reader: base } = makeAgent();
+  const perNode = async (pathname, options) => {
+    const nodeId = options?.config?.nodeId;
+    if (down.has(nodeId)) throw Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" });
+    const result = await base(pathname, options);
+    // node-a is later repointed to a different Agent (different device).
+    if (nodeId === "node-a" && repointed && pathname === "/api/v1/health") return { ...result, identity: identity("dev-2", "inst-2", "gen-1") };
+    return result;
+  };
+  let repointed = false;
+  const nodes = [agentNode("node-a", { agentIdentity: {} }), agentNode("node-b")];
+  setup({ reader: perNode, nodes });
+  clock = Date.parse("2026-10-14T10:00:00Z");
+  const first = await inventory.refreshInventory();
+  const host = byKind(first, "host")[0];
+  assert.deepStrictEqual(host.nodeIds, ["node-a", "node-b"], "one host shared by both registrations");
+  repointed = true;
+  down.add("node-b");
+  clock += 3600000;
+  const second = await inventory.refreshInventory({ force: true });
+  const kept = second.resources.find((resource) => resource.key === host.key);
+  assert.ok(kept, "shared host not deleted when node-a stops reporting it and node-b is down");
+  assert.deepStrictEqual(kept.nodeIds, ["node-b"], "only node-a's association removed");
+  assert.strictEqual(kept.stale, true);
+  down.delete("node-b");
+  clock += 3600000;
+  const third = await inventory.refreshInventory({ force: true });
+  const back = third.resources.find((resource) => resource.key === host.key);
+  assert.strictEqual(back.stale, false);
+  assert.strictEqual(back.firstSeen, "2026-10-14T10:00:00.000Z", "history preserved for node-b");
+});
+
+test("node totals count Agent nodes only", async () => {
+  const { reader } = makeAgent();
+  setup({ reader, nodes: [{ id: "application-host", kind: "application-host", displayName: "This PC" }, agentNode("node-a")] });
+  const snapshot = await inventory.refreshInventory();
+  assert.strictEqual(snapshot.summary.nodes, 1);
+  assert.strictEqual(snapshot.summary.nodesAvailable, 1);
+  assert.strictEqual(snapshot.summary.nodesUnavailable, 0, "the application host does not make a complete inventory incomplete");
 });
 
 test("heavy Agent list routes are never called; volumes and networks come from bounded inspects", async () => {
