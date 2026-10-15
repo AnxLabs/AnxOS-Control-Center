@@ -65,6 +65,9 @@ entry disagree, the later cycle entry controls, and the code controls over both.
   PLANNING ONLY, not approved for implementation: Autonomous Infrastructure
   Management plan (V2-L/V2-M operationalization, milestones AIM-0…AIM-7;
   decisions D1–D5 resolved; V2-L per-action approval preserved).
+- `docs/v2/AIM0_SIGNOFF.md` — AIM-0 sign-off record (prepared, awaiting Owner
+  signature): contract statuses, identity evidence, production-scope gaps,
+  gate P4 recommendation, and what signing authorizes for AIM-2.
 - `docs/v2/BUILD201_STATS_UNAUTHORIZED_REPORT.md` — build-scoped report, treated
   as historical evidence for its named build only.
 
