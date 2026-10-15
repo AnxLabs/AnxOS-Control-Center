@@ -593,6 +593,82 @@ test("shared records stay with their other node when one registration stops repo
   assert.strictEqual(back.firstSeen, "2026-10-14T10:00:00.000Z", "history preserved for node-b");
 });
 
+test("listener enumeration unsupported keeps known listeners as stale", async () => {
+  const { reader } = makeAgent();
+  let unsupported = false;
+  const listeners = async (pathname, options) => {
+    if (unsupported && pathname === "/api/v1/network/inventory") return { supported: false, listeners: [], listenerSource: null };
+    return reader(pathname, options);
+  };
+  setup({ reader: listeners, nodes: [agentNode("node-a")] });
+  clock = Date.parse("2026-10-14T10:00:00Z");
+  const before = byKind(await inventory.refreshInventory(), "listener");
+  assert.ok(before.length > 0);
+  unsupported = true;
+  clock += 3600000;
+  const after = await inventory.refreshInventory({ force: true });
+  const kept = byKind(after, "listener");
+  assert.strictEqual(kept.length, before.length, "listeners not deleted");
+  assert.ok(kept.every((row) => row.stale && row.staleReason === "LISTENERS_UNSUPPORTED"));
+  assert.strictEqual(after.nodes[0].sections.find((section) => section.name === "listeners").code, "LISTENERS_UNSUPPORTED");
+});
+
+test("a node removed from the registry is removed from shared records, including carried ones", async () => {
+  const { reader, world } = makeAgent();
+  const nodes = [agentNode("node-a"), agentNode("node-b")];
+  setup({ reader, nodes });
+  clock = Date.parse("2026-10-14T10:00:00Z");
+  const first = await inventory.refreshInventory();
+  assert.deepStrictEqual(byKind(first, "host")[0].nodeIds, ["node-a", "node-b"]);
+  assert.deepStrictEqual(byKind(first, "container")[0].nodeIds, ["node-a", "node-b"]);
+  // node-b is unregistered; node-a cannot read Docker, so its containers are
+  // carried forward as stale with their old association.
+  nodes.pop();
+  world.failures["/api/v1/docker"] = () => Object.assign(new Error("Forbidden"), { status: 403 });
+  clock += 3600000;
+  const after = await inventory.refreshInventory({ force: true });
+  const host = byKind(after, "host");
+  assert.deepStrictEqual(host[0].nodeIds, ["node-a"], "re-reported record: unregistered node removed");
+  const carried = byKind(after, "container");
+  assert.strictEqual(carried.length, 1);
+  assert.strictEqual(carried[0].stale, true, "carried forward as stale");
+  assert.deepStrictEqual(carried[0].nodeIds, ["node-a"], "carried record: unregistered node removed from the association");
+  assert.ok(!carried[0].duplicateNodes, "no longer reported as duplicated");
+});
+
+test("per-node cap also bounds records shared with an unavailable twin registration", async () => {
+  const down = new Set();
+  let prefix = "s";
+  let count = 1500;
+  const twin = async (pathname, options) => {
+    const nodeId = options?.config?.nodeId;
+    if (down.has(nodeId)) throw Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" });
+    if (pathname === "/api/v1/health") return { identity: identity(), capabilities: {} };
+    if (pathname === "/api/v1/docker/containers") {
+      return { installed: true, daemonRunning: true, containers: Array.from({ length: count }, (_, index) => ({ id: `${prefix}${String(index).padStart(11, "0")}`, name: `${prefix}-${index}`, state: "running", status: "Up" })) };
+    }
+    if (pathname.endsWith("/inspect")) throw Object.assign(new Error("skip"), { code: "AGENT_TIMEOUT" });
+    if (pathname === "/api/v1/docker/compose/projects") return { projects: [] };
+    if (pathname === "/api/v1/instances") return { instances: [] };
+    if (pathname === "/api/v1/network/inventory") return { listeners: [] };
+    return {};
+  };
+  setup({ reader: twin, nodes: [agentNode("node-a"), agentNode("node-b")] });
+  clock = Date.parse("2026-10-14T10:00:00Z");
+  const first = await inventory.refreshInventory();
+  assert.strictEqual(byKind(first, "container").filter((row) => row.nodeIds.length === 2).length, 1500, "1,500 shared containers");
+  down.add("node-b");
+  prefix = "n";
+  count = model.LIMITS.maxResourcesPerNode + 50;
+  clock += 3600000;
+  const second = await inventory.refreshInventory({ force: true });
+  const ownedByA = second.resources.filter((row) => (row.nodeIds || [row.nodeId]).includes("node-a")).length;
+  assert.ok(ownedByA <= model.LIMITS.maxResourcesPerNode, `node-a within its bound (${ownedByA})`);
+  const keptForB = second.resources.filter((row) => row.kind === "container" && row.key.includes(":container:s"));
+  assert.strictEqual(keptForB.length, 1500, "the twin's last-known containers are kept");
+  assert.ok(keptForB.every((row) => !row.nodeIds.includes("node-a")), "node-a detached from the overflow rows");
+});
+
 test("node totals count Agent nodes only", async () => {
   const { reader } = makeAgent();
   setup({ reader, nodes: [{ id: "application-host", kind: "application-host", displayName: "This PC" }, agentNode("node-a")] });

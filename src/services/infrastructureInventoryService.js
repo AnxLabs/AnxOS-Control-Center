@@ -411,6 +411,14 @@ async function collectNode(node) {
   const summary = await readSection(sections, "system", () => read("/api/v1/system/summary"));
   const instancesPayload = await readSection(sections, "instances", () => read("/api/v1/instances"));
   const networkPayload = await readSection(sections, "listeners", () => read("/api/v1/network/inventory"));
+  if (networkPayload && networkPayload.supported === false) {
+    // The Agent could not enumerate listeners on this host (no ss/netstat or an
+    // unsupported platform): an empty list is not evidence that none exist.
+    const section = sections.find((entry) => entry.name === "listeners");
+    section.status = "unavailable";
+    section.code = "LISTENERS_UNSUPPORTED";
+    section.message = "The Agent cannot enumerate listening sockets on this host.";
+  }
 
   const resources = [model.buildHostResource(ctx, health, summary)];
   // Only a host that supports service-managed instances has a meaningful
@@ -605,9 +613,16 @@ async function runRefresh() {
   const registered = new Set(nodes.map((node) => node.id));
   const cutoff = nowMs() - UNREGISTERED_RETENTION_MS;
   resources = resources
-    .map((resource) => ((resource.nodeIds || [resource.nodeId]).some((id) => registered.has(id))
-      ? resource
-      : { ...resource, stale: true, staleReason: "NODE_NOT_REGISTERED" }))
+    .map((resource) => {
+      // Registration is handled per association: an unregistered node ID is
+      // removed from a record that another registered node still holds; a
+      // record held by no registered node is kept stale for the retention window.
+      const ids = resource.nodeIds || [resource.nodeId];
+      const live = ids.filter((id) => registered.has(id));
+      if (!live.length) return { ...resource, stale: true, staleReason: "NODE_NOT_REGISTERED" };
+      if (live.length === ids.length) return resource;
+      return { ...resource, nodeIds: live, duplicateNodes: live.length > 1 };
+    })
     .filter((resource) => resource.staleReason !== "NODE_NOT_REGISTERED" || Date.parse(resource.lastSeen || 0) >= cutoff)
     .map((resource) => model.applyProtection(resource, snapshot.classifications));
   const fleetLimit = applyFleetCap(resources);
@@ -651,11 +666,17 @@ function enforceNodeCap(resources, nodeId) {
   const ranked = [...owned].sort((a, b) => capRank(a.resource) - capRank(b.resource)
     || Number(a.resource.stale === true) - Number(b.resource.stale === true)
     || String(b.resource.lastSeen || "").localeCompare(String(a.resource.lastSeen || "")));
-  const evict = new Set(ranked
-    .slice(limit)
-    .filter(({ resource }) => (resource.nodeIds || [resource.nodeId]).length === 1)
-    .map(({ index }) => index));
-  return resources.filter((_, index) => !evict.has(index));
+  // Overflow records owned by this node alone are evicted; overflow records
+  // shared with other registrations only lose this node's association, so the
+  // bound holds for this node while the record stays for the others.
+  const overflow = ranked.slice(limit);
+  const evict = new Set(overflow.filter(({ resource }) => (resource.nodeIds || [resource.nodeId]).length === 1).map(({ index }) => index));
+  const detach = new Set(overflow.filter(({ resource }) => (resource.nodeIds || [resource.nodeId]).length > 1).map(({ index }) => index));
+  return resources
+    .map((resource, index) => (detach.has(index)
+      ? { ...resource, nodeIds: (resource.nodeIds || [resource.nodeId]).filter((id) => id !== nodeId) }
+      : resource))
+    .filter((_, index) => !evict.has(index));
 }
 
 // Fleet-wide bound. Only last-known (stale) records are evicted, oldest
