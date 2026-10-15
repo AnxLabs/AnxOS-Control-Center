@@ -497,11 +497,13 @@ function mergeNodeCollection(previousResources = [], collection = {}, now) {
   const mine = previousResources.filter((resource) => (resource.nodeIds || [resource.nodeId]).includes(nodeId));
 
   if (collection.ok !== true) {
-    const staled = mine.map((resource) => ({
-      ...resource,
-      stale: true,
-      staleReason: collection.code || "NODE_UNAVAILABLE",
-    }));
+    // A record another registration of the same Agent confirmed during this
+    // refresh stays fresh (and keeps this node's association): this node's
+    // outage is reported on its own node status, independent of registry order.
+    const staled = mine.map((resource) => (resource.stale === false && resource.lastSeen === at
+      && (resource.nodeIds || [resource.nodeId]).some((id) => id !== nodeId)
+      ? resource
+      : { ...resource, stale: true, staleReason: collection.code || "NODE_UNAVAILABLE" }));
     return [...others, ...staled];
   }
 

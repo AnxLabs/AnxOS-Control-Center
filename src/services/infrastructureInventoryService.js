@@ -432,15 +432,20 @@ async function collectNode(node) {
   let listenersTruncated = Boolean(networkPayload?.listenersTruncated);
   const listeners = Array.isArray(networkPayload?.listeners) ? networkPayload.listeners : [];
   if (listeners.length > model.LIMITS.maxListenersPerNode) listenersTruncated = true;
-  if (listenersTruncated) {
-    // Only a prefix of the listeners was read: listeners outside it are not
+  // Enumeration errors (one ss protocol failed, netstat rows unparsed) mean
+  // some listeners may be missing from the list. A Windows tasklist error only
+  // affects process names, never which listeners were found.
+  const enumerationErrors = (Array.isArray(networkPayload?.errors) ? networkPayload.errors : [])
+    .filter((error) => !/^tasklist\b/i.test(typeof error === "string" ? error : String(error?.source || "")));
+  const listenerSection = sections.find((entry) => entry.name === "listeners");
+  if (listenerSection && listenerSection.status === "ok" && (listenersTruncated || enumerationErrors.length > 0)) {
+    // Only part of the listeners was read: listeners outside it are not
     // deletions, and the node is partially read.
-    const section = sections.find((entry) => entry.name === "listeners");
-    if (section && section.status === "ok") {
-      section.status = "partial";
-      section.code = "LISTENERS_TRUNCATED";
-      section.message = "Only part of the listening sockets were read.";
-    }
+    listenerSection.status = "partial";
+    listenerSection.code = listenersTruncated ? "LISTENERS_TRUNCATED" : "LISTENERS_PARTIAL_READ";
+    listenerSection.message = listenersTruncated
+      ? "Only part of the listening sockets were read."
+      : "Listener enumeration reported errors; some listening sockets may be missing.";
   }
   for (const listener of listeners.slice(0, model.LIMITS.maxListenersPerNode)) {
     resources.push(model.buildListenerResource(ctx, listener));
@@ -636,11 +641,17 @@ async function runRefresh() {
       // record held by no registered node is kept stale for the retention window.
       const ids = resource.nodeIds || [resource.nodeId];
       const live = ids.filter((id) => registered.has(id));
-      if (!live.length) return { ...resource, stale: true, staleReason: "NODE_NOT_REGISTERED" };
+      if (!live.length) {
+        // The retention window starts when the removal is first observed, not
+        // at the last successful discovery: a node that was offline before it
+        // was removed still gets the full grace period.
+        const unregisteredAt = resource.staleReason === "NODE_NOT_REGISTERED" && resource.unregisteredAt ? resource.unregisteredAt : at;
+        return { ...resource, stale: true, staleReason: "NODE_NOT_REGISTERED", unregisteredAt };
+      }
       if (live.length === ids.length) return resource;
       return { ...resource, nodeIds: live, duplicateNodes: live.length > 1 };
     })
-    .filter((resource) => resource.staleReason !== "NODE_NOT_REGISTERED" || Date.parse(resource.lastSeen || 0) >= cutoff)
+    .filter((resource) => resource.staleReason !== "NODE_NOT_REGISTERED" || Date.parse(resource.unregisteredAt || 0) >= cutoff)
     .map((resource) => model.applyProtection(resource, snapshot.classifications));
   const fleetLimit = applyFleetCap(resources);
   resources = fleetLimit.resources;

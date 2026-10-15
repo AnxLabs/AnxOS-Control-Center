@@ -1090,6 +1090,80 @@ test("failed container inspects make the derived volume and network sections par
   assert.strictEqual(snapshot.summary.nodesPartial, 1);
 });
 
+test("listener enumeration errors keep unseen listeners stale; process-name errors do not", async () => {
+  const { reader } = makeAgent();
+  let payload = null;
+  const listeners = async (pathname, options) => (payload && pathname === "/api/v1/network/inventory" ? payload : reader(pathname, options));
+  setup({ reader: listeners, nodes: [agentNode("node-a")] });
+  clock = Date.parse("2026-10-14T10:00:00Z");
+  const before = byKind(await inventory.refreshInventory(), "listener");
+  assert.strictEqual(before.length, 1);
+  // ss (udp) failed: only TCP rows came back, and the known listener is not among them.
+  payload = { supported: true, listeners: [{ protocol: "tcp", localAddress: "0.0.0.0", localPort: 7001, pid: 1 }], listenersTruncated: false, errors: ["ss (udp): command failed"] };
+  clock += 3600000;
+  const partial = await inventory.refreshInventory({ force: true });
+  const known = byKind(partial, "listener").find((row) => row.key === before[0].key);
+  assert.ok(known, "listener missing from a partial read is not deleted");
+  assert.strictEqual(known.staleReason, "LISTENERS_PARTIAL_READ");
+  const section = partial.nodes[0].sections.find((entry) => entry.name === "listeners");
+  assert.strictEqual(section.status, "partial");
+  assert.strictEqual(partial.summary.nodesPartial, 1);
+  // A Windows tasklist failure only loses process names: the read is complete.
+  payload = { supported: true, listeners: [{ protocol: "tcp", localAddress: "0.0.0.0", localPort: 7001, pid: 1 }], listenersTruncated: false, errors: ["tasklist: access denied"] };
+  clock += 3600000;
+  const complete = await inventory.refreshInventory({ force: true });
+  assert.strictEqual(complete.nodes[0].sections.find((entry) => entry.name === "listeners").status, "ok");
+  assert.strictEqual(complete.summary.nodesPartial, 0);
+});
+
+test("a reachable twin's confirmation is not overwritten by an unreachable twin, in either order", async () => {
+  for (const order of [["node-a", "node-b"], ["node-b", "node-a"]]) {
+    const down = new Set();
+    const { reader: base } = makeAgent();
+    const twin = async (pathname, options) => {
+      if (down.has(options?.config?.nodeId)) throw Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" });
+      return base(pathname, options);
+    };
+    setup({ reader: twin, nodes: order.map((id) => agentNode(id)) });
+    clock = Date.parse("2026-10-14T10:00:00Z");
+    await inventory.refreshInventory();
+    down.add("node-b");
+    clock += 3600000;
+    const snapshot = await inventory.refreshInventory({ force: true });
+    for (const kind of ["host", "container", "listener"]) {
+      const row = byKind(snapshot, kind)[0];
+      assert.strictEqual(row.stale, false, `${order.join(",")} ${kind}: fresh via node-a`);
+      assert.strictEqual(row.lastSeen, new Date(clock).toISOString());
+      assert.deepStrictEqual(row.nodeIds, ["node-a", "node-b"], `${kind}: node-b association kept`);
+    }
+    assert.strictEqual(snapshot.nodes.find((node) => node.nodeId === "node-b").status, "unavailable", "the outage is reported on node-b");
+  }
+});
+
+test("unregistered retention starts at removal, not at the last successful discovery", async () => {
+  const { reader, world } = makeAgent();
+  const nodes = [agentNode("node-a")];
+  setup({ reader, nodes });
+  clock = Date.parse("2026-10-01T10:00:00Z");
+  await inventory.refreshInventory();
+  // Offline for eight days, then removed from the registry.
+  world.failures["/api/v1/"] = () => Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" });
+  clock += 8 * 24 * 3600000;
+  await inventory.refreshInventory({ force: true });
+  nodes.length = 0;
+  clock += 60000;
+  const removedAt = new Date(clock).toISOString();
+  const removed = await inventory.refreshInventory({ force: true });
+  assert.ok(removed.resources.length > 0, "full grace period after removal");
+  assert.ok(removed.resources.every((row) => row.staleReason === "NODE_NOT_REGISTERED" && row.unregisteredAt === removedAt));
+  clock += inventory.UNREGISTERED_RETENTION_MS - 3600000;
+  const later = await inventory.refreshInventory({ force: true });
+  assert.ok(later.resources.length > 0, "still within the window");
+  assert.ok(later.resources.every((row) => row.unregisteredAt === removedAt), "window start is not reset");
+  clock += 2 * 3600000;
+  assert.strictEqual((await inventory.refreshInventory({ force: true })).resources.length, 0, "pruned once the window ends");
+});
+
 test("protection: owner-confirmed non-production applies only to verified keys", () => {
   const verified = { key: "k1", identity: { verified: true } };
   const unverifiedResource = { key: "k2", identity: { verified: false } };
