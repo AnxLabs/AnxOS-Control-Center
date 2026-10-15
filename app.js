@@ -39030,7 +39030,7 @@ async function refreshNetworkPage({ force = false } = {}) {
           ? payload.endpoints
           : [];
       apiSummary = payload?.summary || null;
-      networkState.providerSyncs = payload?.providerSyncs || null;
+      networkState.providerSyncs = mergeNetworkProviderSyncs(nodeId, payload?.providerSyncs);
       networkState.degraded = payload?.degraded === true;
     } else {
       networkState.endpoints = [];
@@ -39044,19 +39044,19 @@ async function refreshNetworkPage({ force = false } = {}) {
   }
   // Provider status is tolerated rather than fatal: a failure keeps the panel
   // visible in an explicit "provider status unavailable" state.
+  // Last-sync records are not reset here: an unavailable status read must not
+  // erase the persisted sync history the endpoint list just returned.
   networkState.providers = null;
-  networkState.providerSyncs = null;
   try {
     if (typeof api?.providers?.getStatus === "function") {
       const status = await api.providers.getStatus({ nodeId });
       if (requestId !== networkState.requestId) return networkState;
       networkState.providers = Array.isArray(status?.providers) ? status.providers : Array.isArray(status) ? status : null;
-      networkState.providerSyncs = status?.syncs || null;
+      networkState.providerSyncs = mergeNetworkProviderSyncs(nodeId, status?.syncs);
     }
   } catch {
     if (requestId !== networkState.requestId) return networkState;
     networkState.providers = null;
-    networkState.providerSyncs = null;
   }
   if (requestId !== networkState.requestId) return networkState;
   networkState.loading = false;
@@ -39110,6 +39110,12 @@ function renderNetworkProviders() {
   }
 }
 
+function mergeNetworkProviderSyncs(nodeId, incoming) {
+  const presentation = getNetworkPresentation();
+  if (!presentation || typeof presentation.mergeProviderSyncs !== "function") return networkState.providerSyncs;
+  return presentation.mergeProviderSyncs(networkState.providerSyncs, nodeId, incoming);
+}
+
 function describeNetworkProviderDetail(provider) {
   if (!provider || typeof provider !== "object") return "State unavailable.";
   const parts = [];
@@ -39119,6 +39125,10 @@ function describeNetworkProviderDetail(provider) {
   if (tunnels) parts.push(`${tunnels} tunnel${tunnels === 1 ? "" : "s"}`);
   if (provider.publicAddress) parts.push(String(provider.publicAddress));
   if (provider.lastCheckedAt) parts.push(`checked ${formatNetworkCheckedAt(provider.lastCheckedAt)}`);
+  const sync = networkState.providerSyncs?.[getSelectedNodeId()];
+  if (sync && sync.providerId === provider.providerId && sync.lastSyncAt) {
+    parts.push(`last sync ${formatNetworkCheckedAt(sync.lastSyncAt)}${sync.errorCode ? ` (${sync.errorCode})` : ""}`);
+  }
   return parts.length ? parts.join(" · ") : "No provider detail reported.";
 }
 
@@ -39427,7 +39437,7 @@ async function syncNetworkProviders() {
     }
     const created = Array.isArray(result?.endpointsCreated) ? result.endpointsCreated.length : 0;
     const updated = Array.isArray(result?.endpointsUpdated) ? result.endpointsUpdated.length : 0;
-    networkState.providerSyncs = result || networkState.providerSyncs;
+    networkState.providerSyncs = mergeNetworkProviderSyncs(getSelectedNodeId(), result);
     showToast(`Provider sync complete: ${created} created, ${updated} updated.`, "success");
     await refreshNetworkPage({ force: true });
   } catch (error) {

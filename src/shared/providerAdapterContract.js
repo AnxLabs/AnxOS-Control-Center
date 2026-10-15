@@ -143,6 +143,22 @@ function scrubString(value) {
   return redacted.length > MAX_STRING_LENGTH ? redacted.slice(0, MAX_STRING_LENGTH) : redacted;
 }
 
+// Free-text diagnostics come straight from provider output (a message, a
+// reason, a plain string), so they get a stricter pass than structured fields:
+// a credential assignment under any key spelling (secret_key=, agent-key: ...)
+// loses its value, and a bare credential-shaped token (24+ characters mixing
+// letters and digits) is removed. Over-redacting a diagnostic is harmless;
+// structured identifiers (tunnel ids, hosts) never go through this pass.
+const DIAGNOSTIC_ASSIGNMENT_PATTERN = /\b([\w.-]*(?:token|secret|passw(?:or)?d|pwd|api[_-]?key|access[_-]?key|private[_-]?key|agent[_-]?key|auth[_-]?key|credential|session[_-]?id)[\w.-]*)(\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;]+)/gi;
+const CREDENTIAL_TOKEN_PATTERN = /(?<![\w-])(?=[A-Za-z0-9_-]*\d)(?=[A-Za-z0-9_-]*[A-Za-z])[A-Za-z0-9_-]{24,}(?![\w-])/g;
+
+function scrubDiagnosticText(value) {
+  if (value === null || value === undefined) return null;
+  return scrubString(value)
+    .replace(DIAGNOSTIC_ASSIGNMENT_PATTERN, (_match, key, separator) => `${key}${separator}[redacted]`)
+    .replace(CREDENTIAL_TOKEN_PATTERN, "[redacted]");
+}
+
 // Recursively drops denylisted keys and scrubs string values before any
 // mapping sees the raw input. Tolerates circular structures (dropped) and
 // bounds depth, array length and string length.
@@ -314,8 +330,9 @@ function normalizeDiagnostics(rawDiagnostics) {
   const output = [];
   const push = (code, message) => {
     if (output.length >= MAX_DIAGNOSTICS) return;
-    const entryCode = (toStr(code) || "PROVIDER_DIAGNOSTIC").slice(0, MAX_DIAGNOSTIC_CODE_LENGTH);
-    const entryMessage = (toStr(message) || entryCode).slice(0, MAX_DIAGNOSTIC_MESSAGE_LENGTH);
+    // Scrubbed before truncation so a cut can never leave part of a secret.
+    const entryCode = (toStr(scrubDiagnosticText(toStr(code))) || "PROVIDER_DIAGNOSTIC").slice(0, MAX_DIAGNOSTIC_CODE_LENGTH);
+    const entryMessage = (toStr(scrubDiagnosticText(toStr(message))) || entryCode).slice(0, MAX_DIAGNOSTIC_MESSAGE_LENGTH);
     output.push({ code: entryCode, message: entryMessage });
   };
   const entries = Array.isArray(rawDiagnostics)
@@ -478,5 +495,6 @@ module.exports = {
   normalizeProviderState,
   normalizeTunnel,
   parseHostPort,
+  scrubDiagnosticText,
   validateProviderAdapter,
 };

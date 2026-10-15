@@ -240,6 +240,34 @@ async function main() {
   assert.strictEqual(reduced.AnxConnectivityPresentation.stateLabel("degraded"), "Degraded");
   assert.strictEqual(reduced.AnxConnectivityPresentation.formatDiagnosticsEvidence({ evidence: { pid: 7 } })[0].value, "7");
 
+  // V2-K D1: provider last-sync records survive Network page refreshes. The
+  // renderer receives the persisted map (endpoints:list), one node record
+  // (providers:getStatus syncs) and a sync result (providers:sync); a missing,
+  // failed or malformed input must never erase what is known.
+  const { mergeProviderSyncs } = presentation;
+  const record = { providerId: "playit", state: "running", tunnelCount: 2, errorCode: null, lastSyncAt: "2026-10-15T10:00:00.000Z" };
+  const other = { providerId: "playit", state: "stopped", tunnelCount: 0, errorCode: null, lastSyncAt: "2026-10-15T09:00:00.000Z" };
+  let syncs = mergeProviderSyncs(null, "node-a", { "node-a": record, "node-b": other });   // endpoints:list
+  assert.deepStrictEqual(syncs, { "node-a": record, "node-b": other }, "the persisted map is taken as-is");
+  for (const missing of [null, undefined, {}, [], "x", { lastSyncAt: "" }]) {
+    syncs = mergeProviderSyncs(syncs, "node-a", missing);                                // status read failed or carried no syncs
+    assert.deepStrictEqual(syncs["node-a"], record, `a refresh without sync data keeps the record (${JSON.stringify(missing)})`);
+  }
+  const newer = { ...record, lastSyncAt: "2026-10-15T11:00:00.000Z", tunnelCount: 3 };
+  syncs = mergeProviderSyncs(syncs, "node-a", newer);                                      // providers:getStatus syncs (one node)
+  assert.deepStrictEqual(syncs["node-a"], newer, "a node record replaces only that node");
+  assert.deepStrictEqual(syncs["node-b"], other, "other nodes are untouched");
+  const result = { ok: true, providerId: "playit", state: "running", tunnels: [{}, {}, {}, {}], errorCode: null, lastSyncAt: "2026-10-15T12:00:00.000Z", notes: ["x"] };
+  syncs = mergeProviderSyncs(syncs, "node-a", result);                                     // providers:sync result
+  assert.deepStrictEqual(syncs["node-a"], { providerId: "playit", state: "running", tunnelCount: 4, errorCode: null, lastSyncAt: "2026-10-15T12:00:00.000Z" },
+    "a sync result is reduced to the record fields");
+  syncs = mergeProviderSyncs(syncs, "node-a", { "node-a": record });                       // a later refresh with an older map
+  assert.strictEqual(syncs["node-a"].lastSyncAt, record.lastSyncAt, "the persisted map is authoritative on refresh");
+  assert.deepStrictEqual(mergeProviderSyncs({ "node-a": record }, null, newer), { "node-a": record }, "no node: a single record is not misfiled");
+  assert.strictEqual(typeof browser.AnxConnectivityPresentation.mergeProviderSyncs, "function", "the renderer build exposes mergeProviderSyncs");
+  // sandbox objects come from another realm: compare values, not prototypes
+  assert.strictEqual(JSON.stringify(reduced.AnxConnectivityPresentation.mergeProviderSyncs(null, "node-a", record)), JSON.stringify({ "node-a": record }), "the reduced renderer build merges too");
+
   console.log("connectivity-presentation-smoke: all assertions passed.");
 }
 

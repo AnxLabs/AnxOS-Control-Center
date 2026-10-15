@@ -457,6 +457,8 @@ async function phaseSchedulerAndErrors() {
 // Phase 9: DI-only collector (health attach + failure containment).
 // ---------------------------------------------------------------------------
 async function phaseCollector() {
+  let providerProbes = 0;
+  const cachedProviderReads = [];
   const collector = createOperationalNotificationCollector({
     nodeService: {
       APPLICATION_HOST_NODE_ID: "app-host",
@@ -477,7 +479,17 @@ async function phaseCollector() {
       ],
     },
     providerIntegrationService: {
-      getProviderSnapshot: async () => ({ providers: [{ nodeId: "node-x", providerId: "playit", lifecycleState: "running" }] }),
+      // Background evaluation reads the last-known provider state only. The
+      // probing read stays on the double as a tripwire: it must never be used,
+      // because it makes the Agent run the provider binary (V2-K D3).
+      getCachedProviderSnapshot: async ({ nodeId }) => {
+        cachedProviderReads.push(nodeId);
+        return { providers: [{ nodeId: "node-x", providerId: "playit", lifecycleState: "running" }] };
+      },
+      getProviderSnapshot: async () => {
+        providerProbes += 1;
+        throw new Error("the collector must never probe provider state");
+      },
     },
     connectivityDiagnosticsService: {
       // Mirrors connectivityDiagnosticsService.getCachedDiagnostics: a real hit
@@ -490,9 +502,11 @@ async function phaseCollector() {
   });
 
   const state = await collector();
+  assert.strictEqual(providerProbes, 0, "the collector must never probe provider state (no Agent provider process)");
+  assert.deepStrictEqual(cachedProviderReads, ["node-x"], "the collector reads the cached provider state for the effective node");
   assert.strictEqual(state.nodes.length, 1, "the collector must read nodes");
   assert.strictEqual(state.instances.length, 1, "the collector must reuse the instance snapshot pattern");
-  assert.strictEqual(state.providers.length, 1, "the collector must read provider snapshots");
+  assert.strictEqual(state.providers.length, 1, "the collector must report cached provider state");
   assert.strictEqual(state.endpoints[0].health.state, "healthy", "cached diagnostics must attach health.state");
   assert.strictEqual(state.endpoints[1].health, undefined, "no cached diagnostics means no health observation");
   assert.deepStrictEqual(state.backups, [], "the injected desktop read path returns no backups here");
@@ -501,7 +515,7 @@ async function phaseCollector() {
   const resilient = createOperationalNotificationCollector({
     nodeService: { listNodes: async () => { throw new Error("nodes down"); } },
     endpointService: { listEndpoints: async () => { throw new Error("endpoints down"); } },
-    providerIntegrationService: { getProviderSnapshot: async () => { throw new Error("providers down"); } },
+    providerIntegrationService: { getCachedProviderSnapshot: async () => { throw new Error("providers down"); } },
     connectivityDiagnosticsService: { getCachedDiagnostics: async () => { throw new Error("diagnostics down"); } },
   });
   const empty = await resilient();

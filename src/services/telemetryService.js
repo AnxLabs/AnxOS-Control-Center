@@ -151,8 +151,10 @@ function defaultProviderStates({ nodeId }) {
   } catch {
     return null;
   }
-  if (!service || typeof service.getProviderSnapshot !== "function") return null;
-  return service.getProviderSnapshot({ nodeId });
+  // Sampling is background work: read the last-known provider state only and
+  // never make the Agent probe the provider binary.
+  if (!service || typeof service.getCachedProviderSnapshot !== "function") return null;
+  return service.getCachedProviderSnapshot({ nodeId });
 }
 
 function normalizeEndpointHealth(snapshot) {
@@ -506,7 +508,9 @@ function createTelemetryService(options = {}) {
     try {
       rows = dep("getProviderStates")
         ? await dep("getProviderStates")({ nodeId: node.id })
-        : defaultProviderStates({ nodeId: node.id });
+        // the default read is async: without await the sampler saw a Promise
+        // and never recorded provider state
+        : await defaultProviderStates({ nodeId: node.id });
     } catch {
       rows = null;
     }

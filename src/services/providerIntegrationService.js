@@ -26,7 +26,7 @@
 // with the diagnostics or endpoint services, and tests can inject fakes
 // through deps.
 
-const { normalizeProviderState } = require("../shared/providerAdapterContract");
+const { normalizeProviderState, scrubDiagnosticText } = require("../shared/providerAdapterContract");
 const { buildEndpointId, endpointKey } = require("../shared/endpointModel");
 
 const PLAYIT_PROVIDER_ID = "playit";
@@ -127,6 +127,10 @@ function createProviderIntegrationService({ deps = {}, now } = {}) {
     ? Math.max(0, overrides.cacheTtlMs)
     : DEFAULT_CACHE_TTL_MS;
   const snapshotCache = new Map();
+  // Last provider state learned by an explicit read or sync, per node. Kept
+  // regardless of the snapshot TTL: background readers (notifications,
+  // telemetry) use it so they never make the Agent probe the provider.
+  const lastKnown = new Map();
 
   function currentDate() {
     let value = null;
@@ -204,14 +208,20 @@ function createProviderIntegrationService({ deps = {}, now } = {}) {
     });
   }
 
+  function rememberPlayitState(nodeId, playitState) {
+    const manualState = getRegistry()[MANUAL_PROVIDER_ID].status({});
+    lastKnown.set(nodeId, { providers: [playitState, manualState], checkedAt: nowIso(), atMs: nowMs() });
+    return playitState;
+  }
+
   async function buildPlayitProviderState(nodeId) {
     const fetched = await fetchPlayitSnapshot(nodeId);
-    if (!fetched.ok) return unavailablePlayitState();
+    if (!fetched.ok) return rememberPlayitState(nodeId, unavailablePlayitState());
     const adapter = getRegistry()[PLAYIT_PROVIDER_ID];
     try {
-      return adapter.status(fetched.snapshot);
+      return rememberPlayitState(nodeId, adapter.status(fetched.snapshot));
     } catch {
-      return unavailablePlayitState();
+      return rememberPlayitState(nodeId, unavailablePlayitState());
     }
   }
 
@@ -256,6 +266,21 @@ function createProviderIntegrationService({ deps = {}, now } = {}) {
       providers,
       syncs: await readProviderSyncs(resolvedNodeId),
       cache: { cached: fromCache },
+    };
+  }
+
+  // Cache-only read for background consumers: returns the last state an
+  // explicit refresh or sync recorded and never contacts the Agent, so it can
+  // never launch the provider binary there. Nothing known yet -> no providers.
+  async function getCachedProviderSnapshot({ nodeId } = {}) {
+    const resolvedNodeId = requireNodeId(nodeId);
+    const entry = lastKnown.get(resolvedNodeId) || null;
+    return {
+      nodeId: resolvedNodeId,
+      checkedAt: entry ? entry.checkedAt : null,
+      providers: entry ? entry.providers : [],
+      syncs: await readProviderSyncs(resolvedNodeId),
+      cache: { cached: Boolean(entry), source: "last-known", ageMs: entry ? Math.max(0, nowMs() - entry.atMs) : null },
     };
   }
 
@@ -316,6 +341,7 @@ function createProviderIntegrationService({ deps = {}, now } = {}) {
 
     const fetched = await fetchPlayitSnapshot(resolvedNodeId);
     if (!fetched.ok) {
+      rememberPlayitState(resolvedNodeId, unavailablePlayitState());
       return failSync(
         gateway,
         resolvedNodeId,
@@ -337,7 +363,7 @@ function createProviderIntegrationService({ deps = {}, now } = {}) {
     }
 
     const adapter = getRegistry()[PLAYIT_PROVIDER_ID];
-    const providerState = adapter.status(fetched.snapshot);
+    const providerState = rememberPlayitState(resolvedNodeId, adapter.status(fetched.snapshot));
     const tunnels = adapter.listTunnels(fetched.snapshot);
     result.state = providerState.state;
     result.connected = providerState.connected;
@@ -402,9 +428,9 @@ function createProviderIntegrationService({ deps = {}, now } = {}) {
         result.skipped.push({
           tunnelId: entry.tunnel.id || null,
           code,
-          message: typeof error?.message === "string" && error.message
-            ? error.message
-            : "The tunnel endpoint could not be written.",
+          // Validation messages can echo tunnel input; scrub like diagnostics.
+          message: (typeof error?.message === "string" && scrubDiagnosticText(error.message))
+            || "The tunnel endpoint could not be written.",
         });
         pushNote(result, `Skipped tunnel ${entry.tunnel.id || "unnamed"}: ${code}.`);
         continue;
@@ -456,6 +482,7 @@ function createProviderIntegrationService({ deps = {}, now } = {}) {
 
   return {
     getProviderSnapshot,
+    getCachedProviderSnapshot,
     getProviderStateForNode,
     syncTunnels,
   };
@@ -467,6 +494,7 @@ module.exports = {
   createProviderIntegrationService,
   providerIntegrationService,
   getProviderSnapshot: (options) => providerIntegrationService.getProviderSnapshot(options),
+  getCachedProviderSnapshot: (options) => providerIntegrationService.getCachedProviderSnapshot(options),
   getProviderStateForNode: (options) => providerIntegrationService.getProviderStateForNode(options),
   syncTunnels: (options) => providerIntegrationService.syncTunnels(options),
 };

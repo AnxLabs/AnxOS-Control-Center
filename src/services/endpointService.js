@@ -393,6 +393,12 @@ function createEndpointService({ store, deps } = {}) {
     return serviceStore.recordProviderSync(nodeId, patch);
   }
 
+  // Persisted per-node provider sync records ({ [nodeId]: record }). Part of
+  // the gateway contract providerIntegrationService reads for snapshot.syncs.
+  function getProviderSyncs() {
+    return serviceStore.getProviderSyncs();
+  }
+
   function resolveServiceEndpoints({ nodeId, serviceId } = {}) {
     const filter = {};
     if (nodeId) filter.nodeId = nodeId;
@@ -829,6 +835,7 @@ function createEndpointService({ store, deps } = {}) {
     associateEndpoint,
     upsertProviderEndpoint,
     recordProviderSync,
+    getProviderSyncs,
     resolveServiceEndpoints,
     discoverEndpoints,
   };
@@ -889,6 +896,10 @@ function discoverEndpoints(options) {
   return getDefaultEndpointService().discoverEndpoints(options);
 }
 
+function getProviderSyncs() {
+  return getDefaultEndpointService().getProviderSyncs();
+}
+
 module.exports = {
   createEndpointService,
   getDefaultEndpointService,
@@ -902,6 +913,7 @@ module.exports = {
   associateEndpoint,
   upsertProviderEndpoint,
   recordProviderSync,
+  getProviderSyncs,
   resolveServiceEndpoints,
   discoverEndpoints,
   _test: {

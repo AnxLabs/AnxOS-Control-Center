@@ -308,6 +308,46 @@
     return stateTone(node && node.state);
   }
 
+  // Provider last-sync records, kept per node as { [nodeId]: record }. Inputs
+  // arrive in three shapes: the persisted map (endpoints:list), one node's
+  // record (providers:getStatus syncs) and a sync result (providers:sync).
+  // A missing or malformed input never erases what is already known.
+  const SYNC_RECORD_FIELDS = ["providerId", "state", "tunnelCount", "errorCode", "lastSyncAt"];
+
+  function toProviderSyncRecord(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    if (typeof value.lastSyncAt !== "string" || !value.lastSyncAt) return null;
+    const record = {};
+    for (const field of SYNC_RECORD_FIELDS) {
+      record[field] = Object.prototype.hasOwnProperty.call(value, field) ? value[field] : null;
+    }
+    if (!Number.isInteger(record.tunnelCount)) {
+      record.tunnelCount = Array.isArray(value.tunnels) ? value.tunnels.length : null;
+    }
+    return record;
+  }
+
+  function mergeProviderSyncs(current, nodeId, incoming) {
+    const merged = {};
+    if (current && typeof current === "object" && !Array.isArray(current)) {
+      for (const [key, value] of Object.entries(current)) {
+        const record = toProviderSyncRecord(value);
+        if (record) merged[key] = record;
+      }
+    }
+    if (!incoming || typeof incoming !== "object" || Array.isArray(incoming)) return merged;
+    const single = toProviderSyncRecord(incoming);
+    if (single) {
+      if (typeof nodeId === "string" && nodeId) merged[nodeId] = single;
+      return merged;
+    }
+    for (const [key, value] of Object.entries(incoming)) {
+      const record = toProviderSyncRecord(value);
+      if (record) merged[key] = record;
+    }
+    return merged;
+  }
+
   return {
     stateLabel,
     stateTone,
@@ -316,6 +356,7 @@
     buildEndpointChoices,
     formatDiagnosticsEvidence,
     graphNodeTone,
+    mergeProviderSyncs,
     MAX_EVIDENCE_ROWS,
   };
 });

@@ -293,4 +293,10 @@ assert(
   "Network transitions must respect reduced motion.",
 );
 
+// V2-K D1: a refresh must not erase provider last-sync records, and every
+// write goes through the shared merge so the state keeps one shape.
+assert(!/networkState\.providerSyncs\s*=\s*null/.test(app), "Network refresh must not reset provider sync records to null.");
+assert(!/networkState\.providerSyncs\s*=(?!=)(?!\s*mergeNetworkProviderSyncs\()/.test(app), "Every provider sync write must use mergeNetworkProviderSyncs.");
+assert(app.includes("last sync ${formatNetworkCheckedAt(sync.lastSyncAt)}"), "The provider detail line must show the last sync.");
+
 console.log("Network page smoke checks passed.");

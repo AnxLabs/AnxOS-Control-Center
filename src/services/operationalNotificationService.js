@@ -843,10 +843,13 @@ function createOperationalNotificationCollector({
       }
     }
 
+    // Background evaluation never probes the Agent for provider state: it
+    // reads the last state an explicit refresh or sync recorded. Probing here
+    // made the Agent run the provider binary on every evaluation.
     let providers = [];
-    if (providerIntegrationService && typeof providerIntegrationService.getProviderSnapshot === "function") {
+    if (providerIntegrationService && typeof providerIntegrationService.getCachedProviderSnapshot === "function") {
       try {
-        const snapshot = await providerIntegrationService.getProviderSnapshot({ nodeId: effectiveNodeId });
+        const snapshot = await providerIntegrationService.getCachedProviderSnapshot({ nodeId: effectiveNodeId });
         providers = listOf(snapshot?.providers ?? snapshot);
       } catch {
         providers = [];
