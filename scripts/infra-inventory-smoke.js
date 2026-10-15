@@ -1164,6 +1164,32 @@ test("unregistered retention starts at removal, not at the last successful disco
   assert.strictEqual((await inventory.refreshInventory({ force: true })).resources.length, 0, "pruned once the window ends");
 });
 
+test("a twin's unread section does not stale records the other twin confirmed, in either order", async () => {
+  for (const order of [["node-a", "node-b"], ["node-b", "node-a"]]) {
+    const denied = new Set();
+    const { reader: base } = makeAgent();
+    const twin = async (pathname, options) => {
+      if (denied.has(options?.config?.nodeId) && pathname.startsWith("/api/v1/docker")) throw Object.assign(new Error("Forbidden"), { status: 403 });
+      return base(pathname, options);
+    };
+    setup({ reader: twin, nodes: order.map((id) => agentNode(id)) });
+    clock = Date.parse("2026-10-14T10:00:00Z");
+    await inventory.refreshInventory();
+    denied.add("node-b");
+    clock += 3600000;
+    const snapshot = await inventory.refreshInventory({ force: true });
+    for (const kind of ["container", "volume", "network", "compose-project"]) {
+      const row = byKind(snapshot, kind)[0];
+      assert.strictEqual(row.stale, false, `${order.join(",")} ${kind}: fresh via node-a`);
+      assert.strictEqual(row.lastSeen, new Date(clock).toISOString());
+      assert.deepStrictEqual(row.nodeIds, ["node-a", "node-b"], `${kind}: node-b association kept`);
+    }
+    const nodeB = snapshot.nodes.find((node) => node.nodeId === "node-b");
+    assert.strictEqual(nodeB.sections.find((section) => section.name === "docker").status !== "ok", true, "node-b's unread section is still reported");
+    assert.strictEqual(snapshot.summary.nodesPartial, 1);
+  }
+});
+
 test("protection: owner-confirmed non-production applies only to verified keys", () => {
   const verified = { key: "k1", identity: { verified: true } };
   const unverifiedResource = { key: "k2", identity: { verified: false } };

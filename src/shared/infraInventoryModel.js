@@ -496,12 +496,15 @@ function mergeNodeCollection(previousResources = [], collection = {}, now) {
   const others = previousResources.filter((resource) => !(resource.nodeIds || [resource.nodeId]).includes(nodeId));
   const mine = previousResources.filter((resource) => (resource.nodeIds || [resource.nodeId]).includes(nodeId));
 
+  // A record another registration of the same Agent confirmed during this
+  // refresh stays fresh (and keeps this node's association) when this node is
+  // unavailable or could not read the record's section: this node's gap is
+  // reported on its own node status, independent of registry order.
+  const confirmedByTwin = (resource) => resource.stale === false && resource.lastSeen === at
+    && (resource.nodeIds || [resource.nodeId]).some((id) => id !== nodeId);
+
   if (collection.ok !== true) {
-    // A record another registration of the same Agent confirmed during this
-    // refresh stays fresh (and keeps this node's association): this node's
-    // outage is reported on its own node status, independent of registry order.
-    const staled = mine.map((resource) => (resource.stale === false && resource.lastSeen === at
-      && (resource.nodeIds || [resource.nodeId]).some((id) => id !== nodeId)
+    const staled = mine.map((resource) => (confirmedByTwin(resource)
       ? resource
       : { ...resource, stale: true, staleReason: collection.code || "NODE_UNAVAILABLE" }));
     return [...others, ...staled];
@@ -513,7 +516,7 @@ function mergeNodeCollection(previousResources = [], collection = {}, now) {
   const unreadKinds = collection.unreadKinds || {};
   const carried = mine
     .filter((resource) => Object.prototype.hasOwnProperty.call(unreadKinds, resource.kind))
-    .map((resource) => ({ ...resource, stale: true, staleReason: unreadKinds[resource.kind] }));
+    .map((resource) => (confirmedByTwin(resource) ? resource : { ...resource, stale: true, staleReason: unreadKinds[resource.kind] }));
 
   // A resource that is unverified only because this refresh could not inspect
   // it (inspect failed, timed out or the inspect budget ran out) is not a new
