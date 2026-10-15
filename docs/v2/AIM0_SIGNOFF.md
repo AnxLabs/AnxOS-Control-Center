@@ -26,9 +26,9 @@ AVAILABLE** (checked; the capability does not exist today).
 
 | Component | Status | Evidence |
 | --- | --- | --- |
-| Host `deviceId` + `agentInstallationId` + `agentIdentityGeneration` | **VERIFIED** | `agent/src/services/deviceIdentityService.js`; AIM-1 keys hosts by all three (PR #4 `a73bdb5`), rotation test |
+| Host `deviceId` + `agentInstallationId` + `agentIdentityGeneration` | **VERIFIED** | `agent/src/services/deviceIdentityService.js`; AIM-1 keys hosts by all three (`src/shared/infraInventoryModel.js`, merged baseline `7308e54`), "host identity rotation" test |
 | Full 64-hex container ID | **VERIFIED** | Docker inspect route; AIM-1 real-Agent smoke |
-| Volume name + creation timestamp + driver | **VERIFIED, attached volumes only** | Name and driver from the container inspect's mounts, creation time from the bounded volume inspect; AIM-1 recreation and driver tests (PR #4 `08de53c`). Volumes not attached to any container are not inventoried: the Agent's volume list route is unbounded and is not called |
+| Volume name + creation timestamp + driver | **VERIFIED, attached volumes only** | Name and driver from the container inspect's mounts, creation time from the bounded volume inspect; AIM-1 recreation and driver tests (merged baseline `7308e54`). Volumes not attached to any container are not inventoried: the Agent's volume list route is unbounded and is not called |
 | Docker network: full network ID + name | **RECORDED, attached networks only, not actionable** | From the container inspect's `NetworkSettings`; networks stay unverified for action purposes |
 | Service-managed instance: host + instance id + unit | **VERIFIED** | Build 206 instance list; AIM-1 real-Agent smoke (zero control calls) |
 | Managed instance: host + instance id | **VERIFIED** | Instance list |
