@@ -1014,6 +1014,82 @@ test("allow-list judgment is not applicable on hosts without service-managed sup
   assert.ok(world.calls.length > 0);
 });
 
+test("container health uses the Agent-normalized state and the Docker status text", async () => {
+  const rows = [
+    { id: "h00000000001", name: "exited", state: "stopped", status: "Exited (1) 2 minutes ago", expect: "stopped" },
+    { id: "h00000000002", name: "restarting", state: "stopped", status: "Restarting (1) 5 seconds ago", expect: "degraded" },
+    { id: "h00000000003", name: "dead", state: "stopped", status: "Dead", expect: "failed" },
+    { id: "h00000000004", name: "paused", state: "paused", status: "Up 2 hours (Paused)", expect: "stopped" },
+    { id: "h00000000005", name: "running", state: "running", status: "Up 3 hours", expect: "healthy" },
+    { id: "h00000000006", name: "unhealthy", state: "running", status: "Up 3 hours (unhealthy)", health: "unhealthy", expect: "failed" },
+  ];
+  const { reader } = makeAgent({ containers: rows.map(({ expect, ...row }) => row), volumes: [] });
+  setup({ reader, nodes: [agentNode("node-a")] });
+  const snapshot = await inventory.refreshInventory();
+  for (const row of rows) {
+    const container = byKind(snapshot, "container").find((resource) => resource.name === row.name);
+    assert.ok(container, `${row.name}: listed`);
+    assert.strictEqual(container.health.state, row.expect, `${row.name}: health`);
+  }
+});
+
+test("a transient inspect gap keeps a twin registration's association", async () => {
+  const down = new Set();
+  const { reader: base, world } = makeAgent();
+  const twin = async (pathname, options) => {
+    if (down.has(options?.config?.nodeId)) throw Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" });
+    return base(pathname, options);
+  };
+  setup({ reader: twin, nodes: [agentNode("node-a"), agentNode("node-b")] });
+  clock = Date.parse("2026-10-14T10:00:00Z");
+  const container = byKind(await inventory.refreshInventory(), "container")[0];
+  assert.deepStrictEqual(container.nodeIds, ["node-a", "node-b"]);
+  down.add("node-b");
+  world.failures[`/api/v1/docker/containers/${FULL_ID.slice(0, 12)}/inspect`] = () => Object.assign(new Error("timeout"), { code: "AGENT_TIMEOUT" });
+  clock += 3600000;
+  const kept = byKind(await inventory.refreshInventory({ force: true }), "container");
+  assert.strictEqual(kept.length, 1);
+  assert.strictEqual(kept[0].key, container.key, "verified key retained");
+  assert.strictEqual(kept[0].stale, true);
+  assert.deepStrictEqual(kept[0].nodeIds, ["node-a", "node-b"], "unavailable twin keeps its association");
+});
+
+test("truncated listener reads keep unseen listeners stale and mark the node partial", async () => {
+  const { reader } = makeAgent();
+  let truncated = false;
+  const listeners = async (pathname, options) => {
+    if (truncated && pathname === "/api/v1/network/inventory") {
+      return { listeners: [{ protocol: "tcp", localAddress: "0.0.0.0", localPort: 7000, pid: 1 }], listenersTruncated: true };
+    }
+    return reader(pathname, options);
+  };
+  setup({ reader: listeners, nodes: [agentNode("node-a")] });
+  clock = Date.parse("2026-10-14T10:00:00Z");
+  const before = byKind(await inventory.refreshInventory(), "listener");
+  assert.strictEqual(before.length, 1);
+  truncated = true;
+  clock += 3600000;
+  const after = await inventory.refreshInventory({ force: true });
+  const known = byKind(after, "listener").find((row) => row.key === before[0].key);
+  assert.ok(known, "listener outside the truncated prefix is not deleted");
+  assert.strictEqual(known.stale, true);
+  assert.strictEqual(known.staleReason, "LISTENERS_TRUNCATED");
+  assert.strictEqual(after.nodes[0].sections.find((section) => section.name === "listeners").status, "partial");
+  assert.strictEqual(after.summary.nodesPartial, 1);
+});
+
+test("failed container inspects make the derived volume and network sections partial", async () => {
+  const { reader } = makeAgent({ failures: { [`/api/v1/docker/containers/${FULL_ID.slice(0, 12)}/inspect`]: () => Object.assign(new Error("timeout"), { code: "AGENT_TIMEOUT" }) } });
+  setup({ reader, nodes: [agentNode("node-a")] });
+  const snapshot = await inventory.refreshInventory();
+  for (const name of ["volumes", "networks"]) {
+    const section = snapshot.nodes[0].sections.find((entry) => entry.name === name);
+    assert.strictEqual(section.status, "partial", `${name}: partial`);
+    assert.strictEqual(section.code, "DERIVED_FROM_PARTIAL_INSPECT");
+  }
+  assert.strictEqual(snapshot.summary.nodesPartial, 1);
+});
+
 test("protection: owner-confirmed non-production applies only to verified keys", () => {
   const verified = { key: "k1", identity: { verified: true } };
   const unverifiedResource = { key: "k2", identity: { verified: false } };

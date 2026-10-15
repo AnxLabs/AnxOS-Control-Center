@@ -432,6 +432,16 @@ async function collectNode(node) {
   let listenersTruncated = Boolean(networkPayload?.listenersTruncated);
   const listeners = Array.isArray(networkPayload?.listeners) ? networkPayload.listeners : [];
   if (listeners.length > model.LIMITS.maxListenersPerNode) listenersTruncated = true;
+  if (listenersTruncated) {
+    // Only a prefix of the listeners was read: listeners outside it are not
+    // deletions, and the node is partially read.
+    const section = sections.find((entry) => entry.name === "listeners");
+    if (section && section.status === "ok") {
+      section.status = "partial";
+      section.code = "LISTENERS_TRUNCATED";
+      section.message = "Only part of the listening sockets were read.";
+    }
+  }
   for (const listener of listeners.slice(0, model.LIMITS.maxListenersPerNode)) {
     resources.push(model.buildListenerResource(ctx, listener));
   }
@@ -501,8 +511,10 @@ async function collectNode(node) {
     if (inspected.some((entry, index) => !entry && containers[index]?.id)) {
       derivedIncomplete = true;
     }
-    sections.push({ name: "volumes", status: "ok", code: null, scope: "attached-to-containers" });
-    sections.push({ name: "networks", status: "ok", code: null, scope: "attached-to-containers" });
+    const derivedStatus = derivedIncomplete ? "partial" : "ok";
+    const derivedCode = derivedIncomplete ? "DERIVED_FROM_PARTIAL_INSPECT" : null;
+    sections.push({ name: "volumes", status: derivedStatus, code: derivedCode, scope: "attached-to-containers" });
+    sections.push({ name: "networks", status: derivedStatus, code: derivedCode, scope: "attached-to-containers" });
     const composePayload = await readSection(sections, "compose", () => read("/api/v1/docker/compose/projects", DOCKER_LIST_TIMEOUT_MS));
     for (const project of Array.isArray(composePayload?.projects) ? composePayload.projects : []) {
       resources.push(model.buildComposeProjectResource(ctx, project));

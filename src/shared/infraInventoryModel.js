@@ -133,17 +133,25 @@ function healthFromServiceStatus(instance = {}) {
   return { state: "unknown", detail: `systemd state ${status.activeState || "unreported"}` };
 }
 
+// The Agent passes Docker's State through when present and otherwise
+// normalizes it (inferState: exited/dead/paused/restarting/removing all become
+// "stopped"), so the detailed status text is evaluated as well.
 function healthFromContainer(container = {}) {
-  const state = String(container.state || container.status || "").toLowerCase();
+  const state = String(container.state || "").toLowerCase();
+  const status = String(container.status || "").toLowerCase();
   const health = String(container.health || "").toLowerCase();
-  if (state.includes("running") || state.startsWith("up")) {
+  if (/restarting/.test(state) || /^restarting\b/.test(status)) return { state: "degraded", detail: "Container restarting" };
+  // Docker reports a paused container as "Up ... (Paused)".
+  if (/paused/.test(state) || /\(paused\)/.test(status)) return { state: "stopped", detail: container.status || null };
+  if (state === "running" || /^up\b/.test(status)) {
     if (health === "unhealthy") return { state: "failed", detail: "Container health check reports unhealthy" };
     if (health === "starting") return { state: "degraded", detail: "Container health check starting" };
     return { state: "healthy", detail: null };
   }
-  if (state.includes("restarting")) return { state: "degraded", detail: "Container restarting" };
-  if (state.includes("dead")) return { state: "failed", detail: "Container dead" };
-  if (state.includes("exited") || state.includes("created") || state.includes("paused")) return { state: "stopped", detail: container.status || null };
+  if (/dead/.test(state) || /^dead\b/.test(status)) return { state: "failed", detail: "Container dead" };
+  if (/^(exited|created|paused|stopped|removing)$/.test(state) || /^(exited|created|paused|removing)\b/.test(status)) {
+    return { state: "stopped", detail: container.status || null };
+  }
   return { state: "unknown", detail: container.status || null };
 }
 
@@ -521,7 +529,8 @@ function mergeNodeCollection(previousResources = [], collection = {}, now) {
       const listedAgrees = Object.entries(resource.listedComponents || {})
         .every(([component, value]) => value === null || value === undefined || verifiedBefore?.identity?.components?.[component] === value);
       if (verifiedBefore && listedAgrees) {
-        return { ...verifiedBefore, nodeIds: [nodeId], stale: true, staleReason: "IDENTITY_NOT_REREAD" };
+        const otherNodeIds = (verifiedBefore.nodeIds || []).filter((id) => id !== nodeId);
+        return { ...verifiedBefore, nodeIds: [nodeId, ...otherNodeIds].sort(), stale: true, staleReason: "IDENTITY_NOT_REREAD" };
       }
     }
     const previous = previousByKey.get(resource.key);

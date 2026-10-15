@@ -81,7 +81,7 @@ AIM-1 ships no classification editor, so everything is shown as Production.
 | --- | --- |
 | Agent unreachable | Node `unavailable` / `NODE_UNREACHABLE`; its previous resources kept, `stale`, `lastSeen` unchanged |
 | Node disabled, disconnected, recorded offline / auth-failed / incompatible | Skipped without any request, with the reason |
-| A section denied, failing or unsupported (401, 403, Docker absent, timeout, listener enumeration unsupported: `LISTENERS_UNSUPPORTED`) | Reported per section (`AUTH_FAILED`, `PERMISSION_DENIED`, `DOCKER_NOT_INSTALLED`, …); that section's previous resources kept as stale — a failed read is never treated as deletion |
+| A section denied, failing or unsupported (401, 403, Docker absent, timeout, listener enumeration unsupported: `LISTENERS_UNSUPPORTED`, or truncated: `LISTENERS_TRUNCATED`) | Reported per section (`AUTH_FAILED`, `PERMISSION_DENIED`, `DOCKER_NOT_INSTALLED`, …); that section's previous resources kept as stale — a failed read is never treated as deletion |
 | Same Agent registered twice | One host record listing both nodes (`duplicateNodes`); if one registration stops reporting a shared record, only that node's association is removed and the record stays for the other node |
 | Duplicate rows in one Agent response | Folded (`duplicateCount`) |
 | Node removed from the registry | Removed from every shared record's node list; records held by no registered node stay stale (`NODE_NOT_REGISTERED`) for 7 days, then are pruned |
@@ -111,7 +111,7 @@ reported on the node row.
 
 | Check | Command |
 | --- | --- |
-| Model + service, hermetic (41 tests) | `npm run inventory:smoke` |
+| Model + service, hermetic (45 tests) | `npm run inventory:smoke` |
 | Real Agent, fake systemd: discovery, zero control calls, identity mismatch, auth boundary, unreachable node, MainPID change | `npm run inventory:agent:smoke` |
 | Real Electron UI against a real Agent | `npm run inventory:ui:qa` |
 | Guard chain and tier | `node scripts/permission-matrix-smoke.js` |
@@ -131,6 +131,6 @@ The two smokes also run in the `feature` and `release` tiers of
   attached ones are known only for containers inspected this refresh (40 per
   node). When some containers were not inspected, previously known volumes and
   networks are kept as stale (`DERIVED_FROM_PARTIAL_INSPECT`) rather than
-  removed. A bounded Agent-side list route would remove this gap; it needs an
+  removed, and the volumes/networks sections are reported as partial. A bounded Agent-side list route would remove this gap; it needs an
   Agent change and is deferred.
 - Owner classification of non-production scopes (AIM-0) is not implemented.
