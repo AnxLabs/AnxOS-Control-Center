@@ -378,6 +378,7 @@
     "provider:adapter-contract:smoke": "node scripts/provider-adapter-contract-smoke.js",
     "provider:integration:smoke": "node scripts/provider-integration-smoke.js",
     "provider:background-probe:smoke": "node scripts/provider-background-probe-smoke.js",
+    "network:refresh-race:smoke": "node scripts/network-page-refresh-race-smoke.js",
     "service-capability:smoke": "node scripts/service-capability-smoke.js",
     "telemetry:store:smoke": "node scripts/telemetry-store-smoke.js",
     "telemetry:service:smoke": "node scripts/telemetry-service-smoke.js",
