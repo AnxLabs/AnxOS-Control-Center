@@ -767,11 +767,32 @@ function resolveVerificationCheckedAt(now) {
 // data so the route reports them instead of failing: only an id that names no
 // stored backup throws. Quarantined orphan archives have no metadata record,
 // so they surface here as BACKUP_NOT_FOUND exactly like any other unknown id.
+// Size limits and I/O failures say nothing about the archive's integrity:
+// they are recorded as "unknown" with their own code, so only an archive that
+// actually fails to decode is reported as corrupt.
+const VERIFICATION_LIMIT_ERROR_CODES = new Set(["ERR_BUFFER_TOO_LARGE", "ERR_FS_FILE_TOO_LARGE", "ERR_STRING_TOO_LONG"]);
+
+function verificationNotEvaluable(record, checkedAt, code, detail) {
+  return persistVerificationOutcome(record, {
+    state: "unknown",
+    method: "sha256",
+    checkedAt,
+    detail,
+  }, { ok: false, code });
+}
+
 async function verifyBackup(backupId, options = {}) {
   const record = await readBackupMetadata(backupId);
   const checkedAt = resolveVerificationCheckedAt(options.now);
+  const maxArchiveBytes = Math.max(1, Number(options.maxArchiveBytes) || MAX_BACKUP_ARCHIVE_BYTES);
+  const maxExpandedBytes = Math.max(1, Number(options.maxExpandedBytes) || MAX_BACKUP_EXPANDED_BYTES);
   let archiveBuffer;
   try {
+    // Checked before reading so an oversized archive is never loaded into memory.
+    const stat = await fs.stat(record.path);
+    if (stat.size > maxArchiveBytes) {
+      return verificationNotEvaluable(record, checkedAt, "BACKUP_VERIFICATION_LIMIT_EXCEEDED", "archive exceeds the verification size limit");
+    }
     archiveBuffer = await fs.readFile(record.path);
   } catch (error) {
     if (error?.code === "ENOENT") {
@@ -782,13 +803,11 @@ async function verifyBackup(backupId, options = {}) {
         detail: "archive missing",
       }, { ok: false, code: "BACKUP_ARCHIVE_MISSING" });
     }
+    if (VERIFICATION_LIMIT_ERROR_CODES.has(error?.code)) {
+      return verificationNotEvaluable(record, checkedAt, "BACKUP_VERIFICATION_LIMIT_EXCEEDED", "archive exceeds the verification size limit");
+    }
     const code = error?.code || "BACKUP_ARCHIVE_UNREADABLE";
-    return persistVerificationOutcome(record, {
-      state: "corrupt",
-      method: "sha256",
-      checkedAt,
-      detail: code,
-    }, { ok: false, code });
+    return verificationNotEvaluable(record, checkedAt, code, `archive unreadable (${code})`);
   }
 
   try {
@@ -796,8 +815,11 @@ async function verifyBackup(backupId, options = {}) {
     // or unreadable archive is classified as corrupt rather than as a checksum
     // mismatch, while a readable archive whose content was replaced (a valid
     // gzip that no longer matches the create-time digest) fails below.
-    zlib.gunzipSync(archiveBuffer, { maxOutputLength: MAX_BACKUP_EXPANDED_BYTES });
+    zlib.gunzipSync(archiveBuffer, { maxOutputLength: maxExpandedBytes });
   } catch (error) {
+    if (VERIFICATION_LIMIT_ERROR_CODES.has(error?.code)) {
+      return verificationNotEvaluable(record, checkedAt, "BACKUP_VERIFICATION_LIMIT_EXCEEDED", "expanded archive exceeds the verification size limit");
+    }
     const code = error?.code || "BACKUP_ARCHIVE_INVALID";
     return persistVerificationOutcome(record, {
       state: "corrupt",

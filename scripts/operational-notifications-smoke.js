@@ -802,6 +802,42 @@ async function phaseCanonicalProviderStates() {
   assert.strictEqual(transportDown.events[0].title, "Tunnel provider degraded", "running + connected:false must use the degraded title");
 }
 
+// PR #9 review: a corrupt backup notifies like a checksum failure; an
+// unevaluable one does not; endpoint health uses the canonical lookup.
+async function phaseReviewRegressions() {
+  const file = storeFile("review-regressions");
+  const service = createService(file);
+  at("2026-02-03T10:00:00.000Z");
+  const corrupt = await service.evaluate({
+    collectState: async () => ({
+      backups: [
+        { nodeId: "node-r", instanceId: "inst-r", backupId: "bk-corrupt", verification: { status: "corrupt" } },
+        { nodeId: "node-r", instanceId: "inst-r", backupId: "bk-unknown", verification: { status: "unknown" } },
+      ],
+    }),
+  });
+  const keys = corrupt.events.map((event) => event.dedupKey);
+  assert(keys.includes("backup:node-r:inst-r:bk-corrupt"), "a corrupt backup must raise the backup warning");
+  assert(!keys.includes("backup:node-r:inst-r:bk-unknown"), "an unevaluable backup is not a failure");
+
+  const canonicalReads = [];
+  const collector = createOperationalNotificationCollector({
+    nodeService: { APPLICATION_HOST_NODE_ID: "app-host", getSelectedNodeId: () => "node-r", listNodes: async () => ({ nodes: [] }) },
+    endpointService: { listEndpoints: async () => [{ id: "ep-r", computerId: "node-r", serviceId: "svc-r" }] },
+    connectivityDiagnosticsService: {
+      // the exact-key read misses an endpoint test that ran without a service
+      getCachedDiagnostics: async () => ({ cached: false, stale: true, state: "unknown", reason: "NOT_EVALUATED" }),
+      getCachedEndpointDiagnostics: async (target) => {
+        canonicalReads.push(target);
+        return { cached: true, cachedAt: "2026-02-03T09:59:00.000Z", overall: { state: "failed" } };
+      },
+    },
+  });
+  const state = await collector();
+  assert.deepStrictEqual(canonicalReads, [{ nodeId: "node-r", endpointId: "ep-r" }], "the collector uses the canonical endpoint lookup");
+  assert.strictEqual(state.endpoints[0].health.state, "failed", "the endpoint test result reaches the evaluator");
+}
+
 async function main() {
   assert.deepStrictEqual(SEVERITIES, ["info", "warning", "critical"], "the severity vocabulary is frozen");
   assert.deepStrictEqual(CATEGORIES, ["agent", "service", "provider", "endpoint", "backup"], "the category vocabulary is frozen");
@@ -819,6 +855,7 @@ async function main() {
   await phaseIdentifierFallbacks();
   await phaseBackupDefaultSource();
   await phaseCanonicalProviderStates();
+  await phaseReviewRegressions();
 
   console.log("operational-notifications-smoke passed");
 }

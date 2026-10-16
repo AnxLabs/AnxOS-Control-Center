@@ -138,7 +138,9 @@ function backupFailureOf(backup) {
   const status = textOf(backup?.status).toLowerCase();
   const verificationStatus = textOf(backup?.verification?.status ?? backup?.verificationStatus).toLowerCase();
   const statusFailed = status === "failed" || status === "failure" || status === "error";
-  const verificationFailed = verificationStatus === "failed" || verificationStatus === "failure" || backup?.verification === false;
+  // "corrupt" (an archive that no longer decodes) is a terminal verification
+  // failure like a checksum mismatch; "unknown" (not evaluable) is not.
+  const verificationFailed = verificationStatus === "failed" || verificationStatus === "failure" || verificationStatus === "corrupt" || backup?.verification === false;
   if (statusFailed) return { failed: true, status };
   if (verificationFailed) return { failed: true, status: verificationStatus || "verification-failed" };
   return { failed: false, status: status || "unknown" };

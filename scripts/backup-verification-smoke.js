@@ -179,6 +179,22 @@ async function main() {
   assert.strictEqual(truncatedResult.record.verification.detail, truncatedResult.code, "The corrupt detail must carry the read error code.");
   assert.deepStrictEqual(readPersistedMetadata(truncated.id).verification, truncatedResult.record.verification, "The corrupt outcome must be persisted.");
 
+  // 5b. PR #9 review L2: size limits are not corruption, and a truncated
+  //     archive (a real decode failure) still is.
+  const oversized = await createFixtureBackup("oversized");
+  const oversizedBytes = (await fsp.stat(archiveFile(oversized.id))).size;
+  const overLimit = await backupService.verifyBackup(oversized.id, { now: FIXED_NOW, maxArchiveBytes: Math.max(1, oversizedBytes - 1) });
+  assert.strictEqual(overLimit.ok, false);
+  assert.strictEqual(overLimit.code, "BACKUP_VERIFICATION_LIMIT_EXCEEDED");
+  assert.strictEqual(overLimit.record.verification.state, "unknown", "an archive over the size limit is not evaluable, not corrupt");
+  const expandedLimit = await backupService.verifyBackup(oversized.id, { now: FIXED_NOW, maxExpandedBytes: 1 });
+  assert.strictEqual(expandedLimit.code, "BACKUP_VERIFICATION_LIMIT_EXCEEDED");
+  assert.strictEqual(expandedLimit.record.verification.state, "unknown", "an expansion over the limit is not corrupt");
+  const withinLimits = await backupService.verifyBackup(oversized.id, { now: FIXED_NOW });
+  assert.strictEqual(withinLimits.record.verification.state, "verified", "the same archive verifies within the limits");
+  const stillCorrupt = await backupService.verifyBackup(truncated.id, { now: FIXED_NOW });
+  assert.strictEqual(stillCorrupt.record.verification.state, "corrupt", "a decode failure is still corrupt");
+
   // 6. Legacy metadata (no verification field) is disclosed as unknown — not
   // as freshly unverified — and reading it must not rewrite the file.
   const legacyId = "legacy-verification-1a2b3c";
