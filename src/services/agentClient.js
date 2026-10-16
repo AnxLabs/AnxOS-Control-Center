@@ -3378,6 +3378,13 @@ async function restoreBackup(payload = {}, configOverride = null) {
   });
 }
 
+async function verifyBackup(backupId, configOverride = null) {
+  return requestJson(`/api/v1/backups/${encodeURIComponent(String(backupId || ""))}/verify`, {
+    config: configOverride,
+    method: "POST",
+  });
+}
+
 async function importBackup(payload = {}, configOverride = null) {
   return requestJson("/api/v1/backups/import", {
     config: configOverride,
@@ -3704,6 +3711,7 @@ module.exports = {
   dockerComposeAction,
   restartInstance,
   restoreBackup,
+  verifyBackup,
   testConnection,
   startInstance,
   stopInstance,
