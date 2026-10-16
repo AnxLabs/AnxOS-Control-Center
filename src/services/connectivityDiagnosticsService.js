@@ -324,13 +324,21 @@ function createConnectivityDiagnosticsService(config = {}) {
 
   const cache = new Map();
   const inFlight = new Map();
-  // Bumped by invalidateDiagnostics({ endpointId }) (endpoint edit/delete):
-  // a run that started under an older generation tested a target the endpoint
-  // no longer has, so its result is discarded instead of cached or returned.
-  const endpointGenerations = new Map();
+  // invalidateDiagnostics({ endpointId }) (endpoint edit/delete) advances the
+  // epoch and records it as that endpoint's last change. A run notes the epoch
+  // when it starts; if any endpoint it resolved (requested, selected for a
+  // service-level run, or public) changed since, it tested a target that no
+  // longer exists and its result is discarded instead of cached or returned.
+  // Comparing against the start epoch also covers an edit made before the run
+  // had selected that endpoint.
+  let endpointEpoch = 0;
+  const endpointChangedAt = new Map();
 
-  function endpointGeneration(endpointId) {
-    return endpointId == null ? 0 : endpointGenerations.get(endpointId) || 0;
+  function endpointChangedSince(endpointIds, epoch) {
+    for (const id of endpointIds) {
+      if ((endpointChangedAt.get(id) || 0) > epoch) return true;
+    }
+    return false;
   }
 
   function discardedResult({ nodeId, serviceId, endpointId }) {
@@ -716,7 +724,7 @@ function createConnectivityDiagnosticsService(config = {}) {
   // Run
   // -------------------------------------------------------------------------
 
-  async function execute(options) {
+  async function execute(options, testedEndpointIds = new Set()) {
     const startedAt = nowMs();
     const nodeId = normalizeOptionalString(options.nodeId) || "";
     const serviceId = normalizeOptionalString(options.serviceId);
@@ -724,7 +732,8 @@ function createConnectivityDiagnosticsService(config = {}) {
     const checkedAt = resolveNowIso();
     // Captured before the first await, so any edit or delete during the run
     // is seen at completion.
-    const generationAtStart = endpointGeneration(endpointId);
+    const epochAtStart = endpointEpoch;
+    if (endpointId != null) testedEndpointIds.add(endpointId);
 
     let contextError = null;
     let instance = null;
@@ -769,6 +778,12 @@ function createConnectivityDiagnosticsService(config = {}) {
     }
 
     const publicEndpoint = endpointsError ? null : pickPublicEndpoint(endpoints, endpoint);
+    // The endpoints this run will probe or report on; shared with its in-flight
+    // entry so an edit to any of them detaches the run.
+    for (const resolved of [endpoint, publicEndpoint]) {
+      const resolvedId = resolved ? normalizeOptionalString(resolved.id) : null;
+      if (resolvedId != null) testedEndpointIds.add(resolvedId);
+    }
 
     const contextView = {
       nodeId,
@@ -853,10 +868,10 @@ function createConnectivityDiagnosticsService(config = {}) {
       graph,
     });
 
-    if (endpointId != null && endpointGeneration(endpointId) !== generationAtStart) {
-      // The endpoint was edited or deleted while this run was in flight: the
-      // result describes a target that no longer exists. Neither cached nor
-      // returned, for the caller and for every caller that joined the run.
+    if (endpointChangedSince(testedEndpointIds, epochAtStart)) {
+      // An endpoint this run tested was edited or deleted while it was in
+      // flight: the result describes a target that no longer exists. Neither
+      // cached nor returned, for the caller and for every caller that joined.
       return discardedResult({ nodeId, serviceId, endpointId });
     }
 
@@ -871,6 +886,9 @@ function createConnectivityDiagnosticsService(config = {}) {
       storedAt: nowMs(),
       nodeId,
       endpointId,
+      // Every endpoint the result describes, so a later edit to any of them
+      // (including one a service-level run selected) drops it.
+      testedEndpointIds: Array.from(testedEndpointIds),
       targetKey: endpoint ? endpointKey(endpoint) : null,
     });
     lastRunAt = checkedAt;
@@ -889,10 +907,11 @@ function createConnectivityDiagnosticsService(config = {}) {
     const pending = inFlight.get(key);
     if (pending) return pending.run;
 
-    const run = execute(input).finally(() => {
+    const testedEndpointIds = new Set();
+    const run = execute(input, testedEndpointIds).finally(() => {
       if (inFlight.get(key)?.run === run) inFlight.delete(key);
     });
-    inFlight.set(key, { run, endpointId: normalizeOptionalString(input.endpointId) });
+    inFlight.set(key, { run, testedEndpointIds });
     return run;
   }
 
@@ -970,14 +989,16 @@ function createConnectivityDiagnosticsService(config = {}) {
       // One endpoint, on every node and service segment it was evaluated under.
       // Runs already in flight for it are discarded on completion and detached
       // so later callers start a fresh run against the current record.
-      endpointGenerations.set(wantedEndpointId, endpointGeneration(wantedEndpointId) + 1);
+      endpointEpoch += 1;
+      endpointChangedAt.set(wantedEndpointId, endpointEpoch);
       for (const [key, pending] of Array.from(inFlight.entries())) {
-        if (pending.endpointId === wantedEndpointId) inFlight.delete(key);
+        if (pending.testedEndpointIds.has(wantedEndpointId)) inFlight.delete(key);
       }
       let invalidated = 0;
       for (const key of Array.from(cache.keys())) {
         const entry = cache.get(key);
-        if (!entry || entry.endpointId !== wantedEndpointId) continue;
+        const tested = Array.isArray(entry?.testedEndpointIds) && entry.testedEndpointIds.includes(wantedEndpointId);
+        if (!entry || (entry.endpointId !== wantedEndpointId && !tested)) continue;
         if (wantedNodeId != null && entry.nodeId !== wantedNodeId) continue;
         cache.delete(key);
         invalidated += 1;

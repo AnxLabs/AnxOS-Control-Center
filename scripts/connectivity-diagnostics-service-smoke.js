@@ -553,7 +553,9 @@ async function main() {
       return { ok: true, result: "connected", latencyMs: 3 };
     };
     const { service } = createHarness({ endpoints, probe });
-    const serviceLevel = await service.runDiagnostics({ nodeId: "node-1", serviceId: SERVICE_ID, refresh: true });
+    // This service-level run selects ep-doomed (the first enabled endpoint).
+    const serviceBeforeDelete = await service.runDiagnostics({ nodeId: "node-1", serviceId: SERVICE_ID, refresh: true });
+    assert.ok(serviceBeforeDelete.overall);
     await service.runDiagnostics({ nodeId: "node-1", endpointId: "ep-survivor", refresh: true });
 
     // Start a run, then delete the endpoint (store removal + invalidation)
@@ -567,6 +569,13 @@ async function main() {
     gateProbe = false;
     releaseProbe();
     await inFlight;
+
+    // Repair loop round 2: the service-level result that tested ep-doomed was
+    // dropped with it; a service-level run after the delete selects the
+    // survivor and is cached as before.
+    assert.equal(service.getCachedDiagnostics({ nodeId: "node-1", serviceId: SERVICE_ID }).cached, false,
+      "a service-level result that tested the deleted endpoint is dropped");
+    const serviceLevel = await service.runDiagnostics({ nodeId: "node-1", serviceId: SERVICE_ID, refresh: true });
 
     // Endpoint reads that name the endpoint and carry its (absent) record.
     const exact = service.getCachedDiagnostics({ nodeId: "node-1", endpointId: "ep-doomed", endpoint: null });
@@ -676,21 +685,62 @@ async function main() {
     assert.notEqual(renamedResult.discarded, "ENDPOINT_CHANGED", "a rename does not discard");
     assert.ok(renamedResult.overall, "a rename keeps the run's result");
 
-    // 4. Service-level runs and other endpoints' runs are unaffected.
+    // 4. Runs that did not test the changed endpoint are unaffected: a
+    //    service-level run (it selects ep-mut, the first enabled endpoint) and
+    //    ep-bystander's own run, while an endpoint neither tested changes.
     gatedHost = other.host;
     const serviceRun = service.runDiagnostics({ nodeId: "node-1", serviceId: SERVICE_ID, refresh: true });
     const otherRun = service.runDiagnostics({ nodeId: "node-1", endpointId: "ep-bystander", refresh: true });
     await waitForGate(1);
-    service.invalidateDiagnostics({ endpointId: "ep-mut" });
+    service.invalidateDiagnostics({ endpointId: "ep-unrelated" });
     gatedHost = null;
     gates.splice(0).forEach((release) => release());
     const serviceResult = await serviceRun;
     const otherResult = await otherRun;
-    assert.notEqual(serviceResult.discarded, "ENDPOINT_CHANGED", "a service-level run is never discarded by an endpoint change");
+    assert.notEqual(serviceResult.discarded, "ENDPOINT_CHANGED", "a service-level run is not discarded by an unrelated endpoint change");
     assert.ok(serviceResult.overall);
     assert.equal(service.getCachedDiagnostics({ nodeId: "node-1", serviceId: SERVICE_ID }).cached, true, "and is cached as before");
     assert.notEqual(otherResult.discarded, "ENDPOINT_CHANGED", "another endpoint's run is unaffected");
     assert.equal(service.getCachedEndpointDiagnostics({ nodeId: "node-1", endpointId: "ep-bystander", endpoint: { ...other } }).cached, true);
+
+    // 5. Repair loop round 2: a service-level run tracks the endpoint it
+    //    selected. Editing that endpoint mid-run discards the run (and every
+    //    joined caller), a later caller starts a fresh run, and a completed
+    //    service-level result that tested it is dropped.
+    gatedHost = original.host;
+    const selectedRun = service.runDiagnostics({ nodeId: "node-1", serviceId: SERVICE_ID, refresh: true });
+    await waitForGate(1);
+    const joinedService = service.runDiagnostics({ nodeId: "node-1", serviceId: SERVICE_ID, refresh: true });
+    const probesBeforeEdit = calls.probe;
+    endpoints[0] = { ...original, host: "192.168.1.250" };
+    service.invalidateDiagnostics({ endpointId: "ep-mut" });
+    gatedHost = null;
+    const freshService = await service.runDiagnostics({ nodeId: "node-1", serviceId: SERVICE_ID, refresh: true });
+    assert.ok(calls.probe > probesBeforeEdit, "a service-level caller after the edit starts a fresh run");
+    assert.notEqual(freshService.discarded, "ENDPOINT_CHANGED");
+    gates.splice(0).forEach((release) => release());
+    isDiscarded(await selectedRun, "service-level, selected endpoint edited");
+    isDiscarded(await joinedService, "service-level, joined caller");
+    const cachedService = service.getCachedDiagnostics({ nodeId: "node-1", serviceId: SERVICE_ID });
+    assert.equal(cachedService.cached, true, "only the fresh service-level run is cached");
+    assert.equal(cachedService.checkedAt, freshService.checkedAt);
+    service.invalidateDiagnostics({ endpointId: "ep-mut" });
+    assert.equal(service.getCachedDiagnostics({ nodeId: "node-1", serviceId: SERVICE_ID }).cached, false,
+      "a completed service-level result that tested the edited endpoint is dropped");
+    endpoints[0] = { ...original };
+
+    // 6. The public endpoint a run reports on is tracked too.
+    const publicEndpoint = makeEndpoint("ep-public", "public", "Public", "203.0.113.10", 30120, { computerId: "node-1" });
+    endpoints.push({ ...publicEndpoint });
+    gatedHost = publicEndpoint.host;
+    const publicRun = service.runDiagnostics({ nodeId: "node-1", serviceId: SERVICE_ID, refresh: true });
+    await waitForGate(1);
+    endpoints[endpoints.length - 1] = { ...publicEndpoint, host: "203.0.113.99" };
+    service.invalidateDiagnostics({ endpointId: "ep-public" });
+    gatedHost = null;
+    gates.splice(0).forEach((release) => release());
+    isDiscarded(await publicRun, "service-level, public endpoint edited");
+    endpoints.pop();
   }
 
   // --- PR #9 repair loop round 1: endpoint ids may contain the "|" cache-key
