@@ -39318,6 +39318,14 @@ async function copyNetworkEndpointAddress(endpointId) {
   }
 }
 
+// A run discarded because its endpoint was edited or deleted mid-run carries
+// no target result; it is shown as not evaluated and never rendered as one.
+function isDiscardedConnectivityResult(result) {
+  return Boolean(result) && typeof result === "object" && result.discarded === "ENDPOINT_CHANGED";
+}
+
+const DISCARDED_CONNECTIVITY_MESSAGE = "Not evaluated: the endpoint changed while it was being tested. Run the test again.";
+
 async function testNetworkEndpoint(endpointId) {
   const endpoint = getNetworkEndpointById(endpointId);
   if (!endpoint) {
@@ -39340,6 +39348,11 @@ async function testNetworkEndpoint(endpointId) {
         networkState.lastError = message;
         showToast(message, "error");
         renderNetworkStatusLine();
+        return;
+      }
+      if (isDiscardedConnectivityResult(result)) {
+        showDiscardedNetworkDiagnostics();
+        await refreshNetworkPage({ force: true });
         return;
       }
       networkState.diagnostics = result || null;
@@ -39391,6 +39404,10 @@ async function runNetworkDiagnostics(endpointId = null) {
     if (serial !== networkDiagnosticsSerial) return;
     if (result?.ok === false) {
       throw new Error(normalizeIpcErrorMessage(result.error?.message, "Connectivity diagnostics failed."));
+    }
+    if (isDiscardedConnectivityResult(result)) {
+      showDiscardedNetworkDiagnostics();
+      return;
     }
     networkState.diagnostics = result || null;
     networkSelectedStageId = null;
@@ -39455,6 +39472,19 @@ async function syncNetworkProviders() {
     networkProviderSyncInFlight = false;
     updateNetworkToolbarState();
   }
+}
+
+function showDiscardedNetworkDiagnostics() {
+  networkState.diagnostics = null;
+  networkSelectedStageId = null;
+  renderNetworkGraph(null);
+  if (networkDiagnosticsPanel) networkDiagnosticsPanel.hidden = false;
+  if (networkDiagnosticsSummary) {
+    networkDiagnosticsSummary.replaceChildren(createTextElement("p", DISCARDED_CONNECTIVITY_MESSAGE));
+  }
+  if (networkDiagnosticsScopes) networkDiagnosticsScopes.replaceChildren();
+  if (networkDiagnosticsStages) networkDiagnosticsStages.replaceChildren();
+  showToast(DISCARDED_CONNECTIVITY_MESSAGE, "warning");
 }
 
 function renderNetworkDiagnostics(result) {
@@ -40072,6 +40102,15 @@ async function refreshInstanceNetworkDiagnostics(instanceId, endpointId) {
     if (serial !== state.diagnosticsSerial) return;
     if (result?.ok === false) {
       throw new Error(normalizeIpcErrorMessage(result.error?.message, "Connectivity diagnostics failed."));
+    }
+    if (isDiscardedConnectivityResult(result)) {
+      state.diagnostics = null;
+      renderInstanceNetworkGraph(null);
+      if (instanceNetworkDiagnosticsSummary) {
+        instanceNetworkDiagnosticsSummary.replaceChildren(createTextElement("p", DISCARDED_CONNECTIVITY_MESSAGE));
+      }
+      showToast(DISCARDED_CONNECTIVITY_MESSAGE, "warning");
+      return;
     }
     state.diagnostics = result && typeof result === "object" ? result : null;
     const overallState = normalizeNetworkState(state.diagnostics?.overall?.state);

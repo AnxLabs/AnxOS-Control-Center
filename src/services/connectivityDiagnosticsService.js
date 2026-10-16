@@ -324,6 +324,25 @@ function createConnectivityDiagnosticsService(config = {}) {
 
   const cache = new Map();
   const inFlight = new Map();
+  // Bumped by invalidateDiagnostics({ endpointId }) (endpoint edit/delete):
+  // a run that started under an older generation tested a target the endpoint
+  // no longer has, so its result is discarded instead of cached or returned.
+  const endpointGenerations = new Map();
+
+  function endpointGeneration(endpointId) {
+    return endpointId == null ? 0 : endpointGenerations.get(endpointId) || 0;
+  }
+
+  function discardedResult({ nodeId, serviceId, endpointId }) {
+    return {
+      cached: false,
+      stale: true,
+      state: "unknown",
+      reason: "NOT_EVALUATED",
+      discarded: "ENDPOINT_CHANGED",
+      target: { nodeId: nodeId || null, serviceId: serviceId || null, endpointId: endpointId || null },
+    };
+  }
   let lastRunAt = null;
 
   function nowMs() {
@@ -703,6 +722,9 @@ function createConnectivityDiagnosticsService(config = {}) {
     const serviceId = normalizeOptionalString(options.serviceId);
     const endpointId = normalizeOptionalString(options.endpointId);
     const checkedAt = resolveNowIso();
+    // Captured before the first await, so any edit or delete during the run
+    // is seen at completion.
+    const generationAtStart = endpointGeneration(endpointId);
 
     let contextError = null;
     let instance = null;
@@ -831,6 +853,13 @@ function createConnectivityDiagnosticsService(config = {}) {
       graph,
     });
 
+    if (endpointId != null && endpointGeneration(endpointId) !== generationAtStart) {
+      // The endpoint was edited or deleted while this run was in flight: the
+      // result describes a target that no longer exists. Neither cached nor
+      // returned, for the caller and for every caller that joined the run.
+      return discardedResult({ nodeId, serviceId, endpointId });
+    }
+
     // The tested target (endpointKey: computer, type, host, port, protocol,
     // service) is stored with the result, so an endpoint edited afterwards
     // (same id, different target) can never be shown this result.
@@ -938,6 +967,12 @@ function createConnectivityDiagnosticsService(config = {}) {
     const wantedEndpointId = normalizeOptionalString(input.endpointId);
     if (wantedEndpointId != null) {
       // One endpoint, on every node and service segment it was evaluated under.
+      // Runs already in flight for it are discarded on completion and detached
+      // so later callers start a fresh run against the current record.
+      endpointGenerations.set(wantedEndpointId, endpointGeneration(wantedEndpointId) + 1);
+      for (const key of Array.from(inFlight.keys())) {
+        if (key.slice(key.lastIndexOf("|") + 1) === wantedEndpointId) inFlight.delete(key);
+      }
       let invalidated = 0;
       for (const key of Array.from(cache.keys())) {
         if (key.slice(key.lastIndexOf("|") + 1) !== wantedEndpointId) continue;
