@@ -564,6 +564,59 @@ function testManualAdapter() {
 
 // ---------------------------------------------------------------------------
 
+// PR #9 review M1: Agent text is bounded before redaction (no main-process
+// stall), and every cut lands on a word boundary (no partial credential).
+function testBoundedScrubbing() {
+  const timed = (label, fn, budgetMs = 2500) => {
+    const started = Date.now();
+    const value = fn();
+    const elapsed = Date.now() - started;
+    assert(elapsed < budgetMs, `${label}: took ${elapsed} ms (budget ${budgetMs} ms)`);
+    return value;
+  };
+  // Space-separated so bounding keeps text and the redactor really runs
+  // (delimiter-free text is dropped whole by the boundary cut).
+  const big = "x ".repeat(50000); // 100 KB
+  const many = timed("500 x 100 KB diagnostics", () => contract.normalizeProviderState({ providerId: "playit", state: "degraded", diagnostics: Array(500).fill(big) }));
+  assert(many.diagnostics.length > 0 && many.diagnostics.every((d) => d.message.length <= 500));
+  // One value with a 50 KB unbroken token: only the per-string input bound
+  // keeps the redactor from running on it (it is super-linear in token length).
+  const longToken = ("x-".repeat(25000) + " ").repeat(2);
+  timed("single value with a 50 KB token", () => contract.normalizeProviderState({ providerId: "playit", state: "degraded", publicAddress: longToken, diagnostics: [longToken] }));
+  timed("100 KB structured field", () => contract.normalizeProviderState({ providerId: "playit", state: "running", publicAddress: big, region: big }));
+  // distinct arrays: repeated references are skipped by the cycle guard
+  // Worst case for the redactor: a long unbroken token that survives the
+  // boundary cut (a delimiter follows it), ~4 ms each without a budget.
+  const hostileToken = ("x-".repeat(1100) + " ").repeat(2);
+  timed("200 x 200 nested strings", () => contract.normalizeProviderState({ providerId: "playit", state: "running", extra: Array.from({ length: 200 }, () => Array.from({ length: 200 }, () => hostileToken)) }));
+  const wide = {};
+  for (let i = 0; i < 20000; i += 1) wide[`k${i}`] = "z ".repeat(1000);
+  timed("20,000-key object", () => contract.normalizeProviderState({ providerId: "playit", state: "running", extra: wide }));
+  timed("hostile tunnels", () => contract.normalizeProviderState({ providerId: "playit", state: "running", tunnels: Array(500).fill({ id: big, name: big, publicAddress: big }) }));
+
+  // A JWT straddling the input bound must not leave a fragment behind.
+  const jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
+  for (let pad = 2180; pad <= 2260; pad += 7) {
+    const text = "a".repeat(pad) + " Authorization: Bearer " + jwt + " tail";
+    const out = contract.scrubDiagnosticText(text);
+    assert(!out.includes("eyJhbGci") && !out.includes("SflKxw"), `no JWT fragment at pad ${pad}`);
+  }
+  // A bare credential straddling the output bound is dropped, not cut short.
+  // synthetic, deliberately not shaped like any real provider key format
+  const credential = "zq_demo_51HxYz0123456789abcdefSECRET";
+  // the credential starts just before the 2000-character output cut
+  for (let words = 393; words <= 400; words += 1) {
+    const text = "word ".repeat(words) + credential + " more text";
+    const out = contract.scrubDiagnosticText(text);
+    assert(!out.includes("zq_demo") && !out.includes("51HxYz"), `no credential fragment at ${words} words`);
+    assert(out.length <= 2000);
+  }
+  // An assignment past the bound still redacts the whole value.
+  assert.strictEqual(contract.scrubDiagnosticText("x ".repeat(5000) + "password=hunter2pass"), "[redacted]");
+  // Short text is unchanged by the bound.
+  assert.strictEqual(contract.scrubDiagnosticText("agent restarted cleanly"), "agent restarted cleanly");
+}
+
 function main() {
   console.log(
     `provider-adapter-contract: v${contract.CONTRACT_VERSION}, `
@@ -594,6 +647,7 @@ function main() {
     ["endpointFromTunnel", testEndpointFromTunnel],
     ["playit capability drift", testPlayitCapabilityDrift],
     ["manual adapter", testManualAdapter],
+    ["bounded scrubbing (PR #9 M1)", testBoundedScrubbing],
   ];
 
   const results = [];

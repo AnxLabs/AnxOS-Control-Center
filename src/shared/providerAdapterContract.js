@@ -101,6 +101,16 @@ const MAX_STRING_LENGTH = 2000;
 const MAX_STRIP_DEPTH = 8;
 const MAX_ARRAY_ENTRIES = 200;
 const MAX_DIAGNOSTIC_TEXT_ENTRIES = 50;
+// Agent text is bounded before any pattern work: the shared redactor is
+// super-linear, so an oversized value from a misbehaving Agent could stall the
+// main process. Per string, at most this much input reaches the redactor; per
+// normalization, at most MAX_STRIP_NODES values and MAX_SCRUB_TOTAL_CHARS
+// characters are scrubbed (anything beyond is dropped, never passed through).
+const MAX_SCRUB_INPUT_LENGTH = MAX_STRING_LENGTH + 256;
+const MAX_STRIP_NODES = 5000;
+const MAX_SCRUB_TOTAL_CHARS = 256 * 1024;
+const MAX_OBJECT_KEYS = 200;
+const TRUNCATION_MARKER = " [truncated]";
 
 // Adapter ids are lowercase slugs: letters, digits and dashes, starting with a
 // letter. This keeps ids safe to use as object keys on every consumer side.
@@ -131,16 +141,29 @@ function isDenylistedKey(key) {
   return DENYLIST_COMPACT.some((entry) => compact.includes(entry));
 }
 
+// Cuts text to at most `limit` characters at a delimiter, never inside a
+// word: a credential cut in half can escape every token-shaped pattern, so the
+// partial last word is dropped instead of kept. Text with no delimiter in the
+// kept range is dropped whole.
+function truncateAtBoundary(text, limit) {
+  if (text.length <= limit) return text;
+  const head = text.slice(0, Math.max(0, limit - TRUNCATION_MARKER.length));
+  const cut = Math.max(head.lastIndexOf(" "), head.lastIndexOf("\n"), head.lastIndexOf("\t"), head.lastIndexOf(","), head.lastIndexOf(";"));
+  return `${cut > 0 ? head.slice(0, cut) : ""}${TRUNCATION_MARKER}`;
+}
+
 function scrubString(value) {
   const text = String(value);
   // An inline credential assignment is replaced whole: redacting only the
-  // matched prefix would leave the secret value in place.
+  // matched prefix would leave the secret value in place. (A linear test, so
+  // it runs on the full text: a late assignment still redacts everything.)
   if (SECRET_VALUE_PATTERN.test(text)) return "[redacted]";
   // Everything else goes through the shared repo redactor so free-text
   // diagnostics cannot carry a Bearer token, JWT, private key, URL credential,
-  // private path or large base64 blob into the canonical provider state.
-  const redacted = redactString(text);
-  return redacted.length > MAX_STRING_LENGTH ? redacted.slice(0, MAX_STRING_LENGTH) : redacted;
+  // private path or large base64 blob into the canonical provider state. Its
+  // input is bounded first, and both cuts happen at word boundaries.
+  const redacted = redactString(truncateAtBoundary(text, MAX_SCRUB_INPUT_LENGTH));
+  return truncateAtBoundary(redacted, MAX_STRING_LENGTH);
 }
 
 // Free-text diagnostics come straight from provider output (a message, a
@@ -162,9 +185,15 @@ function scrubDiagnosticText(value) {
 // Recursively drops denylisted keys and scrubs string values before any
 // mapping sees the raw input. Tolerates circular structures (dropped) and
 // bounds depth, array length and string length.
-function stripSensitive(value, depth = 0, seen = new WeakSet()) {
+function stripSensitive(value, depth = 0, seen = new WeakSet(), budget = { nodes: 0, chars: 0 }) {
   if (value === null || value === undefined) return null;
-  if (typeof value === "string") return scrubString(value);
+  budget.nodes += 1;
+  if (budget.nodes > MAX_STRIP_NODES) return null;
+  if (typeof value === "string") {
+    if (budget.chars >= MAX_SCRUB_TOTAL_CHARS) return null;
+    budget.chars += Math.min(value.length, MAX_SCRUB_INPUT_LENGTH);
+    return scrubString(value);
+  }
   if (typeof value === "boolean") return value;
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
   if (typeof value !== "object") return null;
@@ -172,12 +201,12 @@ function stripSensitive(value, depth = 0, seen = new WeakSet()) {
   if (seen.has(value)) return null;
   seen.add(value);
   if (Array.isArray(value)) {
-    return value.slice(0, MAX_ARRAY_ENTRIES).map((entry) => stripSensitive(entry, depth + 1, seen));
+    return value.slice(0, MAX_ARRAY_ENTRIES).map((entry) => stripSensitive(entry, depth + 1, seen, budget));
   }
   const output = {};
-  for (const [key, entry] of Object.entries(value)) {
+  for (const [key, entry] of Object.entries(value).slice(0, MAX_OBJECT_KEYS)) {
     if (isDenylistedKey(key)) continue;
-    output[key] = stripSensitive(entry, depth + 1, seen);
+    output[key] = stripSensitive(entry, depth + 1, seen, budget);
   }
   return output;
 }
