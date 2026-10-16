@@ -3,7 +3,7 @@ const fs = require("fs/promises");
 const fsSync = require("fs");
 const path = require("path");
 const zlib = require("zlib");
-const { Transform, Writable } = require("stream");
+const { Readable, Transform, Writable } = require("stream");
 const { pipeline } = require("stream/promises");
 
 const { getConfig } = require("../config");
@@ -792,6 +792,24 @@ function verificationArchiveMissing(record, checkedAt) {
   }, { ok: false, code: "BACKUP_ARCHIVE_MISSING" });
 }
 
+const ARCHIVE_READ_CHUNK_BYTES = 256 * 1024;
+
+// Reads at most maxArchiveBytes + 1 bytes from the open handle. A generator
+// (not handle.createReadStream) feeds the pipeline because pipeline() closes a
+// handle-backed stream's file when it destroys it, and the handle must stay
+// open for the post-failure size recheck; verifyBackup closes it.
+async function* readArchiveChunks(handle, maxArchiveBytes) {
+  let position = 0;
+  while (position <= maxArchiveBytes) {
+    const length = Math.min(ARCHIVE_READ_CHUNK_BYTES, maxArchiveBytes + 1 - position);
+    const buffer = Buffer.allocUnsafe(length);
+    const { bytesRead } = await handle.read(buffer, 0, length, position);
+    if (bytesRead === 0) return;
+    position += bytesRead;
+    yield bytesRead === length ? buffer : buffer.subarray(0, bytesRead);
+  }
+}
+
 // Reads the archive once as a stream: hashes the compressed bytes and
 // decompresses them only to count the output, keeping no buffer of either.
 // Memory stays bounded by stream chunk sizes and zlib runs off the event loop,
@@ -825,8 +843,7 @@ async function inspectArchiveStream(handle, { maxArchiveBytes, maxExpandedBytes 
       callback();
     },
   });
-  // `end` is inclusive: at most maxArchiveBytes + 1 bytes are ever read.
-  const source = handle.createReadStream({ start: 0, end: maxArchiveBytes, highWaterMark: 256 * 1024, autoClose: false });
+  const source = Readable.from(readArchiveChunks(handle, maxArchiveBytes), { objectMode: false });
   const gunzip = zlib.createGunzip();
   // pipeline() destroys every stage with the first error, so the stage that
   // failed is the first one whose own error event fires: a read failure is
@@ -840,9 +857,26 @@ async function inspectArchiveStream(handle, { maxArchiveBytes, maxExpandedBytes 
     await pipeline(source, hasher, gunzip, counter);
   } catch (error) {
     error.archiveFailure = failedStage || "io";
+    if (error.archiveFailure === "decode" && await archiveGrewPastLimit(handle, maxArchiveBytes)) {
+      // The bounded read can stop on a decode error before it reaches the
+      // limit; an archive now over the limit is not evaluable, exactly as it
+      // would be at the initial check, rather than corrupt.
+      error.archiveFailure = "limit";
+      error.archiveLimit = "archive";
+    }
     throw error;
   }
   return { sha256: hash.digest("hex"), archiveBytes, expandedBytes };
+}
+
+// Rechecks the same open handle, so the answer is about the file that was
+// read. A failed recheck proves nothing about size and changes nothing.
+async function archiveGrewPastLimit(handle, maxArchiveBytes) {
+  try {
+    return (await handle.stat()).size > maxArchiveBytes;
+  } catch {
+    return false;
+  }
 }
 
 // Opens the archive for verification. The checks run on the open handle, so

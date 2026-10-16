@@ -354,34 +354,42 @@ async function main() {
     // Every open of the archive goes through this wrapper: it can misreport
     // the size the open handle sees (the file grew after that check) or fail
     // the read mid-stream, and it counts opens, closes and bytes read.
-    const opened = { opens: 0, closes: 0, bytesRead: 0 };
+    const opened = { opens: 0, closes: 0, closeErrors: 0, bytesRead: 0 };
     let fakeSize = null;
+    // Per-call stat answers, consumed in order (a number, "throw" or null for
+    // the real size); fakeSize applies once the plan is empty.
+    const statPlan = [];
     let failReadAfterBytes = null;
     const originalOpen = fsp.open;
     fsp.open = async function openWrapper(target, ...rest) {
       const real = await originalOpen.call(this, target, ...rest);
       opened.opens += 1;
+      let seen = 0;
       return {
         stat: async (...args) => {
+          const planned = statPlan.length > 0 ? statPlan.shift() : undefined;
+          if (planned === "throw") throw Object.assign(new Error("simulated stat failure"), { code: "EIO" });
           const stat = await real.stat(...args);
-          if (fakeSize == null) return stat;
-          return Object.assign(Object.create(Object.getPrototypeOf(stat)), stat, { size: fakeSize });
+          const size = planned !== undefined ? planned : fakeSize;
+          if (size == null) return stat;
+          return Object.assign(Object.create(Object.getPrototypeOf(stat)), stat, { size });
         },
-        createReadStream: (options) => {
-          const stream = real.createReadStream(options);
-          let seen = 0;
-          stream.on("data", (chunk) => {
-            seen += chunk.length;
-            opened.bytesRead += chunk.length;
-            if (failReadAfterBytes != null && seen > failReadAfterBytes) {
-              stream.destroy(Object.assign(new Error("simulated read failure"), { code: "EIO" }));
-            }
-          });
-          return stream;
+        read: async (...args) => {
+          if (failReadAfterBytes != null && seen > failReadAfterBytes) {
+            throw Object.assign(new Error("simulated read failure"), { code: "EIO" });
+          }
+          const outcome = await real.read(...args);
+          seen += outcome.bytesRead;
+          opened.bytesRead += outcome.bytesRead;
+          return outcome;
         },
         close: async () => {
           opened.closes += 1;
-          return real.close();
+          // A handle closed behind verifyBackup's back (or twice) would fail here.
+          return real.close().catch((error) => {
+            opened.closeErrors += 1;
+            throw error;
+          });
         },
       };
     };
@@ -410,6 +418,28 @@ async function main() {
       assert.strictEqual(overByOne.code, "BACKUP_VERIFICATION_LIMIT_EXCEEDED", "one byte over is caught while streaming");
       fakeSize = null;
 
+      // PR #9 fourth review: an archive that grew past the limit after the
+      // open handle's check and fails to decode before the bounded read
+      // reaches the limit is a limit outcome (unknown), not corruption.
+      const grownGarbage = Buffer.concat([Buffer.from("not a gzip header"), Buffer.alloc(512 * KiB, 0x5a)]);
+      const grownCorrupt = await createRetainedFixtureBackup("grown-then-undecodable");
+      await replaceArchive(grownCorrupt.id, grownGarbage);
+      statPlan.push(1, null); // open check sees 1 byte; the recheck sees the real size
+      const grownOutcome = await backupService.verifyBackup(grownCorrupt.id, { now: FIXED_NOW, maxArchiveBytes: 256 * KiB });
+      assert.strictEqual(grownOutcome.code, "BACKUP_VERIFICATION_LIMIT_EXCEEDED", "a decode failure on an oversized archive is a limit outcome");
+      assert.strictEqual(grownOutcome.record.verification.state, "unknown", "not corrupt");
+      assert.strictEqual(grownOutcome.record.verification.detail, "archive exceeds the verification size limit");
+      assert.deepStrictEqual(readPersistedMetadata(grownCorrupt.id).verification, grownOutcome.record.verification, "persisted as unknown");
+      // The same bytes within the limit are genuinely corrupt.
+      const withinCorrupt = await backupService.verifyBackup(grownCorrupt.id, { now: FIXED_NOW });
+      assert.strictEqual(withinCorrupt.record.verification.state, "corrupt", "an undecodable archive within the limit stays corrupt");
+      assert.strictEqual(withinCorrupt.code, "Z_DATA_ERROR");
+      // A recheck that cannot answer changes nothing: still corrupt.
+      statPlan.push(null, "throw");
+      const recheckFailed = await backupService.verifyBackup(grownCorrupt.id, { now: FIXED_NOW });
+      assert.strictEqual(recheckFailed.record.verification.state, "corrupt", "a failed recheck never turns corruption into unknown");
+      assert.strictEqual(statPlan.length, 0, "the decode failure triggered exactly one recheck of the open handle");
+
       // A read failure mid-stream is I/O (unknown), not corruption.
       failReadAfterBytes = 1;
       const ioFailure = await backupService.verifyBackup(floodBackup.id, { now: FIXED_NOW });
@@ -432,6 +462,7 @@ async function main() {
     }
     assert(opened.opens >= 7, "every verification opened the archive through the wrapper");
     assert.strictEqual(opened.closes, opened.opens, `every archive handle is closed (${opened.closes}/${opened.opens})`);
+    assert.strictEqual(opened.closeErrors, 0, "each handle is closed exactly once, by verifyBackup (never by the stream)");
   }
 
   // 6. Legacy metadata (no verification field) is disclosed as unknown — not
