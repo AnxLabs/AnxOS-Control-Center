@@ -693,6 +693,54 @@ async function main() {
     assert.equal(service.getCachedEndpointDiagnostics({ nodeId: "node-1", endpointId: "ep-bystander", endpoint: { ...other } }).cached, true);
   }
 
+  // --- PR #9 repair loop round 1: endpoint ids may contain the "|" cache-key
+  //     delimiter; lookups, invalidation and in-flight detach use the stored
+  //     endpoint id, never one parsed from the key ---
+  {
+    const piped = makeEndpoint("ep|pipe", "lan", "Piped", "192.168.1.60", 30120, { computerId: "node-1" });
+    // Its id equals the piped id's suffix: a key parse would confuse the two.
+    const suffix = makeEndpoint("pipe", "lan", "Suffix", "192.168.1.61", 30120, { computerId: "node-1" });
+    const endpoints = [{ ...piped }, { ...suffix }];
+    const gates = [];
+    let gatedHost = null;
+    const probe = async (request) => {
+      if (gatedHost && request.host === gatedHost) await new Promise((resolve) => gates.push(resolve));
+      return { ok: true, result: "connected", latencyMs: 3 };
+    };
+    const { service, calls } = createHarness({ endpoints, probe });
+
+    const tested = await service.runDiagnostics({ nodeId: "node-1", endpointId: "ep|pipe", refresh: true });
+    await service.runDiagnostics({ nodeId: "node-1", endpointId: "pipe", refresh: true });
+    const found = service.getCachedEndpointDiagnostics({ nodeId: "node-1", endpointId: "ep|pipe", endpoint: { ...piped } });
+    assert.equal(found.cached, true, "the canonical lookup finds an endpoint whose id contains |");
+    const [projected] = service.projectEndpointHealth([{ ...piped }]);
+    assert.equal(projected.health.state, tested.overall.state, "and its health is projected");
+
+    // Invalidating the suffix id drops only that endpoint.
+    assert.equal(service.invalidateDiagnostics({ endpointId: "pipe" }).invalidated, 1, "only the suffix endpoint's entry is dropped");
+    assert.equal(service.getCachedEndpointDiagnostics({ nodeId: "node-1", endpointId: "ep|pipe", endpoint: { ...piped } }).cached, true,
+      "the piped endpoint keeps its result");
+    assert.equal(service.invalidateDiagnostics({ endpointId: "ep|pipe", nodeId: "node-9" }).invalidated, 0, "a node filter narrows the drop");
+    assert.equal(service.invalidateDiagnostics({ endpointId: "ep|pipe" }).invalidated, 1, "the piped endpoint's entry is dropped by its own id");
+    assert.equal(service.getCachedEndpointDiagnostics({ nodeId: "node-1", endpointId: "ep|pipe" }).cached, false);
+
+    // An edit during a run detaches the in-flight run: a later caller starts
+    // a fresh run and gets the current target's result.
+    gatedHost = piped.host;
+    const stale = service.runDiagnostics({ nodeId: "node-1", endpointId: "ep|pipe", refresh: true });
+    for (let i = 0; i < 100 && gates.length < 1; i += 1) await delay(5);
+    assert.equal(gates.length, 1, "the run reached its probe");
+    const probesBefore = calls.probe;
+    endpoints[0] = { ...piped, host: "192.168.1.160" };
+    service.invalidateDiagnostics({ endpointId: "ep|pipe" });
+    const fresh = await service.runDiagnostics({ nodeId: "node-1", endpointId: "ep|pipe", refresh: true });
+    assert.equal(calls.probe, probesBefore + 1, "a caller after the edit starts a fresh run");
+    assert.notEqual(fresh.discarded, "ENDPOINT_CHANGED", "and receives the current target's result");
+    gatedHost = null;
+    gates.splice(0).forEach((release) => release());
+    assert.equal((await stale).discarded, "ENDPOINT_CHANGED", "the stale run is discarded");
+  }
+
   console.log("connectivity-diagnostics-service-smoke: all assertions passed.");
 }
 

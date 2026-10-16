@@ -863,10 +863,14 @@ function createConnectivityDiagnosticsService(config = {}) {
     // The tested target (endpointKey: computer, type, host, port, protocol,
     // service) is stored with the result, so an endpoint edited afterwards
     // (same id, different target) can never be shown this result.
+    // The key's segments are stored as fields: an endpoint id may itself
+    // contain the "|" key delimiter, so endpoint lookups never parse the key.
     cache.set(cacheKey({ nodeId, serviceId, endpointId }), {
       result,
       cachedAt: checkedAt,
       storedAt: nowMs(),
+      nodeId,
+      endpointId,
       targetKey: endpoint ? endpointKey(endpoint) : null,
     });
     lastRunAt = checkedAt;
@@ -883,12 +887,12 @@ function createConnectivityDiagnosticsService(config = {}) {
     }
 
     const pending = inFlight.get(key);
-    if (pending) return pending;
+    if (pending) return pending.run;
 
     const run = execute(input).finally(() => {
-      if (inFlight.get(key) === run) inFlight.delete(key);
+      if (inFlight.get(key)?.run === run) inFlight.delete(key);
     });
-    inFlight.set(key, run);
+    inFlight.set(key, { run, endpointId: normalizeOptionalString(input.endpointId) });
     return run;
   }
 
@@ -926,12 +930,9 @@ function createConnectivityDiagnosticsService(config = {}) {
     if (endpointId == null) return { cached: false, stale: true, state: "unknown", reason: "NOT_EVALUATED" };
     let best = null;
     for (const key of Array.from(cache.keys())) {
-      const first = key.indexOf("|");
-      const last = key.lastIndexOf("|");
-      if (first < 0 || last === first) continue;
-      if (key.slice(0, first) !== nodeId || key.slice(last + 1) !== endpointId) continue;
       const entry = readCache(key);
-      if (!entry || !entryMatchesEndpoint(entry, input)) continue;
+      if (!entry || entry.nodeId !== nodeId || entry.endpointId !== endpointId) continue;
+      if (!entryMatchesEndpoint(entry, input)) continue;
       if (!best || entry.storedAt > best.storedAt) best = entry;
     }
     return best ? cachedResultView(best) : { cached: false, stale: true, state: "unknown", reason: "NOT_EVALUATED" };
@@ -970,13 +971,14 @@ function createConnectivityDiagnosticsService(config = {}) {
       // Runs already in flight for it are discarded on completion and detached
       // so later callers start a fresh run against the current record.
       endpointGenerations.set(wantedEndpointId, endpointGeneration(wantedEndpointId) + 1);
-      for (const key of Array.from(inFlight.keys())) {
-        if (key.slice(key.lastIndexOf("|") + 1) === wantedEndpointId) inFlight.delete(key);
+      for (const [key, pending] of Array.from(inFlight.entries())) {
+        if (pending.endpointId === wantedEndpointId) inFlight.delete(key);
       }
       let invalidated = 0;
       for (const key of Array.from(cache.keys())) {
-        if (key.slice(key.lastIndexOf("|") + 1) !== wantedEndpointId) continue;
-        if (wantedNodeId != null && key.slice(0, key.indexOf("|")) !== wantedNodeId) continue;
+        const entry = cache.get(key);
+        if (!entry || entry.endpointId !== wantedEndpointId) continue;
+        if (wantedNodeId != null && entry.nodeId !== wantedNodeId) continue;
         cache.delete(key);
         invalidated += 1;
       }
