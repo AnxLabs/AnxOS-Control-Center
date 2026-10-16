@@ -79,17 +79,6 @@ const INSTANCE_RUNTIME_METRICS = Object.freeze([
   { metric: "uptimeSeconds", label: "Uptime", unit: "seconds", read: (metrics) => finiteNumber(metrics?.uptimeSeconds) },
 ]);
 
-// Read-only cache accessors only: never call anything that could probe. The
-// connectivity diagnostics service is not part of this change's write scope,
-// so a missing module or an unknown shape degrades to "no cached endpoints".
-const CACHED_DIAGNOSTICS_ACCESSORS = Object.freeze([
-  "getCachedDiagnostics",
-  "readCachedDiagnostics",
-  "getDiagnosticsCache",
-  "getLastDiagnostics",
-  "readLastDiagnostics",
-  "peekDiagnostics",
-]);
 
 function finiteNumber(value) {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -119,29 +108,22 @@ function resolveConfigDirectory() {
   return path.join(process.cwd(), "config");
 }
 
+// Cached diagnostics are keyed per endpoint, so the node's endpoints are
+// enumerated (a local store read) and each one's latest cached evaluation is
+// read. Endpoints never evaluated produce no row: no fabricated availability.
 function defaultCachedEndpointHealth({ nodeId }) {
-  let service = null;
+  let endpoints = [];
+  let diagnostics = null;
   try {
-    service = require("./connectivityDiagnosticsService");
+    endpoints = require("./endpointService").listEndpoints({ nodeId });
+    diagnostics = require("./connectivityDiagnosticsService");
   } catch {
     return [];
   }
-  if (!service || typeof service !== "object") return [];
-  let accessor = null;
-  for (const name of CACHED_DIAGNOSTICS_ACCESSORS) {
-    if (typeof service[name] === "function") {
-      accessor = service[name];
-      break;
-    }
-  }
-  if (!accessor) return [];
-  let snapshot = null;
-  try {
-    snapshot = accessor({ nodeId });
-  } catch {
-    return [];
-  }
-  return normalizeEndpointHealth(snapshot);
+  if (!diagnostics || typeof diagnostics.projectEndpointHealth !== "function") return [];
+  return diagnostics.projectEndpointHealth(Array.isArray(endpoints) ? endpoints : [], { fallbackNodeId: nodeId })
+    .filter((endpoint) => endpoint && endpoint.health && typeof endpoint.health.state === "string")
+    .map((endpoint) => ({ endpointId: String(endpoint.id), state: endpoint.health.state }));
 }
 
 function defaultProviderStates({ nodeId }) {
@@ -495,7 +477,7 @@ function createTelemetryService(options = {}) {
 
     for (const row of normalizeEndpointHealth(rows)) {
       const key = telemetryStore.endpointSeriesKey(row.endpointId, "available");
-      if (!ensureSeries(key, "endpoint", { label: "Endpoint availability", unit: "bool" }, counters)) continue;
+      if (!ensureSeries(key, "endpoint", { label: "Endpoint availability", unit: "bool", nodeId: node.id }, counters)) continue;
       const state = row.state.toLowerCase();
       if (state === "healthy") pushValue(key, sampledAt, 1);
       else if (state === "failed") pushValue(key, sampledAt, 0);

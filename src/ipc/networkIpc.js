@@ -140,13 +140,31 @@ function buildEndpointFilter(payload = {}) {
 // The registry read composes the endpoint list, the summary counts, the
 // persisted provider-sync records and the one-shot legacy migration report so
 // the Network surface can render degraded state truthfully in one round trip.
+// Stored records never carry health (diagnostics-managed fields are stripped
+// on write), so the cached evaluation is projected onto the returned records
+// and onto the summary's health counts: a completed endpoint test stays
+// visible after the list refresh that follows it.
+function projectHealth(endpoints, nodeId) {
+  if (typeof connectivityDiagnosticsService.projectEndpointHealth !== "function") return endpoints;
+  return connectivityDiagnosticsService.projectEndpointHealth(endpoints, { fallbackNodeId: nodeId || null });
+}
+
 async function listEndpointsForIpc(payload = {}) {
   const filter = buildEndpointFilter(payload);
   const listed = await listEndpoints(filter);
-  const endpoints = Array.isArray(listed) ? listed : Array.isArray(listed?.endpoints) ? listed.endpoints : [];
+  const endpoints = projectHealth(Array.isArray(listed) ? listed : Array.isArray(listed?.endpoints) ? listed.endpoints : [], filter.nodeId);
   let summary = null;
   try {
     summary = await getEndpointSummary({ nodeId: filter.nodeId || null });
+    if (summary && typeof summary === "object") {
+      const scoped = await listEndpoints(filter.nodeId ? { nodeId: filter.nodeId } : {});
+      const byHealth = {};
+      for (const endpoint of projectHealth(Array.isArray(scoped) ? scoped : [], filter.nodeId)) {
+        const health = typeof endpoint?.health?.status === "string" && endpoint.health.status ? endpoint.health.status : "unknown";
+        byHealth[health] = (byHealth[health] || 0) + 1;
+      }
+      summary = { ...summary, byHealth };
+    }
   } catch {
     summary = null;
   }

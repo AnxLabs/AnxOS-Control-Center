@@ -417,6 +417,41 @@ async function main() {
     const stopped = realPrefsService.stopTelemetrySampler();
     assert.strictEqual(stopped.running, false);
 
+    // --- PR #9 review P2: the DEFAULT endpoint read records real series ----
+    {
+      const Module = require("module");
+      const originalLoad = Module._load;
+      Module._load = function loadWithEndpointDoubles(request, parent, isMain) {
+        if (parent && /telemetryService\.js$/.test(parent.filename || "")) {
+          if (request === "./endpointService") {
+            return { listEndpoints: ({ nodeId }) => [{ id: `ep-tested-${nodeId}`, computerId: nodeId }, { id: `ep-never-${nodeId}`, computerId: nodeId }] };
+          }
+          if (request === "./connectivityDiagnosticsService") {
+            return {
+              projectEndpointHealth: (endpoints) => endpoints.map((endpoint) => (endpoint.id.startsWith("ep-tested")
+                ? { ...endpoint, health: { status: "healthy", state: "healthy" } }
+                : endpoint)),
+            };
+          }
+        }
+        return originalLoad.call(this, request, parent, isMain);
+      };
+      try {
+        const deps = createFakeDeps();
+        delete deps.getEndpointHealth; // exercise the production default path
+        const service = telemetryService.createTelemetryService({ deps, storePath: path.join(root, "endpoint-default.json"), now });
+        await service.sampleOnce();
+        const testedKey = store.endpointSeriesKey("ep-tested-node-a", "available");
+        const nodeScoped = service.getTelemetrySeries({ nodeId: "node-a" }).series.map((row) => row.key);
+        assert(nodeScoped.includes(testedKey), "the default path records endpoint series, readable node-scoped");
+        assert(!service.getTelemetrySeries({}).series.some((row) => row.key.includes("ep-never")), "never-evaluated endpoints record nothing");
+        const summary = service.getTelemetrySummary({ nodeId: "node-a" });
+        assert((summary.series || []).some((row) => row.key === testedKey), "the node-scoped summary includes endpoint series");
+      } finally {
+        Module._load = originalLoad;
+      }
+    }
+
     console.log("Telemetry service smoke checks passed.");
   } finally {
     fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });

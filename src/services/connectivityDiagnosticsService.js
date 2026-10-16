@@ -862,6 +862,47 @@ function createConnectivityDiagnosticsService(config = {}) {
     return { cached: false, stale: true, state: "unknown", reason: "NOT_EVALUATED" };
   }
 
+  // Latest fresh evaluation of one endpoint, however it was run: an endpoint
+  // test caches under node||endpoint, a service-scoped run under
+  // node|service|endpoint. Readers ask about the endpoint itself, so the lookup
+  // spans every service segment for that node and endpoint.
+  function getCachedEndpointDiagnostics(target = {}) {
+    const input = isObject(target) ? target : {};
+    const nodeId = normalizeOptionalString(input.nodeId) || "";
+    const endpointId = normalizeOptionalString(input.endpointId);
+    if (endpointId == null) return { cached: false, stale: true, state: "unknown", reason: "NOT_EVALUATED" };
+    let best = null;
+    for (const key of Array.from(cache.keys())) {
+      const first = key.indexOf("|");
+      const last = key.lastIndexOf("|");
+      if (first < 0 || last === first) continue;
+      if (key.slice(0, first) !== nodeId || key.slice(last + 1) !== endpointId) continue;
+      const entry = readCache(key);
+      if (entry && (!best || entry.storedAt > best.storedAt)) best = entry;
+    }
+    return best ? cachedResultView(best) : { cached: false, stale: true, state: "unknown", reason: "NOT_EVALUATED" };
+  }
+
+  // Presentation projection: `health` and `lastCheckedAt` are
+  // diagnostics-managed and never persisted, so every reader that shows them
+  // derives them here from the cached evaluation (cache-only, never a probe).
+  function projectEndpointHealth(endpoints, { fallbackNodeId = null } = {}) {
+    return (Array.isArray(endpoints) ? endpoints : []).map((endpoint) => {
+      if (!isObject(endpoint)) return endpoint;
+      const endpointId = normalizeOptionalString(endpoint.id ?? endpoint.endpointId);
+      if (endpointId == null) return endpoint;
+      const nodeId = normalizeOptionalString(endpoint.computerId ?? endpoint.nodeId) || normalizeOptionalString(fallbackNodeId);
+      const cached = getCachedEndpointDiagnostics({ nodeId, endpointId });
+      const state = cached && cached.cached === true ? normalizeOptionalString(cached.overall && cached.overall.state) : null;
+      if (!state) return endpoint;
+      return {
+        ...endpoint,
+        health: { status: state, state, checkedAt: cached.cachedAt || null, source: "diagnostics" },
+        lastCheckedAt: cached.cachedAt || null,
+      };
+    });
+  }
+
   // invalidateDiagnostics({ nodeId, serviceId }) drops every cached target for
   // that node (optionally narrowed to one service); no argument drops all.
   function invalidateDiagnostics(target = {}) {
@@ -897,6 +938,8 @@ function createConnectivityDiagnosticsService(config = {}) {
   return {
     runDiagnostics,
     getCachedDiagnostics,
+    getCachedEndpointDiagnostics,
+    projectEndpointHealth,
     invalidateDiagnostics,
     getDiagnosticsStatus,
   };
@@ -909,6 +952,8 @@ module.exports = {
   probeTcp,
   runDiagnostics: defaultService.runDiagnostics,
   getCachedDiagnostics: defaultService.getCachedDiagnostics,
+  getCachedEndpointDiagnostics: defaultService.getCachedEndpointDiagnostics,
+  projectEndpointHealth: defaultService.projectEndpointHealth,
   invalidateDiagnostics: defaultService.invalidateDiagnostics,
   getDiagnosticsStatus: defaultService.getDiagnosticsStatus,
 };

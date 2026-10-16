@@ -442,6 +442,30 @@ async function main() {
     assert.equal(invalid.code, "EINVALIDTARGET");
   }
 
+  // --- PR #9 review P2: one cached evaluation per endpoint, however run ----
+  {
+    const endpoint = makeEndpoint("ep-canon", "lan", "Canonical", "192.168.1.20", 30120);
+    const { service } = createHarness({ endpoints: [endpoint] });
+    // endpoints:test runs without a service id
+    const tested = await service.runDiagnostics({ nodeId: "node-1", endpointId: "ep-canon", refresh: true });
+    assert.equal(service.getCachedDiagnostics({ nodeId: "node-1", serviceId: SERVICE_ID, endpointId: "ep-canon" }).cached, false,
+      "an exact-key read with the endpoint's service id misses an endpoint test (the original defect)");
+    const canonical = service.getCachedEndpointDiagnostics({ nodeId: "node-1", endpointId: "ep-canon" });
+    assert.equal(canonical.cached, true, "the canonical lookup finds the endpoint test");
+    assert.equal(canonical.overall.state, tested.overall.state);
+    const [projected] = service.projectEndpointHealth([{ ...endpoint, computerId: "node-1" }]);
+    assert.equal(projected.health.state, tested.overall.state, "the evaluation is projected onto the record");
+    assert.equal(projected.health.status, tested.overall.state);
+    assert.equal(projected.lastCheckedAt, canonical.cachedAt);
+    const [viaFallback] = service.projectEndpointHealth([{ id: "ep-canon" }], { fallbackNodeId: "node-1" });
+    assert.equal(viaFallback.health.state, tested.overall.state, "the list's node id is used when the record has none");
+    const [never] = service.projectEndpointHealth([{ id: "ep-never", computerId: "node-1" }]);
+    assert.equal(never.health, undefined, "an endpoint never evaluated gets no fabricated health");
+    const [otherNode] = service.projectEndpointHealth([{ ...endpoint, computerId: "node-2" }]);
+    assert.equal(otherNode.health, undefined, "evaluations are per node");
+    assert.equal(service.getCachedEndpointDiagnostics({ nodeId: "node-1" }).cached, false, "no endpoint id: not evaluated");
+  }
+
   console.log("connectivity-diagnostics-service-smoke: all assertions passed.");
 }
 

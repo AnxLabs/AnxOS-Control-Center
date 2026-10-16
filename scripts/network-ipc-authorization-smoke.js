@@ -117,6 +117,13 @@ const endpointServiceDouble = {
 const diagnosticsDouble = {
   runDiagnostics: recorder("runDiagnostics", { status: "ok" }),
   getCachedDiagnostics: recorder("getCachedDiagnostics", { status: "cached" }),
+  // Cache-only projection of the latest endpoint evaluation (ep-1 was tested).
+  projectEndpointHealth: (endpoints) => {
+    log.push({ kind: "work", name: "projectEndpointHealth", args: [] });
+    return endpoints.map((endpoint) => (endpoint.id === "ep-1"
+      ? { ...endpoint, health: { status: "healthy", state: "healthy", checkedAt: "2026-10-15T12:00:00.000Z", source: "diagnostics" }, lastCheckedAt: "2026-10-15T12:00:00.000Z" }
+      : endpoint));
+  },
 };
 const providerDouble = {
   getProviderSnapshot: recorder("getProviderSnapshot", { providers: [] }),
@@ -344,8 +351,14 @@ async function main() {
     session.user = { id: "u1", role: "Viewer" };
     const r = await invoke("endpoints:list", { nodeId: "node-a", type: "public", enabled: true, ignored: "x" });
     assert.ok(!r.error);
-    assert.deepStrictEqual(r.value.endpoints, [{ id: "ep-1", host: "anx.example", port: 25565 }]);
-    assert.deepStrictEqual(r.value.summary, { total: 1, enabled: 1, degraded: false });
+    // The cached evaluation is projected onto the returned record (a completed
+    // test stays visible after the refresh) and into the summary health counts.
+    assert.deepStrictEqual(r.value.endpoints, [{
+      id: "ep-1", host: "anx.example", port: 25565,
+      health: { status: "healthy", state: "healthy", checkedAt: "2026-10-15T12:00:00.000Z", source: "diagnostics" },
+      lastCheckedAt: "2026-10-15T12:00:00.000Z",
+    }]);
+    assert.deepStrictEqual(r.value.summary, { total: 1, enabled: 1, degraded: false, byHealth: { healthy: 1 } });
     assert.deepStrictEqual(r.value.providerSyncs, { "node-a": { providerId: "playit", tunnelCount: 2 } });
     assert.deepStrictEqual(r.value.migration, { migrated: 1 });
     assert.strictEqual(r.value.degraded, false);
