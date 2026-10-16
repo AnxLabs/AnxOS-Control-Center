@@ -3,6 +3,8 @@ const fs = require("fs/promises");
 const fsSync = require("fs");
 const path = require("path");
 const zlib = require("zlib");
+const { Transform, Writable } = require("stream");
+const { pipeline } = require("stream/promises");
 
 const { getConfig } = require("../config");
 const instanceService = require("./instances/instanceService");
@@ -781,28 +783,69 @@ function verificationNotEvaluable(record, checkedAt, code, detail) {
   }, { ok: false, code });
 }
 
+function verificationArchiveMissing(record, checkedAt) {
+  return persistVerificationOutcome(record, {
+    state: "failed",
+    method: "sha256",
+    checkedAt,
+    detail: "archive missing",
+  }, { ok: false, code: "BACKUP_ARCHIVE_MISSING" });
+}
+
+// Reads the archive once as a stream: hashes the compressed bytes and
+// decompresses them only to count the output, keeping no buffer of either.
+// Memory stays bounded by stream chunk sizes and zlib runs off the event loop,
+// so a verification never blocks the Agent's other requests.
+async function inspectArchiveStream(filePath, maxExpandedBytes) {
+  const hash = crypto.createHash("sha256");
+  let expandedBytes = 0;
+  const hasher = new Transform({
+    transform(chunk, _encoding, callback) {
+      hash.update(chunk);
+      callback(null, chunk);
+    },
+  });
+  const counter = new Writable({
+    write(chunk, _encoding, callback) {
+      expandedBytes += chunk.length;
+      if (expandedBytes > maxExpandedBytes) {
+        callback(Object.assign(new Error("Expanded archive exceeds the verification size limit."), { code: "ERR_BUFFER_TOO_LARGE" }));
+        return;
+      }
+      callback();
+    },
+  });
+  const source = fsSync.createReadStream(filePath, { highWaterMark: 256 * 1024 });
+  const gunzip = zlib.createGunzip();
+  // pipeline() destroys every stage with the first error, so the stage that
+  // failed is the first one whose own error event fires: a read failure is
+  // I/O, a decode failure is corruption, the counter reports the size limit.
+  let failedStage = null;
+  source.once("error", () => { failedStage = failedStage || "io"; });
+  gunzip.once("error", () => { failedStage = failedStage || "decode"; });
+  counter.once("error", () => { failedStage = failedStage || "limit"; });
+  try {
+    await pipeline(source, hasher, gunzip, counter);
+  } catch (error) {
+    error.archiveFailure = failedStage || "io";
+    throw error;
+  }
+  return { sha256: hash.digest("hex"), expandedBytes };
+}
+
 async function verifyBackup(backupId, options = {}) {
   const record = await readBackupMetadata(backupId);
   const checkedAt = resolveVerificationCheckedAt(options.now);
   const maxArchiveBytes = Math.max(1, Number(options.maxArchiveBytes) || MAX_BACKUP_ARCHIVE_BYTES);
   const maxExpandedBytes = Math.max(1, Number(options.maxExpandedBytes) || MAX_BACKUP_EXPANDED_BYTES);
-  let archiveBuffer;
   try {
-    // Checked before reading so an oversized archive is never loaded into memory.
+    // Checked before reading so an oversized archive is never streamed at all.
     const stat = await fs.stat(record.path);
     if (stat.size > maxArchiveBytes) {
       return verificationNotEvaluable(record, checkedAt, "BACKUP_VERIFICATION_LIMIT_EXCEEDED", "archive exceeds the verification size limit");
     }
-    archiveBuffer = await fs.readFile(record.path);
   } catch (error) {
-    if (error?.code === "ENOENT") {
-      return persistVerificationOutcome(record, {
-        state: "failed",
-        method: "sha256",
-        checkedAt,
-        detail: "archive missing",
-      }, { ok: false, code: "BACKUP_ARCHIVE_MISSING" });
-    }
+    if (error?.code === "ENOENT") return verificationArchiveMissing(record, checkedAt);
     if (VERIFICATION_LIMIT_ERROR_CODES.has(error?.code)) {
       return verificationNotEvaluable(record, checkedAt, "BACKUP_VERIFICATION_LIMIT_EXCEEDED", "archive exceeds the verification size limit");
     }
@@ -810,15 +853,21 @@ async function verifyBackup(backupId, options = {}) {
     return verificationNotEvaluable(record, checkedAt, code, `archive unreadable (${code})`);
   }
 
+  let inspected;
   try {
-    // Decompression is attempted before the digest comparison so a truncated
-    // or unreadable archive is classified as corrupt rather than as a checksum
+    // Decompression is checked before the digest comparison so a truncated
+    // or undecodable archive is classified as corrupt rather than as a checksum
     // mismatch, while a readable archive whose content was replaced (a valid
     // gzip that no longer matches the create-time digest) fails below.
-    zlib.gunzipSync(archiveBuffer, { maxOutputLength: maxExpandedBytes });
+    inspected = await inspectArchiveStream(record.path, maxExpandedBytes);
   } catch (error) {
-    if (VERIFICATION_LIMIT_ERROR_CODES.has(error?.code)) {
+    if (error?.archiveFailure === "limit") {
       return verificationNotEvaluable(record, checkedAt, "BACKUP_VERIFICATION_LIMIT_EXCEEDED", "expanded archive exceeds the verification size limit");
+    }
+    if (error?.archiveFailure === "io") {
+      if (error?.code === "ENOENT") return verificationArchiveMissing(record, checkedAt);
+      const ioCode = error?.code || "BACKUP_ARCHIVE_UNREADABLE";
+      return verificationNotEvaluable(record, checkedAt, ioCode, `archive unreadable (${ioCode})`);
     }
     const code = error?.code || "BACKUP_ARCHIVE_INVALID";
     return persistVerificationOutcome(record, {
@@ -830,7 +879,7 @@ async function verifyBackup(backupId, options = {}) {
   }
 
   const expectedSha256 = String(record.archiveSha256 || "").trim().toLowerCase() || null;
-  const actualSha256 = sha256Hex(archiveBuffer);
+  const actualSha256 = inspected.sha256;
   if (!expectedSha256) {
     // Without a create-time digest only readability can be observed, so the
     // record stays honestly unknown instead of being promoted to verified.

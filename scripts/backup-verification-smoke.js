@@ -84,6 +84,46 @@ async function createFixtureBackup(name) {
   return (await backupService.createBackup({ instanceId: INSTANCE_ID, type: "world", name, createdBy: "smoke" })).backup;
 }
 
+// createBackup prunes to the default keepLast; these extra fixtures keep every
+// earlier backup so later checks still find theirs.
+async function createRetainedFixtureBackup(name) {
+  return (await backupService.createBackup({ instanceId: INSTANCE_ID, type: "world", name, createdBy: "smoke", retention: { keepLast: 9999, maxAgeDays: 3650 } })).backup;
+}
+
+// Replaces a fixture's archive with arbitrary bytes and records their digest
+// as the create-time digest, so verification is judged on decoding alone.
+async function replaceArchive(backupId, bytes, { recordDigest = true } = {}) {
+  await fsp.writeFile(archiveFile(backupId), bytes, { mode: 0o600 });
+  if (recordDigest) {
+    const metadata = readPersistedMetadata(backupId);
+    metadata.archiveSha256 = sha256Hex(bytes);
+    await fsp.writeFile(metadataFile(backupId), `${JSON.stringify(metadata, null, 2)}\n`);
+  }
+}
+
+// Runs fn while sampling the event loop (largest gap between 5 ms ticks) and
+// external memory, so a verification that blocks or buffers is observable.
+async function observeEventLoop(fn) {
+  const baseline = process.memoryUsage().arrayBuffers;
+  let last = Date.now();
+  let maxGapMs = 0;
+  let peakArrayBuffers = baseline;
+  const sample = () => {
+    const now = Date.now();
+    maxGapMs = Math.max(maxGapMs, now - last);
+    last = now;
+    peakArrayBuffers = Math.max(peakArrayBuffers, process.memoryUsage().arrayBuffers);
+  };
+  const timer = setInterval(sample, 5);
+  try {
+    const result = await fn();
+    sample();
+    return { result, maxGapMs, peakExtraBytes: peakArrayBuffers - baseline };
+  } finally {
+    clearInterval(timer);
+  }
+}
+
 async function startMockAgent() {
   const requests = [];
   const server = http.createServer((request, response) => {
@@ -194,6 +234,98 @@ async function main() {
   assert.strictEqual(withinLimits.record.verification.state, "verified", "the same archive verifies within the limits");
   const stillCorrupt = await backupService.verifyBackup(truncated.id, { now: FIXED_NOW });
   assert.strictEqual(stillCorrupt.record.verification.state, "corrupt", "a decode failure is still corrupt");
+
+  // 5c. PR #9 second review P2-B: verification streams the archive. A large
+  //     archive never blocks the event loop or is held in memory, and every
+  //     integrity classification is unchanged.
+  {
+    const MiB = 1024 * 1024;
+    // Concatenated gzip members: ~2.5 MiB on disk (many read chunks, the
+    // first incompressible), ~466 MiB expanded (just under the 512 MiB limit).
+    const zeroMember = zlib.gzipSync(Buffer.alloc(8 * MiB));
+    const largeBytes = Buffer.concat([zlib.gzipSync(crypto.randomBytes(2 * MiB)), ...Array(58).fill(zeroMember)]);
+    const large = await createRetainedFixtureBackup("large");
+    await replaceArchive(large.id, largeBytes);
+
+    const archivePath = archiveFile(large.id);
+    const archiveReads = [];
+    let syncInflates = 0;
+    const originalReadFile = fsp.readFile;
+    const originalGunzipSync = zlib.gunzipSync;
+    fsp.readFile = function readFileTripwire(target, ...rest) {
+      if (path.resolve(String(target)) === path.resolve(archivePath)) archiveReads.push(target);
+      return originalReadFile.call(this, target, ...rest);
+    };
+    zlib.gunzipSync = function gunzipSyncTripwire(...args) {
+      syncInflates += 1;
+      return originalGunzipSync.apply(this, args);
+    };
+    let observed;
+    try {
+      observed = await observeEventLoop(() => backupService.verifyBackup(large.id, { now: FIXED_NOW }));
+    } finally {
+      fsp.readFile = originalReadFile;
+      zlib.gunzipSync = originalGunzipSync;
+    }
+    assert.strictEqual(observed.result.ok, true, "a large intact archive verifies");
+    assert.strictEqual(observed.result.record.verification.state, "verified");
+    assert.deepStrictEqual(archiveReads, [], "the archive is never read whole into memory");
+    assert.strictEqual(syncInflates, 0, "verification never decompresses synchronously");
+    assert(observed.maxGapMs < 150, `verification must not block the event loop (largest gap ${observed.maxGapMs} ms)`);
+    assert(observed.peakExtraBytes < 128 * MiB, `verification memory stays bounded (peak +${Math.round(observed.peakExtraBytes / MiB)} MiB)`);
+
+    // The streamed digest covers every chunk: a wrong recorded digest fails
+    // with the true digest of the whole file.
+    const largeMismatch = await createRetainedFixtureBackup("large-mismatch");
+    await replaceArchive(largeMismatch.id, largeBytes, { recordDigest: false });
+    const mismatch = await backupService.verifyBackup(largeMismatch.id, { now: FIXED_NOW });
+    assert.strictEqual(mismatch.code, "BACKUP_ARCHIVE_HASH_MISMATCH");
+    assert.strictEqual(mismatch.actualSha256, sha256Hex(largeBytes), "the streamed digest equals the whole-file digest");
+    assert.strictEqual(mismatch.record.verification.state, "failed");
+
+    // The expansion limit is enforced while streaming, as not-evaluable.
+    const expansionCapped = await observeEventLoop(() => backupService.verifyBackup(large.id, { now: FIXED_NOW, maxExpandedBytes: 64 * MiB }));
+    assert.strictEqual(expansionCapped.result.code, "BACKUP_VERIFICATION_LIMIT_EXCEEDED");
+    assert.strictEqual(expansionCapped.result.record.verification.state, "unknown", "an expansion over the limit is not corrupt");
+    assert(expansionCapped.maxGapMs < 150, "the capped run does not block either");
+    const archiveCapped = await backupService.verifyBackup(large.id, { now: FIXED_NOW, maxArchiveBytes: largeBytes.length - 1 });
+    assert.strictEqual(archiveCapped.code, "BACKUP_VERIFICATION_LIMIT_EXCEEDED");
+    assert.strictEqual(archiveCapped.record.verification.state, "unknown");
+
+    // Malformed archives and decode failures stay corrupt, with the zlib code.
+    const malformedCases = [
+      ["not-gzip", Buffer.from("this is not a gzip archive"), "Z_DATA_ERROR"],
+      ["empty", Buffer.alloc(0), "Z_BUF_ERROR"],
+      ["corrupt-member", Buffer.concat([zeroMember, zeroMember.subarray(0, 12), Buffer.from("garbage-deflate-stream"), zeroMember.subarray(30)]), null],
+      ["trailing-garbage", Buffer.concat([zeroMember, Buffer.from("trailing garbage")]), "Z_DATA_ERROR"],
+    ];
+    for (const [name, bytes, expectedCode] of malformedCases) {
+      const fixture = await createRetainedFixtureBackup(`malformed-${name}`);
+      await replaceArchive(fixture.id, bytes);
+      const outcome = await backupService.verifyBackup(fixture.id, { now: FIXED_NOW });
+      assert.strictEqual(outcome.ok, false, `${name}: does not verify`);
+      assert.strictEqual(outcome.record.verification.state, "corrupt", `${name}: a decode failure is corrupt, even with a matching digest`);
+      assert.match(outcome.code, /^Z_/, `${name}: the corrupt outcome carries the zlib code`);
+      if (expectedCode) assert.strictEqual(outcome.code, expectedCode, `${name}: same code as the synchronous decoder reported`);
+      assert.deepStrictEqual(readPersistedMetadata(fixture.id).verification, outcome.record.verification, `${name}: persisted`);
+    }
+
+    // A read failure is not corruption: it stays not-evaluable (unknown).
+    const unreadable = await createRetainedFixtureBackup("unreadable");
+    await fsp.rm(archiveFile(unreadable.id), { force: true });
+    await fsp.mkdir(archiveFile(unreadable.id));
+    const unreadableResult = await backupService.verifyBackup(unreadable.id, { now: FIXED_NOW });
+    assert.strictEqual(unreadableResult.ok, false);
+    assert.strictEqual(unreadableResult.code, "EISDIR");
+    assert.strictEqual(unreadableResult.record.verification.state, "unknown", "an I/O failure is not evaluable, not corrupt");
+    assert.strictEqual(unreadableResult.record.verification.detail, "archive unreadable (EISDIR)");
+    await fsp.rm(archiveFile(unreadable.id), { recursive: true, force: true });
+
+    // Restore is untouched: its validation still decodes the archive itself.
+    const restoreSource = readSource(path.join("agent", "src", "services", "backupService.js"));
+    assert(restoreSource.includes("tarBuffer = zlib.gunzipSync(archiveBuffer, { maxOutputLength: maxExpandedBytes });"),
+      "restore validation keeps its existing decoder");
+  }
 
   // 6. Legacy metadata (no verification field) is disclosed as unknown — not
   // as freshly unverified — and reading it must not rewrite the file.
