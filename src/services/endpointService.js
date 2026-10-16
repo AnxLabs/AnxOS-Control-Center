@@ -184,6 +184,39 @@ function probeTcpPort(host, port, timeoutMs = PROBE_TIMEOUT_MS) {
 // Application-host discovery fallback: enumerate the OS interfaces, then run a
 // bounded TCP connect probe against 127.0.0.1 and every interface address for each
 // requested service port. No shell, no UDP probe (TCP connect is the evidence).
+function defaultListLocalListeners() {
+  return require("../../agent/src/services/networkInventoryService").collectListeners(process.platform);
+}
+
+// UDP listener rows from the local listener table, or null when the table
+// cannot be read (no ss/netstat, an unsupported platform, or a failed UDP
+// enumeration): an empty table is not evidence that nothing listens.
+async function readUdpListeners(listListeners) {
+  let listing = null;
+  try {
+    listing = await listListeners();
+  } catch {
+    return null;
+  }
+  if (!listing || listing.source === null || !Array.isArray(listing.rows)) return null;
+  const errors = Array.isArray(listing.errors) ? listing.errors : [];
+  if (errors.some((entry) => /udp/i.test(typeof entry === "string" ? entry : String(entry?.source || entry?.message || "")))) return null;
+  return listing.rows.filter((row) => row && row.protocol === "udp");
+}
+
+function udpListenerResult(port, targets, udpListeners) {
+  if (udpListeners === null) {
+    return { port, protocol: "udp", listening: null, evidence: "unavailable", probes: [] };
+  }
+  const bound = udpListeners.filter((row) => row.localPort === port).map((row) => String(row.localAddress || ""));
+  const wildcard = bound.some((address) => isWildcardAddress(address));
+  const probes = targets.map((target) => ({
+    ...target,
+    listening: wildcard || bound.includes(String(target.host)),
+  }));
+  return { port, protocol: "udp", listening: bound.length > 0, evidence: "listener-table", probes };
+}
+
 async function defaultProbeLocalListeners(options = {}) {
   const ports = Array.isArray(options.ports) ? options.ports : [];
   const interfaces = os.networkInterfaces();
@@ -208,17 +241,29 @@ async function defaultProbeLocalListeners(options = {}) {
     }
   }
 
+  // A TCP connect proves nothing about a UDP port, so UDP ports use the local
+  // listener table (ss / netstat, the same enumeration the Agent uses) and
+  // report `listening: null` when that table cannot be read.
+  const probeTcp = typeof options.probeTcpPort === "function" ? options.probeTcpPort : probeTcpPort;
+  const listListeners = typeof options.listLocalListeners === "function" ? options.listLocalListeners : defaultListLocalListeners;
+  let udpListeners;
   const results = [];
   for (const portSpec of ports) {
     const port = Number(portSpec?.port);
     if (!Number.isInteger(port) || port < 1 || port > 65535) continue;
+    const protocol = String(portSpec.protocol || "tcp").toLowerCase();
+    if (protocol === "udp") {
+      if (udpListeners === undefined) udpListeners = await readUdpListeners(listListeners);
+      results.push(udpListenerResult(port, targets, udpListeners));
+      continue;
+    }
     const probes = await Promise.all(targets.map(async (target) => ({
       ...target,
-      listening: await probeTcpPort(target.host, port),
+      listening: await probeTcp(target.host, port),
     })));
     results.push({
       port,
-      protocol: portSpec.protocol || "tcp",
+      protocol,
       listening: probes.some((probe) => probe.listening === true),
       probes,
     });
@@ -589,6 +634,13 @@ function createEndpointService({ store, deps } = {}) {
 
   function buildProbeSpecsForPort(probeResult, portEntry, context) {
     const specs = [];
+    if (probeResult && probeResult.listening === null) {
+      // No protocol-appropriate evidence (UDP listener table unreadable): the
+      // port is neither listening nor not-listening, and nothing is discovered.
+      portEntry.listening = null;
+      context.result.skipped.push({ reason: "listener-evidence-unavailable", port: portEntry.port, protocol: portEntry.protocol });
+      return specs;
+    }
     const probes = Array.isArray(probeResult?.probes) ? probeResult.probes : [];
     const listening = probeResult?.listening === true || probes.some((probe) => probe?.listening === true);
     portEntry.listening = listening;

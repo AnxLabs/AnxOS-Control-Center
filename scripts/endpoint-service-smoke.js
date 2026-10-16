@@ -435,6 +435,52 @@ const WILDCARD_INVENTORY = {
     assert.strictEqual(otherService.legacyAvailable, false);
   });
 
+  // PR #9 review P2: UDP ports are never "verified" with a TCP connect.
+  await test("application-host UDP ports use the listener table, never a TCP probe", async () => {
+    const probeLocal = require("../src/services/endpointService")._test.defaultProbeLocalListeners;
+    const tcpProbes = [];
+    const probeTcpPort = async (host, port) => { tcpProbes.push({ host, port }); return true; };
+    const table = (rows, extra = {}) => async () => ({ source: "ss", rows, errors: [], ...extra });
+
+    const wildcard = await probeLocal({ ports: [{ port: 7777, protocol: "udp" }], probeTcpPort, listLocalListeners: table([{ protocol: "udp", localAddress: "0.0.0.0", localPort: 7777 }]) });
+    assert.strictEqual(wildcard.results[0].protocol, "udp");
+    assert.strictEqual(wildcard.results[0].listening, true, "a UDP listener in the table is listening");
+    assert.strictEqual(wildcard.results[0].evidence, "listener-table");
+    assert.ok(wildcard.results[0].probes.length > 0 && wildcard.results[0].probes.every((probe) => probe.listening === true), "a wildcard bind covers every interface");
+    assert.strictEqual(tcpProbes.length, 0, "no TCP connect is used for a UDP port");
+
+    const tcpOnly = await probeLocal({ ports: [{ port: 7777, protocol: "udp" }], probeTcpPort, listLocalListeners: table([{ protocol: "tcp", localAddress: "0.0.0.0", localPort: 7777 }]) });
+    assert.strictEqual(tcpOnly.results[0].listening, false, "a TCP listener on the same port is not UDP evidence");
+    assert.strictEqual(tcpProbes.length, 0);
+
+    const unreadable = await probeLocal({ ports: [{ port: 7777, protocol: "udp" }], probeTcpPort, listLocalListeners: table([], { source: null }) });
+    assert.strictEqual(unreadable.results[0].listening, null, "no listener table means unknown, not not-listening");
+    assert.strictEqual(unreadable.results[0].evidence, "unavailable");
+    const udpFailed = await probeLocal({ ports: [{ port: 7777, protocol: "udp" }], probeTcpPort, listLocalListeners: table([{ protocol: "tcp", localAddress: "0.0.0.0", localPort: 80 }], { errors: ["ss (udp): command failed"] }) });
+    assert.strictEqual(udpFailed.results[0].listening, null, "a failed UDP enumeration is not evidence of absence");
+    const thrown = await probeLocal({ ports: [{ port: 7777, protocol: "udp" }], probeTcpPort, listLocalListeners: async () => { throw new Error("spawn failed"); } });
+    assert.strictEqual(thrown.results[0].listening, null);
+
+    const tcp = await probeLocal({ ports: [{ port: 8080, protocol: "tcp" }], probeTcpPort, listLocalListeners: table([]) });
+    assert.strictEqual(tcp.results[0].listening, true, "TCP ports keep the connect probe");
+    assert.ok(tcpProbes.length > 0);
+  });
+
+  await test("UDP discovery without listener evidence creates nothing and is not 'not listening'", async () => {
+    const { service, store } = makeWorld({
+      listInstances: async () => ({ instances: [{ id: "svc-voice", displayName: "Voice", ports: [{ port: 9987, protocol: "udp" }] }] }),
+      getNode: async () => ({ id: "application-host", kind: "application-host" }),
+      probeLocalListeners: async () => ({ supported: true, availability: "application-host", results: [{ port: 9987, protocol: "udp", listening: null, evidence: "unavailable", probes: [] }] }),
+    });
+    const result = await service.discoverEndpoints({ nodeId: "application-host", serviceId: "svc-voice" });
+    assert.strictEqual(result.created.length, 0, "no endpoint without evidence");
+    assert.notStrictEqual(result.portNotListening, true, "unknown evidence is not reported as not listening");
+    assert.ok(result.skipped.some((entry) => entry.reason === "listener-evidence-unavailable" && entry.protocol === "udp"));
+    assert.strictEqual(result.ports[0].listening, null);
+    assert.notStrictEqual(result.state, "healthy");
+    assert.strictEqual(store.list({ serviceId: "svc-voice" }).length, 0);
+  });
+
   if (failures.length > 0) {
     console.error(`endpoint-service smoke: ${failures.length} failed, ${checks} passed`);
     for (const failure of failures) console.error(`  FAIL ${failure}`);
