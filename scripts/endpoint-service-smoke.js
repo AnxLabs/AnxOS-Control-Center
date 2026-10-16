@@ -483,13 +483,17 @@ const WILDCARD_INVENTORY = {
 
   await test("PR #9 second review P2-A: target-changing edits invalidate cached diagnostics", async () => {
     const invalidated = [];
-    const { service } = makeWorld({ invalidateEndpointDiagnostics: (id) => invalidated.push(id) });
+    const changesSeen = [];
+    const { service } = makeWorld({ invalidateEndpointDiagnostics: (id, change) => { invalidated.push(id); changesSeen.push(change); } });
     const created = service.createEndpoint(baseInput());
-    assert.deepStrictEqual(invalidated, [], "creating an endpoint has nothing to invalidate");
+    // Repair loop round 3: a new endpoint can change which endpoint a
+    // service-level run on its node selects.
+    assert.deepStrictEqual(invalidated, [created.id], "creating an endpoint signals a selection change");
+    assert.deepStrictEqual(changesSeen, [{ nodeIds: ["agent-node-1"], publicChanged: false }]);
 
+    invalidated.length = 0;
     service.updateEndpoint(created.id, { name: "Renamed", notes: "only labels" });
-    service.setEndpointEnabled(created.id, false);
-    assert.deepStrictEqual(invalidated, [], "renames and enable toggles keep the target's diagnostics");
+    assert.deepStrictEqual(invalidated, [], "a rename keeps the target's diagnostics");
 
     const changes = [
       ["host", { host: "192.168.1.77" }],
@@ -537,7 +541,66 @@ const WILDCARD_INVENTORY = {
     } finally {
       diagnostics.invalidateDiagnostics = originalInvalidate;
     }
-    assert.deepStrictEqual(seen, [{ endpointId: created.id }]);
+    assert.deepStrictEqual(seen, [{ endpointId: created.id, selectionNodeIds: ["agent-node-1"], publicSelectionChanged: false }]);
+  });
+
+  await test("PR #9 repair loop round 3: every write that can change endpoint selection is signalled", async () => {
+    const signals = [];
+    const record = (id, change) => signals.push({ id, ...change });
+    const { service } = makeWorld({ invalidateEndpointDiagnostics: record });
+    const created = service.createEndpoint(baseInput());
+    signals.length = 0;
+
+    // Enable toggles change which endpoint a service-level run selects.
+    service.setEndpointEnabled(created.id, false);
+    assert.deepStrictEqual(signals, [{ id: created.id, nodeIds: ["agent-node-1"], publicChanged: false }], "disabling is signalled");
+    signals.length = 0;
+    service.setEndpointEnabled(created.id, false);
+    assert.deepStrictEqual(signals, [], "setting the same state again is not a change");
+    service.updateEndpoint(created.id, { enabled: true });
+    assert.deepStrictEqual(signals, [{ id: created.id, nodeIds: ["agent-node-1"], publicChanged: false }], "enabling through an edit is signalled");
+
+    // A move between nodes reaches both nodes; a public endpoint flags the
+    // public selection.
+    signals.length = 0;
+    service.updateEndpoint(created.id, { computerId: "agent-node-2" });
+    assert.deepStrictEqual(signals, [{ id: created.id, nodeIds: ["agent-node-1", "agent-node-2"], publicChanged: false }]);
+    signals.length = 0;
+    const publicRecord = service.createEndpoint(baseInput({ type: "public", host: "203.0.113.20", name: "Public" }));
+    assert.deepStrictEqual(signals, [{ id: publicRecord.id, nodeIds: ["agent-node-1"], publicChanged: true }], "a new public endpoint changes the public selection");
+    signals.length = 0;
+    service.setEndpointEnabled(publicRecord.id, false);
+    assert.deepStrictEqual(signals, [{ id: publicRecord.id, nodeIds: ["agent-node-1"], publicChanged: true }]);
+
+    // Provider sync: a new endpoint is signalled; re-syncing the same target
+    // (matched by the store without an id) is not a change.
+    signals.length = 0;
+    const providerInput = { nodeId: "agent-node-1", input: { name: "Tunnel", type: "public", host: "tunnel.example", port: 30120, protocol: "tcp", providerId: "playit", serviceId: "svc-1" } };
+    const provided = service.upsertProviderEndpoint(providerInput);
+    assert.deepStrictEqual(signals, [{ id: provided.id, nodeIds: ["agent-node-1"], publicChanged: true }], "a provider endpoint is signalled");
+    signals.length = 0;
+    service.upsertProviderEndpoint(providerInput);
+    assert.deepStrictEqual(signals, [], "an unchanged provider re-sync is not a change");
+
+    // Delete.
+    signals.length = 0;
+    service.deleteEndpoint(publicRecord.id);
+    assert.deepStrictEqual(signals, [{ id: publicRecord.id, nodeIds: ["agent-node-1"], publicChanged: true }], "deleting is signalled");
+  });
+
+  await test("PR #9 repair loop round 3: discovery writes go through the signalled path", async () => {
+    const signals = [];
+    const { service, store } = makeWorld({
+      ...agentDeps(WILDCARD_INVENTORY, FIVEM_INSTANCE),
+      invalidateEndpointDiagnostics: (id, change) => signals.push({ id, ...change }),
+    });
+    await service.discoverEndpoints({ nodeId: "agent-1", serviceId: "svc-1" });
+    const discovered = store.list({ serviceId: "svc-1" });
+    assert.ok(discovered.length > 0, "discovery created endpoints");
+    assert.ok(discovered.every((entry) => signals.some((signal) => signal.id === entry.id)), "each discovered endpoint is signalled");
+    signals.length = 0;
+    await service.discoverEndpoints({ nodeId: "agent-1", serviceId: "svc-1" });
+    assert.deepStrictEqual(signals, [], "re-discovering the same endpoints is not a change");
   });
 
   if (failures.length > 0) {

@@ -333,12 +333,30 @@ function createConnectivityDiagnosticsService(config = {}) {
   // had selected that endpoint.
   let endpointEpoch = 0;
   const endpointChangedAt = new Map();
+  // Endpoint selection, per node ("*": a change on an endpoint with no node,
+  // which may be listed for any node): a service-level run selects the first
+  // enabled endpoint and every run reports on the first enabled public
+  // endpoint, so enabling, disabling, creating, deleting or retargeting an
+  // endpoint can change what an unrelated run on that node selected.
+  const selectionChangedAt = new Map();
+  const publicSelectionChangedAt = new Map();
 
   function endpointChangedSince(endpointIds, epoch) {
     for (const id of endpointIds) {
       if ((endpointChangedAt.get(id) || 0) > epoch) return true;
     }
     return false;
+  }
+
+  function nodeChangedAt(map, nodeId) {
+    return Math.max(map.get(nodeId) || 0, map.get("*") || 0);
+  }
+
+  // Whether a run (or cached result) for this node and requested endpoint may
+  // describe a selection that changed after `epoch`.
+  function selectionChangedSince(nodeId, requestedEndpointId, epoch) {
+    if (nodeChangedAt(publicSelectionChangedAt, nodeId) > epoch) return true;
+    return requestedEndpointId == null && nodeChangedAt(selectionChangedAt, nodeId) > epoch;
   }
 
   function discardedResult({ nodeId, serviceId, endpointId }) {
@@ -868,7 +886,7 @@ function createConnectivityDiagnosticsService(config = {}) {
       graph,
     });
 
-    if (endpointChangedSince(testedEndpointIds, epochAtStart)) {
+    if (endpointChangedSince(testedEndpointIds, epochAtStart) || selectionChangedSince(nodeId, endpointId, epochAtStart)) {
       // An endpoint this run tested was edited or deleted while it was in
       // flight: the result describes a target that no longer exists. Neither
       // cached nor returned, for the caller and for every caller that joined.
@@ -911,7 +929,12 @@ function createConnectivityDiagnosticsService(config = {}) {
     const run = execute(input, testedEndpointIds).finally(() => {
       if (inFlight.get(key)?.run === run) inFlight.delete(key);
     });
-    inFlight.set(key, { run, testedEndpointIds });
+    inFlight.set(key, {
+      run,
+      testedEndpointIds,
+      nodeId: normalizeOptionalString(input.nodeId) || "",
+      endpointId: normalizeOptionalString(input.endpointId),
+    });
     return run;
   }
 
@@ -991,14 +1014,31 @@ function createConnectivityDiagnosticsService(config = {}) {
       // so later callers start a fresh run against the current record.
       endpointEpoch += 1;
       endpointChangedAt.set(wantedEndpointId, endpointEpoch);
+      // A change that can alter endpoint selection (endpointService passes the
+      // affected nodes) also reaches runs and results that never tested this
+      // endpoint but selected among that node's endpoints.
+      const selectionNodes = Array.isArray(input.selectionNodeIds)
+        ? input.selectionNodeIds.map((id) => normalizeOptionalString(id) || "*")
+        : [];
+      const publicChanged = input.publicSelectionChanged === true;
+      for (const node of selectionNodes) {
+        selectionChangedAt.set(node, endpointEpoch);
+        if (publicChanged) publicSelectionChangedAt.set(node, endpointEpoch);
+      }
+      const selectionAffects = (nodeId, requestedEndpointId) => (
+        (selectionNodes.includes("*") || selectionNodes.includes(nodeId))
+        && (publicChanged || requestedEndpointId == null)
+      );
       for (const [key, pending] of Array.from(inFlight.entries())) {
-        if (pending.testedEndpointIds.has(wantedEndpointId)) inFlight.delete(key);
+        if (pending.testedEndpointIds.has(wantedEndpointId) || selectionAffects(pending.nodeId, pending.endpointId)) {
+          inFlight.delete(key);
+        }
       }
       let invalidated = 0;
       for (const key of Array.from(cache.keys())) {
         const entry = cache.get(key);
         const tested = Array.isArray(entry?.testedEndpointIds) && entry.testedEndpointIds.includes(wantedEndpointId);
-        if (!entry || (entry.endpointId !== wantedEndpointId && !tested)) continue;
+        if (!entry || (entry.endpointId !== wantedEndpointId && !tested && !selectionAffects(entry.nodeId, entry.endpointId))) continue;
         if (wantedNodeId != null && entry.nodeId !== wantedNodeId) continue;
         cache.delete(key);
         invalidated += 1;

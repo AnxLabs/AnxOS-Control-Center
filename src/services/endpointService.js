@@ -293,8 +293,13 @@ const defaultDeps = Object.freeze({
   listInstances: (options) => defaultListInstances(options || {}),
   getNode: (nodeId) => defaultGetNode(nodeId),
   probeLocalListeners: (options) => defaultProbeLocalListeners(options),
-  // Drops cached diagnostics for one endpoint (lazy: no load-time cycle).
-  invalidateEndpointDiagnostics: (endpointId) => require("./connectivityDiagnosticsService").invalidateDiagnostics({ endpointId }),
+  // Drops cached diagnostics for one endpoint, and for runs whose endpoint
+  // selection on the given nodes may have changed (lazy: no load-time cycle).
+  invalidateEndpointDiagnostics: (endpointId, change = {}) => require("./connectivityDiagnosticsService").invalidateDiagnostics({
+    endpointId,
+    selectionNodeIds: change.nodeIds,
+    publicSelectionChanged: change.publicChanged === true,
+  }),
 });
 
 function createEndpointService({ store, deps } = {}) {
@@ -385,40 +390,62 @@ function createEndpointService({ store, deps } = {}) {
     // health/lastCheckedAt are diagnostics-managed (diagnostics cache + in-memory
     // overlay); strip them at the service boundary so create cannot persist
     // caller-supplied health into endpoints.json.
-    return serviceStore.upsert(stripManagementOwnedFields(input));
+    return writeEndpoint(stripManagementOwnedFields(input));
   }
 
   // A change to what an endpoint points at (endpointKey: computer, type,
-  // host, port, protocol, service) makes its cached diagnostics describe a
-  // different target, so they are dropped; a rename keeps them.
-  function invalidateIfTargetChanged(before, after) {
-    if (!isPlainObject(before)) return;
-    if (isPlainObject(after) && endpointKey(after) === endpointKey(before)) return;
+  // host, port, protocol, service), to whether it is enabled, or to whether it
+  // exists can change what a diagnostics run tests or selects (a service-level
+  // run takes the first enabled endpoint; every run reports on the first
+  // enabled public one), so the affected diagnostics are dropped. A rename or
+  // metadata-only change keeps them.
+  function signalEndpointChange(before, after) {
+    const prior = isPlainObject(before) ? before : null;
+    const next = isPlainObject(after) ? after : null;
+    if (!prior && !next) return;
+    const targetChanged = !prior || !next || endpointKey(prior) !== endpointKey(next);
+    const enabledChanged = (prior?.enabled !== false) !== (next?.enabled !== false);
+    if (!targetChanged && !enabledChanged) return;
+    const nodeIds = Array.from(new Set([prior, next].filter(Boolean).map((record) => record.computerId || null)));
+    const publicChanged = [prior, next].some((record) => record && String(record.type || "").toLowerCase() === "public");
     try {
-      resolvedDeps.invalidateEndpointDiagnostics(before.id);
+      resolvedDeps.invalidateEndpointDiagnostics((next || prior).id, { nodeIds, publicChanged });
     } catch {
-      // Cached-read identity checks still refuse the stale result.
+      // Cached-read identity checks still refuse a stale endpoint result.
     }
+  }
+
+  // Every endpoint write goes through here so no path (create, edit, toggle,
+  // associate, provider sync, discovery, delete) can skip the signal. Without
+  // an id the store may match an existing record by target, so the prior
+  // version is found by the id the write returns.
+  function writeEndpoint(input) {
+    const snapshot = isPlainObject(input) && input.id ? null : new Map(serviceStore.list().map((record) => [record.id, record]));
+    const before = isPlainObject(input) && input.id ? serviceStore.get(input.id) : null;
+    const stored = serviceStore.upsert(input);
+    signalEndpointChange(before || (snapshot && snapshot.get(stored.id)) || null, stored);
+    return stored;
   }
 
   function updateEndpoint(id, patch = {}) {
     const existing = requireEndpoint(id);
     const sanitizedPatch = stripManagementOwnedFields(isPlainObject(patch) ? patch : {});
     const merged = { ...existing, ...sanitizedPatch, id: existing.id };
-    const stored = serviceStore.upsert(merged);
-    invalidateIfTargetChanged(existing, stored);
-    return stored;
+    return writeEndpoint(merged);
   }
 
   function deleteEndpoint(id) {
     const existing = serviceStore.get(id);
     const removed = serviceStore.remove(id);
-    invalidateIfTargetChanged(existing, null);
+    signalEndpointChange(existing, null);
     return removed;
   }
 
   function setEndpointEnabled(id, enabled) {
-    return serviceStore.setEnabled(id, enabled);
+    const before = serviceStore.get(id);
+    const stored = serviceStore.setEnabled(id, enabled);
+    signalEndpointChange(before, stored);
+    return stored;
   }
 
   function associateEndpoint(payload = {}) {
@@ -436,9 +463,7 @@ function createEndpointService({ store, deps } = {}) {
     const next = { ...record, id: record.id };
     if (hasService) next.serviceId = input.serviceId ?? null;
     if (hasComputer) next.computerId = input.computerId ?? null;
-    const stored = serviceStore.upsert(next);
-    invalidateIfTargetChanged(record, stored);
-    return stored;
+    return writeEndpoint(next);
   }
 
   function upsertProviderEndpoint(payload = {}) {
@@ -453,7 +478,7 @@ function createEndpointService({ store, deps } = {}) {
     }
     if (!base.computerId && input.nodeId) base.computerId = input.nodeId;
     base.source = "provider";
-    return serviceStore.upsert(base);
+    return writeEndpoint(base);
   }
 
   function recordProviderSync(nodeId, patch) {
@@ -530,10 +555,10 @@ function createEndpointService({ store, deps } = {}) {
           host: spec.host,
           metadata: { ...existing.metadata, ...spec.metadata },
         };
-        const record = serviceStore.upsert(merged);
+        const record = writeEndpoint(merged);
         context.updated.push(record);
       } else {
-        const record = serviceStore.upsert({ ...spec, source: "discovered", computerId: context.nodeId });
+        const record = writeEndpoint({ ...spec, source: "discovered", computerId: context.nodeId });
         context.created.push(record);
       }
     }

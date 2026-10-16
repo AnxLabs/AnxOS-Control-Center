@@ -743,6 +743,85 @@ async function main() {
     endpoints.pop();
   }
 
+  // --- PR #9 repair loop round 3: a change to endpoint selection on a node
+  //     (an endpoint created, deleted, enabled, disabled or retargeted) drops
+  //     and discards service-level results on that node, and every result on
+  //     it when the public selection may have changed ---
+  {
+    const first = makeEndpoint("ep-first", "lan", "First", "192.168.1.70", 30120, { computerId: "node-1" });
+    const second = makeEndpoint("ep-second", "lan", "Second", "192.168.1.71", 30120, { computerId: "node-1" });
+    const endpoints = [{ ...first }, { ...second }];
+    const gates = [];
+    let gatedHost = null;
+    const probe = async (request) => {
+      if (gatedHost && request.host === gatedHost) await new Promise((resolve) => gates.push(resolve));
+      return { ok: true, result: "connected", latencyMs: 3 };
+    };
+    const { service } = createHarness({ endpoints, probe });
+    const waitForGate = async () => {
+      for (let i = 0; i < 100 && gates.length < 1; i += 1) await delay(5);
+      assert.equal(gates.length, 1, "the run reached its probe");
+    };
+    const cachedService = (nodeId) => service.getCachedDiagnostics({ nodeId, serviceId: SERVICE_ID }).cached;
+    const cachedEndpoint = (nodeId) => service.getCachedEndpointDiagnostics({ nodeId, endpointId: "ep-second", endpoint: { ...second } }).cached;
+    const seed = async () => {
+      await service.runDiagnostics({ nodeId: "node-1", serviceId: SERVICE_ID, refresh: true });
+      await service.runDiagnostics({ nodeId: "node-1", endpointId: "ep-second", refresh: true });
+      await service.runDiagnostics({ nodeId: "node-2", serviceId: SERVICE_ID, refresh: true });
+    };
+
+    // A non-public endpoint created on node-1: service-level results there may
+    // now select differently; endpoint results and other nodes are kept.
+    await seed();
+    service.invalidateDiagnostics({ endpointId: "ep-created", selectionNodeIds: ["node-1"] });
+    assert.equal(cachedService("node-1"), false, "node-1's service-level result is dropped");
+    assert.equal(cachedEndpoint("node-1"), true, "an endpoint result that tested another endpoint is kept");
+    assert.equal(cachedService("node-2"), true, "another node's service-level result is kept");
+
+    // A public endpoint changed on node-1: every run there reports on the
+    // public selection, so endpoint results are dropped as well.
+    await seed();
+    service.invalidateDiagnostics({ endpointId: "ep-public-new", selectionNodeIds: ["node-1"], publicSelectionChanged: true });
+    assert.equal(cachedService("node-1"), false);
+    assert.equal(cachedEndpoint("node-1"), false, "a public selection change drops endpoint results on that node");
+    assert.equal(cachedService("node-2"), true, "and leaves other nodes alone");
+
+    // An endpoint with no node may be listed for any node.
+    await seed();
+    service.invalidateDiagnostics({ endpointId: "ep-nodeless", selectionNodeIds: [null] });
+    assert.equal(cachedService("node-1"), false);
+    assert.equal(cachedService("node-2"), false, "a node-less endpoint change reaches every node");
+    assert.equal(cachedEndpoint("node-1"), true);
+
+    // In flight: disabling ep-second mid-run discards the service-level run on
+    // its node (it may have selected differently) but not ep-first's own test.
+    gatedHost = first.host;
+    const serviceRun = service.runDiagnostics({ nodeId: "node-1", serviceId: SERVICE_ID, refresh: true });
+    await waitForGate();
+    const firstRun = service.runDiagnostics({ nodeId: "node-1", endpointId: "ep-first", refresh: true });
+    endpoints[1] = { ...second, enabled: false };
+    service.invalidateDiagnostics({ endpointId: "ep-second", selectionNodeIds: ["node-1"] });
+    gatedHost = null;
+    gates.splice(0).forEach((release) => release());
+    assert.equal((await serviceRun).discarded, "ENDPOINT_CHANGED", "an in-flight service-level run is discarded by a selection change");
+    assert.notEqual((await firstRun).discarded, "ENDPOINT_CHANGED", "an endpoint test is not discarded by a non-public selection change");
+    assert.equal(cachedService("node-1"), false, "the discarded run was not cached");
+
+    // In flight with a public change: the endpoint test is discarded too.
+    gatedHost = first.host;
+    const firstAgain = service.runDiagnostics({ nodeId: "node-1", endpointId: "ep-first", refresh: true });
+    await waitForGate();
+    service.invalidateDiagnostics({ endpointId: "ep-public-new", selectionNodeIds: ["node-1"], publicSelectionChanged: true });
+    gatedHost = null;
+    gates.splice(0).forEach((release) => release());
+    assert.equal((await firstAgain).discarded, "ENDPOINT_CHANGED", "a public selection change discards an in-flight endpoint test");
+
+    // Without selection fields the endpoint-only behaviour is unchanged.
+    await seed();
+    service.invalidateDiagnostics({ endpointId: "ep-unrelated-2" });
+    assert.equal(cachedService("node-1"), true, "an endpoint-only invalidation leaves service-level results");
+  }
+
   // --- PR #9 repair loop round 1: endpoint ids may contain the "|" cache-key
   //     delimiter; lookups, invalidation and in-flight detach use the stored
   //     endpoint id, never one parsed from the key ---
