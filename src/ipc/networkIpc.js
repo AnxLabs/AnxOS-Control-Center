@@ -272,14 +272,15 @@ function registerNetworkIpc() {
     requirePermission("endpoints:read", payload.nodeId);
     requireNodeContext(payload, "connectivity diagnostics");
     audit({ action: "connectivity.getDiagnostics", target: payload.endpointId || payload.nodeId || null });
-    // The current record lets the cache refuse a result that tested a target
-    // the endpoint no longer points at (edited within the cache lifetime).
-    return connectivityDiagnosticsService.getCachedDiagnostics({
-      nodeId: payload.nodeId,
-      serviceId: payload.serviceId,
-      endpointId: payload.endpointId,
-      endpoint: currentEndpointRecord(payload.endpointId),
-    });
+    // For an endpoint read, the current record (null once the endpoint is
+    // gone) lets the cache refuse a result for a target the endpoint no longer
+    // points at or for an endpoint deleted while its run was in flight.
+    // Service-level reads name no endpoint and stay unchanged.
+    const target = { nodeId: payload.nodeId, serviceId: payload.serviceId, endpointId: payload.endpointId };
+    if (typeof payload.endpointId === "string" && payload.endpointId.trim()) {
+      target.endpoint = currentEndpointRecord(payload.endpointId);
+    }
+    return connectivityDiagnosticsService.getCachedDiagnostics(target);
   }));
   ipcMain.handle("connectivity:runDiagnostics", async (_, payload = {}) => invokeExpectedNetworkOperation("connectivity:runDiagnostics", () => {
     requireLocalOwnerAuthenticated("connectivity:runDiagnostics", "Unlock AnxOS to run connectivity diagnostics.");

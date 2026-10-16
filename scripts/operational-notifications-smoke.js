@@ -837,6 +837,23 @@ async function phaseReviewRegressions() {
   assert.deepStrictEqual(canonicalReads, [{ nodeId: "node-r", endpointId: "ep-r", endpoint: { id: "ep-r", computerId: "node-r", serviceId: "svc-r" } }],
     "the collector uses the canonical endpoint lookup, with the current record so a stale target is refused");
   assert.strictEqual(state.endpoints[0].health.state, "failed", "the endpoint test result reaches the evaluator");
+
+  // PR #9 third review: the exact-key fallback (no canonical lookup) also
+  // carries the current record.
+  const fallbackReads = [];
+  const fallbackCollector = createOperationalNotificationCollector({
+    nodeService: { APPLICATION_HOST_NODE_ID: "app-host", getSelectedNodeId: () => "node-r", listNodes: async () => ({ nodes: [] }) },
+    endpointService: { listEndpoints: async () => [{ id: "ep-r", computerId: "node-r", serviceId: "svc-r" }] },
+    connectivityDiagnosticsService: {
+      getCachedDiagnostics: async (target) => {
+        fallbackReads.push(target);
+        return { cached: false, stale: true, state: "unknown", reason: "NOT_EVALUATED" };
+      },
+    },
+  });
+  await fallbackCollector();
+  assert.deepStrictEqual(fallbackReads, [{ nodeId: "node-r", serviceId: "svc-r", endpointId: "ep-r", endpoint: { id: "ep-r", computerId: "node-r", serviceId: "svc-r" } }],
+    "the fallback read carries the current record too");
 }
 
 async function main() {

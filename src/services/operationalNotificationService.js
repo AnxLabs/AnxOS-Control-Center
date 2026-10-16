@@ -701,7 +701,7 @@ async function attachEndpointHealth(endpoints, connectivityDiagnosticsService, f
       // an endpoint test (no service) or a service-scoped run.
       cached = typeof connectivityDiagnosticsService.getCachedEndpointDiagnostics === "function"
         ? await connectivityDiagnosticsService.getCachedEndpointDiagnostics({ nodeId: nodeId || null, endpointId, endpoint })
-        : await connectivityDiagnosticsService.getCachedDiagnostics({ nodeId: nodeId || null, serviceId: serviceId || null, endpointId });
+        : await connectivityDiagnosticsService.getCachedDiagnostics({ nodeId: nodeId || null, serviceId: serviceId || null, endpointId, endpoint });
     } catch {
       cached = null;
     }

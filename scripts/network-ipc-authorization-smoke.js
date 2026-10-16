@@ -349,6 +349,16 @@ async function main() {
     assert.deepStrictEqual(await args("connectivity:getDiagnostics", "getCachedDiagnostics"),
       [{ nodeId: "node-a", serviceId: "svc-1", endpointId: "ep-1", endpoint: { id: "ep-1", host: "anx.example", port: 25565 } }],
       "the cached read is checked against the endpoint's current record");
+    // PR #9 third review: a named endpoint that no longer exists is passed as
+    // an explicit null record; a service-level read carries no record field.
+    await invoke("connectivity:getDiagnostics", { ...PAYLOAD, endpointId: "ep-deleted" });
+    assert.deepStrictEqual(workCalls().find((entry) => entry.name === "getCachedDiagnostics").args,
+      [{ nodeId: "node-a", serviceId: "svc-1", endpointId: "ep-deleted", endpoint: null }], "a deleted endpoint is read with a null record");
+    const { endpointId: _omitted, ...serviceLevelPayload } = PAYLOAD;
+    await invoke("connectivity:getDiagnostics", serviceLevelPayload);
+    const serviceLevelArgs = workCalls().find((entry) => entry.name === "getCachedDiagnostics").args;
+    assert.deepStrictEqual(serviceLevelArgs, [{ nodeId: "node-a", serviceId: "svc-1", endpointId: undefined }]);
+    assert.ok(!Object.prototype.hasOwnProperty.call(serviceLevelArgs[0], "endpoint"), "a service-level read carries no record field");
     assert.deepStrictEqual(await args("connectivity:runDiagnostics", "runDiagnostics"), [{ nodeId: "node-a", serviceId: "svc-1", endpointId: "ep-1", refresh: true }]);
     assert.deepStrictEqual(await args("providers:getStatus", "getProviderSnapshot"), [{ nodeId: "node-a" }]);
     assert.deepStrictEqual(await args("providers:sync", "syncTunnels"), [{ nodeId: "node-a" }]);

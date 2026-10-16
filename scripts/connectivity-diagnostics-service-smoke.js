@@ -540,6 +540,53 @@ async function main() {
     assert.equal(service.invalidateDiagnostics({ endpointId: "ep-other", nodeId: "node-1" }).invalidated, 1);
   }
 
+  // --- PR #9 third review: an endpoint deleted while its run is in flight
+  //     never shows that run's result; service-level reads are unchanged ---
+  {
+    const doomed = makeEndpoint("ep-doomed", "lan", "Doomed", "192.168.1.40", 30120, { computerId: "node-1" });
+    const survivor = makeEndpoint("ep-survivor", "lan", "Survivor", "192.168.1.41", 30120, { computerId: "node-1" });
+    const endpoints = [{ ...doomed }, { ...survivor }];
+    let releaseProbe = null;
+    let gateProbe = false;
+    const probe = async () => {
+      if (gateProbe) await new Promise((resolve) => { releaseProbe = resolve; });
+      return { ok: true, result: "connected", latencyMs: 3 };
+    };
+    const { service } = createHarness({ endpoints, probe });
+    const serviceLevel = await service.runDiagnostics({ nodeId: "node-1", serviceId: SERVICE_ID, refresh: true });
+    await service.runDiagnostics({ nodeId: "node-1", endpointId: "ep-survivor", refresh: true });
+
+    // Start a run, then delete the endpoint (store removal + invalidation)
+    // before the run finishes and writes its result.
+    gateProbe = true;
+    const inFlight = service.runDiagnostics({ nodeId: "node-1", endpointId: "ep-doomed", refresh: true });
+    for (let i = 0; i < 50 && !releaseProbe; i += 1) await delay(5);
+    assert.ok(releaseProbe, "the doomed endpoint's run reached its probe");
+    endpoints.splice(0, 1);
+    service.invalidateDiagnostics({ endpointId: "ep-doomed" });
+    gateProbe = false;
+    releaseProbe();
+    await inFlight;
+
+    // Endpoint reads that name the endpoint and carry its (absent) record.
+    const exact = service.getCachedDiagnostics({ nodeId: "node-1", endpointId: "ep-doomed", endpoint: null });
+    assert.equal(exact.cached, false, "a deleted endpoint's late result is not served by the exact-key read");
+    assert.equal(exact.reason, "NOT_EVALUATED", "it reads as missing, not as unknown health");
+    const canonical = service.getCachedEndpointDiagnostics({ nodeId: "node-1", endpointId: "ep-doomed", endpoint: null });
+    assert.equal(canonical.cached, false, "nor by the canonical endpoint lookup");
+    assert.equal(canonical.reason, "NOT_EVALUATED");
+    const listed = service.projectEndpointHealth(endpoints.map((entry) => ({ ...entry })));
+    assert.deepStrictEqual(listed.map((entry) => entry.id), ["ep-survivor"]);
+    assert.ok(listed[0].health, "the surviving endpoint keeps its own result");
+    assert.equal(service.getCachedEndpointDiagnostics({ nodeId: "node-1", endpointId: "ep-survivor", endpoint: { ...survivor } }).cached, true);
+
+    // Service-level reads name no endpoint: a record field (even null) has no effect.
+    const serviceRead = service.getCachedDiagnostics({ nodeId: "node-1", serviceId: SERVICE_ID, endpoint: null });
+    assert.equal(serviceRead.cached, true, "a service-level read is unchanged by the endpoint rule");
+    assert.equal(serviceRead.overall.state, serviceLevel.overall.state);
+    assert.equal(service.getCachedDiagnostics({ nodeId: "node-1", serviceId: SERVICE_ID }).cached, true);
+  }
+
   console.log("connectivity-diagnostics-service-smoke: all assertions passed.");
 }
 

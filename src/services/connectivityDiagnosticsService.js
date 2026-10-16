@@ -864,11 +864,16 @@ function createConnectivityDiagnosticsService(config = {}) {
   }
 
   // An entry describes the endpoint a caller holds only if it tested that
-  // endpoint's current target. Without a record to compare (service-level
-  // reads) the entry stands; a mismatch is "not evaluated", never "unknown".
-  function entryMatchesEndpoint(entry, endpoint) {
-    if (!isObject(endpoint)) return true;
-    return entry.targetKey != null && entry.targetKey === endpointKey(endpoint);
+  // endpoint's current target. A caller that names an endpoint and supplies
+  // its current record (`endpoint`, null when the endpoint no longer exists,
+  // e.g. deleted while a run was in flight) gets only a matching entry;
+  // callers that supply no record (service-level reads) keep the entry. A
+  // refusal is "not evaluated", never "unknown".
+  function entryMatchesEndpoint(entry, target) {
+    if (!isObject(target) || !Object.prototype.hasOwnProperty.call(target, "endpoint")) return true;
+    if (normalizeOptionalString(target.endpointId) == null) return true;
+    if (!isObject(target.endpoint)) return false;
+    return entry.targetKey != null && entry.targetKey === endpointKey(target.endpoint);
   }
 
   // Cache-only read. Returns the cached result when the target was evaluated
@@ -876,7 +881,7 @@ function createConnectivityDiagnosticsService(config = {}) {
   function getCachedDiagnostics(target = {}) {
     const key = cacheKey(target);
     const entry = readCache(key);
-    if (entry && entryMatchesEndpoint(entry, isObject(target) ? target.endpoint : null)) return cachedResultView(entry);
+    if (entry && entryMatchesEndpoint(entry, target)) return cachedResultView(entry);
     if (entry) cache.delete(key);
     return { cached: false, stale: true, state: "unknown", reason: "NOT_EVALUATED" };
   }
@@ -897,7 +902,7 @@ function createConnectivityDiagnosticsService(config = {}) {
       if (first < 0 || last === first) continue;
       if (key.slice(0, first) !== nodeId || key.slice(last + 1) !== endpointId) continue;
       const entry = readCache(key);
-      if (!entry || !entryMatchesEndpoint(entry, input.endpoint)) continue;
+      if (!entry || !entryMatchesEndpoint(entry, input)) continue;
       if (!best || entry.storedAt > best.storedAt) best = entry;
     }
     return best ? cachedResultView(best) : { cached: false, stale: true, state: "unknown", reason: "NOT_EVALUATED" };
