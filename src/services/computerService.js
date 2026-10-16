@@ -125,7 +125,8 @@ const defaultDeps = Object.freeze({
   listEndpoints: (filter) => require("./endpointService").listEndpoints(filter),
   getEndpointSummary: (filter) => require("./endpointService").getEndpointSummary(filter),
   getProviderSyncs: () => require("./endpointStore").getEndpointStore().getProviderSyncs(),
-  getProviderSnapshot: (filter) => require("./providerIntegrationService").getProviderSnapshot(filter),
+  // Cache-only: the sync fallback must never make the Agent probe the provider.
+  getCachedProviderSnapshot: (filter) => require("./providerIntegrationService").getCachedProviderSnapshot(filter),
   getTelemetrySummary: (filter) => require("./telemetryService").getTelemetrySummary(filter),
   getCachedDiagnostics: (filter) => require("./connectivityDiagnosticsService").getCachedDiagnostics(filter),
   listInstances: (filter) => require("./serviceRouter").listInstances(filter),
@@ -593,7 +594,7 @@ function createComputerService({ deps = {} } = {}) {
       providerSync = isPlainObject(entry) ? { ...entry } : null;
     } else {
       // Fallback: the provider snapshot carries the same per-node sync record.
-      const snapshotSettled = await settle(() => resolvedDeps.getProviderSnapshot({ nodeId }));
+      const snapshotSettled = await settle(() => resolvedDeps.getCachedProviderSnapshot({ nodeId }));
       if (snapshotSettled.ok) {
         const snapshot = snapshotSettled.value;
         providerSync = isPlainObject(snapshot) && isPlainObject(snapshot.syncs) ? { ...snapshot.syncs } : null;

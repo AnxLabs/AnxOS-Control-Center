@@ -198,7 +198,9 @@ function createFakeDeps(options = {}) {
     getProviderSyncs: async () => ({
       "agent-1": { providerId: "playit", lastSyncAt: RECENT, state: "running", tunnelCount: 2, errorCode: null },
     }),
-    getProviderSnapshot: async ({ nodeId } = {}) => ({ nodeId, providers: [], syncs: null }),
+    getCachedProviderSnapshot: async ({ nodeId } = {}) => ({ nodeId, providers: [], syncs: null }),
+    // Tripwire: the summary must never use the probing provider read.
+    getProviderSnapshot: async () => { throw new Error("computer summary must not probe the provider"); },
     getTelemetrySummary: async ({ nodeId } = {}) => telemetryByNode[nodeId] || { generatedAt: RECENT, nodeId, series: [] },
     getCachedDiagnostics: ({ nodeId, serviceId } = {}) => CACHED_DIAGNOSTICS[`${nodeId}|${serviceId}`] || NOT_EVALUATED,
     listInstances: async ({ nodeId } = {}) => ({ instances: instancesByNode[nodeId] || [] }),
@@ -360,6 +362,24 @@ async function main() {
     await boundedService.listComputerSummaries({ includeDisabled: true });
     assert(counters.max <= 2, `listComputerSummaries must bound node fan-out to 2 (observed ${counters.max})`);
     assert.strictEqual(counters.max, 2, "the bound must still allow two concurrent reads");
+
+    // --- PR #9 review L1: the sync fallback reads the cache only ----------
+    {
+      let probes = 0;
+      const cachedReads = [];
+      const fallback = createComputerService({ deps: createFakeDeps({ overrides: {
+        getProviderSyncs: async () => { throw new Error("endpoints.json unreadable"); },
+        getProviderSnapshot: async () => { probes += 1; throw new Error("must not probe"); },
+        getCachedProviderSnapshot: async ({ nodeId } = {}) => {
+          cachedReads.push(nodeId);
+          return { nodeId, providers: [], syncs: { providerId: "playit", lastSyncAt: RECENT, state: "running", tunnelCount: 1, errorCode: null } };
+        },
+      } }) });
+      const summary = await fallback.getComputerSummary({ nodeId: "agent-1" });
+      assert.strictEqual(probes, 0, "the fallback never probes the Agent");
+      assert.deepStrictEqual(cachedReads, ["agent-1"], "the fallback reads the cached snapshot");
+      assert.strictEqual(summary.providerSync.tunnelCount, 1, "the cached sync record is used");
+    }
 
     console.log("Computer service smoke checks passed.");
   } finally {
