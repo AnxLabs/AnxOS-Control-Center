@@ -39010,10 +39010,16 @@ function buildNetworkEndpointCard(endpoint) {
 async function refreshNetworkPage({ force = false } = {}) {
   const api = getDesktopApi();
   const nodeId = getSelectedNodeId();
-  const requestId = ++networkState.requestId;
-  if (networkState.loading && !force) {
+  // A request id is allocated only when this call actually starts a refresh:
+  // allocating it for a call that then returns early superseded the in-flight
+  // request, which skipped its loading reset and left the page stuck. A
+  // repeated call for the same node joins the in-flight refresh; a call for a
+  // different node supersedes it (the newer request owns `loading`).
+  if (networkState.loading && !force && networkState.loadingNodeId === nodeId) {
     return networkState;
   }
+  const requestId = ++networkState.requestId;
+  networkState.loadingNodeId = nodeId;
   networkState.loading = true;
   networkState.lastError = null;
   let apiSummary = null;
