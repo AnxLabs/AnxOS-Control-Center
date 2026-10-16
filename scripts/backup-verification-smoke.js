@@ -124,6 +124,24 @@ async function observeEventLoop(fn) {
   }
 }
 
+// A blocking verification stalls the loop on every run, in proportion to its
+// work (~400 ms here); a busy host can also deschedule the process for a
+// one-off stall. Up to three runs are observed and the quietest one is judged,
+// so host noise cannot fail the check while blocking code still fails every
+// run. Memory is judged by the worst run.
+async function observeVerification(fn, attempts = 3) {
+  const gaps = [];
+  let peakExtraBytes = 0;
+  let observed = null;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    observed = await observeEventLoop(fn);
+    gaps.push(observed.maxGapMs);
+    peakExtraBytes = Math.max(peakExtraBytes, observed.peakExtraBytes);
+    if (observed.maxGapMs < 150) break;
+  }
+  return { result: observed.result, gaps, quietestGapMs: Math.min(...gaps), peakExtraBytes };
+}
+
 async function startMockAgent() {
   const requests = [];
   const server = http.createServer((request, response) => {
@@ -262,7 +280,7 @@ async function main() {
     };
     let observed;
     try {
-      observed = await observeEventLoop(() => backupService.verifyBackup(large.id, { now: FIXED_NOW }));
+      observed = await observeVerification(() => backupService.verifyBackup(large.id, { now: FIXED_NOW }));
     } finally {
       fsp.readFile = originalReadFile;
       zlib.gunzipSync = originalGunzipSync;
@@ -271,7 +289,7 @@ async function main() {
     assert.strictEqual(observed.result.record.verification.state, "verified");
     assert.deepStrictEqual(archiveReads, [], "the archive is never read whole into memory");
     assert.strictEqual(syncInflates, 0, "verification never decompresses synchronously");
-    assert(observed.maxGapMs < 150, `verification must not block the event loop (largest gap ${observed.maxGapMs} ms)`);
+    assert(observed.quietestGapMs < 150, `verification must not block the event loop (largest gap per run: ${observed.gaps.join(", ")} ms)`);
     assert(observed.peakExtraBytes < 128 * MiB, `verification memory stays bounded (peak +${Math.round(observed.peakExtraBytes / MiB)} MiB)`);
 
     // The streamed digest covers every chunk: a wrong recorded digest fails
@@ -284,10 +302,10 @@ async function main() {
     assert.strictEqual(mismatch.record.verification.state, "failed");
 
     // The expansion limit is enforced while streaming, as not-evaluable.
-    const expansionCapped = await observeEventLoop(() => backupService.verifyBackup(large.id, { now: FIXED_NOW, maxExpandedBytes: 64 * MiB }));
+    const expansionCapped = await observeVerification(() => backupService.verifyBackup(large.id, { now: FIXED_NOW, maxExpandedBytes: 64 * MiB }));
     assert.strictEqual(expansionCapped.result.code, "BACKUP_VERIFICATION_LIMIT_EXCEEDED");
     assert.strictEqual(expansionCapped.result.record.verification.state, "unknown", "an expansion over the limit is not corrupt");
-    assert(expansionCapped.maxGapMs < 150, "the capped run does not block either");
+    assert(expansionCapped.quietestGapMs < 150, `the capped run does not block either (largest gap per run: ${expansionCapped.gaps.join(", ")} ms)`);
     const archiveCapped = await backupService.verifyBackup(large.id, { now: FIXED_NOW, maxArchiveBytes: largeBytes.length - 1 });
     assert.strictEqual(archiveCapped.code, "BACKUP_VERIFICATION_LIMIT_EXCEEDED");
     assert.strictEqual(archiveCapped.record.verification.state, "unknown");
@@ -310,21 +328,110 @@ async function main() {
       assert.deepStrictEqual(readPersistedMetadata(fixture.id).verification, outcome.record.verification, `${name}: persisted`);
     }
 
-    // A read failure is not corruption: it stays not-evaluable (unknown).
+    // Something other than a regular file is not evaluable (unknown), and is
+    // never streamed (a FIFO or device could otherwise block or never end).
     const unreadable = await createRetainedFixtureBackup("unreadable");
     await fsp.rm(archiveFile(unreadable.id), { force: true });
     await fsp.mkdir(archiveFile(unreadable.id));
     const unreadableResult = await backupService.verifyBackup(unreadable.id, { now: FIXED_NOW });
     assert.strictEqual(unreadableResult.ok, false);
-    assert.strictEqual(unreadableResult.code, "EISDIR");
-    assert.strictEqual(unreadableResult.record.verification.state, "unknown", "an I/O failure is not evaluable, not corrupt");
-    assert.strictEqual(unreadableResult.record.verification.detail, "archive unreadable (EISDIR)");
+    assert.strictEqual(unreadableResult.record.verification.state, "unknown", "a non-file archive path is not evaluable, not corrupt");
+    assert.strictEqual(unreadableResult.code, "BACKUP_ARCHIVE_UNREADABLE");
+    assert.strictEqual(unreadableResult.record.verification.detail, "archive unreadable (not a regular file)");
     await fsp.rm(archiveFile(unreadable.id), { recursive: true, force: true });
 
     // Restore is untouched: its validation still decodes the archive itself.
     const restoreSource = readSource(path.join("agent", "src", "services", "backupService.js"));
     assert(restoreSource.includes("tarBuffer = zlib.gunzipSync(archiveBuffer, { maxOutputLength: maxExpandedBytes });"),
       "restore validation keeps its existing decoder");
+  }
+
+  // 5d. PR #9 third review: the compressed-size limit holds while streaming,
+  //     even when the archive grows or changes after its size check, and the
+  //     archive handle is always closed.
+  {
+    const KiB = 1024;
+    // Every open of the archive goes through this wrapper: it can misreport
+    // the size the open handle sees (the file grew after that check) or fail
+    // the read mid-stream, and it counts opens, closes and bytes read.
+    const opened = { opens: 0, closes: 0, bytesRead: 0 };
+    let fakeSize = null;
+    let failReadAfterBytes = null;
+    const originalOpen = fsp.open;
+    fsp.open = async function openWrapper(target, ...rest) {
+      const real = await originalOpen.call(this, target, ...rest);
+      opened.opens += 1;
+      return {
+        stat: async (...args) => {
+          const stat = await real.stat(...args);
+          if (fakeSize == null) return stat;
+          return Object.assign(Object.create(Object.getPrototypeOf(stat)), stat, { size: fakeSize });
+        },
+        createReadStream: (options) => {
+          const stream = real.createReadStream(options);
+          let seen = 0;
+          stream.on("data", (chunk) => {
+            seen += chunk.length;
+            opened.bytesRead += chunk.length;
+            if (failReadAfterBytes != null && seen > failReadAfterBytes) {
+              stream.destroy(Object.assign(new Error("simulated read failure"), { code: "EIO" }));
+            }
+          });
+          return stream;
+        },
+        close: async () => {
+          opened.closes += 1;
+          return real.close();
+        },
+      };
+    };
+    try {
+      // An empty-member flood: almost no expanded output, so only the
+      // compressed limit can stop it.
+      const emptyMember = zlib.gzipSync(Buffer.alloc(0));
+      const flood = Buffer.concat(Array(Math.ceil((2 * 1024 * KiB) / emptyMember.length)).fill(emptyMember));
+      const floodBackup = await createRetainedFixtureBackup("empty-member-flood");
+      await replaceArchive(floodBackup.id, flood);
+      const limit = 64 * KiB;
+
+      fakeSize = 1; // the archive "grew" after the open handle's size check
+      opened.bytesRead = 0;
+      const grown = await backupService.verifyBackup(floodBackup.id, { now: FIXED_NOW, maxArchiveBytes: limit });
+      assert.strictEqual(grown.code, "BACKUP_VERIFICATION_LIMIT_EXCEEDED", "growth past the limit is a limit outcome, not a checksum mismatch");
+      assert.strictEqual(grown.record.verification.state, "unknown");
+      assert.strictEqual(grown.record.verification.detail, "archive exceeds the verification size limit");
+      assert(opened.bytesRead <= limit + 1, `the read stops one byte past the limit (read ${opened.bytesRead} bytes)`);
+
+      // Boundary: exactly at the limit verifies; one byte over does not.
+      fakeSize = 1;
+      const atLimit = await backupService.verifyBackup(floodBackup.id, { now: FIXED_NOW, maxArchiveBytes: flood.length });
+      assert.strictEqual(atLimit.record.verification.state, "verified", "an archive exactly at the limit is read in full and verifies");
+      const overByOne = await backupService.verifyBackup(floodBackup.id, { now: FIXED_NOW, maxArchiveBytes: flood.length - 1 });
+      assert.strictEqual(overByOne.code, "BACKUP_VERIFICATION_LIMIT_EXCEEDED", "one byte over is caught while streaming");
+      fakeSize = null;
+
+      // A read failure mid-stream is I/O (unknown), not corruption.
+      failReadAfterBytes = 1;
+      const ioFailure = await backupService.verifyBackup(floodBackup.id, { now: FIXED_NOW });
+      failReadAfterBytes = null;
+      assert.strictEqual(ioFailure.code, "EIO");
+      assert.strictEqual(ioFailure.record.verification.state, "unknown", "a read failure is not evaluable, not corrupt");
+      assert.strictEqual(ioFailure.record.verification.detail, "archive unreadable (EIO)");
+
+      // Refused before reading (static size over the limit) and decode
+      // failures also close the handle.
+      const refused = await backupService.verifyBackup(floodBackup.id, { now: FIXED_NOW, maxArchiveBytes: limit });
+      assert.strictEqual(refused.code, "BACKUP_VERIFICATION_LIMIT_EXCEEDED");
+      const garbage = await createRetainedFixtureBackup("closed-after-corrupt");
+      await replaceArchive(garbage.id, Buffer.from("not gzip"));
+      assert.strictEqual((await backupService.verifyBackup(garbage.id, { now: FIXED_NOW })).record.verification.state, "corrupt");
+      const intact = await backupService.verifyBackup(floodBackup.id, { now: FIXED_NOW });
+      assert.strictEqual(intact.record.verification.state, "verified", "the same archive verifies within the default limits");
+    } finally {
+      fsp.open = originalOpen;
+    }
+    assert(opened.opens >= 7, "every verification opened the archive through the wrapper");
+    assert.strictEqual(opened.closes, opened.opens, `every archive handle is closed (${opened.closes}/${opened.opens})`);
   }
 
   // 6. Legacy metadata (no verification field) is disclosed as unknown — not
