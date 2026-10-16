@@ -444,8 +444,9 @@ async function main() {
 
   // --- PR #9 review P2: one cached evaluation per endpoint, however run ----
   {
-    const endpoint = makeEndpoint("ep-canon", "lan", "Canonical", "192.168.1.20", 30120);
-    const { service } = createHarness({ endpoints: [endpoint] });
+    const endpoint = makeEndpoint("ep-canon", "lan", "Canonical", "192.168.1.20", 30120, { computerId: "node-1" });
+    const legacy = makeEndpoint("ep-legacy", "lan", "Legacy", "192.168.1.21", 30120);
+    const { service } = createHarness({ endpoints: [endpoint, legacy] });
     // endpoints:test runs without a service id
     const tested = await service.runDiagnostics({ nodeId: "node-1", endpointId: "ep-canon", refresh: true });
     assert.equal(service.getCachedDiagnostics({ nodeId: "node-1", serviceId: SERVICE_ID, endpointId: "ep-canon" }).cached, false,
@@ -453,17 +454,90 @@ async function main() {
     const canonical = service.getCachedEndpointDiagnostics({ nodeId: "node-1", endpointId: "ep-canon" });
     assert.equal(canonical.cached, true, "the canonical lookup finds the endpoint test");
     assert.equal(canonical.overall.state, tested.overall.state);
-    const [projected] = service.projectEndpointHealth([{ ...endpoint, computerId: "node-1" }]);
+    const [projected] = service.projectEndpointHealth([{ ...endpoint }]);
     assert.equal(projected.health.state, tested.overall.state, "the evaluation is projected onto the record");
     assert.equal(projected.health.status, tested.overall.state);
     assert.equal(projected.lastCheckedAt, canonical.cachedAt);
-    const [viaFallback] = service.projectEndpointHealth([{ id: "ep-canon" }], { fallbackNodeId: "node-1" });
-    assert.equal(viaFallback.health.state, tested.overall.state, "the list's node id is used when the record has none");
+    const legacyTested = await service.runDiagnostics({ nodeId: "node-1", endpointId: "ep-legacy", refresh: true });
+    const [viaFallback] = service.projectEndpointHealth([{ ...legacy }], { fallbackNodeId: "node-1" });
+    assert.equal(viaFallback.health.state, legacyTested.overall.state, "the list's node id is used when the record has none");
     const [never] = service.projectEndpointHealth([{ id: "ep-never", computerId: "node-1" }]);
     assert.equal(never.health, undefined, "an endpoint never evaluated gets no fabricated health");
     const [otherNode] = service.projectEndpointHealth([{ ...endpoint, computerId: "node-2" }]);
     assert.equal(otherNode.health, undefined, "evaluations are per node");
     assert.equal(service.getCachedEndpointDiagnostics({ nodeId: "node-1" }).cached, false, "no endpoint id: not evaluated");
+  }
+
+  // --- PR #9 second review P2-A: an edited endpoint never shows the health
+  //     of the target it pointed at before the edit (within the cache TTL) ---
+  {
+    const original = makeEndpoint("ep-edit", "lan", "Edited", "192.168.1.30", 30120, { computerId: "node-1" });
+    const bystander = makeEndpoint("ep-other", "lan", "Other", "192.168.1.31", 30120, { computerId: "node-1" });
+    const endpoints = [{ ...original }, { ...bystander }];
+    const { service, calls } = createHarness({ endpoints, cacheTtlMs: 30000 });
+    const tested = await service.runDiagnostics({ nodeId: "node-1", endpointId: "ep-edit", refresh: true });
+    await service.runDiagnostics({ nodeId: "node-1", serviceId: SERVICE_ID, endpointId: "ep-edit", refresh: true });
+    await service.runDiagnostics({ nodeId: "node-1", endpointId: "ep-other", refresh: true });
+    const runs = calls.endpoints;
+
+    const [unchanged] = service.projectEndpointHealth([{ ...original }]);
+    assert.equal(unchanged.health.state, tested.overall.state, "the tested target shows its result");
+    const [renamed] = service.projectEndpointHealth([{ ...original, name: "Renamed", notes: "n" }]);
+    assert.equal(renamed.health.state, tested.overall.state, "a rename does not change the target");
+
+    const edits = {
+      host: { host: "192.168.1.99" },
+      port: { port: 30121 },
+      protocol: { protocol: "udp" },
+      node: { computerId: "node-2" },
+      service: { serviceId: "svc-other" },
+      type: { type: "public" },
+    };
+    for (const [field, change] of Object.entries(edits)) {
+      const edited = { ...original, ...change };
+      const [projectedEdit] = service.projectEndpointHealth([edited]);
+      assert.equal(projectedEdit.health, undefined, `${field} edit: no health from the old target is projected`);
+      assert.equal(projectedEdit.lastCheckedAt, undefined, `${field} edit: no stale lastCheckedAt`);
+      const canonical = service.getCachedEndpointDiagnostics({ nodeId: "node-1", endpointId: "ep-edit", endpoint: edited });
+      assert.equal(canonical.cached, false, `${field} edit: the canonical lookup refuses the old target`);
+      assert.equal(canonical.reason, "NOT_EVALUATED", `${field} edit: reads as missing (not evaluated), not as unknown health`);
+      const exact = service.getCachedDiagnostics({ nodeId: "node-1", endpointId: "ep-edit", endpoint: edited });
+      assert.equal(exact.cached, false, `${field} edit: the exact-key read refuses the old target`);
+      assert.equal(exact.reason, "NOT_EVALUATED");
+      // Re-checked after every edit: a refused read for one record never
+      // removes the entry a still-matching record is entitled to (except the
+      // exact-key read, which drops the mismatched entry it was asked about).
+      const stillCanonical = service.getCachedEndpointDiagnostics({ nodeId: "node-1", endpointId: "ep-edit", endpoint: original });
+      assert.equal(stillCanonical.cached, true, `${field} edit: the unedited record still reads its own result`);
+    }
+    assert.equal(calls.endpoints, runs, "cache reads never trigger a run");
+
+    // Service-level reads (no record supplied) keep the existing behaviour.
+    const serviceRead = service.getCachedDiagnostics({ nodeId: "node-1", serviceId: SERVICE_ID, endpointId: "ep-edit" });
+    assert.equal(serviceRead.cached, true, "a read without a record is not identity-checked");
+    // Supplying the stale record to the exact-key read drops that entry.
+    const refused = service.getCachedDiagnostics({ nodeId: "node-1", serviceId: SERVICE_ID, endpointId: "ep-edit", endpoint: { ...original, host: "10.0.0.9" } });
+    assert.equal(refused.cached, false);
+    assert.equal(service.getCachedDiagnostics({ nodeId: "node-1", serviceId: SERVICE_ID, endpointId: "ep-edit" }).cached, false,
+      "the exact-key entry that described another target is dropped");
+
+    // A run against the edited target is cached for the edited record.
+    endpoints[0] = { ...original, host: "192.168.1.99" };
+    const retested = await service.runDiagnostics({ nodeId: "node-1", endpointId: "ep-edit", refresh: true });
+    const [fresh] = service.projectEndpointHealth([{ ...endpoints[0] }]);
+    assert.equal(fresh.health.state, retested.overall.state, "the edited target shows its own new result");
+    const [old] = service.projectEndpointHealth([{ ...original }]);
+    assert.equal(old.health, undefined, "and the old target's record no longer matches it");
+
+    // Endpoint-scoped invalidation drops every segment for that endpoint only.
+    await service.runDiagnostics({ nodeId: "node-1", serviceId: SERVICE_ID, endpointId: "ep-edit", refresh: true });
+    const dropped = service.invalidateDiagnostics({ endpointId: "ep-edit" });
+    assert.equal(dropped.invalidated, 2, "both the endpoint-test and service-scoped entries are dropped");
+    assert.equal(service.getCachedEndpointDiagnostics({ nodeId: "node-1", endpointId: "ep-edit" }).cached, false);
+    assert.equal(service.getCachedEndpointDiagnostics({ nodeId: "node-1", endpointId: "ep-other", endpoint: { ...bystander } }).cached, true,
+      "other endpoints keep their results");
+    assert.equal(service.invalidateDiagnostics({ endpointId: "ep-other", nodeId: "node-9" }).invalidated, 0, "a node filter narrows the drop");
+    assert.equal(service.invalidateDiagnostics({ endpointId: "ep-other", nodeId: "node-1" }).invalidated, 1);
   }
 
   console.log("connectivity-diagnostics-service-smoke: all assertions passed.");

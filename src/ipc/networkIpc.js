@@ -4,6 +4,7 @@ const {
   createEndpoint,
   deleteEndpoint,
   discoverEndpoints,
+  getEndpoint,
   getEndpointSummary,
   listEndpoints,
   setEndpointEnabled,
@@ -126,6 +127,15 @@ function invokeNetworkOperation(operation) {
         suggestion: "Review the connectivity diagnostics, correct the reported problem, then retry.",
       });
     });
+}
+
+function currentEndpointRecord(endpointId) {
+  if (typeof endpointId !== "string" || !endpointId.trim()) return null;
+  try {
+    return getEndpoint(endpointId.trim());
+  } catch {
+    return null;
+  }
 }
 
 function buildEndpointFilter(payload = {}) {
@@ -262,10 +272,13 @@ function registerNetworkIpc() {
     requirePermission("endpoints:read", payload.nodeId);
     requireNodeContext(payload, "connectivity diagnostics");
     audit({ action: "connectivity.getDiagnostics", target: payload.endpointId || payload.nodeId || null });
+    // The current record lets the cache refuse a result that tested a target
+    // the endpoint no longer points at (edited within the cache lifetime).
     return connectivityDiagnosticsService.getCachedDiagnostics({
       nodeId: payload.nodeId,
       serviceId: payload.serviceId,
       endpointId: payload.endpointId,
+      endpoint: currentEndpointRecord(payload.endpointId),
     });
   }));
   ipcMain.handle("connectivity:runDiagnostics", async (_, payload = {}) => invokeExpectedNetworkOperation("connectivity:runDiagnostics", () => {

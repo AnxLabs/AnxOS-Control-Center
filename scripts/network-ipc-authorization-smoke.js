@@ -105,6 +105,11 @@ const securityDouble = {
 };
 
 const endpointServiceDouble = {
+  // The current record, read so cached diagnostics are checked against it.
+  getEndpoint: (id) => {
+    if (id !== "ep-1") throw Object.assign(new Error("Endpoint not found."), { code: "ENDPOINT_NOT_FOUND" });
+    return { id: "ep-1", host: "anx.example", port: 25565 };
+  },
   listEndpoints: recorder("listEndpoints", [{ id: "ep-1", host: "anx.example", port: 25565 }]),
   getEndpointSummary: recorder("getEndpointSummary", { total: 1, enabled: 1, degraded: false }),
   createEndpoint: recorder("createEndpoint", (input) => ({ id: "ep-new", ...input })),
@@ -341,7 +346,9 @@ async function main() {
     assert.deepStrictEqual(await args("endpoints:setEnabled", "setEndpointEnabled"), ["ep-1", false]);
     assert.deepStrictEqual(await args("endpoints:discover", "discoverEndpoints"), [{ nodeId: "node-a", serviceId: "svc-1" }]);
     assert.deepStrictEqual(await args("endpoints:test", "runDiagnostics"), [{ nodeId: "node-a", endpointId: "ep-1", refresh: true }]);
-    assert.deepStrictEqual(await args("connectivity:getDiagnostics", "getCachedDiagnostics"), [{ nodeId: "node-a", serviceId: "svc-1", endpointId: "ep-1" }]);
+    assert.deepStrictEqual(await args("connectivity:getDiagnostics", "getCachedDiagnostics"),
+      [{ nodeId: "node-a", serviceId: "svc-1", endpointId: "ep-1", endpoint: { id: "ep-1", host: "anx.example", port: 25565 } }],
+      "the cached read is checked against the endpoint's current record");
     assert.deepStrictEqual(await args("connectivity:runDiagnostics", "runDiagnostics"), [{ nodeId: "node-a", serviceId: "svc-1", endpointId: "ep-1", refresh: true }]);
     assert.deepStrictEqual(await args("providers:getStatus", "getProviderSnapshot"), [{ nodeId: "node-a" }]);
     assert.deepStrictEqual(await args("providers:sync", "syncTunnels"), [{ nodeId: "node-a" }]);

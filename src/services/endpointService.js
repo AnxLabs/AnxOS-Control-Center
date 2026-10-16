@@ -293,6 +293,8 @@ const defaultDeps = Object.freeze({
   listInstances: (options) => defaultListInstances(options || {}),
   getNode: (nodeId) => defaultGetNode(nodeId),
   probeLocalListeners: (options) => defaultProbeLocalListeners(options),
+  // Drops cached diagnostics for one endpoint (lazy: no load-time cycle).
+  invalidateEndpointDiagnostics: (endpointId) => require("./connectivityDiagnosticsService").invalidateDiagnostics({ endpointId }),
 });
 
 function createEndpointService({ store, deps } = {}) {
@@ -386,15 +388,33 @@ function createEndpointService({ store, deps } = {}) {
     return serviceStore.upsert(stripManagementOwnedFields(input));
   }
 
+  // A change to what an endpoint points at (endpointKey: computer, type,
+  // host, port, protocol, service) makes its cached diagnostics describe a
+  // different target, so they are dropped; a rename keeps them.
+  function invalidateIfTargetChanged(before, after) {
+    if (!isPlainObject(before)) return;
+    if (isPlainObject(after) && endpointKey(after) === endpointKey(before)) return;
+    try {
+      resolvedDeps.invalidateEndpointDiagnostics(before.id);
+    } catch {
+      // Cached-read identity checks still refuse the stale result.
+    }
+  }
+
   function updateEndpoint(id, patch = {}) {
     const existing = requireEndpoint(id);
     const sanitizedPatch = stripManagementOwnedFields(isPlainObject(patch) ? patch : {});
     const merged = { ...existing, ...sanitizedPatch, id: existing.id };
-    return serviceStore.upsert(merged);
+    const stored = serviceStore.upsert(merged);
+    invalidateIfTargetChanged(existing, stored);
+    return stored;
   }
 
   function deleteEndpoint(id) {
-    return serviceStore.remove(id);
+    const existing = serviceStore.get(id);
+    const removed = serviceStore.remove(id);
+    invalidateIfTargetChanged(existing, null);
+    return removed;
   }
 
   function setEndpointEnabled(id, enabled) {
@@ -416,7 +436,9 @@ function createEndpointService({ store, deps } = {}) {
     const next = { ...record, id: record.id };
     if (hasService) next.serviceId = input.serviceId ?? null;
     if (hasComputer) next.computerId = input.computerId ?? null;
-    return serviceStore.upsert(next);
+    const stored = serviceStore.upsert(next);
+    invalidateIfTargetChanged(record, stored);
+    return stored;
   }
 
   function upsertProviderEndpoint(payload = {}) {

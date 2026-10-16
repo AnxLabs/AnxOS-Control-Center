@@ -25,6 +25,7 @@ const diagnosticsModel = require("../shared/connectivityDiagnostics");
 const healthModel = require("../shared/healthModel");
 const { buildConnectivityGraph } = require("../shared/connectivityGraph");
 const providerContract = require("../shared/providerAdapterContract");
+const { endpointKey } = require("../shared/endpointModel");
 
 const DEFAULT_CACHE_TTL_MS = 30000;
 const DEFAULT_PROBE_TIMEOUT_MS = 2500;
@@ -830,7 +831,15 @@ function createConnectivityDiagnosticsService(config = {}) {
       graph,
     });
 
-    cache.set(cacheKey({ nodeId, serviceId, endpointId }), { result, cachedAt: checkedAt, storedAt: nowMs() });
+    // The tested target (endpointKey: computer, type, host, port, protocol,
+    // service) is stored with the result, so an endpoint edited afterwards
+    // (same id, different target) can never be shown this result.
+    cache.set(cacheKey({ nodeId, serviceId, endpointId }), {
+      result,
+      cachedAt: checkedAt,
+      storedAt: nowMs(),
+      targetKey: endpoint ? endpointKey(endpoint) : null,
+    });
     lastRunAt = checkedAt;
     return result;
   }
@@ -854,11 +863,21 @@ function createConnectivityDiagnosticsService(config = {}) {
     return run;
   }
 
+  // An entry describes the endpoint a caller holds only if it tested that
+  // endpoint's current target. Without a record to compare (service-level
+  // reads) the entry stands; a mismatch is "not evaluated", never "unknown".
+  function entryMatchesEndpoint(entry, endpoint) {
+    if (!isObject(endpoint)) return true;
+    return entry.targetKey != null && entry.targetKey === endpointKey(endpoint);
+  }
+
   // Cache-only read. Returns the cached result when the target was evaluated
   // within the TTL, otherwise a sentinel: never a fabricated health state.
   function getCachedDiagnostics(target = {}) {
-    const entry = readCache(cacheKey(target));
-    if (entry) return cachedResultView(entry);
+    const key = cacheKey(target);
+    const entry = readCache(key);
+    if (entry && entryMatchesEndpoint(entry, isObject(target) ? target.endpoint : null)) return cachedResultView(entry);
+    if (entry) cache.delete(key);
     return { cached: false, stale: true, state: "unknown", reason: "NOT_EVALUATED" };
   }
 
@@ -878,7 +897,8 @@ function createConnectivityDiagnosticsService(config = {}) {
       if (first < 0 || last === first) continue;
       if (key.slice(0, first) !== nodeId || key.slice(last + 1) !== endpointId) continue;
       const entry = readCache(key);
-      if (entry && (!best || entry.storedAt > best.storedAt)) best = entry;
+      if (!entry || !entryMatchesEndpoint(entry, input.endpoint)) continue;
+      if (!best || entry.storedAt > best.storedAt) best = entry;
     }
     return best ? cachedResultView(best) : { cached: false, stale: true, state: "unknown", reason: "NOT_EVALUATED" };
   }
@@ -892,7 +912,7 @@ function createConnectivityDiagnosticsService(config = {}) {
       const endpointId = normalizeOptionalString(endpoint.id ?? endpoint.endpointId);
       if (endpointId == null) return endpoint;
       const nodeId = normalizeOptionalString(endpoint.computerId ?? endpoint.nodeId) || normalizeOptionalString(fallbackNodeId);
-      const cached = getCachedEndpointDiagnostics({ nodeId, endpointId });
+      const cached = getCachedEndpointDiagnostics({ nodeId, endpointId, endpoint });
       const state = cached && cached.cached === true ? normalizeOptionalString(cached.overall && cached.overall.state) : null;
       if (!state) return endpoint;
       return {
@@ -904,11 +924,24 @@ function createConnectivityDiagnosticsService(config = {}) {
   }
 
   // invalidateDiagnostics({ nodeId, serviceId }) drops every cached target for
-  // that node (optionally narrowed to one service); no argument drops all.
+  // that node (optionally narrowed to one service); { endpointId } drops that
+  // endpoint's entries (optionally on one node); no argument drops all.
   function invalidateDiagnostics(target = {}) {
     const input = isObject(target) ? target : {};
     const wantedNodeId = normalizeOptionalString(input.nodeId);
     const wantedServiceId = normalizeOptionalString(input.serviceId);
+    const wantedEndpointId = normalizeOptionalString(input.endpointId);
+    if (wantedEndpointId != null) {
+      // One endpoint, on every node and service segment it was evaluated under.
+      let invalidated = 0;
+      for (const key of Array.from(cache.keys())) {
+        if (key.slice(key.lastIndexOf("|") + 1) !== wantedEndpointId) continue;
+        if (wantedNodeId != null && key.slice(0, key.indexOf("|")) !== wantedNodeId) continue;
+        cache.delete(key);
+        invalidated += 1;
+      }
+      return { invalidated };
+    }
     if (wantedNodeId == null) {
       const count = cache.size;
       cache.clear();

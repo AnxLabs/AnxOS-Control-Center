@@ -481,6 +481,65 @@ const WILDCARD_INVENTORY = {
     assert.strictEqual(store.list({ serviceId: "svc-voice" }).length, 0);
   });
 
+  await test("PR #9 second review P2-A: target-changing edits invalidate cached diagnostics", async () => {
+    const invalidated = [];
+    const { service } = makeWorld({ invalidateEndpointDiagnostics: (id) => invalidated.push(id) });
+    const created = service.createEndpoint(baseInput());
+    assert.deepStrictEqual(invalidated, [], "creating an endpoint has nothing to invalidate");
+
+    service.updateEndpoint(created.id, { name: "Renamed", notes: "only labels" });
+    service.setEndpointEnabled(created.id, false);
+    assert.deepStrictEqual(invalidated, [], "renames and enable toggles keep the target's diagnostics");
+
+    const changes = [
+      ["host", { host: "192.168.1.77" }],
+      ["port", { port: 30199 }],
+      ["protocol", { protocol: "udp" }],
+      ["node", { computerId: "node-z" }],
+      ["service", { serviceId: "svc-z" }],
+    ];
+    for (const [field, change] of changes) {
+      invalidated.length = 0;
+      service.updateEndpoint(created.id, change);
+      assert.deepStrictEqual(invalidated, [created.id], `a ${field} change invalidates that endpoint`);
+    }
+
+    invalidated.length = 0;
+    service.associateEndpoint({ endpointId: created.id, serviceId: "svc-z" });
+    assert.deepStrictEqual(invalidated, [], "re-associating with the same service is not a change");
+    service.associateEndpoint({ endpointId: created.id, serviceId: "svc-y", computerId: "node-y" });
+    assert.deepStrictEqual(invalidated, [created.id], "associating with another service or node invalidates");
+
+    invalidated.length = 0;
+    service.deleteEndpoint(created.id);
+    assert.deepStrictEqual(invalidated, [created.id], "deleting an endpoint invalidates it");
+    assert.throws(() => service.deleteEndpoint("ep-never-existed"), /not found/i);
+    assert.deepStrictEqual(invalidated, [created.id], "deleting an unknown id invalidates nothing");
+  });
+
+  await test("PR #9 second review P2-A: an invalidation failure never fails the edit", async () => {
+    const { service } = makeWorld({ invalidateEndpointDiagnostics: () => { throw new Error("diagnostics unavailable"); } });
+    const created = service.createEndpoint(baseInput());
+    const updated = service.updateEndpoint(created.id, { host: "192.168.1.78" });
+    assert.strictEqual(updated.host, "192.168.1.78", "the edit is stored");
+  });
+
+  await test("PR #9 second review P2-A: the default dep drops the real diagnostics cache entry", async () => {
+    const diagnostics = require("../src/services/connectivityDiagnosticsService");
+    const { service } = makeWorld();
+    const created = service.createEndpoint(baseInput());
+    const originalInvalidate = diagnostics.invalidateDiagnostics;
+    const seen = [];
+    // Observe the module-level call without replacing the cache semantics.
+    diagnostics.invalidateDiagnostics = (target) => { seen.push(target); return originalInvalidate(target); };
+    try {
+      service.updateEndpoint(created.id, { port: 30177 });
+    } finally {
+      diagnostics.invalidateDiagnostics = originalInvalidate;
+    }
+    assert.deepStrictEqual(seen, [{ endpointId: created.id }]);
+  });
+
   if (failures.length > 0) {
     console.error(`endpoint-service smoke: ${failures.length} failed, ${checks} passed`);
     for (const failure of failures) console.error(`  FAIL ${failure}`);

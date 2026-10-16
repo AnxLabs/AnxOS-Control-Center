@@ -834,7 +834,8 @@ async function phaseReviewRegressions() {
     },
   });
   const state = await collector();
-  assert.deepStrictEqual(canonicalReads, [{ nodeId: "node-r", endpointId: "ep-r" }], "the collector uses the canonical endpoint lookup");
+  assert.deepStrictEqual(canonicalReads, [{ nodeId: "node-r", endpointId: "ep-r", endpoint: { id: "ep-r", computerId: "node-r", serviceId: "svc-r" } }],
+    "the collector uses the canonical endpoint lookup, with the current record so a stale target is refused");
   assert.strictEqual(state.endpoints[0].health.state, "failed", "the endpoint test result reaches the evaluator");
 }
 
