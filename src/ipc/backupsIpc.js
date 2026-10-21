@@ -17,6 +17,7 @@ const {
   saveBackupDestination,
   saveBackupSchedule,
 } = require("../services/serviceRouter");
+const agentClient = require("../services/agentClient");
 const { audit, requirePermission } = require("../services/securityService");
 const { wrapExpectedAgentRead } = require("./expectedAgentError");
 const { requireNodeContext } = require("./nodeContext");
@@ -120,6 +121,17 @@ function registerBackupsIpc() {
     requirePermission("backups:restore", payload.backupId);
     audit({ action: "backup.restore", target: payload.backupId });
     return restoreBackup(payload);
+  }));
+  // Verification persists an observed state on the Agent's record, so it is a
+  // backup-scoped write. The node resolves through agentClient.forNode — the
+  // same node-scoped agent resolution the create path uses — so a non-Agent
+  // target (the application host) is refused with the existing NODE_NOT_AGENT
+  // shape: there is no local backup store to verify against.
+  ipcMain.handle("backups:verify", async (_, payload = {}) => invokeBackupOperation(() => {
+    requireNodeContext(payload, "backup verification");
+    requirePermission("backups:verify", payload.backupId);
+    audit({ action: "backup.verify", target: `${payload.nodeId}:${payload.backupId}` });
+    return agentClient.verifyBackup(payload.backupId, agentClient.forNode(payload.nodeId).target.config);
   }));
   ipcMain.handle("backups:delete", async (_, payload = {}) => invokeBackupOperation(() => {
     requireNodeContext(payload, "backup deletion");

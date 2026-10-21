@@ -683,6 +683,151 @@ const IPC_FAMILIES = [
     allow: ["owner-unlocked"],
     channels: ["workload:transfer", "workload:transferPreview"],
   },
+  // ---------------------------------------------------------------------------
+  // V2-K endpoint registry / connectivity / providers / telemetry /
+  // notifications wave. Every channel runs the same local-owner+permission
+  // guard chain as alerts: requireLocalOwnerAuthenticated then
+  // requirePermission, with requireNodeContext on the node-scoped channels.
+  // Harness note: actor probes live in the DESKTOP_PROBES table in
+  // scripts/permission-matrix-smoke.js; each family below needs its probe row
+  // there (and its module registration in that smoke) before the harness can
+  // exercise the allow path. Until then the smoke reports the missing probe
+  // for the family instead of silently skipping coverage, and the tier / guard
+  // / allow cells below are still cross-checked against the real role tables
+  // by crossCheckTableAgainstRealFunctions().
+  // ---------------------------------------------------------------------------
+  {
+    // Endpoint registry reads (src/ipc/networkIpc.js). The registry is
+    // desktop-local; every observability tier reads it local-owner gated like
+    // the node-scoped families, and a list needs no node context.
+    id: "endpoints-read",
+    tier: "endpoints:read",
+    guard: "local-owner+permission",
+    allow: ["owner-unlocked", "operator-unlocked", "viewer-unlocked"],
+    channels: ["endpoints:list"],
+  },
+  {
+    // Endpoint registry writes: create/update/delete/toggle/associate at the
+    // endpoints:write tier (Operator/Viewer are read-only there).
+    id: "endpoints-write",
+    tier: "endpoints:write",
+    guard: "local-owner+permission",
+    allow: ["owner-unlocked"],
+    channels: [
+      "endpoints:create", "endpoints:update", "endpoints:delete",
+      "endpoints:setEnabled", "endpoints:associate",
+    ],
+  },
+  {
+    // Endpoint probe: runs connectivity diagnostics against a selected node,
+    // so it carries diagnostics:run and the node-scoped guard order.
+    id: "endpoints-test",
+    tier: "diagnostics:run",
+    guard: "local-owner+permission",
+    allow: ["owner-unlocked", "operator-unlocked"],
+    channels: ["endpoints:test"],
+  },
+  {
+    // Cached connectivity diagnostics read (cache-only; the IPC never probes).
+    id: "connectivity-read",
+    tier: "endpoints:read",
+    guard: "local-owner+permission",
+    allow: ["owner-unlocked", "operator-unlocked", "viewer-unlocked"],
+    channels: ["connectivity:getDiagnostics"],
+  },
+  {
+    // On-demand connectivity diagnostics run against a selected node.
+    id: "connectivity-run",
+    tier: "diagnostics:run",
+    guard: "local-owner+permission",
+    allow: ["owner-unlocked", "operator-unlocked"],
+    channels: ["connectivity:runDiagnostics"],
+  },
+  {
+    // Provider status read: providerIntegrationService degrades an unreachable
+    // Agent to an unknown provider state, so the tier stays read-only.
+    id: "providers-read",
+    tier: "providers:read",
+    guard: "local-owner+permission",
+    allow: ["owner-unlocked", "operator-unlocked", "viewer-unlocked"],
+    channels: ["providers:getStatus"],
+  },
+  {
+    // Provider tunnel sync: reconciles canonical tunnels into endpoint records
+    // (idempotent; stale provider endpoints are reported, never deleted).
+    id: "providers-sync",
+    tier: "providers:sync",
+    guard: "local-owner+permission",
+    allow: ["owner-unlocked"],
+    channels: ["providers:sync"],
+  },
+  {
+    // Sampled telemetry reads from the desktop-local bounded store.
+    id: "telemetry-read",
+    tier: "telemetry:read",
+    guard: "local-owner+permission",
+    allow: ["owner-unlocked", "operator-unlocked", "viewer-unlocked"],
+    channels: ["telemetry:getSummary", "telemetry:getSeries"],
+  },
+  {
+    id: "telemetry-export",
+    tier: "telemetry:export",
+    guard: "local-owner+permission",
+    allow: ["owner-unlocked"],
+    channels: ["telemetry:export"],
+  },
+  {
+    // Telemetry clear: destructive store reset, Owner/Admin only.
+    id: "telemetry-manage",
+    tier: "telemetry:manage",
+    guard: "local-owner+permission",
+    allow: ["owner-unlocked"],
+    channels: ["telemetry:clear"],
+  },
+  {
+    // Operational notification journal read: events are derived from per-node
+    // data the same actors may already read, so the journal stays at the
+    // node-read tier.
+    id: "notifications-read",
+    tier: "nodes:read",
+    guard: "local-owner+permission",
+    allow: ["owner-unlocked", "operator-unlocked", "viewer-unlocked"],
+    channels: ["notifications:list"],
+  },
+  {
+    // V2-K backup verification (src/ipc/backupsIpc.js). Persisting an observed
+    // verification state on the Agent's backup record is a backup-scoped write,
+    // so it sits above the row-marked plain backup reads; Operator/User hold
+    // backups:verify (see ROLE_PERMISSIONS), Viewer does not.
+    id: "backups-verify",
+    tier: "backups:verify",
+    guard: "permission",
+    allow: ["owner-unlocked", "operator-unlocked"],
+    channels: ["backups:verify"],
+  },
+  {
+    // V2-K endpoint discovery (src/ipc/networkIpc.js): reads the node's live
+    // listener inventory and reconciles it into endpoint records, so it is a
+    // node-scoped endpoints:write operation. Guard chain is the same
+    // local-owner+permission order as its siblings, with requireNodeContext
+    // after the permission gate.
+    id: "endpoints-discover",
+    tier: "endpoints:write",
+    guard: "local-owner+permission",
+    allow: ["owner-unlocked"],
+    channels: ["endpoints:discover"],
+  },
+  {
+    // V2-K computer summary read (src/ipc/computersIpc.js): composes per-node
+    // identity, endpoint, telemetry and cached-diagnostics state, so it stays
+    // at the nodes:read tier; nodeId is optional (defaults to the selected
+    // node or the application host), hence no node-context requirement.
+    id: "computers-read",
+    tier: "nodes:read",
+    guard: "local-owner+permission",
+    allow: ["owner-unlocked", "operator-unlocked", "viewer-unlocked"],
+    channels: ["computers:getSummary"],
+  },
 ];
 
 // ---------------------------------------------------------------------------
