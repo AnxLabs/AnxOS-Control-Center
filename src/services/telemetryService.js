@@ -476,7 +476,7 @@ function createTelemetryService(options = {}) {
     if (!rows) return;
 
     for (const row of normalizeEndpointHealth(rows)) {
-      const key = telemetryStore.endpointSeriesKey(row.endpointId, "available");
+      const key = telemetryStore.endpointSeriesKey(node.id, row.endpointId, "available");
       if (!ensureSeries(key, "endpoint", { label: "Endpoint availability", unit: "bool", nodeId: node.id }, counters)) continue;
       const state = row.state.toLowerCase();
       if (state === "healthy") pushValue(key, sampledAt, 1);

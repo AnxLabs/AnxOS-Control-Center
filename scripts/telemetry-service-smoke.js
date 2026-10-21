@@ -50,7 +50,7 @@ function expectedHealthyKeys() {
   for (const nodeId of ["application-host", "node-a"]) {
     for (const metric of HOST_METRICS) keys.push(store.hostSeriesKey(nodeId, metric));
     for (const metric of INSTANCE_SERIES_METRICS) keys.push(store.instanceSeriesKey(nodeId, "inst-1", metric));
-    keys.push(store.endpointSeriesKey(`ep-${nodeId}`, "available"));
+    keys.push(store.endpointSeriesKey(nodeId, `ep-${nodeId}`, "available"));
     keys.push(store.providerSeriesKey(nodeId, `playit-${nodeId}`, "connected"));
   }
   return keys.sort();
@@ -154,11 +154,11 @@ async function main() {
     assert.strictEqual(downRow.samples[0].value, 0, "a real zero must stay a present value");
     assert.strictEqual(downRow.samples[0].missing, null);
 
-    const unknownRow = missingService.getTelemetrySeries({ keys: [store.endpointSeriesKey("ep-unknown", "available")] }).series[0];
+    const unknownRow = missingService.getTelemetrySeries({ keys: [store.endpointSeriesKey("application-host", "ep-unknown", "available")] }).series[0];
     assert.strictEqual(unknownRow.samples[0].value, null);
     assert.strictEqual(unknownRow.samples[0].missing, "unknown", "unknown endpoint state is a gap, never a zero");
 
-    const failedRow = missingService.getTelemetrySeries({ keys: [store.endpointSeriesKey("ep-failed", "available")] }).series[0];
+    const failedRow = missingService.getTelemetrySeries({ keys: [store.endpointSeriesKey("application-host", "ep-failed", "available")] }).series[0];
     assert.strictEqual(failedRow.samples[0].value, 0);
     assert.strictEqual(failedRow.samples[0].missing, null);
 
@@ -441,7 +441,7 @@ async function main() {
         delete deps.getEndpointHealth; // exercise the production default path
         const service = telemetryService.createTelemetryService({ deps, storePath: path.join(root, "endpoint-default.json"), now });
         await service.sampleOnce();
-        const testedKey = store.endpointSeriesKey("ep-tested-node-a", "available");
+        const testedKey = store.endpointSeriesKey("node-a", "ep-tested-node-a", "available");
         const nodeScoped = service.getTelemetrySeries({ nodeId: "node-a" }).series.map((row) => row.key);
         assert(nodeScoped.includes(testedKey), "the default path records endpoint series, readable node-scoped");
         assert(!service.getTelemetrySeries({}).series.some((row) => row.key.includes("ep-never")), "never-evaluated endpoints record nothing");
@@ -450,6 +450,36 @@ async function main() {
       } finally {
         Module._load = originalLoad;
       }
+    }
+
+    // --- PR #9 repair loop round 5: an endpoint moved to another node gets
+    //     that node's series; its new samples never join the old node's ---
+    {
+      let endpointNode = "node-a";
+      const deps = createFakeDeps({
+        listNodes: async () => ({
+          nodes: [
+            { id: "application-host", kind: "application-host" },
+            { id: "node-a", kind: "agent", enabled: true },
+            { id: "node-b", kind: "agent", enabled: true },
+          ],
+        }),
+        getEndpointHealth: async ({ nodeId }) => (nodeId === endpointNode ? [{ endpointId: "ep-moved", state: "healthy" }] : []),
+      });
+      const service = telemetryService.createTelemetryService({ deps, storePath: path.join(root, "endpoint-moved.json"), now });
+      await service.sampleOnce();
+      endpointNode = "node-b"; // reassociated: same endpoint id, new computer
+      clock += 60 * 1000;
+      await service.sampleOnce();
+      const keyA = store.endpointSeriesKey("node-a", "ep-moved", "available");
+      const keyB = store.endpointSeriesKey("node-b", "ep-moved", "available");
+      const onA = service.getTelemetrySeries({ nodeId: "node-a" }).series.find((row) => row.key === keyA);
+      const onB = service.getTelemetrySeries({ nodeId: "node-b" }).series.find((row) => row.key === keyB);
+      assert(onB, "the moved endpoint is visible on its new node");
+      assert.strictEqual(onB.samples.length, 1, "the new node's series holds only samples taken there");
+      assert(onA, "the old node keeps the history taken there");
+      assert.strictEqual(onA.samples.length, 1, "no sample taken on the new node joins the old node's series");
+      assert(!service.getTelemetrySeries({ nodeId: "node-a" }).series.some((row) => row.key === keyB), "node-scoped reads do not mix the series");
     }
 
     console.log("Telemetry service smoke checks passed.");

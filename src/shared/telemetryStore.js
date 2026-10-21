@@ -698,8 +698,11 @@ function instanceSeriesKey(nodeId, instanceId, metric) {
   return buildSeriesKey("instance", [nodeId, instanceId, metric]);
 }
 
-function endpointSeriesKey(endpointId, metric) {
-  return buildSeriesKey("endpoint", [endpointId, metric]);
+// Per node, like host/instance/provider series: an endpoint moved to another
+// computer keeps its id, and its samples there must not join the series
+// still tagged with the old node.
+function endpointSeriesKey(nodeId, endpointId, metric) {
+  return buildSeriesKey("endpoint", [nodeId, endpointId, metric]);
 }
 
 function providerSeriesKey(nodeId, providerId, metric) {

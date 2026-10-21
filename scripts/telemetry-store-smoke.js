@@ -404,7 +404,8 @@ assert.strictEqual(bigExport.truncated, true, "a bounded export is marked trunca
 // Key helpers: deterministic, character-safe, registration-safe.
 assert.strictEqual(hostSeriesKey("node-a", "cpu"), "host:node-a:cpu");
 assert.strictEqual(instanceSeriesKey("node-a", "instance-1", "latency"), "instance:node-a:instance-1:latency");
-assert.strictEqual(endpointSeriesKey("db-a", "reachable"), "endpoint:db-a:reachable");
+assert.strictEqual(endpointSeriesKey("node-a", "db-a", "reachable"), "endpoint:node-a:db-a:reachable");
+assert.notStrictEqual(endpointSeriesKey("node-a", "db-a", "reachable"), endpointSeriesKey("node-b", "db-a", "reachable"), "endpoint series are per node");
 assert.strictEqual(providerSeriesKey("node-a", "openai", "latency"), "provider:node-a:openai:latency");
 
 const messy = hostSeriesKey("Node A!!", "cpu %");

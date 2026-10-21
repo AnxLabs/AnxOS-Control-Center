@@ -481,7 +481,7 @@ async function main() {
     const cpuKey = telemetryStore.hostSeriesKey("node-1", "cpuPercent");
     expectGap(cpuKey, "collector-failed", "host cpu");
     expectGap(telemetryStore.instanceSeriesKey("node-1", "inst-1", "cpuPercent"), "not-running", "stopped instance cpu");
-    expectGap(telemetryStore.endpointSeriesKey("ep-1", "available"), "unknown", "endpoint availability");
+    expectGap(telemetryStore.endpointSeriesKey("node-1", "ep-1", "available"), "unknown", "endpoint availability");
 
     const crashLoop = service.getTelemetrySeries({ keys: [telemetryStore.instanceSeriesKey("node-1", "inst-1", "crashLoop")] });
     assert.strictEqual(crashLoop.series[0].samples[0].value, 0, "a real observed zero is still recorded as zero");
