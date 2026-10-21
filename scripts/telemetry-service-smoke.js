@@ -482,6 +482,27 @@ async function main() {
       assert(!service.getTelemetrySeries({ nodeId: "node-a" }).series.some((row) => row.key === keyB), "node-scoped reads do not mix the series");
     }
 
+    // --- PR #9 final review: endpoints whose ids differ only in characters
+    //     the key normalizes away keep separate series and values ---
+    {
+      const deps = createFakeDeps({
+        getEndpointHealth: async ({ nodeId }) => (nodeId === "node-a"
+          ? [{ endpointId: "ep/a", state: "healthy" }, { endpointId: "ep?a", state: "failed" }]
+          : []),
+      });
+      const service = telemetryService.createTelemetryService({ deps, storePath: path.join(root, "endpoint-collision.json"), now });
+      await service.sampleOnce();
+      const slashKey = store.endpointSeriesKey("node-a", "ep/a", "available");
+      const queryKey = store.endpointSeriesKey("node-a", "ep?a", "available");
+      assert.notStrictEqual(slashKey, queryKey, "the two endpoints get distinct series keys");
+      const rows = service.getTelemetrySeries({ keys: [slashKey, queryKey] }).series;
+      const slash = rows.find((row) => row.key === slashKey);
+      const query = rows.find((row) => row.key === queryKey);
+      assert(slash && query, "both endpoints have their own series");
+      assert.deepStrictEqual(slash.samples.map((sample) => sample.value), [1], "ep/a records only its own (healthy) sample");
+      assert.deepStrictEqual(query.samples.map((sample) => sample.value), [0], "ep?a records only its own (failed) sample");
+    }
+
     console.log("Telemetry service smoke checks passed.");
   } finally {
     fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });

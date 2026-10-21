@@ -406,6 +406,34 @@ assert.strictEqual(hostSeriesKey("node-a", "cpu"), "host:node-a:cpu");
 assert.strictEqual(instanceSeriesKey("node-a", "instance-1", "latency"), "instance:node-a:instance-1:latency");
 assert.strictEqual(endpointSeriesKey("node-a", "db-a", "reachable"), "endpoint:node-a:db-a:reachable");
 assert.notStrictEqual(endpointSeriesKey("node-a", "db-a", "reachable"), endpointSeriesKey("node-b", "db-a", "reachable"), "endpoint series are per node");
+// PR #9 final review: distinct endpoint ids never share a series, whatever
+// characters or length they use; key-safe ids (generated ep-<hex>) stay readable.
+{
+  const collisionSets = [
+    ["ep/a", "ep?a", "ep a", "ep-a"],
+    ["", "unknown"],
+    ["h-x", "h-X"],
+    ["-lead", "lead"],
+    ["trail-", "trail"],
+    [`ep-${"x".repeat(200)}-1`, `ep-${"x".repeat(200)}-2`],
+  ];
+  const registrations = createEmptyState();
+  for (const ids of collisionSets) {
+    const keys = ids.map((id) => endpointSeriesKey("node-a", id, "available"));
+    assert.strictEqual(new Set(keys).size, ids.length, `distinct endpoint ids get distinct series: ${JSON.stringify(ids)}`);
+    for (const key of keys) {
+      assert.strictEqual(registerSeries(registrations, { key, kind: "endpoint" }).ok, true, `encoded key registers as a valid series key: ${key}`);
+    }
+  }
+  // An id spelled exactly like another id's encoded segment never takes over
+  // that series (the "h-" marker is reserved for encoded ids).
+  const encodedSegment = endpointSeriesKey("node-a", "ep/a", "available").split(":")[2];
+  assert.ok(encodedSegment.startsWith("h-"), "a non-key-safe id is encoded");
+  assert.notStrictEqual(endpointSeriesKey("node-a", encodedSegment, "available"), endpointSeriesKey("node-a", "ep/a", "available"),
+    "an id that looks like an encoded segment gets its own series");
+  assert.strictEqual(endpointSeriesKey("node-a", "ep-0123abcdef", "available"), "endpoint:node-a:ep-0123abcdef:available", "generated ids stay readable");
+  assert.strictEqual(endpointSeriesKey("node-a", "ep/a", "available"), endpointSeriesKey("node-a", "ep/a", "available"), "the encoding is deterministic");
+}
 assert.strictEqual(providerSeriesKey("node-a", "openai", "latency"), "provider:node-a:openai:latency");
 
 const messy = hostSeriesKey("Node A!!", "cpu %");

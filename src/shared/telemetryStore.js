@@ -70,6 +70,7 @@
 // prove a persisted file's integrity beyond JSON parseability; that belongs to
 // the storage service.
 
+const crypto = require("node:crypto");
 const { redactString } = require("./redaction");
 
 const TELEMETRY_SCHEMA_VERSION = 1;
@@ -702,7 +703,21 @@ function instanceSeriesKey(nodeId, instanceId, metric) {
 // computer keeps its id, and its samples there must not join the series
 // still tagged with the old node.
 function endpointSeriesKey(nodeId, endpointId, metric) {
-  return buildSeriesKey("endpoint", [nodeId, endpointId, metric]);
+  return buildSeriesKey("endpoint", [nodeId, endpointKeySegment(endpointId), metric]);
+}
+
+// Endpoint ids are not character-restricted (imported or caller-created ids
+// keep theirs), and normalizeKeySegment collapses invalid runs to "-" and the
+// key is length-capped, so two distinct ids could share one series. A
+// key-safe id passes through unchanged (generated ep-<hex> ids stay readable);
+// any other id, or a safe one beginning with the "h-" marker, becomes
+// "h-" + a SHA-256 prefix, so distinct ids never map to the same segment.
+const SAFE_ENDPOINT_SEGMENT = /^[a-z0-9._](?:[a-z0-9._-]{0,62}[a-z0-9._])?$/i;
+
+function endpointKeySegment(endpointId) {
+  const text = endpointId === null || endpointId === undefined ? "" : String(endpointId);
+  if (SAFE_ENDPOINT_SEGMENT.test(text) && !text.startsWith("h-")) return text;
+  return `h-${crypto.createHash("sha256").update(text).digest("hex").slice(0, 32)}`;
 }
 
 function providerSeriesKey(nodeId, providerId, metric) {
