@@ -743,6 +743,28 @@ async function main() {
     endpoints.pop();
   }
 
+  // --- PR #9 repair loop round 4: the provider binding is part of what a
+  //     cached result describes (the provider stage reads it) ---
+  {
+    const bound = makeEndpoint("ep-bound", "public", "Bound", "203.0.113.30", 30120, { computerId: "node-1", providerId: "playit" });
+    const { service } = createHarness({ endpoints: [{ ...bound }] });
+    const tested = await service.runDiagnostics({ nodeId: "node-1", endpointId: "ep-bound", refresh: true });
+    const [same] = service.projectEndpointHealth([{ ...bound }]);
+    assert.equal(same.health.state, tested.overall.state, "the same provider binding shows its result");
+    const rebound = { ...bound, providerId: "ngrok" };
+    const [projected] = service.projectEndpointHealth([rebound]);
+    assert.equal(projected.health, undefined, "a provider-only change shows no health from the old provider");
+    const canonical = service.getCachedEndpointDiagnostics({ nodeId: "node-1", endpointId: "ep-bound", endpoint: rebound });
+    assert.equal(canonical.cached, false);
+    assert.equal(canonical.reason, "NOT_EVALUATED", "it reads as not evaluated, not unknown");
+    const [unbound] = service.projectEndpointHealth([{ ...bound, providerId: null }]);
+    assert.equal(unbound.health, undefined, "removing the provider binding is a change too");
+    const [renamed] = service.projectEndpointHealth([{ ...bound, name: "Renamed" }]);
+    assert.equal(renamed.health.state, tested.overall.state, "a rename is still not a change");
+    // Last: an exact-key read with a mismatched record drops that entry.
+    assert.equal(service.getCachedDiagnostics({ nodeId: "node-1", endpointId: "ep-bound", endpoint: rebound }).cached, false);
+  }
+
   // --- PR #9 repair loop round 3: a change to endpoint selection on a node
   //     (an endpoint created, deleted, enabled, disabled or retargeted) drops
   //     and discards service-level results on that node, and every result on

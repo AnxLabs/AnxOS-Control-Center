@@ -22,6 +22,7 @@ const path = require("node:path");
 
 const {
   ENDPOINT_TYPES,
+  diagnosticsTargetKey,
   endpointKey,
   isLoopbackHost,
   isPrivateHost,
@@ -393,8 +394,8 @@ function createEndpointService({ store, deps } = {}) {
     return writeEndpoint(stripManagementOwnedFields(input));
   }
 
-  // A change to what an endpoint points at (endpointKey: computer, type,
-  // host, port, protocol, service), to whether it is enabled, or to whether it
+  // A change to what an endpoint points at (diagnosticsTargetKey: computer,
+  // type, host, port, protocol, service, provider), to whether it is enabled, or to whether it
   // exists can change what a diagnostics run tests or selects (a service-level
   // run takes the first enabled endpoint; every run reports on the first
   // enabled public one), so the affected diagnostics are dropped. A rename or
@@ -403,7 +404,7 @@ function createEndpointService({ store, deps } = {}) {
     const prior = isPlainObject(before) ? before : null;
     const next = isPlainObject(after) ? after : null;
     if (!prior && !next) return;
-    const targetChanged = !prior || !next || endpointKey(prior) !== endpointKey(next);
+    const targetChanged = !prior || !next || diagnosticsTargetKey(prior) !== diagnosticsTargetKey(next);
     const enabledChanged = (prior?.enabled !== false) !== (next?.enabled !== false);
     if (!targetChanged && !enabledChanged) return;
     const nodeIds = Array.from(new Set([prior, next].filter(Boolean).map((record) => record.computerId || null)));

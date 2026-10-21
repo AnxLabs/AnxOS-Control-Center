@@ -25,7 +25,7 @@ const diagnosticsModel = require("../shared/connectivityDiagnostics");
 const healthModel = require("../shared/healthModel");
 const { buildConnectivityGraph } = require("../shared/connectivityGraph");
 const providerContract = require("../shared/providerAdapterContract");
-const { endpointKey } = require("../shared/endpointModel");
+const { diagnosticsTargetKey } = require("../shared/endpointModel");
 
 const DEFAULT_CACHE_TTL_MS = 30000;
 const DEFAULT_PROBE_TIMEOUT_MS = 2500;
@@ -893,8 +893,8 @@ function createConnectivityDiagnosticsService(config = {}) {
       return discardedResult({ nodeId, serviceId, endpointId });
     }
 
-    // The tested target (endpointKey: computer, type, host, port, protocol,
-    // service) is stored with the result, so an endpoint edited afterwards
+    // The tested target (diagnosticsTargetKey: computer, type, host, port,
+    // protocol, service, provider) is stored with the result, so an endpoint edited afterwards
     // (same id, different target) can never be shown this result.
     // The key's segments are stored as fields: an endpoint id may itself
     // contain the "|" key delimiter, so endpoint lookups never parse the key.
@@ -907,7 +907,7 @@ function createConnectivityDiagnosticsService(config = {}) {
       // Every endpoint the result describes, so a later edit to any of them
       // (including one a service-level run selected) drops it.
       testedEndpointIds: Array.from(testedEndpointIds),
-      targetKey: endpoint ? endpointKey(endpoint) : null,
+      targetKey: endpoint ? diagnosticsTargetKey(endpoint) : null,
     });
     lastRunAt = checkedAt;
     return result;
@@ -948,7 +948,7 @@ function createConnectivityDiagnosticsService(config = {}) {
     if (!isObject(target) || !Object.prototype.hasOwnProperty.call(target, "endpoint")) return true;
     if (normalizeOptionalString(target.endpointId) == null) return true;
     if (!isObject(target.endpoint)) return false;
-    return entry.targetKey != null && entry.targetKey === endpointKey(target.endpoint);
+    return entry.targetKey != null && entry.targetKey === diagnosticsTargetKey(target.endpoint);
   }
 
   // Cache-only read. Returns the cached result when the target was evaluated

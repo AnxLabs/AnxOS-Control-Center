@@ -18,6 +18,7 @@ const {
   validateEndpointInput,
   buildEndpointId,
   endpointKey,
+  diagnosticsTargetKey,
   formatEndpointAddress,
   normalizeEndpointRecord,
   describeEndpointType,
@@ -334,6 +335,16 @@ test("buildEndpointId determinism and sensitivity", () => {
   const withUndefined = buildEndpointId({ computerId: undefined, type: "lan", host: "10.0.0.1", port: null, protocol: undefined, serviceId: null, name: undefined });
   const withEmpty = buildEndpointId({ computerId: "", type: "lan", host: "10.0.0.1", port: null, protocol: "", serviceId: null, name: "" });
   assert.strictEqual(withUndefined, withEmpty);
+});
+
+test("PR #9 repair loop round 4: diagnosticsTargetKey adds the provider binding; endpointKey does not", () => {
+  const base = { computerId: "comp-01", type: "public", host: "203.0.113.5", port: 30120, protocol: "tcp", serviceId: "fivem-anxlab", providerId: "playit" };
+  const rebound = Object.assign({}, base, { providerId: "ngrok" });
+  assert.notStrictEqual(diagnosticsTargetKey(rebound), diagnosticsTargetKey(base), "a provider change is a diagnostics change");
+  assert.strictEqual(endpointKey(rebound), endpointKey(base), "but not a storage identity change (no duplicate records)");
+  assert.strictEqual(diagnosticsTargetKey(Object.assign({}, base, { name: "Renamed" })), diagnosticsTargetKey(base), "a rename is neither");
+  assert.notStrictEqual(diagnosticsTargetKey(Object.assign({}, base, { host: "203.0.113.6" })), diagnosticsTargetKey(base), "it includes the target");
+  assert.strictEqual(diagnosticsTargetKey({}), "||||||");
 });
 
 test("endpointKey dedupes name-insensitive identity", () => {

@@ -416,6 +416,17 @@ function endpointKey(endpoint) {
   return `${computerId}|${type}|${host}|${port}|${protocol}|${serviceId}`;
 }
 
+// What a diagnostics run of this endpoint depends on: its target
+// (endpointKey) plus the provider binding the provider stage reads. Kept
+// separate from endpointKey, which also de-duplicates stored records, where a
+// provider change must not make a second record. (name/label only feed the
+// displayed label; enabled is handled as a selection change.)
+function diagnosticsTargetKey(endpoint) {
+  const record = isPlainObject(endpoint) ? endpoint : {};
+  const providerId = typeof record.providerId === "string" ? record.providerId.trim() : "";
+  return `${endpointKey(record)}|${providerId}`;
+}
+
 function formatEndpointAddress(endpoint) {
   const record = isPlainObject(endpoint) ? endpoint : {};
   let host = typeof record.host === "string" ? record.host.trim() : "";
@@ -598,6 +609,7 @@ module.exports = {
   validateEndpointInput,
   buildEndpointId,
   endpointKey,
+  diagnosticsTargetKey,
   formatEndpointAddress,
   normalizeEndpointRecord,
   describeEndpointType,

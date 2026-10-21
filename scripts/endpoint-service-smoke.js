@@ -588,6 +588,19 @@ const WILDCARD_INVENTORY = {
     assert.deepStrictEqual(signals, [{ id: publicRecord.id, nodeIds: ["agent-node-1"], publicChanged: true }], "deleting is signalled");
   });
 
+  await test("PR #9 repair loop round 4: a provider binding change is signalled", async () => {
+    const signals = [];
+    const { service, store } = makeWorld({ invalidateEndpointDiagnostics: (id, change) => signals.push({ id, ...change }) });
+    const created = service.createEndpoint(baseInput({ type: "public", host: "203.0.113.40", providerId: "playit" }));
+    signals.length = 0;
+    service.updateEndpoint(created.id, { providerId: "ngrok" });
+    assert.deepStrictEqual(signals, [{ id: created.id, nodeIds: ["agent-node-1"], publicChanged: true }], "a provider-only edit is signalled");
+    signals.length = 0;
+    service.updateEndpoint(created.id, { providerId: "ngrok", name: "Same provider" });
+    assert.deepStrictEqual(signals, [], "keeping the provider is not a change");
+    assert.strictEqual(store.list().length, 1, "the provider edit updated the record in place (no second record)");
+  });
+
   await test("PR #9 repair loop round 3: discovery writes go through the signalled path", async () => {
     const signals = [];
     const { service, store } = makeWorld({
