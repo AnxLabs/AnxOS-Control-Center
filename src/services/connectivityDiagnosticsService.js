@@ -715,6 +715,12 @@ function createConnectivityDiagnosticsService(config = {}) {
     if (context.providerStageState === "failed") {
       return { state: "failed", detail: "Provider path failed.", evidence: { note: "provider path failed" } };
     }
+    // A TCP connect says nothing about a UDP-only service and could be
+    // answered by an unrelated TCP listener on the same port, so a UDP public
+    // endpoint is never TCP-probed (as in the local-socket stage).
+    if (normalizeProtocol(publicEndpoint.protocol) === "udp") {
+      return { state: "unsupported", detail: "UDP reachability cannot be probed", evidence: { note: "UDP reachability cannot be probed" } };
+    }
     const host = endpointHost(publicEndpoint);
     const port = endpointPort(publicEndpoint);
     if (context.probePublic === true && host && port != null) {

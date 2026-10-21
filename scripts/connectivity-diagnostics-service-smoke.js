@@ -301,6 +301,35 @@ async function main() {
     assert.equal(result.overall.state, "unknown");
   }
 
+  // --- (h2) PR #9 repair loop round 5: a UDP public endpoint is never
+  //     TCP-probed; an unrelated TCP listener on its port cannot make it healthy
+  {
+    const h = createHarness({
+      endpoints: [
+        makeEndpoint("ep-udp-local", "private", "Game (UDP)", "10.0.0.5", 25565, { protocol: "udp" }),
+        makeEndpoint("ep-udp-public", "public", "Public (UDP)", "game.example.net", 25565, { protocol: "udp" }),
+      ],
+      // Every TCP probe "connects", as an unrelated TCP listener would.
+      probe: async () => ({ ok: true, result: "connected", latencyMs: 2 }),
+    });
+    const result = await h.service.runDiagnostics({ nodeId: "node-1", serviceId: SERVICE_ID });
+    assertValid(result, "(h2)");
+    assert.equal(stageOf(result, "public-endpoint").state, "unsupported", "a UDP public endpoint is unsupported, not healthy");
+    assert.equal(stageOf(result, "public-endpoint").detail, "UDP reachability cannot be probed");
+    assert.ok(!h.probeCalls.some((request) => request.host === "game.example.net"), "the UDP public endpoint is never TCP-probed");
+    // healthModel excludes unsupported stages from the overall state by design,
+    // so the overall state reflects only the stages that could be checked.
+
+    // A TCP public endpoint is still probed (the guard is protocol-specific).
+    const tcp = createHarness({
+      endpoints: [makeEndpoint("ep-tcp-public", "public", "Public (TCP)", "tcp.example.net", 30120)],
+      probe: async () => ({ ok: true, result: "connected", latencyMs: 2 }),
+    });
+    const tcpResult = await tcp.service.runDiagnostics({ nodeId: "node-1", serviceId: SERVICE_ID });
+    assert.ok(tcp.probeCalls.some((request) => request.host === "tcp.example.net"), "a TCP public endpoint is probed");
+    assert.equal(stageOf(tcpResult, "public-endpoint").state, "healthy");
+  }
+
   // --- (i) provider healthy + public probe refused -> public unknown ---------
   {
     const h = createHarness({
