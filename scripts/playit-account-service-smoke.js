@@ -16,8 +16,13 @@ const {
   redactPlayitText,
 } = require("../src/services/playitAccountService");
 
-const BIN = "C:\\Program Files\\playit_gg\\bin\\playit.exe";
-const KEY = "C:\\ProgramData\\playit_gg\\playit.toml";
+// The service only trusts a key path that is absolute on the host it runs on
+// (the Agent runs it on Linux nodes too), so the fixture uses the layout
+// playit has on the platform running this smoke.
+const WINDOWS = process.platform === "win32";
+const BIN = WINDOWS ? "C:\\Program Files\\playit_gg\\bin\\playit.exe" : "/opt/playit/playit";
+const KEY = WINDOWS ? "C:\\ProgramData\\playit_gg\\playit.toml" : "/etc/playit/playit.toml";
+const USER_KEY = WINDOWS ? "C:\\Users\\x\\AppData\\Local\\playit_gg\\playit.toml" : "/home/x/.config/playit_gg/playit.toml";
 
 function fakeChild() {
   const child = new EventEmitter();
@@ -36,7 +41,7 @@ function world(options = {}) {
   const service = createPlayitAccountService({
     findBinary: async () => (options.installed === false ? { installed: false, path: null } : { installed: true, path: BIN }),
     getStatus: async () => ({ running: options.running !== false }),
-    configCandidates: () => [KEY, "C:\\Users\\x\\AppData\\Local\\playit_gg\\playit.toml"],
+    configCandidates: () => [KEY, USER_KEY],
     run: async (file, args) => {
       calls.run.push([file, ...args]);
       const key = args.join(" ");
