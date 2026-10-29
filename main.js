@@ -1079,6 +1079,23 @@ app.whenReady().then(async () => {
   } catch (error) {
     console.error("[Telemetry] Sampler start failed.", error?.message || error);
   }
+  // Node connectivity: keep SSH tunnels open for nodes whose Agent only
+  // listens on the node itself. Re-synced periodically so configuration
+  // changes and freed ports are picked up; closed on quit.
+  try {
+    const nodeTunnels = require("./src/services/nodeTunnelService").getNodeTunnelService();
+    nodeTunnels.sync();
+    const nodeTunnelSyncTimer = setInterval(() => {
+      try { nodeTunnels.sync(); } catch {}
+    }, 30000);
+    nodeTunnelSyncTimer.unref?.();
+    app.on("before-quit", () => {
+      clearInterval(nodeTunnelSyncTimer);
+      try { nodeTunnels.stopAll(); } catch {}
+    });
+  } catch (error) {
+    console.error("[Nodes] Tunnel service start failed.", error?.message || error);
+  }
   // V2-K: the operational notification journal only advances when evaluated.
   // The scheduler's immediate tick seeds state through the shared collector
   // (which degrades every unreachable service to an empty collection), and

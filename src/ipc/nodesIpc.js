@@ -10,12 +10,14 @@ const {
   reconnectNode,
   repairNodeCredential,
   saveNode,
+  setNodeTransport,
   testNode,
   testNodeConnectionPayload,
 } = require("../services/nodeService");
 const { restorePersistedActiveNode, setActiveNode } = require("../services/activeNodeSelectionService");
 const { updateRemoteAgent } = require("../services/remoteAgentUpdateService");
 const { createMobilePairing } = require("../services/mobilePairingService");
+const { getNodeTunnelService } = require("../services/nodeTunnelService");
 const { getFleetSummary, runFleetBatchAction } = require("../services/fleetService");
 const { generateAgentToken } = require("../shared/agentTokenStore");
 const { audit, getStatus, requireLocalOwnerAuthenticated, requirePermission } = require("../services/securityService");
@@ -66,6 +68,31 @@ function registerNodesIpc() {
     requirePermission("settings:write", context.nodeId);
     audit({ action: "node.reconnect", target: context.nodeId });
     return reconnectNode(context.nodeId);
+  }));
+  // App-managed SSH tunnels: status is a plain read; choosing a transport and
+  // forcing a retry are owner actions like the other node changes.
+  ipcMain.handle("nodes:tunnelStatus", async () => invokeNodeOperation(() => {
+    requirePermission("nodes:read", "nodes", { localCredentials: false });
+    return { tunnels: getNodeTunnelService().listStatus() };
+  }));
+  ipcMain.handle("nodes:setTransport", async (_, payload = {}) => invokeNodeOperation(() => {
+    const context = requireNodeContext(payload, "node transport");
+    requireLocalOwnerAuthenticated("nodes:set-transport", "Unlock AnxOS to manage nodes.");
+    requirePermission("settings:write", context.nodeId);
+    audit({ action: "node.set-transport", target: context.nodeId });
+    const node = setNodeTransport(context.nodeId, payload.transport || {});
+    const tunnels = getNodeTunnelService();
+    tunnels.sync();
+    return { node, tunnel: tunnels.getStatus(context.nodeId) };
+  }));
+  ipcMain.handle("nodes:reconnectTunnel", async (_, payload = {}) => invokeNodeOperation(() => {
+    const context = requireNodeContext(payload, "node tunnel reconnect");
+    requireLocalOwnerAuthenticated("nodes:reconnect-tunnel", "Unlock AnxOS to manage nodes.");
+    requirePermission("settings:write", context.nodeId);
+    audit({ action: "node.reconnect-tunnel", target: context.nodeId });
+    const tunnels = getNodeTunnelService();
+    tunnels.sync();
+    return { tunnel: tunnels.reconnect(context.nodeId) };
   }));
   ipcMain.handle("nodes:select", async (_, payload = {}) => invokeNodeOperation(() => { requireLocalOwnerAuthenticated("nodes:select", "Unlock AnxOS to manage nodes."); requirePermission("nodes:read", payload.nodeId); return setActiveNode(requireNodeContext(payload, "node selection").nodeId, { reason: "ipc-select" }); }));
   ipcMain.handle("nodes:test", async (_, payload = {}) => invokeNodeOperation(() => { requireLocalOwnerAuthenticated("nodes:test", "Unlock AnxOS to use saved node credentials."); requirePermission("nodes:read", payload.nodeId); return testNode(requireNodeContext(payload, "node connection test").nodeId); }));

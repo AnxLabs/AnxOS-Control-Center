@@ -404,6 +404,9 @@ const desktopApi = {
     repairCredential: (payload = {}) => ipcRenderer.invoke("nodes:repairCredential", payload),
     generateToken: () => ipcRenderer.invoke("nodes:generateToken"),
     updateAgent: (nodeId) => ipcRenderer.invoke("nodes:updateAgent", { nodeId }),
+    tunnelStatus: () => ipcRenderer.invoke("nodes:tunnelStatus"),
+    setTransport: (nodeId, transport) => ipcRenderer.invoke("nodes:setTransport", { nodeId, transport }),
+    reconnectTunnel: (nodeId) => ipcRenderer.invoke("nodes:reconnectTunnel", { nodeId }),
     createMobilePairing: (nodeId) => ipcRenderer.invoke("nodes:createMobilePairing", { nodeId }),
   },
   // V2-J Wave 1 alert surface (src/ipc/alertsIpc.js). Both channels are

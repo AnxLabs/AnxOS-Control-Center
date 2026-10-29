@@ -762,6 +762,32 @@ class SshService extends EventEmitter {
     }
   }
 
+  // Connection settings for work that runs without a person at the keyboard
+  // (commands, node tunnels): key authentication only, and only to a host key
+  // the user already approved in the SSH terminal. hostKeyState.mismatch
+  // records a changed host key so callers can report it.
+  createUnattendedConnectConfig(profileId) {
+    const profile = this.getProfile(profileId);
+    if (profile.authType !== "privateKey") {
+      throw new SshServiceError("Unattended SSH commands require a key-based SSH profile.", { code: "SSH_COMMAND_KEY_AUTH_REQUIRED" });
+    }
+    const knownHost = readKnownHosts()[knownHostId(profile)];
+    const expectedFingerprint = trimValue(knownHost?.fingerprint);
+    if (!expectedFingerprint) {
+      throw new SshServiceError("This SSH host identity has not been approved yet. Open the SSH terminal, approve the host key, then retry.", {
+        code: "SSH_HOST_KEY_NOT_APPROVED",
+      });
+    }
+    const connectConfig = this.buildConnectConfig(profile, {});
+    const hostKeyState = { mismatch: false };
+    connectConfig.hostVerifier = (key) => {
+      const matches = fingerprintHostKey(key) === expectedFingerprint;
+      if (!matches) hostKeyState.mismatch = true;
+      return matches;
+    };
+    return { profile, connectConfig, hostKeyState };
+  }
+
   buildConnectConfig(profile, options = {}) {
     this.validateProfile(profile);
 
@@ -1202,24 +1228,7 @@ class SshService extends EventEmitter {
     if (!script.trim()) {
       throw new SshServiceError("A command is required.", { code: "SSH_COMMAND_REQUIRED" });
     }
-    if (profile.authType !== "privateKey") {
-      throw new SshServiceError("Unattended SSH commands require a key-based SSH profile.", { code: "SSH_COMMAND_KEY_AUTH_REQUIRED" });
-    }
-    const knownHost = readKnownHosts()[knownHostId(profile)];
-    const expectedFingerprint = trimValue(knownHost?.fingerprint);
-    if (!expectedFingerprint) {
-      throw new SshServiceError("This SSH host identity has not been approved yet. Open the SSH terminal, approve the host key, then retry.", {
-        code: "SSH_HOST_KEY_NOT_APPROVED",
-      });
-    }
-
-    const connectConfig = this.buildConnectConfig(profile, {});
-    let hostKeyMismatch = false;
-    connectConfig.hostVerifier = (key) => {
-      const matches = fingerprintHostKey(key) === expectedFingerprint;
-      if (!matches) hostKeyMismatch = true;
-      return matches;
-    };
+    const { connectConfig, hostKeyState } = this.createUnattendedConnectConfig(profile.id);
 
     const timeoutMs = Number.isFinite(options.timeoutMs) ? Math.max(1000, Math.floor(options.timeoutMs)) : SSH_TIMEOUTS.command;
     const maxOutputBytes = Number.isFinite(options.maxOutputBytes) ? Math.max(4096, Math.floor(options.maxOutputBytes)) : SSH_TIMEOUTS.commandOutput;
@@ -1267,13 +1276,13 @@ class SshService extends EventEmitter {
       };
 
       client.on("error", (error) => {
-        const code = hostKeyMismatch
+        const code = hostKeyState.mismatch
           ? "SSH_HOST_KEY_MISMATCH"
           : error?.level === "client-authentication"
             ? "SSH_AUTHENTICATION_FAILED"
             : "SSH_COMMAND_CONNECT_FAILED";
         finish(new SshServiceError(
-          hostKeyMismatch
+          hostKeyState.mismatch
             ? "The SSH host identity changed and no longer matches the approved fingerprint."
             : `SSH command connection failed: ${error?.message || "unknown error"}.`,
           { code, retryable: code === "SSH_COMMAND_CONNECT_FAILED" },

@@ -632,6 +632,30 @@ function normalizeNodeGroup(value) {
   return String(value || "").trim().slice(0, 40);
 }
 
+// How the desktop reaches an Agent. "direct" requests the Agent URL as is.
+// "ssh-tunnel" means the Agent only listens on the node itself: the desktop
+// keeps an SSH port-forward open (nodeTunnelService) from the node's
+// loopback Agent URL to remoteHost:remotePort on the node.
+function normalizeNodeTransport(transport) {
+  if (!transport || typeof transport !== "object" || transport.type !== "ssh-tunnel") return { type: "direct" };
+  const sshProfileId = String(transport.sshProfileId || "").trim();
+  const remoteHost = String(transport.remoteHost || "127.0.0.1").trim();
+  const remotePort = Number(transport.remotePort);
+  if (!/^[A-Za-z0-9._-]{1,120}$/.test(sshProfileId)) return { type: "direct" };
+  if (!/^[A-Za-z0-9.:-]{1,253}$/.test(remoteHost)) return { type: "direct" };
+  if (!Number.isInteger(remotePort) || remotePort < 1 || remotePort > 65535) return { type: "direct" };
+  return { type: "ssh-tunnel", sshProfileId, remoteHost, remotePort };
+}
+
+function isLoopbackAgentUrl(value) {
+  try {
+    const url = new URL(String(value || ""));
+    return url.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname) && Boolean(url.port);
+  } catch {
+    return false;
+  }
+}
+
 function normalizeAgentNode(node = {}) {
   const agentUrl = normalizeUrl(node.baseUrl || node.agentUrl || node.url);
   const identity = node.agentIdentity || node.identity || {};
@@ -677,6 +701,7 @@ function normalizeAgentNode(node = {}) {
     tags: normalizeTags(node.tags),
     group: normalizeNodeGroup(node.group),
     manualDisconnect: node.manualDisconnect === true,
+    transport: normalizeNodeTransport(node.transport),
     lastConnectionState: normalizeConnectionState(node.lastConnectionState || node.connection?.status || "unknown"),
     lastSuccessfulHealthCheck: node.lastSuccessfulHealthCheck || node.connection?.lastSeen || null,
     lastHealthCheckedAt: node.lastHealthCheckedAt || node.connection?.checkedAt || null,
@@ -1626,6 +1651,25 @@ function agentIdentityMatchesNode(node = null, identity = {}) {
   return comparisons.some(([, left, right]) => Boolean(left && right && left === right));
 }
 
+// Sets how the desktop reaches a node. Unlike saveNode it does not need the
+// Agent to answer first: an ssh-tunnel node is unreachable until its tunnel
+// is up.
+function setNodeTransport(nodeId, transport = {}) {
+  const state = readNodeState();
+  const node = state.nodes.find((entry) => entry.id === nodeId);
+  if (!node) throw Object.assign(new Error("Node not found."), { code: "NODE_NOT_FOUND" });
+  const normalized = normalizeNodeTransport(transport);
+  if (transport?.type === "ssh-tunnel" && normalized.type !== "ssh-tunnel") {
+    throw Object.assign(new Error("Choose an SSH profile and the Agent port on the node."), { code: "INVALID_NODE_TRANSPORT" });
+  }
+  if (normalized.type === "ssh-tunnel" && !isLoopbackAgentUrl(node.baseUrl || node.agentUrl)) {
+    throw Object.assign(new Error("A tunneled node needs a local Agent URL such as http://127.0.0.1:47132."), { code: "INVALID_NODE_TRANSPORT" });
+  }
+  const updated = normalizeAgentNode({ ...node, transport: normalized });
+  writeNodeState({ ...state, nodes: state.nodes.map((entry) => (entry.id === nodeId ? updated : entry)) });
+  return publicNode(updated);
+}
+
 async function saveNode(payload = {}) {
   const displayName = String(payload.displayName || payload.name || "").trim();
   const agentUrl = normalizeUrl(payload.agentUrl || payload.url);
@@ -2051,4 +2095,4 @@ async function deleteNode(nodeId, options = {}) {
 async function selectNode(nodeId) { getNode(nodeId); const state = readNodeState(); writeNodeState({ ...state, selectedNodeId: nodeId || APPLICATION_HOST_NODE_ID }); return listNodes({ discoverLocalAgent: false, refreshIdentity: false }); }
 async function testNode(nodeId) { return checkNodeHealth(nodeId || getSelectedNodeId(), { timeoutMs: 8000 }); }
 
-module.exports = { APPLICATION_HOST_NODE_ID, HEALTH_STATES, NODE_SCHEMA_VERSION, checkAllNodeHealth, checkNodeHealth, deleteNode, disconnectNode, getAllNodesSync, getExecutionTarget, getNode, getNodeAgentConfig, getNodeCredentialStatus, getNodeCredentialsPath, getNodesPath, getSelectedNodeId, listNodes, mergeAgentNodes, migrateState, pairNodeFromCode, postPairingComplete, postPairingStart, reconnectNode, recordAuthenticatedNodeHealth, repairNodeCredential, resolveNodeForAgentIdentity, saveNode, selectNode, testNode, testNodeConnectionPayload, updateNodeHealthState, _test: { attemptAgentEnrollmentRevocation, buildNodeCapabilities, compareAgentVersions, formatAgentCompatibilityMessage, getAgentCompatibilityReport, getNodeReportedCapabilities, normalizeAgentApiMajor, normalizeAgentCapabilitiesMetadata, normalizeAgentProtocolVersion, normalizeNodeGroup, parseComparableAgentVersion, postPairingComplete, setNodeManualDisconnect } };
+module.exports = { APPLICATION_HOST_NODE_ID, HEALTH_STATES, NODE_SCHEMA_VERSION, checkAllNodeHealth, checkNodeHealth, deleteNode, disconnectNode, getAllNodesSync, getExecutionTarget, getNode, getNodeAgentConfig, getNodeCredentialStatus, getNodeCredentialsPath, getNodesPath, getSelectedNodeId, listNodes, mergeAgentNodes, migrateState, pairNodeFromCode, postPairingComplete, postPairingStart, reconnectNode, recordAuthenticatedNodeHealth, repairNodeCredential, resolveNodeForAgentIdentity, saveNode, selectNode, setNodeTransport, testNode, testNodeConnectionPayload, updateNodeHealthState, _test: { attemptAgentEnrollmentRevocation, buildNodeCapabilities, compareAgentVersions, formatAgentCompatibilityMessage, getAgentCompatibilityReport, getNodeReportedCapabilities, normalizeAgentApiMajor, normalizeAgentCapabilitiesMetadata, normalizeAgentProtocolVersion, normalizeNodeGroup, normalizeNodeTransport, isLoopbackAgentUrl, parseComparableAgentVersion, postPairingComplete, setNodeManualDisconnect } };
