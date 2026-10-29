@@ -456,7 +456,7 @@ const IPC_FAMILIES = [
     tier: "nodes:read",
     guard: "permission",
     allow: ["owner-unlocked", "operator-unlocked", "viewer-unlocked"],
-    channels: ["nodes:list", "nodes:restore"],
+    channels: ["nodes:list", "nodes:restore", "nodes:tunnelStatus", "nodes:routeStatus", "nodes:suggestRoutes"],
   },
   {
     id: "nodes-credential-read",
@@ -475,6 +475,10 @@ const IPC_FAMILIES = [
       "nodes:repairCredential", "nodes:generateToken", "nodes:fleetBatch", "nodes:testConnection",
       "nodes:updateAgent",
       "nodes:createMobilePairing",
+      // App-managed SSH tunnels: choosing a node's transport and forcing a retry.
+      "nodes:setTransport", "nodes:reconnectTunnel",
+      // Route fallback (for example a Tailscale route to a home server).
+      "nodes:setFallbackUrls",
     ],
   },
   {

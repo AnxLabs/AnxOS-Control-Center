@@ -846,6 +846,12 @@ async function requestJson(pathname, options = {}) {
       }
     })();
     const transportMessage = getAgentTransportErrorMessage(errorCode, requestUrl);
+    // The node could not be reached on this route: let the route resolver
+    // re-check its fallback routes (a no-op for nodes without fallbacks).
+    const failedNodeId = trimValue(configOverride?.nodeId || configOverride?.agentNodeId) || (/^node:/i.test(trimValue(configOverride?.targetLabel)) ? trimValue(configOverride.targetLabel).replace(/^node:/i, "") : "");
+    if (failedNodeId) {
+      try { require("./nodeRouteResolver").getNodeRouteResolver().reportTransportFailure(failedNodeId); } catch {}
+    }
     if (!(suppressConnectionRefusedLog && errorCode === "ECONNREFUSED")) {
       logAgentRequestFailure(pathname, null, errorCode, {
         url: requestUrl,
