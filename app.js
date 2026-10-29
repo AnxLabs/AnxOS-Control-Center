@@ -1417,6 +1417,8 @@ const PRIMARY_NAVIGATION_ORDER = [
   "settings",
 ];
 const LEGACY_PRIMARY_PAGES = new Set(["minecraft", "amp", "coolpals"]);
+// Instance health states that the Instances summary tiles do not already show.
+const INSTANCE_HEALTH_EXTRA_BUCKETS = ["unavailable", "unhealthy", "failed", "unknown"];
 const INSTANCE_WORKSPACE_PROFILES = [
   {
     id: "minecraft",
@@ -15612,12 +15614,12 @@ function buildInstanceTagsCell(instance) {
 function buildInstanceActionCell(instance) {
   const wrapper = document.createElement("div");
   wrapper.className = "instance-row-actions";
+  // Rows carry the power actions only; access and management actions live in
+  // the selected instance's inspector, one click away.
   const actions = [
     { label: isFiveMSetupRequired(instance) ? "Configure" : "Start", action: "start", disabled: !canStartInstance(instance) },
     { label: "Stop", action: "stop", disabled: !canStopInstance(instance) },
     { label: "Reload", action: "restart", disabled: !canRestartInstance(instance) },
-    { label: "Expose", action: "expose-share", disabled: !getInstanceAccessSuggestions(instance).some((suggestion) => suggestion.compatible !== false && suggestion.localPort) },
-    { label: "Share", action: "share-server", disabled: !getInstancePrimaryPort(instance) },
   ];
 
   actions.forEach((item) => {
@@ -15805,6 +15807,19 @@ function renderInstanceSummary(instances) {
   Object.entries(healthFieldMap).forEach(([bucket, field]) => {
     setField(field, String(healthSummary.counts?.[bucket] || 0));
   });
+  // The summary tiles already show running/starting/stopping/stopped; the
+  // breakdown line only adds the problem states, and only when they occur.
+  const breakdown = document.querySelector("[data-instance-health-breakdown]");
+  if (breakdown) {
+    let anyShown = false;
+    breakdown.querySelectorAll("[data-health-bucket]").forEach((entry) => {
+      const bucket = entry.dataset.healthBucket;
+      const shown = INSTANCE_HEALTH_EXTRA_BUCKETS.includes(bucket) && Number(healthSummary.counts?.[bucket] || 0) > 0;
+      entry.hidden = !shown;
+      anyShown = anyShown || shown;
+    });
+    breakdown.hidden = !anyShown;
+  }
   const runningInstances = instances.filter(isInstanceRunning);
   const stoppedInstances = instances.filter((instance) => !isInstanceRunning(instance));
   const aggregateMetrics = instances.reduce((totals, instance) => {

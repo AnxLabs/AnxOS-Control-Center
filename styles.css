@@ -18331,3 +18331,231 @@ html[data-ui-generation="v1.9"] .sidebar[data-sidebar-state="collapsed"] [data-t
   padding-top: 6px;
   border-top: 1px solid var(--line);
 }
+
+/* ==========================================================================
+   Instances page layout
+   A compact header and stat row, a list that sizes to its rows (no empty
+   fixed-height panel, no sideways scroll), and inspector actions grouped by
+   purpose. Every control keeps its data hooks; only presentation changes.
+   ========================================================================== */
+
+.page[data-page="instances"] .instances-shell {
+  gap: 12px;
+}
+
+.page[data-page="instances"] .instances-toolbar {
+  min-height: 0;
+  padding: 14px 18px;
+}
+
+.page[data-page="instances"] .instances-toolbar__title {
+  gap: 2px;
+}
+
+.page[data-page="instances"] .instances-toolbar__title h1 {
+  margin: 0;
+  font-size: 1.55rem;
+  line-height: 1.15;
+}
+
+.page[data-page="instances"] .instances-toolbar__title .lede {
+  margin: 0;
+  font-size: 0.86rem;
+}
+
+.page[data-page="instances"] .instances-summary-grid {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.page[data-page="instances"] .instances-summary-card {
+  gap: 10px;
+  min-height: 0;
+  padding: 10px 12px;
+  box-shadow: none;
+}
+
+.page[data-page="instances"] .instances-summary-card:hover {
+  transform: none;
+}
+
+.page[data-page="instances"] .instances-summary-card__icon {
+  width: 30px;
+  height: 30px;
+  font-size: 0.68rem;
+}
+
+.page[data-page="instances"] .instances-summary-card > div > span {
+  font-size: 0.66rem;
+  line-height: 1.2;
+}
+
+.page[data-page="instances"] .instances-summary-card strong {
+  font-size: 1.05rem;
+  line-height: 1.25;
+}
+
+.page[data-page="instances"] .instances-health-breakdown {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+/* The list grows with its rows instead of reserving most of the window. */
+.page[data-page="instances"] .instances-table-panel,
+.page[data-page="instances"] .instances-table-panel .docker-table-wrap {
+  min-height: 0;
+}
+
+.page[data-page="instances"] .instances-table {
+  min-width: 860px;
+}
+
+.page[data-page="instances"] .instances-table td {
+  padding-block: 10px;
+}
+
+.page[data-page="instances"] .instance-row-actions {
+  flex-wrap: nowrap;
+  gap: 6px;
+}
+
+/* Inspector actions, grouped by purpose. */
+.page[data-page="instances"] .instance-quick-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px 16px;
+  align-items: start;
+}
+
+.instance-action-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+}
+
+.instance-action-group__label {
+  flex: 0 0 100%;
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.page[data-page="instances"] .instance-action-group .inline-action {
+  min-width: 0;
+}
+
+.instance-action-group .instance-action--primary:not(:disabled) {
+  border-color: rgba(182, 108, 255, 0.55);
+  background: rgba(182, 108, 255, 0.22);
+  color: var(--text);
+}
+
+.instance-action-group--danger {
+  padding-left: 12px;
+  border-left: 1px solid rgba(255, 99, 132, 0.28);
+}
+
+.instance-action-group--danger .instance-action-group__label {
+  color: rgba(255, 140, 160, 0.85);
+}
+
+/* Console tab: stream and line-count selects sit with the other log tools. */
+.instance-console-select {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.instance-console-select select {
+  min-width: 0;
+}
+
+.page[data-page="instances"] .instances-table th,
+.page[data-page="instances"] .instances-table td {
+  padding-inline: 8px;
+}
+
+.page[data-page="instances"] .instance-metric-cell {
+  padding-inline: 8px;
+  font-size: 0.74rem;
+}
+
+.page[data-page="instances"] .instance-metric-cell.is-muted {
+  border-color: transparent;
+  background: transparent;
+}
+
+@media (min-width: 1280px) {
+  .page[data-page="instances"] .instances-summary-grid {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+  }
+}
+
+.page[data-page="instances"] .instances-table {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 820px;
+}
+
+.page[data-page="instances"] .instances-summary-card strong {
+  overflow: visible;
+  font-size: 1rem;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+/* Compact stat tiles: text only, so each value has room to show in full. */
+.page[data-page="instances"] .instances-summary-card {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.page[data-page="instances"] .instances-summary-card__icon {
+  display: none;
+}
+
+/* Above the stacked-card breakpoint the table always fits its panel (it is
+   at most 820px wide), so a 1px overflow from the selected-row highlight must
+   not draw a horizontal scrollbar. */
+@media (min-width: 1321px) {
+  .page[data-page="instances"] .instances-table-panel,
+  .page[data-page="instances"] .instances-table-panel .docker-table-wrap {
+    overflow-x: hidden;
+  }
+}
+
+/* Console tab: the toolbar wraps rather than squeezing its buttons. */
+.page[data-page="instances"] .instance-console-toolbar,
+.page[data-page="instances"] .instance-console-toolbar__row {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+
+.page[data-page="instances"] .instance-console-toolbar .inline-action {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.page[data-page="instances"] .instance-console-toolbar [data-instance-console-search] {
+  flex: 1 1 180px;
+  min-width: 140px;
+}
+
+/* Log lines: columns sized for their monospace content (a full timestamp and
+   a stream name such as JOURNAL), rows packed at the top. */
+.instance-log-viewer ol,
+.page[data-page="instances"] .instance-log-viewer ol {
+  align-content: start;
+}
+
+.instance-log-viewer li,
+.page[data-page="instances"] .instance-log-viewer li {
+  grid-template-columns: 19ch 8ch minmax(0, 1fr);
+  gap: 10px;
+}

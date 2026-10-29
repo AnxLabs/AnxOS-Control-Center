@@ -66,6 +66,7 @@
     "instances:health-summary:smoke": "node scripts/instance-health-summary-smoke.js",
     "instances:refresh:ui-qa": "node scripts/instances-refresh-preservation-ui-qa.js",
     "sidebar:navigation:ui-qa": "node scripts/sidebar-navigation-groups-ui-qa.js",
+    "instances:layout:ui-qa": "node scripts/instances-layout-ui-qa.js",
     "instance-snapshot-reuse:smoke": "node scripts/instance-snapshot-reuse-smoke.js",
     "instance-snapshot-wiring:smoke": "node scripts/instance-snapshot-wiring-smoke.js",
     "instances:delete-race:smoke": "node scripts/instance-delete-race-smoke.js",
