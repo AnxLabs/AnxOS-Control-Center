@@ -3814,12 +3814,43 @@ function mergeResolvedProviderMetadata(project = {}, metadata = {}) {
   };
 }
 
+// Every Marketplace card resolves its installable version on each search page
+// (24 cards): Modrinth fetches the pack's whole version list per card, and
+// CurseForge resolves its server-pack file through the hosted proxy, which
+// allows 90 requests a minute per IP. Re-resolving every card on each visit
+// made browsing slow, and CurseForge soon CURSEFORGE_RATE_LIMITED. A card's
+// selection is stable for minutes: reuse it (sharing in-flight lookups, never
+// caching failures) and bound the fan-out. Installs resolve directly, fresh.
+const MARKETPLACE_CARD_CACHE_TTL_MS = 10 * 60 * 1000;
+const MARKETPLACE_CARD_CACHE_MAX_ENTRIES = 1000;
+const CURSEFORGE_ENRICH_CONCURRENCY_LIMIT = 4;
+const marketplaceCardSelectionCache = new Map();
+
+function resolveCachedCardSelection(provider, request, resolve, now = Date.now()) {
+  const key = [provider, request.projectId, request.minecraftVersion, request.loader].map((part) => String(part || "")).join("|");
+  const cached = marketplaceCardSelectionCache.get(key);
+  if (cached && cached.expiresAt > now) return cached.promise;
+  const promise = Promise.resolve().then(resolve);
+  marketplaceCardSelectionCache.set(key, { promise, expiresAt: now + MARKETPLACE_CARD_CACHE_TTL_MS });
+  promise.catch(() => {
+    if (marketplaceCardSelectionCache.get(key)?.promise === promise) marketplaceCardSelectionCache.delete(key);
+  });
+  while (marketplaceCardSelectionCache.size > MARKETPLACE_CARD_CACHE_MAX_ENTRIES) {
+    marketplaceCardSelectionCache.delete(marketplaceCardSelectionCache.keys().next().value);
+  }
+  return promise;
+}
+
+function resolveCachedCurseForgeCardSelection(request) {
+  return resolveCachedCardSelection("curseforge", request, () => resolveCurseForgeServerPackSelection(request));
+}
+
 async function enrichCurseForgeSearchResults(result = {}, payload = {}, config = {}) {
   const results = Array.isArray(result.results) ? result.results : [];
-  const enriched = await Promise.all(results.map(async (project) => {
+  const enriched = await runWithConcurrency(results.map((project) => async () => {
     const projectId = project.providerProjectId || project.id || project.slug;
     try {
-      const selection = await resolveCurseForgeServerPackSelection({
+      const selection = await resolveCachedCurseForgeCardSelection({
         projectId,
         minecraftVersion: payload.minecraftVersion || payload.version || "",
         loader: payload.loader || "",
@@ -3861,7 +3892,7 @@ async function enrichCurseForgeSearchResults(result = {}, payload = {}, config =
         },
       };
     }
-  }));
+  }), CURSEFORGE_ENRICH_CONCURRENCY_LIMIT);
   return { ...result, results: enriched };
 }
 
@@ -3877,7 +3908,9 @@ async function enrichModrinthSearchResults(result = {}, payload = {}) {
     const projectId = project.providerProjectId || project.id || project.slug;
     try {
       ensureModrinthServerCapable(project);
-      const version = await modrinthProvider.resolveVersion(projectId, payload.minecraftVersion || payload.version || "", payload.loader || "", "");
+      const minecraftVersion = payload.minecraftVersion || payload.version || "";
+      const loader = payload.loader || "";
+      const version = await resolveCachedCardSelection("modrinth", { projectId, minecraftVersion, loader }, () => modrinthProvider.resolveVersion(projectId, minecraftVersion, loader, ""));
       const metadata = buildModrinthResolvedMetadata(version, project);
       console.info("[Marketplace][ProviderVersion] Selected Modrinth card target.", {
         provider: "modrinth",
@@ -3954,6 +3987,10 @@ async function getProviderPackDetails(payload = {}) {
 
 module.exports = {
   _test: {
+    clearMarketplaceCardSelectionCache: () => marketplaceCardSelectionCache.clear(),
+    enrichModrinthSearchResults,
+    CURSEFORGE_ENRICH_CONCURRENCY_LIMIT,
+    enrichCurseForgeSearchResults,
     buildInstallContext,
     buildInstallMetadata,
     buildInstancePayload,
