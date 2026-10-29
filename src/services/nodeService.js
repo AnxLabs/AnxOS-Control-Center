@@ -1521,11 +1521,16 @@ async function checkAllNodeHealth(options = {}) {
 
 async function refreshIdentities(state) {
   await Promise.allSettled(state.nodes.map((node) => checkNodeHealth(node.id, { timeoutMs: 5000 })));
+  // The checks above can take a full timeout per unreachable node, and the
+  // user may select a node (or the registry may change) meanwhile. Merge into
+  // the registry as it is now, never the snapshot from before the checks, or
+  // that selection is silently written back to the old node.
   const refreshedState = readNodeState();
   const nodes = mergeAgentNodes(refreshedState.nodes);
-  const selectedDevice = state.nodes.find((node) => node.id === state.selectedNodeId)?.agentIdentity?.deviceId;
-  const selectedNodeId = selectedDevice ? nodes.find((node) => node.agentIdentity.deviceId === selectedDevice)?.id || state.selectedNodeId : state.selectedNodeId;
-  const next = { ...state, selectedNodeId, nodes };
+  const currentSelectedNodeId = refreshedState.selectedNodeId;
+  const selectedDevice = refreshedState.nodes.find((node) => node.id === currentSelectedNodeId)?.agentIdentity?.deviceId;
+  const selectedNodeId = selectedDevice ? nodes.find((node) => node.agentIdentity.deviceId === selectedDevice)?.id || currentSelectedNodeId : currentSelectedNodeId;
+  const next = { ...refreshedState, selectedNodeId, nodes };
   writeNodeState(next);
   return next;
 }

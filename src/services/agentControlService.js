@@ -419,11 +419,31 @@ async function stopVerifiedOldLocalAgentProcess({ health = null, processInfo = n
   return { stopped: true, pid, processKind: "verified-old-anxos-agent" };
 }
 
-async function stopVerifiedWindowsTaskAgent(config = readConfig()) {
-  const listener = await getWindowsListeningProcess(config.port);
+// Runs right after `schtasks /End`, which returns before the task's Agent has
+// exited. Inspecting the port at that moment found the exiting Agent, whose
+// command line the app cannot read when the task runs elevated, so it failed
+// verification and aborted Restart halfway with the Agent already stopped.
+// Wait for the Agent to stop answering and release the port first; only a
+// listener that is still there afterwards is verified (and never killed when
+// it cannot be proven to be the old AnxOS Agent).
+const TASK_AGENT_PORT_RELEASE_ATTEMPTS = 6;
+const TASK_AGENT_PORT_RELEASE_DELAY_MS = 500;
+
+async function stopVerifiedWindowsTaskAgent(config = readConfig(), deps = {}) {
+  const waitStopped = deps.waitStopped || ((value) => waitForLocalAgentStopped(value));
+  const getListener = deps.getListener || ((port) => getWindowsListeningProcess(port));
+  const getHealth = deps.getHealth || ((value) => agentClient.getHealth(getLocalAgentHealthConfig(value)));
+  const stopVerified = deps.stopVerified || stopVerifiedOldLocalAgentProcess;
+  const sleep = deps.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+  await waitStopped(config).catch(() => false);
+  let listener = await getListener(config.port);
+  for (let attempt = 1; listener?.listening && attempt < TASK_AGENT_PORT_RELEASE_ATTEMPTS; attempt += 1) {
+    await sleep(TASK_AGENT_PORT_RELEASE_DELAY_MS);
+    listener = await getListener(config.port);
+  }
   if (!listener?.listening) return { stopped: false, reason: "not-listening" };
-  const health = await agentClient.getHealth(getLocalAgentHealthConfig(config)).catch(() => null);
-  return stopVerifiedOldLocalAgentProcess({ health, processInfo: listener.process });
+  const health = await getHealth(config).catch(() => null);
+  return stopVerified({ health, processInfo: listener.process });
 }
 
 async function getWindowsElevationState() {
@@ -2415,6 +2435,7 @@ module.exports = {
     isBindableAgentHost,
     isLoopbackAgentUrl,
     isVerifiedOldLocalAgentProcess,
+    stopVerifiedWindowsTaskAgent,
     localIpv4Addresses,
     parseWindowsNetstatListener,
     pickReachableIpv4Address,
