@@ -335,6 +335,7 @@
     "playit:process-detection:smoke": "node scripts/playit-process-detection-smoke.js",
     "playit:account-service:smoke": "node scripts/playit-account-service-smoke.js",
     "playit:account-ipc:smoke": "node scripts/playit-account-ipc-smoke.js",
+    "playit:account-ui:qa": "node scripts/playit-account-ui-qa.js",
     "public-access:create-service:smoke": "node scripts/public-access-create-service-smoke.js",
     "firewall:lifecycle:smoke": "node scripts/firewall-lifecycle-smoke.js",
     "pairing-status:smoke": "node scripts/paired-agent-badge-smoke.js",

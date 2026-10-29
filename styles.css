@@ -8198,6 +8198,139 @@ dd {
   font-size: 0.68rem;
 }
 
+/* Playit account setup and the tunnel list span the full Public Access grid. */
+.public-access-grid > .playit-account-card,
+.public-access-grid > .playit-tunnels-card {
+  grid-column: 1 / -1;
+  max-width: none;
+}
+
+.playit-account-card,
+.playit-tunnels-card {
+  min-height: 0;
+}
+
+.playit-account-card > p,
+.playit-tunnels-card > p {
+  min-height: 0;
+  margin: 0;
+}
+
+.playit-steps {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.playit-steps li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--anx-radius-sm);
+  background: rgba(17, 21, 31, 0.52);
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.playit-steps li > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.playit-steps__index {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.playit-steps li.is-done {
+  color: var(--text);
+}
+
+.playit-steps li.is-done .playit-steps__index {
+  border-color: transparent;
+  background: rgba(69, 224, 143, 0.22);
+  color: #45e08f;
+}
+
+.playit-steps li.is-current {
+  border-color: var(--accent);
+  background: var(--accent-soft, rgba(182, 108, 255, 0.12));
+  color: var(--text);
+  font-weight: 600;
+}
+
+.playit-account-actions:empty {
+  display: none;
+}
+
+.playit-account-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.playit-account-actions .inline-action {
+  min-height: 28px;
+  padding: 4px 10px;
+  font-size: 0.8rem;
+}
+
+.playit-tunnel-item__address {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.playit-tunnel-item__address code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font-family: var(--anx-font-mono, ui-monospace, Consolas, monospace);
+  font-size: 0.92rem;
+}
+
+.settings-advanced {
+  margin-top: 4px;
+}
+
+.settings-advanced summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.settings-advanced__hint {
+  margin: 8px 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+@media (max-width: 760px) {
+  .playit-steps {
+    grid-template-columns: 1fr;
+  }
+}
+
 .playit-logs-card {
   grid-column: 1 / -1;
 }

@@ -139,6 +139,7 @@ const TIERS = {
     ["node", ["scripts/playit-process-detection-smoke.js"]],
     ["node", ["scripts/playit-account-service-smoke.js"]],
     ["node", ["scripts/playit-account-ipc-smoke.js"]],
+    ["node", ["scripts/playit-account-ui-qa.js"]],
     ["node", ["scripts/endpoint-service-smoke.js"]],
     ["node", ["scripts/connectivity-diagnostics-service-smoke.js"]],
     ["node", ["scripts/provider-integration-smoke.js"]],
