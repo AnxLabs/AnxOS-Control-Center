@@ -140,7 +140,17 @@ function legacyDeviceId(url) {
 function nodeIdForDevice(deviceId) { return `agent-${String(deviceId || "unknown").replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 56)}`; }
 function isGenericNodeDisplayName(value) { return /^(owner machine|default|remote node|agent node|windows desktop|local agent|this pc)$/i.test(String(value || "").trim()); }
 function isDefaultLocalAgentDisplayName(value) { return /^(this pc|local agent|owner machine|windows desktop)$/i.test(String(value || "").trim()); }
+// A loopback URL alone does not make a node this PC's Local Agent: a remote
+// node reached through an SSH tunnel has one too (for example
+// http://127.0.0.1:47132). Treating it as local made the registry resolve a
+// selected application host to that remote node and label it "Local Agent".
+// Only a loopback URL on the Local Agent's own port is this PC.
+function isThisPcAgentUrl(url) {
+  return isLocalAgentUrl(url) && getLocalAgentPortFromUrl(url) === getLocalAgentPort();
+}
 function isExplicitLocalAgentNode(node = {}) {
+  const url = node.baseUrl || node.agentUrl || node.url;
+  if (isLocalAgentUrl(url) && !isThisPcAgentUrl(url)) return false;
   return node.localAgent === true || node.ownerMachine === true || node.profile?.localAgent === true;
 }
 function getAgentNodeModeLabel(node = {}) { return isExplicitLocalAgentNode(node) ? "Registered Local Agent Node" : "Registered Remote Agent Node"; }
@@ -844,7 +854,7 @@ function mergeAgentNodes(nodes) {
 
 async function discoverLocalAgentNode(state) {
   const effective = getEffectiveAgentSettings();
-  const existingLocal = state.nodes.find((node) => node.localAgent === true || isLocalAgentUrl(node.agentUrl));
+  const existingLocal = state.nodes.find((node) => isExplicitLocalAgentNode(node) || isThisPcAgentUrl(node.agentUrl));
   // An owner-disconnected Local Agent node must not be re-probed into
   // "online" by routine discovery; only Reconnect/Re-pair restores it.
   if (existingLocal?.manualDisconnect === true) {
@@ -962,7 +972,7 @@ async function withDiscoveredLocalAgent(state) {
     return { ...state, nodes: state.nodes.filter((node) => !isRemovedLocalAgentNode(state, node)) };
   }
   const nodes = mergeAgentNodes([
-    ...state.nodes.filter((node) => !(node.localAgent === true || isLocalAgentUrl(node.agentUrl) || node.agentIdentity?.deviceId === localNode.agentIdentity.deviceId)),
+    ...state.nodes.filter((node) => !(isExplicitLocalAgentNode(node) || isThisPcAgentUrl(node.agentUrl) || node.agentIdentity?.deviceId === localNode.agentIdentity.deviceId)),
     localNode,
   ]);
   const currentSelection = state.selectedNodeId || APPLICATION_HOST_NODE_ID;
@@ -982,7 +992,7 @@ function migrateState(parsed = {}) {
     : [];
   const rawLegacyUrl = String(rawLegacy.agentUrl || rawLegacy.url || process.env.AGENT_URL || "").trim();
   const canMigrateLegacyAgent = effective.backendMode === "agent" && rawLegacyUrl && effective.agentUrl;
-  const legacyAgentRemoved = canMigrateLegacyAgent && isRemovedLocalAgentNode({ removedLocalAgents }, { agentUrl: effective.agentUrl, localAgent: isLocalAgentUrl(effective.agentUrl) });
+  const legacyAgentRemoved = canMigrateLegacyAgent && isRemovedLocalAgentNode({ removedLocalAgents }, { agentUrl: effective.agentUrl, localAgent: isThisPcAgentUrl(effective.agentUrl) });
   if (canMigrateLegacyAgent && !legacyAgentRemoved) {
     const legacyUrl = normalizeUrl(effective.agentUrl);
     const existingIndex = legacyNodes.findIndex((node) => normalizeUrl(node.baseUrl || node.agentUrl || node.url) === legacyUrl);
@@ -994,11 +1004,11 @@ function migrateState(parsed = {}) {
         agentUrl: existing.agentUrl || existing.baseUrl || legacyUrl,
         agentToken: existing.agentToken || existing.token || getNodeToken(existing.id) || effective.agentToken,
         legacyGlobalAgent: existing.legacyGlobalAgent !== false,
-        localAgent: existing.localAgent === true || isLocalAgentUrl(legacyUrl),
-        ownerMachine: existing.ownerMachine === true || isLocalAgentUrl(legacyUrl),
+        localAgent: existing.localAgent === true || isThisPcAgentUrl(legacyUrl),
+        ownerMachine: existing.ownerMachine === true || isThisPcAgentUrl(legacyUrl),
       };
     } else {
-      legacyNodes.push({ displayName: "Owner Machine", baseUrl: effective.agentUrl, agentUrl: effective.agentUrl, agentToken: effective.agentToken, legacyGlobalAgent: true, localAgent: isLocalAgentUrl(legacyUrl), ownerMachine: isLocalAgentUrl(legacyUrl) });
+      legacyNodes.push({ displayName: "Owner Machine", baseUrl: effective.agentUrl, agentUrl: effective.agentUrl, agentToken: effective.agentToken, legacyGlobalAgent: true, localAgent: isThisPcAgentUrl(legacyUrl), ownerMachine: isThisPcAgentUrl(legacyUrl) });
     }
   }
   const nodes = mergeAgentNodes(legacyNodes).filter((node) => !isRemovedLocalAgentNode({ removedLocalAgents }, node));
@@ -1008,8 +1018,8 @@ function migrateState(parsed = {}) {
   if (selectedNodeId !== APPLICATION_HOST_NODE_ID && !nodes.some((node) => node.id === selectedNodeId)) selectedNodeId = nodes.length === 1 ? nodes[0].id : APPLICATION_HOST_NODE_ID;
   if (!hadPersistedSelection && nodes.length > 1) selectedNodeId = APPLICATION_HOST_NODE_ID;
   if (selectedNodeId === APPLICATION_HOST_NODE_ID) {
-    const localNode = nodes.find((node) => node.localAgent === true || isLocalAgentUrl(node.agentUrl));
-    if (localNode && effective.backendMode === "agent" && isLocalAgentUrl(effective.agentUrl)) selectedNodeId = localNode.id;
+    const localNode = nodes.find((node) => isExplicitLocalAgentNode(node) || isThisPcAgentUrl(node.agentUrl));
+    if (localNode && effective.backendMode === "agent" && isThisPcAgentUrl(effective.agentUrl)) selectedNodeId = localNode.id;
   }
   return { schemaVersion: NODE_SCHEMA_VERSION, selectedNodeId, nodes, removedLocalAgents };
 }
@@ -1199,7 +1209,7 @@ function publicNode(node) {
 function applyHealthPatchToNode(node, patch = {}) {
   const checkedAt = patch.checkedAt || new Date().toISOString();
   const state = normalizeConnectionState(patch.state);
-  const localAgent = node.localAgent === true || isLocalAgentUrl(node.agentUrl);
+  const localAgent = isExplicitLocalAgentNode(node) || isThisPcAgentUrl(node.agentUrl);
   const previousConnection = node.connection || {};
   const connection = buildConnectionPatch({
     state,
@@ -2141,7 +2151,7 @@ function setNodeManualDisconnect(node, disconnected) {
       ? buildConnectionPatch({
           state: "offline",
           message: "Disconnected from AnxOS by the owner. Use Reconnect or re-pair to restore.",
-          localAgent: node.localAgent === true || isLocalAgentUrl(node.agentUrl),
+          localAgent: isExplicitLocalAgentNode(node) || isThisPcAgentUrl(node.agentUrl),
           previous: node.connection || null,
         })
       : node.connection,

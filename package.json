@@ -179,6 +179,7 @@
     "node-route-fallback:smoke": "node scripts/node-route-fallback-smoke.js",
     "node-self-repair:smoke": "node scripts/node-self-repair-smoke.js",
     "node-selection-race:smoke": "node scripts/node-selection-race-smoke.js",
+    "node-tunnel-not-local:smoke": "node scripts/node-tunnel-not-local-smoke.js",
     "local-agent-task-stop:smoke": "node scripts/local-agent-task-stop-smoke.js",
     "node-routes-ui:qa": "node scripts/node-routes-ui-qa.js",
     "mobile-pairing:smoke": "node scripts/mobile-pairing-smoke.js",
