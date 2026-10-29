@@ -23,9 +23,30 @@ function firstValue(...values) {
   return values.find((value) => value !== undefined && value !== null && value !== "");
 }
 
+function projectErrorForIpc(error, seen = new WeakSet()) {
+  if (error === null || error === undefined || typeof error !== "object") return error;
+  if (seen.has(error)) return "[circular]";
+  seen.add(error);
+
+  const projected = {};
+  for (const key of ["name", "message", "code", "status", "statusCode"]) {
+    if (error[key] !== undefined && error[key] !== null) projected[key] = error[key];
+  }
+  if (error.response && typeof error.response === "object") {
+    projected.response = {
+      status: error.response.status ?? null,
+      statusText: error.response.statusText ?? null,
+      data: error.response.data ?? null,
+    };
+  }
+  if (error.cause !== undefined) projected.cause = projectErrorForIpc(error.cause, seen);
+  return projected;
+}
+
 function normalizeIpcError(error = {}, options = {}) {
   const payloadError = error?.payload?.error && typeof error.payload.error === "object" ? error.payload.error : {};
   const sourceDetails = firstValue(error?.details, payloadError.details, {}) || {};
+  const sanitizedError = sanitizeForDiagnostics(projectErrorForIpc(error));
   const code = String(firstValue(error?.code, payloadError.code, options.code, "IPC_REQUEST_FAILED")).toUpperCase();
   const technicalMessage = String(firstValue(payloadError.message, error?.message, options.fallbackMessage, "Request failed."));
   const friendlyMessage = String(firstValue(
@@ -35,7 +56,14 @@ function normalizeIpcError(error = {}, options = {}) {
     options.friendlyMessage,
     technicalMessage,
   ));
-  const statusCode = Number(firstValue(error?.statusCode, error?.status, error?.payload?.status, sourceDetails.status)) || null;
+  const statusCode = Number(firstValue(
+    error?.statusCode,
+    error?.status,
+    error?.payload?.status,
+    sourceDetails.status,
+    error?.response?.status,
+    error?.cause?.response?.status,
+  )) || null;
   const suggestion = firstValue(error?.suggestion, sourceDetails.suggestion, options.suggestion, null);
   const retryable = firstValue(error?.retryable, sourceDetails.retryable, options.retryable, RETRYABLE_CODES.has(code)) === true;
   const provider = firstValue(error?.provider, sourceDetails.provider, options.provider, null);
@@ -50,6 +78,8 @@ function normalizeIpcError(error = {}, options = {}) {
       method: firstValue(sourceDetails.method, error?.method, null),
       nodeId: firstValue(sourceDetails.nodeId, error?.nodeId, null),
       targetLabel: firstValue(sourceDetails.targetLabel, error?.targetLabel, null),
+      cause: sanitizedError?.cause || null,
+      response: sanitizedError?.response || null,
     },
     suggestion,
     retryable,
@@ -82,7 +112,10 @@ function createIpcError(error = {}, options = {}) {
     },
     statusCode: contract.status?.code || null,
   });
-  Object.defineProperty(wrapped, "cause", { value: error, enumerable: false });
+  Object.defineProperty(wrapped, "cause", {
+    value: sanitizeForDiagnostics(projectErrorForIpc(error)),
+    enumerable: false,
+  });
   return wrapped;
 }
 

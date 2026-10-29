@@ -46,7 +46,8 @@ async function main() {
       assert.strictEqual(error.details.retryable, true);
       assert.strictEqual(error.details.suggestion, "Start a new pairing session.");
       assert.strictEqual(error.statusCode, 409);
-      assert.strictEqual(error.cause, originalError);
+      assert.notStrictEqual(error.cause, originalError);
+      assert.strictEqual(error.cause.code, originalError.code);
       assert.match(error.message, /^PAIRING_EXPIRED:/);
       return true;
     },
