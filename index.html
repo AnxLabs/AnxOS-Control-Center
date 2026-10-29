@@ -1873,7 +1873,7 @@
               </article>
             </div>
 
-            <div class="instances-health-breakdown" data-instance-health-breakdown aria-label="Instance health counts">
+            <div class="instances-health-breakdown" data-instance-health-breakdown aria-label="Instance health counts" hidden>
               <span data-health-bucket="running"><strong data-field="instancesHealthRunning">Unavailable</strong> Running</span>
               <span data-health-bucket="stopped"><strong data-field="instancesHealthStopped">Unavailable</strong> Stopped</span>
               <span data-health-bucket="starting"><strong data-field="instancesHealthStarting">Unavailable</strong> Starting</span>
@@ -1909,23 +1909,6 @@
                 <button class="inline-action" type="button" data-instance-action="refresh" disabled>Refresh</button>
                 <button class="inline-action" type="button" data-instance-action="create">Create Server</button>
               </div>
-              <label class="docker-filter instances-log-control">
-                <span>Logs</span>
-                <select data-instances-log-stream disabled>
-                  <option value="all">All</option>
-                  <option value="stdin">stdin</option>
-                  <option value="stdout">stdout</option>
-                  <option value="stderr">stderr</option>
-                </select>
-              </label>
-              <label class="docker-filter instances-log-control">
-                <span>Limit</span>
-                <select data-instances-log-limit disabled>
-                  <option value="100">100</option>
-                  <option value="200" selected>200</option>
-                  <option value="500">500</option>
-                </select>
-              </label>
             </div>
 
             <form class="instance-create-form instance-wizard" data-instance-create-form hidden>
@@ -2114,6 +2097,23 @@
                         <option value="stdin">stdin</option>
                       </select>
                       <input type="search" placeholder="Search logs" data-instance-console-search>
+                      <label class="instance-console-select instances-log-control" title="Which output streams to load from the Agent">
+                        <span>Stream</span>
+                        <select data-instances-log-stream disabled>
+                          <option value="all">All</option>
+                          <option value="stdin">stdin</option>
+                          <option value="stdout">stdout</option>
+                          <option value="stderr">stderr</option>
+                        </select>
+                      </label>
+                      <label class="instance-console-select instances-log-control" title="How many recent lines to load">
+                        <span>Lines</span>
+                        <select data-instances-log-limit disabled>
+                          <option value="100">100</option>
+                          <option value="200" selected>200</option>
+                          <option value="500">500</option>
+                        </select>
+                      </label>
                       <button class="inline-action" type="button" data-instance-action="clear-console">Clear</button>
                       <button class="inline-action" type="button" data-instance-action="copy-console">Copy</button>
                       <button class="inline-action" type="button" data-instance-action="download-logs">Download</button>
@@ -2398,24 +2398,36 @@
                 <span class="instance-state" data-field="instanceDetailState">None</span>
               </div>
               <div class="instance-quick-actions" aria-label="Selected instance actions">
-                <button class="inline-action" type="button" data-instance-action="refresh" disabled>Refresh</button>
-                <button class="inline-action" type="button" data-instance-action="start" disabled>Start</button>
-                <button class="inline-action" type="button" data-instance-action="repair-neoforge-runtime" hidden disabled>Repair Runtime</button>
-                <button class="inline-action" type="button" data-instance-action="stop" disabled>Stop</button>
-                <button class="inline-action" type="button" data-instance-action="restart" disabled>Restart</button>
-                <button class="inline-action" type="button" data-instance-action="update-steam" hidden disabled>Update Server Files</button>
-                <button class="inline-action" type="button" data-instance-action="rename" disabled>Rename</button>
-                <button class="inline-action" type="button" data-instance-action="duplicate" disabled>Duplicate</button>
-                <button class="inline-action" type="button" data-instance-action="transfer-workload" disabled>Transfer Workload</button>
-                <button class="inline-action" type="button" data-instance-action="open-folder" disabled>Open Folder</button>
-                <button class="inline-action" type="button" data-instance-action="expose-share" disabled>Expose / Share</button>
-                <button class="inline-action" type="button" data-instance-action="share-server" disabled>Share Server</button>
-                <button class="inline-action" type="button" data-instance-action="copy-access-address" disabled>Copy Access</button>
-                <a class="inline-action" data-instance-open-service target="_blank" rel="noopener" hidden>Open service</a>
-                <button class="inline-action" type="button" data-instance-action="manage-access" disabled>Manage Access</button>
-                <button class="inline-action" type="button" data-instance-action="configure-fivem" hidden>Configure FiveM</button>
-                <button class="inline-action instance-danger-action" type="button" data-instance-action="delete" disabled>Delete</button>
-                <button class="inline-action instance-danger-action" type="button" data-instance-action="forget" disabled>Forget</button>
+                <div class="instance-action-group instance-action-group--power" role="group" aria-label="Power">
+                  <span class="instance-action-group__label">Power</span>
+                  <button class="inline-action instance-action--primary" type="button" data-instance-action="start" disabled>Start</button>
+                  <button class="inline-action" type="button" data-instance-action="stop" disabled>Stop</button>
+                  <button class="inline-action" type="button" data-instance-action="restart" disabled>Restart</button>
+                  <button class="inline-action" type="button" data-instance-action="refresh" disabled>Refresh</button>
+                  <button class="inline-action" type="button" data-instance-action="repair-neoforge-runtime" hidden disabled>Repair Runtime</button>
+                  <button class="inline-action" type="button" data-instance-action="update-steam" hidden disabled>Update Server Files</button>
+                  <button class="inline-action" type="button" data-instance-action="configure-fivem" hidden>Configure FiveM</button>
+                </div>
+                <div class="instance-action-group" role="group" aria-label="Access">
+                  <span class="instance-action-group__label">Access</span>
+                  <button class="inline-action" type="button" data-instance-action="expose-share" disabled>Expose / Share</button>
+                  <button class="inline-action" type="button" data-instance-action="share-server" disabled>Share Server</button>
+                  <button class="inline-action" type="button" data-instance-action="copy-access-address" disabled>Copy Access</button>
+                  <a class="inline-action" data-instance-open-service target="_blank" rel="noopener" hidden>Open service</a>
+                  <button class="inline-action" type="button" data-instance-action="manage-access" disabled>Manage Access</button>
+                </div>
+                <div class="instance-action-group" role="group" aria-label="Manage">
+                  <span class="instance-action-group__label">Manage</span>
+                  <button class="inline-action" type="button" data-instance-action="rename" disabled>Rename</button>
+                  <button class="inline-action" type="button" data-instance-action="duplicate" disabled>Duplicate</button>
+                  <button class="inline-action" type="button" data-instance-action="transfer-workload" disabled>Transfer Workload</button>
+                  <button class="inline-action" type="button" data-instance-action="open-folder" disabled>Open Folder</button>
+                </div>
+                <div class="instance-action-group instance-action-group--danger" role="group" aria-label="Danger zone">
+                  <span class="instance-action-group__label">Danger zone</span>
+                  <button class="inline-action instance-danger-action" type="button" data-instance-action="delete" disabled>Delete</button>
+                  <button class="inline-action instance-danger-action" type="button" data-instance-action="forget" disabled>Forget</button>
+                </div>
               </div>
               <section class="instance-setup-required-card" data-fivem-setup-card hidden>
                 <div>

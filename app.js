@@ -1083,6 +1083,9 @@ let activeInstanceTab = "overview";
 let latestMinecraftProperties = {};
 let instanceConfigSnapshot = "";
 let instanceMinecraftSnapshot = "";
+// Which instance configuration the settings form currently shows (see
+// shouldRepopulateInstanceConfigForm). Every population path records it.
+const populatedInstanceConfig = { instanceId: null, nodeId: null, key: "" };
 let gameConfigState = {
   loading: false,
   loaded: false,
@@ -1385,26 +1388,40 @@ const COMMAND_PALETTE_DEBOUNCE_MS = 80;
 const COMMAND_PALETTE_RECENT_LIMIT = 8;
 const staleInstanceIds = new Set();
 const instanceRemovalAllowedIds = new Set();
+// Sidebar groups, in display order. Every primary page belongs to exactly one
+// group except Settings, which stays pinned below the groups.
+const PRIMARY_NAVIGATION_GROUPS = [
+  { id: "overview", label: "Overview", pages: ["dashboard", "notifications", "console", "operations"] },
+  { id: "servers", label: "Servers & Instances", pages: ["instances", "marketplace", "docker", "files", "backups"] },
+  { id: "infrastructure", label: "Infrastructure", pages: ["nodes", "network", "playit", "ssh", "agent-control"] },
+  { id: "administration", label: "Administration", pages: ["security", "maintenance"] },
+];
+const PRIMARY_NAVIGATION_UNGROUPED = ["settings"];
+// Groups collapsed until the user opens them (the active page's group always opens).
+const NAV_GROUPS_COLLAPSED_BY_DEFAULT = ["infrastructure", "administration"];
+const NAV_GROUPS_STORAGE_KEY = "anxos.sidebar.collapsedGroups";
 const PRIMARY_NAVIGATION_ORDER = [
   "dashboard",
-  "marketplace",
+  "notifications",
+  "console",
+  "operations",
   "instances",
+  "marketplace",
   "docker",
   "files",
-  "ssh",
-  "playit",
-  "console",
   "backups",
-  "operations",
-  "notifications",
-  "maintenance",
-  "security",
-  "agent-control",
   "nodes",
   "network",
+  "playit",
+  "ssh",
+  "agent-control",
+  "security",
+  "maintenance",
   "settings",
 ];
 const LEGACY_PRIMARY_PAGES = new Set(["minecraft", "amp", "coolpals"]);
+// Instance health states that the Instances summary tiles do not already show.
+const INSTANCE_HEALTH_EXTRA_BUCKETS = ["unavailable", "unhealthy", "failed", "unknown"];
 const INSTANCE_WORKSPACE_PROFILES = [
   {
     id: "minecraft",
@@ -2708,8 +2725,8 @@ function configurePrimaryNavigation() {
 
   orderedItems.forEach((item) => {
     item.hidden = false;
-    navMenu.appendChild(item);
   });
+  buildNavigationGroups(navMenu);
 
   navMenu.querySelectorAll("[data-page-target]").forEach((item) => {
     const pageTarget = item.dataset.pageTarget;
@@ -2718,6 +2735,100 @@ function configurePrimaryNavigation() {
       item.removeAttribute("aria-current");
     }
   });
+  syncNavigationGroupVisibility();
+}
+
+function readCollapsedNavGroups() {
+  try {
+    const stored = window.localStorage.getItem(NAV_GROUPS_STORAGE_KEY);
+    if (stored === null) return new Set(NAV_GROUPS_COLLAPSED_BY_DEFAULT);
+    const parsed = JSON.parse(stored);
+    return new Set(Array.isArray(parsed) ? parsed.filter((id) => typeof id === "string") : NAV_GROUPS_COLLAPSED_BY_DEFAULT);
+  } catch {
+    return new Set(NAV_GROUPS_COLLAPSED_BY_DEFAULT);
+  }
+}
+
+function storeCollapsedNavGroups() {
+  const collapsed = [...document.querySelectorAll(".nav-group.is-collapsed")].map((group) => group.dataset.navGroup);
+  try {
+    window.localStorage.setItem(NAV_GROUPS_STORAGE_KEY, JSON.stringify(collapsed));
+  } catch {
+    // Storage can be unavailable; the groups still work for this session.
+  }
+}
+
+function setNavGroupCollapsed(group, collapsed) {
+  group.classList.toggle("is-collapsed", collapsed);
+  group.querySelector(".nav-group__toggle")?.setAttribute("aria-expanded", collapsed ? "false" : "true");
+}
+
+// Moves the primary items into collapsible groups (once). The items keep their
+// elements, attributes and listeners; only their parent changes.
+function buildNavigationGroups(navMenu) {
+  if (navMenu.querySelector(".nav-group")) return;
+  const collapsed = readCollapsedNavGroups();
+  PRIMARY_NAVIGATION_GROUPS.forEach((definition) => {
+    const group = document.createElement("div");
+    group.className = "nav-group";
+    group.dataset.navGroup = definition.id;
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "nav-group__toggle";
+    toggle.setAttribute("aria-controls", `nav-group-${definition.id}`);
+    const label = document.createElement("span");
+    label.className = "nav-group__label";
+    label.textContent = definition.label;
+    const chevron = document.createElement("span");
+    chevron.className = "nav-group__chevron";
+    chevron.setAttribute("aria-hidden", "true");
+    toggle.append(label, chevron);
+    toggle.addEventListener("click", () => {
+      setNavGroupCollapsed(group, !group.classList.contains("is-collapsed"));
+      storeCollapsedNavGroups();
+    });
+    const items = document.createElement("div");
+    items.className = "nav-group__items";
+    items.id = `nav-group-${definition.id}`;
+    items.setAttribute("role", "group");
+    items.setAttribute("aria-label", definition.label);
+    definition.pages.forEach((pageName) => {
+      const item = navMenu.querySelector(`[data-page-target="${pageName}"]`);
+      if (item) items.appendChild(item);
+    });
+    group.append(toggle, items);
+    navMenu.appendChild(group);
+    setNavGroupCollapsed(group, collapsed.has(definition.id));
+  });
+  PRIMARY_NAVIGATION_UNGROUPED.forEach((pageName) => {
+    const item = navMenu.querySelector(`[data-page-target="${pageName}"]`);
+    if (item) {
+      item.classList.add("nav-item--pinned");
+      navMenu.appendChild(item);
+    }
+  });
+  // Permissions and feature checks hide items after startup; a group with no
+  // visible item hides its header too.
+  if (typeof MutationObserver === "function") {
+    new MutationObserver(syncNavigationGroupVisibility).observe(navMenu, { subtree: true, attributes: true, attributeFilter: ["hidden"] });
+  }
+}
+
+function syncNavigationGroupVisibility() {
+  document.querySelectorAll(".nav-group").forEach((group) => {
+    const hasVisibleItem = [...group.querySelectorAll("[data-page-target]")].some((item) => !item.hidden);
+    if (group.hidden === hasVisibleItem) group.hidden = !hasVisibleItem;
+  });
+}
+
+// The active page's group always opens, so the current page is never hidden.
+function revealNavigationGroupFor(pageName) {
+  const item = document.querySelector(`.nav-group [data-page-target="${pageName}"]`);
+  const group = item?.closest(".nav-group");
+  if (group?.classList.contains("is-collapsed")) {
+    setNavGroupCollapsed(group, false);
+    storeCollapsedNavGroups();
+  }
 }
 
 function setStartupStep(name, status) {
@@ -4601,6 +4712,7 @@ function showPage(pageName) {
       item.removeAttribute("aria-current");
     }
   });
+  revealNavigationGroupFor(safePageName);
   ownerWorkspaceToggle?.classList.toggle("is-active", safePageName === "owner-workspace");
   if (safePageName === "owner-workspace") {
     ownerWorkspaceToggle?.setAttribute("aria-current", "page");
@@ -14202,6 +14314,9 @@ function syncInstanceConfigDirtyState() {
 }
 
 function populateInstanceConfigForm(instance) {
+  populatedInstanceConfig.instanceId = instance?.id || null;
+  populatedInstanceConfig.nodeId = instance ? getSelectedNodeId() : null;
+  populatedInstanceConfig.key = getInstanceConfigFormKey(instance);
   if (!instance) {
     instanceConfigSnapshot = "";
     instanceMinecraftSnapshot = "";
@@ -14282,11 +14397,16 @@ function renderInstanceNetwork(instance) {
     return;
   }
 
-  instanceNetworkList.replaceChildren();
   renderInstanceNetworkSummary(instance);
   const ports = Array.isArray(instance?.ports) ? instance.ports : [];
   const metrics = getInstanceMetrics(instance?.id);
   const portStatus = new Map((Array.isArray(metrics?.ports) ? metrics.ports : []).map((entry) => [entry.port, entry.open]));
+  // Rebuilt only when the ports or their status change, so a refresh never
+  // drops focus from a Remove button.
+  const renderKey = JSON.stringify([instance?.id || null, ports, [...portStatus]]);
+  if (instanceNetworkList.dataset.renderKey === renderKey) return;
+  instanceNetworkList.dataset.renderKey = renderKey;
+  instanceNetworkList.replaceChildren();
 
   if (ports.length === 0) {
     const empty = document.createElement("p");
@@ -14404,6 +14524,10 @@ async function saveInstanceConfiguration(event) {
     }
 
     showToast("Instance configuration saved.");
+    // The form's values are the saved values now: mark it clean so the next
+    // refresh can load the stored (normalized) configuration into it.
+    instanceConfigSnapshot = JSON.stringify(collectInstanceConfigPayload());
+    syncInstanceConfigDirtyState();
     await refreshInstances();
     await loadGameServerConfig();
   } catch (error) {
@@ -15699,12 +15823,12 @@ function buildInstanceTagsCell(instance) {
 function buildInstanceActionCell(instance) {
   const wrapper = document.createElement("div");
   wrapper.className = "instance-row-actions";
+  // Rows carry the power actions only; access and management actions live in
+  // the selected instance's inspector, one click away.
   const actions = [
     { label: isFiveMSetupRequired(instance) ? "Configure" : "Start", action: "start", disabled: !canStartInstance(instance) },
     { label: "Stop", action: "stop", disabled: !canStopInstance(instance) },
     { label: "Reload", action: "restart", disabled: !canRestartInstance(instance) },
-    { label: "Expose", action: "expose-share", disabled: !getInstanceAccessSuggestions(instance).some((suggestion) => suggestion.compatible !== false && suggestion.localPort) },
-    { label: "Share", action: "share-server", disabled: !getInstancePrimaryPort(instance) },
   ];
 
   actions.forEach((item) => {
@@ -15740,20 +15864,57 @@ function renderInstanceRows(instances) {
     return;
   }
   const existingRows = new Map([...instancesList.querySelectorAll("tr[data-instance-id]")].map((row) => [row.dataset.instanceId, row]));
+  // Stale rows go first so they never sit between rows that are in order.
+  const incomingIds = new Set(instances.map((instance) => instance.id));
+  existingRows.forEach((row, instanceId) => {
+    if (!incomingIds.has(instanceId)) {
+      row.remove();
+      existingRows.delete(instanceId);
+    }
+  });
+  let previousRow = null;
   instances.forEach((instance) => {
     const row = existingRows.get(instance.id) || document.createElement("tr");
     existingRows.delete(instance.id);
     updateInstanceRow(row, instance);
-    instancesList.appendChild(row);
+    // Move a row only when it is out of place: re-inserting an element that is
+    // already in position would blur anything focused inside it.
+    const expectedPosition = previousRow ? previousRow.nextSibling : instancesList.firstChild;
+    if (row !== expectedPosition) instancesList.insertBefore(row, expectedPosition);
+    previousRow = row;
   });
-  existingRows.forEach((row) => row.remove());
 
   filterInstanceRows();
 }
 
+// Applies a freshly built set of children to `container`, keeping every
+// existing child whose markup is unchanged. Periodic refreshes then replace
+// only what actually changed, so focus, hover and open state survive them.
+// Callers must build children whose event handlers depend only on data that
+// is reflected in the markup (an id, not a captured object).
+function reconcileChildren(container, draft) {
+  const next = [...draft.childNodes];
+  const current = [...container.childNodes];
+  next.forEach((node, index) => {
+    const existing = current[index];
+    if (!existing) {
+      container.appendChild(node);
+    } else if (existing.nodeType !== node.nodeType || (existing.outerHTML ?? existing.textContent) !== (node.outerHTML ?? node.textContent)) {
+      existing.replaceWith(node);
+    }
+  });
+  current.slice(next.length).forEach((node) => node.remove());
+}
+
 function updateInstanceRow(row, instance) {
   if (!row || !instance) return;
-  row.replaceChildren();
+  // Build the new cells off-document, then swap in only the cells whose markup
+  // changed. Polls and metrics ticks then touch just the live cells (state,
+  // CPU, RAM, uptime); unchanged cells keep their elements, so focus inside a
+  // row survives a refresh. Cell handlers capture only the instance id.
+  const nextRow = document.createElement("tr");
+  buildInstanceRowCells(nextRow, instance);
+  reconcileChildren(row, nextRow);
   row.dataset.instanceId = instance.id || "";
   row.dataset.instanceState = getInstanceStateClass(instance?.state);
   row.tabIndex = 0;
@@ -15764,7 +15925,9 @@ function updateInstanceRow(row, instance) {
       selectInstance(instance.id);
     }
   };
+}
 
+function buildInstanceRowCells(row, instance) {
   const metrics = getInstanceRowMetrics(instance);
   const metricsPlaceholder = metrics ? null : getInstanceMetricsPlaceholder(instance);
   addInstanceCell(row, buildInstanceNameCell(instance));
@@ -15853,6 +16016,19 @@ function renderInstanceSummary(instances) {
   Object.entries(healthFieldMap).forEach(([bucket, field]) => {
     setField(field, String(healthSummary.counts?.[bucket] || 0));
   });
+  // The summary tiles already show running/starting/stopping/stopped; the
+  // breakdown line only adds the problem states, and only when they occur.
+  const breakdown = document.querySelector("[data-instance-health-breakdown]");
+  if (breakdown) {
+    let anyShown = false;
+    breakdown.querySelectorAll("[data-health-bucket]").forEach((entry) => {
+      const bucket = entry.dataset.healthBucket;
+      const shown = INSTANCE_HEALTH_EXTRA_BUCKETS.includes(bucket) && Number(healthSummary.counts?.[bucket] || 0) > 0;
+      entry.hidden = !shown;
+      anyShown = anyShown || shown;
+    });
+    breakdown.hidden = !anyShown;
+  }
   const runningInstances = instances.filter(isInstanceRunning);
   const stoppedInstances = instances.filter((instance) => !isInstanceRunning(instance));
   const aggregateMetrics = instances.reduce((totals, instance) => {
@@ -16139,13 +16315,60 @@ function setInstanceDetails(instance = null) {
   renderFiveMSetupCard(instance);
   renderMinecraftWorkspaceSummary(instance, metrics);
   renderMinecraftPlayersPanel(instance);
-  populateInstanceConfigForm(instance);
+  if (shouldRepopulateInstanceConfigForm(instance)) populateInstanceConfigForm(instance);
   renderInstanceNetwork(instance);
   renderInstanceRestartSchedules(instance);
   if (instanceAddressCopyButton) {
     instanceAddressCopyButton.disabled = !getInstancePrimaryPort(instance);
   }
   applyServiceManagedRestrictions(instance);
+}
+
+// What the settings form shows for an instance. Live fields (state, pid,
+// metrics, players) are deliberately absent: a poll that only changes them
+// must never rewrite the form.
+function getInstanceConfigFormKey(instance) {
+  if (!instance) return "";
+  return JSON.stringify([
+    getSelectedNodeId(),
+    instance.id,
+    instance.displayName,
+    instance.type,
+    instance.workingDirectory,
+    instance.executable,
+    instance.args,
+    instance.restartPolicy,
+    instance.startupTimeoutMs,
+    instance.shutdownTimeoutMs,
+    instance.autoStart,
+    instance.environment,
+    instance.tags,
+    instance.ports,
+  ]);
+}
+
+function isInstanceConfigFormBusy() {
+  // Unsaved edits anywhere in the settings tab, or the cursor is in one of its fields.
+  const settingsPanel = document.querySelector('[data-instance-panel="settings"]');
+  const active = document.activeElement;
+  if (settingsPanel && active && settingsPanel.contains(active) && active.matches("input, textarea, select, [contenteditable='true']")) return true;
+  try {
+    if (JSON.stringify(collectInstanceConfigPayload()) !== instanceConfigSnapshot) return true;
+  } catch {
+    return true;
+  }
+  if (JSON.stringify(collectMinecraftProperties()) !== instanceMinecraftSnapshot) return true;
+  return isGameConfigDirty();
+}
+
+// Selecting another instance (or node) always loads its settings. A refresh of
+// the same instance reloads them only when the saved configuration changed and
+// the user is not editing; otherwise their edits, focus and cursor stay intact.
+function shouldRepopulateInstanceConfigForm(instance) {
+  const key = getInstanceConfigFormKey(instance);
+  if (populatedInstanceConfig.instanceId !== instance.id || populatedInstanceConfig.nodeId !== getSelectedNodeId()) return true;
+  if (populatedInstanceConfig.key === key) return false;
+  return !isInstanceConfigFormBusy();
 }
 
 function selectInstance(instanceId, options = {}) {
@@ -21231,6 +21454,10 @@ function renderInstanceRestartSchedules(instance) {
   const matchesSelection = Boolean(instance) && restartSchedulesState.instanceId === instance.id;
   const schedules = matchesSelection ? restartSchedulesState.schedules : [];
   const supported = matchesSelection && restartSchedulesState.supported !== false && getDesktopApiState().hasRestartSchedules;
+  // Rebuilt only when what it shows changes; refreshes keep focus on its buttons.
+  const renderKey = JSON.stringify([instance?.id || null, supported, getDesktopApiState().hasRestartSchedules, schedules]);
+  if (restartScheduleList.dataset.renderKey === renderKey) return;
+  restartScheduleList.dataset.renderKey = renderKey;
 
   restartScheduleList.replaceChildren();
   if (restartScheduleEmpty) {
@@ -22130,7 +22357,10 @@ async function refreshInstances(options = {}) {
     instancesRequestInFlight = false;
     return getInstances();
   }
-  setInstancesLoading(true);
+  // A background poll that already has a list on screen updates it in place: no
+  // loading overlay or busy state, which would make the page appear to reload.
+  const showLoading = !(options.background && latestInstancesSnapshot);
+  if (showLoading) setInstancesLoading(true);
   updateInstanceActionButtons();
 
   try {
@@ -22150,7 +22380,9 @@ async function refreshInstances(options = {}) {
     if (latestInstancesSnapshot) {
       setInstancesLoading(false);
       setInstancesEmpty(getInstances().length === 0, "Instance list refresh failed. Keeping the last known list.");
-      showToast(getAgentErrorMessage(error, "Instance list refresh failed."), "warning");
+      // A disconnected node fails every poll; only a user-initiated refresh
+      // raises a toast, background polls keep the last list quietly.
+      if (!options.background) showToast(getAgentErrorMessage(error, "Instance list refresh failed."), "warning");
     } else {
       renderInstancesUnavailable(`Instance request failed: ${getAgentErrorMessage(error)}`);
     }
@@ -22297,7 +22529,7 @@ function startInstancesPagePolling() {
     if (document.hidden || instanceActionRequestInFlight) {
       return;
     }
-    refreshInstances();
+    refreshInstances({ background: true });
   }, INSTANCE_PAGE_REFRESH_INTERVAL_MS);
 }
 
@@ -31501,8 +31733,17 @@ function renderConsoleSources() {
   }
 
   const instances = getInstances();
+  const draft = consoleSourceList.cloneNode(false);
+  buildConsoleSources(draft, instances);
+  reconcileChildren(consoleSourceList, draft);
+
+  if (consoleSourceEmpty) {
+    consoleSourceEmpty.hidden = instances.length > 0;
+  }
+}
+
+function buildConsoleSources(consoleSourceList, instances) {
   const query = (consoleSourceSearchInput?.value || "").trim().toLowerCase();
-  consoleSourceList.replaceChildren();
 
   instances.forEach((instance) => {
     const searchable = [instance.id, instance.displayName, instance.type, instance.state, ...(Array.isArray(instance.tags) ? instance.tags : [])]
@@ -31540,10 +31781,6 @@ function renderConsoleSources() {
     button.append(dot, copy, state);
     consoleSourceList.append(button);
   });
-
-  if (consoleSourceEmpty) {
-    consoleSourceEmpty.hidden = instances.length > 0;
-  }
 }
 
 function renderConsoleTabs() {
@@ -31551,7 +31788,12 @@ function renderConsoleTabs() {
     return;
   }
 
-  consoleTabs.replaceChildren();
+  const draft = consoleTabs.cloneNode(false);
+  buildConsoleTabs(draft);
+  reconcileChildren(consoleTabs, draft);
+}
+
+function buildConsoleTabs(consoleTabs) {
   const openIds = consoleOpenInstanceIds.filter((instanceId) => findInstance(instanceId));
   consoleOpenInstanceIds = openIds;
 
