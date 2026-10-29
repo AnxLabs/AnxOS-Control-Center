@@ -587,6 +587,8 @@ const IPC_FAMILIES = [
     channels: [
       "publicAccess:getSnapshot", "publicAccess:listServices", "publicAccess:getPlayitStatus",
       "publicAccess:getPlayitLogs", "publicAccess:listPlayitTunnels",
+      // playit account: link state only, and opening the fixed download page.
+      "publicAccess:getPlayitAccount", "publicAccess:openPlayitDownload",
       "publicAccess:previewFirewallRule", "publicAccess:listFirewallRules",
       // V2-H reverse-proxy/certificate state read (Agent-owned; no mutation).
       "publicAccess:getReverseProxy",
@@ -601,7 +603,11 @@ const IPC_FAMILIES = [
       // V2-H reverse-proxy route apply: records a route definition only. The
       // Agent reports applied:false (no proxy configuration is written), so the
       // write tier matches the other public-access mutations.
-      "publicAccess:applyReverseProxyRoute"],
+      "publicAccess:applyReverseProxyRoute",
+      // playit account linking: these open playit.gg claim/sign-in links,
+      // which act like short-lived credentials, so polling is write-tier too.
+      "publicAccess:startPlayitLink", "publicAccess:getPlayitLink", "publicAccess:openPlayitLink",
+      "publicAccess:cancelPlayitLink", "publicAccess:openPlayitManage"],
   },
   {
     id: "amp-read",
@@ -893,6 +899,10 @@ const REST_FAMILIES = [
   { id: "rest-marketplace-read", tier: "marketplace:read", publicRoute: false, routes: [{ method: "GET", path: "/api/v1/marketplace/curseforge/status" }] },
   { id: "rest-public-access-read", tier: "public-access:read", publicRoute: false, routes: [{ method: "GET", path: "/api/v1/playit/status" }] },
   { id: "rest-public-access-write", tier: "public-access:write", publicRoute: false, routes: [{ method: "POST", path: "/api/v1/public-access/matrix-probe" }] },
+  // playit account linking. The probes name a linking attempt that does not
+  // exist, so they are refused (PLAYIT_LINK_NOT_FOUND) without running playit.
+  { id: "rest-public-access-playit-link-read", tier: "public-access:read", publicRoute: false, routes: [{ method: "GET", path: "/api/v1/public-access/playit/account/link/matrix-probe" }] },
+  { id: "rest-public-access-playit-link-write", tier: "public-access:write", publicRoute: false, routes: [{ method: "POST", path: "/api/v1/public-access/playit/account/link/matrix-probe/cancel", body: {} }] },
   {
     // V2-H reverse-proxy/certificate lifecycle: the read path returns the
     // recorded routes, certificate lifecycle states, and the explicit

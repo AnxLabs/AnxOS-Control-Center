@@ -927,6 +927,33 @@
             </div>
 
             <div class="public-access-grid">
+              <article class="status-card status-card--wide playit-account-card" data-playit-account-card aria-label="Playit account">
+                <div class="status-card__top">
+                  <span class="service-icon">PG</span>
+                  <span class="status-pill status-pill--planned" data-playit-account-pill>Checking</span>
+                </div>
+                <h3>Connect Playit.gg</h3>
+                <p data-playit-account-message>Checking Playit on the selected computer...</p>
+                <ol class="playit-steps" data-playit-steps aria-label="Playit setup steps">
+                  <li data-playit-step="install"><span class="playit-steps__index" aria-hidden="true">1</span><span>Install</span></li>
+                  <li data-playit-step="start"><span class="playit-steps__index" aria-hidden="true">2</span><span>Start</span></li>
+                  <li data-playit-step="link"><span class="playit-steps__index" aria-hidden="true">3</span><span>Link Account</span></li>
+                  <li data-playit-step="tunnels"><span class="playit-steps__index" aria-hidden="true">4</span><span>View Tunnels</span></li>
+                  <li data-playit-step="manage"><span class="playit-steps__index" aria-hidden="true">5</span><span>Manage</span></li>
+                </ol>
+                <div class="settings-actions playit-account-actions" data-playit-account-actions aria-label="Playit account actions"></div>
+              </article>
+
+              <article class="status-card status-card--wide playit-tunnels-card">
+                <div class="status-card__top">
+                  <span class="service-icon">TN</span>
+                  <span class="status-pill status-pill--planned">Tunnels</span>
+                </div>
+                <h3>Your Tunnels</h3>
+                <p data-playit-tunnel-message>No Playit tunnels found.</p>
+                <div class="playit-tunnel-list" data-playit-tunnel-list></div>
+              </article>
+
               <article class="status-card status-card--wide playit-status-card" data-playit-status-card data-public-access-service-card="playit-primary" role="button" tabindex="0">
                 <div class="status-card__top">
                   <span class="service-icon">PA</span>
@@ -1006,16 +1033,6 @@
                 <h3>Playit Service</h3>
                 <p data-playit-service-meta>Checking Playit service state...</p>
                 <div class="settings-actions playit-service-actions" data-playit-service-actions aria-label="Playit service actions"></div>
-              </article>
-
-              <article class="status-card playit-tunnels-card">
-                <div class="status-card__top">
-                  <span class="service-icon">TN</span>
-                  <span class="status-pill status-pill--planned">Tunnels</span>
-                </div>
-                <h3>Playit Tunnels</h3>
-                <p data-playit-tunnel-message>No Playit tunnels found.</p>
-                <div class="playit-tunnel-list" data-playit-tunnel-list></div>
               </article>
 
               <article class="status-card playit-logs-card" data-playit-logs-panel hidden>
@@ -5049,16 +5066,20 @@
               <div class="settings-section__header">
                 <div>
                   <h3>Public Access</h3>
-                  <p>Current public address information used by Public Access helpers.</p>
+                  <p>Link your Playit account on the Public Access page to see every tunnel and its address automatically.</p>
                 </div>
                 <span class="status-pill status-pill--local">Local</span>
               </div>
-              <div class="settings-grid">
-                <label class="settings-field">
-                  <span>Playit.gg public address</span>
-                  <input type="text" placeholder="Not configured" data-setting="playit.address">
-                </label>
-              </div>
+              <details class="settings-advanced" data-playit-manual-address>
+                <summary>Advanced: manual Playit address</summary>
+                <p class="settings-advanced__hint">Fallback for setups where tunnels cannot be listed (for example an older Agent). Used only when no tunnel address is detected.</p>
+                <div class="settings-grid">
+                  <label class="settings-field">
+                    <span>Playit.gg public address</span>
+                    <input type="text" placeholder="Not configured" data-setting="playit.address">
+                  </label>
+                </div>
+              </details>
             </section>
 
             <section class="settings-section settings-section--updates" data-settings-category="updates" data-settings-keywords="updates version release restart developer git stable beta check download">

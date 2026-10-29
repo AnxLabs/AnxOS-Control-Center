@@ -865,6 +865,9 @@ let publicAccessUnavailableState = null;
 let selectedPublicAccessProviderId = "playit";
 let selectedPublicAccessServiceId = "playit-primary";
 let playitActionInFlight = null;
+let latestPlayitAccount = null;
+let playitLinkSession = null;
+let playitLinkPollTimer = null;
 let dockerRequestInFlight = false;
 let dockerActionRequestInFlight = false;
 let instancesRequestInFlight = false;
@@ -8830,24 +8833,225 @@ function renderPlayitTunnels(result = {}) {
     top.append(createTextElement("strong", tunnel.name || tunnel.id || "Playit tunnel"));
     const status = createTextElement("span", tunnel.status || "unknown", `status-pill ${tunnel.status === "online" ? "status-pill--ok" : tunnel.status === "offline" ? "status-pill--warning" : "status-pill--planned"}`);
     top.append(status);
+    const address = document.createElement("div");
+    address.className = "playit-tunnel-item__address";
+    address.append(createTextElement("code", tunnel.publicAddress || "Public address not reported"));
+    if (tunnel.publicAddress) {
+      const copy = createPlayitServiceActionButton(`playit-copy:${tunnel.id}`, "Copy");
+      copy.classList.add("playit-tunnel-copy");
+      copy.dataset.publicAddress = tunnel.publicAddress;
+      copy.setAttribute("aria-label", `Copy public address ${tunnel.publicAddress}`);
+      address.append(copy);
+    }
     const endpoints = document.createElement("div");
     endpoints.className = "playit-tunnel-item__endpoints";
     endpoints.append(
-      createTextElement("span", `Local: ${tunnel.localHost || "unknown"}${tunnel.localPort ? `:${tunnel.localPort}` : ""}`),
-      createTextElement("span", `Public: ${tunnel.publicAddress || "unknown"}`),
+      createTextElement("span", `Local ${tunnel.localHost || "unknown"}${tunnel.localPort ? `:${tunnel.localPort}` : ""}`),
+      createTextElement("span", `Server: ${tunnel.matchedInstanceName || "Not matched"}`),
     );
     const badges = document.createElement("div");
     badges.className = "playit-tunnel-item__badges";
-    [tunnel.protocol, tunnel.type, tunnel.matchedInstanceName].filter(Boolean).forEach((label) => badges.append(createTextElement("span", label, "status-pill status-pill--planned")));
-    if (tunnel.publicAddress) {
-      const copy = createPlayitServiceActionButton(`playit-copy:${tunnel.id}`, "Copy public endpoint");
-      copy.classList.add("playit-tunnel-copy");
-      copy.dataset.publicAddress = tunnel.publicAddress;
-      badges.append(copy);
-    }
-    item.append(top, endpoints, badges);
+    [tunnel.protocol, tunnel.type].filter(Boolean).forEach((label) => badges.append(createTextElement("span", label, "status-pill status-pill--planned")));
+    item.append(top, address, endpoints, badges);
     playitTunnelList.append(item);
   });
+  renderPlayitAccount();
+}
+
+// Playit account: the guided Install -> Start -> Link Account -> View Tunnels
+// -> Manage flow. Linking uses Playit's own browser approval; the main process
+// opens the playit.gg page and the renderer only sees progress.
+const PLAYIT_ACCOUNT_STEPS = ["install", "start", "link", "tunnels", "manage"];
+const PLAYIT_LINK_POLL_MS = 2000;
+
+function isPlayitLinkActive(session) {
+  return ["starting", "awaiting-approval"].includes(session?.state);
+}
+
+function getPlayitAccountCurrentStep(account = latestPlayitAccount) {
+  if (!account || account.ok === false) return null;
+  if (!account.installed) return "install";
+  if (!account.running) return "start";
+  if (account.linked !== true) return "link";
+  return latestPlayitTunnels.length ? "manage" : "tunnels";
+}
+
+function getPlayitAccountSummary(account, step) {
+  const nodeName = getSelectedNode()?.displayName || "this computer";
+  if (!account) return { pill: "Checking", tone: "status-pill--planned", message: `Checking Playit on ${nodeName}...` };
+  if (account.ok === false) {
+    if (isPlayitEndpointUnsupported(account.error || account)) {
+      return { pill: "Agent update", tone: "status-pill--warning", message: "Account linking needs an Agent update on this node. Until then, you can set a manual address under Settings > Connections > Advanced." };
+    }
+    return { pill: "Unavailable", tone: "status-pill--warning", message: account.error?.message || account.message || "Playit account status is unavailable." };
+  }
+  if (step === "install") return { pill: "Not installed", tone: "status-pill--warning", message: `Playit isn't installed on ${nodeName} yet. Install it to get public addresses for your servers.` };
+  if (step === "start") {
+    return account.linked === true
+      ? { pill: "Stopped", tone: "status-pill--warning", message: "Playit is linked but not running. Start it to bring your tunnels online." }
+      : { pill: "Stopped", tone: "status-pill--warning", message: "Start Playit to continue setup." };
+  }
+  if (step === "link") {
+    if (playitLinkSession?.state === "awaiting-approval") {
+      return { pill: "Waiting for approval", tone: "status-pill--planned", message: "Approve the link on playit.gg in your browser. This page updates by itself when you're done." };
+    }
+    if (playitLinkSession?.state === "starting") {
+      return { pill: "Linking", tone: "status-pill--planned", message: "Asking Playit for an approval link..." };
+    }
+    if (account.linked === null) {
+      return { pill: "Unknown", tone: "status-pill--planned", message: "AnxOS couldn't confirm whether Playit is linked, so it won't change anything. Check Playit's own setup, then check again." };
+    }
+    return { pill: "Not linked", tone: "status-pill--warning", message: "Link Playit to your Playit.gg account. You approve it in your browser; AnxOS never sees your password." };
+  }
+  const count = latestPlayitTunnels.length;
+  return {
+    pill: "Linked",
+    tone: "status-pill--ok",
+    message: count
+      ? `Linked to Playit.gg. ${count} tunnel${count === 1 ? "" : "s"} found below.`
+      : "Linked to Playit.gg. Create a tunnel on playit.gg (Manage) and it will appear below.",
+  };
+}
+
+function renderPlayitAccount(account = latestPlayitAccount) {
+  const card = document.querySelector("[data-playit-account-card]");
+  if (!card) return;
+  const step = getPlayitAccountCurrentStep(account);
+  const summary = getPlayitAccountSummary(account, step);
+  const pill = card.querySelector("[data-playit-account-pill]");
+  if (pill) {
+    pill.className = `status-pill ${summary.tone}`;
+    pill.textContent = summary.pill;
+  }
+  const message = card.querySelector("[data-playit-account-message]");
+  if (message) message.textContent = summary.message;
+  const currentIndex = PLAYIT_ACCOUNT_STEPS.indexOf(step);
+  card.querySelectorAll("[data-playit-step]").forEach((item) => {
+    const index = PLAYIT_ACCOUNT_STEPS.indexOf(item.dataset.playitStep);
+    item.classList.toggle("is-done", currentIndex > index);
+    item.classList.toggle("is-current", currentIndex === index);
+    if (currentIndex === index) item.setAttribute("aria-current", "step");
+    else item.removeAttribute("aria-current");
+  });
+  const actions = card.querySelector("[data-playit-account-actions]");
+  if (!actions) return;
+  actions.replaceChildren();
+  const button = (action, label, options) => createPlayitServiceActionButton(action, label, options);
+  if (step === "install") {
+    actions.append(button("playit-account-install", "Install Playit", { primary: true }), button("playit-account-download", "Open download page"));
+  } else if (step === "start") {
+    actions.append(button("playit-start", "Start Playit", { primary: true }));
+  } else if (step === "link" && isPlayitLinkActive(playitLinkSession)) {
+    actions.append(
+      button("playit-account-link-open", "Open approval page", { primary: true, disabled: !playitLinkSession.hasLink }),
+      button("playit-account-link-cancel", "Cancel"),
+    );
+  } else if (step === "link" && account.linked === false) {
+    actions.append(button("playit-account-link", "Link Playit account", { primary: true }));
+  } else if (step === "tunnels" || step === "manage") {
+    actions.append(button("playit-account-manage", "Manage on Playit.gg", { primary: step === "tunnels" }), button("playit-refresh-tunnels", "Refresh tunnels"));
+  }
+  if (!isPlayitLinkActive(playitLinkSession)) actions.append(button("playit-account-refresh", "Check again"));
+}
+
+async function refreshPlayitAccount(payload = getNodeScopedPayload(getNodeRequestContext("playit-account")), requestContext = getNodeRequestContext("playit-account")) {
+  const api = getDesktopApiState().api?.publicAccess;
+  if (typeof api?.getPlayitAccount !== "function") return null;
+  const result = await api.getPlayitAccount(payload).catch((error) => ({ ok: false, error }));
+  if (!isNodeRequestCurrent(requestContext)) return null;
+  latestPlayitAccount = result;
+  renderPlayitAccount(result);
+  return result;
+}
+
+function getPlayitLinkPayload(session = playitLinkSession) {
+  return { nodeId: session?.nodeId || getSelectedNodeId(), linkId: session?.id };
+}
+
+function schedulePlayitLinkPoll() {
+  clearTimeout(playitLinkPollTimer);
+  playitLinkPollTimer = isPlayitLinkActive(playitLinkSession) ? setTimeout(pollPlayitAccountLink, PLAYIT_LINK_POLL_MS) : null;
+}
+
+async function finishPlayitAccountLink(session) {
+  playitLinkSession = null;
+  clearTimeout(playitLinkPollTimer);
+  if (session?.state === "linked") showToast("Playit is linked. Loading your tunnels...", "success");
+  else if (session?.state && session.state !== "cancelled") showToast(session.message || "Playit linking did not finish.", "warning");
+  await refreshPlayitStatus();
+}
+
+async function pollPlayitAccountLink() {
+  const session = playitLinkSession;
+  if (!session) return;
+  if (session.nodeId !== getSelectedNodeId()) {
+    // The node changed; the attempt keeps running there until it expires.
+    playitLinkSession = null;
+    renderPlayitAccount();
+    return;
+  }
+  const result = await getDesktopApiState().api?.publicAccess?.getPlayitLink?.(getPlayitLinkPayload(session)).catch((error) => ({ ok: false, error }));
+  if (playitLinkSession !== session) return;
+  if (!result || result.ok === false) {
+    await finishPlayitAccountLink({ state: "failed", message: result?.error?.message || "Playit linking status is unavailable." });
+    return;
+  }
+  playitLinkSession = { ...result, nodeId: session.nodeId };
+  if (result.opened) showToast("Approve the link on playit.gg in your browser.", "info");
+  if (isPlayitLinkActive(result)) {
+    renderPlayitAccount();
+    schedulePlayitLinkPoll();
+    return;
+  }
+  await finishPlayitAccountLink(result);
+}
+
+async function startPlayitAccountLink() {
+  const payload = getNodeScopedPayload(getNodeRequestContext("playit-account-link"));
+  const result = await getDesktopApiState().api?.publicAccess?.startPlayitLink?.(payload);
+  if (!result || result.ok === false) {
+    await refreshPlayitAccount();
+    throw Object.assign(new Error(result?.error?.message || "Playit linking could not start."), { code: result?.error?.code || "PLAYIT_LINK_FAILED" });
+  }
+  playitLinkSession = { ...result, nodeId: payload.nodeId };
+  if (result.opened) showToast("Approve the link on playit.gg in your browser.", "info");
+  renderPlayitAccount();
+  if (isPlayitLinkActive(result)) schedulePlayitLinkPoll();
+  else await finishPlayitAccountLink(result);
+  return result;
+}
+
+async function runPlayitAccountAction(action) {
+  const api = getDesktopApiState().api?.publicAccess;
+  const failIfRefused = (result, fallback) => {
+    if (result?.ok === false) throw Object.assign(new Error(result.error?.message || fallback), { code: result.error?.code || "PLAYIT_ACCOUNT_ACTION_FAILED" });
+    return result;
+  };
+  if (action === "playit-account-refresh") return refreshPlayitStatus();
+  if (action === "playit-account-link") return startPlayitAccountLink();
+  if (action === "playit-account-link-open") {
+    return failIfRefused(await api?.openPlayitLink?.(getPlayitLinkPayload()), "The approval page could not be opened.");
+  }
+  if (action === "playit-account-link-cancel") {
+    const session = playitLinkSession;
+    if (!session) return null;
+    const result = await api?.cancelPlayitLink?.(getPlayitLinkPayload(session));
+    await finishPlayitAccountLink({ state: "cancelled" });
+    return failIfRefused(result, "Linking could not be cancelled.");
+  }
+  if (action === "playit-account-manage") {
+    return failIfRefused(await api?.openPlayitManage?.(getNodeScopedPayload(getNodeRequestContext("playit-account-manage"))), "Playit.gg could not be opened.");
+  }
+  if (action === "playit-account-download") {
+    return failIfRefused(await api?.openPlayitDownload?.(getNodeScopedPayload(getNodeRequestContext("playit-account"))), "The Playit download page could not be opened.");
+  }
+  if (action === "playit-account-install") {
+    const provider = (latestPublicAccessSnapshot?.providers || []).find((entry) => entry?.id === "playit");
+    if (!provider?.dependencyId) return runPlayitAccountAction("playit-account-download");
+    selectedPublicAccessProviderId = "playit";
+    return runPublicAccessAction("install-dependency");
+  }
+  return null;
 }
 
 function renderPlayitLogs(result = {}) {
@@ -8906,6 +9110,7 @@ function getPublicAccessRequestUnavailableReason(error = null, fallbackMessage =
 function renderPublicAccessUnavailableState(reason = getPublicAccessUnavailableReason(), fallbackMessage = "Public Access status unavailable.") {
   const unavailable = reason || { code: "PUBLIC_ACCESS_UNAVAILABLE", message: fallbackMessage, tunnelMessage: fallbackMessage };
   publicAccessUnavailableState = unavailable;
+  latestPlayitAccount = { ok: false, message: unavailable.message };
   renderPlayitServiceStatus({
     ok: false,
     installed: null,
@@ -8937,6 +9142,7 @@ async function refreshPlayitManagement(payload = getNodeScopedPayload(getNodeReq
   const [status, tunnels] = await Promise.all([
     typeof publicAccessApi.getPlayitStatus === "function" ? publicAccessApi.getPlayitStatus(payload).catch((error) => ({ ok: false, error })) : null,
     typeof publicAccessApi.listPlayitTunnels === "function" ? publicAccessApi.listPlayitTunnels(payload).catch((error) => ({ ok: false, error })) : null,
+    refreshPlayitAccount(payload, requestContext),
   ]);
   if (!isNodeRequestCurrent(requestContext)) return;
   if (status?.ok === false && status.error) {
@@ -10657,6 +10863,7 @@ async function runPublicAccessAction(action) {
       renderPlayitServiceActions();
     }
   }
+  if (String(action || "").startsWith("playit-account-")) return runPlayitAccountAction(action);
   if (String(action || "").startsWith("playit-copy:")) {
     const tunnelId = String(action).slice("playit-copy:".length);
     const tunnel = latestPlayitTunnels.find((entry) => String(entry.id) === tunnelId);
@@ -10963,6 +11170,8 @@ function renderPublicAccessSnapshot(snapshot = {}) {
 function renderPlayitUnavailable(message = "Public Access status unavailable.") {
   document.querySelector("[data-public-access-loading]")?.setAttribute("hidden", "");
   const unavailable = getPublicAccessRequestUnavailableReason(null, message);
+  latestPlayitAccount = { ok: false, message: unavailable.message || message };
+  renderPlayitAccount();
   latestPlayitSnapshot = null;
   setField("dashboardPublicAccess", "Unavailable");
   setField("dashboardPublicAccessDetail", message);
