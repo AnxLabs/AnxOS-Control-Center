@@ -67,6 +67,10 @@ const SETTING_DEFINITIONS = {
   "network.proxyUrl": { category: "network", type: "string", default: "", maxLength: 200 },
   "network.proxyBypass": { category: "network", type: "string", default: "localhost,127.0.0.1", maxLength: 500 },
 
+  "telemetry.enabled": { category: "telemetry", type: "boolean", default: true },
+  "telemetry.samplingIntervalMs": { category: "telemetry", type: "number", default: 120000, min: 30000, max: 3600000 },
+  "telemetry.retentionDays": { category: "telemetry", type: "number", default: 7, min: 1, max: 30 },
+
   "performance.hardwareAcceleration": { category: "performance", type: "boolean", default: true, restartRequired: true },
   "performance.refreshIntervalMs": { category: "performance", type: "number", default: 3000, min: 1000, max: 60000 },
   "performance.pausePollingMinimized": { category: "performance", type: "boolean", default: true },
