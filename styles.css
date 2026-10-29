@@ -18434,6 +18434,9 @@ html[data-ui-generation="v1.9"] .sidebar[data-sidebar-state="collapsed"] [data-t
 @media (max-width: 620px) {
   .node-routes__fields {
     grid-template-columns: 1fr;
+  }
+}
+
 /* ==========================================================================
    Sidebar navigation groups
    Primary pages sit in collapsible groups (Overview, Servers & Instances,
