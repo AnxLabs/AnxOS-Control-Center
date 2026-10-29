@@ -87,6 +87,7 @@ const TIERS = {
     ["node", ["scripts/connectivity-no-fake-green-smoke.js"]],
     ["node", ["scripts/node-tunnel-service-smoke.js"]],
     ["node", ["scripts/node-route-fallback-smoke.js"]],
+    ["node", ["scripts/node-self-repair-smoke.js"]],
     ["git", ["diff", "--check"]],
   ],
   release: [
@@ -137,6 +138,7 @@ const TIERS = {
     ["node", ["scripts/connectivity-no-fake-green-smoke.js"]],
     ["node", ["scripts/node-tunnel-service-smoke.js"]],
     ["node", ["scripts/node-route-fallback-smoke.js"]],
+    ["node", ["scripts/node-self-repair-smoke.js"]],
     ["node", ["scripts/endpoint-service-smoke.js"]],
     ["node", ["scripts/connectivity-diagnostics-service-smoke.js"]],
     ["node", ["scripts/provider-integration-smoke.js"]],

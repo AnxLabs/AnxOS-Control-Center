@@ -1295,6 +1295,40 @@ function recordAuthenticatedNodeHealth(payload = {}) {
   return publicNode(updated);
 }
 
+// Pairing self-repair and blip tolerance.
+// A single failed check right after a success is usually a blip (Wi-Fi
+// handoff, route switch, Agent restart), so it reads "Reconnecting" instead of
+// Offline; the node is Offline after two failures in a row or once the last
+// success is older than the grace window. Rejected credentials get one safe,
+// automatic repair attempt per window: the existing non-interactive path that
+// reinstalls a configured token only when it matches the live Agent.
+const HEALTH_FAILURE_GRACE_MS = 90 * 1000;
+const AUTO_CREDENTIAL_REPAIR_INTERVAL_MS = 10 * 60 * 1000;
+const nodeFailureStreaks = new Map();
+const nodeAutoRepairAttempts = new Map();
+
+function isWithinFailureGrace(node, streak, now = Date.now()) {
+  const lastSuccess = Date.parse(node.lastSuccessfulHealthCheck || "");
+  return streak < 2 && Number.isFinite(lastSuccess) && now - lastSuccess <= HEALTH_FAILURE_GRACE_MS;
+}
+
+async function attemptAutomaticCredentialRepair(node, now = Date.now()) {
+  const last = nodeAutoRepairAttempts.get(node.id) || 0;
+  if (now - last < AUTO_CREDENTIAL_REPAIR_INTERVAL_MS) return { attempted: false, repaired: false };
+  nodeAutoRepairAttempts.set(node.id, now);
+  try {
+    const status = await getNodeCredentialStatus(node.id);
+    const configured = getConfiguredAgentTokenForNode(node);
+    if (status.status !== "valid" && configured?.token && status.liveHealthFingerprint && configured.fingerprint === status.liveHealthFingerprint) {
+      setNodeToken(node.id, configured.token);
+      return { attempted: true, repaired: true };
+    }
+    return { attempted: true, repaired: false, status: status.status };
+  } catch {
+    return { attempted: true, repaired: false };
+  }
+}
+
 async function checkNodeHealth(nodeId, options = {}) {
   const node = getNode(nodeId);
   if (node.kind === "application-host") {
@@ -1391,6 +1425,8 @@ async function checkNodeHealth(nodeId, options = {}) {
           stale: true,
         };
       }
+      nodeFailureStreaks.delete(node.id);
+      nodeAutoRepairAttempts.delete(node.id);
       const updated = updateNodeHealthState(node.id, {
         state,
         message,
@@ -1411,12 +1447,24 @@ async function checkNodeHealth(nodeId, options = {}) {
         checkedAt: updated.lastHealthCheckedAt,
       };
     } catch (error) {
-      const state = classifyHealthError(error);
-      const message = state === "authentication_failed"
-        ? `${node.displayName || node.name || node.id} credential rejected.`
+      let state = classifyHealthError(error);
+      const streak = (nodeFailureStreaks.get(node.id) || 0) + 1;
+      nodeFailureStreaks.set(node.id, streak);
+      let message = state === "authentication_failed"
+        ? `${node.displayName || node.name || node.id} credential rejected. Re-pair the node to restore access.`
         : state === "agent_incompatible"
         ? "Agent API version is not compatible with this Control Center."
         : error?.message || "Agent is unreachable.";
+      if (state === "authentication_failed" && options.autoRepair !== false) {
+        const repair = await attemptAutomaticCredentialRepair(node);
+        if (repair.repaired) {
+          state = "connecting";
+          message = "The node credential was repaired automatically. Reconnecting...";
+        }
+      } else if (state === "offline" && isWithinFailureGrace(node, streak)) {
+        state = "connecting";
+        message = "Connection interrupted. Reconnecting...";
+      }
       if (nodeHealthGenerations.get(node.id) !== generation) {
         const current = getNode(node.id);
         return {
@@ -2162,4 +2210,4 @@ async function deleteNode(nodeId, options = {}) {
 async function selectNode(nodeId) { getNode(nodeId); const state = readNodeState(); writeNodeState({ ...state, selectedNodeId: nodeId || APPLICATION_HOST_NODE_ID }); return listNodes({ discoverLocalAgent: false, refreshIdentity: false }); }
 async function testNode(nodeId) { return checkNodeHealth(nodeId || getSelectedNodeId(), { timeoutMs: 8000 }); }
 
-module.exports = { APPLICATION_HOST_NODE_ID, HEALTH_STATES, NODE_SCHEMA_VERSION, checkAllNodeHealth, checkNodeHealth, deleteNode, disconnectNode, getAllNodesSync, getExecutionTarget, getNode, getNodeAgentConfig, getNodeCredentialStatus, getNodeCredentialsPath, getNodesPath, getSelectedNodeId, listNodes, mergeAgentNodes, migrateState, pairNodeFromCode, postPairingComplete, postPairingStart, reconnectNode, recordAuthenticatedNodeHealth, repairNodeCredential, resolveNodeForAgentIdentity, saveNode, selectNode, setNodeFallbackUrls, setNodeTransport, testNode, testNodeConnectionPayload, updateNodeHealthState, _test: { attemptAgentEnrollmentRevocation, buildNodeCapabilities, compareAgentVersions, formatAgentCompatibilityMessage, getAgentCompatibilityReport, getNodeReportedCapabilities, normalizeAgentApiMajor, normalizeAgentCapabilitiesMetadata, normalizeAgentProtocolVersion, normalizeNodeGroup, normalizeNodeTransport, normalizeNodeFallbackUrls, isPrivateNetworkHost, isLoopbackAgentUrl, parseComparableAgentVersion, postPairingComplete, setNodeManualDisconnect } };
+module.exports = { APPLICATION_HOST_NODE_ID, HEALTH_STATES, NODE_SCHEMA_VERSION, checkAllNodeHealth, checkNodeHealth, deleteNode, disconnectNode, getAllNodesSync, getExecutionTarget, getNode, getNodeAgentConfig, getNodeCredentialStatus, getNodeCredentialsPath, getNodesPath, getSelectedNodeId, listNodes, mergeAgentNodes, migrateState, pairNodeFromCode, postPairingComplete, postPairingStart, reconnectNode, recordAuthenticatedNodeHealth, repairNodeCredential, resolveNodeForAgentIdentity, saveNode, selectNode, setNodeFallbackUrls, setNodeTransport, testNode, testNodeConnectionPayload, updateNodeHealthState, _test: { attemptAgentEnrollmentRevocation, isWithinFailureGrace, HEALTH_FAILURE_GRACE_MS, buildNodeCapabilities, compareAgentVersions, formatAgentCompatibilityMessage, getAgentCompatibilityReport, getNodeReportedCapabilities, normalizeAgentApiMajor, normalizeAgentCapabilitiesMetadata, normalizeAgentProtocolVersion, normalizeNodeGroup, normalizeNodeTransport, normalizeNodeFallbackUrls, isPrivateNetworkHost, isLoopbackAgentUrl, parseComparableAgentVersion, postPairingComplete, setNodeManualDisconnect } };
