@@ -18713,3 +18713,132 @@ html[data-ui-generation="v1.9"] .main-content .page-header h1 {
   justify-items: start;
   text-align: left;
 }
+
+/* ==========================================================================
+   Files page layout (desktop widths)
+   The page was a fixed-height grid: the header, connection bar and toolbar
+   left the four panes a strip about 200px tall, and Browse mode reserved a
+   third of the width for an empty editor. Now the page scrolls, Browse mode
+   gives folders, files and details the full width with the editor below,
+   and Edit mode keeps its explorer/editor split at a usable height. The
+   narrow-window layout (at or below 1320px) is unchanged.
+   ========================================================================== */
+@media (min-width: 1321px) {
+  .page[data-page="files"].is-active {
+    display: block;
+    height: auto;
+    overflow: visible;
+  }
+
+  .page[data-page="files"] .file-manager-shell {
+    grid-template-rows: auto auto auto auto;
+    align-items: start;
+    height: auto;
+    overflow: visible;
+  }
+
+  .page[data-page="files"] .storage-manager-panel {
+    position: sticky;
+    top: 0;
+    align-self: start;
+  }
+
+  .page[data-page="files"] .storage-connection-list {
+    overflow: visible;
+  }
+
+  /* Browse mode: the explorer gets the full width; the editor sits below. */
+  .page[data-page="files"] .file-manager-shell:not(.is-edit-mode) .file-workspace {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    overflow: visible;
+  }
+
+  .page[data-page="files"] .file-manager-shell:not(.is-edit-mode) .file-browser {
+    grid-template-columns: minmax(170px, 0.3fr) minmax(0, 1fr) 10px minmax(220px, var(--files-details-width));
+    height: clamp(420px, calc(100vh - 330px), 760px);
+  }
+
+  .page[data-page="files"] .file-manager-shell:not(.is-edit-mode) .file-editor-panel {
+    height: clamp(360px, 52vh, 640px);
+  }
+
+  /* Edit mode: explorer and editor side by side, tall enough to work in. */
+  .page[data-page="files"] .file-manager-shell.is-edit-mode .file-workspace {
+    height: clamp(480px, calc(100vh - 250px), 900px);
+  }
+}
+
+@media (min-width: 1321px) {
+  /* Browse mode: folders beside a wide file list; details become a strip
+     under the list, so the list keeps its Size and Modified columns. */
+  .page[data-page="files"] .file-manager-shell:not(.is-edit-mode) .file-browser {
+    grid-template-columns: minmax(160px, 0.26fr) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "tree list"
+      "tree details";
+  }
+
+  .page[data-page="files"] .file-manager-shell:not(.is-edit-mode) .folder-tree-panel {
+    grid-area: tree;
+  }
+
+  .page[data-page="files"] .file-manager-shell:not(.is-edit-mode) .file-list-panel {
+    grid-area: list;
+    min-height: 0;
+  }
+
+  .page[data-page="files"] .file-manager-shell:not(.is-edit-mode) .file-panel-divider {
+    display: none;
+  }
+
+  .page[data-page="files"] .file-manager-shell:not(.is-edit-mode) .file-details-panel {
+    grid-area: details;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 4px 16px;
+    align-items: center;
+    padding: 10px 14px;
+  }
+
+  .page[data-page="files"] .file-manager-shell:not(.is-edit-mode) .file-details-panel .panel-heading {
+    grid-column: 1 / -1;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  .page[data-page="files"] .file-manager-shell:not(.is-edit-mode) .file-details-panel .file-preview-icon {
+    display: none;
+  }
+
+  .page[data-page="files"] .file-manager-shell:not(.is-edit-mode) .file-details-list {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr)) minmax(0, 2fr);
+    gap: 4px 14px;
+    margin: 0;
+  }
+
+  .page[data-page="files"] .file-manager-shell:not(.is-edit-mode) .file-details-list dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (min-width: 1321px) {
+  .page[data-page="files"] .file-manager-shell:not(.is-edit-mode) .file-details-list {
+    grid-template-columns: minmax(0, 1.3fr) minmax(0, 0.8fr) minmax(0, 0.6fr) minmax(0, 1.2fr) minmax(0, 0.8fr) minmax(0, 2fr);
+  }
+
+  .page[data-page="files"] .file-manager-shell:not(.is-edit-mode) .file-details-list dt {
+    font-size: 0.64rem;
+    white-space: nowrap;
+  }
+
+  .page[data-page="files"] .file-manager-shell:not(.is-edit-mode) .file-details-list dd {
+    font-size: 0.82rem;
+    line-height: 1.3;
+  }
+}
