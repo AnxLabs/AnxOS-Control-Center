@@ -17,8 +17,8 @@
 //   R4 a node that stops answering keeps the last list on screen, quietly:
 //      no reset, no toast per poll, and the unsaved edit is still there.
 //
-// Focus and scroll checks need an undisturbed window: a mouse click on the test
-// window (or OS focus changes) during the run can move focus. On failure the
+// The window ignores the real mouse so desktop activity cannot click or scroll
+// it mid-run; OS-level focus changes can still interfere. On failure the
 // assertion message includes the recorded blur/scroll/focus-call events, which
 // show whether the app or the environment moved focus.
 //
@@ -84,7 +84,10 @@ async function launch(agent) {
   page.on("pageerror", (error) => rendererErrors.push(redacted(error.stack || error.message)));
   page.setDefaultTimeout(10000);
   // A short window so the Instances page scrolls (R2 checks scroll position).
-  await app.evaluate(({ BrowserWindow }) => { const window = BrowserWindow.getAllWindows()[0]; window?.setSize(1400, 760); window?.center(); });
+  // The window ignores the real mouse: a stray click or wheel from someone using
+  // the desktop must not move focus or scroll mid-test. Playwright input is
+  // synthetic (DevTools protocol) and still reaches the page.
+  await app.evaluate(({ BrowserWindow }) => { const window = BrowserWindow.getAllWindows()[0]; window?.setSize(1400, 760); window?.center(); window?.setIgnoreMouseEvents(true); });
   await page.waitForLoadState("domcontentloaded");
   const useDevice = page.getByRole("button", { name: "Use this device" }).first();
   await waitFor(page, "app shell ready", async () => (await page.evaluate(() => typeof window.showPage === "function")), 30000);

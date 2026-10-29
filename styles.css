@@ -18559,3 +18559,157 @@ html[data-ui-generation="v1.9"] .sidebar[data-sidebar-state="collapsed"] [data-t
   grid-template-columns: 19ch 8ch minmax(0, 1fr);
   gap: 10px;
 }
+
+/* ==========================================================================
+   App-wide consistency layer
+   One header scale, one summary-tile style, calmer buttons and compact page
+   introductions on every page, keeping the AnxOS purple-and-dark identity.
+   Presentation only: markup, data hooks and behaviour are unchanged.
+   ========================================================================== */
+
+:root {
+  --ui-tile-radius: 10px;
+  --ui-tile-border: rgba(185, 171, 200, 0.14);
+  --ui-tile-surface: linear-gradient(160deg, rgba(31, 17, 50, 0.9), rgba(14, 9, 25, 0.94));
+  --ui-label-color: rgba(222, 212, 238, 0.62);
+}
+
+/* Page headers: the same compact scale everywhere. */
+.main-content .page-header {
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.main-content .page-header h1,
+.main-content .instances-toolbar__title h1,
+html[data-ui-generation="v1.9"] .main-content .page-header h1 {
+  margin: 2px 0 0;
+  font-size: 1.6rem;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+}
+
+.main-content .page-header .lede,
+.main-content .instances-toolbar__title .lede {
+  margin: 4px 0 0;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.main-content .page-header .eyebrow,
+.main-content .instances-toolbar__title .eyebrow {
+  margin: 0;
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+}
+
+/* The Instances header reads like every other page header. */
+.page[data-page="instances"] .instances-toolbar {
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+}
+
+/* Page introductions: a slim, dismissible hint instead of a large banner. */
+.main-content .page-introduction {
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  gap: 6px;
+  font-size: 0.84rem;
+  background: rgba(182, 108, 255, 0.05);
+  border-color: rgba(182, 108, 255, 0.16);
+}
+
+.main-content .page-introduction strong {
+  font-size: 0.86rem;
+}
+
+.main-content .page-introduction .inline-action {
+  min-height: 28px;
+  font-size: 0.76rem;
+}
+
+/* Summary tiles on every page: label over value, no decorative code boxes. */
+.docker-summary-card,
+.backup-summary-card,
+.coolpals-summary-card,
+.playit-summary-card,
+.nodes-summary-card,
+.operations-summary-card,
+.notification-summary-card,
+.network-summary-card,
+.maintenance-summary-card,
+.page[data-page="instances"] .instances-summary-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+  min-height: 0;
+  padding: 10px 14px;
+  border: 1px solid var(--ui-tile-border);
+  border-radius: var(--ui-tile-radius);
+  background: var(--ui-tile-surface);
+  box-shadow: none;
+  transform: none;
+}
+
+:is(.docker-summary-card, .backup-summary-card, .coolpals-summary-card, .operations-summary-card, .notification-summary-card, .maintenance-summary-card) > .service-icon {
+  display: none;
+}
+
+:is(.docker-summary-card, .backup-summary-card, .coolpals-summary-card, .playit-summary-card, .nodes-summary-card, .operations-summary-card, .notification-summary-card, .network-summary-card, .maintenance-summary-card, .instances-summary-card) > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+:is(.docker-summary-card, .backup-summary-card, .coolpals-summary-card, .playit-summary-card, .nodes-summary-card, .operations-summary-card, .notification-summary-card, .network-summary-card, .maintenance-summary-card) span:not(.service-icon) {
+  color: var(--ui-label-color);
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+:is(.docker-summary-card, .backup-summary-card, .coolpals-summary-card, .playit-summary-card, .nodes-summary-card, .operations-summary-card, .notification-summary-card, .network-summary-card, .maintenance-summary-card) strong {
+  color: var(--text);
+  font-size: 1.05rem;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+:is(.docker-summary-card, .backup-summary-card, .coolpals-summary-card, .playit-summary-card, .nodes-summary-card, .operations-summary-card, .notification-summary-card, .network-summary-card, .maintenance-summary-card):hover {
+  transform: none;
+}
+
+/* Buttons: one weight and size, no scaling jump on hover. */
+.inline-action {
+  font-size: 0.82rem;
+  font-weight: 700;
+  border-radius: 8px;
+}
+
+.inline-action:not(:disabled):hover,
+.inline-action:not(:disabled):focus-visible {
+  transform: none;
+}
+
+.inline-action:focus-visible {
+  outline: 2px solid rgba(182, 108, 255, 0.6);
+  outline-offset: 1px;
+}
+
+/* Monitoring: the console column may shrink, so the Status column always fits. */
+.console-ops-shell {
+  grid-template-columns: minmax(220px, 0.48fr) minmax(0, 1.42fr) minmax(240px, 0.58fr);
+}
+
+:is(.docker-summary-card, .backup-summary-card, .coolpals-summary-card, .playit-summary-card, .nodes-summary-card, .operations-summary-card, .notification-summary-card, .network-summary-card, .maintenance-summary-card),
+:is(.docker-summary-card, .backup-summary-card, .coolpals-summary-card, .playit-summary-card, .nodes-summary-card, .operations-summary-card, .notification-summary-card, .network-summary-card, .maintenance-summary-card) > div {
+  align-items: stretch;
+  justify-items: start;
+  text-align: left;
+}
