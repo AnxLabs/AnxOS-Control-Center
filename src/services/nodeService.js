@@ -1678,7 +1678,11 @@ async function getNodeCredentialStatus(nodeId) {
   let reachable = false;
   let healthError = null;
   try {
-    health = await getHealth(normalizeAgentSettings({ backendMode: "agent", agentUrl: endpoint, agentToken: configured?.token || storedToken || "" }), {
+    // The probe carries only the node's own credential, never the global Agent
+    // token: /health reports the live fingerprint without auth, so the
+    // configured-token comparison below stays local and no global secret is
+    // sent to a node endpoint (background health checks reach this path).
+    health = await getHealth(normalizeAgentSettings({ backendMode: "agent", agentUrl: endpoint, agentToken: storedToken || "" }), {
       timeoutMs: 8000,
       targetLabel: `node-credential-status:${node.id}`,
       suppressConnectionRefusedLog: true,
