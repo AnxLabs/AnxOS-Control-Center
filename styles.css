@@ -8198,6 +8198,139 @@ dd {
   font-size: 0.68rem;
 }
 
+/* Playit account setup and the tunnel list span the full Public Access grid. */
+.public-access-grid > .playit-account-card,
+.public-access-grid > .playit-tunnels-card {
+  grid-column: 1 / -1;
+  max-width: none;
+}
+
+.playit-account-card,
+.playit-tunnels-card {
+  min-height: 0;
+}
+
+.playit-account-card > p,
+.playit-tunnels-card > p {
+  min-height: 0;
+  margin: 0;
+}
+
+.playit-steps {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.playit-steps li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--anx-radius-sm);
+  background: rgba(17, 21, 31, 0.52);
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.playit-steps li > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.playit-steps__index {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.playit-steps li.is-done {
+  color: var(--text);
+}
+
+.playit-steps li.is-done .playit-steps__index {
+  border-color: transparent;
+  background: rgba(69, 224, 143, 0.22);
+  color: #45e08f;
+}
+
+.playit-steps li.is-current {
+  border-color: var(--accent);
+  background: var(--accent-soft, rgba(182, 108, 255, 0.12));
+  color: var(--text);
+  font-weight: 600;
+}
+
+.playit-account-actions:empty {
+  display: none;
+}
+
+.playit-account-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.playit-account-actions .inline-action {
+  min-height: 28px;
+  padding: 4px 10px;
+  font-size: 0.8rem;
+}
+
+.playit-tunnel-item__address {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.playit-tunnel-item__address code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font-family: var(--anx-font-mono, ui-monospace, Consolas, monospace);
+  font-size: 0.92rem;
+}
+
+.settings-advanced {
+  margin-top: 4px;
+}
+
+.settings-advanced summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.settings-advanced__hint {
+  margin: 8px 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+@media (max-width: 760px) {
+  .playit-steps {
+    grid-template-columns: 1fr;
+  }
+}
+
 .playit-logs-card {
   grid-column: 1 / -1;
 }
@@ -17906,12 +18039,14 @@ html[data-ui-generation="v1.9"] .status-pill::before {
 
 html[data-ui-generation="v1.9"] .status-pill.is-running::before,
 html[data-ui-generation="v1.9"] .status-pill.is-connected::before {
-  animation: anxos-v2-status-pulse 1800ms ease-out infinite;
+  animation: anxos-v2-status-pulse 1800ms ease-in-out infinite;
 }
 
+/* Transform and opacity only, so the pulse runs on the compositor instead of
+   repainting every status pill on every frame. */
 @keyframes anxos-v2-status-pulse {
-  0%, 100% { box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 13%, transparent); }
-  50% { box-shadow: 0 0 0 6px color-mix(in srgb, currentColor 0%, transparent); }
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.55; transform: scale(1.45); }
 }
 
 html[data-ui-generation="v1.9"] [aria-busy="true"] {
@@ -17929,15 +18064,22 @@ html[data-ui-generation="v1.9"] .marketplace-loading::after {
   position: absolute;
   inset: 0;
   background: linear-gradient(105deg, transparent 30%, rgba(255, 255, 255, 0.08) 48%, transparent 66%);
-  background-size: 220% 100%;
   content: "";
   pointer-events: none;
+  transform: translateX(-100%);
   animation: anxos-v2-loading-sheen 1500ms ease-in-out infinite;
 }
 
+html[data-ui-generation="v1.9"] :is(.docker-loading-state, .file-loading-state, .ssh-loading-state, .coolpals-loading-state, .backup-loading-state, .marketplace-loading) {
+  position: relative;
+  overflow: hidden;
+}
+
+/* Moved with transform rather than background-position so the sheen is
+   composited instead of repainting the loading block on every frame. */
 @keyframes anxos-v2-loading-sheen {
-  from { background-position: 180% 0; }
-  to { background-position: -40% 0; }
+  from { transform: translateX(-100%); }
+  to { transform: translateX(100%); }
 }
 
 html[data-ui-generation="v1.9"] .docker-empty-state,
@@ -18220,5 +18362,857 @@ html[data-ui-generation="v1.9"] .sidebar[data-sidebar-state="collapsed"] [data-t
 
   .backup-verification-cell {
     white-space: normal;
+  }
+}
+
+/* Node routes panel: addresses (main + fallbacks) and the SSH tunnel. */
+.app-modal--node-routes {
+  width: min(680px, calc(100vw - 32px));
+}
+
+.app-modal--node-routes .app-modal__header {
+  display: grid;
+  gap: 4px;
+  padding-right: 36px;
+}
+
+.app-modal--node-routes .app-modal__header h2,
+.app-modal--node-routes .app-modal__header p {
+  margin: 0;
+}
+
+.node-routes {
+  display: grid;
+  gap: 18px;
+}
+
+.node-routes__section h3 {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+}
+
+.node-routes__list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.node-routes__list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--anx-radius-sm);
+  background: rgba(17, 21, 31, 0.52);
+}
+
+.node-routes__list code {
+  flex: 1 1 220px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.node-routes__fields {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.node-routes__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.node-routes__hint,
+.node-routes__status {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+@media (max-width: 620px) {
+  .node-routes__fields {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ==========================================================================
+   Sidebar navigation groups
+   Primary pages sit in collapsible groups (Overview, Servers & Instances,
+   Infrastructure, Administration); Settings stays pinned below them. In the
+   icon-only sidebar the group headers disappear and every item stays visible.
+   ========================================================================== */
+
+.nav-menu {
+  gap: 2px;
+}
+
+.nav-group {
+  display: grid;
+  gap: 2px;
+}
+
+.nav-group + .nav-group {
+  margin-top: 6px;
+}
+
+.nav-group__toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 30px;
+  padding: 0 10px 0 12px;
+  border: 0;
+  border-radius: var(--anx-radius-md);
+  background: transparent;
+  color: rgba(222, 212, 238, 0.6);
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color 160ms ease, background 160ms ease;
+}
+
+.nav-group__toggle:hover,
+.nav-group__toggle:focus-visible {
+  background: rgba(182, 108, 255, 0.08);
+  color: var(--text);
+  outline: none;
+}
+
+.nav-group__toggle:focus-visible {
+  box-shadow: 0 0 0 2px rgba(182, 108, 255, 0.55);
+}
+
+.nav-group__chevron {
+  width: 7px;
+  height: 7px;
+  margin-right: 4px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg) translate(-2px, -2px);
+  transition: transform 160ms ease;
+}
+
+.nav-group.is-collapsed .nav-group__chevron {
+  transform: rotate(-45deg);
+}
+
+.nav-group__items {
+  display: grid;
+  gap: 2px;
+}
+
+.nav-group.is-collapsed .nav-group__items {
+  display: none;
+}
+
+.nav-group .nav-item,
+.nav-item--pinned {
+  min-height: 36px;
+}
+
+/* Grouped items show their label only; the group names carry the context. */
+.nav-group .nav-item[data-nav-description] .nav-item__label,
+.nav-item--pinned[data-nav-description] .nav-item__label {
+  display: block;
+}
+
+.nav-group .nav-item[data-nav-description] .nav-item__label::after,
+.nav-item--pinned[data-nav-description] .nav-item__label::after {
+  content: none;
+}
+
+.nav-item--pinned {
+  margin-top: 8px;
+}
+
+.sidebar[data-sidebar-state="collapsed"] .nav-group__toggle {
+  display: none;
+}
+
+.sidebar[data-sidebar-state="collapsed"] .nav-group.is-collapsed .nav-group__items {
+  display: grid;
+}
+
+.sidebar[data-sidebar-state="collapsed"] .nav-group + .nav-group,
+.sidebar[data-sidebar-state="collapsed"] .nav-item--pinned {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+
+/* ==========================================================================
+   Instances page layout
+   A compact header and stat row, a list that sizes to its rows (no empty
+   fixed-height panel, no sideways scroll), and inspector actions grouped by
+   purpose. Every control keeps its data hooks; only presentation changes.
+   ========================================================================== */
+
+.page[data-page="instances"] .instances-shell {
+  gap: 12px;
+}
+
+.page[data-page="instances"] .instances-toolbar {
+  min-height: 0;
+  padding: 14px 18px;
+}
+
+.page[data-page="instances"] .instances-toolbar__title {
+  gap: 2px;
+}
+
+.page[data-page="instances"] .instances-toolbar__title h1 {
+  margin: 0;
+  font-size: 1.55rem;
+  line-height: 1.15;
+}
+
+.page[data-page="instances"] .instances-toolbar__title .lede {
+  margin: 0;
+  font-size: 0.86rem;
+}
+
+.page[data-page="instances"] .instances-summary-grid {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.page[data-page="instances"] .instances-summary-card {
+  gap: 10px;
+  min-height: 0;
+  padding: 10px 12px;
+  box-shadow: none;
+}
+
+.page[data-page="instances"] .instances-summary-card:hover {
+  transform: none;
+}
+
+.page[data-page="instances"] .instances-summary-card__icon {
+  width: 30px;
+  height: 30px;
+  font-size: 0.68rem;
+}
+
+.page[data-page="instances"] .instances-summary-card > div > span {
+  font-size: 0.66rem;
+  line-height: 1.2;
+}
+
+.page[data-page="instances"] .instances-summary-card strong {
+  font-size: 1.05rem;
+  line-height: 1.25;
+}
+
+.page[data-page="instances"] .instances-health-breakdown {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+/* The list grows with its rows instead of reserving most of the window. */
+.page[data-page="instances"] .instances-table-panel,
+.page[data-page="instances"] .instances-table-panel .docker-table-wrap {
+  min-height: 0;
+}
+
+.page[data-page="instances"] .instances-table {
+  min-width: 860px;
+}
+
+.page[data-page="instances"] .instances-table td {
+  padding-block: 10px;
+}
+
+.page[data-page="instances"] .instance-row-actions {
+  flex-wrap: nowrap;
+  gap: 6px;
+}
+
+/* Inspector actions, grouped by purpose. */
+.page[data-page="instances"] .instance-quick-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px 16px;
+  align-items: start;
+}
+
+.instance-action-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+}
+
+.instance-action-group__label {
+  flex: 0 0 100%;
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.page[data-page="instances"] .instance-action-group .inline-action {
+  min-width: 0;
+}
+
+.instance-action-group .instance-action--primary:not(:disabled) {
+  border-color: rgba(182, 108, 255, 0.55);
+  background: rgba(182, 108, 255, 0.22);
+  color: var(--text);
+}
+
+.instance-action-group--danger {
+  padding-left: 12px;
+  border-left: 1px solid rgba(255, 99, 132, 0.28);
+}
+
+.instance-action-group--danger .instance-action-group__label {
+  color: rgba(255, 140, 160, 0.85);
+}
+
+/* Console tab: stream and line-count selects sit with the other log tools. */
+.instance-console-select {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.instance-console-select select {
+  min-width: 0;
+}
+
+.page[data-page="instances"] .instances-table th,
+.page[data-page="instances"] .instances-table td {
+  padding-inline: 8px;
+}
+
+.page[data-page="instances"] .instance-metric-cell {
+  padding-inline: 8px;
+  font-size: 0.74rem;
+}
+
+.page[data-page="instances"] .instance-metric-cell.is-muted {
+  border-color: transparent;
+  background: transparent;
+}
+
+@media (min-width: 1280px) {
+  .page[data-page="instances"] .instances-summary-grid {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+  }
+}
+
+.page[data-page="instances"] .instances-table {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 820px;
+}
+
+.page[data-page="instances"] .instances-summary-card strong {
+  overflow: visible;
+  font-size: 1rem;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+/* Compact stat tiles: text only, so each value has room to show in full. */
+.page[data-page="instances"] .instances-summary-card {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.page[data-page="instances"] .instances-summary-card__icon {
+  display: none;
+}
+
+/* Above the stacked-card breakpoint the table always fits its panel (it is
+   at most 820px wide), so a 1px overflow from the selected-row highlight must
+   not draw a horizontal scrollbar. */
+@media (min-width: 1321px) {
+  .page[data-page="instances"] .instances-table-panel,
+  .page[data-page="instances"] .instances-table-panel .docker-table-wrap {
+    overflow-x: hidden;
+  }
+}
+
+/* Console tab: the toolbar wraps rather than squeezing its buttons. */
+.page[data-page="instances"] .instance-console-toolbar,
+.page[data-page="instances"] .instance-console-toolbar__row {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+
+.page[data-page="instances"] .instance-console-toolbar .inline-action {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.page[data-page="instances"] .instance-console-toolbar [data-instance-console-search] {
+  flex: 1 1 180px;
+  min-width: 140px;
+}
+
+/* Log lines: columns sized for their monospace content (a full timestamp and
+   a stream name such as JOURNAL), rows packed at the top. */
+.instance-log-viewer ol,
+.page[data-page="instances"] .instance-log-viewer ol {
+  align-content: start;
+}
+
+.instance-log-viewer li,
+.page[data-page="instances"] .instance-log-viewer li {
+  grid-template-columns: 19ch 8ch minmax(0, 1fr);
+  gap: 10px;
+}
+
+/* ==========================================================================
+   App-wide consistency layer
+   One header scale, one summary-tile style, calmer buttons and compact page
+   introductions on every page, keeping the AnxOS purple-and-dark identity.
+   Presentation only: markup, data hooks and behaviour are unchanged.
+   ========================================================================== */
+
+:root {
+  --ui-tile-radius: 10px;
+  --ui-tile-border: rgba(185, 171, 200, 0.14);
+  --ui-tile-surface: linear-gradient(160deg, rgba(31, 17, 50, 0.9), rgba(14, 9, 25, 0.94));
+  --ui-label-color: rgba(222, 212, 238, 0.62);
+}
+
+/* Page headers: the same compact scale everywhere. */
+.main-content .page-header {
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.main-content .page-header h1,
+.main-content .instances-toolbar__title h1,
+html[data-ui-generation="v1.9"] .main-content .page-header h1 {
+  margin: 2px 0 0;
+  font-size: 1.6rem;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+}
+
+.main-content .page-header .lede,
+.main-content .instances-toolbar__title .lede {
+  margin: 4px 0 0;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.main-content .page-header .eyebrow,
+.main-content .instances-toolbar__title .eyebrow {
+  margin: 0;
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+}
+
+/* The Instances header reads like every other page header. */
+.page[data-page="instances"] .instances-toolbar {
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+}
+
+/* Page introductions: a slim, dismissible hint instead of a large banner. */
+.main-content .page-introduction {
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  gap: 6px;
+  font-size: 0.84rem;
+  background: rgba(182, 108, 255, 0.05);
+  border-color: rgba(182, 108, 255, 0.16);
+}
+
+.main-content .page-introduction strong {
+  font-size: 0.86rem;
+}
+
+.main-content .page-introduction .inline-action {
+  min-height: 28px;
+  font-size: 0.76rem;
+}
+
+/* Summary tiles on every page: label over value, no decorative code boxes. */
+.docker-summary-card,
+.backup-summary-card,
+.coolpals-summary-card,
+.playit-summary-card,
+.nodes-summary-card,
+.operations-summary-card,
+.notification-summary-card,
+.network-summary-card,
+.maintenance-summary-card,
+.page[data-page="instances"] .instances-summary-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+  min-height: 0;
+  padding: 10px 14px;
+  border: 1px solid var(--ui-tile-border);
+  border-radius: var(--ui-tile-radius);
+  background: var(--ui-tile-surface);
+  box-shadow: none;
+  transform: none;
+}
+
+:is(.docker-summary-card, .backup-summary-card, .coolpals-summary-card, .operations-summary-card, .notification-summary-card, .maintenance-summary-card) > .service-icon {
+  display: none;
+}
+
+:is(.docker-summary-card, .backup-summary-card, .coolpals-summary-card, .playit-summary-card, .nodes-summary-card, .operations-summary-card, .notification-summary-card, .network-summary-card, .maintenance-summary-card, .instances-summary-card) > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+:is(.docker-summary-card, .backup-summary-card, .coolpals-summary-card, .playit-summary-card, .nodes-summary-card, .operations-summary-card, .notification-summary-card, .network-summary-card, .maintenance-summary-card) span:not(.service-icon) {
+  color: var(--ui-label-color);
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+:is(.docker-summary-card, .backup-summary-card, .coolpals-summary-card, .playit-summary-card, .nodes-summary-card, .operations-summary-card, .notification-summary-card, .network-summary-card, .maintenance-summary-card) strong {
+  color: var(--text);
+  font-size: 1.05rem;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+:is(.docker-summary-card, .backup-summary-card, .coolpals-summary-card, .playit-summary-card, .nodes-summary-card, .operations-summary-card, .notification-summary-card, .network-summary-card, .maintenance-summary-card):hover {
+  transform: none;
+}
+
+/* Buttons: one weight and size, no scaling jump on hover. */
+.inline-action {
+  font-size: 0.82rem;
+  font-weight: 700;
+  border-radius: 8px;
+}
+
+.inline-action:not(:disabled):hover,
+.inline-action:not(:disabled):focus-visible {
+  transform: none;
+}
+
+.inline-action:focus-visible {
+  outline: 2px solid rgba(182, 108, 255, 0.6);
+  outline-offset: 1px;
+}
+
+/* Monitoring: the console column may shrink, so the Status column always fits. */
+.console-ops-shell {
+  grid-template-columns: minmax(220px, 0.48fr) minmax(0, 1.42fr) minmax(240px, 0.58fr);
+}
+
+:is(.docker-summary-card, .backup-summary-card, .coolpals-summary-card, .playit-summary-card, .nodes-summary-card, .operations-summary-card, .notification-summary-card, .network-summary-card, .maintenance-summary-card),
+:is(.docker-summary-card, .backup-summary-card, .coolpals-summary-card, .playit-summary-card, .nodes-summary-card, .operations-summary-card, .notification-summary-card, .network-summary-card, .maintenance-summary-card) > div {
+  align-items: stretch;
+  justify-items: start;
+  text-align: left;
+}
+
+/* ==========================================================================
+   Files page layout (desktop widths)
+   The page was a fixed-height grid: the header, connection bar and toolbar
+   left the four panes a strip about 200px tall, and Browse mode reserved a
+   third of the width for an empty editor. Now the page scrolls, Browse mode
+   gives folders, files and details the full width with the editor below,
+   and Edit mode keeps its explorer/editor split at a usable height. The
+   narrow-window layout (at or below 1320px) is unchanged.
+   ========================================================================== */
+@media (min-width: 1321px) {
+  .page[data-page="files"].is-active {
+    display: block;
+    height: auto;
+    overflow: visible;
+  }
+
+  .page[data-page="files"] .file-manager-shell {
+    grid-template-rows: auto auto auto auto;
+    align-items: start;
+    height: auto;
+    overflow: visible;
+  }
+
+  .page[data-page="files"] .storage-manager-panel {
+    position: sticky;
+    top: 0;
+    align-self: start;
+  }
+
+  .page[data-page="files"] .storage-connection-list {
+    overflow: visible;
+  }
+
+  /* Browse mode: the explorer gets the full width; the editor sits below. */
+  .page[data-page="files"] .file-manager-shell:not(.is-edit-mode) .file-workspace {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    overflow: visible;
+  }
+
+  .page[data-page="files"] .file-manager-shell:not(.is-edit-mode) .file-browser {
+    grid-template-columns: minmax(170px, 0.3fr) minmax(0, 1fr) 10px minmax(220px, var(--files-details-width));
+    height: clamp(420px, calc(100vh - 330px), 760px);
+  }
+
+  .page[data-page="files"] .file-manager-shell:not(.is-edit-mode) .file-editor-panel {
+    height: clamp(360px, 52vh, 640px);
+  }
+
+  /* Edit mode: explorer and editor side by side, tall enough to work in. */
+  .page[data-page="files"] .file-manager-shell.is-edit-mode .file-workspace {
+    height: clamp(480px, calc(100vh - 250px), 900px);
+  }
+}
+
+@media (min-width: 1321px) {
+  /* Browse mode: folders beside a wide file list; details become a strip
+     under the list, so the list keeps its Size and Modified columns. */
+  .page[data-page="files"] .file-manager-shell:not(.is-edit-mode) .file-browser {
+    grid-template-columns: minmax(160px, 0.26fr) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "tree list"
+      "tree details";
+  }
+
+  .page[data-page="files"] .file-manager-shell:not(.is-edit-mode) .folder-tree-panel {
+    grid-area: tree;
+  }
+
+  .page[data-page="files"] .file-manager-shell:not(.is-edit-mode) .file-list-panel {
+    grid-area: list;
+    min-height: 0;
+  }
+
+  .page[data-page="files"] .file-manager-shell:not(.is-edit-mode) .file-panel-divider {
+    display: none;
+  }
+
+  .page[data-page="files"] .file-manager-shell:not(.is-edit-mode) .file-details-panel {
+    grid-area: details;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 4px 16px;
+    align-items: center;
+    padding: 10px 14px;
+  }
+
+  .page[data-page="files"] .file-manager-shell:not(.is-edit-mode) .file-details-panel .panel-heading {
+    grid-column: 1 / -1;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  .page[data-page="files"] .file-manager-shell:not(.is-edit-mode) .file-details-panel .file-preview-icon {
+    display: none;
+  }
+
+  .page[data-page="files"] .file-manager-shell:not(.is-edit-mode) .file-details-list {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr)) minmax(0, 2fr);
+    gap: 4px 14px;
+    margin: 0;
+  }
+
+  .page[data-page="files"] .file-manager-shell:not(.is-edit-mode) .file-details-list dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (min-width: 1321px) {
+  .page[data-page="files"] .file-manager-shell:not(.is-edit-mode) .file-details-list {
+    grid-template-columns: minmax(0, 1.3fr) minmax(0, 0.8fr) minmax(0, 0.6fr) minmax(0, 1.2fr) minmax(0, 0.8fr) minmax(0, 2fr);
+  }
+
+  .page[data-page="files"] .file-manager-shell:not(.is-edit-mode) .file-details-list dt {
+    font-size: 0.64rem;
+    white-space: nowrap;
+  }
+
+  .page[data-page="files"] .file-manager-shell:not(.is-edit-mode) .file-details-list dd {
+    font-size: 0.82rem;
+    line-height: 1.3;
+  }
+}
+
+/* ==========================================================================
+   Motion polish
+   Cards rise in one after another when a page opens (app.js marks the page
+   .is-entering for a moment, so the 5 s refreshes that rebuild cards do not
+   replay it), sidebar groups ease open, and the active item's accent bar
+   grows in. Everything here is transform/opacity and is switched off for
+   reduced motion.
+   ========================================================================== */
+
+:root {
+  --anx-ease-emphasized: cubic-bezier(0.2, 0.9, 0.25, 1);
+  --anx-enter-step: 32ms;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html[data-ui-generation="v1.9"] .page.is-entering :is(
+    .status-card,
+    .node-card,
+    .marketplace-card,
+    .dashboard-launcher,
+    .dashboard-widget-row article,
+    .dashboard-friendly-card,
+    .docker-summary-card,
+    .backup-summary-card,
+    .coolpals-summary-card,
+    .playit-summary-card,
+    .nodes-summary-card,
+    .operations-summary-card,
+    .notification-summary-card,
+    .network-summary-card,
+    .maintenance-summary-card,
+    .instances-summary-card
+  ) {
+    animation: anxos-card-in 360ms var(--anx-ease-emphasized) both;
+  }
+
+  html[data-ui-generation="v1.9"] .page.is-entering :is(.status-card, .node-card, .marketplace-card, .dashboard-launcher, [class$="-summary-card"]):nth-child(2) { animation-delay: calc(var(--anx-enter-step) * 1); }
+  html[data-ui-generation="v1.9"] .page.is-entering :is(.status-card, .node-card, .marketplace-card, .dashboard-launcher, [class$="-summary-card"]):nth-child(3) { animation-delay: calc(var(--anx-enter-step) * 2); }
+  html[data-ui-generation="v1.9"] .page.is-entering :is(.status-card, .node-card, .marketplace-card, .dashboard-launcher, [class$="-summary-card"]):nth-child(4) { animation-delay: calc(var(--anx-enter-step) * 3); }
+  html[data-ui-generation="v1.9"] .page.is-entering :is(.status-card, .node-card, .marketplace-card, .dashboard-launcher, [class$="-summary-card"]):nth-child(5) { animation-delay: calc(var(--anx-enter-step) * 4); }
+  html[data-ui-generation="v1.9"] .page.is-entering :is(.status-card, .node-card, .marketplace-card, .dashboard-launcher, [class$="-summary-card"]):nth-child(6) { animation-delay: calc(var(--anx-enter-step) * 5); }
+  html[data-ui-generation="v1.9"] .page.is-entering :is(.status-card, .node-card, .marketplace-card, .dashboard-launcher, [class$="-summary-card"]):nth-child(7) { animation-delay: calc(var(--anx-enter-step) * 6); }
+  html[data-ui-generation="v1.9"] .page.is-entering :is(.status-card, .node-card, .marketplace-card, .dashboard-launcher, [class$="-summary-card"]):nth-child(n + 8) { animation-delay: calc(var(--anx-enter-step) * 7); }
+
+  @keyframes anxos-card-in {
+    from {
+      opacity: 0;
+      transform: translateY(10px) scale(0.985);
+    }
+
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+}
+
+/* Large cards lift slightly on hover like the dashboard tiles already do. */
+html[data-ui-generation="v1.9"] :is(.node-card, .marketplace-card) {
+  transition:
+    border-color var(--anx-duration-base) var(--anx-ease-standard),
+    box-shadow var(--anx-duration-base) var(--anx-ease-standard),
+    transform var(--anx-duration-base) var(--anx-ease-standard);
+}
+
+html[data-ui-generation="v1.9"] :is(.node-card, .marketplace-card):hover {
+  transform: translateY(-2px);
+  box-shadow: 0 18px 38px rgba(4, 1, 12, 0.26), var(--anx-shadow-inset);
+}
+
+/* Sidebar: a group's items ease in when it is expanded (they leave
+   display:none, which restarts the animation), and the active item's accent
+   bar grows from the middle. */
+.nav-group:not(.is-collapsed) .nav-group__items {
+  animation: anxos-nav-group-open 220ms var(--anx-ease-emphasized) both;
+}
+
+@keyframes anxos-nav-group-open {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+html[data-ui-generation="v1.9"] .nav-item {
+  position: relative;
+  transition:
+    background var(--anx-duration-base) var(--anx-ease-standard),
+    color var(--anx-duration-base) var(--anx-ease-standard),
+    border-color var(--anx-duration-base) var(--anx-ease-standard);
+}
+
+html[data-ui-generation="v1.9"] .nav-item.is-active {
+  box-shadow: none;
+}
+
+html[data-ui-generation="v1.9"] .nav-item.is-active::before {
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: 0;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--accent);
+  box-shadow: 0 0 12px rgba(182, 108, 255, 0.55);
+  content: "";
+  animation: anxos-nav-indicator-in 260ms var(--anx-ease-emphasized) both;
+}
+
+@keyframes anxos-nav-indicator-in {
+  from { transform: scaleY(0); opacity: 0; }
+  to { transform: scaleY(1); opacity: 1; }
+}
+
+html[data-ui-generation="v1.9"] .nav-item .nav-item__icon {
+  transition: transform var(--anx-duration-base) var(--anx-ease-emphasized);
+}
+
+html[data-ui-generation="v1.9"] .nav-item:hover .nav-item__icon {
+  transform: translateX(2px);
+}
+
+/* Nodes: the seven summary tiles sit in one row on wide windows, matching
+   the Instances page, instead of wrapping five and two. */
+@media (min-width: 1280px) {
+  html[data-ui-generation="v1.9"] .nodes-summary-grid {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+  }
+
+  html[data-ui-generation="v1.9"] .nodes-summary-card {
+    min-height: 74px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-group:not(.is-collapsed) .nav-group__items,
+  html[data-ui-generation="v1.9"] .nav-item.is-active::before {
+    animation: none;
+  }
+
+  html[data-ui-generation="v1.9"] :is(.node-card, .marketplace-card):hover,
+  html[data-ui-generation="v1.9"] .nav-item:hover .nav-item__icon {
+    transform: none;
   }
 }

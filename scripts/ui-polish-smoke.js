@@ -29,6 +29,19 @@ function pageMarkup(page) {
 const ids = [...index.matchAll(/\bid="([^"]+)"/g)].map((match) => match[1]);
 assert.strictEqual(new Set(ids).size, ids.length, "Desktop HTML must not contain duplicate IDs.");
 
+// A merge that keeps both sides of an appended block can drop a shared closing
+// brace; the browser then nests every later rule and silently ignores them.
+{
+  let depth = 0;
+  const css = styles.replace(/\/\*[\s\S]*?\*\//g, "").replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g, "\"\"");
+  for (const character of css) {
+    if (character === "{") depth += 1;
+    if (character === "}") depth -= 1;
+    assert(depth >= 0, "styles.css closes a block that was never opened.");
+  }
+  assert.strictEqual(depth, 0, "styles.css leaves a block unclosed.");
+}
+
 const buttons = [...index.matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/g)];
 buttons.forEach(([, attributes, content]) => {
   const visibleText = content.replace(/<[^>]+>/g, "").replace(/&[^;]+;/g, "x").trim();

@@ -865,6 +865,9 @@ let publicAccessUnavailableState = null;
 let selectedPublicAccessProviderId = "playit";
 let selectedPublicAccessServiceId = "playit-primary";
 let playitActionInFlight = null;
+let latestPlayitAccount = null;
+let playitLinkSession = null;
+let playitLinkPollTimer = null;
 let dockerRequestInFlight = false;
 let dockerActionRequestInFlight = false;
 let instancesRequestInFlight = false;
@@ -1080,6 +1083,9 @@ let activeInstanceTab = "overview";
 let latestMinecraftProperties = {};
 let instanceConfigSnapshot = "";
 let instanceMinecraftSnapshot = "";
+// Which instance configuration the settings form currently shows (see
+// shouldRepopulateInstanceConfigForm). Every population path records it.
+const populatedInstanceConfig = { instanceId: null, nodeId: null, key: "" };
 let gameConfigState = {
   loading: false,
   loaded: false,
@@ -1382,26 +1388,40 @@ const COMMAND_PALETTE_DEBOUNCE_MS = 80;
 const COMMAND_PALETTE_RECENT_LIMIT = 8;
 const staleInstanceIds = new Set();
 const instanceRemovalAllowedIds = new Set();
+// Sidebar groups, in display order. Every primary page belongs to exactly one
+// group except Settings, which stays pinned below the groups.
+const PRIMARY_NAVIGATION_GROUPS = [
+  { id: "overview", label: "Overview", pages: ["dashboard", "notifications", "console", "operations"] },
+  { id: "servers", label: "Servers & Instances", pages: ["instances", "marketplace", "docker", "files", "backups"] },
+  { id: "infrastructure", label: "Infrastructure", pages: ["nodes", "network", "playit", "ssh", "agent-control"] },
+  { id: "administration", label: "Administration", pages: ["security", "maintenance"] },
+];
+const PRIMARY_NAVIGATION_UNGROUPED = ["settings"];
+// Groups collapsed until the user opens them (the active page's group always opens).
+const NAV_GROUPS_COLLAPSED_BY_DEFAULT = ["infrastructure", "administration"];
+const NAV_GROUPS_STORAGE_KEY = "anxos.sidebar.collapsedGroups";
 const PRIMARY_NAVIGATION_ORDER = [
   "dashboard",
-  "marketplace",
+  "notifications",
+  "console",
+  "operations",
   "instances",
+  "marketplace",
   "docker",
   "files",
-  "ssh",
-  "playit",
-  "console",
   "backups",
-  "operations",
-  "notifications",
-  "maintenance",
-  "security",
-  "agent-control",
   "nodes",
   "network",
+  "playit",
+  "ssh",
+  "agent-control",
+  "security",
+  "maintenance",
   "settings",
 ];
 const LEGACY_PRIMARY_PAGES = new Set(["minecraft", "amp", "coolpals"]);
+// Instance health states that the Instances summary tiles do not already show.
+const INSTANCE_HEALTH_EXTRA_BUCKETS = ["unavailable", "unhealthy", "failed", "unknown"];
 const INSTANCE_WORKSPACE_PROFILES = [
   {
     id: "minecraft",
@@ -2705,8 +2725,8 @@ function configurePrimaryNavigation() {
 
   orderedItems.forEach((item) => {
     item.hidden = false;
-    navMenu.appendChild(item);
   });
+  buildNavigationGroups(navMenu);
 
   navMenu.querySelectorAll("[data-page-target]").forEach((item) => {
     const pageTarget = item.dataset.pageTarget;
@@ -2715,6 +2735,100 @@ function configurePrimaryNavigation() {
       item.removeAttribute("aria-current");
     }
   });
+  syncNavigationGroupVisibility();
+}
+
+function readCollapsedNavGroups() {
+  try {
+    const stored = window.localStorage.getItem(NAV_GROUPS_STORAGE_KEY);
+    if (stored === null) return new Set(NAV_GROUPS_COLLAPSED_BY_DEFAULT);
+    const parsed = JSON.parse(stored);
+    return new Set(Array.isArray(parsed) ? parsed.filter((id) => typeof id === "string") : NAV_GROUPS_COLLAPSED_BY_DEFAULT);
+  } catch {
+    return new Set(NAV_GROUPS_COLLAPSED_BY_DEFAULT);
+  }
+}
+
+function storeCollapsedNavGroups() {
+  const collapsed = [...document.querySelectorAll(".nav-group.is-collapsed")].map((group) => group.dataset.navGroup);
+  try {
+    window.localStorage.setItem(NAV_GROUPS_STORAGE_KEY, JSON.stringify(collapsed));
+  } catch {
+    // Storage can be unavailable; the groups still work for this session.
+  }
+}
+
+function setNavGroupCollapsed(group, collapsed) {
+  group.classList.toggle("is-collapsed", collapsed);
+  group.querySelector(".nav-group__toggle")?.setAttribute("aria-expanded", collapsed ? "false" : "true");
+}
+
+// Moves the primary items into collapsible groups (once). The items keep their
+// elements, attributes and listeners; only their parent changes.
+function buildNavigationGroups(navMenu) {
+  if (navMenu.querySelector(".nav-group")) return;
+  const collapsed = readCollapsedNavGroups();
+  PRIMARY_NAVIGATION_GROUPS.forEach((definition) => {
+    const group = document.createElement("div");
+    group.className = "nav-group";
+    group.dataset.navGroup = definition.id;
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "nav-group__toggle";
+    toggle.setAttribute("aria-controls", `nav-group-${definition.id}`);
+    const label = document.createElement("span");
+    label.className = "nav-group__label";
+    label.textContent = definition.label;
+    const chevron = document.createElement("span");
+    chevron.className = "nav-group__chevron";
+    chevron.setAttribute("aria-hidden", "true");
+    toggle.append(label, chevron);
+    toggle.addEventListener("click", () => {
+      setNavGroupCollapsed(group, !group.classList.contains("is-collapsed"));
+      storeCollapsedNavGroups();
+    });
+    const items = document.createElement("div");
+    items.className = "nav-group__items";
+    items.id = `nav-group-${definition.id}`;
+    items.setAttribute("role", "group");
+    items.setAttribute("aria-label", definition.label);
+    definition.pages.forEach((pageName) => {
+      const item = navMenu.querySelector(`[data-page-target="${pageName}"]`);
+      if (item) items.appendChild(item);
+    });
+    group.append(toggle, items);
+    navMenu.appendChild(group);
+    setNavGroupCollapsed(group, collapsed.has(definition.id));
+  });
+  PRIMARY_NAVIGATION_UNGROUPED.forEach((pageName) => {
+    const item = navMenu.querySelector(`[data-page-target="${pageName}"]`);
+    if (item) {
+      item.classList.add("nav-item--pinned");
+      navMenu.appendChild(item);
+    }
+  });
+  // Permissions and feature checks hide items after startup; a group with no
+  // visible item hides its header too.
+  if (typeof MutationObserver === "function") {
+    new MutationObserver(syncNavigationGroupVisibility).observe(navMenu, { subtree: true, attributes: true, attributeFilter: ["hidden"] });
+  }
+}
+
+function syncNavigationGroupVisibility() {
+  document.querySelectorAll(".nav-group").forEach((group) => {
+    const hasVisibleItem = [...group.querySelectorAll("[data-page-target]")].some((item) => !item.hidden);
+    if (group.hidden === hasVisibleItem) group.hidden = !hasVisibleItem;
+  });
+}
+
+// The active page's group always opens, so the current page is never hidden.
+function revealNavigationGroupFor(pageName) {
+  const item = document.querySelector(`.nav-group [data-page-target="${pageName}"]`);
+  const group = item?.closest(".nav-group");
+  if (group?.classList.contains("is-collapsed")) {
+    setNavGroupCollapsed(group, false);
+    storeCollapsedNavGroups();
+  }
 }
 
 function setStartupStep(name, status) {
@@ -4582,6 +4696,19 @@ function syncPagePollingForVisibility() {
   if (page === "owner-workspace") startOwnerAnalyticsPolling();
 }
 
+// The card entrance animation (styles.css "Motion polish") applies only while
+// a page carries .is-entering, so cards rebuilt by later refreshes appear in
+// place instead of animating in again every few seconds.
+const PAGE_ENTERING_MS = 700;
+let pageEnteringTimer = null;
+
+function markPageEntering(page) {
+  pages.forEach((item) => item.classList.remove("is-entering"));
+  window.clearTimeout(pageEnteringTimer);
+  page.classList.add("is-entering");
+  pageEnteringTimer = window.setTimeout(() => page.classList.remove("is-entering"), PAGE_ENTERING_MS);
+}
+
 function showPage(pageName) {
   const safePageName = getSafePageName(pageName);
   if (safePageName === "owner-workspace" && !isOwnerWorkspaceAuthorized()) {
@@ -4598,6 +4725,7 @@ function showPage(pageName) {
       item.removeAttribute("aria-current");
     }
   });
+  revealNavigationGroupFor(safePageName);
   ownerWorkspaceToggle?.classList.toggle("is-active", safePageName === "owner-workspace");
   if (safePageName === "owner-workspace") {
     ownerWorkspaceToggle?.setAttribute("aria-current", "page");
@@ -4625,8 +4753,10 @@ function showPage(pageName) {
     refreshNetworkPage();
   }
 
+  const pageChanged = activePageName !== safePageName;
   pages.forEach((page) => {
     page.classList.toggle("is-active", page.dataset.page === safePageName);
+    if (pageChanged && page.dataset.page === safePageName) markPageEntering(page);
   });
   // The tracked value is set at exactly the point the DOM becomes authoritative
   // (the loop above), so every getActivePageName() call before this line and
@@ -8830,24 +8960,225 @@ function renderPlayitTunnels(result = {}) {
     top.append(createTextElement("strong", tunnel.name || tunnel.id || "Playit tunnel"));
     const status = createTextElement("span", tunnel.status || "unknown", `status-pill ${tunnel.status === "online" ? "status-pill--ok" : tunnel.status === "offline" ? "status-pill--warning" : "status-pill--planned"}`);
     top.append(status);
+    const address = document.createElement("div");
+    address.className = "playit-tunnel-item__address";
+    address.append(createTextElement("code", tunnel.publicAddress || "Public address not reported"));
+    if (tunnel.publicAddress) {
+      const copy = createPlayitServiceActionButton(`playit-copy:${tunnel.id}`, "Copy");
+      copy.classList.add("playit-tunnel-copy");
+      copy.dataset.publicAddress = tunnel.publicAddress;
+      copy.setAttribute("aria-label", `Copy public address ${tunnel.publicAddress}`);
+      address.append(copy);
+    }
     const endpoints = document.createElement("div");
     endpoints.className = "playit-tunnel-item__endpoints";
     endpoints.append(
-      createTextElement("span", `Local: ${tunnel.localHost || "unknown"}${tunnel.localPort ? `:${tunnel.localPort}` : ""}`),
-      createTextElement("span", `Public: ${tunnel.publicAddress || "unknown"}`),
+      createTextElement("span", `Local ${tunnel.localHost || "unknown"}${tunnel.localPort ? `:${tunnel.localPort}` : ""}`),
+      createTextElement("span", `Server: ${tunnel.matchedInstanceName || "Not matched"}`),
     );
     const badges = document.createElement("div");
     badges.className = "playit-tunnel-item__badges";
-    [tunnel.protocol, tunnel.type, tunnel.matchedInstanceName].filter(Boolean).forEach((label) => badges.append(createTextElement("span", label, "status-pill status-pill--planned")));
-    if (tunnel.publicAddress) {
-      const copy = createPlayitServiceActionButton(`playit-copy:${tunnel.id}`, "Copy public endpoint");
-      copy.classList.add("playit-tunnel-copy");
-      copy.dataset.publicAddress = tunnel.publicAddress;
-      badges.append(copy);
-    }
-    item.append(top, endpoints, badges);
+    [tunnel.protocol, tunnel.type].filter(Boolean).forEach((label) => badges.append(createTextElement("span", label, "status-pill status-pill--planned")));
+    item.append(top, address, endpoints, badges);
     playitTunnelList.append(item);
   });
+  renderPlayitAccount();
+}
+
+// Playit account: the guided Install -> Start -> Link Account -> View Tunnels
+// -> Manage flow. Linking uses Playit's own browser approval; the main process
+// opens the playit.gg page and the renderer only sees progress.
+const PLAYIT_ACCOUNT_STEPS = ["install", "start", "link", "tunnels", "manage"];
+const PLAYIT_LINK_POLL_MS = 2000;
+
+function isPlayitLinkActive(session) {
+  return ["starting", "awaiting-approval"].includes(session?.state);
+}
+
+function getPlayitAccountCurrentStep(account = latestPlayitAccount) {
+  if (!account || account.ok === false) return null;
+  if (!account.installed) return "install";
+  if (!account.running) return "start";
+  if (account.linked !== true) return "link";
+  return latestPlayitTunnels.length ? "manage" : "tunnels";
+}
+
+function getPlayitAccountSummary(account, step) {
+  const nodeName = getSelectedNode()?.displayName || "this computer";
+  if (!account) return { pill: "Checking", tone: "status-pill--planned", message: `Checking Playit on ${nodeName}...` };
+  if (account.ok === false) {
+    if (isPlayitEndpointUnsupported(account.error || account)) {
+      return { pill: "Agent update", tone: "status-pill--warning", message: "Account linking needs an Agent update on this node. Until then, you can set a manual address under Settings > Connections > Advanced." };
+    }
+    return { pill: "Unavailable", tone: "status-pill--warning", message: account.error?.message || account.message || "Playit account status is unavailable." };
+  }
+  if (step === "install") return { pill: "Not installed", tone: "status-pill--warning", message: `Playit isn't installed on ${nodeName} yet. Install it to get public addresses for your servers.` };
+  if (step === "start") {
+    return account.linked === true
+      ? { pill: "Stopped", tone: "status-pill--warning", message: "Playit is linked but not running. Start it to bring your tunnels online." }
+      : { pill: "Stopped", tone: "status-pill--warning", message: "Start Playit to continue setup." };
+  }
+  if (step === "link") {
+    if (playitLinkSession?.state === "awaiting-approval") {
+      return { pill: "Waiting for approval", tone: "status-pill--planned", message: "Approve the link on playit.gg in your browser. This page updates by itself when you're done." };
+    }
+    if (playitLinkSession?.state === "starting") {
+      return { pill: "Linking", tone: "status-pill--planned", message: "Asking Playit for an approval link..." };
+    }
+    if (account.linked === null) {
+      return { pill: "Unknown", tone: "status-pill--planned", message: "AnxOS couldn't confirm whether Playit is linked, so it won't change anything. Check Playit's own setup, then check again." };
+    }
+    return { pill: "Not linked", tone: "status-pill--warning", message: "Link Playit to your Playit.gg account. You approve it in your browser; AnxOS never sees your password." };
+  }
+  const count = latestPlayitTunnels.length;
+  return {
+    pill: "Linked",
+    tone: "status-pill--ok",
+    message: count
+      ? `Linked to Playit.gg. ${count} tunnel${count === 1 ? "" : "s"} found below.`
+      : "Linked to Playit.gg. Create a tunnel on playit.gg (Manage) and it will appear below.",
+  };
+}
+
+function renderPlayitAccount(account = latestPlayitAccount) {
+  const card = document.querySelector("[data-playit-account-card]");
+  if (!card) return;
+  const step = getPlayitAccountCurrentStep(account);
+  const summary = getPlayitAccountSummary(account, step);
+  const pill = card.querySelector("[data-playit-account-pill]");
+  if (pill) {
+    pill.className = `status-pill ${summary.tone}`;
+    pill.textContent = summary.pill;
+  }
+  const message = card.querySelector("[data-playit-account-message]");
+  if (message) message.textContent = summary.message;
+  const currentIndex = PLAYIT_ACCOUNT_STEPS.indexOf(step);
+  card.querySelectorAll("[data-playit-step]").forEach((item) => {
+    const index = PLAYIT_ACCOUNT_STEPS.indexOf(item.dataset.playitStep);
+    item.classList.toggle("is-done", currentIndex > index);
+    item.classList.toggle("is-current", currentIndex === index);
+    if (currentIndex === index) item.setAttribute("aria-current", "step");
+    else item.removeAttribute("aria-current");
+  });
+  const actions = card.querySelector("[data-playit-account-actions]");
+  if (!actions) return;
+  actions.replaceChildren();
+  const button = (action, label, options) => createPlayitServiceActionButton(action, label, options);
+  if (step === "install") {
+    actions.append(button("playit-account-install", "Install Playit", { primary: true }), button("playit-account-download", "Open download page"));
+  } else if (step === "start") {
+    actions.append(button("playit-start", "Start Playit", { primary: true }));
+  } else if (step === "link" && isPlayitLinkActive(playitLinkSession)) {
+    actions.append(
+      button("playit-account-link-open", "Open approval page", { primary: true, disabled: !playitLinkSession.hasLink }),
+      button("playit-account-link-cancel", "Cancel"),
+    );
+  } else if (step === "link" && account.linked === false) {
+    actions.append(button("playit-account-link", "Link Playit account", { primary: true }));
+  } else if (step === "tunnels" || step === "manage") {
+    actions.append(button("playit-account-manage", "Manage on Playit.gg", { primary: step === "tunnels" }), button("playit-refresh-tunnels", "Refresh tunnels"));
+  }
+  if (!isPlayitLinkActive(playitLinkSession)) actions.append(button("playit-account-refresh", "Check again"));
+}
+
+async function refreshPlayitAccount(payload = getNodeScopedPayload(getNodeRequestContext("playit-account")), requestContext = getNodeRequestContext("playit-account")) {
+  const api = getDesktopApiState().api?.publicAccess;
+  if (typeof api?.getPlayitAccount !== "function") return null;
+  const result = await api.getPlayitAccount(payload).catch((error) => ({ ok: false, error }));
+  if (!isNodeRequestCurrent(requestContext)) return null;
+  latestPlayitAccount = result;
+  renderPlayitAccount(result);
+  return result;
+}
+
+function getPlayitLinkPayload(session = playitLinkSession) {
+  return { nodeId: session?.nodeId || getSelectedNodeId(), linkId: session?.id };
+}
+
+function schedulePlayitLinkPoll() {
+  clearTimeout(playitLinkPollTimer);
+  playitLinkPollTimer = isPlayitLinkActive(playitLinkSession) ? setTimeout(pollPlayitAccountLink, PLAYIT_LINK_POLL_MS) : null;
+}
+
+async function finishPlayitAccountLink(session) {
+  playitLinkSession = null;
+  clearTimeout(playitLinkPollTimer);
+  if (session?.state === "linked") showToast("Playit is linked. Loading your tunnels...", "success");
+  else if (session?.state && session.state !== "cancelled") showToast(session.message || "Playit linking did not finish.", "warning");
+  await refreshPlayitStatus();
+}
+
+async function pollPlayitAccountLink() {
+  const session = playitLinkSession;
+  if (!session) return;
+  if (session.nodeId !== getSelectedNodeId()) {
+    // The node changed; the attempt keeps running there until it expires.
+    playitLinkSession = null;
+    renderPlayitAccount();
+    return;
+  }
+  const result = await getDesktopApiState().api?.publicAccess?.getPlayitLink?.(getPlayitLinkPayload(session)).catch((error) => ({ ok: false, error }));
+  if (playitLinkSession !== session) return;
+  if (!result || result.ok === false) {
+    await finishPlayitAccountLink({ state: "failed", message: result?.error?.message || "Playit linking status is unavailable." });
+    return;
+  }
+  playitLinkSession = { ...result, nodeId: session.nodeId };
+  if (result.opened) showToast("Approve the link on playit.gg in your browser.", "info");
+  if (isPlayitLinkActive(result)) {
+    renderPlayitAccount();
+    schedulePlayitLinkPoll();
+    return;
+  }
+  await finishPlayitAccountLink(result);
+}
+
+async function startPlayitAccountLink() {
+  const payload = getNodeScopedPayload(getNodeRequestContext("playit-account-link"));
+  const result = await getDesktopApiState().api?.publicAccess?.startPlayitLink?.(payload);
+  if (!result || result.ok === false) {
+    await refreshPlayitAccount();
+    throw Object.assign(new Error(result?.error?.message || "Playit linking could not start."), { code: result?.error?.code || "PLAYIT_LINK_FAILED" });
+  }
+  playitLinkSession = { ...result, nodeId: payload.nodeId };
+  if (result.opened) showToast("Approve the link on playit.gg in your browser.", "info");
+  renderPlayitAccount();
+  if (isPlayitLinkActive(result)) schedulePlayitLinkPoll();
+  else await finishPlayitAccountLink(result);
+  return result;
+}
+
+async function runPlayitAccountAction(action) {
+  const api = getDesktopApiState().api?.publicAccess;
+  const failIfRefused = (result, fallback) => {
+    if (result?.ok === false) throw Object.assign(new Error(result.error?.message || fallback), { code: result.error?.code || "PLAYIT_ACCOUNT_ACTION_FAILED" });
+    return result;
+  };
+  if (action === "playit-account-refresh") return refreshPlayitStatus();
+  if (action === "playit-account-link") return startPlayitAccountLink();
+  if (action === "playit-account-link-open") {
+    return failIfRefused(await api?.openPlayitLink?.(getPlayitLinkPayload()), "The approval page could not be opened.");
+  }
+  if (action === "playit-account-link-cancel") {
+    const session = playitLinkSession;
+    if (!session) return null;
+    const result = await api?.cancelPlayitLink?.(getPlayitLinkPayload(session));
+    await finishPlayitAccountLink({ state: "cancelled" });
+    return failIfRefused(result, "Linking could not be cancelled.");
+  }
+  if (action === "playit-account-manage") {
+    return failIfRefused(await api?.openPlayitManage?.(getNodeScopedPayload(getNodeRequestContext("playit-account-manage"))), "Playit.gg could not be opened.");
+  }
+  if (action === "playit-account-download") {
+    return failIfRefused(await api?.openPlayitDownload?.(getNodeScopedPayload(getNodeRequestContext("playit-account"))), "The Playit download page could not be opened.");
+  }
+  if (action === "playit-account-install") {
+    const provider = (latestPublicAccessSnapshot?.providers || []).find((entry) => entry?.id === "playit");
+    if (!provider?.dependencyId) return runPlayitAccountAction("playit-account-download");
+    selectedPublicAccessProviderId = "playit";
+    return runPublicAccessAction("install-dependency");
+  }
+  return null;
 }
 
 function renderPlayitLogs(result = {}) {
@@ -8906,6 +9237,7 @@ function getPublicAccessRequestUnavailableReason(error = null, fallbackMessage =
 function renderPublicAccessUnavailableState(reason = getPublicAccessUnavailableReason(), fallbackMessage = "Public Access status unavailable.") {
   const unavailable = reason || { code: "PUBLIC_ACCESS_UNAVAILABLE", message: fallbackMessage, tunnelMessage: fallbackMessage };
   publicAccessUnavailableState = unavailable;
+  latestPlayitAccount = { ok: false, message: unavailable.message };
   renderPlayitServiceStatus({
     ok: false,
     installed: null,
@@ -8937,6 +9269,7 @@ async function refreshPlayitManagement(payload = getNodeScopedPayload(getNodeReq
   const [status, tunnels] = await Promise.all([
     typeof publicAccessApi.getPlayitStatus === "function" ? publicAccessApi.getPlayitStatus(payload).catch((error) => ({ ok: false, error })) : null,
     typeof publicAccessApi.listPlayitTunnels === "function" ? publicAccessApi.listPlayitTunnels(payload).catch((error) => ({ ok: false, error })) : null,
+    refreshPlayitAccount(payload, requestContext),
   ]);
   if (!isNodeRequestCurrent(requestContext)) return;
   if (status?.ok === false && status.error) {
@@ -10657,6 +10990,7 @@ async function runPublicAccessAction(action) {
       renderPlayitServiceActions();
     }
   }
+  if (String(action || "").startsWith("playit-account-")) return runPlayitAccountAction(action);
   if (String(action || "").startsWith("playit-copy:")) {
     const tunnelId = String(action).slice("playit-copy:".length);
     const tunnel = latestPlayitTunnels.find((entry) => String(entry.id) === tunnelId);
@@ -10963,6 +11297,8 @@ function renderPublicAccessSnapshot(snapshot = {}) {
 function renderPlayitUnavailable(message = "Public Access status unavailable.") {
   document.querySelector("[data-public-access-loading]")?.setAttribute("hidden", "");
   const unavailable = getPublicAccessRequestUnavailableReason(null, message);
+  latestPlayitAccount = { ok: false, message: unavailable.message || message };
+  renderPlayitAccount();
   latestPlayitSnapshot = null;
   setField("dashboardPublicAccess", "Unavailable");
   setField("dashboardPublicAccessDetail", message);
@@ -13993,6 +14329,9 @@ function syncInstanceConfigDirtyState() {
 }
 
 function populateInstanceConfigForm(instance) {
+  populatedInstanceConfig.instanceId = instance?.id || null;
+  populatedInstanceConfig.nodeId = instance ? getSelectedNodeId() : null;
+  populatedInstanceConfig.key = getInstanceConfigFormKey(instance);
   if (!instance) {
     instanceConfigSnapshot = "";
     instanceMinecraftSnapshot = "";
@@ -14073,11 +14412,16 @@ function renderInstanceNetwork(instance) {
     return;
   }
 
-  instanceNetworkList.replaceChildren();
   renderInstanceNetworkSummary(instance);
   const ports = Array.isArray(instance?.ports) ? instance.ports : [];
   const metrics = getInstanceMetrics(instance?.id);
   const portStatus = new Map((Array.isArray(metrics?.ports) ? metrics.ports : []).map((entry) => [entry.port, entry.open]));
+  // Rebuilt only when the ports or their status change, so a refresh never
+  // drops focus from a Remove button.
+  const renderKey = JSON.stringify([instance?.id || null, ports, [...portStatus]]);
+  if (instanceNetworkList.dataset.renderKey === renderKey) return;
+  instanceNetworkList.dataset.renderKey = renderKey;
+  instanceNetworkList.replaceChildren();
 
   if (ports.length === 0) {
     const empty = document.createElement("p");
@@ -14195,6 +14539,10 @@ async function saveInstanceConfiguration(event) {
     }
 
     showToast("Instance configuration saved.");
+    // The form's values are the saved values now: mark it clean so the next
+    // refresh can load the stored (normalized) configuration into it.
+    instanceConfigSnapshot = JSON.stringify(collectInstanceConfigPayload());
+    syncInstanceConfigDirtyState();
     await refreshInstances();
     await loadGameServerConfig();
   } catch (error) {
@@ -15490,12 +15838,12 @@ function buildInstanceTagsCell(instance) {
 function buildInstanceActionCell(instance) {
   const wrapper = document.createElement("div");
   wrapper.className = "instance-row-actions";
+  // Rows carry the power actions only; access and management actions live in
+  // the selected instance's inspector, one click away.
   const actions = [
     { label: isFiveMSetupRequired(instance) ? "Configure" : "Start", action: "start", disabled: !canStartInstance(instance) },
     { label: "Stop", action: "stop", disabled: !canStopInstance(instance) },
     { label: "Reload", action: "restart", disabled: !canRestartInstance(instance) },
-    { label: "Expose", action: "expose-share", disabled: !getInstanceAccessSuggestions(instance).some((suggestion) => suggestion.compatible !== false && suggestion.localPort) },
-    { label: "Share", action: "share-server", disabled: !getInstancePrimaryPort(instance) },
   ];
 
   actions.forEach((item) => {
@@ -15531,20 +15879,57 @@ function renderInstanceRows(instances) {
     return;
   }
   const existingRows = new Map([...instancesList.querySelectorAll("tr[data-instance-id]")].map((row) => [row.dataset.instanceId, row]));
+  // Stale rows go first so they never sit between rows that are in order.
+  const incomingIds = new Set(instances.map((instance) => instance.id));
+  existingRows.forEach((row, instanceId) => {
+    if (!incomingIds.has(instanceId)) {
+      row.remove();
+      existingRows.delete(instanceId);
+    }
+  });
+  let previousRow = null;
   instances.forEach((instance) => {
     const row = existingRows.get(instance.id) || document.createElement("tr");
     existingRows.delete(instance.id);
     updateInstanceRow(row, instance);
-    instancesList.appendChild(row);
+    // Move a row only when it is out of place: re-inserting an element that is
+    // already in position would blur anything focused inside it.
+    const expectedPosition = previousRow ? previousRow.nextSibling : instancesList.firstChild;
+    if (row !== expectedPosition) instancesList.insertBefore(row, expectedPosition);
+    previousRow = row;
   });
-  existingRows.forEach((row) => row.remove());
 
   filterInstanceRows();
 }
 
+// Applies a freshly built set of children to `container`, keeping every
+// existing child whose markup is unchanged. Periodic refreshes then replace
+// only what actually changed, so focus, hover and open state survive them.
+// Callers must build children whose event handlers depend only on data that
+// is reflected in the markup (an id, not a captured object).
+function reconcileChildren(container, draft) {
+  const next = [...draft.childNodes];
+  const current = [...container.childNodes];
+  next.forEach((node, index) => {
+    const existing = current[index];
+    if (!existing) {
+      container.appendChild(node);
+    } else if (existing.nodeType !== node.nodeType || (existing.outerHTML ?? existing.textContent) !== (node.outerHTML ?? node.textContent)) {
+      existing.replaceWith(node);
+    }
+  });
+  current.slice(next.length).forEach((node) => node.remove());
+}
+
 function updateInstanceRow(row, instance) {
   if (!row || !instance) return;
-  row.replaceChildren();
+  // Build the new cells off-document, then swap in only the cells whose markup
+  // changed. Polls and metrics ticks then touch just the live cells (state,
+  // CPU, RAM, uptime); unchanged cells keep their elements, so focus inside a
+  // row survives a refresh. Cell handlers capture only the instance id.
+  const nextRow = document.createElement("tr");
+  buildInstanceRowCells(nextRow, instance);
+  reconcileChildren(row, nextRow);
   row.dataset.instanceId = instance.id || "";
   row.dataset.instanceState = getInstanceStateClass(instance?.state);
   row.tabIndex = 0;
@@ -15555,7 +15940,9 @@ function updateInstanceRow(row, instance) {
       selectInstance(instance.id);
     }
   };
+}
 
+function buildInstanceRowCells(row, instance) {
   const metrics = getInstanceRowMetrics(instance);
   const metricsPlaceholder = metrics ? null : getInstanceMetricsPlaceholder(instance);
   addInstanceCell(row, buildInstanceNameCell(instance));
@@ -15644,6 +16031,19 @@ function renderInstanceSummary(instances) {
   Object.entries(healthFieldMap).forEach(([bucket, field]) => {
     setField(field, String(healthSummary.counts?.[bucket] || 0));
   });
+  // The summary tiles already show running/starting/stopping/stopped; the
+  // breakdown line only adds the problem states, and only when they occur.
+  const breakdown = document.querySelector("[data-instance-health-breakdown]");
+  if (breakdown) {
+    let anyShown = false;
+    breakdown.querySelectorAll("[data-health-bucket]").forEach((entry) => {
+      const bucket = entry.dataset.healthBucket;
+      const shown = INSTANCE_HEALTH_EXTRA_BUCKETS.includes(bucket) && Number(healthSummary.counts?.[bucket] || 0) > 0;
+      entry.hidden = !shown;
+      anyShown = anyShown || shown;
+    });
+    breakdown.hidden = !anyShown;
+  }
   const runningInstances = instances.filter(isInstanceRunning);
   const stoppedInstances = instances.filter((instance) => !isInstanceRunning(instance));
   const aggregateMetrics = instances.reduce((totals, instance) => {
@@ -15930,13 +16330,60 @@ function setInstanceDetails(instance = null) {
   renderFiveMSetupCard(instance);
   renderMinecraftWorkspaceSummary(instance, metrics);
   renderMinecraftPlayersPanel(instance);
-  populateInstanceConfigForm(instance);
+  if (shouldRepopulateInstanceConfigForm(instance)) populateInstanceConfigForm(instance);
   renderInstanceNetwork(instance);
   renderInstanceRestartSchedules(instance);
   if (instanceAddressCopyButton) {
     instanceAddressCopyButton.disabled = !getInstancePrimaryPort(instance);
   }
   applyServiceManagedRestrictions(instance);
+}
+
+// What the settings form shows for an instance. Live fields (state, pid,
+// metrics, players) are deliberately absent: a poll that only changes them
+// must never rewrite the form.
+function getInstanceConfigFormKey(instance) {
+  if (!instance) return "";
+  return JSON.stringify([
+    getSelectedNodeId(),
+    instance.id,
+    instance.displayName,
+    instance.type,
+    instance.workingDirectory,
+    instance.executable,
+    instance.args,
+    instance.restartPolicy,
+    instance.startupTimeoutMs,
+    instance.shutdownTimeoutMs,
+    instance.autoStart,
+    instance.environment,
+    instance.tags,
+    instance.ports,
+  ]);
+}
+
+function isInstanceConfigFormBusy() {
+  // Unsaved edits anywhere in the settings tab, or the cursor is in one of its fields.
+  const settingsPanel = document.querySelector('[data-instance-panel="settings"]');
+  const active = document.activeElement;
+  if (settingsPanel && active && settingsPanel.contains(active) && active.matches("input, textarea, select, [contenteditable='true']")) return true;
+  try {
+    if (JSON.stringify(collectInstanceConfigPayload()) !== instanceConfigSnapshot) return true;
+  } catch {
+    return true;
+  }
+  if (JSON.stringify(collectMinecraftProperties()) !== instanceMinecraftSnapshot) return true;
+  return isGameConfigDirty();
+}
+
+// Selecting another instance (or node) always loads its settings. A refresh of
+// the same instance reloads them only when the saved configuration changed and
+// the user is not editing; otherwise their edits, focus and cursor stay intact.
+function shouldRepopulateInstanceConfigForm(instance) {
+  const key = getInstanceConfigFormKey(instance);
+  if (populatedInstanceConfig.instanceId !== instance.id || populatedInstanceConfig.nodeId !== getSelectedNodeId()) return true;
+  if (populatedInstanceConfig.key === key) return false;
+  return !isInstanceConfigFormBusy();
 }
 
 function selectInstance(instanceId, options = {}) {
@@ -21022,6 +21469,10 @@ function renderInstanceRestartSchedules(instance) {
   const matchesSelection = Boolean(instance) && restartSchedulesState.instanceId === instance.id;
   const schedules = matchesSelection ? restartSchedulesState.schedules : [];
   const supported = matchesSelection && restartSchedulesState.supported !== false && getDesktopApiState().hasRestartSchedules;
+  // Rebuilt only when what it shows changes; refreshes keep focus on its buttons.
+  const renderKey = JSON.stringify([instance?.id || null, supported, getDesktopApiState().hasRestartSchedules, schedules]);
+  if (restartScheduleList.dataset.renderKey === renderKey) return;
+  restartScheduleList.dataset.renderKey = renderKey;
 
   restartScheduleList.replaceChildren();
   if (restartScheduleEmpty) {
@@ -21921,7 +22372,10 @@ async function refreshInstances(options = {}) {
     instancesRequestInFlight = false;
     return getInstances();
   }
-  setInstancesLoading(true);
+  // A background poll that already has a list on screen updates it in place: no
+  // loading overlay or busy state, which would make the page appear to reload.
+  const showLoading = !(options.background && latestInstancesSnapshot);
+  if (showLoading) setInstancesLoading(true);
   updateInstanceActionButtons();
 
   try {
@@ -21941,7 +22395,9 @@ async function refreshInstances(options = {}) {
     if (latestInstancesSnapshot) {
       setInstancesLoading(false);
       setInstancesEmpty(getInstances().length === 0, "Instance list refresh failed. Keeping the last known list.");
-      showToast(getAgentErrorMessage(error, "Instance list refresh failed."), "warning");
+      // A disconnected node fails every poll; only a user-initiated refresh
+      // raises a toast, background polls keep the last list quietly.
+      if (!options.background) showToast(getAgentErrorMessage(error, "Instance list refresh failed."), "warning");
     } else {
       renderInstancesUnavailable(`Instance request failed: ${getAgentErrorMessage(error)}`);
     }
@@ -22088,7 +22544,7 @@ function startInstancesPagePolling() {
     if (document.hidden || instanceActionRequestInFlight) {
       return;
     }
-    refreshInstances();
+    refreshInstances({ background: true });
   }, INSTANCE_PAGE_REFRESH_INTERVAL_MS);
 }
 
@@ -31292,8 +31748,17 @@ function renderConsoleSources() {
   }
 
   const instances = getInstances();
+  const draft = consoleSourceList.cloneNode(false);
+  buildConsoleSources(draft, instances);
+  reconcileChildren(consoleSourceList, draft);
+
+  if (consoleSourceEmpty) {
+    consoleSourceEmpty.hidden = instances.length > 0;
+  }
+}
+
+function buildConsoleSources(consoleSourceList, instances) {
   const query = (consoleSourceSearchInput?.value || "").trim().toLowerCase();
-  consoleSourceList.replaceChildren();
 
   instances.forEach((instance) => {
     const searchable = [instance.id, instance.displayName, instance.type, instance.state, ...(Array.isArray(instance.tags) ? instance.tags : [])]
@@ -31331,10 +31796,6 @@ function renderConsoleSources() {
     button.append(dot, copy, state);
     consoleSourceList.append(button);
   });
-
-  if (consoleSourceEmpty) {
-    consoleSourceEmpty.hidden = instances.length > 0;
-  }
 }
 
 function renderConsoleTabs() {
@@ -31342,7 +31803,12 @@ function renderConsoleTabs() {
     return;
   }
 
-  consoleTabs.replaceChildren();
+  const draft = consoleTabs.cloneNode(false);
+  buildConsoleTabs(draft);
+  reconcileChildren(consoleTabs, draft);
+}
+
+function buildConsoleTabs(consoleTabs) {
   const openIds = consoleOpenInstanceIds.filter((instanceId) => findInstance(instanceId));
   consoleOpenInstanceIds = openIds;
 
@@ -37712,6 +38178,261 @@ function syncNodeGroupFilterOptions() {
   nodeGroupFilter.value = validValues.has(selected) ? selected : NODE_GROUP_FILTER_ALL;
 }
 
+// Node connectivity: which route each Agent node uses right now (main URL,
+// a fallback such as Tailscale, or an app-managed SSH tunnel), and the Routes
+// panel that sets those up. Status comes from the main process
+// (nodeRouteResolver, nodeTunnelService) and refreshes with the node list.
+let nodeRouteStatusById = new Map();
+let nodeTunnelStatusById = new Map();
+
+const NODE_TUNNEL_STATE_LABELS = {
+  connecting: "Connecting",
+  connected: "Connected",
+  reconnecting: "Reconnecting",
+  external: "Using an existing tunnel",
+  failed: "Needs attention",
+  stopped: "Stopped",
+};
+
+async function refreshNodeConnectivityStatus() {
+  const api = getDesktopApiState().api?.nodes;
+  if (typeof api?.routeStatus !== "function" || typeof api?.tunnelStatus !== "function") return;
+  const [routes, tunnels] = await Promise.all([
+    api.routeStatus().catch(() => null),
+    api.tunnelStatus().catch(() => null),
+  ]);
+  if (Array.isArray(routes?.routes)) nodeRouteStatusById = new Map(routes.routes.map((entry) => [entry.nodeId, entry]));
+  if (Array.isArray(tunnels?.tunnels)) nodeTunnelStatusById = new Map(tunnels.tunnels.map((entry) => [entry.nodeId, entry]));
+}
+
+function describeNodeRoute(node) {
+  if (node?.kind !== "agent") return null;
+  const tunnel = nodeTunnelStatusById.get(node.id);
+  if (node.transport?.type === "ssh-tunnel") {
+    const label = NODE_TUNNEL_STATE_LABELS[tunnel?.state] || "Starting";
+    const reason = tunnel?.state === "failed" && tunnel.lastError?.message ? ` · ${tunnel.lastError.message}` : "";
+    return `SSH tunnel · ${label}${reason}`;
+  }
+  const status = nodeRouteStatusById.get(node.id);
+  if (!status) return node.fallbackUrls?.length ? "Main · checking routes" : "Main";
+  const active = status.routes.find((route) => route.url === status.activeUrl && route.verified);
+  if (!active) return "No route answering";
+  return `${active.label}${Number.isFinite(active.latencyMs) ? ` · ${active.latencyMs} ms` : ""}`;
+}
+
+function describeNodeAgentBuild(node) {
+  const version = node?.connection?.agentVersion || node?.agentVersion || node?.agentIdentity?.agentVersion || "";
+  const api = node?.connection?.apiVersion || node?.apiVersion || "";
+  return [version && `Agent ${version}`, api && `API ${api}`].filter(Boolean).join(" · ") || "Unknown";
+}
+
+function openNodeRoutesModal(nodeId) {
+  const node = (nodesState.nodes || []).find((entry) => entry.id === nodeId);
+  if (!node || node.kind !== "agent") return;
+  const api = getDesktopApiState().api;
+  const overlay = document.createElement("div");
+  overlay.className = "app-modal-backdrop";
+  overlay.dataset.nodeRoutesModal = "";
+  const dialog = document.createElement("section");
+  dialog.className = "app-modal app-modal--node-routes";
+  dialog.setAttribute("role", "dialog");
+  dialog.setAttribute("aria-modal", "true");
+  dialog.setAttribute("aria-labelledby", "node-routes-title");
+  dialog.tabIndex = -1;
+  const closeButton = document.createElement("button");
+  closeButton.className = "app-modal__close";
+  closeButton.type = "button";
+  closeButton.dataset.nodeRoutesClose = "";
+  closeButton.setAttribute("aria-label", "Close node routes");
+  closeButton.textContent = "×";
+  const header = document.createElement("div");
+  header.className = "app-modal__header";
+  header.append(
+    createTextElement("p", "Node connectivity", "app-modal__eyebrow"),
+    Object.assign(createTextElement("h2", `${node.displayName || node.id} routes`), { id: "node-routes-title" }),
+    createTextElement("p", "AnxOS uses the first route that answers as this Agent, and goes back to the main address as soon as it answers again."),
+  );
+  const status = createTextElement("p", "", "node-routes__status");
+  status.setAttribute("role", "status");
+  status.setAttribute("aria-live", "polite");
+  const body = document.createElement("div");
+  body.className = "node-routes";
+
+  const button = (label, onClick, primary = false) => {
+    const element = document.createElement("button");
+    element.type = "button";
+    element.className = primary ? "inline-action inline-action--primary" : "inline-action";
+    element.textContent = label;
+    element.addEventListener("click", async () => {
+      element.disabled = true;
+      try {
+        await onClick();
+      } catch (error) {
+        status.textContent = normalizeIpcErrorMessage(error, "That change could not be saved.");
+      } finally {
+        element.disabled = false;
+      }
+    });
+    return element;
+  };
+  const failIfRefused = (result, fallback) => {
+    if (result?.ok === false) throw Object.assign(new Error(result.error?.message || fallback), { code: result.error?.code });
+    return result;
+  };
+  const applyNode = async (updated) => {
+    if (updated) Object.assign(node, updated);
+    await refreshNodeConnectivityStatus();
+    render();
+    renderNodes();
+  };
+
+  function renderRouteList() {
+    const section = document.createElement("section");
+    section.className = "node-routes__section";
+    section.append(createTextElement("h3", "Addresses"));
+    const list = document.createElement("ul");
+    list.className = "node-routes__list";
+    const routeStatus = nodeRouteStatusById.get(node.id);
+    const entries = [{ url: node.baseUrl || node.agentUrl, label: "Main", primary: true }, ...(node.fallbackUrls || []).map((entry) => ({ ...entry, primary: false }))];
+    entries.forEach((entry) => {
+      const item = document.createElement("li");
+      const probe = routeStatus?.routes.find((route) => route.url === entry.url);
+      const inUse = routeStatus?.activeUrl === entry.url && probe?.verified;
+      const state = !probe ? "Not checked yet" : probe.verified ? `Answering${Number.isFinite(probe.latencyMs) ? ` · ${probe.latencyMs} ms` : ""}` : probe.error === "IDENTITY_MISMATCH" ? "A different Agent answered; not used" : "Not answering";
+      item.append(createTextElement("strong", entry.label), createTextElement("code", entry.url), createTextElement("span", inUse ? `In use · ${state}` : state, `status-pill ${inUse ? "status-pill--ok" : probe?.verified ? "status-pill--planned" : "status-pill--warning"}`));
+      if (!entry.primary) {
+        item.append(button("Remove", async () => {
+          const remaining = (node.fallbackUrls || []).filter((fallback) => fallback.url !== entry.url);
+          const result = failIfRefused(await api.nodes.setFallbackUrls(node.id, remaining), "The route could not be removed.");
+          status.textContent = `${entry.label} route removed.`;
+          await applyNode(result.node);
+        }));
+      }
+      list.append(item);
+    });
+    section.append(list);
+    const suggestionRow = document.createElement("div");
+    suggestionRow.className = "node-routes__actions";
+    suggestionRow.append(button("Find Tailscale route", async () => {
+      status.textContent = "Looking for this node on your Tailscale network...";
+      const result = failIfRefused(await api.nodes.suggestRoutes(node.id), "Tailscale routes could not be checked.");
+      const fresh = (result.suggestions || []).filter((suggestion) => !(node.fallbackUrls || []).some((fallback) => fallback.url === suggestion.url));
+      if (!result.available) {
+        status.textContent = "Tailscale isn't installed on this computer.";
+        return;
+      }
+      if (result.running === false) {
+        status.textContent = "Tailscale is installed but not running on this computer.";
+        return;
+      }
+      if (!fresh.length) {
+        status.textContent = (result.suggestions || []).length ? "The Tailscale route is already added." : "This node wasn't found on your Tailscale network.";
+        return;
+      }
+      const saved = failIfRefused(await api.nodes.setFallbackUrls(node.id, [...(node.fallbackUrls || []), { url: fresh[0].url, label: "Tailscale" }]), "The Tailscale route could not be added.");
+      status.textContent = saved.route?.reachable ? `Tailscale route added and verified (${fresh[0].url}).` : `Tailscale route added (${fresh[0].url}). It will be used when the main address doesn't answer.`;
+      await applyNode(saved.node);
+    }, true));
+    section.append(suggestionRow);
+    return section;
+  }
+
+  function renderTunnelSection(profiles) {
+    const section = document.createElement("section");
+    section.className = "node-routes__section";
+    section.append(createTextElement("h3", "SSH tunnel"));
+    const tunnel = nodeTunnelStatusById.get(node.id);
+    const enabled = node.transport?.type === "ssh-tunnel";
+    section.append(createTextElement("p", enabled
+      ? `AnxOS keeps an SSH tunnel open to this Agent. State: ${NODE_TUNNEL_STATE_LABELS[tunnel?.state] || "Starting"}${tunnel?.lastError?.message ? ` · ${tunnel.lastError.message}` : ""}`
+      : "For servers whose Agent only listens on the server itself. The main address must be a local address such as http://127.0.0.1:47132.", "node-routes__hint"));
+    const keyProfiles = (profiles || []).filter((profile) => profile.authType === "privateKey");
+    const profileSelect = document.createElement("select");
+    profileSelect.setAttribute("aria-label", "SSH profile");
+    profileSelect.append(new Option(keyProfiles.length ? "Choose an SSH key profile" : "No SSH key profiles yet", ""));
+    keyProfiles.forEach((profile) => profileSelect.append(new Option(profile.displayName || `${profile.username}@${profile.host}`, profile.id)));
+    const savedProfileId = node.transport?.sshProfileId;
+    if (savedProfileId && !keyProfiles.some((profile) => profile.id === savedProfileId)) {
+      profileSelect.append(new Option(`${savedProfileId} (missing profile)`, savedProfileId));
+    }
+    profileSelect.value = node.transport?.sshProfileId || keyProfiles.find((profile) => profile.nodeId === node.id)?.id || "";
+    const portInput = document.createElement("input");
+    portInput.type = "number";
+    portInput.min = "1";
+    portInput.max = "65535";
+    portInput.setAttribute("aria-label", "Agent port on the server");
+    portInput.value = String(node.transport?.remotePort || (() => { try { return new URL(node.baseUrl || node.agentUrl).port || ""; } catch { return ""; } })());
+    const fields = document.createElement("div");
+    fields.className = "node-routes__fields";
+    const profileLabel = document.createElement("label");
+    profileLabel.className = "settings-field";
+    profileLabel.append(createTextElement("span", "SSH key profile"), profileSelect);
+    const portLabel = document.createElement("label");
+    portLabel.className = "settings-field";
+    portLabel.append(createTextElement("span", "Agent port on the server"), portInput);
+    fields.append(profileLabel, portLabel);
+    const actions = document.createElement("div");
+    actions.className = "node-routes__actions";
+    actions.append(button(enabled ? "Save tunnel" : "Use SSH tunnel", async () => {
+      if (!profileSelect.value) throw new Error("Choose an SSH key profile first. Password profiles can't run unattended tunnels.");
+      const result = failIfRefused(await api.nodes.setTransport(node.id, { type: "ssh-tunnel", sshProfileId: profileSelect.value, remoteHost: "127.0.0.1", remotePort: Number(portInput.value) }), "The tunnel could not be saved.");
+      status.textContent = "SSH tunnel saved. AnxOS is connecting...";
+      await applyNode(result.node);
+    }, !enabled));
+    if (enabled) {
+      actions.append(
+        button("Reconnect tunnel", async () => {
+          failIfRefused(await api.nodes.reconnectTunnel(node.id), "The tunnel could not reconnect.");
+          status.textContent = "Reconnecting the tunnel...";
+          await applyNode();
+        }),
+        button("Stop using tunnel", async () => {
+          const result = failIfRefused(await api.nodes.setTransport(node.id, { type: "direct" }), "The tunnel could not be turned off.");
+          status.textContent = "SSH tunnel turned off.";
+          await applyNode(result.node);
+        }),
+      );
+    }
+    section.append(fields, actions);
+    return section;
+  }
+
+  let sshProfiles = [];
+  function render() {
+    body.replaceChildren(renderRouteList(), renderTunnelSection(sshProfiles));
+  }
+  render();
+  Promise.resolve(api?.ssh?.listProfiles?.()).then((result) => {
+    sshProfiles = Array.isArray(result?.profiles) ? result.profiles : [];
+    if (overlay.isConnected) render();
+  }).catch(() => {});
+
+  const footer = document.createElement("div");
+  footer.className = "app-modal__actions";
+  const doneButton = document.createElement("button");
+  doneButton.type = "button";
+  doneButton.className = "inline-action inline-action--primary";
+  doneButton.dataset.nodeRoutesClose = "";
+  doneButton.textContent = "Done";
+  footer.append(doneButton);
+  const close = () => {
+    document.removeEventListener("keydown", onKeyDown);
+    deactivateModal();
+    overlay.remove();
+  };
+  const onKeyDown = (event) => {
+    if (event.key === "Escape") close();
+  };
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay || event.target.closest("[data-node-routes-close]")) close();
+  });
+  document.addEventListener("keydown", onKeyDown);
+  dialog.append(closeButton, header, status, body, footer);
+  overlay.append(dialog);
+  document.body.append(overlay);
+  const deactivateModal = activateModal(overlay, { initialFocus: () => dialog.querySelector(".inline-action--primary") || closeButton });
+}
+
 function renderNodes() {
   renderRoutingDiagnostics();
   syncAgentConnectionDisplayWithSelectedNode();
@@ -37828,6 +38549,7 @@ function renderNodes() {
         ...(node.group ? [["Group", node.group]] : []),
         ["Connection", `${connectionState.primary} - ${connectionState.secondary}`],
         ...(isWindowsAgentNode(node) ? [["Windows MVP", getWindowsAgentMvpSummary(node)]] : []),
+        ...(node.kind === "agent" ? [["Route", describeNodeRoute(node)], ["Agent", describeNodeAgentBuild(node)]] : []),
         ["Last seen", formatNodeLastSeen(node)],
         ["Health", `${health.state} · ${health.issueCount} issue${health.issueCount === 1 ? "" : "s"}`],
       ].forEach(([label, value]) => {
@@ -37854,6 +38576,9 @@ function renderNodes() {
       }
       if (getNodeConnectionState(node).state === "Authentication Required") {
         nodeActions.splice(4, 0, ["repair", "Re-pair Existing Node"]);
+      }
+      if (node.kind === "agent") {
+        nodeActions.splice(nodeActions.length - 1, 0, ["routes", "Routes"]);
       }
       nodeActions.forEach(([actionName, label]) => {
         const button = document.createElement("button");
@@ -37922,6 +38647,11 @@ async function refreshNodes(options = {}) {
   }
   refreshNodeHealth();
   renderNodes();
+  // Route and tunnel status come from the main process; render again once
+  // they arrive so the Route row is current without delaying the list.
+  refreshNodeConnectivityStatus().then(() => {
+    if (isNodeRequestCurrent(requestContext)) renderNodes();
+  }).catch(() => {});
 }
 
 function startNodeRefreshPolling() {
@@ -41344,6 +42074,7 @@ async function handleNodeCardAction(action, nodeId) {
   else if (action === "repair") await repairNodeById(nodeId);
   else if (action === "refresh") await refreshNodes({ forceHealthRefresh: true });
   else if (action === "details") openNodeDetails(nodeId);
+  else if (action === "routes") openNodeRoutesModal(nodeId);
   else if (action === "remove") await deleteNodeById(nodeId);
 }
 

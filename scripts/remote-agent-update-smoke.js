@@ -227,15 +227,16 @@ const payloadRoot = path.join(smokeRoot, "runtime");
     }
   };
   walk(path.join(repoRoot, "agent", "src", "server.js"));
-  const baseline = [
-    "async_hooks", "child_process", "crypto", "dotenv", "electron", "fs", "fs/promises", "http", "js-yaml",
-    "net", "os", "path", "ssh2", "stream", "url", "zlib",
-  ];
-  const added = [...bare].filter((specifier) => !baseline.includes(specifier)).sort();
-  const removed = baseline.filter((specifier) => !bare.has(specifier)).sort();
+  // Node builtins (including subpaths such as stream/promises and node:*
+  // specifiers) ship with the runtime, so only real packages are baselined.
+  const builtins = [...bare].filter((specifier) => Module.isBuiltin(specifier));
+  const packages = new Set([...bare].filter((specifier) => !Module.isBuiltin(specifier)));
+  const baseline = ["dotenv", "electron", "js-yaml", "ssh2"];
+  const added = [...packages].filter((specifier) => !baseline.includes(specifier)).sort();
+  const removed = baseline.filter((specifier) => !packages.has(specifier)).sort();
   assert.deepStrictEqual(added, [], `The Agent graph gained bare dependencies not covered by the update payload baseline: ${added.join(", ")}`);
   assert.deepStrictEqual(removed, [], `The Agent graph no longer requires baseline packages: ${removed.join(", ")}`);
-  console.log(`Phase 3b passed: Agent graph dependency baseline verified (${seen.size} modules, ${bare.size} bare specifiers).`);
+  console.log(`Phase 3b passed: Agent graph dependency baseline verified (${seen.size} modules, ${packages.size} packages, ${builtins.length} builtins).`);
 }
 
 // ---------------------------------------------------------------------------
