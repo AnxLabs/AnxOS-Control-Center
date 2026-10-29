@@ -1085,8 +1085,13 @@ app.whenReady().then(async () => {
   try {
     const nodeTunnels = require("./src/services/nodeTunnelService").getNodeTunnelService();
     nodeTunnels.sync();
+    // Route fallback shares the loop: re-check each node's routes so a home
+    // server moves between LAN and Tailscale as the desktop moves.
+    const nodeRoutes = require("./src/services/nodeRouteResolver").getNodeRouteResolver();
+    nodeRoutes.refreshAll().catch(() => {});
     const nodeTunnelSyncTimer = setInterval(() => {
       try { nodeTunnels.sync(); } catch {}
+      nodeRoutes.refreshAll().catch(() => {});
     }, 30000);
     nodeTunnelSyncTimer.unref?.();
     app.on("before-quit", () => {

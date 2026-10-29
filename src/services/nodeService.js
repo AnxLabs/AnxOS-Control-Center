@@ -647,6 +647,48 @@ function normalizeNodeTransport(transport) {
   return { type: "ssh-tunnel", sshProfileId, remoteHost, remotePort };
 }
 
+// Plain HTTP carries the Agent token in the clear, so an http:// fallback is
+// accepted only on networks the user controls: loopback, private LAN ranges
+// and Tailscale (100.64.0.0/10, *.ts.net). Anything else must be https://.
+function isPrivateNetworkHost(hostname = "") {
+  const host = String(hostname).toLowerCase().replace(/^\[|\]$/g, "");
+  if (host === "localhost" || host.endsWith(".ts.net") || host.endsWith(".local")) return true;
+  if (host === "::1" || /^f[cd][0-9a-f]{2}:/.test(host)) return true;
+  const parts = host.split(".").map(Number);
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
+  const [a, b] = parts;
+  return a === 10 || a === 127 || (a === 192 && b === 168) || (a === 172 && b >= 16 && b <= 31) || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254);
+}
+
+function normalizeNodeFallbackUrls(value, primaryUrl = "") {
+  const list = Array.isArray(value) ? value : [];
+  const seen = new Set([normalizeUrl(primaryUrl)]);
+  const result = [];
+  for (const entry of list) {
+    const raw = typeof entry === "string" ? entry : entry?.url;
+    let url;
+    try {
+      url = new URL(String(raw || "").trim());
+    } catch {
+      continue;
+    }
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) continue;
+    if (url.protocol === "http:" && !isPrivateNetworkHost(url.hostname)) continue;
+    const normalized = normalizeUrl(url.toString());
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    const label = String((typeof entry === "object" && entry?.label) || "").trim().slice(0, 40) || (url.hostname.endsWith(".ts.net") || isTailscaleIp(url.hostname) ? "Tailscale" : "Fallback");
+    result.push({ url: normalized, label });
+    if (result.length >= 4) break;
+  }
+  return result;
+}
+
+function isTailscaleIp(hostname = "") {
+  const parts = String(hostname).split(".").map(Number);
+  return parts.length === 4 && parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127;
+}
+
 function isLoopbackAgentUrl(value) {
   try {
     const url = new URL(String(value || ""));
@@ -702,6 +744,7 @@ function normalizeAgentNode(node = {}) {
     group: normalizeNodeGroup(node.group),
     manualDisconnect: node.manualDisconnect === true,
     transport: normalizeNodeTransport(node.transport),
+    fallbackUrls: normalizeNodeFallbackUrls(node.fallbackUrls, agentUrl),
     lastConnectionState: normalizeConnectionState(node.lastConnectionState || node.connection?.status || "unknown"),
     lastSuccessfulHealthCheck: node.lastSuccessfulHealthCheck || node.connection?.lastSeen || null,
     lastHealthCheckedAt: node.lastHealthCheckedAt || node.connection?.checkedAt || null,
@@ -1537,6 +1580,14 @@ function resolveNodeForAgentIdentity(payload = {}) {
 
 function getSelectedNodeId() { return readNodeState().selectedNodeId; }
 function getAllNodesSync() { const state = readNodeState(); return [getApplicationHostNode(), ...state.nodes]; }
+function getActiveNodeUrl(node) {
+  try {
+    return require("./nodeRouteResolver").getNodeRouteResolver().getActiveUrl(node) || node.baseUrl || node.agentUrl;
+  } catch {
+    return node.baseUrl || node.agentUrl;
+  }
+}
+
 function getNodeAgentConfigFromNode(node) {
   if (!localCredentialsUnlocked()) {
     authRecovery.requireLocalCredentialsUnlocked(
@@ -1547,7 +1598,7 @@ function getNodeAgentConfigFromNode(node) {
   return {
     ...normalizeAgentSettings({
     backendMode: "agent",
-    agentUrl: node.baseUrl || node.agentUrl,
+    agentUrl: getActiveNodeUrl(node),
     agentToken: getNodeToken(node.id, { preserveDecryptionError: true }),
     }),
     nodeId: node.id,
@@ -1666,6 +1717,22 @@ function setNodeTransport(nodeId, transport = {}) {
     throw Object.assign(new Error("A tunneled node needs a local Agent URL such as http://127.0.0.1:47132."), { code: "INVALID_NODE_TRANSPORT" });
   }
   const updated = normalizeAgentNode({ ...node, transport: normalized });
+  writeNodeState({ ...state, nodes: state.nodes.map((entry) => (entry.id === nodeId ? updated : entry)) });
+  return publicNode(updated);
+}
+
+// Alternate routes to the same Agent (for example its Tailscale name). Each
+// is used only after it proves the same Agent identity (nodeRouteResolver).
+function setNodeFallbackUrls(nodeId, fallbackUrls = []) {
+  const state = readNodeState();
+  const node = state.nodes.find((entry) => entry.id === nodeId);
+  if (!node) throw Object.assign(new Error("Node not found."), { code: "NODE_NOT_FOUND" });
+  const requested = Array.isArray(fallbackUrls) ? fallbackUrls : [];
+  const normalized = normalizeNodeFallbackUrls(requested, node.baseUrl || node.agentUrl);
+  if (normalized.length !== requested.filter((entry) => (typeof entry === "string" ? entry : entry?.url)).length) {
+    throw Object.assign(new Error("Each fallback must be a distinct https:// URL, or an http:// URL on your LAN or Tailscale network."), { code: "INVALID_NODE_FALLBACK_URL" });
+  }
+  const updated = normalizeAgentNode({ ...node, fallbackUrls: normalized });
   writeNodeState({ ...state, nodes: state.nodes.map((entry) => (entry.id === nodeId ? updated : entry)) });
   return publicNode(updated);
 }
@@ -2095,4 +2162,4 @@ async function deleteNode(nodeId, options = {}) {
 async function selectNode(nodeId) { getNode(nodeId); const state = readNodeState(); writeNodeState({ ...state, selectedNodeId: nodeId || APPLICATION_HOST_NODE_ID }); return listNodes({ discoverLocalAgent: false, refreshIdentity: false }); }
 async function testNode(nodeId) { return checkNodeHealth(nodeId || getSelectedNodeId(), { timeoutMs: 8000 }); }
 
-module.exports = { APPLICATION_HOST_NODE_ID, HEALTH_STATES, NODE_SCHEMA_VERSION, checkAllNodeHealth, checkNodeHealth, deleteNode, disconnectNode, getAllNodesSync, getExecutionTarget, getNode, getNodeAgentConfig, getNodeCredentialStatus, getNodeCredentialsPath, getNodesPath, getSelectedNodeId, listNodes, mergeAgentNodes, migrateState, pairNodeFromCode, postPairingComplete, postPairingStart, reconnectNode, recordAuthenticatedNodeHealth, repairNodeCredential, resolveNodeForAgentIdentity, saveNode, selectNode, setNodeTransport, testNode, testNodeConnectionPayload, updateNodeHealthState, _test: { attemptAgentEnrollmentRevocation, buildNodeCapabilities, compareAgentVersions, formatAgentCompatibilityMessage, getAgentCompatibilityReport, getNodeReportedCapabilities, normalizeAgentApiMajor, normalizeAgentCapabilitiesMetadata, normalizeAgentProtocolVersion, normalizeNodeGroup, normalizeNodeTransport, isLoopbackAgentUrl, parseComparableAgentVersion, postPairingComplete, setNodeManualDisconnect } };
+module.exports = { APPLICATION_HOST_NODE_ID, HEALTH_STATES, NODE_SCHEMA_VERSION, checkAllNodeHealth, checkNodeHealth, deleteNode, disconnectNode, getAllNodesSync, getExecutionTarget, getNode, getNodeAgentConfig, getNodeCredentialStatus, getNodeCredentialsPath, getNodesPath, getSelectedNodeId, listNodes, mergeAgentNodes, migrateState, pairNodeFromCode, postPairingComplete, postPairingStart, reconnectNode, recordAuthenticatedNodeHealth, repairNodeCredential, resolveNodeForAgentIdentity, saveNode, selectNode, setNodeFallbackUrls, setNodeTransport, testNode, testNodeConnectionPayload, updateNodeHealthState, _test: { attemptAgentEnrollmentRevocation, buildNodeCapabilities, compareAgentVersions, formatAgentCompatibilityMessage, getAgentCompatibilityReport, getNodeReportedCapabilities, normalizeAgentApiMajor, normalizeAgentCapabilitiesMetadata, normalizeAgentProtocolVersion, normalizeNodeGroup, normalizeNodeTransport, normalizeNodeFallbackUrls, isPrivateNetworkHost, isLoopbackAgentUrl, parseComparableAgentVersion, postPairingComplete, setNodeManualDisconnect } };

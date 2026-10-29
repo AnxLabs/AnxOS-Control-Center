@@ -172,6 +172,7 @@
     "nodes:ipc-error-contract:smoke": "node scripts/nodes-ipc-error-contract-smoke.js",
     "remote-agent-update:smoke": "node scripts/remote-agent-update-smoke.js",
     "node-tunnel:smoke": "node scripts/node-tunnel-service-smoke.js",
+    "node-route-fallback:smoke": "node scripts/node-route-fallback-smoke.js",
     "mobile-pairing:smoke": "node scripts/mobile-pairing-smoke.js",
     "mobile-claim-page:smoke": "node scripts/mobile-claim-page-smoke.js",
     "nodes:ipc-authorization:smoke": "node scripts/nodes-ipc-authorization-smoke.js",
