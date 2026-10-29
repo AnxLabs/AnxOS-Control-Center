@@ -18222,3 +18222,84 @@ html[data-ui-generation="v1.9"] .sidebar[data-sidebar-state="collapsed"] [data-t
     white-space: normal;
   }
 }
+
+/* Node routes panel: addresses (main + fallbacks) and the SSH tunnel. */
+.app-modal--node-routes {
+  width: min(680px, calc(100vw - 32px));
+}
+
+.app-modal--node-routes .app-modal__header {
+  display: grid;
+  gap: 4px;
+  padding-right: 36px;
+}
+
+.app-modal--node-routes .app-modal__header h2,
+.app-modal--node-routes .app-modal__header p {
+  margin: 0;
+}
+
+.node-routes {
+  display: grid;
+  gap: 18px;
+}
+
+.node-routes__section h3 {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+}
+
+.node-routes__list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.node-routes__list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--anx-radius-sm);
+  background: rgba(17, 21, 31, 0.52);
+}
+
+.node-routes__list code {
+  flex: 1 1 220px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.node-routes__fields {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.node-routes__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.node-routes__hint,
+.node-routes__status {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+@media (max-width: 620px) {
+  .node-routes__fields {
+    grid-template-columns: 1fr;
+  }
+}

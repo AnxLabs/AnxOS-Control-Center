@@ -139,6 +139,7 @@ const TIERS = {
     ["node", ["scripts/node-tunnel-service-smoke.js"]],
     ["node", ["scripts/node-route-fallback-smoke.js"]],
     ["node", ["scripts/node-self-repair-smoke.js"]],
+    ["node", ["scripts/node-routes-ui-qa.js"]],
     ["node", ["scripts/endpoint-service-smoke.js"]],
     ["node", ["scripts/connectivity-diagnostics-service-smoke.js"]],
     ["node", ["scripts/provider-integration-smoke.js"]],

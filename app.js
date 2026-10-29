@@ -37712,6 +37712,261 @@ function syncNodeGroupFilterOptions() {
   nodeGroupFilter.value = validValues.has(selected) ? selected : NODE_GROUP_FILTER_ALL;
 }
 
+// Node connectivity: which route each Agent node uses right now (main URL,
+// a fallback such as Tailscale, or an app-managed SSH tunnel), and the Routes
+// panel that sets those up. Status comes from the main process
+// (nodeRouteResolver, nodeTunnelService) and refreshes with the node list.
+let nodeRouteStatusById = new Map();
+let nodeTunnelStatusById = new Map();
+
+const NODE_TUNNEL_STATE_LABELS = {
+  connecting: "Connecting",
+  connected: "Connected",
+  reconnecting: "Reconnecting",
+  external: "Using an existing tunnel",
+  failed: "Needs attention",
+  stopped: "Stopped",
+};
+
+async function refreshNodeConnectivityStatus() {
+  const api = getDesktopApiState().api?.nodes;
+  if (typeof api?.routeStatus !== "function" || typeof api?.tunnelStatus !== "function") return;
+  const [routes, tunnels] = await Promise.all([
+    api.routeStatus().catch(() => null),
+    api.tunnelStatus().catch(() => null),
+  ]);
+  if (Array.isArray(routes?.routes)) nodeRouteStatusById = new Map(routes.routes.map((entry) => [entry.nodeId, entry]));
+  if (Array.isArray(tunnels?.tunnels)) nodeTunnelStatusById = new Map(tunnels.tunnels.map((entry) => [entry.nodeId, entry]));
+}
+
+function describeNodeRoute(node) {
+  if (node?.kind !== "agent") return null;
+  const tunnel = nodeTunnelStatusById.get(node.id);
+  if (node.transport?.type === "ssh-tunnel") {
+    const label = NODE_TUNNEL_STATE_LABELS[tunnel?.state] || "Starting";
+    const reason = tunnel?.state === "failed" && tunnel.lastError?.message ? ` · ${tunnel.lastError.message}` : "";
+    return `SSH tunnel · ${label}${reason}`;
+  }
+  const status = nodeRouteStatusById.get(node.id);
+  if (!status) return node.fallbackUrls?.length ? "Main · checking routes" : "Main";
+  const active = status.routes.find((route) => route.url === status.activeUrl && route.verified);
+  if (!active) return "No route answering";
+  return `${active.label}${Number.isFinite(active.latencyMs) ? ` · ${active.latencyMs} ms` : ""}`;
+}
+
+function describeNodeAgentBuild(node) {
+  const version = node?.connection?.agentVersion || node?.agentVersion || node?.agentIdentity?.agentVersion || "";
+  const api = node?.connection?.apiVersion || node?.apiVersion || "";
+  return [version && `Agent ${version}`, api && `API ${api}`].filter(Boolean).join(" · ") || "Unknown";
+}
+
+function openNodeRoutesModal(nodeId) {
+  const node = (nodesState.nodes || []).find((entry) => entry.id === nodeId);
+  if (!node || node.kind !== "agent") return;
+  const api = getDesktopApiState().api;
+  const overlay = document.createElement("div");
+  overlay.className = "app-modal-backdrop";
+  overlay.dataset.nodeRoutesModal = "";
+  const dialog = document.createElement("section");
+  dialog.className = "app-modal app-modal--node-routes";
+  dialog.setAttribute("role", "dialog");
+  dialog.setAttribute("aria-modal", "true");
+  dialog.setAttribute("aria-labelledby", "node-routes-title");
+  dialog.tabIndex = -1;
+  const closeButton = document.createElement("button");
+  closeButton.className = "app-modal__close";
+  closeButton.type = "button";
+  closeButton.dataset.nodeRoutesClose = "";
+  closeButton.setAttribute("aria-label", "Close node routes");
+  closeButton.textContent = "×";
+  const header = document.createElement("div");
+  header.className = "app-modal__header";
+  header.append(
+    createTextElement("p", "Node connectivity", "app-modal__eyebrow"),
+    Object.assign(createTextElement("h2", `${node.displayName || node.id} routes`), { id: "node-routes-title" }),
+    createTextElement("p", "AnxOS uses the first route that answers as this Agent, and goes back to the main address as soon as it answers again."),
+  );
+  const status = createTextElement("p", "", "node-routes__status");
+  status.setAttribute("role", "status");
+  status.setAttribute("aria-live", "polite");
+  const body = document.createElement("div");
+  body.className = "node-routes";
+
+  const button = (label, onClick, primary = false) => {
+    const element = document.createElement("button");
+    element.type = "button";
+    element.className = primary ? "inline-action inline-action--primary" : "inline-action";
+    element.textContent = label;
+    element.addEventListener("click", async () => {
+      element.disabled = true;
+      try {
+        await onClick();
+      } catch (error) {
+        status.textContent = normalizeIpcErrorMessage(error, "That change could not be saved.");
+      } finally {
+        element.disabled = false;
+      }
+    });
+    return element;
+  };
+  const failIfRefused = (result, fallback) => {
+    if (result?.ok === false) throw Object.assign(new Error(result.error?.message || fallback), { code: result.error?.code });
+    return result;
+  };
+  const applyNode = async (updated) => {
+    if (updated) Object.assign(node, updated);
+    await refreshNodeConnectivityStatus();
+    render();
+    renderNodes();
+  };
+
+  function renderRouteList() {
+    const section = document.createElement("section");
+    section.className = "node-routes__section";
+    section.append(createTextElement("h3", "Addresses"));
+    const list = document.createElement("ul");
+    list.className = "node-routes__list";
+    const routeStatus = nodeRouteStatusById.get(node.id);
+    const entries = [{ url: node.baseUrl || node.agentUrl, label: "Main", primary: true }, ...(node.fallbackUrls || []).map((entry) => ({ ...entry, primary: false }))];
+    entries.forEach((entry) => {
+      const item = document.createElement("li");
+      const probe = routeStatus?.routes.find((route) => route.url === entry.url);
+      const inUse = routeStatus?.activeUrl === entry.url && probe?.verified;
+      const state = !probe ? "Not checked yet" : probe.verified ? `Answering${Number.isFinite(probe.latencyMs) ? ` · ${probe.latencyMs} ms` : ""}` : probe.error === "IDENTITY_MISMATCH" ? "A different Agent answered; not used" : "Not answering";
+      item.append(createTextElement("strong", entry.label), createTextElement("code", entry.url), createTextElement("span", inUse ? `In use · ${state}` : state, `status-pill ${inUse ? "status-pill--ok" : probe?.verified ? "status-pill--planned" : "status-pill--warning"}`));
+      if (!entry.primary) {
+        item.append(button("Remove", async () => {
+          const remaining = (node.fallbackUrls || []).filter((fallback) => fallback.url !== entry.url);
+          const result = failIfRefused(await api.nodes.setFallbackUrls(node.id, remaining), "The route could not be removed.");
+          status.textContent = `${entry.label} route removed.`;
+          await applyNode(result.node);
+        }));
+      }
+      list.append(item);
+    });
+    section.append(list);
+    const suggestionRow = document.createElement("div");
+    suggestionRow.className = "node-routes__actions";
+    suggestionRow.append(button("Find Tailscale route", async () => {
+      status.textContent = "Looking for this node on your Tailscale network...";
+      const result = failIfRefused(await api.nodes.suggestRoutes(node.id), "Tailscale routes could not be checked.");
+      const fresh = (result.suggestions || []).filter((suggestion) => !(node.fallbackUrls || []).some((fallback) => fallback.url === suggestion.url));
+      if (!result.available) {
+        status.textContent = "Tailscale isn't installed on this computer.";
+        return;
+      }
+      if (result.running === false) {
+        status.textContent = "Tailscale is installed but not running on this computer.";
+        return;
+      }
+      if (!fresh.length) {
+        status.textContent = (result.suggestions || []).length ? "The Tailscale route is already added." : "This node wasn't found on your Tailscale network.";
+        return;
+      }
+      const saved = failIfRefused(await api.nodes.setFallbackUrls(node.id, [...(node.fallbackUrls || []), { url: fresh[0].url, label: "Tailscale" }]), "The Tailscale route could not be added.");
+      status.textContent = saved.route?.reachable ? `Tailscale route added and verified (${fresh[0].url}).` : `Tailscale route added (${fresh[0].url}). It will be used when the main address doesn't answer.`;
+      await applyNode(saved.node);
+    }, true));
+    section.append(suggestionRow);
+    return section;
+  }
+
+  function renderTunnelSection(profiles) {
+    const section = document.createElement("section");
+    section.className = "node-routes__section";
+    section.append(createTextElement("h3", "SSH tunnel"));
+    const tunnel = nodeTunnelStatusById.get(node.id);
+    const enabled = node.transport?.type === "ssh-tunnel";
+    section.append(createTextElement("p", enabled
+      ? `AnxOS keeps an SSH tunnel open to this Agent. State: ${NODE_TUNNEL_STATE_LABELS[tunnel?.state] || "Starting"}${tunnel?.lastError?.message ? ` · ${tunnel.lastError.message}` : ""}`
+      : "For servers whose Agent only listens on the server itself. The main address must be a local address such as http://127.0.0.1:47132.", "node-routes__hint"));
+    const keyProfiles = (profiles || []).filter((profile) => profile.authType === "privateKey");
+    const profileSelect = document.createElement("select");
+    profileSelect.setAttribute("aria-label", "SSH profile");
+    profileSelect.append(new Option(keyProfiles.length ? "Choose an SSH key profile" : "No SSH key profiles yet", ""));
+    keyProfiles.forEach((profile) => profileSelect.append(new Option(profile.displayName || `${profile.username}@${profile.host}`, profile.id)));
+    const savedProfileId = node.transport?.sshProfileId;
+    if (savedProfileId && !keyProfiles.some((profile) => profile.id === savedProfileId)) {
+      profileSelect.append(new Option(`${savedProfileId} (missing profile)`, savedProfileId));
+    }
+    profileSelect.value = node.transport?.sshProfileId || keyProfiles.find((profile) => profile.nodeId === node.id)?.id || "";
+    const portInput = document.createElement("input");
+    portInput.type = "number";
+    portInput.min = "1";
+    portInput.max = "65535";
+    portInput.setAttribute("aria-label", "Agent port on the server");
+    portInput.value = String(node.transport?.remotePort || (() => { try { return new URL(node.baseUrl || node.agentUrl).port || ""; } catch { return ""; } })());
+    const fields = document.createElement("div");
+    fields.className = "node-routes__fields";
+    const profileLabel = document.createElement("label");
+    profileLabel.className = "settings-field";
+    profileLabel.append(createTextElement("span", "SSH key profile"), profileSelect);
+    const portLabel = document.createElement("label");
+    portLabel.className = "settings-field";
+    portLabel.append(createTextElement("span", "Agent port on the server"), portInput);
+    fields.append(profileLabel, portLabel);
+    const actions = document.createElement("div");
+    actions.className = "node-routes__actions";
+    actions.append(button(enabled ? "Save tunnel" : "Use SSH tunnel", async () => {
+      if (!profileSelect.value) throw new Error("Choose an SSH key profile first. Password profiles can't run unattended tunnels.");
+      const result = failIfRefused(await api.nodes.setTransport(node.id, { type: "ssh-tunnel", sshProfileId: profileSelect.value, remoteHost: "127.0.0.1", remotePort: Number(portInput.value) }), "The tunnel could not be saved.");
+      status.textContent = "SSH tunnel saved. AnxOS is connecting...";
+      await applyNode(result.node);
+    }, !enabled));
+    if (enabled) {
+      actions.append(
+        button("Reconnect tunnel", async () => {
+          failIfRefused(await api.nodes.reconnectTunnel(node.id), "The tunnel could not reconnect.");
+          status.textContent = "Reconnecting the tunnel...";
+          await applyNode();
+        }),
+        button("Stop using tunnel", async () => {
+          const result = failIfRefused(await api.nodes.setTransport(node.id, { type: "direct" }), "The tunnel could not be turned off.");
+          status.textContent = "SSH tunnel turned off.";
+          await applyNode(result.node);
+        }),
+      );
+    }
+    section.append(fields, actions);
+    return section;
+  }
+
+  let sshProfiles = [];
+  function render() {
+    body.replaceChildren(renderRouteList(), renderTunnelSection(sshProfiles));
+  }
+  render();
+  Promise.resolve(api?.ssh?.listProfiles?.()).then((result) => {
+    sshProfiles = Array.isArray(result?.profiles) ? result.profiles : [];
+    if (overlay.isConnected) render();
+  }).catch(() => {});
+
+  const footer = document.createElement("div");
+  footer.className = "app-modal__actions";
+  const doneButton = document.createElement("button");
+  doneButton.type = "button";
+  doneButton.className = "inline-action inline-action--primary";
+  doneButton.dataset.nodeRoutesClose = "";
+  doneButton.textContent = "Done";
+  footer.append(doneButton);
+  const close = () => {
+    document.removeEventListener("keydown", onKeyDown);
+    deactivateModal();
+    overlay.remove();
+  };
+  const onKeyDown = (event) => {
+    if (event.key === "Escape") close();
+  };
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay || event.target.closest("[data-node-routes-close]")) close();
+  });
+  document.addEventListener("keydown", onKeyDown);
+  dialog.append(closeButton, header, status, body, footer);
+  overlay.append(dialog);
+  document.body.append(overlay);
+  const deactivateModal = activateModal(overlay, { initialFocus: () => dialog.querySelector(".inline-action--primary") || closeButton });
+}
+
 function renderNodes() {
   renderRoutingDiagnostics();
   syncAgentConnectionDisplayWithSelectedNode();
@@ -37828,6 +38083,7 @@ function renderNodes() {
         ...(node.group ? [["Group", node.group]] : []),
         ["Connection", `${connectionState.primary} - ${connectionState.secondary}`],
         ...(isWindowsAgentNode(node) ? [["Windows MVP", getWindowsAgentMvpSummary(node)]] : []),
+        ...(node.kind === "agent" ? [["Route", describeNodeRoute(node)], ["Agent", describeNodeAgentBuild(node)]] : []),
         ["Last seen", formatNodeLastSeen(node)],
         ["Health", `${health.state} · ${health.issueCount} issue${health.issueCount === 1 ? "" : "s"}`],
       ].forEach(([label, value]) => {
@@ -37854,6 +38110,9 @@ function renderNodes() {
       }
       if (getNodeConnectionState(node).state === "Authentication Required") {
         nodeActions.splice(4, 0, ["repair", "Re-pair Existing Node"]);
+      }
+      if (node.kind === "agent") {
+        nodeActions.splice(nodeActions.length - 1, 0, ["routes", "Routes"]);
       }
       nodeActions.forEach(([actionName, label]) => {
         const button = document.createElement("button");
@@ -37922,6 +38181,11 @@ async function refreshNodes(options = {}) {
   }
   refreshNodeHealth();
   renderNodes();
+  // Route and tunnel status come from the main process; render again once
+  // they arrive so the Route row is current without delaying the list.
+  refreshNodeConnectivityStatus().then(() => {
+    if (isNodeRequestCurrent(requestContext)) renderNodes();
+  }).catch(() => {});
 }
 
 function startNodeRefreshPolling() {
@@ -41344,6 +41608,7 @@ async function handleNodeCardAction(action, nodeId) {
   else if (action === "repair") await repairNodeById(nodeId);
   else if (action === "refresh") await refreshNodes({ forceHealthRefresh: true });
   else if (action === "details") openNodeDetails(nodeId);
+  else if (action === "routes") openNodeRoutesModal(nodeId);
   else if (action === "remove") await deleteNodeById(nodeId);
 }
 
