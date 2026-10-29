@@ -1385,23 +1385,35 @@ const COMMAND_PALETTE_DEBOUNCE_MS = 80;
 const COMMAND_PALETTE_RECENT_LIMIT = 8;
 const staleInstanceIds = new Set();
 const instanceRemovalAllowedIds = new Set();
+// Sidebar groups, in display order. Every primary page belongs to exactly one
+// group except Settings, which stays pinned below the groups.
+const PRIMARY_NAVIGATION_GROUPS = [
+  { id: "overview", label: "Overview", pages: ["dashboard", "notifications", "console", "operations"] },
+  { id: "servers", label: "Servers & Instances", pages: ["instances", "marketplace", "docker", "files", "backups"] },
+  { id: "infrastructure", label: "Infrastructure", pages: ["nodes", "network", "playit", "ssh", "agent-control"] },
+  { id: "administration", label: "Administration", pages: ["security", "maintenance"] },
+];
+const PRIMARY_NAVIGATION_UNGROUPED = ["settings"];
+// Groups collapsed until the user opens them (the active page's group always opens).
+const NAV_GROUPS_COLLAPSED_BY_DEFAULT = ["infrastructure", "administration"];
+const NAV_GROUPS_STORAGE_KEY = "anxos.sidebar.collapsedGroups";
 const PRIMARY_NAVIGATION_ORDER = [
   "dashboard",
-  "marketplace",
+  "notifications",
+  "console",
+  "operations",
   "instances",
+  "marketplace",
   "docker",
   "files",
-  "ssh",
-  "playit",
-  "console",
   "backups",
-  "operations",
-  "notifications",
-  "maintenance",
-  "security",
-  "agent-control",
   "nodes",
   "network",
+  "playit",
+  "ssh",
+  "agent-control",
+  "security",
+  "maintenance",
   "settings",
 ];
 const LEGACY_PRIMARY_PAGES = new Set(["minecraft", "amp", "coolpals"]);
@@ -2708,8 +2720,8 @@ function configurePrimaryNavigation() {
 
   orderedItems.forEach((item) => {
     item.hidden = false;
-    navMenu.appendChild(item);
   });
+  buildNavigationGroups(navMenu);
 
   navMenu.querySelectorAll("[data-page-target]").forEach((item) => {
     const pageTarget = item.dataset.pageTarget;
@@ -2718,6 +2730,100 @@ function configurePrimaryNavigation() {
       item.removeAttribute("aria-current");
     }
   });
+  syncNavigationGroupVisibility();
+}
+
+function readCollapsedNavGroups() {
+  try {
+    const stored = window.localStorage.getItem(NAV_GROUPS_STORAGE_KEY);
+    if (stored === null) return new Set(NAV_GROUPS_COLLAPSED_BY_DEFAULT);
+    const parsed = JSON.parse(stored);
+    return new Set(Array.isArray(parsed) ? parsed.filter((id) => typeof id === "string") : NAV_GROUPS_COLLAPSED_BY_DEFAULT);
+  } catch {
+    return new Set(NAV_GROUPS_COLLAPSED_BY_DEFAULT);
+  }
+}
+
+function storeCollapsedNavGroups() {
+  const collapsed = [...document.querySelectorAll(".nav-group.is-collapsed")].map((group) => group.dataset.navGroup);
+  try {
+    window.localStorage.setItem(NAV_GROUPS_STORAGE_KEY, JSON.stringify(collapsed));
+  } catch {
+    // Storage can be unavailable; the groups still work for this session.
+  }
+}
+
+function setNavGroupCollapsed(group, collapsed) {
+  group.classList.toggle("is-collapsed", collapsed);
+  group.querySelector(".nav-group__toggle")?.setAttribute("aria-expanded", collapsed ? "false" : "true");
+}
+
+// Moves the primary items into collapsible groups (once). The items keep their
+// elements, attributes and listeners; only their parent changes.
+function buildNavigationGroups(navMenu) {
+  if (navMenu.querySelector(".nav-group")) return;
+  const collapsed = readCollapsedNavGroups();
+  PRIMARY_NAVIGATION_GROUPS.forEach((definition) => {
+    const group = document.createElement("div");
+    group.className = "nav-group";
+    group.dataset.navGroup = definition.id;
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "nav-group__toggle";
+    toggle.setAttribute("aria-controls", `nav-group-${definition.id}`);
+    const label = document.createElement("span");
+    label.className = "nav-group__label";
+    label.textContent = definition.label;
+    const chevron = document.createElement("span");
+    chevron.className = "nav-group__chevron";
+    chevron.setAttribute("aria-hidden", "true");
+    toggle.append(label, chevron);
+    toggle.addEventListener("click", () => {
+      setNavGroupCollapsed(group, !group.classList.contains("is-collapsed"));
+      storeCollapsedNavGroups();
+    });
+    const items = document.createElement("div");
+    items.className = "nav-group__items";
+    items.id = `nav-group-${definition.id}`;
+    items.setAttribute("role", "group");
+    items.setAttribute("aria-label", definition.label);
+    definition.pages.forEach((pageName) => {
+      const item = navMenu.querySelector(`[data-page-target="${pageName}"]`);
+      if (item) items.appendChild(item);
+    });
+    group.append(toggle, items);
+    navMenu.appendChild(group);
+    setNavGroupCollapsed(group, collapsed.has(definition.id));
+  });
+  PRIMARY_NAVIGATION_UNGROUPED.forEach((pageName) => {
+    const item = navMenu.querySelector(`[data-page-target="${pageName}"]`);
+    if (item) {
+      item.classList.add("nav-item--pinned");
+      navMenu.appendChild(item);
+    }
+  });
+  // Permissions and feature checks hide items after startup; a group with no
+  // visible item hides its header too.
+  if (typeof MutationObserver === "function") {
+    new MutationObserver(syncNavigationGroupVisibility).observe(navMenu, { subtree: true, attributes: true, attributeFilter: ["hidden"] });
+  }
+}
+
+function syncNavigationGroupVisibility() {
+  document.querySelectorAll(".nav-group").forEach((group) => {
+    const hasVisibleItem = [...group.querySelectorAll("[data-page-target]")].some((item) => !item.hidden);
+    if (group.hidden === hasVisibleItem) group.hidden = !hasVisibleItem;
+  });
+}
+
+// The active page's group always opens, so the current page is never hidden.
+function revealNavigationGroupFor(pageName) {
+  const item = document.querySelector(`.nav-group [data-page-target="${pageName}"]`);
+  const group = item?.closest(".nav-group");
+  if (group?.classList.contains("is-collapsed")) {
+    setNavGroupCollapsed(group, false);
+    storeCollapsedNavGroups();
+  }
 }
 
 function setStartupStep(name, status) {
@@ -4601,6 +4707,7 @@ function showPage(pageName) {
       item.removeAttribute("aria-current");
     }
   });
+  revealNavigationGroupFor(safePageName);
   ownerWorkspaceToggle?.classList.toggle("is-active", safePageName === "owner-workspace");
   if (safePageName === "owner-workspace") {
     ownerWorkspaceToggle?.setAttribute("aria-current", "page");

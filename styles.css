@@ -18222,3 +18222,112 @@ html[data-ui-generation="v1.9"] .sidebar[data-sidebar-state="collapsed"] [data-t
     white-space: normal;
   }
 }
+
+/* ==========================================================================
+   Sidebar navigation groups
+   Primary pages sit in collapsible groups (Overview, Servers & Instances,
+   Infrastructure, Administration); Settings stays pinned below them. In the
+   icon-only sidebar the group headers disappear and every item stays visible.
+   ========================================================================== */
+
+.nav-menu {
+  gap: 2px;
+}
+
+.nav-group {
+  display: grid;
+  gap: 2px;
+}
+
+.nav-group + .nav-group {
+  margin-top: 6px;
+}
+
+.nav-group__toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 30px;
+  padding: 0 10px 0 12px;
+  border: 0;
+  border-radius: var(--anx-radius-md);
+  background: transparent;
+  color: rgba(222, 212, 238, 0.6);
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color 160ms ease, background 160ms ease;
+}
+
+.nav-group__toggle:hover,
+.nav-group__toggle:focus-visible {
+  background: rgba(182, 108, 255, 0.08);
+  color: var(--text);
+  outline: none;
+}
+
+.nav-group__toggle:focus-visible {
+  box-shadow: 0 0 0 2px rgba(182, 108, 255, 0.55);
+}
+
+.nav-group__chevron {
+  width: 7px;
+  height: 7px;
+  margin-right: 4px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg) translate(-2px, -2px);
+  transition: transform 160ms ease;
+}
+
+.nav-group.is-collapsed .nav-group__chevron {
+  transform: rotate(-45deg);
+}
+
+.nav-group__items {
+  display: grid;
+  gap: 2px;
+}
+
+.nav-group.is-collapsed .nav-group__items {
+  display: none;
+}
+
+.nav-group .nav-item,
+.nav-item--pinned {
+  min-height: 36px;
+}
+
+/* Grouped items show their label only; the group names carry the context. */
+.nav-group .nav-item[data-nav-description] .nav-item__label,
+.nav-item--pinned[data-nav-description] .nav-item__label {
+  display: block;
+}
+
+.nav-group .nav-item[data-nav-description] .nav-item__label::after,
+.nav-item--pinned[data-nav-description] .nav-item__label::after {
+  content: none;
+}
+
+.nav-item--pinned {
+  margin-top: 8px;
+}
+
+.sidebar[data-sidebar-state="collapsed"] .nav-group__toggle {
+  display: none;
+}
+
+.sidebar[data-sidebar-state="collapsed"] .nav-group.is-collapsed .nav-group__items {
+  display: grid;
+}
+
+.sidebar[data-sidebar-state="collapsed"] .nav-group + .nav-group,
+.sidebar[data-sidebar-state="collapsed"] .nav-item--pinned {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
