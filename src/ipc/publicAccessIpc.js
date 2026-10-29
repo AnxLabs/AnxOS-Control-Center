@@ -2,19 +2,26 @@ const { ipcMain } = require("electron");
 const {
   applyWindowsFirewallRule,
   buildWindowsFirewallRulePreview,
+  cancelPlayitLinkForNode,
   createPublicAccessService,
   createWindowsFirewallRule,
   controlPlayitService,
   deletePublicAccessService,
   deleteWindowsFirewallRule,
+  getPlayitAccountForNode,
+  getPlayitLinkForNode,
   getPlayitLogsForNode,
+  getPlayitManageLinkForNode,
   getPlayitServiceStatusForNode,
   getPublicAccessSnapshot,
   listPlayitTunnelsForNode,
   listPublicAccessServices,
   listWindowsFirewallRules,
+  startPlayitLinkForNode,
 } = require("../services/publicAccessProviderService");
 const agentClient = require("../services/agentClient");
+const { openExternalUrl } = require("../services/externalUrlService");
+const { PLAYIT_DOWNLOAD_URL, isAllowedPlayitUrl } = require("../services/playitAccountService");
 const { audit, requirePermission } = require("../services/securityService");
 const { createIpcError, normalizeIpcError } = require("../shared/ipcError");
 const { requireNodeContext } = require("./nodeContext");
@@ -52,6 +59,11 @@ const EXPECTED_PUBLIC_ACCESS_ERROR_CODES = new Set([
   "PLAYIT_NOT_RUNNING",
   "PLAYIT_CONFIG_NOT_FOUND",
   "PLAYIT_TUNNEL_PARSE_FAILED",
+  "PLAYIT_ALREADY_LINKED",
+  "PLAYIT_NOT_LINKED",
+  "PLAYIT_LINK_STATE_UNKNOWN",
+  "PLAYIT_LINK_NOT_FOUND",
+  "PLAYIT_LOGIN_LINK_UNAVAILABLE",
   "NODE_UNSUPPORTED",
   "AGENT_UNAUTHORIZED",
   // V2-H firewall lifecycle: structured refusals/outcomes that should not be
@@ -176,6 +188,66 @@ function applyReverseProxyRouteForNode(payload = {}) {
   return agentClient.forNode(nodeId).post(REVERSE_PROXY_APPLY_PATH, route);
 }
 
+// playit claim and sign-in links work like short-lived credentials: the main
+// process opens them in the browser and the renderer only learns whether a
+// link exists. Each linking attempt's link is opened automatically once.
+const openedPlayitLinks = new Set();
+
+function playitLinkView(session = {}, opened = false) {
+  return {
+    id: session.id || null,
+    state: session.state || null,
+    startedAt: session.startedAt || null,
+    endedAt: session.endedAt || null,
+    message: session.message || null,
+    hasLink: Boolean(session.linkUrl || session.hasLink),
+    opened,
+  };
+}
+
+async function openPlayitUrl(linkUrl, source) {
+  if (!isAllowedPlayitUrl(linkUrl)) {
+    throw Object.assign(new Error("playit did not return a playit.gg link."), { code: "PLAYIT_LOGIN_LINK_UNAVAILABLE" });
+  }
+  await openExternalUrl(linkUrl, { source });
+  return true;
+}
+
+async function openPlayitLinkOnce(nodeId, session) {
+  const key = `${nodeId || "local"}:${session?.id || ""}`;
+  if (!session?.linkUrl || openedPlayitLinks.has(key)) return false;
+  await openPlayitUrl(session.linkUrl, "playit-account-link");
+  openedPlayitLinks.add(key);
+  return true;
+}
+
+async function startPlayitLink(payload) {
+  const session = await startPlayitLinkForNode(payload);
+  const opened = await openPlayitLinkOnce(payload.nodeId, session);
+  return playitLinkView(session, opened);
+}
+
+async function pollPlayitLink(payload) {
+  const session = await getPlayitLinkForNode({ ...payload, withLink: true });
+  const opened = session?.state === "awaiting-approval" ? await openPlayitLinkOnce(payload.nodeId, session) : false;
+  return playitLinkView(session, opened);
+}
+
+async function reopenPlayitLink(payload) {
+  const session = await getPlayitLinkForNode({ ...payload, withLink: true });
+  if (session?.state !== "awaiting-approval" || !session.linkUrl) {
+    throw Object.assign(new Error("There is no playit approval link waiting right now."), { code: "PLAYIT_LINK_NOT_FOUND" });
+  }
+  await openPlayitUrl(session.linkUrl, "playit-account-link");
+  return playitLinkView(session, true);
+}
+
+async function openPlayitManage(payload) {
+  const { linkUrl } = await getPlayitManageLinkForNode(payload);
+  await openPlayitUrl(linkUrl, "playit-account-manage");
+  return { opened: true };
+}
+
 function registerPublicAccessIpc() {
   ipcMain.handle("publicAccess:getSnapshot", async (_, payload = {}) => invokePublicAccessRead("publicAccess:getSnapshot", () => { requirePermission("public-access:read", payload.nodeId); return getPublicAccessSnapshot(requireNodeContext(payload, "Public Access snapshot")); }));
   ipcMain.handle("publicAccess:listServices", async (_, payload = {}) => invokePublicAccessRead("publicAccess:listServices", () => { requirePermission("public-access:read", payload.nodeId); return listPublicAccessServices(requireNodeContext(payload, "Public Access services")); }));
@@ -230,6 +302,43 @@ function registerPublicAccessIpc() {
     audit({ action: "publicAccess.controlPlayit", target: payload.action || "playit" });
     return controlPlayitService(payload);
   }));
+  ipcMain.handle("publicAccess:getPlayitAccount", async (_, payload = {}) => invokePublicAccessRead("publicAccess:getPlayitAccount", () => { requirePermission("public-access:read", payload.nodeId); return getPlayitAccountForNode(requireNodeContext(payload, "playit account")); }));
+  ipcMain.handle("publicAccess:openPlayitDownload", async (_, payload = {}) => invokePublicAccessRead("publicAccess:openPlayitDownload", async () => {
+    requirePermission("public-access:read", payload.nodeId);
+    await openPlayitUrl(PLAYIT_DOWNLOAD_URL, "playit-download");
+    return { opened: true };
+  }));
+  ipcMain.handle("publicAccess:startPlayitLink", async (_, payload = {}) => wrapPublicAccessOperation(() => {
+    requireNodeContext(payload, "playit account linking");
+    requirePermission("instance:write", "public-access-playit");
+    audit({ action: "publicAccess.startPlayitLink", target: "playit" });
+    return startPlayitLink(payload);
+  }));
+  // Polling reads the pending link so it can be opened, so it needs the same
+  // permission as starting; it is not audited per poll.
+  ipcMain.handle("publicAccess:getPlayitLink", async (_, payload = {}) => wrapPublicAccessOperation(() => {
+    requireNodeContext(payload, "playit account linking");
+    requirePermission("instance:write", "public-access-playit");
+    return pollPlayitLink(payload);
+  }));
+  ipcMain.handle("publicAccess:openPlayitLink", async (_, payload = {}) => wrapPublicAccessOperation(() => {
+    requireNodeContext(payload, "playit account linking");
+    requirePermission("instance:write", "public-access-playit");
+    audit({ action: "publicAccess.openPlayitLink", target: "playit" });
+    return reopenPlayitLink(payload);
+  }));
+  ipcMain.handle("publicAccess:cancelPlayitLink", async (_, payload = {}) => wrapPublicAccessOperation(async () => {
+    requireNodeContext(payload, "playit account linking");
+    requirePermission("instance:write", "public-access-playit");
+    audit({ action: "publicAccess.cancelPlayitLink", target: "playit" });
+    return playitLinkView(await cancelPlayitLinkForNode(payload));
+  }));
+  ipcMain.handle("publicAccess:openPlayitManage", async (_, payload = {}) => wrapPublicAccessOperation(() => {
+    requireNodeContext(payload, "playit account");
+    requirePermission("instance:write", "public-access-playit");
+    audit({ action: "publicAccess.openPlayitManage", target: "playit" });
+    return openPlayitManage(payload);
+  }));
   // V2-H reverse-proxy / certificate state: the read is a node-scoped Agent
   // read (no mutation); apply records a route definition and is audited. Both
   // keep the family guard order (permission first for reads, node context then
@@ -250,6 +359,7 @@ function registerPublicAccessIpc() {
 module.exports = {
   registerPublicAccessIpc,
   _test: {
+    playitLinkView,
     expectedPublicAccessLogState,
     invokePublicAccessRead,
     isExpectedPublicAccessError,

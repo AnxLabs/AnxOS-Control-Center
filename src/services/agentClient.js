@@ -642,6 +642,8 @@ function getPublicAccessPlayitApiExpectation(pathname, method = "GET") {
     ["GET", /^\/api\/v1\/public-access\/playit\/logs(?:\?|$)/, "Playit service logs endpoint"],
     ["GET", /^\/api\/v1\/public-access\/playit\/tunnels(?:\?|$)/, "Playit tunnel listing endpoint"],
     ["POST", /^\/api\/v1\/public-access\/playit\/(?:start|stop|restart)$/, "Playit service control endpoint"],
+    ["GET", /^\/api\/v1\/public-access\/playit\/account$/, "Playit account status endpoint"],
+    ["POST", /^\/api\/v1\/public-access\/playit\/account\/(?:link|manage)$/, "Playit account linking endpoint"],
   ];
   const match = expectations.find(([expectedMethod, pattern]) => expectedMethod === normalizedMethod && pattern.test(path));
   return match?.[2] || null;
@@ -2083,6 +2085,35 @@ async function getPublicAccessPlayitTunnels(payload = {}, configOverride = null)
   const query = payload.nodeId ? `?nodeId=${encodeURIComponent(payload.nodeId)}` : "";
   return requestJson(`/api/v1/public-access/playit/tunnels${query}`, {
     config: configOverride,
+    timeoutMs: PUBLIC_ACCESS_REQUEST_TIMEOUT_MS,
+  });
+}
+
+async function getPublicAccessPlayitAccount(configOverride = null) {
+  return requestJson("/api/v1/public-access/playit/account", {
+    config: configOverride,
+    timeoutMs: PUBLIC_ACCESS_REQUEST_TIMEOUT_MS,
+  });
+}
+
+// Account actions: "link" starts (or joins) playit's browser linking,
+// "manage" returns a playit.gg sign-in link. Both may carry a linkUrl.
+async function controlPublicAccessPlayitAccount(action, configOverride = null) {
+  return requestJson(`/api/v1/public-access/playit/account/${encodeURIComponent(String(action || ""))}`, {
+    config: configOverride,
+    method: "POST",
+    body: {},
+    timeoutMs: PUBLIC_ACCESS_REQUEST_TIMEOUT_MS,
+  });
+}
+
+// action: "" reads progress (no link), "open" returns the link, "cancel" stops it.
+async function controlPublicAccessPlayitLink(linkId, action = "", configOverride = null) {
+  const suffix = action ? `/${encodeURIComponent(String(action))}` : "";
+  return requestJson(`/api/v1/public-access/playit/account/link/${encodeURIComponent(String(linkId || ""))}${suffix}`, {
+    config: configOverride,
+    method: action ? "POST" : "GET",
+    body: action ? {} : null,
     timeoutMs: PUBLIC_ACCESS_REQUEST_TIMEOUT_MS,
   });
 }
@@ -3659,6 +3690,9 @@ module.exports = {
   getPublicAccessPlayitLogs,
   getPublicAccessPlayitStatus,
   getPublicAccessPlayitTunnels,
+  getPublicAccessPlayitAccount,
+  controlPublicAccessPlayitAccount,
+  controlPublicAccessPlayitLink,
   getPublicAccessSnapshot,
   isHealthy,
   importBackup,
