@@ -42,6 +42,18 @@ assert.strictEqual(new Set(ids).size, ids.length, "Desktop HTML must not contain
   assert.strictEqual(depth, 0, "styles.css leaves a block unclosed.");
 }
 
+// Marketplace cards show provider logos straight from their CDNs, so the CSP
+// must allow exactly those image hosts (a bare 'self' data: list left every
+// modpack logo as a broken image), and never a wildcard.
+{
+  const imgSrc = (index.match(/img-src ([^;"]*)/) || [])[1] || "";
+  const sources = imgSrc.trim().split(/\s+/);
+  for (const host of ["https://media.forgecdn.net", "https://cdn.modrinth.com"]) {
+    assert(sources.includes(host), `CSP img-src must allow ${host} for Marketplace logos.`);
+  }
+  assert(!sources.some((source) => source === "*" || source === "https:" || source === "http:"), "CSP img-src must not allow every host.");
+}
+
 const buttons = [...index.matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/g)];
 buttons.forEach(([, attributes, content]) => {
   const visibleText = content.replace(/<[^>]+>/g, "").replace(/&[^;]+;/g, "x").trim();
