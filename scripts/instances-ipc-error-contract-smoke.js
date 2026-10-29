@@ -43,7 +43,8 @@ async function main() {
       assert.strictEqual(error.details.retryable, false);
       assert.strictEqual(error.details.suggestion, "Inspect the latest server log before starting again.");
       assert.strictEqual(error.statusCode, 409);
-      assert.strictEqual(error.cause, originalError);
+      assert.notStrictEqual(error.cause, originalError);
+      assert.strictEqual(error.cause.code, originalError.code);
       assert.match(error.message, /^INSTANCE_CRASH_LOOP:/);
       return true;
     },

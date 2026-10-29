@@ -40,7 +40,8 @@ async function main() {
       assert.strictEqual(error.details.retryable, false);
       assert.strictEqual(error.details.suggestion, "Grant the Agent user access to the Docker socket.");
       assert.strictEqual(error.statusCode, 403);
-      assert.strictEqual(error.cause, originalError);
+      assert.notStrictEqual(error.cause, originalError);
+      assert.strictEqual(error.cause.code, originalError.code);
       assert.match(error.message, /^DOCKER_SOCKET_PERMISSION_DENIED:/);
       return true;
     },
