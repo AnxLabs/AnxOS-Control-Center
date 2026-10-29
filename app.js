@@ -4696,6 +4696,19 @@ function syncPagePollingForVisibility() {
   if (page === "owner-workspace") startOwnerAnalyticsPolling();
 }
 
+// The card entrance animation (styles.css "Motion polish") applies only while
+// a page carries .is-entering, so cards rebuilt by later refreshes appear in
+// place instead of animating in again every few seconds.
+const PAGE_ENTERING_MS = 700;
+let pageEnteringTimer = null;
+
+function markPageEntering(page) {
+  pages.forEach((item) => item.classList.remove("is-entering"));
+  window.clearTimeout(pageEnteringTimer);
+  page.classList.add("is-entering");
+  pageEnteringTimer = window.setTimeout(() => page.classList.remove("is-entering"), PAGE_ENTERING_MS);
+}
+
 function showPage(pageName) {
   const safePageName = getSafePageName(pageName);
   if (safePageName === "owner-workspace" && !isOwnerWorkspaceAuthorized()) {
@@ -4740,8 +4753,10 @@ function showPage(pageName) {
     refreshNetworkPage();
   }
 
+  const pageChanged = activePageName !== safePageName;
   pages.forEach((page) => {
     page.classList.toggle("is-active", page.dataset.page === safePageName);
+    if (pageChanged && page.dataset.page === safePageName) markPageEntering(page);
   });
   // The tracked value is set at exactly the point the DOM becomes authoritative
   // (the loop above), so every getActivePageName() call before this line and
