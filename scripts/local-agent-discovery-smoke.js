@@ -27,7 +27,10 @@ const nodeService = fs.readFileSync(path.join(root, "src", "services", "nodeServ
   "localIpAddresses",
   "customDisplayName",
   "stableNodeId",
-  "node.localAgent === true || isLocalAgentUrl(node.agentUrl)",
+  // Only a loopback URL on the Local Agent's own port is this PC; a tunneled
+  // remote node (127.0.0.1 on another port) is not (node-tunnel-not-local-smoke).
+  "isExplicitLocalAgentNode(node) || isThisPcAgentUrl(node.agentUrl)",
+  "return isLocalAgentUrl(url) && getLocalAgentPortFromUrl(url) === getLocalAgentPort();",
   "selectedRemoteNode",
   "shouldDefaultToLocal",
   "mergeAgentNodes([",
