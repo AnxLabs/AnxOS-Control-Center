@@ -1231,6 +1231,8 @@ async function listPlayitTunnels() {
 module.exports = {
   isPlayitProcessImage,
   filterPlayitCommandLines,
+  findPlayitBinary,
+  getConfigCandidates,
   getPlayitSnapshot,
   getPlayitStatus,
   getPlayitServiceStatus: getPlayitStatus,
