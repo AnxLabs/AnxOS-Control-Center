@@ -225,6 +225,7 @@
     "ssh:renderer-input-lifecycle:smoke": "node scripts/ssh-renderer-input-lifecycle-smoke.js",
     "ssh:terminal-emulation:smoke": "node scripts/ssh-terminal-emulation-smoke.js",
     "ssh:lifecycle:smoke": "node scripts/ssh-session-timeout-smoke.js",
+    "automation-accessibility:smoke": "node scripts/automation-accessibility-smoke.js",
     "ssh:redaction:smoke": "node scripts/ssh-redaction-smoke.js",
     "ssh:key-passphrase:smoke": "node scripts/ssh-key-passphrase-smoke.js",
     "ssh:terminal-session-output:smoke": "node scripts/ssh-terminal-session-output-smoke.js",

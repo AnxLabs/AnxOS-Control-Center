@@ -1000,6 +1000,10 @@ app.whenReady().then(async () => {
     return;
   }
   logWindowLifecycle("app-ready", "Electron app ready; starting desktop initialization.");
+  // Chromium builds the accessibility tree only after a UI Automation client
+  // first asks, so that first query (screen readers, automation tools) saw an
+  // empty window. Build it from the start.
+  app.setAccessibilitySupportEnabled(true);
   instrumentIpcHandlers({
     ipcMain,
     diagnostics,
