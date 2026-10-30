@@ -80,7 +80,9 @@ entry disagree, the later cycle entry controls, and the code controls over both.
   2026-10-30): contract statuses, identity evidence, production-scope gaps,
   gate P4 acceptance, and what signing authorizes for AIM-2.
 - `docs/v2/AIM2_IMPLEMENTATION_RECORD.md` — AIM-2 functional contracts and dual
-  health: increments, hermetic acceptance evidence, and deferred live runs.
+  health: Sona support (verified architecture), general-purpose AI services,
+  the 2026-10-30 scope update (Open WebUI, Open Terminal and ANX-CorTex
+  discontinued), hermetic acceptance evidence, and deferred live runs.
 - `docs/v2/BUILD201_STATS_UNAUTHORIZED_REPORT.md` — build-scoped report, treated
   as historical evidence for its named build only.
 

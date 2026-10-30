@@ -9,9 +9,8 @@
 //   pass                        — the contract holds,
 //   degraded:<code>             — usable, but drifting from its baseline,
 //   fail:<code>                 — the contract is broken,
-//   not-evaluated:<reason>      — nothing was checked (no baseline, no
-//                                 credential, opt-in required, live runs
-//                                 deferred, ...).
+//   not-evaluated:<reason>      — nothing was checked (no baseline, live runs
+//                                 deferred, opt-in required, ...).
 //
 // Overall status is the worse of liveness and function, and "not-evaluated"
 // maps to healthModel's "unknown", which outranks healthy: an unchecked
@@ -29,27 +28,25 @@ const FUNCTIONAL_OUTCOMES = Object.freeze(["pass", "degraded", "fail", "not-eval
 // Closed set of failure/degradation codes. C-numbers refer to the incidents in
 // plan §2.2 that each code would have caught.
 const FUNCTIONAL_CODES = Object.freeze({
-  AUTH_REQUIRED: "AUTH_REQUIRED", // the service needs a credential and none was configured
+  AUTH_REQUIRED: "AUTH_REQUIRED", // the service needs a credential; probes never send one
   AUTH_INVALID: "AUTH_INVALID", // a credential was sent and rejected (C3)
   COLLECTION_MISSING: "COLLECTION_MISSING", // an expected Qdrant collection is absent (C3)
   EMPTY: "EMPTY", // the collection exists but holds no points (C3)
   POINTS_BELOW_BASELINE: "POINTS_BELOW_BASELINE", // fewer points than the baseline allows (C3)
   NOT_WIRED: "NOT_WIRED", // data is healthy but not the backend the app uses (C3)
-  IDENTITY_CHANGED: "IDENTITY_CHANGED", // the workspace owner is no longer the baseline owner (C1)
-  WORKSPACE_OBJECTS_MISSING: "WORKSPACE_OBJECTS_MISSING", // knowledge/prompts/tools/... below baseline (C1)
+  IDENTITY_CHANGED: "IDENTITY_CHANGED", // the service answering is not the expected application
+  VERSION_CHANGED: "VERSION_CHANGED", // running a different version than the Owner recorded
   DANGLING_DEPENDENCY: "DANGLING_DEPENDENCY", // a configured reference resolves to nothing (C4)
   DEPENDENCY_DOWN: "DEPENDENCY_DOWN", // a dependency the configuration uses is not healthy (C6)
   MODEL_MISSING: "MODEL_MISSING", // an expected Ollama model is not installed
   DIMENSION_MISMATCH: "DIMENSION_MISMATCH", // Infinity embedding has the wrong dimension
   PARSE_MISMATCH: "PARSE_MISMATCH", // Tika returned unexpected text for the fixture
-  SESSION_FAILED: "SESSION_FAILED", // Open Terminal session could not open/close
   PROBE_ERROR: "PROBE_ERROR", // the probe itself failed (timeout, unexpected status)
 });
 
 const NOT_EVALUATED_REASONS = Object.freeze({
   NO_BASELINE: "NO_BASELINE", // nothing to compare against yet
-  NO_CREDENTIAL: "NO_CREDENTIAL", // the read-only account is not configured
-  OPT_IN_REQUIRED: "OPT_IN_REQUIRED", // probe changes a little state; the Owner hasn't opted in for this scope
+  OPT_IN_REQUIRED: "OPT_IN_REQUIRED", // scheduled probes need an Owner opt-in the scope doesn't have
   LIVE_RUNS_DEFERRED: "LIVE_RUNS_DEFERRED", // AIM-0: live runs need a separately approved scope
   NOT_APPLICABLE: "NOT_APPLICABLE", // the probe doesn't apply to this service/configuration
   NO_RESPONSE: "NO_RESPONSE", // no probe response was available to evaluate

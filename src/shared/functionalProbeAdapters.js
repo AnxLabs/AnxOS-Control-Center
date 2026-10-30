@@ -2,23 +2,25 @@
 
 // AIM-2 functional probe adapters (plan §4.2). Each adapter declares:
 //   - liveness: the existing "is it up?" request,
-//   - probes:   declarative, bounded requests that read state (never write it;
-//               Open Terminal's session open/close is the one marked stateful),
+//   - probes:   declarative, bounded, read-only requests,
 //   - evaluate: a pure function from probe responses + baseline/config to a
 //               functional result (functionalProbeModel vocabulary).
 //
-// Nothing here performs I/O. Responses are plain { status, body } objects, so
-// the same evaluators run against hermetic fixtures in tests and, later, real
-// responses from an executor. planProbeRun() is the authorization gate that
-// executor must call first; it encodes the AIM-0 sign-off (2026-10-30):
-// every live run is deferred until the Owner approves a specific scope,
-// production scopes are probed on demand only, and stateful probes need a
-// per-scope opt-in.
+// Supported services: Sona (the Owner's active AnxLabs AI application) and the
+// general-purpose AI services Qdrant, Ollama, Infinity and Tika. Open WebUI,
+// Open Terminal and ANX-CorTex are discontinued (Owner, 2026-10-30) and have no
+// adapters; their repositories, volumes and records are left untouched.
 //
-// Probe paths marked pathsVerified: false are design placeholders: they have
-// not been checked against the deployed service versions, and the hermetic
-// fixtures exercise only the evaluators. An executor must refuse an adapter
-// whose paths are unverified until the approved live run pins them.
+// Nothing here performs I/O. Responses are plain { status, body } objects, so
+// the same evaluators run against hermetic fixtures in tests and real responses
+// from the executor (src/services/functionalProbeService.js). planProbeRun() is
+// the authorization gate that executor must call first; it encodes the AIM-0
+// sign-off (2026-10-30): every live run is deferred until the Owner approves a
+// specific scope, and production scopes are probed on demand only.
+//
+// Only unauthenticated, read-only endpoints are probed. No adapter sends or
+// stores credentials, and probe targets come from the Owner's scope file,
+// never from service configuration.
 //
 // Dependency-free apart from src/shared (copied into the Agent runtime).
 
@@ -44,60 +46,64 @@ function missingResponse(...responses) {
   return responses.some((response) => !response || !Number.isInteger(response.status));
 }
 
-// Open WebUI / ANX-CorTex (incident C1): the workspace must still belong to the
-// baseline owner and hold at least the baseline's objects; configured tool and
-// terminal references must resolve.
-const WORKSPACE_KINDS = Object.freeze(["knowledgeBases", "prompts", "tools", "skills", "notes"]);
-
-const openWebUi = Object.freeze({
-  id: "open-webui",
-  pathsVerified: false,
-  label: "Open WebUI / ANX-CorTex",
-  stateful: false,
-  liveness: Object.freeze({ method: "GET", path: "/health" }),
-  probes: Object.freeze([
-    Object.freeze({ id: "owner", method: "GET", path: "/api/v1/auths/", auth: "read-only-account" }),
-    Object.freeze({ id: "counts", method: "GET", path: "/api/v1/workspace/summary", auth: "read-only-account" }),
-  ]),
-  evaluate({ credentialConfigured = false, baseline = null, responses = {}, references = [] } = {}) {
-    if (!credentialConfigured) return notEvaluated(R.NO_CREDENTIAL);
-    if (!baseline) return notEvaluated(R.NO_BASELINE);
-    const { owner, counts } = responses;
-    if (missingResponse(owner, counts)) return notEvaluated(R.NO_RESPONSE);
-    const rejected = authFailure(owner, true) || authFailure(counts, true);
-    if (rejected) return rejected;
-    if (!OK(owner) || !OK(counts)) return fromFindings({ failures: [finding(C.PROBE_ERROR, { status: OK(owner) ? counts.status : owner.status })] });
-    const failures = [];
-    if (baseline.ownerIdentityHash && owner.body?.ownerIdentityHash !== baseline.ownerIdentityHash) {
-      failures.push(finding(C.IDENTITY_CHANGED, { expected: baseline.ownerIdentityHash, actual: owner.body?.ownerIdentityHash || null }));
+// Sona backend (anxlabs/sona-api, Compose project "sona", service "api").
+// Verified against Sona 8.5.0: uvicorn binds 127.0.0.1:8790 on the Debian host
+// and GET /api/health is public, returning { status: "ok", app: "sona",
+// version }. Sona's own container healthcheck uses the same route. The probe
+// confirms the service answering is Sona and, when the Owner recorded one, its
+// expected version. Authenticated routes are never called.
+const sona = Object.freeze({
+  id: "sona",
+  label: "Sona",
+  pathsVerified: true,
+  liveness: Object.freeze({ method: "GET", path: "/api/health" }),
+  probes: Object.freeze([Object.freeze({ id: "health", method: "GET", path: "/api/health" })]),
+  evaluate({ expectedVersion = null, responses = {} } = {}) {
+    const { health } = responses;
+    if (missingResponse(health)) return notEvaluated(R.NO_RESPONSE);
+    if (!OK(health)) return fromFindings({ failures: [finding(C.PROBE_ERROR, { status: health.status })] });
+    const body = health.body && typeof health.body === "object" ? health.body : {};
+    if (body.app !== "sona" || body.status !== "ok") {
+      // Something answered on Sona's address, but it is not a healthy Sona.
+      return fromFindings({ failures: [finding(C.IDENTITY_CHANGED, { expected: "sona", actual: typeof body.app === "string" ? body.app.slice(0, 64) : null })] });
     }
-    const missing = {};
-    for (const kind of WORKSPACE_KINDS) {
-      const expected = Number(baseline.counts?.[kind]);
-      const actual = Number(counts.body?.[kind]);
-      if (Number.isFinite(expected) && !(Number.isFinite(actual) && actual >= expected)) {
-        missing[kind] = { baseline: expected, actual: Number.isFinite(actual) ? actual : null };
-      }
+    if (expectedVersion && body.version !== expectedVersion) {
+      return fromFindings({ degradations: [finding(C.VERSION_CHANGED, { expected: expectedVersion, actual: typeof body.version === "string" ? body.version.slice(0, 32) : null })] });
     }
-    if (Object.keys(missing).length) failures.push(finding(C.WORKSPACE_OBJECTS_MISSING, { missing }));
-    const dangling = references.filter((reference) => reference && reference.resolves !== true);
-    if (dangling.length) failures.push(finding(C.DANGLING_DEPENDENCY, { references: dangling.map(({ name, target }) => ({ name, target })) }));
-    return fromFindings({ failures });
+    return pass({ version: typeof body.version === "string" ? body.version.slice(0, 32) : null });
   },
 });
 
-// Qdrant (incident C3): authenticated collection read; expected collections
-// present and non-empty, point counts within tolerance of the baseline, and
-// the app actually wired to this Qdrant.
+// The Sona stack's services as declared in its Compose file (deploy/
+// docker-compose.yml): the API depends on all of them. sandbox and plugins run
+// the API image on Unix sockets with no network; the tunnel (cloudflared)
+// carries traffic from the Cloudflare-hosted frontend to the API.
+const SONA_STACK = Object.freeze({
+  composeProject: "sona",
+  apiService: "api",
+  apiContainerName: "sona-api",
+  dependencies: Object.freeze([
+    Object.freeze({ service: "sandbox", containerName: "sona-sandbox", label: "Code sandbox" }),
+    Object.freeze({ service: "plugins", containerName: "sona-plugins", label: "Plugin host" }),
+    Object.freeze({ service: "claude-code", containerName: "sona-claude-code", label: "Claude Code worker" }),
+    Object.freeze({ service: "browser", containerName: "sona-browser", label: "Browser (Playwright)" }),
+    Object.freeze({ service: "searxng", containerName: "sona-searxng", label: "Web search (SearXNG)" }),
+    Object.freeze({ service: "tunnel", containerName: "sona-tunnel", label: "Cloudflare tunnel" }),
+  ]),
+});
+
+// Qdrant (incident C3): collection read; expected collections present and
+// non-empty, point counts within tolerance of the baseline, and the app
+// actually wired to this Qdrant. No API key is sent: an instance that requires
+// one reports AUTH_REQUIRED.
 const qdrant = Object.freeze({
   id: "qdrant",
-  pathsVerified: true,
   label: "Qdrant",
-  stateful: false,
+  pathsVerified: true,
   liveness: Object.freeze({ method: "GET", path: "/healthz" }),
   probes: Object.freeze([
-    Object.freeze({ id: "collections", method: "GET", path: "/collections", auth: "api-key" }),
-    Object.freeze({ id: "collectionInfo", method: "GET", path: "/collections/{name}", auth: "api-key", perExpectedCollection: true }),
+    Object.freeze({ id: "collections", method: "GET", path: "/collections" }),
+    Object.freeze({ id: "collectionInfo", method: "GET", path: "/collections/{name}", perExpectedCollection: true }),
   ]),
   evaluate({ credentialConfigured = false, expectedCollections = [], baseline = null, tolerance = DEFAULT_POINT_TOLERANCE, responses = {}, wiring = null } = {}) {
     if (!expectedCollections.length && !baseline) return notEvaluated(R.NO_BASELINE);
@@ -137,13 +143,12 @@ const qdrant = Object.freeze({
   },
 });
 
-// Ollama: expected models installed. The tiny generation probe is GPU work and
-// stays on-demand only (not declared here).
+// Ollama: expected models installed. A generation probe is GPU work and is not
+// declared.
 const ollama = Object.freeze({
   id: "ollama",
-  pathsVerified: true,
   label: "Ollama",
-  stateful: false,
+  pathsVerified: true,
   liveness: Object.freeze({ method: "GET", path: "/api/version" }),
   probes: Object.freeze([Object.freeze({ id: "tags", method: "GET", path: "/api/tags" })]),
   evaluate({ expectedModels = [], responses = {} } = {}) {
@@ -161,9 +166,8 @@ const ollama = Object.freeze({
 // computes only; no stored state changes.
 const infinity = Object.freeze({
   id: "infinity",
-  pathsVerified: true,
   label: "Infinity embeddings",
-  stateful: false,
+  pathsVerified: true,
   liveness: Object.freeze({ method: "GET", path: "/health" }),
   probes: Object.freeze([Object.freeze({ id: "embedding", method: "POST", path: "/embeddings", body: Object.freeze({ input: ["anxos functional probe"] }) })]),
   evaluate({ expectedDimension = null, responses = {} } = {}) {
@@ -177,14 +181,13 @@ const infinity = Object.freeze({
   },
 });
 
-// Tika: parsing a bundled tiny fixture returns the expected text.
+// Tika: parsing a tiny fixed text returns that text.
 const tika = Object.freeze({
   id: "tika",
-  pathsVerified: true,
   label: "Apache Tika",
-  stateful: false,
+  pathsVerified: true,
   liveness: Object.freeze({ method: "GET", path: "/tika" }),
-  probes: Object.freeze([Object.freeze({ id: "parse", method: "PUT", path: "/tika", body: "fixture:anxos-functional-probe.txt", accept: "text/plain" })]),
+  probes: Object.freeze([Object.freeze({ id: "parse", method: "PUT", path: "/tika", body: "AnxOS functional probe", accept: "text/plain" })]),
   evaluate({ expectedText = null, responses = {} } = {}) {
     if (!expectedText) return notEvaluated(R.NO_BASELINE);
     const { parse } = responses;
@@ -194,41 +197,18 @@ const tika = Object.freeze({
   },
 });
 
-// Open Terminal: authenticated session open/close, never a command. Opening a
-// session is a small state change, so it is the one stateful probe.
-const openTerminal = Object.freeze({
-  id: "open-terminal",
-  pathsVerified: false,
-  label: "Open Terminal",
-  stateful: true,
-  liveness: Object.freeze({ method: "GET", path: "/health" }),
-  probes: Object.freeze([
-    Object.freeze({ id: "sessionOpen", method: "POST", path: "/api/sessions", auth: "read-only-account", stateful: true }),
-    Object.freeze({ id: "sessionClose", method: "DELETE", path: "/api/sessions/{id}", auth: "read-only-account", stateful: true }),
-  ]),
-  evaluate({ credentialConfigured = false, responses = {} } = {}) {
-    if (!credentialConfigured) return notEvaluated(R.NO_CREDENTIAL);
-    const { sessionOpen, sessionClose } = responses;
-    if (missingResponse(sessionOpen)) return notEvaluated(R.NO_RESPONSE);
-    const rejected = authFailure(sessionOpen, true);
-    if (rejected) return rejected;
-    if (!OK(sessionOpen) || !OK(sessionClose)) return fromFindings({ failures: [finding(C.SESSION_FAILED, { openStatus: sessionOpen.status, closeStatus: sessionClose?.status ?? null })] });
-    return pass();
-  },
-});
-
 const FUNCTIONAL_ADAPTERS = Object.freeze({
-  [openWebUi.id]: openWebUi,
+  [sona.id]: sona,
   [qdrant.id]: qdrant,
   [ollama.id]: ollama,
   [infinity.id]: infinity,
   [tika.id]: tika,
-  [openTerminal.id]: openTerminal,
 });
 
 // Config-reference check (incident C4): every reference a service's
-// configuration makes (tool servers, terminals, vector DB URLs) must resolve to
-// something in the inventory. Repairing one is an R3 proposal, never automatic.
+// configuration makes (vector DB URLs, search or browser endpoints) must
+// resolve to something in the inventory. Repairing one is an R3 proposal,
+// never automatic.
 function evaluateConfigReferences({ references = [], knownTargets = [] } = {}) {
   if (!references.length) return notEvaluated(R.NOT_APPLICABLE);
   const known = new Set(knownTargets.map((target) => String(target).toLowerCase()));
@@ -261,23 +241,85 @@ function evaluateDeclaredDependencies({ declared = [], dependencies = [] } = {})
 // null when the run may proceed, or the not-evaluated result to record.
 //   scope.liveRunApproved  — the Owner approved live runs for this exact scope
 //                            (AIM-0: none yet; every live run is deferred),
-//   scope.classification   — "production" unless the Owner confirmed otherwise,
-//   scope.optIns[adapter]  — per-scope opt-in for stateful probes.
+//   scope.classification   — "production" unless the Owner confirmed otherwise.
 function planProbeRun(adapter, scope = {}, { trigger = "on-demand" } = {}) {
-  if (!adapter || !FUNCTIONAL_ADAPTERS[adapter.id]) return notEvaluated(R.NOT_APPLICABLE);
+  if (!adapter || FUNCTIONAL_ADAPTERS[adapter.id] !== adapter) return notEvaluated(R.NOT_APPLICABLE);
   if (adapter.pathsVerified !== true) return notEvaluated(R.NOT_APPLICABLE, { detail: "Probe paths not yet verified against the deployed service." });
   if (scope.liveRunApproved !== true) return notEvaluated(R.LIVE_RUNS_DEFERRED);
-  const production = scope.classification !== "non-production";
   // No scheduled opt-ins have been granted for production scopes.
-  if (production && trigger !== "on-demand") return notEvaluated(R.OPT_IN_REQUIRED);
-  if (adapter.stateful && production && scope.optIns?.[adapter.id] !== true) return notEvaluated(R.OPT_IN_REQUIRED);
+  if (scope.classification !== "non-production" && trigger !== "on-demand") return notEvaluated(R.OPT_IN_REQUIRED);
   return null;
+}
+
+// Recognition. Matching is on the image repository (registry and tag ignored)
+// so a pinned or mirrored image still matches. Sona's sandbox and plugin host
+// run the same image as its API, so the API is the container whose Compose
+// service is "api" (or, without verified Compose labels, named "sona-api").
+const IMAGE_PATTERNS = Object.freeze([
+  Object.freeze({ adapterId: "sona", pattern: /(^|\/)sona-api$/ }),
+  Object.freeze({ adapterId: "qdrant", pattern: /(^|\/)qdrant$/ }),
+  Object.freeze({ adapterId: "ollama", pattern: /(^|\/)ollama$/ }),
+  Object.freeze({ adapterId: "infinity", pattern: /(^|\/)infinity(-emb)?$/ }),
+  Object.freeze({ adapterId: "tika", pattern: /(^|\/)tika$/ }),
+]);
+
+function imageRepository(image) {
+  const withoutDigest = String(image || "").trim().toLowerCase().split("@")[0];
+  const lastSlash = withoutDigest.lastIndexOf("/");
+  const lastColon = withoutDigest.lastIndexOf(":");
+  // A colon after the last slash is a tag; before it, a registry port.
+  return lastColon > lastSlash ? withoutDigest.slice(0, lastColon) : withoutDigest;
+}
+
+function composeOf(resource = {}) {
+  const components = resource.identity?.components || {};
+  return { project: components.composeProject || null, service: components.composeService || null };
+}
+
+function isSonaApi(resource) {
+  const { project, service } = composeOf(resource);
+  if (project || service) return project === SONA_STACK.composeProject && service === SONA_STACK.apiService;
+  return resource.name === SONA_STACK.apiContainerName;
+}
+
+function recognizeFunctionalService(resource = {}) {
+  if (resource?.kind !== "container") return null;
+  const repository = imageRepository(resource.details?.image);
+  if (!repository) return null;
+  const match = IMAGE_PATTERNS.find((entry) => entry.pattern.test(repository));
+  if (!match) return null;
+  if (match.adapterId === "sona" && !isSonaApi(resource)) return null;
+  return FUNCTIONAL_ADAPTERS[match.adapterId];
+}
+
+// Sona's dependencies as they appear in the inventory: each declared stack
+// service, matched on the same node by Compose project/service (or container
+// name), with its container health. Read from the already-collected inventory,
+// so it needs no probe and no approval.
+function sonaStackDependencies(apiResource, resources = []) {
+  const containers = resources.filter((resource) => resource?.kind === "container" && resource.nodeId === apiResource?.nodeId);
+  const { project } = composeOf(apiResource);
+  return SONA_STACK.dependencies.map((dependency) => {
+    const match = containers.find((resource) => {
+      const compose = composeOf(resource);
+      if (compose.project || compose.service) {
+        return compose.project === (project || SONA_STACK.composeProject) && compose.service === dependency.service;
+      }
+      return resource.name === dependency.containerName;
+    });
+    const state = match?.health?.state;
+    const liveness = state === "healthy" ? "healthy" : state === "degraded" ? "degraded" : state === "failed" || state === "stopped" ? "failed" : "unknown";
+    return Object.freeze({ id: dependency.service, label: dependency.label, present: Boolean(match), liveness, resourceKey: match?.key || null });
+  });
 }
 
 module.exports = {
   FUNCTIONAL_ADAPTERS,
-  WORKSPACE_KINDS,
+  SONA_STACK,
   evaluateConfigReferences,
   evaluateDeclaredDependencies,
+  imageRepository,
   planProbeRun,
+  recognizeFunctionalService,
+  sonaStackDependencies,
 };
