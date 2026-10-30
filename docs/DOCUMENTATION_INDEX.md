@@ -76,6 +76,9 @@ entry disagree, the later cycle entry controls, and the code controls over both.
   committed-baseline correction, AIM-1 delivery shape); revision 3.1 unchanged.
 - `docs/v2/AIM1_IMPLEMENTATION_RECORD.md` — AIM-1 implementation, validation
   evidence, live read-only verification, defects fixed, and limitations.
+- `docs/v2/AIM0_SIGNOFF.md` — AIM-0 sign-off record (signed by the Owner on
+  2026-10-30): contract statuses, identity evidence, production-scope gaps,
+  gate P4 acceptance, and what signing authorizes for AIM-2.
 - `docs/v2/BUILD201_STATS_UNAUTHORIZED_REPORT.md` — build-scoped report, treated
   as historical evidence for its named build only.
 
