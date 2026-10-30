@@ -1,10 +1,10 @@
-# AIM-0 Sign-off Record (prepared, awaiting Owner signature)
+# AIM-0 Sign-off Record (signed by the Owner)
 
 | Field | Value |
 | --- | --- |
 | Prepared | 2026-10-14; §3 live evidence refreshed 2026-10-30 |
 | Plan | `V2_AUTONOMOUS_INFRASTRUCTURE_PLAN.md` revision 3.1 (frozen) + `V2_AUTONOMOUS_INFRASTRUCTURE_PLAN_R3_2_ADDENDUM.md` (merged with AIM-1, `7308e54`) |
-| Status | **PREPARED — NOT SIGNED.** Nothing here takes effect until the Owner signs §5. |
+| Status | **SIGNED** by the Owner on 2026-10-30: all five §5 items accepted as written. Only what §5 authorizes takes effect. |
 | Policy | Conservative defaults as directed by the Owner on 2026-10-14: unverified contracts are marked unverified; the AnxGraph writer stays blocked until AIM-7; every unconfirmed staging candidate stays `production`. |
 
 Status words: **VERIFIED** (checked in source or by an executed test), **RECORDED** (pinned
@@ -94,10 +94,10 @@ If the Owner signs below:
 
 | Item | Owner decision |
 | --- | --- |
-| Contracts 1–6 accepted with the statuses and defaults above | ☐ Sign / ☐ Change |
-| Production scopes stay `production`, gaps recorded | ☐ Sign / ☐ Change |
-| All non-production candidates remain `production` | ☐ Sign / ☐ Change |
-| Gate P4 accepted for AIM-2 | ☐ Sign / ☐ Change |
-| AIM-2 hermetic implementation authorized; live runs deferred | ☐ Sign / ☐ Change |
+| Contracts 1–6 accepted with the statuses and defaults above | ☑ Sign / ☐ Change |
+| Production scopes stay `production`, gaps recorded | ☑ Sign / ☐ Change |
+| All non-production candidates remain `production` | ☑ Sign / ☐ Change |
+| Gate P4 accepted for AIM-2 | ☑ Sign / ☐ Change |
+| AIM-2 hermetic implementation authorized; live runs deferred | ☑ Sign / ☐ Change |
 
-Signed: ________________________  Date: ____________
+Signed: Anx (Owner), "sign AIM-0" in the Control Center session  Date: 2026-10-30
