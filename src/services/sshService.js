@@ -3,7 +3,7 @@ const { EventEmitter } = require("events");
 const { app } = require("electron");
 const fs = require("fs");
 const path = require("path");
-const { Client, utils: { parseKey } } = require("ssh2");
+const { BaseAgent, Client, OpenSSHAgent, utils: { parseKey } } = require("ssh2");
 const { getAllNodesSync, getSelectedNodeId } = require("./nodeService");
 const { redactString } = require("../shared/redaction");
 const { decideMigrationRecovery, verifyRecoveryPoint } = require("../shared/migrationRecoveryPolicy");
@@ -20,6 +20,60 @@ const DEFAULT_SHELL_COLS = 120;
 const DEFAULT_SHELL_ROWS = 32;
 const VALID_AUTH_TYPES = new Set(["password", "privateKey"]);
 const SSH_PROFILES_SCHEMA_VERSION = 1;
+const WINDOWS_OPENSSH_AGENT_PIPE = "\\\\.\\pipe\\openssh-ssh-agent";
+
+// The OS SSH agent: the Windows OpenSSH Authentication Agent service (keys
+// added with ssh-add are kept DPAPI-protected and survive reboots) or
+// SSH_AUTH_SOCK elsewhere. AnxOS never sees or stores the passphrase.
+function getSystemSshAgentPath() {
+  if (process.platform === "win32") return WINDOWS_OPENSSH_AGENT_PIPE;
+  return trimValue(process.env.SSH_AUTH_SOCK) || null;
+}
+
+// Offers ssh2 only the profile's own key from the agent, so a background task
+// can't authenticate with some other key that happens to be loaded. Records
+// what it saw so a failure can say whether the key was missing.
+class ProfileKeyAgent extends BaseAgent {
+  constructor(agent, publicKey) {
+    super();
+    this.agent = agent;
+    this.publicKey = publicKey;
+    this.diagnostics = { listed: false, offered: 0, error: null };
+  }
+
+  getIdentities(cb) {
+    this.agent.getIdentities((error, keys) => {
+      if (error) {
+        this.diagnostics.error = error.message || String(error);
+        return cb(error);
+      }
+      const wanted = this.publicKey.getPublicSSH();
+      const matching = (keys || []).filter((key) => key?.getPublicSSH?.().equals(wanted));
+      this.diagnostics = { listed: true, offered: matching.length, error: null };
+      return cb(null, matching);
+    });
+  }
+
+  sign(pubKey, data, options, cb) {
+    return this.agent.sign(pubKey, data, options, cb);
+  }
+}
+
+function describeAgentAuthFailure(agent, profile) {
+  if (!(agent instanceof ProfileKeyAgent)) return null;
+  const keyPath = profile?.privateKeyPath || "the key";
+  if (agent.diagnostics.error) {
+    return new SshServiceError("The SSH agent could not be reached. Start the OpenSSH Authentication Agent service, then retry.", {
+      code: "SSH_AGENT_UNAVAILABLE", stage: "authenticating", technicalMessage: agent.diagnostics.error,
+    });
+  }
+  if (agent.diagnostics.listed && agent.diagnostics.offered === 0) {
+    return new SshServiceError(`This key isn't loaded in the SSH agent. Run ssh-add "${keyPath}" once (it asks for the passphrase there, not in AnxOS), then retry.`, {
+      code: "SSH_AGENT_KEY_NOT_LOADED", stage: "authenticating",
+    });
+  }
+  return null;
+}
 
 class SshServiceError extends Error {
   constructor(message, details = {}) {
@@ -158,6 +212,9 @@ function normalizeProfile(profile, serverMap) {
     username: trimValue(profile?.username),
     authType: normalizeAuthType(profile?.authType),
     privateKeyPath: trimValue(profile?.privateKeyPath) || null,
+    // Key profiles only: authenticate through the OS SSH agent instead of
+    // reading the key file, so encrypted keys work without a passphrase prompt.
+    useSshAgent: normalizeAuthType(profile?.authType) === "privateKey" && profile?.useSshAgent === true,
     nodeId: trimValue(profile?.nodeId) || server?.nodeId || null,
   };
 }
@@ -323,6 +380,7 @@ function sanitizeProfile(profile) {
     username: profile.username,
     authType: profile.authType,
     privateKeyPath: profile.privateKeyPath,
+    useSshAgent: profile.useSshAgent === true,
     nodeId: profile.nodeId || null,
   };
 }
@@ -545,6 +603,7 @@ class SshService extends EventEmitter {
     this.sessionIdsByProfileId = new Map();
     this.lastWriteDiagnostic = null;
     this.createClient = typeof options.createClient === "function" ? options.createClient : () => new Client();
+    this.sshAgentPath = typeof options.sshAgentPath === "string" ? options.sshAgentPath : null;
     this.pendingHostKeys = new Map();
     this.connectTimeoutMs = Number.isFinite(options.connectTimeoutMs)
       ? Math.max(1, options.connectTimeoutMs)
@@ -677,6 +736,7 @@ class SshService extends EventEmitter {
         username,
         authType,
         privateKeyPath,
+        useSshAgent: payload.useSshAgent === true,
         nodeId: payload.nodeId || getSelectedNodeId(),
       },
       new Map(nextServer ? [[nextServer.id, nextServer]] : []),
@@ -711,6 +771,24 @@ class SshService extends EventEmitter {
       profile: sanitizeProfile(nextProfile),
       profiles: this.listProfiles(),
     };
+  }
+
+  // Opt a key profile in or out of authenticating through the OS SSH agent.
+  // Only the flag is stored; the key and its passphrase stay with the agent.
+  setProfileSshAgent(profileId, enabled) {
+    const config = readProfilesConfig();
+    const profile = config.profiles.find((candidate) => candidate.id === profileId);
+    if (!profile) {
+      throw new SshServiceError("SSH profile not found.", { code: "SSH_PROFILE_NOT_FOUND" });
+    }
+    if (profile.authType !== "privateKey") {
+      throw new SshServiceError("Only key-based SSH profiles can use the SSH agent.", { code: "SSH_AGENT_KEY_PROFILE_REQUIRED" });
+    }
+    const profiles = config.profiles.map((candidate) => (
+      candidate.id === profile.id ? { ...candidate, useSshAgent: enabled === true } : candidate
+    ));
+    writeProfilesConfig({ ...config, profiles });
+    return { profile: sanitizeProfile({ ...profile, useSshAgent: enabled === true }), profiles: this.listProfiles() };
   }
 
   assignProfileToNode(profileId, nodeId) {
@@ -830,7 +908,7 @@ class SshService extends EventEmitter {
       if (error?.code !== "SSH_KEY_PASSPHRASE_REQUIRED") throw error;
       // Background work has nobody to type the passphrase, and AnxOS does not
       // store key passphrases.
-      throw new SshServiceError("This node's SSH key is passphrase-protected, so it can't be used for background tasks such as Agent control. Assign a key without a passphrase to this node for those tasks; the SSH terminal can still use this key.", {
+      throw new SshServiceError(`This node's SSH key is passphrase-protected, so background tasks such as Agent control need the SSH agent: load the key once with ssh-add "${profile.privateKeyPath}", then turn on "Use SSH agent" for this profile on the SSH page.`, {
         code: "SSH_KEY_PASSPHRASE_UNATTENDED", retryable: false, technicalMessage: error.technicalMessage,
       });
     }
@@ -841,6 +919,32 @@ class SshService extends EventEmitter {
       return matches;
     };
     return { profile, connectConfig, hostKeyState };
+  }
+
+  createProfileAgent(profile) {
+    const publicKeyPath = `${profile.privateKeyPath}.pub`;
+    let publicKey;
+    try {
+      publicKey = parseKey(fs.readFileSync(publicKeyPath, "utf8"));
+    } catch {
+      publicKey = null;
+    }
+    if (!publicKey || publicKey instanceof Error) {
+      throw new SshServiceError(`AnxOS needs this key's public half (${publicKeyPath}) to pick it from the SSH agent.`, {
+        code: "SSH_AGENT_PUBLIC_KEY_MISSING", retryable: false,
+      });
+    }
+    if (Array.isArray(publicKey)) publicKey = publicKey[0];
+    const agentPath = this.sshAgentPath || getSystemSshAgentPath();
+    if (!agentPath || !fs.existsSync(agentPath)) {
+      throw new SshServiceError(
+        process.platform === "win32"
+          ? "The OpenSSH Authentication Agent isn't running. Set the ssh-agent service to Automatic and start it, then load this key with ssh-add."
+          : "No SSH agent is available (SSH_AUTH_SOCK). Start ssh-agent and load this key with ssh-add.",
+        { code: "SSH_AGENT_UNAVAILABLE", retryable: true },
+      );
+    }
+    return new ProfileKeyAgent(new OpenSSHAgent(agentPath), publicKey);
   }
 
   buildConnectConfig(profile, options = {}) {
@@ -866,6 +970,13 @@ class SshService extends EventEmitter {
       }
 
       connectConfig.password = password;
+      return connectConfig;
+    }
+
+    // A typed passphrase means "use the key file this time"; otherwise an
+    // agent-enabled profile authenticates through the OS SSH agent.
+    if (profile.useSshAgent && !(typeof options.passphrase === "string" && options.passphrase)) {
+      connectConfig.agent = this.createProfileAgent(profile);
       return connectConfig;
     }
 
@@ -1052,7 +1163,7 @@ class SshService extends EventEmitter {
         }));
         return;
       }
-      this.handleSessionFailure(sessionId, mapConnectionError(error, session.phase, profile));
+      this.handleSessionFailure(sessionId, describeAgentAuthFailure(connectConfig.agent, profile) || mapConnectionError(error, session.phase, profile));
     });
 
     client.on("close", () => {
@@ -1342,6 +1453,11 @@ class SshService extends EventEmitter {
       };
 
       client.on("error", (error) => {
+        const agentFailure = !hostKeyState.mismatch && describeAgentAuthFailure(connectConfig.agent, profile);
+        if (agentFailure) {
+          finish(agentFailure);
+          return;
+        }
         const code = hostKeyState.mismatch
           ? "SSH_HOST_KEY_MISMATCH"
           : error?.level === "client-authentication"

@@ -183,6 +183,37 @@ function createRemoteAgentLifecycleService(deps = {}) {
     return scope;
   }
 
+  // Read-only access check behind the UI gate: the node's key profile signs in,
+  // reaches this node (not another machine), finds the Agent unit, and for a
+  // system unit may run its systemctl commands without a password. Nothing is
+  // started, stopped or changed.
+  async function verify(nodeId) {
+    const node = requireRemoteNode(nodeId);
+    const profile = getUsableSshProfile(node.id);
+    if (!profile) throw fail("REMOTE_AGENT_SSH_PROFILE_MISSING", "Assign an SSH key profile to this node first.", { nodeId: node.id });
+    const command = [
+      buildScopeProbeCommand(LINUX_AGENT_UNIT_NAME, getAgentProbePorts(node)),
+      'echo "--- sudo ---"',
+      `sudo -n -l /usr/bin/systemctl restart ${LINUX_AGENT_UNIT_NAME} >/dev/null 2>&1 && echo SUDO_OK || echo SUDO_NO`,
+    ].join("\n");
+    const probe = await run(profile.id, command, { timeoutMs: DEFAULT_COMMAND_TIMEOUT_MS });
+    const target = parseProbeTarget(probe?.stdout);
+    verifySshTarget(node, profile, target);
+    const scope = parseScopeProbe(probe?.stdout);
+    if (!scope) throw fail("REMOTE_AGENT_UNIT_NOT_FOUND", "No anxos-agent systemd unit was found on the node.", { nodeId: node.id });
+    const sudoReady = scope === "user" || /--- sudo ---[^\S\n]*\r?\nSUDO_OK/.test(String(probe?.stdout || ""));
+    return {
+      verified: true,
+      nodeId: node.id,
+      profileId: profile.id,
+      hostname: target.hostname || null,
+      deviceId: target.deviceIds[0] || null,
+      scope,
+      sudoReady,
+      verifiedAt: new Date().toISOString(),
+    };
+  }
+
   async function control(nodeId, action, options = {}) {
     if (!REMOTE_AGENT_ACTIONS.has(action)) throw fail("REMOTE_AGENT_ACTION_INVALID", "Choose Start, Stop or Restart.");
     const node = requireRemoteNode(nodeId);
@@ -228,7 +259,7 @@ function createRemoteAgentLifecycleService(deps = {}) {
     return { nodeId: node.id, action, mechanism, scope, confirmed: true };
   }
 
-  return { control };
+  return { control, verify };
 }
 
 let defaultService = null;

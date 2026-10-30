@@ -202,6 +202,16 @@ function registerNodesIpc() {
     audit({ action: `node.agent-${["start", "stop", "restart"].includes(action) ? action : "invalid"}`, target: context.nodeId });
     return getRemoteAgentLifecycleService().control(context.nodeId, action);
   }));
+  // Read-only check that the node's SSH key profile reaches this node and can
+  // control its Agent; the renderer keeps Start/Stop/Restart and Update
+  // disabled until it passes.
+  ipcMain.handle("nodes:verifyAgentControl", async (_, payload = {}) => invokeNodeOperation(async () => {
+    const context = requireNodeContext(payload, "node agent access check");
+    requireLocalOwnerAuthenticated("nodes:verify-agent-control", "Unlock AnxOS to check access to a node Agent.");
+    requirePermission("settings:write", context.nodeId);
+    audit({ action: "node.agent-verify-access", target: context.nodeId });
+    return getRemoteAgentLifecycleService().verify(context.nodeId);
+  }));
   // Mobile pairing: mints and installs a fresh node credential for a phone and
   // returns the claim (QR + claim string). Owner-only because it hands out a
   // credential that grants full access to the node.

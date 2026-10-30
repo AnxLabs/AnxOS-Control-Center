@@ -111,6 +111,11 @@ function registerSshIpc() {
     audit({ action: "ssh.profile.assign-node", target: payload.profileId || "ssh-profile" });
     return sshService.assignProfileToNode(payload.profileId, payload.nodeId);
   });
+  registerSshHandler("ssh:setProfileAgent", async (_, payload = {}) => {
+    requirePermission("settings:write", payload.profileId || "ssh-profile");
+    audit({ action: payload.enabled === true ? "ssh.profile.agent-enable" : "ssh.profile.agent-disable", target: payload.profileId || "ssh-profile" });
+    return sshService.setProfileSshAgent(payload.profileId, payload.enabled === true);
+  });
   registerSshHandler("ssh:connect", async (event, payload = {}) => {
     requirePermission("instance:write", payload.profileId || payload.host || "ssh-session");
     authorizeSshRenderer(event);
