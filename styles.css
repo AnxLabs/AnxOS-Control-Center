@@ -11791,7 +11791,8 @@ button:disabled {
 .agent-overview-actions { display: flex; flex-wrap: nowrap; gap: 7px; align-items: center; justify-content: flex-end; }
 .agent-overview-actions .primary-button,
 .agent-overview-actions .inline-action { min-height: 32px; padding: 6px 10px; white-space: nowrap; }
-.agent-overview-actions .primary-button:disabled {
+.agent-overview-actions .primary-button:disabled,
+.agent-control-actions .primary-button:disabled {
   border-color: rgba(190, 170, 220, 0.14);
   background: rgba(226, 216, 240, 0.08);
   box-shadow: none;
@@ -11846,6 +11847,7 @@ button:disabled {
 .agent-control-actions > div:first-child { border-top: 0; padding-top: 0; }
 .agent-control-actions span { flex: 0 0 82px; color: var(--muted); font-size: .7rem; font-weight: 800; text-transform: uppercase; }
 .agent-control-actions .inline-action { min-height: 29px; padding: 5px 8px; font-size: .75rem; }
+.agent-lifecycle-note { margin: 8px 0 0; color: var(--muted); font-size: .75rem; line-height: 1.4; }
 .agent-config-grid .settings-field--wide { grid-column: 1 / -1; }
 .agent-diagnostic-list, .agent-remote-list { display: grid; gap: 10px; }
 .agent-diagnostic-item, .agent-remote-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: rgba(7, 9, 14, .34); }

@@ -544,6 +544,8 @@ const agentStatusDot = document.querySelector(".agent-status-dot");
 const agentControlMessage = document.querySelector("[data-agent-control-message]");
 const agentControlFields = document.querySelectorAll("[data-agent-control-field]");
 const agentControlButtons = document.querySelectorAll("[data-agent-control-action]");
+const agentLifecycleSubtitle = document.querySelector("[data-agent-lifecycle-subtitle]");
+const agentLifecycleNote = document.querySelector("[data-agent-lifecycle-note]");
 const agentBeginnerSummary = document.querySelector("[data-agent-beginner-summary]");
 const dependencyStatus = document.querySelector("[data-dependency-status]");
 const dependencyList = document.querySelector("[data-dependency-list]");
@@ -5604,6 +5606,18 @@ function renderAgentControlState(payload = agentControlState) {
   setAgentLifecycleField("deviceId", local.identity?.deviceId || local.agentIdentity?.deviceId || local.deviceId);
   renderAgentCompatibilityCard(local, runtime);
   renderMobilePairingClaim();
+  if (agentLifecycleSubtitle) {
+    agentLifecycleSubtitle.textContent = isLocalTarget
+      ? "Start, stop, restart, or repair the managed Local Agent process."
+      : `Start, stop, or restart the Agent on ${remoteLifecycle.node?.displayName || local.name || "this node"}.`;
+  }
+  // Disabled buttons only explain themselves on hover, so the reason a remote
+  // node can't be controlled is also shown inline.
+  if (agentLifecycleNote) {
+    const note = isLocalTarget ? "" : remoteLifecycle.reason || "";
+    agentLifecycleNote.textContent = note;
+    agentLifecycleNote.hidden = !note;
+  }
   agentControlButtons.forEach((button) => {
     const action = button.dataset.agentControlAction;
     const disabled = busy
