@@ -228,6 +228,7 @@
     "automation-accessibility:smoke": "node scripts/automation-accessibility-smoke.js",
     "functional-contracts:smoke": "node scripts/functional-contracts-smoke.js",
     "functional-probe-service:smoke": "node scripts/functional-probe-service-smoke.js",
+    "steamclient-runtime-sync:smoke": "node scripts/steamclient-runtime-sync-smoke.js",
     "hytale-server:smoke": "node scripts/hytale-server-smoke.js",
     "ssh:redaction:smoke": "node scripts/ssh-redaction-smoke.js",
     "ssh:agent-auth:smoke": "node scripts/ssh-agent-auth-smoke.js",

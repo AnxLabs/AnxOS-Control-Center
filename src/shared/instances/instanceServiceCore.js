@@ -708,6 +708,46 @@ async function repairLegacySteamCmdMetadata(instanceId) {
   return publicConfig(next);
 }
 
+// Some server launchers copy SteamCMD's linux64/steamclient.so next to the
+// game binary on first start and never again (Palworld's PalServer.sh only
+// copies when the destination is missing), so after an update the server keeps
+// loading the old Steam client library. Refresh those existing copies from the
+// updated linux64/steamclient.so. Callers run this only while the server is
+// stopped; the swap is a temp-file write plus rename, so even a stray reader
+// keeps a consistent file. A missing copy is left for the launcher to create.
+const STEAMCLIENT_RUNTIME_COPIES = Object.freeze({
+  2394010: Object.freeze(["Pal/Binaries/Linux/steamclient.so"]), // Palworld dedicated server
+});
+
+async function sha256File(filePath) {
+  return crypto.createHash("sha256").update(await fs.readFile(filePath)).digest("hex");
+}
+
+async function syncSteamClientRuntimeCopies({ appId, installDirectory } = {}) {
+  const targets = STEAMCLIENT_RUNTIME_COPIES[appId] || [];
+  const source = path.join(installDirectory, "linux64", "steamclient.so");
+  if (!targets.length || !await pathExists(source)) return [];
+  const sourceHash = await sha256File(source);
+  const results = [];
+  for (const relative of targets) {
+    const target = path.join(installDirectory, ...relative.split("/"));
+    if (!isInsideRoot(target, installDirectory) || !await pathExists(target)) {
+      results.push({ target: relative, refreshed: false, reason: "not-present" });
+      continue;
+    }
+    if (await sha256File(target) === sourceHash) {
+      results.push({ target: relative, refreshed: false, reason: "current" });
+      continue;
+    }
+    const temporary = `${target}.anxos-${process.pid}-${Date.now()}.tmp`;
+    await fs.copyFile(source, temporary);
+    await fs.chmod(temporary, (await fs.stat(target)).mode & 0o777);
+    await fs.rename(temporary, target);
+    results.push({ target: relative, refreshed: true, reason: "updated-from-linux64", sha256: sourceHash });
+  }
+  return results;
+}
+
 async function executeSteamCmdUpdate(instanceId, request = {}) {
   const config = await reconcileConfigState(await loadInstanceConfig(instanceId));
   if (config.installerType !== "steamcmd-native" || !Number.isInteger(config.steamAppId) || config.steamAppId < 1) throw createInstanceError("STEAMCMD_UPDATE_UNSUPPORTED", 409);
@@ -772,13 +812,15 @@ async function executeSteamCmdUpdate(instanceId, request = {}) {
   if (downloadedBytes > 0 && buildIdBefore !== null && buildIdAfter === buildIdBefore) {
     throw createInstanceError("STEAMCMD_UPDATE_NOT_APPLIED", 422, details);
   }
+  // The server is stopped (checked above), so refreshing its Steam client copy is safe.
+  const steamClientSync = await syncSteamClientRuntimeCopies({ appId: config.steamAppId, installDirectory });
   await saveInstanceConfig({
     ...config,
     steamBuildId: buildIdAfter,
     steamUpdatedAt: nowIso(),
     updatedAt: nowIso(),
   });
-  return { ok: true, ...details, verified: verifyFiles, buildChanged: Boolean(buildIdBefore && buildIdAfter !== buildIdBefore) };
+  return { ok: true, ...details, verified: verifyFiles, steamClientSync, buildChanged: Boolean(buildIdBefore && buildIdAfter !== buildIdBefore) };
 }
 
 function terminateInstallationSession(instanceId) {
@@ -7226,6 +7268,8 @@ module.exports = {
   executeSteamCmdUpdate: refuseForServiceManaged("steamcmd-update", executeSteamCmdUpdate),
   parseSteamCmdUpdateProgress,
   parseSteamCmdDownloadedBytes,
+  syncSteamClientRuntimeCopies,
+  STEAMCLIENT_RUNTIME_COPIES,
   classifySteamCmdFailure,
   resolveSteamCmdExecutable,
   instanceFileExists,

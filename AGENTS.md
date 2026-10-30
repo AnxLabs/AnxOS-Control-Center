@@ -416,6 +416,32 @@ Use this section to accumulate verified project knowledge over time. Add entries
   symptoms such as server-list or NAT errors must be classified separately from
   spawn blockers.
 
+### 2026-10-30 — Palworld "[S_API FAIL]" lines and a stale steamclient.so
+
+- **Problem:** The Palworld console showed `[S_API FAIL] Tried to access Steam
+  interface SteamUser021 / SteamFriends017 / STEAMAPPS_INTERFACE_VERSION008 /
+  SteamNetworkingUtils004 before SteamAPI_Init succeeded` on every start, and
+  the server loaded a July `steamclient.so` after a September SteamCMD update.
+- **Cause:** The `[S_API FAIL]` lines come from Palworld's own server binary:
+  it requests Steam client interfaces that only exist with a logged-in Steam
+  client, which a dedicated server never has. They appeared on every start
+  since 2026-09-05, and still appeared after the current library was loaded;
+  the Steam game-server API the server needs works (UDP 27015 opens). The stale
+  library was separate: `PalServer.sh` copies `linux64/steamclient.so` next to
+  the binary only when the copy is missing, and AnxOS's SteamCMD update never
+  refreshed it.
+- **Resolution:** After a verified SteamCMD update (server stopped), AnxOS
+  refreshes existing launcher copies of `steamclient.so` from `linux64/` by a
+  temp-file write and rename (`syncSteamClientRuntimeCopies`). The S_API lines
+  stay visible and are only treated as non-fatal for health.
+- **Lesson:** Never overwrite a shared library in place while a process has it
+  loaded: during diagnosis an in-place `cp` over the running server's
+  `steamclient.so` crashed it (segfault, exit 139; world intact from the
+  autosave and a pre-change backup). Replace libraries only while the process
+  is stopped, by write-then-rename, and back up saves first. Prove whether a
+  log line is caused by the environment with a before/after comparison before
+  "fixing" it.
+
 ### 2026-10-30 — Hytale dedicated server: readiness and first-start sign-in
 
 - **Problem:** Hytale servers could not be installed (the template was a
