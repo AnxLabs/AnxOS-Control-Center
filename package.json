@@ -180,6 +180,8 @@
     "node-self-repair:smoke": "node scripts/node-self-repair-smoke.js",
     "node-selection-race:smoke": "node scripts/node-selection-race-smoke.js",
     "node-tunnel-not-local:smoke": "node scripts/node-tunnel-not-local-smoke.js",
+    "remote-agent-lifecycle:smoke": "node scripts/remote-agent-lifecycle-smoke.js",
+    "agent-self-restart-e2e:smoke": "node scripts/agent-self-restart-e2e-smoke.js",
     "local-agent-task-stop:smoke": "node scripts/local-agent-task-stop-smoke.js",
     "node-routes-ui:qa": "node scripts/node-routes-ui-qa.js",
     "mobile-pairing:smoke": "node scripts/mobile-pairing-smoke.js",

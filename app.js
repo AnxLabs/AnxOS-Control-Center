@@ -5310,6 +5310,41 @@ function getRemoteAgentUpdateBlockMessage(support = {}) {
   return "Assign an SSH profile to this node before updating its Agent from this Desktop.";
 }
 
+// Remote Agent Start / Stop / Restart (nodes:controlAgent). SSH with a key
+// profile on a Linux node allows all three; without it, Restart is still
+// available when the node's Agent advertises capabilities.selfRestart. The
+// main process re-checks everything when the action runs.
+function getRemoteAgentLifecycleSupport(target = getAgentControlOverviewTarget()) {
+  const ssh = getRemoteAgentUpdateSupport(target);
+  if (ssh.reason === "local") return { local: true };
+  const node = ssh.node || null;
+  const selfRestart = node?.capabilitiesMetadata?.selfRestart?.supported === true
+    || node?.connection?.capabilities?.selfRestart?.supported === true;
+  const viaSsh = ssh.supported === true;
+  const reason = viaSsh
+    ? null
+    : ssh.reason === "platform"
+      ? "Agent Start, Stop and Restart from this Desktop are available for Linux nodes."
+      : selfRestart
+        ? "Start and Stop need an SSH key profile assigned to this node; Restart goes through the Agent."
+        : "Assign an SSH key profile to this node (or update its Agent) to control it from here.";
+  return {
+    local: false,
+    nodeId: ssh.nodeId,
+    node,
+    profile: ssh.profile || null,
+    mechanism: viaSsh ? "ssh" : selfRestart ? "agent-api" : null,
+    actions: { start: viaSsh, stop: viaSsh, restart: viaSsh || selfRestart },
+    reason,
+  };
+}
+
+function describeRemoteAgentLifecycle(support = {}) {
+  if (support.mechanism === "ssh") return `systemd over SSH · ${support.profile?.displayName || support.profile?.name || support.profile?.id || "SSH key"}`;
+  if (support.mechanism === "agent-api") return "Restart through the Agent · add an SSH key for Start/Stop";
+  return "Not controllable from here";
+}
+
 function getAgentTargetLabel(target = {}) {
   if (target.nodeId && target.nodeId === getSelectedNodeId()) return "Active Node Agent";
   if (target.targetType === "global-configured-agent" || target.targetType === "configured-agent") return "Configured Agent";
@@ -5520,6 +5555,7 @@ function renderAgentControlState(payload = agentControlState) {
   const remoteUpdate = isLocalTarget ? { supported: false, reason: "local" } : getRemoteAgentUpdateSupport(local);
   const capabilities = runtime?.capabilities || {};
   const lifecycleSupported = capabilities.lifecycle === true || (isLocalTarget && local.lifecycleSupported !== false);
+  const remoteLifecycle = isLocalTarget ? { local: true } : getRemoteAgentLifecycleSupport(local);
   const repairSupported = capabilities.repair === true || lifecycleSupported;
   const compatibilityView = getAgentCompatibilityView(local, runtime);
   const state = local.state || "Unavailable";
@@ -5546,7 +5582,9 @@ function renderAgentControlState(payload = agentControlState) {
   setAgentControlField("agentVersion", runtime?.version || local.agentVersion || local.identity?.agentVersion);
   setAgentControlField("pid", formatAgentProcess(runtime, state));
   const startupSummary = local.startupSummary || payload?.local?.startupSummary || null;
-  setAgentControlField("service", service.supported ? `${startupSummary?.label || `${service.type} · ${service.registrationStatus || service.state}`}${serviceNeedsElevation ? " · Administrator required" : ""}` : "Unsupported");
+  setAgentControlField("service", !isLocalTarget
+    ? describeRemoteAgentLifecycle(remoteLifecycle)
+    : service.supported ? `${startupSummary?.label || `${service.type} · ${service.registrationStatus || service.state}`}${serviceNeedsElevation ? " · Administrator required" : ""}` : "Unsupported");
   setAgentControlField("url", local.agentUrl);
   setAgentControlField("latency", Number.isFinite(runtime?.latencyMs ?? local.latencyMs) ? `${runtime?.latencyMs ?? local.latencyMs} ms` : "Unavailable");
   setAgentControlField("uptime", Number.isFinite(runtime?.uptimeSeconds ?? local.uptime) ? formatDuration(runtime?.uptimeSeconds ?? local.uptime) : "Unavailable");
@@ -5570,8 +5608,13 @@ function renderAgentControlState(payload = agentControlState) {
     const action = button.dataset.agentControlAction;
     const disabled = busy
       || (compatibilityView.incompatible && INCOMPATIBLE_AGENT_PROTECTED_ACTIONS.has(action))
-      || (action === "start" && (!lifecycleSupported || running))
-      || (["stop", "restart", "forceRestart"].includes(action) && (!lifecycleSupported || !running))
+      || (isLocalTarget && action === "start" && (!lifecycleSupported || running))
+      || (isLocalTarget && ["stop", "restart", "forceRestart"].includes(action) && (!lifecycleSupported || !running))
+      // Remote: Start needs the Agent down, Stop and Restart need it up; Force
+      // Restart (kill the process) only exists for this PC's Agent.
+      || (!isLocalTarget && action === "start" && (!remoteLifecycle.actions?.start || running))
+      || (!isLocalTarget && ["stop", "restart"].includes(action) && (!remoteLifecycle.actions?.[action] || !running))
+      || (!isLocalTarget && action === "forceRestart")
       || (action === "repairAgent" && (!repairSupported || serviceNeedsElevation))
       || (action === "stopOldLocalAgentAndRepair" && !repairSupported)
       || (action === "installService" && (!lifecycleSupported || service.installed || serviceNeedsElevation))
@@ -5595,6 +5638,12 @@ function renderAgentControlState(payload = agentControlState) {
       button.title = remoteUpdate.supported
         ? "Upload this Desktop's bundled Agent runtime to the node over SSH, restart its Agent, and verify it. Instances on that node stop during the restart."
         : getRemoteAgentUpdateBlockMessage(remoteUpdate);
+      button.setAttribute("aria-description", button.title);
+    } else if (!isLocalTarget && ["start", "stop", "restart"].includes(action) && !remoteLifecycle.actions?.[action]) {
+      button.title = remoteLifecycle.reason || "Not available for this node.";
+      button.setAttribute("aria-description", button.title);
+    } else if (!isLocalTarget && action === "forceRestart") {
+      button.title = "Force Restart is only available for this PC's Agent. Use Restart for a node.";
       button.setAttribute("aria-description", button.title);
     } else if (action === "pairMobileDevice" && isLocalTarget) {
       button.title = "Pair mobile devices to a node Agent. This is the application host — use Connect this computer to AnxOS instead.";
@@ -6970,8 +7019,17 @@ async function runAgentControlAction(action) {
   const actionTarget = getAgentControlOverviewTarget();
   const isLocalActionTarget = isAgentTargetLocal(actionTarget);
   const remoteUpdateSupport = isLocalActionTarget ? { supported: false, reason: "local" } : getRemoteAgentUpdateSupport(actionTarget);
+  const remoteLifecycleAction = !isLocalActionTarget && ["start", "stop", "restart"].includes(action);
+  const remoteNodeName = actionTarget?.identity?.hostname || actionTarget?.displayName || actionTarget?.name || "this node";
+  if (remoteLifecycleAction && action !== "start" && !(await createSecurityConfirmation({
+    title: action === "stop" ? `Stop the Agent on ${remoteNodeName}?` : `Restart the Agent on ${remoteNodeName}?`,
+    message: action === "stop"
+      ? "Instances the Agent runs on that node stop, and AnxOS cannot reach the node until its Agent is started again (Start needs the node's SSH key profile). Services managed by systemd keep running."
+      : "Instances the Agent runs on that node stop while it restarts. Services managed by systemd keep running.",
+    confirmLabel: action === "stop" ? "Stop Agent" : "Restart Agent",
+  }))) return;
   const destructive = { stop: ["Stop local Agent?", "Active Agent operations will disconnect."], forceRestart: ["Force restart local Agent?", "The Agent process will be terminated immediately."], repairAgent: ["Repair local Agent?", "Background registration will be reinstalled and the Agent restarted."], stopOldLocalAgentAndRepair: ["Stop Old Local Agent and Repair?", "AnxOS will stop only a verified old AnxOS Local Agent process, recreate local credentials, and repair Windows startup registration."], updateAgent: remoteUpdateSupport.supported ? ["Update the Agent on this node?", "AnxOS will upload this Desktop's bundled Agent runtime to the node over SSH, back up the live runtime, restart the node's Agent, and verify it. Instances running on that node stop during the restart."] : ["Update Local Agent?", "AnxOS will back up Agent configuration, stop the Local Agent, repair the bundled runtime registration, restart it, and verify health."], pairMobileDevice: ["Pair a mobile device to this node?", "The node's Agent credential is replaced with a new one for the phone. This Desktop switches to the new credential automatically; any other device still using the old one loses access until it is re-paired."], uninstallService: ["Uninstall Agent background service?", "Automatic startup will be removed."], resetConfig: ["Reset Agent configuration?", "Current settings will be backed up before defaults are restored."] }[action];
-  if (destructive && !(await createSecurityConfirmation({ title: destructive[0], message: destructive[1], confirmLabel: "Continue" }))) return;
+  if (destructive && !remoteLifecycleAction && !(await createSecurityConfirmation({ title: destructive[0], message: destructive[1], confirmLabel: "Continue" }))) return;
   if (action === "startPairingSession" && getAgentPairingTargetPayload().local === true && agentPairingNetworkOptIn?.checked === true) {
     // When the Agent is already reachable, the service writes no opt-in marker
     // and the bind is not touched: the confirmation must not promise a restore
@@ -7014,9 +7072,9 @@ async function runAgentControlAction(action) {
     resetConfig: "Reset Agent configuration",
     runDiagnostics: "Run Agent diagnostics",
     refreshLogs: "Refresh Agent logs",
-    start: "Start local Agent",
-    stop: "Stop local Agent",
-    restart: "Restart local Agent",
+    start: isLocalActionTarget ? "Start local Agent" : "Start node Agent",
+    stop: isLocalActionTarget ? "Stop local Agent" : "Stop node Agent",
+    restart: isLocalActionTarget ? "Restart local Agent" : "Restart node Agent",
     forceRestart: "Force restart local Agent",
     installService: "Install Agent service",
     uninstallService: "Uninstall Agent service",
@@ -7173,6 +7231,17 @@ async function runAgentControlAction(action) {
     else if (action === "resetConfig") populateAgentConfig(await api.resetConfig());
     else if (action === "runDiagnostics") renderAgentDiagnostics(await api.diagnostics());
     else if (action === "refreshLogs") await refreshAgentLogs();
+    else if (remoteLifecycleAction) {
+      const nodesApi = getDesktopApiState().api?.nodes;
+      if (typeof nodesApi?.controlAgent !== "function") throw new Error("Remote Agent control is unavailable in this build.");
+      const support = getRemoteAgentLifecycleSupport(actionTarget);
+      const result = await nodesApi.controlAgent(support.nodeId || getSelectedNodeId(), action);
+      const how = result?.mechanism === "agent-api" ? " (through the Agent)" : result?.scope ? ` (systemd ${result.scope} unit over SSH)` : "";
+      const done = { start: "started", stop: "stopped", restart: "restarted" }[action];
+      if (agentControlMessage) agentControlMessage.textContent = `Agent ${done} on ${remoteNodeName}${how}.`;
+      showToast(`Agent ${done} on ${remoteNodeName}.`, "success");
+      await refreshNodes();
+    }
     else if (typeof api[action] === "function") await api[action]();
     finishOperation(operationId, true, "Agent operation completed.");
     showToast("Agent operation completed.", "success");
