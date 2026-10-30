@@ -38,6 +38,11 @@ const FABRIC_META_URL = "https://meta.fabricmc.net/v2";
 const FORGE_PROMOTIONS_URL = "https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json";
 const FORGE_MAVEN_METADATA_URL = "https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml";
 const NEOFORGE_MAVEN_METADATA_URL = "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml";
+// Hypixel Studios' official Maven repository for the Hytale server JAR
+// (support.hytale.com "Hytale Server Manual", Maven Artifact section). It keeps
+// the last five releases and publishes a .sha1 next to each JAR.
+const HYTALE_MAVEN_BASE_URL = "https://maven.hytale.com";
+const HYTALE_PATCHLINES = Object.freeze(["release", "pre-release"]);
 const BUNGEECORD_JAR_URL = "https://hub.spigotmc.org/jenkins/job/BungeeCord/lastSuccessfulBuild/artifact/bootstrap/target/BungeeCord.jar";
 const COMMUNITY_TEMPLATE_FORMAT_VERSION = 1;
 const INSTANCE_VERSION_CACHE_VERSION = 2;
@@ -2197,6 +2202,41 @@ async function resolveFiveMServerDataDownload(download = {}) {
   };
 }
 
+async function resolveHytaleServerDownload(download = {}, options = {}, context = {}) {
+  const patchline = String(download.patchline || "release");
+  if (!HYTALE_PATCHLINES.includes(patchline)) {
+    throw createMarketplaceError("Hytale patchline is invalid.", "INVALID_TEMPLATE_CATALOG", { patchline });
+  }
+  const artifactUrl = `${HYTALE_MAVEN_BASE_URL}/${patchline}/com/hypixel/hytale/Server`;
+  const { body: metadata } = await fetchTextWithDetails(`${artifactUrl}/maven-metadata.xml`, "Hytale server version lookup", context);
+  const published = [...metadata.matchAll(/<version>([^<]+)<\/version>/g)].map((match) => match[1].trim());
+  const requested = String(options.version || download.version || "latest");
+  const version = requested.toLowerCase() === "latest"
+    ? (metadata.match(/<release>([^<]+)<\/release>/)?.[1] || "").trim()
+    : requested;
+  // The version becomes part of the download URL, so only a version the
+  // repository itself lists is accepted.
+  if (!version || !published.includes(version) || !/^[0-9A-Za-z][0-9A-Za-z.-]{0,63}$/.test(version)) {
+    throw createMarketplaceStepError("Unable to resolve the Hytale server version.", "DOWNLOAD_RESOLVE_FAILED", {
+      ...context,
+      url: `${artifactUrl}/maven-metadata.xml`,
+      message: `The official Hytale repository does not list version ${version || "(none)"}.`,
+      retryable: false,
+    });
+  }
+  const url = `${artifactUrl}/${version}/Server-${version}.jar`;
+  const { body: sha1Body } = await fetchTextWithDetails(`${url}.sha1`, "Hytale server checksum lookup", context);
+  const sha1 = sha1Body.trim().split(/\s+/)[0].toLowerCase();
+  if (!/^[a-f0-9]{40}$/.test(sha1)) {
+    throw createMarketplaceStepError("The Hytale server checksum is malformed.", "DOWNLOAD_RESOLVE_FAILED", {
+      ...context,
+      url: `${url}.sha1`,
+      message: "The official .sha1 file did not contain a SHA-1 digest.",
+    });
+  }
+  return { url, version, sha1, javaMinimum: 25 };
+}
+
 async function resolveVanillaDownload(download, options = {}, context = {}) {
   const manifest = await fetchJson(download.manifestUrl || MOJANG_VERSION_MANIFEST_URL, "Mojang version lookup", context);
   const requestedVersion = options.version || download.version || "latest";
@@ -2278,6 +2318,10 @@ async function resolveDownloadUrl(download, options = {}, context = {}) {
 
   if (download.resolver === "mojang-vanilla") {
     return resolveVanillaDownload(download, options, context);
+  }
+
+  if (download.resolver === "hytale-maven") {
+    return resolveHytaleServerDownload(download, options, context);
   }
 
   return { url: resolveUrlTemplate(download, options) };
@@ -4034,6 +4078,20 @@ async function downloadOneToInstance(template, download, options, instanceId, pr
     }
 
     const buffer = Buffer.concat(chunks);
+    if (resolved?.sha1) {
+      const actualSha1 = require("crypto").createHash("sha1").update(buffer).digest("hex");
+      if (actualSha1 !== resolved.sha1) {
+        throw createMarketplaceStepError(`${fileName} failed checksum verification.`, "DOWNLOAD_CHECKSUM_MISMATCH", {
+          ...baseContext,
+          step: "Verify download",
+          url,
+          expectedSha1: resolved.sha1,
+          actualSha1,
+          message: `Downloaded ${fileName} does not match the publisher's SHA-1, so it was not installed.`,
+        });
+      }
+      appendDownloadLog(record, { step: "Verify download", message: `SHA-1 verified for ${fileName}.`, url });
+    }
     await writeInstanceBuffer(instanceId, destination, buffer, agentConfig);
     await agentClient.readInstanceFile(instanceId, destination, agentConfig);
     updateDownload(record, {
@@ -4641,6 +4699,7 @@ async function executeInstallTemplate(payload = {}, context = {}) {
 module.exports = {
   _test: {
     buildInstancePayload,
+    buildConfigFileContent,
     buildInstallContext,
     buildTemplateInstallSubject,
     buildMinecraftProperties,
@@ -4666,6 +4725,8 @@ module.exports = {
     normalizeTemplateTags,
     registerCancellationSmokeRecord: (id, controller) => downloads.set(id, { id, nodeId: "smoke-node", status: "running", canCancel: true, canRetry: false, controller }),
     resolveAvailableJavaMajor,
+    resolveDownloadUrl,
+    downloadOneToInstance,
     resolveTemplateForPlatform,
     parsePorts,
     resolveMarketplaceAgentConfig,

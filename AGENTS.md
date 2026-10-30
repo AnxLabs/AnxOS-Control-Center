@@ -442,6 +442,32 @@ Use this section to accumulate verified project knowledge over time. Add entries
   log line is caused by the environment with a before/after comparison before
   "fixing" it.
 
+### 2026-10-30 — Hytale dedicated server: readiness and first-start sign-in
+
+- **Problem:** Hytale servers could not be installed (the template was a
+  disabled "coming soon" card). Supporting it needed a first start that
+  requires an account sign-in, and readiness for a server the TCP port probe
+  cannot see.
+- **Cause:** The official server is distributed as `HytaleServer.jar` on
+  `maven.hytale.com`. Its assets and `start.sh` layout download only after
+  an OAuth device sign-in. It speaks QUIC over UDP. Its bootstrap mode also prints
+  "Hytale Server Booted!" without serving players. Verified live on Anxlab
+  with 0.7.5: the bootstrap crashes when `permissions.json` is missing, and
+  `/auth login device` does not block later boot commands.
+- **Resolution:** The template downloads the JAR from the official repository
+  and refuses it unless it matches the published `.sha1`. A generated launcher
+  runs the bootstrap, waits for "Authentication successful", sends
+  `update download`, then execs the official `start.sh`. Readiness is
+  log-based: "Booted" counts only once `Server/HytaleServer.jar` exists, and
+  "No server tokens configured" is degraded (`HYTALE_AUTH_REQUIRED`). A real
+  sign-in, download, UDP 5520 bind and graceful SIGTERM save were verified.
+- **Lesson:** For a game whose port is UDP, or whose installer phase prints the
+  same boot line, readiness must come from layout-qualified log signals, never
+  from the generic TCP probe or regex. On a live node, choose the process to
+  signal by an exact filter (`ss -H -lunp "sport = :PORT"`) and check its
+  command line first. During this work, taking the first PID from a UDP
+  listing terminated an unrelated RustDesk process, which its service respawned.
+
 ## Future Improvements
 
 Keep optional ideas separate from active work. An item in this list is not authorization to implement it.

@@ -287,15 +287,17 @@ function assertDashboardRuntimeFallbacks() {
 }
 
 async function assertDisabledTemplatesAreBlocked() {
+  // Hytale ships for Linux nodes only; its Windows variant is disabled with a
+  // specific reason and must be refused before anything is created.
   const hytale = findTemplate("hytale");
-  assert.strictEqual(hytale.disabled, true, "Hytale must be disabled.");
-  assert.strictEqual(hytale.comingSoon, true, "Hytale must be marked coming soon.");
-  assert.match(hytale.comingSoonMessage || "", /official hytale dedicated server binaries are not publicly available/i);
-  assert.deepStrictEqual(hytale.installScript, [], "Hytale must not define installer steps without official binaries.");
+  assert.notStrictEqual(hytale.disabled, true, "Hytale must be installable on Linux nodes.");
+  assert.notStrictEqual(hytale.comingSoon, true, "Hytale must no longer be marked coming soon.");
+  assert.strictEqual(hytale.platforms?.windows?.disabled, true, "Hytale on Windows nodes must stay disabled.");
+  assert.match(hytale.platforms.windows.comingSoonMessage || "", /windows nodes are not supported/i);
 
   await assert.rejects(
-    () => marketplaceService.installTemplate({ templateId: "hytale", options: { name: "Hytale Smoke" } }),
-    (error) => error?.code === "TEMPLATE_NOT_READY"
+    () => marketplaceService.installTemplate({ templateId: "hytale", platform: "windows", options: { name: "Hytale Smoke" } }),
+    (error) => error?.code === "TEMPLATE_NOT_READY" && /windows nodes/i.test(error.message)
   );
 }
 
@@ -763,7 +765,7 @@ function assertMarketplaceManifestAuditReport() {
   assert.deepStrictEqual(validation.errors, [], `Marketplace manifest audit failed.\n${JSON.stringify({ report, errors: validation.errors }, null, 2)}`);
   assert(report.totalEntries >= 1, "Marketplace manifest audit should include entries.");
   assert(report.validEntries === templates.length, "Every manifest should pass schema validation or be explicitly disabled by metadata.");
-  assert(report.disabledEntries.some((entry) => entry.id === "hytale"), "Disabled report should include Hytale with a specific reason.");
+  assert(!report.disabledEntries.some((entry) => entry.id === "hytale"), "Hytale is an enabled template now (its Windows variant is disabled per platform).");
   for (const template of enabled) {
     const installerType = marketplaceService._test.getTemplateInstallerType(template);
     const runtimeType = template.runtime || template.startupType || template.instanceType;
@@ -1016,14 +1018,8 @@ function assertGameTemplateInstallPlans() {
       assert(plan.steps.includes(step), `${id} plan should include ${step}.`);
     }
 
-    if (id === "hytale") {
-      assert.strictEqual(plan.installable, false, "Hytale must not be installable.");
-      assert.strictEqual(plan.disabled, true, "Hytale must stay disabled.");
-      assert.match(plan.reason || template.comingSoonMessage || "", /official hytale dedicated server binaries/i);
-    } else {
-      assert.strictEqual(plan.installable, true, `${id} must route to an automatic workflow.`);
-      assert(["direct-download", "java-runtime", "steamcmd-native", "archive-download", "docker-image"].includes(plan.workflow), `${id} should declare an actionable workflow.`);
-    }
+    assert.strictEqual(plan.installable, true, `${id} must route to an automatic workflow.`);
+    assert(["direct-download", "java-runtime", "steamcmd-native", "archive-download", "docker-image"].includes(plan.workflow), `${id} should declare an actionable workflow.`);
   }
 }
 

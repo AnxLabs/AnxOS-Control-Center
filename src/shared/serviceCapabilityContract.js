@@ -119,6 +119,7 @@ const KNOWN_FAMILY_EXTENSIONS = Object.freeze({
   valheim: Object.freeze({}),
   rust: Object.freeze({}),
   cs2: Object.freeze({}),
+  hytale: Object.freeze({}),
 });
 
 const UNKNOWN_FAMILY_REASON = "No domain adapter is registered for this service family.";
