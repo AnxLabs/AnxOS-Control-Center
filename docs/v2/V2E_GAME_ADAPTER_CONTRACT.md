@@ -33,8 +33,9 @@ the contract has to describe all three honestly rather than pretend one exists:
 
 A game is therefore an adapter only if it appears in `ADAPTERS`. Three do:
 `minecraft`, `palworld`, `fivem` (`src/shared/gameServerConfigManager.js:222-247`).
-Four further families are recognized by the core without a config adapter:
-`terraria`, `valheim`, `rust`, `cs2` (`src/shared/instances/instanceServiceCore.js:1698-1703`).
+Five further families are recognized by the core without a config adapter:
+`terraria`, `valheim`, `rust`, `cs2` (`src/shared/instances/instanceServiceCore.js:1698-1703`)
+and `hytale` (added with the Hytale template, 2026-10-30).
 Both groups ship, and both are covered by the matrix in §5.
 
 The adapter registry is frozen and is resolved by lowercased id
@@ -62,7 +63,7 @@ fully operable without it and the matrix records who has it.
 
 **`update` has no required capability.** This is deliberate and is the single
 most consequential finding in this contract: an adapter may ship with no update
-path at all, and four of the seven shipped families do. See §6 and divergence
+path at all, and five of the eight shipped families do. See §6 and divergence
 **D-4**.
 
 ### 2.2 Optional (14)
@@ -182,6 +183,7 @@ the matrix separates them with `version.detect` and `version.detectFromArtifact`
 | valheim | family only | steamcmd-native | no | none | none | 0 (0 / 0) |
 | rust | family only | steamcmd-native | no | none | none | 0 (0 / 0) |
 | cs2 | family only | steamcmd-native | no | none | none | 0 (0 / 0) |
+| hytale | family only | direct-download | no | none | none | 0 (0 / 0) |
 
 <!-- contract-inventory:end -->
 
@@ -390,6 +392,33 @@ the code — or the reverse — fails the smoke.
 | update.rollback | NO | a failed update is reported but no build is restored |
 | backup.worldScope | NO | `getWorldScopeCandidates` returns `[]` for this family (`src/shared/instances/instanceServiceCore.js:6215`) |
 
+#### hytale
+
+| Capability | Status | Evidence (code path) |
+| --- | --- | --- |
+| install.provision | YES | `config/marketplace-templates.json` `hytale` installerType `direct-download` (Linux nodes; the Windows variant is disabled) |
+| install.artifactVerify | NO | no `installer.verifyFiles`; the JAR is instead checked against the publisher's SHA-1 before it is written (`DOWNLOAD_CHECKSUM_MISMATCH` in `src/services/marketplaceService.js`) |
+| install.sessionPhases | NO | not an installation-session family |
+| config.adapter | NO | absent from `ADAPTERS` (`src/shared/gameServerConfigManager.js`) |
+| config.resolvePath | NO | `resolveExistingGameConfigPath` throws `UNSUPPORTED_GAME_CONFIG` |
+| config.write | NO | `readGameServerConfig` throws `UNSUPPORTED_GAME_CONFIG` |
+| config.secrets | NO | no config adapter, so no declared field |
+| config.restartRequired | NO | no config adapter, so no declared field |
+| config.validation | NO | no config adapter, so no declared field |
+| lifecycle.startStop | YES | instance type `custom-command`; launcher `server/anxos-hytale-start.sh` execs the official `start.sh` |
+| lifecycle.logs | YES | shared `readLogs` |
+| lifecycle.metrics | YES | shared `getMetrics` |
+| readiness.signal | YES | shared readiness path; the TCP port probe cannot see Hytale's UDP (QUIC) port |
+| readiness.gate | NO | `evaluateFiveMReadiness` returns `NOT_FIVEM` |
+| readiness.gameSpecific | YES | `hytaleReadinessUpdate` (`src/shared/instances/instanceServiceCore.js`): "Hytale Server Booted!" is ready only once `Server/HytaleServer.jar` exists; "No server tokens configured" is degraded `HYTALE_AUTH_REQUIRED` |
+| version.resolveAtInstall | YES | `resolveHytaleServerDownload` returns the release version from `maven.hytale.com` metadata |
+| version.detect | YES | install metadata (`"metadata.json"`) |
+| version.detectFromArtifact | NO | the version is not re-read from the installed JAR |
+| version.pin | NO | not a SteamCMD family |
+| update.inPlace | NO | AnxOS does not update Hytale; the official `start.sh` applies updates staged by the server's own `/update` system |
+| update.rollback | NO | no AnxOS update path |
+| backup.worldScope | YES | `getWorldScopeCandidates` returns `server/Server/universe` |
+
 <!-- contract-matrix:end -->
 
 ## 6. The update and rollback story
@@ -429,7 +458,7 @@ document does not describe it as one.
 
 **Rollback does not exist for any adapter.** A failed SteamCMD update reports
 `buildIdBefore`/`buildIdAfter` and the manifest path (`:590`) but restores
-nothing. `update.rollback` is `NO` for all seven shipped adapters.
+nothing. `update.rollback` is `NO` for all eight shipped adapters.
 
 ## 7. Configuration and file-layout expectations
 

@@ -55,13 +55,14 @@ const SHIPPED = Object.freeze([
   Object.freeze({ family: "valheim", templateId: "valheim" }),
   Object.freeze({ family: "rust", templateId: "rust" }),
   Object.freeze({ family: "cs2", templateId: "cs2" }),
+  Object.freeze({ family: "hytale", templateId: "hytale" }),
 ]);
 
 // The three ids the config adapter registry serves. A family outside this set is
 // expected to be refused by the validator: that is divergence D-5 in the
 // document, and this smoke proves it rather than asserting it in prose.
 const CONFIG_ADAPTER_FAMILIES = Object.freeze(["minecraft", "palworld", "fivem"]);
-const FAMILIES_WITHOUT_CONFIG_ADAPTER = Object.freeze(["terraria", "valheim", "rust", "cs2"]);
+const FAMILIES_WITHOUT_CONFIG_ADAPTER = Object.freeze(["terraria", "valheim", "rust", "cs2", "hytale"]);
 
 const INSTALLER_SESSION_FAMILIES = Object.freeze(["forge", "neoforge", "quilt", "steamcmd-update"]);
 
@@ -504,7 +505,12 @@ async function deriveAll() {
       ? palworldFilter === true
       : entry.family === "fivem"
         ? CORE_SOURCE.includes("FIVEM_LICENSE_FAILURE_PATTERN")
-        : false;
+        : entry.family === "hytale"
+          // Hytale reports readiness from its own log lines (UDP cannot be
+          // probed); an unauthenticated server must classify as degraded.
+          ? instanceService.hytaleReadinessUpdate("No server tokens configured. Use /auth login to authenticate.", { layoutInstalled: true })
+            ?.failureReason === "HYTALE_AUTH_REQUIRED"
+          : false;
     capabilities[entry.family]["readiness.gameSpecific"] = gameSpecific
       ? contract.STATUS.YES
       : contract.STATUS.NO;

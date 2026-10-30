@@ -23,7 +23,7 @@ No current template is classified Deprecated or Unsupported.
 | `cs2` | Supported | SteamCMD deterministic fixtures | Steam availability, real server start |
 | `fivem` | Experimental | Archive/configuration fixtures | Cfx.re artifact, license, real readiness |
 | `palworld` | Supported | SteamCMD and startup regression fixtures | Steam availability, real readiness |
-| `hytale` | Disabled | Disabled-template validation | Official server unavailable |
+| `hytale` | Experimental | Resolver, checksum, readiness and launcher fixtures (Linux nodes only) | Hytale account sign-in on first start, Java 25, UDP port forwarding |
 | `docker-minecraft-bedrock` | Supported | Docker template fixtures | Registry and Docker daemon |
 | `docker-nginx` | Supported | Docker template fixtures | Registry and Docker daemon |
 | `jellyfin` | Disabled | Disabled-template validation | Not applicable while disabled |

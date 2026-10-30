@@ -114,6 +114,12 @@ const FIVEM_LICENSE_PLACEHOLDERS = new Set([
   "XXXX",
 ]);
 const FIVEM_LICENSE_FAILURE_PATTERN = /Invalid key format specified|Could not authenticate server license key|HTTP 429/i;
+// Hytale server log lines (verified against HytaleServer 0.7.5). The server
+// boots and binds without credentials, but players cannot join until it is
+// signed in, so an unauthenticated server is degraded, never ready.
+const HYTALE_BOOTED_PATTERN = /Hytale Server Booted!/;
+const HYTALE_AUTH_REQUIRED_PATTERN = /No server tokens configured/;
+const HYTALE_AUTH_SUCCEEDED_PATTERN = /Authentication successful/;
 const FIVEM_RESOURCES_RELATIVE_PATH = "server/resources";
 // Spawn-critical resources from the official cfx-server-data pack: without both
 // on disk a FiveM client connects, loads the map, and waits forever for a spawn
@@ -1882,6 +1888,7 @@ function inferGameFamily(config = {}) {
     ...(Array.isArray(config.args) ? config.args : []),
   ].join(" ").toLowerCase();
 
+  if (searchable.includes("hytale")) return "hytale";
   if (isMinecraftSoftwareName(searchable)) return "minecraft";
   if (searchable.includes("terraria") || searchable.includes("tshock")) return "terraria";
   if (searchable.includes("fivem") || searchable.includes("fxserver")) return "fivem";
@@ -2060,6 +2067,48 @@ function normalizeVersionInfo(versionInfo = null, config = {}) {
     displayVersionDetail: displayVersionDetail || null,
     isMinecraft: game === "minecraft",
   };
+}
+
+// Hytale readiness comes from its own log lines: the server speaks QUIC over
+// UDP, so the TCP port probe can never see it. The first start runs Hytale's
+// bootstrap from data/server, which also prints "Booted" but never serves
+// players, so "Booted" counts only once the official Server/ layout exists.
+function hytaleReadinessUpdate(text, { layoutInstalled }) {
+  if (HYTALE_AUTH_REQUIRED_PATTERN.test(text)) {
+    return { readinessState: "degraded", healthState: "degraded", failureReason: "HYTALE_AUTH_REQUIRED" };
+  }
+  if (!layoutInstalled) {
+    return null;
+  }
+  if (HYTALE_BOOTED_PATTERN.test(text) || HYTALE_AUTH_SUCCEEDED_PATTERN.test(text)) {
+    return { readinessState: "ready", healthState: "healthy", failureReason: null };
+  }
+  return null;
+}
+
+function updateHytaleReadiness(config, child, text) {
+  const layoutInstalled = fsSync.existsSync(path.join(
+    resolveRelativeManagedPath(config.id, config.workingDirectory, "data"),
+    "Server",
+    "HytaleServer.jar",
+  ));
+  const update = hytaleReadinessUpdate(text, { layoutInstalled });
+  if (!update || !isCurrentRunningProcess(config.id, child)) {
+    return;
+  }
+  const entry = runningProcesses.get(config.id);
+  if (entry) {
+    entry.readinessState = update.readinessState;
+    // A Hytale log signal is authoritative, so the generic startup timeout must
+    // not later replace it with READINESS_TIMEOUT.
+    if (entry.startupTimer) {
+      clearTimeout(entry.startupTimer);
+    }
+  }
+  updateRuntimeState(config.id, { state: INSTANCE_STATES.RUNNING, pid: child.pid, ...update }).catch(() => {});
+  if (update.readinessState === "ready") {
+    scheduleVersionRefresh(config.id, 1000);
+  }
 }
 
 function isFiveMInstance(config) {
@@ -5478,6 +5527,10 @@ async function startInstanceImpl(instanceId, options = {}) {
         entry.failureReason = "FIVEM_LICENSE_REQUIRED";
       }
     }
+    if (inferGameFamily(config) === "hytale") {
+      updateHytaleReadiness(config, child, text);
+      return;
+    }
     if (/Done \([^)]+\)!|For help, type|Timings Reset|Server marked as running|Listening on port\s+\d+|Server started/i.test(String(chunk))) {
       if (!isCurrentRunningProcess(config.id, child)) {
         return;
@@ -6707,6 +6760,11 @@ function getWorldScopeCandidates(config = {}) {
     // the original download, so world scope deliberately excludes them.
     return ["server/txData", "server/resources/[local]", "txData", "resources/[local]"];
   }
+  if (family === "hytale") {
+    // The official layout runs the server from data/server/Server, where it
+    // keeps every world and the player data under universe/.
+    return ["server/Server/universe"];
+  }
   if (family === "terraria") {
     // TShock runs with cwd data/server: worlds land in Worlds/ and TShock
     // state (database, configs) in tshock/. The generic data/Worlds candidate
@@ -7161,6 +7219,7 @@ module.exports = {
   forceKillInstance,
   getMetrics,
   getWorldScopeCandidates,
+  hytaleReadinessUpdate,
   readGameServerConfig,
   getStatus,
   executeInstallationPhase: refuseForServiceManaged("installation", executeInstallationPhase),
