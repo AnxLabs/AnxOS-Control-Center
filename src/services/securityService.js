@@ -62,7 +62,20 @@ const ROLE_PERMISSIONS = {
     "backups:read",
     "backups:write",
     "backups:restore",
+    "backups:verify",
     "settings:write",
+    // V2-K endpoint/telemetry wave: Admin owns the endpoint registry
+    // (write), provider sync, diagnostics runs, sampled telemetry
+    // (read/export/manage) and backup verification. The reads are a strict
+    // superset of the Operator tier below.
+    "endpoints:read",
+    "endpoints:write",
+    "providers:read",
+    "providers:sync",
+    "diagnostics:run",
+    "telemetry:read",
+    "telemetry:export",
+    "telemetry:manage",
   ],
   // V2-A Decision 3: legacy `User` maps to `operator` — lifecycle-capable,
   // read-everything-else, no delete/install/config-write.
@@ -80,6 +93,14 @@ const ROLE_PERMISSIONS = {
     "ssh:read",
     "settings:read",
     "settings:preferences:write",
+    // V2-K: the Operator tier reads the endpoint registry, provider status and
+    // sampled telemetry, may run connectivity diagnostics, and may verify a
+    // backup; registry writes, provider sync and export/manage stay above it.
+    "endpoints:read",
+    "providers:read",
+    "telemetry:read",
+    "diagnostics:run",
+    "backups:verify",
   ],
   // V2-A: read-only observability tier.
   Viewer: [
@@ -94,6 +115,11 @@ const ROLE_PERMISSIONS = {
     "nodes:read",
     "ssh:read",
     "settings:read",
+    // V2-K: read-only observability now also covers the endpoint registry,
+    // provider status and sampled telemetry. No run/verify/export tokens.
+    "endpoints:read",
+    "providers:read",
+    "telemetry:read",
   ],
   // Service identities carry explicit grants only; a bare service role grants
   // nothing implicitly (fail-closed).
@@ -114,6 +140,14 @@ const ROLE_PERMISSIONS = {
     "ssh:read",
     "settings:read",
     "settings:preferences:write",
+    // V2-K: legacy User keeps the exact Operator profile (Decision 3),
+    // including the new endpoint/provider/telemetry reads, diagnostics:run
+    // and backups:verify.
+    "endpoints:read",
+    "providers:read",
+    "telemetry:read",
+    "diagnostics:run",
+    "backups:verify",
   ],
 };
 // Canonical roles presented for assignment. `User` is the legacy stored-role

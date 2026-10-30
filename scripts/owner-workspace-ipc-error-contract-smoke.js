@@ -38,7 +38,9 @@ async function main() {
       assert.strictEqual(error.details.retryable, false);
       assert.strictEqual(error.details.suggestion, "Sign in as Owner.");
       assert.strictEqual(error.statusCode, 403);
-      assert.strictEqual(error.cause, originalError);
+      assert.notStrictEqual(error.cause, originalError);
+      assert.strictEqual(error.cause.code, originalError.code);
+      assert(!JSON.stringify(error.cause).includes(secret));
       assert(!JSON.stringify(error.details).includes(secret));
       assert(!error.message.includes(secret));
       return true;

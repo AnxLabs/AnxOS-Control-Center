@@ -51,6 +51,18 @@ The desktop application includes workspaces for:
 - SSH terminal access to managed nodes
 - Owner and security workflows
 
+The infrastructure control plane adds a Network workspace (endpoint registry
+with LAN, private, Tailscale, public, and custom address types; provider status
+for Playit and manual port forwarding behind one adapter contract; six-stage
+connectivity diagnostics with a bounded probe policy; a connectivity graph), an
+instance Network tab (endpoint discovery from live listener evidence, endpoint
+management, provider sync, per-service diagnostics), an instance Performance
+tab backed by bounded sampled telemetry, a first-class computer summary with
+last-known state in the node drawer, and an operational notification journal
+with transition-based events. Endpoint records are addressing data only and
+never contain credentials; the legacy Public Access file is imported once and
+left untouched.
+
 Long-running renderer actions preserve resource identity. Reload, download,
 update, and failure state are represented as operation overlays on stable
 instance/download IDs; polling or a transient read failure does not remove an
@@ -178,6 +190,38 @@ npm run qa:release    # release tier: full RC validation command set
 npm run rc:validate   # runs every registered *:smoke suite as subprocesses
 npm run qa:dirty-check  # verifies the working tree is clean
 ```
+
+The infrastructure control plane smokes run individually:
+
+```bash
+node scripts/endpoint-model-smoke.js
+node scripts/endpoint-store-smoke.js
+node scripts/endpoint-service-smoke.js
+node scripts/endpoint-migration-e2e-smoke.js
+node scripts/health-model-smoke.js
+node scripts/connectivity-diagnostics-model-smoke.js
+node scripts/connectivity-diagnostics-service-smoke.js
+node scripts/connectivity-graph-smoke.js
+node scripts/connectivity-presentation-smoke.js
+node scripts/connectivity-no-fake-green-smoke.js
+node scripts/network-ipc-authorization-smoke.js
+node scripts/network-secret-boundary-smoke.js
+node scripts/provider-adapter-contract-smoke.js
+node scripts/provider-integration-smoke.js
+node scripts/service-capability-smoke.js
+node scripts/telemetry-store-smoke.js
+node scripts/telemetry-service-smoke.js
+node scripts/operational-notifications-smoke.js
+node scripts/computer-service-smoke.js
+node scripts/backup-verification-smoke.js
+node scripts/ui-network-page-smoke.js
+node scripts/instance-network-performance-ui-smoke.js
+node scripts/node-connectivity-notifications-ui-smoke.js
+```
+
+The aggregate feature gate is `node scripts/release-validation.js --tier=feature`
+(equivalent to `npm run qa:feature`); it now runs the registered V2-K feature
+suites as well.
 
 See [QA Automation](docs/QA_AUTOMATION.md) and [Test Commands](docs/TEST_COMMANDS.md) for the full picture.
 

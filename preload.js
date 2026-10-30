@@ -201,6 +201,10 @@ const desktopApi = {
   networkInventory: {
     get: (payload = {}) => ipcRenderer.invoke("networkInventory:get", payload),
   },
+  infrastructureInventory: {
+    get: () => ipcRenderer.invoke("infrastructureInventory:get"),
+    refresh: (payload = {}) => ipcRenderer.invoke("infrastructureInventory:refresh", payload),
+  },
   publicAccess: {
     getSnapshot: (payload = {}) => ipcRenderer.invoke("publicAccess:getSnapshot", payload),
     listServices: (payload = {}) => ipcRenderer.invoke("publicAccess:listServices", payload),
@@ -208,6 +212,13 @@ const desktopApi = {
     getPlayitLogs: (payload = {}) => ipcRenderer.invoke("publicAccess:getPlayitLogs", payload),
     listPlayitTunnels: (payload = {}) => ipcRenderer.invoke("publicAccess:listPlayitTunnels", payload),
     controlPlayit: (payload = {}) => ipcRenderer.invoke("publicAccess:controlPlayit", payload),
+    getPlayitAccount: (payload = {}) => ipcRenderer.invoke("publicAccess:getPlayitAccount", payload),
+    startPlayitLink: (payload = {}) => ipcRenderer.invoke("publicAccess:startPlayitLink", payload),
+    getPlayitLink: (payload = {}) => ipcRenderer.invoke("publicAccess:getPlayitLink", payload),
+    openPlayitLink: (payload = {}) => ipcRenderer.invoke("publicAccess:openPlayitLink", payload),
+    cancelPlayitLink: (payload = {}) => ipcRenderer.invoke("publicAccess:cancelPlayitLink", payload),
+    openPlayitManage: (payload = {}) => ipcRenderer.invoke("publicAccess:openPlayitManage", payload),
+    openPlayitDownload: (payload = {}) => ipcRenderer.invoke("publicAccess:openPlayitDownload", payload),
     createService: (payload = {}) => ipcRenderer.invoke("publicAccess:createService", payload),
     deleteService: (payload = {}) => ipcRenderer.invoke("publicAccess:deleteService", payload),
     createFirewallRule: (payload = {}) => ipcRenderer.invoke("publicAccess:createFirewallRule", payload),
@@ -363,6 +374,7 @@ const desktopApi = {
     list: (payload = {}) => invokeAgentFeature("backups:list", payload),
     create: (payload = {}) => ipcRenderer.invoke("backups:create", payload),
     restore: (payload = {}) => ipcRenderer.invoke("backups:restore", payload),
+    verify: (backupId, payload = {}) => ipcRenderer.invoke("backups:verify", { ...payload, backupId }),
     delete: (backupId, payload = {}) => ipcRenderer.invoke("backups:delete", { ...payload, backupId }),
     download: (backupId, payload = {}) => ipcRenderer.invoke("backups:download", { ...payload, backupId }),
     import: (payload = {}) => ipcRenderer.invoke("backups:import", payload),
@@ -399,6 +411,14 @@ const desktopApi = {
     repairCredential: (payload = {}) => ipcRenderer.invoke("nodes:repairCredential", payload),
     generateToken: () => ipcRenderer.invoke("nodes:generateToken"),
     updateAgent: (nodeId) => ipcRenderer.invoke("nodes:updateAgent", { nodeId }),
+    controlAgent: (nodeId, action) => ipcRenderer.invoke("nodes:controlAgent", { nodeId, action }),
+    verifyAgentControl: (nodeId) => ipcRenderer.invoke("nodes:verifyAgentControl", { nodeId }),
+    tunnelStatus: () => ipcRenderer.invoke("nodes:tunnelStatus"),
+    setTransport: (nodeId, transport) => ipcRenderer.invoke("nodes:setTransport", { nodeId, transport }),
+    reconnectTunnel: (nodeId) => ipcRenderer.invoke("nodes:reconnectTunnel", { nodeId }),
+    routeStatus: () => ipcRenderer.invoke("nodes:routeStatus"),
+    suggestRoutes: (nodeId) => ipcRenderer.invoke("nodes:suggestRoutes", { nodeId }),
+    setFallbackUrls: (nodeId, fallbackUrls) => ipcRenderer.invoke("nodes:setFallbackUrls", { nodeId, fallbackUrls }),
     createMobilePairing: (nodeId) => ipcRenderer.invoke("nodes:createMobilePairing", { nodeId }),
   },
   // V2-J Wave 1 alert surface (src/ipc/alertsIpc.js). Both channels are
@@ -407,6 +427,48 @@ const desktopApi = {
   alerts: {
     list: () => ipcRenderer.invoke("alerts:list"),
     acknowledge: (id) => ipcRenderer.invoke("alerts:acknowledge", { id }),
+  },
+  // V2-K endpoint registry / connectivity / provider surfaces
+  // (src/ipc/networkIpc.js). The registry CRUD and the desktop-local reads use
+  // the plain invoke form; the diagnostics run and provider sync/test channels
+  // answer expected Agent failures with { ok: false, error }, so they use
+  // invokeAgentFeature and surface a thrown typed error like the other
+  // Agent-touching families.
+  endpoints: {
+    list: (payload = {}) => ipcRenderer.invoke("endpoints:list", payload),
+    discover: (payload = {}) => ipcRenderer.invoke("endpoints:discover", payload),
+    create: (payload = {}) => ipcRenderer.invoke("endpoints:create", payload),
+    update: (id, payload = {}) => ipcRenderer.invoke("endpoints:update", { ...payload, id }),
+    remove: (id, payload = {}) => ipcRenderer.invoke("endpoints:delete", { ...payload, id }),
+    setEnabled: (id, enabled, payload = {}) => ipcRenderer.invoke("endpoints:setEnabled", { ...payload, id, enabled }),
+    associate: (payload = {}) => ipcRenderer.invoke("endpoints:associate", payload),
+    test: (payload = {}) => invokeAgentFeature("endpoints:test", payload),
+  },
+  connectivity: {
+    getDiagnostics: (payload = {}) => ipcRenderer.invoke("connectivity:getDiagnostics", payload),
+    runDiagnostics: (payload = {}) => invokeAgentFeature("connectivity:runDiagnostics", payload),
+  },
+  providers: {
+    getStatus: (payload = {}) => invokeAgentFeature("providers:getStatus", payload),
+    sync: (payload = {}) => invokeAgentFeature("providers:sync", payload),
+  },
+  // V2-K sampled telemetry (src/ipc/telemetryIpc.js): desktop-local store reads
+  // and export use the plain invoke form; clear mutates the store and stays
+  // Owner/Admin-gated in main.
+  telemetry: {
+    getSummary: (payload = {}) => ipcRenderer.invoke("telemetry:getSummary", payload),
+    getSeries: (payload = {}) => ipcRenderer.invoke("telemetry:getSeries", payload),
+    export: (payload = {}) => ipcRenderer.invoke("telemetry:export", payload),
+    clear: () => ipcRenderer.invoke("telemetry:clear"),
+  },
+  // V2-K operational notification journal read (src/ipc/notificationsIpc.js).
+  notifications: {
+    list: (payload = {}) => ipcRenderer.invoke("notifications:list", payload),
+  },
+  // V2-K computer summary read (src/ipc/computersIpc.js). Desktop-local: the
+  // handler defaults nodeId to the selected node / application host.
+  computers: {
+    getSummary: (payload = {}) => ipcRenderer.invoke("computers:getSummary", payload),
   },
   files: {
     listConnections: () => ipcRenderer.invoke("files:listConnections"),
@@ -453,6 +515,8 @@ const desktopApi = {
     saveProfile: (payload) => ipcRenderer.invoke("ssh:saveProfile", payload),
     deleteProfile: (profileId) => ipcRenderer.invoke("ssh:deleteProfile", { profileId }),
     assignProfileToNode: (payload) => ipcRenderer.invoke("ssh:assignProfileToNode", payload),
+    setProfileAgent: (payload) => ipcRenderer.invoke("ssh:setProfileAgent", payload),
+    setProfileAgent: (payload) => ipcRenderer.invoke("ssh:setProfileAgent", payload),
     connect: (payload) => ipcRenderer.invoke("ssh:connect", payload),
     approveHostKey: (payload) => ipcRenderer.invoke("ssh:approveHostKey", payload),
     disconnect: (sessionId) => ipcRenderer.invoke("ssh:disconnect", { sessionId }),

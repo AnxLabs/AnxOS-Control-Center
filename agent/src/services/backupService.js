@@ -3,6 +3,8 @@ const fs = require("fs/promises");
 const fsSync = require("fs");
 const path = require("path");
 const zlib = require("zlib");
+const { Readable, Transform, Writable } = require("stream");
+const { pipeline } = require("stream/promises");
 
 const { getConfig } = require("../config");
 const instanceService = require("./instances/instanceService");
@@ -32,6 +34,14 @@ const MINIMUM_DISK_RESERVE_BYTES = 64 * 1024 * 1024;
 // instance keeps running (the historical default), "stopped" copies quiesce
 // the workload first through the instance lifecycle.
 const BACKUP_CONSISTENCY_MODES = new Set(["crash", "stopped"]);
+// Verification lifecycle (additive metadata, schema stays at 1): a newly
+// created record starts "unverified"; verifyBackup observes it into
+// "verified"/"failed"/"corrupt". A record that predates this support has no
+// verification object and is disclosed as "unknown" — never as "unverified",
+// which would claim it was born under the current lifecycle.
+const BACKUP_VERIFICATION_STATES = new Set(["unverified", "verified", "failed", "corrupt", "unknown"]);
+const LEGACY_VERIFICATION_DETAIL = "Backup predates verification support.";
+const BACKUP_VERIFICATION_UNAVAILABLE_DETAIL = "No create-time checksum is recorded for this backup.";
 // States from which a quiesced backup must first bring the instance down;
 // mirrors the stop set the restore flow uses.
 const INSTANCE_ACTIVE_STATES = new Set(["Starting", "Running", "Restarting", "Stopping"]);
@@ -712,10 +722,275 @@ async function readBackupMetadata(backupId) {
   const archive = archivePath(id);
   const size = await getFileSize(archive).catch(() => metadata.size || 0);
   return {
-    ...metadata,
+    ...buildBackupRecord(metadata),
     path: archive,
     size,
   };
+}
+
+// Read-path normalization for the verification disclosure: every consumer of a
+// stored record gets the same shape, and a record without a recognizable
+// verification object is disclosed as legacy "unknown" with the reason. The
+// stored file is never rewritten by reading, so a legacy record keeps its
+// original bytes on disk.
+function normalizeBackupVerification(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value) || !BACKUP_VERIFICATION_STATES.has(value.state)) {
+    return {
+      state: "unknown",
+      method: "sha256",
+      checkedAt: null,
+      detail: LEGACY_VERIFICATION_DETAIL,
+    };
+  }
+  return {
+    state: value.state,
+    method: "sha256",
+    checkedAt: typeof value.checkedAt === "string" && value.checkedAt ? value.checkedAt : null,
+    detail: typeof value.detail === "string" && value.detail ? value.detail : null,
+  };
+}
+
+function buildBackupRecord(metadata) {
+  return {
+    ...metadata,
+    verification: normalizeBackupVerification(metadata?.verification),
+  };
+}
+
+function resolveVerificationCheckedAt(now) {
+  if (now === undefined || now === null) return nowIso();
+  const value = now instanceof Date ? now : new Date(now);
+  return Number.isNaN(value.getTime()) ? nowIso() : value.toISOString();
+}
+
+// Verification observes an existing recovery point; it never rewrites the
+// archive. Expected outcomes (missing archive, undecodable gzip, checksum
+// mismatch, a record with no create-time digest) are persisted and returned as
+// data so the route reports them instead of failing: only an id that names no
+// stored backup throws. Quarantined orphan archives have no metadata record,
+// so they surface here as BACKUP_NOT_FOUND exactly like any other unknown id.
+// Size limits and I/O failures say nothing about the archive's integrity:
+// they are recorded as "unknown" with their own code, so only an archive that
+// actually fails to decode is reported as corrupt.
+const VERIFICATION_LIMIT_ERROR_CODES = new Set(["ERR_BUFFER_TOO_LARGE", "ERR_FS_FILE_TOO_LARGE", "ERR_STRING_TOO_LONG"]);
+
+function verificationNotEvaluable(record, checkedAt, code, detail) {
+  return persistVerificationOutcome(record, {
+    state: "unknown",
+    method: "sha256",
+    checkedAt,
+    detail,
+  }, { ok: false, code });
+}
+
+function verificationArchiveMissing(record, checkedAt) {
+  return persistVerificationOutcome(record, {
+    state: "failed",
+    method: "sha256",
+    checkedAt,
+    detail: "archive missing",
+  }, { ok: false, code: "BACKUP_ARCHIVE_MISSING" });
+}
+
+const ARCHIVE_READ_CHUNK_BYTES = 256 * 1024;
+
+// Reads at most maxArchiveBytes + 1 bytes from the open handle. A generator
+// (not handle.createReadStream) feeds the pipeline because pipeline() closes a
+// handle-backed stream's file when it destroys it, and the handle must stay
+// open for the post-failure size recheck; verifyBackup closes it.
+async function* readArchiveChunks(handle, maxArchiveBytes) {
+  let position = 0;
+  while (position <= maxArchiveBytes) {
+    const length = Math.min(ARCHIVE_READ_CHUNK_BYTES, maxArchiveBytes + 1 - position);
+    const buffer = Buffer.allocUnsafe(length);
+    const { bytesRead } = await handle.read(buffer, 0, length, position);
+    if (bytesRead === 0) return;
+    position += bytesRead;
+    yield bytesRead === length ? buffer : buffer.subarray(0, bytesRead);
+  }
+}
+
+// Reads the archive once as a stream: hashes the compressed bytes and
+// decompresses them only to count the output, keeping no buffer of either.
+// Memory stays bounded by stream chunk sizes and zlib runs off the event loop,
+// so a verification never blocks the Agent's other requests. Both limits are
+// enforced while streaming: the read stops one byte past maxArchiveBytes and
+// the compressed count is checked before hashing, so an archive that grew
+// after its size check (or a run of empty gzip members) ends as a limit
+// outcome instead of being read without bound.
+async function inspectArchiveStream(handle, { maxArchiveBytes, maxExpandedBytes }) {
+  const hash = crypto.createHash("sha256");
+  let archiveBytes = 0;
+  let expandedBytes = 0;
+  const hasher = new Transform({
+    transform(chunk, _encoding, callback) {
+      archiveBytes += chunk.length;
+      if (archiveBytes > maxArchiveBytes) {
+        callback(Object.assign(new Error("Archive exceeds the verification size limit."), { code: "ERR_FS_FILE_TOO_LARGE", archiveLimit: "archive" }));
+        return;
+      }
+      hash.update(chunk);
+      callback(null, chunk);
+    },
+  });
+  const counter = new Writable({
+    write(chunk, _encoding, callback) {
+      expandedBytes += chunk.length;
+      if (expandedBytes > maxExpandedBytes) {
+        callback(Object.assign(new Error("Expanded archive exceeds the verification size limit."), { code: "ERR_BUFFER_TOO_LARGE", archiveLimit: "expanded" }));
+        return;
+      }
+      callback();
+    },
+  });
+  const source = Readable.from(readArchiveChunks(handle, maxArchiveBytes), { objectMode: false });
+  const gunzip = zlib.createGunzip();
+  // pipeline() destroys every stage with the first error, so the stage that
+  // failed is the first one whose own error event fires: a read failure is
+  // I/O, a decode failure is corruption, the counters report a size limit.
+  let failedStage = null;
+  source.once("error", () => { failedStage = failedStage || "io"; });
+  hasher.once("error", () => { failedStage = failedStage || "limit"; });
+  gunzip.once("error", () => { failedStage = failedStage || "decode"; });
+  counter.once("error", () => { failedStage = failedStage || "limit"; });
+  try {
+    await pipeline(source, hasher, gunzip, counter);
+  } catch (error) {
+    error.archiveFailure = failedStage || "io";
+    if (error.archiveFailure === "decode" && await archiveGrewPastLimit(handle, maxArchiveBytes)) {
+      // The bounded read can stop on a decode error before it reaches the
+      // limit; an archive now over the limit is not evaluable, exactly as it
+      // would be at the initial check, rather than corrupt.
+      error.archiveFailure = "limit";
+      error.archiveLimit = "archive";
+    }
+    throw error;
+  }
+  return { sha256: hash.digest("hex"), archiveBytes, expandedBytes };
+}
+
+// Rechecks the same open handle, so the answer is about the file that was
+// read. A failed recheck proves nothing about size and changes nothing.
+async function archiveGrewPastLimit(handle, maxArchiveBytes) {
+  try {
+    return (await handle.stat()).size > maxArchiveBytes;
+  } catch {
+    return false;
+  }
+}
+
+// Opens the archive for verification. The checks run on the open handle, so
+// the file that is checked is the file that is read even if the path is
+// replaced afterwards. O_NONBLOCK (where the platform has it) keeps a FIFO from
+// blocking the open; it is then refused as not a regular file.
+async function openArchiveForVerification(archivePath, maxArchiveBytes) {
+  const flags = fsSync.constants.O_RDONLY | (fsSync.constants.O_NONBLOCK || 0);
+  const handle = await fs.open(archivePath, flags);
+  let kept = false;
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile()) return { handle: null, refusal: "not-file" };
+    if (stat.size > maxArchiveBytes) return { handle: null, refusal: "limit" };
+    kept = true;
+    return { handle, refusal: null };
+  } finally {
+    if (!kept) await handle.close().catch(() => {});
+  }
+}
+
+async function verifyBackup(backupId, options = {}) {
+  const record = await readBackupMetadata(backupId);
+  const checkedAt = resolveVerificationCheckedAt(options.now);
+  const maxArchiveBytes = Math.max(1, Number(options.maxArchiveBytes) || MAX_BACKUP_ARCHIVE_BYTES);
+  const maxExpandedBytes = Math.max(1, Number(options.maxExpandedBytes) || MAX_BACKUP_EXPANDED_BYTES);
+  let opened;
+  try {
+    // Checked before reading so an oversized archive is never streamed at all.
+    opened = await openArchiveForVerification(record.path, maxArchiveBytes);
+  } catch (error) {
+    if (error?.code === "ENOENT") return verificationArchiveMissing(record, checkedAt);
+    if (VERIFICATION_LIMIT_ERROR_CODES.has(error?.code)) {
+      return verificationNotEvaluable(record, checkedAt, "BACKUP_VERIFICATION_LIMIT_EXCEEDED", "archive exceeds the verification size limit");
+    }
+    const code = error?.code || "BACKUP_ARCHIVE_UNREADABLE";
+    return verificationNotEvaluable(record, checkedAt, code, `archive unreadable (${code})`);
+  }
+  if (opened.refusal === "limit") {
+    return verificationNotEvaluable(record, checkedAt, "BACKUP_VERIFICATION_LIMIT_EXCEEDED", "archive exceeds the verification size limit");
+  }
+  if (opened.refusal === "not-file") {
+    return verificationNotEvaluable(record, checkedAt, "BACKUP_ARCHIVE_UNREADABLE", "archive unreadable (not a regular file)");
+  }
+
+  let inspected;
+  try {
+    // Decompression is checked before the digest comparison so a truncated
+    // or undecodable archive is classified as corrupt rather than as a checksum
+    // mismatch, while a readable archive whose content was replaced (a valid
+    // gzip that no longer matches the create-time digest) fails below.
+    inspected = await inspectArchiveStream(opened.handle, { maxArchiveBytes, maxExpandedBytes });
+  } catch (error) {
+    if (error?.archiveFailure === "limit") {
+      const detail = error?.archiveLimit === "archive"
+        ? "archive exceeds the verification size limit"
+        : "expanded archive exceeds the verification size limit";
+      return verificationNotEvaluable(record, checkedAt, "BACKUP_VERIFICATION_LIMIT_EXCEEDED", detail);
+    }
+    if (error?.archiveFailure === "io") {
+      if (error?.code === "ENOENT") return verificationArchiveMissing(record, checkedAt);
+      const ioCode = error?.code || "BACKUP_ARCHIVE_UNREADABLE";
+      return verificationNotEvaluable(record, checkedAt, ioCode, `archive unreadable (${ioCode})`);
+    }
+    const code = error?.code || "BACKUP_ARCHIVE_INVALID";
+    return persistVerificationOutcome(record, {
+      state: "corrupt",
+      method: "sha256",
+      checkedAt,
+      detail: code,
+    }, { ok: false, code });
+  } finally {
+    await opened.handle.close().catch(() => {});
+  }
+
+  const expectedSha256 = String(record.archiveSha256 || "").trim().toLowerCase() || null;
+  const actualSha256 = inspected.sha256;
+  if (!expectedSha256) {
+    // Without a create-time digest only readability can be observed, so the
+    // record stays honestly unknown instead of being promoted to verified.
+    return persistVerificationOutcome(record, {
+      state: "unknown",
+      method: "sha256",
+      checkedAt,
+      detail: BACKUP_VERIFICATION_UNAVAILABLE_DETAIL,
+    }, { ok: false, code: "BACKUP_CHECKSUM_UNAVAILABLE" });
+  }
+  if (actualSha256 !== expectedSha256) {
+    // The result carries the digests for diagnostics; the persisted detail
+    // stays generic so the metadata file itself never records digest material.
+    return persistVerificationOutcome(record, {
+      state: "failed",
+      method: "sha256",
+      checkedAt,
+      detail: "checksum mismatch",
+    }, { ok: false, code: "BACKUP_ARCHIVE_HASH_MISMATCH", expectedSha256, actualSha256 });
+  }
+  return persistVerificationOutcome(record, {
+    state: "verified",
+    method: "sha256",
+    checkedAt,
+    detail: null,
+  }, { ok: true });
+}
+
+// Persists the observed outcome next to the record (atomic temp+rename through
+// writeJson, so the metadata file stays valid JSON even across a crash) and
+// returns the record with the outcome attached. The derived path field is
+// never written: it is computed on read, exactly like every other write.
+async function persistVerificationOutcome(record, verification, outcome) {
+  const persistedMetadata = { ...record, verification };
+  delete persistedMetadata.path;
+  await writeJson(metadataPath(record.id), persistedMetadata);
+  return { record: { ...record, verification }, ...outcome };
 }
 
 async function listBackups(options = {}) {
@@ -950,6 +1225,10 @@ async function performCreateBackup(payload = {}) {
     sourcePaths,
     archiveName: path.basename(archive),
     status: "complete",
+    // Additive verification lifecycle (schema stays at 1): the record carries
+    // a create-time digest and supports verification, but no check has been
+    // observed yet.
+    verification: { state: "unverified", method: "sha256", checkedAt: null, detail: null },
     // Additive consistency disclosure (schema stays at 1): how the copy was
     // taken and whether the instance had to be stopped and started again.
     // effectiveConsistency may differ from the requested mode when a Stopping
@@ -1513,6 +1792,9 @@ async function importBackup(payload = {}) {
     sourcePaths: ["."],
     archiveName: path.basename(archive),
     status: "imported",
+    // Imported archives carry a digest computed from the stored bytes, so they
+    // start in the same unverified state as a freshly created backup.
+    verification: { state: "unverified", method: "sha256", checkedAt: null, detail: null },
   };
   try {
     await writeJson(metadataPath(backupId), metadata);
@@ -1635,6 +1917,7 @@ module.exports = {
   BACKUP_METADATA_SCHEMA_VERSION,
   BACKUP_SCHEDULE_SCHEMA_VERSION,
   _test: {
+    buildBackupRecord,
     createTarHeader,
     ensureDiskSpace,
     padTarData,
@@ -1663,4 +1946,5 @@ module.exports = {
   saveSchedule,
   startBackupScheduler,
   stopBackupScheduler,
+  verifyBackup,
 };

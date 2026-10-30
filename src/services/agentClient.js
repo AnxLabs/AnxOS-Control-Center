@@ -642,6 +642,8 @@ function getPublicAccessPlayitApiExpectation(pathname, method = "GET") {
     ["GET", /^\/api\/v1\/public-access\/playit\/logs(?:\?|$)/, "Playit service logs endpoint"],
     ["GET", /^\/api\/v1\/public-access\/playit\/tunnels(?:\?|$)/, "Playit tunnel listing endpoint"],
     ["POST", /^\/api\/v1\/public-access\/playit\/(?:start|stop|restart)$/, "Playit service control endpoint"],
+    ["GET", /^\/api\/v1\/public-access\/playit\/account$/, "Playit account status endpoint"],
+    ["POST", /^\/api\/v1\/public-access\/playit\/account\/(?:link|manage)$/, "Playit account linking endpoint"],
   ];
   const match = expectations.find(([expectedMethod, pattern]) => expectedMethod === normalizedMethod && pattern.test(path));
   return match?.[2] || null;
@@ -846,6 +848,12 @@ async function requestJson(pathname, options = {}) {
       }
     })();
     const transportMessage = getAgentTransportErrorMessage(errorCode, requestUrl);
+    // The node could not be reached on this route: let the route resolver
+    // re-check its fallback routes (a no-op for nodes without fallbacks).
+    const failedNodeId = trimValue(configOverride?.nodeId || configOverride?.agentNodeId) || (/^node:/i.test(trimValue(configOverride?.targetLabel)) ? trimValue(configOverride.targetLabel).replace(/^node:/i, "") : "");
+    if (failedNodeId) {
+      try { require("./nodeRouteResolver").getNodeRouteResolver().reportTransportFailure(failedNodeId); } catch {}
+    }
     if (!(suppressConnectionRefusedLog && errorCode === "ECONNREFUSED")) {
       logAgentRequestFailure(pathname, null, errorCode, {
         url: requestUrl,
@@ -2083,6 +2091,35 @@ async function getPublicAccessPlayitTunnels(payload = {}, configOverride = null)
   const query = payload.nodeId ? `?nodeId=${encodeURIComponent(payload.nodeId)}` : "";
   return requestJson(`/api/v1/public-access/playit/tunnels${query}`, {
     config: configOverride,
+    timeoutMs: PUBLIC_ACCESS_REQUEST_TIMEOUT_MS,
+  });
+}
+
+async function getPublicAccessPlayitAccount(configOverride = null) {
+  return requestJson("/api/v1/public-access/playit/account", {
+    config: configOverride,
+    timeoutMs: PUBLIC_ACCESS_REQUEST_TIMEOUT_MS,
+  });
+}
+
+// Account actions: "link" starts (or joins) playit's browser linking,
+// "manage" returns a playit.gg sign-in link. Both may carry a linkUrl.
+async function controlPublicAccessPlayitAccount(action, configOverride = null) {
+  return requestJson(`/api/v1/public-access/playit/account/${encodeURIComponent(String(action || ""))}`, {
+    config: configOverride,
+    method: "POST",
+    body: {},
+    timeoutMs: PUBLIC_ACCESS_REQUEST_TIMEOUT_MS,
+  });
+}
+
+// action: "" reads progress (no link), "open" returns the link, "cancel" stops it.
+async function controlPublicAccessPlayitLink(linkId, action = "", configOverride = null) {
+  const suffix = action ? `/${encodeURIComponent(String(action))}` : "";
+  return requestJson(`/api/v1/public-access/playit/account/link/${encodeURIComponent(String(linkId || ""))}${suffix}`, {
+    config: configOverride,
+    method: action ? "POST" : "GET",
+    body: action ? {} : null,
     timeoutMs: PUBLIC_ACCESS_REQUEST_TIMEOUT_MS,
   });
 }
@@ -3378,6 +3415,13 @@ async function restoreBackup(payload = {}, configOverride = null) {
   });
 }
 
+async function verifyBackup(backupId, configOverride = null) {
+  return requestJson(`/api/v1/backups/${encodeURIComponent(String(backupId || ""))}/verify`, {
+    config: configOverride,
+    method: "POST",
+  });
+}
+
 async function importBackup(payload = {}, configOverride = null) {
   return requestJson("/api/v1/backups/import", {
     config: configOverride,
@@ -3494,6 +3538,12 @@ async function repairWindowsAgentTask(configOverride = null) {
   return requestJson("/api/v1/system/agent-task", { config: configOverride, method: "POST", body: {} });
 }
 
+// Remote Agent self-restart (the Agent's POST /api/v1/agent/restart): the Agent
+// replies 202 and then exits so systemd starts it again.
+async function requestAgentSelfRestart(configOverride = null) {
+  return requestJson("/api/v1/agent/restart", { config: configOverride, method: "POST", body: {} });
+}
+
 async function uninstallWindowsAgentTask(configOverride = null) {
   return requestJson("/api/v1/system/agent-task", { config: configOverride, method: "DELETE" });
 }
@@ -3564,6 +3614,7 @@ module.exports = {
   },
   AgentClientError,
   beginInstallationSession,
+  requestAgentSelfRestart,
   beginSteamCmdUpdateSession,
   getSteamCmdUpdateStatus,
   repairLegacySteamCmdMetadata,
@@ -3652,6 +3703,9 @@ module.exports = {
   getPublicAccessPlayitLogs,
   getPublicAccessPlayitStatus,
   getPublicAccessPlayitTunnels,
+  getPublicAccessPlayitAccount,
+  controlPublicAccessPlayitAccount,
+  controlPublicAccessPlayitLink,
   getPublicAccessSnapshot,
   isHealthy,
   importBackup,
@@ -3704,6 +3758,7 @@ module.exports = {
   dockerComposeAction,
   restartInstance,
   restoreBackup,
+  verifyBackup,
   testConnection,
   startInstance,
   stopInstance,

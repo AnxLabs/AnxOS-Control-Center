@@ -4,6 +4,7 @@ const { URL } = require("url");
 
 const { handleActionInvoke, handleActionsList } = require("./routes/actions");
 const { handleAgentTask } = require("./routes/agentTask");
+const { AGENT_SELF_RESTART_EXIT_CODE, handleAgentRestart } = require("./routes/agentLifecycle");
 const { handleAmpInstances, handleAmpSnapshot, handleAmpStatus } = require("./routes/amp");
 const { auditAction } = require("./audit/auditLogger");
 const { handleBackups, handleBackupsList } = require("./routes/backups");
@@ -237,6 +238,7 @@ function getRoutePermission(request, pathname) {
   if (PUBLIC_ENROLL_PATHS.has(pathname)) return null;
   if (pathname === "/api/v1/actions") return "actions:read";
   if (pathname === "/api/v1/system/agent-task") return "agent:manage";
+  if (pathname === "/api/v1/agent/restart") return "agent:manage";
   if (isActionInvokeRoute(request, pathname)) return "actions:execute";
   return null;
 }
@@ -285,6 +287,15 @@ async function routeRequest(request, url) {
   }
 
   if (pathname === "/api/v1/system/agent-task") return handleAgentTask(request);
+  if (pathname === "/api/v1/agent/restart") {
+    const result = handleAgentRestart(request, {
+      // The reply goes out first; then the Agent stops its instances and exits
+      // with a failure code so systemd starts it again.
+      scheduleRestart: (delayMs) => setTimeout(() => shutdown("API_RESTART", AGENT_SELF_RESTART_EXIT_CODE), delayMs).unref?.(),
+    });
+    auditAction(request, { actionId: "agent.restart", permission: "agent:manage", outcome: result.statusCode === 202 ? "ok" : "refused", reason: result.body?.error?.code || "SELF_RESTART_SCHEDULED" });
+    return result;
+  }
 
   if (isActionInvokeRoute(request, pathname)) {
     return handleActionInvoke(request, url);
@@ -669,7 +680,7 @@ startServer().catch((error) => {
   process.exitCode = 1;
 });
 
-async function shutdown(signal) {
+async function shutdown(signal, exitCode = 0) {
   if (shuttingDown) return;
   shuttingDown = true;
   stopBackupScheduler();
@@ -677,7 +688,7 @@ async function shutdown(signal) {
   logger.info("shutdown", "AnxOS Agent shutdown started", { signal, connectedClients: connectedClients.size });
   const forceTimer = setTimeout(() => {
     for (const socket of connectedClients) socket.destroy();
-    process.exit(0);
+    process.exit(exitCode);
   }, 10000);
   forceTimer.unref?.();
   server.close();
@@ -689,7 +700,7 @@ async function shutdown(signal) {
   }));
   clearTimeout(forceTimer);
   logger.info("shutdown", "AnxOS Agent shutdown completed", { signal, instances });
-  process.exit(0);
+  process.exit(exitCode);
 }
 
 process.once("SIGTERM", () => shutdown("SIGTERM"));

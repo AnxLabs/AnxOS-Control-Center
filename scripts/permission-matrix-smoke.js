@@ -206,8 +206,9 @@ const loadedIpcModuleFiles = new Set([
   "dependenciesIpc.js", "storageWindowIpc.js", "updatesIpc.js", "actionIpc.js",
   "systemIpc.js", "ampIpc.js", "backupsIpc.js", "playitIpc.js",
   "publicAccessIpc.js", "dockerIpc.js", "instancesIpc.js", "marketplaceIpc.js",
-  "maintenanceIpc.js", "nodesIpc.js", "networkInventoryIpc.js", "workloadIpc.js", "ownerWorkspaceIpc.js",
+  "maintenanceIpc.js", "nodesIpc.js", "networkInventoryIpc.js", "infrastructureInventoryIpc.js", "workloadIpc.js", "ownerWorkspaceIpc.js",
   "filesIpc.js", "settingsIpc.js", "sshIpc.js", "alertsIpc.js",
+  "networkIpc.js", "telemetryIpc.js", "notificationsIpc.js", "computersIpc.js",
 ]);
 // accountIpc.js delegates to accountAuthIpc.registerAccountAuthIpc (which IS
 // loaded here); loading it again would double-register the account channels.
@@ -252,12 +253,17 @@ try {
   require("../src/ipc/backupsIpc").registerBackupsIpc();
   require("../src/ipc/playitIpc").registerPlayitIpc();
   require("../src/ipc/publicAccessIpc").registerPublicAccessIpc();
+  require("../src/ipc/networkIpc").registerNetworkIpc();
+  require("../src/ipc/telemetryIpc").registerTelemetryIpc();
+  require("../src/ipc/notificationsIpc").registerNotificationsIpc();
   require("../src/ipc/dockerIpc").registerDockerIpc();
   require("../src/ipc/instancesIpc").registerInstancesIpc();
   require("../src/ipc/marketplaceIpc").registerMarketplaceIpc();
   require("../src/ipc/maintenanceIpc").registerMaintenanceIpc();
   require("../src/ipc/nodesIpc").registerNodesIpc();
+  require("../src/ipc/computersIpc").registerComputersIpc();
   require("../src/ipc/networkInventoryIpc").registerNetworkInventoryIpc();
+  require("../src/ipc/infrastructureInventoryIpc").registerInfrastructureInventoryIpc();
   require("../src/ipc/alertsIpc").registerAlertsIpc();
   require("../src/ipc/workloadIpc").registerWorkloadIpc();
   require("../src/ipc/ownerWorkspaceIpc").registerOwnerWorkspaceIpc();
@@ -386,6 +392,7 @@ const DESKTOP_PROBES = {
   "nodes-credential-read": { channel: "nodes:health", payload: { nodeId: "matrix-node-a" } },
   "nodes-write": { channel: "nodes:save", payload: { nodeId: "matrix-node", displayName: "Matrix Node" } },
   "network-inventory": { channel: "networkInventory:get", payload: { nodeId: "matrix-node-a" } },
+  "infrastructure-inventory": { channel: "infrastructureInventory:refresh", payload: {} },
   "alerts-read": { channel: "alerts:list", payload: {} },
   "alerts-write": { channel: "alerts:acknowledge", payload: { id: "alert:NODE_OFFLINE:matrix-node-a" } },
   "settings-read": { channel: "settings:getPreferences" },
@@ -408,6 +415,20 @@ const DESKTOP_PROBES = {
   "storage-window-open": { channel: "storageWindow:open", serviceRecorded: false },
   "storage-window-internal": { channel: "storageWindow:close", serviceRecorded: false },
   "workload-transfer": { channel: "workload:transferPreview", payload: { sourceNodeId: "matrix-node-a", targetNodeId: "matrix-node-b", sourceInstanceId: "matrix-instance" } },
+  "endpoints-read": { channel: "endpoints:list", payload: {} },
+  "endpoints-write": { channel: "endpoints:create", payload: { name: "matrix-endpoint" } },
+  "endpoints-discover": { channel: "endpoints:discover", payload: { serviceId: "matrix-service" } },
+  "endpoints-test": { channel: "endpoints:test", payload: { endpointId: "matrix-endpoint" } },
+  "connectivity-read": { channel: "connectivity:getDiagnostics", payload: {} },
+  "connectivity-run": { channel: "connectivity:runDiagnostics", payload: {} },
+  "providers-read": { channel: "providers:getStatus", payload: {} },
+  "providers-sync": { channel: "providers:sync", payload: {} },
+  "telemetry-read": { channel: "telemetry:getSummary", payload: {} },
+  "telemetry-export": { channel: "telemetry:export", payload: {} },
+  "telemetry-manage": { channel: "telemetry:clear", payload: {} },
+  "notifications-read": { channel: "notifications:list", payload: {} },
+  "computers-read": { channel: "computers:getSummary", payload: {} },
+  "backups-verify": { channel: "backups:verify", payload: { backupId: "matrix-backup" } },
 };
 
 function channelFamilyMap() {
@@ -594,13 +615,13 @@ function crossCheckTableAgainstRealFunctions() {
         }
       }
       if (family.tier === "agent:manage") {
-        // /api/v1/system/agent-task carries the same tier directly from
-        // server.js getRoutePermission; only credentials/rotate comes from the
-        // enrollment route permission map.
+        // /api/v1/system/agent-task and /api/v1/agent/restart carry the same
+        // tier directly from server.js getRoutePermission; only
+        // credentials/rotate comes from the enrollment route permission map.
         if (family.id === "rest-credentials-rotate") {
           assert.strictEqual(enrollRoutes.getEnrollmentRoutePermission("/api/v1/credentials/rotate"), "agent:manage", "Credential rotate must remain agent:manage.");
         } else {
-          assert.strictEqual(family.id, "rest-agent-task", `Matrix drift: unexpected agent:manage REST family ${family.id}.`);
+          assert(["rest-agent-task", "rest-agent-restart"].includes(family.id), `Matrix drift: unexpected agent:manage REST family ${family.id}.`);
         }
       }
     }

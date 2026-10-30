@@ -140,7 +140,17 @@ function legacyDeviceId(url) {
 function nodeIdForDevice(deviceId) { return `agent-${String(deviceId || "unknown").replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 56)}`; }
 function isGenericNodeDisplayName(value) { return /^(owner machine|default|remote node|agent node|windows desktop|local agent|this pc)$/i.test(String(value || "").trim()); }
 function isDefaultLocalAgentDisplayName(value) { return /^(this pc|local agent|owner machine|windows desktop)$/i.test(String(value || "").trim()); }
+// A loopback URL alone does not make a node this PC's Local Agent: a remote
+// node reached through an SSH tunnel has one too (for example
+// http://127.0.0.1:47132). Treating it as local made the registry resolve a
+// selected application host to that remote node and label it "Local Agent".
+// Only a loopback URL on the Local Agent's own port is this PC.
+function isThisPcAgentUrl(url) {
+  return isLocalAgentUrl(url) && getLocalAgentPortFromUrl(url) === getLocalAgentPort();
+}
 function isExplicitLocalAgentNode(node = {}) {
+  const url = node.baseUrl || node.agentUrl || node.url;
+  if (isLocalAgentUrl(url) && !isThisPcAgentUrl(url)) return false;
   return node.localAgent === true || node.ownerMachine === true || node.profile?.localAgent === true;
 }
 function getAgentNodeModeLabel(node = {}) { return isExplicitLocalAgentNode(node) ? "Registered Local Agent Node" : "Registered Remote Agent Node"; }
@@ -632,6 +642,72 @@ function normalizeNodeGroup(value) {
   return String(value || "").trim().slice(0, 40);
 }
 
+// How the desktop reaches an Agent. "direct" requests the Agent URL as is.
+// "ssh-tunnel" means the Agent only listens on the node itself: the desktop
+// keeps an SSH port-forward open (nodeTunnelService) from the node's
+// loopback Agent URL to remoteHost:remotePort on the node.
+function normalizeNodeTransport(transport) {
+  if (!transport || typeof transport !== "object" || transport.type !== "ssh-tunnel") return { type: "direct" };
+  const sshProfileId = String(transport.sshProfileId || "").trim();
+  const remoteHost = String(transport.remoteHost || "127.0.0.1").trim();
+  const remotePort = Number(transport.remotePort);
+  if (!/^[A-Za-z0-9._-]{1,120}$/.test(sshProfileId)) return { type: "direct" };
+  if (!/^[A-Za-z0-9.:-]{1,253}$/.test(remoteHost)) return { type: "direct" };
+  if (!Number.isInteger(remotePort) || remotePort < 1 || remotePort > 65535) return { type: "direct" };
+  return { type: "ssh-tunnel", sshProfileId, remoteHost, remotePort };
+}
+
+// Plain HTTP carries the Agent token in the clear, so an http:// fallback is
+// accepted only on networks the user controls: loopback, private LAN ranges
+// and Tailscale (100.64.0.0/10, *.ts.net). Anything else must be https://.
+function isPrivateNetworkHost(hostname = "") {
+  const host = String(hostname).toLowerCase().replace(/^\[|\]$/g, "");
+  if (host === "localhost" || host.endsWith(".ts.net") || host.endsWith(".local")) return true;
+  if (host === "::1" || /^f[cd][0-9a-f]{2}:/.test(host)) return true;
+  const parts = host.split(".").map(Number);
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
+  const [a, b] = parts;
+  return a === 10 || a === 127 || (a === 192 && b === 168) || (a === 172 && b >= 16 && b <= 31) || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254);
+}
+
+function normalizeNodeFallbackUrls(value, primaryUrl = "") {
+  const list = Array.isArray(value) ? value : [];
+  const seen = new Set([normalizeUrl(primaryUrl)]);
+  const result = [];
+  for (const entry of list) {
+    const raw = typeof entry === "string" ? entry : entry?.url;
+    let url;
+    try {
+      url = new URL(String(raw || "").trim());
+    } catch {
+      continue;
+    }
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) continue;
+    if (url.protocol === "http:" && !isPrivateNetworkHost(url.hostname)) continue;
+    const normalized = normalizeUrl(url.toString());
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    const label = String((typeof entry === "object" && entry?.label) || "").trim().slice(0, 40) || (url.hostname.endsWith(".ts.net") || isTailscaleIp(url.hostname) ? "Tailscale" : "Fallback");
+    result.push({ url: normalized, label });
+    if (result.length >= 4) break;
+  }
+  return result;
+}
+
+function isTailscaleIp(hostname = "") {
+  const parts = String(hostname).split(".").map(Number);
+  return parts.length === 4 && parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127;
+}
+
+function isLoopbackAgentUrl(value) {
+  try {
+    const url = new URL(String(value || ""));
+    return url.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname) && Boolean(url.port);
+  } catch {
+    return false;
+  }
+}
+
 function normalizeAgentNode(node = {}) {
   const agentUrl = normalizeUrl(node.baseUrl || node.agentUrl || node.url);
   const identity = node.agentIdentity || node.identity || {};
@@ -677,6 +753,8 @@ function normalizeAgentNode(node = {}) {
     tags: normalizeTags(node.tags),
     group: normalizeNodeGroup(node.group),
     manualDisconnect: node.manualDisconnect === true,
+    transport: normalizeNodeTransport(node.transport),
+    fallbackUrls: normalizeNodeFallbackUrls(node.fallbackUrls, agentUrl),
     lastConnectionState: normalizeConnectionState(node.lastConnectionState || node.connection?.status || "unknown"),
     lastSuccessfulHealthCheck: node.lastSuccessfulHealthCheck || node.connection?.lastSeen || null,
     lastHealthCheckedAt: node.lastHealthCheckedAt || node.connection?.checkedAt || null,
@@ -776,7 +854,7 @@ function mergeAgentNodes(nodes) {
 
 async function discoverLocalAgentNode(state) {
   const effective = getEffectiveAgentSettings();
-  const existingLocal = state.nodes.find((node) => node.localAgent === true || isLocalAgentUrl(node.agentUrl));
+  const existingLocal = state.nodes.find((node) => isExplicitLocalAgentNode(node) || isThisPcAgentUrl(node.agentUrl));
   // An owner-disconnected Local Agent node must not be re-probed into
   // "online" by routine discovery; only Reconnect/Re-pair restores it.
   if (existingLocal?.manualDisconnect === true) {
@@ -894,7 +972,7 @@ async function withDiscoveredLocalAgent(state) {
     return { ...state, nodes: state.nodes.filter((node) => !isRemovedLocalAgentNode(state, node)) };
   }
   const nodes = mergeAgentNodes([
-    ...state.nodes.filter((node) => !(node.localAgent === true || isLocalAgentUrl(node.agentUrl) || node.agentIdentity?.deviceId === localNode.agentIdentity.deviceId)),
+    ...state.nodes.filter((node) => !(isExplicitLocalAgentNode(node) || isThisPcAgentUrl(node.agentUrl) || node.agentIdentity?.deviceId === localNode.agentIdentity.deviceId)),
     localNode,
   ]);
   const currentSelection = state.selectedNodeId || APPLICATION_HOST_NODE_ID;
@@ -914,7 +992,7 @@ function migrateState(parsed = {}) {
     : [];
   const rawLegacyUrl = String(rawLegacy.agentUrl || rawLegacy.url || process.env.AGENT_URL || "").trim();
   const canMigrateLegacyAgent = effective.backendMode === "agent" && rawLegacyUrl && effective.agentUrl;
-  const legacyAgentRemoved = canMigrateLegacyAgent && isRemovedLocalAgentNode({ removedLocalAgents }, { agentUrl: effective.agentUrl, localAgent: isLocalAgentUrl(effective.agentUrl) });
+  const legacyAgentRemoved = canMigrateLegacyAgent && isRemovedLocalAgentNode({ removedLocalAgents }, { agentUrl: effective.agentUrl, localAgent: isThisPcAgentUrl(effective.agentUrl) });
   if (canMigrateLegacyAgent && !legacyAgentRemoved) {
     const legacyUrl = normalizeUrl(effective.agentUrl);
     const existingIndex = legacyNodes.findIndex((node) => normalizeUrl(node.baseUrl || node.agentUrl || node.url) === legacyUrl);
@@ -926,11 +1004,11 @@ function migrateState(parsed = {}) {
         agentUrl: existing.agentUrl || existing.baseUrl || legacyUrl,
         agentToken: existing.agentToken || existing.token || getNodeToken(existing.id) || effective.agentToken,
         legacyGlobalAgent: existing.legacyGlobalAgent !== false,
-        localAgent: existing.localAgent === true || isLocalAgentUrl(legacyUrl),
-        ownerMachine: existing.ownerMachine === true || isLocalAgentUrl(legacyUrl),
+        localAgent: existing.localAgent === true || isThisPcAgentUrl(legacyUrl),
+        ownerMachine: existing.ownerMachine === true || isThisPcAgentUrl(legacyUrl),
       };
     } else {
-      legacyNodes.push({ displayName: "Owner Machine", baseUrl: effective.agentUrl, agentUrl: effective.agentUrl, agentToken: effective.agentToken, legacyGlobalAgent: true, localAgent: isLocalAgentUrl(legacyUrl), ownerMachine: isLocalAgentUrl(legacyUrl) });
+      legacyNodes.push({ displayName: "Owner Machine", baseUrl: effective.agentUrl, agentUrl: effective.agentUrl, agentToken: effective.agentToken, legacyGlobalAgent: true, localAgent: isThisPcAgentUrl(legacyUrl), ownerMachine: isThisPcAgentUrl(legacyUrl) });
     }
   }
   const nodes = mergeAgentNodes(legacyNodes).filter((node) => !isRemovedLocalAgentNode({ removedLocalAgents }, node));
@@ -940,8 +1018,8 @@ function migrateState(parsed = {}) {
   if (selectedNodeId !== APPLICATION_HOST_NODE_ID && !nodes.some((node) => node.id === selectedNodeId)) selectedNodeId = nodes.length === 1 ? nodes[0].id : APPLICATION_HOST_NODE_ID;
   if (!hadPersistedSelection && nodes.length > 1) selectedNodeId = APPLICATION_HOST_NODE_ID;
   if (selectedNodeId === APPLICATION_HOST_NODE_ID) {
-    const localNode = nodes.find((node) => node.localAgent === true || isLocalAgentUrl(node.agentUrl));
-    if (localNode && effective.backendMode === "agent" && isLocalAgentUrl(effective.agentUrl)) selectedNodeId = localNode.id;
+    const localNode = nodes.find((node) => isExplicitLocalAgentNode(node) || isThisPcAgentUrl(node.agentUrl));
+    if (localNode && effective.backendMode === "agent" && isThisPcAgentUrl(effective.agentUrl)) selectedNodeId = localNode.id;
   }
   return { schemaVersion: NODE_SCHEMA_VERSION, selectedNodeId, nodes, removedLocalAgents };
 }
@@ -1131,7 +1209,7 @@ function publicNode(node) {
 function applyHealthPatchToNode(node, patch = {}) {
   const checkedAt = patch.checkedAt || new Date().toISOString();
   const state = normalizeConnectionState(patch.state);
-  const localAgent = node.localAgent === true || isLocalAgentUrl(node.agentUrl);
+  const localAgent = isExplicitLocalAgentNode(node) || isThisPcAgentUrl(node.agentUrl);
   const previousConnection = node.connection || {};
   const connection = buildConnectionPatch({
     state,
@@ -1225,6 +1303,40 @@ function recordAuthenticatedNodeHealth(payload = {}) {
     checkedAt: payload.checkedAt || new Date().toISOString(),
   });
   return publicNode(updated);
+}
+
+// Pairing self-repair and blip tolerance.
+// A single failed check right after a success is usually a blip (Wi-Fi
+// handoff, route switch, Agent restart), so it reads "Reconnecting" instead of
+// Offline; the node is Offline after two failures in a row or once the last
+// success is older than the grace window. Rejected credentials get one safe,
+// automatic repair attempt per window: the existing non-interactive path that
+// reinstalls a configured token only when it matches the live Agent.
+const HEALTH_FAILURE_GRACE_MS = 90 * 1000;
+const AUTO_CREDENTIAL_REPAIR_INTERVAL_MS = 10 * 60 * 1000;
+const nodeFailureStreaks = new Map();
+const nodeAutoRepairAttempts = new Map();
+
+function isWithinFailureGrace(node, streak, now = Date.now()) {
+  const lastSuccess = Date.parse(node.lastSuccessfulHealthCheck || "");
+  return streak < 2 && Number.isFinite(lastSuccess) && now - lastSuccess <= HEALTH_FAILURE_GRACE_MS;
+}
+
+async function attemptAutomaticCredentialRepair(node, now = Date.now()) {
+  const last = nodeAutoRepairAttempts.get(node.id) || 0;
+  if (now - last < AUTO_CREDENTIAL_REPAIR_INTERVAL_MS) return { attempted: false, repaired: false };
+  nodeAutoRepairAttempts.set(node.id, now);
+  try {
+    const status = await getNodeCredentialStatus(node.id);
+    const configured = getConfiguredAgentTokenForNode(node);
+    if (status.status !== "valid" && configured?.token && status.liveHealthFingerprint && configured.fingerprint === status.liveHealthFingerprint) {
+      setNodeToken(node.id, configured.token);
+      return { attempted: true, repaired: true };
+    }
+    return { attempted: true, repaired: false, status: status.status };
+  } catch {
+    return { attempted: true, repaired: false };
+  }
 }
 
 async function checkNodeHealth(nodeId, options = {}) {
@@ -1323,6 +1435,8 @@ async function checkNodeHealth(nodeId, options = {}) {
           stale: true,
         };
       }
+      nodeFailureStreaks.delete(node.id);
+      nodeAutoRepairAttempts.delete(node.id);
       const updated = updateNodeHealthState(node.id, {
         state,
         message,
@@ -1343,12 +1457,24 @@ async function checkNodeHealth(nodeId, options = {}) {
         checkedAt: updated.lastHealthCheckedAt,
       };
     } catch (error) {
-      const state = classifyHealthError(error);
-      const message = state === "authentication_failed"
-        ? `${node.displayName || node.name || node.id} credential rejected.`
+      let state = classifyHealthError(error);
+      const streak = (nodeFailureStreaks.get(node.id) || 0) + 1;
+      nodeFailureStreaks.set(node.id, streak);
+      let message = state === "authentication_failed"
+        ? `${node.displayName || node.name || node.id} credential rejected. Re-pair the node to restore access.`
         : state === "agent_incompatible"
         ? "Agent API version is not compatible with this Control Center."
         : error?.message || "Agent is unreachable.";
+      if (state === "authentication_failed" && options.autoRepair !== false) {
+        const repair = await attemptAutomaticCredentialRepair(node);
+        if (repair.repaired) {
+          state = "connecting";
+          message = "The node credential was repaired automatically. Reconnecting...";
+        }
+      } else if (state === "offline" && isWithinFailureGrace(node, streak)) {
+        state = "connecting";
+        message = "Connection interrupted. Reconnecting...";
+      }
       if (nodeHealthGenerations.get(node.id) !== generation) {
         const current = getNode(node.id);
         return {
@@ -1405,11 +1531,16 @@ async function checkAllNodeHealth(options = {}) {
 
 async function refreshIdentities(state) {
   await Promise.allSettled(state.nodes.map((node) => checkNodeHealth(node.id, { timeoutMs: 5000 })));
+  // The checks above can take a full timeout per unreachable node, and the
+  // user may select a node (or the registry may change) meanwhile. Merge into
+  // the registry as it is now, never the snapshot from before the checks, or
+  // that selection is silently written back to the old node.
   const refreshedState = readNodeState();
   const nodes = mergeAgentNodes(refreshedState.nodes);
-  const selectedDevice = state.nodes.find((node) => node.id === state.selectedNodeId)?.agentIdentity?.deviceId;
-  const selectedNodeId = selectedDevice ? nodes.find((node) => node.agentIdentity.deviceId === selectedDevice)?.id || state.selectedNodeId : state.selectedNodeId;
-  const next = { ...state, selectedNodeId, nodes };
+  const currentSelectedNodeId = refreshedState.selectedNodeId;
+  const selectedDevice = refreshedState.nodes.find((node) => node.id === currentSelectedNodeId)?.agentIdentity?.deviceId;
+  const selectedNodeId = selectedDevice ? nodes.find((node) => node.agentIdentity.deviceId === selectedDevice)?.id || currentSelectedNodeId : currentSelectedNodeId;
+  const next = { ...refreshedState, selectedNodeId, nodes };
   writeNodeState(next);
   return next;
 }
@@ -1512,6 +1643,14 @@ function resolveNodeForAgentIdentity(payload = {}) {
 
 function getSelectedNodeId() { return readNodeState().selectedNodeId; }
 function getAllNodesSync() { const state = readNodeState(); return [getApplicationHostNode(), ...state.nodes]; }
+function getActiveNodeUrl(node) {
+  try {
+    return require("./nodeRouteResolver").getNodeRouteResolver().getActiveUrl(node) || node.baseUrl || node.agentUrl;
+  } catch {
+    return node.baseUrl || node.agentUrl;
+  }
+}
+
 function getNodeAgentConfigFromNode(node) {
   if (!localCredentialsUnlocked()) {
     authRecovery.requireLocalCredentialsUnlocked(
@@ -1522,7 +1661,7 @@ function getNodeAgentConfigFromNode(node) {
   return {
     ...normalizeAgentSettings({
     backendMode: "agent",
-    agentUrl: node.baseUrl || node.agentUrl,
+    agentUrl: getActiveNodeUrl(node),
     agentToken: getNodeToken(node.id, { preserveDecryptionError: true }),
     }),
     nodeId: node.id,
@@ -1554,7 +1693,11 @@ async function getNodeCredentialStatus(nodeId) {
   let reachable = false;
   let healthError = null;
   try {
-    health = await getHealth(normalizeAgentSettings({ backendMode: "agent", agentUrl: endpoint, agentToken: configured?.token || storedToken || "" }), {
+    // The probe carries only the node's own credential, never the global Agent
+    // token: /health reports the live fingerprint without auth, so the
+    // configured-token comparison below stays local and no global secret is
+    // sent to a node endpoint (background health checks reach this path).
+    health = await getHealth(normalizeAgentSettings({ backendMode: "agent", agentUrl: endpoint, agentToken: storedToken || "" }), {
       timeoutMs: 8000,
       targetLabel: `node-credential-status:${node.id}`,
       suppressConnectionRefusedLog: true,
@@ -1624,6 +1767,41 @@ function agentIdentityMatchesNode(node = null, identity = {}) {
     ["agentIdentityId", existing.agentIdentityId || node.agentIdentityId, identity.agentIdentityId],
   ];
   return comparisons.some(([, left, right]) => Boolean(left && right && left === right));
+}
+
+// Sets how the desktop reaches a node. Unlike saveNode it does not need the
+// Agent to answer first: an ssh-tunnel node is unreachable until its tunnel
+// is up.
+function setNodeTransport(nodeId, transport = {}) {
+  const state = readNodeState();
+  const node = state.nodes.find((entry) => entry.id === nodeId);
+  if (!node) throw Object.assign(new Error("Node not found."), { code: "NODE_NOT_FOUND" });
+  const normalized = normalizeNodeTransport(transport);
+  if (transport?.type === "ssh-tunnel" && normalized.type !== "ssh-tunnel") {
+    throw Object.assign(new Error("Choose an SSH profile and the Agent port on the node."), { code: "INVALID_NODE_TRANSPORT" });
+  }
+  if (normalized.type === "ssh-tunnel" && !isLoopbackAgentUrl(node.baseUrl || node.agentUrl)) {
+    throw Object.assign(new Error("A tunneled node needs a local Agent URL such as http://127.0.0.1:47132."), { code: "INVALID_NODE_TRANSPORT" });
+  }
+  const updated = normalizeAgentNode({ ...node, transport: normalized });
+  writeNodeState({ ...state, nodes: state.nodes.map((entry) => (entry.id === nodeId ? updated : entry)) });
+  return publicNode(updated);
+}
+
+// Alternate routes to the same Agent (for example its Tailscale name). Each
+// is used only after it proves the same Agent identity (nodeRouteResolver).
+function setNodeFallbackUrls(nodeId, fallbackUrls = []) {
+  const state = readNodeState();
+  const node = state.nodes.find((entry) => entry.id === nodeId);
+  if (!node) throw Object.assign(new Error("Node not found."), { code: "NODE_NOT_FOUND" });
+  const requested = Array.isArray(fallbackUrls) ? fallbackUrls : [];
+  const normalized = normalizeNodeFallbackUrls(requested, node.baseUrl || node.agentUrl);
+  if (normalized.length !== requested.filter((entry) => (typeof entry === "string" ? entry : entry?.url)).length) {
+    throw Object.assign(new Error("Each fallback must be a distinct https:// URL, or an http:// URL on your LAN or Tailscale network."), { code: "INVALID_NODE_FALLBACK_URL" });
+  }
+  const updated = normalizeAgentNode({ ...node, fallbackUrls: normalized });
+  writeNodeState({ ...state, nodes: state.nodes.map((entry) => (entry.id === nodeId ? updated : entry)) });
+  return publicNode(updated);
 }
 
 async function saveNode(payload = {}) {
@@ -1973,7 +2151,7 @@ function setNodeManualDisconnect(node, disconnected) {
       ? buildConnectionPatch({
           state: "offline",
           message: "Disconnected from AnxOS by the owner. Use Reconnect or re-pair to restore.",
-          localAgent: node.localAgent === true || isLocalAgentUrl(node.agentUrl),
+          localAgent: isExplicitLocalAgentNode(node) || isThisPcAgentUrl(node.agentUrl),
           previous: node.connection || null,
         })
       : node.connection,
@@ -2051,4 +2229,4 @@ async function deleteNode(nodeId, options = {}) {
 async function selectNode(nodeId) { getNode(nodeId); const state = readNodeState(); writeNodeState({ ...state, selectedNodeId: nodeId || APPLICATION_HOST_NODE_ID }); return listNodes({ discoverLocalAgent: false, refreshIdentity: false }); }
 async function testNode(nodeId) { return checkNodeHealth(nodeId || getSelectedNodeId(), { timeoutMs: 8000 }); }
 
-module.exports = { APPLICATION_HOST_NODE_ID, HEALTH_STATES, NODE_SCHEMA_VERSION, checkAllNodeHealth, checkNodeHealth, deleteNode, disconnectNode, getAllNodesSync, getExecutionTarget, getNode, getNodeAgentConfig, getNodeCredentialStatus, getNodeCredentialsPath, getNodesPath, getSelectedNodeId, listNodes, mergeAgentNodes, migrateState, pairNodeFromCode, postPairingComplete, postPairingStart, reconnectNode, recordAuthenticatedNodeHealth, repairNodeCredential, resolveNodeForAgentIdentity, saveNode, selectNode, testNode, testNodeConnectionPayload, updateNodeHealthState, _test: { attemptAgentEnrollmentRevocation, buildNodeCapabilities, compareAgentVersions, formatAgentCompatibilityMessage, getAgentCompatibilityReport, getNodeReportedCapabilities, normalizeAgentApiMajor, normalizeAgentCapabilitiesMetadata, normalizeAgentProtocolVersion, normalizeNodeGroup, parseComparableAgentVersion, postPairingComplete, setNodeManualDisconnect } };
+module.exports = { APPLICATION_HOST_NODE_ID, HEALTH_STATES, NODE_SCHEMA_VERSION, checkAllNodeHealth, checkNodeHealth, deleteNode, disconnectNode, getAllNodesSync, getExecutionTarget, getNode, getNodeAgentConfig, getNodeCredentialStatus, getNodeCredentialsPath, getNodesPath, getSelectedNodeId, listNodes, mergeAgentNodes, migrateState, pairNodeFromCode, postPairingComplete, postPairingStart, reconnectNode, recordAuthenticatedNodeHealth, repairNodeCredential, resolveNodeForAgentIdentity, saveNode, selectNode, setNodeFallbackUrls, setNodeTransport, testNode, testNodeConnectionPayload, updateNodeHealthState, _test: { attemptAgentEnrollmentRevocation, isWithinFailureGrace, HEALTH_FAILURE_GRACE_MS, buildNodeCapabilities, compareAgentVersions, formatAgentCompatibilityMessage, getAgentCompatibilityReport, getNodeReportedCapabilities, normalizeAgentApiMajor, normalizeAgentCapabilitiesMetadata, normalizeAgentProtocolVersion, normalizeNodeGroup, normalizeNodeTransport, normalizeNodeFallbackUrls, isPrivateNetworkHost, isLoopbackAgentUrl, parseComparableAgentVersion, postPairingComplete, setNodeManualDisconnect } };

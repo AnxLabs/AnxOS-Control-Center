@@ -13,7 +13,11 @@ const { registerInstancesIpc } = require("./src/ipc/instancesIpc");
 const { registerMarketplaceIpc } = require("./src/ipc/marketplaceIpc");
 const { registerMaintenanceIpc } = require("./src/ipc/maintenanceIpc");
 const { registerNetworkInventoryIpc } = require("./src/ipc/networkInventoryIpc");
+const { registerInfrastructureInventoryIpc } = require("./src/ipc/infrastructureInventoryIpc");
+const { registerNetworkIpc } = require("./src/ipc/networkIpc");
 const { registerNodesIpc } = require("./src/ipc/nodesIpc");
+const { registerComputersIpc } = require("./src/ipc/computersIpc");
+const { registerNotificationsIpc } = require("./src/ipc/notificationsIpc");
 const { registerOwnerWorkspaceIpc } = require("./src/ipc/ownerWorkspaceIpc");
 const { registerPlayitIpc } = require("./src/ipc/playitIpc");
 const { registerPublicAccessIpc } = require("./src/ipc/publicAccessIpc");
@@ -21,6 +25,7 @@ const { registerSecurityIpc } = require("./src/ipc/securityIpc");
 const { registerSettingsIpc } = require("./src/ipc/settingsIpc");
 const { disposeSshIpc, registerSshIpc } = require("./src/ipc/sshIpc");
 const { registerSystemIpc } = require("./src/ipc/systemIpc");
+const { registerTelemetryIpc } = require("./src/ipc/telemetryIpc");
 const { registerStorageWindowIpc } = require("./src/ipc/storageWindowIpc");
 const { registerWorkloadIpc } = require("./src/ipc/workloadIpc");
 const { registerDeveloperUpdatesIpc, registerUpdatesIpc } = require("./src/ipc/updatesIpc");
@@ -995,6 +1000,10 @@ app.whenReady().then(async () => {
     return;
   }
   logWindowLifecycle("app-ready", "Electron app ready; starting desktop initialization.");
+  // Chromium builds the accessibility tree only after a UI Automation client
+  // first asks, so that first query (screen readers, automation tools) saw an
+  // empty window. Build it from the start.
+  app.setAccessibilitySupportEnabled(true);
   instrumentIpcHandlers({
     ipcMain,
     diagnostics,
@@ -1034,12 +1043,17 @@ app.whenReady().then(async () => {
   registerBackupsIpc();
   registerPlayitIpc();
   registerPublicAccessIpc();
+  registerNetworkIpc();
+  registerTelemetryIpc();
+  registerNotificationsIpc();
   registerDockerIpc();
   registerInstancesIpc();
   registerMarketplaceIpc();
   registerMaintenanceIpc();
   registerNodesIpc();
+  registerComputersIpc();
   registerNetworkInventoryIpc();
+  registerInfrastructureInventoryIpc();
   registerAlertsIpc();
   // V2-J: the alert engine is inert without a driver. Start a bounded
   // evaluation loop over state the desktop already polls — it adds no new
@@ -1056,6 +1070,62 @@ app.whenReady().then(async () => {
     });
   } catch (error) {
     console.error("[Alerts] Scheduler start failed.", error?.message || error);
+  }
+  // V2-K: the telemetry sampler is inert without a driver. Start the bounded
+  // sampling loop over state the desktop already reads; it adds no new
+  // network surface and is stopped on quit.
+  try {
+    const telemetryService = require("./src/services/telemetryService");
+    telemetryService.startTelemetrySampler();
+    app.on("before-quit", () => {
+      try { telemetryService.stopTelemetrySampler(); } catch {}
+    });
+  } catch (error) {
+    console.error("[Telemetry] Sampler start failed.", error?.message || error);
+  }
+  // Node connectivity: keep SSH tunnels open for nodes whose Agent only
+  // listens on the node itself. Re-synced periodically so configuration
+  // changes and freed ports are picked up; closed on quit.
+  try {
+    const nodeTunnels = require("./src/services/nodeTunnelService").getNodeTunnelService();
+    nodeTunnels.sync();
+    // Route fallback shares the loop: re-check each node's routes so a home
+    // server moves between LAN and Tailscale as the desktop moves.
+    const nodeRoutes = require("./src/services/nodeRouteResolver").getNodeRouteResolver();
+    nodeRoutes.refreshAll().catch(() => {});
+    const nodeTunnelSyncTimer = setInterval(() => {
+      try { nodeTunnels.sync(); } catch {}
+      nodeRoutes.refreshAll().catch(() => {});
+    }, 30000);
+    nodeTunnelSyncTimer.unref?.();
+    app.on("before-quit", () => {
+      clearInterval(nodeTunnelSyncTimer);
+      try { nodeTunnels.stopAll(); } catch {}
+    });
+  } catch (error) {
+    console.error("[Nodes] Tunnel service start failed.", error?.message || error);
+  }
+  // V2-K: the operational notification journal only advances when evaluated.
+  // The scheduler's immediate tick seeds state through the shared collector
+  // (which degrades every unreachable service to an empty collection), and
+  // every later transition emits one deduped, redacted event.
+  try {
+    const n = require("./src/services/operationalNotificationService");
+    n.startOperationalNotificationScheduler({
+      collectState: n.createOperationalNotificationCollector({
+        nodeService: require("./src/services/nodeService"),
+        alertService: require("./src/services/alertService"),
+        serviceRouter: require("./src/services/serviceRouter"),
+        endpointService: require("./src/services/endpointService"),
+        providerIntegrationService: require("./src/services/providerIntegrationService"),
+        connectivityDiagnosticsService: require("./src/services/connectivityDiagnosticsService"),
+      }),
+    });
+    app.on("before-quit", () => {
+      try { n.stopOperationalNotificationScheduler(); } catch {}
+    });
+  } catch (error) {
+    console.error("[Notifications] Scheduler start failed.", error?.message || error);
   }
   registerWorkloadIpc();
   registerOwnerWorkspaceIpc();

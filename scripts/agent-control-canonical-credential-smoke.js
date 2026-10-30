@@ -145,6 +145,15 @@ async function main() {
     );
     assert.strictEqual(migratedGlobalConfig.schemaVersion, 1, "Reading legacy global Agent settings should apply the current schema.");
 
+    // Credential status (also reached by automatic credential repair after a
+    // rejected health check) compares the global token by fingerprint only; it
+    // must never put the global token on the wire to the node.
+    remoteRecords.length = 0;
+    const credentialStatus = await nodes.getNodeCredentialStatus("anxlab");
+    assert.strictEqual(credentialStatus.configuredAgentCredentialAvailable, true, "Credential status should still report the matching configured Agent token for local comparison.");
+    assert(remoteRecords.some((record) => record.pathname === "/api/v1/health" && record.auth === "Bearer node-token"), "Credential status probe must use the node credential.");
+    assert(!remoteRecords.some((record) => record.auth === "Bearer stale-global-token"), "Credential status probe must not send the global Agent token to the node.");
+
     writeJson(nodes.getNodesPath(), {
       schemaVersion: nodes.NODE_SCHEMA_VERSION,
       selectedNodeId: "application-host",

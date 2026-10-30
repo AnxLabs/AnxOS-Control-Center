@@ -80,6 +80,8 @@ async function visible(page, selector) {
 // ---------------------------------------------------------------------------
 const CONDITION_BUDGET_MS = 10000;
 const BOOTSTRAP_BUDGET_MS = 30000;
+// Same launch budget as onboarding-fresh-install-smoke.js.
+const WELCOME_TIMEOUT_MS = 15000;
 const CONDITION_POLL_MS = 100;
 // Every wait below fails with a diagnostic naming the condition it was waiting for,
 // so this watchdog exists only to catch a step that has NO budget of its own (a hang,
@@ -425,11 +427,35 @@ async function main() {
     await page.screenshot({ path: path.join(artifactDir, "launch-1182x821.png") });
 
     const securityGateVisible = await visible(page, "[data-security-gate]");
-    const localSetupVisible = await visible(page, "[data-local-setup-gate]");
+    let localSetupVisible = await visible(page, "[data-local-setup-gate]");
+    // Owner decision (2026-10-14): the onboarding welcome is shown on launch,
+    // as pinned by onboarding-fresh-install-smoke.js. It is deferred by 350 ms.
+    // This run always uses a fresh profile, so when the device choice is on
+    // screen (and Sign In is not) the welcome is required: its absence fails.
+    if (!securityGateVisible && localSetupVisible) {
+      await page.locator("[data-onboarding-welcome]").waitFor({ state: "visible", timeout: WELCOME_TIMEOUT_MS }).catch(() => {
+        throw new Error(`The onboarding welcome did not appear within ${WELCOME_TIMEOUT_MS}ms of launch on a fresh profile.`);
+      });
+    }
     const onboardingVisible = await visible(page, "[data-onboarding-welcome]");
+    // Unchanged requirement: nothing from First Experience may sit in front of
+    // Sign In.
     assert(!(securityGateVisible && (localSetupVisible || onboardingVisible)), "First Experience must not appear in front of Sign In.");
-    assert(!onboardingVisible, "First Experience welcome must not appear before Sign In or local-mode selection.");
+    if (onboardingVisible) {
+      // The welcome must be the real, actionable welcome; it is dismissed here
+      // (as qa-acceptance.js does) so the device-choice screen can be checked.
+      // The full welcome-to-wizard flow is covered by onboarding-fresh-install-smoke.js.
+      const welcomeTitle = (await page.locator("#onboarding-welcome-title").textContent().catch(() => "")) || "";
+      assert.strictEqual(welcomeTitle.trim(), "Welcome to AnxOS Control Center", "The launch welcome must be the onboarding welcome.");
+      const skip = page.locator('[data-onboarding-welcome] [data-onboarding-action="skip"]');
+      assert(await skip.isEnabled().catch(() => false), "The launch welcome must offer an enabled Skip action.");
+      await skip.click();
+      await page.locator("[data-onboarding-welcome]").waitFor({ state: "hidden", timeout: 5000 });
+      localSetupVisible = await visible(page, "[data-local-setup-gate]");
+    }
     if (localSetupVisible) {
+      // The device-choice screen must be reachable and actionable once the
+      // welcome is dismissed (a covering modal would make this click time out).
       await page.locator('[data-local-setup-action="use-device"]').click();
       await page.locator("[data-local-setup-gate]").waitFor({ state: "hidden", timeout: 5000 });
     }

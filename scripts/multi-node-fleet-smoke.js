@@ -326,6 +326,12 @@ async function main() {
     }
     const outageWrite = await serviceRouter.createInstance({ nodeId: nodeA.id, id: INSTANCE_A_OUTAGE_ID, displayName: "Fleet A Outage Instance", type: "custom-command", executable: process.execPath, args: ["-e", "setInterval(() => {}, 60000)"] });
     assert.strictEqual(outageWrite?.instance?.id, INSTANCE_A_OUTAGE_ID, "an instance write on node A must succeed while agent B is down.");
+    // The first failed check right after a success reads "connecting"
+    // (reconnecting grace); a second failure in a row is offline. Neither is
+    // ever reported as connected.
+    const healthBFirstFailure = await nodeService.checkNodeHealth(nodeB.id);
+    assert.strictEqual(healthBFirstFailure.state, "connecting", "node B's first failed check reads as reconnecting.");
+    assert.strictEqual(healthBFirstFailure.connected, false, "a reconnecting node B must not be connected.");
     const healthBOutage = await nodeService.checkNodeHealth(nodeB.id);
     assert.strictEqual(healthBOutage.state, "offline", "node B must report offline while its agent is down.");
     assert.strictEqual(healthBOutage.connected, false, "node B must not be connected while its agent is down.");

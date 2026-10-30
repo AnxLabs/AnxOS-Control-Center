@@ -194,6 +194,26 @@ const instanceNetworkPortInput = document.querySelector("[data-instance-network-
 const instanceNetworkAddButton = document.querySelector("[data-instance-network-add]");
 const instanceNetworkSummary = document.querySelector("[data-instance-network-summary]");
 const instanceNetworkDetails = document.querySelectorAll("[data-instance-network-detail]");
+// V2 Network/Performance tabs: the instance workspace owns a service-scoped
+// endpoint registry surface and a bounded telemetry history surface. Both are
+// lazily loaded when their tab activates, both render honest unavailable
+// states when the bridge lacks the channel, and neither polls.
+const instanceNetworkActionButtons = document.querySelectorAll("[data-instance-network-action]");
+const instanceNetworkEndpoints = document.querySelector("[data-instance-network-endpoints]");
+const instanceNetworkEmpty = document.querySelector("[data-instance-network-empty]");
+const instanceNetworkStatus = document.querySelector("[data-instance-network-status]");
+const instanceNetworkUnsupported = document.querySelector("[data-instance-network-unsupported]");
+const instanceNetworkDiagnosticsPanel = document.querySelector("[data-instance-network-diagnostics]");
+const instanceNetworkDiagnosticsSummary = document.querySelector("[data-instance-network-diagnostics-summary]");
+const instanceNetworkDiagnosticsScopes = document.querySelector("[data-instance-network-diagnostics-scopes]");
+const instanceNetworkDiagnosticsStages = document.querySelector("[data-instance-network-diagnostics-stages]");
+const instanceNetworkGraphContainer = document.querySelector("[data-instance-network-graph]");
+const instanceNetworkGraphEmpty = document.querySelector("[data-instance-network-graph-empty]");
+const instanceTelemetryRangeButtons = document.querySelectorAll("[data-instance-telemetry-range]");
+const instanceTelemetrySummary = document.querySelector("[data-instance-telemetry-summary]");
+const instanceTelemetryCharts = document.querySelector("[data-instance-telemetry-charts]");
+const instanceTelemetryEmpty = document.querySelector("[data-instance-telemetry-empty]");
+const instanceTelemetryStatus = document.querySelector("[data-instance-telemetry-status]");
 // V2-E restart schedules: the panel owns its list, its empty state, its status
 // pill and its request state. All five were referenced by
 // renderInstanceRestartSchedules / refreshRestartSchedules but never declared,
@@ -442,6 +462,8 @@ const sshEmpty = document.querySelector("[data-ssh-empty]");
 const sshSessionTabs = document.querySelector(".ssh-session-tabs");
 const sshServerSelect = document.querySelector("[data-ssh-server]");
 const sshProfileSelect = document.querySelector("[data-ssh-profile]");
+const sshAgentField = document.querySelector("[data-ssh-agent-field]");
+const sshAgentToggle = document.querySelector("[data-ssh-profile-agent]");
 const sshConnectButton = document.querySelector("[data-ssh-connect]");
 const sshDisconnectButton = document.querySelector("[data-ssh-disconnect]");
 const sshProfileDeleteButton = document.querySelector("[data-ssh-profile-delete]");
@@ -458,6 +480,7 @@ const sshProfileSaveButton = document.querySelector("[data-ssh-profile-save]");
 const sshProfileCancelButton = document.querySelector("[data-ssh-profile-cancel]");
 const sshPasswordPrompt = document.querySelector("[data-ssh-password-prompt]");
 const sshPasswordInput = document.querySelector("[data-ssh-password]");
+const sshPasswordLabel = document.querySelector("[data-ssh-password-label]");
 const sshPasswordSubmitButton = document.querySelector("[data-ssh-password-submit]");
 const sshPasswordCancelButton = document.querySelector("[data-ssh-password-cancel]");
 const sshPasswordMessage = document.querySelector("[data-ssh-password-message]");
@@ -524,6 +547,8 @@ const agentStatusDot = document.querySelector(".agent-status-dot");
 const agentControlMessage = document.querySelector("[data-agent-control-message]");
 const agentControlFields = document.querySelectorAll("[data-agent-control-field]");
 const agentControlButtons = document.querySelectorAll("[data-agent-control-action]");
+const agentLifecycleSubtitle = document.querySelector("[data-agent-lifecycle-subtitle]");
+const agentLifecycleNote = document.querySelector("[data-agent-lifecycle-note]");
 const agentBeginnerSummary = document.querySelector("[data-agent-beginner-summary]");
 const dependencyStatus = document.querySelector("[data-dependency-status]");
 const dependencyList = document.querySelector("[data-dependency-list]");
@@ -753,6 +778,15 @@ const networkInventoryMessage = document.querySelector("[data-network-inventory-
 const networkInventoryOverview = document.querySelector("[data-network-inventory-overview]");
 const networkInventoryBody = document.querySelector("[data-network-inventory-body]");
 const networkInventoryActionButtons = document.querySelectorAll("[data-network-inventory-action]");
+const infraInventoryPanel = document.querySelector("[data-infra-inventory-panel]");
+const infraInventoryStatus = document.querySelector("[data-infra-inventory-status]");
+const infraInventoryMessage = document.querySelector("[data-infra-inventory-message]");
+const infraInventoryOverview = document.querySelector("[data-infra-inventory-overview]");
+const infraInventoryNodes = document.querySelector("[data-infra-inventory-nodes]");
+const infraInventoryBody = document.querySelector("[data-infra-inventory-body]");
+const infraInventoryKindFilter = document.querySelector("[data-infra-inventory-kind]");
+const infraInventorySearch = document.querySelector("[data-infra-inventory-search]");
+const infraInventoryActionButtons = document.querySelectorAll("[data-infra-inventory-action]");
 const nodeSummaryFields = document.querySelectorAll("[data-node-summary]");
 const nodeModal = document.querySelector("[data-node-modal]");
 const nodeModalTitle = document.querySelector("[data-node-modal-title]");
@@ -774,10 +808,43 @@ const nodeHealthCategories = document.querySelector("[data-node-health-categorie
 const nodeHealthIssues = document.querySelector("[data-node-health-issues]");
 const nodeHealthStatus = document.querySelector("[data-node-health-status]");
 const nodeHealthUpdated = document.querySelector("[data-node-health-updated]");
+// Node details connectivity section (V2-K computers summary bridge). The
+// section is rebuilt on every open/refresh; it must never be blanked when the
+// node is offline, so the stale line explains the last known state instead.
+const nodeConnectivitySection = document.querySelector("[data-node-connectivity]");
+const nodeConnectivitySummary = document.querySelector("[data-node-connectivity-summary]");
+const nodeConnectivityEndpoints = document.querySelector("[data-node-connectivity-endpoints]");
+const nodeConnectivityStale = document.querySelector("[data-node-connectivity-stale]");
 const nodePickerTrigger = document.querySelector("[data-node-picker-trigger]");
 const nodePicker = document.querySelector("[data-node-picker]");
 const nodePickerList = document.querySelector("[data-node-picker-list]");
 const nodePickerStatus = document.querySelector("[data-node-picker-status]");
+// Network workspace (Endpoint Manager surface): saved endpoints CRUD, provider
+// status, connectivity diagnostics, and the connectivity graph.
+const networkShell = document.querySelector("[data-network-shell]");
+const networkSummaryFields = document.querySelectorAll("[data-network-summary]");
+const networkActionButtons = document.querySelectorAll("[data-network-action]");
+const networkProvidersPanel = document.querySelector("[data-network-providers]");
+const networkProvidersEmpty = document.querySelector("[data-network-providers-empty]");
+const networkProviderStatus = document.querySelector("[data-network-provider-status]");
+const networkLoading = document.querySelector("[data-network-loading]");
+const networkEmpty = document.querySelector("[data-network-empty]");
+const networkEndpointList = document.querySelector("[data-network-endpoint-list]");
+const networkStatusLine = document.querySelector("[data-network-status]");
+const networkDiagnosticsPanel = document.querySelector("[data-network-diagnostics]");
+const networkDiagnosticsSummary = document.querySelector("[data-diagnostics-summary]");
+const networkDiagnosticsScopes = document.querySelector("[data-diagnostics-scopes]");
+const networkDiagnosticsStages = document.querySelector("[data-diagnostics-stages]");
+const networkGraphPanel = document.querySelector("[data-network-graph]");
+const networkGraphEmpty = document.querySelector("[data-network-graph-empty]");
+const endpointModal = document.querySelector("[data-endpoint-modal]");
+const endpointModalTitle = document.querySelector("[data-endpoint-modal-title]");
+const endpointForm = document.querySelector("[data-endpoint-form]");
+const endpointFormError = document.querySelector("[data-endpoint-form-error]");
+// Field-name -> input map so open/submit code never indexes into an array.
+const endpointInputs = new Map(
+  [...document.querySelectorAll("[data-endpoint-input]")].map((input) => [input.dataset.endpointInput, input]),
+);
 const backupActionButtons = document.querySelectorAll("[data-backup-action]");
 const backupTableBody = document.querySelector(".backup-table tbody");
 const backupEmptyState = document.querySelector(".backup-empty-state");
@@ -803,6 +870,9 @@ let publicAccessUnavailableState = null;
 let selectedPublicAccessProviderId = "playit";
 let selectedPublicAccessServiceId = "playit-primary";
 let playitActionInFlight = null;
+let latestPlayitAccount = null;
+let playitLinkSession = null;
+let playitLinkPollTimer = null;
 let dockerRequestInFlight = false;
 let dockerActionRequestInFlight = false;
 let instancesRequestInFlight = false;
@@ -863,6 +933,31 @@ let fleetSummarySerial = 0;
 let fleetBatchInFlight = false;
 let networkInventoryState = { nodeId: null, status: "idle", data: null, error: null, loadedAt: 0 };
 let networkInventoryRequestInFlight = false;
+let infraInventoryState = { status: "idle", data: null, error: null };
+let infraInventoryRequestInFlight = false;
+let networkState = { endpoints: [], summary: null, providers: null, providerSyncs: null, diagnostics: null, selectedEndpointId: null, loading: false, requestId: 0, lastError: null, degraded: false };
+let networkDiagnosticsInFlight = false;
+let networkDiagnosticsSerial = 0;
+let networkProviderSyncInFlight = false;
+let networkSelectedStageId = null;
+let endpointModalCleanup = null;
+let endpointFormBusy = false;
+// Endpoint picker modal: progressive disclosure for copy/share when the
+// service has saved endpoints, with the legacy share/copy flow kept as the
+// fallback whenever no enabled endpoint exists.
+let instanceEndpointPickerCleanup = null;
+let instanceEndpointPickerState = { open: false, instanceId: null, purpose: "copy", choices: [], selectedValue: null };
+const instanceEndpointPicker = document.querySelector("[data-instance-endpoint-picker]");
+const instanceEndpointPickerTitle = document.querySelector("[data-instance-endpoint-picker-title]");
+const instanceEndpointPickerNote = document.querySelector("[data-instance-endpoint-picker-note]");
+const instanceEndpointPickerList = document.querySelector("[data-endpoint-picker-list]");
+const instanceEndpointPickerEmpty = document.querySelector("[data-endpoint-picker-empty]");
+const instanceEndpointPickerShareButton = document.querySelector('[data-endpoint-picker-action="share-details"]');
+// Instance Network/Performance tab state. Serial numbers guard out-of-order
+// completions when the operator switches instances or tabs mid-request.
+let instanceNetworkTabState = { instanceId: null, loading: false, requestId: 0, endpoints: [], degraded: false, unsupported: false, lastError: null, diagnostics: null, diagnosticsInFlight: false, diagnosticsSerial: 0, discoverInFlight: false, providerSyncInFlight: false };
+let instanceTelemetryRange = "6h";
+let instancePerformanceTabState = { instanceId: null, loading: false, requestId: 0, series: [], lastError: null, unavailable: false };
 let nodePickerActiveIndex = 0;
 const nodeRequestSerials = new Map();
 let backupRequestInFlight = false;
@@ -993,6 +1088,9 @@ let activeInstanceTab = "overview";
 let latestMinecraftProperties = {};
 let instanceConfigSnapshot = "";
 let instanceMinecraftSnapshot = "";
+// Which instance configuration the settings form currently shows (see
+// shouldRepopulateInstanceConfigForm). Every population path records it.
+const populatedInstanceConfig = { instanceId: null, nodeId: null, key: "" };
 let gameConfigState = {
   loading: false,
   loaded: false,
@@ -1030,6 +1128,7 @@ let sshSelectedServerId = null;
 let sshSelectedProfileId = null;
 let sshPasswordPromptVisible = false;
 let sshPendingPasswordProfileId = null;
+let sshCredentialPromptKind = "password";
 let sshTransientStatusMessage = "";
 let sshConnectWatchdogTimer = null;
 let sshConnectStartedAt = 0;
@@ -1295,25 +1394,40 @@ const COMMAND_PALETTE_DEBOUNCE_MS = 80;
 const COMMAND_PALETTE_RECENT_LIMIT = 8;
 const staleInstanceIds = new Set();
 const instanceRemovalAllowedIds = new Set();
+// Sidebar groups, in display order. Every primary page belongs to exactly one
+// group except Settings, which stays pinned below the groups.
+const PRIMARY_NAVIGATION_GROUPS = [
+  { id: "overview", label: "Overview", pages: ["dashboard", "notifications", "console", "operations"] },
+  { id: "servers", label: "Servers & Instances", pages: ["instances", "marketplace", "docker", "files", "backups"] },
+  { id: "infrastructure", label: "Infrastructure", pages: ["nodes", "network", "playit", "ssh", "agent-control"] },
+  { id: "administration", label: "Administration", pages: ["security", "maintenance"] },
+];
+const PRIMARY_NAVIGATION_UNGROUPED = ["settings"];
+// Groups collapsed until the user opens them (the active page's group always opens).
+const NAV_GROUPS_COLLAPSED_BY_DEFAULT = ["infrastructure", "administration"];
+const NAV_GROUPS_STORAGE_KEY = "anxos.sidebar.collapsedGroups";
 const PRIMARY_NAVIGATION_ORDER = [
   "dashboard",
-  "marketplace",
+  "notifications",
+  "console",
+  "operations",
   "instances",
+  "marketplace",
   "docker",
   "files",
-  "ssh",
-  "playit",
-  "console",
   "backups",
-  "operations",
-  "notifications",
-  "maintenance",
-  "security",
-  "agent-control",
   "nodes",
+  "network",
+  "playit",
+  "ssh",
+  "agent-control",
+  "security",
+  "maintenance",
   "settings",
 ];
 const LEGACY_PRIMARY_PAGES = new Set(["minecraft", "amp", "coolpals"]);
+// Instance health states that the Instances summary tiles do not already show.
+const INSTANCE_HEALTH_EXTRA_BUCKETS = ["unavailable", "unhealthy", "failed", "unknown"];
 const INSTANCE_WORKSPACE_PROFILES = [
   {
     id: "minecraft",
@@ -1431,6 +1545,12 @@ const DEFAULT_SETTINGS = {
   "network.proxyMode": "system",
   "network.proxyUrl": "",
   "network.proxyBypass": "localhost,127.0.0.1",
+  // Mirrors the trusted settings schema (settingsPreferenceService
+  // telemetry.* definitions) so the local fallback and first render agree with
+  // the main-process defaults: enabled, 2 min sampling, 7 day retention.
+  "telemetry.enabled": true,
+  "telemetry.samplingIntervalMs": 120000,
+  "telemetry.retentionDays": 7,
   "performance.hardwareAcceleration": true,
   "performance.refreshIntervalMs": 3000,
   "performance.pausePollingMinimized": true,
@@ -1525,6 +1645,7 @@ const PAGE_INTRODUCTIONS = {
   "agent-control": ["Manage AnxOS connections", "Check the desktop host, local Agent, remote Agents, service registration, logs, and diagnostics."],
   security: ["Review security settings", "Inspect account, session, token, audit, and security status. Some controls are Owner-only."],
   nodes: ["Manage systems / nodes", "Register and switch between this desktop application host and remote Agent systems."],
+  network: ["Endpoints and connectivity", "Manage saved endpoints, provider status, connectivity diagnostics, and the connectivity graph for the selected system / node."],
   settings: ["Customize AnxOS", "Change local preferences, guidance options, connections, updates, and Owner-only administration settings."],
   operations: ["Track background work", "Review installs, file transfers, dependency jobs, and other long-running operations."],
   maintenance: ["Clean up and repair", "Run supported cleanup, maintenance, and UI-state reset actions."],
@@ -2610,8 +2731,8 @@ function configurePrimaryNavigation() {
 
   orderedItems.forEach((item) => {
     item.hidden = false;
-    navMenu.appendChild(item);
   });
+  buildNavigationGroups(navMenu);
 
   navMenu.querySelectorAll("[data-page-target]").forEach((item) => {
     const pageTarget = item.dataset.pageTarget;
@@ -2620,6 +2741,100 @@ function configurePrimaryNavigation() {
       item.removeAttribute("aria-current");
     }
   });
+  syncNavigationGroupVisibility();
+}
+
+function readCollapsedNavGroups() {
+  try {
+    const stored = window.localStorage.getItem(NAV_GROUPS_STORAGE_KEY);
+    if (stored === null) return new Set(NAV_GROUPS_COLLAPSED_BY_DEFAULT);
+    const parsed = JSON.parse(stored);
+    return new Set(Array.isArray(parsed) ? parsed.filter((id) => typeof id === "string") : NAV_GROUPS_COLLAPSED_BY_DEFAULT);
+  } catch {
+    return new Set(NAV_GROUPS_COLLAPSED_BY_DEFAULT);
+  }
+}
+
+function storeCollapsedNavGroups() {
+  const collapsed = [...document.querySelectorAll(".nav-group.is-collapsed")].map((group) => group.dataset.navGroup);
+  try {
+    window.localStorage.setItem(NAV_GROUPS_STORAGE_KEY, JSON.stringify(collapsed));
+  } catch {
+    // Storage can be unavailable; the groups still work for this session.
+  }
+}
+
+function setNavGroupCollapsed(group, collapsed) {
+  group.classList.toggle("is-collapsed", collapsed);
+  group.querySelector(".nav-group__toggle")?.setAttribute("aria-expanded", collapsed ? "false" : "true");
+}
+
+// Moves the primary items into collapsible groups (once). The items keep their
+// elements, attributes and listeners; only their parent changes.
+function buildNavigationGroups(navMenu) {
+  if (navMenu.querySelector(".nav-group")) return;
+  const collapsed = readCollapsedNavGroups();
+  PRIMARY_NAVIGATION_GROUPS.forEach((definition) => {
+    const group = document.createElement("div");
+    group.className = "nav-group";
+    group.dataset.navGroup = definition.id;
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "nav-group__toggle";
+    toggle.setAttribute("aria-controls", `nav-group-${definition.id}`);
+    const label = document.createElement("span");
+    label.className = "nav-group__label";
+    label.textContent = definition.label;
+    const chevron = document.createElement("span");
+    chevron.className = "nav-group__chevron";
+    chevron.setAttribute("aria-hidden", "true");
+    toggle.append(label, chevron);
+    toggle.addEventListener("click", () => {
+      setNavGroupCollapsed(group, !group.classList.contains("is-collapsed"));
+      storeCollapsedNavGroups();
+    });
+    const items = document.createElement("div");
+    items.className = "nav-group__items";
+    items.id = `nav-group-${definition.id}`;
+    items.setAttribute("role", "group");
+    items.setAttribute("aria-label", definition.label);
+    definition.pages.forEach((pageName) => {
+      const item = navMenu.querySelector(`[data-page-target="${pageName}"]`);
+      if (item) items.appendChild(item);
+    });
+    group.append(toggle, items);
+    navMenu.appendChild(group);
+    setNavGroupCollapsed(group, collapsed.has(definition.id));
+  });
+  PRIMARY_NAVIGATION_UNGROUPED.forEach((pageName) => {
+    const item = navMenu.querySelector(`[data-page-target="${pageName}"]`);
+    if (item) {
+      item.classList.add("nav-item--pinned");
+      navMenu.appendChild(item);
+    }
+  });
+  // Permissions and feature checks hide items after startup; a group with no
+  // visible item hides its header too.
+  if (typeof MutationObserver === "function") {
+    new MutationObserver(syncNavigationGroupVisibility).observe(navMenu, { subtree: true, attributes: true, attributeFilter: ["hidden"] });
+  }
+}
+
+function syncNavigationGroupVisibility() {
+  document.querySelectorAll(".nav-group").forEach((group) => {
+    const hasVisibleItem = [...group.querySelectorAll("[data-page-target]")].some((item) => !item.hidden);
+    if (group.hidden === hasVisibleItem) group.hidden = !hasVisibleItem;
+  });
+}
+
+// The active page's group always opens, so the current page is never hidden.
+function revealNavigationGroupFor(pageName) {
+  const item = document.querySelector(`.nav-group [data-page-target="${pageName}"]`);
+  const group = item?.closest(".nav-group");
+  if (group?.classList.contains("is-collapsed")) {
+    setNavGroupCollapsed(group, false);
+    storeCollapsedNavGroups();
+  }
 }
 
 function setStartupStep(name, status) {
@@ -4487,6 +4702,19 @@ function syncPagePollingForVisibility() {
   if (page === "owner-workspace") startOwnerAnalyticsPolling();
 }
 
+// The card entrance animation (styles.css "Motion polish") applies only while
+// a page carries .is-entering, so cards rebuilt by later refreshes appear in
+// place instead of animating in again every few seconds.
+const PAGE_ENTERING_MS = 700;
+let pageEnteringTimer = null;
+
+function markPageEntering(page) {
+  pages.forEach((item) => item.classList.remove("is-entering"));
+  window.clearTimeout(pageEnteringTimer);
+  page.classList.add("is-entering");
+  pageEnteringTimer = window.setTimeout(() => page.classList.remove("is-entering"), PAGE_ENTERING_MS);
+}
+
 function showPage(pageName) {
   const safePageName = getSafePageName(pageName);
   if (safePageName === "owner-workspace" && !isOwnerWorkspaceAuthorized()) {
@@ -4503,6 +4731,7 @@ function showPage(pageName) {
       item.removeAttribute("aria-current");
     }
   });
+  revealNavigationGroupFor(safePageName);
   ownerWorkspaceToggle?.classList.toggle("is-active", safePageName === "owner-workspace");
   if (safePageName === "owner-workspace") {
     ownerWorkspaceToggle?.setAttribute("aria-current", "page");
@@ -4526,8 +4755,14 @@ function showPage(pageName) {
     stopNodeRefreshPolling();
   }
 
+  if (safePageName === "network") {
+    refreshNetworkPage();
+  }
+
+  const pageChanged = activePageName !== safePageName;
   pages.forEach((page) => {
     page.classList.toggle("is-active", page.dataset.page === safePageName);
+    if (pageChanged && page.dataset.page === safePageName) markPageEntering(page);
   });
   // The tracked value is set at exactly the point the DOM becomes authoritative
   // (the loop above), so every getActivePageName() call before this line and
@@ -4575,6 +4810,7 @@ function showPage(pageName) {
 
   if (safePageName === "notifications") {
     loadAlerts().catch(() => {});
+    syncOperationalNotifications();
   }
 
   if (safePageName === "console") {
@@ -4650,6 +4886,9 @@ async function refreshActiveWorkspace() {
       break;
     case "nodes":
       refreshTasks = [refreshNodes(), refreshFleetSummary()];
+      break;
+    case "network":
+      refreshTasks = [refreshNetworkPage({ force: true })];
       break;
     case "agent-control":
       refreshTasks = [refreshAgentControl({ includeConfig: true })];
@@ -5058,6 +5297,16 @@ function getSshProfileForNode(nodeId = getSelectedNodeId()) {
 // Remote Agent push updates run in main over SSH against the node's managed
 // systemd user unit. The renderer only decides whether the button is offered;
 // main re-checks platform, key auth, approved host identity, and the unit.
+// nodeId -> result of nodes:verifyAgentControl (read-only access check). SSH
+// Start/Stop/Restart and Update stay disabled until it passes for the node's
+// current profile; the main process re-checks the target on every action.
+const remoteAgentAccessVerifications = new Map();
+
+function getRemoteAgentAccessVerification(nodeId, profile) {
+  const verification = remoteAgentAccessVerifications.get(nodeId) || null;
+  return verification && profile && verification.profileId === profile.id ? verification : null;
+}
+
 function getRemoteAgentUpdateSupport(target = getAgentControlOverviewTarget()) {
   if (!target || isAgentTargetLocal(target)) return { supported: false, reason: "local" };
   const nodeId = target.nodeId || getSelectedNodeId();
@@ -5068,13 +5317,58 @@ function getRemoteAgentUpdateSupport(target = getAgentControlOverviewTarget()) {
   const profile = getSshProfileForNode(nodeId);
   if (!profile) return { supported: false, reason: "profile", nodeId, node };
   if (profile.authType !== "privateKey") return { supported: false, reason: "key", nodeId, node, profile };
-  return { supported: true, reason: "ready", nodeId, node, profile };
+  const verification = getRemoteAgentAccessVerification(nodeId, profile);
+  if (verification?.verified !== true) return { supported: false, reason: "unverified", nodeId, node, profile, verification };
+  return { supported: true, reason: "ready", nodeId, node, profile, verification };
 }
 
 function getRemoteAgentUpdateBlockMessage(support = {}) {
   if (support.reason === "platform") return "Automatic Agent updates over SSH are available for Linux nodes only.";
   if (support.reason === "key") return "The node's SSH profile must use key authentication for an unattended Agent update.";
+  if (support.reason === "unverified") return support.verification?.message || "Select Verify Access first: AnxOS confirms this SSH profile reaches this node.";
   return "Assign an SSH profile to this node before updating its Agent from this Desktop.";
+}
+
+// Remote Agent Start / Stop / Restart (nodes:controlAgent). SSH with a key
+// profile on a Linux node allows all three; without it, Restart is still
+// available when the node's Agent advertises capabilities.selfRestart. The
+// main process re-checks everything when the action runs.
+function getRemoteAgentLifecycleSupport(target = getAgentControlOverviewTarget()) {
+  const ssh = getRemoteAgentUpdateSupport(target);
+  if (ssh.reason === "local") return { local: true };
+  const node = ssh.node || null;
+  const selfRestart = node?.capabilitiesMetadata?.selfRestart?.supported === true
+    || node?.connection?.capabilities?.selfRestart?.supported === true;
+  const sudoBlocked = ssh.supported === true && ssh.verification?.scope === "system" && ssh.verification?.sudoReady !== true;
+  const viaSsh = ssh.supported === true && !sudoBlocked;
+  const reason = viaSsh
+    ? null
+    : sudoBlocked
+      ? `${ssh.profile?.username || "This SSH user"} can't run systemctl for anxos-agent without a password on this node. Add it to the anxos-control group, then Verify Access again.`
+    : ssh.reason === "unverified"
+      ? (ssh.verification?.message || `Select Verify Access to confirm "${ssh.profile?.displayName || ssh.profile?.id}" reaches this node before Start, Stop or Restart.`)
+    : ssh.reason === "platform"
+      ? "Agent Start, Stop and Restart from this Desktop are available for Linux nodes."
+      : selfRestart
+        ? "Start and Stop need an SSH key profile assigned to this node; Restart goes through the Agent."
+        : "Assign an SSH key profile to this node (or update its Agent) to control it from here.";
+  return {
+    local: false,
+    nodeId: ssh.nodeId,
+    node,
+    profile: ssh.profile || null,
+    canVerify: Boolean(ssh.profile && ssh.profile.authType === "privateKey" && ssh.reason !== "platform"),
+    verification: ssh.verification || null,
+    mechanism: viaSsh ? "ssh" : selfRestart ? "agent-api" : null,
+    actions: { start: viaSsh, stop: viaSsh, restart: viaSsh || selfRestart },
+    reason,
+  };
+}
+
+function describeRemoteAgentLifecycle(support = {}) {
+  if (support.mechanism === "ssh") return `systemd over SSH · ${support.profile?.displayName || support.profile?.name || support.profile?.id || "SSH key"}`;
+  if (support.mechanism === "agent-api") return "Restart through the Agent · add an SSH key for Start/Stop";
+  return "Not controllable from here";
 }
 
 function getAgentTargetLabel(target = {}) {
@@ -5287,6 +5581,7 @@ function renderAgentControlState(payload = agentControlState) {
   const remoteUpdate = isLocalTarget ? { supported: false, reason: "local" } : getRemoteAgentUpdateSupport(local);
   const capabilities = runtime?.capabilities || {};
   const lifecycleSupported = capabilities.lifecycle === true || (isLocalTarget && local.lifecycleSupported !== false);
+  const remoteLifecycle = isLocalTarget ? { local: true } : getRemoteAgentLifecycleSupport(local);
   const repairSupported = capabilities.repair === true || lifecycleSupported;
   const compatibilityView = getAgentCompatibilityView(local, runtime);
   const state = local.state || "Unavailable";
@@ -5313,7 +5608,9 @@ function renderAgentControlState(payload = agentControlState) {
   setAgentControlField("agentVersion", runtime?.version || local.agentVersion || local.identity?.agentVersion);
   setAgentControlField("pid", formatAgentProcess(runtime, state));
   const startupSummary = local.startupSummary || payload?.local?.startupSummary || null;
-  setAgentControlField("service", service.supported ? `${startupSummary?.label || `${service.type} · ${service.registrationStatus || service.state}`}${serviceNeedsElevation ? " · Administrator required" : ""}` : "Unsupported");
+  setAgentControlField("service", !isLocalTarget
+    ? describeRemoteAgentLifecycle(remoteLifecycle)
+    : service.supported ? `${startupSummary?.label || `${service.type} · ${service.registrationStatus || service.state}`}${serviceNeedsElevation ? " · Administrator required" : ""}` : "Unsupported");
   setAgentControlField("url", local.agentUrl);
   setAgentControlField("latency", Number.isFinite(runtime?.latencyMs ?? local.latencyMs) ? `${runtime?.latencyMs ?? local.latencyMs} ms` : "Unavailable");
   setAgentControlField("uptime", Number.isFinite(runtime?.uptimeSeconds ?? local.uptime) ? formatDuration(runtime?.uptimeSeconds ?? local.uptime) : "Unavailable");
@@ -5333,12 +5630,30 @@ function renderAgentControlState(payload = agentControlState) {
   setAgentLifecycleField("deviceId", local.identity?.deviceId || local.agentIdentity?.deviceId || local.deviceId);
   renderAgentCompatibilityCard(local, runtime);
   renderMobilePairingClaim();
+  if (agentLifecycleSubtitle) {
+    agentLifecycleSubtitle.textContent = isLocalTarget
+      ? "Start, stop, restart, or repair the managed Local Agent process."
+      : `Start, stop, or restart the Agent on ${remoteLifecycle.node?.displayName || local.name || "this node"}.`;
+  }
+  // Disabled buttons only explain themselves on hover, so the reason a remote
+  // node can't be controlled is also shown inline.
+  if (agentLifecycleNote) {
+    const note = isLocalTarget ? "" : remoteLifecycle.reason || "";
+    agentLifecycleNote.textContent = note;
+    agentLifecycleNote.hidden = !note;
+  }
   agentControlButtons.forEach((button) => {
     const action = button.dataset.agentControlAction;
     const disabled = busy
       || (compatibilityView.incompatible && INCOMPATIBLE_AGENT_PROTECTED_ACTIONS.has(action))
-      || (action === "start" && (!lifecycleSupported || running))
-      || (["stop", "restart", "forceRestart"].includes(action) && (!lifecycleSupported || !running))
+      || (isLocalTarget && action === "start" && (!lifecycleSupported || running))
+      || (isLocalTarget && ["stop", "restart", "forceRestart"].includes(action) && (!lifecycleSupported || !running))
+      // Remote: Start needs the Agent down, Stop and Restart need it up; Force
+      // Restart (kill the process) only exists for this PC's Agent.
+      || (!isLocalTarget && action === "start" && (!remoteLifecycle.actions?.start || running))
+      || (!isLocalTarget && ["stop", "restart"].includes(action) && (!remoteLifecycle.actions?.[action] || !running))
+      || (!isLocalTarget && action === "forceRestart")
+      || (action === "verifyRemoteControl" && (isLocalTarget || !remoteLifecycle.canVerify))
       || (action === "repairAgent" && (!repairSupported || serviceNeedsElevation))
       || (action === "stopOldLocalAgentAndRepair" && !repairSupported)
       || (action === "installService" && (!lifecycleSupported || service.installed || serviceNeedsElevation))
@@ -5362,6 +5677,19 @@ function renderAgentControlState(payload = agentControlState) {
       button.title = remoteUpdate.supported
         ? "Upload this Desktop's bundled Agent runtime to the node over SSH, restart its Agent, and verify it. Instances on that node stop during the restart."
         : getRemoteAgentUpdateBlockMessage(remoteUpdate);
+      button.setAttribute("aria-description", button.title);
+    } else if (!isLocalTarget && ["start", "stop", "restart"].includes(action) && !remoteLifecycle.actions?.[action]) {
+      button.title = remoteLifecycle.reason || "Not available for this node.";
+      button.setAttribute("aria-description", button.title);
+    } else if (action === "verifyRemoteControl") {
+      button.title = isLocalTarget
+        ? "Access checks are for remote nodes."
+        : remoteLifecycle.canVerify
+          ? "Read-only check: sign in with the node's SSH key profile and confirm it reaches this node. Nothing is started or stopped."
+          : "Assign an SSH key profile to this node first.";
+      button.setAttribute("aria-description", button.title);
+    } else if (!isLocalTarget && action === "forceRestart") {
+      button.title = "Force Restart is only available for this PC's Agent. Use Restart for a node.";
       button.setAttribute("aria-description", button.title);
     } else if (action === "pairMobileDevice" && isLocalTarget) {
       button.title = "Pair mobile devices to a node Agent. This is the application host — use Connect this computer to AnxOS instead.";
@@ -6737,8 +7065,17 @@ async function runAgentControlAction(action) {
   const actionTarget = getAgentControlOverviewTarget();
   const isLocalActionTarget = isAgentTargetLocal(actionTarget);
   const remoteUpdateSupport = isLocalActionTarget ? { supported: false, reason: "local" } : getRemoteAgentUpdateSupport(actionTarget);
+  const remoteLifecycleAction = !isLocalActionTarget && ["start", "stop", "restart"].includes(action);
+  const remoteNodeName = actionTarget?.identity?.hostname || actionTarget?.displayName || actionTarget?.name || "this node";
+  if (remoteLifecycleAction && action !== "start" && !(await createSecurityConfirmation({
+    title: action === "stop" ? `Stop the Agent on ${remoteNodeName}?` : `Restart the Agent on ${remoteNodeName}?`,
+    message: action === "stop"
+      ? "Instances the Agent runs on that node stop, and AnxOS cannot reach the node until its Agent is started again (Start needs the node's SSH key profile). Services managed by systemd keep running."
+      : "Instances the Agent runs on that node stop while it restarts. Services managed by systemd keep running.",
+    confirmLabel: action === "stop" ? "Stop Agent" : "Restart Agent",
+  }))) return;
   const destructive = { stop: ["Stop local Agent?", "Active Agent operations will disconnect."], forceRestart: ["Force restart local Agent?", "The Agent process will be terminated immediately."], repairAgent: ["Repair local Agent?", "Background registration will be reinstalled and the Agent restarted."], stopOldLocalAgentAndRepair: ["Stop Old Local Agent and Repair?", "AnxOS will stop only a verified old AnxOS Local Agent process, recreate local credentials, and repair Windows startup registration."], updateAgent: remoteUpdateSupport.supported ? ["Update the Agent on this node?", "AnxOS will upload this Desktop's bundled Agent runtime to the node over SSH, back up the live runtime, restart the node's Agent, and verify it. Instances running on that node stop during the restart."] : ["Update Local Agent?", "AnxOS will back up Agent configuration, stop the Local Agent, repair the bundled runtime registration, restart it, and verify health."], pairMobileDevice: ["Pair a mobile device to this node?", "The node's Agent credential is replaced with a new one for the phone. This Desktop switches to the new credential automatically; any other device still using the old one loses access until it is re-paired."], uninstallService: ["Uninstall Agent background service?", "Automatic startup will be removed."], resetConfig: ["Reset Agent configuration?", "Current settings will be backed up before defaults are restored."] }[action];
-  if (destructive && !(await createSecurityConfirmation({ title: destructive[0], message: destructive[1], confirmLabel: "Continue" }))) return;
+  if (destructive && !remoteLifecycleAction && !(await createSecurityConfirmation({ title: destructive[0], message: destructive[1], confirmLabel: "Continue" }))) return;
   if (action === "startPairingSession" && getAgentPairingTargetPayload().local === true && agentPairingNetworkOptIn?.checked === true) {
     // When the Agent is already reachable, the service writes no opt-in marker
     // and the bind is not touched: the confirmation must not promise a restore
@@ -6781,9 +7118,9 @@ async function runAgentControlAction(action) {
     resetConfig: "Reset Agent configuration",
     runDiagnostics: "Run Agent diagnostics",
     refreshLogs: "Refresh Agent logs",
-    start: "Start local Agent",
-    stop: "Stop local Agent",
-    restart: "Restart local Agent",
+    start: isLocalActionTarget ? "Start local Agent" : "Start node Agent",
+    stop: isLocalActionTarget ? "Stop local Agent" : "Stop node Agent",
+    restart: isLocalActionTarget ? "Restart local Agent" : "Restart node Agent",
     forceRestart: "Force restart local Agent",
     installService: "Install Agent service",
     uninstallService: "Uninstall Agent service",
@@ -6940,6 +7277,32 @@ async function runAgentControlAction(action) {
     else if (action === "resetConfig") populateAgentConfig(await api.resetConfig());
     else if (action === "runDiagnostics") renderAgentDiagnostics(await api.diagnostics());
     else if (action === "refreshLogs") await refreshAgentLogs();
+    else if (action === "verifyRemoteControl") {
+      const nodesApi = getDesktopApiState().api?.nodes;
+      if (typeof nodesApi?.verifyAgentControl !== "function") throw new Error("Remote Agent access checks are unavailable in this build.");
+      const support = getRemoteAgentLifecycleSupport(actionTarget);
+      const nodeId = support.nodeId || getSelectedNodeId();
+      try {
+        const result = await nodesApi.verifyAgentControl(nodeId);
+        remoteAgentAccessVerifications.set(nodeId, { ...result, verified: result?.verified === true });
+        const sudoNote = result?.scope === "system" && result?.sudoReady !== true ? " The SSH user still needs passwordless systemctl (anxos-control group)." : "";
+        if (agentControlMessage) agentControlMessage.textContent = `Access verified: ${support.profile?.displayName || "the SSH profile"} reaches ${result?.hostname || remoteNodeName} (${result?.scope} unit).${sudoNote}`;
+      } catch (error) {
+        remoteAgentAccessVerifications.set(nodeId, { verified: false, profileId: support.profile?.id || null, message: normalizeIpcErrorMessage(error, "Access check failed.").replace(/^[A-Z][A-Z0-9_]{2,}:\s*/, "") });
+        throw error;
+      }
+    }
+    else if (remoteLifecycleAction) {
+      const nodesApi = getDesktopApiState().api?.nodes;
+      if (typeof nodesApi?.controlAgent !== "function") throw new Error("Remote Agent control is unavailable in this build.");
+      const support = getRemoteAgentLifecycleSupport(actionTarget);
+      const result = await nodesApi.controlAgent(support.nodeId || getSelectedNodeId(), action);
+      const how = result?.mechanism === "agent-api" ? " (through the Agent)" : result?.scope ? ` (systemd ${result.scope} unit over SSH)` : "";
+      const done = { start: "started", stop: "stopped", restart: "restarted" }[action];
+      if (agentControlMessage) agentControlMessage.textContent = `Agent ${done} on ${remoteNodeName}${how}.`;
+      showToast(`Agent ${done} on ${remoteNodeName}.`, "success");
+      await refreshNodes();
+    }
     else if (typeof api[action] === "function") await api[action]();
     finishOperation(operationId, true, "Agent operation completed.");
     showToast("Agent operation completed.", "success");
@@ -8727,24 +9090,225 @@ function renderPlayitTunnels(result = {}) {
     top.append(createTextElement("strong", tunnel.name || tunnel.id || "Playit tunnel"));
     const status = createTextElement("span", tunnel.status || "unknown", `status-pill ${tunnel.status === "online" ? "status-pill--ok" : tunnel.status === "offline" ? "status-pill--warning" : "status-pill--planned"}`);
     top.append(status);
+    const address = document.createElement("div");
+    address.className = "playit-tunnel-item__address";
+    address.append(createTextElement("code", tunnel.publicAddress || "Public address not reported"));
+    if (tunnel.publicAddress) {
+      const copy = createPlayitServiceActionButton(`playit-copy:${tunnel.id}`, "Copy");
+      copy.classList.add("playit-tunnel-copy");
+      copy.dataset.publicAddress = tunnel.publicAddress;
+      copy.setAttribute("aria-label", `Copy public address ${tunnel.publicAddress}`);
+      address.append(copy);
+    }
     const endpoints = document.createElement("div");
     endpoints.className = "playit-tunnel-item__endpoints";
     endpoints.append(
-      createTextElement("span", `Local: ${tunnel.localHost || "unknown"}${tunnel.localPort ? `:${tunnel.localPort}` : ""}`),
-      createTextElement("span", `Public: ${tunnel.publicAddress || "unknown"}`),
+      createTextElement("span", `Local ${tunnel.localHost || "unknown"}${tunnel.localPort ? `:${tunnel.localPort}` : ""}`),
+      createTextElement("span", `Server: ${tunnel.matchedInstanceName || "Not matched"}`),
     );
     const badges = document.createElement("div");
     badges.className = "playit-tunnel-item__badges";
-    [tunnel.protocol, tunnel.type, tunnel.matchedInstanceName].filter(Boolean).forEach((label) => badges.append(createTextElement("span", label, "status-pill status-pill--planned")));
-    if (tunnel.publicAddress) {
-      const copy = createPlayitServiceActionButton(`playit-copy:${tunnel.id}`, "Copy public endpoint");
-      copy.classList.add("playit-tunnel-copy");
-      copy.dataset.publicAddress = tunnel.publicAddress;
-      badges.append(copy);
-    }
-    item.append(top, endpoints, badges);
+    [tunnel.protocol, tunnel.type].filter(Boolean).forEach((label) => badges.append(createTextElement("span", label, "status-pill status-pill--planned")));
+    item.append(top, address, endpoints, badges);
     playitTunnelList.append(item);
   });
+  renderPlayitAccount();
+}
+
+// Playit account: the guided Install -> Start -> Link Account -> View Tunnels
+// -> Manage flow. Linking uses Playit's own browser approval; the main process
+// opens the playit.gg page and the renderer only sees progress.
+const PLAYIT_ACCOUNT_STEPS = ["install", "start", "link", "tunnels", "manage"];
+const PLAYIT_LINK_POLL_MS = 2000;
+
+function isPlayitLinkActive(session) {
+  return ["starting", "awaiting-approval"].includes(session?.state);
+}
+
+function getPlayitAccountCurrentStep(account = latestPlayitAccount) {
+  if (!account || account.ok === false) return null;
+  if (!account.installed) return "install";
+  if (!account.running) return "start";
+  if (account.linked !== true) return "link";
+  return latestPlayitTunnels.length ? "manage" : "tunnels";
+}
+
+function getPlayitAccountSummary(account, step) {
+  const nodeName = getSelectedNode()?.displayName || "this computer";
+  if (!account) return { pill: "Checking", tone: "status-pill--planned", message: `Checking Playit on ${nodeName}...` };
+  if (account.ok === false) {
+    if (isPlayitEndpointUnsupported(account.error || account)) {
+      return { pill: "Agent update", tone: "status-pill--warning", message: "Account linking needs an Agent update on this node. Until then, you can set a manual address under Settings > Connections > Advanced." };
+    }
+    return { pill: "Unavailable", tone: "status-pill--warning", message: account.error?.message || account.message || "Playit account status is unavailable." };
+  }
+  if (step === "install") return { pill: "Not installed", tone: "status-pill--warning", message: `Playit isn't installed on ${nodeName} yet. Install it to get public addresses for your servers.` };
+  if (step === "start") {
+    return account.linked === true
+      ? { pill: "Stopped", tone: "status-pill--warning", message: "Playit is linked but not running. Start it to bring your tunnels online." }
+      : { pill: "Stopped", tone: "status-pill--warning", message: "Start Playit to continue setup." };
+  }
+  if (step === "link") {
+    if (playitLinkSession?.state === "awaiting-approval") {
+      return { pill: "Waiting for approval", tone: "status-pill--planned", message: "Approve the link on playit.gg in your browser. This page updates by itself when you're done." };
+    }
+    if (playitLinkSession?.state === "starting") {
+      return { pill: "Linking", tone: "status-pill--planned", message: "Asking Playit for an approval link..." };
+    }
+    if (account.linked === null) {
+      return { pill: "Unknown", tone: "status-pill--planned", message: "AnxOS couldn't confirm whether Playit is linked, so it won't change anything. Check Playit's own setup, then check again." };
+    }
+    return { pill: "Not linked", tone: "status-pill--warning", message: "Link Playit to your Playit.gg account. You approve it in your browser; AnxOS never sees your password." };
+  }
+  const count = latestPlayitTunnels.length;
+  return {
+    pill: "Linked",
+    tone: "status-pill--ok",
+    message: count
+      ? `Linked to Playit.gg. ${count} tunnel${count === 1 ? "" : "s"} found below.`
+      : "Linked to Playit.gg. Create a tunnel on playit.gg (Manage) and it will appear below.",
+  };
+}
+
+function renderPlayitAccount(account = latestPlayitAccount) {
+  const card = document.querySelector("[data-playit-account-card]");
+  if (!card) return;
+  const step = getPlayitAccountCurrentStep(account);
+  const summary = getPlayitAccountSummary(account, step);
+  const pill = card.querySelector("[data-playit-account-pill]");
+  if (pill) {
+    pill.className = `status-pill ${summary.tone}`;
+    pill.textContent = summary.pill;
+  }
+  const message = card.querySelector("[data-playit-account-message]");
+  if (message) message.textContent = summary.message;
+  const currentIndex = PLAYIT_ACCOUNT_STEPS.indexOf(step);
+  card.querySelectorAll("[data-playit-step]").forEach((item) => {
+    const index = PLAYIT_ACCOUNT_STEPS.indexOf(item.dataset.playitStep);
+    item.classList.toggle("is-done", currentIndex > index);
+    item.classList.toggle("is-current", currentIndex === index);
+    if (currentIndex === index) item.setAttribute("aria-current", "step");
+    else item.removeAttribute("aria-current");
+  });
+  const actions = card.querySelector("[data-playit-account-actions]");
+  if (!actions) return;
+  actions.replaceChildren();
+  const button = (action, label, options) => createPlayitServiceActionButton(action, label, options);
+  if (step === "install") {
+    actions.append(button("playit-account-install", "Install Playit", { primary: true }), button("playit-account-download", "Open download page"));
+  } else if (step === "start") {
+    actions.append(button("playit-start", "Start Playit", { primary: true }));
+  } else if (step === "link" && isPlayitLinkActive(playitLinkSession)) {
+    actions.append(
+      button("playit-account-link-open", "Open approval page", { primary: true, disabled: !playitLinkSession.hasLink }),
+      button("playit-account-link-cancel", "Cancel"),
+    );
+  } else if (step === "link" && account.linked === false) {
+    actions.append(button("playit-account-link", "Link Playit account", { primary: true }));
+  } else if (step === "tunnels" || step === "manage") {
+    actions.append(button("playit-account-manage", "Manage on Playit.gg", { primary: step === "tunnels" }), button("playit-refresh-tunnels", "Refresh tunnels"));
+  }
+  if (!isPlayitLinkActive(playitLinkSession)) actions.append(button("playit-account-refresh", "Check again"));
+}
+
+async function refreshPlayitAccount(payload = getNodeScopedPayload(getNodeRequestContext("playit-account")), requestContext = getNodeRequestContext("playit-account")) {
+  const api = getDesktopApiState().api?.publicAccess;
+  if (typeof api?.getPlayitAccount !== "function") return null;
+  const result = await api.getPlayitAccount(payload).catch((error) => ({ ok: false, error }));
+  if (!isNodeRequestCurrent(requestContext)) return null;
+  latestPlayitAccount = result;
+  renderPlayitAccount(result);
+  return result;
+}
+
+function getPlayitLinkPayload(session = playitLinkSession) {
+  return { nodeId: session?.nodeId || getSelectedNodeId(), linkId: session?.id };
+}
+
+function schedulePlayitLinkPoll() {
+  clearTimeout(playitLinkPollTimer);
+  playitLinkPollTimer = isPlayitLinkActive(playitLinkSession) ? setTimeout(pollPlayitAccountLink, PLAYIT_LINK_POLL_MS) : null;
+}
+
+async function finishPlayitAccountLink(session) {
+  playitLinkSession = null;
+  clearTimeout(playitLinkPollTimer);
+  if (session?.state === "linked") showToast("Playit is linked. Loading your tunnels...", "success");
+  else if (session?.state && session.state !== "cancelled") showToast(session.message || "Playit linking did not finish.", "warning");
+  await refreshPlayitStatus();
+}
+
+async function pollPlayitAccountLink() {
+  const session = playitLinkSession;
+  if (!session) return;
+  if (session.nodeId !== getSelectedNodeId()) {
+    // The node changed; the attempt keeps running there until it expires.
+    playitLinkSession = null;
+    renderPlayitAccount();
+    return;
+  }
+  const result = await getDesktopApiState().api?.publicAccess?.getPlayitLink?.(getPlayitLinkPayload(session)).catch((error) => ({ ok: false, error }));
+  if (playitLinkSession !== session) return;
+  if (!result || result.ok === false) {
+    await finishPlayitAccountLink({ state: "failed", message: result?.error?.message || "Playit linking status is unavailable." });
+    return;
+  }
+  playitLinkSession = { ...result, nodeId: session.nodeId };
+  if (result.opened) showToast("Approve the link on playit.gg in your browser.", "info");
+  if (isPlayitLinkActive(result)) {
+    renderPlayitAccount();
+    schedulePlayitLinkPoll();
+    return;
+  }
+  await finishPlayitAccountLink(result);
+}
+
+async function startPlayitAccountLink() {
+  const payload = getNodeScopedPayload(getNodeRequestContext("playit-account-link"));
+  const result = await getDesktopApiState().api?.publicAccess?.startPlayitLink?.(payload);
+  if (!result || result.ok === false) {
+    await refreshPlayitAccount();
+    throw Object.assign(new Error(result?.error?.message || "Playit linking could not start."), { code: result?.error?.code || "PLAYIT_LINK_FAILED" });
+  }
+  playitLinkSession = { ...result, nodeId: payload.nodeId };
+  if (result.opened) showToast("Approve the link on playit.gg in your browser.", "info");
+  renderPlayitAccount();
+  if (isPlayitLinkActive(result)) schedulePlayitLinkPoll();
+  else await finishPlayitAccountLink(result);
+  return result;
+}
+
+async function runPlayitAccountAction(action) {
+  const api = getDesktopApiState().api?.publicAccess;
+  const failIfRefused = (result, fallback) => {
+    if (result?.ok === false) throw Object.assign(new Error(result.error?.message || fallback), { code: result.error?.code || "PLAYIT_ACCOUNT_ACTION_FAILED" });
+    return result;
+  };
+  if (action === "playit-account-refresh") return refreshPlayitStatus();
+  if (action === "playit-account-link") return startPlayitAccountLink();
+  if (action === "playit-account-link-open") {
+    return failIfRefused(await api?.openPlayitLink?.(getPlayitLinkPayload()), "The approval page could not be opened.");
+  }
+  if (action === "playit-account-link-cancel") {
+    const session = playitLinkSession;
+    if (!session) return null;
+    const result = await api?.cancelPlayitLink?.(getPlayitLinkPayload(session));
+    await finishPlayitAccountLink({ state: "cancelled" });
+    return failIfRefused(result, "Linking could not be cancelled.");
+  }
+  if (action === "playit-account-manage") {
+    return failIfRefused(await api?.openPlayitManage?.(getNodeScopedPayload(getNodeRequestContext("playit-account-manage"))), "Playit.gg could not be opened.");
+  }
+  if (action === "playit-account-download") {
+    return failIfRefused(await api?.openPlayitDownload?.(getNodeScopedPayload(getNodeRequestContext("playit-account"))), "The Playit download page could not be opened.");
+  }
+  if (action === "playit-account-install") {
+    const provider = (latestPublicAccessSnapshot?.providers || []).find((entry) => entry?.id === "playit");
+    if (!provider?.dependencyId) return runPlayitAccountAction("playit-account-download");
+    selectedPublicAccessProviderId = "playit";
+    return runPublicAccessAction("install-dependency");
+  }
+  return null;
 }
 
 function renderPlayitLogs(result = {}) {
@@ -8803,6 +9367,7 @@ function getPublicAccessRequestUnavailableReason(error = null, fallbackMessage =
 function renderPublicAccessUnavailableState(reason = getPublicAccessUnavailableReason(), fallbackMessage = "Public Access status unavailable.") {
   const unavailable = reason || { code: "PUBLIC_ACCESS_UNAVAILABLE", message: fallbackMessage, tunnelMessage: fallbackMessage };
   publicAccessUnavailableState = unavailable;
+  latestPlayitAccount = { ok: false, message: unavailable.message };
   renderPlayitServiceStatus({
     ok: false,
     installed: null,
@@ -8834,6 +9399,7 @@ async function refreshPlayitManagement(payload = getNodeScopedPayload(getNodeReq
   const [status, tunnels] = await Promise.all([
     typeof publicAccessApi.getPlayitStatus === "function" ? publicAccessApi.getPlayitStatus(payload).catch((error) => ({ ok: false, error })) : null,
     typeof publicAccessApi.listPlayitTunnels === "function" ? publicAccessApi.listPlayitTunnels(payload).catch((error) => ({ ok: false, error })) : null,
+    refreshPlayitAccount(payload, requestContext),
   ]);
   if (!isNodeRequestCurrent(requestContext)) return;
   if (status?.ok === false && status.error) {
@@ -10307,6 +10873,9 @@ function createShareServerAddressRow(entry, instance) {
 }
 
 function openShareServerModal(instance = findInstance()) {
+  // Accept an instance id so the endpoint picker can hand the selection over
+  // without re-resolving; every existing call site still passes an object.
+  if (typeof instance === "string") instance = findInstance(instance);
   if (!instance) {
     showToast("Choose a server to share.", "warning");
     return;
@@ -10551,6 +11120,7 @@ async function runPublicAccessAction(action) {
       renderPlayitServiceActions();
     }
   }
+  if (String(action || "").startsWith("playit-account-")) return runPlayitAccountAction(action);
   if (String(action || "").startsWith("playit-copy:")) {
     const tunnelId = String(action).slice("playit-copy:".length);
     const tunnel = latestPlayitTunnels.find((entry) => String(entry.id) === tunnelId);
@@ -10857,6 +11427,8 @@ function renderPublicAccessSnapshot(snapshot = {}) {
 function renderPlayitUnavailable(message = "Public Access status unavailable.") {
   document.querySelector("[data-public-access-loading]")?.setAttribute("hidden", "");
   const unavailable = getPublicAccessRequestUnavailableReason(null, message);
+  latestPlayitAccount = { ok: false, message: unavailable.message || message };
+  renderPlayitAccount();
   latestPlayitSnapshot = null;
   setField("dashboardPublicAccess", "Unavailable");
   setField("dashboardPublicAccessDetail", message);
@@ -13378,6 +13950,12 @@ function setActiveInstanceTab(tabName) {
   if (activeInstanceTab === "console") {
     refreshInstanceLogs({ silent: true });
     syncInstanceConsolePolling();
+  } else if (activeInstanceTab === "network") {
+    stopInstanceConsolePolling();
+    refreshInstanceNetworkTab(selectedInstanceId);
+  } else if (activeInstanceTab === "performance") {
+    stopInstanceConsolePolling();
+    refreshInstancePerformanceTab(selectedInstanceId);
   } else if (activeInstanceTab === "files") {
     stopInstanceConsolePolling();
     refreshInstanceFiles();
@@ -13881,6 +14459,9 @@ function syncInstanceConfigDirtyState() {
 }
 
 function populateInstanceConfigForm(instance) {
+  populatedInstanceConfig.instanceId = instance?.id || null;
+  populatedInstanceConfig.nodeId = instance ? getSelectedNodeId() : null;
+  populatedInstanceConfig.key = getInstanceConfigFormKey(instance);
   if (!instance) {
     instanceConfigSnapshot = "";
     instanceMinecraftSnapshot = "";
@@ -13961,11 +14542,16 @@ function renderInstanceNetwork(instance) {
     return;
   }
 
-  instanceNetworkList.replaceChildren();
   renderInstanceNetworkSummary(instance);
   const ports = Array.isArray(instance?.ports) ? instance.ports : [];
   const metrics = getInstanceMetrics(instance?.id);
   const portStatus = new Map((Array.isArray(metrics?.ports) ? metrics.ports : []).map((entry) => [entry.port, entry.open]));
+  // Rebuilt only when the ports or their status change, so a refresh never
+  // drops focus from a Remove button.
+  const renderKey = JSON.stringify([instance?.id || null, ports, [...portStatus]]);
+  if (instanceNetworkList.dataset.renderKey === renderKey) return;
+  instanceNetworkList.dataset.renderKey = renderKey;
+  instanceNetworkList.replaceChildren();
 
   if (ports.length === 0) {
     const empty = document.createElement("p");
@@ -14083,6 +14669,10 @@ async function saveInstanceConfiguration(event) {
     }
 
     showToast("Instance configuration saved.");
+    // The form's values are the saved values now: mark it clean so the next
+    // refresh can load the stored (normalized) configuration into it.
+    instanceConfigSnapshot = JSON.stringify(collectInstanceConfigPayload());
+    syncInstanceConfigDirtyState();
     await refreshInstances();
     await loadGameServerConfig();
   } catch (error) {
@@ -15378,12 +15968,12 @@ function buildInstanceTagsCell(instance) {
 function buildInstanceActionCell(instance) {
   const wrapper = document.createElement("div");
   wrapper.className = "instance-row-actions";
+  // Rows carry the power actions only; access and management actions live in
+  // the selected instance's inspector, one click away.
   const actions = [
     { label: isFiveMSetupRequired(instance) ? "Configure" : "Start", action: "start", disabled: !canStartInstance(instance) },
     { label: "Stop", action: "stop", disabled: !canStopInstance(instance) },
     { label: "Reload", action: "restart", disabled: !canRestartInstance(instance) },
-    { label: "Expose", action: "expose-share", disabled: !getInstanceAccessSuggestions(instance).some((suggestion) => suggestion.compatible !== false && suggestion.localPort) },
-    { label: "Share", action: "share-server", disabled: !getInstancePrimaryPort(instance) },
   ];
 
   actions.forEach((item) => {
@@ -15419,20 +16009,57 @@ function renderInstanceRows(instances) {
     return;
   }
   const existingRows = new Map([...instancesList.querySelectorAll("tr[data-instance-id]")].map((row) => [row.dataset.instanceId, row]));
+  // Stale rows go first so they never sit between rows that are in order.
+  const incomingIds = new Set(instances.map((instance) => instance.id));
+  existingRows.forEach((row, instanceId) => {
+    if (!incomingIds.has(instanceId)) {
+      row.remove();
+      existingRows.delete(instanceId);
+    }
+  });
+  let previousRow = null;
   instances.forEach((instance) => {
     const row = existingRows.get(instance.id) || document.createElement("tr");
     existingRows.delete(instance.id);
     updateInstanceRow(row, instance);
-    instancesList.appendChild(row);
+    // Move a row only when it is out of place: re-inserting an element that is
+    // already in position would blur anything focused inside it.
+    const expectedPosition = previousRow ? previousRow.nextSibling : instancesList.firstChild;
+    if (row !== expectedPosition) instancesList.insertBefore(row, expectedPosition);
+    previousRow = row;
   });
-  existingRows.forEach((row) => row.remove());
 
   filterInstanceRows();
 }
 
+// Applies a freshly built set of children to `container`, keeping every
+// existing child whose markup is unchanged. Periodic refreshes then replace
+// only what actually changed, so focus, hover and open state survive them.
+// Callers must build children whose event handlers depend only on data that
+// is reflected in the markup (an id, not a captured object).
+function reconcileChildren(container, draft) {
+  const next = [...draft.childNodes];
+  const current = [...container.childNodes];
+  next.forEach((node, index) => {
+    const existing = current[index];
+    if (!existing) {
+      container.appendChild(node);
+    } else if (existing.nodeType !== node.nodeType || (existing.outerHTML ?? existing.textContent) !== (node.outerHTML ?? node.textContent)) {
+      existing.replaceWith(node);
+    }
+  });
+  current.slice(next.length).forEach((node) => node.remove());
+}
+
 function updateInstanceRow(row, instance) {
   if (!row || !instance) return;
-  row.replaceChildren();
+  // Build the new cells off-document, then swap in only the cells whose markup
+  // changed. Polls and metrics ticks then touch just the live cells (state,
+  // CPU, RAM, uptime); unchanged cells keep their elements, so focus inside a
+  // row survives a refresh. Cell handlers capture only the instance id.
+  const nextRow = document.createElement("tr");
+  buildInstanceRowCells(nextRow, instance);
+  reconcileChildren(row, nextRow);
   row.dataset.instanceId = instance.id || "";
   row.dataset.instanceState = getInstanceStateClass(instance?.state);
   row.tabIndex = 0;
@@ -15443,7 +16070,9 @@ function updateInstanceRow(row, instance) {
       selectInstance(instance.id);
     }
   };
+}
 
+function buildInstanceRowCells(row, instance) {
   const metrics = getInstanceRowMetrics(instance);
   const metricsPlaceholder = metrics ? null : getInstanceMetricsPlaceholder(instance);
   addInstanceCell(row, buildInstanceNameCell(instance));
@@ -15532,6 +16161,19 @@ function renderInstanceSummary(instances) {
   Object.entries(healthFieldMap).forEach(([bucket, field]) => {
     setField(field, String(healthSummary.counts?.[bucket] || 0));
   });
+  // The summary tiles already show running/starting/stopping/stopped; the
+  // breakdown line only adds the problem states, and only when they occur.
+  const breakdown = document.querySelector("[data-instance-health-breakdown]");
+  if (breakdown) {
+    let anyShown = false;
+    breakdown.querySelectorAll("[data-health-bucket]").forEach((entry) => {
+      const bucket = entry.dataset.healthBucket;
+      const shown = INSTANCE_HEALTH_EXTRA_BUCKETS.includes(bucket) && Number(healthSummary.counts?.[bucket] || 0) > 0;
+      entry.hidden = !shown;
+      anyShown = anyShown || shown;
+    });
+    breakdown.hidden = !anyShown;
+  }
   const runningInstances = instances.filter(isInstanceRunning);
   const stoppedInstances = instances.filter((instance) => !isInstanceRunning(instance));
   const aggregateMetrics = instances.reduce((totals, instance) => {
@@ -15818,13 +16460,60 @@ function setInstanceDetails(instance = null) {
   renderFiveMSetupCard(instance);
   renderMinecraftWorkspaceSummary(instance, metrics);
   renderMinecraftPlayersPanel(instance);
-  populateInstanceConfigForm(instance);
+  if (shouldRepopulateInstanceConfigForm(instance)) populateInstanceConfigForm(instance);
   renderInstanceNetwork(instance);
   renderInstanceRestartSchedules(instance);
   if (instanceAddressCopyButton) {
     instanceAddressCopyButton.disabled = !getInstancePrimaryPort(instance);
   }
   applyServiceManagedRestrictions(instance);
+}
+
+// What the settings form shows for an instance. Live fields (state, pid,
+// metrics, players) are deliberately absent: a poll that only changes them
+// must never rewrite the form.
+function getInstanceConfigFormKey(instance) {
+  if (!instance) return "";
+  return JSON.stringify([
+    getSelectedNodeId(),
+    instance.id,
+    instance.displayName,
+    instance.type,
+    instance.workingDirectory,
+    instance.executable,
+    instance.args,
+    instance.restartPolicy,
+    instance.startupTimeoutMs,
+    instance.shutdownTimeoutMs,
+    instance.autoStart,
+    instance.environment,
+    instance.tags,
+    instance.ports,
+  ]);
+}
+
+function isInstanceConfigFormBusy() {
+  // Unsaved edits anywhere in the settings tab, or the cursor is in one of its fields.
+  const settingsPanel = document.querySelector('[data-instance-panel="settings"]');
+  const active = document.activeElement;
+  if (settingsPanel && active && settingsPanel.contains(active) && active.matches("input, textarea, select, [contenteditable='true']")) return true;
+  try {
+    if (JSON.stringify(collectInstanceConfigPayload()) !== instanceConfigSnapshot) return true;
+  } catch {
+    return true;
+  }
+  if (JSON.stringify(collectMinecraftProperties()) !== instanceMinecraftSnapshot) return true;
+  return isGameConfigDirty();
+}
+
+// Selecting another instance (or node) always loads its settings. A refresh of
+// the same instance reloads them only when the saved configuration changed and
+// the user is not editing; otherwise their edits, focus and cursor stay intact.
+function shouldRepopulateInstanceConfigForm(instance) {
+  const key = getInstanceConfigFormKey(instance);
+  if (populatedInstanceConfig.instanceId !== instance.id || populatedInstanceConfig.nodeId !== getSelectedNodeId()) return true;
+  if (populatedInstanceConfig.key === key) return false;
+  return !isInstanceConfigFormBusy();
 }
 
 function selectInstance(instanceId, options = {}) {
@@ -15847,6 +16536,15 @@ function selectInstance(instanceId, options = {}) {
   }
 
   updateInstanceActionButtons();
+
+  // Keep the lazily loaded Network/Performance tabs bound to the selected
+  // instance. Only a real selection change while the instances page is
+  // visible refetches: the periodic instance snapshot refresh must not turn
+  // these tabs into pollers, and hidden tabs must not fetch in the background.
+  if (previousSelectedInstanceId !== selectedInstanceId && getActivePageName() === "instances") {
+    if (activeInstanceTab === "network") refreshInstanceNetworkTab(selectedInstanceId);
+    else if (activeInstanceTab === "performance") refreshInstancePerformanceTab(selectedInstanceId);
+  }
 
   syncInstanceConsolePolling();
 }
@@ -20266,6 +20964,104 @@ function renderBackupRestorePanel() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Backup verification UI (V2-K). The agent's verification lifecycle records
+// one of unverified/verified/failed/corrupt/unknown per backup; this surface
+// shows the persisted state and can request one re-check. Verification
+// outcomes are data, not transport errors, so a failed check renders its own
+// state instead of only a toast.
+// ---------------------------------------------------------------------------
+const BACKUP_VERIFICATION_STATES = Object.freeze(["unverified", "verified", "failed", "corrupt", "unknown"]);
+const backupVerificationInFlight = new Set();
+
+function normalizeBackupVerificationState(verification) {
+  const raw = typeof verification === "string" ? verification : verification?.state || verification?.status || "";
+  const normalized = String(raw || "").trim().toLowerCase().replace(/[-\s]+/g, "_");
+  if (["verified", "ok", "passed", "valid"].includes(normalized)) return "verified";
+  if (["failed", "failure", "mismatch", "checksum_mismatch"].includes(normalized)) return "failed";
+  if (["corrupt", "corrupted", "corruption", "invalid", "unreadable"].includes(normalized)) return "corrupt";
+  if (["unverified", "pending", "none", "not_verified"].includes(normalized)) return "unverified";
+  return "unknown";
+}
+
+function getBackupVerificationState(backup) {
+  if (!backup?.verification) return "unknown";
+  return normalizeBackupVerificationState(backup.verification);
+}
+
+function getBackupVerificationTone(state) {
+  if (state === "verified") return "status-pill--ok";
+  if (state === "failed" || state === "corrupt") return "status-pill--critical";
+  if (state === "unverified") return "status-pill--planned";
+  return "status-pill--muted";
+}
+
+function createBackupVerificationPill(state) {
+  const normalized = BACKUP_VERIFICATION_STATES.includes(state) ? state : "unknown";
+  // NEVER display "Verified" unless the normalized state is exactly
+  // "verified" — a failed or corrupt check must never render as a pass.
+  const labels = { verified: "Verified", failed: "Failed", corrupt: "Corrupt", unverified: "Unverified", unknown: "Unknown" };
+  const pill = createTextElement("span", labels[normalized], `status-pill backup-verification-pill ${getBackupVerificationTone(normalized)}`);
+  pill.dataset.backupVerification = normalized;
+  pill.title = normalized === "unknown"
+    ? "No verification record is available for this backup yet."
+    : `Last integrity check: ${labels[normalized].toLowerCase()}.`;
+  return pill;
+}
+
+function getBackupVerificationFailureMessage(state, code) {
+  if (state === "corrupt") return "This backup archive is damaged and could not be read. Restore from another backup.";
+  if (state === "failed") {
+    return code === "BACKUP_ARCHIVE_MISSING"
+      ? "The backup archive file is missing from backup storage."
+      : "This backup failed its integrity check. Treat it as unsafe to restore.";
+  }
+  if (state === "unverified") return "This backup could not be promoted to verified; review diagnostics before restoring it.";
+  return "The verification result could not be interpreted. Review diagnostics before restoring this backup.";
+}
+
+async function verifyBackupIntegrity(backupId) {
+  const id = String(backupId || "").trim();
+  if (!id || backupVerificationInFlight.has(id)) return;
+  const backup = backupsState.backups.find((item) => item?.id === id);
+  if (!backup) {
+    showToast("This backup is no longer available. Refresh the backup list and try again.", "warning");
+    return;
+  }
+  const api = getDesktopApi();
+  // The verify channel is newer than the base backup surface: absence is a
+  // build capability, not a failure, so it renders an honest toast.
+  if (typeof api?.backups?.verify !== "function") {
+    showToast("Verification is unavailable in this build.");
+    return;
+  }
+  backupVerificationInFlight.add(id);
+  renderBackups();
+  try {
+    const result = await api.backups.verify(id, { nodeId: getSelectedNodeId(), instanceId: backup.instanceId || null });
+    const record = result?.record || result?.backup || null;
+    const state = normalizeBackupVerificationState(record?.verification || result?.verification || result?.state || result?.status);
+    // Persist the observed outcome on the row so the pill reflects the
+    // returned state without inventing a pass. Only fields the agent actually
+    // returned are surfaced; method/checkedAt/detail are never synthesized.
+    const fallbackVerification = { state };
+    if (result?.method) fallbackVerification.method = result.method;
+    if (result?.checkedAt) fallbackVerification.checkedAt = result.checkedAt;
+    if (result?.detail || result?.code) fallbackVerification.detail = result.detail || result.code;
+    backup.verification = record?.verification || fallbackVerification;
+    if (state === "verified") {
+      showToast(`${backup.name || backup.id} verified.`, "success");
+    } else {
+      showToast(getBackupVerificationFailureMessage(state, result?.code), "warning");
+    }
+  } catch (error) {
+    showToast(getBackupErrorMessage(error, "Backup verification failed."), "error");
+  } finally {
+    backupVerificationInFlight.delete(id);
+    renderBackups();
+  }
+}
+
 function renderBackups() {
   if (!backupTableBody) {
     return;
@@ -20298,6 +21094,26 @@ function renderBackups() {
       cell.textContent = value;
       row.append(cell);
     });
+    const verificationCell = document.createElement("td");
+    verificationCell.className = "backup-verification-cell";
+    verificationCell.append(createBackupVerificationPill(getBackupVerificationState(backup)));
+    const verifyButton = document.createElement("button");
+    verifyButton.type = "button";
+    verifyButton.className = "inline-action backup-verify-button";
+    verifyButton.dataset.backupAction = "verify";
+    verifyButton.dataset.backupId = backup.id;
+    const verificationPending = backupVerificationInFlight.has(backup.id);
+    verifyButton.textContent = verificationPending ? "Verifying..." : "Verify";
+    verifyButton.disabled = verificationPending;
+    verifyButton.setAttribute("aria-label", "Verify backup integrity");
+    verifyButton.addEventListener("click", (event) => {
+      // Row selection is owned by the row click handler; verifying must not
+      // also change the selection.
+      event.stopPropagation();
+      verifyBackupIntegrity(backup.id);
+    });
+    verificationCell.append(verifyButton);
+    row.append(verificationCell);
     backupTableBody.append(row);
   });
 
@@ -20564,7 +21380,7 @@ async function restoreSelectedBackup(backupOverride = null) {
   }
   if (!(await confirmDestructiveAction({
     title: "Restore this backup?",
-    message: `${selected.name || selected.id} will be restored. The instance may be stopped first, and AnxOS will create a safety snapshot before replacing files.`,
+    message: `${selected.name || selected.id} will replace the current instance data. Files created or changed since this backup was taken are overwritten. The instance may be stopped first, and AnxOS will create a safety snapshot before replacing files.`,
     confirmLabel: "Restore Backup",
   }))) {
     return;
@@ -20783,6 +21599,10 @@ function renderInstanceRestartSchedules(instance) {
   const matchesSelection = Boolean(instance) && restartSchedulesState.instanceId === instance.id;
   const schedules = matchesSelection ? restartSchedulesState.schedules : [];
   const supported = matchesSelection && restartSchedulesState.supported !== false && getDesktopApiState().hasRestartSchedules;
+  // Rebuilt only when what it shows changes; refreshes keep focus on its buttons.
+  const renderKey = JSON.stringify([instance?.id || null, supported, getDesktopApiState().hasRestartSchedules, schedules]);
+  if (restartScheduleList.dataset.renderKey === renderKey) return;
+  restartScheduleList.dataset.renderKey = renderKey;
 
   restartScheduleList.replaceChildren();
   if (restartScheduleEmpty) {
@@ -21682,7 +22502,10 @@ async function refreshInstances(options = {}) {
     instancesRequestInFlight = false;
     return getInstances();
   }
-  setInstancesLoading(true);
+  // A background poll that already has a list on screen updates it in place: no
+  // loading overlay or busy state, which would make the page appear to reload.
+  const showLoading = !(options.background && latestInstancesSnapshot);
+  if (showLoading) setInstancesLoading(true);
   updateInstanceActionButtons();
 
   try {
@@ -21702,7 +22525,9 @@ async function refreshInstances(options = {}) {
     if (latestInstancesSnapshot) {
       setInstancesLoading(false);
       setInstancesEmpty(getInstances().length === 0, "Instance list refresh failed. Keeping the last known list.");
-      showToast(getAgentErrorMessage(error, "Instance list refresh failed."), "warning");
+      // A disconnected node fails every poll; only a user-initiated refresh
+      // raises a toast, background polls keep the last list quietly.
+      if (!options.background) showToast(getAgentErrorMessage(error, "Instance list refresh failed."), "warning");
     } else {
       renderInstancesUnavailable(`Instance request failed: ${getAgentErrorMessage(error)}`);
     }
@@ -21849,7 +22674,7 @@ function startInstancesPagePolling() {
     if (document.hidden || instanceActionRequestInFlight) {
       return;
     }
-    refreshInstances();
+    refreshInstances({ background: true });
   }, INSTANCE_PAGE_REFRESH_INTERVAL_MS);
 }
 
@@ -22406,6 +23231,13 @@ async function runInstanceAction(actionName) {
   }
 
   if (actionName === "expose-share") {
+    // Progressive disclosure: when this service already has enabled endpoints,
+    // the endpoint picker is the sharing surface; otherwise the existing
+    // create-access-service flow remains the fallback.
+    if ((await tryOpenInstanceEndpointPicker(selectedInstance, "share")) === "opened") {
+      updateInstanceActionButtons();
+      return;
+    }
     try {
       await createAccessServiceForInstance(selectedInstance);
     } catch (error) {
@@ -22418,7 +23250,20 @@ async function runInstanceAction(actionName) {
   }
 
   if (actionName === "copy-access-address") {
+    const pickerOutcome = await tryOpenInstanceEndpointPicker(selectedInstance, "copy");
+    if (pickerOutcome === "opened") {
+      updateInstanceActionButtons();
+      return;
+    }
+    // Legacy fallback: no enabled endpoint exists, so copy the legacy share
+    // address. The extra toast only appears when the registry confirmed an
+    // empty endpoint list and a usable legacy address existed; otherwise
+    // copyInstanceAccessAddress already reported its own outcome.
+    const legacyAddress = getRecommendedShareServerAddress(selectedInstance);
     await copyInstanceAccessAddress(selectedInstance);
+    if (pickerOutcome === "empty" && legacyAddress && isUsableShareAddress(legacyAddress.address)) {
+      showToast("No endpoints configured — copied the legacy address.", "info");
+    }
     updateInstanceActionButtons();
     return;
   }
@@ -22430,6 +23275,12 @@ async function runInstanceAction(actionName) {
   }
 
   if (actionName === "share-server") {
+    // Same progressive disclosure as expose-share; the legacy share modal
+    // stays the fallback when no enabled endpoint exists.
+    if ((await tryOpenInstanceEndpointPicker(selectedInstance, "share")) === "opened") {
+      updateInstanceActionButtons();
+      return;
+    }
     openShareServerModal(selectedInstance);
     updateInstanceActionButtons();
     return;
@@ -24083,6 +24934,19 @@ const NOTIFICATION_ACTIONS = {
   recheckDependencies: { label: "Recheck Dependencies", run: () => runDependencyAction("check") },
   checkUpdates: { label: "Check Updates", run: () => checkForUpdates({ silent: false }) },
   copyMessage: { label: "Copy Technical Details", run: (notification) => copyNotificationDetails(notification) },
+  // V2-K operational journal deep links. The journal's action ids use kebab
+  // case, so these keys match src/services/operationalNotificationService.js
+  // exactly: open-nodes, open-instance, open-network.
+  "open-nodes": { label: "Open Nodes", run: () => showPage("nodes") },
+  "open-network": { label: "Open Network", run: () => showPage("network") },
+  "open-instance": {
+    label: "Open Instance",
+    run: (notification) => {
+      showPage("instances");
+      if (notification?.relatedInstanceId) selectInstance(notification.relatedInstanceId);
+      return refreshInstances({ refreshMetrics: false });
+    },
+  },
 };
 
 function sanitizeNotificationText(value = "", limit = NOTIFICATION_MAX_MESSAGE_LENGTH) {
@@ -24831,6 +25695,118 @@ function clearAllNotifications() {
   notificationState.items = [];
   persistNotificationHistory();
   renderNotificationCenter();
+}
+
+// ---------------------------------------------------------------------------
+// V2-K operational notification bridge. The main process journals operational
+// events (src/services/operationalNotificationService.js) for node, service,
+// provider, endpoint, and backup transitions; this bridge mirrors unseen
+// events into the durable Notification Center store exactly once per event id
+// (dedupKey "op:<id>"). It is read-only toward the journal: recovery events
+// annotate the existing notification instead of creating a second record, and
+// the journal remains the source of truth.
+// ---------------------------------------------------------------------------
+const OPERATIONAL_NOTIFICATION_DEDUP_PREFIX = "op:";
+const OPERATIONAL_NOTIFICATION_CATEGORY_MAP = Object.freeze({
+  agent: "Agent",
+  service: "Nodes",
+  provider: "Nodes",
+  endpoint: "Nodes",
+  backup: "Backups",
+});
+let operationalNotificationSyncInFlight = false;
+let operationalNotificationSyncError = null;
+let operationalNotificationRefreshTaskRegistered = false;
+
+function getOperationalNotificationsApi() {
+  const api = getDesktopApi();
+  return typeof api?.notifications?.list === "function" ? api.notifications : null;
+}
+
+function mapOperationalNotificationCategory(category) {
+  return OPERATIONAL_NOTIFICATION_CATEGORY_MAP[String(category || "").toLowerCase()] || "Application";
+}
+
+function mergeOperationalNotificationEvents(events = []) {
+  loadNotificationHistory();
+  const list = Array.isArray(events) ? events : [];
+  let changed = false;
+  list.forEach((event) => {
+    const eventId = String(event?.id || "").trim();
+    if (!eventId) return;
+    const dedupKey = `${OPERATIONAL_NOTIFICATION_DEDUP_PREFIX}${eventId}`;
+    const existing = notificationState.items.find((item) => item.dedupKey === dedupKey);
+    if (event?.resolvedAt) {
+      // Recovery is annotation, not a new record: when the incident's mirrored
+      // notification is gone there is nothing to annotate, so the event is
+      // skipped instead of re-created.
+      if (!existing) return;
+      const recoveredMessage = sanitizeNotificationText(`${existing.message || ""} — recovered`, NOTIFICATION_MAX_MESSAGE_LENGTH);
+      if (existing.message !== recoveredMessage) {
+        existing.message = recoveredMessage;
+        changed = true;
+      }
+      if (existing.resolved !== true) {
+        existing.resolved = true;
+        changed = true;
+      }
+      return;
+    }
+    if (existing) return;
+    const severity = normalizeNotificationSeverity(event.severity);
+    createNotification({
+      severity,
+      category: mapOperationalNotificationCategory(event.category),
+      title: event.title || "Operational event",
+      message: event.message || "",
+      dedupKey,
+      relatedNodeId: event.target?.nodeId || "",
+      relatedInstanceId: event.target?.instanceId || "",
+      technicalDetails: event.technicalDetails || "",
+      actions: NOTIFICATION_ACTIONS[event.action?.id] ? [event.action.id] : [],
+      // info events are recoveries/announcements and expire normally; warning
+      // and critical incidents stay unresolved until a recovery annotates them.
+      resolved: severity === "info",
+    });
+    changed = true;
+  });
+  if (changed) {
+    persistNotificationHistory();
+    renderNotificationCenter();
+  }
+  return changed;
+}
+
+async function syncOperationalNotifications() {
+  if (operationalNotificationSyncInFlight) return;
+  const api = getOperationalNotificationsApi();
+  if (!api) return;
+  operationalNotificationSyncInFlight = true;
+  try {
+    const result = await api.list({ limit: 50 });
+    mergeOperationalNotificationEvents(result?.events);
+    operationalNotificationSyncError = result?.degraded === true
+      ? "The operational notification journal was rebuilt after a previous corruption, so older events may be missing."
+      : null;
+  } catch (error) {
+    // Boot-critical no-throw contract: a failed sync is captured in renderer
+    // state only — never a toast, and never a boot failure.
+    operationalNotificationSyncError = normalizeIpcErrorMessage(error, "Operational notifications could not be synchronized.");
+  } finally {
+    operationalNotificationSyncInFlight = false;
+  }
+}
+
+function ensureOperationalNotificationRefreshTask() {
+  if (operationalNotificationRefreshTaskRegistered) return;
+  operationalNotificationRefreshTaskRegistered = true;
+  // The main-process journal evaluates on its own schedule, so this only
+  // mirrors new events while the Notifications page is visible.
+  registerRefreshTask(() => {
+    if (!shouldSkipNodeScopedPolling() && getActivePageName() === "notifications") {
+      syncOperationalNotifications();
+    }
+  }, 60000);
 }
 
 function appendOperationLog(operation, message) {
@@ -30902,8 +31878,17 @@ function renderConsoleSources() {
   }
 
   const instances = getInstances();
+  const draft = consoleSourceList.cloneNode(false);
+  buildConsoleSources(draft, instances);
+  reconcileChildren(consoleSourceList, draft);
+
+  if (consoleSourceEmpty) {
+    consoleSourceEmpty.hidden = instances.length > 0;
+  }
+}
+
+function buildConsoleSources(consoleSourceList, instances) {
   const query = (consoleSourceSearchInput?.value || "").trim().toLowerCase();
-  consoleSourceList.replaceChildren();
 
   instances.forEach((instance) => {
     const searchable = [instance.id, instance.displayName, instance.type, instance.state, ...(Array.isArray(instance.tags) ? instance.tags : [])]
@@ -30941,10 +31926,6 @@ function renderConsoleSources() {
     button.append(dot, copy, state);
     consoleSourceList.append(button);
   });
-
-  if (consoleSourceEmpty) {
-    consoleSourceEmpty.hidden = instances.length > 0;
-  }
 }
 
 function renderConsoleTabs() {
@@ -30952,7 +31933,12 @@ function renderConsoleTabs() {
     return;
   }
 
-  consoleTabs.replaceChildren();
+  const draft = consoleTabs.cloneNode(false);
+  buildConsoleTabs(draft);
+  reconcileChildren(consoleTabs, draft);
+}
+
+function buildConsoleTabs(consoleTabs) {
   const openIds = consoleOpenInstanceIds.filter((instanceId) => findInstance(instanceId));
   consoleOpenInstanceIds = openIds;
 
@@ -31782,19 +32768,36 @@ function getActiveSshProfile() {
   return sshProfilesState.profiles.find((profile) => profile.id === sshSelectedProfileId) || null;
 }
 
-function setSshPasswordPromptState(visible, message = "") {
+// The prompt asks for either the SSH account password or a private key's
+// passphrase; the two are never interchangeable, so the field says which.
+function setSshPasswordPromptState(visible, message = "", kind = "password") {
   sshPasswordPromptVisible = visible;
+  if (visible) sshCredentialPromptKind = kind === "passphrase" ? "passphrase" : "password";
+  const passphrase = sshCredentialPromptKind === "passphrase";
 
   if (sshPasswordPrompt) {
     sshPasswordPrompt.hidden = !visible;
+    sshPasswordPrompt.dataset.sshCredentialKind = sshCredentialPromptKind;
+  }
+
+  if (sshPasswordLabel) {
+    sshPasswordLabel.textContent = passphrase ? "Key passphrase" : "Password";
+  }
+
+  if (sshPasswordInput) {
+    sshPasswordInput.placeholder = passphrase ? "Enter private key passphrase" : "Enter SSH password";
+    sshPasswordInput.autocomplete = passphrase ? "off" : "current-password";
   }
 
   if (sshPasswordMessage) {
-    sshPasswordMessage.textContent = message || "Password is used for this session only and is not saved.";
+    sshPasswordMessage.textContent = message || (passphrase
+      ? "The passphrase unlocks the key for this session only and is not saved."
+      : "Password is used for this session only and is not saved.");
   }
 
   if (!visible) {
     sshPendingPasswordProfileId = null;
+    sshCredentialPromptKind = "password";
 
     if (sshPasswordInput) {
       sshPasswordInput.value = "";
@@ -32295,7 +33298,9 @@ function syncSshXtermSession(session) {
   bindSshXtermInput(terminal);
 
   if (sshXtermSessionId !== (session?.id || null)) {
-    terminal.clear();
+    // reset(), not clear(): clear() keeps the cursor line, so the previous
+    // session's prompt survived and the next session's banner followed it.
+    terminal.reset();
     sshXtermSessionId = session?.id || null;
     const text = getSshTerminalBuffer(session)?.toText() || "";
     if (text) {
@@ -32511,7 +33516,10 @@ function appendSshOutput(sessionId, chunk) {
   getSshTerminalBuffer(session)?.write(chunk);
 
   if (sessionId === activeSshSessionId) {
-    if (ensureSshXterm()) {
+    // If the terminal still shows another session, renderSshOutput replays this
+    // session's buffer (which already holds the chunk); writing the chunk too
+    // would show it twice.
+    if (ensureSshXterm() && sshXtermSessionId === sessionId) {
       sshXterm.write(String(chunk || ""));
     }
     renderSshOutput(session);
@@ -32832,9 +33840,40 @@ function renderSshSessionTabs() {
   sshSessionTabs.appendChild(addTab);
 }
 
+// Key profiles can sign in through the OS SSH agent (ssh-add once); the
+// toggle only stores that choice, never a key or passphrase.
+function renderSshAgentToggle() {
+  const profile = getActiveSshProfile();
+  const isKeyProfile = profile?.authType === "privateKey";
+  if (sshAgentField) sshAgentField.hidden = !isKeyProfile;
+  if (sshAgentToggle) {
+    sshAgentToggle.checked = isKeyProfile && profile.useSshAgent === true;
+    sshAgentToggle.disabled = !isKeyProfile || sshConnectRequestInFlight;
+  }
+}
+
+async function setActiveSshProfileAgent(enabled) {
+  const profile = getActiveSshProfile();
+  const api = getDesktopApiState().api?.ssh;
+  if (!profile || typeof api?.setProfileAgent !== "function") return;
+  try {
+    await api.setProfileAgent({ profileId: profile.id, enabled });
+    sshTransientStatusMessage = enabled
+      ? `${profile.displayName || profile.id} now signs in through the SSH agent.`
+      : `${profile.displayName || profile.id} now reads its key file (passphrase prompts as needed).`;
+    await loadSshProfiles({ profileId: profile.id });
+  } catch (error) {
+    const { message } = describeSshConnectError(error);
+    sshTransientStatusMessage = message;
+    showToast(message);
+    renderSshView();
+  }
+}
+
 function renderSshView() {
   renderSshProfileSelectors();
   renderSshSessionTabs();
+  renderSshAgentToggle();
 
   const session = getActiveSshSession();
   const hasProfiles = sshProfilesState.profiles.length > 0;
@@ -33060,6 +34099,15 @@ async function handleUnknownSshHostKey({ profileId, fingerprint }) {
   }
   try {
     await getDesktopApiState().api.ssh.approveHostKey({ profileId, fingerprint });
+    const approvedProfile = sshProfilesState.profiles.find((profile) => profile.id === profileId);
+    if (approvedProfile?.authType === "privateKey") {
+      // Key profiles need no typed secret unless the key is encrypted, and the
+      // reconnect asks for its passphrase in that case.
+      sshTransientStatusMessage = "Host identity approved. Reconnecting...";
+      renderSshView();
+      if (sshSelectedProfileId === profileId) await connectSshSession();
+      return;
+    }
     sshPendingPasswordProfileId = profileId;
     setSshPasswordPromptState(true, "Host identity approved. Enter the password again to connect.");
     sshTransientStatusMessage = "Host identity approved. Reconnect to continue.";
@@ -33192,6 +34240,15 @@ function ensureSshEventSubscription() {
   });
 }
 
+// ssh:connect rejects with "Error invoking remote method ...: CODE: message";
+// keep the code for routing and show only the readable message.
+function describeSshConnectError(error) {
+  const raw = normalizeIpcErrorMessage(error, "SSH connection failed.");
+  const code = getFriendlyErrorCode(error, raw).toUpperCase();
+  const message = raw.replace(/^[A-Z][A-Z0-9_]{2,}:\s*/, "").trim() || "SSH connection failed.";
+  return { code, message };
+}
+
 async function connectSshSession(options = {}) {
   const desktopApiState = getDesktopApiState();
   const profile = getActiveSshProfile();
@@ -33213,7 +34270,8 @@ async function connectSshSession(options = {}) {
     return;
   }
 
-  const password = typeof options.password === "string" ? options.password : "";
+  const password = profile.authType === "password" && typeof options.password === "string" ? options.password : "";
+  const passphrase = profile.authType === "privateKey" && typeof options.passphrase === "string" ? options.passphrase : "";
 
   if (profile.authType === "password") {
     if (!password) {
@@ -33223,6 +34281,14 @@ async function connectSshSession(options = {}) {
       focusSshPasswordPrompt();
       return;
     }
+  }
+
+  if (profile.authType === "privateKey" && sshPasswordPromptVisible && sshCredentialPromptKind === "passphrase" && !passphrase) {
+    setSshPasswordPromptState(true, "Enter the key passphrase before connecting.", "passphrase");
+    sshTransientStatusMessage = "Key passphrase required before connecting.";
+    renderSshView();
+    focusSshPasswordPrompt();
+    return;
   }
 
   sshConnectRequestInFlight = true;
@@ -33235,7 +34301,8 @@ async function connectSshSession(options = {}) {
     const session = await desktopApiState.api.ssh.connect({
       nodeId: getSelectedNodeId(),
       profileId: profile.id,
-      password,
+      ...(profile.authType === "password" ? { password } : {}),
+      ...(passphrase ? { passphrase } : {}),
       ...measureSshTerminalSize(),
     });
 
@@ -33247,9 +34314,22 @@ async function connectSshSession(options = {}) {
     renderSshView();
     window.requestAnimationFrame(focusSshTerminalInput);
   } catch (error) {
-    setSshPasswordPromptState(true, error?.message || "SSH connection failed.");
-    sshTransientStatusMessage = error?.message || "SSH connection failed.";
-    showToast(error?.message || "SSH connection failed.");
+    const { code, message } = describeSshConnectError(error);
+    if (code === "SSH_KEY_PASSPHRASE_REQUIRED" || code === "SSH_KEY_PASSPHRASE_INCORRECT") {
+      setSshPasswordPromptState(true, message, "passphrase");
+      focusSshPasswordPrompt();
+    } else if (["SSH_AGENT_UNAVAILABLE", "SSH_AGENT_KEY_NOT_LOADED", "SSH_AGENT_PUBLIC_KEY_MISSING"].includes(code)) {
+      // The agent couldn't sign in; the key file still works with its passphrase.
+      setSshPasswordPromptState(true, `${message} Or enter the key passphrase to connect this time.`, "passphrase");
+      focusSshPasswordPrompt();
+    } else if (profile.authType === "password") {
+      setSshPasswordPromptState(true, message);
+    } else {
+      // A key profile has no password to re-enter; only show the error.
+      setSshPasswordPromptState(false);
+    }
+    sshTransientStatusMessage = message;
+    showToast(message);
     renderSshView();
   } finally {
     sshConnectRequestInFlight = false;
@@ -33837,6 +34917,11 @@ async function bootstrapApplication() {
   storedSettings = await reconcileOnboardingForExistingSetup(storedSettings);
   applySettings(storedSettings, { openDefaultPage: true });
   maybeOpenOnboardingWelcome(storedSettings);
+  // V2-K bridge: mirror operational notification journal events into the
+  // durable Notification Center history once at boot (after the notification
+  // state and settings load). Fire-and-forget by design; it never rejects.
+  syncOperationalNotifications();
+  ensureOperationalNotificationRefreshTask();
   loadAgentSettings();
   loadMarketplaceSettings();
   loadRuntimeInfo();
@@ -36238,6 +37323,12 @@ function refreshNodeHealth({ notify = true } = {}) {
   nodeHealthState = health;
   if (notify) syncNodeHealthNotifications(nodeHealthState);
   renderNodeHealth(nodeHealthState);
+  // The connectivity section reads a different data source (the computer
+  // summary), so a health refresh of an open drawer must refresh it too. This
+  // is the only refresh path besides opening the drawer — no new polling.
+  if (nodeDetailsId && nodeDetailsModal && !nodeDetailsModal.hidden) {
+    renderNodeConnectivity(nodeDetailsId);
+  }
   return nodeHealthState;
 }
 
@@ -36476,6 +37567,179 @@ function renderNodeHealth(health = getSharedNodeHealthModel()) {
         nodeHealthIssues.append(item);
       });
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Node details connectivity section (V2-K computers summary bridge). The
+// preferred source is api.computers.getSummary({ nodeId }); when the preload
+// does not expose it this falls back to the endpoint registry plus the loaded
+// node record, so the drawer never depends on one build surface. Refresh is
+// owned by the drawer open/refresh path only — this is not a poller.
+// ---------------------------------------------------------------------------
+const NODE_CONNECTIVITY_ENDPOINT_LIMIT = 12;
+const NODE_CONNECTIVITY_DEGRADED_LABELS = Object.freeze({
+  "nodes-unavailable": "Node registry is unavailable.",
+  "endpoints-unavailable": "Endpoint data could not be read.",
+  "telemetry-unavailable": "Telemetry is unavailable.",
+  "provider-unavailable": "Provider status is unavailable.",
+  "summary-failed": "The connectivity summary could not be completed.",
+  "endpoint-store-degraded": "The endpoint store was rebuilt after a previous corruption, so older endpoint data may be missing.",
+});
+let nodeConnectivityRequestId = 0;
+
+function formatNodeConnectivityRelativeTime(value) {
+  const timestamp = Date.parse(String(value || ""));
+  if (!Number.isFinite(timestamp)) return "unknown";
+  const elapsedMs = Math.max(0, Date.now() - timestamp);
+  const minutes = Math.round(elapsedMs / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} hr ago`;
+  const days = Math.round(hours / 24);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
+}
+
+function normalizeNodeConnectivityOnlineState(value) {
+  if (value === true || value === "online" || value === "connected" || value === "degraded") return true;
+  if (value === false || value === "offline" || value === "authentication_failed" || value === "agent_incompatible") return false;
+  return null;
+}
+
+function getNodeConnectivityEndpointState(endpoint) {
+  const health = endpoint?.health && typeof endpoint.health === "object" ? endpoint.health : null;
+  return String(health?.state || endpoint?.state || "unknown");
+}
+
+function describeNodeConnectivityEndpointAddress(endpoint) {
+  const host = String(endpoint?.host || "").trim() || "address unavailable";
+  const port = Number.isFinite(Number(endpoint?.port)) && endpoint?.port !== null && endpoint?.port !== "" ? `:${endpoint.port}` : "";
+  const protocol = String(endpoint?.protocol || "").trim();
+  return `${protocol ? `${protocol}://` : ""}${host}${port}`;
+}
+
+function formatNodeConnectivityDegradedReasons(reasons = []) {
+  const entries = (Array.isArray(reasons) ? reasons : []).filter(Boolean).map((reason) => (
+    NODE_CONNECTIVITY_DEGRADED_LABELS[String(reason)] || String(reason)
+  ));
+  return entries.length ? entries.join(" ") : "One or more summary reads reported degraded data.";
+}
+
+function buildNodeConnectivityFallbackSummary(nodeId, listed) {
+  const node = getNodePickerNodes().find((candidate) => candidate.id === nodeId) || null;
+  const connectionState = node ? getNodeConnectionState(node) : { state: "Unknown" };
+  const stateText = String(connectionState?.state || "Unknown");
+  const online = stateText === "Connected" || stateText === "Degraded"
+    ? true
+    : ["Offline", "Authentication Required", "Agent Incompatible"].includes(stateText)
+      ? false
+      : null;
+  const endpoints = Array.isArray(listed) ? listed : Array.isArray(listed?.endpoints) ? listed.endpoints : [];
+  return {
+    online,
+    lastContact: node?.connection?.lastSeen || node?.updatedAt || null,
+    endpoints,
+    overlay: null,
+    degraded: false,
+    degradedReasons: [],
+  };
+}
+
+function renderNodeConnectivityEndpoints(endpoints = []) {
+  if (!nodeConnectivityEndpoints) return;
+  nodeConnectivityEndpoints.replaceChildren();
+  const rows = (Array.isArray(endpoints) ? endpoints : []).filter(Boolean);
+  if (!rows.length) {
+    nodeConnectivityEndpoints.append(createEmptyState("No endpoints are configured for this system. Add one to record how it is reached."));
+    return;
+  }
+  rows.slice(0, NODE_CONNECTIVITY_ENDPOINT_LIMIT).forEach((endpoint) => {
+    const item = document.createElement("article");
+    item.className = "security-list-item node-connectivity-endpoint";
+    item.dataset.nodeConnectivityEndpoint = String(endpoint?.id || "");
+    item.setAttribute("role", "listitem");
+    const body = document.createElement("div");
+    body.className = "node-connectivity-endpoint__body";
+    body.append(
+      createTextElement("strong", `${describeNetworkEndpointType(endpoint?.type)} · ${String(endpoint?.name || "Endpoint")}`),
+      createTextElement("span", describeNodeConnectivityEndpointAddress(endpoint), "node-connectivity-endpoint__address"),
+    );
+    item.append(body, createConnectivityPill(getNodeConnectivityEndpointState(endpoint)));
+    nodeConnectivityEndpoints.append(item);
+  });
+}
+
+function renderNodeConnectivitySummary(summary = {}) {
+  const online = normalizeNodeConnectivityOnlineState(summary?.online);
+  const lastContact = summary?.lastContact || summary?.lastKnownAt || null;
+  if (nodeConnectivitySummary) {
+    const pillTone = online === true ? "status-pill--ok" : online === false ? "status-pill--critical" : "status-pill--planned";
+    const pill = createTextElement("span", online === true ? "Online" : online === false ? "Offline" : "Unknown", `status-pill node-connectivity-state ${pillTone}`);
+    pill.dataset.state = online === true ? "online" : online === false ? "offline" : "unknown";
+    const parts = [
+      lastContact
+        ? `Last contact ${formatNodeConnectivityRelativeTime(lastContact)} (${formatDateTime(lastContact)}).`
+        : "No contact timestamp is available yet.",
+    ];
+    const overlay = summary?.overlay && typeof summary.overlay === "object" ? summary.overlay : null;
+    if (overlay) {
+      parts.push(`Overlay ${String(overlay.state || "unknown")}${overlay.address ? ` · ${overlay.address}` : ""}.`);
+    }
+    if (summary?.degraded) {
+      parts.push(`Summary degraded — ${formatNodeConnectivityDegradedReasons(summary.degradedReasons)}`);
+    }
+    nodeConnectivitySummary.replaceChildren(pill, createTextElement("span", ` ${parts.join(" ")}`));
+  }
+  // STALE RULE: an offline node keeps its last known endpoints visible and the
+  // stale line explains the age of that state. The section is never blanked.
+  if (nodeConnectivityStale) {
+    if (online === false) {
+      nodeConnectivityStale.hidden = false;
+      nodeConnectivityStale.textContent = `Showing last known state (as of ${formatDateTime(lastContact)}).`;
+    } else {
+      nodeConnectivityStale.hidden = true;
+      nodeConnectivityStale.textContent = "";
+    }
+  }
+  renderNodeConnectivityEndpoints(summary?.endpoints);
+}
+
+async function renderNodeConnectivity(nodeId) {
+  const requestedId = String(nodeId || "").trim();
+  if (!requestedId || !nodeConnectivitySection) return;
+  const requestId = ++nodeConnectivityRequestId;
+  nodeConnectivitySection.dataset.nodeConnectivityNode = requestedId;
+  if (nodeConnectivitySummary) nodeConnectivitySummary.textContent = "Loading connectivity state...";
+  if (nodeConnectivityStale) {
+    nodeConnectivityStale.hidden = true;
+    nodeConnectivityStale.textContent = "";
+  }
+  if (nodeConnectivityEndpoints) {
+    nodeConnectivityEndpoints.replaceChildren(createEmptyState("Loading endpoints...", "node-connectivity-loading"));
+  }
+  try {
+    const api = getDesktopApi();
+    let summary = null;
+    if (typeof api?.computers?.getSummary === "function") {
+      summary = await api.computers.getSummary({ nodeId: requestedId });
+    } else if (typeof api?.endpoints?.list === "function") {
+      summary = buildNodeConnectivityFallbackSummary(requestedId, await api.endpoints.list({ nodeId: requestedId }));
+    }
+    if (requestId !== nodeConnectivityRequestId) return;
+    if (!summary || typeof summary !== "object") {
+      summary = { online: null, lastContact: null, endpoints: [], degraded: true, degradedReasons: ["summary-failed"] };
+    }
+    renderNodeConnectivitySummary(summary);
+  } catch (error) {
+    if (requestId !== nodeConnectivityRequestId) return;
+    renderNodeConnectivitySummary({
+      online: null,
+      lastContact: null,
+      endpoints: [],
+      degraded: true,
+      degradedReasons: [getFriendlyErrorMessage(error, "Connectivity summary is unavailable.")],
+    });
   }
 }
 
@@ -36925,6 +38189,7 @@ function openNodeDetails(nodeId) {
     field.textContent = values[field.dataset.nodeDetail] || "Unavailable";
   });
   renderNodeHealth(health);
+  renderNodeConnectivity(node.id);
   nodeDetailsModal.hidden = false;
   if (!nodeDetailsCleanup) {
     nodeDetailsCleanup = activateModal(nodeDetailsModal, { initialFocus: () => nodeDetailsModal.querySelector("[data-node-action=\"close-details\"]") });
@@ -37137,6 +38402,261 @@ function syncNodeGroupFilterOptions() {
   nodeGroupFilter.value = validValues.has(selected) ? selected : NODE_GROUP_FILTER_ALL;
 }
 
+// Node connectivity: which route each Agent node uses right now (main URL,
+// a fallback such as Tailscale, or an app-managed SSH tunnel), and the Routes
+// panel that sets those up. Status comes from the main process
+// (nodeRouteResolver, nodeTunnelService) and refreshes with the node list.
+let nodeRouteStatusById = new Map();
+let nodeTunnelStatusById = new Map();
+
+const NODE_TUNNEL_STATE_LABELS = {
+  connecting: "Connecting",
+  connected: "Connected",
+  reconnecting: "Reconnecting",
+  external: "Using an existing tunnel",
+  failed: "Needs attention",
+  stopped: "Stopped",
+};
+
+async function refreshNodeConnectivityStatus() {
+  const api = getDesktopApiState().api?.nodes;
+  if (typeof api?.routeStatus !== "function" || typeof api?.tunnelStatus !== "function") return;
+  const [routes, tunnels] = await Promise.all([
+    api.routeStatus().catch(() => null),
+    api.tunnelStatus().catch(() => null),
+  ]);
+  if (Array.isArray(routes?.routes)) nodeRouteStatusById = new Map(routes.routes.map((entry) => [entry.nodeId, entry]));
+  if (Array.isArray(tunnels?.tunnels)) nodeTunnelStatusById = new Map(tunnels.tunnels.map((entry) => [entry.nodeId, entry]));
+}
+
+function describeNodeRoute(node) {
+  if (node?.kind !== "agent") return null;
+  const tunnel = nodeTunnelStatusById.get(node.id);
+  if (node.transport?.type === "ssh-tunnel") {
+    const label = NODE_TUNNEL_STATE_LABELS[tunnel?.state] || "Starting";
+    const reason = tunnel?.state === "failed" && tunnel.lastError?.message ? ` · ${tunnel.lastError.message}` : "";
+    return `SSH tunnel · ${label}${reason}`;
+  }
+  const status = nodeRouteStatusById.get(node.id);
+  if (!status) return node.fallbackUrls?.length ? "Main · checking routes" : "Main";
+  const active = status.routes.find((route) => route.url === status.activeUrl && route.verified);
+  if (!active) return "No route answering";
+  return `${active.label}${Number.isFinite(active.latencyMs) ? ` · ${active.latencyMs} ms` : ""}`;
+}
+
+function describeNodeAgentBuild(node) {
+  const version = node?.connection?.agentVersion || node?.agentVersion || node?.agentIdentity?.agentVersion || "";
+  const api = node?.connection?.apiVersion || node?.apiVersion || "";
+  return [version && `Agent ${version}`, api && `API ${api}`].filter(Boolean).join(" · ") || "Unknown";
+}
+
+function openNodeRoutesModal(nodeId) {
+  const node = (nodesState.nodes || []).find((entry) => entry.id === nodeId);
+  if (!node || node.kind !== "agent") return;
+  const api = getDesktopApiState().api;
+  const overlay = document.createElement("div");
+  overlay.className = "app-modal-backdrop";
+  overlay.dataset.nodeRoutesModal = "";
+  const dialog = document.createElement("section");
+  dialog.className = "app-modal app-modal--node-routes";
+  dialog.setAttribute("role", "dialog");
+  dialog.setAttribute("aria-modal", "true");
+  dialog.setAttribute("aria-labelledby", "node-routes-title");
+  dialog.tabIndex = -1;
+  const closeButton = document.createElement("button");
+  closeButton.className = "app-modal__close";
+  closeButton.type = "button";
+  closeButton.dataset.nodeRoutesClose = "";
+  closeButton.setAttribute("aria-label", "Close node routes");
+  closeButton.textContent = "×";
+  const header = document.createElement("div");
+  header.className = "app-modal__header";
+  header.append(
+    createTextElement("p", "Node connectivity", "app-modal__eyebrow"),
+    Object.assign(createTextElement("h2", `${node.displayName || node.id} routes`), { id: "node-routes-title" }),
+    createTextElement("p", "AnxOS uses the first route that answers as this Agent, and goes back to the main address as soon as it answers again."),
+  );
+  const status = createTextElement("p", "", "node-routes__status");
+  status.setAttribute("role", "status");
+  status.setAttribute("aria-live", "polite");
+  const body = document.createElement("div");
+  body.className = "node-routes";
+
+  const button = (label, onClick, primary = false) => {
+    const element = document.createElement("button");
+    element.type = "button";
+    element.className = primary ? "inline-action inline-action--primary" : "inline-action";
+    element.textContent = label;
+    element.addEventListener("click", async () => {
+      element.disabled = true;
+      try {
+        await onClick();
+      } catch (error) {
+        status.textContent = normalizeIpcErrorMessage(error, "That change could not be saved.");
+      } finally {
+        element.disabled = false;
+      }
+    });
+    return element;
+  };
+  const failIfRefused = (result, fallback) => {
+    if (result?.ok === false) throw Object.assign(new Error(result.error?.message || fallback), { code: result.error?.code });
+    return result;
+  };
+  const applyNode = async (updated) => {
+    if (updated) Object.assign(node, updated);
+    await refreshNodeConnectivityStatus();
+    render();
+    renderNodes();
+  };
+
+  function renderRouteList() {
+    const section = document.createElement("section");
+    section.className = "node-routes__section";
+    section.append(createTextElement("h3", "Addresses"));
+    const list = document.createElement("ul");
+    list.className = "node-routes__list";
+    const routeStatus = nodeRouteStatusById.get(node.id);
+    const entries = [{ url: node.baseUrl || node.agentUrl, label: "Main", primary: true }, ...(node.fallbackUrls || []).map((entry) => ({ ...entry, primary: false }))];
+    entries.forEach((entry) => {
+      const item = document.createElement("li");
+      const probe = routeStatus?.routes.find((route) => route.url === entry.url);
+      const inUse = routeStatus?.activeUrl === entry.url && probe?.verified;
+      const state = !probe ? "Not checked yet" : probe.verified ? `Answering${Number.isFinite(probe.latencyMs) ? ` · ${probe.latencyMs} ms` : ""}` : probe.error === "IDENTITY_MISMATCH" ? "A different Agent answered; not used" : "Not answering";
+      item.append(createTextElement("strong", entry.label), createTextElement("code", entry.url), createTextElement("span", inUse ? `In use · ${state}` : state, `status-pill ${inUse ? "status-pill--ok" : probe?.verified ? "status-pill--planned" : "status-pill--warning"}`));
+      if (!entry.primary) {
+        item.append(button("Remove", async () => {
+          const remaining = (node.fallbackUrls || []).filter((fallback) => fallback.url !== entry.url);
+          const result = failIfRefused(await api.nodes.setFallbackUrls(node.id, remaining), "The route could not be removed.");
+          status.textContent = `${entry.label} route removed.`;
+          await applyNode(result.node);
+        }));
+      }
+      list.append(item);
+    });
+    section.append(list);
+    const suggestionRow = document.createElement("div");
+    suggestionRow.className = "node-routes__actions";
+    suggestionRow.append(button("Find Tailscale route", async () => {
+      status.textContent = "Looking for this node on your Tailscale network...";
+      const result = failIfRefused(await api.nodes.suggestRoutes(node.id), "Tailscale routes could not be checked.");
+      const fresh = (result.suggestions || []).filter((suggestion) => !(node.fallbackUrls || []).some((fallback) => fallback.url === suggestion.url));
+      if (!result.available) {
+        status.textContent = "Tailscale isn't installed on this computer.";
+        return;
+      }
+      if (result.running === false) {
+        status.textContent = "Tailscale is installed but not running on this computer.";
+        return;
+      }
+      if (!fresh.length) {
+        status.textContent = (result.suggestions || []).length ? "The Tailscale route is already added." : "This node wasn't found on your Tailscale network.";
+        return;
+      }
+      const saved = failIfRefused(await api.nodes.setFallbackUrls(node.id, [...(node.fallbackUrls || []), { url: fresh[0].url, label: "Tailscale" }]), "The Tailscale route could not be added.");
+      status.textContent = saved.route?.reachable ? `Tailscale route added and verified (${fresh[0].url}).` : `Tailscale route added (${fresh[0].url}). It will be used when the main address doesn't answer.`;
+      await applyNode(saved.node);
+    }, true));
+    section.append(suggestionRow);
+    return section;
+  }
+
+  function renderTunnelSection(profiles) {
+    const section = document.createElement("section");
+    section.className = "node-routes__section";
+    section.append(createTextElement("h3", "SSH tunnel"));
+    const tunnel = nodeTunnelStatusById.get(node.id);
+    const enabled = node.transport?.type === "ssh-tunnel";
+    section.append(createTextElement("p", enabled
+      ? `AnxOS keeps an SSH tunnel open to this Agent. State: ${NODE_TUNNEL_STATE_LABELS[tunnel?.state] || "Starting"}${tunnel?.lastError?.message ? ` · ${tunnel.lastError.message}` : ""}`
+      : "For servers whose Agent only listens on the server itself. The main address must be a local address such as http://127.0.0.1:47132.", "node-routes__hint"));
+    const keyProfiles = (profiles || []).filter((profile) => profile.authType === "privateKey");
+    const profileSelect = document.createElement("select");
+    profileSelect.setAttribute("aria-label", "SSH profile");
+    profileSelect.append(new Option(keyProfiles.length ? "Choose an SSH key profile" : "No SSH key profiles yet", ""));
+    keyProfiles.forEach((profile) => profileSelect.append(new Option(profile.displayName || `${profile.username}@${profile.host}`, profile.id)));
+    const savedProfileId = node.transport?.sshProfileId;
+    if (savedProfileId && !keyProfiles.some((profile) => profile.id === savedProfileId)) {
+      profileSelect.append(new Option(`${savedProfileId} (missing profile)`, savedProfileId));
+    }
+    profileSelect.value = node.transport?.sshProfileId || keyProfiles.find((profile) => profile.nodeId === node.id)?.id || "";
+    const portInput = document.createElement("input");
+    portInput.type = "number";
+    portInput.min = "1";
+    portInput.max = "65535";
+    portInput.setAttribute("aria-label", "Agent port on the server");
+    portInput.value = String(node.transport?.remotePort || (() => { try { return new URL(node.baseUrl || node.agentUrl).port || ""; } catch { return ""; } })());
+    const fields = document.createElement("div");
+    fields.className = "node-routes__fields";
+    const profileLabel = document.createElement("label");
+    profileLabel.className = "settings-field";
+    profileLabel.append(createTextElement("span", "SSH key profile"), profileSelect);
+    const portLabel = document.createElement("label");
+    portLabel.className = "settings-field";
+    portLabel.append(createTextElement("span", "Agent port on the server"), portInput);
+    fields.append(profileLabel, portLabel);
+    const actions = document.createElement("div");
+    actions.className = "node-routes__actions";
+    actions.append(button(enabled ? "Save tunnel" : "Use SSH tunnel", async () => {
+      if (!profileSelect.value) throw new Error("Choose an SSH key profile first. Password profiles can't run unattended tunnels.");
+      const result = failIfRefused(await api.nodes.setTransport(node.id, { type: "ssh-tunnel", sshProfileId: profileSelect.value, remoteHost: "127.0.0.1", remotePort: Number(portInput.value) }), "The tunnel could not be saved.");
+      status.textContent = "SSH tunnel saved. AnxOS is connecting...";
+      await applyNode(result.node);
+    }, !enabled));
+    if (enabled) {
+      actions.append(
+        button("Reconnect tunnel", async () => {
+          failIfRefused(await api.nodes.reconnectTunnel(node.id), "The tunnel could not reconnect.");
+          status.textContent = "Reconnecting the tunnel...";
+          await applyNode();
+        }),
+        button("Stop using tunnel", async () => {
+          const result = failIfRefused(await api.nodes.setTransport(node.id, { type: "direct" }), "The tunnel could not be turned off.");
+          status.textContent = "SSH tunnel turned off.";
+          await applyNode(result.node);
+        }),
+      );
+    }
+    section.append(fields, actions);
+    return section;
+  }
+
+  let sshProfiles = [];
+  function render() {
+    body.replaceChildren(renderRouteList(), renderTunnelSection(sshProfiles));
+  }
+  render();
+  Promise.resolve(api?.ssh?.listProfiles?.()).then((result) => {
+    sshProfiles = Array.isArray(result?.profiles) ? result.profiles : [];
+    if (overlay.isConnected) render();
+  }).catch(() => {});
+
+  const footer = document.createElement("div");
+  footer.className = "app-modal__actions";
+  const doneButton = document.createElement("button");
+  doneButton.type = "button";
+  doneButton.className = "inline-action inline-action--primary";
+  doneButton.dataset.nodeRoutesClose = "";
+  doneButton.textContent = "Done";
+  footer.append(doneButton);
+  const close = () => {
+    document.removeEventListener("keydown", onKeyDown);
+    deactivateModal();
+    overlay.remove();
+  };
+  const onKeyDown = (event) => {
+    if (event.key === "Escape") close();
+  };
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay || event.target.closest("[data-node-routes-close]")) close();
+  });
+  document.addEventListener("keydown", onKeyDown);
+  dialog.append(closeButton, header, status, body, footer);
+  overlay.append(dialog);
+  document.body.append(overlay);
+  const deactivateModal = activateModal(overlay, { initialFocus: () => dialog.querySelector(".inline-action--primary") || closeButton });
+}
+
 function renderNodes() {
   renderRoutingDiagnostics();
   syncAgentConnectionDisplayWithSelectedNode();
@@ -37253,6 +38773,7 @@ function renderNodes() {
         ...(node.group ? [["Group", node.group]] : []),
         ["Connection", `${connectionState.primary} - ${connectionState.secondary}`],
         ...(isWindowsAgentNode(node) ? [["Windows MVP", getWindowsAgentMvpSummary(node)]] : []),
+        ...(node.kind === "agent" ? [["Route", describeNodeRoute(node)], ["Agent", describeNodeAgentBuild(node)]] : []),
         ["Last seen", formatNodeLastSeen(node)],
         ["Health", `${health.state} · ${health.issueCount} issue${health.issueCount === 1 ? "" : "s"}`],
       ].forEach(([label, value]) => {
@@ -37280,6 +38801,9 @@ function renderNodes() {
       if (getNodeConnectionState(node).state === "Authentication Required") {
         nodeActions.splice(4, 0, ["repair", "Re-pair Existing Node"]);
       }
+      if (node.kind === "agent") {
+        nodeActions.splice(nodeActions.length - 1, 0, ["routes", "Routes"]);
+      }
       nodeActions.forEach(([actionName, label]) => {
         const button = document.createElement("button");
         button.type = "button";
@@ -37306,6 +38830,7 @@ function renderNodes() {
   syncFleetControls();
   renderFleetSummary();
   renderNetworkInventory();
+  renderInfrastructureInventory();
   renderNodePicker();
 }
 
@@ -37346,6 +38871,11 @@ async function refreshNodes(options = {}) {
   }
   refreshNodeHealth();
   renderNodes();
+  // Route and tunnel status come from the main process; render again once
+  // they arrive so the Route row is current without delaying the list.
+  refreshNodeConnectivityStatus().then(() => {
+    if (isNodeRequestCurrent(requestContext)) renderNodes();
+  }).catch(() => {});
 }
 
 function startNodeRefreshPolling() {
@@ -37836,6 +39366,2376 @@ async function loadNetworkInventory(nodeId = getSelectedNodeId(), options = {}) 
   } finally {
     networkInventoryRequestInFlight = false;
     renderNetworkInventory();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// AIM-1 infrastructure inventory (docs/v2/V2_AUTONOMOUS_INFRASTRUCTURE_PLAN.md).
+// Strictly read-only presentation: it shows what infrastructureInventoryService
+// discovered across registered Agent nodes. Opening the panel reads the stored
+// snapshot only; live discovery runs only when the operator presses Refresh.
+// Stale, unverified and production-protected states are always shown, never
+// hidden behind a green summary.
+// ---------------------------------------------------------------------------
+const INFRA_INVENTORY_MAX_RENDERED_ROWS = 300;
+const INFRA_INVENTORY_KIND_LABELS = {
+  host: "Host",
+  "service-managed-instance": "systemd service",
+  instance: "Instance",
+  container: "Container",
+  volume: "Volume",
+  network: "Network",
+  "compose-project": "Compose project",
+  listener: "Listener",
+};
+const INFRA_INVENTORY_HEALTH_TONES = { healthy: "ok", degraded: "warning", failed: "critical", stopped: "planned", unknown: "planned" };
+
+function getInfraInventoryApi() {
+  const api = getDesktopApiState().api;
+  return typeof api?.infrastructureInventory?.get === "function" ? api.infrastructureInventory : null;
+}
+
+function setInfraInventoryStatus(label, tone = "planned") {
+  if (!infraInventoryStatus) return;
+  infraInventoryStatus.textContent = label;
+  infraInventoryStatus.className = `status-pill status-pill--${tone}`;
+}
+
+function setInfraInventoryMessage(message) {
+  if (infraInventoryMessage) infraInventoryMessage.textContent = message;
+}
+
+function createInfraPill(label, tone) {
+  const pill = document.createElement("span");
+  pill.className = `status-pill status-pill--${tone}`;
+  pill.textContent = label;
+  return pill;
+}
+
+function formatInfraNodeNames(resource, nodesById) {
+  const ids = Array.isArray(resource.nodeIds) && resource.nodeIds.length ? resource.nodeIds : [resource.nodeId];
+  return ids.map((id) => nodesById.get(id)?.name || id).join(", ");
+}
+
+function renderInfraInventoryNodes(data) {
+  if (!infraInventoryNodes) return;
+  infraInventoryNodes.replaceChildren();
+  const nodes = Array.isArray(data?.nodes) ? data.nodes.filter((node) => node.kind === "agent") : [];
+  if (!nodes.length) return;
+  infraInventoryNodes.append(createTextElement("h4", `Nodes (${nodes.length})`));
+  const list = document.createElement("div");
+  list.className = "security-list";
+  nodes.forEach((node) => {
+    const row = document.createElement("article");
+    row.className = "security-list-item";
+    const tone = node.status === "collected" ? (node.hostVerified ? "ok" : "warning") : node.status === "skipped" ? "planned" : "critical";
+    const label = node.status === "collected" ? (node.hostVerified ? "Collected" : "Identity unverified") : node.status === "skipped" ? "Skipped" : "Unavailable";
+    row.append(createInfraPill(label, tone));
+    const failedSections = (node.sections || []).filter((section) => section.status !== "ok");
+    const detail = [
+      node.name,
+      node.code ? `(${node.code})` : "",
+      node.lastSuccessAt ? `· last success ${formatHealthCheckedAt(Date.parse(node.lastSuccessAt))}` : "· never collected",
+      failedSections.length ? `· unread: ${failedSections.map((section) => `${section.name} ${section.code}`).join(", ")}` : "",
+      node.limits?.listenersTruncated ? "· listeners truncated" : "",
+      node.limits?.inspectsSkipped ? `· ${node.limits.inspectsSkipped} not inspected (bound)` : "",
+      node.fromPreviousSession ? "· from previous session" : "",
+    ].filter(Boolean).join(" ");
+    row.append(createTextElement("span", detail));
+    if (node.message && node.status !== "collected") row.append(createTextElement("p", node.message, "settings-note"));
+    list.append(row);
+  });
+  infraInventoryNodes.append(list);
+}
+
+function renderInfraInventoryTable(data) {
+  if (!infraInventoryBody) return;
+  infraInventoryBody.replaceChildren();
+  const resources = Array.isArray(data?.resources) ? data.resources : [];
+  const kind = infraInventoryKindFilter?.value || "all";
+  const query = String(infraInventorySearch?.value || "").trim().toLowerCase();
+  const rows = resources.filter((resource) => (kind === "all" || resource.kind === kind)
+    && (!query || String(resource.name || resource.key || "").toLowerCase().includes(query)));
+  infraInventoryBody.append(createTextElement("h4", `Resources (${rows.length}${rows.length !== resources.length ? ` of ${resources.length}` : ""})`));
+  if (!rows.length) {
+    infraInventoryBody.append(createEmptyState(resources.length ? "No resources match the current filter." : "No resources have been discovered yet. Press Refresh Inventory to run read-only discovery."));
+    return;
+  }
+  const nodesById = new Map((data.nodes || []).map((node) => [node.nodeId, node]));
+  const wrap = document.createElement("div");
+  wrap.className = "security-table-wrap";
+  const table = document.createElement("table");
+  table.className = "security-table";
+  const head = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  ["Kind", "Name", "Node", "Health", "Ownership", "Identity", "Protection", "Last seen"].forEach((label) => {
+    headRow.append(createTextElement("th", label));
+  });
+  head.append(headRow);
+  const body = document.createElement("tbody");
+  rows.slice(0, INFRA_INVENTORY_MAX_RENDERED_ROWS).forEach((resource) => {
+    const row = document.createElement("tr");
+    row.dataset.infraInventoryKey = resource.key;
+    const cell = (content) => {
+      const td = document.createElement("td");
+      if (content instanceof Node) td.append(content); else td.textContent = String(content ?? "");
+      row.append(td);
+      return td;
+    };
+    cell(INFRA_INVENTORY_KIND_LABELS[resource.kind] || resource.kind);
+    const nameCell = cell(resource.name || resource.key);
+    if (resource.kind === "service-managed-instance" && resource.details?.unit) {
+      nameCell.append(createTextElement("div", `unit ${resource.details.unit}${resource.capabilities?.unitAllowlisted === false ? " · not allowlisted" : ""}`, "settings-note"));
+    }
+    cell(formatInfraNodeNames(resource, nodesById));
+    const health = resource.health?.state || "unknown";
+    const healthCell = cell(createInfraPill(health, INFRA_INVENTORY_HEALTH_TONES[health] || "planned"));
+    if (resource.health?.detail) healthCell.title = String(resource.health.detail);
+    cell(resource.ownership?.owner === "systemd" ? "systemd (not owned by the Agent)" : (resource.ownership?.detail || resource.ownership?.owner || "unknown"));
+    const identityCell = cell(createInfraPill(resource.identity?.verified ? "Verified" : "Unverified", resource.identity?.verified ? "ok" : "warning"));
+    if (!resource.identity?.verified && resource.identity?.reason) identityCell.title = resource.identity.reason;
+    const protectionCell = cell(createInfraPill(resource.protection?.scope === "non-production" ? "Non-production" : "Production", resource.protection?.scope === "non-production" ? "planned" : "critical"));
+    protectionCell.title = resource.protection?.reason || "";
+    const seen = resource.lastSeen ? formatHealthCheckedAt(Date.parse(resource.lastSeen)) : "never";
+    const seenCell = cell(resource.stale ? `${seen} · stale` : seen);
+    if (resource.stale) seenCell.title = resource.staleReason || "Not confirmed by the latest refresh.";
+    body.append(row);
+  });
+  table.append(head, body);
+  wrap.append(table);
+  infraInventoryBody.append(wrap);
+  if (rows.length > INFRA_INVENTORY_MAX_RENDERED_ROWS) {
+    infraInventoryBody.append(createTextElement("p", `Showing the first ${INFRA_INVENTORY_MAX_RENDERED_ROWS} of ${rows.length} resources. Narrow the filter to see the rest.`, "settings-note"));
+  }
+}
+
+function renderInfraInventoryOverview(data) {
+  if (!infraInventoryOverview) return;
+  const summary = data?.summary || {};
+  infraInventoryOverview.hidden = false;
+  infraInventoryOverview.replaceChildren();
+  [
+    ["Resources", summary.resources ?? 0],
+    ["Hosts", summary.byKind?.host ?? 0],
+    ["systemd services", summary.byKind?.["service-managed-instance"] ?? 0],
+    ["Stale", summary.stale ?? 0],
+    ["Unverified identity", summary.unverified ?? 0],
+    ["Production-protected", summary.production ?? 0],
+    ["Nodes unavailable", summary.nodesUnavailable ?? 0],
+  ].forEach(([label, value]) => appendDetailPair(infraInventoryOverview, label, String(value)));
+}
+
+function syncInfraInventoryControls(ready) {
+  infraInventoryActionButtons.forEach((button) => {
+    if (!button.dataset.defaultLabel) button.dataset.defaultLabel = button.textContent || "Refresh Inventory";
+    button.hidden = !ready;
+    button.disabled = !ready || infraInventoryRequestInFlight;
+    button.textContent = infraInventoryRequestInFlight ? "Discovering..." : button.dataset.defaultLabel;
+  });
+}
+
+function renderInfrastructureInventory() {
+  if (!infraInventoryPanel) return;
+  const api = getInfraInventoryApi();
+  infraInventoryPanel.hidden = !api;
+  if (!api) return;
+  const locked = securityState?.localOwnerAuthenticated !== true;
+  if (infraInventoryOverview) infraInventoryOverview.hidden = true;
+  if (locked) {
+    infraInventoryNodes?.replaceChildren();
+    infraInventoryBody?.replaceChildren();
+    setInfraInventoryStatus("Locked", "planned");
+    setInfraInventoryMessage("Unlock AnxOS to view the infrastructure inventory.");
+    syncInfraInventoryControls(false);
+    return;
+  }
+  syncInfraInventoryControls(true);
+  if (infraInventoryState.status === "error") {
+    setInfraInventoryStatus("Unavailable", "critical");
+    setInfraInventoryMessage(infraInventoryState.error || "Infrastructure inventory request failed.");
+    return;
+  }
+  const data = infraInventoryState.data;
+  if (!data) {
+    setInfraInventoryStatus(infraInventoryRequestInFlight ? "Loading" : "Not loaded", "planned");
+    setInfraInventoryMessage(infraInventoryRequestInFlight ? "Reading the stored inventory..." : "Inventory has not been loaded.");
+    if (infraInventoryState.status === "idle" && !infraInventoryRequestInFlight) loadInfrastructureInventory();
+    return;
+  }
+  const summary = data.summary || {};
+  if (infraInventoryRequestInFlight) {
+    setInfraInventoryStatus("Discovering", "planned");
+  } else if (!data.generatedAt) {
+    setInfraInventoryStatus("Not discovered", "planned");
+  } else if ((summary.stale || 0) > 0) {
+    setInfraInventoryStatus("Partially stale", "warning");
+  } else if ((summary.nodesUnavailable || 0) > 0 || (summary.nodesPartial || 0) > 0 || data.fleetLimit?.overCap === true) {
+    // Nothing shown is stale, but some registered nodes were not inventoried,
+    // a collected node has unread sections or truncation, or the fleet cap
+    // overflowed: never shown as Current.
+    setInfraInventoryStatus("Incomplete", "warning");
+  } else {
+    setInfraInventoryStatus("Current", "ok");
+  }
+  const storeNote = data.store?.readOnly ? " The stored inventory was written by a newer build and is not being overwritten." : data.store?.quarantine?.path ? " A corrupt stored inventory was quarantined." : "";
+  setInfraInventoryMessage(data.generatedAt
+    ? `Last discovery ${formatHealthCheckedAt(Date.parse(data.generatedAt))} · read-only, no service was changed.${storeNote}`
+    : `No discovery has run yet. Press Refresh Inventory to run read-only discovery.${storeNote}`);
+  renderInfraInventoryOverview(data);
+  renderInfraInventoryNodes(data);
+  renderInfraInventoryTable(data);
+}
+
+async function loadInfrastructureInventory(options = {}) {
+  const api = getInfraInventoryApi();
+  if (!api || infraInventoryRequestInFlight) return;
+  const refresh = options.refresh === true;
+  infraInventoryRequestInFlight = true;
+  infraInventoryState = { ...infraInventoryState, status: "loading", error: null };
+  renderInfrastructureInventory();
+  try {
+    const result = refresh ? await api.refresh({ force: options.force === true }) : await api.get();
+    infraInventoryState = { status: "ready", data: result || null, error: null };
+    if (refresh && result?.throttled) showToast("Inventory was refreshed moments ago; showing that result.", "info");
+  } catch (error) {
+    const message = normalizeIpcErrorMessage(error, "Infrastructure inventory request failed.");
+    infraInventoryState = { status: "error", data: infraInventoryState.data, error: message };
+    if (refresh) showToast(message, "error");
+  } finally {
+    infraInventoryRequestInFlight = false;
+    renderInfrastructureInventory();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Network workspace (Endpoint Manager surface)
+//
+// Saved endpoints are the user-facing inventory of reachable addresses; the
+// provider panel and diagnostics/graph panels present the evidence pipeline
+// from src/shared/connectivityPresentation.js. Every read and write is
+// capability-checked against the desktop bridge so a build without these
+// channels renders an honest unavailable state instead of dead controls.
+// ---------------------------------------------------------------------------
+
+function getNetworkPresentation() {
+  return window.AnxConnectivityPresentation || null;
+}
+
+function getNetworkHealthModel() {
+  return window.AnxHealthModel || null;
+}
+
+function networkStateLabel(state) {
+  const presentation = getNetworkPresentation();
+  if (presentation && typeof presentation.stateLabel === "function") {
+    try {
+      return presentation.stateLabel(state) || String(state || "unknown");
+    } catch {
+      return String(state || "unknown");
+    }
+  }
+  // Fallback is the raw state string: never a fabricated friendly label.
+  return String(state || "unknown");
+}
+
+function normalizeNetworkState(value) {
+  const model = getNetworkHealthModel();
+  const states = Array.isArray(model?.CONNECTIVITY_STATES)
+    ? model.CONNECTIVITY_STATES
+    : ["healthy", "degraded", "failed", "unknown", "unsupported", "not_configured"];
+  return states.includes(value) ? value : "unknown";
+}
+
+// Diagnostics/test toast tone follows the observed connectivity state: a failed
+// or unknown outcome must never wear a success tone. Unsupported and
+// not_configured are neutral (nothing failed, nothing to celebrate).
+function getConnectivityToastTone(state) {
+  const normalized = normalizeNetworkState(state);
+  if (normalized === "healthy") return "success";
+  if (normalized === "failed") return "error";
+  if (normalized === "degraded" || normalized === "unknown") return "warning";
+  return "info";
+}
+
+function createConnectivityPill(state) {
+  const normalized = normalizeNetworkState(state);
+  const pill = createTextElement("span", networkStateLabel(normalized), "connectivity-state-pill");
+  pill.dataset.state = normalized;
+  return pill;
+}
+
+function describeNetworkEndpointType(type) {
+  const labels = { lan: "LAN", private: "Private", tailscale: "Tailscale", public: "Public", custom: "Custom" };
+  return labels[String(type || "").toLowerCase()] || "Custom";
+}
+
+function describeNetworkEndpointSource(source) {
+  const labels = { manual: "Manual", discovered: "Discovered", provider: "Provider" };
+  return labels[String(source || "").toLowerCase()] || "Manual";
+}
+
+// Raw health statuses are only trusted when they are canonical connectivity
+// states; anything else is evidence-quality data and reads as unknown. A
+// disabled endpoint has nothing to fail, so it reports not_configured.
+function getNetworkEndpointState(endpoint) {
+  if (endpoint?.enabled === false) return "not_configured";
+  const raw = endpoint?.health?.status || endpoint?.health?.state || null;
+  return normalizeNetworkState(raw);
+}
+
+// Provider lifecycle vocabulary -> connectivity vocabulary, presentation only.
+function mapProviderStateToConnectivity(state) {
+  switch (String(state || "").toLowerCase()) {
+    case "running":
+      return "healthy";
+    case "degraded":
+      return "degraded";
+    case "stopped":
+      return "failed";
+    case "not-installed":
+    case "auth-required":
+    case "setup-required":
+      return "not_configured";
+    case "unsupported":
+      return "unsupported";
+    default:
+      return "unknown";
+  }
+}
+
+function computeNetworkSummary(apiSummary = null) {
+  const endpoints = Array.isArray(networkState.endpoints) ? networkState.endpoints : [];
+  let enabled = 0;
+  let issues = 0;
+  endpoints.forEach((endpoint) => {
+    if (endpoint?.enabled !== false) enabled += 1;
+    const state = getNetworkEndpointState(endpoint);
+    if (state === "failed" || state === "degraded") issues += 1;
+  });
+  const summary = {
+    total: endpoints.length,
+    enabled,
+    disabled: endpoints.length - enabled,
+    issues,
+    providers: Array.isArray(networkState.providers) ? networkState.providers.length : null,
+  };
+  // The endpoints:list payload carries the authoritative store summary; prefer
+  // its counts when present and keep the derived values as the fallback.
+  if (apiSummary && typeof apiSummary === "object") {
+    if (Number.isFinite(apiSummary.total)) summary.total = apiSummary.total;
+    if (Number.isFinite(apiSummary.enabled)) summary.enabled = apiSummary.enabled;
+    const failed = Number(apiSummary.byHealth?.failed) || 0;
+    const degraded = Number(apiSummary.byHealth?.degraded) || 0;
+    if (failed + degraded > 0) summary.issues = failed + degraded;
+  }
+  return summary;
+}
+
+function formatNetworkCheckedAt(value) {
+  if (!value) return "Not checked";
+  const parsed = new Date(String(value));
+  if (Number.isNaN(parsed.getTime())) return String(value);
+  return parsed.toLocaleString();
+}
+
+function formatNetworkAddress(endpoint) {
+  // Canonical formatting lives in the shared endpoint model
+  // (formatEndpointAddress in src/shared/endpointModel.js). The renderer keeps
+  // a presentation copy: it prefers the shared presentation helper's copyText
+  // when one is available and brackets IPv6 hosts so host:port never becomes
+  // ambiguous. This string is never used to derive endpoint identity.
+  const host = String(endpoint?.host || "").trim();
+  if (!host) return "Unavailable";
+  const rawPort = endpoint?.port;
+  const port = rawPort === undefined || rawPort === null || rawPort === "" ? "" : String(rawPort).trim();
+  const presentation = getNetworkPresentation();
+  if (typeof presentation?.buildEndpointChoices === "function") {
+    try {
+      const choice = presentation.buildEndpointChoices([endpoint])?.choices?.[0];
+      if (choice?.copyText && !host.includes(":")) return choice.copyText;
+    } catch {
+      // Fall through to the local presentation copy.
+    }
+  }
+  if (!port) return host;
+  return host.includes(":") && !host.startsWith("[") ? `[${host}]:${port}` : `${host}:${port}`;
+}
+
+function getNetworkEndpointById(endpointId) {
+  return (networkState.endpoints || []).find((endpoint) => endpoint?.id === endpointId) || null;
+}
+
+function renderNetworkStatusLine() {
+  if (!networkStatusLine) return;
+  if (networkState.lastError) {
+    networkStatusLine.textContent = networkState.lastError;
+    networkStatusLine.dataset.tone = "error";
+    return;
+  }
+  const summary = networkState.summary || computeNetworkSummary();
+  const providersLabel =
+    summary.providers === null ? "provider status unknown" : `${summary.providers} provider${summary.providers === 1 ? "" : "s"}`;
+  const degradedLabel = networkState.degraded ? " · endpoint store degraded" : "";
+  networkStatusLine.textContent =
+    `${summary.total} endpoint${summary.total === 1 ? "" : "s"} · ${summary.enabled} enabled · ` +
+    `${summary.issues} issue${summary.issues === 1 ? "" : "s"} · ${providersLabel}${degradedLabel}`;
+  networkStatusLine.dataset.tone = networkState.degraded ? "warning" : "neutral";
+}
+
+function setEndpointFormError(message = "") {
+  if (!endpointFormError) return;
+  endpointFormError.hidden = !message;
+  endpointFormError.textContent = message || "";
+}
+
+function setEndpointFormBusy(isBusy) {
+  endpointFormBusy = Boolean(isBusy);
+  const saveButton = document.querySelector('[data-endpoint-modal-action="save"]');
+  if (saveButton) {
+    saveButton.disabled = endpointFormBusy;
+    saveButton.textContent = endpointFormBusy ? "Saving…" : "Save Endpoint";
+  }
+}
+
+function createEndpointSelectOption(value, label) {
+  const option = document.createElement("option");
+  option.value = value;
+  option.textContent = label;
+  return option;
+}
+
+function populateEndpointSelects(endpoint = null, prefill = null) {
+  // prefill lets the instance Network tab open the modal already scoped to its
+  // service/computer without touching the endpoint object model.
+  const prefillValues = prefill && typeof prefill === "object" ? prefill : {};
+  const serviceSelect = endpointInputs.get("serviceId");
+  if (serviceSelect) {
+    const current = endpoint?.serviceId || prefillValues.serviceId || serviceSelect.value || "";
+    serviceSelect.replaceChildren(createEndpointSelectOption("", "None"));
+    getInstances().forEach((instance) => {
+      if (!instance?.id) return;
+      serviceSelect.append(createEndpointSelectOption(instance.id, instance.displayName || instance.name || instance.id));
+    });
+    if (current && ![...serviceSelect.options].some((option) => option.value === current)) {
+      serviceSelect.append(createEndpointSelectOption(current, `${current} (not currently installed)`));
+    }
+    serviceSelect.value = current;
+  }
+  const computerSelect = endpointInputs.get("computerId");
+  if (computerSelect) {
+    const current = endpoint?.computerId || prefillValues.computerId || computerSelect.value || "";
+    computerSelect.replaceChildren(createEndpointSelectOption("", "None"));
+    getNodePickerNodes().forEach((node) => {
+      if (!node?.id) return;
+      const label = node.default ? `${node.displayName || node.id} (default)` : node.displayName || node.id;
+      computerSelect.append(createEndpointSelectOption(node.id, label));
+    });
+    if (current && ![...computerSelect.options].some((option) => option.value === current)) {
+      computerSelect.append(createEndpointSelectOption(current, `${current} (not registered)`));
+    }
+    computerSelect.value = current;
+  }
+}
+
+function readEndpointFormValues() {
+  const values = {};
+  endpointInputs.forEach((input, key) => {
+    values[key] = input.type === "checkbox" ? input.checked : String(input.value || "").trim();
+  });
+  return values;
+}
+
+function validateEndpointFormValues(values = {}) {
+  const errors = [];
+  if (!values.name) errors.push("Enter a name for this endpoint.");
+  if (!values.host) errors.push("Enter a host address or name.");
+  if (values.port) {
+    const port = Number(values.port);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      errors.push("Port must be a whole number between 1 and 65535.");
+    }
+  }
+  return errors;
+}
+
+function buildEndpointPayload(values = {}) {
+  return {
+    name: values.name,
+    type: values.type || "custom",
+    host: values.host,
+    port: values.port ? Number(values.port) : null,
+    protocol: values.protocol || null,
+    providerId: values.providerId || null,
+    serviceId: values.serviceId || null,
+    computerId: values.computerId || null,
+    notes: values.notes || "",
+    enabled: values.enabled !== false,
+  };
+}
+
+// Clipboard fallback for shells where the async clipboard API is unavailable.
+function copyNetworkTextFallback(text) {
+  const helper = document.createElement("textarea");
+  helper.value = String(text);
+  helper.setAttribute("readonly", "");
+  helper.style.position = "fixed";
+  helper.style.top = "-1000px";
+  helper.style.opacity = "0";
+  document.body.appendChild(helper);
+  try {
+    helper.select();
+    document.execCommand("copy");
+  } finally {
+    helper.remove();
+  }
+}
+
+function appendNetworkEndpointField(container, field, label, value) {
+  const row = document.createElement("div");
+  const detail = createTextElement("dd", value);
+  detail.dataset.endpointField = field;
+  row.append(createTextElement("dt", label), detail);
+  container.append(row);
+  return row;
+}
+
+function buildNetworkEndpointCard(endpoint) {
+  const card = document.createElement("article");
+  card.className = "network-endpoint-card";
+  card.dataset.endpointId = String(endpoint?.id || "");
+  card.classList.toggle(
+    "is-selected",
+    Boolean(networkState.selectedEndpointId && endpoint?.id === networkState.selectedEndpointId),
+  );
+
+  const top = document.createElement("div");
+  top.className = "network-endpoint-card__top";
+  const titleGroup = document.createElement("div");
+  titleGroup.className = "network-endpoint-card__title";
+  const name = createTextElement("strong", endpoint?.name || "Unnamed endpoint");
+  name.dataset.endpointField = "name";
+  const type = createTextElement("span", describeNetworkEndpointType(endpoint?.type));
+  type.dataset.endpointField = "type";
+  titleGroup.append(name, type);
+  top.append(titleGroup, createConnectivityPill(getNetworkEndpointState(endpoint)));
+
+  const meta = document.createElement("dl");
+  meta.className = "network-endpoint-card__meta";
+  appendNetworkEndpointField(meta, "address", "Address", formatNetworkAddress(endpoint));
+  appendNetworkEndpointField(meta, "service", "Service", endpoint?.serviceId || "None");
+  appendNetworkEndpointField(meta, "computer", "Computer", endpoint?.computerId || "None");
+  appendNetworkEndpointField(meta, "health", "Health", networkStateLabel(getNetworkEndpointState(endpoint)));
+  appendNetworkEndpointField(
+    meta,
+    "lastChecked",
+    "Last checked",
+    endpoint?.lastCheckedAt ? formatNetworkCheckedAt(endpoint.lastCheckedAt) : "Not checked",
+  );
+  appendNetworkEndpointField(meta, "source", "Source", describeNetworkEndpointSource(endpoint?.source));
+
+  const actions = document.createElement("div");
+  actions.className = "network-endpoint-card__actions";
+  [
+    { action: "copy", label: "Copy address", text: "Copy" },
+    { action: "test", label: "Test connectivity", text: "Test" },
+    { action: "edit", label: "Edit endpoint", text: "Edit" },
+    {
+      action: "toggle",
+      label: endpoint?.enabled === false ? "Enable endpoint" : "Disable endpoint",
+      text: endpoint?.enabled === false ? "Enable" : "Disable",
+    },
+    { action: "associate", label: "Associate with a service or computer", text: "Associate" },
+    { action: "delete", label: "Remove endpoint", text: "Remove", danger: true },
+  ].forEach((spec) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = spec.danger ? "inline-action inline-action--danger" : "inline-action";
+    button.dataset.endpointAction = spec.action;
+    button.dataset.endpointId = String(endpoint?.id || "");
+    button.textContent = spec.text;
+    button.setAttribute("aria-label", spec.label);
+    actions.append(button);
+  });
+
+  card.append(top, meta, actions);
+  return card;
+}
+
+async function refreshNetworkPage({ force = false } = {}) {
+  const api = getDesktopApi();
+  const nodeId = getSelectedNodeId();
+  // A request id is allocated only when this call actually starts a refresh:
+  // allocating it for a call that then returns early superseded the in-flight
+  // request, which skipped its loading reset and left the page stuck. A
+  // repeated call for the same node joins the in-flight refresh; a call for a
+  // different node supersedes it (the newer request owns `loading`).
+  if (networkState.loading && !force && networkState.loadingNodeId === nodeId) {
+    return networkState;
+  }
+  const requestId = ++networkState.requestId;
+  networkState.loadingNodeId = nodeId;
+  networkState.loading = true;
+  networkState.lastError = null;
+  let apiSummary = null;
+  if (networkEndpointList) networkEndpointList.setAttribute("aria-busy", "true");
+  renderNetworkEndpoints();
+  updateNetworkToolbarState();
+  try {
+    if (typeof api?.endpoints?.list === "function") {
+      const payload = await api.endpoints.list({ nodeId });
+      if (requestId !== networkState.requestId) return networkState;
+      networkState.endpoints = Array.isArray(payload)
+        ? payload
+        : Array.isArray(payload?.endpoints)
+          ? payload.endpoints
+          : [];
+      apiSummary = payload?.summary || null;
+      networkState.providerSyncs = mergeNetworkProviderSyncs(nodeId, payload?.providerSyncs);
+      networkState.degraded = payload?.degraded === true;
+    } else {
+      networkState.endpoints = [];
+      networkState.degraded = false;
+      networkState.lastError = "Endpoint registry is unavailable in this build.";
+    }
+  } catch (error) {
+    if (requestId !== networkState.requestId) return networkState;
+    networkState.endpoints = [];
+    networkState.lastError = getFriendlyErrorMessage(error, "Endpoints could not be loaded.");
+  }
+  // Provider status is tolerated rather than fatal: a failure keeps the panel
+  // visible in an explicit "provider status unavailable" state.
+  // Last-sync records are not reset here: an unavailable status read must not
+  // erase the persisted sync history the endpoint list just returned.
+  networkState.providers = null;
+  try {
+    if (typeof api?.providers?.getStatus === "function") {
+      const status = await api.providers.getStatus({ nodeId });
+      if (requestId !== networkState.requestId) return networkState;
+      networkState.providers = Array.isArray(status?.providers) ? status.providers : Array.isArray(status) ? status : null;
+      networkState.providerSyncs = mergeNetworkProviderSyncs(nodeId, status?.syncs);
+    }
+  } catch {
+    if (requestId !== networkState.requestId) return networkState;
+    networkState.providers = null;
+  }
+  if (requestId !== networkState.requestId) return networkState;
+  networkState.loading = false;
+  networkState.summary = computeNetworkSummary(apiSummary);
+  renderNetworkSummary();
+  renderNetworkProviders();
+  renderNetworkEndpoints();
+  updateNetworkToolbarState();
+  return networkState;
+}
+
+function renderNetworkSummary() {
+  const summary = networkState.summary || computeNetworkSummary();
+  networkSummaryFields.forEach((field) => {
+    const key = field.dataset.networkSummary;
+    if (key === "endpoints") field.textContent = String(summary.total);
+    else if (key === "enabled") field.textContent = String(summary.enabled);
+    else if (key === "issues") field.textContent = String(summary.issues);
+    else if (key === "providers") field.textContent = summary.providers === null ? "Unknown" : String(summary.providers);
+  });
+}
+
+function renderNetworkProviders() {
+  const providers = Array.isArray(networkState.providers) ? networkState.providers : null;
+  if (networkProvidersPanel) {
+    networkProvidersPanel.replaceChildren();
+    (providers || []).forEach((provider) => {
+      const row = document.createElement("div");
+      row.className = "network-provider-row";
+      row.dataset.providerId = String(provider?.providerId || provider?.id || "");
+      const info = document.createElement("div");
+      info.className = "network-provider-row__info";
+      info.append(
+        createTextElement("strong", provider?.displayName || provider?.providerId || provider?.id || "Provider"),
+        createTextElement("span", describeNetworkProviderDetail(provider), "network-provider-row__detail"),
+      );
+      row.append(info, createConnectivityPill(mapProviderStateToConnectivity(provider?.state)));
+      networkProvidersPanel.append(row);
+    });
+  }
+  if (networkProvidersEmpty) {
+    networkProvidersEmpty.hidden = Boolean(providers && providers.length);
+    networkProvidersEmpty.textContent = providers
+      ? "No providers reported for this system."
+      : "Unknown — provider status unavailable.";
+  }
+  if (networkProviderStatus) {
+    networkProviderStatus.textContent = providers ? `${providers.length} reported` : "Unknown";
+    networkProviderStatus.className =
+      providers && providers.length ? "status-pill status-pill--ok" : "status-pill status-pill--planned";
+  }
+}
+
+function mergeNetworkProviderSyncs(nodeId, incoming) {
+  const presentation = getNetworkPresentation();
+  if (!presentation || typeof presentation.mergeProviderSyncs !== "function") return networkState.providerSyncs;
+  return presentation.mergeProviderSyncs(networkState.providerSyncs, nodeId, incoming);
+}
+
+function describeNetworkProviderDetail(provider) {
+  if (!provider || typeof provider !== "object") return "State unavailable.";
+  const parts = [];
+  if (provider.state) parts.push(String(provider.state));
+  if (provider.availability && provider.availability !== "unknown") parts.push(String(provider.availability));
+  const tunnels = Array.isArray(provider.tunnels) ? provider.tunnels.length : 0;
+  if (tunnels) parts.push(`${tunnels} tunnel${tunnels === 1 ? "" : "s"}`);
+  if (provider.publicAddress) parts.push(String(provider.publicAddress));
+  if (provider.lastCheckedAt) parts.push(`checked ${formatNetworkCheckedAt(provider.lastCheckedAt)}`);
+  const sync = networkState.providerSyncs?.[getSelectedNodeId()];
+  if (sync && sync.providerId === provider.providerId && sync.lastSyncAt) {
+    parts.push(`last sync ${formatNetworkCheckedAt(sync.lastSyncAt)}${sync.errorCode ? ` (${sync.errorCode})` : ""}`);
+  }
+  return parts.length ? parts.join(" · ") : "No provider detail reported.";
+}
+
+function renderNetworkEndpoints() {
+  const endpoints = Array.isArray(networkState.endpoints) ? networkState.endpoints : [];
+  const busy = networkState.loading === true;
+  if (networkShell) networkShell.setAttribute("aria-busy", busy ? "true" : "false");
+  if (networkLoading) networkLoading.hidden = !busy || endpoints.length > 0;
+  if (networkEmpty) networkEmpty.hidden = busy || endpoints.length > 0;
+  if (networkEndpointList) {
+    networkEndpointList.replaceChildren(...endpoints.map((endpoint) => buildNetworkEndpointCard(endpoint)));
+    networkEndpointList.setAttribute("aria-busy", busy ? "true" : "false");
+  }
+  renderNetworkStatusLine();
+}
+
+async function handleNetworkEndpointAction(action, endpointId) {
+  const endpoint = getNetworkEndpointById(endpointId);
+  if (!endpoint) {
+    showToast("Endpoint is no longer available. Refreshed endpoint list.", "warning");
+    await refreshNetworkPage({ force: true });
+    return;
+  }
+  if (action === "edit" || action === "associate") {
+    openEndpointModal(endpoint);
+    if (action === "associate") showToast("Choose a service or computer, then save.", "info");
+    return;
+  }
+  if (action === "copy") {
+    await copyNetworkEndpointAddress(endpointId);
+    return;
+  }
+  if (action === "test") {
+    await testNetworkEndpoint(endpointId);
+    return;
+  }
+  if (action === "toggle") {
+    const api = getDesktopApi();
+    if (typeof api?.endpoints?.setEnabled !== "function") {
+      showToast("Endpoint registry is unavailable in this build.", "warning");
+      return;
+    }
+    try {
+      await api.endpoints.setEnabled(endpoint.id, endpoint.enabled === false);
+      showToast(endpoint.enabled === false ? "Endpoint enabled." : "Endpoint disabled.", "success");
+      await refreshNetworkPage({ force: true });
+    } catch (error) {
+      const message = getFriendlyErrorMessage(error, "Endpoint could not be updated.");
+      networkState.lastError = message;
+      showToast(message, "error");
+      renderNetworkStatusLine();
+    }
+    return;
+  }
+  if (action === "delete") {
+    const confirmed = await confirmDestructiveAction({
+      title: `Remove ${endpoint.name || "this endpoint"}?`,
+      message: "The saved address is removed from the endpoint registry. The service itself is not stopped or changed.",
+      confirmLabel: "Remove endpoint",
+    });
+    if (!confirmed) return;
+    const api = getDesktopApi();
+    if (typeof api?.endpoints?.remove !== "function") {
+      showToast("Endpoint registry is unavailable in this build.", "warning");
+      return;
+    }
+    try {
+      await api.endpoints.remove(endpoint.id);
+      if (networkState.selectedEndpointId === endpoint.id) networkState.selectedEndpointId = null;
+      showToast("Endpoint removed.", "success");
+      await refreshNetworkPage({ force: true });
+    } catch (error) {
+      const message = getFriendlyErrorMessage(error, "Endpoint could not be removed.");
+      networkState.lastError = message;
+      showToast(message, "error");
+      renderNetworkStatusLine();
+    }
+  }
+}
+
+function openEndpointModal(endpoint = null, prefill = null) {
+  if (!endpointModal) return;
+  const prefillValues = prefill && typeof prefill === "object" ? prefill : {};
+  populateEndpointSelects(endpoint, prefillValues);
+  const values = {
+    id: endpoint?.id || "",
+    name: endpoint?.name || "",
+    type: endpoint?.type || "lan",
+    host: endpoint?.host || "",
+    port: endpoint?.port ?? "",
+    protocol: endpoint?.protocol || "",
+    providerId: endpoint?.providerId || "",
+    serviceId: endpoint?.serviceId || prefillValues.serviceId || "",
+    computerId: endpoint?.computerId || prefillValues.computerId || "",
+    notes: endpoint?.notes || "",
+    enabled: endpoint?.enabled !== false,
+  };
+  endpointInputs.forEach((input, key) => {
+    if (input.type === "checkbox") input.checked = values[key] === true;
+    else input.value = values[key] ?? "";
+  });
+  setEndpointFormError("");
+  setEndpointFormBusy(false);
+  if (endpointModalTitle) endpointModalTitle.textContent = endpoint ? "Edit Endpoint" : "Add Endpoint";
+  endpointModal.hidden = false;
+  if (!endpointModalCleanup) {
+    endpointModalCleanup = activateModal(endpointModal, {
+      initialFocus: () => endpointInputs.get("name") || endpointModal.querySelector("[data-endpoint-input]"),
+    });
+  }
+}
+
+function closeEndpointModal() {
+  if (!endpointModal) return;
+  endpointModal.hidden = true;
+  endpointModalCleanup?.();
+  endpointModalCleanup = null;
+  setEndpointFormBusy(false);
+  setEndpointFormError("");
+}
+
+async function submitEndpointForm(event) {
+  event?.preventDefault?.();
+  if (endpointFormBusy) return;
+  const values = readEndpointFormValues();
+  const errors = validateEndpointFormValues(values);
+  if (errors.length) {
+    setEndpointFormError(errors[0]);
+    return;
+  }
+  const api = getDesktopApi();
+  const creating = !values.id;
+  const write = creating ? api?.endpoints?.create : api?.endpoints?.update;
+  if (typeof write !== "function") {
+    setEndpointFormError("Endpoint registry is unavailable in this build.");
+    return;
+  }
+  setEndpointFormBusy(true);
+  setEndpointFormError("");
+  try {
+    if (creating) {
+      await api.endpoints.create(buildEndpointPayload(values));
+    } else {
+      await api.endpoints.update(values.id, buildEndpointPayload(values));
+    }
+    showToast(creating ? "Endpoint created." : "Endpoint updated.", "success");
+    closeEndpointModal();
+    await refreshNetworkPage({ force: true });
+    // The instance Network tab may have opened this modal; keep its list
+    // current when it is the visible surface.
+    if (getActivePageName() === "instances" && activeInstanceTab === "network") {
+      await refreshInstanceNetworkTab(selectedInstanceId);
+    }
+  } catch (error) {
+    const message = getFriendlyErrorMessage(error, "Endpoint could not be saved.");
+    networkState.lastError = message;
+    setEndpointFormError(message);
+    renderNetworkStatusLine();
+  } finally {
+    setEndpointFormBusy(false);
+  }
+}
+
+async function copyNetworkEndpointAddress(endpointId) {
+  const endpoint = getNetworkEndpointById(endpointId);
+  if (!endpoint) {
+    showToast("Endpoint is no longer available.", "warning");
+    return;
+  }
+  const text = formatNetworkAddress(endpoint);
+  try {
+    await navigator.clipboard.writeText(text);
+    showToast("Endpoint address copied.", "success");
+  } catch {
+    try {
+      copyNetworkTextFallback(text);
+      showToast("Endpoint address copied.", "success");
+    } catch {
+      showToast("Endpoint address could not be copied.", "error");
+    }
+  }
+}
+
+// A run discarded because its endpoint was edited or deleted mid-run carries
+// no target result; it is shown as not evaluated and never rendered as one.
+function isDiscardedConnectivityResult(result) {
+  return Boolean(result) && typeof result === "object" && result.discarded === "ENDPOINT_CHANGED";
+}
+
+const DISCARDED_CONNECTIVITY_MESSAGE = "Not evaluated: the endpoint changed while it was being tested. Run the test again.";
+
+async function testNetworkEndpoint(endpointId) {
+  const endpoint = getNetworkEndpointById(endpointId);
+  if (!endpoint) {
+    showToast("Endpoint is no longer available.", "warning");
+    return;
+  }
+  const api = getDesktopApi();
+  // Prefer the dedicated endpoint test channel (it runs the same diagnostics
+  // service scoped to this endpoint); fall back to the general diagnostics run.
+  if (typeof api?.endpoints?.test === "function") {
+    if (networkDiagnosticsInFlight) return;
+    const serial = ++networkDiagnosticsSerial;
+    networkDiagnosticsInFlight = true;
+    updateNetworkToolbarState();
+    try {
+      const result = await api.endpoints.test({ nodeId: getSelectedNodeId(), endpointId });
+      if (serial !== networkDiagnosticsSerial) return;
+      if (result?.ok === false) {
+        const message = normalizeIpcErrorMessage(result.error?.message, "Endpoint test failed.");
+        networkState.lastError = message;
+        showToast(message, "error");
+        renderNetworkStatusLine();
+        return;
+      }
+      if (isDiscardedConnectivityResult(result)) {
+        showDiscardedNetworkDiagnostics();
+        await refreshNetworkPage({ force: true });
+        return;
+      }
+      networkState.diagnostics = result || null;
+      networkSelectedStageId = null;
+      renderNetworkDiagnostics(networkState.diagnostics);
+      renderNetworkGraph(networkState.diagnostics);
+      const overallState = normalizeNetworkState(result?.overall?.state);
+      showToast(`Endpoint test finished: ${networkStateLabel(overallState)}.`, getConnectivityToastTone(overallState));
+      await refreshNetworkPage({ force: true });
+    } catch (error) {
+      if (serial !== networkDiagnosticsSerial) return;
+      const message = getFriendlyErrorMessage(error, "Endpoint test failed.");
+      networkState.lastError = message;
+      showToast(message, "error");
+      renderNetworkStatusLine();
+    } finally {
+      if (serial === networkDiagnosticsSerial) {
+        networkDiagnosticsInFlight = false;
+        updateNetworkToolbarState();
+      }
+    }
+    return;
+  }
+  await runNetworkDiagnostics(endpointId);
+}
+
+async function runNetworkDiagnostics(endpointId = null) {
+  const api = getDesktopApi();
+  if (typeof api?.connectivity?.runDiagnostics !== "function") {
+    showToast("Connectivity diagnostics are unavailable in this build.", "warning");
+    return;
+  }
+  if (networkDiagnosticsInFlight) return;
+  const serial = ++networkDiagnosticsSerial;
+  networkDiagnosticsInFlight = true;
+  updateNetworkToolbarState();
+  if (networkDiagnosticsPanel) networkDiagnosticsPanel.hidden = false;
+  if (networkDiagnosticsSummary) {
+    networkDiagnosticsSummary.replaceChildren(createTextElement("p", "Running connectivity diagnostics…"));
+  }
+  if (networkDiagnosticsScopes) networkDiagnosticsScopes.replaceChildren();
+  if (networkDiagnosticsStages) networkDiagnosticsStages.replaceChildren();
+  try {
+    const result = await api.connectivity.runDiagnostics({
+      nodeId: getSelectedNodeId(),
+      endpointId: endpointId || null,
+      refresh: true,
+    });
+    if (serial !== networkDiagnosticsSerial) return;
+    if (result?.ok === false) {
+      throw new Error(normalizeIpcErrorMessage(result.error?.message, "Connectivity diagnostics failed."));
+    }
+    if (isDiscardedConnectivityResult(result)) {
+      showDiscardedNetworkDiagnostics();
+      return;
+    }
+    networkState.diagnostics = result || null;
+    networkSelectedStageId = null;
+    renderNetworkDiagnostics(networkState.diagnostics);
+    renderNetworkGraph(networkState.diagnostics);
+    const overallState = normalizeNetworkState(result?.overall?.state);
+    showToast(
+      `${endpointId ? "Endpoint connectivity test" : "Connectivity diagnostics"} finished: ${networkStateLabel(overallState)}.`,
+      getConnectivityToastTone(overallState),
+    );
+  } catch (error) {
+    if (serial !== networkDiagnosticsSerial) return;
+    const message = getFriendlyErrorMessage(error, "Connectivity diagnostics failed.");
+    networkState.lastError = message;
+    if (networkDiagnosticsSummary) {
+      networkDiagnosticsSummary.replaceChildren(createTextElement("p", message));
+    }
+    showToast(message, "error");
+    renderNetworkStatusLine();
+  } finally {
+    if (serial === networkDiagnosticsSerial) {
+      networkDiagnosticsInFlight = false;
+      updateNetworkToolbarState();
+    }
+  }
+}
+
+async function syncNetworkProviders() {
+  const api = getDesktopApi();
+  const sync = typeof api?.providers?.syncTunnels === "function"
+    ? (payload) => api.providers.syncTunnels(payload)
+    : typeof api?.providers?.sync === "function"
+      ? (payload) => api.providers.sync(payload)
+      : null;
+  if (!sync) {
+    showToast("Provider sync is unavailable in this build.", "warning");
+    return;
+  }
+  if (networkProviderSyncInFlight) return;
+  networkProviderSyncInFlight = true;
+  updateNetworkToolbarState();
+  try {
+    const result = await sync({ nodeId: getSelectedNodeId() });
+    if (result?.ok === false) {
+      const message = normalizeIpcErrorMessage(result.error?.message, "Provider sync failed.");
+      networkState.lastError = message;
+      showToast(message, "error");
+      renderNetworkStatusLine();
+      return;
+    }
+    const created = Array.isArray(result?.endpointsCreated) ? result.endpointsCreated.length : 0;
+    const updated = Array.isArray(result?.endpointsUpdated) ? result.endpointsUpdated.length : 0;
+    networkState.providerSyncs = mergeNetworkProviderSyncs(getSelectedNodeId(), result);
+    showToast(`Provider sync complete: ${created} created, ${updated} updated.`, "success");
+    await refreshNetworkPage({ force: true });
+  } catch (error) {
+    const message = getFriendlyErrorMessage(error, "Provider sync failed.");
+    networkState.lastError = message;
+    showToast(message, "error");
+    renderNetworkStatusLine();
+  } finally {
+    networkProviderSyncInFlight = false;
+    updateNetworkToolbarState();
+  }
+}
+
+function showDiscardedNetworkDiagnostics() {
+  networkState.diagnostics = null;
+  networkSelectedStageId = null;
+  renderNetworkGraph(null);
+  if (networkDiagnosticsPanel) networkDiagnosticsPanel.hidden = false;
+  if (networkDiagnosticsSummary) {
+    networkDiagnosticsSummary.replaceChildren(createTextElement("p", DISCARDED_CONNECTIVITY_MESSAGE));
+  }
+  if (networkDiagnosticsScopes) networkDiagnosticsScopes.replaceChildren();
+  if (networkDiagnosticsStages) networkDiagnosticsStages.replaceChildren();
+  showToast(DISCARDED_CONNECTIVITY_MESSAGE, "warning");
+}
+
+function renderNetworkDiagnostics(result) {
+  if (!networkDiagnosticsPanel) return;
+  if (!result || typeof result !== "object") {
+    networkDiagnosticsPanel.hidden = true;
+    return;
+  }
+  networkDiagnosticsPanel.hidden = false;
+  const presentation = getNetworkPresentation();
+  const summary =
+    presentation && typeof presentation.summarizeConnectivity === "function"
+      ? presentation.summarizeConnectivity(result)
+      : null;
+  if (networkDiagnosticsSummary) {
+    networkDiagnosticsSummary.replaceChildren();
+    const overallState = normalizeNetworkState(result.overall?.state);
+    const headline = createTextElement(
+      "strong",
+      summary?.headline || result.overall?.headline || networkStateLabel(overallState),
+    );
+    networkDiagnosticsSummary.append(createConnectivityPill(overallState), headline);
+    if (result.checkedAt) {
+      networkDiagnosticsSummary.append(
+        createTextElement("span", `Checked ${formatNetworkCheckedAt(result.checkedAt)}`, "settings-note"),
+      );
+    }
+  }
+  if (networkDiagnosticsScopes) {
+    networkDiagnosticsScopes.replaceChildren();
+    (summary?.scopeRows || []).forEach((row) => {
+      const scopeRow = document.createElement("div");
+      scopeRow.className = "network-scope-row";
+      scopeRow.dataset.scope = String(row.scope || "");
+      scopeRow.append(
+        createTextElement("span", row.label || row.scope || "Scope", "network-scope-row__label"),
+        createConnectivityPill(row.state),
+      );
+      networkDiagnosticsScopes.append(scopeRow);
+    });
+  }
+  if (networkDiagnosticsStages) {
+    networkDiagnosticsStages.replaceChildren();
+    (Array.isArray(result.stages) ? result.stages : []).forEach((stage) => {
+      networkDiagnosticsStages.append(buildNetworkDiagnosticsStage(stage));
+    });
+  }
+  updateNetworkToolbarState();
+}
+
+function buildNetworkDiagnosticsStage(stage) {
+  const state = normalizeNetworkState(stage?.state);
+  const row = document.createElement("section");
+  row.className = "network-diagnostics-stage";
+  row.dataset.stageId = String(stage?.id || "");
+  row.dataset.stageState = state;
+  if (networkSelectedStageId && stage?.id === networkSelectedStageId) row.classList.add("is-selected");
+  const header = document.createElement("div");
+  header.className = "network-diagnostics-stage__header";
+  header.append(
+    createTextElement("strong", stage?.label || stage?.id || "Stage"),
+    createConnectivityPill(state),
+  );
+  row.append(header);
+  if (stage?.detail) {
+    row.append(createTextElement("p", stage.detail, "network-diagnostics-stage__detail"));
+  }
+  const presentation = getNetworkPresentation();
+  const evidenceRows =
+    presentation && typeof presentation.formatDiagnosticsEvidence === "function"
+      ? presentation.formatDiagnosticsEvidence(stage)
+      : [];
+  if (evidenceRows.length) {
+    const evidence = document.createElement("dl");
+    evidence.className = "network-diagnostics-stage__evidence";
+    evidenceRows.forEach((entry) => {
+      const pair = document.createElement("div");
+      pair.append(createTextElement("dt", entry.label), createTextElement("dd", entry.value));
+      evidence.append(pair);
+    });
+    row.append(evidence);
+  }
+  const remediation = Array.isArray(stage?.remediation) ? stage.remediation : [];
+  if (remediation.length) {
+    const actions = document.createElement("div");
+    actions.className = "network-diagnostics-stage__actions";
+    remediation.forEach((item) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "inline-action";
+      button.dataset.stageAction = String(item.kind || "");
+      button.dataset.stageId = String(stage?.id || "");
+      button.textContent = item.label || describeNetworkStageAction(item.kind);
+      actions.append(button);
+    });
+    row.append(actions);
+  }
+  return row;
+}
+
+function describeNetworkStageAction(kind) {
+  const labels = {
+    "open-network": "Open Network",
+    "open-provider": "Open provider",
+    "start-service": "Start service",
+    "open-console": "Open console",
+    "copy-details": "Copy details",
+  };
+  return labels[String(kind || "")] || "Run action";
+}
+
+async function handleNetworkStageAction(kind, stageId) {
+  if (kind === "open-network") {
+    // Already on the Network page; a no-op navigation would lose the current
+    // diagnostics, so refresh in place instead.
+    return refreshNetworkPage({ force: true });
+  }
+  if (kind === "open-provider") return syncNetworkProviders();
+  if (kind === "start-service") {
+    showPage("instances");
+    return undefined;
+  }
+  if (kind === "open-console") {
+    showPage("console");
+    return undefined;
+  }
+  if (kind === "copy-details") {
+    // Evidence is already whitelisted flat scalars (the diagnostics model
+    // refuses nested values), so nothing else can ride along in this summary.
+    const stage = (networkState.diagnostics?.stages || []).find((entry) => entry?.id === stageId) || null;
+    const summary = {
+      nodeId: getSelectedNodeId(),
+      endpointId: networkState.selectedEndpointId || null,
+      checkedAt: networkState.diagnostics?.checkedAt || null,
+      stage: stage
+        ? { id: stage.id, label: stage.label, state: stage.state, detail: stage.detail, evidence: stage.evidence || {} }
+        : null,
+    };
+    try {
+      await clipboardWriteNetworkText(JSON.stringify(summary, null, 2));
+      showToast("Diagnostics details copied.", "success");
+    } catch {
+      showToast("Diagnostics details could not be copied.", "error");
+    }
+  }
+  return undefined;
+}
+
+async function clipboardWriteNetworkText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    copyNetworkTextFallback(text);
+  }
+}
+
+function renderNetworkGraph(result) {
+  if (!networkGraphPanel) return;
+  networkGraphPanel.replaceChildren();
+  const graph = result?.graph && typeof result.graph === "object" ? result.graph : null;
+  const nodes = Array.isArray(graph?.nodes) ? graph.nodes : [];
+  if (networkGraphEmpty) networkGraphEmpty.hidden = nodes.length > 0;
+  if (!nodes.length) return;
+  const wrapper = document.createElement("div");
+  wrapper.className = "connectivity-graph";
+  nodes.forEach((node) => {
+    const state = normalizeNetworkState(node?.state);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "connectivity-node";
+    button.dataset.graphNode = "";
+    button.dataset.nodeId = String(node?.id || "");
+    button.dataset.state = state;
+    if (node?.stageId) button.dataset.stageId = String(node.stageId);
+    if (node?.endpointId) button.dataset.endpointId = String(node.endpointId);
+    button.setAttribute("aria-label", `${node?.label || "Node"}: ${networkStateLabel(state)}`);
+    button.append(createTextElement("span", node?.label || "Node", "connectivity-node__label"), createConnectivityPill(state));
+    if (networkSelectedStageId && node?.stageId === networkSelectedStageId) button.classList.add("is-selected");
+    wrapper.append(button);
+  });
+  networkGraphPanel.append(wrapper);
+  if (graph?.summary?.detail) {
+    networkGraphPanel.append(createTextElement("p", String(graph.summary.detail), "network-graph-summary"));
+  }
+}
+
+function updateNetworkToolbarState() {
+  networkActionButtons.forEach((button) => {
+    const action = button.dataset.networkAction;
+    if (action === "refresh") {
+      button.disabled = networkState.loading;
+    } else if (action === "run-diagnostics") {
+      button.disabled = networkDiagnosticsInFlight || networkState.loading;
+    } else if (action === "sync-provider") {
+      button.disabled = networkProviderSyncInFlight || networkState.loading;
+    } else if (action === "add-endpoint") {
+      button.disabled = false;
+    }
+  });
+}
+
+/* ---------------------------------------------------------------------------
+   Instance workspace: Network and Performance tabs
+
+   The Network tab reuses the Network page's endpoint presentation
+   (buildNetworkEndpointCard, createConnectivityPill, formatNetworkAddress) for
+   a single service. The diagnostics and graph renderers are minimal local
+   copies instead of a refactor of the page renderers, because the Network page
+   renderer shapes are pinned by scripts/ui-network-page-smoke.js and a shared
+   extraction would risk that pinned surface. The Performance tab reads the
+   sampled telemetry store through the canonical series key format implemented
+   in src/shared/telemetryStore.js:
+
+       instanceSeriesKey(nodeId, instanceId, metric)
+         = `instance:<nodeId>:<instanceId>:<metric>`
+
+   That module is main-process/agent code and is not loaded as a renderer
+   script, so this file replicates the documented key format instead of
+   importing it; keep the two in sync. Both tabs load lazily when their tab
+   activates — no polling — and both render explicit unavailable/unsupported
+   states when the bridge or the response reports the capability is missing,
+   never a fake-empty list.
+
+   This whole region is textContent-only by design: no innerHTML anywhere, so
+   endpoint or telemetry values can never be parsed as markup.
+--------------------------------------------------------------------------- */
+
+const INSTANCE_NETWORK_UNSUPPORTED_MESSAGE = "Endpoints are not supported for this service on this computer.";
+
+const INSTANCE_TELEMETRY_METRICS = Object.freeze([
+  { metric: "cpuPercent", label: "CPU usage", unit: "percent" },
+  { metric: "memoryRssBytes", label: "Memory (RSS)", unit: "bytes" },
+  { metric: "uptimeSeconds", label: "Uptime", unit: "seconds" },
+]);
+
+const INSTANCE_TELEMETRY_RANGES = Object.freeze([
+  { id: "1h", label: "last hour", sinceMs: 3600000 },
+  { id: "6h", label: "last 6 hours", sinceMs: 21600000 },
+  { id: "24h", label: "last 24 hours", sinceMs: 86400000 },
+  { id: "7d", label: "last 7 days", sinceMs: 604800000 },
+]);
+
+function getInstanceNetworkSupportFailure(state = instanceNetworkTabState) {
+  if (state?.unsupported === true) return "unsupported";
+  if (state?.degraded === true) return "degraded";
+  return null;
+}
+
+async function refreshInstanceNetworkTab(instanceId) {
+  const state = instanceNetworkTabState;
+  const targetId = instanceId || null;
+  const instanceChanged = state.instanceId !== targetId;
+  const requestId = ++state.requestId;
+  state.instanceId = targetId;
+  if (instanceChanged) {
+    // Diagnostics belong to the previously selected service; never carry them
+    // across an instance switch.
+    state.diagnostics = null;
+    state.unsupported = false;
+    state.degraded = false;
+    renderInstanceNetworkDiagnostics(null);
+    renderInstanceNetworkGraph(null);
+  }
+  if (!targetId) {
+    state.endpoints = [];
+    state.loading = false;
+    state.lastError = null;
+    renderInstanceNetworkTab(null);
+    return state;
+  }
+  const api = getDesktopApi();
+  if (typeof api?.endpoints?.list !== "function") {
+    state.endpoints = [];
+    state.loading = false;
+    state.lastError = "Endpoint registry is unavailable in this build.";
+    renderInstanceNetworkTab(targetId);
+    return state;
+  }
+  state.loading = true;
+  state.lastError = null;
+  renderInstanceNetworkTab(targetId);
+  try {
+    const payload = await api.endpoints.list({ nodeId: getSelectedNodeId(), serviceId: targetId });
+    if (requestId !== state.requestId) return state;
+    state.endpoints = Array.isArray(payload?.endpoints) ? payload.endpoints : [];
+    // The registry list is authoritative for what the store can report; a
+    // successful list clears a stale diagnostics-unsupported flag.
+    state.degraded = payload?.degraded === true;
+    state.unsupported = false;
+    state.loading = false;
+  } catch (error) {
+    if (requestId !== state.requestId) return state;
+    state.endpoints = [];
+    state.degraded = false;
+    state.loading = false;
+    state.lastError = getFriendlyErrorMessage(error, "Endpoints could not be loaded.");
+  }
+  renderInstanceNetworkTab(targetId);
+  return state;
+}
+
+function renderInstanceNetworkTab(instanceId) {
+  const state = instanceNetworkTabState;
+  const endpoints = instanceId && Array.isArray(state.endpoints) ? state.endpoints : [];
+  const enabledCount = endpoints.filter((endpoint) => endpoint?.enabled !== false).length;
+  const supportFailure = instanceId ? getInstanceNetworkSupportFailure(state) : null;
+  if (instanceNetworkEndpoints) {
+    const cards = endpoints.map((endpoint) => buildNetworkEndpointCard(endpoint));
+    // Selection highlighting is owned by the Network page; the instance tab
+    // reads the same endpoint ids, so strip the shared selection class here.
+    cards.forEach((card) => card.classList.remove("is-selected"));
+    instanceNetworkEndpoints.replaceChildren(...cards);
+    instanceNetworkEndpoints.setAttribute("aria-busy", state.loading ? "true" : "false");
+  }
+  if (instanceNetworkUnsupported) {
+    instanceNetworkUnsupported.hidden = !supportFailure;
+    const detail = instanceNetworkUnsupported.querySelector("[data-instance-network-unsupported-detail]");
+    if (detail) {
+      detail.textContent = supportFailure === "degraded"
+        ? "The endpoint registry reported degraded state on this computer, so this list may be incomplete."
+        : "";
+    }
+  }
+  if (instanceNetworkEmpty) {
+    // Never fake-empty: the empty state stays hidden while loading, after an
+    // error, or when a response reported unsupported/degraded for this service.
+    instanceNetworkEmpty.hidden = state.loading === true
+      || !instanceId
+      || endpoints.length > 0
+      || Boolean(supportFailure)
+      || Boolean(state.lastError);
+  }
+  if (instanceNetworkStatus) {
+    let text;
+    let tone = "neutral";
+    if (!instanceId) {
+      text = "Select an instance to view its endpoints.";
+    } else if (state.loading) {
+      text = "Loading endpoints…";
+    } else if (state.lastError) {
+      text = state.lastError;
+      tone = "error";
+    } else if (supportFailure === "unsupported") {
+      text = INSTANCE_NETWORK_UNSUPPORTED_MESSAGE;
+      tone = "warning";
+    } else if (supportFailure === "degraded") {
+      text = "Endpoint registry degraded on this computer — the endpoint list may be incomplete.";
+      tone = "warning";
+    } else {
+      const diagnosticState = state.diagnostics ? normalizeNetworkState(state.diagnostics?.overall?.state) : null;
+      text = `${endpoints.length} endpoint${endpoints.length === 1 ? "" : "s"} for this service · ${enabledCount} enabled`;
+      if (diagnosticState) text += ` · diagnostics ${networkStateLabel(diagnosticState)}`;
+    }
+    instanceNetworkStatus.textContent = text;
+    instanceNetworkStatus.dataset.tone = tone;
+  }
+  updateInstanceNetworkToolbarState();
+}
+
+function updateInstanceNetworkToolbarState() {
+  const state = instanceNetworkTabState;
+  const hasInstance = Boolean(state.instanceId);
+  instanceNetworkActionButtons.forEach((button) => {
+    const action = button.dataset.instanceNetworkAction;
+    if (action === "add-endpoint") {
+      button.disabled = false;
+    } else if (action === "discover") {
+      button.disabled = !hasInstance || state.discoverInFlight || state.loading;
+    } else if (action === "sync-provider") {
+      button.disabled = !hasInstance || state.providerSyncInFlight || state.loading;
+    } else if (action === "run-diagnostics") {
+      button.disabled = !hasInstance || state.diagnosticsInFlight || state.loading;
+    } else if (action === "copy-address") {
+      button.disabled = !hasInstance || state.loading;
+    }
+  });
+}
+
+function summarizeInstanceDiscoveryResult(result = {}) {
+  if (result?.state === "unsupported") {
+    return { tone: "warning", message: INSTANCE_NETWORK_UNSUPPORTED_MESSAGE };
+  }
+  if (result?.reason === "no-ports") {
+    return { tone: "warning", message: "This service has no configured port to discover." };
+  }
+  if (result?.reason === "service-not-found") {
+    return { tone: "warning", message: "This service was not found on the selected computer." };
+  }
+  if (result?.reason === "instances-unavailable" || result?.reason === "node-unavailable") {
+    return { tone: "warning", message: "The selected computer did not report its services, so discovery could not run." };
+  }
+  if (result?.reason === "probe-unavailable" || result?.reason === "inventory-unavailable") {
+    return { tone: "warning", message: "Network inventory is unavailable for this service, so discovery could not run." };
+  }
+  const created = Array.isArray(result?.created) ? result.created.length : 0;
+  const updated = Array.isArray(result?.updated) ? result.updated.length : 0;
+  const skipped = Array.isArray(result?.skipped) ? result.skipped.length : 0;
+  if (!created && !updated) {
+    return {
+      tone: "info",
+      message: skipped ? `Discovery found no new addresses (${skipped} skipped).` : "Discovery found no new addresses.",
+    };
+  }
+  return { tone: "success", message: `Discovery complete: ${created} created, ${updated} updated.` };
+}
+
+async function handleInstanceNetworkAction(action) {
+  const state = instanceNetworkTabState;
+  const instanceId = state.instanceId || selectedInstanceId;
+  const instance = instanceId ? findInstance(instanceId) : null;
+  if (action === "add-endpoint") {
+    openEndpointModal(null, { serviceId: instanceId || "", computerId: getSelectedNodeId() });
+    return;
+  }
+  if (!instanceId || !instance) {
+    showToast("Select an instance first.", "warning");
+    return;
+  }
+  if (action === "discover") {
+    const api = getDesktopApi();
+    if (typeof api?.endpoints?.discover !== "function") {
+      // The discovery channel lands in a sibling change; older builds keep the
+      // rest of the tab working and say so instead of failing silently.
+      showToast("Discovery is unavailable in this build.", "warning");
+      return;
+    }
+    if (state.discoverInFlight) return;
+    state.discoverInFlight = true;
+    updateInstanceNetworkToolbarState();
+    try {
+      const result = await api.endpoints.discover({ nodeId: getSelectedNodeId(), serviceId: instanceId });
+      if (result?.ok === false) {
+        showToast(normalizeIpcErrorMessage(result.error?.message, "Endpoint discovery failed."), "error");
+        return;
+      }
+      const summary = summarizeInstanceDiscoveryResult(result || {});
+      if (result?.state === "unsupported") {
+        // Discovery itself reported the capability is missing; the follow-up
+        // list refresh would clear that truth, so render the unsupported
+        // state directly instead of refreshing.
+        state.unsupported = true;
+        renderInstanceNetworkTab(instanceId);
+      } else {
+        await refreshInstanceNetworkTab(instanceId);
+      }
+      showToast(summary.message, summary.tone);
+    } catch (error) {
+      showToast(getFriendlyErrorMessage(error, "Endpoint discovery failed."), "error");
+    } finally {
+      state.discoverInFlight = false;
+      updateInstanceNetworkToolbarState();
+    }
+    return;
+  }
+  if (action === "sync-provider") {
+    const api = getDesktopApi();
+    const sync = typeof api?.providers?.syncTunnels === "function"
+      ? (payload) => api.providers.syncTunnels(payload)
+      : typeof api?.providers?.sync === "function"
+        ? (payload) => api.providers.sync(payload)
+        : null;
+    if (!sync) {
+      showToast("Provider sync is unavailable in this build.", "warning");
+      return;
+    }
+    if (state.providerSyncInFlight) return;
+    state.providerSyncInFlight = true;
+    updateInstanceNetworkToolbarState();
+    try {
+      const result = await sync({ nodeId: getSelectedNodeId() });
+      if (result?.ok === false) {
+        showToast(normalizeIpcErrorMessage(result.error?.message, "Provider sync failed."), "error");
+        return;
+      }
+      const created = Array.isArray(result?.endpointsCreated) ? result.endpointsCreated.length : 0;
+      const updated = Array.isArray(result?.endpointsUpdated) ? result.endpointsUpdated.length : 0;
+      showToast(`Provider sync complete: ${created} created, ${updated} updated.`, "success");
+      await refreshInstanceNetworkTab(instanceId);
+    } catch (error) {
+      showToast(getFriendlyErrorMessage(error, "Provider sync failed."), "error");
+    } finally {
+      state.providerSyncInFlight = false;
+      updateInstanceNetworkToolbarState();
+    }
+    return;
+  }
+  if (action === "run-diagnostics") {
+    await refreshInstanceNetworkDiagnostics(instanceId, null);
+    return;
+  }
+  if (action === "copy-address") {
+    if (state.lastError) {
+      // Do not claim "no endpoints" when the last list actually failed.
+      showToast(state.lastError, "warning");
+      return;
+    }
+    const enabledEndpoints = (Array.isArray(state.endpoints) ? state.endpoints : [])
+      .filter((endpoint) => endpoint?.enabled !== false);
+    if (!enabledEndpoints.length) {
+      showToast("No endpoints configured for this service yet.", "warning");
+      return;
+    }
+    await openInstanceEndpointPicker(instanceId, "copy");
+  }
+}
+
+async function handleInstanceNetworkEndpointAction(action, endpointId) {
+  const state = instanceNetworkTabState;
+  const endpoint = (Array.isArray(state.endpoints) ? state.endpoints : [])
+    .find((entry) => entry?.id === endpointId) || null;
+  if (!endpoint) {
+    showToast("Endpoint is no longer available. Refreshed endpoint list.", "warning");
+    await refreshInstanceNetworkTab(state.instanceId);
+    return;
+  }
+  if (action === "edit" || action === "associate") {
+    openEndpointModal(endpoint);
+    if (action === "associate") showToast("Choose a service or computer, then save.", "info");
+    return;
+  }
+  if (action === "copy") {
+    await copyInstanceNetworkEndpointAddress(endpoint);
+    return;
+  }
+  if (action === "test") {
+    await refreshInstanceNetworkDiagnostics(state.instanceId, endpoint.id);
+    return;
+  }
+  if (action === "toggle") {
+    const api = getDesktopApi();
+    if (typeof api?.endpoints?.setEnabled !== "function") {
+      showToast("Endpoint registry is unavailable in this build.", "warning");
+      return;
+    }
+    try {
+      await api.endpoints.setEnabled(endpoint.id, endpoint.enabled === false);
+      showToast(endpoint.enabled === false ? "Endpoint enabled." : "Endpoint disabled.", "success");
+      await refreshInstanceNetworkTab(state.instanceId);
+    } catch (error) {
+      const message = getFriendlyErrorMessage(error, "Endpoint could not be updated.");
+      state.lastError = message;
+      showToast(message, "error");
+      renderInstanceNetworkTab(state.instanceId);
+    }
+    return;
+  }
+  if (action === "delete") {
+    const confirmed = await confirmDestructiveAction({
+      title: `Remove ${endpoint.name || "this endpoint"}?`,
+      message: "The saved address is removed from the endpoint registry. The service itself is not stopped or changed.",
+      confirmLabel: "Remove endpoint",
+    });
+    if (!confirmed) return;
+    const api = getDesktopApi();
+    if (typeof api?.endpoints?.remove !== "function") {
+      showToast("Endpoint registry is unavailable in this build.", "warning");
+      return;
+    }
+    try {
+      await api.endpoints.remove(endpoint.id);
+      showToast("Endpoint removed.", "success");
+      await refreshInstanceNetworkTab(state.instanceId);
+    } catch (error) {
+      const message = getFriendlyErrorMessage(error, "Endpoint could not be removed.");
+      state.lastError = message;
+      showToast(message, "error");
+      renderInstanceNetworkTab(state.instanceId);
+    }
+  }
+}
+
+async function copyInstanceNetworkEndpointAddress(endpoint) {
+  const text = formatNetworkAddress(endpoint);
+  if (!text || text === "Unavailable") {
+    showToast("This endpoint has no address to copy.", "warning");
+    return;
+  }
+  try {
+    await clipboardWriteNetworkText(text);
+    showToast("Endpoint address copied.", "success");
+  } catch {
+    showToast("Endpoint address could not be copied.", "error");
+  }
+}
+
+async function refreshInstanceNetworkDiagnostics(instanceId, endpointId) {
+  const state = instanceNetworkTabState;
+  const targetId = instanceId || state.instanceId || selectedInstanceId;
+  if (!targetId) {
+    showToast("Select an instance first.", "warning");
+    return;
+  }
+  const api = getDesktopApi();
+  if (typeof api?.connectivity?.runDiagnostics !== "function") {
+    showToast("Connectivity diagnostics are unavailable in this build.", "warning");
+    return;
+  }
+  if (state.diagnosticsInFlight) return;
+  const serial = ++state.diagnosticsSerial;
+  state.diagnosticsInFlight = true;
+  updateInstanceNetworkToolbarState();
+  if (instanceNetworkDiagnosticsPanel) instanceNetworkDiagnosticsPanel.hidden = false;
+  if (instanceNetworkDiagnosticsSummary) {
+    instanceNetworkDiagnosticsSummary.replaceChildren(createTextElement("p", "Running connectivity diagnostics…"));
+  }
+  if (instanceNetworkDiagnosticsScopes) instanceNetworkDiagnosticsScopes.replaceChildren();
+  if (instanceNetworkDiagnosticsStages) instanceNetworkDiagnosticsStages.replaceChildren();
+  try {
+    const result = await api.connectivity.runDiagnostics({
+      nodeId: getSelectedNodeId(),
+      serviceId: targetId,
+      endpointId: endpointId || null,
+      refresh: true,
+    });
+    if (serial !== state.diagnosticsSerial) return;
+    if (result?.ok === false) {
+      throw new Error(normalizeIpcErrorMessage(result.error?.message, "Connectivity diagnostics failed."));
+    }
+    if (isDiscardedConnectivityResult(result)) {
+      state.diagnostics = null;
+      renderInstanceNetworkGraph(null);
+      if (instanceNetworkDiagnosticsSummary) {
+        instanceNetworkDiagnosticsSummary.replaceChildren(createTextElement("p", DISCARDED_CONNECTIVITY_MESSAGE));
+      }
+      showToast(DISCARDED_CONNECTIVITY_MESSAGE, "warning");
+      return;
+    }
+    state.diagnostics = result && typeof result === "object" ? result : null;
+    const overallState = normalizeNetworkState(state.diagnostics?.overall?.state);
+    // Capability honesty: a diagnostics result that reports unsupported for
+    // this service drives the explicit unsupported state, not an empty list.
+    const unsupported = overallState === "unsupported"
+      || state.diagnostics?.state === "unsupported";
+    if (unsupported) state.unsupported = true;
+    renderInstanceNetworkDiagnostics(state.diagnostics);
+    renderInstanceNetworkGraph(state.diagnostics);
+    renderInstanceNetworkTab(targetId);
+    showToast(
+      `${endpointId ? "Endpoint connectivity test" : "Connectivity diagnostics"} finished: ${networkStateLabel(overallState)}.`,
+      getConnectivityToastTone(overallState),
+    );
+  } catch (error) {
+    if (serial !== state.diagnosticsSerial) return;
+    const message = getFriendlyErrorMessage(error, "Connectivity diagnostics failed.");
+    state.lastError = message;
+    if (instanceNetworkDiagnosticsSummary) {
+      instanceNetworkDiagnosticsSummary.replaceChildren(createTextElement("p", message));
+    }
+    showToast(message, "error");
+    renderInstanceNetworkTab(targetId);
+  } finally {
+    if (serial === state.diagnosticsSerial) {
+      state.diagnosticsInFlight = false;
+      updateInstanceNetworkToolbarState();
+    }
+  }
+}
+
+function renderInstanceNetworkDiagnostics(result) {
+  if (!instanceNetworkDiagnosticsPanel) return;
+  if (!result || typeof result !== "object") {
+    instanceNetworkDiagnosticsPanel.hidden = true;
+    return;
+  }
+  instanceNetworkDiagnosticsPanel.hidden = false;
+  const presentation = getNetworkPresentation();
+  const summary = presentation && typeof presentation.summarizeConnectivity === "function"
+    ? presentation.summarizeConnectivity(result)
+    : null;
+  if (instanceNetworkDiagnosticsSummary) {
+    instanceNetworkDiagnosticsSummary.replaceChildren();
+    const overallState = normalizeNetworkState(result.overall?.state);
+    instanceNetworkDiagnosticsSummary.append(
+      createConnectivityPill(overallState),
+      createTextElement("strong", summary?.headline || result.overall?.headline || networkStateLabel(overallState)),
+    );
+    if (result.checkedAt) {
+      instanceNetworkDiagnosticsSummary.append(
+        createTextElement("span", `Checked ${formatNetworkCheckedAt(result.checkedAt)}`, "settings-note"),
+      );
+    }
+  }
+  if (instanceNetworkDiagnosticsScopes) {
+    instanceNetworkDiagnosticsScopes.replaceChildren();
+    (summary?.scopeRows || []).forEach((row) => {
+      const scopeRow = document.createElement("div");
+      scopeRow.className = "network-scope-row";
+      scopeRow.dataset.scope = String(row.scope || "");
+      scopeRow.append(
+        createTextElement("span", row.label || row.scope || "Scope", "network-scope-row__label"),
+        createConnectivityPill(row.state),
+      );
+      instanceNetworkDiagnosticsScopes.append(scopeRow);
+    });
+  }
+  if (instanceNetworkDiagnosticsStages) {
+    instanceNetworkDiagnosticsStages.replaceChildren();
+    (Array.isArray(result.stages) ? result.stages : []).forEach((stage) => {
+      instanceNetworkDiagnosticsStages.append(buildInstanceNetworkDiagnosticsStage(stage));
+    });
+  }
+}
+
+function buildInstanceNetworkDiagnosticsStage(stage) {
+  // Same evidence vocabulary as the Network page stage card, minus the
+  // remediation buttons: those dispatch through the Network page selection
+  // state, which this read-only tab does not own.
+  const state = normalizeNetworkState(stage?.state);
+  const row = document.createElement("section");
+  row.className = "network-diagnostics-stage";
+  row.dataset.stageId = String(stage?.id || "");
+  row.dataset.stageState = state;
+  const header = document.createElement("div");
+  header.className = "network-diagnostics-stage__header";
+  header.append(
+    createTextElement("strong", stage?.label || stage?.id || "Stage"),
+    createConnectivityPill(state),
+  );
+  row.append(header);
+  if (stage?.detail) {
+    row.append(createTextElement("p", stage.detail, "network-diagnostics-stage__detail"));
+  }
+  const presentation = getNetworkPresentation();
+  const evidenceRows = presentation && typeof presentation.formatDiagnosticsEvidence === "function"
+    ? presentation.formatDiagnosticsEvidence(stage)
+    : [];
+  if (evidenceRows.length) {
+    const evidence = document.createElement("dl");
+    evidence.className = "network-diagnostics-stage__evidence";
+    evidenceRows.forEach((entry) => {
+      const pair = document.createElement("div");
+      pair.append(createTextElement("dt", entry.label), createTextElement("dd", entry.value));
+      evidence.append(pair);
+    });
+    row.append(evidence);
+  }
+  return row;
+}
+
+function renderInstanceNetworkGraph(result) {
+  if (!instanceNetworkGraphContainer) return;
+  instanceNetworkGraphContainer.replaceChildren();
+  const graph = result?.graph && typeof result.graph === "object" ? result.graph : null;
+  const nodes = Array.isArray(graph?.nodes) ? graph.nodes : [];
+  if (instanceNetworkGraphEmpty) instanceNetworkGraphEmpty.hidden = nodes.length > 0;
+  instanceNetworkGraphContainer.hidden = nodes.length === 0;
+  if (!nodes.length) return;
+  const wrapper = document.createElement("div");
+  wrapper.className = "connectivity-graph";
+  nodes.forEach((node) => {
+    const state = normalizeNetworkState(node?.state);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "connectivity-node";
+    button.dataset.graphNode = "";
+    button.dataset.nodeId = String(node?.id || "");
+    button.dataset.state = state;
+    button.setAttribute("aria-label", `${node?.label || "Node"}: ${networkStateLabel(state)}`);
+    button.append(createTextElement("span", node?.label || "Node", "connectivity-node__label"), createConnectivityPill(state));
+    wrapper.append(button);
+  });
+  instanceNetworkGraphContainer.append(wrapper);
+  if (graph?.summary?.detail) {
+    instanceNetworkGraphContainer.append(createTextElement("p", String(graph.summary.detail), "network-graph-summary"));
+  }
+}
+
+/* Instance Performance tab ----------------------------------------------------------------- */
+
+function getInstanceTelemetryRangeDefinition(rangeId = instanceTelemetryRange) {
+  return INSTANCE_TELEMETRY_RANGES.find((entry) => entry.id === rangeId) || INSTANCE_TELEMETRY_RANGES[1];
+}
+
+function setInstanceTelemetryRange(rangeId) {
+  const definition = INSTANCE_TELEMETRY_RANGES.find((entry) => entry.id === rangeId);
+  if (!definition) return;
+  instanceTelemetryRange = definition.id;
+  instanceTelemetryRangeButtons.forEach((button) => {
+    const active = button.dataset.instanceTelemetryRange === definition.id;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+  if (instancePerformanceTabState.instanceId) {
+    refreshInstancePerformanceTab(instancePerformanceTabState.instanceId);
+  }
+}
+
+function getInstanceTelemetryKeys(nodeId, instanceId) {
+  // Renderer copy of the canonical series keys documented in
+  // src/shared/telemetryStore.js (`instanceSeriesKey`). Keep this exact format
+  // in sync with the store; the renderer never invents its own key shape.
+  const prefix = `instance:${nodeId}:${instanceId}`;
+  return [
+    `${prefix}:cpuPercent`,
+    `${prefix}:memoryRssBytes`,
+    `${prefix}:uptimeSeconds`,
+  ];
+}
+
+function formatInstanceTelemetryValue(unit, value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "No samples";
+  if (unit === "percent") return `${number.toFixed(1)}%`;
+  if (unit === "bytes") return formatBytes(number);
+  if (unit === "seconds") return formatDuration(number);
+  return number.toFixed(1);
+}
+
+async function refreshInstancePerformanceTab(instanceId) {
+  const state = instancePerformanceTabState;
+  const targetId = instanceId || null;
+  const instanceChanged = state.instanceId !== targetId;
+  const requestId = ++state.requestId;
+  state.instanceId = targetId;
+  if (instanceChanged) {
+    state.series = [];
+    state.lastError = null;
+    state.unavailable = false;
+  }
+  if (!targetId) {
+    state.loading = false;
+    renderInstancePerformanceTab(null);
+    return state;
+  }
+  const api = getDesktopApi();
+  if (typeof api?.telemetry?.getSeries !== "function") {
+    state.series = [];
+    state.loading = false;
+    state.unavailable = true;
+    state.lastError = "Telemetry is unavailable in this build.";
+    renderInstancePerformanceTab(targetId);
+    return state;
+  }
+  const range = getInstanceTelemetryRangeDefinition();
+  const nodeId = getSelectedNodeId();
+  state.loading = true;
+  state.unavailable = false;
+  state.lastError = null;
+  renderInstancePerformanceTab(targetId);
+  try {
+    const payload = await api.telemetry.getSeries({
+      nodeId,
+      keys: getInstanceTelemetryKeys(nodeId, targetId),
+      sinceMs: range.sinceMs,
+    });
+    if (requestId !== state.requestId) return state;
+    state.series = Array.isArray(payload?.series) ? payload.series : [];
+    state.loading = false;
+  } catch (error) {
+    if (requestId !== state.requestId) return state;
+    state.series = [];
+    state.loading = false;
+    state.lastError = getFriendlyErrorMessage(error, "Telemetry could not be loaded.");
+  }
+  renderInstancePerformanceTab(targetId);
+  return state;
+}
+
+function buildInstanceTelemetryViews(instanceId) {
+  const state = instancePerformanceTabState;
+  const seriesByKey = new Map();
+  (Array.isArray(state.series) ? state.series : []).forEach((entry) => {
+    if (entry && typeof entry.key === "string") seriesByKey.set(entry.key, entry);
+  });
+  const keys = instanceId ? getInstanceTelemetryKeys(getSelectedNodeId(), instanceId) : [];
+  return INSTANCE_TELEMETRY_METRICS.map((definition, index) => {
+    const series = keys.length ? seriesByKey.get(keys[index]) || null : null;
+    const samples = Array.isArray(series?.samples) ? series.samples : [];
+    const presentValues = samples
+      .filter((sample) => sample && Number.isFinite(sample.value))
+      .map((sample) => Number(sample.value));
+    const missingCount = samples.length - presentValues.length;
+    const latest = presentValues.length ? presentValues[presentValues.length - 1] : null;
+    return { definition, samples, presentCount: presentValues.length, missingCount, latest };
+  });
+}
+
+function renderInstancePerformanceTab(instanceId) {
+  const state = instancePerformanceTabState;
+  const range = getInstanceTelemetryRangeDefinition();
+  const views = buildInstanceTelemetryViews(instanceId);
+  const hasAnySamples = views.some((view) => view.samples.length > 0);
+  const totalSamples = views.reduce((sum, view) => sum + view.presentCount, 0);
+  const totalMissing = views.reduce((sum, view) => sum + view.missingCount, 0);
+
+  if (instanceTelemetrySummary) {
+    instanceTelemetrySummary.replaceChildren();
+    if (instanceId && hasAnySamples) {
+      views.forEach((view) => {
+        const card = document.createElement("article");
+        card.className = "instance-telemetry-summary-card";
+        card.dataset.telemetryMetric = view.definition.metric;
+        const latestText = view.latest === null
+          ? "No samples in range"
+          : formatInstanceTelemetryValue(view.definition.unit, view.latest);
+        const detailText = `${view.presentCount} sample${view.presentCount === 1 ? "" : "s"} · ${view.missingCount} missing gap${view.missingCount === 1 ? "" : "s"} (a gap is not a zero reading)`;
+        card.append(
+          createTextElement("span", view.definition.label),
+          createTextElement("strong", latestText),
+          createTextElement("small", detailText),
+        );
+        instanceTelemetrySummary.append(card);
+      });
+    }
+  }
+
+  if (instanceTelemetryCharts) {
+    instanceTelemetryCharts.replaceChildren();
+    if (instanceId && hasAnySamples) {
+      views.forEach((view) => {
+        const latestText = view.latest === null
+          ? "no sample in range"
+          : formatInstanceTelemetryValue(view.definition.unit, view.latest);
+        const ariaLabel = `${view.definition.label}: latest ${latestText}; range ${range.label}; ${view.missingCount} missing sample${view.missingCount === 1 ? "" : "s"} skipped as gaps`;
+        renderTelemetrySparkline(instanceTelemetryCharts, view.samples, {
+          label: view.definition.label,
+          unit: view.definition.unit,
+          ariaLabel,
+        });
+      });
+    }
+  }
+
+  if (instanceTelemetryEmpty) {
+    instanceTelemetryEmpty.hidden = state.loading === true
+      || !instanceId
+      || hasAnySamples
+      || Boolean(state.lastError);
+    instanceTelemetryEmpty.textContent = "No telemetry samples yet for this service.";
+  }
+
+  if (instanceTelemetryStatus) {
+    let text;
+    let tone = "neutral";
+    if (!instanceId) {
+      text = "Select an instance to view performance history.";
+    } else if (state.loading) {
+      text = `Loading ${range.label} telemetry…`;
+    } else if (state.lastError) {
+      text = state.lastError;
+      tone = "error";
+    } else if (!hasAnySamples) {
+      text = `No telemetry samples yet for this service (${range.label}).`;
+    } else {
+      text = `${totalSamples} samples · ${totalMissing} missing gap${totalMissing === 1 ? "" : "s"} (missing samples are distinguished from zero readings) · ${range.label}`;
+    }
+    instanceTelemetryStatus.textContent = text;
+    instanceTelemetryStatus.dataset.tone = tone;
+  }
+}
+
+function renderTelemetrySparkline(container, samples, options = {}) {
+  if (!container) return;
+  const label = options.label || "Metric";
+  const unit = options.unit || "count";
+  const ariaLabel = options.ariaLabel || `${label} history`;
+  const rows = Array.isArray(samples) ? samples : [];
+  const values = rows.map((sample) => (sample && Number.isFinite(sample.value) ? Number(sample.value) : null));
+  const present = values.filter((value) => value !== null);
+  const missingCount = values.length - present.length;
+
+  const figure = document.createElement("figure");
+  figure.className = "telemetry-sparkline";
+  figure.dataset.telemetryMetric = label;
+
+  const width = 100;
+  const height = 32;
+  const padX = 2;
+  const padY = 2;
+  const stepX = rows.length > 1 ? (width - padX * 2) / (rows.length - 1) : 0;
+  const xAt = (index) => padX + stepX * index;
+  const min = present.length ? Math.min(...present) : 0;
+  const max = present.length ? Math.max(...present) : 0;
+  const span = max - min;
+  const yAt = (value) => {
+    if (present.length === 0 || span === 0) return height / 2;
+    return height - padY - ((value - min) / span) * (height - padY * 2);
+  };
+
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.setAttribute("preserveAspectRatio", "none");
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", ariaLabel);
+  svg.classList.add("telemetry-sparkline__svg");
+
+  if (present.length === 0) {
+    // No measured value in range: one dashed baseline, never an invented line.
+    const baseline = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    baseline.setAttribute("x1", String(padX));
+    baseline.setAttribute("x2", String(width - padX));
+    baseline.setAttribute("y1", String(height - padY));
+    baseline.setAttribute("y2", String(height - padY));
+    baseline.setAttribute("class", "telemetry-sparkline__gap");
+    svg.append(baseline);
+  } else {
+    let path = "";
+    let previousPresent = false;
+    const gapRuns = [];
+    let gapStart = null;
+    values.forEach((value, index) => {
+      if (value === null) {
+        if (gapStart === null) gapStart = index;
+        previousPresent = false;
+        return;
+      }
+      if (gapStart !== null) {
+        gapRuns.push([gapStart, index - 1]);
+        gapStart = null;
+      }
+      path += `${previousPresent ? "L" : "M"}${xAt(index).toFixed(2)},${yAt(value).toFixed(2)} `;
+      previousPresent = true;
+    });
+    if (gapStart !== null) gapRuns.push([gapStart, values.length - 1]);
+    if (path.trim()) {
+      const line = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      line.setAttribute("d", path.trim());
+      line.setAttribute("class", "telemetry-sparkline__line");
+      svg.append(line);
+    }
+    gapRuns.forEach(([start, end]) => {
+      // Pad by one sample on each side so a single missing sample still shows
+      // a visible dashed segment; the measured line stays broken across it.
+      const from = Math.max(0, start - 1);
+      const to = Math.min(values.length - 1, end + 1);
+      const gap = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      gap.setAttribute("x1", xAt(from).toFixed(2));
+      gap.setAttribute("x2", xAt(to).toFixed(2));
+      gap.setAttribute("y1", String(height - padY));
+      gap.setAttribute("y2", String(height - padY));
+      gap.setAttribute("class", "telemetry-sparkline__gap");
+      svg.append(gap);
+    });
+  }
+
+  const latest = [...rows].reverse().find((sample) => sample && Number.isFinite(sample.value)) || null;
+  const caption = document.createElement("figcaption");
+  caption.className = "telemetry-sparkline__latest";
+  caption.textContent = latest
+    ? `Latest ${label}: ${formatInstanceTelemetryValue(unit, latest.value)}${missingCount ? ` · ${missingCount} gap${missingCount === 1 ? "" : "s"}` : ""}`
+    : `No samples in range · ${missingCount} missing`;
+  figure.append(svg, caption);
+  container.append(figure);
+}
+
+/* Endpoint picker modal (progressive disclosure for share/copy) ------------------------------ */
+
+// Tri-state so the copy fallback can keep its wording honest:
+//   "opened"      - picker is open and owns the flow
+//   "empty"       - the registry answered and this service has no enabled endpoint
+//   "unavailable" - the registry could not answer (legacy flow still runs)
+async function tryOpenInstanceEndpointPicker(instance, purpose) {
+  if (!instance?.id) return "unavailable";
+  const api = getDesktopApi();
+  if (typeof api?.endpoints?.list !== "function") return "unavailable";
+  let payload = null;
+  try {
+    payload = await api.endpoints.list({ nodeId: getSelectedNodeId(), serviceId: instance.id });
+  } catch {
+    // The registry is unavailable; keep the legacy fallback so share/copy
+    // still has a working path.
+    return "unavailable";
+  }
+  const endpoints = Array.isArray(payload?.endpoints) ? payload.endpoints : [];
+  const enabled = endpoints.filter((endpoint) => endpoint?.enabled !== false);
+  if (!enabled.length) return "empty";
+  const opened = await openInstanceEndpointPicker(instance.id, purpose, { endpoints });
+  if (opened) return "opened";
+  return "unavailable";
+}
+
+async function openInstanceEndpointPicker(instanceId, purpose = "copy", preloaded = null) {
+  const targetId = instanceId || selectedInstanceId;
+  const instance = targetId ? findInstance(targetId) : null;
+  if (!instanceEndpointPicker || !targetId || !instance) {
+    showToast("Choose a server before choosing an address.", "warning");
+    return false;
+  }
+  let endpoints = Array.isArray(preloaded?.endpoints) ? preloaded.endpoints : null;
+  if (!endpoints) {
+    const api = getDesktopApi();
+    if (typeof api?.endpoints?.list !== "function") {
+      showToast("Endpoint registry is unavailable in this build.", "warning");
+      return false;
+    }
+    try {
+      const payload = await api.endpoints.list({ nodeId: getSelectedNodeId(), serviceId: targetId });
+      endpoints = Array.isArray(payload?.endpoints) ? payload.endpoints : [];
+    } catch (error) {
+      showToast(getFriendlyErrorMessage(error, "Endpoints could not be loaded."), "error");
+      return false;
+    }
+  }
+  const enabled = endpoints.filter((endpoint) => endpoint?.enabled !== false);
+  if (!enabled.length) return false;
+  const normalizedPurpose = purpose === "share" ? "share" : "copy";
+  const preferScope = normalizedPurpose === "share" ? "public" : "lan";
+  const presentation = getNetworkPresentation();
+  const built = presentation && typeof presentation.buildEndpointChoices === "function"
+    ? presentation.buildEndpointChoices(endpoints, { serviceId: targetId, preferScope })
+    : buildInstanceEndpointPickerFallbackChoices(endpoints, { preferScope });
+  const choices = Array.isArray(built?.choices) ? built.choices : [];
+  if (!choices.some((choice) => !choice.disabled)) return false;
+  const preferred = choices.find((choice) => choice.recommended && !choice.disabled)
+    || choices.find((choice) => !choice.disabled)
+    || choices[0];
+  instanceEndpointPickerState = {
+    open: true,
+    instanceId: targetId,
+    purpose: normalizedPurpose,
+    choices,
+    selectedValue: preferred?.value || null,
+  };
+  renderInstanceEndpointPicker(instance);
+  instanceEndpointPicker.hidden = false;
+  if (!instanceEndpointPickerCleanup) {
+    instanceEndpointPickerCleanup = activateModal(instanceEndpointPicker, {
+      initialFocus: () => instanceEndpointPicker.querySelector("[data-endpoint-picker-choice]:not(:disabled)")
+        || instanceEndpointPicker.querySelector('[data-endpoint-picker-action="cancel"]'),
+    });
+  }
+  return true;
+}
+
+function buildInstanceEndpointPickerChoice(choice = {}) {
+  const row = document.createElement("button");
+  row.type = "button";
+  row.className = "endpoint-picker-choice";
+  row.dataset.endpointPickerChoice = String(choice.value || "");
+  row.disabled = choice.disabled === true;
+  const address = String(choice.address || choice.copyText || "").trim() || "Unavailable";
+  row.setAttribute("aria-label", `${choice.label || "Endpoint"}: ${address}`);
+  const info = document.createElement("span");
+  info.className = "endpoint-picker-choice__info";
+  const top = document.createElement("span");
+  top.className = "endpoint-picker-choice__top";
+  top.append(createTextElement("strong", choice.label || "Endpoint"));
+  if (choice.recommended) {
+    // Recommendation is also written out; the pill tone is never the only cue.
+    top.append(createTextElement("span", "Recommended", "endpoint-picker-choice__recommended"));
+  }
+  info.append(top, createTextElement("code", address, "endpoint-picker-choice__address"));
+  if (choice.detail) {
+    info.append(createTextElement("span", choice.detail, "endpoint-picker-choice__detail"));
+  }
+  const meta = document.createElement("span");
+  meta.className = "endpoint-picker-choice__meta";
+  const scopePill = createTextElement("span", getInstanceEndpointScopeLabel(choice.scope), "connectivity-state-pill");
+  scopePill.dataset.state = choice.disabled ? "not_configured" : choice.recommended ? "healthy" : "unknown";
+  meta.append(scopePill);
+  row.append(info, meta);
+  return row;
+}
+
+function getInstanceEndpointScopeLabel(scope) {
+  const normalized = String(scope || "").toLowerCase();
+  const labels = {
+    process: "Process",
+    local: "Local",
+    lan: "LAN",
+    overlay: "Private Overlay",
+    private_overlay: "Private Overlay",
+    public: "Public",
+    private: "Private",
+    custom: "Custom",
+  };
+  const model = getNetworkHealthModel();
+  if (normalized === "overlay" && model?.SCOPE_LABELS?.private_overlay) return model.SCOPE_LABELS.private_overlay;
+  if (normalized !== "overlay" && model?.SCOPE_LABELS?.[normalized]) return model.SCOPE_LABELS[normalized];
+  return labels[normalized] || "Custom";
+}
+
+function buildInstanceEndpointPickerFallbackChoices(endpoints, options = {}) {
+  // Only used when src/shared/connectivityPresentation.js is not loaded; a
+  // deliberately minimal copy of its choice shape.
+  const preferScope = options.preferScope || null;
+  const scopeFor = (endpoint) => {
+    const type = String(endpoint?.type || "").toLowerCase();
+    if (type === "lan") return "lan";
+    if (type === "tailscale") return "overlay";
+    if (type === "public") return "public";
+    if (type === "private" || type === "local") return "local";
+    return "custom";
+  };
+  const choices = (Array.isArray(endpoints) ? endpoints : []).map((endpoint, index) => {
+    const host = String(endpoint?.host || "").trim();
+    const port = endpoint?.port == null ? "" : String(endpoint.port).trim();
+    return {
+      value: String(endpoint?.id || `endpoint-${index}`),
+      label: String(endpoint?.name || endpoint?.id || `endpoint-${index}`),
+      address: host && port ? `${host}:${port}` : host,
+      copyText: host && port ? `${host}:${port}` : "",
+      detail: "",
+      recommended: false,
+      disabled: endpoint?.enabled === false,
+      scope: scopeFor(endpoint),
+    };
+  });
+  choices.sort((left, right) => (left.disabled ? 1 : 0) - (right.disabled ? 1 : 0));
+  const preferred = preferScope
+    ? choices.find((choice) => !choice.disabled && choice.scope === preferScope)
+    : choices.find((choice) => !choice.disabled);
+  if (preferred) preferred.recommended = true;
+  return { choices };
+}
+
+function renderInstanceEndpointPicker(instance = null) {
+  const state = instanceEndpointPickerState;
+  if (instanceEndpointPickerTitle) {
+    instanceEndpointPickerTitle.textContent = state.purpose === "share" ? "Share Server — Choose Address" : "Copy Address";
+  }
+  if (instanceEndpointPickerNote) {
+    const name = instance?.displayName || instance?.id || "this service";
+    instanceEndpointPickerNote.textContent = state.purpose === "share"
+      ? `Choose the address to copy for ${name}. Share details opens the full sharing view.`
+      : `Choose the address to copy for ${name}.`;
+  }
+  if (instanceEndpointPickerShareButton) {
+    instanceEndpointPickerShareButton.hidden = state.purpose !== "share";
+  }
+  if (instanceEndpointPickerList) {
+    instanceEndpointPickerList.replaceChildren(...state.choices.map((choice) => buildInstanceEndpointPickerChoice(choice)));
+  }
+  if (instanceEndpointPickerEmpty) {
+    instanceEndpointPickerEmpty.hidden = state.choices.length > 0;
+  }
+  instanceEndpointPicker?.querySelectorAll("[data-endpoint-picker-choice]").forEach((row) => {
+    const selected = row.dataset.endpointPickerChoice === state.selectedValue;
+    row.classList.toggle("is-selected", selected);
+    row.setAttribute("aria-current", selected ? "true" : "false");
+  });
+}
+
+function closeInstanceEndpointPicker() {
+  if (!instanceEndpointPicker) return;
+  instanceEndpointPicker.hidden = true;
+  instanceEndpointPickerCleanup?.();
+  instanceEndpointPickerCleanup = null;
+  instanceEndpointPickerState.open = false;
+}
+
+async function handleInstanceEndpointPickerChoice(value) {
+  const state = instanceEndpointPickerState;
+  const choice = state.choices.find((entry) => entry.value === value) || null;
+  if (!choice || choice.disabled) return;
+  state.selectedValue = choice.value;
+  const text = String(choice.copyText || choice.address || "").trim();
+  if (!text) {
+    showToast("This endpoint has no address to copy.", "warning");
+    return;
+  }
+  try {
+    await clipboardWriteNetworkText(text);
+  } catch {
+    showToast("Address could not be copied.", "error");
+    return;
+  }
+  showToast("Address copied.", "success");
+  if (state.purpose === "copy") {
+    closeInstanceEndpointPicker();
+  } else {
+    // Share flow stays open so "Share details…" can hand off to the legacy
+    // share modal with the same selection context.
+    renderInstanceEndpointPicker(findInstance(state.instanceId));
+  }
+}
+
+async function handleInstanceEndpointPickerAction(action) {
+  if (action === "cancel") {
+    closeInstanceEndpointPicker();
+    return;
+  }
+  if (action === "manage") {
+    const instanceId = instanceEndpointPickerState.instanceId;
+    closeInstanceEndpointPicker();
+    if (instanceId) {
+      selectInstance(instanceId);
+      if (activeInstanceTab !== "network") setActiveInstanceTab("network");
+    }
+    return;
+  }
+  if (action === "share-details") {
+    const instanceId = instanceEndpointPickerState.instanceId;
+    closeInstanceEndpointPicker();
+    if (instanceId) openShareServerModal(instanceId);
+    return;
+  }
+  if (action === "copy") {
+    const state = instanceEndpointPickerState;
+    const choice = state.choices.find((entry) => entry.value === state.selectedValue && !entry.disabled)
+      || state.choices.find((entry) => !entry.disabled)
+      || null;
+    if (!choice) {
+      showToast("No endpoint address is available to copy.", "warning");
+      return;
+    }
+    await handleInstanceEndpointPickerChoice(choice.value);
   }
 }
 
@@ -38398,6 +42298,7 @@ async function handleNodeCardAction(action, nodeId) {
   else if (action === "repair") await repairNodeById(nodeId);
   else if (action === "refresh") await refreshNodes({ forceHealthRefresh: true });
   else if (action === "details") openNodeDetails(nodeId);
+  else if (action === "routes") openNodeRoutesModal(nodeId);
   else if (action === "remove") await deleteNodeById(nodeId);
 }
 
@@ -41901,6 +45802,7 @@ sshProfileSelect?.addEventListener("change", () => {
   sshTransientStatusMessage = "";
   renderSshView();
 });
+sshAgentToggle?.addEventListener("change", () => setActiveSshProfileAgent(sshAgentToggle.checked));
 sshConnectButton?.addEventListener("click", connectSshSession);
 sshDisconnectButton?.addEventListener("click", disconnectSshSession);
 sshProfileDeleteButton?.addEventListener("click", deleteSelectedSshProfile);
@@ -41919,7 +45821,11 @@ sshProfileSaveButton?.addEventListener("click", () => {
   sshProfileForm?.requestSubmit();
 });
 sshProfileForm?.addEventListener("submit", saveSshProfile);
-sshPasswordSubmitButton?.addEventListener("click", () => connectSshSession({ password: sshPasswordInput?.value || "" }));
+function submitSshCredentialPrompt() {
+  const value = sshPasswordInput?.value || "";
+  return connectSshSession(sshCredentialPromptKind === "passphrase" ? { passphrase: value } : { password: value });
+}
+sshPasswordSubmitButton?.addEventListener("click", () => submitSshCredentialPrompt());
 sshPasswordCancelButton?.addEventListener("click", () => {
   setSshPasswordPromptState(false);
   sshTransientStatusMessage = "SSH connection canceled.";
@@ -41928,7 +45834,7 @@ sshPasswordCancelButton?.addEventListener("click", () => {
 sshPasswordInput?.addEventListener("keydown", (event) => {
   if (event.key === "Enter") {
     event.preventDefault();
-    connectSshSession({ password: sshPasswordInput.value || "" });
+    submitSshCredentialPrompt();
   }
 });
 sshTerminalWindow?.addEventListener("click", () => {
@@ -43560,6 +47466,30 @@ nodeDetailsModal?.addEventListener("keydown", (event) => {
     setNodeDetailsVisible(false);
   }
 });
+nodeConnectivitySection?.addEventListener("click", (event) => {
+  const actionButton = event.target.closest("[data-node-connectivity-action]");
+  if (!actionButton) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const action = actionButton.dataset.nodeConnectivityAction;
+  if (action === "refresh") {
+    renderNodeConnectivity(nodeDetailsId);
+    return;
+  }
+  if (action === "open-network") {
+    setNodeDetailsVisible(false);
+    showPage("network");
+    return;
+  }
+  if (action === "add-endpoint") {
+    // Capture the node id before closing: setNodeDetailsVisible() clears it.
+    const prefillNodeId = nodeDetailsId;
+    setNodeDetailsVisible(false);
+    // The endpoint form is prefilled with the actor computer; the modal opens
+    // only after the drawer is closed so the two overlays never stack.
+    openEndpointModal(null, { computerId: prefillNodeId });
+  }
+});
 nodeList?.addEventListener("click", async (event) => {
   const actionButton = event.target.closest("[data-node-card-action]");
   if (!actionButton) return;
@@ -43578,6 +47508,102 @@ fleetActionButtons.forEach((button) => {
 });
 networkInventoryActionButtons.forEach((button) => {
   button.addEventListener("click", () => loadNetworkInventory(getSelectedNodeId(), { userInitiated: true }));
+});
+infraInventoryActionButtons.forEach((button) => {
+  button.addEventListener("click", () => loadInfrastructureInventory({ refresh: true, force: true }));
+});
+infraInventoryKindFilter?.addEventListener("change", () => renderInfrastructureInventory());
+infraInventorySearch?.addEventListener("input", () => renderInfrastructureInventory());
+networkActionButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    const action = button.dataset.networkAction;
+    if (action === "refresh") return refreshNetworkPage({ force: true });
+    if (action === "add-endpoint") return openEndpointModal(null);
+    if (action === "sync-provider") return syncNetworkProviders();
+    if (action === "run-diagnostics") return runNetworkDiagnostics(networkState.selectedEndpointId || null);
+    return undefined;
+  });
+});
+networkEndpointList?.addEventListener("click", async (event) => {
+  const actionButton = event.target.closest("[data-endpoint-action]");
+  if (actionButton) {
+    event.preventDefault();
+    await handleNetworkEndpointAction(actionButton.dataset.endpointAction, actionButton.dataset.endpointId);
+    return;
+  }
+  const card = event.target.closest("[data-endpoint-id]");
+  if (!card) return;
+  networkState.selectedEndpointId = card.dataset.endpointId || null;
+  renderNetworkEndpoints();
+});
+networkDiagnosticsStages?.addEventListener("click", (event) => {
+  const stageButton = event.target.closest("[data-stage-action]");
+  if (!stageButton) return;
+  event.preventDefault();
+  handleNetworkStageAction(stageButton.dataset.stageAction, stageButton.dataset.stageId);
+});
+networkGraphPanel?.addEventListener("click", (event) => {
+  const graphNode = event.target.closest("[data-graph-node]");
+  if (!graphNode) return;
+  if (graphNode.dataset.endpointId) networkState.selectedEndpointId = graphNode.dataset.endpointId;
+  networkSelectedStageId = graphNode.dataset.stageId || null;
+  renderNetworkEndpoints();
+  renderNetworkDiagnostics(networkState.diagnostics);
+  renderNetworkGraph(networkState.diagnostics);
+  const selectedStage = networkDiagnosticsStages?.querySelector("[data-stage-id].is-selected");
+  selectedStage?.scrollIntoView?.({ block: "nearest" });
+});
+document.querySelectorAll('[data-endpoint-modal-action="cancel"]').forEach((button) => {
+  button.addEventListener("click", closeEndpointModal);
+});
+document.querySelector('[data-endpoint-modal-action="save"]')?.addEventListener("click", () => submitEndpointForm(null));
+endpointForm?.addEventListener("submit", submitEndpointForm);
+endpointModal?.addEventListener("click", (event) => {
+  if (event.target === endpointModal) closeEndpointModal();
+});
+endpointModal?.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeEndpointModal();
+  }
+});
+/* Instance Network/Performance tab wiring. Handlers are delegated on the tab
+   containers so rebuilt endpoint cards and picker rows never need rebinding. */
+instanceNetworkActionButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    handleInstanceNetworkAction(button.dataset.instanceNetworkAction || "add-endpoint");
+  });
+});
+instanceNetworkEndpoints?.addEventListener("click", (event) => {
+  const actionButton = event.target.closest("[data-endpoint-action]");
+  if (!actionButton) return;
+  event.preventDefault();
+  handleInstanceNetworkEndpointAction(actionButton.dataset.endpointAction, actionButton.dataset.endpointId);
+});
+instanceTelemetryRangeButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    setInstanceTelemetryRange(button.dataset.instanceTelemetryRange || "6h");
+  });
+});
+instanceEndpointPickerList?.addEventListener("click", (event) => {
+  const choice = event.target.closest("[data-endpoint-picker-choice]");
+  if (!choice || choice.disabled) return;
+  event.preventDefault();
+  handleInstanceEndpointPickerChoice(choice.dataset.endpointPickerChoice);
+});
+document.querySelectorAll("[data-endpoint-picker-action]").forEach((button) => {
+  button.addEventListener("click", () => {
+    handleInstanceEndpointPickerAction(button.dataset.endpointPickerAction || "cancel");
+  });
+});
+instanceEndpointPicker?.addEventListener("click", (event) => {
+  if (event.target === instanceEndpointPicker) closeInstanceEndpointPicker();
+});
+instanceEndpointPicker?.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeInstanceEndpointPicker();
+  }
 });
 nodeDetailsModal?.addEventListener("click", async (event) => {
   const healthButton = event.target.closest("[data-node-health-action]");
@@ -43875,6 +47901,12 @@ registerRefreshTask(() => {
     refreshConsoleMetrics();
   }
 }, 3000);
+// The Network page keeps its endpoint inventory, provider status, and
+// diagnostics cheap enough to refresh on a slow timer while it is visible;
+// refreshNetworkPage() drops a repeated call while one is in flight.
+registerRefreshTask(() => {
+  if (!shouldSkipNodeScopedPolling() && getActivePageName() === "network") refreshNetworkPage();
+}, 15000);
 registerRefreshTask(() => {
   // An install in flight owns the download list through its own 1 s poller
   // (progress feedback is the point of that poller); this task resumes

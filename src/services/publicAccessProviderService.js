@@ -11,6 +11,7 @@ const {
   startPlayit,
   stopPlayit,
 } = require("./playitService");
+const playitAccount = require("./playitAccountService");
 const { summarizePublicAccessReadiness } = require("./readinessService");
 const { getExecutionTarget, getNode, getSelectedNodeId } = require("./nodeService");
 const {
@@ -489,6 +490,46 @@ async function listPlayitTunnelsForNode(options = {}) {
     : agentClient.getPublicAccessPlayitTunnels(options, getAgentConfigForPublicAccess(nodeId));
 }
 
+function isLocalPlayitTarget(nodeId) {
+  return getExecutionTarget(nodeId).type === "application-host";
+}
+
+async function getPlayitAccountForNode(options = {}) {
+  const nodeId = options.nodeId || getSelectedNodeId();
+  return isLocalPlayitTarget(nodeId)
+    ? playitAccount.getPlayitAccountState()
+    : agentClient.getPublicAccessPlayitAccount(getAgentConfigForPublicAccess(nodeId));
+}
+
+// Results may carry a linkUrl (a playit.gg claim or sign-in link). Callers in
+// the main process open it and must not pass it on to the renderer.
+async function startPlayitLinkForNode(options = {}) {
+  const nodeId = options.nodeId || getSelectedNodeId();
+  return isLocalPlayitTarget(nodeId)
+    ? playitAccount.startPlayitLink()
+    : agentClient.controlPublicAccessPlayitAccount("link", getAgentConfigForPublicAccess(nodeId));
+}
+
+async function getPlayitLinkForNode(options = {}) {
+  const nodeId = options.nodeId || getSelectedNodeId();
+  if (isLocalPlayitTarget(nodeId)) return playitAccount.getPlayitLink(options.linkId);
+  return agentClient.controlPublicAccessPlayitLink(options.linkId, options.withLink ? "open" : "", getAgentConfigForPublicAccess(nodeId));
+}
+
+async function cancelPlayitLinkForNode(options = {}) {
+  const nodeId = options.nodeId || getSelectedNodeId();
+  return isLocalPlayitTarget(nodeId)
+    ? playitAccount.cancelPlayitLink(options.linkId)
+    : agentClient.controlPublicAccessPlayitLink(options.linkId, "cancel", getAgentConfigForPublicAccess(nodeId));
+}
+
+async function getPlayitManageLinkForNode(options = {}) {
+  const nodeId = options.nodeId || getSelectedNodeId();
+  return isLocalPlayitTarget(nodeId)
+    ? playitAccount.getPlayitManageLink()
+    : agentClient.controlPublicAccessPlayitAccount("manage", getAgentConfigForPublicAccess(nodeId));
+}
+
 module.exports = {
   PUBLIC_ACCESS_PROVIDERS,
   PlayitProvider: PUBLIC_ACCESS_PROVIDERS[0],
@@ -501,8 +542,13 @@ module.exports = {
   applyWindowsFirewallRule,
   buildManualFirewallRuleDeleteCommand,
   buildWindowsFirewallRulePreview,
+  cancelPlayitLinkForNode,
   controlPlayitService,
   deletePublicAccessService,
+  getPlayitAccountForNode,
+  getPlayitLinkForNode,
+  getPlayitManageLinkForNode,
+  startPlayitLinkForNode,
   deleteWindowsFirewallRule,
   getPlayitLogsForNode,
   getPlayitServiceStatusForNode,

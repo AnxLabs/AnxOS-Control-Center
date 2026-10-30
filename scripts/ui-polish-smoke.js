@@ -29,6 +29,31 @@ function pageMarkup(page) {
 const ids = [...index.matchAll(/\bid="([^"]+)"/g)].map((match) => match[1]);
 assert.strictEqual(new Set(ids).size, ids.length, "Desktop HTML must not contain duplicate IDs.");
 
+// A merge that keeps both sides of an appended block can drop a shared closing
+// brace; the browser then nests every later rule and silently ignores them.
+{
+  let depth = 0;
+  const css = styles.replace(/\/\*[\s\S]*?\*\//g, "").replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g, "\"\"");
+  for (const character of css) {
+    if (character === "{") depth += 1;
+    if (character === "}") depth -= 1;
+    assert(depth >= 0, "styles.css closes a block that was never opened.");
+  }
+  assert.strictEqual(depth, 0, "styles.css leaves a block unclosed.");
+}
+
+// Marketplace cards show provider logos straight from their CDNs, so the CSP
+// must allow exactly those image hosts (a bare 'self' data: list left every
+// modpack logo as a broken image), and never a wildcard.
+{
+  const imgSrc = (index.match(/img-src ([^;"]*)/) || [])[1] || "";
+  const sources = imgSrc.trim().split(/\s+/);
+  for (const host of ["https://media.forgecdn.net", "https://cdn.modrinth.com"]) {
+    assert(sources.includes(host), `CSP img-src must allow ${host} for Marketplace logos.`);
+  }
+  assert(!sources.some((source) => source === "*" || source === "https:" || source === "http:"), "CSP img-src must not allow every host.");
+}
+
 const buttons = [...index.matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/g)];
 buttons.forEach(([, attributes, content]) => {
   const visibleText = content.replace(/<[^>]+>/g, "").replace(/&[^;]+;/g, "x").trim();
@@ -347,5 +372,13 @@ assert(
 assert(index.includes("data-network-inventory-panel"), "The Nodes page must keep the network inventory card container.");
 assert(index.includes("transfer-workload"), "The Instances page must keep the workload transfer button.");
 assert(app.includes("networkInventory:get"), "The network inventory card must stay wired to its IPC channel.");
+
+// Agent Control > Lifecycle on a remote node: the reason the buttons are
+// disabled must be visible without hovering, and a disabled Start must not
+// keep the primary (enabled-looking) fill.
+assert(index.includes("data-agent-lifecycle-note"), "Lifecycle must have an inline note for why remote control is unavailable.");
+assert(index.includes("data-agent-lifecycle-subtitle"), "Lifecycle subtitle must be addressable so remote nodes don't read 'Local Agent'.");
+assert(/agentLifecycleNote\.textContent = note;/.test(app) && app.includes("remoteLifecycle.reason"), "The inline note must show the remote lifecycle reason.");
+assert(/\.agent-control-actions \.primary-button:disabled\s*\{/.test(styles), "A disabled Lifecycle Start button must use the muted disabled style.");
 
 console.log("UI polish smoke checks passed.");

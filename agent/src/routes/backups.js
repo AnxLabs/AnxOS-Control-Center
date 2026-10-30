@@ -8,6 +8,7 @@ const {
   listSchedules,
   restoreBackup,
   saveSchedule,
+  verifyBackup,
 } = require("../services/backupService");
 const {
   deleteDestination,
@@ -132,6 +133,13 @@ async function handleBackups(request, url) {
     const pushBackupId = getBackupSubroute(url.pathname, "/push");
     if (request.method === "POST" && pushBackupId) {
       return result(200, await pushBackupToDestination(pushBackupId, parseJsonBody(request)));
+    }
+
+    // Verification outcomes are data, not errors: verifyBackup only throws for
+    // an unknown backup id, so expected outcomes keep the 200 envelope.
+    const verifyBackupId = getBackupSubroute(url.pathname, "/verify");
+    if (request.method === "POST" && verifyBackupId) {
+      return result(200, await verifyBackup(verifyBackupId));
     }
 
     const remoteRestore = parseRemoteRestorePath(url.pathname);

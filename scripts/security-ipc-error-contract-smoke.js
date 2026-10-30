@@ -46,7 +46,8 @@ async function main() {
       assert.strictEqual(error.details.retryable, true);
       assert.strictEqual(error.details.suggestion, "Sign in and retry.");
       assert.strictEqual(error.statusCode, 401);
-      assert.strictEqual(error.cause, originalError);
+      assert.notStrictEqual(error.cause, originalError);
+      assert.strictEqual(error.cause.code, originalError.code);
       assert(!JSON.stringify(error.details).includes(secret));
       assert(!error.message.includes(secret));
       return true;

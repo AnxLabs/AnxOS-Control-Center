@@ -456,7 +456,7 @@ const IPC_FAMILIES = [
     tier: "nodes:read",
     guard: "permission",
     allow: ["owner-unlocked", "operator-unlocked", "viewer-unlocked"],
-    channels: ["nodes:list", "nodes:restore"],
+    channels: ["nodes:list", "nodes:restore", "nodes:tunnelStatus", "nodes:routeStatus", "nodes:suggestRoutes"],
   },
   {
     id: "nodes-credential-read",
@@ -474,7 +474,14 @@ const IPC_FAMILIES = [
       "nodes:save", "nodes:delete", "nodes:disconnect", "nodes:reconnect", "nodes:pair",
       "nodes:repairCredential", "nodes:generateToken", "nodes:fleetBatch", "nodes:testConnection",
       "nodes:updateAgent",
+      // Remote Agent Start / Stop / Restart (SSH, or the Agent's own restart).
+      "nodes:controlAgent",
+      "nodes:verifyAgentControl",
       "nodes:createMobilePairing",
+      // App-managed SSH tunnels: choosing a node's transport and forcing a retry.
+      "nodes:setTransport", "nodes:reconnectTunnel",
+      // Route fallback (for example a Tailscale route to a home server).
+      "nodes:setFallbackUrls",
     ],
   },
   {
@@ -486,6 +493,17 @@ const IPC_FAMILIES = [
     guard: "local-owner+permission",
     allow: ["owner-unlocked", "operator-unlocked", "viewer-unlocked"],
     channels: ["networkInventory:get"],
+  },
+  {
+    // AIM-1 infrastructure inventory: cross-node read-only discovery. Refresh
+    // issues only allow-listed Agent GETs (infrastructureInventoryService), so
+    // both channels sit in the same read tier and guard chain as
+    // networkInventory:get.
+    id: "infrastructure-inventory",
+    tier: "nodes:read",
+    guard: "local-owner+permission",
+    allow: ["owner-unlocked", "operator-unlocked", "viewer-unlocked"],
+    channels: ["infrastructureInventory:get", "infrastructureInventory:refresh"],
   },
   {
     // V2-I workload trust vocabulary (src/shared/workloadTrustPolicy.js).
@@ -555,7 +573,7 @@ const IPC_FAMILIES = [
     tier: "settings:write",
     guard: "permission",
     allow: ["owner-unlocked"],
-    channels: ["ssh:saveProfile", "ssh:deleteProfile", "ssh:assignProfileToNode"],
+    channels: ["ssh:saveProfile", "ssh:deleteProfile", "ssh:assignProfileToNode", "ssh:setProfileAgent"],
   },
   {
     id: "system-read",
@@ -572,6 +590,8 @@ const IPC_FAMILIES = [
     channels: [
       "publicAccess:getSnapshot", "publicAccess:listServices", "publicAccess:getPlayitStatus",
       "publicAccess:getPlayitLogs", "publicAccess:listPlayitTunnels",
+      // playit account: link state only, and opening the fixed download page.
+      "publicAccess:getPlayitAccount", "publicAccess:openPlayitDownload",
       "publicAccess:previewFirewallRule", "publicAccess:listFirewallRules",
       // V2-H reverse-proxy/certificate state read (Agent-owned; no mutation).
       "publicAccess:getReverseProxy",
@@ -586,7 +606,11 @@ const IPC_FAMILIES = [
       // V2-H reverse-proxy route apply: records a route definition only. The
       // Agent reports applied:false (no proxy configuration is written), so the
       // write tier matches the other public-access mutations.
-      "publicAccess:applyReverseProxyRoute"],
+      "publicAccess:applyReverseProxyRoute",
+      // playit account linking: these open playit.gg claim/sign-in links,
+      // which act like short-lived credentials, so polling is write-tier too.
+      "publicAccess:startPlayitLink", "publicAccess:getPlayitLink", "publicAccess:openPlayitLink",
+      "publicAccess:cancelPlayitLink", "publicAccess:openPlayitManage"],
   },
   {
     id: "amp-read",
@@ -672,6 +696,151 @@ const IPC_FAMILIES = [
     allow: ["owner-unlocked"],
     channels: ["workload:transfer", "workload:transferPreview"],
   },
+  // ---------------------------------------------------------------------------
+  // V2-K endpoint registry / connectivity / providers / telemetry /
+  // notifications wave. Every channel runs the same local-owner+permission
+  // guard chain as alerts: requireLocalOwnerAuthenticated then
+  // requirePermission, with requireNodeContext on the node-scoped channels.
+  // Harness note: actor probes live in the DESKTOP_PROBES table in
+  // scripts/permission-matrix-smoke.js; each family below needs its probe row
+  // there (and its module registration in that smoke) before the harness can
+  // exercise the allow path. Until then the smoke reports the missing probe
+  // for the family instead of silently skipping coverage, and the tier / guard
+  // / allow cells below are still cross-checked against the real role tables
+  // by crossCheckTableAgainstRealFunctions().
+  // ---------------------------------------------------------------------------
+  {
+    // Endpoint registry reads (src/ipc/networkIpc.js). The registry is
+    // desktop-local; every observability tier reads it local-owner gated like
+    // the node-scoped families, and a list needs no node context.
+    id: "endpoints-read",
+    tier: "endpoints:read",
+    guard: "local-owner+permission",
+    allow: ["owner-unlocked", "operator-unlocked", "viewer-unlocked"],
+    channels: ["endpoints:list"],
+  },
+  {
+    // Endpoint registry writes: create/update/delete/toggle/associate at the
+    // endpoints:write tier (Operator/Viewer are read-only there).
+    id: "endpoints-write",
+    tier: "endpoints:write",
+    guard: "local-owner+permission",
+    allow: ["owner-unlocked"],
+    channels: [
+      "endpoints:create", "endpoints:update", "endpoints:delete",
+      "endpoints:setEnabled", "endpoints:associate",
+    ],
+  },
+  {
+    // Endpoint probe: runs connectivity diagnostics against a selected node,
+    // so it carries diagnostics:run and the node-scoped guard order.
+    id: "endpoints-test",
+    tier: "diagnostics:run",
+    guard: "local-owner+permission",
+    allow: ["owner-unlocked", "operator-unlocked"],
+    channels: ["endpoints:test"],
+  },
+  {
+    // Cached connectivity diagnostics read (cache-only; the IPC never probes).
+    id: "connectivity-read",
+    tier: "endpoints:read",
+    guard: "local-owner+permission",
+    allow: ["owner-unlocked", "operator-unlocked", "viewer-unlocked"],
+    channels: ["connectivity:getDiagnostics"],
+  },
+  {
+    // On-demand connectivity diagnostics run against a selected node.
+    id: "connectivity-run",
+    tier: "diagnostics:run",
+    guard: "local-owner+permission",
+    allow: ["owner-unlocked", "operator-unlocked"],
+    channels: ["connectivity:runDiagnostics"],
+  },
+  {
+    // Provider status read: providerIntegrationService degrades an unreachable
+    // Agent to an unknown provider state, so the tier stays read-only.
+    id: "providers-read",
+    tier: "providers:read",
+    guard: "local-owner+permission",
+    allow: ["owner-unlocked", "operator-unlocked", "viewer-unlocked"],
+    channels: ["providers:getStatus"],
+  },
+  {
+    // Provider tunnel sync: reconciles canonical tunnels into endpoint records
+    // (idempotent; stale provider endpoints are reported, never deleted).
+    id: "providers-sync",
+    tier: "providers:sync",
+    guard: "local-owner+permission",
+    allow: ["owner-unlocked"],
+    channels: ["providers:sync"],
+  },
+  {
+    // Sampled telemetry reads from the desktop-local bounded store.
+    id: "telemetry-read",
+    tier: "telemetry:read",
+    guard: "local-owner+permission",
+    allow: ["owner-unlocked", "operator-unlocked", "viewer-unlocked"],
+    channels: ["telemetry:getSummary", "telemetry:getSeries"],
+  },
+  {
+    id: "telemetry-export",
+    tier: "telemetry:export",
+    guard: "local-owner+permission",
+    allow: ["owner-unlocked"],
+    channels: ["telemetry:export"],
+  },
+  {
+    // Telemetry clear: destructive store reset, Owner/Admin only.
+    id: "telemetry-manage",
+    tier: "telemetry:manage",
+    guard: "local-owner+permission",
+    allow: ["owner-unlocked"],
+    channels: ["telemetry:clear"],
+  },
+  {
+    // Operational notification journal read: events are derived from per-node
+    // data the same actors may already read, so the journal stays at the
+    // node-read tier.
+    id: "notifications-read",
+    tier: "nodes:read",
+    guard: "local-owner+permission",
+    allow: ["owner-unlocked", "operator-unlocked", "viewer-unlocked"],
+    channels: ["notifications:list"],
+  },
+  {
+    // V2-K backup verification (src/ipc/backupsIpc.js). Persisting an observed
+    // verification state on the Agent's backup record is a backup-scoped write,
+    // so it sits above the row-marked plain backup reads; Operator/User hold
+    // backups:verify (see ROLE_PERMISSIONS), Viewer does not.
+    id: "backups-verify",
+    tier: "backups:verify",
+    guard: "permission",
+    allow: ["owner-unlocked", "operator-unlocked"],
+    channels: ["backups:verify"],
+  },
+  {
+    // V2-K endpoint discovery (src/ipc/networkIpc.js): reads the node's live
+    // listener inventory and reconciles it into endpoint records, so it is a
+    // node-scoped endpoints:write operation. Guard chain is the same
+    // local-owner+permission order as its siblings, with requireNodeContext
+    // after the permission gate.
+    id: "endpoints-discover",
+    tier: "endpoints:write",
+    guard: "local-owner+permission",
+    allow: ["owner-unlocked"],
+    channels: ["endpoints:discover"],
+  },
+  {
+    // V2-K computer summary read (src/ipc/computersIpc.js): composes per-node
+    // identity, endpoint, telemetry and cached-diagnostics state, so it stays
+    // at the nodes:read tier; nodeId is optional (defaults to the selected
+    // node or the application host), hence no node-context requirement.
+    id: "computers-read",
+    tier: "nodes:read",
+    guard: "local-owner+permission",
+    allow: ["owner-unlocked", "operator-unlocked", "viewer-unlocked"],
+    channels: ["computers:getSummary"],
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -733,6 +902,10 @@ const REST_FAMILIES = [
   { id: "rest-marketplace-read", tier: "marketplace:read", publicRoute: false, routes: [{ method: "GET", path: "/api/v1/marketplace/curseforge/status" }] },
   { id: "rest-public-access-read", tier: "public-access:read", publicRoute: false, routes: [{ method: "GET", path: "/api/v1/playit/status" }] },
   { id: "rest-public-access-write", tier: "public-access:write", publicRoute: false, routes: [{ method: "POST", path: "/api/v1/public-access/matrix-probe" }] },
+  // playit account linking. The probes name a linking attempt that does not
+  // exist, so they are refused (PLAYIT_LINK_NOT_FOUND) without running playit.
+  { id: "rest-public-access-playit-link-read", tier: "public-access:read", publicRoute: false, routes: [{ method: "GET", path: "/api/v1/public-access/playit/account/link/matrix-probe" }] },
+  { id: "rest-public-access-playit-link-write", tier: "public-access:write", publicRoute: false, routes: [{ method: "POST", path: "/api/v1/public-access/playit/account/link/matrix-probe/cancel", body: {} }] },
   {
     // V2-H reverse-proxy/certificate lifecycle: the read path returns the
     // recorded routes, certificate lifecycle states, and the explicit
@@ -754,6 +927,9 @@ const REST_FAMILIES = [
   { id: "rest-amp-read", tier: "instance:read", publicRoute: false, routes: [{ method: "GET", path: "/api/v1/amp/status" }] },
   { id: "rest-diagnostics", tier: "owner", publicRoute: false, routes: [{ method: "GET", path: "/api/v1/diagnostics" }] },
   { id: "rest-agent-task", tier: "agent:manage", publicRoute: false, routes: [{ method: "GET", path: "/api/v1/system/agent-task" }] },
+  // Probed with GET: the tier is enforced before the handler, which refuses GET
+  // (405), so the probe never restarts the test Agent.
+  { id: "rest-agent-restart", tier: "agent:manage", publicRoute: false, routes: [{ method: "GET", path: "/api/v1/agent/restart" }] },
   { id: "rest-actions-read", tier: "actions:read", publicRoute: false, routes: [{ method: "GET", path: "/api/v1/actions" }] },
   {
     id: "rest-actions-execute",

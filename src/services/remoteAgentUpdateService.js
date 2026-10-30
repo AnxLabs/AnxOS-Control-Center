@@ -8,6 +8,7 @@ const { getBundledLocalAgentRuntime, getBundledLocalAgentVersion } = require("./
 const { getNode } = require("./nodeService");
 const { APPLICATION_HOST_NODE_ID } = require("./applicationHostService");
 const diagnostics = require("./diagnosticsService");
+const { _test: { buildScopeProbeCommand, getAgentProbePorts }, parseProbeTarget, verifySshTarget } = require("./remoteAgentLifecycleService");
 
 // Remote Agent push update: the Desktop is the runtime authority. It stages its
 // own bundled Agent runtime (the same file set the local Agent runs from) over
@@ -296,6 +297,17 @@ async function updateRemoteAgent(nodeId, options = {}) {
   }
   if (profile.authType !== "privateKey") {
     throw fail("REMOTE_AGENT_UPDATE_SSH_KEY_REQUIRED", "The node's SSH profile must use key authentication for an unattended update.");
+  }
+  // The profile is assigned to this node, but that alone doesn't prove it
+  // reaches this node: confirm the machine before anything is uploaded.
+  const targetProbe = await run(profile.id, buildScopeProbeCommand(unitName, getAgentProbePorts(node)), { timeoutMs: DEFAULT_COMMAND_TIMEOUT_MS }).catch((error) => {
+    throw fail(error.code || "REMOTE_AGENT_UPDATE_SSH_FAILED", error.message, { sshOutput: error.sshOutput || null });
+  });
+  try {
+    verifySshTarget(node, profile, parseProbeTarget(targetProbe?.stdout));
+  } catch (error) {
+    mark("check", "failed", error.message);
+    throw fail(error.code, error.message, error.details || {});
   }
   mark("check", "complete", `Node ${record.nodeName} and SSH profile ${profile.displayName || profile.id} selected.`);
 

@@ -45,6 +45,32 @@ function parseJsonArray(value) {
   }
 }
 
+// A process is playit only if its own image is a playit binary (playit,
+// playitd or playit-agent, optionally .exe). Matching the word "playit"
+// anywhere in a command line also caught shells, editors and scripts whose
+// arguments merely mention playit (a path, a config file, a test script).
+const PLAYIT_PROCESS_IMAGE = /^(?:playit|playitd|playit-agent)(?:\.exe)?$/i;
+
+function isPlayitProcessImage(nameOrPath) {
+  const text = String(nameOrPath || "").trim().replace(/^"+|"+$/g, "");
+  if (!text) return false;
+  const base = text.split(/[\\/]/).pop();
+  return PLAYIT_PROCESS_IMAGE.test(base);
+}
+
+function isPlayitProcessRow(row) {
+  return isPlayitProcessImage(row?.name) || isPlayitProcessImage(row?.executablePath);
+}
+
+// `pgrep -af` lines are "<pid> <command line>"; keep only lines whose
+// executable (the first word) is a playit binary.
+function filterPlayitCommandLines(output) {
+  return String(output || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => isPlayitProcessImage(line.replace(/^\d+\s+/, "").split(/\s+/)[0]));
+}
+
 function getConfigCandidates() {
   return unique([
     process.env.PLAYIT_CONFIG_PATH,
@@ -671,7 +697,7 @@ async function getLinuxPlayitProcessState(cliOutput) {
   diagnostics.detectionMethod = "pgrep -af playit";
 
   return {
-    running: pgrepResult.ok && Boolean(pgrepResult.stdout),
+    running: pgrepResult.ok && filterPlayitCommandLines(pgrepResult.stdout).length > 0,
     diagnostics,
   };
 }
@@ -700,7 +726,7 @@ async function getWindowsPlayitProcesses() {
     "-ExecutionPolicy",
     "Bypass",
     "-Command",
-    "Get-CimInstance Win32_Process | Where-Object { $_.Name -match '^playit' -or $_.CommandLine -match 'playit' -or $_.ExecutablePath -match 'playit' } | Select-Object ProcessId,Name,ExecutablePath,CommandLine | ConvertTo-Json -Compress",
+    "Get-CimInstance Win32_Process | Where-Object { $_.Name -match '^playit' } | Select-Object ProcessId,Name,ExecutablePath,CommandLine | ConvertTo-Json -Compress",
   ]);
   const cimRows = parseJsonArray(cimResult.stdout);
   const cimProcesses = cimRows
@@ -710,7 +736,7 @@ async function getWindowsPlayitProcesses() {
       executablePath: row.ExecutablePath || null,
       commandLine: row.CommandLine || "",
     }))
-    .filter((row) => [row.name, row.executablePath, row.commandLine].filter(Boolean).join(" ").match(/\bplayit(?:\.exe|d)?\b/i));
+    .filter(isPlayitProcessRow);
 
   const checks = [
     {
@@ -743,7 +769,7 @@ async function getWindowsPlayitProcesses() {
       executablePath: row.Path || null,
       commandLine: "",
     }))
-    .filter((row) => [row.name, row.executablePath].filter(Boolean).join(" ").match(/\bplayit(?:\.exe|d)?\b/i));
+    .filter(isPlayitProcessRow);
 
   checks.push({
     method: "Get-Process playit,playitd",
@@ -770,7 +796,7 @@ async function getWindowsPlayitProcesses() {
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean)
-    .filter((line) => /\bplayit(?:d)?\.exe\b/i.test(line));
+    .filter((line) => isPlayitProcessImage(line.replace(/^"([^"]*)".*$/, "$1")));
   const tasklistProcesses = tasklistLines.map((line) => ({
     processId: null,
     name: line.replace(/^"([^"]+)".*$/, "$1") || null,
@@ -1203,6 +1229,10 @@ async function listPlayitTunnels() {
 }
 
 module.exports = {
+  isPlayitProcessImage,
+  filterPlayitCommandLines,
+  findPlayitBinary,
+  getConfigCandidates,
   getPlayitSnapshot,
   getPlayitStatus,
   getPlayitServiceStatus: getPlayitStatus,

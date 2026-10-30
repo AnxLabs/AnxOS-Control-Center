@@ -29,8 +29,14 @@ gates:
 - `OPERATOR_NOTES_V2.md` (V2 operator-facing behavior reference)
 - `API_SURFACE_V2.md` (V2 Agent endpoint and desktop IPC contract reference)
 - `SERVICE_MANAGED_INSTANCES.md` (systemd service-managed instances: what the Agent does and refuses, operator setup, verification)
+- `INFRASTRUCTURE_INVENTORY.md` (AIM-1 read-only infrastructure discovery and
+  inventory: routes used, identity, protection, failure handling, verification)
 - `HEADLESS_AGENT_INSTALL.md` (headless Agent install, update, unpair, and
   verification status)
+- `ENDPOINT_MANAGER.md` (V2-K endpoint registry, migration, and lifecycle
+  reference)
+- `CONNECTIVITY_MODEL.md` (V2-K connectivity diagnostics, graph, and
+  presentation model)
 
 When a current document conflicts with a build-numbered report, the current
 document controls.
@@ -65,6 +71,11 @@ entry disagree, the later cycle entry controls, and the code controls over both.
   PLANNING ONLY, not approved for implementation: Autonomous Infrastructure
   Management plan (V2-L/V2-M operationalization, milestones AIM-0…AIM-7;
   decisions D1–D5 resolved; V2-L per-action approval preserved).
+- `docs/v2/V2_AUTONOMOUS_INFRASTRUCTURE_PLAN_R3_2_ADDENDUM.md` — revision 3.2
+  compatibility addendum (Build 206 service-managed identity, Safe Restart,
+  committed-baseline correction, AIM-1 delivery shape); revision 3.1 unchanged.
+- `docs/v2/AIM1_IMPLEMENTATION_RECORD.md` — AIM-1 implementation, validation
+  evidence, live read-only verification, defects fixed, and limitations.
 - `docs/v2/AIM0_SIGNOFF.md` — AIM-0 sign-off record (prepared, awaiting Owner
   signature): contract statuses, identity evidence, production-scope gaps,
   gate P4 recommendation, and what signing authorizes for AIM-2.

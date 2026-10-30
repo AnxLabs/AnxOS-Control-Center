@@ -2,8 +2,8 @@
 
 | Field | Value |
 | --- | --- |
-| Prepared | 2026-10-14 |
-| Plan | `V2_AUTONOMOUS_INFRASTRUCTURE_PLAN.md` revision 3.1 (frozen) + `V2_AUTONOMOUS_INFRASTRUCTURE_PLAN_R3_2_ADDENDUM.md` (in PR #4) |
+| Prepared | 2026-10-14; §3 live evidence refreshed 2026-10-30 |
+| Plan | `V2_AUTONOMOUS_INFRASTRUCTURE_PLAN.md` revision 3.1 (frozen) + `V2_AUTONOMOUS_INFRASTRUCTURE_PLAN_R3_2_ADDENDUM.md` (merged with AIM-1, `7308e54`) |
 | Status | **PREPARED — NOT SIGNED.** Nothing here takes effect until the Owner signs §5. |
 | Policy | Conservative defaults as directed by the Owner on 2026-10-14: unverified contracts are marked unverified; the AnxGraph writer stays blocked until AIM-7; every unconfirmed staging candidate stays `production`. |
 
@@ -37,13 +37,15 @@ AVAILABLE** (checked; the capability does not exist today).
 
 ## 3. Live verification and production scopes
 
-Executed 2026-10-14, read-only, token-free (health route is public), 11 GET requests:
+Re-executed 2026-10-30, read-only, token-free (health route is public), one GET per Agent.
+The 2026-10-14 run (11 GETs) found Anxlab not yet on Build 206 and `127.0.0.1:47132`
+unreachable; both have since changed.
 
 | Target | Result |
 | --- | --- |
-| `Anxlab` (`192.168.1.134:47131`) | Host identity **verified** against its registered device; not yet a Build 206 Agent (no `serviceManagedInstances` capability) |
-| `127.0.0.1:47132` | Unreachable |
-| Installed local Agent `127.0.0.1:47131` (`DESKTOP-TJ50GSE`) | Host identity **verified** |
+| `Anxlab` (`192.168.1.134:47131`) | Host identity **verified**: `device-b4c39d2e…`, installation `agenti-a7fc42b6…` (matches its registered node). Now the Build 207 `.deb` Agent under a system unit; the identity carried over from the former user-unit Agent. `serviceManagedInstances` advertised |
+| `vps-7360e3ad` (`127.0.0.1:47132`, SSH tunnel) | Host identity **verified**: `device-b500597a…`, installation `agenti-8315df85…` (matches its registered node). Build 207 `.deb` Agent; `serviceManagedInstances` advertised. The tunnel is hand-started and not persistent |
+| Installed local Agent `127.0.0.1:47131` (`DESKTOP-TJ50GSE`) | Host identity **verified**: `device-b252d74f…`; `serviceManagedInstances` advertised |
 
 Not done: an authenticated live inventory. Node credentials are encrypted to the Owner's
 app profile and were not decrypted outside the app.
@@ -56,7 +58,7 @@ app profile and were not decrypted outside the app.
 | AnxGraph production runtime | No. Stays `production` |
 | AI-BOX volumes, both Ollama nodes, AMP (`8080`), Cloudflare tunnel | No. Stay `production` |
 | Installed AnxOS application | No. Stays `production` |
-| AnxOS Agent on every node | Hosts of `Anxlab` and the local Agent verified (above); others not. All stay `production` |
+| AnxOS Agent on every node | Hosts of `Anxlab`, `vps-7360e3ad` and the local Agent verified (above). All stay `production` |
 
 Every gap is recorded; per plan §5.6 an unmapped scope stays `production`.
 
