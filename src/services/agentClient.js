@@ -3538,6 +3538,12 @@ async function repairWindowsAgentTask(configOverride = null) {
   return requestJson("/api/v1/system/agent-task", { config: configOverride, method: "POST", body: {} });
 }
 
+// Remote Agent self-restart (the Agent's POST /api/v1/agent/restart): the Agent
+// replies 202 and then exits so systemd starts it again.
+async function requestAgentSelfRestart(configOverride = null) {
+  return requestJson("/api/v1/agent/restart", { config: configOverride, method: "POST", body: {} });
+}
+
 async function uninstallWindowsAgentTask(configOverride = null) {
   return requestJson("/api/v1/system/agent-task", { config: configOverride, method: "DELETE" });
 }
@@ -3608,6 +3614,7 @@ module.exports = {
   },
   AgentClientError,
   beginInstallationSession,
+  requestAgentSelfRestart,
   beginSteamCmdUpdateSession,
   getSteamCmdUpdateStatus,
   repairLegacySteamCmdMetadata,

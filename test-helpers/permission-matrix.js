@@ -474,6 +474,8 @@ const IPC_FAMILIES = [
       "nodes:save", "nodes:delete", "nodes:disconnect", "nodes:reconnect", "nodes:pair",
       "nodes:repairCredential", "nodes:generateToken", "nodes:fleetBatch", "nodes:testConnection",
       "nodes:updateAgent",
+      // Remote Agent Start / Stop / Restart (SSH, or the Agent's own restart).
+      "nodes:controlAgent",
       "nodes:createMobilePairing",
       // App-managed SSH tunnels: choosing a node's transport and forcing a retry.
       "nodes:setTransport", "nodes:reconnectTunnel",
@@ -924,6 +926,9 @@ const REST_FAMILIES = [
   { id: "rest-amp-read", tier: "instance:read", publicRoute: false, routes: [{ method: "GET", path: "/api/v1/amp/status" }] },
   { id: "rest-diagnostics", tier: "owner", publicRoute: false, routes: [{ method: "GET", path: "/api/v1/diagnostics" }] },
   { id: "rest-agent-task", tier: "agent:manage", publicRoute: false, routes: [{ method: "GET", path: "/api/v1/system/agent-task" }] },
+  // Probed with GET: the tier is enforced before the handler, which refuses GET
+  // (405), so the probe never restarts the test Agent.
+  { id: "rest-agent-restart", tier: "agent:manage", publicRoute: false, routes: [{ method: "GET", path: "/api/v1/agent/restart" }] },
   { id: "rest-actions-read", tier: "actions:read", publicRoute: false, routes: [{ method: "GET", path: "/api/v1/actions" }] },
   {
     id: "rest-actions-execute",

@@ -615,13 +615,13 @@ function crossCheckTableAgainstRealFunctions() {
         }
       }
       if (family.tier === "agent:manage") {
-        // /api/v1/system/agent-task carries the same tier directly from
-        // server.js getRoutePermission; only credentials/rotate comes from the
-        // enrollment route permission map.
+        // /api/v1/system/agent-task and /api/v1/agent/restart carry the same
+        // tier directly from server.js getRoutePermission; only
+        // credentials/rotate comes from the enrollment route permission map.
         if (family.id === "rest-credentials-rotate") {
           assert.strictEqual(enrollRoutes.getEnrollmentRoutePermission("/api/v1/credentials/rotate"), "agent:manage", "Credential rotate must remain agent:manage.");
         } else {
-          assert.strictEqual(family.id, "rest-agent-task", `Matrix drift: unexpected agent:manage REST family ${family.id}.`);
+          assert(["rest-agent-task", "rest-agent-restart"].includes(family.id), `Matrix drift: unexpected agent:manage REST family ${family.id}.`);
         }
       }
     }

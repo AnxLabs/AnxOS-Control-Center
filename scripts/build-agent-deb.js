@@ -36,6 +36,8 @@ const SUPPORTED_ARCHES = new Map([
 
 const RUNTIME_ROOT_RELATIVE = path.join("usr", "lib", "anxos-agent");
 const WRAPPER_RELATIVE = path.join("usr", "bin", "anxos-agent");
+// Lets the anxos-control group start, stop and restart the Agent (packaging/agent-deb/anxos-agent.sudoers).
+const SUDOERS_RELATIVE = path.join("etc", "sudoers.d", "anxos-agent");
 const AGENT_RELEASE_FILENAME = "agent-release.json";
 const CONTROL_CONFIG_FILES = ["agent.example.json", "local-agent-runtime.json", "marketplace-templates.json"];
 
@@ -444,6 +446,7 @@ async function stagePayload(stageDir, options, arch, releaseInfo) {
 
   copyFileInto(path.join(packagingDir, "anxos-agent.service"), path.join(stageDir, "lib", "systemd", "system", "anxos-agent.service"));
   copyFileInto(path.join(packagingDir, "anxos-agent.env.example"), path.join(stageDir, "etc", "anxos-agent", "agent.env.example"));
+  copyFileInto(path.join(packagingDir, "anxos-agent.sudoers"), path.join(stageDir, SUDOERS_RELATIVE));
   const wrapperPath = path.join(stageDir, WRAPPER_RELATIVE);
   fs.mkdirSync(path.dirname(wrapperPath), { recursive: true });
   fs.writeFileSync(wrapperPath, WRAPPER_CONTENT);
@@ -467,6 +470,8 @@ async function stagePayload(stageDir, options, arch, releaseInfo) {
   }
   fs.writeFileSync(path.join(stageDir, "DEBIAN", "control"), rendered);
   normalizeStageModes(stageDir);
+  // sudo only reads root-owned drop-ins that group and others cannot write.
+  chmodSafe(path.join(stageDir, SUDOERS_RELATIVE), 0o440);
   return { installedKiB, files: countFiles(stageDir) };
 }
 
@@ -512,6 +517,7 @@ function printStagedOnly(reason, stageDir, artifactPath) {
   console.log("  find /tmp/anxos-agent-stage -type d -exec chmod 755 {} +");
   console.log("  find /tmp/anxos-agent-stage -type f -exec chmod 644 {} +");
   console.log("  chmod 755 /tmp/anxos-agent-stage/DEBIAN/postinst /tmp/anxos-agent-stage/DEBIAN/prerm /tmp/anxos-agent-stage/DEBIAN/postrm /tmp/anxos-agent-stage/usr/bin/anxos-agent /tmp/anxos-agent-stage/usr/lib/anxos-agent/node/bin/node");
+  console.log("  chmod 440 /tmp/anxos-agent-stage/etc/sudoers.d/anxos-agent");
   console.log(`  dpkg-deb --build --root-owner-group /tmp/anxos-agent-stage "/tmp/${artifactName}"`);
   console.log(`  (cd /tmp && sha256sum "${artifactName}" > "${artifactName}.sha256")`);
   console.log(`  cp "/tmp/${artifactName}" "/tmp/${artifactName}.sha256" "${outputDir}/"`);

@@ -18,6 +18,7 @@ const {
 } = require("../services/nodeService");
 const { restorePersistedActiveNode, setActiveNode } = require("../services/activeNodeSelectionService");
 const { updateRemoteAgent } = require("../services/remoteAgentUpdateService");
+const { getRemoteAgentLifecycleService } = require("../services/remoteAgentLifecycleService");
 const { createMobilePairing } = require("../services/mobilePairingService");
 const { getNodeTunnelService } = require("../services/nodeTunnelService");
 const { getNodeRouteResolver } = require("../services/nodeRouteResolver");
@@ -188,6 +189,18 @@ function registerNodesIpc() {
       }
       throw error;
     }
+  }));
+  // Remote Agent lifecycle: Start / Stop / Restart a node's Agent over SSH, or
+  // Restart through the Agent itself when no SSH key profile is assigned.
+  // Owner-only like the remote update: stopping or restarting the Agent stops
+  // the instances it runs on that node.
+  ipcMain.handle("nodes:controlAgent", async (_, payload = {}) => invokeNodeOperation(async () => {
+    const context = requireNodeContext(payload, "node agent lifecycle");
+    const action = String(payload.action || "");
+    requireLocalOwnerAuthenticated("nodes:control-agent", "Unlock AnxOS to control a node Agent.");
+    requirePermission("settings:write", context.nodeId);
+    audit({ action: `node.agent-${["start", "stop", "restart"].includes(action) ? action : "invalid"}`, target: context.nodeId });
+    return getRemoteAgentLifecycleService().control(context.nodeId, action);
   }));
   // Mobile pairing: mints and installs a fresh node credential for a phone and
   // returns the claim (QR + claim string). Owner-only because it hands out a

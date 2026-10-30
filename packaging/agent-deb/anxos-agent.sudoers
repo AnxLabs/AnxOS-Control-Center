@@ -1,0 +1,6 @@
+# AnxOS Agent: members of the anxos-control group may start, stop and restart
+# the Agent service without a password, and nothing else. AnxOS Control Center
+# uses this over SSH (Agent Control > Lifecycle) for packaged system-service
+# Agents. Grant it to the SSH user Control Center connects as:
+#   sudo usermod -aG anxos-control <user>
+%anxos-control ALL=(root) NOPASSWD: /usr/bin/systemctl start anxos-agent, /usr/bin/systemctl stop anxos-agent, /usr/bin/systemctl restart anxos-agent

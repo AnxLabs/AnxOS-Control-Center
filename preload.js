@@ -411,6 +411,7 @@ const desktopApi = {
     repairCredential: (payload = {}) => ipcRenderer.invoke("nodes:repairCredential", payload),
     generateToken: () => ipcRenderer.invoke("nodes:generateToken"),
     updateAgent: (nodeId) => ipcRenderer.invoke("nodes:updateAgent", { nodeId }),
+    controlAgent: (nodeId, action) => ipcRenderer.invoke("nodes:controlAgent", { nodeId, action }),
     tunnelStatus: () => ipcRenderer.invoke("nodes:tunnelStatus"),
     setTransport: (nodeId, transport) => ipcRenderer.invoke("nodes:setTransport", { nodeId, transport }),
     reconnectTunnel: (nodeId) => ipcRenderer.invoke("nodes:reconnectTunnel", { nodeId }),

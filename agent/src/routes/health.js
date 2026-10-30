@@ -2,6 +2,7 @@ const fs = require("fs");
 const { getDeviceIdentity } = require("../services/deviceIdentityService");
 const { getConfiguredApiPermissions } = require("../permissions");
 const { createSystemdController } = require("../../../src/shared/instances/serviceManagedRuntime");
+const { getSelfRestartCapability } = require("./agentLifecycle");
 
 // Tokens that let a credential mutate state. API permissions are fail-closed
 // by default for standalone/remote agents (no implicit "*"); the desktop's
@@ -97,6 +98,9 @@ function buildAgentCapabilities(identity = {}) {
     supportsPublicAccess: true,
     supportsPlayit: true,
     agentUpdate: getAgentUpdateCapability(platform),
+    // Additive: the Agent can restart itself on request (POST /api/v1/agent/restart)
+    // only when a supervisor will start it again (routes/agentLifecycle.js).
+    selfRestart: getSelfRestartCapability(process.env, platform),
     // Additive: instances backed by an OS service the Agent controls but does
     // not own (ADR 0031 addendum). supportsServiceControl above keeps its
     // existing meaning (host-level service control) and is intentionally unchanged.

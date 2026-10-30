@@ -12,6 +12,8 @@ AGENT_GROUP="anxos-agent"
 DATA_ROOT="/var/lib/anxos-agent"
 LOG_ROOT="/var/log/anxos-agent"
 CONFIG_ROOT="/etc/anxos-agent"
+CONTROL_GROUP="anxos-control"
+SUDOERS_FILE="/etc/sudoers.d/anxos-agent"
 
 create_agent_account() {
   if ! getent group "$AGENT_GROUP" >/dev/null 2>&1; then
@@ -38,6 +40,24 @@ prepare_directories() {
   install -d -m 0700 -o "$AGENT_USER" -g "$AGENT_GROUP" "$DATA_ROOT/config"
   install -d -m 0750 -o "$AGENT_USER" -g "$AGENT_GROUP" "$LOG_ROOT"
   install -d -m 0750 -o root -g "$AGENT_GROUP" "$CONFIG_ROOT"
+}
+
+prepare_control_group() {
+  # Members may start, stop and restart the Agent without a password (the
+  # shipped sudoers drop-in); nobody is added automatically. A drop-in that
+  # does not validate would break every sudo on the host, so it is removed
+  # instead of being left in place.
+  if ! getent group "$CONTROL_GROUP" >/dev/null 2>&1; then
+    groupadd --system "$CONTROL_GROUP"
+  fi
+  if [ -f "$SUDOERS_FILE" ]; then
+    chown root:root "$SUDOERS_FILE"
+    chmod 0440 "$SUDOERS_FILE"
+    if command -v visudo >/dev/null 2>&1 && ! visudo -cf "$SUDOERS_FILE" >/dev/null 2>&1; then
+      rm -f "$SUDOERS_FILE"
+      echo "AnxOS Agent: the sudoers rule did not validate and was removed; Agent control over SSH needs another sudo rule." >&2
+    fi
+  fi
 }
 
 grant_docker_group() {
@@ -69,11 +89,13 @@ case "${1:-configure}" in
   configure)
     create_agent_account
     prepare_directories
+    prepare_control_group
     grant_docker_group
     reload_and_enable "${2:-}"
     echo "AnxOS Agent installed."
     echo "Connect it from AnxOS Control Center, or run 'sudo anxos-agent' on this host."
     echo "Service status: systemctl status anxos-agent"
+    echo "Control it from AnxOS Control Center over SSH: sudo usermod -aG $CONTROL_GROUP <ssh-user>"
     echo "Optional overrides: copy /etc/anxos-agent/agent.env.example to /etc/anxos-agent/agent.env"
     ;;
   *)
