@@ -373,4 +373,12 @@ assert(index.includes("data-network-inventory-panel"), "The Nodes page must keep
 assert(index.includes("transfer-workload"), "The Instances page must keep the workload transfer button.");
 assert(app.includes("networkInventory:get"), "The network inventory card must stay wired to its IPC channel.");
 
+// Agent Control > Lifecycle on a remote node: the reason the buttons are
+// disabled must be visible without hovering, and a disabled Start must not
+// keep the primary (enabled-looking) fill.
+assert(index.includes("data-agent-lifecycle-note"), "Lifecycle must have an inline note for why remote control is unavailable.");
+assert(index.includes("data-agent-lifecycle-subtitle"), "Lifecycle subtitle must be addressable so remote nodes don't read 'Local Agent'.");
+assert(/agentLifecycleNote\.textContent = note;/.test(app) && app.includes("remoteLifecycle.reason"), "The inline note must show the remote lifecycle reason.");
+assert(/\.agent-control-actions \.primary-button:disabled\s*\{/.test(styles), "A disabled Lifecycle Start button must use the muted disabled style.");
+
 console.log("UI polish smoke checks passed.");

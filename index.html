@@ -4307,11 +4307,12 @@
               </div>
             </section>
             <section class="settings-section agent-operations-panel" data-agent-control-section="lifecycle">
-              <div class="settings-section__header"><div><h2>Lifecycle</h2><p>Start, stop, restart, or repair the managed Local Agent process.</p></div></div>
+              <div class="settings-section__header"><div><h2>Lifecycle</h2><p data-agent-lifecycle-subtitle>Start, stop, restart, or repair the managed Local Agent process.</p></div></div>
               <div class="agent-control-actions">
                 <div><span>Process</span><button class="primary-button" type="button" data-agent-control-action="start">Start</button><button class="inline-action" type="button" data-agent-control-action="stop">Stop</button><button class="inline-action" type="button" data-agent-control-action="restart">Restart</button><button class="inline-action" type="button" data-agent-control-action="forceRestart">Force Restart</button></div>
                 <div><span>Repair</span><button class="inline-action" type="button" data-agent-control-action="repairAgent">Repair Connection</button><button class="inline-action" type="button" data-agent-control-action="stopOldLocalAgentAndRepair">Stop Old Local Agent and Repair</button><button class="inline-action" type="button" data-agent-control-action="reconnect">Reconnect</button></div>
               </div>
+              <p class="agent-lifecycle-note" data-agent-lifecycle-note role="status" hidden></p>
               <div class="agent-section-grid">
                 <div><span>Process</span><strong data-agent-control-field="pid">Stopped</strong></div>
                 <div><span>Service</span><strong data-agent-control-field="service">Unavailable</strong></div>
