@@ -226,6 +226,8 @@
     "ssh:terminal-emulation:smoke": "node scripts/ssh-terminal-emulation-smoke.js",
     "ssh:lifecycle:smoke": "node scripts/ssh-session-timeout-smoke.js",
     "ssh:redaction:smoke": "node scripts/ssh-redaction-smoke.js",
+    "ssh:key-passphrase:smoke": "node scripts/ssh-key-passphrase-smoke.js",
+    "ssh:terminal-session-output:smoke": "node scripts/ssh-terminal-session-output-smoke.js",
     "synchronized-final:smoke": "node scripts/synchronized-final-regression-smoke.js",
     "live-regressions:smoke": "node scripts/live-routing-regression-smoke.js",
     "feature-ipc-node-context:smoke": "node scripts/feature-ipc-node-context-smoke.js",

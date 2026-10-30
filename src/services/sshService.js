@@ -3,7 +3,7 @@ const { EventEmitter } = require("events");
 const { app } = require("electron");
 const fs = require("fs");
 const path = require("path");
-const { Client } = require("ssh2");
+const { Client, utils: { parseKey } } = require("ssh2");
 const { getAllNodesSync, getSelectedNodeId } = require("./nodeService");
 const { redactString } = require("../shared/redaction");
 const { decideMigrationRecovery, verifyRecoveryPoint } = require("../shared/migrationRecoveryPolicy");
@@ -333,9 +333,54 @@ function createSessionLabel(profile) {
   return trimValue(profile?.displayName) || `${username}@${host}`;
 }
 
-function mapConnectionError(error, stage = "connecting") {
+// ssh2 only reports key problems by throwing from client.connect(), after a
+// session already exists. Parse the key first so an encrypted key without (or
+// with a wrong) passphrase is reported as such instead of a generic failure.
+function getPrivateKeyParseError(keyData, passphrase) {
+  let parsed;
+  try {
+    parsed = parseKey(keyData, passphrase || undefined);
+  } catch (error) {
+    parsed = error instanceof Error ? error : new Error(String(error));
+  }
+  if (!(parsed instanceof Error)) return null;
+  const message = String(parsed.message || "");
+  if (/encrypted .*no passphrase given/i.test(message)) {
+    return new SshServiceError("This private key is encrypted. Enter the key's passphrase (not the SSH account password) to connect.", {
+      code: "SSH_KEY_PASSPHRASE_REQUIRED", stage: "authenticating", retryable: true, technicalMessage: message,
+    });
+  }
+  if (passphrase && /integrity check failed|bad decrypt|decrypt|malformed/i.test(message)) {
+    return new SshServiceError("The key passphrase is incorrect. Re-enter the passphrase for this private key.", {
+      code: "SSH_KEY_PASSPHRASE_INCORRECT", stage: "authenticating", retryable: true, technicalMessage: message,
+    });
+  }
+  return new SshServiceError("The private key file could not be parsed. Use an OpenSSH, PEM, or PuTTY (PPK) private key.", {
+    code: "SSH_PRIVATE_KEY_INVALID", stage: "authenticating", retryable: false, technicalMessage: message,
+  });
+}
+
+function mapConnectionError(error, stage = "connecting", profile = null) {
   const code = error?.level === "client-authentication" ? "SSH_AUTH_FAILED" : error?.code || null;
   const message = String(error?.message || "");
+  const account = profile?.username && profile?.host ? `${profile.username}@${profile.host}` : "this account";
+  const endpoint = profile?.host ? `${profile.host}:${normalizePort(profile.port) || 22}` : "The SSH host";
+  const authFailedMessage = profile?.authType === "privateKey"
+    ? `The server rejected this key for ${account}. Check the username and that the key's public half is in ~/.ssh/authorized_keys on the server.`
+    : profile?.authType === "password"
+      ? `The server rejected the password for ${account}. Check the username and password.`
+      : "Authentication failed. Check your username, password, or private key.";
+
+  if (/no passphrase given/i.test(message)) {
+    return new SshServiceError("This private key is encrypted. Enter the key's passphrase (not the SSH account password) to connect.", {
+      code: "SSH_KEY_PASSPHRASE_REQUIRED", stage: "authenticating", retryable: true, technicalMessage: message,
+    });
+  }
+  if (/cannot parse privatekey/i.test(message)) {
+    return new SshServiceError("The private key could not be used. Check the key file and its passphrase.", {
+      code: "SSH_PRIVATE_KEY_INVALID", stage: "authenticating", retryable: true, technicalMessage: message,
+    });
+  }
 
   if (
     code === "HOST_VERIFICATION_FAILED" ||
@@ -351,7 +396,7 @@ function mapConnectionError(error, stage = "connecting") {
     code === "SSH_AUTH_FAILED" ||
     /all configured authentication methods failed|authentication failed/i.test(message)
   ) {
-    return new SshServiceError("Authentication failed. Check your username, password, or private key.", {
+    return new SshServiceError(authFailedMessage, {
       code: "SSH_AUTHENTICATION_FAILED", stage: "authenticating", retryable: true, platformCode: code,
     });
   }
@@ -369,7 +414,7 @@ function mapConnectionError(error, stage = "connecting") {
   }
 
   if (code === "ETIMEDOUT" || /timed out/i.test(message)) {
-    return new SshServiceError("Connection timed out. The SSH host did not respond in time.", {
+    return new SshServiceError(`Connection timed out. ${endpoint} did not respond in time; check the address, port, firewall, and that the server is online.`, {
       code: stage === "authenticating" ? "SSH_AUTHENTICATION_TIMEOUT" : "SSH_CONNECTION_TIMEOUT", stage, platformCode: code,
     });
   }
@@ -778,7 +823,17 @@ class SshService extends EventEmitter {
         code: "SSH_HOST_KEY_NOT_APPROVED",
       });
     }
-    const connectConfig = this.buildConnectConfig(profile, {});
+    let connectConfig;
+    try {
+      connectConfig = this.buildConnectConfig(profile, {});
+    } catch (error) {
+      if (error?.code !== "SSH_KEY_PASSPHRASE_REQUIRED") throw error;
+      // Background work has nobody to type the passphrase, and AnxOS does not
+      // store key passphrases.
+      throw new SshServiceError("This node's SSH key is passphrase-protected, so it can't be used for background tasks such as Agent control. Assign a key without a passphrase to this node for those tasks; the SSH terminal can still use this key.", {
+        code: "SSH_KEY_PASSPHRASE_UNATTENDED", retryable: false, technicalMessage: error.technicalMessage,
+      });
+    }
     const hostKeyState = { mismatch: false };
     connectConfig.hostVerifier = (key) => {
       const matches = fingerprintHostKey(key) === expectedFingerprint;
@@ -822,8 +877,11 @@ class SshService extends EventEmitter {
       });
     }
 
-    if (typeof options.passphrase === "string" && options.passphrase) {
-      connectConfig.passphrase = options.passphrase;
+    const passphrase = typeof options.passphrase === "string" && options.passphrase ? options.passphrase : null;
+    const keyError = getPrivateKeyParseError(connectConfig.privateKey, passphrase);
+    if (keyError) throw keyError;
+    if (passphrase) {
+      connectConfig.passphrase = passphrase;
     }
 
     return connectConfig;
@@ -892,7 +950,7 @@ class SshService extends EventEmitter {
     this.sessions.set(sessionId, session);
     this.sessionIdsByProfileId.set(profile.id, sessionId);
     this.transition(session, SSH_STATES.CONNECTING, "Connecting to SSH host...");
-    this.setStageTimer(session, "connecting", this.connectTimeoutMs, "SSH_CONNECTION_TIMEOUT", "Connection timed out before the SSH handshake completed.");
+    this.setStageTimer(session, "connecting", this.connectTimeoutMs, "SSH_CONNECTION_TIMEOUT", `Connection timed out before the SSH handshake completed. ${profile.host}:${normalizePort(profile.port) || 22} did not answer; check the address, port, firewall, and that the server is online.`);
 
     const knownFingerprint = readKnownHosts()[knownHostId(profile)]?.fingerprint || null;
     connectConfig.hostVerifier = (key) => {
@@ -970,10 +1028,10 @@ class SshService extends EventEmitter {
           session.connectedAt = session.connectedAt || new Date().toISOString();
           session.shellReadyAt = new Date().toISOString();
           session.message = `Connected to ${session.label}. Shell ready.`;
+          // Send nothing on open: the login shell prints its banner and prompt
+          // itself, and an extra keystroke here produced a second prompt that
+          // could land before or inside the banner.
           this.transition(session, SSH_STATES.CONNECTED, session.message);
-          try {
-            if (stream.writable !== false) stream.write("\r");
-          } catch {}
         },
         );
     });
@@ -994,14 +1052,22 @@ class SshService extends EventEmitter {
         }));
         return;
       }
-      this.handleSessionFailure(sessionId, mapConnectionError(error, session.phase));
+      this.handleSessionFailure(sessionId, mapConnectionError(error, session.phase, profile));
     });
 
     client.on("close", () => {
       this.handleSessionClosed(sessionId, "SSH session disconnected.");
     });
 
-    client.connect(connectConfig);
+    try {
+      client.connect(connectConfig);
+    } catch (error) {
+      // A synchronous throw never reaches client "error"; fail the session now
+      // so its connect timer can't later report a misleading timeout.
+      const mapped = mapConnectionError(error, session.phase, profile);
+      this.handleSessionFailure(sessionId, mapped);
+      throw mapped;
+    }
 
     return createSessionSnapshot(session);
   }

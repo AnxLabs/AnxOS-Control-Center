@@ -478,6 +478,7 @@ const sshProfileSaveButton = document.querySelector("[data-ssh-profile-save]");
 const sshProfileCancelButton = document.querySelector("[data-ssh-profile-cancel]");
 const sshPasswordPrompt = document.querySelector("[data-ssh-password-prompt]");
 const sshPasswordInput = document.querySelector("[data-ssh-password]");
+const sshPasswordLabel = document.querySelector("[data-ssh-password-label]");
 const sshPasswordSubmitButton = document.querySelector("[data-ssh-password-submit]");
 const sshPasswordCancelButton = document.querySelector("[data-ssh-password-cancel]");
 const sshPasswordMessage = document.querySelector("[data-ssh-password-message]");
@@ -1125,6 +1126,7 @@ let sshSelectedServerId = null;
 let sshSelectedProfileId = null;
 let sshPasswordPromptVisible = false;
 let sshPendingPasswordProfileId = null;
+let sshCredentialPromptKind = "password";
 let sshTransientStatusMessage = "";
 let sshConnectWatchdogTimer = null;
 let sshConnectStartedAt = 0;
@@ -32721,19 +32723,36 @@ function getActiveSshProfile() {
   return sshProfilesState.profiles.find((profile) => profile.id === sshSelectedProfileId) || null;
 }
 
-function setSshPasswordPromptState(visible, message = "") {
+// The prompt asks for either the SSH account password or a private key's
+// passphrase; the two are never interchangeable, so the field says which.
+function setSshPasswordPromptState(visible, message = "", kind = "password") {
   sshPasswordPromptVisible = visible;
+  if (visible) sshCredentialPromptKind = kind === "passphrase" ? "passphrase" : "password";
+  const passphrase = sshCredentialPromptKind === "passphrase";
 
   if (sshPasswordPrompt) {
     sshPasswordPrompt.hidden = !visible;
+    sshPasswordPrompt.dataset.sshCredentialKind = sshCredentialPromptKind;
+  }
+
+  if (sshPasswordLabel) {
+    sshPasswordLabel.textContent = passphrase ? "Key passphrase" : "Password";
+  }
+
+  if (sshPasswordInput) {
+    sshPasswordInput.placeholder = passphrase ? "Enter private key passphrase" : "Enter SSH password";
+    sshPasswordInput.autocomplete = passphrase ? "off" : "current-password";
   }
 
   if (sshPasswordMessage) {
-    sshPasswordMessage.textContent = message || "Password is used for this session only and is not saved.";
+    sshPasswordMessage.textContent = message || (passphrase
+      ? "The passphrase unlocks the key for this session only and is not saved."
+      : "Password is used for this session only and is not saved.");
   }
 
   if (!visible) {
     sshPendingPasswordProfileId = null;
+    sshCredentialPromptKind = "password";
 
     if (sshPasswordInput) {
       sshPasswordInput.value = "";
@@ -33234,7 +33253,9 @@ function syncSshXtermSession(session) {
   bindSshXtermInput(terminal);
 
   if (sshXtermSessionId !== (session?.id || null)) {
-    terminal.clear();
+    // reset(), not clear(): clear() keeps the cursor line, so the previous
+    // session's prompt survived and the next session's banner followed it.
+    terminal.reset();
     sshXtermSessionId = session?.id || null;
     const text = getSshTerminalBuffer(session)?.toText() || "";
     if (text) {
@@ -33450,7 +33471,10 @@ function appendSshOutput(sessionId, chunk) {
   getSshTerminalBuffer(session)?.write(chunk);
 
   if (sessionId === activeSshSessionId) {
-    if (ensureSshXterm()) {
+    // If the terminal still shows another session, renderSshOutput replays this
+    // session's buffer (which already holds the chunk); writing the chunk too
+    // would show it twice.
+    if (ensureSshXterm() && sshXtermSessionId === sessionId) {
       sshXterm.write(String(chunk || ""));
     }
     renderSshOutput(session);
@@ -33999,6 +34023,15 @@ async function handleUnknownSshHostKey({ profileId, fingerprint }) {
   }
   try {
     await getDesktopApiState().api.ssh.approveHostKey({ profileId, fingerprint });
+    const approvedProfile = sshProfilesState.profiles.find((profile) => profile.id === profileId);
+    if (approvedProfile?.authType === "privateKey") {
+      // Key profiles need no typed secret unless the key is encrypted, and the
+      // reconnect asks for its passphrase in that case.
+      sshTransientStatusMessage = "Host identity approved. Reconnecting...";
+      renderSshView();
+      if (sshSelectedProfileId === profileId) await connectSshSession();
+      return;
+    }
     sshPendingPasswordProfileId = profileId;
     setSshPasswordPromptState(true, "Host identity approved. Enter the password again to connect.");
     sshTransientStatusMessage = "Host identity approved. Reconnect to continue.";
@@ -34131,6 +34164,15 @@ function ensureSshEventSubscription() {
   });
 }
 
+// ssh:connect rejects with "Error invoking remote method ...: CODE: message";
+// keep the code for routing and show only the readable message.
+function describeSshConnectError(error) {
+  const raw = normalizeIpcErrorMessage(error, "SSH connection failed.");
+  const code = getFriendlyErrorCode(error, raw).toUpperCase();
+  const message = raw.replace(/^[A-Z][A-Z0-9_]{2,}:\s*/, "").trim() || "SSH connection failed.";
+  return { code, message };
+}
+
 async function connectSshSession(options = {}) {
   const desktopApiState = getDesktopApiState();
   const profile = getActiveSshProfile();
@@ -34152,7 +34194,8 @@ async function connectSshSession(options = {}) {
     return;
   }
 
-  const password = typeof options.password === "string" ? options.password : "";
+  const password = profile.authType === "password" && typeof options.password === "string" ? options.password : "";
+  const passphrase = profile.authType === "privateKey" && typeof options.passphrase === "string" ? options.passphrase : "";
 
   if (profile.authType === "password") {
     if (!password) {
@@ -34162,6 +34205,14 @@ async function connectSshSession(options = {}) {
       focusSshPasswordPrompt();
       return;
     }
+  }
+
+  if (profile.authType === "privateKey" && sshPasswordPromptVisible && sshCredentialPromptKind === "passphrase" && !passphrase) {
+    setSshPasswordPromptState(true, "Enter the key passphrase before connecting.", "passphrase");
+    sshTransientStatusMessage = "Key passphrase required before connecting.";
+    renderSshView();
+    focusSshPasswordPrompt();
+    return;
   }
 
   sshConnectRequestInFlight = true;
@@ -34174,7 +34225,8 @@ async function connectSshSession(options = {}) {
     const session = await desktopApiState.api.ssh.connect({
       nodeId: getSelectedNodeId(),
       profileId: profile.id,
-      password,
+      ...(profile.authType === "password" ? { password } : {}),
+      ...(passphrase ? { passphrase } : {}),
       ...measureSshTerminalSize(),
     });
 
@@ -34186,9 +34238,18 @@ async function connectSshSession(options = {}) {
     renderSshView();
     window.requestAnimationFrame(focusSshTerminalInput);
   } catch (error) {
-    setSshPasswordPromptState(true, error?.message || "SSH connection failed.");
-    sshTransientStatusMessage = error?.message || "SSH connection failed.";
-    showToast(error?.message || "SSH connection failed.");
+    const { code, message } = describeSshConnectError(error);
+    if (code === "SSH_KEY_PASSPHRASE_REQUIRED" || code === "SSH_KEY_PASSPHRASE_INCORRECT") {
+      setSshPasswordPromptState(true, message, "passphrase");
+      focusSshPasswordPrompt();
+    } else if (profile.authType === "password") {
+      setSshPasswordPromptState(true, message);
+    } else {
+      // A key profile has no password to re-enter; only show the error.
+      setSshPasswordPromptState(false);
+    }
+    sshTransientStatusMessage = message;
+    showToast(message);
     renderSshView();
   } finally {
     sshConnectRequestInFlight = false;
@@ -45679,7 +45740,11 @@ sshProfileSaveButton?.addEventListener("click", () => {
   sshProfileForm?.requestSubmit();
 });
 sshProfileForm?.addEventListener("submit", saveSshProfile);
-sshPasswordSubmitButton?.addEventListener("click", () => connectSshSession({ password: sshPasswordInput?.value || "" }));
+function submitSshCredentialPrompt() {
+  const value = sshPasswordInput?.value || "";
+  return connectSshSession(sshCredentialPromptKind === "passphrase" ? { passphrase: value } : { password: value });
+}
+sshPasswordSubmitButton?.addEventListener("click", () => submitSshCredentialPrompt());
 sshPasswordCancelButton?.addEventListener("click", () => {
   setSshPasswordPromptState(false);
   sshTransientStatusMessage = "SSH connection canceled.";
@@ -45688,7 +45753,7 @@ sshPasswordCancelButton?.addEventListener("click", () => {
 sshPasswordInput?.addEventListener("keydown", (event) => {
   if (event.key === "Enter") {
     event.preventDefault();
-    connectSshSession({ password: sshPasswordInput.value || "" });
+    submitSshCredentialPrompt();
   }
 });
 sshTerminalWindow?.addEventListener("click", () => {
