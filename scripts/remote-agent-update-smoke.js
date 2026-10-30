@@ -278,9 +278,19 @@ const keyProfile = { id: "key-profile", displayName: "Key Profile", nodeId: "nod
 const payload = enumerateRuntimePayload(payloadRoot);
 const updateDir = path.join(smokeRoot, "agent-updates");
 
+// The update first confirms which machine the SSH profile reaches (hostname +
+// local Agent device ID). Fixtures answer that probe as the expected node
+// unless a test supplies its own target.
+const targetProbeStdout = (hostname, deviceId) => `--- user ---\nloaded\n--- system ---\nnot-found\n--- hostname ---\n${hostname}\n--- agents ---\n${deviceId ? `"deviceId":"${deviceId}"` : ""}\n`;
+function answerTargetProbe(runner, target = { hostname: "anxlab", deviceId: "device-key" }) {
+  return async (profileId, command, options) => (command.includes("--- hostname ---")
+    ? { code: 0, stdout: targetProbeStdout(target.hostname, target.deviceId), stderr: "" }
+    : runner(profileId, command, options));
+}
+
 function baseOptions(overrides = {}) {
-  return {
-    resolveNode: async () => ({ id: "node-key", displayName: "Anxlab", platform: "linux" }),
+  const options = {
+    resolveNode: async () => ({ id: "node-key", displayName: "Anxlab", platform: "linux", hostname: "Anxlab", agentIdentity: { deviceId: "device-key" } }),
     sshService: { getProfileForNode: () => keyProfile, runCommand: async () => ({ code: 0, stdout: "", stderr: "" }) },
     payloadReader: () => ({ runtime: { packaged: false }, payload }),
     bundledVersion: "9.9.9",
@@ -290,6 +300,8 @@ function baseOptions(overrides = {}) {
     verifyDelayMs: 0,
     ...overrides,
   };
+  if (options.runner && !options.rawRunner) options.runner = answerTargetProbe(options.runner, options.target);
+  return options;
 }
 
 const discoveryStdout = "--- exec ---\n{ path=/usr/bin/node ; argv[]=/usr/bin/node /srv/anxos/app/agent/src/server.js ; ignore_errors=no }\n--- ps ---\n/usr/bin/node /srv/anxos/app/agent/src/server.js\n--- node ---\n/usr/bin/node\n";
@@ -639,6 +651,24 @@ async function assertPackageManagedRefusal(label, discoveryOutput, expectedSyste
   assert.strictEqual(calls.length, 3, `expected discovery + stage + swap, saw ${calls.length}`);
   assert(!calls.some((call) => /\/usr\/lib\/anxos-agent/.test(call.command)), "the system unit path must never be pushed to");
   console.log("Phase 5f passed: package-managed nodes refused before stage/swap/backup; user units still win.");
+}
+
+{
+  // Phase 5g: a profile assigned to this node but reaching another machine
+  // (the reported Anxlab/VPS mix-up) is refused before discovery or upload.
+  for (const [target, code] of [
+    [{ hostname: "vps-7360e3ad", deviceId: "device-other" }, "REMOTE_AGENT_SSH_TARGET_MISMATCH"],
+    [{ hostname: "vps-7360e3ad", deviceId: null }, "REMOTE_AGENT_SSH_TARGET_MISMATCH"],
+  ]) {
+    const calls = [];
+    const runner = async (profileId, command) => { calls.push(command); return { code: 0, stdout: discoveryStdout, stderr: "" }; };
+    let probes = 0;
+    const healthProbe = async () => { probes += 1; return { connected: true, agentVersion: "0.1.0" }; };
+    await assert.rejects(updateRemoteAgent("node-key", baseOptions({ runner, healthProbe, target })), (error) => error.code === code && /Assign the right SSH profile/.test(error.message));
+    assert.deepStrictEqual(calls, [], "nothing past the identity probe runs on the wrong machine");
+    assert.strictEqual(probes, 0, "the identity check runs before the health and discovery steps");
+  }
+  console.log("Phase 5g passed: an SSH profile that reaches another machine is refused before anything runs.");
 }
 
 assert.strictEqual(typeof getRemoteUpdateDirectory(), "string");

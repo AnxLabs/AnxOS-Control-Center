@@ -28,15 +28,65 @@ function fail(code, message, details = {}) {
   return Object.assign(new Error(message), { code, details });
 }
 
+const DEFAULT_AGENT_PORTS = [47131, 47132];
+
+function getAgentProbePorts(node = {}) {
+  const ports = new Set(DEFAULT_AGENT_PORTS);
+  try {
+    const port = Number(new URL(node.agentUrl || node.baseUrl || "").port);
+    if (Number.isInteger(port) && port > 0 && port < 65536) ports.add(port);
+  } catch {}
+  return [...ports];
+}
+
 // LoadState is "loaded" only for a unit that exists; probing both scopes in
 // one round trip tells a desktop-installed user unit from the packaged one.
-function buildScopeProbeCommand(unitName = LINUX_AGENT_UNIT_NAME) {
+// The same round trip reports which machine the SSH profile actually reached:
+// its hostname and the device ID of any Agent answering locally.
+function buildScopeProbeCommand(unitName = LINUX_AGENT_UNIT_NAME, ports = DEFAULT_AGENT_PORTS) {
+  const portList = ports.filter((port) => Number.isInteger(port) && port > 0 && port < 65536).join(" ");
   return [
     'echo "--- user ---"',
     `systemctl --user show ${unitName} -p LoadState --value 2>/dev/null || true`,
     'echo "--- system ---"',
     `systemctl show ${unitName} -p LoadState --value 2>/dev/null || true`,
+    'echo "--- hostname ---"',
+    "hostname 2>/dev/null || cat /etc/hostname 2>/dev/null || true",
+    'echo "--- agents ---"',
+    `for p in ${portList}; do (curl -s -m 3 "http://127.0.0.1:$p/api/v1/health" 2>/dev/null || wget -qO- -T 3 "http://127.0.0.1:$p/api/v1/health" 2>/dev/null) | grep -o '"deviceId":"[^"]*"' || true; done`,
   ].join("\n");
+}
+
+function parseProbeTarget(output = "") {
+  const text = String(output || "");
+  // [^\S\n]* (not \s*): an empty hostname line must not swallow the next header.
+  const hostname = String(text.match(/--- hostname ---[^\S\n]*\r?\n([^\n]*)/)?.[1] || "").replace(/^--- .* ---$/, "").trim();
+  const agentsSection = text.split("--- agents ---")[1] || "";
+  const deviceIds = [...agentsSection.matchAll(/"deviceId":"([^"]+)"/g)].map((match) => match[1]);
+  return { hostname, deviceIds: [...new Set(deviceIds)] };
+}
+
+const shortHostname = (value) => String(value || "").trim().toLowerCase().split(".")[0];
+
+// An SSH profile can be assigned to the wrong node (the SSH page assigns
+// profiles to whichever node is selected), so never act on the strength of the
+// assignment alone: the machine reached must be this node. A local Agent's
+// device ID decides when one answers; otherwise (e.g. Start, Agent stopped)
+// the hostname must match.
+function verifySshTarget(node, profile, target) {
+  const expectedDeviceId = node.agentIdentity?.deviceId || node.deviceId || "";
+  const expectedHostname = node.hostname || node.agentIdentity?.hostname || "";
+  const reached = `${profile.username || "user"}@${profile.host || "host"}`;
+  const nodeName = node.displayName || node.name || node.id;
+  if (target.deviceIds.length && expectedDeviceId) {
+    if (target.deviceIds.includes(expectedDeviceId)) return;
+    throw fail("REMOTE_AGENT_SSH_TARGET_MISMATCH", `The SSH profile "${profile.displayName || profile.id}" (${reached}) reaches ${target.hostname || "another machine"}, whose Agent is not ${nodeName}. Assign the right SSH profile to this node on the SSH page.`, { nodeId: node.id, profileId: profile.id, reachedHostname: target.hostname || null });
+  }
+  if (expectedHostname && target.hostname) {
+    if (shortHostname(expectedHostname) === shortHostname(target.hostname)) return;
+    throw fail("REMOTE_AGENT_SSH_TARGET_MISMATCH", `The SSH profile "${profile.displayName || profile.id}" (${reached}) reaches ${target.hostname}, not ${nodeName} (${expectedHostname}). Assign the right SSH profile to this node on the SSH page.`, { nodeId: node.id, profileId: profile.id, reachedHostname: target.hostname });
+  }
+  throw fail("REMOTE_AGENT_SSH_TARGET_UNVERIFIED", `AnxOS could not confirm that the SSH profile "${profile.displayName || profile.id}" (${reached}) reaches ${nodeName}, so nothing was run.`, { nodeId: node.id, profileId: profile.id });
 }
 
 function parseScopeProbe(output = "") {
@@ -113,7 +163,8 @@ function createRemoteAgentLifecycleService(deps = {}) {
   }
 
   async function controlOverSsh(node, profile, action) {
-    const probe = await run(profile.id, buildScopeProbeCommand(), { timeoutMs: DEFAULT_COMMAND_TIMEOUT_MS });
+    const probe = await run(profile.id, buildScopeProbeCommand(LINUX_AGENT_UNIT_NAME, getAgentProbePorts(node)), { timeoutMs: DEFAULT_COMMAND_TIMEOUT_MS });
+    verifySshTarget(node, profile, parseProbeTarget(probe?.stdout));
     const scope = parseScopeProbe(probe?.stdout);
     if (!scope) {
       throw fail("REMOTE_AGENT_UNIT_NOT_FOUND", "No anxos-agent systemd unit was found on the node.", { nodeId: node.id });
@@ -189,5 +240,7 @@ function getRemoteAgentLifecycleService() {
 module.exports = {
   createRemoteAgentLifecycleService,
   getRemoteAgentLifecycleService,
-  _test: { buildActionCommand, buildScopeProbeCommand, isSudoPasswordFailure, parseScopeProbe, readNodeHealthSnapshot },
+  verifySshTarget,
+  parseProbeTarget,
+  _test: { buildActionCommand, buildScopeProbeCommand, getAgentProbePorts, isSudoPasswordFailure, parseProbeTarget, parseScopeProbe, readNodeHealthSnapshot, verifySshTarget },
 };
