@@ -50,6 +50,10 @@ const SERVICE_CAPABILITY_IDS = Object.freeze([
   "players",
   "resources",
   "serverMetadata",
+  // AIM-2 functional correctness probes (functionalProbeAdapters). Declared
+  // here so the vocabulary stays closed; no managed-service family offers it,
+  // so deriveServiceCapabilities() output is unchanged for every instance.
+  "functionalProbes",
 ]);
 
 // The only states a capability claim can have:
@@ -131,6 +135,7 @@ const CAPABILITY_LABELS = Object.freeze({
   players: "Player list",
   resources: "Resource inventory",
   serverMetadata: "Server metadata",
+  functionalProbes: "Functional checks",
 });
 
 function isPlainObject(value) {

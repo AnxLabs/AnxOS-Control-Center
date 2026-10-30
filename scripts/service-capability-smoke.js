@@ -38,6 +38,7 @@ const EXPECTED_LABELS = Object.freeze({
   players: "Player list",
   resources: "Resource inventory",
   serverMetadata: "Server metadata",
+  functionalProbes: "Functional checks",
 });
 
 const NODE_GATE_REASONS = Object.freeze({
@@ -153,6 +154,7 @@ function testVocabulary() {
       "players",
       "resources",
       "serverMetadata",
+      "functionalProbes",
     ],
     "SERVICE_CAPABILITY_IDS must stay the documented vocabulary.",
   );

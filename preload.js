@@ -204,6 +204,8 @@ const desktopApi = {
   infrastructureInventory: {
     get: () => ipcRenderer.invoke("infrastructureInventory:get"),
     refresh: (payload = {}) => ipcRenderer.invoke("infrastructureInventory:refresh", payload),
+    functional: () => ipcRenderer.invoke("infrastructureInventory:functional"),
+    checkFunction: (resourceKey) => ipcRenderer.invoke("infrastructureInventory:checkFunction", { resourceKey }),
   },
   publicAccess: {
     getSnapshot: (payload = {}) => ipcRenderer.invoke("publicAccess:getSnapshot", payload),

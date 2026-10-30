@@ -153,19 +153,21 @@ async function main() {
       assert.ok(svc, `systemd service row rendered (rows: ${state.rows.length})`);
       return { state, svc };
     }, 40000);
-    const [kind, name, node, health, ownership, identity, protection] = discovered.svc.cells;
+    // AIM-2 added the Function column after Health; a systemd service has no functional check.
+    const [kind, name, node, health, functional, ownership, identity, protection] = discovered.svc.cells;
     assert.strictEqual(kind, "systemd service");
     assert.match(name, new RegExp(`unit ${agent.unit.replace(/\./g, "\\.")}`));
     assert.strictEqual(node, "OVH");
     assert.strictEqual(health, "healthy");
+    assert.strictEqual(functional, "—", "no functional check is defined for a systemd service");
     assert.strictEqual(ownership, "systemd (not owned by the Agent)");
     assert.strictEqual(identity, "Verified");
     assert.strictEqual(protection, "Production");
     assert.ok(!/not allowlisted/.test(name), "no allow-list judgment on a host that does not support service-managed instances");
     assert.match(discovered.state.overview, /systemd services\s*1/i);
     assert.match(discovered.state.message, /read-only, no service was changed/);
-    assert.ok(discovered.state.rows.some((row) => row.cells[0] === "Host" && row.cells[5] === "Verified"), "host row verified");
-    assert.ok(discovered.state.rows.every((row) => row.cells[6] === "Production"), "every row protected as production");
+    assert.ok(discovered.state.rows.some((row) => row.cells[0] === "Host" && row.cells[6] === "Verified"), "host row verified");
+    assert.ok(discovered.state.rows.every((row) => row.cells[7] === "Production"), "every row protected as production");
     await page.locator("[data-infra-inventory-panel]").screenshot({ path: path.join(artifactDir, "inventory-discovered.png") });
 
     // U3: filters.
@@ -197,7 +199,7 @@ async function main() {
       const state = await panelState(page);
       assert.strictEqual(state.status, "Partially stale");
       assert.strictEqual(state.rows.length, rowCount, "rows kept");
-      assert.ok(state.rows.every((row) => / stale$/.test(row.cells[7])), "every row marked stale");
+      assert.ok(state.rows.every((row) => / stale$/.test(row.cells[8])), "every row marked stale");
       assert.match(state.nodes, /Unavailable/);
       assert.match(state.nodes, /NODE_UNREACHABLE/);
       return state;

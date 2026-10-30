@@ -393,6 +393,7 @@ const DESKTOP_PROBES = {
   "nodes-write": { channel: "nodes:save", payload: { nodeId: "matrix-node", displayName: "Matrix Node" } },
   "network-inventory": { channel: "networkInventory:get", payload: { nodeId: "matrix-node-a" } },
   "infrastructure-inventory": { channel: "infrastructureInventory:refresh", payload: {} },
+  "infrastructure-functional-check": { channel: "infrastructureInventory:checkFunction", payload: { resourceKey: "matrix-resource" } },
   "alerts-read": { channel: "alerts:list", payload: {} },
   "alerts-write": { channel: "alerts:acknowledge", payload: { id: "alert:NODE_OFFLINE:matrix-node-a" } },
   "settings-read": { channel: "settings:getPreferences" },

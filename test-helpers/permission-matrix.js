@@ -503,7 +503,16 @@ const IPC_FAMILIES = [
     tier: "nodes:read",
     guard: "local-owner+permission",
     allow: ["owner-unlocked", "operator-unlocked", "viewer-unlocked"],
-    channels: ["infrastructureInventory:get", "infrastructureInventory:refresh"],
+    channels: ["infrastructureInventory:get", "infrastructureInventory:refresh", "infrastructureInventory:functional"],
+  },
+  {
+    // AIM-2 on-demand functional check: sends requests to a service once the
+    // Owner approves its scope, so it is Owner-only and audited.
+    id: "infrastructure-functional-check",
+    tier: "settings:write",
+    guard: "local-owner+permission",
+    allow: ["owner-unlocked"],
+    channels: ["infrastructureInventory:checkFunction"],
   },
   {
     // V2-I workload trust vocabulary (src/shared/workloadTrustPolicy.js).

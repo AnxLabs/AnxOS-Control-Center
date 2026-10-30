@@ -935,6 +935,9 @@ let networkInventoryState = { nodeId: null, status: "idle", data: null, error: n
 let networkInventoryRequestInFlight = false;
 let infraInventoryState = { status: "idle", data: null, error: null };
 let infraInventoryRequestInFlight = false;
+// AIM-2: Health vs Functional per recognized service, keyed by resource key.
+let infraFunctionalByKey = new Map();
+const infraFunctionalChecksInFlight = new Set();
 let networkState = { endpoints: [], summary: null, providers: null, providerSyncs: null, diagnostics: null, selectedEndpointId: null, loading: false, requestId: 0, lastError: null, degraded: false };
 let networkDiagnosticsInFlight = false;
 let networkDiagnosticsSerial = 0;
@@ -39448,6 +39451,69 @@ function renderInfraInventoryNodes(data) {
   infraInventoryNodes.append(list);
 }
 
+// AIM-2 Function column. Only a checked, passing service is green; anything
+// not evaluated is neutral and says why (never green, never alarming).
+const INFRA_FUNCTIONAL_REASON_LABELS = {
+  LIVE_RUNS_DEFERRED: "Live checks are deferred until the Owner approves this service's scope (AIM-0).",
+  OPT_IN_REQUIRED: "This check needs a per-scope opt-in from the Owner.",
+  NO_BASELINE: "No baseline is recorded for this service yet.",
+  NOT_APPLICABLE: "No functional check applies here yet.",
+  NO_RESPONSE: "Not checked yet.",
+};
+
+function describeFunctionalPill(service) {
+  const functional = service?.functional || null;
+  const outcome = functional?.outcome;
+  if (outcome === "pass" && service?.combined?.renderGreen === true) return { label: "Works", tone: "ok", title: "Functional check passed." };
+  if (outcome === "pass") return { label: "Works", tone: "warning", title: "The functional check passed, but the service itself is not reported healthy." };
+  if (outcome === "degraded") return { label: `Degraded: ${functional.code}`, tone: "warning", title: functional.formatted || "" };
+  if (outcome === "fail") return { label: `Failing: ${functional.code}`, tone: "critical", title: functional.formatted || "" };
+  const reason = functional?.reason || "NO_RESPONSE";
+  return { label: "Not checked", tone: "planned", title: functional?.detail || INFRA_FUNCTIONAL_REASON_LABELS[reason] || reason };
+}
+
+// Sona's stack (from the inventory): "stack 6/6 healthy" or the first problem.
+function describeStackSummary(dependencies) {
+  if (!Array.isArray(dependencies) || !dependencies.length) return null;
+  const healthy = dependencies.filter((dependency) => dependency.present && dependency.liveness === "healthy").length;
+  const problem = dependencies.find((dependency) => !dependency.present || dependency.liveness !== "healthy");
+  const text = problem
+    ? `stack: ${problem.label} ${problem.present ? problem.liveness : "missing"}`
+    : `stack ${healthy}/${dependencies.length} healthy`;
+  const title = dependencies.map((dependency) => `${dependency.label}: ${dependency.present ? dependency.liveness : "not found"}`).join(" · ");
+  return { text, title };
+}
+
+async function loadInfraFunctionalStates() {
+  const api = getInfraInventoryApi();
+  if (typeof api?.functional !== "function") return;
+  try {
+    const result = await api.functional();
+    infraFunctionalByKey = new Map((result?.services || []).map((service) => [service.key, service]));
+  } catch {
+    // Unknown stays unknown: the column shows "Not checked" rather than a guess.
+    infraFunctionalByKey = new Map();
+  }
+}
+
+async function checkInfraFunction(resourceKey) {
+  const api = getInfraInventoryApi();
+  if (typeof api?.checkFunction !== "function" || infraFunctionalChecksInFlight.has(resourceKey)) return;
+  infraFunctionalChecksInFlight.add(resourceKey);
+  renderInfrastructureInventory();
+  try {
+    const service = await api.checkFunction(resourceKey);
+    if (service?.key) infraFunctionalByKey.set(service.key, service);
+    const pill = describeFunctionalPill(service);
+    showToast(pill.label === "Not checked" ? `Not checked: ${pill.title}` : `${service?.label || "Service"}: ${pill.label}`, pill.tone === "critical" ? "error" : "info");
+  } catch (error) {
+    showToast(normalizeIpcErrorMessage(error, "Functional check failed."), "error");
+  } finally {
+    infraFunctionalChecksInFlight.delete(resourceKey);
+    renderInfrastructureInventory();
+  }
+}
+
 function renderInfraInventoryTable(data) {
   if (!infraInventoryBody) return;
   infraInventoryBody.replaceChildren();
@@ -39468,7 +39534,7 @@ function renderInfraInventoryTable(data) {
   table.className = "security-table";
   const head = document.createElement("thead");
   const headRow = document.createElement("tr");
-  ["Kind", "Name", "Node", "Health", "Ownership", "Identity", "Protection", "Last seen"].forEach((label) => {
+  ["Kind", "Name", "Node", "Health", "Function", "Ownership", "Identity", "Protection", "Last seen"].forEach((label) => {
     headRow.append(createTextElement("th", label));
   });
   head.append(headRow);
@@ -39491,6 +39557,29 @@ function renderInfraInventoryTable(data) {
     const health = resource.health?.state || "unknown";
     const healthCell = cell(createInfraPill(health, INFRA_INVENTORY_HEALTH_TONES[health] || "planned"));
     if (resource.health?.detail) healthCell.title = String(resource.health.detail);
+    const functionalService = infraFunctionalByKey.get(resource.key);
+    if (functionalService) {
+      const pill = describeFunctionalPill(functionalService);
+      const functionCell = cell(createInfraPill(pill.label, pill.tone));
+      functionCell.title = pill.title;
+      const checkButton = document.createElement("button");
+      checkButton.type = "button";
+      checkButton.className = "inline-action";
+      checkButton.dataset.infraFunctionCheck = resource.key;
+      checkButton.textContent = infraFunctionalChecksInFlight.has(resource.key) ? "Checking..." : "Check";
+      checkButton.disabled = infraFunctionalChecksInFlight.has(resource.key);
+      checkButton.title = `Run the ${functionalService.label} functional check now (on demand).`;
+      checkButton.addEventListener("click", () => checkInfraFunction(resource.key));
+      functionCell.append(" ", checkButton);
+      const stack = describeStackSummary(functionalService.dependencies);
+      if (stack) {
+        const stackNote = createTextElement("div", stack.text, "settings-note");
+        stackNote.title = stack.title;
+        functionCell.append(stackNote);
+      }
+    } else {
+      cell("—").title = "No functional check is defined for this resource.";
+    }
     cell(resource.ownership?.owner === "systemd" ? "systemd (not owned by the Agent)" : (resource.ownership?.detail || resource.ownership?.owner || "unknown"));
     const identityCell = cell(createInfraPill(resource.identity?.verified ? "Verified" : "Unverified", resource.identity?.verified ? "ok" : "warning"));
     if (!resource.identity?.verified && resource.identity?.reason) identityCell.title = resource.identity.reason;
@@ -39521,6 +39610,8 @@ function renderInfraInventoryOverview(data) {
     ["Stale", summary.stale ?? 0],
     ["Unverified identity", summary.unverified ?? 0],
     ["Production-protected", summary.production ?? 0],
+    ["Functional checks failing", [...infraFunctionalByKey.values()].filter((service) => service.functional?.outcome === "fail").length],
+    ["Services not checked", [...infraFunctionalByKey.values()].filter((service) => service.functional?.outcome === "not-evaluated").length],
     ["Nodes unavailable", summary.nodesUnavailable ?? 0],
   ].forEach(([label, value]) => appendDetailPair(infraInventoryOverview, label, String(value)));
 }
@@ -39596,6 +39687,7 @@ async function loadInfrastructureInventory(options = {}) {
   try {
     const result = refresh ? await api.refresh({ force: options.force === true }) : await api.get();
     infraInventoryState = { status: "ready", data: result || null, error: null };
+    await loadInfraFunctionalStates();
     if (refresh && result?.throttled) showToast("Inventory was refreshed moments ago; showing that result.", "info");
   } catch (error) {
     const message = normalizeIpcErrorMessage(error, "Infrastructure inventory request failed.");
