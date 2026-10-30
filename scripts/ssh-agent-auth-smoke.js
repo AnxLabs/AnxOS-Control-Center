@@ -165,6 +165,26 @@ async function main() {
     assert.ok(!stored.includes("PRIVATE KEY") && !stored.includes(PASSPHRASE), "no key material or passphrase is written");
     assert.strictEqual(store.setProfileSshAgent("key-profile", false).profile.useSshAgent, false);
     pass("S7 the profile stores only an opt-in flag; password profiles can't use the agent");
+
+    // S9: the real Windows OpenSSH agent pipe refuses stat with EBUSY while it
+    // is running (found in RC acceptance: fs.existsSync said "not running").
+    // Only ENOENT means missing; a busy pipe is used and the login works.
+    const { _test: sshTest } = require("../src/services/sshService");
+    const busy = () => { throw Object.assign(new Error("EBUSY: resource busy or locked"), { code: "EBUSY" }); };
+    const missing = () => { throw Object.assign(new Error("ENOENT: no such file or directory"), { code: "ENOENT" }); };
+    assert.strictEqual(sshTest.sshAgentPathExists("\\\\.\\pipe\\openssh-ssh-agent", busy), true);
+    assert.strictEqual(sshTest.sshAgentPathExists("\\\\.\\pipe\\openssh-ssh-agent", missing), false);
+    const realStat = fs.statSync;
+    fs.statSync = (target, ...rest) => (target === loaded.agentPath ? busy() : realStat(target, ...rest));
+    let busyRun;
+    try {
+      busyRun = serviceFor(loaded.agentPath).runCommand("agent-profile", "echo agent-ok", { timeoutMs: 10000 });
+    } finally {
+      fs.statSync = realStat;
+    }
+    const busyResult = await busyRun;
+    assert.strictEqual(busyResult.stdout.trim(), "agent-ok", "a busy agent pipe still signs in");
+    pass("S9 a running agent whose pipe refuses stat (EBUSY) is used; only ENOENT means not running");
   } finally {
     for (const handle of [loaded, empty]) await new Promise((resolve) => handle.server.close(resolve));
     await new Promise((resolve) => server.close(resolve));

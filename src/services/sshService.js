@@ -30,6 +30,19 @@ function getSystemSshAgentPath() {
   return trimValue(process.env.SSH_AUTH_SOCK) || null;
 }
 
+// Only "no such path" means the agent isn't running. The Windows OpenSSH
+// agent's pipe refuses stat with EBUSY while it is up (fs.existsSync then
+// reports false), so any other stat error still counts as present and the
+// connection itself reports a real failure.
+function sshAgentPathExists(agentPath, statSync = fs.statSync) {
+  try {
+    statSync(agentPath);
+    return true;
+  } catch (error) {
+    return error?.code !== "ENOENT";
+  }
+}
+
 // Offers ssh2 only the profile's own key from the agent, so a background task
 // can't authenticate with some other key that happens to be loaded. Records
 // what it saw so a failure can say whether the key was missing.
@@ -936,7 +949,7 @@ class SshService extends EventEmitter {
     }
     if (Array.isArray(publicKey)) publicKey = publicKey[0];
     const agentPath = this.sshAgentPath || getSystemSshAgentPath();
-    if (!agentPath || !fs.existsSync(agentPath)) {
+    if (!agentPath || !sshAgentPathExists(agentPath)) {
       throw new SshServiceError(
         process.platform === "win32"
           ? "The OpenSSH Authentication Agent isn't running. Set the ssh-agent service to Automatic and start it, then load this key with ssh-add."
@@ -1515,6 +1528,7 @@ module.exports = {
   SshServiceError,
   _test: {
     buildProfileNodeMismatchDetails,
+    sshAgentPathExists,
     SSH_STATES,
     SSH_TIMEOUTS,
     VALID_TRANSITIONS,
