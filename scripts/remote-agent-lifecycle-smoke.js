@@ -17,11 +17,13 @@ process.env.ANXHUB_CONFIG_DIR = tempDir;
 const { createRemoteAgentLifecycleService, _test } = require("../src/services/remoteAgentLifecycleService");
 const { AGENT_SELF_RESTART_EXIT_CODE, getSelfRestartCapability, handleAgentRestart } = require("../agent/src/routes/agentLifecycle");
 
-const NODE = { id: "node-a", kind: "agent", displayName: "Node A" };
-const KEY_PROFILE = { id: "key-a", authType: "privateKey", username: "debian" };
-const probeOutput = (user, system) => `--- user ---\n${user}\n--- system ---\n${system}\n`;
+const NODE = { id: "node-a", kind: "agent", displayName: "Node A", hostname: "node-a", agentIdentity: { deviceId: "device-a" } };
+const KEY_PROFILE = { id: "key-a", displayName: "Key A", authType: "privateKey", username: "debian", host: "node-a.example" };
+// The probe also reports which machine was reached: hostname + local Agent device IDs.
+const probeOutput = (user, system, target = { hostname: "node-a", deviceId: "device-a" }) =>
+  `--- user ---\n${user}\n--- system ---\n${system}\n--- hostname ---\n${target.hostname}\n--- agents ---\n${target.deviceId ? `"deviceId":"${target.deviceId}"` : ""}\n`;
 
-function harness({ profile = KEY_PROFILE, scope = "user", actionResult = { code: 0, stdout: "", stderr: "" }, health = [], selfRestart = false } = {}) {
+function harness({ profile = KEY_PROFILE, scope = "user", actionResult = { code: 0, stdout: "", stderr: "" }, health = [], selfRestart = false, target, sudoOk = true } = {}) {
   const commands = [];
   const healthQueue = [...health];
   let lastConnected = healthQueue.length ? healthQueue[healthQueue.length - 1] : true;
@@ -32,7 +34,8 @@ function harness({ profile = KEY_PROFILE, scope = "user", actionResult = { code:
     runner: async (profileId, command) => {
       commands.push(command);
       if (command.includes("LoadState")) {
-        return { code: 0, stdout: probeOutput(scope === "user" ? "loaded" : "not-found", scope === "system" ? "loaded" : "not-found") };
+        const sudo = command.includes("--- sudo ---") ? `--- sudo ---\n${sudoOk ? "SUDO_OK" : "SUDO_NO"}\n` : "";
+        return { code: 0, stdout: probeOutput(scope === "user" ? "loaded" : "not-found", scope === "system" ? "loaded" : "not-found", target) + sudo };
       }
       return actionResult;
     },
@@ -103,6 +106,44 @@ const expectCode = async (promise, code) => assert.rejects(promise, (error) => {
     await expectCode(harness().service.control("node-a", "kill"), "REMOTE_AGENT_ACTION_INVALID");
     console.log("PASS L6 an unconfirmed action, this PC, unknown nodes and unknown actions are refused");
 
+    // L7: an SSH profile assigned to this node but reaching another machine
+    // (the Anxlab node's profile pointing at the VPS) never runs systemctl there.
+    h = harness({ scope: "system", target: { hostname: "vps-7360e3ad", deviceId: "device-vps" } });
+    await expectCode(h.service.control("node-a", "stop"), "REMOTE_AGENT_SSH_TARGET_MISMATCH");
+    assert.strictEqual(h.commands.length, 1, "only the identity/scope probe ran");
+    h = harness({ scope: "system", target: { hostname: "vps-7360e3ad", deviceId: null } });
+    await expectCode(h.service.control("node-a", "start"), "REMOTE_AGENT_SSH_TARGET_MISMATCH");
+    assert.strictEqual(h.commands.length, 1);
+    h = harness({ scope: "user", target: { hostname: "", deviceId: null } });
+    await expectCode(h.service.control("node-a", "restart"), "REMOTE_AGENT_SSH_TARGET_UNVERIFIED");
+    assert.strictEqual(h.commands.length, 1);
+    // Agent stopped (Start): no device ID answers, so the hostname decides; case and domain are ignored.
+    h = harness({ scope: "user", target: { hostname: "Node-A.lan", deviceId: null }, health: [true] });
+    result = await h.service.control("node-a", "start");
+    assert.strictEqual(h.commands.at(-1), "systemctl --user start anxos-agent");
+    // A matching device ID wins even if the machine was renamed.
+    h = harness({ scope: "user", target: { hostname: "renamed-box", deviceId: "device-a" }, health: [false, true] });
+    result = await h.service.control("node-a", "restart");
+    assert.strictEqual(result.confirmed, true);
+    assert.ok(_test.buildScopeProbeCommand("anxos-agent", [47131, 47132, 9]).includes("for p in 47131 47132 9;"));
+    assert.deepStrictEqual(_test.getAgentProbePorts({ agentUrl: "http://127.0.0.1:47199" }), [47131, 47132, 47199]);
+    console.log("PASS L7 a profile that reaches another machine is refused before any systemctl runs");
+
+    // L8: Verify Access is read-only and reports what the UI gate needs.
+    h = harness({ scope: "system", sudoOk: true });
+    let verified = await h.service.verify("node-a");
+    assert.deepStrictEqual([verified.verified, verified.scope, verified.sudoReady, verified.profileId, verified.hostname, verified.deviceId], [true, "system", true, "key-a", "node-a", "device-a"]);
+    assert.strictEqual(h.commands.length, 1, "one probe, no systemctl action");
+    assert.ok(!/systemctl (--user )?(start|stop|restart) anxos-agent\s*$/m.test(h.commands[0].replace(/sudo -n -l \/usr\/bin\/systemctl restart anxos-agent/, "")), "the probe never runs a lifecycle command");
+    verified = await harness({ scope: "system", sudoOk: false }).service.verify("node-a");
+    assert.strictEqual(verified.sudoReady, false, "a system unit without passwordless systemctl is reported");
+    verified = await harness({ scope: "user", sudoOk: false }).service.verify("node-a");
+    assert.strictEqual(verified.sudoReady, true, "user units need no sudo");
+    await expectCode(harness({ target: { hostname: "vps-7360e3ad", deviceId: "device-vps" } }).service.verify("node-a"), "REMOTE_AGENT_SSH_TARGET_MISMATCH");
+    await expectCode(harness({ profile: null }).service.verify("node-a"), "REMOTE_AGENT_SSH_PROFILE_MISSING");
+    await expectCode(harness({ scope: "none" }).service.verify("node-a"), "REMOTE_AGENT_UNIT_NOT_FOUND");
+    console.log("PASS L8 Verify Access is read-only, checks the target, the unit and passwordless systemctl");
+
     // A1: the Agent restarts itself only when systemd started this very process.
     assert.deepStrictEqual(getSelfRestartCapability({ INVOCATION_ID: "abc", SYSTEMD_EXEC_PID: "4242" }, "linux", 4242), { supported: true, mechanism: "systemd" });
     assert.strictEqual(getSelfRestartCapability({ INVOCATION_ID: "abc", SYSTEMD_EXEC_PID: "1000" }, "linux", 4242).supported, false, "an inherited systemd environment is not a supervisor");
@@ -128,7 +169,7 @@ const expectCode = async (promise, code) => assert.rejects(promise, (error) => {
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
-  console.log("remote agent lifecycle smoke passed (8 checks).");
+  console.log("remote agent lifecycle smoke passed (10 checks).");
 })().catch((error) => {
   console.error(error && error.stack ? error.stack : error);
   process.exitCode = 1;

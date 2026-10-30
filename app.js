@@ -462,6 +462,8 @@ const sshEmpty = document.querySelector("[data-ssh-empty]");
 const sshSessionTabs = document.querySelector(".ssh-session-tabs");
 const sshServerSelect = document.querySelector("[data-ssh-server]");
 const sshProfileSelect = document.querySelector("[data-ssh-profile]");
+const sshAgentField = document.querySelector("[data-ssh-agent-field]");
+const sshAgentToggle = document.querySelector("[data-ssh-profile-agent]");
 const sshConnectButton = document.querySelector("[data-ssh-connect]");
 const sshDisconnectButton = document.querySelector("[data-ssh-disconnect]");
 const sshProfileDeleteButton = document.querySelector("[data-ssh-profile-delete]");
@@ -5295,6 +5297,16 @@ function getSshProfileForNode(nodeId = getSelectedNodeId()) {
 // Remote Agent push updates run in main over SSH against the node's managed
 // systemd user unit. The renderer only decides whether the button is offered;
 // main re-checks platform, key auth, approved host identity, and the unit.
+// nodeId -> result of nodes:verifyAgentControl (read-only access check). SSH
+// Start/Stop/Restart and Update stay disabled until it passes for the node's
+// current profile; the main process re-checks the target on every action.
+const remoteAgentAccessVerifications = new Map();
+
+function getRemoteAgentAccessVerification(nodeId, profile) {
+  const verification = remoteAgentAccessVerifications.get(nodeId) || null;
+  return verification && profile && verification.profileId === profile.id ? verification : null;
+}
+
 function getRemoteAgentUpdateSupport(target = getAgentControlOverviewTarget()) {
   if (!target || isAgentTargetLocal(target)) return { supported: false, reason: "local" };
   const nodeId = target.nodeId || getSelectedNodeId();
@@ -5305,12 +5317,15 @@ function getRemoteAgentUpdateSupport(target = getAgentControlOverviewTarget()) {
   const profile = getSshProfileForNode(nodeId);
   if (!profile) return { supported: false, reason: "profile", nodeId, node };
   if (profile.authType !== "privateKey") return { supported: false, reason: "key", nodeId, node, profile };
-  return { supported: true, reason: "ready", nodeId, node, profile };
+  const verification = getRemoteAgentAccessVerification(nodeId, profile);
+  if (verification?.verified !== true) return { supported: false, reason: "unverified", nodeId, node, profile, verification };
+  return { supported: true, reason: "ready", nodeId, node, profile, verification };
 }
 
 function getRemoteAgentUpdateBlockMessage(support = {}) {
   if (support.reason === "platform") return "Automatic Agent updates over SSH are available for Linux nodes only.";
   if (support.reason === "key") return "The node's SSH profile must use key authentication for an unattended Agent update.";
+  if (support.reason === "unverified") return support.verification?.message || "Select Verify Access first: AnxOS confirms this SSH profile reaches this node.";
   return "Assign an SSH profile to this node before updating its Agent from this Desktop.";
 }
 
@@ -5324,9 +5339,14 @@ function getRemoteAgentLifecycleSupport(target = getAgentControlOverviewTarget()
   const node = ssh.node || null;
   const selfRestart = node?.capabilitiesMetadata?.selfRestart?.supported === true
     || node?.connection?.capabilities?.selfRestart?.supported === true;
-  const viaSsh = ssh.supported === true;
+  const sudoBlocked = ssh.supported === true && ssh.verification?.scope === "system" && ssh.verification?.sudoReady !== true;
+  const viaSsh = ssh.supported === true && !sudoBlocked;
   const reason = viaSsh
     ? null
+    : sudoBlocked
+      ? `${ssh.profile?.username || "This SSH user"} can't run systemctl for anxos-agent without a password on this node. Add it to the anxos-control group, then Verify Access again.`
+    : ssh.reason === "unverified"
+      ? (ssh.verification?.message || `Select Verify Access to confirm "${ssh.profile?.displayName || ssh.profile?.id}" reaches this node before Start, Stop or Restart.`)
     : ssh.reason === "platform"
       ? "Agent Start, Stop and Restart from this Desktop are available for Linux nodes."
       : selfRestart
@@ -5337,6 +5357,8 @@ function getRemoteAgentLifecycleSupport(target = getAgentControlOverviewTarget()
     nodeId: ssh.nodeId,
     node,
     profile: ssh.profile || null,
+    canVerify: Boolean(ssh.profile && ssh.profile.authType === "privateKey" && ssh.reason !== "platform"),
+    verification: ssh.verification || null,
     mechanism: viaSsh ? "ssh" : selfRestart ? "agent-api" : null,
     actions: { start: viaSsh, stop: viaSsh, restart: viaSsh || selfRestart },
     reason,
@@ -5631,6 +5653,7 @@ function renderAgentControlState(payload = agentControlState) {
       || (!isLocalTarget && action === "start" && (!remoteLifecycle.actions?.start || running))
       || (!isLocalTarget && ["stop", "restart"].includes(action) && (!remoteLifecycle.actions?.[action] || !running))
       || (!isLocalTarget && action === "forceRestart")
+      || (action === "verifyRemoteControl" && (isLocalTarget || !remoteLifecycle.canVerify))
       || (action === "repairAgent" && (!repairSupported || serviceNeedsElevation))
       || (action === "stopOldLocalAgentAndRepair" && !repairSupported)
       || (action === "installService" && (!lifecycleSupported || service.installed || serviceNeedsElevation))
@@ -5657,6 +5680,13 @@ function renderAgentControlState(payload = agentControlState) {
       button.setAttribute("aria-description", button.title);
     } else if (!isLocalTarget && ["start", "stop", "restart"].includes(action) && !remoteLifecycle.actions?.[action]) {
       button.title = remoteLifecycle.reason || "Not available for this node.";
+      button.setAttribute("aria-description", button.title);
+    } else if (action === "verifyRemoteControl") {
+      button.title = isLocalTarget
+        ? "Access checks are for remote nodes."
+        : remoteLifecycle.canVerify
+          ? "Read-only check: sign in with the node's SSH key profile and confirm it reaches this node. Nothing is started or stopped."
+          : "Assign an SSH key profile to this node first.";
       button.setAttribute("aria-description", button.title);
     } else if (!isLocalTarget && action === "forceRestart") {
       button.title = "Force Restart is only available for this PC's Agent. Use Restart for a node.";
@@ -7247,6 +7277,21 @@ async function runAgentControlAction(action) {
     else if (action === "resetConfig") populateAgentConfig(await api.resetConfig());
     else if (action === "runDiagnostics") renderAgentDiagnostics(await api.diagnostics());
     else if (action === "refreshLogs") await refreshAgentLogs();
+    else if (action === "verifyRemoteControl") {
+      const nodesApi = getDesktopApiState().api?.nodes;
+      if (typeof nodesApi?.verifyAgentControl !== "function") throw new Error("Remote Agent access checks are unavailable in this build.");
+      const support = getRemoteAgentLifecycleSupport(actionTarget);
+      const nodeId = support.nodeId || getSelectedNodeId();
+      try {
+        const result = await nodesApi.verifyAgentControl(nodeId);
+        remoteAgentAccessVerifications.set(nodeId, { ...result, verified: result?.verified === true });
+        const sudoNote = result?.scope === "system" && result?.sudoReady !== true ? " The SSH user still needs passwordless systemctl (anxos-control group)." : "";
+        if (agentControlMessage) agentControlMessage.textContent = `Access verified: ${support.profile?.displayName || "the SSH profile"} reaches ${result?.hostname || remoteNodeName} (${result?.scope} unit).${sudoNote}`;
+      } catch (error) {
+        remoteAgentAccessVerifications.set(nodeId, { verified: false, profileId: support.profile?.id || null, message: normalizeIpcErrorMessage(error, "Access check failed.").replace(/^[A-Z][A-Z0-9_]{2,}:\s*/, "") });
+        throw error;
+      }
+    }
     else if (remoteLifecycleAction) {
       const nodesApi = getDesktopApiState().api?.nodes;
       if (typeof nodesApi?.controlAgent !== "function") throw new Error("Remote Agent control is unavailable in this build.");
@@ -33795,9 +33840,40 @@ function renderSshSessionTabs() {
   sshSessionTabs.appendChild(addTab);
 }
 
+// Key profiles can sign in through the OS SSH agent (ssh-add once); the
+// toggle only stores that choice, never a key or passphrase.
+function renderSshAgentToggle() {
+  const profile = getActiveSshProfile();
+  const isKeyProfile = profile?.authType === "privateKey";
+  if (sshAgentField) sshAgentField.hidden = !isKeyProfile;
+  if (sshAgentToggle) {
+    sshAgentToggle.checked = isKeyProfile && profile.useSshAgent === true;
+    sshAgentToggle.disabled = !isKeyProfile || sshConnectRequestInFlight;
+  }
+}
+
+async function setActiveSshProfileAgent(enabled) {
+  const profile = getActiveSshProfile();
+  const api = getDesktopApiState().api?.ssh;
+  if (!profile || typeof api?.setProfileAgent !== "function") return;
+  try {
+    await api.setProfileAgent({ profileId: profile.id, enabled });
+    sshTransientStatusMessage = enabled
+      ? `${profile.displayName || profile.id} now signs in through the SSH agent.`
+      : `${profile.displayName || profile.id} now reads its key file (passphrase prompts as needed).`;
+    await loadSshProfiles({ profileId: profile.id });
+  } catch (error) {
+    const { message } = describeSshConnectError(error);
+    sshTransientStatusMessage = message;
+    showToast(message);
+    renderSshView();
+  }
+}
+
 function renderSshView() {
   renderSshProfileSelectors();
   renderSshSessionTabs();
+  renderSshAgentToggle();
 
   const session = getActiveSshSession();
   const hasProfiles = sshProfilesState.profiles.length > 0;
@@ -34241,6 +34317,10 @@ async function connectSshSession(options = {}) {
     const { code, message } = describeSshConnectError(error);
     if (code === "SSH_KEY_PASSPHRASE_REQUIRED" || code === "SSH_KEY_PASSPHRASE_INCORRECT") {
       setSshPasswordPromptState(true, message, "passphrase");
+      focusSshPasswordPrompt();
+    } else if (["SSH_AGENT_UNAVAILABLE", "SSH_AGENT_KEY_NOT_LOADED", "SSH_AGENT_PUBLIC_KEY_MISSING"].includes(code)) {
+      // The agent couldn't sign in; the key file still works with its passphrase.
+      setSshPasswordPromptState(true, `${message} Or enter the key passphrase to connect this time.`, "passphrase");
       focusSshPasswordPrompt();
     } else if (profile.authType === "password") {
       setSshPasswordPromptState(true, message);
@@ -45722,6 +45802,7 @@ sshProfileSelect?.addEventListener("change", () => {
   sshTransientStatusMessage = "";
   renderSshView();
 });
+sshAgentToggle?.addEventListener("change", () => setActiveSshProfileAgent(sshAgentToggle.checked));
 sshConnectButton?.addEventListener("click", connectSshSession);
 sshDisconnectButton?.addEventListener("click", disconnectSshSession);
 sshProfileDeleteButton?.addEventListener("click", deleteSelectedSshProfile);

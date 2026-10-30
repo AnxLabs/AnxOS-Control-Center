@@ -476,6 +476,7 @@ const IPC_FAMILIES = [
       "nodes:updateAgent",
       // Remote Agent Start / Stop / Restart (SSH, or the Agent's own restart).
       "nodes:controlAgent",
+      "nodes:verifyAgentControl",
       "nodes:createMobilePairing",
       // App-managed SSH tunnels: choosing a node's transport and forcing a retry.
       "nodes:setTransport", "nodes:reconnectTunnel",
@@ -572,7 +573,7 @@ const IPC_FAMILIES = [
     tier: "settings:write",
     guard: "permission",
     allow: ["owner-unlocked"],
-    channels: ["ssh:saveProfile", "ssh:deleteProfile", "ssh:assignProfileToNode"],
+    channels: ["ssh:saveProfile", "ssh:deleteProfile", "ssh:assignProfileToNode", "ssh:setProfileAgent"],
   },
   {
     id: "system-read",

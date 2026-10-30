@@ -2578,6 +2578,10 @@
                     <option>No profiles configured</option>
                   </select>
                 </label>
+                <label class="console-toggle ssh-agent-toggle" data-ssh-agent-field hidden title="Sign in with this key through the OpenSSH Authentication Agent (load it once with ssh-add). No passphrase prompts, and background Agent control can use the key. AnxOS never stores the passphrase.">
+                  <input type="checkbox" data-ssh-profile-agent>
+                  <span>Use SSH agent for this key</span>
+                </label>
                 <div class="ssh-connection-actions">
                   <button class="inline-action" type="button" data-ssh-connect disabled>Connect</button>
                   <button class="inline-action" type="button" data-ssh-disconnect disabled>Disconnect</button>
@@ -4309,7 +4313,7 @@
             <section class="settings-section agent-operations-panel" data-agent-control-section="lifecycle">
               <div class="settings-section__header"><div><h2>Lifecycle</h2><p data-agent-lifecycle-subtitle>Start, stop, restart, or repair the managed Local Agent process.</p></div></div>
               <div class="agent-control-actions">
-                <div><span>Process</span><button class="primary-button" type="button" data-agent-control-action="start">Start</button><button class="inline-action" type="button" data-agent-control-action="stop">Stop</button><button class="inline-action" type="button" data-agent-control-action="restart">Restart</button><button class="inline-action" type="button" data-agent-control-action="forceRestart">Force Restart</button></div>
+                <div><span>Process</span><button class="primary-button" type="button" data-agent-control-action="start">Start</button><button class="inline-action" type="button" data-agent-control-action="stop">Stop</button><button class="inline-action" type="button" data-agent-control-action="restart">Restart</button><button class="inline-action" type="button" data-agent-control-action="forceRestart">Force Restart</button><button class="inline-action" type="button" data-agent-control-action="verifyRemoteControl">Verify Access</button></div>
                 <div><span>Repair</span><button class="inline-action" type="button" data-agent-control-action="repairAgent">Repair Connection</button><button class="inline-action" type="button" data-agent-control-action="stopOldLocalAgentAndRepair">Stop Old Local Agent and Repair</button><button class="inline-action" type="button" data-agent-control-action="reconnect">Reconnect</button></div>
               </div>
               <p class="agent-lifecycle-note" data-agent-lifecycle-note role="status" hidden></p>
