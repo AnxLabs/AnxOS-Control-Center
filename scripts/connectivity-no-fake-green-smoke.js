@@ -609,6 +609,25 @@ async function main() {
     assert.ok(!Object.values(summary.connectivity).includes("healthy"), "no scope may read healthy from a stale agent");
     assert.strictEqual(summary.degraded, false);
   });
+
+  // AIM-2 (plan §4.2): a functional state that was not evaluated can never
+  // render green, even when liveness is healthy.
+  await test("functional: not-evaluated, missing or malformed function never renders green", async () => {
+    const functionalModel = require("../src/shared/functionalProbeModel");
+    for (const functional of [
+      functionalModel.notEvaluated("NO_BASELINE"),
+      functionalModel.notEvaluated("LIVE_RUNS_DEFERRED"),
+      undefined,
+      { outcome: "healthy" },
+    ]) {
+      const view = functionalModel.combineHealthAndFunctional("healthy", functional);
+      assert.strictEqual(view.renderGreen, false);
+      assert.strictEqual(view.overall, "unknown", "unchecked function is unknown, never healthy");
+      assert.ok(healthModel.STATE_RANK[view.overall] > healthModel.STATE_RANK.healthy);
+    }
+    const checked = functionalModel.combineHealthAndFunctional("healthy", functionalModel.pass());
+    assert.strictEqual(checked.renderGreen, true, "only a checked, passing service on a live host is green");
+  });
 }
 
 main()
