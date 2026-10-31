@@ -114,7 +114,10 @@ const PROCESS_TAIL_LINE_LIMIT = 20;
 const PORT_CONNECT_TIMEOUT_MS = 500;
 const PROC_STAT_TICKS_PER_SECOND = 100;
 const PAGE_SIZE_BYTES = 4096;
-const VERSION_CACHE_VERSION = 4;
+// 5: non-Minecraft games no longer go through Minecraft version parsing, and
+// Hytale reads its version from its own boot line. Bumping it re-detects the
+// records that version 4 had cached with a wrong version.
+const VERSION_CACHE_VERSION = 5;
 const INSTANCE_CONFIG_SCHEMA_VERSION = 2;
 const ATOMIC_RENAME_RETRY_CODES = new Set(["EPERM", "EACCES", "EBUSY"]);
 const ATOMIC_RENAME_RETRY_ATTEMPTS = 5;
@@ -4177,10 +4180,47 @@ function hasUsableCachedVersion(config) {
   ].filter(Boolean).join(" ")));
 }
 
+// Hytale prints its version when it boots ("Booting up HytaleServer -
+// Version: 0.7.5, Revision: …"). The last such line is the running version,
+// so it stays right after Hytale's own updater replaces the server.
+const HYTALE_BOOT_VERSION_PATTERN = /Booting up HytaleServer - Version: ([0-9A-Za-z][0-9A-Za-z.-]{0,63})/g;
+
+function parseHytaleBootVersion(text) {
+  const matches = [...String(text || "").matchAll(HYTALE_BOOT_VERSION_PATTERN)];
+  return matches.length ? matches[matches.length - 1][1] : null;
+}
+
+async function detectHytaleVersion(config) {
+  const logged = parseHytaleBootVersion(await readTextIfExists(logPath(config.id, "stdout"), 512 * 1024));
+  const version = logged || cleanVersionValue(config.versionInfo?.gameVersion || config.gameVersion || config.serverVersion);
+  return {
+    ...config,
+    serverVersion: version || null,
+    gameVersion: version || null,
+    softwareVersion: version || null,
+    version: version || config.version || null,
+    displayVersion: version || config.displayVersion || null,
+    minecraftVersion: null,
+    versionInfo: version ? normalizeVersionInfo({ ...config.versionInfo, game: "hytale", gameVersion: version, softwareVersion: version, displayVersion: version }, config) : config.versionInfo,
+    detectedVersionAt: nowIso(),
+    versionCacheVersion: VERSION_CACHE_VERSION,
+  };
+}
+
 async function detectInstanceVersion(config, options = {}) {
   if (!options.force && hasUsableCachedVersion(config)) {
     return config;
   }
+
+  const family = inferGameFamily(config);
+  if (family === "hytale") {
+    return detectHytaleVersion(config);
+  }
+  // Minecraft version parsing only applies to Minecraft (or unrecognised)
+  // servers. On other games it read unrelated numbers from logs and config
+  // as a "Minecraft version" and wrote them over serverVersion: Hytale became
+  // "1.0" and Palworld cards read "Minecraft 0.0".
+  const minecraftLike = !family || family === "minecraft";
 
   const software = inferServerSoftware(config);
   const known = await detectFromKnownFiles(config);
@@ -4190,7 +4230,7 @@ async function detectInstanceVersion(config, options = {}) {
   const status = software ? await detectFromMinecraftStatus(config) : {};
   const detected = {
     serverSoftware: known.serverSoftware || properties.serverSoftware || jar.serverSoftware || logs.serverSoftware || status.serverSoftware || software || null,
-    minecraftVersion: parseMinecraftVersion([
+    minecraftVersion: minecraftLike ? parseMinecraftVersion([
       known.minecraftVersion,
       known.gameVersion,
       properties.minecraftVersion,
@@ -4203,7 +4243,7 @@ async function detectInstanceVersion(config, options = {}) {
       config.version,
       config.displayVersion,
       status.minecraftVersion,
-    ].filter(Boolean).join(" ")),
+    ].filter(Boolean).join(" ")) : null,
     softwareVersion: cleanVersionValue(known.softwareVersion || jar.softwareVersion || logs.softwareVersion || config.softwareVersion),
     buildNumber: cleanVersionValue(known.buildNumber || known.paperBuild || jar.buildNumber || jar.paperBuild || logs.buildNumber || logs.paperBuild || config.buildNumber || config.paperBuild),
     paperBuild: cleanVersionValue(known.paperBuild || jar.paperBuild || logs.paperBuild || config.paperBuild),
@@ -7677,6 +7717,8 @@ function refuseForServiceManaged(operation, fn) {
 module.exports = {
   _test: {
     jobLifecycle,
+    detectInstanceVersion,
+    parseHytaleBootVersion,
     configuredRuntimePorts,
     atomicWriteManagedFile,
     discoverDetachedRuntime,
