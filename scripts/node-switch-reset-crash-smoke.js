@@ -155,6 +155,7 @@ function createHarness() {
     deleteRestartScheduleEntry: (schedule) => removals.push(schedule.id),
     setRestartScheduleAutoUpdate: () => {},
     setRestartScheduleBackupFirst: () => {},
+    editRestartScheduleEntry: () => {},
   };
   vm.createContext(context);
   // The declaration statements come from app.js verbatim: they are what the fix

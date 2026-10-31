@@ -152,7 +152,11 @@ function launcherScript() {
   const authRequired = { readinessState: "degraded", healthState: "degraded", failureReason: "HYTALE_AUTH_REQUIRED" };
   assert.deepStrictEqual(ready("WARN [HytaleServer] No server tokens configured. Use /auth login to authenticate.", { layoutInstalled: true }), authRequired);
   assert.deepStrictEqual(ready(`${booted}\nWARN No server tokens configured. Use /auth login to authenticate.`, { layoutInstalled: true }), authRequired, "a boot without credentials is degraded, never ready");
-  assert.deepStrictEqual(ready("Authentication successful! Mode: OAUTH_DEVICE", { layoutInstalled: true }), { readinessState: "ready", healthState: "healthy", failureReason: null });
+  // Restoring a stored session prints "Authentication successful" before the
+  // server binds its port (seen live on Anxlab: 00:48:35 vs Booted 00:48:41),
+  // so it is readiness only on a server that has already booted.
+  assert.strictEqual(ready("Authentication successful! Mode: OAUTH_DEVICE", { layoutInstalled: true }), null, "a session restore before Booted is not readiness");
+  assert.deepStrictEqual(ready("Authentication successful! Mode: OAUTH_DEVICE", { layoutInstalled: true, booted: true }), { readinessState: "ready", healthState: "healthy", failureReason: null }, "signing in a running server makes it ready");
   assert.strictEqual(ready("[PluginManager] Server started plugin X", { layoutInstalled: true }), null);
   const core = fs.readFileSync(path.join(ROOT, "src", "shared", "instances", "instanceServiceCore.js"), "utf8");
   const stdoutHandler = core.slice(core.indexOf("child.stdout.on(\"data\""), core.indexOf("child.stderr.on(\"data\""));

@@ -119,7 +119,8 @@ async function scheduleDefaults() {
 }
 
 function contractChecks() {
-  const read = (file) => fs.readFileSync(file, "utf8");
+  // Normalised so the checks hold on CRLF (Windows autocrlf) checkouts too.
+  const read = (file) => fs.readFileSync(file, "utf8").replace(/\r\n/g, "\n");
   const ui = read("app.js");
   const ipc = read("src/ipc/marketplaceIpc.js");
   const install = read("src/services/marketplaceInstallService.js");
