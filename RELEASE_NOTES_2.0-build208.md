@@ -23,6 +23,18 @@ Build 208 adds the official Hytale dedicated server and checks whether AI servic
   - **Failures:** a stopped or missing part of the stack fails Sona even when no live check runs.
   - **Approved check:** a live check reads only Sona's public health route and reports a version change or a different app answering.
 
+- **Server updates.**
+  - **SteamCMD servers:** an **Update available** badge, on the instance and in the list, compares the installed Steam build with the latest public one. **Check for Update** refreshes it. You can choose a Steam beta branch per instance, and only one SteamCMD job runs per node at a time.
+  - **Other Marketplace servers:** check-only update badges for Paper, Vanilla, FiveM and Hytale. Applying those updates stays manual.
+  - **Scheduled restarts:** they can update SteamCMD servers (opt-in). Their progress appears in the Download Manager.
+  - **Backups and rollback:** a backup can run before every SteamCMD update. **Roll Back Update** restores it.
+  - **Fleet view:** the Nodes page has a **Server Updates** panel to check every node and update stopped servers one at a time.
+- **Restart schedules** use a single dialog and can be edited.
+- **Server alerts:** each node can post crashes, scheduled restarts and updates to a Discord or HTTPS webhook. The webhook URL stays on the Agent and is never shown again.
+- **Mod Manager for Minecraft.** A **Mods** tab (**Plugins** on Paper/Purpur) searches Modrinth for the server's version and loader.
+  - It installs mods with their required dependencies, and can update, disable and remove AnxOS-installed mods.
+  - Downloads come only from Modrinth's CDN and are checked against Modrinth's SHA-512.
+
 ## Changed
 
 - **Discontinued integrations.** Open WebUI, Open Terminal and ANX-CorTex no longer appear in AI service diagnostics. Nothing on your machines was removed.
