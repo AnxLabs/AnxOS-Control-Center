@@ -231,6 +231,14 @@ instance console log. The whole sequence runs as one durable
 `instance.restart` job with a 25-minute budget and no mid-flight cancel.
 Requires an Agent that includes this change; older Agents ignore the flag.
 
+**Fleet view.** The Nodes page has a **Server Updates** panel. **Check All**
+asks every enabled node for its SteamCMD servers and their builds; an
+unreachable node is listed as unavailable. **Update Stopped Servers** updates
+every stopped server that has a newer build, strictly one at a time, and
+requests a pre-update backup. Running servers are skipped, a failure does not
+stop the queue, and the result is summarised. Updated servers stay stopped.
+**Open** jumps to the server on its node.
+
 ## 6. Runtime pins
 
 When an install or dependency check resolves a runtime version for a workload

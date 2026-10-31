@@ -4754,6 +4754,7 @@ function showPage(pageName) {
     refreshNodes();
     refreshFleetSummary();
     startNodeRefreshPolling();
+    refreshServerUpdates();
   } else {
     stopNodeRefreshPolling();
   }
@@ -21594,6 +21595,143 @@ async function configureBackupSchedule(instanceId) {
 // without the check route (not yet updated) simply never shows the badge.
 const STEAM_UPDATE_CHECK_RENDERER_TTL_MS = 10 * 60 * 1000;
 const steamUpdateChecks = new Map();
+
+// Fleet "Server Updates" panel (Nodes page): every SteamCMD server on every
+// enabled node, with its build status. It reads through the same per-node
+// instance list and update check as the instance view, and updates stopped
+// servers strictly one after another through the normal update flow.
+let serverUpdatesState = { rows: [], checkedAt: null, busy: false };
+
+function summarizeServerUpdateRow(row) {
+  if (row.error) return { label: row.error, tone: "warning" };
+  if (row.updating) return { label: "Updating...", tone: "planned" };
+  const check = row.check;
+  if (!check) return { label: "Not checked (Agent update needed)", tone: "planned" };
+  if (check.updateAvailable === true) return { label: `Update available: build ${check.latestBuildId} (installed ${check.installedBuildId})`, tone: "warning" };
+  if (check.updateAvailable === false) return { label: `Up to date (build ${check.installedBuildId})`, tone: "ok" };
+  return { label: check.error ? `Unknown (${check.error})` : "Unknown build", tone: "planned" };
+}
+
+function getServerUpdateCandidates(rows = serverUpdatesState.rows) {
+  return rows.filter((row) => !row.error && !row.running && row.check?.updateAvailable === true);
+}
+
+function renderServerUpdates(message = null) {
+  const panel = document.querySelector("[data-server-updates-panel]");
+  if (!panel) return;
+  const list = panel.querySelector("[data-server-updates-rows]");
+  const status = panel.querySelector("[data-server-updates-status]");
+  const messageElement = panel.querySelector("[data-server-updates-message]");
+  const rows = serverUpdatesState.rows;
+  const available = rows.filter((row) => row.check?.updateAvailable === true).length;
+  if (status) {
+    status.textContent = !serverUpdatesState.checkedAt ? "Not checked" : available ? `${available} update${available === 1 ? "" : "s"} available` : "All up to date";
+    status.className = `status-pill ${available ? "status-pill--warning" : serverUpdatesState.checkedAt ? "status-pill--ok" : "status-pill--planned"}`;
+  }
+  if (messageElement && message) messageElement.textContent = message;
+  panel.querySelectorAll("[data-server-updates-action]").forEach((button) => {
+    button.disabled = serverUpdatesState.busy || (button.dataset.serverUpdatesAction === "update-stopped" && !getServerUpdateCandidates().length);
+  });
+  if (!list) return;
+  list.replaceChildren();
+  if (!rows.length) {
+    list.appendChild(createTextElement("span", serverUpdatesState.checkedAt ? "No SteamCMD servers found on the enabled nodes." : "", "settings-inline-status"));
+    return;
+  }
+  rows.forEach((row) => {
+    const item = document.createElement("div");
+    item.className = "instance-network-row";
+    const summary = summarizeServerUpdateRow(row);
+    const label = document.createElement("span");
+    label.textContent = `${row.nodeName} · ${row.displayName}${row.running ? " · running" : ""} · ${summary.label}`;
+    const open = document.createElement("button");
+    open.className = "inline-action";
+    open.type = "button";
+    open.textContent = "Open";
+    open.disabled = serverUpdatesState.busy;
+    open.addEventListener("click", () => openServerUpdateRow(row));
+    item.append(label, open);
+    list.appendChild(item);
+  });
+}
+
+async function refreshServerUpdates(options = {}) {
+  const api = getDesktopApiState().api;
+  if (serverUpdatesState.busy || typeof api?.instances?.list !== "function") return;
+  if (!options.refresh && !serverUpdatesState.checkedAt) {
+    renderServerUpdates();
+    return;
+  }
+  serverUpdatesState.busy = true;
+  renderServerUpdates("Checking servers on every node...");
+  const nodes = (Array.isArray(nodesState.nodes) ? nodesState.nodes : []).filter((node) => node?.id && node.enabled !== false);
+  const rows = [];
+  for (const node of nodes) {
+    const nodeName = node.displayName || node.name || node.id;
+    let instances = [];
+    try {
+      instances = normalizeInstancesPayload(await api.instances.list({ nodeId: node.id })).instances;
+    } catch {
+      rows.push({ nodeId: node.id, nodeName, instanceId: null, displayName: "(node)", error: "Node unavailable" });
+      continue;
+    }
+    for (const instance of instances.filter(isSteamCmdUpdateInstance)) {
+      let check = null;
+      if (typeof api.instances.checkSteamUpdate === "function") {
+        try {
+          const response = await api.instances.checkSteamUpdate(instance.id, { nodeId: node.id, refresh: options.refresh === true });
+          check = response && response.ok !== false ? response : null;
+        } catch {
+          check = null;
+        }
+      }
+      rows.push({ nodeId: node.id, nodeName, instanceId: instance.id, displayName: instance.displayName || instance.id, running: isInstanceRunning(instance), check });
+    }
+  }
+  serverUpdatesState = { rows, checkedAt: new Date().toISOString(), busy: false };
+  renderServerUpdates(`Checked ${rows.filter((row) => row.instanceId).length} server(s) on ${nodes.length} node(s) at ${formatDateTime(serverUpdatesState.checkedAt)}.`);
+}
+
+async function openServerUpdateRow(row) {
+  if (!row?.instanceId) return;
+  if (getSelectedNodeId() !== row.nodeId) await selectNode(row.nodeId);
+  showPage("instances");
+  await refreshInstances();
+  selectInstance(row.instanceId);
+}
+
+async function updateStoppedServers() {
+  const api = getDesktopApiState().api;
+  const candidates = getServerUpdateCandidates();
+  if (!candidates.length || typeof api?.marketplace?.updateSteamServer !== "function") return;
+  const confirmed = await createSecurityConfirmation({
+    title: "Update Stopped Servers",
+    message: `${candidates.length} stopped server(s) will be updated one after another: ${candidates.map((row) => `${row.displayName} (${row.nodeName})`).join(", ")}. Running servers are skipped. Each server stays stopped afterwards.`,
+    confirmLabel: "Update Servers",
+  });
+  if (!confirmed) return;
+  serverUpdatesState.busy = true;
+  const results = [];
+  for (const row of candidates) {
+    row.updating = true;
+    renderServerUpdates(`Updating ${row.displayName} on ${row.nodeName}...`);
+    try {
+      const result = await api.marketplace.updateSteamServer({ nodeId: row.nodeId, instanceId: row.instanceId, backupBeforeUpdate: true });
+      if (result?.ok === false) throw Object.assign(new Error(result.error?.message || "Update failed."), { code: result.error?.code });
+      results.push({ row, ok: true });
+    } catch (error) {
+      // One failure does not stop the queue; it is reported in the summary.
+      results.push({ row, ok: false, code: error?.code || "STEAMCMD_UPDATE_FAILED" });
+    }
+    row.updating = false;
+  }
+  serverUpdatesState.busy = false;
+  const failed = results.filter((result) => !result.ok);
+  showToast(failed.length
+    ? `${results.length - failed.length} of ${results.length} servers updated. Failed: ${failed.map((result) => `${result.row.displayName} (${result.code})`).join(", ")}.`
+    : `${results.length} server(s) updated. They remain stopped.`, failed.length ? "warning" : "success");
+  await refreshServerUpdates({ refresh: false });
+}
 
 function isSteamCmdUpdateInstance(instance) {
   return instance?.installerType === "steamcmd-native" && Number.isInteger(Number(instance?.steamAppId));
@@ -46678,6 +46816,12 @@ instancesRestartButtons.forEach((button) => {
 });
 instancesRepairNeoForgeButtons.forEach((button) => {
   button.addEventListener("click", () => runInstanceAction("repair-neoforge-runtime"));
+});
+document.querySelectorAll("[data-server-updates-action]").forEach((button) => {
+  button.addEventListener("click", () => {
+    if (button.dataset.serverUpdatesAction === "check") refreshServerUpdates({ refresh: true });
+    if (button.dataset.serverUpdatesAction === "update-stopped") updateStoppedServers();
+  });
 });
 document.querySelectorAll('[data-instance-action="update-steam"]').forEach((button) => {
   button.addEventListener("click", () => runInstanceAction("update-steam"));
