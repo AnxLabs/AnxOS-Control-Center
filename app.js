@@ -15717,6 +15717,15 @@ function updateInstanceActionButtons() {
     button.hidden = !isFiveMSetupRequired(selectedInstance);
     button.disabled = busy || !hasInstancesBridge || !isFiveMSetupRequired(selectedInstance);
   });
+  document.querySelectorAll('[data-instance-action="sign-in"]').forEach((button) => {
+    // Shown only for games with an account sign-in (for example Hytale) while
+    // the server reports that it needs one.
+    const signIn = selectedInstance?.signIn;
+    const needed = Boolean(signIn?.supported && signIn.required && isInstanceRunning(selectedInstance));
+    button.hidden = !needed;
+    button.disabled = busy || !needed || !hasInstancesBridge || typeof desktopApiState.api?.instances?.signIn !== "function";
+    button.title = needed ? `Sign this server in with your ${signIn.label || "account"} in your browser.` : "";
+  });
   document.querySelectorAll('[data-instance-action="update-steam"]').forEach((button) => {
     const supported = selectedInstance?.installerType === "steamcmd-native" && Number.isInteger(Number(selectedInstance?.steamAppId));
     const running = isInstanceRunning(selectedInstance);
@@ -15733,8 +15742,32 @@ function updateInstanceActionButtons() {
     const check = supported ? getSteamUpdateCheck(selectedInstance) : null;
     badge.hidden = check?.updateAvailable !== true;
     badge.title = check?.updateAvailable === true
-      ? `Installed build ${check.installedBuildId}, latest public build ${check.latestBuildId}. Stop the server, then use Update Server Files.`
+      ? `Installed build ${check.installedBuildId}, latest ${check.branch || "public"} build ${check.latestBuildId}. Stop the server, then use Update Server Files.`
       : "";
+  });
+  document.querySelectorAll("[data-steam-update-notes]").forEach((link) => {
+    const check = isSteamCmdUpdateInstance(selectedInstance) ? getSteamUpdateCheck(selectedInstance) : null;
+    const buildId = check?.updateAvailable === true ? String(check.latestBuildId || "") : "";
+    link.hidden = !/^\d{1,20}$/.test(buildId);
+    if (!link.hidden) {
+      link.href = `https://steamdb.info/patchnotes/${buildId}/`;
+      link.title = `Open SteamDB's notes for build ${buildId} in your browser.`;
+    }
+  });
+  document.querySelectorAll("[data-steam-update-check]").forEach((button) => {
+    const supported = isSteamCmdUpdateInstance(selectedInstance) && typeof desktopApiState.api?.instances?.checkSteamUpdate === "function";
+    const checking = supported && isSteamUpdateCheckInFlight(selectedInstance);
+    button.hidden = !supported;
+    button.disabled = !supported || checking;
+    button.textContent = checking ? "Checking..." : "Check for Update";
+    button.title = "Ask Steam for the latest build now.";
+  });
+  document.querySelectorAll("[data-steam-branch]").forEach((button) => {
+    const supported = isSteamCmdUpdateInstance(selectedInstance) && typeof desktopApiState.api?.instances?.setSteamBranch === "function";
+    button.hidden = !supported;
+    button.disabled = busy || !supported;
+    button.textContent = `Branch: ${selectedInstance?.steamBranch || "public"}`;
+    button.title = "Choose which Steam branch this server updates to. The change applies on the next Update Server Files.";
   });
 
   document.querySelectorAll('[data-instance-action="expose-share"]').forEach((button) => {
@@ -15956,8 +15989,16 @@ function buildInstanceTagsCell(instance) {
   const wrapper = document.createElement("div");
   wrapper.className = "instance-tags-cell";
   const tags = Array.isArray(instance?.tags) ? instance.tags.filter(Boolean) : [];
+  const updateAvailable = isSteamCmdUpdateInstance(instance) && getSteamUpdateCheck(instance)?.updateAvailable === true;
+  if (updateAvailable) {
+    const pill = document.createElement("span");
+    pill.className = "instance-tag--update";
+    pill.textContent = "Update available";
+    wrapper.appendChild(pill);
+  }
 
   if (tags.length === 0) {
+    if (updateAvailable) return wrapper;
     wrapper.textContent = "—";
     return wrapper;
   }
@@ -16034,6 +16075,7 @@ function renderInstanceRows(instances) {
     const row = existingRows.get(instance.id) || document.createElement("tr");
     existingRows.delete(instance.id);
     updateInstanceRow(row, instance);
+    if (isSteamCmdUpdateInstance(instance)) refreshSteamUpdateCheck(instance);
     // Move a row only when it is out of place: re-inserting an element that is
     // already in position would blur anything focused inside it.
     const expectedPosition = previousRow ? previousRow.nextSibling : instancesList.firstChild;
@@ -16413,10 +16455,11 @@ function setInstanceDetails(instance = null) {
   const activeOperation = getInstanceOperation(instance.id);
   // The state field reports the reconciled runtime state; a failed operation
   // stays visible through the tooltip and the failure-reason field instead of
-  // replacing the state.
+  // replacing the state. A finished operation shows that state too: a
+  // generic "Ready" after a successful Stop read as if the server were up.
   const visibleState = activeOperation?.status === "running"
     ? getInstanceOperationLabel(activeOperation.type)
-    : activeOperation?.status === "success" ? "Ready" : instance.state || "Unavailable";
+    : instance.state || "Unavailable";
   setField("instanceDetailState", visibleState);
   document.querySelectorAll('[data-field="instanceDetailState"]').forEach((field) => {
     field.className = `instance-state is-${activeOperation?.status === "running" ? "reloading" : getInstanceStateClass(instance.state)}`;
@@ -16821,6 +16864,10 @@ function getAgentErrorMessage(error, fallback = "Instance request failed.") {
     STARTUP_CONFIGURATION_FAILED: "The startup command could not be configured.",
     MARKETPLACE_INSTALL_FAILED: "Template install failed.",
     FIVEM_LICENSE_REQUIRED: "FiveM needs a valid license key in server.cfg before it can start.",
+    SIGN_IN_UNSUPPORTED: "This server does not use an account sign-in.",
+    SIGN_IN_SERVER_NOT_RUNNING: "Start the server first; it shows its sign-in code while it runs.",
+    SIGN_IN_CODE_TIMEOUT: "The server did not show a sign-in code. Check its console.",
+    SIGN_IN_URL_BLOCKED: "The sign-in link is not on the publisher's sign-in site, so it was not opened.",
     FIVEM_SETUP_REQUIRED: "FiveM setup is required before this server can start.",
     FIVEM_RESOURCES_REQUIRED: "FiveM server resources are missing; reinstall this server so players can spawn.",
     INVALID_FIVEM_LICENSE_KEY: "Enter a valid FiveM license key from Cfx.re Keymaster.",
@@ -18232,7 +18279,9 @@ function getMarketplaceInstalledInstanceVersion(instance = null) {
   if (!instance) return "";
   const version = getInstanceVersionMetadata(instance);
   const parts = [
-    version.gameVersion && version.gameVersion !== "Unknown version" ? `Minecraft ${version.gameVersion}` : "",
+    version.gameVersion && version.gameVersion !== "Unknown version"
+      ? (version.isMinecraft ? `Minecraft ${version.gameVersion}` : version.gameVersion)
+      : "",
     version.software && version.software !== "Minecraft" ? version.software : "",
     version.softwareVersion && version.softwareVersion !== version.gameVersion ? version.softwareVersion : "",
   ].filter(Boolean);
@@ -21591,6 +21640,54 @@ function getSteamUpdateCheck(instance) {
   return steamUpdateChecks.get(getSteamUpdateCheckKey(instance))?.result || null;
 }
 
+function isSteamUpdateCheckInFlight(instance) {
+  return Boolean(steamUpdateChecks.get(getSteamUpdateCheckKey(instance))?.inFlight);
+}
+
+function describeSteamUpdateCheck(check) {
+  if (!check) return { message: "This node's Agent cannot check for server updates yet. Update the Agent first.", tone: "warning" };
+  const branch = check.branch || "public";
+  if (check.updateAvailable === true) return { message: `Update available: ${branch} build ${check.latestBuildId} (installed ${check.installedBuildId}).`, tone: "warning" };
+  if (check.updateAvailable === false) return { message: `Server files are up to date (${branch} build ${check.installedBuildId}).`, tone: "success" };
+  if (check.error === "STEAMCMD_BRANCH_NOT_FOUND") return { message: `Steam does not list a "${branch}" branch for this server. Choose another branch.`, tone: "warning" };
+  if (!check.installedBuildId) return { message: "The installed build is unknown. Run Update Server Files once to record it.", tone: "warning" };
+  return { message: `Could not check for updates${check.error ? ` (${check.error})` : ""}. Try again later.`, tone: "warning" };
+}
+
+async function checkSelectedSteamUpdateNow() {
+  const instance = findInstance();
+  if (!isSteamCmdUpdateInstance(instance)) return;
+  await refreshSteamUpdateCheck(instance, { force: true, refresh: true });
+  const { message, tone } = describeSteamUpdateCheck(getSteamUpdateCheck(instance));
+  showToast(message, tone);
+}
+
+async function chooseSelectedSteamBranch() {
+  const desktopApiState = getDesktopApiState();
+  const requestContext = createNodeActionContext("steam-branch");
+  const instance = findInstance();
+  if (!isSteamCmdUpdateInstance(instance) || typeof desktopApiState.api?.instances?.setSteamBranch !== "function") return;
+  const known = getSteamUpdateCheck(instance)?.branches || [];
+  const branch = await promptBackupText({
+    title: "Steam Branch",
+    message: `Branch this server updates to. "public" is the normal release.${known.length ? ` Steam lists: ${known.join(", ")}.` : ""} Password-protected betas are not supported. Files change on the next Update Server Files.`,
+    label: "Branch name",
+    initialValue: instance.steamBranch || "public",
+    confirmLabel: "Save Branch",
+  });
+  if (!branch) return;
+  try {
+    if (!isNodeActionStillCurrent(requestContext)) return;
+    const result = await desktopApiState.api.instances.setSteamBranch(instance.id, String(branch).trim(), getNodeScopedPayload(requestContext));
+    if (result?.ok === false) throw Object.assign(new Error(result.error?.message || "Branch could not be saved."), { code: result.error?.code });
+    showToast(`Steam branch set to ${String(branch).trim() || "public"}.`);
+    await refreshInstances({ silent: true });
+    refreshSteamUpdateCheck(findInstance(instance.id), { force: true });
+  } catch (error) {
+    showToast(getAgentErrorMessage(error, "Steam branch could not be saved."), "warning");
+  }
+}
+
 async function refreshSteamUpdateCheck(instance, options = {}) {
   const api = getDesktopApiState().api;
   if (!isSteamCmdUpdateInstance(instance) || typeof api?.instances?.checkSteamUpdate !== "function") return;
@@ -21600,6 +21697,7 @@ async function refreshSteamUpdateCheck(instance, options = {}) {
   if (!options.force && entry && Date.now() - entry.fetchedAt < STEAM_UPDATE_CHECK_RENDERER_TTL_MS) return;
   const requestContext = createNodeActionContext(`steam-update-check:${instance.id}`);
   steamUpdateChecks.set(key, { result: entry?.result || null, fetchedAt: entry?.fetchedAt || 0, inFlight: true });
+  updateInstanceActionButtons();
   let result = null;
   try {
     const response = await api.instances.checkSteamUpdate(instance.id, getNodeScopedPayload(requestContext, { refresh: options.refresh === true }));
@@ -21608,7 +21706,28 @@ async function refreshSteamUpdateCheck(instance, options = {}) {
     result = null;
   }
   steamUpdateChecks.set(key, { result, fetchedAt: Date.now(), inFlight: false });
-  if (isNodeRequestCurrent(requestContext)) updateInstanceActionButtons();
+  if (isNodeRequestCurrent(requestContext)) {
+    updateInstanceActionButtons();
+    const row = [...(instancesList?.querySelectorAll("tr[data-instance-id]") || [])].find((entry) => entry.dataset.instanceId === instance.id);
+    const latest = findInstance(instance.id);
+    if (row && latest) updateInstanceRow(row, latest);
+  }
+  return result;
+}
+
+// Each failed scheduled update is announced once per app session, the first
+// time its schedule is loaded, so it is not only a line on the schedule row.
+const announcedSteamUpdateFailures = new Set();
+
+function announceScheduledSteamUpdateFailures(instance, schedules) {
+  schedules.forEach((schedule) => {
+    const last = schedule?.lastSteamUpdate;
+    if (!last?.attempted || last.ok !== false) return;
+    const key = `${schedule.id}:${last.at || ""}`;
+    if (announcedSteamUpdateFailures.has(key)) return;
+    announcedSteamUpdateFailures.add(key);
+    showToast(`Scheduled update for ${instance.displayName || instance.id} failed (${last.code}). The server was started on build ${last.buildIdBefore || "unknown"}.`, "warning");
+  });
 }
 
 function formatRestartScheduleSteamUpdate(schedule) {
@@ -21850,6 +21969,7 @@ async function refreshRestartSchedules(options = {}) {
       instanceId: instance.id,
       schedules: Array.isArray(result?.schedules) ? result.schedules : [],
     };
+    announceScheduledSteamUpdateFailures(instance, restartSchedulesState.schedules);
   } catch (error) {
     if (!isNodeActionStillCurrent(requestContext)) return;
     restartSchedulesState = {
@@ -23449,6 +23569,27 @@ async function runInstanceAction(actionName) {
   if (actionName === "configure-fivem") {
     await openFiveMSetup(selectedInstance);
     updateInstanceActionButtons();
+    return;
+  }
+
+  if (actionName === "sign-in") {
+    if (refuseServiceManagedAction(selectedInstance, "Sign in")) {
+      updateInstanceActionButtons();
+      return;
+    }
+    instanceActionRequestInFlight = true;
+    updateInstanceActionButtons();
+    try {
+      if (!isNodeActionStillCurrent(requestContext)) return;
+      const result = await desktopApiState.api.instances.signIn(targetInstanceId, getNodeScopedPayload(requestContext));
+      showToast(`Opened the ${result?.label || "account"} sign-in page in your browser. Approve code ${result?.userCode || "shown on the page"} there.`);
+      await refreshInstanceLogs();
+    } catch (error) {
+      showToast(getAgentErrorMessage(error, "The sign-in page could not be opened."));
+    } finally {
+      instanceActionRequestInFlight = false;
+      updateInstanceActionButtons();
+    }
     return;
   }
 
@@ -46766,6 +46907,12 @@ instancesRestartButtons.forEach((button) => {
 instancesRepairNeoForgeButtons.forEach((button) => {
   button.addEventListener("click", () => runInstanceAction("repair-neoforge-runtime"));
 });
+document.querySelectorAll("[data-steam-update-check]").forEach((button) => {
+  button.addEventListener("click", () => checkSelectedSteamUpdateNow());
+});
+document.querySelectorAll("[data-steam-branch]").forEach((button) => {
+  button.addEventListener("click", () => chooseSelectedSteamBranch());
+});
 document.querySelectorAll('[data-instance-action="update-steam"]').forEach((button) => {
   button.addEventListener("click", () => runInstanceAction("update-steam"));
 });
@@ -46792,6 +46939,9 @@ instancesForceKillButtons.forEach((button) => {
 });
 document.querySelectorAll('[data-instance-action="configure-fivem"]').forEach((button) => {
   button.addEventListener("click", () => runInstanceAction("configure-fivem"));
+});
+document.querySelectorAll('[data-instance-action="sign-in"]').forEach((button) => {
+  button.addEventListener("click", () => runInstanceAction("sign-in"));
 });
 document.querySelectorAll('[data-instance-action="expose-share"]').forEach((button) => {
   button.addEventListener("click", () => runInstanceAction("expose-share"));

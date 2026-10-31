@@ -237,6 +237,25 @@ instance console log. The whole sequence runs as one durable
 `instance.restart` job with a 25-minute budget and no mid-flight cancel.
 Requires an Agent that includes this change; older Agents ignore the flag.
 
+Further behaviour:
+
+- **Check for Update** asks Steam immediately (still subject to the 2-minute
+  per-app floor). **Patch Notes** opens SteamDB's page for the new build.
+  The instance list shows an **Update available** pill on affected rows.
+- **Branch** selects the Steam branch an instance tracks
+  (`POST /api/v1/instances/:id/steamcmd/branch`, `instance:write`). The check
+  compares against that branch, and updates pass `-beta <branch>`. Returning
+  to `public` passes `-beta public` only while the install is still on a beta.
+  An unlisted branch reports `STEAMCMD_BRANCH_NOT_FOUND`, and
+  password-protected betas are not supported. Files move to the branch on the
+  next (stopped) update.
+- Only one SteamCMD process runs per node at a time. Build lookups and
+  updates queue behind each other, and an update's ten-minute timeout starts
+  when its process starts.
+- Warnings for an auto-update schedule tell players that the server will
+  update if a new version is available. A failed scheduled update also raises
+  a toast in the Control Center the first time its schedule loads.
+
 ## 6. Runtime pins
 
 When an install or dependency check resolves a runtime version for a workload

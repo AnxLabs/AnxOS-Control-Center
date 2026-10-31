@@ -292,8 +292,8 @@ const IPC_FAMILIES = [
     allow: ["owner-unlocked"],
     channels: [
       "instances:create", "instances:update", "instances:rename", "instances:duplicate",
-      "instances:sendCommand", "instances:createRestartSchedule", "instances:updateRestartSchedule",
-      "instances:evaluateRestartSchedules",
+      "instances:sendCommand", "instances:signIn", "instances:createRestartSchedule", "instances:updateRestartSchedule",
+      "instances:evaluateRestartSchedules", "instances:setSteamBranch",
     ],
   },
   {
