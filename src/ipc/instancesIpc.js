@@ -17,6 +17,7 @@ const {
   getInstanceStatus,
   getFiveMReadiness,
   checkSteamCmdBuildUpdate,
+  setSteamCmdBranch,
   getMinecraftProperties,
   listInstanceFiles,
   listInstances,
@@ -297,6 +298,11 @@ function registerInstancesIpc() {
     return saveMinecraftProperties(payload.instanceId, payload.properties, payload);
   }));
   registerInstanceHandler("instances:checkSteamUpdate", async (_, payload = {}) => invokeInstanceOperation(() => { requirePermission("instance:read", payload.instanceId); return checkSteamCmdBuildUpdate(payload.instanceId, payload); }));
+  registerInstanceHandler("instances:setSteamBranch", async (_, payload = {}) => invokeInstanceOperation(() => {
+    requirePermission("instance:write", payload.instanceId);
+    audit({ action: "instance.steamBranch.set", target: payload.instanceId });
+    return setSteamCmdBranch(payload.instanceId, payload.branch, payload);
+  }));
   registerInstanceHandler("instances:getFiveMReadiness", async (_, payload = {}) => invokeInstanceOperation(() => { requirePermission("instance:read", payload.instanceId); return getFiveMReadiness(payload.instanceId, payload); }));
   registerInstanceHandler("instances:saveFiveMLicenseKey", async (_, payload = {}) => invokeInstanceOperation(() => {
     requirePermission("files:write", `${payload.instanceId}:server.cfg`);

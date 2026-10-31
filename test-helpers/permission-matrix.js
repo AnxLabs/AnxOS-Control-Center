@@ -293,7 +293,7 @@ const IPC_FAMILIES = [
     channels: [
       "instances:create", "instances:update", "instances:rename", "instances:duplicate",
       "instances:sendCommand", "instances:signIn", "instances:createRestartSchedule", "instances:updateRestartSchedule",
-      "instances:evaluateRestartSchedules",
+      "instances:evaluateRestartSchedules", "instances:setSteamBranch",
     ],
   },
   {
