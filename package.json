@@ -231,6 +231,7 @@
     "functional-probe-service:smoke": "node scripts/functional-probe-service-smoke.js",
     "steamclient-runtime-sync:smoke": "node scripts/steamclient-runtime-sync-smoke.js",
     "hytale-server:smoke": "node scripts/hytale-server-smoke.js",
+    "server-sign-in:smoke": "node scripts/server-sign-in-smoke.js",
     "ssh:redaction:smoke": "node scripts/ssh-redaction-smoke.js",
     "ssh:agent-auth:smoke": "node scripts/ssh-agent-auth-smoke.js",
     "ssh:key-passphrase:smoke": "node scripts/ssh-key-passphrase-smoke.js",
