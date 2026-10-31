@@ -10,9 +10,6 @@ Build 208 adds the official Hytale dedicated server and checks whether AI servic
   - **Later starts:** the server starts directly through Hytale's own launcher, so Hytale's built-in updater keeps working.
   - **Status:** a server that has not been signed in shows as degraded, because players can't join it yet.
   - **Backups:** world backups include `Server/universe`.
-  - **Sign in button:** while a server needs an account sign-in, its instance page offers **Sign in**. It opens the publisher's sign-in page, with the code filled in, in your default browser, and only on the publisher's own sign-in site.
-    - If your account has several game profiles, the button offers **Choose profile**.
-    - Once signed in, it stays as a dimmed **✓ Signed in**, and a notification confirms the sign-in.
   - **Requirements:** Java 25 and a forwarded UDP port (default 5520). On Windows nodes the template is refused with a clear message. See `docs/HYTALE_SERVER.md`.
 - **Health vs Function in the Infrastructure Inventory (AIM-2).** A new Function column shows whether an AI service actually works, next to whether it is running. A service that hasn't been checked shows "Not checked" and is never green.
   - **Checks:** run only when you click Check, and only for services you have approved in `functional-probe-scopes.json`. They are read-only, send no credentials, and are off by default.
@@ -22,18 +19,6 @@ Build 208 adds the official Hytale dedicated server and checks whether AI servic
   - **Dependencies:** the sandbox, plugin host, Claude Code worker, browser, search and Cloudflare tunnel are listed as a stack.
   - **Failures:** a stopped or missing part of the stack fails Sona even when no live check runs.
   - **Approved check:** a live check reads only Sona's public health route and reports a version change or a different app answering.
-
-- **Server updates.**
-  - **SteamCMD servers:** an **Update available** badge, on the instance and in the list, compares the installed Steam build with the latest public one. **Check for Update** refreshes it. You can choose a Steam beta branch per instance, and only one SteamCMD job runs per node at a time.
-  - **Other Marketplace servers:** check-only update badges for Paper, Vanilla, FiveM and Hytale. Applying those updates stays manual.
-  - **Scheduled restarts:** they can update SteamCMD servers (opt-in). Their progress appears in the Download Manager.
-  - **Backups and rollback:** a backup can run before every SteamCMD update. **Roll Back Update** restores it.
-  - **Fleet view:** the Nodes page has a **Server Updates** panel to check every node and update stopped servers one at a time.
-- **Restart schedules** use a single dialog and can be edited.
-- **Server alerts:** each node can post crashes, scheduled restarts and updates to a Discord or HTTPS webhook. The webhook URL stays on the Agent and is never shown again.
-- **Mod Manager for Minecraft.** A **Mods** tab (**Plugins** on Paper/Purpur) searches Modrinth for the server's version and loader.
-  - It installs mods with their required dependencies, and can update, disable and remove AnxOS-installed mods.
-  - Downloads come only from Modrinth's CDN and are checked against Modrinth's SHA-512.
 
 ## Changed
 
@@ -45,18 +30,22 @@ Build 208 adds the official Hytale dedicated server and checks whether AI servic
   - **Fix:** after a verified update, while the server is stopped, Control Center refreshes the copy safely.
   - **Messages you'll still see:** the "[S_API FAIL] … before SteamAPI_Init succeeded" lines come from Palworld's own server binary and are harmless. They stay visible.
 - **Network inventory** now says when the netstat fallback could not read a protocol, instead of returning a silently incomplete list.
+- **Installed Marketplace servers were labelled as Minecraft.** An installed Hytale server's card read "Minecraft 0.7.5". The card now names Minecraft only for Minecraft servers.
+- **Installed servers showed as "Available" in the Marketplace.** When the Marketplace was the first page opened, either in its own window or after a restart, installed templates weren't recognised. The Marketplace now loads the node's servers when it opens.
 
 ## Upgrade
 
 An in-place upgrade keeps all settings, nodes, credentials, instances and worlds.
 
 - **Agents:** update node Agents (Agent `.deb` for packaged nodes, Update Agent for desktop-installed user services). Hytale's status and Palworld's library refresh run in the Agent.
-  - Updating or restarting an Agent stops every server it runs. Stop them first (and back up worlds), then start them again afterwards.
 - **Functional checks:** off by default. To enable one, add an approved scope to `%APPDATA%\AnxHub\config\functional-probe-scopes.json`. See `docs/v2/AIM2_IMPLEMENTATION_RECORD.md`.
 
 ## QA
 
-Release-candidate acceptance is pending. This section is completed after the signed RC passes:
-- **Repository validation:** `npm run rc:validate`.
-- **Signed CI build:** Authenticode signature, SHA-256 checksum and update manifest.
-- **In-place upgrade and acceptance on real nodes:** includes a Marketplace Hytale install on a Linux node.
+Release-candidate acceptance passed on RC 4 (commit `874dbb2b`). RCs 1 to 3 were stopped by the two Marketplace issues listed under Fixed.
+- **Repository validation:** `npm run rc:validate`, 355 of 355 suites.
+- **Signed CI build:** Authenticode signature valid and timestamped, SHA-256 recorded, and the update manifest matches the installer.
+- **In-place upgrade on Windows:** the per-user install upgraded without an administrator prompt, all settings, nodes, credentials and app data were kept, and the app reported Build 208.
+- **Acceptance:** Dashboard, Instances, Marketplace, Nodes and Fleet, Infrastructure Inventory (Health and Function), Network, Backups, Docker, Agent Control and Settings, with a Linux node (Anxlab) and a VPS node connected.
+- **Hytale:** the Hytale server installed on the Linux node during development shows as installed in the Marketplace, with the correct version.
+- **Not repeated in this acceptance:** a fresh Hytale install from the Marketplace, which needs a Hytale account sign-in, and the node Agent update.

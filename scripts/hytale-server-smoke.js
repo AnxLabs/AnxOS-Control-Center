@@ -163,6 +163,27 @@ function launcherScript() {
   assert.ok(stdoutHandler.indexOf("updateHytaleReadiness(") > 0 && stdoutHandler.indexOf("updateHytaleReadiness(") < stdoutHandler.indexOf("Server marked as running"), "Hytale output never reaches the generic readiness regex");
   pass("H5 Hytale is its own family with universe/ world backups and log-based readiness (unauthenticated = degraded)");
 
+  // H5b: the Marketplace card's installed-version line names Minecraft only
+  // for Minecraft servers (Build 208 acceptance showed "Minecraft 0.7.5" on
+  // the installed Hytale card).
+  const ui = fs.readFileSync(path.join(ROOT, "app.js"), "utf8");
+  const versionLine = ui.slice(ui.indexOf("function getMarketplaceInstalledInstanceVersion("), ui.indexOf("function getMarketplaceInstalledProviderVersionId("));
+  assert.match(versionLine, /version\.isMinecraft \? `Minecraft \$\{version\.gameVersion\}` : version\.gameVersion/, "only Minecraft servers get the Minecraft prefix");
+  assert.doesNotMatch(versionLine, /"Unknown version" \? `Minecraft/, "the Minecraft prefix must not be unconditional");
+  pass("H5b the installed Marketplace card labels a Hytale version without \"Minecraft\"");
+
+  // H5c: opening the Marketplace page loads the node's instances, so an
+  // installed template is shown as installed. Acceptance saw the installed
+  // Hytale server listed as "Available" both in a freshly opened Marketplace
+  // window and in the main window when it started on the Marketplace page.
+  const showPageSource = ui.slice(ui.indexOf("function showPage("), ui.indexOf("function showPage(") + 12000);
+  assert.match(showPageSource, /safePageName === "marketplace"\) \{[^}]*refreshMarketplace\(\);[^}]*refreshInstances\(\{ background: true, refreshMetrics: false \}\)/, "opening the Marketplace page must load instances");
+  const workspaceContext = ui.slice(ui.indexOf("async function applyWorkspaceWindowContext("), ui.indexOf("document.title = \"Create Server — AnxOS Control Center\";"));
+  assert.ok(workspaceContext.indexOf("showPage(\"marketplace\")") > 0, "the Marketplace window opens through showPage, so it loads instances too");
+  const snapshotRender = ui.slice(ui.indexOf("function renderInstancesSnapshot("), ui.indexOf("function renderInstancesSnapshot(") + 6000);
+  assert.match(snapshotRender, /getActivePageName\(\) === "marketplace"\)\s*\{\s*renderMarketplaceTemplates\(\);/, "a loaded instance list re-renders the Marketplace cards");
+  pass("H5c opening the Marketplace (main window or its own window) loads instances so installed templates show as installed");
+
   // H6: the launcher itself (needs bash with mkfifo; Linux nodes only).
   if (process.platform === "win32") {
     console.log("SKIP H6 launcher run needs a Linux shell (verify on a Linux node: node scripts/hytale-server-smoke.js)");
