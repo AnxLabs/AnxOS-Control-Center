@@ -45,6 +45,8 @@ Build 208 adds the official Hytale dedicated server and checks whether AI servic
   - **Fix:** after a verified update, while the server is stopped, Control Center refreshes the copy safely.
   - **Messages you'll still see:** the "[S_API FAIL] … before SteamAPI_Init succeeded" lines come from Palworld's own server binary and are harmless. They stay visible.
 - **Network inventory** now says when the netstat fallback could not read a protocol, instead of returning a silently incomplete list.
+- **Installed Marketplace servers were labelled as Minecraft.** An installed Hytale server's card read "Minecraft 0.7.5". The card now names Minecraft only for Minecraft servers.
+- **Installed servers showed as "Available" in the Marketplace.** When the Marketplace was the first page opened, either in its own window or after a restart, installed templates weren't recognised. The Marketplace now loads the node's servers when it opens.
 
 ## Upgrade
 
@@ -56,7 +58,10 @@ An in-place upgrade keeps all settings, nodes, credentials, instances and worlds
 
 ## QA
 
-Release-candidate acceptance is pending. This section is completed after the signed RC passes:
-- **Repository validation:** `npm run rc:validate`.
-- **Signed CI build:** Authenticode signature, SHA-256 checksum and update manifest.
-- **In-place upgrade and acceptance on real nodes:** includes a Marketplace Hytale install on a Linux node.
+Release-candidate acceptance passed on RC 4 (commit `874dbb2b`). RCs 1 to 3 were stopped by the two Marketplace issues listed under Fixed.
+- **Repository validation:** `npm run rc:validate`, 355 of 355 suites.
+- **Signed CI build:** Authenticode signature valid and timestamped, SHA-256 recorded, and the update manifest matches the installer.
+- **In-place upgrade on Windows:** the per-user install upgraded without an administrator prompt, all settings, nodes, credentials and app data were kept, and the app reported Build 208.
+- **Acceptance:** Dashboard, Instances, Marketplace, Nodes and Fleet, Infrastructure Inventory (Health and Function), Network, Backups, Docker, Agent Control and Settings, with a Linux node (Anxlab) and a VPS node connected.
+- **Hytale:** the Hytale server installed on the Linux node during development shows as installed in the Marketplace, with the correct version.
+- **Not repeated in this acceptance:** a fresh Hytale install from the Marketplace, which needs a Hytale account sign-in, and the node Agent update.
