@@ -154,6 +154,7 @@ function createHarness() {
     setRestartScheduleEnabled: (schedule, enabled) => toggles.push({ id: schedule.id, enabled }),
     deleteRestartScheduleEntry: (schedule) => removals.push(schedule.id),
     setRestartScheduleAutoUpdate: () => {},
+    editRestartScheduleEntry: () => {},
   };
   vm.createContext(context);
   // The declaration statements come from app.js verbatim: they are what the fix
