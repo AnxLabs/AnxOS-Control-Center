@@ -282,7 +282,7 @@ const IPC_FAMILIES = [
       "instances:listFiles", "instances:readFile", "instances:listRestartSchedules",
       "instances:serviceOverview", "instances:serviceHistory", "instances:serviceOperation", "instances:safeRestartPreflight",
       "instances:getMinecraftProperties", "instances:getGameServerConfig", "instances:getFiveMReadiness",
-      "instances:checkSteamUpdate", "instances:jobs:list", "instances:jobs:get",
+      "instances:checkSteamUpdate", "instances:getSteamUpdateProgress", "instances:jobs:list", "instances:jobs:get",
     ],
   },
   {
@@ -292,8 +292,8 @@ const IPC_FAMILIES = [
     allow: ["owner-unlocked"],
     channels: [
       "instances:create", "instances:update", "instances:rename", "instances:duplicate",
-      "instances:sendCommand", "instances:createRestartSchedule", "instances:updateRestartSchedule",
-      "instances:evaluateRestartSchedules",
+      "instances:sendCommand", "instances:signIn", "instances:createRestartSchedule", "instances:updateRestartSchedule",
+      "instances:evaluateRestartSchedules", "instances:setSteamBranch",
     ],
   },
   {

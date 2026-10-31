@@ -468,6 +468,24 @@ Use this section to accumulate verified project knowledge over time. Add entries
   command line first. During this work, taking the first PID from a UDP
   listing terminated an unrelated RustDesk process, which its service respawned.
 
+### 2026-10-30 — An Agent upgrade stops every server it supervises
+
+- **Problem:** Upgrading the Anxlab Agent to Build 208 also stopped
+  `fivem-staging`, although its FXServer process was not in the
+  `anxos-agent` service cgroup and had been described as unaffected.
+- **Cause:** On SIGTERM the Agent's `shutdown()` calls
+  `instanceService.shutdownInstanceService()`, which stops every instance it
+  tracks, wherever the process lives (`agent/src/server.js`). Separately, the
+  packaged unit uses the default `KillMode=control-group`, so processes in the
+  service cgroup (Palworld here) die with it as well.
+- **Resolution:** Palworld's saves were backed up and it was stopped cleanly
+  from the app before the upgrade. Both servers were started again from the
+  app afterwards. The Build 208 upgrade notes now say an Agent update stops
+  its servers.
+- **Lesson:** Before restarting or upgrading a node's Agent, list every
+  running instance it supervises, back up and stop them from the app, then
+  start them again. Don't infer survival from a process's cgroup.
+
 ## Future Improvements
 
 Keep optional ideas separate from active work. An item in this list is not authorization to implement it.

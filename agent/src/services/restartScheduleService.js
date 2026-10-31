@@ -122,8 +122,8 @@ async function defaultRestartInstance(instanceId) {
 // Opt-in (schedule.autoUpdateSteam): restart through the SteamCMD-aware path,
 // which only updates when a newer public build is confirmed and always starts
 // the server again, on the old build if the update fails.
-async function defaultRestartInstanceWithSteamUpdate(instanceId) {
-  return getInstanceService().restartInstanceWithSteamUpdate(instanceId);
+async function defaultRestartInstanceWithSteamUpdate(instanceId, options = {}) {
+  return getInstanceService().restartInstanceWithSteamUpdate(instanceId, options);
 }
 
 // Canonical read path for the instance's durable jobs (the same query the
@@ -359,6 +359,11 @@ function buildSchedulePayload(payload = {}, existing = null) {
   schedule.autoUpdateSteam = payload.autoUpdateSteam !== undefined
     ? payload.autoUpdateSteam === true
     : existing?.autoUpdateSteam === true;
+  // A scheduled update takes a full rollback backup first unless this is
+  // explicitly false (backups count toward the normal retention policy).
+  schedule.backupBeforeUpdate = payload.backupBeforeUpdate !== undefined
+    ? payload.backupBeforeUpdate !== false
+    : existing?.backupBeforeUpdate !== false;
   return schedule;
 }
 
@@ -496,6 +501,14 @@ function notifyScheduleOutcome(event, schedule, message) {
   } catch {}
 }
 
+// Plain schedules keep their established wording; an auto-update schedule
+// tells players the restart may take longer because the server may update.
+function restartWarningMessage(schedule, lead) {
+  return schedule.autoUpdateSteam === true
+    ? `AnxOS scheduled restart in ${lead}. The server will update if a new version is available, which can take a few minutes.`
+    : `AnxOS scheduled restart in ${lead}.`;
+}
+
 async function sendWarning(schedule, message) {
   // Warnings are a best-effort courtesy channel: a failed stdin write (for
   // example the process exited between the liveness check and the write)
@@ -548,12 +561,12 @@ async function evaluateSchedule(schedule, changed) {
       return;
     }
     if (longLeadMinutes && atMs >= dueAtMs - warnMinutes * 60 * 1000 && !schedule.warnState.longSentAt) {
-      await sendWarning(schedule, `AnxOS scheduled restart in ${warnMinutes} minute(s).`);
+      await sendWarning(schedule, restartWarningMessage(schedule, `${warnMinutes} minute(s)`));
       schedule.warnState.longSentAt = nowIso(atMs);
       changed.value = true;
     }
     if (atMs >= dueAtMs - SHORT_WARN_LEAD_MS && !schedule.warnState.shortSentAt) {
-      await sendWarning(schedule, "AnxOS scheduled restart in about 1 minute.");
+      await sendWarning(schedule, restartWarningMessage(schedule, "about 1 minute"));
       schedule.warnState.shortSentAt = nowIso(atMs);
       changed.value = true;
     }
@@ -621,11 +634,11 @@ async function evaluateSchedule(schedule, changed) {
     // thresholds. Deliver any unsent warnings in order before the restart so
     // connected players always receive notice.
     if (longLeadMinutes && !schedule.warnState.longSentAt) {
-      await sendWarning(schedule, `AnxOS scheduled restart in ${warnMinutes} minute(s).`);
+      await sendWarning(schedule, restartWarningMessage(schedule, `${warnMinutes} minute(s)`));
       schedule.warnState.longSentAt = nowIso(atMs);
     }
     if (!schedule.warnState.shortSentAt) {
-      await sendWarning(schedule, "AnxOS scheduled restart in about 1 minute.");
+      await sendWarning(schedule, restartWarningMessage(schedule, "about 1 minute"));
       schedule.warnState.shortSentAt = nowIso(atMs);
     }
     if (schedule.autoUpdateSteam === true) {
@@ -654,7 +667,7 @@ function launchSteamUpdateRestart(schedule, atMs) {
   const run = (async () => {
     let fields;
     try {
-      const outcome = await (executors.restartInstanceWithSteamUpdate || defaultRestartInstanceWithSteamUpdate)(schedule.instanceId);
+      const outcome = await (executors.restartInstanceWithSteamUpdate || defaultRestartInstanceWithSteamUpdate)(schedule.instanceId, { backupBeforeUpdate: schedule.backupBeforeUpdate !== false });
       const steamUpdate = outcome?.steamUpdate || null;
       fields = {
         lastSteamUpdate: steamUpdate ? { ...steamUpdate, at: nowIso(atMs) } : null,

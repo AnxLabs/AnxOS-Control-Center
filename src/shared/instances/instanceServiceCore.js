@@ -18,6 +18,7 @@ const {
   serializeDocument,
 } = require("../gameServerConfigManager");
 const { evaluateWorkloadTrust, TRUST_DECLARATION_FIELDS } = require("../workloadTrustPolicy");
+const { getSignInAdapter, parseSignInOutput, usableSignInChallenge } = require("../gameSignIn");
 const {
   decideMigrationRecovery,
   verifyRecoveryPoint,
@@ -50,6 +51,12 @@ function configureInstanceService(options = {}) {
   }
   if (typeof options.resolveJavaRuntime === "function") {
     resolveJavaRuntimeProvider = options.resolveJavaRuntime;
+  }
+
+  // The Agent supplies its backup service here so a SteamCMD update can take
+  // a rollback point first. The desktop's local instances have none.
+  if (typeof options.createPreUpdateBackup === "function") {
+    preUpdateBackupProvider = options.createPreUpdateBackup;
   }
   // The Agent forwards lifecycle events (crashes, SteamCMD update outcomes)
   // to its alert webhook. The desktop's local instances have no listener.
@@ -680,7 +687,12 @@ async function getSteamCmdUpdateStatus(instanceId, request = {}) {
   };
 }
 
+// Test seam: smokes pin SteamCMD to a path that does not exist so a real
+// download can never start on a machine that has SteamCMD installed.
+let steamCmdExecutableOverride = null;
+
 function resolveSteamCmdExecutable() {
+  if (steamCmdExecutableOverride) return steamCmdExecutableOverride;
   const bundled = bundledRuntimePaths.resolveExecutable("steamcmd");
   if (bundled) return bundled;
   if (process.platform !== "win32") {
@@ -771,6 +783,35 @@ function resolveSteamAppManifest(config) {
   return { installDir, manifestRelative, manifestPath };
 }
 
+// Steam branch ("beta") the instance tracks. "public" is Steam's default
+// branch; password-protected betas are not supported.
+const STEAM_BRANCH_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+
+function getSteamBranch(config) {
+  const branch = String(config?.steamBranch || "public").trim();
+  return STEAM_BRANCH_PATTERN.test(branch) ? branch : "public";
+}
+
+async function readSteamManifestBetaKey(manifestPath) {
+  try {
+    const content = await fs.readFile(manifestPath, "utf8");
+    return content.match(/"betakey"\s+"([^"]*)"/i)?.[1] || null;
+  } catch {
+    return null;
+  }
+}
+
+// One SteamCMD process per node at a time: concurrent runs contend for
+// SteamCMD's own package/appinfo lock and fail. Build lookups and updates
+// queue here instead (an update's ten-minute timeout starts at its spawn).
+let steamCmdQueue = Promise.resolve();
+
+function withSteamCmdLock(operation) {
+  const run = steamCmdQueue.then(operation, operation);
+  steamCmdQueue = run.catch(() => {});
+  return run;
+}
+
 async function readSteamManifestBuildId(manifestPath) {
   try {
     const content = await fs.readFile(manifestPath, "utf8");
@@ -789,7 +830,8 @@ async function executeSteamCmdUpdate(instanceId, request = {}) {
     return result;
   } catch (error) {
     // Refusals before anything ran (wrong state, bad session) are not alerts.
-    if (/^STEAMCMD_(?:UPDATE_FAILED|UPDATE_TIMEOUT|UPDATE_NOT_CONFIRMED|UPDATE_BUILD_UNVERIFIED|UPDATE_NOT_APPLIED|UPDATE_ARTIFACTS_MISSING|NETWORK_UNAVAILABLE|AUTHORIZATION_FAILED|APP_ID_INVALID|MISSING|SPAWN_FAILED|PROCESS_ERROR)$/.test(String(error?.code || ""))) {
+    // A failed pre-update backup is: the update was cancelled because of it.
+    if (/^STEAMCMD_(?:UPDATE_FAILED|UPDATE_TIMEOUT|UPDATE_NOT_CONFIRMED|UPDATE_BUILD_UNVERIFIED|UPDATE_NOT_APPLIED|UPDATE_ARTIFACTS_MISSING|NETWORK_UNAVAILABLE|AUTHORIZATION_FAILED|APP_ID_INVALID|MISSING|SPAWN_FAILED|PROCESS_ERROR|PRE_UPDATE_BACKUP_FAILED)$/.test(String(error?.code || ""))) {
       emitInstanceEvent("update.failed", { instanceId: String(instanceId), message: `AnxOS: SteamCMD update for ${instanceId} failed (${error.code}). Server files were left on build ${error.buildIdBefore || "unknown"}.` });
     }
     throw error;
@@ -812,13 +854,34 @@ async function executeSteamCmdUpdateUnobserved(instanceId, request = {}) {
   // the spawn cwd, so the instance install path must be absolute or the update
   // downloads into a stray directory while the live install stays stale.
   const installDirectory = resolveInstanceDataPath(config.id, installDir).path;
-  const args = ["+force_install_dir", installDirectory, "+login", "anonymous", "+app_update", String(config.steamAppId), "validate", "+quit"];
+  const branch = getSteamBranch(config);
+  // A non-public branch is selected with -beta. Going back to public needs an
+  // explicit "-beta public" only when the install is still on a beta,
+  // otherwise SteamCMD keeps updating the beta it was last given.
+  const betaArgs = branch !== "public" || await readSteamManifestBetaKey(manifestPath) ? ["-beta", branch] : [];
+  const args = ["+force_install_dir", installDirectory, "+login", "anonymous", "+app_update", String(config.steamAppId), ...betaArgs, "validate", "+quit"];
   const readBuildId = () => readSteamManifestBuildId(manifestPath);
   const buildIdBefore = await readBuildId();
+  // Optional rollback point: a full backup of the stopped instance. If it
+  // fails, the update does not start; files are left exactly as they were.
+  let preUpdateBackup = null;
+  if (request.backupBeforeUpdate === true) {
+    if (typeof preUpdateBackupProvider !== "function") throw createInstanceError("STEAMCMD_PRE_UPDATE_BACKUP_UNAVAILABLE", 409);
+    Object.assign(session.updateState, { stage: "backup", label: "Backing up the server before the update...", updatedAt: nowIso() });
+    try {
+      const created = await preUpdateBackupProvider(config.id, { buildIdBefore });
+      const backup = created?.backup || created;
+      preUpdateBackup = backup?.id ? { id: backup.id, name: backup.name || backup.id, createdAt: backup.createdAt || nowIso(), buildIdBefore } : null;
+    } catch (error) {
+      throw createInstanceError("STEAMCMD_PRE_UPDATE_BACKUP_FAILED", 422, { causeCode: error?.code || null, buildIdBefore });
+    }
+    if (!preUpdateBackup) throw createInstanceError("STEAMCMD_PRE_UPDATE_BACKUP_FAILED", 422, { causeCode: "BACKUP_NOT_RECORDED", buildIdBefore });
+  }
   const timeoutMs = Math.min(INSTALLER_TIMEOUT_MAX_MS, Math.max(INSTALLER_TIMEOUT_MIN_MS, Number(request.timeoutMs) || 10 * 60 * 1000));
   const startedAt = Date.now(); let stdout = ""; let stderr = ""; let timedOut = false; let cancelled = false;
   assertNotServiceManaged(config, "steamcmd-spawn");
-  const result = await new Promise((resolve, reject) => {
+  Object.assign(session.updateState, { stage: "preparing", label: "Waiting for another SteamCMD task on this node...", updatedAt: nowIso() });
+  const result = await withSteamCmdLock(() => new Promise((resolve, reject) => {
     let child;
     const steamCmdExecutable = resolveSteamCmdExecutable();
     try { child = childProcess.spawn(steamCmdExecutable, args, { cwd: workingDirectory, env: buildSpawnEnvironment(config), shell: false, detached: false, stdio: ["ignore", "pipe", "pipe"], windowsHide: true }); }
@@ -829,7 +892,7 @@ async function executeSteamCmdUpdateUnobserved(instanceId, request = {}) {
     child.once("error", (error) => reject(createInstanceError(error?.code === "ENOENT" ? "STEAMCMD_MISSING" : "STEAMCMD_PROCESS_ERROR", 500, { causeCode: error?.code || null })));
     child.once("close", (exitCode, signal) => resolve({ exitCode, signal }));
     const timer = setTimeout(() => { timedOut = true; if (!child.killed) child.kill("SIGKILL"); }, timeoutMs); child.once("close", () => clearTimeout(timer));
-  }).finally(() => { session.child = null; session.cancel = null; });
+  })).finally(() => { session.child = null; session.cancel = null; });
   const buildIdAfter = await readBuildId();
   const output = `${stdout}\n${stderr}`;
   const downloadedBytes = parseSteamCmdDownloadedBytes(output);
@@ -856,9 +919,14 @@ async function executeSteamCmdUpdateUnobserved(instanceId, request = {}) {
     ...config,
     steamBuildId: buildIdAfter,
     steamUpdatedAt: nowIso(),
+    // The rollback point for this update; an update without a backup keeps
+    // the previous one only if the build did not change.
+    steamPreUpdateBackup: preUpdateBackup
+      ? { ...preUpdateBackup, buildIdAfter }
+      : buildIdAfter === buildIdBefore ? config.steamPreUpdateBackup || null : null,
     updatedAt: nowIso(),
   });
-  return { ok: true, ...details, verified: verifyFiles, steamClientSync, buildChanged: Boolean(buildIdBefore && buildIdAfter !== buildIdBefore) };
+  return { ok: true, ...details, verified: verifyFiles, steamClientSync, preUpdateBackup, buildChanged: Boolean(buildIdBefore && buildIdAfter !== buildIdBefore) };
 }
 
 // Update-available detection: the installed build comes from the instance's
@@ -874,6 +942,7 @@ const STEAM_APP_INFO_OUTPUT_MAX_BYTES = 8 * 1024 * 1024;
 const steamLatestBuildCache = new Map();
 const steamLatestBuildInFlight = new Map();
 let steamAppInfoRunner = null;
+let preUpdateBackupProvider = null;
 let steamCmdUpdateExecutor = null;
 let steamBuildCheckClock = () => Date.now();
 
@@ -922,12 +991,21 @@ function parseSteamKeyValues(text, startIndex = 0) {
   return root;
 }
 
-function parseSteamCmdLatestBuildId(output = "", appId) {
+function parseSteamCmdBranchBuildIds(output = "", appId) {
   const text = String(output || "");
   const marker = new RegExp(`"${Number(appId)}"\\s*\\{`).exec(text);
-  if (!marker) return null;
-  const buildId = parseSteamKeyValues(text, marker.index)?.[String(Number(appId))]?.depots?.branches?.public?.buildid;
-  return typeof buildId === "string" && /^\d{1,20}$/.test(buildId) ? buildId : null;
+  if (!marker) return {};
+  const branches = parseSteamKeyValues(text, marker.index)?.[String(Number(appId))]?.depots?.branches;
+  const result = {};
+  for (const [name, entry] of Object.entries(branches && typeof branches === "object" ? branches : {})) {
+    const buildId = entry?.buildid;
+    if (STEAM_BRANCH_PATTERN.test(name) && typeof buildId === "string" && /^\d{1,20}$/.test(buildId)) result[name] = buildId;
+  }
+  return result;
+}
+
+function parseSteamCmdLatestBuildId(output = "", appId, branch = "public") {
+  return parseSteamCmdBranchBuildIds(output, appId)[branch] || null;
 }
 
 async function runSteamAppInfoPrint(config) {
@@ -973,19 +1051,19 @@ async function lookupSteamLatestBuild(config, options = {}) {
   const lookup = (async () => {
     let entry;
     try {
-      const output = await (steamAppInfoRunner || runSteamAppInfoPrint)(config);
-      const buildId = parseSteamCmdLatestBuildId(output?.stdout, appId);
-      entry = buildId
-        ? { buildId, error: null }
-        : { buildId: null, error: output?.exitCode === 0 ? "STEAMCMD_BUILD_INFO_UNAVAILABLE" : classifySteamCmdFailure(output?.stdout) };
+      const output = await withSteamCmdLock(() => (steamAppInfoRunner || runSteamAppInfoPrint)(config));
+      const branches = parseSteamCmdBranchBuildIds(output?.stdout, appId);
+      entry = Object.keys(branches).length
+        ? { branches, error: null }
+        : { branches: null, error: output?.exitCode === 0 ? "STEAMCMD_BUILD_INFO_UNAVAILABLE" : classifySteamCmdFailure(output?.stdout) };
     } catch (error) {
-      entry = { buildId: null, error: error?.code || "STEAMCMD_BUILD_CHECK_FAILED" };
+      entry = { branches: null, error: error?.code || "STEAMCMD_BUILD_CHECK_FAILED" };
     }
-    // A failed lookup keeps the last known good build so the badge does not
+    // A failed lookup keeps the last known good builds so the badge does not
     // flicker away on a transient Steam outage.
     const stored = {
       ...entry,
-      buildId: entry.buildId || (entry.error ? cached?.buildId || null : null),
+      branches: entry.branches || cached?.branches || {},
       checkedAtMs: steamBuildCheckClock(),
     };
     steamLatestBuildCache.set(appId, stored);
@@ -1007,14 +1085,21 @@ async function checkSteamCmdBuildUpdate(instanceId, request = {}) {
   const updateRunning = Boolean(getInstallationSession(config.id)?.child);
   const refresh = !updateRunning && (request.refresh === true || request.refresh === "1" || request.refresh === "true");
   const cachedLatest = steamLatestBuildCache.get(config.steamAppId);
-  const latest = !updateRunning
+  const lookup = !updateRunning
     ? await lookupSteamLatestBuild(config, { refresh, maxAgeMs: request.maxAgeMs })
     : cachedLatest
       ? { ...cachedLatest, cached: true }
-      : { buildId: null, error: "STEAMCMD_UPDATE_IN_PROGRESS", checkedAtMs: steamBuildCheckClock(), cached: true };
+      : { branches: {}, error: "STEAMCMD_UPDATE_IN_PROGRESS", checkedAtMs: steamBuildCheckClock(), cached: true };
+  const branch = getSteamBranch(config);
+  const latestBuildId = lookup.branches?.[branch] || null;
+  // A branch Steam does not list (renamed, removed or password-protected)
+  // is reported instead of silently comparing against public.
+  const branchError = !latestBuildId && !lookup.error && Object.keys(lookup.branches || {}).length ? "STEAMCMD_BRANCH_NOT_FOUND" : null;
+  const latest = { ...lookup, buildId: latestBuildId, error: lookup.error || branchError };
   return {
     appId: config.steamAppId,
-    branch: "public",
+    branch,
+    branches: Object.keys(lookup.branches || {}).sort(),
     installedBuildId,
     installedSource: manifestBuildId ? "manifest" : persistedBuildId ? "config" : null,
     latestBuildId: latest.buildId,
@@ -1026,6 +1111,18 @@ async function checkSteamCmdBuildUpdate(instanceId, request = {}) {
   };
 }
 
+async function setSteamCmdBranch(instanceId, request = {}) {
+  const config = await loadInstanceConfig(instanceId);
+  if (config.installerType !== "steamcmd-native" || !Number.isInteger(config.steamAppId) || config.steamAppId < 1) throw createInstanceError("STEAMCMD_UPDATE_UNSUPPORTED", 409);
+  const branch = String(request.branch || "public").trim() || "public";
+  if (!STEAM_BRANCH_PATTERN.test(branch)) throw createInstanceError("STEAMCMD_BRANCH_INVALID", 400);
+  // Only the setting changes here; files move to the branch on the next
+  // update, which still requires the server to be stopped.
+  const next = { ...config, steamBranch: branch === "public" ? null : branch, updatedAt: nowIso() };
+  await saveInstanceConfig(next);
+  return publicConfig(next);
+}
+
 // Scheduled restart with opt-in SteamCMD update. The update runs only when a
 // newer public build is confirmed, between the stop and the start, through the
 // same session + execute path as the manual "Update Server Files" action (so
@@ -1033,7 +1130,31 @@ async function checkSteamCmdBuildUpdate(instanceId, request = {}) {
 // SteamCMD timeout all still apply). A failed update never leaves the server
 // down: it is started again on the build it already had and the failure is
 // returned (and logged to the instance console) for the caller to surface.
-async function restartInstanceWithSteamUpdate(instanceId) {
+
+// Agent-run (scheduled) SteamCMD updates, so clients can show their progress
+// without owning the update session: the active one per instance, and the
+// outcome of the most recent one. Neither holds the session token.
+const activeSteamUpdates = new Map();
+const recentSteamUpdates = new Map();
+
+function getSteamCmdUpdateProgress(instanceId) {
+  const id = validateInstanceId(instanceId);
+  const session = getInstallationSession(id);
+  const state = session?.installerFamily === "steamcmd-update" ? session.updateState || {} : null;
+  return {
+    active: activeSteamUpdates.get(id) || null,
+    last: recentSteamUpdates.get(id) || null,
+    operationId: state ? session.operationId : null,
+    running: Boolean(session?.child),
+    stage: state?.stage || null,
+    label: state?.label || null,
+    percent: Number.isFinite(Number(state?.percent)) ? Number(state.percent) : null,
+    logs: Array.isArray(state?.logs) ? state.logs.slice(-30) : [],
+    updatedAt: state?.updatedAt || null,
+  };
+}
+
+async function restartInstanceWithSteamUpdate(instanceId, options = {}) {
   const config = await loadInstanceConfig(instanceId);
   const supported = !isServiceManaged(config) && config.installerType === "steamcmd-native" && Number.isInteger(config.steamAppId) && config.steamAppId > 0;
   if (!supported) {
@@ -1063,9 +1184,10 @@ async function restartInstanceWithSteamUpdate(instanceId) {
   let steamUpdate;
   let session = null;
   try {
+    activeSteamUpdates.set(config.id, { operationId, scheduled: true, startedAt: nowIso(), latestBuildId: check.latestBuildId || null });
     session = await beginSteamCmdUpdateSession(config.id, { operationId });
-    const updated = await (steamCmdUpdateExecutor || executeSteamCmdUpdate)(config.id, { operationId, token: session.token });
-    steamUpdate = { attempted: true, ok: true, buildIdBefore: updated.buildIdBefore, buildIdAfter: updated.buildIdAfter, buildChanged: updated.buildChanged, latestBuildId: check.latestBuildId };
+    const updated = await (steamCmdUpdateExecutor || executeSteamCmdUpdate)(config.id, { operationId, token: session.token, backupBeforeUpdate: options.backupBeforeUpdate === true });
+    steamUpdate = { attempted: true, ok: true, buildIdBefore: updated.buildIdBefore, buildIdAfter: updated.buildIdAfter, buildChanged: updated.buildChanged, latestBuildId: check.latestBuildId, preUpdateBackupId: updated.preUpdateBackup?.id || null };
     steamLatestBuildCache.delete(config.steamAppId);
     await appendLog(config.id, "stdout", `Scheduled SteamCMD update installed build ${updated.buildIdAfter} (was ${updated.buildIdBefore || "unknown"}).`).catch(() => {});
   } catch (error) {
@@ -1081,6 +1203,8 @@ async function restartInstanceWithSteamUpdate(instanceId) {
   } finally {
     if (session) await closeInstallationSession(config.id, { operationId, token: session.token }).catch(() => {});
   }
+  activeSteamUpdates.delete(config.id);
+  recentSteamUpdates.set(config.id, { operationId, scheduled: true, ok: steamUpdate.ok === true, code: steamUpdate.code || null, buildIdBefore: steamUpdate.buildIdBefore || null, buildIdAfter: steamUpdate.buildIdAfter || null, finishedAt: nowIso() });
   return { instance: await startInstance(config.id), steamUpdate };
 }
 
@@ -1879,7 +2003,7 @@ function resolveInstanceJavaRuntime(config) {
 
 function publicConfig(config) {
   config = clearInstallerRuntimeJarMetadata(config);
-  const { crashLoopDetectedAt: _crashLoopDetectedAt, ...safeConfig } = config;
+  const { crashLoopDetectedAt: _crashLoopDetectedAt, signInChallenge: _signInChallenge, ...safeConfig } = config;
   const crashLoop = config.state === INSTANCE_STATES.FAILED && config.failureReason === "CRASH_LOOP";
   const processRunning = [INSTANCE_STATES.STARTING, INSTANCE_STATES.RUNNING, INSTANCE_STATES.STOPPING, INSTANCE_STATES.RESTARTING].includes(config.state);
   const readinessState = config.state === INSTANCE_STATES.RUNNING ? config.readinessState || "unknown"
@@ -1893,6 +2017,7 @@ function publicConfig(config) {
         : config.state === INSTANCE_STATES.SETUP_REQUIRED ? "degraded" : "unknown";
   return {
     ...safeConfig,
+    steamUpdateActive: activeSteamUpdates.get(config.id) || null,
     processState: config.state,
     readinessState,
     healthState,
@@ -1906,6 +2031,7 @@ function publicConfig(config) {
     crashed: config.state === INSTANCE_STATES.FAILED && Boolean(config.failureReason),
     crashLoop,
     instancePath: instancePath(config.id),
+    signIn: signInState(config, processRunning),
     environment: Object.keys(config.environment || {}).reduce((redacted, key) => {
       redacted[key] = "[configured]";
       return redacted;
@@ -2376,17 +2502,52 @@ function normalizeVersionInfo(versionInfo = null, config = {}) {
 // UDP, so the TCP port probe can never see it. The first start runs Hytale's
 // bootstrap from data/server, which also prints "Booted" but never serves
 // players, so "Booted" counts only once the official Server/ layout exists.
-function hytaleReadinessUpdate(text, { layoutInstalled }) {
+function hytaleReadinessUpdate(text, { layoutInstalled, booted = false }) {
   if (HYTALE_AUTH_REQUIRED_PATTERN.test(text)) {
     return { readinessState: "degraded", healthState: "degraded", failureReason: "HYTALE_AUTH_REQUIRED" };
   }
   if (!layoutInstalled) {
     return null;
   }
-  if (HYTALE_BOOTED_PATTERN.test(text) || HYTALE_AUTH_SUCCEEDED_PATTERN.test(text)) {
+  if (HYTALE_BOOTED_PATTERN.test(text)) {
+    return { readinessState: "ready", healthState: "healthy", failureReason: null };
+  }
+  // A sign-in completed on a server that is already up. Restoring a stored
+  // session prints the same line before the server binds its port, so on its
+  // own (before "Booted") it is not readiness.
+  if (booted && HYTALE_AUTH_SUCCEEDED_PATTERN.test(text)) {
     return { readinessState: "ready", healthState: "healthy", failureReason: null };
   }
   return null;
+}
+
+// Folds one chunk of output into the running sign-in challenge. A new
+// verification link starts a new challenge, so codes never mix across
+// attempts. Returns the value to persist (null once signed in), or undefined
+// when nothing changed.
+function nextSignInChallenge(game, current, text, now = Date.now()) {
+  const found = parseSignInOutput(game, text);
+  if (!found) return undefined;
+  if (found.succeeded) return null;
+  const base = found.verificationUrl ? {} : { ...(current || {}) };
+  const { expiresInSeconds, ...fields } = found;
+  const next = { ...base, ...fields, observedAt: new Date(now).toISOString() };
+  if (Number.isInteger(expiresInSeconds)) {
+    next.expiresAt = new Date(now + expiresInSeconds * 1000).toISOString();
+  }
+  return next;
+}
+
+function signInState(config, running) {
+  const adapter = getSignInAdapter(inferGameFamily(config));
+  if (!adapter) return null;
+  return {
+    supported: true,
+    game: adapter.game,
+    label: adapter.label,
+    required: running && config.failureReason === adapter.requiredReason,
+    challenge: running ? usableSignInChallenge(adapter.game, config.signInChallenge) : null,
+  };
 }
 
 function updateHytaleReadiness(config, child, text) {
@@ -2395,12 +2556,22 @@ function updateHytaleReadiness(config, child, text) {
     "Server",
     "HytaleServer.jar",
   ));
-  const update = hytaleReadinessUpdate(text, { layoutInstalled });
-  if (!update || !isCurrentRunningProcess(config.id, child)) {
+  if (!isCurrentRunningProcess(config.id, child)) {
     return;
   }
   const entry = runningProcesses.get(config.id);
-  if (entry) {
+  const update = hytaleReadinessUpdate(text, { layoutInstalled, booted: Boolean(entry?.hytaleBooted) });
+  if (entry && layoutInstalled && HYTALE_BOOTED_PATTERN.test(text)) {
+    entry.hytaleBooted = true;
+  }
+  const challenge = entry ? nextSignInChallenge("hytale", entry.signInChallenge, text) : undefined;
+  if (challenge !== undefined) {
+    entry.signInChallenge = challenge;
+  }
+  if (!update && challenge === undefined) {
+    return;
+  }
+  if (update && entry) {
     entry.readinessState = update.readinessState;
     // A Hytale log signal is authoritative, so the generic startup timeout must
     // not later replace it with READINESS_TIMEOUT.
@@ -2408,8 +2579,12 @@ function updateHytaleReadiness(config, child, text) {
       clearTimeout(entry.startupTimer);
     }
   }
-  updateRuntimeState(config.id, { state: INSTANCE_STATES.RUNNING, pid: child.pid, ...update }).catch(() => {});
-  if (update.readinessState === "ready") {
+  const patch = {
+    ...(update ? { state: INSTANCE_STATES.RUNNING, pid: child.pid, ...update } : {}),
+    ...(challenge !== undefined ? { signInChallenge: challenge } : {}),
+  };
+  updateRuntimeState(config.id, patch).catch(() => {});
+  if (update?.readinessState === "ready") {
     scheduleVersionRefresh(config.id, 1000);
   }
 }
@@ -6127,6 +6302,7 @@ async function startInstanceImpl(instanceId, options = {}) {
   const updated = await updateRuntimeState(config.id, {
     state: INSTANCE_STATES.STARTING,
     pid: child.pid,
+    signInChallenge: null,
   });
   await appendLog(config.id, "stdout", `Process PID: ${child.pid}`);
 
@@ -6551,6 +6727,8 @@ async function restartInstanceWithJob(instanceId, options = {}) {
 // cancelling between the update and the start would leave the server down,
 // which is exactly what this path promises not to do.
 const STEAM_UPDATE_RESTART_JOB_TIMEOUT_MS = 25 * 60 * 1000;
+// A full pre-update backup of a large server can itself take many minutes.
+const STEAM_UPDATE_WITH_BACKUP_RESTART_JOB_TIMEOUT_MS = 45 * 60 * 1000;
 
 async function restartInstanceWithSteamUpdateJob(instanceId, options = {}) {
   await ensureInstanceJobsRecovered();
@@ -6558,10 +6736,10 @@ async function restartInstanceWithSteamUpdateJob(instanceId, options = {}) {
     type: "instance.restart",
     target: { instanceId: String(instanceId) },
     idempotencyKey: options?.idempotencyKey,
-    timeoutMs: options?.jobTimeoutMs || STEAM_UPDATE_RESTART_JOB_TIMEOUT_MS,
+    timeoutMs: options?.jobTimeoutMs || (options?.backupBeforeUpdate === true ? STEAM_UPDATE_WITH_BACKUP_RESTART_JOB_TIMEOUT_MS : STEAM_UPDATE_RESTART_JOB_TIMEOUT_MS),
     owner: options?.owner,
     cancellationSupported: false,
-    run: () => restartInstanceWithSteamUpdate(instanceId),
+    run: () => restartInstanceWithSteamUpdate(instanceId, { backupBeforeUpdate: options?.backupBeforeUpdate === true }),
   });
   return withJobAttachment(result, job);
 }
@@ -7525,6 +7703,9 @@ module.exports = {
     setSteamCmdUpdateExecutor(executor) {
       steamCmdUpdateExecutor = typeof executor === "function" ? executor : null;
     },
+    setSteamCmdExecutable(executable) {
+      steamCmdExecutableOverride = executable ? String(executable) : null;
+    },
     setSteamBuildCheckClock(clock) {
       steamBuildCheckClock = typeof clock === "function" ? clock : () => Date.now();
     },
@@ -7558,6 +7739,8 @@ module.exports = {
   beginSteamCmdUpdateSession: refuseForServiceManaged("steamcmd-update", beginSteamCmdUpdateSession),
   getSteamCmdUpdateStatus,
   checkSteamCmdBuildUpdate: refuseForServiceManaged("steamcmd-update", checkSteamCmdBuildUpdate),
+  getSteamCmdUpdateProgress,
+  setSteamCmdBranch: refuseForServiceManaged("steamcmd-update", setSteamCmdBranch),
   repairLegacySteamCmdMetadata: refuseForServiceManaged("repair-metadata", repairLegacySteamCmdMetadata),
   cancelInstallationSession: refuseForServiceManaged("installation", cancelInstallationSession),
   closeInstallationSession: refuseForServiceManaged("installation", closeInstallationSession),
@@ -7567,6 +7750,7 @@ module.exports = {
   getMetrics,
   getWorldScopeCandidates,
   hytaleReadinessUpdate,
+  nextSignInChallenge,
   readGameServerConfig,
   getStatus,
   executeInstallationPhase: refuseForServiceManaged("installation", executeInstallationPhase),
@@ -7574,6 +7758,7 @@ module.exports = {
   parseSteamCmdUpdateProgress,
   parseSteamCmdDownloadedBytes,
   parseSteamCmdLatestBuildId,
+  parseSteamCmdBranchBuildIds,
   syncSteamClientRuntimeCopies,
   STEAMCLIENT_RUNTIME_COPIES,
   classifySteamCmdFailure,

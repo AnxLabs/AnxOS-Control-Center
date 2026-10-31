@@ -155,6 +155,12 @@ Per-instance restart schedules are persisted agent-side and evaluated on a
 (`HH:MM` in the agent host's local time, re-anchored to the wall clock across
 DST transitions). `warnMinutes` defaults to 5 (minimum 1, maximum 1440).
 
+In the Control Center a schedule is created and edited in a single dialog:
+repeat type, interval hours or daily time, warning minutes, and (SteamCMD
+instances only) the auto-update option. Values are checked against the limits
+above before saving. **Edit** on a schedule row changes an existing schedule,
+and a timing change re-anchors its next run.
+
 Behavior operators should expect:
 
 - Warnings are staged into the running server's stdin: a long warning at
@@ -230,6 +236,48 @@ schedule records `lastSteamUpdate` and
 instance console log. The whole sequence runs as one durable
 `instance.restart` job with a 25-minute budget and no mid-flight cancel.
 Requires an Agent that includes this change; older Agents ignore the flag.
+
+Further behaviour:
+
+- **Check for Update** asks Steam immediately (still subject to the 2-minute
+  per-app floor). **Patch Notes** opens SteamDB's page for the new build.
+  The instance list shows an **Update available** pill on affected rows.
+- **Branch** selects the Steam branch an instance tracks
+  (`POST /api/v1/instances/:id/steamcmd/branch`, `instance:write`). The check
+  compares against that branch, and updates pass `-beta <branch>`. Returning
+  to `public` passes `-beta public` only while the install is still on a beta.
+  An unlisted branch reports `STEAMCMD_BRANCH_NOT_FOUND`, and
+  password-protected betas are not supported. Files move to the branch on the
+  next (stopped) update.
+- Only one SteamCMD process runs per node at a time. Build lookups and
+  updates queue behind each other, and an update's ten-minute timeout starts
+  when its process starts.
+- Warnings for an auto-update schedule tell players that the server will
+  update if a new version is available. A failed scheduled update also raises
+  a toast in the Control Center the first time its schedule loads.
+
+While a scheduled update runs, the instance reports `steamUpdateActive` and
+`GET /api/v1/instances/:id/steamcmd/update/progress` (`instance:read`) returns
+its stage, percent and recent SteamCMD log lines, plus the outcome of the last
+scheduled update. It never returns the update session token. The Control
+Center mirrors the update into the Download Manager as **Scheduled update:
+<instance>** and marks it complete or failed when it ends.
+
+**Backup before update.** A SteamCMD update can take a full backup of the
+stopped server first (`backupBeforeUpdate: true` on
+`POST /steamcmd/update`). The backup is labelled `reason: "pre-update"`. If
+the backup fails (`STEAMCMD_PRE_UPDATE_BACKUP_FAILED`, with the backup error as
+`causeCode`), SteamCMD does not run. A successful update records the rollback
+point on the instance (`steamPreUpdateBackup`), and **Roll Back Update**
+restores it through the normal restore flow.
+- Manual updates offer the backup, checked by default.
+- Restart schedules back up before scheduled updates unless
+  `backupBeforeUpdate` is `false` (the **Skip Backup** / **Back Up First**
+  buttons on the schedule row).
+- Pre-update backups count toward normal backup retention.
+- The Agent allows a SteamCMD update request 31 minutes so a large backup can
+  finish first, and an update-aware scheduled restart job gets 45 minutes when
+  it backs up.
 
 ## 6. Runtime pins
 

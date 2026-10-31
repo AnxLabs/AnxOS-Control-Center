@@ -1021,6 +1021,12 @@ let unsubscribeMarketplaceInstallProgress = null;
 let activeMarketplaceOperationId = null;
 let activeMarketplaceInstallNodeId = null;
 let marketplaceLocalDownloadEntries = [];
+// Scheduled SteamCMD updates run by the Agent, mirrored into the Download
+// Manager. Kept apart from the Marketplace entries, which are reset when a
+// Marketplace flow ends.
+let scheduledSteamUpdateEntries = [];
+let scheduledSteamUpdatePollTimer = null;
+const SCHEDULED_STEAM_UPDATE_POLL_MS = 2000;
 let latestMarketplaceDownloads = [];
 // V2-D publisher trust: the last verdict seen per template. The verdict object
 // is produced by the main process (it rides the install result and each
@@ -15835,6 +15841,25 @@ function updateInstanceActionButtons() {
     button.hidden = !isFiveMSetupRequired(selectedInstance);
     button.disabled = busy || !hasInstancesBridge || !isFiveMSetupRequired(selectedInstance);
   });
+  document.querySelectorAll("[data-steam-rollback]").forEach((button) => {
+    const rollback = isSteamCmdUpdateInstance(selectedInstance) ? selectedInstance?.steamPreUpdateBackup : null;
+    const available = Boolean(rollback?.id) && desktopApiState.hasBackups;
+    button.hidden = !available;
+    button.disabled = busy || !available;
+    button.title = available
+      ? `Restore ${rollback.name || rollback.id}, taken before the update to build ${rollback.buildIdAfter || "unknown"}.`
+      : "";
+  });
+
+  document.querySelectorAll('[data-instance-action="sign-in"]').forEach((button) => {
+    // Shown only for games with an account sign-in (for example Hytale) while
+    // the server reports that it needs one.
+    const signIn = selectedInstance?.signIn;
+    const needed = Boolean(signIn?.supported && signIn.required && isInstanceRunning(selectedInstance));
+    button.hidden = !needed;
+    button.disabled = busy || !needed || !hasInstancesBridge || typeof desktopApiState.api?.instances?.signIn !== "function";
+    button.title = needed ? `Sign this server in with your ${signIn.label || "account"} in your browser.` : "";
+  });
   document.querySelectorAll('[data-instance-action="update-steam"]').forEach((button) => {
     const supported = selectedInstance?.installerType === "steamcmd-native" && Number.isInteger(Number(selectedInstance?.steamAppId));
     const running = isInstanceRunning(selectedInstance);
@@ -15851,8 +15876,32 @@ function updateInstanceActionButtons() {
     const check = supported ? getSteamUpdateCheck(selectedInstance) : null;
     badge.hidden = check?.updateAvailable !== true;
     badge.title = check?.updateAvailable === true
-      ? `Installed build ${check.installedBuildId}, latest public build ${check.latestBuildId}. Stop the server, then use Update Server Files.`
+      ? `Installed build ${check.installedBuildId}, latest ${check.branch || "public"} build ${check.latestBuildId}. Stop the server, then use Update Server Files.`
       : "";
+  });
+  document.querySelectorAll("[data-steam-update-notes]").forEach((link) => {
+    const check = isSteamCmdUpdateInstance(selectedInstance) ? getSteamUpdateCheck(selectedInstance) : null;
+    const buildId = check?.updateAvailable === true ? String(check.latestBuildId || "") : "";
+    link.hidden = !/^\d{1,20}$/.test(buildId);
+    if (!link.hidden) {
+      link.href = `https://steamdb.info/patchnotes/${buildId}/`;
+      link.title = `Open SteamDB's notes for build ${buildId} in your browser.`;
+    }
+  });
+  document.querySelectorAll("[data-steam-update-check]").forEach((button) => {
+    const supported = isSteamCmdUpdateInstance(selectedInstance) && typeof desktopApiState.api?.instances?.checkSteamUpdate === "function";
+    const checking = supported && isSteamUpdateCheckInFlight(selectedInstance);
+    button.hidden = !supported;
+    button.disabled = !supported || checking;
+    button.textContent = checking ? "Checking..." : "Check for Update";
+    button.title = "Ask Steam for the latest build now.";
+  });
+  document.querySelectorAll("[data-steam-branch]").forEach((button) => {
+    const supported = isSteamCmdUpdateInstance(selectedInstance) && typeof desktopApiState.api?.instances?.setSteamBranch === "function";
+    button.hidden = !supported;
+    button.disabled = busy || !supported;
+    button.textContent = `Branch: ${selectedInstance?.steamBranch || "public"}`;
+    button.title = "Choose which Steam branch this server updates to. The change applies on the next Update Server Files.";
   });
 
   document.querySelectorAll('[data-instance-action="expose-share"]').forEach((button) => {
@@ -16074,8 +16123,16 @@ function buildInstanceTagsCell(instance) {
   const wrapper = document.createElement("div");
   wrapper.className = "instance-tags-cell";
   const tags = Array.isArray(instance?.tags) ? instance.tags.filter(Boolean) : [];
+  const updateAvailable = isSteamCmdUpdateInstance(instance) && getSteamUpdateCheck(instance)?.updateAvailable === true;
+  if (updateAvailable) {
+    const pill = document.createElement("span");
+    pill.className = "instance-tag--update";
+    pill.textContent = "Update available";
+    wrapper.appendChild(pill);
+  }
 
   if (tags.length === 0) {
+    if (updateAvailable) return wrapper;
     wrapper.textContent = "—";
     return wrapper;
   }
@@ -16134,10 +16191,92 @@ function buildInstanceActionCell(instance) {
   return wrapper;
 }
 
+// Starts a Download Manager entry for each scheduled update the Agent reports
+// as active on the selected node, and polls its progress until it finishes.
+function syncScheduledSteamUpdates(instances = []) {
+  const nodeId = getSelectedNodeId() || "local";
+  instances.forEach((instance) => {
+    const active = instance?.steamUpdateActive;
+    if (!active?.scheduled || !active.operationId) return;
+    const id = `scheduled-steam-${active.operationId}`;
+    if (scheduledSteamUpdateEntries.some((entry) => entry.id === id)) return;
+    const now = new Date().toISOString();
+    scheduledSteamUpdateEntries = [...scheduledSteamUpdateEntries, {
+      id,
+      operationId: active.operationId,
+      instanceId: instance.id,
+      nodeId,
+      name: `Scheduled update: ${instance.displayName || instance.id}`,
+      type: "steamcmd-update",
+      installerType: "steamcmd-native",
+      status: "running",
+      stage: "Preparing",
+      progress: 0,
+      progressMode: "determinate",
+      body: active.latestBuildId ? `Installing Steam build ${active.latestBuildId} during the scheduled restart.` : "Updating server files during the scheduled restart.",
+      logs: [],
+      canCancel: false,
+      canRetry: false,
+      startedAt: active.startedAt || now,
+      createdAt: active.startedAt || now,
+      updatedAt: now,
+    }];
+  });
+  if (!scheduledSteamUpdatePollTimer && scheduledSteamUpdateEntries.some((entry) => entry.status === "running")) {
+    scheduledSteamUpdatePollTimer = setInterval(() => { pollScheduledSteamUpdates(); }, SCHEDULED_STEAM_UPDATE_POLL_MS);
+  }
+}
+
+function applyScheduledSteamUpdateProgress(entry, progress) {
+  const now = new Date().toISOString();
+  if (progress?.operationId === entry.operationId && progress.active?.operationId === entry.operationId) {
+    return {
+      ...entry,
+      stage: progress.label || entry.stage,
+      progress: Number.isFinite(progress.percent) ? progress.percent : entry.progress,
+      logs: Array.isArray(progress.logs) ? progress.logs : entry.logs,
+      updatedAt: progress.updatedAt || now,
+    };
+  }
+  if (progress?.active?.operationId === entry.operationId) return entry;
+  const last = progress?.last?.operationId === entry.operationId ? progress.last : null;
+  if (!last) {
+    return { ...entry, status: "complete", stage: "Finished", progress: 100, body: "The scheduled update finished. The restart schedule shows its result.", updatedAt: now };
+  }
+  return last.ok
+    ? { ...entry, status: "complete", stage: "Complete", progress: 100, body: `Server files updated to build ${last.buildIdAfter || "unknown"}; the server was restarted.`, updatedAt: last.finishedAt || now }
+    : { ...entry, status: "failed", stage: "Failed", error: last.code || "STEAMCMD_UPDATE_FAILED", body: `The scheduled update failed (${last.code || "unknown error"}). The server was started on build ${last.buildIdBefore || "unknown"}.`, updatedAt: last.finishedAt || now };
+}
+
+async function pollScheduledSteamUpdates() {
+  const api = getDesktopApiState().api;
+  const nodeId = getSelectedNodeId() || "local";
+  const running = scheduledSteamUpdateEntries.filter((entry) => entry.status === "running" && entry.nodeId === nodeId);
+  if (!running.length || typeof api?.instances?.getSteamUpdateProgress !== "function") {
+    clearInterval(scheduledSteamUpdatePollTimer);
+    scheduledSteamUpdatePollTimer = null;
+    return;
+  }
+  const requestContext = createNodeActionContext("scheduled-steam-update-progress");
+  const updates = await Promise.all(running.map(async (entry) => {
+    try {
+      const progress = await api.instances.getSteamUpdateProgress(entry.instanceId, getNodeScopedPayload(requestContext));
+      return progress && progress.ok !== false ? applyScheduledSteamUpdateProgress(entry, progress) : entry;
+    } catch {
+      return entry;
+    }
+  }));
+  if (!isNodeRequestCurrent(requestContext)) return;
+  const byId = new Map(updates.map((entry) => [entry.id, entry]));
+  scheduledSteamUpdateEntries = scheduledSteamUpdateEntries.map((entry) => byId.get(entry.id) || entry);
+  refreshMarketplaceDownloads();
+}
+
 function renderInstanceRows(instances) {
   if (!instancesList) {
     return;
   }
+  syncScheduledSteamUpdates(instances);
   const existingRows = new Map([...instancesList.querySelectorAll("tr[data-instance-id]")].map((row) => [row.dataset.instanceId, row]));
   // Stale rows go first so they never sit between rows that are in order.
   const incomingIds = new Set(instances.map((instance) => instance.id));
@@ -16152,6 +16291,7 @@ function renderInstanceRows(instances) {
     const row = existingRows.get(instance.id) || document.createElement("tr");
     existingRows.delete(instance.id);
     updateInstanceRow(row, instance);
+    if (isSteamCmdUpdateInstance(instance)) refreshSteamUpdateCheck(instance);
     // Move a row only when it is out of place: re-inserting an element that is
     // already in position would blur anything focused inside it.
     const expectedPosition = previousRow ? previousRow.nextSibling : instancesList.firstChild;
@@ -16531,10 +16671,11 @@ function setInstanceDetails(instance = null) {
   const activeOperation = getInstanceOperation(instance.id);
   // The state field reports the reconciled runtime state; a failed operation
   // stays visible through the tooltip and the failure-reason field instead of
-  // replacing the state.
+  // replacing the state. A finished operation shows that state too: a
+  // generic "Ready" after a successful Stop read as if the server were up.
   const visibleState = activeOperation?.status === "running"
     ? getInstanceOperationLabel(activeOperation.type)
-    : activeOperation?.status === "success" ? "Ready" : instance.state || "Unavailable";
+    : instance.state || "Unavailable";
   setField("instanceDetailState", visibleState);
   document.querySelectorAll('[data-field="instanceDetailState"]').forEach((field) => {
     field.className = `instance-state is-${activeOperation?.status === "running" ? "reloading" : getInstanceStateClass(instance.state)}`;
@@ -16939,6 +17080,10 @@ function getAgentErrorMessage(error, fallback = "Instance request failed.") {
     STARTUP_CONFIGURATION_FAILED: "The startup command could not be configured.",
     MARKETPLACE_INSTALL_FAILED: "Template install failed.",
     FIVEM_LICENSE_REQUIRED: "FiveM needs a valid license key in server.cfg before it can start.",
+    SIGN_IN_UNSUPPORTED: "This server does not use an account sign-in.",
+    SIGN_IN_SERVER_NOT_RUNNING: "Start the server first; it shows its sign-in code while it runs.",
+    SIGN_IN_CODE_TIMEOUT: "The server did not show a sign-in code. Check its console.",
+    SIGN_IN_URL_BLOCKED: "The sign-in link is not on the publisher's sign-in site, so it was not opened.",
     FIVEM_SETUP_REQUIRED: "FiveM setup is required before this server can start.",
     FIVEM_RESOURCES_REQUIRED: "FiveM server resources are missing; reinstall this server so players can spawn.",
     INVALID_FIVEM_LICENSE_KEY: "Enter a valid FiveM license key from Cfx.re Keymaster.",
@@ -18350,7 +18495,9 @@ function getMarketplaceInstalledInstanceVersion(instance = null) {
   if (!instance) return "";
   const version = getInstanceVersionMetadata(instance);
   const parts = [
-    version.gameVersion && version.gameVersion !== "Unknown version" ? `Minecraft ${version.gameVersion}` : "",
+    version.gameVersion && version.gameVersion !== "Unknown version"
+      ? (version.isMinecraft ? `Minecraft ${version.gameVersion}` : version.gameVersion)
+      : "",
     version.software && version.software !== "Minecraft" ? version.software : "",
     version.softwareVersion && version.softwareVersion !== version.gameVersion ? version.softwareVersion : "",
   ].filter(Boolean);
@@ -20577,7 +20724,7 @@ function renderMarketplaceDownloads(downloads = []) {
   }
 
   renderMarketplaceReadiness();
-  const incomingDownloads = [...marketplaceLocalDownloadEntries, ...downloads];
+  const incomingDownloads = [...marketplaceLocalDownloadEntries, ...scheduledSteamUpdateEntries, ...downloads];
   incomingDownloads.forEach((download) => {
     downloadOperationStore.updateOperation(download.id, {
       type: "download",
@@ -21538,6 +21685,18 @@ function getLatestBackupForInstance(instanceId) {
     .sort((left, right) => String(right.createdAt || "").localeCompare(String(left.createdAt || "")))[0] || null;
 }
 
+// Restores the backup taken right before the last SteamCMD update, through the
+// normal restore flow (its confirmations, safety snapshot and restart choice).
+async function rollBackSteamUpdate() {
+  const instance = findInstance();
+  const rollback = instance?.steamPreUpdateBackup;
+  if (!rollback?.id) {
+    showToast("No pre-update backup is recorded for this server.", "warning");
+    return;
+  }
+  await restoreSelectedBackup({ id: rollback.id, name: rollback.name || rollback.id, instanceId: instance.id });
+}
+
 async function restoreBackupForInstance(instanceId) {
   const currentSelection = getSelectedBackup();
   // Reconcile with the shared Backups page selection: keep it when it already
@@ -21709,6 +21868,54 @@ function getSteamUpdateCheck(instance) {
   return steamUpdateChecks.get(getSteamUpdateCheckKey(instance))?.result || null;
 }
 
+function isSteamUpdateCheckInFlight(instance) {
+  return Boolean(steamUpdateChecks.get(getSteamUpdateCheckKey(instance))?.inFlight);
+}
+
+function describeSteamUpdateCheck(check) {
+  if (!check) return { message: "This node's Agent cannot check for server updates yet. Update the Agent first.", tone: "warning" };
+  const branch = check.branch || "public";
+  if (check.updateAvailable === true) return { message: `Update available: ${branch} build ${check.latestBuildId} (installed ${check.installedBuildId}).`, tone: "warning" };
+  if (check.updateAvailable === false) return { message: `Server files are up to date (${branch} build ${check.installedBuildId}).`, tone: "success" };
+  if (check.error === "STEAMCMD_BRANCH_NOT_FOUND") return { message: `Steam does not list a "${branch}" branch for this server. Choose another branch.`, tone: "warning" };
+  if (!check.installedBuildId) return { message: "The installed build is unknown. Run Update Server Files once to record it.", tone: "warning" };
+  return { message: `Could not check for updates${check.error ? ` (${check.error})` : ""}. Try again later.`, tone: "warning" };
+}
+
+async function checkSelectedSteamUpdateNow() {
+  const instance = findInstance();
+  if (!isSteamCmdUpdateInstance(instance)) return;
+  await refreshSteamUpdateCheck(instance, { force: true, refresh: true });
+  const { message, tone } = describeSteamUpdateCheck(getSteamUpdateCheck(instance));
+  showToast(message, tone);
+}
+
+async function chooseSelectedSteamBranch() {
+  const desktopApiState = getDesktopApiState();
+  const requestContext = createNodeActionContext("steam-branch");
+  const instance = findInstance();
+  if (!isSteamCmdUpdateInstance(instance) || typeof desktopApiState.api?.instances?.setSteamBranch !== "function") return;
+  const known = getSteamUpdateCheck(instance)?.branches || [];
+  const branch = await promptBackupText({
+    title: "Steam Branch",
+    message: `Branch this server updates to. "public" is the normal release.${known.length ? ` Steam lists: ${known.join(", ")}.` : ""} Password-protected betas are not supported. Files change on the next Update Server Files.`,
+    label: "Branch name",
+    initialValue: instance.steamBranch || "public",
+    confirmLabel: "Save Branch",
+  });
+  if (!branch) return;
+  try {
+    if (!isNodeActionStillCurrent(requestContext)) return;
+    const result = await desktopApiState.api.instances.setSteamBranch(instance.id, String(branch).trim(), getNodeScopedPayload(requestContext));
+    if (result?.ok === false) throw Object.assign(new Error(result.error?.message || "Branch could not be saved."), { code: result.error?.code });
+    showToast(`Steam branch set to ${String(branch).trim() || "public"}.`);
+    await refreshInstances({ silent: true });
+    refreshSteamUpdateCheck(findInstance(instance.id), { force: true });
+  } catch (error) {
+    showToast(getAgentErrorMessage(error, "Steam branch could not be saved."), "warning");
+  }
+}
+
 async function refreshSteamUpdateCheck(instance, options = {}) {
   const api = getDesktopApiState().api;
   if (!isSteamCmdUpdateInstance(instance) || typeof api?.instances?.checkSteamUpdate !== "function") return;
@@ -21718,6 +21925,7 @@ async function refreshSteamUpdateCheck(instance, options = {}) {
   if (!options.force && entry && Date.now() - entry.fetchedAt < STEAM_UPDATE_CHECK_RENDERER_TTL_MS) return;
   const requestContext = createNodeActionContext(`steam-update-check:${instance.id}`);
   steamUpdateChecks.set(key, { result: entry?.result || null, fetchedAt: entry?.fetchedAt || 0, inFlight: true });
+  updateInstanceActionButtons();
   let result = null;
   try {
     const response = await api.instances.checkSteamUpdate(instance.id, getNodeScopedPayload(requestContext, { refresh: options.refresh === true }));
@@ -21726,7 +21934,28 @@ async function refreshSteamUpdateCheck(instance, options = {}) {
     result = null;
   }
   steamUpdateChecks.set(key, { result, fetchedAt: Date.now(), inFlight: false });
-  if (isNodeRequestCurrent(requestContext)) updateInstanceActionButtons();
+  if (isNodeRequestCurrent(requestContext)) {
+    updateInstanceActionButtons();
+    const row = [...(instancesList?.querySelectorAll("tr[data-instance-id]") || [])].find((entry) => entry.dataset.instanceId === instance.id);
+    const latest = findInstance(instance.id);
+    if (row && latest) updateInstanceRow(row, latest);
+  }
+  return result;
+}
+
+// Each failed scheduled update is announced once per app session, the first
+// time its schedule is loaded, so it is not only a line on the schedule row.
+const announcedSteamUpdateFailures = new Set();
+
+function announceScheduledSteamUpdateFailures(instance, schedules) {
+  schedules.forEach((schedule) => {
+    const last = schedule?.lastSteamUpdate;
+    if (!last?.attempted || last.ok !== false) return;
+    const key = `${schedule.id}:${last.at || ""}`;
+    if (announcedSteamUpdateFailures.has(key)) return;
+    announcedSteamUpdateFailures.add(key);
+    showToast(`Scheduled update for ${instance.displayName || instance.id} failed (${last.code}). The server was started on build ${last.buildIdBefore || "unknown"}.`, "warning");
+  });
 }
 
 function formatRestartScheduleSteamUpdate(schedule) {
@@ -21740,18 +21969,132 @@ function formatRestartScheduleSteamUpdate(schedule) {
 // V2-E scheduled restarts: the agent owns schedule storage, player warnings
 // (via the server's own console input), and the lifecycle restart. This panel
 // only manages the schedule records and mirrors the backup schedule flow.
-function parseRestartScheduleTiming(timingInput, warnInput) {
-  const rawTiming = String(timingInput || "").trim();
-  const payload = {};
-  if (/^([01]?\d|2[0-3]):([0-5]\d)$/.test(rawTiming)) {
-    payload.type = "daily";
-    payload.dailyTime = rawTiming;
+// Mirrors the Agent's schedule contract (restartScheduleService.js) so a bad
+// value is explained in the dialog instead of coming back as an Agent error.
+function validateRestartScheduleForm({ type, intervalHours, dailyTime, warnMinutes, autoUpdateSteam } = {}) {
+  const payload = { type: type === "daily" ? "daily" : "interval" };
+  if (payload.type === "daily") {
+    const time = String(dailyTime || "").trim();
+    if (!/^([01]?\d|2[0-3]):([0-5]\d)$/.test(time)) throw new Error("Enter the daily time as HH:MM (24-hour, Agent local time).");
+    payload.dailyTime = time;
   } else {
-    payload.type = "interval";
-    payload.intervalHours = parseBackupWholeNumber(rawTiming, "24", "Interval hours");
+    const hours = Number(String(intervalHours ?? "").trim());
+    if (!Number.isInteger(hours) || hours < 1 || hours > 720) throw new Error("Interval hours must be a whole number from 1 to 720.");
+    payload.intervalHours = hours;
   }
-  payload.warnMinutes = parseBackupWholeNumber(warnInput, "5", "Warning minutes");
+  const warn = Number(String(warnMinutes ?? "").trim());
+  if (!Number.isInteger(warn) || warn < 1 || warn > 1440) throw new Error("Warning minutes must be a whole number from 1 to 1440.");
+  payload.warnMinutes = warn;
+  if (autoUpdateSteam !== undefined) payload.autoUpdateSteam = autoUpdateSteam === true;
   return payload;
+}
+
+// One dialog for creating and editing a restart schedule. Resolves the
+// validated payload, or null when cancelled.
+function createRestartScheduleDialog({ instance, schedule = null } = {}) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "app-modal-backdrop";
+    const dialog = document.createElement("section");
+    dialog.className = "app-modal";
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-modal", "true");
+    dialog.setAttribute("aria-label", schedule ? "Edit restart schedule" : "New restart schedule");
+    dialog.tabIndex = -1;
+    const closeButton = document.createElement("button");
+    closeButton.className = "app-modal__close";
+    closeButton.type = "button";
+    closeButton.dataset.scheduleCancel = "";
+    closeButton.setAttribute("aria-label", "Close");
+    closeButton.textContent = "×";
+    const header = document.createElement("div");
+    header.className = "app-modal__header";
+    header.append(
+      createTextElement("p", "Scheduled restart", "eyebrow"),
+      createTextElement("h2", schedule ? "Edit Restart Schedule" : "New Restart Schedule"),
+      createTextElement("p", `${instance?.displayName || instance?.id || "This server"} is warned through its console before each restart. Times use the Agent's local clock.`),
+    );
+    const field = (label, control) => {
+      const wrapper = document.createElement("label");
+      wrapper.className = "settings-field";
+      wrapper.append(createTextElement("span", label), control);
+      return wrapper;
+    };
+    const typeSelect = document.createElement("select");
+    typeSelect.append(new Option("Every N hours", "interval"), new Option("Every day at a time", "daily"));
+    typeSelect.value = schedule?.type === "daily" ? "daily" : "interval";
+    const hoursInput = Object.assign(document.createElement("input"), { type: "number", min: "1", max: "720", step: "1", value: String(schedule?.intervalHours || 24) });
+    const timeInput = Object.assign(document.createElement("input"), { type: "time", value: schedule?.dailyTime || "04:00" });
+    const warnInput = Object.assign(document.createElement("input"), { type: "number", min: "1", max: "1440", step: "1", value: String(schedule?.warnMinutes || 5) });
+    const hoursField = field("Interval hours", hoursInput);
+    const timeField = field("Daily time", timeInput);
+    const syncType = () => {
+      hoursField.hidden = typeSelect.value !== "interval";
+      timeField.hidden = typeSelect.value !== "daily";
+    };
+    typeSelect.addEventListener("change", syncType);
+    syncType();
+    let autoUpdate = null;
+    const fields = [field("Repeat", typeSelect), hoursField, timeField, field("Warn players (minutes before)", warnInput)];
+    if (isSteamCmdUpdateInstance(instance)) {
+      const option = document.createElement("label");
+      option.className = "security-option";
+      autoUpdate = Object.assign(document.createElement("input"), { type: "checkbox", checked: schedule?.autoUpdateSteam === true });
+      option.append(autoUpdate, createTextElement("span", "Install new server builds during this restart (SteamCMD, only when a newer build is available)"));
+      fields.push(option);
+    }
+    const error = createTextElement("span", "", "settings-field-error");
+    error.hidden = true;
+    const actions = document.createElement("div");
+    actions.className = "settings-actions";
+    const confirm = document.createElement("button");
+    confirm.className = "inline-action inline-action--primary";
+    confirm.type = "button";
+    confirm.dataset.scheduleOk = "";
+    confirm.textContent = schedule ? "Save Changes" : "Save Schedule";
+    const cancel = document.createElement("button");
+    cancel.className = "inline-action";
+    cancel.type = "button";
+    cancel.dataset.scheduleCancel = "";
+    cancel.textContent = "Cancel";
+    actions.append(confirm, cancel);
+    dialog.append(closeButton, header, ...fields, error, actions);
+    overlay.appendChild(dialog);
+    const close = (value) => {
+      document.removeEventListener("keydown", onKeyDown);
+      deactivateModal();
+      overlay.remove();
+      resolve(value);
+    };
+    const submit = () => {
+      try {
+        close(validateRestartScheduleForm({
+          type: typeSelect.value,
+          intervalHours: hoursInput.value,
+          dailyTime: timeInput.value,
+          warnMinutes: warnInput.value,
+          autoUpdateSteam: autoUpdate ? autoUpdate.checked : undefined,
+        }));
+      } catch (validationError) {
+        error.textContent = validationError.message;
+        error.hidden = false;
+      }
+    };
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") close(null);
+      if (event.key === "Enter" && event.target?.matches?.("input")) {
+        event.preventDefault();
+        submit();
+      }
+    };
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay || event.target.closest("[data-schedule-cancel]")) close(null);
+      if (event.target.closest("[data-schedule-ok]")) submit();
+    });
+    document.addEventListener("keydown", onKeyDown);
+    document.body.appendChild(overlay);
+    const deactivateModal = activateModal(overlay, { initialFocus: () => typeSelect });
+  });
 }
 
 function formatRestartScheduleSummary(schedule) {
@@ -21799,10 +22142,15 @@ function renderInstanceRestartSchedules(instance) {
     const label = document.createElement("span");
     const stateLabel = schedule.enabled === false ? "disabled" : "enabled";
     const steamAutoUpdate = isSteamCmdUpdateInstance(instance);
-    const autoUpdateLabel = steamAutoUpdate ? ` · auto-update ${schedule.autoUpdateSteam === true ? "on" : "off"}` : "";
+    const autoUpdateLabel = steamAutoUpdate ? ` · auto-update ${schedule.autoUpdateSteam === true ? `on${schedule.backupBeforeUpdate === false ? " (no backup)" : " (backup first)"}` : "off"}` : "";
     const autoUpdateFailed = schedule.lastSteamUpdate?.attempted && schedule.lastSteamUpdate.ok === false;
     label.textContent = `${formatRestartScheduleSummary(schedule)} · warn ${schedule.warnMinutes} min · next ${formatRestartScheduleNextRun(schedule)} · ${stateLabel}${autoUpdateLabel}${autoUpdateFailed ? " · last update failed" : ""}`;
     label.title = `Warnings are sent through the server console before the restart.${steamAutoUpdate ? formatRestartScheduleSteamUpdate(schedule) : ""}${schedule.lastError ? ` Last error: ${schedule.lastError}.` : ""}`;
+    const editButton = document.createElement("button");
+    editButton.className = "inline-action";
+    editButton.type = "button";
+    editButton.textContent = "Edit";
+    editButton.addEventListener("click", () => editRestartScheduleEntry(schedule));
     const toggle = document.createElement("button");
     toggle.className = "inline-action";
     toggle.type = "button";
@@ -21813,7 +22161,7 @@ function renderInstanceRestartSchedules(instance) {
     remove.type = "button";
     remove.textContent = "Delete";
     remove.addEventListener("click", () => deleteRestartScheduleEntry(schedule));
-    row.append(label, toggle);
+    row.append(label, editButton, toggle);
     if (steamAutoUpdate) {
       const autoUpdate = document.createElement("button");
       autoUpdate.className = "inline-action";
@@ -21822,6 +22170,15 @@ function renderInstanceRestartSchedules(instance) {
       autoUpdate.title = "When a newer public Steam build is available, update server files with SteamCMD between the scheduled stop and start. If the update fails, the server starts on its current build.";
       autoUpdate.addEventListener("click", () => setRestartScheduleAutoUpdate(schedule, schedule.autoUpdateSteam !== true));
       row.append(autoUpdate);
+      if (schedule.autoUpdateSteam === true) {
+        const backupFirst = document.createElement("button");
+        backupFirst.className = "inline-action";
+        backupFirst.type = "button";
+        backupFirst.textContent = schedule.backupBeforeUpdate === false ? "Back Up First" : "Skip Backup";
+        backupFirst.title = "A full backup before each scheduled update lets you roll the update back. It uses disk space and counts toward backup retention.";
+        backupFirst.addEventListener("click", () => setRestartScheduleBackupFirst(schedule, schedule.backupBeforeUpdate === false));
+        row.append(backupFirst);
+      }
     }
     row.append(remove);
     restartScheduleList.appendChild(row);
@@ -21849,6 +22206,7 @@ async function refreshRestartSchedules(options = {}) {
       instanceId: instance.id,
       schedules: Array.isArray(result?.schedules) ? result.schedules : [],
     };
+    announceScheduledSteamUpdateFailures(instance, restartSchedulesState.schedules);
   } catch (error) {
     if (!isNodeActionStillCurrent(requestContext)) return;
     restartSchedulesState = {
@@ -21873,28 +22231,8 @@ async function configureRestartSchedule() {
     showToast("Scheduled restarts are unavailable.");
     return;
   }
-  const timing = await promptBackupText({
-    title: "Scheduled Restart",
-    message: "Restart every N hours, or every day at HH:MM (agent local time).",
-    label: "Interval hours or HH:MM",
-    initialValue: "24",
-    confirmLabel: "Continue",
-  });
-  if (!timing) {
-    return;
-  }
-  const warnInput = await promptBackupText({
-    title: "Restart Warning",
-    message: "How many minutes before the restart should players be warned?",
-    label: "Warning minutes",
-    initialValue: "5",
-    confirmLabel: "Save Schedule",
-  }) || "5";
-  let payload;
-  try {
-    payload = parseRestartScheduleTiming(timing, warnInput);
-  } catch (error) {
-    showToast(error?.message || "Restart schedule values are invalid.", "warning");
+  const payload = await createRestartScheduleDialog({ instance: selectedInstance });
+  if (!payload) {
     return;
   }
   try {
@@ -21907,6 +22245,31 @@ async function configureRestartSchedule() {
     await refreshRestartSchedules();
   } catch (error) {
     showToast(getAgentErrorMessage(error, "Restart schedule could not be saved."));
+  }
+}
+
+async function editRestartScheduleEntry(schedule) {
+  const desktopApiState = getDesktopApiState();
+  const requestContext = createNodeActionContext("restart-schedule-edit");
+  const selectedInstance = findInstance();
+  if (!desktopApiState.hasRestartSchedules || !selectedInstance || !schedule?.id) {
+    return;
+  }
+  const payload = await createRestartScheduleDialog({ instance: selectedInstance, schedule });
+  if (!payload) {
+    return;
+  }
+  try {
+    if (!isNodeActionStillCurrent(requestContext)) return;
+    await desktopApiState.api.instances.updateRestartSchedule(selectedInstance.id, schedule.id, {
+      nodeId: requestContext.nodeId,
+      ...payload,
+    });
+    // The Agent re-anchors the next run when the timing changes.
+    showToast("Restart schedule updated.");
+    await refreshRestartSchedules();
+  } catch (error) {
+    showToast(getAgentErrorMessage(error, "Restart schedule could not be updated."));
   }
 }
 
@@ -21950,6 +22313,26 @@ async function setRestartScheduleAutoUpdate(schedule, autoUpdateSteam) {
     } else {
       showToast(autoUpdateSteam ? "Scheduled restarts will install new server builds." : "Scheduled restarts will no longer update server files.");
     }
+    await refreshRestartSchedules();
+  } catch (error) {
+    showToast(getAgentErrorMessage(error, "Restart schedule update failed."));
+  }
+}
+
+async function setRestartScheduleBackupFirst(schedule, backupBeforeUpdate) {
+  const desktopApiState = getDesktopApiState();
+  const requestContext = createNodeActionContext("restart-schedule-backup-first");
+  const selectedInstance = findInstance();
+  if (!desktopApiState.hasRestartSchedules || !selectedInstance || !schedule?.id) {
+    return;
+  }
+  try {
+    if (!isNodeActionStillCurrent(requestContext)) return;
+    await desktopApiState.api.instances.updateRestartSchedule(selectedInstance.id, schedule.id, {
+      nodeId: requestContext.nodeId,
+      backupBeforeUpdate,
+    });
+    showToast(backupBeforeUpdate ? "Scheduled updates will back up the server first." : "Scheduled updates will run without a backup.");
     await refreshRestartSchedules();
   } catch (error) {
     showToast(getAgentErrorMessage(error, "Restart schedule update failed."));
@@ -23446,6 +23829,27 @@ async function runInstanceAction(actionName) {
     return;
   }
 
+  if (actionName === "sign-in") {
+    if (refuseServiceManagedAction(selectedInstance, "Sign in")) {
+      updateInstanceActionButtons();
+      return;
+    }
+    instanceActionRequestInFlight = true;
+    updateInstanceActionButtons();
+    try {
+      if (!isNodeActionStillCurrent(requestContext)) return;
+      const result = await desktopApiState.api.instances.signIn(targetInstanceId, getNodeScopedPayload(requestContext));
+      showToast(`Opened the ${result?.label || "account"} sign-in page in your browser. Approve code ${result?.userCode || "shown on the page"} there.`);
+      await refreshInstanceLogs();
+    } catch (error) {
+      showToast(getAgentErrorMessage(error, "The sign-in page could not be opened."));
+    } finally {
+      instanceActionRequestInFlight = false;
+      updateInstanceActionButtons();
+    }
+    return;
+  }
+
   if (actionName === "expose-share") {
     // Progressive disclosure: when this service already has enabled endpoints,
     // the endpoint picker is the sharing surface; otherwise the existing
@@ -23588,11 +23992,23 @@ async function runInstanceAction(actionName) {
     return;
   }
 
-  if (actionName === "update-steam" && !(await confirmDestructiveAction({
-    title: "Update server files?",
-    message: `${label} must remain stopped while SteamCMD validates and updates its files. Saves, configuration, backups, and mods are preserved.`,
-    confirmLabel: "Update Server Files",
-  }))) return;
+  // A full backup first makes the update reversible (Roll Back Update). It is
+  // on by default, including when confirmations are turned off.
+  let steamBackupBeforeUpdate = true;
+  if (actionName === "update-steam") {
+    const settings = getCurrentSettings();
+    if (settings["general.confirmDestructiveActions"] !== false || isGuidedModeEnabled(settings)) {
+      const choice = await createSecurityConfirmation({
+        title: "Update server files?",
+        message: `${label} must remain stopped while SteamCMD validates and updates its files. Saves, configuration, backups, and mods are preserved.`,
+        confirmLabel: "Update Server Files",
+        checkboxLabel: "Back up the server first so this update can be rolled back (uses disk space)",
+        checkboxChecked: true,
+      });
+      if (!choice) return;
+      steamBackupBeforeUpdate = choice.checked === true;
+    }
+  }
 
   if (actionName === "delete") {
     const linkedAccessServices = getInstanceAccessServices(selectedInstance);
@@ -23660,7 +24076,7 @@ async function runInstanceAction(actionName) {
 
     if (!isNodeActionStillCurrent(requestContext)) return;
     const actionResult = actionName === "update-steam"
-      ? await desktopApiState.api.marketplace.updateSteamServer({ instanceId: targetInstanceId, ...getNodeScopedPayload(requestContext) })
+      ? await desktopApiState.api.marketplace.updateSteamServer({ instanceId: targetInstanceId, backupBeforeUpdate: steamBackupBeforeUpdate, ...getNodeScopedPayload(requestContext) })
       : actionName === "rename"
       ? await desktopApiState.api.instances.rename(targetInstanceId, renameDisplayName.trim(), getNodeScopedPayload(requestContext))
       : actionName === "duplicate"
@@ -23679,7 +24095,8 @@ async function runInstanceAction(actionName) {
     if (actionName === "update-steam") {
       const updateResult = actionResult?.result || {};
       refreshSteamUpdateCheck(findInstance(targetInstanceId), { force: true });
-      const buildLabel = updateResult.buildIdAfter ? `\n\nVerified Steam build: ${updateResult.buildIdAfter}` : "";
+      const backupLabel = updateResult.preUpdateBackup?.id ? `\n\nRollback point: ${updateResult.preUpdateBackup.name}. Use Roll Back Update if this build misbehaves.` : "";
+      const buildLabel = `${updateResult.buildIdAfter ? `\n\nVerified Steam build: ${updateResult.buildIdAfter}` : ""}${backupLabel}`;
       const summary = updateResult.buildChanged === false
         ? `${label} is already up to date.${buildLabel}`
         : `${label} updated successfully.${buildLabel}`;
@@ -36037,7 +36454,7 @@ async function refreshProtectedStateAfterLocalOwnerAuthentication(authResult = {
   }
 }
 
-function createSecurityConfirmation({ title, message, phrase = "", confirmLabel = "Confirm", note = "", checkboxLabel = "" } = {}) {
+function createSecurityConfirmation({ title, message, phrase = "", confirmLabel = "Confirm", note = "", checkboxLabel = "", checkboxChecked = false } = {}) {
   return new Promise((resolve) => {
     const overlay = document.createElement("div");
     overlay.className = "app-modal-backdrop";
@@ -36070,6 +36487,7 @@ function createSecurityConfirmation({ title, message, phrase = "", confirmLabel 
       option.className = "security-option";
       checkbox = document.createElement("input");
       checkbox.type = "checkbox";
+      checkbox.checked = checkboxChecked === true;
       option.append(checkbox, createTextElement("span", checkboxLabel));
       dialog.appendChild(option);
     }
@@ -46760,6 +47178,16 @@ instancesRestartButtons.forEach((button) => {
 instancesRepairNeoForgeButtons.forEach((button) => {
   button.addEventListener("click", () => runInstanceAction("repair-neoforge-runtime"));
 });
+document.querySelectorAll("[data-steam-rollback]").forEach((button) => {
+  button.addEventListener("click", () => rollBackSteamUpdate());
+});
+
+document.querySelectorAll("[data-steam-update-check]").forEach((button) => {
+  button.addEventListener("click", () => checkSelectedSteamUpdateNow());
+});
+document.querySelectorAll("[data-steam-branch]").forEach((button) => {
+  button.addEventListener("click", () => chooseSelectedSteamBranch());
+});
 document.querySelectorAll('[data-instance-action="update-steam"]').forEach((button) => {
   button.addEventListener("click", () => runInstanceAction("update-steam"));
 });
@@ -46786,6 +47214,9 @@ instancesForceKillButtons.forEach((button) => {
 });
 document.querySelectorAll('[data-instance-action="configure-fivem"]').forEach((button) => {
   button.addEventListener("click", () => runInstanceAction("configure-fivem"));
+});
+document.querySelectorAll('[data-instance-action="sign-in"]').forEach((button) => {
+  button.addEventListener("click", () => runInstanceAction("sign-in"));
 });
 document.querySelectorAll('[data-instance-action="expose-share"]').forEach((button) => {
   button.addEventListener("click", () => runInstanceAction("expose-share"));

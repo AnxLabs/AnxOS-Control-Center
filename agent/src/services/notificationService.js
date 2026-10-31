@@ -203,15 +203,21 @@ function allowSend(key) {
   return true;
 }
 
+// Alerts are handled one after another in the order they were raised, so the
+// rate limit always keeps the first alert of a burst (a concurrent settings
+// read could otherwise let a later one finish first and take the slot).
+let notifyQueue = Promise.resolve();
+
 // Never throws and never waits for the network: callers are lifecycle paths.
 function notify(event, details = {}) {
   if (!NOTIFICATION_EVENTS.includes(event)) return;
-  const delivery = (async () => {
+  const delivery = notifyQueue.then(async () => {
     const settings = await readSettings().catch(() => null);
     if (!settings?.url || !settings.enabled || !settings.events.includes(event)) return;
     if (!allowSend(`${event}:${details.instanceId || "node"}`)) return;
     await deliver(settings.url, event, details);
-  })().catch(() => {});
+  }).catch(() => {});
+  notifyQueue = delivery;
   pendingDeliveries.add(delivery);
   delivery.finally(() => pendingDeliveries.delete(delivery));
 }

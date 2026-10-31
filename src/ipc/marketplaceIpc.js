@@ -385,7 +385,7 @@ function registerMarketplaceIpc() {
     requireNodeContext(payload, "SteamCMD server update");
     requirePermission("marketplace:install", payload.instanceId || "steamcmd-update");
     audit({ action: "marketplace.steamcmd.update", target: payload.instanceId || "unknown" });
-    return updateSteamCmdInstance({ nodeId: payload.nodeId, instanceId: payload.instanceId });
+    return updateSteamCmdInstance({ nodeId: payload.nodeId, instanceId: payload.instanceId, backupBeforeUpdate: payload.backupBeforeUpdate === true });
   }));
   ipcMain.handle("marketplace:openManualDownloadPage", async (_, payload = {}) => invokeMarketplaceOperation(async () => {
     requireNodeContext(payload, "Marketplace manual download recovery");
