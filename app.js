@@ -15723,6 +15723,16 @@ function updateInstanceActionButtons() {
     button.hidden = !isFiveMSetupRequired(selectedInstance);
     button.disabled = busy || !hasInstancesBridge || !isFiveMSetupRequired(selectedInstance);
   });
+  document.querySelectorAll("[data-steam-rollback]").forEach((button) => {
+    const rollback = isSteamCmdUpdateInstance(selectedInstance) ? selectedInstance?.steamPreUpdateBackup : null;
+    const available = Boolean(rollback?.id) && desktopApiState.hasBackups;
+    button.hidden = !available;
+    button.disabled = busy || !available;
+    button.title = available
+      ? `Restore ${rollback.name || rollback.id}, taken before the update to build ${rollback.buildIdAfter || "unknown"}.`
+      : "";
+  });
+
   document.querySelectorAll('[data-instance-action="sign-in"]').forEach((button) => {
     // Shown only for games with an account sign-in (for example Hytale) while
     // the server reports that it needs one.
@@ -21557,6 +21567,18 @@ function getLatestBackupForInstance(instanceId) {
     .sort((left, right) => String(right.createdAt || "").localeCompare(String(left.createdAt || "")))[0] || null;
 }
 
+// Restores the backup taken right before the last SteamCMD update, through the
+// normal restore flow (its confirmations, safety snapshot and restart choice).
+async function rollBackSteamUpdate() {
+  const instance = findInstance();
+  const rollback = instance?.steamPreUpdateBackup;
+  if (!rollback?.id) {
+    showToast("No pre-update backup is recorded for this server.", "warning");
+    return;
+  }
+  await restoreSelectedBackup({ id: rollback.id, name: rollback.name || rollback.id, instanceId: instance.id });
+}
+
 async function restoreBackupForInstance(instanceId) {
   const currentSelection = getSelectedBackup();
   // Reconcile with the shared Backups page selection: keep it when it already
@@ -22002,7 +22024,7 @@ function renderInstanceRestartSchedules(instance) {
     const label = document.createElement("span");
     const stateLabel = schedule.enabled === false ? "disabled" : "enabled";
     const steamAutoUpdate = isSteamCmdUpdateInstance(instance);
-    const autoUpdateLabel = steamAutoUpdate ? ` · auto-update ${schedule.autoUpdateSteam === true ? "on" : "off"}` : "";
+    const autoUpdateLabel = steamAutoUpdate ? ` · auto-update ${schedule.autoUpdateSteam === true ? `on${schedule.backupBeforeUpdate === false ? " (no backup)" : " (backup first)"}` : "off"}` : "";
     const autoUpdateFailed = schedule.lastSteamUpdate?.attempted && schedule.lastSteamUpdate.ok === false;
     label.textContent = `${formatRestartScheduleSummary(schedule)} · warn ${schedule.warnMinutes} min · next ${formatRestartScheduleNextRun(schedule)} · ${stateLabel}${autoUpdateLabel}${autoUpdateFailed ? " · last update failed" : ""}`;
     label.title = `Warnings are sent through the server console before the restart.${steamAutoUpdate ? formatRestartScheduleSteamUpdate(schedule) : ""}${schedule.lastError ? ` Last error: ${schedule.lastError}.` : ""}`;
@@ -22030,6 +22052,15 @@ function renderInstanceRestartSchedules(instance) {
       autoUpdate.title = "When a newer public Steam build is available, update server files with SteamCMD between the scheduled stop and start. If the update fails, the server starts on its current build.";
       autoUpdate.addEventListener("click", () => setRestartScheduleAutoUpdate(schedule, schedule.autoUpdateSteam !== true));
       row.append(autoUpdate);
+      if (schedule.autoUpdateSteam === true) {
+        const backupFirst = document.createElement("button");
+        backupFirst.className = "inline-action";
+        backupFirst.type = "button";
+        backupFirst.textContent = schedule.backupBeforeUpdate === false ? "Back Up First" : "Skip Backup";
+        backupFirst.title = "A full backup before each scheduled update lets you roll the update back. It uses disk space and counts toward backup retention.";
+        backupFirst.addEventListener("click", () => setRestartScheduleBackupFirst(schedule, schedule.backupBeforeUpdate === false));
+        row.append(backupFirst);
+      }
     }
     row.append(remove);
     restartScheduleList.appendChild(row);
@@ -22164,6 +22195,26 @@ async function setRestartScheduleAutoUpdate(schedule, autoUpdateSteam) {
     } else {
       showToast(autoUpdateSteam ? "Scheduled restarts will install new server builds." : "Scheduled restarts will no longer update server files.");
     }
+    await refreshRestartSchedules();
+  } catch (error) {
+    showToast(getAgentErrorMessage(error, "Restart schedule update failed."));
+  }
+}
+
+async function setRestartScheduleBackupFirst(schedule, backupBeforeUpdate) {
+  const desktopApiState = getDesktopApiState();
+  const requestContext = createNodeActionContext("restart-schedule-backup-first");
+  const selectedInstance = findInstance();
+  if (!desktopApiState.hasRestartSchedules || !selectedInstance || !schedule?.id) {
+    return;
+  }
+  try {
+    if (!isNodeActionStillCurrent(requestContext)) return;
+    await desktopApiState.api.instances.updateRestartSchedule(selectedInstance.id, schedule.id, {
+      nodeId: requestContext.nodeId,
+      backupBeforeUpdate,
+    });
+    showToast(backupBeforeUpdate ? "Scheduled updates will back up the server first." : "Scheduled updates will run without a backup.");
     await refreshRestartSchedules();
   } catch (error) {
     showToast(getAgentErrorMessage(error, "Restart schedule update failed."));
@@ -23823,11 +23874,23 @@ async function runInstanceAction(actionName) {
     return;
   }
 
-  if (actionName === "update-steam" && !(await confirmDestructiveAction({
-    title: "Update server files?",
-    message: `${label} must remain stopped while SteamCMD validates and updates its files. Saves, configuration, backups, and mods are preserved.`,
-    confirmLabel: "Update Server Files",
-  }))) return;
+  // A full backup first makes the update reversible (Roll Back Update). It is
+  // on by default, including when confirmations are turned off.
+  let steamBackupBeforeUpdate = true;
+  if (actionName === "update-steam") {
+    const settings = getCurrentSettings();
+    if (settings["general.confirmDestructiveActions"] !== false || isGuidedModeEnabled(settings)) {
+      const choice = await createSecurityConfirmation({
+        title: "Update server files?",
+        message: `${label} must remain stopped while SteamCMD validates and updates its files. Saves, configuration, backups, and mods are preserved.`,
+        confirmLabel: "Update Server Files",
+        checkboxLabel: "Back up the server first so this update can be rolled back (uses disk space)",
+        checkboxChecked: true,
+      });
+      if (!choice) return;
+      steamBackupBeforeUpdate = choice.checked === true;
+    }
+  }
 
   if (actionName === "delete") {
     const linkedAccessServices = getInstanceAccessServices(selectedInstance);
@@ -23895,7 +23958,7 @@ async function runInstanceAction(actionName) {
 
     if (!isNodeActionStillCurrent(requestContext)) return;
     const actionResult = actionName === "update-steam"
-      ? await desktopApiState.api.marketplace.updateSteamServer({ instanceId: targetInstanceId, ...getNodeScopedPayload(requestContext) })
+      ? await desktopApiState.api.marketplace.updateSteamServer({ instanceId: targetInstanceId, backupBeforeUpdate: steamBackupBeforeUpdate, ...getNodeScopedPayload(requestContext) })
       : actionName === "rename"
       ? await desktopApiState.api.instances.rename(targetInstanceId, renameDisplayName.trim(), getNodeScopedPayload(requestContext))
       : actionName === "duplicate"
@@ -23914,7 +23977,8 @@ async function runInstanceAction(actionName) {
     if (actionName === "update-steam") {
       const updateResult = actionResult?.result || {};
       refreshSteamUpdateCheck(findInstance(targetInstanceId), { force: true });
-      const buildLabel = updateResult.buildIdAfter ? `\n\nVerified Steam build: ${updateResult.buildIdAfter}` : "";
+      const backupLabel = updateResult.preUpdateBackup?.id ? `\n\nRollback point: ${updateResult.preUpdateBackup.name}. Use Roll Back Update if this build misbehaves.` : "";
+      const buildLabel = `${updateResult.buildIdAfter ? `\n\nVerified Steam build: ${updateResult.buildIdAfter}` : ""}${backupLabel}`;
       const summary = updateResult.buildChanged === false
         ? `${label} is already up to date.${buildLabel}`
         : `${label} updated successfully.${buildLabel}`;
@@ -36272,7 +36336,7 @@ async function refreshProtectedStateAfterLocalOwnerAuthentication(authResult = {
   }
 }
 
-function createSecurityConfirmation({ title, message, phrase = "", confirmLabel = "Confirm", note = "", checkboxLabel = "" } = {}) {
+function createSecurityConfirmation({ title, message, phrase = "", confirmLabel = "Confirm", note = "", checkboxLabel = "", checkboxChecked = false } = {}) {
   return new Promise((resolve) => {
     const overlay = document.createElement("div");
     overlay.className = "app-modal-backdrop";
@@ -36305,6 +36369,7 @@ function createSecurityConfirmation({ title, message, phrase = "", confirmLabel 
       option.className = "security-option";
       checkbox = document.createElement("input");
       checkbox.type = "checkbox";
+      checkbox.checked = checkboxChecked === true;
       option.append(checkbox, createTextElement("span", checkboxLabel));
       dialog.appendChild(option);
     }
@@ -46995,6 +47060,10 @@ instancesRestartButtons.forEach((button) => {
 instancesRepairNeoForgeButtons.forEach((button) => {
   button.addEventListener("click", () => runInstanceAction("repair-neoforge-runtime"));
 });
+document.querySelectorAll("[data-steam-rollback]").forEach((button) => {
+  button.addEventListener("click", () => rollBackSteamUpdate());
+});
+
 document.querySelectorAll("[data-steam-update-check]").forEach((button) => {
   button.addEventListener("click", () => checkSelectedSteamUpdateNow());
 });

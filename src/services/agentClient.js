@@ -44,6 +44,12 @@ const PUBLIC_ACCESS_REQUEST_TIMEOUT_MS = 12000;
 // so a slow agent became a 30 s stuck spinner. Writes and the SteamCMD budgets
 // (610000/310000) are deliberately untouched. Worst case here is 2 x 8 s = 16 s.
 const INTERACTIVE_READ_TIMEOUT_MS = 8000;
+
+// The SteamCMD update itself is bounded at ten minutes on the Agent; a full
+// pre-update backup first can add up to twenty more (Agent allows 31 min).
+function steamCmdUpdateTimeoutMs(payload = {}) {
+  return payload?.backupBeforeUpdate === true ? 1870000 : 610000;
+}
 // A fresh SteamCMD build lookup is bounded at two minutes on the Agent.
 const STEAM_BUILD_CHECK_REQUEST_TIMEOUT_MS = 150000;
 const VALID_BACKEND_MODES = new Set(["local", "agent", "auto"]);
@@ -1486,7 +1492,7 @@ class NodeAgentClient {
   setSteamCmdBranch(instanceId, branch) { return this.post(`/instances/${encodeInstanceId(instanceId)}/steamcmd/branch`, { branch }); }
   checkSteamCmdBuildUpdate(instanceId, options = {}) { return this.get(`/instances/${encodeInstanceId(instanceId)}/steamcmd/update/check${options.refresh ? "?refresh=1" : ""}`, { timeoutMs: STEAM_BUILD_CHECK_REQUEST_TIMEOUT_MS }); }
   repairLegacySteamCmdMetadata(instanceId) { return this.post(`/instances/${encodeInstanceId(instanceId)}/steamcmd/update/migrate`, {}); }
-  executeSteamCmdUpdate(instanceId, payload = {}, timeoutMs = 610000) { return this.request(`/instances/${encodeInstanceId(instanceId)}/steamcmd/update`, { method: "POST", body: payload, timeoutMs }); }
+  executeSteamCmdUpdate(instanceId, payload = {}, timeoutMs = steamCmdUpdateTimeoutMs(payload)) { return this.request(`/instances/${encodeInstanceId(instanceId)}/steamcmd/update`, { method: "POST", body: payload, timeoutMs }); }
   closeSteamCmdUpdateSession(instanceId, payload = {}) { return this.delete(`/instances/${encodeInstanceId(instanceId)}/steamcmd/update/session`, { body: payload }); }
 
   executeInstallationPhase(instanceId, payload = {}, timeoutMs = 310000) {
@@ -3285,7 +3291,7 @@ async function repairLegacySteamCmdMetadata(instanceId, configOverride = null) {
 }
 async function executeSteamCmdUpdate(instanceId, payload = {}, configOverride = null) {
   if (shouldUseLocalInstanceService(configOverride)) return getLocalInstanceService().executeSteamCmdUpdate(instanceId, payload);
-  return requestJson(`/api/v1/instances/${encodeInstanceId(instanceId)}/steamcmd/update`, { config: configOverride, method: "POST", body: payload, timeoutMs: 610000 });
+  return requestJson(`/api/v1/instances/${encodeInstanceId(instanceId)}/steamcmd/update`, { config: configOverride, method: "POST", body: payload, timeoutMs: steamCmdUpdateTimeoutMs(payload) });
 }
 async function closeSteamCmdUpdateSession(instanceId, payload = {}, configOverride = null) {
   if (shouldUseLocalInstanceService(configOverride)) return getLocalInstanceService().closeSteamCmdUpdateSession(instanceId, payload);

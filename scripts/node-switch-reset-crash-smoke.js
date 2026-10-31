@@ -154,6 +154,7 @@ function createHarness() {
     setRestartScheduleEnabled: (schedule, enabled) => toggles.push({ id: schedule.id, enabled }),
     deleteRestartScheduleEntry: (schedule) => removals.push(schedule.id),
     setRestartScheduleAutoUpdate: () => {},
+    setRestartScheduleBackupFirst: () => {},
     editRestartScheduleEntry: () => {},
   };
   vm.createContext(context);

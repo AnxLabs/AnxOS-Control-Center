@@ -122,8 +122,8 @@ async function defaultRestartInstance(instanceId) {
 // Opt-in (schedule.autoUpdateSteam): restart through the SteamCMD-aware path,
 // which only updates when a newer public build is confirmed and always starts
 // the server again, on the old build if the update fails.
-async function defaultRestartInstanceWithSteamUpdate(instanceId) {
-  return getInstanceService().restartInstanceWithSteamUpdate(instanceId);
+async function defaultRestartInstanceWithSteamUpdate(instanceId, options = {}) {
+  return getInstanceService().restartInstanceWithSteamUpdate(instanceId, options);
 }
 
 // Canonical read path for the instance's durable jobs (the same query the
@@ -359,6 +359,11 @@ function buildSchedulePayload(payload = {}, existing = null) {
   schedule.autoUpdateSteam = payload.autoUpdateSteam !== undefined
     ? payload.autoUpdateSteam === true
     : existing?.autoUpdateSteam === true;
+  // A scheduled update takes a full rollback backup first unless this is
+  // explicitly false (backups count toward the normal retention policy).
+  schedule.backupBeforeUpdate = payload.backupBeforeUpdate !== undefined
+    ? payload.backupBeforeUpdate !== false
+    : existing?.backupBeforeUpdate !== false;
   return schedule;
 }
 
@@ -650,7 +655,7 @@ function launchSteamUpdateRestart(schedule, atMs) {
   const run = (async () => {
     let fields;
     try {
-      const outcome = await (executors.restartInstanceWithSteamUpdate || defaultRestartInstanceWithSteamUpdate)(schedule.instanceId);
+      const outcome = await (executors.restartInstanceWithSteamUpdate || defaultRestartInstanceWithSteamUpdate)(schedule.instanceId, { backupBeforeUpdate: schedule.backupBeforeUpdate !== false });
       const steamUpdate = outcome?.steamUpdate || null;
       fields = {
         lastSteamUpdate: steamUpdate ? { ...steamUpdate, at: nowIso(atMs) } : null,
