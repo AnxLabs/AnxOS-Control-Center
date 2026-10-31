@@ -434,6 +434,18 @@ async function getAmpSnapshot(options = {}) {
 }
 
 // V2-H: read-only network inventory for the selected node's Agent host.
+async function getWebhookAlerts(options = {}) {
+  return agentClient.getWebhookAlerts(getOptionalNodeConfig(options));
+}
+
+async function saveWebhookAlerts(payload = {}, options = {}) {
+  return agentClient.saveWebhookAlerts(payload, getOptionalNodeConfig(options));
+}
+
+async function testWebhookAlerts(options = {}) {
+  return agentClient.testWebhookAlerts(getOptionalNodeConfig(options));
+}
+
 async function getNetworkInventory(options = {}) {
   try {
     return await agentClient.getNetworkInventory(getOptionalNodeConfig(options));
@@ -1205,6 +1217,9 @@ module.exports = {
   setSteamCmdBranch,
   getMinecraftProperties,
   getNetworkInventory,
+  getWebhookAlerts,
+  saveWebhookAlerts,
+  testWebhookAlerts,
   getPlayitSnapshot,
   importBackup,
   installDependencies,

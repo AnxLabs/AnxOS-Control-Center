@@ -3,6 +3,8 @@ const { getConfig } = require("../../config");
 
 instanceService.configureInstanceService({
   getConfig,
+  // Lazy: keeps a plain require of the instance service free of the alert store.
+  onInstanceEvent: (event, details) => require("../notificationService").notify(event, details),
   // Lazy: the backup service itself requires this module.
   createPreUpdateBackup: (instanceId, { buildIdBefore } = {}) => require("../backupService").createBackup({
     instanceId,

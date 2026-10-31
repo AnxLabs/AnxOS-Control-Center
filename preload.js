@@ -201,6 +201,11 @@ const desktopApi = {
   networkInventory: {
     get: (payload = {}) => ipcRenderer.invoke("networkInventory:get", payload),
   },
+  webhookAlerts: {
+    get: (payload = {}) => ipcRenderer.invoke("webhookAlerts:get", payload),
+    save: (payload = {}) => ipcRenderer.invoke("webhookAlerts:save", payload),
+    test: (payload = {}) => ipcRenderer.invoke("webhookAlerts:test", payload),
+  },
   infrastructureInventory: {
     get: () => ipcRenderer.invoke("infrastructureInventory:get"),
     refresh: (payload = {}) => ipcRenderer.invoke("infrastructureInventory:refresh", payload),

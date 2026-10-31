@@ -4724,6 +4724,120 @@ function markPageEntering(page) {
   pageEnteringTimer = window.setTimeout(() => page.classList.remove("is-entering"), PAGE_ENTERING_MS);
 }
 
+// Server alerts (Settings > Notifications): the selected node's Agent owns the
+// webhook. The renderer only ever sends a URL the operator typed and never
+// receives one back, only the Agent's masked hint.
+let webhookAlertsRequestInFlight = false;
+
+function getWebhookAlertsElements() {
+  const section = document.querySelector("[data-webhook-alerts]");
+  return {
+    section,
+    status: section?.querySelector("[data-webhook-alerts-status]"),
+    url: section?.querySelector("[data-webhook-alerts-url]"),
+    enabled: section?.querySelector("[data-webhook-alerts-enabled]"),
+    events: [...(section?.querySelectorAll("[data-webhook-alerts-event]") || [])],
+    detail: section?.querySelector("[data-webhook-alerts-detail]"),
+    buttons: [...(section?.querySelectorAll("[data-webhook-alerts-action]") || [])],
+  };
+}
+
+function describeWebhookDelivery(delivery) {
+  if (!delivery) return "No alert has been sent since the Agent started.";
+  const when = formatDateTime(delivery.at);
+  return delivery.ok
+    ? `Last alert delivered ${when}.`
+    : `Last alert failed ${when} (${delivery.error || `HTTP ${delivery.status}`}).`;
+}
+
+function renderWebhookAlerts(settings, message = null) {
+  const elements = getWebhookAlertsElements();
+  if (!elements.section) return;
+  const available = typeof getDesktopApiState().api?.webhookAlerts?.get === "function";
+  elements.buttons.forEach((button) => {
+    button.disabled = !available || webhookAlertsRequestInFlight || (!settings && button.dataset.webhookAlertsAction !== "refresh");
+  });
+  if (!settings) {
+    if (elements.status) elements.status.textContent = "Unavailable";
+    if (elements.detail) elements.detail.textContent = message || "This node's Agent does not support server alerts yet. Update the Agent first.";
+    return;
+  }
+  if (elements.status) {
+    elements.status.textContent = settings.configured ? (settings.enabled ? `On (${settings.format === "discord" ? "Discord" : "webhook"})` : "Paused") : "Not configured";
+    elements.status.className = `status-pill ${settings.configured && settings.enabled ? "status-pill--ok" : "status-pill--planned"}`;
+  }
+  if (elements.url) {
+    elements.url.value = "";
+    elements.url.placeholder = settings.urlHint ? `${settings.urlHint} (saved; type a new URL to replace it)` : "https://discord.com/api/webhooks/...";
+  }
+  if (elements.enabled) elements.enabled.checked = settings.enabled !== false;
+  elements.events.forEach((checkbox) => {
+    checkbox.checked = Array.isArray(settings.events) && settings.events.includes(checkbox.dataset.webhookAlertsEvent);
+  });
+  if (elements.detail) elements.detail.textContent = message || describeWebhookDelivery(settings.lastDelivery);
+}
+
+async function refreshWebhookAlerts() {
+  const api = getDesktopApiState().api;
+  if (typeof api?.webhookAlerts?.get !== "function" || webhookAlertsRequestInFlight) return;
+  const requestContext = createNodeActionContext("webhook-alerts");
+  webhookAlertsRequestInFlight = true;
+  try {
+    const settings = await api.webhookAlerts.get(getNodeScopedPayload(requestContext));
+    if (!isNodeRequestCurrent(requestContext)) return;
+    webhookAlertsRequestInFlight = false;
+    renderWebhookAlerts(settings?.ok === false ? null : settings, settings?.ok === false ? settings.error?.message : null);
+  } catch (error) {
+    if (!isNodeRequestCurrent(requestContext)) return;
+    webhookAlertsRequestInFlight = false;
+    renderWebhookAlerts(null, getAgentErrorMessage(error, "Server alert settings could not be loaded."));
+  } finally {
+    webhookAlertsRequestInFlight = false;
+  }
+}
+
+async function handleWebhookAlertsAction(action) {
+  const api = getDesktopApiState().api;
+  if (typeof api?.webhookAlerts?.get !== "function") return;
+  if (action === "refresh") {
+    await refreshWebhookAlerts();
+    return;
+  }
+  const elements = getWebhookAlertsElements();
+  const requestContext = createNodeActionContext("webhook-alerts-change");
+  try {
+    let result;
+    if (action === "save") {
+      const typedUrl = String(elements.url?.value || "").trim();
+      result = await api.webhookAlerts.save(getNodeScopedPayload(requestContext, {
+        ...(typedUrl ? { url: typedUrl } : {}),
+        enabled: elements.enabled?.checked !== false,
+        events: elements.events.filter((checkbox) => checkbox.checked).map((checkbox) => checkbox.dataset.webhookAlertsEvent),
+      }));
+    } else if (action === "clear") {
+      const confirmed = await createSecurityConfirmation({ title: "Remove Webhook", message: "This node will stop sending server alerts until a new webhook is saved.", confirmLabel: "Remove" });
+      if (!confirmed) return;
+      result = await api.webhookAlerts.save(getNodeScopedPayload(requestContext, { url: null }));
+    } else if (action === "test") {
+      result = await api.webhookAlerts.test(getNodeScopedPayload(requestContext));
+    } else {
+      return;
+    }
+    if (result?.ok === false) throw Object.assign(new Error(result.error?.message || "Server alert request failed."), { code: result.error?.code });
+    if (!isNodeRequestCurrent(requestContext)) return;
+    if (action === "test") {
+      const delivery = result?.delivery;
+      showToast(delivery?.ok ? "Test alert delivered." : `Test alert failed (${delivery?.error || `HTTP ${delivery?.status}`}).`, delivery?.ok ? "success" : "warning");
+      await refreshWebhookAlerts();
+      return;
+    }
+    renderWebhookAlerts(result);
+    showToast(action === "clear" ? "Webhook removed." : "Server alerts saved.", "success");
+  } catch (error) {
+    showToast(getAgentErrorMessage(error, "Server alert settings could not be saved."), "warning");
+  }
+}
+
 function showPage(pageName) {
   const safePageName = getSafePageName(pageName);
   if (safePageName === "owner-workspace" && !isOwnerWorkspaceAuthorized()) {
@@ -4766,6 +4880,10 @@ function showPage(pageName) {
 
   if (safePageName === "network") {
     refreshNetworkPage();
+  }
+
+  if (safePageName === "settings") {
+    refreshWebhookAlerts();
   }
 
   const pageChanged = activePageName !== safePageName;
@@ -47538,6 +47656,9 @@ document.querySelector('[data-page="settings"]')?.addEventListener("click", asyn
   } else if (action === "open-audit-folder") {
     await runSecurityAction("open-audit-folder");
   }
+});
+document.querySelectorAll("[data-webhook-alerts-action]").forEach((button) => {
+  button.addEventListener("click", () => handleWebhookAlertsAction(button.dataset.webhookAlertsAction));
 });
 document.querySelector('[data-settings-action="test-notification"]')?.addEventListener("click", () => {
   if ("Notification" in window) {
