@@ -3642,7 +3642,7 @@ async function executeUpdateSteamCmdInstance(payload = {}, context = {}) {
     }, { once: true });
     emitProgress({ nodeId: targetNodeId, instanceId, operationId, stage: "connecting", message: "Connecting to Steam...", percent: 1 });
     let executionFinished = false;
-    const execution = agentClient.executeSteamCmdUpdate(instanceId, proof, agentConfig)
+    const execution = agentClient.executeSteamCmdUpdate(instanceId, { ...proof, backupBeforeUpdate: payload.backupBeforeUpdate === true }, agentConfig)
       .finally(() => { executionFinished = true; });
     while (!executionFinished) {
       await new Promise((resolve) => setTimeout(resolve, 500));

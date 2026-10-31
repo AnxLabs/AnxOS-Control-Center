@@ -440,7 +440,12 @@ async function handleRequest(request, response) {
   const isLongInstallerOperation = request.method === "POST" && /\/(?:steamcmd\/update|installation\/execute|neoforge\/repair-runtime)$/.test(request.url || "");
   // A fresh SteamCMD build lookup is bounded at two minutes by the instance core.
   const isSteamBuildCheck = request.method === "GET" && /\/steamcmd\/update\/check(?:\?|$)/.test(request.url || "");
-  const requestTimeoutMs = isLongInstallerOperation
+  // A SteamCMD update may first take a full pre-update backup, so it gets a
+  // longer budget than other installer steps (11 min).
+  const isSteamCmdUpdate = request.method === "POST" && /\/steamcmd\/update$/.test(request.url || "");
+  const requestTimeoutMs = isSteamCmdUpdate
+    ? Math.max(config.requestTimeoutMs, 31 * 60 * 1000)
+    : isLongInstallerOperation
     ? Math.max(config.requestTimeoutMs, 11 * 60 * 1000)
     : isSteamBuildCheck ? Math.max(config.requestTimeoutMs, 3 * 60 * 1000)
       : isFileWrite ? config.fileWriteTimeoutMs : config.requestTimeoutMs;

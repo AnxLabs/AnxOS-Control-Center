@@ -231,6 +231,22 @@ instance console log. The whole sequence runs as one durable
 `instance.restart` job with a 25-minute budget and no mid-flight cancel.
 Requires an Agent that includes this change; older Agents ignore the flag.
 
+**Backup before update.** A SteamCMD update can take a full backup of the
+stopped server first (`backupBeforeUpdate: true` on
+`POST /steamcmd/update`). The backup is labelled `reason: "pre-update"`. If
+the backup fails (`STEAMCMD_PRE_UPDATE_BACKUP_FAILED`, with the backup error as
+`causeCode`), SteamCMD does not run. A successful update records the rollback
+point on the instance (`steamPreUpdateBackup`), and **Roll Back Update**
+restores it through the normal restore flow.
+- Manual updates offer the backup, checked by default.
+- Restart schedules back up before scheduled updates unless
+  `backupBeforeUpdate` is `false` (the **Skip Backup** / **Back Up First**
+  buttons on the schedule row).
+- Pre-update backups count toward normal backup retention.
+- The Agent allows a SteamCMD update request 31 minutes so a large backup can
+  finish first, and an update-aware scheduled restart job gets 45 minutes when
+  it backs up.
+
 ## 6. Runtime pins
 
 When an install or dependency check resolves a runtime version for a workload

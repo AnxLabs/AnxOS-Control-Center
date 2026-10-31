@@ -51,6 +51,11 @@ function configureInstanceService(options = {}) {
   if (typeof options.resolveJavaRuntime === "function") {
     resolveJavaRuntimeProvider = options.resolveJavaRuntime;
   }
+  // The Agent supplies its backup service here so a SteamCMD update can take
+  // a rollback point first. The desktop's local instances have none.
+  if (typeof options.createPreUpdateBackup === "function") {
+    preUpdateBackupProvider = options.createPreUpdateBackup;
+  }
 }
 
 function getConfig() {
@@ -665,7 +670,12 @@ async function getSteamCmdUpdateStatus(instanceId, request = {}) {
   };
 }
 
+// Test seam: smokes pin SteamCMD to a path that does not exist so a real
+// download can never start on a machine that has SteamCMD installed.
+let steamCmdExecutableOverride = null;
+
 function resolveSteamCmdExecutable() {
+  if (steamCmdExecutableOverride) return steamCmdExecutableOverride;
   const bundled = bundledRuntimePaths.resolveExecutable("steamcmd");
   if (bundled) return bundled;
   if (process.platform !== "win32") {
@@ -784,6 +794,21 @@ async function executeSteamCmdUpdate(instanceId, request = {}) {
   const args = ["+force_install_dir", installDirectory, "+login", "anonymous", "+app_update", String(config.steamAppId), "validate", "+quit"];
   const readBuildId = () => readSteamManifestBuildId(manifestPath);
   const buildIdBefore = await readBuildId();
+  // Optional rollback point: a full backup of the stopped instance. If it
+  // fails, the update does not start; files are left exactly as they were.
+  let preUpdateBackup = null;
+  if (request.backupBeforeUpdate === true) {
+    if (typeof preUpdateBackupProvider !== "function") throw createInstanceError("STEAMCMD_PRE_UPDATE_BACKUP_UNAVAILABLE", 409);
+    Object.assign(session.updateState, { stage: "backup", label: "Backing up the server before the update...", updatedAt: nowIso() });
+    try {
+      const created = await preUpdateBackupProvider(config.id, { buildIdBefore });
+      const backup = created?.backup || created;
+      preUpdateBackup = backup?.id ? { id: backup.id, name: backup.name || backup.id, createdAt: backup.createdAt || nowIso(), buildIdBefore } : null;
+    } catch (error) {
+      throw createInstanceError("STEAMCMD_PRE_UPDATE_BACKUP_FAILED", 422, { causeCode: error?.code || null, buildIdBefore });
+    }
+    if (!preUpdateBackup) throw createInstanceError("STEAMCMD_PRE_UPDATE_BACKUP_FAILED", 422, { causeCode: "BACKUP_NOT_RECORDED", buildIdBefore });
+  }
   const timeoutMs = Math.min(INSTALLER_TIMEOUT_MAX_MS, Math.max(INSTALLER_TIMEOUT_MIN_MS, Number(request.timeoutMs) || 10 * 60 * 1000));
   const startedAt = Date.now(); let stdout = ""; let stderr = ""; let timedOut = false; let cancelled = false;
   assertNotServiceManaged(config, "steamcmd-spawn");
@@ -825,9 +850,14 @@ async function executeSteamCmdUpdate(instanceId, request = {}) {
     ...config,
     steamBuildId: buildIdAfter,
     steamUpdatedAt: nowIso(),
+    // The rollback point for this update; an update without a backup keeps
+    // the previous one only if the build did not change.
+    steamPreUpdateBackup: preUpdateBackup
+      ? { ...preUpdateBackup, buildIdAfter }
+      : buildIdAfter === buildIdBefore ? config.steamPreUpdateBackup || null : null,
     updatedAt: nowIso(),
   });
-  return { ok: true, ...details, verified: verifyFiles, steamClientSync, buildChanged: Boolean(buildIdBefore && buildIdAfter !== buildIdBefore) };
+  return { ok: true, ...details, verified: verifyFiles, steamClientSync, preUpdateBackup, buildChanged: Boolean(buildIdBefore && buildIdAfter !== buildIdBefore) };
 }
 
 // Update-available detection: the installed build comes from the instance's
@@ -843,6 +873,7 @@ const STEAM_APP_INFO_OUTPUT_MAX_BYTES = 8 * 1024 * 1024;
 const steamLatestBuildCache = new Map();
 const steamLatestBuildInFlight = new Map();
 let steamAppInfoRunner = null;
+let preUpdateBackupProvider = null;
 let steamCmdUpdateExecutor = null;
 let steamBuildCheckClock = () => Date.now();
 
@@ -1002,7 +1033,7 @@ async function checkSteamCmdBuildUpdate(instanceId, request = {}) {
 // SteamCMD timeout all still apply). A failed update never leaves the server
 // down: it is started again on the build it already had and the failure is
 // returned (and logged to the instance console) for the caller to surface.
-async function restartInstanceWithSteamUpdate(instanceId) {
+async function restartInstanceWithSteamUpdate(instanceId, options = {}) {
   const config = await loadInstanceConfig(instanceId);
   const supported = !isServiceManaged(config) && config.installerType === "steamcmd-native" && Number.isInteger(config.steamAppId) && config.steamAppId > 0;
   if (!supported) {
@@ -1033,8 +1064,8 @@ async function restartInstanceWithSteamUpdate(instanceId) {
   let session = null;
   try {
     session = await beginSteamCmdUpdateSession(config.id, { operationId });
-    const updated = await (steamCmdUpdateExecutor || executeSteamCmdUpdate)(config.id, { operationId, token: session.token });
-    steamUpdate = { attempted: true, ok: true, buildIdBefore: updated.buildIdBefore, buildIdAfter: updated.buildIdAfter, buildChanged: updated.buildChanged, latestBuildId: check.latestBuildId };
+    const updated = await (steamCmdUpdateExecutor || executeSteamCmdUpdate)(config.id, { operationId, token: session.token, backupBeforeUpdate: options.backupBeforeUpdate === true });
+    steamUpdate = { attempted: true, ok: true, buildIdBefore: updated.buildIdBefore, buildIdAfter: updated.buildIdAfter, buildChanged: updated.buildChanged, latestBuildId: check.latestBuildId, preUpdateBackupId: updated.preUpdateBackup?.id || null };
     steamLatestBuildCache.delete(config.steamAppId);
     await appendLog(config.id, "stdout", `Scheduled SteamCMD update installed build ${updated.buildIdAfter} (was ${updated.buildIdBefore || "unknown"}).`).catch(() => {});
   } catch (error) {
@@ -6514,6 +6545,8 @@ async function restartInstanceWithJob(instanceId, options = {}) {
 // cancelling between the update and the start would leave the server down,
 // which is exactly what this path promises not to do.
 const STEAM_UPDATE_RESTART_JOB_TIMEOUT_MS = 25 * 60 * 1000;
+// A full pre-update backup of a large server can itself take many minutes.
+const STEAM_UPDATE_WITH_BACKUP_RESTART_JOB_TIMEOUT_MS = 45 * 60 * 1000;
 
 async function restartInstanceWithSteamUpdateJob(instanceId, options = {}) {
   await ensureInstanceJobsRecovered();
@@ -6521,10 +6554,10 @@ async function restartInstanceWithSteamUpdateJob(instanceId, options = {}) {
     type: "instance.restart",
     target: { instanceId: String(instanceId) },
     idempotencyKey: options?.idempotencyKey,
-    timeoutMs: options?.jobTimeoutMs || STEAM_UPDATE_RESTART_JOB_TIMEOUT_MS,
+    timeoutMs: options?.jobTimeoutMs || (options?.backupBeforeUpdate === true ? STEAM_UPDATE_WITH_BACKUP_RESTART_JOB_TIMEOUT_MS : STEAM_UPDATE_RESTART_JOB_TIMEOUT_MS),
     owner: options?.owner,
     cancellationSupported: false,
-    run: () => restartInstanceWithSteamUpdate(instanceId),
+    run: () => restartInstanceWithSteamUpdate(instanceId, { backupBeforeUpdate: options?.backupBeforeUpdate === true }),
   });
   return withJobAttachment(result, job);
 }
@@ -7487,6 +7520,9 @@ module.exports = {
     // stopped-state check) and the surrounding stop/start stay real.
     setSteamCmdUpdateExecutor(executor) {
       steamCmdUpdateExecutor = typeof executor === "function" ? executor : null;
+    },
+    setSteamCmdExecutable(executable) {
+      steamCmdExecutableOverride = executable ? String(executable) : null;
     },
     setSteamBuildCheckClock(clock) {
       steamBuildCheckClock = typeof clock === "function" ? clock : () => Date.now();
