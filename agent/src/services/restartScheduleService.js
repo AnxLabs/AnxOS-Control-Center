@@ -122,8 +122,8 @@ async function defaultRestartInstance(instanceId) {
 // Opt-in (schedule.autoUpdateSteam): restart through the SteamCMD-aware path,
 // which only updates when a newer public build is confirmed and always starts
 // the server again, on the old build if the update fails.
-async function defaultRestartInstanceWithSteamUpdate(instanceId) {
-  return getInstanceService().restartInstanceWithSteamUpdate(instanceId);
+async function defaultRestartInstanceWithSteamUpdate(instanceId, options = {}) {
+  return getInstanceService().restartInstanceWithSteamUpdate(instanceId, options);
 }
 
 // Canonical read path for the instance's durable jobs (the same query the
@@ -359,6 +359,11 @@ function buildSchedulePayload(payload = {}, existing = null) {
   schedule.autoUpdateSteam = payload.autoUpdateSteam !== undefined
     ? payload.autoUpdateSteam === true
     : existing?.autoUpdateSteam === true;
+  // A scheduled update takes a full rollback backup first unless this is
+  // explicitly false (backups count toward the normal retention policy).
+  schedule.backupBeforeUpdate = payload.backupBeforeUpdate !== undefined
+    ? payload.backupBeforeUpdate !== false
+    : existing?.backupBeforeUpdate !== false;
   return schedule;
 }
 
@@ -486,6 +491,24 @@ function assertScheduleInScope(schedule, options) {
   }
 }
 
+let lazyNotificationService = null;
+
+// Scheduled restart outcomes go to the node's alert webhook (if configured).
+function notifyScheduleOutcome(event, schedule, message) {
+  try {
+    if (!lazyNotificationService) lazyNotificationService = require("./notificationService");
+    lazyNotificationService.notify(event, { instanceId: schedule.instanceId, message });
+  } catch {}
+}
+
+// Plain schedules keep their established wording; an auto-update schedule
+// tells players the restart may take longer because the server may update.
+function restartWarningMessage(schedule, lead) {
+  return schedule.autoUpdateSteam === true
+    ? `AnxOS scheduled restart in ${lead}. The server will update if a new version is available, which can take a few minutes.`
+    : `AnxOS scheduled restart in ${lead}.`;
+}
+
 async function sendWarning(schedule, message) {
   // Warnings are a best-effort courtesy channel: a failed stdin write (for
   // example the process exited between the liveness check and the write)
@@ -538,12 +561,12 @@ async function evaluateSchedule(schedule, changed) {
       return;
     }
     if (longLeadMinutes && atMs >= dueAtMs - warnMinutes * 60 * 1000 && !schedule.warnState.longSentAt) {
-      await sendWarning(schedule, `AnxOS scheduled restart in ${warnMinutes} minute(s).`);
+      await sendWarning(schedule, restartWarningMessage(schedule, `${warnMinutes} minute(s)`));
       schedule.warnState.longSentAt = nowIso(atMs);
       changed.value = true;
     }
     if (atMs >= dueAtMs - SHORT_WARN_LEAD_MS && !schedule.warnState.shortSentAt) {
-      await sendWarning(schedule, "AnxOS scheduled restart in about 1 minute.");
+      await sendWarning(schedule, restartWarningMessage(schedule, "about 1 minute"));
       schedule.warnState.shortSentAt = nowIso(atMs);
       changed.value = true;
     }
@@ -611,11 +634,11 @@ async function evaluateSchedule(schedule, changed) {
     // thresholds. Deliver any unsent warnings in order before the restart so
     // connected players always receive notice.
     if (longLeadMinutes && !schedule.warnState.longSentAt) {
-      await sendWarning(schedule, `AnxOS scheduled restart in ${warnMinutes} minute(s).`);
+      await sendWarning(schedule, restartWarningMessage(schedule, `${warnMinutes} minute(s)`));
       schedule.warnState.longSentAt = nowIso(atMs);
     }
     if (!schedule.warnState.shortSentAt) {
-      await sendWarning(schedule, "AnxOS scheduled restart in about 1 minute.");
+      await sendWarning(schedule, restartWarningMessage(schedule, "about 1 minute"));
       schedule.warnState.shortSentAt = nowIso(atMs);
     }
     if (schedule.autoUpdateSteam === true) {
@@ -624,10 +647,12 @@ async function evaluateSchedule(schedule, changed) {
     } else {
       await (executors.restartInstance || defaultRestartInstance)(schedule.instanceId);
       schedule.lastError = null;
+      notifyScheduleOutcome("restart.scheduled.completed", schedule, `AnxOS: scheduled restart of ${schedule.instanceId} completed.`);
     }
     schedule.lastRunAt = nowIso(atMs);
   } catch (error) {
     schedule.lastError = error?.code || "RESTART_SCHEDULE_FAILED";
+    notifyScheduleOutcome("restart.scheduled.failed", schedule, `AnxOS: scheduled restart of ${schedule.instanceId} failed (${schedule.lastError}).`);
   }
 
   schedule.skippedAt = null;
@@ -642,7 +667,7 @@ function launchSteamUpdateRestart(schedule, atMs) {
   const run = (async () => {
     let fields;
     try {
-      const outcome = await (executors.restartInstanceWithSteamUpdate || defaultRestartInstanceWithSteamUpdate)(schedule.instanceId);
+      const outcome = await (executors.restartInstanceWithSteamUpdate || defaultRestartInstanceWithSteamUpdate)(schedule.instanceId, { backupBeforeUpdate: schedule.backupBeforeUpdate !== false });
       const steamUpdate = outcome?.steamUpdate || null;
       fields = {
         lastSteamUpdate: steamUpdate ? { ...steamUpdate, at: nowIso(atMs) } : null,
@@ -652,8 +677,10 @@ function launchSteamUpdateRestart(schedule, atMs) {
           ? `STEAM_AUTO_UPDATE_FAILED:${steamUpdate.code || "STEAMCMD_UPDATE_FAILED"}`
           : null,
       };
+      notifyScheduleOutcome("restart.scheduled.completed", schedule, `AnxOS: scheduled restart of ${schedule.instanceId} completed${steamUpdate?.attempted ? (steamUpdate.ok ? `; server updated to build ${steamUpdate.buildIdAfter}` : "; the update failed and the server runs its previous build") : ""}.`);
     } catch (error) {
       fields = { lastError: error?.code || "RESTART_SCHEDULE_FAILED" };
+      notifyScheduleOutcome("restart.scheduled.failed", schedule, `AnxOS: scheduled restart of ${schedule.instanceId} failed (${fields.lastError}).`);
     }
     // Let the tick that launched this restart record its own fields first.
     if (tickInFlight) await tickInFlight.catch(() => {});

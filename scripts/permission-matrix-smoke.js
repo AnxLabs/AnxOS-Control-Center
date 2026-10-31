@@ -207,7 +207,7 @@ const loadedIpcModuleFiles = new Set([
   "systemIpc.js", "ampIpc.js", "backupsIpc.js", "playitIpc.js",
   "publicAccessIpc.js", "dockerIpc.js", "instancesIpc.js", "marketplaceIpc.js",
   "maintenanceIpc.js", "nodesIpc.js", "networkInventoryIpc.js", "infrastructureInventoryIpc.js", "workloadIpc.js", "ownerWorkspaceIpc.js",
-  "filesIpc.js", "settingsIpc.js", "sshIpc.js", "alertsIpc.js",
+  "filesIpc.js", "settingsIpc.js", "sshIpc.js", "alertsIpc.js", "webhookAlertsIpc.js",
   "networkIpc.js", "telemetryIpc.js", "notificationsIpc.js", "computersIpc.js",
 ]);
 // accountIpc.js delegates to accountAuthIpc.registerAccountAuthIpc (which IS
@@ -265,6 +265,7 @@ try {
   require("../src/ipc/networkInventoryIpc").registerNetworkInventoryIpc();
   require("../src/ipc/infrastructureInventoryIpc").registerInfrastructureInventoryIpc();
   require("../src/ipc/alertsIpc").registerAlertsIpc();
+  require("../src/ipc/webhookAlertsIpc").registerWebhookAlertsIpc();
   require("../src/ipc/workloadIpc").registerWorkloadIpc();
   require("../src/ipc/ownerWorkspaceIpc").registerOwnerWorkspaceIpc();
   require("../src/ipc/filesIpc").registerFilesIpc();
@@ -396,6 +397,8 @@ const DESKTOP_PROBES = {
   "infrastructure-functional-check": { channel: "infrastructureInventory:checkFunction", payload: { resourceKey: "matrix-resource" } },
   "alerts-read": { channel: "alerts:list", payload: {} },
   "alerts-write": { channel: "alerts:acknowledge", payload: { id: "alert:NODE_OFFLINE:matrix-node-a" } },
+  "webhook-alerts-read": { channel: "webhookAlerts:get", payload: { nodeId: "matrix-node-a" } },
+  "webhook-alerts-write": { channel: "webhookAlerts:save", payload: { nodeId: "matrix-node-a", enabled: false } },
   "settings-read": { channel: "settings:getPreferences" },
   "settings-permissions-read": { channel: "settings:getPermissions", serviceRecorded: false },
   "settings-preferences": { channel: "settings:resetPreferences", payload: { category: "network" } },
@@ -622,7 +625,9 @@ function crossCheckTableAgainstRealFunctions() {
         if (family.id === "rest-credentials-rotate") {
           assert.strictEqual(enrollRoutes.getEnrollmentRoutePermission("/api/v1/credentials/rotate"), "agent:manage", "Credential rotate must remain agent:manage.");
         } else {
-          assert(["rest-agent-task", "rest-agent-restart"].includes(family.id), `Matrix drift: unexpected agent:manage REST family ${family.id}.`);
+          // rest-notifications-write: changing the server-alert webhook or
+          // sending a test reaches outside the node, so it is agent:manage.
+          assert(["rest-agent-task", "rest-agent-restart", "rest-notifications-write"].includes(family.id), `Matrix drift: unexpected agent:manage REST family ${family.id}.`);
         }
       }
     }

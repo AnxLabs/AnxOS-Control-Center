@@ -434,6 +434,18 @@ async function getAmpSnapshot(options = {}) {
 }
 
 // V2-H: read-only network inventory for the selected node's Agent host.
+async function getWebhookAlerts(options = {}) {
+  return agentClient.getWebhookAlerts(getOptionalNodeConfig(options));
+}
+
+async function saveWebhookAlerts(payload = {}, options = {}) {
+  return agentClient.saveWebhookAlerts(payload, getOptionalNodeConfig(options));
+}
+
+async function testWebhookAlerts(options = {}) {
+  return agentClient.testWebhookAlerts(getOptionalNodeConfig(options));
+}
+
 async function getNetworkInventory(options = {}) {
   try {
     return await agentClient.getNetworkInventory(getOptionalNodeConfig(options));
@@ -767,6 +779,20 @@ async function checkSteamCmdBuildUpdate(instanceId, options = {}) {
     return localInstanceService.checkSteamCmdBuildUpdate(instanceId, { refresh });
   }
   return getAgentNodeClient(options).checkSteamCmdBuildUpdate(instanceId, { refresh });
+}
+
+async function getSteamCmdUpdateProgress(instanceId, options = {}) {
+  if (shouldUseLocalInstances(options)) {
+    return localInstanceService.getSteamCmdUpdateProgress(instanceId);
+  }
+  return getAgentNodeClient(options).getSteamCmdUpdateProgress(instanceId);
+}
+
+async function setSteamCmdBranch(instanceId, branch, options = {}) {
+  if (shouldUseLocalInstances(options)) {
+    return { instance: await localInstanceService.setSteamCmdBranch(instanceId, { branch }) };
+  }
+  return getAgentNodeClient(options).setSteamCmdBranch(instanceId, branch);
 }
 
 async function getFiveMReadiness(instanceId, options = {}) {
@@ -1187,8 +1213,13 @@ module.exports = {
   openInstanceFolder,
   getFiveMReadiness,
   checkSteamCmdBuildUpdate,
+  getSteamCmdUpdateProgress,
+  setSteamCmdBranch,
   getMinecraftProperties,
   getNetworkInventory,
+  getWebhookAlerts,
+  saveWebhookAlerts,
+  testWebhookAlerts,
   getPlayitSnapshot,
   importBackup,
   installDependencies,
