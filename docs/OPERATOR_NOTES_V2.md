@@ -155,6 +155,12 @@ Per-instance restart schedules are persisted agent-side and evaluated on a
 (`HH:MM` in the agent host's local time, re-anchored to the wall clock across
 DST transitions). `warnMinutes` defaults to 5 (minimum 1, maximum 1440).
 
+In the Control Center a schedule is created and edited in a single dialog:
+repeat type, interval hours or daily time, warning minutes, and (SteamCMD
+instances only) the auto-update option. Values are checked against the limits
+above before saving. **Edit** on a schedule row changes an existing schedule,
+and a timing change re-anchors its next run.
+
 Behavior operators should expect:
 
 - Warnings are staged into the running server's stdin: a long warning at
@@ -230,6 +236,48 @@ schedule records `lastSteamUpdate` and
 instance console log. The whole sequence runs as one durable
 `instance.restart` job with a 25-minute budget and no mid-flight cancel.
 Requires an Agent that includes this change; older Agents ignore the flag.
+
+Further behaviour:
+
+- **Check for Update** asks Steam immediately (still subject to the 2-minute
+  per-app floor). **Patch Notes** opens SteamDB's page for the new build.
+  The instance list shows an **Update available** pill on affected rows.
+- **Branch** selects the Steam branch an instance tracks
+  (`POST /api/v1/instances/:id/steamcmd/branch`, `instance:write`). The check
+  compares against that branch, and updates pass `-beta <branch>`. Returning
+  to `public` passes `-beta public` only while the install is still on a beta.
+  An unlisted branch reports `STEAMCMD_BRANCH_NOT_FOUND`, and
+  password-protected betas are not supported. Files move to the branch on the
+  next (stopped) update.
+- Only one SteamCMD process runs per node at a time. Build lookups and
+  updates queue behind each other, and an update's ten-minute timeout starts
+  when its process starts.
+- Warnings for an auto-update schedule tell players that the server will
+  update if a new version is available. A failed scheduled update also raises
+  a toast in the Control Center the first time its schedule loads.
+
+While a scheduled update runs, the instance reports `steamUpdateActive` and
+`GET /api/v1/instances/:id/steamcmd/update/progress` (`instance:read`) returns
+its stage, percent and recent SteamCMD log lines, plus the outcome of the last
+scheduled update. It never returns the update session token. The Control
+Center mirrors the update into the Download Manager as **Scheduled update:
+<instance>** and marks it complete or failed when it ends.
+
+**Backup before update.** A SteamCMD update can take a full backup of the
+stopped server first (`backupBeforeUpdate: true` on
+`POST /steamcmd/update`). The backup is labelled `reason: "pre-update"`. If
+the backup fails (`STEAMCMD_PRE_UPDATE_BACKUP_FAILED`, with the backup error as
+`causeCode`), SteamCMD does not run. A successful update records the rollback
+point on the instance (`steamPreUpdateBackup`), and **Roll Back Update**
+restores it through the normal restore flow.
+- Manual updates offer the backup, checked by default.
+- Restart schedules back up before scheduled updates unless
+  `backupBeforeUpdate` is `false` (the **Skip Backup** / **Back Up First**
+  buttons on the schedule row).
+- Pre-update backups count toward normal backup retention.
+- The Agent allows a SteamCMD update request 31 minutes so a large backup can
+  finish first, and an update-aware scheduled restart job gets 45 minutes when
+  it backs up.
 
 **Fleet view.** The Nodes page has a **Server Updates** panel. **Check All**
 asks every enabled node for its SteamCMD servers and their builds; an
@@ -568,3 +616,25 @@ pre-Build-200 build:
 This note records the downgrade limitation where an operator deciding whether to
 roll back should see it. It does not change the update workflow or the manifest
 generator.
+
+## Server alerts (Discord / webhook)
+
+Each node's Agent can post selected events to one Discord or generic HTTPS
+webhook: server crashed (unexpected exit), scheduled restart completed or
+failed, server updated, and server update failed. It is configured in
+**Settings > Notifications > Server Alerts** for the selected node.
+
+- `GET /api/v1/notifications/webhook` (`system:read`) returns a masked hint,
+  never the URL. `PUT` (save) and `POST .../test` require `agent:manage`. On
+  the desktop the channels are `webhookAlerts:get` (`nodes:read`) and
+  `webhookAlerts:save` / `webhookAlerts:test` (`settings:write`, audited
+  without the URL).
+- The URL is stored in `<agent data>/notifications/webhook.json` (mode
+  0600, override with `AGENT_NOTIFICATION_ROOT`). Only `https:` URLs with a
+  public DNS host name are accepted (no IP literals, `localhost`, `.local` or
+  single-label hosts, and no embedded credentials).
+- Discord webhooks get `{content}` with mentions disabled. Other hosts get a
+  JSON event `{source, event, instanceId, message, at}`.
+- Delivery is fire-and-forget (5 s timeout) and never blocks a lifecycle
+  action. At most one alert per event and instance per minute, and 20 per
+  node per minute. The last delivery result is shown in Settings.

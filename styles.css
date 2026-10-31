@@ -12558,6 +12558,12 @@ button:disabled {
   color: rgba(255, 226, 181, 0.96);
 }
 
+.instance-tags-cell .instance-tag--update {
+  border-color: rgba(255, 190, 92, 0.34);
+  background: rgba(117, 74, 19, 0.28);
+  color: rgba(255, 226, 181, 0.96);
+}
+
 .status-pill--critical {
   border-color: rgba(255, 107, 138, 0.38);
   background: rgba(112, 26, 52, 0.3);
