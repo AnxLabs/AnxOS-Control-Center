@@ -26,6 +26,11 @@ The server files and assets need a Hytale account, so the first start runs Hytal
 3. When the console shows "Authentication successful", AnxOS sends `update download`. Hytale then downloads the server, assets and `start.sh` (several GB).
 4. The launcher then starts the real server through the official `start.sh`. Every later start goes straight there.
 
+**Sign in button.** While the server needs a sign-in, its instance page shows a **Sign in** button in the Power group:
+- It opens Hytale's sign-in page, with the code already filled in, in your default browser.
+- If no code is pending, it first runs Hytale's own `auth login device`.
+- Only links on `oauth.accounts.hytale.com` are opened. The link comes from the Agent's reading of the server's output, never from the page.
+
 Other behaviour:
 
 - **Stopping during setup** stops cleanly and leaves no Java process behind.
@@ -37,6 +42,7 @@ Other behaviour:
 - **Config edits:** Hytale rewrites its config files while it runs, so stop the server before editing them.
 - **Readiness** comes from Hytale's log lines, because the TCP port probe can't see a UDP server:
   - "Hytale Server Booted!" means ready, but only once the official `Server/` layout exists. The bootstrap prints the same line without serving players.
+  - "Authentication successful" means ready only on a server that has already booted. When a stored session is restored, Hytale prints that line before it binds its port.
   - "No server tokens configured" means degraded, with `HYTALE_AUTH_REQUIRED`: players can't join until the server is signed in (`/auth login device` in the console).
 - **World backups** cover `server/Server/universe`.
 - **Updates** use Hytale's built-in updater (`/update check`, `/update download`, `/update apply --confirm`).

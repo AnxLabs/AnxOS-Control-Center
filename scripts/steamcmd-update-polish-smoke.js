@@ -101,7 +101,8 @@ async function warningChecks() {
 }
 
 function contractChecks() {
-  const read = (file) => fs.readFileSync(file, "utf8");
+  // Normalised so the checks hold on CRLF (Windows autocrlf) checkouts too.
+  const read = (file) => fs.readFileSync(file, "utf8").replace(/\r\n/g, "\n");
   const core = read("src/shared/instances/instanceServiceCore.js");
   const routes = read("agent/src/routes/instances.js");
   const ipc = read("src/ipc/instancesIpc.js");

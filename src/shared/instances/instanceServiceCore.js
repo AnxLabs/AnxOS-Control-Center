@@ -18,6 +18,7 @@ const {
   serializeDocument,
 } = require("../gameServerConfigManager");
 const { evaluateWorkloadTrust, TRUST_DECLARATION_FIELDS } = require("../workloadTrustPolicy");
+const { getSignInAdapter, parseSignInOutput, usableSignInChallenge } = require("../gameSignIn");
 const {
   decideMigrationRecovery,
   verifyRecoveryPoint,
@@ -1911,7 +1912,7 @@ function resolveInstanceJavaRuntime(config) {
 
 function publicConfig(config) {
   config = clearInstallerRuntimeJarMetadata(config);
-  const { crashLoopDetectedAt: _crashLoopDetectedAt, ...safeConfig } = config;
+  const { crashLoopDetectedAt: _crashLoopDetectedAt, signInChallenge: _signInChallenge, ...safeConfig } = config;
   const crashLoop = config.state === INSTANCE_STATES.FAILED && config.failureReason === "CRASH_LOOP";
   const processRunning = [INSTANCE_STATES.STARTING, INSTANCE_STATES.RUNNING, INSTANCE_STATES.STOPPING, INSTANCE_STATES.RESTARTING].includes(config.state);
   const readinessState = config.state === INSTANCE_STATES.RUNNING ? config.readinessState || "unknown"
@@ -1938,6 +1939,7 @@ function publicConfig(config) {
     crashed: config.state === INSTANCE_STATES.FAILED && Boolean(config.failureReason),
     crashLoop,
     instancePath: instancePath(config.id),
+    signIn: signInState(config, processRunning),
     environment: Object.keys(config.environment || {}).reduce((redacted, key) => {
       redacted[key] = "[configured]";
       return redacted;
@@ -2408,17 +2410,52 @@ function normalizeVersionInfo(versionInfo = null, config = {}) {
 // UDP, so the TCP port probe can never see it. The first start runs Hytale's
 // bootstrap from data/server, which also prints "Booted" but never serves
 // players, so "Booted" counts only once the official Server/ layout exists.
-function hytaleReadinessUpdate(text, { layoutInstalled }) {
+function hytaleReadinessUpdate(text, { layoutInstalled, booted = false }) {
   if (HYTALE_AUTH_REQUIRED_PATTERN.test(text)) {
     return { readinessState: "degraded", healthState: "degraded", failureReason: "HYTALE_AUTH_REQUIRED" };
   }
   if (!layoutInstalled) {
     return null;
   }
-  if (HYTALE_BOOTED_PATTERN.test(text) || HYTALE_AUTH_SUCCEEDED_PATTERN.test(text)) {
+  if (HYTALE_BOOTED_PATTERN.test(text)) {
+    return { readinessState: "ready", healthState: "healthy", failureReason: null };
+  }
+  // A sign-in completed on a server that is already up. Restoring a stored
+  // session prints the same line before the server binds its port, so on its
+  // own (before "Booted") it is not readiness.
+  if (booted && HYTALE_AUTH_SUCCEEDED_PATTERN.test(text)) {
     return { readinessState: "ready", healthState: "healthy", failureReason: null };
   }
   return null;
+}
+
+// Folds one chunk of output into the running sign-in challenge. A new
+// verification link starts a new challenge, so codes never mix across
+// attempts. Returns the value to persist (null once signed in), or undefined
+// when nothing changed.
+function nextSignInChallenge(game, current, text, now = Date.now()) {
+  const found = parseSignInOutput(game, text);
+  if (!found) return undefined;
+  if (found.succeeded) return null;
+  const base = found.verificationUrl ? {} : { ...(current || {}) };
+  const { expiresInSeconds, ...fields } = found;
+  const next = { ...base, ...fields, observedAt: new Date(now).toISOString() };
+  if (Number.isInteger(expiresInSeconds)) {
+    next.expiresAt = new Date(now + expiresInSeconds * 1000).toISOString();
+  }
+  return next;
+}
+
+function signInState(config, running) {
+  const adapter = getSignInAdapter(inferGameFamily(config));
+  if (!adapter) return null;
+  return {
+    supported: true,
+    game: adapter.game,
+    label: adapter.label,
+    required: running && config.failureReason === adapter.requiredReason,
+    challenge: running ? usableSignInChallenge(adapter.game, config.signInChallenge) : null,
+  };
 }
 
 function updateHytaleReadiness(config, child, text) {
@@ -2427,12 +2464,22 @@ function updateHytaleReadiness(config, child, text) {
     "Server",
     "HytaleServer.jar",
   ));
-  const update = hytaleReadinessUpdate(text, { layoutInstalled });
-  if (!update || !isCurrentRunningProcess(config.id, child)) {
+  if (!isCurrentRunningProcess(config.id, child)) {
     return;
   }
   const entry = runningProcesses.get(config.id);
-  if (entry) {
+  const update = hytaleReadinessUpdate(text, { layoutInstalled, booted: Boolean(entry?.hytaleBooted) });
+  if (entry && layoutInstalled && HYTALE_BOOTED_PATTERN.test(text)) {
+    entry.hytaleBooted = true;
+  }
+  const challenge = entry ? nextSignInChallenge("hytale", entry.signInChallenge, text) : undefined;
+  if (challenge !== undefined) {
+    entry.signInChallenge = challenge;
+  }
+  if (!update && challenge === undefined) {
+    return;
+  }
+  if (update && entry) {
     entry.readinessState = update.readinessState;
     // A Hytale log signal is authoritative, so the generic startup timeout must
     // not later replace it with READINESS_TIMEOUT.
@@ -2440,8 +2487,12 @@ function updateHytaleReadiness(config, child, text) {
       clearTimeout(entry.startupTimer);
     }
   }
-  updateRuntimeState(config.id, { state: INSTANCE_STATES.RUNNING, pid: child.pid, ...update }).catch(() => {});
-  if (update.readinessState === "ready") {
+  const patch = {
+    ...(update ? { state: INSTANCE_STATES.RUNNING, pid: child.pid, ...update } : {}),
+    ...(challenge !== undefined ? { signInChallenge: challenge } : {}),
+  };
+  updateRuntimeState(config.id, patch).catch(() => {});
+  if (update?.readinessState === "ready") {
     scheduleVersionRefresh(config.id, 1000);
   }
 }
@@ -6153,6 +6204,7 @@ async function startInstanceImpl(instanceId, options = {}) {
   const updated = await updateRuntimeState(config.id, {
     state: INSTANCE_STATES.STARTING,
     pid: child.pid,
+    signInChallenge: null,
   });
   await appendLog(config.id, "stdout", `Process PID: ${child.pid}`);
 
@@ -7594,6 +7646,7 @@ module.exports = {
   getMetrics,
   getWorldScopeCandidates,
   hytaleReadinessUpdate,
+  nextSignInChallenge,
   readGameServerConfig,
   getStatus,
   executeInstallationPhase: refuseForServiceManaged("installation", executeInstallationPhase),

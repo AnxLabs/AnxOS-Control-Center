@@ -43,6 +43,7 @@ const {
   updateRestartSchedule,
   writeInstanceFile,
 } = require("../services/serviceRouter");
+const { openInstanceSignIn } = require("../services/instanceSignInService");
 const { audit, checkRateLimit, requirePermission } = require("../services/securityService");
 const { wrapExpectedAgentRead } = require("./expectedAgentError");
 const { requireNodeContext } = require("./nodeContext");
@@ -161,6 +162,15 @@ function registerInstancesIpc() {
     checkRateLimit("console-command", 120, 60 * 1000);
     audit({ action: "instance.command", target: payload.instanceId });
     return sendInstanceCommand(payload.instanceId, payload.command, payload);
+  }));
+  // Opens the game publisher's own sign-in page for a server that needs an
+  // account sign-in (starting the game's sign-in command when no code is
+  // pending). Same tier as console commands, because it may send one.
+  registerInstanceHandler("instances:signIn", async (_, payload = {}) => invokeInstanceOperation(() => {
+    requirePermission("instance:write", payload.instanceId);
+    checkRateLimit("instance-sign-in", 10, 60 * 1000);
+    audit({ action: "instance.sign-in.open", target: payload.instanceId });
+    return openInstanceSignIn(payload.instanceId, payload);
   }));
   registerInstanceHandler("instances:start", async (_, payload = {}) => invokeInstanceOperation(() => {
     requirePermission("instance:lifecycle", payload.instanceId);

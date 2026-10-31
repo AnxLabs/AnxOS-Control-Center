@@ -15717,6 +15717,15 @@ function updateInstanceActionButtons() {
     button.hidden = !isFiveMSetupRequired(selectedInstance);
     button.disabled = busy || !hasInstancesBridge || !isFiveMSetupRequired(selectedInstance);
   });
+  document.querySelectorAll('[data-instance-action="sign-in"]').forEach((button) => {
+    // Shown only for games with an account sign-in (for example Hytale) while
+    // the server reports that it needs one.
+    const signIn = selectedInstance?.signIn;
+    const needed = Boolean(signIn?.supported && signIn.required && isInstanceRunning(selectedInstance));
+    button.hidden = !needed;
+    button.disabled = busy || !needed || !hasInstancesBridge || typeof desktopApiState.api?.instances?.signIn !== "function";
+    button.title = needed ? `Sign this server in with your ${signIn.label || "account"} in your browser.` : "";
+  });
   document.querySelectorAll('[data-instance-action="update-steam"]').forEach((button) => {
     const supported = selectedInstance?.installerType === "steamcmd-native" && Number.isInteger(Number(selectedInstance?.steamAppId));
     const running = isInstanceRunning(selectedInstance);
@@ -16446,10 +16455,11 @@ function setInstanceDetails(instance = null) {
   const activeOperation = getInstanceOperation(instance.id);
   // The state field reports the reconciled runtime state; a failed operation
   // stays visible through the tooltip and the failure-reason field instead of
-  // replacing the state.
+  // replacing the state. A finished operation shows that state too: a
+  // generic "Ready" after a successful Stop read as if the server were up.
   const visibleState = activeOperation?.status === "running"
     ? getInstanceOperationLabel(activeOperation.type)
-    : activeOperation?.status === "success" ? "Ready" : instance.state || "Unavailable";
+    : instance.state || "Unavailable";
   setField("instanceDetailState", visibleState);
   document.querySelectorAll('[data-field="instanceDetailState"]').forEach((field) => {
     field.className = `instance-state is-${activeOperation?.status === "running" ? "reloading" : getInstanceStateClass(instance.state)}`;
@@ -16854,6 +16864,10 @@ function getAgentErrorMessage(error, fallback = "Instance request failed.") {
     STARTUP_CONFIGURATION_FAILED: "The startup command could not be configured.",
     MARKETPLACE_INSTALL_FAILED: "Template install failed.",
     FIVEM_LICENSE_REQUIRED: "FiveM needs a valid license key in server.cfg before it can start.",
+    SIGN_IN_UNSUPPORTED: "This server does not use an account sign-in.",
+    SIGN_IN_SERVER_NOT_RUNNING: "Start the server first; it shows its sign-in code while it runs.",
+    SIGN_IN_CODE_TIMEOUT: "The server did not show a sign-in code. Check its console.",
+    SIGN_IN_URL_BLOCKED: "The sign-in link is not on the publisher's sign-in site, so it was not opened.",
     FIVEM_SETUP_REQUIRED: "FiveM setup is required before this server can start.",
     FIVEM_RESOURCES_REQUIRED: "FiveM server resources are missing; reinstall this server so players can spawn.",
     INVALID_FIVEM_LICENSE_KEY: "Enter a valid FiveM license key from Cfx.re Keymaster.",
@@ -18265,7 +18279,9 @@ function getMarketplaceInstalledInstanceVersion(instance = null) {
   if (!instance) return "";
   const version = getInstanceVersionMetadata(instance);
   const parts = [
-    version.gameVersion && version.gameVersion !== "Unknown version" ? `Minecraft ${version.gameVersion}` : "",
+    version.gameVersion && version.gameVersion !== "Unknown version"
+      ? (version.isMinecraft ? `Minecraft ${version.gameVersion}` : version.gameVersion)
+      : "",
     version.software && version.software !== "Minecraft" ? version.software : "",
     version.softwareVersion && version.softwareVersion !== version.gameVersion ? version.softwareVersion : "",
   ].filter(Boolean);
@@ -23429,6 +23445,27 @@ async function runInstanceAction(actionName) {
   if (actionName === "configure-fivem") {
     await openFiveMSetup(selectedInstance);
     updateInstanceActionButtons();
+    return;
+  }
+
+  if (actionName === "sign-in") {
+    if (refuseServiceManagedAction(selectedInstance, "Sign in")) {
+      updateInstanceActionButtons();
+      return;
+    }
+    instanceActionRequestInFlight = true;
+    updateInstanceActionButtons();
+    try {
+      if (!isNodeActionStillCurrent(requestContext)) return;
+      const result = await desktopApiState.api.instances.signIn(targetInstanceId, getNodeScopedPayload(requestContext));
+      showToast(`Opened the ${result?.label || "account"} sign-in page in your browser. Approve code ${result?.userCode || "shown on the page"} there.`);
+      await refreshInstanceLogs();
+    } catch (error) {
+      showToast(getAgentErrorMessage(error, "The sign-in page could not be opened."));
+    } finally {
+      instanceActionRequestInFlight = false;
+      updateInstanceActionButtons();
+    }
     return;
   }
 
@@ -46778,6 +46815,9 @@ instancesForceKillButtons.forEach((button) => {
 });
 document.querySelectorAll('[data-instance-action="configure-fivem"]').forEach((button) => {
   button.addEventListener("click", () => runInstanceAction("configure-fivem"));
+});
+document.querySelectorAll('[data-instance-action="sign-in"]').forEach((button) => {
+  button.addEventListener("click", () => runInstanceAction("sign-in"));
 });
 document.querySelectorAll('[data-instance-action="expose-share"]').forEach((button) => {
   button.addEventListener("click", () => runInstanceAction("expose-share"));
