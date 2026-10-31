@@ -282,7 +282,7 @@ const IPC_FAMILIES = [
       "instances:listFiles", "instances:readFile", "instances:listRestartSchedules",
       "instances:serviceOverview", "instances:serviceHistory", "instances:serviceOperation", "instances:safeRestartPreflight",
       "instances:getMinecraftProperties", "instances:getGameServerConfig", "instances:getFiveMReadiness",
-      "instances:checkSteamUpdate", "instances:jobs:list", "instances:jobs:get",
+      "instances:checkSteamUpdate", "instances:mods:list", "instances:mods:search", "instances:mods:checkUpdates", "instances:jobs:list", "instances:jobs:get",
     ],
   },
   {
@@ -317,6 +317,7 @@ const IPC_FAMILIES = [
     allow: ["owner-unlocked"],
     channels: [
       "instances:clearLogs", "instances:writeFile", "instances:deleteFile", "instances:createFolder",
+      "instances:mods:install", "instances:mods:setEnabled", "instances:mods:remove", "instances:mods:update",
       "instances:renameFile", "instances:saveGameServerConfig", "instances:saveMinecraftProperties",
       "instances:saveFiveMLicenseKey",
     ],

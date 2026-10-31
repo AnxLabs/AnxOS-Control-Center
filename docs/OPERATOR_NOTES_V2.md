@@ -560,3 +560,27 @@ pre-Build-200 build:
 This note records the downgrade limitation where an operator deciding whether to
 roll back should see it. It does not change the update workflow or the manifest
 generator.
+
+## Mod Manager
+
+Minecraft instances running Fabric, Quilt, Forge or NeoForge (mods) or Paper
+or Purpur (plugins), with a recorded Minecraft version, get a **Mods** or
+**Plugins** tab.
+
+- **Search** shows only Modrinth projects that run on servers and match the
+  instance's Minecraft version and loader. Quilt also accepts Fabric mods, and
+  Paper/Purpur accept Spigot and Bukkit plugins.
+- **Install** picks the newest compatible release and also installs its
+  required (not optional) dependencies.
+- Files are downloaded only from `cdn.modrinth.com`, checked against
+  Modrinth's SHA-512, and written through the instance file API into
+  `<server root>/mods` or `/plugins`. A mismatch or an off-CDN file installs
+  nothing.
+- AnxOS records what it installed in `.anxos-mods.json` next to the files.
+  **Check for Updates** and **Update** work only for those mods. Jars added by
+  hand are listed as manual.
+- **Disable** renames a jar to `.jar.disabled`, and **Remove** deletes it.
+  Changes take effect the next time the server starts.
+- IPC: `instances:mods:list`, `:search` and `:checkUpdates` are
+  `instance:read`. `:install`, `:setEnabled`, `:remove` and `:update` are
+  `files:write` and audited. No Agent change is needed.

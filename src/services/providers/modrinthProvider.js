@@ -394,6 +394,30 @@ async function searchModpacks(queryOrOptions = "", minecraftVersion = "", loader
   };
 }
 
+// Mod Manager search: server-capable mods or plugins for one Minecraft
+// version and a set of acceptable loader categories (any of them matches).
+async function searchServerProjects(options = {}) {
+  const projectType = options.projectType === "plugin" ? "plugin" : "mod";
+  const loaders = (Array.isArray(options.loaders) ? options.loaders : []).map(normalizeLoader).filter(Boolean);
+  const facets = [[`project_type:${projectType}`]];
+  if (options.minecraftVersion) facets.push([`versions:${options.minecraftVersion}`]);
+  if (loaders.length) facets.push(loaders.map((loader) => `categories:${loader}`));
+  facets.push(["server_side:required", "server_side:optional"]);
+  const limit = Math.min(Math.max(Number.parseInt(options.limit, 10) || 20, 1), 50);
+  const offset = Math.max(Number.parseInt(options.offset, 10) || 0, 0);
+  const query = String(options.query || "").trim().slice(0, 120);
+  const payload = await requestJson(createUrl("/search", { query, index: query ? "relevance" : "downloads", limit, offset, facets }), `Modrinth ${projectType} search`);
+  return {
+    hits: (Array.isArray(payload?.hits) ? payload.hits : []).map((hit) => {
+      const { raw: _raw, ...project } = normalizeProject(hit);
+      return project;
+    }),
+    total: Number(payload?.total_hits) || 0,
+    offset,
+    limit,
+  };
+}
+
 async function getProject(projectIdOrSlug) {
   assertProviderMetadata(projectIdOrSlug, "Modrinth project");
   const cacheKey = String(projectIdOrSlug);
@@ -531,4 +555,5 @@ module.exports = {
   resolveDependencies,
   resolveVersion,
   searchModpacks,
+  searchServerProjects,
 };

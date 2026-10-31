@@ -13968,12 +13968,179 @@ function setActiveInstanceTab(tabName) {
   } else if (activeInstanceTab === "players") {
     stopInstanceConsolePolling();
     refreshMinecraftPlayerFiles();
+  } else if (activeInstanceTab === "mods") {
+    stopInstanceConsolePolling();
+    refreshInstanceMods();
   } else if (activeInstanceTab === "backups") {
     stopInstanceConsolePolling();
     refreshRestartSchedules({ silent: true });
   } else {
     stopInstanceConsolePolling();
   }
+}
+
+// Mod Manager (instance "Mods"/"Plugins" tab). The main process talks to
+// Modrinth and writes through the instance file API; this tab only lists,
+// searches and asks for changes.
+const MOD_MANAGER_SOFTWARE = new Set(["fabric", "quilt", "forge", "neoforge", "paper", "purpur"]);
+let modsState = { instanceId: null, mods: [], updates: new Map(), results: [], busy: false, context: null };
+
+function isModManagerInstance(instance) {
+  return MOD_MANAGER_SOFTWARE.has(String(instance?.serverSoftware || "").toLowerCase()) && Boolean(instance?.minecraftVersion);
+}
+
+function isPluginServer(instance) {
+  return ["paper", "purpur"].includes(String(instance?.serverSoftware || "").toLowerCase());
+}
+
+function getModsApi() {
+  return getDesktopApiState().api?.instances?.mods || null;
+}
+
+function describeModRow(mod, update) {
+  return [
+    mod.title,
+    mod.versionNumber ? mod.versionNumber : null,
+    mod.source === "manual" ? "added manually" : null,
+    mod.enabled ? null : "disabled",
+    update ? `update to ${update.latestVersion}` : null,
+  ].filter(Boolean).join(" · ");
+}
+
+function renderInstanceMods() {
+  const instance = findInstance();
+  const list = document.querySelector("[data-mods-installed]");
+  const results = document.querySelector("[data-mods-results]");
+  const empty = document.querySelector("[data-mods-empty]");
+  const status = document.querySelector("[data-mods-status]");
+  const title = document.querySelector("[data-mods-title]");
+  const description = document.querySelector("[data-mods-description]");
+  const plugin = isPluginServer(instance);
+  const noun = plugin ? "plugin" : "mod";
+  if (title) title.textContent = plugin ? "Plugins" : "Mods";
+  if (description) {
+    description.textContent = modsState.context
+      ? `${plugin ? "Plugins" : "Mods"} in ${modsState.context.folder}/ for Minecraft ${modsState.context.minecraftVersion} (${modsState.context.software}). Changes take effect the next time the server starts.`
+      : `Server ${noun}s installed in this instance.`;
+  }
+  const mods = modsState.instanceId === instance?.id ? modsState.mods : [];
+  if (status) status.textContent = modsState.busy ? "Working..." : `${mods.length} ${noun}${mods.length === 1 ? "" : "s"}${modsState.updates.size ? `, ${modsState.updates.size} update${modsState.updates.size === 1 ? "" : "s"}` : ""}`;
+  if (empty) empty.hidden = mods.length > 0;
+  document.querySelectorAll("[data-mods-action]").forEach((button) => { button.disabled = modsState.busy || !instance; });
+  if (list) {
+    list.replaceChildren();
+    mods.forEach((mod) => {
+      const update = modsState.updates.get(mod.fileName);
+      const row = document.createElement("div");
+      row.className = "instance-network-row";
+      const label = document.createElement("span");
+      label.textContent = describeModRow(mod, update);
+      label.title = mod.fileName;
+      row.append(label);
+      const addButton = (text, handler) => {
+        const button = document.createElement("button");
+        button.className = "inline-action";
+        button.type = "button";
+        button.textContent = text;
+        button.disabled = modsState.busy;
+        button.addEventListener("click", handler);
+        row.append(button);
+      };
+      if (update) addButton("Update", () => runModAction("update", mod));
+      addButton(mod.enabled ? "Disable" : "Enable", () => runModAction("toggle", mod));
+      addButton("Remove", () => runModAction("remove", mod));
+      list.appendChild(row);
+    });
+  }
+  if (results) {
+    results.replaceChildren();
+    const installedProjects = new Set(mods.map((mod) => mod.projectId).filter(Boolean));
+    modsState.results.forEach((project) => {
+      const row = document.createElement("div");
+      row.className = "instance-network-row";
+      const label = document.createElement("span");
+      label.textContent = `${project.name} · ${project.author || "Modrinth"} · ${Number(project.downloads || 0).toLocaleString()} downloads`;
+      label.title = project.description || "";
+      const install = document.createElement("button");
+      install.className = "inline-action";
+      install.type = "button";
+      install.textContent = installedProjects.has(project.id) ? "Installed" : "Install";
+      install.disabled = modsState.busy || installedProjects.has(project.id);
+      install.addEventListener("click", () => runModAction("install", project));
+      row.append(label, install);
+      results.appendChild(row);
+    });
+  }
+}
+
+async function refreshInstanceMods() {
+  const api = getModsApi();
+  const instance = findInstance();
+  if (!api || !isModManagerInstance(instance)) return;
+  const requestContext = createNodeActionContext("instance-mods");
+  if (modsState.instanceId !== instance.id) modsState = { instanceId: instance.id, mods: [], updates: new Map(), results: [], busy: false, context: null };
+  try {
+    const result = await api.list(instance.id, getNodeScopedPayload(requestContext));
+    if (!isNodeRequestCurrent(requestContext) || findInstance()?.id !== instance.id) return;
+    if (result?.ok === false) throw Object.assign(new Error(result.error?.message || "Mods could not be loaded."), { code: result.error?.code });
+    modsState.mods = Array.isArray(result?.mods) ? result.mods : [];
+    modsState.context = result ? { folder: result.folder, minecraftVersion: result.minecraftVersion, software: result.software } : null;
+  } catch (error) {
+    showToast(getAgentErrorMessage(error, "Mods could not be loaded."), "warning");
+  }
+  renderInstanceMods();
+}
+
+async function runModAction(action, target = null) {
+  const api = getModsApi();
+  const instance = findInstance();
+  if (!api || !instance || modsState.busy) return;
+  const requestContext = createNodeActionContext(`instance-mods-${action}`);
+  const payload = getNodeScopedPayload(requestContext);
+  if (action === "remove") {
+    const confirmed = await createSecurityConfirmation({ title: `Remove ${target.title}?`, message: `${target.fileName} is deleted from the server. It stops loading the next time the server starts.`, confirmLabel: "Remove" });
+    if (!confirmed) return;
+  }
+  modsState.busy = true;
+  renderInstanceMods();
+  try {
+    let result;
+    if (action === "search") {
+      const query = String(document.querySelector("[data-mods-search-input]")?.value || "").trim();
+      result = await api.search(instance.id, query, payload);
+      if (result?.ok === false) throw Object.assign(new Error(result.error?.message || "Search failed."), { code: result.error?.code });
+      modsState.results = Array.isArray(result?.hits) ? result.hits : [];
+      if (!modsState.results.length) showToast("No compatible projects found.", "warning");
+    } else if (action === "check-updates") {
+      result = await api.checkUpdates(instance.id, payload);
+      if (result?.ok === false) throw Object.assign(new Error(result.error?.message || "Update check failed."), { code: result.error?.code });
+      modsState.updates = new Map((result?.updates || []).map((update) => [update.fileName, update]));
+      showToast(modsState.updates.size ? `${modsState.updates.size} update(s) available.` : "Everything installed from Modrinth is up to date.", modsState.updates.size ? "warning" : "success");
+    } else {
+      if (action === "install") result = await api.install(instance.id, target.id, payload);
+      if (action === "toggle") result = await api.setEnabled(instance.id, target.fileName, !target.enabled, payload);
+      if (action === "remove") result = await api.remove(instance.id, target.fileName, target.enabled, payload);
+      if (action === "update") result = await api.update(instance.id, target.fileName, payload);
+      if (result?.ok === false) throw Object.assign(new Error(result.error?.message || "The change failed."), { code: result.error?.code });
+      if (action === "update") modsState.updates.delete(target.fileName);
+      const restartNote = isInstanceRunning(instance) ? " Restart the server to apply it." : "";
+      const done = {
+        install: `Installed ${target.name}${(result?.installed?.length || 1) > 1 ? ` and ${result.installed.length - 1} required dependenc${result.installed.length === 2 ? "y" : "ies"}` : ""}.`,
+        toggle: `${target.title} ${target.enabled ? "disabled" : "enabled"}.`,
+        remove: `${target.title} removed.`,
+        update: result?.updated === false ? `${target.title} is already up to date.` : `${target.title} updated.`,
+      }[action];
+      showToast(`${done}${restartNote}`, "success");
+      modsState.busy = false;
+      await refreshInstanceMods();
+      return;
+    }
+  } catch (error) {
+    showToast(getAgentErrorMessage(error, "The mod change failed."), "warning");
+  } finally {
+    modsState.busy = false;
+  }
+  renderInstanceMods();
 }
 
 function stringifyArgs(args) {
@@ -15725,6 +15892,12 @@ function updateInstanceActionButtons() {
     button.hidden = !needed;
     button.disabled = busy || !needed || !hasInstancesBridge || typeof desktopApiState.api?.instances?.signIn !== "function";
     button.title = needed ? `Sign this server in with your ${signIn.label || "account"} in your browser.` : "";
+  });
+  document.querySelectorAll('[data-instance-tab="mods"]').forEach((tab) => {
+    const supported = isModManagerInstance(selectedInstance) && typeof desktopApiState.api?.instances?.mods?.list === "function";
+    tab.hidden = !supported;
+    tab.textContent = isPluginServer(selectedInstance) ? "Plugins" : "Mods";
+    if (!supported && activeInstanceTab === "mods") window.queueMicrotask(() => setActiveInstanceTab("overview"));
   });
   document.querySelectorAll('[data-instance-action="update-steam"]').forEach((button) => {
     const supported = selectedInstance?.installerType === "steamcmd-native" && Number.isInteger(Number(selectedInstance?.steamAppId));
@@ -46678,6 +46851,18 @@ instancesRestartButtons.forEach((button) => {
 });
 instancesRepairNeoForgeButtons.forEach((button) => {
   button.addEventListener("click", () => runInstanceAction("repair-neoforge-runtime"));
+});
+document.querySelectorAll("[data-mods-action]").forEach((button) => {
+  button.addEventListener("click", () => {
+    if (button.dataset.modsAction === "refresh") refreshInstanceMods();
+    else runModAction(button.dataset.modsAction);
+  });
+});
+document.querySelector("[data-mods-search-input]")?.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    runModAction("search");
+  }
 });
 document.querySelectorAll('[data-instance-action="update-steam"]').forEach((button) => {
   button.addEventListener("click", () => runInstanceAction("update-steam"));
