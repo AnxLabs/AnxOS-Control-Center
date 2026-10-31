@@ -43,6 +43,7 @@ const TICK_OWNED_FIELDS = Object.freeze([
   "skipReason",
   "nextRunAt",
   "warnState",
+  "lastSteamUpdate",
 ]);
 
 let schedulerStarted = false;
@@ -58,6 +59,7 @@ const executors = {
   isInstanceRunning: null,
   warnInstance: null,
   restartInstance: null,
+  restartInstanceWithSteamUpdate: null,
   listInstanceJobs: null,
 };
 
@@ -96,6 +98,13 @@ async function defaultRestartInstance(instanceId) {
   return getInstanceService().restartInstance(instanceId);
 }
 
+// Opt-in (schedule.autoUpdateSteam): restart through the SteamCMD-aware path,
+// which only updates when a newer public build is confirmed and always starts
+// the server again, on the old build if the update fails.
+async function defaultRestartInstanceWithSteamUpdate(instanceId) {
+  return getInstanceService().restartInstanceWithSteamUpdate(instanceId);
+}
+
 // Canonical read path for the instance's durable jobs (the same query the
 // /api/v1/jobs route uses). Terminal-state filtering lives in findBlockingJob
 // so the seam only has to return the raw list contract.
@@ -121,6 +130,9 @@ function configureRestartScheduleService(overrides = {}) {
   if (Object.prototype.hasOwnProperty.call(overrides, "restartInstance")) {
     executors.restartInstance = overrides.restartInstance || defaultRestartInstance;
   }
+  if (Object.prototype.hasOwnProperty.call(overrides, "restartInstanceWithSteamUpdate")) {
+    executors.restartInstanceWithSteamUpdate = overrides.restartInstanceWithSteamUpdate || defaultRestartInstanceWithSteamUpdate;
+  }
   if (Object.prototype.hasOwnProperty.call(overrides, "listInstanceJobs")) {
     executors.listInstanceJobs = overrides.listInstanceJobs || defaultListInstanceJobs;
   }
@@ -131,6 +143,7 @@ configureRestartScheduleService({
   isInstanceRunning: null,
   warnInstance: null,
   restartInstance: null,
+  restartInstanceWithSteamUpdate: null,
   listInstanceJobs: null,
 });
 
@@ -320,6 +333,11 @@ function buildSchedulePayload(payload = {}, existing = null) {
   schedule.warnMinutes = parseWarnMinutes(
     payload.warnMinutes !== undefined ? payload.warnMinutes : existing?.warnMinutes,
   );
+  // Opt-in only: a schedule never updates server files unless this is
+  // explicitly true, and an update without the field keeps the stored value.
+  schedule.autoUpdateSteam = payload.autoUpdateSteam !== undefined
+    ? payload.autoUpdateSteam === true
+    : existing?.autoUpdateSteam === true;
   return schedule;
 }
 
@@ -356,6 +374,7 @@ async function createRestartSchedule(payload = {}) {
   schedule.lastError = null;
   schedule.skippedAt = null;
   schedule.skipReason = null;
+  schedule.lastSteamUpdate = null;
   schedules.push(schedule);
   await writeSchedules(schedules);
   return { schedule };
@@ -566,9 +585,20 @@ async function evaluateSchedule(schedule, changed) {
       await sendWarning(schedule, "AnxOS scheduled restart in about 1 minute.");
       schedule.warnState.shortSentAt = nowIso(atMs);
     }
-    await (executors.restartInstance || defaultRestartInstance)(schedule.instanceId);
+    if (schedule.autoUpdateSteam === true) {
+      const outcome = await (executors.restartInstanceWithSteamUpdate || defaultRestartInstanceWithSteamUpdate)(schedule.instanceId);
+      const steamUpdate = outcome?.steamUpdate || null;
+      schedule.lastSteamUpdate = steamUpdate ? { ...steamUpdate, at: nowIso(atMs) } : null;
+      // The restart itself succeeded (the server is back up); a failed update
+      // is still an operator-visible error on the schedule.
+      schedule.lastError = steamUpdate?.attempted && steamUpdate.ok === false
+        ? `STEAM_AUTO_UPDATE_FAILED:${steamUpdate.code || "STEAMCMD_UPDATE_FAILED"}`
+        : null;
+    } else {
+      await (executors.restartInstance || defaultRestartInstance)(schedule.instanceId);
+      schedule.lastError = null;
+    }
     schedule.lastRunAt = nowIso(atMs);
-    schedule.lastError = null;
   } catch (error) {
     schedule.lastError = error?.code || "RESTART_SCHEDULE_FAILED";
   }

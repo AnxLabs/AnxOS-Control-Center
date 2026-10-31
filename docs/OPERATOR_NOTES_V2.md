@@ -205,6 +205,32 @@ into one:
 Both skip reasons are a stable contract (`restartScheduleService.js:31-32`) for
 the REST surface and the smoke harness.
 
+### SteamCMD update check and scheduled updates
+
+For SteamCMD-native instances (Palworld, Valheim, Rust, CS2) the Agent exposes
+`GET /api/v1/instances/:id/steamcmd/update/check` (`instance:read`). It
+compares the installed build (the instance's `appmanifest_<appid>.acf`, or the
+`steamBuildId` persisted after a verified update) with the latest public build
+from `steamcmd +app_info_update 1 +app_info_print <appid>`, spawned without a
+shell and bounded at two minutes. Lookups are cached per Steam app (30 minutes
+after a success, 5 minutes after a failure); `?refresh=1` forces a new lookup
+but never more than once every 2 minutes per app. The Control Center shows an
+**Update available** badge next to **Update Server Files** only when a newer
+build is confirmed; an unknown installed or latest build shows nothing.
+
+A restart schedule can opt in with `autoUpdateSteam: true` (off by default;
+**Enable Auto-Update** on the schedule row). At the due time the Agent checks
+for a newer public build. Only when one is confirmed does it stop the server,
+run the same SteamCMD update session as the manual action (stopped-state
+check, before/after build verification, ten-minute timeout) and start the
+server again. If no newer build is confirmed it does a normal restart. If the
+update fails the server is still started on the build it already had, the
+schedule records `lastSteamUpdate` and
+`lastError: STEAM_AUTO_UPDATE_FAILED:<code>`, and the failure is written to the
+instance console log. The whole sequence runs as one durable
+`instance.restart` job with a 25-minute budget and no mid-flight cancel.
+Requires an Agent that includes this change; older Agents ignore the flag.
+
 ## 6. Runtime pins
 
 When an install or dependency check resolves a runtime version for a workload

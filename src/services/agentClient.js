@@ -44,6 +44,8 @@ const PUBLIC_ACCESS_REQUEST_TIMEOUT_MS = 12000;
 // so a slow agent became a 30 s stuck spinner. Writes and the SteamCMD budgets
 // (610000/310000) are deliberately untouched. Worst case here is 2 x 8 s = 16 s.
 const INTERACTIVE_READ_TIMEOUT_MS = 8000;
+// A fresh SteamCMD build lookup is bounded at two minutes on the Agent.
+const STEAM_BUILD_CHECK_REQUEST_TIMEOUT_MS = 150000;
 const VALID_BACKEND_MODES = new Set(["local", "agent", "auto"]);
 
 let environmentLoaded = false;
@@ -1480,6 +1482,7 @@ class NodeAgentClient {
 
   beginSteamCmdUpdateSession(instanceId, payload = {}) { return this.post(`/instances/${encodeInstanceId(instanceId)}/steamcmd/update/session`, payload); }
   getSteamCmdUpdateStatus(instanceId, payload = {}) { return this.post(`/instances/${encodeInstanceId(instanceId)}/steamcmd/update/status`, payload); }
+  checkSteamCmdBuildUpdate(instanceId, options = {}) { return this.get(`/instances/${encodeInstanceId(instanceId)}/steamcmd/update/check${options.refresh ? "?refresh=1" : ""}`, { timeoutMs: STEAM_BUILD_CHECK_REQUEST_TIMEOUT_MS }); }
   repairLegacySteamCmdMetadata(instanceId) { return this.post(`/instances/${encodeInstanceId(instanceId)}/steamcmd/update/migrate`, {}); }
   executeSteamCmdUpdate(instanceId, payload = {}, timeoutMs = 610000) { return this.request(`/instances/${encodeInstanceId(instanceId)}/steamcmd/update`, { method: "POST", body: payload, timeoutMs }); }
   closeSteamCmdUpdateSession(instanceId, payload = {}) { return this.delete(`/instances/${encodeInstanceId(instanceId)}/steamcmd/update/session`, { body: payload }); }
@@ -3261,6 +3264,10 @@ async function getSteamCmdUpdateStatus(instanceId, payload = {}, configOverride 
   if (shouldUseLocalInstanceService(configOverride)) return getLocalInstanceService().getSteamCmdUpdateStatus(instanceId, payload);
   return requestJson(`/api/v1/instances/${encodeInstanceId(instanceId)}/steamcmd/update/status`, { config: configOverride, method: "POST", body: payload });
 }
+async function checkSteamCmdBuildUpdate(instanceId, options = {}, configOverride = null) {
+  if (shouldUseLocalInstanceService(configOverride)) return getLocalInstanceService().checkSteamCmdBuildUpdate(instanceId, { refresh: options.refresh === true });
+  return requestJson(`/api/v1/instances/${encodeInstanceId(instanceId)}/steamcmd/update/check${options.refresh === true ? "?refresh=1" : ""}`, { config: configOverride, timeoutMs: STEAM_BUILD_CHECK_REQUEST_TIMEOUT_MS });
+}
 async function repairLegacySteamCmdMetadata(instanceId, configOverride = null) {
   if (shouldUseLocalInstanceService(configOverride)) return getLocalInstanceService().repairLegacySteamCmdMetadata(instanceId);
   return requestJson(`/api/v1/instances/${encodeInstanceId(instanceId)}/steamcmd/update/migrate`, { config: configOverride, method: "POST", body: {} });
@@ -3617,6 +3624,7 @@ module.exports = {
   requestAgentSelfRestart,
   beginSteamCmdUpdateSession,
   getSteamCmdUpdateStatus,
+  checkSteamCmdBuildUpdate,
   repairLegacySteamCmdMetadata,
   repairWindowsAgentTask,
   cancelInstallationSession,

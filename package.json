@@ -151,6 +151,7 @@
     "alert-engine:smoke": "node scripts/alert-engine-smoke.js",
     "network-inventory:smoke": "node scripts/network-inventory-smoke.js",
     "steamcmd:instance-update:smoke": "node scripts/steamcmd-instance-update-smoke.js",
+    "steamcmd:auto-update:smoke": "node scripts/steamcmd-auto-update-smoke.js",
     "renderer:resource-cleanup:smoke": "node scripts/renderer-resource-cleanup-smoke.js",
     "dependencies:abort-listener:smoke": "node scripts/dependency-abort-listener-smoke.js",
     "instances:node-routing:smoke": "node scripts/instances-node-routing-smoke.js",

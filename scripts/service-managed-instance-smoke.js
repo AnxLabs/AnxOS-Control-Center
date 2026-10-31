@@ -299,7 +299,8 @@ test("static guard: every owned-process spawn site refuses service-managed recor
   const file = path.join(__dirname, "..", "src", "shared", "instances", "instanceServiceCore.js");
   const lines = fs.readFileSync(file, "utf8").split(/\r?\n/);
   const sites = lines.map((line, index) => (/childProcess\.spawn\(/.test(line) ? index : -1)).filter((index) => index >= 0);
-  assert.equal(sites.length, 4, "a new spawn site was added: it must call assertNotServiceManaged() and be counted here");
+  // 5th site: the SteamCMD app_info_print build lookup (guarded as "steamcmd-spawn").
+  assert.equal(sites.length, 5, "a new spawn site was added: it must call assertNotServiceManaged() and be counted here");
   for (const index of sites) {
     const window = lines.slice(Math.max(0, index - 40), index).join("\n");
     assert.match(window, /assertNotServiceManaged\(config,/, `spawn at line ${index + 1} lacks a service-managed guard`);

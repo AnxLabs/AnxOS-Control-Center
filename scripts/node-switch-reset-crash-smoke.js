@@ -153,6 +153,7 @@ function createHarness() {
     formatRestartScheduleNextRun: () => "next in 1h",
     setRestartScheduleEnabled: (schedule, enabled) => toggles.push({ id: schedule.id, enabled }),
     deleteRestartScheduleEntry: (schedule) => removals.push(schedule.id),
+    setRestartScheduleAutoUpdate: () => {},
   };
   vm.createContext(context);
   // The declaration statements come from app.js verbatim: they are what the fix
@@ -162,7 +163,8 @@ function createHarness() {
   vm.runInContext(
     // `let` declarations are lexical bindings inside the vm script, so they are
     // not reachable as context properties: expose explicit setters instead.
-    `${declarations}\n${extractFunction("renderInstanceRestartSchedules")}\nthis.renderInstanceRestartSchedules = renderInstanceRestartSchedules;\nthis.setRestartSchedulesState = (value) => { restartSchedulesState = value; };`,
+    // The SteamCMD helpers the rows call are pure and loaded verbatim as well.
+    `${declarations}\n${extractFunction("isSteamCmdUpdateInstance")}\n${extractFunction("formatRestartScheduleSteamUpdate")}\n${extractFunction("renderInstanceRestartSchedules")}\nthis.renderInstanceRestartSchedules = renderInstanceRestartSchedules;\nthis.setRestartSchedulesState = (value) => { restartSchedulesState = value; };`,
     context,
   );
   return {
