@@ -15,6 +15,9 @@ const SIGN_IN_ADAPTERS = Object.freeze({
     label: "Hytale account",
     // Hytale's own console command for the OAuth device flow.
     command: "auth login device",
+    // An account with several game profiles must pick the one the server
+    // runs as ("Multiple profiles available. Use '/auth select <number>'").
+    selectProfileCommand: (number) => `auth select ${number}`,
     // The instance needs sign-in while it reports this readiness reason.
     requiredReason: "HYTALE_AUTH_REQUIRED",
     // Only links on the publisher's sign-in host are ever opened.
@@ -25,6 +28,9 @@ const SIGN_IN_ADAPTERS = Object.freeze({
       userCode: /\bEnter code:\s+([A-Za-z0-9-]{4,16})\b/,
       expiresInSeconds: /\bexpires in (\d{1,5}) seconds\b/,
       succeeded: /\bAuthentication successful\b/,
+      loggedOut: /\bServer logged out\b/,
+      profilesOffered: /\bMultiple profiles available\b/,
+      profileEntry: /\[(\d{1,2})\]\s+([^\s()]{1,64})\s+\([0-9a-f-]{36}\)/i,
     }),
   }),
 });
@@ -47,7 +53,9 @@ function isAllowedSignInUrl(game, rawUrl) {
 // Reads one chunk of server output and returns what it adds to the current
 // challenge: { verificationUrl, verificationUrlComplete, userCode,
 // expiresInSeconds } fields that were found, { succeeded: true } when the
-// sign-in completed, or null. Links outside the adapter's hosts are ignored.
+// sign-in completed, { loggedOut: true } after a logout, profilesOffered and
+// profiles ({ number, name }) when a game profile must be chosen, or null.
+// Links outside the adapter's hosts are ignored.
 function parseSignInOutput(game, text) {
   const adapter = getSignInAdapter(game);
   if (!adapter) return null;
@@ -56,6 +64,22 @@ function parseSignInOutput(game, text) {
     const clean = line.replace(/\u001b\[[0-9;]*m/g, "");
     if (adapter.patterns.succeeded.test(clean)) {
       found.succeeded = true;
+      continue;
+    }
+    if (adapter.patterns.loggedOut.test(clean)) {
+      found.loggedOut = true;
+      continue;
+    }
+    if (adapter.patterns.profilesOffered.test(clean)) {
+      found.profilesOffered = true;
+      continue;
+    }
+    const profile = clean.match(adapter.patterns.profileEntry);
+    if (profile) {
+      found.profiles = found.profiles || [];
+      if (!found.profiles.some((entry) => entry.number === Number(profile[1]))) {
+        found.profiles.push({ number: Number(profile[1]), name: profile[2] });
+      }
       continue;
     }
     const complete = clean.match(adapter.patterns.verificationUrlComplete)?.[1];

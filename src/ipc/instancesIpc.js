@@ -42,7 +42,7 @@ const {
   updateRestartSchedule,
   writeInstanceFile,
 } = require("../services/serviceRouter");
-const { openInstanceSignIn } = require("../services/instanceSignInService");
+const { openInstanceSignIn, selectInstanceSignInProfile } = require("../services/instanceSignInService");
 const { audit, checkRateLimit, requirePermission } = require("../services/securityService");
 const { wrapExpectedAgentRead } = require("./expectedAgentError");
 const { requireNodeContext } = require("./nodeContext");
@@ -170,6 +170,12 @@ function registerInstancesIpc() {
     checkRateLimit("instance-sign-in", 10, 60 * 1000);
     audit({ action: "instance.sign-in.open", target: payload.instanceId });
     return openInstanceSignIn(payload.instanceId, payload);
+  }));
+  registerInstanceHandler("instances:selectSignInProfile", async (_, payload = {}) => invokeInstanceOperation(() => {
+    requirePermission("instance:write", payload.instanceId);
+    checkRateLimit("instance-sign-in", 10, 60 * 1000);
+    audit({ action: "instance.sign-in.profile", target: payload.instanceId });
+    return selectInstanceSignInProfile(payload.instanceId, payload.profileNumber, payload);
   }));
   registerInstanceHandler("instances:start", async (_, payload = {}) => invokeInstanceOperation(() => {
     requirePermission("instance:lifecycle", payload.instanceId);

@@ -12941,6 +12941,125 @@ function isInstanceRunning(instance) {
   return ["running", "starting", "restarting"].includes(getInstanceStateClass(instance?.state));
 }
 
+// What the Power group's sign-in button shows for an instance whose game uses
+// an account sign-in. "Signed in" needs a ready server, so a server that is
+// still starting never claims it.
+function getInstanceSignInUiState(instance) {
+  const signIn = instance?.signIn;
+  if (!signIn?.supported || !isInstanceRunning(instance)) {
+    return { mode: "hidden", actionable: false, title: "" };
+  }
+  const label = signIn.label || "account";
+  if (Array.isArray(signIn.profiles) && signIn.profiles.length > 0) {
+    return { mode: "choose-profile", actionable: true, title: `Your ${label} has several game profiles. Choose the one this server uses.` };
+  }
+  if (signIn.required) {
+    return { mode: "sign-in", actionable: true, title: `Sign this server in with your ${label} in your browser.` };
+  }
+  if (instance.readinessState === "ready") {
+    return { mode: "signed-in", actionable: false, title: `This server is signed in to your ${label}.` };
+  }
+  return { mode: "hidden", actionable: false, title: "" };
+}
+
+// Remembers which instances needed a sign-in, so the moment one becomes
+// signed in (and ready) is announced once.
+const instanceSignInNeeded = new Map();
+
+function noteInstanceSignInTransitions(instances = []) {
+  for (const instance of instances) {
+    if (!instance?.id || !instance.signIn?.supported) continue;
+    const mode = getInstanceSignInUiState(instance).mode;
+    const neededBefore = instanceSignInNeeded.get(instance.id) === true;
+    if (mode === "sign-in" || mode === "choose-profile") {
+      instanceSignInNeeded.set(instance.id, true);
+    } else if (mode === "signed-in") {
+      instanceSignInNeeded.set(instance.id, false);
+      if (neededBefore) {
+        const name = instance.displayName || instance.id;
+        const label = instance.signIn.label || "account";
+        showToast(`${name} is signed in to your ${label}.`);
+        createNotification({
+          category: "Instances",
+          severity: "success",
+          title: "Server signed in",
+          message: `${name} is signed in to your ${label} and ready for players.`,
+          dedupKey: `instance:signed-in:${instance.id}`,
+          relatedInstanceId: instance.id,
+          relatedNodeId: getSelectedNodeId() || "",
+          relatedWorkspace: "instances",
+          actions: ["openInstances"],
+        });
+      }
+    }
+  }
+}
+
+// Lets the Owner pick which of the account's game profiles the server uses.
+// Resolves to the chosen profile number, or null when cancelled.
+function chooseInstanceSignInProfile({ label = "account", serverName = "This server", profiles = [] } = {}) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "app-modal-backdrop";
+    const dialog = document.createElement("section");
+    dialog.className = "app-modal";
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-modal", "true");
+    dialog.setAttribute("aria-label", "Choose a game profile");
+    dialog.tabIndex = -1;
+    const closeButton = document.createElement("button");
+    closeButton.className = "app-modal__close";
+    closeButton.type = "button";
+    closeButton.dataset.profileCancel = "";
+    closeButton.setAttribute("aria-label", "Close");
+    closeButton.textContent = "×";
+    const header = document.createElement("div");
+    header.className = "app-modal__header";
+    header.append(
+      createTextElement("p", "Sign in", "eyebrow"),
+      createTextElement("h2", "Choose a game profile"),
+      createTextElement("p", `Your ${label} has more than one game profile. Choose the one ${serverName} runs as.`),
+    );
+    const actions = document.createElement("div");
+    actions.className = "settings-actions";
+    for (const profile of profiles) {
+      const choice = document.createElement("button");
+      choice.className = "inline-action inline-action--primary";
+      choice.type = "button";
+      choice.dataset.profileNumber = String(profile.number);
+      choice.textContent = profile.name;
+      actions.appendChild(choice);
+    }
+    const cancel = document.createElement("button");
+    cancel.className = "inline-action";
+    cancel.type = "button";
+    cancel.dataset.profileCancel = "";
+    cancel.textContent = "Cancel";
+    actions.appendChild(cancel);
+    dialog.append(closeButton, header, actions);
+    overlay.appendChild(dialog);
+    const close = (value) => {
+      document.removeEventListener("keydown", onKeyDown);
+      deactivateModal();
+      overlay.remove();
+      resolve(value);
+    };
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") close(null);
+    };
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay || event.target.closest("[data-profile-cancel]")) close(null);
+      const chosen = event.target.closest("[data-profile-number]");
+      if (chosen) close(Number(chosen.dataset.profileNumber));
+    });
+    document.addEventListener("keydown", onKeyDown);
+    document.body.appendChild(overlay);
+    const deactivateModal = activateModal(overlay, {
+      initialFocus: () => overlay.querySelector("[data-profile-number]"),
+    });
+  });
+}
+
 function isFiveMInstance(instance = null) {
   const searchable = [
     instance?.templateId,
@@ -15718,13 +15837,16 @@ function updateInstanceActionButtons() {
     button.disabled = busy || !hasInstancesBridge || !isFiveMSetupRequired(selectedInstance);
   });
   document.querySelectorAll('[data-instance-action="sign-in"]').forEach((button) => {
-    // Shown only for games with an account sign-in (for example Hytale) while
-    // the server reports that it needs one.
-    const signIn = selectedInstance?.signIn;
-    const needed = Boolean(signIn?.supported && signIn.required && isInstanceRunning(selectedInstance));
-    button.hidden = !needed;
-    button.disabled = busy || !needed || !hasInstancesBridge || typeof desktopApiState.api?.instances?.signIn !== "function";
-    button.title = needed ? `Sign this server in with your ${signIn.label || "account"} in your browser.` : "";
+    // Games with an account sign-in (for example Hytale): "Sign in" while the
+    // server needs one, "Choose profile" when the account has several game
+    // profiles, and a dimmed "Signed in" once the running server is ready.
+    const state = getInstanceSignInUiState(selectedInstance);
+    button.hidden = state.mode === "hidden";
+    button.textContent = state.mode === "choose-profile" ? "Choose profile" : state.mode === "signed-in" ? "✓ Signed in" : "Sign in";
+    button.classList.toggle("instance-action--primary", state.actionable);
+    button.classList.toggle("is-signed-in", state.mode === "signed-in");
+    button.disabled = busy || !state.actionable || !hasInstancesBridge || typeof desktopApiState.api?.instances?.signIn !== "function";
+    button.title = state.title;
   });
   document.querySelectorAll('[data-instance-action="update-steam"]').forEach((button) => {
     const supported = selectedInstance?.installerType === "steamcmd-native" && Number.isInteger(Number(selectedInstance?.steamAppId));
@@ -16026,6 +16148,7 @@ function buildInstanceActionCell(instance) {
 }
 
 function renderInstanceRows(instances) {
+  noteInstanceSignInTransitions(instances);
   if (!instancesList) {
     return;
   }
@@ -16835,6 +16958,8 @@ function getAgentErrorMessage(error, fallback = "Instance request failed.") {
     SIGN_IN_SERVER_NOT_RUNNING: "Start the server first; it shows its sign-in code while it runs.",
     SIGN_IN_CODE_TIMEOUT: "The server did not show a sign-in code. Check its console.",
     SIGN_IN_URL_BLOCKED: "The sign-in link is not on the publisher's sign-in site, so it was not opened.",
+    SIGN_IN_PROFILE_REQUIRED: "Choose which game profile this server uses to finish signing in.",
+    SIGN_IN_PROFILE_UNKNOWN: "That profile is not one the server offered. Sign in again to see the list.",
     FIVEM_SETUP_REQUIRED: "FiveM setup is required before this server can start.",
     FIVEM_RESOURCES_REQUIRED: "FiveM server resources are missing; reinstall this server so players can spawn.",
     INVALID_FIVEM_LICENSE_KEY: "Enter a valid FiveM license key from Cfx.re Keymaster.",
@@ -23349,10 +23474,29 @@ async function runInstanceAction(actionName) {
       updateInstanceActionButtons();
       return;
     }
+    const signInUi = getInstanceSignInUiState(selectedInstance);
+    let profileNumber = null;
+    if (signInUi.mode === "choose-profile") {
+      profileNumber = await chooseInstanceSignInProfile({
+        label: selectedInstance.signIn.label,
+        serverName: label,
+        profiles: selectedInstance.signIn.profiles,
+      });
+      if (profileNumber === null) {
+        updateInstanceActionButtons();
+        return;
+      }
+    }
     instanceActionRequestInFlight = true;
     updateInstanceActionButtons();
     try {
       if (!isNodeActionStillCurrent(requestContext)) return;
+      if (profileNumber !== null) {
+        const result = await desktopApiState.api.instances.selectSignInProfile(targetInstanceId, profileNumber, getNodeScopedPayload(requestContext));
+        showToast(`Using the ${result?.profile?.name || "selected"} profile for ${label}.`);
+        await refreshInstanceLogs();
+        return;
+      }
       const result = await desktopApiState.api.instances.signIn(targetInstanceId, getNodeScopedPayload(requestContext));
       showToast(`Opened the ${result?.label || "account"} sign-in page in your browser. Approve code ${result?.userCode || "shown on the page"} there.`);
       await refreshInstanceLogs();

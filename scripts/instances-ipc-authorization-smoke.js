@@ -21,7 +21,10 @@ Module._load = function patchedLoad(request, parent, isMain) {
   if (request === "electron") return { ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) } };
   if (request === "../services/serviceRouter") return serviceRouter;
   if (request === "../services/instanceSignInService") {
-    return { openInstanceSignIn: async () => { serviceInvoked = true; return { ok: true }; } };
+    return {
+      openInstanceSignIn: async () => { serviceInvoked = true; return { ok: true }; },
+      selectInstanceSignInProfile: async () => { serviceInvoked = true; return { ok: true }; },
+    };
   }
   if (request === "../services/securityService") {
     return {
@@ -59,6 +62,7 @@ async function main() {
     "instances:clearLogs",
     "instances:sendCommand",
     "instances:signIn",
+    "instances:selectSignInProfile",
     "instances:createFolder",
     "instances:renameFile",
   ];

@@ -119,7 +119,9 @@ const FIVEM_LICENSE_FAILURE_PATTERN = /Invalid key format specified|Could not au
 // boots and binds without credentials, but players cannot join until it is
 // signed in, so an unauthenticated server is degraded, never ready.
 const HYTALE_BOOTED_PATTERN = /Hytale Server Booted!/;
-const HYTALE_AUTH_REQUIRED_PATTERN = /No server tokens configured/;
+// "Server logged out" follows a console `auth logout`: the server keeps
+// running but is no longer signed in.
+const HYTALE_AUTH_REQUIRED_PATTERN = /No server tokens configured|Server logged out/;
 const HYTALE_AUTH_SUCCEEDED_PATTERN = /Authentication successful/;
 const FIVEM_RESOURCES_RELATIVE_PATH = "server/resources";
 // Spawn-critical resources from the official cfx-server-data pack: without both
@@ -2368,12 +2370,22 @@ function hytaleReadinessUpdate(text, { layoutInstalled, booted = false }) {
 
 // Folds one chunk of output into the running sign-in challenge. A new
 // verification link starts a new challenge, so codes never mix across
-// attempts. Returns the value to persist (null once signed in), or undefined
-// when nothing changed.
+// attempts. After the code is approved, an account with several game profiles
+// is asked to pick one; that list replaces the spent code. Returns the value to
+// persist (null once signed in or logged out), or undefined when nothing
+// changed.
 function nextSignInChallenge(game, current, text, now = Date.now()) {
   const found = parseSignInOutput(game, text);
   if (!found) return undefined;
-  if (found.succeeded) return null;
+  if (found.succeeded || found.loggedOut) return null;
+  if (found.profilesOffered || (found.profiles && current?.profileSelection)) {
+    const profiles = found.profilesOffered ? [] : [...current.profileSelection.profiles];
+    for (const profile of found.profiles || []) {
+      if (!profiles.some((entry) => entry.number === profile.number)) profiles.push(profile);
+    }
+    return { profileSelection: { profiles }, observedAt: new Date(now).toISOString() };
+  }
+  if (found.profiles) return undefined;
   const base = found.verificationUrl ? {} : { ...(current || {}) };
   const { expiresInSeconds, ...fields } = found;
   const next = { ...base, ...fields, observedAt: new Date(now).toISOString() };
@@ -2386,12 +2398,15 @@ function nextSignInChallenge(game, current, text, now = Date.now()) {
 function signInState(config, running) {
   const adapter = getSignInAdapter(inferGameFamily(config));
   if (!adapter) return null;
+  const profiles = running ? config.signInChallenge?.profileSelection?.profiles : null;
+  const choosingProfile = Array.isArray(profiles) && profiles.length > 0;
   return {
     supported: true,
     game: adapter.game,
     label: adapter.label,
     required: running && config.failureReason === adapter.requiredReason,
-    challenge: running ? usableSignInChallenge(adapter.game, config.signInChallenge) : null,
+    challenge: running && !choosingProfile ? usableSignInChallenge(adapter.game, config.signInChallenge) : null,
+    profiles: choosingProfile ? profiles.map(({ number, name }) => ({ number, name })) : null,
   };
 }
 
@@ -2428,7 +2443,15 @@ function updateHytaleReadiness(config, child, text) {
     ...(update ? { state: INSTANCE_STATES.RUNNING, pid: child.pid, ...update } : {}),
     ...(challenge !== undefined ? { signInChallenge: challenge } : {}),
   };
-  updateRuntimeState(config.id, patch).catch(() => {});
+  // Output arrives in quick chunks; each write loads and saves the whole
+  // record, so unchained writes could finish out of order and drop a field
+  // (seen live: a challenge saved without its expiry).
+  const write = () => updateRuntimeState(config.id, patch).catch(() => {});
+  if (entry) {
+    entry.hytaleStateWrite = (entry.hytaleStateWrite || Promise.resolve()).then(write);
+  } else {
+    write();
+  }
   if (update?.readinessState === "ready") {
     scheduleVersionRefresh(config.id, 1000);
   }

@@ -39,6 +39,10 @@ async function openInstanceSignIn(instanceId, options = {}, deps = {}) {
   if (!instance.processRunning) {
     throw createSignInError("Start the server first; it shows its sign-in code while it runs.", "SIGN_IN_SERVER_NOT_RUNNING");
   }
+  if (Array.isArray(signIn.profiles) && signIn.profiles.length > 0) {
+    // The code was already approved; a new one would discard that sign-in.
+    throw createSignInError("Choose which game profile this server uses to finish signing in.", "SIGN_IN_PROFILE_REQUIRED");
+  }
 
   let started = false;
   if (!signIn.challenge) {
@@ -62,6 +66,26 @@ async function openInstanceSignIn(instanceId, options = {}, deps = {}) {
   return { opened: true, started, label: adapter.label, userCode, expiresAt: expiresAt || null };
 }
 
+// After the code is approved, an account with several game profiles must pick
+// the one the server runs as. Only a number the server itself offered is sent.
+async function selectInstanceSignInProfile(instanceId, profileNumber, options = {}) {
+  const { instance, signIn } = await readSignInState(instanceId, options);
+  const adapter = getSignInAdapter(signIn?.game);
+  if (!signIn?.supported || !adapter?.selectProfileCommand) {
+    throw createSignInError("This server does not use an account sign-in.", "SIGN_IN_UNSUPPORTED");
+  }
+  if (!instance.processRunning) {
+    throw createSignInError("Start the server first; it shows its sign-in code while it runs.", "SIGN_IN_SERVER_NOT_RUNNING");
+  }
+  const profile = (signIn.profiles || []).find((entry) => entry.number === Number(profileNumber));
+  if (!profile) {
+    throw createSignInError("That profile is not one the server offered. Sign in again to see the list.", "SIGN_IN_PROFILE_UNKNOWN");
+  }
+  await sendInstanceCommand(instanceId, adapter.selectProfileCommand(profile.number), options);
+  return { selected: true, label: adapter.label, profile };
+}
+
 module.exports = {
   openInstanceSignIn,
+  selectInstanceSignInProfile,
 };

@@ -328,6 +328,7 @@ const desktopApi = {
     clearLogs: (instanceId, options = {}) => ipcRenderer.invoke("instances:clearLogs", { instanceId, ...options }),
     sendCommand: (instanceId, command, options = {}) => ipcRenderer.invoke("instances:sendCommand", { ...options, instanceId, command }),
     signIn: (instanceId, options = {}) => ipcRenderer.invoke("instances:signIn", { ...options, instanceId }),
+    selectSignInProfile: (instanceId, profileNumber, options = {}) => ipcRenderer.invoke("instances:selectSignInProfile", { ...options, instanceId, profileNumber }),
     start: (instanceId, payload = {}) => ipcRenderer.invoke("instances:start", { ...payload, instanceId }),
     stop: (instanceId, payload = {}) => ipcRenderer.invoke("instances:stop", { ...payload, instanceId }),
     restart: (instanceId, payload = {}) => ipcRenderer.invoke("instances:restart", { ...payload, instanceId }),
