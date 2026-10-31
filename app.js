@@ -4834,6 +4834,11 @@ function showPage(pageName) {
   if (safePageName === "marketplace") {
     refreshMarketplace();
     refreshMarketplaceDownloads();
+    // Installed state on the cards comes from this renderer's instance list,
+    // which nothing else loads when the Marketplace is the first page opened
+    // (the main window restoring it at startup, or the Marketplace window).
+    // The snapshot re-renders the cards once it arrives.
+    refreshInstances({ background: true, refreshMetrics: false }).catch(() => {});
   }
 
   if (safePageName === "files") {
@@ -34976,11 +34981,6 @@ async function applyWorkspaceWindowContext(context = {}) {
     restoreMarketplaceViewState();
     renderMarketplaceCategories();
     renderMarketplaceProviderControls();
-    // The Marketplace window has its own renderer state: load the selected
-    // node's instances so installed templates show as installed (the snapshot
-    // re-renders the cards). Without this the cards only linked an installed
-    // instance if some unrelated refresh happened to load the list.
-    refreshInstances({ background: true, refreshMetrics: false }).catch(() => {});
     return;
   }
   document.title = "Create Server — AnxOS Control Center";
