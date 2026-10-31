@@ -21741,18 +21741,132 @@ function formatRestartScheduleSteamUpdate(schedule) {
 // V2-E scheduled restarts: the agent owns schedule storage, player warnings
 // (via the server's own console input), and the lifecycle restart. This panel
 // only manages the schedule records and mirrors the backup schedule flow.
-function parseRestartScheduleTiming(timingInput, warnInput) {
-  const rawTiming = String(timingInput || "").trim();
-  const payload = {};
-  if (/^([01]?\d|2[0-3]):([0-5]\d)$/.test(rawTiming)) {
-    payload.type = "daily";
-    payload.dailyTime = rawTiming;
+// Mirrors the Agent's schedule contract (restartScheduleService.js) so a bad
+// value is explained in the dialog instead of coming back as an Agent error.
+function validateRestartScheduleForm({ type, intervalHours, dailyTime, warnMinutes, autoUpdateSteam } = {}) {
+  const payload = { type: type === "daily" ? "daily" : "interval" };
+  if (payload.type === "daily") {
+    const time = String(dailyTime || "").trim();
+    if (!/^([01]?\d|2[0-3]):([0-5]\d)$/.test(time)) throw new Error("Enter the daily time as HH:MM (24-hour, Agent local time).");
+    payload.dailyTime = time;
   } else {
-    payload.type = "interval";
-    payload.intervalHours = parseBackupWholeNumber(rawTiming, "24", "Interval hours");
+    const hours = Number(String(intervalHours ?? "").trim());
+    if (!Number.isInteger(hours) || hours < 1 || hours > 720) throw new Error("Interval hours must be a whole number from 1 to 720.");
+    payload.intervalHours = hours;
   }
-  payload.warnMinutes = parseBackupWholeNumber(warnInput, "5", "Warning minutes");
+  const warn = Number(String(warnMinutes ?? "").trim());
+  if (!Number.isInteger(warn) || warn < 1 || warn > 1440) throw new Error("Warning minutes must be a whole number from 1 to 1440.");
+  payload.warnMinutes = warn;
+  if (autoUpdateSteam !== undefined) payload.autoUpdateSteam = autoUpdateSteam === true;
   return payload;
+}
+
+// One dialog for creating and editing a restart schedule. Resolves the
+// validated payload, or null when cancelled.
+function createRestartScheduleDialog({ instance, schedule = null } = {}) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "app-modal-backdrop";
+    const dialog = document.createElement("section");
+    dialog.className = "app-modal";
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-modal", "true");
+    dialog.setAttribute("aria-label", schedule ? "Edit restart schedule" : "New restart schedule");
+    dialog.tabIndex = -1;
+    const closeButton = document.createElement("button");
+    closeButton.className = "app-modal__close";
+    closeButton.type = "button";
+    closeButton.dataset.scheduleCancel = "";
+    closeButton.setAttribute("aria-label", "Close");
+    closeButton.textContent = "×";
+    const header = document.createElement("div");
+    header.className = "app-modal__header";
+    header.append(
+      createTextElement("p", "Scheduled restart", "eyebrow"),
+      createTextElement("h2", schedule ? "Edit Restart Schedule" : "New Restart Schedule"),
+      createTextElement("p", `${instance?.displayName || instance?.id || "This server"} is warned through its console before each restart. Times use the Agent's local clock.`),
+    );
+    const field = (label, control) => {
+      const wrapper = document.createElement("label");
+      wrapper.className = "settings-field";
+      wrapper.append(createTextElement("span", label), control);
+      return wrapper;
+    };
+    const typeSelect = document.createElement("select");
+    typeSelect.append(new Option("Every N hours", "interval"), new Option("Every day at a time", "daily"));
+    typeSelect.value = schedule?.type === "daily" ? "daily" : "interval";
+    const hoursInput = Object.assign(document.createElement("input"), { type: "number", min: "1", max: "720", step: "1", value: String(schedule?.intervalHours || 24) });
+    const timeInput = Object.assign(document.createElement("input"), { type: "time", value: schedule?.dailyTime || "04:00" });
+    const warnInput = Object.assign(document.createElement("input"), { type: "number", min: "1", max: "1440", step: "1", value: String(schedule?.warnMinutes || 5) });
+    const hoursField = field("Interval hours", hoursInput);
+    const timeField = field("Daily time", timeInput);
+    const syncType = () => {
+      hoursField.hidden = typeSelect.value !== "interval";
+      timeField.hidden = typeSelect.value !== "daily";
+    };
+    typeSelect.addEventListener("change", syncType);
+    syncType();
+    let autoUpdate = null;
+    const fields = [field("Repeat", typeSelect), hoursField, timeField, field("Warn players (minutes before)", warnInput)];
+    if (isSteamCmdUpdateInstance(instance)) {
+      const option = document.createElement("label");
+      option.className = "security-option";
+      autoUpdate = Object.assign(document.createElement("input"), { type: "checkbox", checked: schedule?.autoUpdateSteam === true });
+      option.append(autoUpdate, createTextElement("span", "Install new server builds during this restart (SteamCMD, only when a newer build is available)"));
+      fields.push(option);
+    }
+    const error = createTextElement("span", "", "settings-field-error");
+    error.hidden = true;
+    const actions = document.createElement("div");
+    actions.className = "settings-actions";
+    const confirm = document.createElement("button");
+    confirm.className = "inline-action inline-action--primary";
+    confirm.type = "button";
+    confirm.dataset.scheduleOk = "";
+    confirm.textContent = schedule ? "Save Changes" : "Save Schedule";
+    const cancel = document.createElement("button");
+    cancel.className = "inline-action";
+    cancel.type = "button";
+    cancel.dataset.scheduleCancel = "";
+    cancel.textContent = "Cancel";
+    actions.append(confirm, cancel);
+    dialog.append(closeButton, header, ...fields, error, actions);
+    overlay.appendChild(dialog);
+    const close = (value) => {
+      document.removeEventListener("keydown", onKeyDown);
+      deactivateModal();
+      overlay.remove();
+      resolve(value);
+    };
+    const submit = () => {
+      try {
+        close(validateRestartScheduleForm({
+          type: typeSelect.value,
+          intervalHours: hoursInput.value,
+          dailyTime: timeInput.value,
+          warnMinutes: warnInput.value,
+          autoUpdateSteam: autoUpdate ? autoUpdate.checked : undefined,
+        }));
+      } catch (validationError) {
+        error.textContent = validationError.message;
+        error.hidden = false;
+      }
+    };
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") close(null);
+      if (event.key === "Enter" && event.target?.matches?.("input")) {
+        event.preventDefault();
+        submit();
+      }
+    };
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay || event.target.closest("[data-schedule-cancel]")) close(null);
+      if (event.target.closest("[data-schedule-ok]")) submit();
+    });
+    document.addEventListener("keydown", onKeyDown);
+    document.body.appendChild(overlay);
+    const deactivateModal = activateModal(overlay, { initialFocus: () => typeSelect });
+  });
 }
 
 function formatRestartScheduleSummary(schedule) {
@@ -21804,6 +21918,11 @@ function renderInstanceRestartSchedules(instance) {
     const autoUpdateFailed = schedule.lastSteamUpdate?.attempted && schedule.lastSteamUpdate.ok === false;
     label.textContent = `${formatRestartScheduleSummary(schedule)} · warn ${schedule.warnMinutes} min · next ${formatRestartScheduleNextRun(schedule)} · ${stateLabel}${autoUpdateLabel}${autoUpdateFailed ? " · last update failed" : ""}`;
     label.title = `Warnings are sent through the server console before the restart.${steamAutoUpdate ? formatRestartScheduleSteamUpdate(schedule) : ""}${schedule.lastError ? ` Last error: ${schedule.lastError}.` : ""}`;
+    const editButton = document.createElement("button");
+    editButton.className = "inline-action";
+    editButton.type = "button";
+    editButton.textContent = "Edit";
+    editButton.addEventListener("click", () => editRestartScheduleEntry(schedule));
     const toggle = document.createElement("button");
     toggle.className = "inline-action";
     toggle.type = "button";
@@ -21814,7 +21933,7 @@ function renderInstanceRestartSchedules(instance) {
     remove.type = "button";
     remove.textContent = "Delete";
     remove.addEventListener("click", () => deleteRestartScheduleEntry(schedule));
-    row.append(label, toggle);
+    row.append(label, editButton, toggle);
     if (steamAutoUpdate) {
       const autoUpdate = document.createElement("button");
       autoUpdate.className = "inline-action";
@@ -21875,28 +21994,8 @@ async function configureRestartSchedule() {
     showToast("Scheduled restarts are unavailable.");
     return;
   }
-  const timing = await promptBackupText({
-    title: "Scheduled Restart",
-    message: "Restart every N hours, or every day at HH:MM (agent local time).",
-    label: "Interval hours or HH:MM",
-    initialValue: "24",
-    confirmLabel: "Continue",
-  });
-  if (!timing) {
-    return;
-  }
-  const warnInput = await promptBackupText({
-    title: "Restart Warning",
-    message: "How many minutes before the restart should players be warned?",
-    label: "Warning minutes",
-    initialValue: "5",
-    confirmLabel: "Save Schedule",
-  }) || "5";
-  let payload;
-  try {
-    payload = parseRestartScheduleTiming(timing, warnInput);
-  } catch (error) {
-    showToast(error?.message || "Restart schedule values are invalid.", "warning");
+  const payload = await createRestartScheduleDialog({ instance: selectedInstance });
+  if (!payload) {
     return;
   }
   try {
@@ -21909,6 +22008,31 @@ async function configureRestartSchedule() {
     await refreshRestartSchedules();
   } catch (error) {
     showToast(getAgentErrorMessage(error, "Restart schedule could not be saved."));
+  }
+}
+
+async function editRestartScheduleEntry(schedule) {
+  const desktopApiState = getDesktopApiState();
+  const requestContext = createNodeActionContext("restart-schedule-edit");
+  const selectedInstance = findInstance();
+  if (!desktopApiState.hasRestartSchedules || !selectedInstance || !schedule?.id) {
+    return;
+  }
+  const payload = await createRestartScheduleDialog({ instance: selectedInstance, schedule });
+  if (!payload) {
+    return;
+  }
+  try {
+    if (!isNodeActionStillCurrent(requestContext)) return;
+    await desktopApiState.api.instances.updateRestartSchedule(selectedInstance.id, schedule.id, {
+      nodeId: requestContext.nodeId,
+      ...payload,
+    });
+    // The Agent re-anchors the next run when the timing changes.
+    showToast("Restart schedule updated.");
+    await refreshRestartSchedules();
+  } catch (error) {
+    showToast(getAgentErrorMessage(error, "Restart schedule could not be updated."));
   }
 }
 

@@ -155,6 +155,12 @@ Per-instance restart schedules are persisted agent-side and evaluated on a
 (`HH:MM` in the agent host's local time, re-anchored to the wall clock across
 DST transitions). `warnMinutes` defaults to 5 (minimum 1, maximum 1440).
 
+In the Control Center a schedule is created and edited in a single dialog:
+repeat type, interval hours or daily time, warning minutes, and (SteamCMD
+instances only) the auto-update option. Values are checked against the limits
+above before saving. **Edit** on a schedule row changes an existing schedule,
+and a timing change re-anchors its next run.
+
 Behavior operators should expect:
 
 - Warnings are staged into the running server's stdin: a long warning at
