@@ -231,6 +231,13 @@ instance console log. The whole sequence runs as one durable
 `instance.restart` job with a 25-minute budget and no mid-flight cancel.
 Requires an Agent that includes this change; older Agents ignore the flag.
 
+While a scheduled update runs, the instance reports `steamUpdateActive` and
+`GET /api/v1/instances/:id/steamcmd/update/progress` (`instance:read`) returns
+its stage, percent and recent SteamCMD log lines, plus the outcome of the last
+scheduled update. It never returns the update session token. The Control
+Center mirrors the update into the Download Manager as **Scheduled update:
+<instance>** and marks it complete or failed when it ends.
+
 ## 6. Runtime pins
 
 When an install or dependency check resolves a runtime version for a workload

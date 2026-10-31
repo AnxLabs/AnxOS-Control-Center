@@ -1482,6 +1482,7 @@ class NodeAgentClient {
 
   beginSteamCmdUpdateSession(instanceId, payload = {}) { return this.post(`/instances/${encodeInstanceId(instanceId)}/steamcmd/update/session`, payload); }
   getSteamCmdUpdateStatus(instanceId, payload = {}) { return this.post(`/instances/${encodeInstanceId(instanceId)}/steamcmd/update/status`, payload); }
+  getSteamCmdUpdateProgress(instanceId) { return this.get(`/instances/${encodeInstanceId(instanceId)}/steamcmd/update/progress`); }
   checkSteamCmdBuildUpdate(instanceId, options = {}) { return this.get(`/instances/${encodeInstanceId(instanceId)}/steamcmd/update/check${options.refresh ? "?refresh=1" : ""}`, { timeoutMs: STEAM_BUILD_CHECK_REQUEST_TIMEOUT_MS }); }
   repairLegacySteamCmdMetadata(instanceId) { return this.post(`/instances/${encodeInstanceId(instanceId)}/steamcmd/update/migrate`, {}); }
   executeSteamCmdUpdate(instanceId, payload = {}, timeoutMs = 610000) { return this.request(`/instances/${encodeInstanceId(instanceId)}/steamcmd/update`, { method: "POST", body: payload, timeoutMs }); }
@@ -3268,6 +3269,10 @@ async function checkSteamCmdBuildUpdate(instanceId, options = {}, configOverride
   if (shouldUseLocalInstanceService(configOverride)) return getLocalInstanceService().checkSteamCmdBuildUpdate(instanceId, { refresh: options.refresh === true });
   return requestJson(`/api/v1/instances/${encodeInstanceId(instanceId)}/steamcmd/update/check${options.refresh === true ? "?refresh=1" : ""}`, { config: configOverride, timeoutMs: STEAM_BUILD_CHECK_REQUEST_TIMEOUT_MS });
 }
+async function getSteamCmdUpdateProgress(instanceId, configOverride = null) {
+  if (shouldUseLocalInstanceService(configOverride)) return getLocalInstanceService().getSteamCmdUpdateProgress(instanceId);
+  return requestJson(`/api/v1/instances/${encodeInstanceId(instanceId)}/steamcmd/update/progress`, { config: configOverride, timeoutMs: INTERACTIVE_READ_TIMEOUT_MS });
+}
 async function repairLegacySteamCmdMetadata(instanceId, configOverride = null) {
   if (shouldUseLocalInstanceService(configOverride)) return getLocalInstanceService().repairLegacySteamCmdMetadata(instanceId);
   return requestJson(`/api/v1/instances/${encodeInstanceId(instanceId)}/steamcmd/update/migrate`, { config: configOverride, method: "POST", body: {} });
@@ -3625,6 +3630,7 @@ module.exports = {
   beginSteamCmdUpdateSession,
   getSteamCmdUpdateStatus,
   checkSteamCmdBuildUpdate,
+  getSteamCmdUpdateProgress,
   repairLegacySteamCmdMetadata,
   repairWindowsAgentTask,
   cancelInstallationSession,

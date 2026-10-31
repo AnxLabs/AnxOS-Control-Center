@@ -1021,6 +1021,12 @@ let unsubscribeMarketplaceInstallProgress = null;
 let activeMarketplaceOperationId = null;
 let activeMarketplaceInstallNodeId = null;
 let marketplaceLocalDownloadEntries = [];
+// Scheduled SteamCMD updates run by the Agent, mirrored into the Download
+// Manager. Kept apart from the Marketplace entries, which are reset when a
+// Marketplace flow ends.
+let scheduledSteamUpdateEntries = [];
+let scheduledSteamUpdatePollTimer = null;
+const SCHEDULED_STEAM_UPDATE_POLL_MS = 2000;
 let latestMarketplaceDownloads = [];
 // V2-D publisher trust: the last verdict seen per template. The verdict object
 // is produced by the main process (it rides the install result and each
@@ -16016,10 +16022,92 @@ function buildInstanceActionCell(instance) {
   return wrapper;
 }
 
+// Starts a Download Manager entry for each scheduled update the Agent reports
+// as active on the selected node, and polls its progress until it finishes.
+function syncScheduledSteamUpdates(instances = []) {
+  const nodeId = getSelectedNodeId() || "local";
+  instances.forEach((instance) => {
+    const active = instance?.steamUpdateActive;
+    if (!active?.scheduled || !active.operationId) return;
+    const id = `scheduled-steam-${active.operationId}`;
+    if (scheduledSteamUpdateEntries.some((entry) => entry.id === id)) return;
+    const now = new Date().toISOString();
+    scheduledSteamUpdateEntries = [...scheduledSteamUpdateEntries, {
+      id,
+      operationId: active.operationId,
+      instanceId: instance.id,
+      nodeId,
+      name: `Scheduled update: ${instance.displayName || instance.id}`,
+      type: "steamcmd-update",
+      installerType: "steamcmd-native",
+      status: "running",
+      stage: "Preparing",
+      progress: 0,
+      progressMode: "determinate",
+      body: active.latestBuildId ? `Installing Steam build ${active.latestBuildId} during the scheduled restart.` : "Updating server files during the scheduled restart.",
+      logs: [],
+      canCancel: false,
+      canRetry: false,
+      startedAt: active.startedAt || now,
+      createdAt: active.startedAt || now,
+      updatedAt: now,
+    }];
+  });
+  if (!scheduledSteamUpdatePollTimer && scheduledSteamUpdateEntries.some((entry) => entry.status === "running")) {
+    scheduledSteamUpdatePollTimer = setInterval(() => { pollScheduledSteamUpdates(); }, SCHEDULED_STEAM_UPDATE_POLL_MS);
+  }
+}
+
+function applyScheduledSteamUpdateProgress(entry, progress) {
+  const now = new Date().toISOString();
+  if (progress?.operationId === entry.operationId && progress.active?.operationId === entry.operationId) {
+    return {
+      ...entry,
+      stage: progress.label || entry.stage,
+      progress: Number.isFinite(progress.percent) ? progress.percent : entry.progress,
+      logs: Array.isArray(progress.logs) ? progress.logs : entry.logs,
+      updatedAt: progress.updatedAt || now,
+    };
+  }
+  if (progress?.active?.operationId === entry.operationId) return entry;
+  const last = progress?.last?.operationId === entry.operationId ? progress.last : null;
+  if (!last) {
+    return { ...entry, status: "complete", stage: "Finished", progress: 100, body: "The scheduled update finished. The restart schedule shows its result.", updatedAt: now };
+  }
+  return last.ok
+    ? { ...entry, status: "complete", stage: "Complete", progress: 100, body: `Server files updated to build ${last.buildIdAfter || "unknown"}; the server was restarted.`, updatedAt: last.finishedAt || now }
+    : { ...entry, status: "failed", stage: "Failed", error: last.code || "STEAMCMD_UPDATE_FAILED", body: `The scheduled update failed (${last.code || "unknown error"}). The server was started on build ${last.buildIdBefore || "unknown"}.`, updatedAt: last.finishedAt || now };
+}
+
+async function pollScheduledSteamUpdates() {
+  const api = getDesktopApiState().api;
+  const nodeId = getSelectedNodeId() || "local";
+  const running = scheduledSteamUpdateEntries.filter((entry) => entry.status === "running" && entry.nodeId === nodeId);
+  if (!running.length || typeof api?.instances?.getSteamUpdateProgress !== "function") {
+    clearInterval(scheduledSteamUpdatePollTimer);
+    scheduledSteamUpdatePollTimer = null;
+    return;
+  }
+  const requestContext = createNodeActionContext("scheduled-steam-update-progress");
+  const updates = await Promise.all(running.map(async (entry) => {
+    try {
+      const progress = await api.instances.getSteamUpdateProgress(entry.instanceId, getNodeScopedPayload(requestContext));
+      return progress && progress.ok !== false ? applyScheduledSteamUpdateProgress(entry, progress) : entry;
+    } catch {
+      return entry;
+    }
+  }));
+  if (!isNodeRequestCurrent(requestContext)) return;
+  const byId = new Map(updates.map((entry) => [entry.id, entry]));
+  scheduledSteamUpdateEntries = scheduledSteamUpdateEntries.map((entry) => byId.get(entry.id) || entry);
+  refreshMarketplaceDownloads();
+}
+
 function renderInstanceRows(instances) {
   if (!instancesList) {
     return;
   }
+  syncScheduledSteamUpdates(instances);
   const existingRows = new Map([...instancesList.querySelectorAll("tr[data-instance-id]")].map((row) => [row.dataset.instanceId, row]));
   // Stale rows go first so they never sit between rows that are in order.
   const incomingIds = new Set(instances.map((instance) => instance.id));
@@ -20459,7 +20547,7 @@ function renderMarketplaceDownloads(downloads = []) {
   }
 
   renderMarketplaceReadiness();
-  const incomingDownloads = [...marketplaceLocalDownloadEntries, ...downloads];
+  const incomingDownloads = [...marketplaceLocalDownloadEntries, ...scheduledSteamUpdateEntries, ...downloads];
   incomingDownloads.forEach((download) => {
     downloadOperationStore.updateOperation(download.id, {
       type: "download",

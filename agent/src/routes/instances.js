@@ -3,6 +3,7 @@ const {
   beginSteamCmdUpdateSession,
   getSteamCmdUpdateStatus,
   checkSteamCmdBuildUpdate,
+  getSteamCmdUpdateProgress,
   repairLegacySteamCmdMetadata,
   cancelInstallationSession,
   clearLogs,
@@ -462,6 +463,12 @@ async function handleInstances(request, url) {
       return result(200, await checkSteamCmdBuildUpdate(steamUpdateCheckId, {
         refresh: url.searchParams.get("refresh") === "1",
       }));
+    }
+    // Read-only progress of an update the Agent is running (instance:read).
+    // It never exposes the session token, so it cannot control the update.
+    const steamUpdateProgressId = getInstanceIdFromPath(url.pathname, "/steamcmd/update/progress");
+    if (request.method === "GET" && steamUpdateProgressId) {
+      return result(200, getSteamCmdUpdateProgress(steamUpdateProgressId));
     }
     const steamUpdateSessionId = getInstanceIdFromPath(url.pathname, "/steamcmd/update/session");
     if (request.method === "POST" && steamUpdateSessionId) {
