@@ -159,6 +159,15 @@ function launcherScript() {
   assert.ok(stdoutHandler.indexOf("updateHytaleReadiness(") > 0 && stdoutHandler.indexOf("updateHytaleReadiness(") < stdoutHandler.indexOf("Server marked as running"), "Hytale output never reaches the generic readiness regex");
   pass("H5 Hytale is its own family with universe/ world backups and log-based readiness (unauthenticated = degraded)");
 
+  // H5b: the Marketplace card's installed-version line names Minecraft only
+  // for Minecraft servers (Build 208 acceptance showed "Minecraft 0.7.5" on
+  // the installed Hytale card).
+  const ui = fs.readFileSync(path.join(ROOT, "app.js"), "utf8");
+  const versionLine = ui.slice(ui.indexOf("function getMarketplaceInstalledInstanceVersion("), ui.indexOf("function getMarketplaceInstalledProviderVersionId("));
+  assert.match(versionLine, /version\.isMinecraft \? `Minecraft \$\{version\.gameVersion\}` : version\.gameVersion/, "only Minecraft servers get the Minecraft prefix");
+  assert.doesNotMatch(versionLine, /"Unknown version" \? `Minecraft/, "the Minecraft prefix must not be unconditional");
+  pass("H5b the installed Marketplace card labels a Hytale version without \"Minecraft\"");
+
   // H6: the launcher itself (needs bash with mkfifo; Linux nodes only).
   if (process.platform === "win32") {
     console.log("SKIP H6 launcher run needs a Linux shell (verify on a Linux node: node scripts/hytale-server-smoke.js)");

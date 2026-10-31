@@ -18223,7 +18223,9 @@ function getMarketplaceInstalledInstanceVersion(instance = null) {
   if (!instance) return "";
   const version = getInstanceVersionMetadata(instance);
   const parts = [
-    version.gameVersion && version.gameVersion !== "Unknown version" ? `Minecraft ${version.gameVersion}` : "",
+    version.gameVersion && version.gameVersion !== "Unknown version"
+      ? (version.isMinecraft ? `Minecraft ${version.gameVersion}` : version.gameVersion)
+      : "",
     version.software && version.software !== "Minecraft" ? version.software : "",
     version.softwareVersion && version.softwareVersion !== version.gameVersion ? version.softwareVersion : "",
   ].filter(Boolean);
