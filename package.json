@@ -152,6 +152,7 @@
     "network-inventory:smoke": "node scripts/network-inventory-smoke.js",
     "steamcmd:instance-update:smoke": "node scripts/steamcmd-instance-update-smoke.js",
     "steamcmd:auto-update:smoke": "node scripts/steamcmd-auto-update-smoke.js",
+    "mod-manager:smoke": "node scripts/mod-manager-smoke.js",
     "server-version-checks:smoke": "node scripts/server-version-checks-smoke.js",
     "fleet-update-view:smoke": "node scripts/fleet-update-view-smoke.js",
     "webhook-alerts:smoke": "node scripts/webhook-alerts-smoke.js",

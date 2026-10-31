@@ -2240,6 +2240,31 @@
                   </div>
                 </div>
 
+                <div class="instance-tab-panel" data-instance-panel="mods">
+                  <section class="instance-backup-panel" data-mods-panel>
+                    <div class="panel-heading">
+                      <div><h3 data-mods-title>Mods</h3><span data-mods-description>Server mods installed in this instance.</span></div>
+                      <span class="status-pill status-pill--planned" data-mods-status>Not loaded</span>
+                    </div>
+                    <div class="instance-backup-actions">
+                      <button class="inline-action" type="button" data-mods-action="refresh">Refresh</button>
+                      <button class="inline-action" type="button" data-mods-action="check-updates">Check for Updates</button>
+                    </div>
+                    <div class="docker-empty-state" data-mods-empty><strong>Nothing installed yet</strong><span>Search Modrinth below to add one. Changes take effect the next time the server starts.</span></div>
+                    <div class="instance-network-list" data-mods-installed></div>
+                  </section>
+                  <section class="instance-backup-panel">
+                    <div class="panel-heading">
+                      <div><h3>Add from Modrinth</h3><span data-mods-search-description>Only server-compatible projects for this server's Minecraft version and loader are shown.</span></div>
+                    </div>
+                    <div class="instance-backup-actions">
+                      <input type="search" data-mods-search-input placeholder="Search Modrinth" aria-label="Search Modrinth" autocomplete="off">
+                      <button class="inline-action" type="button" data-mods-action="search">Search</button>
+                    </div>
+                    <div class="instance-network-list" data-mods-results></div>
+                  </section>
+                </div>
+
                 <div class="instance-tab-panel" data-instance-panel="files">
                   <div class="instance-file-shortcuts" data-instance-file-shortcuts hidden></div>
                   <div class="instance-files-toolbar">
@@ -2507,6 +2532,7 @@
                 <button class="instance-tab" type="button" data-instance-tab="network">Network</button>
                 <button class="instance-tab" type="button" data-instance-tab="performance">Performance</button>
                 <button class="instance-tab" type="button" data-instance-tab="players">Players</button>
+                <button class="instance-tab" type="button" data-instance-tab="mods" hidden>Mods</button>
                 <button class="instance-tab" type="button" data-instance-tab="files">Files</button>
                 <button class="instance-tab" type="button" data-instance-tab="backups">Backups</button>
                 <button class="instance-tab" type="button" data-instance-tab="settings">Settings</button>
