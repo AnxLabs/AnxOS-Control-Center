@@ -18685,6 +18685,14 @@ html[data-ui-generation="v1.9"] .sidebar[data-sidebar-state="collapsed"] [data-t
   color: var(--text);
 }
 
+/* A signed-in server keeps its sign-in button as a dimmed status, so it is
+   clear the step is done and nobody clicks it again. */
+.instance-action-group .inline-action.is-signed-in:disabled {
+  border-color: rgba(74, 222, 128, 0.28);
+  color: rgba(134, 239, 172, 0.8);
+  opacity: 0.6;
+}
+
 .instance-action-group--danger {
   padding-left: 12px;
   border-left: 1px solid rgba(255, 99, 132, 0.28);

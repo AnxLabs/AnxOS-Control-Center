@@ -136,11 +136,65 @@ function instanceWith(signInState, extra = {}) {
   assert.ok(handler.includes('audit({ action: "instance.sign-in.open"'));
   assert.ok(fs.readFileSync(path.join(ROOT, "preload.js"), "utf8").includes('signIn: (instanceId, options = {}) => ipcRenderer.invoke("instances:signIn"'));
   const app = fs.readFileSync(path.join(ROOT, "app.js"), "utf8");
-  assert.ok(app.includes('data-instance-action="sign-in"') && app.includes("signIn.required && isInstanceRunning(selectedInstance)"), "the button shows only while a running server needs sign-in");
+  assert.ok(app.includes('data-instance-action="sign-in"') && app.includes("const state = getInstanceSignInUiState(selectedInstance);"), "the button follows the sign-in state helper (checked in S9)");
   assert.ok(fs.readFileSync(path.join(ROOT, "index.html"), "utf8").includes('data-instance-action="sign-in" hidden disabled'), "the button is hidden by default");
   const coreSource = fs.readFileSync(path.join(ROOT, "src", "shared", "instances", "instanceServiceCore.js"), "utf8");
   assert.ok(coreSource.includes("signInChallenge: _signInChallenge"), "the raw challenge is not published; only the vetted signIn state is");
   pass("S6 IPC (permission then audit), preload and the Power-group button are wired");
+
+  // S7: an account with several game profiles (real Hytale 0.7.5 output after
+  // the code was approved), across two chunks; logout clears everything.
+  const PROFILE_PROMPT = [
+    "[2026/10/31 02:31:05   INFO]              [ServerAuthManager] Multiple profiles available. Use '/auth select <number>' to choose:",
+    "[2026/10/31 02:31:05   INFO]              [ServerAuthManager]   [1] Anx_1 (110f1eaf-c209-4446-ab68-2e4b3ea24e69)",
+  ].join("\n");
+  const PROFILE_REST = "[2026/10/31 02:31:05   INFO]              [ServerAuthManager]   [2] Anx (69beb52d-2800-4a89-9528-d1e7eb585157)";
+  let state = core.nextSignInChallenge("hytale", challenge, PROFILE_PROMPT, now);
+  state = core.nextSignInChallenge("hytale", state, PROFILE_REST, now);
+  assert.deepStrictEqual(state.profileSelection.profiles, [{ number: 1, name: "Anx_1" }, { number: 2, name: "Anx" }]);
+  assert.strictEqual(state.userCode, undefined, "the spent code is dropped once a profile must be chosen");
+  assert.strictEqual(core.nextSignInChallenge("hytale", null, PROFILE_REST, now), undefined, "a profile line outside a prompt changes nothing");
+  assert.strictEqual(core.nextSignInChallenge("hytale", state, "[ServerAuthManager] Authentication successful! Mode: OAUTH_DEVICE", now), null);
+  assert.strictEqual(core.nextSignInChallenge("hytale", challenge, "[ServerAuthManager] Server logged out", now), null);
+  const degraded = { readinessState: "degraded", healthState: "degraded", failureReason: "HYTALE_AUTH_REQUIRED" };
+  assert.deepStrictEqual(core.hytaleReadinessUpdate("[ServerAuthManager] Server logged out", { layoutInstalled: true, booted: true }), degraded, "a running server that logs out needs sign-in again");
+  pass("S7 profile choice is read across chunks, the spent code is dropped, and logout makes the server need sign-in again");
+
+  // S8: choosing a profile sends only a number the server offered.
+  const choosing = instanceWith({ supported: true, game: "hytale", label: "Hytale account", required: true, challenge: null, profiles: [{ number: 1, name: "Anx_1" }, { number: 2, name: "Anx" }] });
+  commands = [];
+  opened = [];
+  service = loadSignInService({ getInstanceStatus: async () => choosing, sendInstanceCommand: async (...args) => { commands.push(args); } }, opened);
+  const chosen = await service.selectInstanceSignInProfile("hytale-dedicated-server", 2, { nodeId: "anxlab" });
+  assert.deepStrictEqual(commands, [["hytale-dedicated-server", "auth select 2", { nodeId: "anxlab" }]]);
+  assert.deepStrictEqual(chosen.profile, { number: 2, name: "Anx" });
+  commands = [];
+  await assert.rejects(() => service.selectInstanceSignInProfile("hytale-dedicated-server", 3, {}), (error) => error.code === "SIGN_IN_PROFILE_UNKNOWN");
+  await assert.rejects(() => service.selectInstanceSignInProfile("hytale-dedicated-server", "1; stop", {}), (error) => error.code === "SIGN_IN_PROFILE_UNKNOWN");
+  await assert.rejects(() => service.openInstanceSignIn("hytale-dedicated-server", {}), (error) => error.code === "SIGN_IN_PROFILE_REQUIRED", "a new code would discard the approved sign-in");
+  assert.deepStrictEqual(commands, [], "refusals send nothing");
+  assert.deepStrictEqual(opened, []);
+  pass("S8 choosing a profile sends `auth select <n>` only for an offered number; a new code is refused while a choice is pending");
+
+  // S9: the button's states, from the real renderer function.
+  const appSource = fs.readFileSync(path.join(ROOT, "app.js"), "utf8");
+  const start = appSource.indexOf("function getInstanceSignInUiState(");
+  const end = appSource.slice(start).search(/\r?\n\}\r?\n/);
+  assert.ok(start >= 0 && end > 0, "getInstanceSignInUiState is defined in app.js");
+  const body = appSource.slice(start, start + end).concat("\n}\n");
+  // eslint-disable-next-line no-new-func
+  const uiState = new Function("isInstanceRunning", `${body}; return getInstanceSignInUiState;`)((instance) => instance?.state === "Running");
+  const hytale = (signInPatch, extra = {}) => ({ state: "Running", readinessState: "ready", signIn: { supported: true, label: "Hytale account", required: false, profiles: null, ...signInPatch }, ...extra });
+  assert.strictEqual(uiState(hytale({ required: true }, { readinessState: "degraded" })).mode, "sign-in");
+  assert.strictEqual(uiState(hytale({ required: true, profiles: [{ number: 1, name: "Anx_1" }] }, { readinessState: "degraded" })).mode, "choose-profile");
+  const signedIn = uiState(hytale({}));
+  assert.deepStrictEqual([signedIn.mode, signedIn.actionable], ["signed-in", false], "a signed-in ready server shows a dimmed, unclickable Signed in");
+  assert.strictEqual(uiState(hytale({}, { readinessState: "starting" })).mode, "hidden", "a server that is still starting never claims Signed in");
+  assert.strictEqual(uiState(hytale({}, { state: "Stopped" })).mode, "hidden");
+  assert.strictEqual(uiState({ state: "Running", readinessState: "ready", signIn: null }).mode, "hidden", "games without a sign-in show nothing");
+  assert.ok(appSource.includes("noteInstanceSignInTransitions(instances);") && appSource.includes('title: "Server signed in"'), "becoming signed in raises a toast and a notification");
+  assert.ok(fs.readFileSync(path.join(ROOT, "preload.js"), "utf8").includes('ipcRenderer.invoke("instances:selectSignInProfile"'));
+  pass("S9 the button shows Sign in, Choose profile, or a dimmed Signed in (never while starting), and signing in is announced");
 
   console.log(`server sign-in smoke passed (${results} checks).`);
 })().catch((error) => {

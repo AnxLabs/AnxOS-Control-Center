@@ -30,6 +30,9 @@ The server files and assets need a Hytale account, so the first start runs Hytal
 - It opens Hytale's sign-in page, with the code already filled in, in your default browser.
 - If no code is pending, it first runs Hytale's own `auth login device`.
 - Only links on `oauth.accounts.hytale.com` are opened. The link comes from the Agent's reading of the server's output, never from the page.
+- If your Hytale account has several game profiles, Hytale asks which one the server runs as. The button then reads **Choose profile** and lists them by name; AnxOS sends `auth select <number>` for the one you pick.
+- Once the running server is signed in and ready, the button stays as a dimmed **✓ Signed in**, and a notification says the server is signed in.
+- After a console `auth logout`, the server shows as needing sign-in again.
 
 Other behaviour:
 

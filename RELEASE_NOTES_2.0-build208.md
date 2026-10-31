@@ -11,6 +11,8 @@ Build 208 adds the official Hytale dedicated server and checks whether AI servic
   - **Status:** a server that has not been signed in shows as degraded, because players can't join it yet.
   - **Backups:** world backups include `Server/universe`.
   - **Sign in button:** while a server needs an account sign-in, its instance page offers **Sign in**. It opens the publisher's sign-in page, with the code filled in, in your default browser, and only on the publisher's own sign-in site.
+    - If your account has several game profiles, the button offers **Choose profile**.
+    - Once signed in, it stays as a dimmed **✓ Signed in**, and a notification confirms the sign-in.
   - **Requirements:** Java 25 and a forwarded UDP port (default 5520). On Windows nodes the template is refused with a clear message. See `docs/HYTALE_SERVER.md`.
 - **Health vs Function in the Infrastructure Inventory (AIM-2).** A new Function column shows whether an AI service actually works, next to whether it is running. A service that hasn't been checked shows "Not checked" and is never green.
   - **Checks:** run only when you click Check, and only for services you have approved in `functional-probe-scopes.json`. They are read-only, send no credentials, and are off by default.
