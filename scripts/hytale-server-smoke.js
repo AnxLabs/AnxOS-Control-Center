@@ -168,6 +168,15 @@ function launcherScript() {
   assert.doesNotMatch(versionLine, /"Unknown version" \? `Minecraft/, "the Minecraft prefix must not be unconditional");
   pass("H5b the installed Marketplace card labels a Hytale version without \"Minecraft\"");
 
+  // H5c: the Marketplace window loads the node's instances itself, so an
+  // installed template is shown as installed (acceptance saw the installed
+  // Hytale server listed as "Available" in a freshly opened window).
+  const workspaceContext = ui.slice(ui.indexOf("async function applyWorkspaceWindowContext("), ui.indexOf("document.title = \"Create Server — AnxOS Control Center\";"));
+  assert.match(workspaceContext, /workspaceSurface === "marketplace"[\s\S]*refreshInstances\(\{ background: true, refreshMetrics: false \}\)[\s\S]*return;/, "the Marketplace window must load instances when it opens");
+  const snapshotRender = ui.slice(ui.indexOf("function renderInstancesSnapshot("), ui.indexOf("function renderInstancesSnapshot(") + 6000);
+  assert.match(snapshotRender, /getActivePageName\(\) === "marketplace"\)\s*\{\s*renderMarketplaceTemplates\(\);/, "a loaded instance list re-renders the Marketplace cards");
+  pass("H5c the Marketplace window loads instances so installed templates show as installed");
+
   // H6: the launcher itself (needs bash with mkfifo; Linux nodes only).
   if (process.platform === "win32") {
     console.log("SKIP H6 launcher run needs a Linux shell (verify on a Linux node: node scripts/hytale-server-smoke.js)");
