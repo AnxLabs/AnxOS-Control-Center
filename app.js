@@ -15740,6 +15740,16 @@ function updateInstanceActionButtons() {
     const supported = isSteamCmdUpdateInstance(selectedInstance);
     if (supported) refreshSteamUpdateCheck(selectedInstance);
     const check = supported ? getSteamUpdateCheck(selectedInstance) : null;
+    if (!supported && isServerVersionCheckable(selectedInstance)) {
+      // Paper / Vanilla / FiveM / Hytale: same badge, check-only.
+      refreshServerVersionCheck(selectedInstance);
+      const versionCheck = getServerVersionCheck(selectedInstance);
+      badge.hidden = versionCheck?.updateAvailable !== true;
+      badge.title = versionCheck?.updateAvailable === true
+        ? `${versionCheck.note} Update the server files manually${versionCheck.link ? ` (${versionCheck.link})` : ""}.`
+        : "";
+      return;
+    }
     badge.hidden = check?.updateAvailable !== true;
     badge.title = check?.updateAvailable === true
       ? `Installed build ${check.installedBuildId}, latest public build ${check.latestBuildId}. Stop the server, then use Update Server Files.`
@@ -21594,6 +21604,44 @@ async function configureBackupSchedule(instanceId) {
 // without the check route (not yet updated) simply never shows the badge.
 const STEAM_UPDATE_CHECK_RENDERER_TTL_MS = 10 * 60 * 1000;
 const steamUpdateChecks = new Map();
+
+// Check-only update status for non-SteamCMD Marketplace servers. Mirrors the
+// main-process target detection in marketplaceService (getServerVersionCheckTarget)
+// closely enough to decide whether to ask; the main process decides for real.
+const serverVersionChecks = new Map();
+
+function isServerVersionCheckable(instance) {
+  if (!instance || isSteamCmdUpdateInstance(instance)) return false;
+  const software = String(instance.serverSoftware || "").toLowerCase();
+  const family = [instance.templateId, instance.game, instance.type, instance.displayName].map((value) => String(value || "")).join(" ").toLowerCase();
+  return (software === "paper" && Boolean(instance.minecraftVersion) && Boolean(instance.paperBuild))
+    || (software === "vanilla" && Boolean(instance.minecraftVersion))
+    || (/fivem|fxserver|hytale/.test(family) && Boolean(instance.serverVersion));
+}
+
+function getServerVersionCheck(instance) {
+  return serverVersionChecks.get(getSteamUpdateCheckKey(instance))?.result || null;
+}
+
+async function refreshServerVersionCheck(instance, options = {}) {
+  const api = getDesktopApiState().api;
+  if (!isServerVersionCheckable(instance) || typeof api?.instances?.checkServerUpdate !== "function") return;
+  const key = getSteamUpdateCheckKey(instance);
+  const entry = serverVersionChecks.get(key);
+  if (entry?.inFlight) return;
+  if (!options.force && entry && Date.now() - entry.fetchedAt < STEAM_UPDATE_CHECK_RENDERER_TTL_MS) return;
+  const requestContext = createNodeActionContext(`server-version-check:${instance.id}`);
+  serverVersionChecks.set(key, { result: entry?.result || null, fetchedAt: entry?.fetchedAt || 0, inFlight: true });
+  let result = null;
+  try {
+    const response = await api.instances.checkServerUpdate(instance.id, getNodeScopedPayload(requestContext, { refresh: options.refresh === true }));
+    result = response && response.ok !== false && response.supported ? response : null;
+  } catch {
+    result = null;
+  }
+  serverVersionChecks.set(key, { result, fetchedAt: Date.now(), inFlight: false });
+  if (isNodeRequestCurrent(requestContext)) updateInstanceActionButtons();
+}
 
 function isSteamCmdUpdateInstance(instance) {
   return instance?.installerType === "steamcmd-native" && Number.isInteger(Number(instance?.steamAppId));
