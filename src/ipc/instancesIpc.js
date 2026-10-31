@@ -17,6 +17,8 @@ const {
   getInstanceStatus,
   getFiveMReadiness,
   checkSteamCmdBuildUpdate,
+  getSteamCmdUpdateProgress,
+  setSteamCmdBranch,
   getMinecraftProperties,
   listInstanceFiles,
   listInstances,
@@ -42,6 +44,7 @@ const {
   updateRestartSchedule,
   writeInstanceFile,
 } = require("../services/serviceRouter");
+const { checkServerVersionUpdate } = require("../services/marketplaceService");
 const { openInstanceSignIn } = require("../services/instanceSignInService");
 const { audit, checkRateLimit, requirePermission } = require("../services/securityService");
 const { wrapExpectedAgentRead } = require("./expectedAgentError");
@@ -334,6 +337,21 @@ function registerInstancesIpc() {
     return saveMinecraftProperties(payload.instanceId, payload.properties, payload);
   }));
   registerInstanceHandler("instances:checkSteamUpdate", async (_, payload = {}) => invokeInstanceOperation(() => { requirePermission("instance:read", payload.instanceId); return checkSteamCmdBuildUpdate(payload.instanceId, payload); }));
+  // Check-only update status for Paper, Vanilla, FiveM and Hytale servers: the
+  // installed version comes from the instance record on its node, the latest
+  // from the same upstream resolvers the Marketplace installer uses.
+  registerInstanceHandler("instances:checkServerUpdate", async (_, payload = {}) => invokeInstanceOperation(async () => {
+    requirePermission("instance:read", payload.instanceId);
+    const status = await getInstanceStatus(payload.instanceId, payload);
+    return checkServerVersionUpdate(status?.instance || status, { refresh: payload.refresh === true });
+  }));
+
+  registerInstanceHandler("instances:getSteamUpdateProgress", async (_, payload = {}) => invokeInstanceOperation(() => { requirePermission("instance:read", payload.instanceId); return getSteamCmdUpdateProgress(payload.instanceId, payload); }));
+  registerInstanceHandler("instances:setSteamBranch", async (_, payload = {}) => invokeInstanceOperation(() => {
+    requirePermission("instance:write", payload.instanceId);
+    audit({ action: "instance.steamBranch.set", target: payload.instanceId });
+    return setSteamCmdBranch(payload.instanceId, payload.branch, payload);
+  }));
   registerInstanceHandler("instances:getFiveMReadiness", async (_, payload = {}) => invokeInstanceOperation(() => { requirePermission("instance:read", payload.instanceId); return getFiveMReadiness(payload.instanceId, payload); }));
   registerInstanceHandler("instances:saveFiveMLicenseKey", async (_, payload = {}) => invokeInstanceOperation(() => {
     requirePermission("files:write", `${payload.instanceId}:server.cfg`);

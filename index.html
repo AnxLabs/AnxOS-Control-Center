@@ -2431,7 +2431,11 @@
                   <button class="inline-action" type="button" data-instance-action="refresh" disabled>Refresh</button>
                   <button class="inline-action" type="button" data-instance-action="repair-neoforge-runtime" hidden disabled>Repair Runtime</button>
                   <button class="inline-action" type="button" data-instance-action="update-steam" hidden disabled>Update Server Files</button>
+                  <button class="inline-action" type="button" data-steam-rollback hidden disabled>Roll Back Update</button>
                   <span class="status-pill status-pill--warning" data-steam-update-badge hidden>Update available</span>
+                  <a class="inline-action" data-steam-update-notes target="_blank" rel="noopener noreferrer" hidden>Patch Notes</a>
+                  <button class="inline-action" type="button" data-steam-update-check hidden disabled>Check for Update</button>
+                  <button class="inline-action" type="button" data-steam-branch hidden disabled>Branch: public</button>
                   <button class="inline-action" type="button" data-instance-action="configure-fivem" hidden>Configure FiveM</button>
                   <button class="inline-action instance-action--primary" type="button" data-instance-action="sign-in" hidden disabled>Sign in</button>
                 </div>
@@ -4661,6 +4665,22 @@
               <div class="download-list" data-fleet-rows></div>
             </section>
 
+            <section class="settings-section settings-section--nodes nodes-panel" data-server-updates-panel>
+              <div class="settings-section__header">
+                <div>
+                  <h2>Server Updates</h2>
+                  <p>SteamCMD servers on every node with their installed and latest builds. Updates run one server at a time, only on stopped servers, with a backup first where the node supports it.</p>
+                </div>
+                <span class="status-pill status-pill--planned" data-server-updates-status>Not checked</span>
+              </div>
+              <div class="nodes-toolbar">
+                <button class="inline-action" type="button" data-server-updates-action="check">Check All</button>
+                <button class="inline-action" type="button" data-server-updates-action="update-stopped" disabled>Update Stopped Servers</button>
+                <span class="settings-inline-status" data-server-updates-message>Check All asks each node's Agent for its servers' builds.</span>
+              </div>
+              <div class="instance-network-list" data-server-updates-rows></div>
+            </section>
+
             <section class="settings-section settings-section--nodes nodes-panel" data-infra-inventory-panel hidden>
               <div class="settings-section__header">
                 <div>
@@ -4962,6 +4982,21 @@
                 <label class="settings-field" title="Quiet-hours enforcement is not available yet."><span>Quiet-hours end</span><input type="time" data-setting="notifications.quietEnd" disabled></label>
               </div>
               <div class="settings-actions"><button class="inline-action" type="button" data-settings-action="test-notification">Test Notification</button><button class="inline-action" type="button" data-settings-reset-category="notifications">Reset Notifications</button></div>
+            </section>
+
+            <section class="settings-section settings-section--server-alerts" data-settings-category="notifications" data-settings-keywords="server alerts discord webhook crash restart update node agent" data-webhook-alerts>
+              <div class="settings-section__header"><div><h3>Server Alerts</h3><p>The selected node's Agent posts crashes, scheduled restarts and server updates to a Discord or HTTPS webhook. The URL is stored on the Agent and is never shown again.</p></div><span class="status-pill status-pill--planned" data-webhook-alerts-status>Not loaded</span></div>
+              <div class="settings-grid">
+                <label class="settings-field"><span>Webhook URL</span><input type="password" autocomplete="off" spellcheck="false" placeholder="https://discord.com/api/webhooks/..." data-webhook-alerts-url></label>
+                <label class="settings-check settings-check--toggle"><input type="checkbox" data-webhook-alerts-enabled><span>Send alerts from this node</span></label>
+                <label class="settings-check"><input type="checkbox" data-webhook-alerts-event="instance.crashed"><span>Server crashed</span></label>
+                <label class="settings-check"><input type="checkbox" data-webhook-alerts-event="restart.scheduled.failed"><span>Scheduled restart failed</span></label>
+                <label class="settings-check"><input type="checkbox" data-webhook-alerts-event="restart.scheduled.completed"><span>Scheduled restart completed</span></label>
+                <label class="settings-check"><input type="checkbox" data-webhook-alerts-event="update.succeeded"><span>Server updated</span></label>
+                <label class="settings-check"><input type="checkbox" data-webhook-alerts-event="update.failed"><span>Server update failed</span></label>
+              </div>
+              <p class="settings-note" data-webhook-alerts-detail>Open Settings with a node selected to load its alert settings.</p>
+              <div class="settings-actions"><button class="inline-action inline-action--primary" type="button" data-webhook-alerts-action="save">Save Alerts</button><button class="inline-action" type="button" data-webhook-alerts-action="test">Send Test Alert</button><button class="inline-action" type="button" data-webhook-alerts-action="clear">Remove Webhook</button><button class="inline-action" type="button" data-webhook-alerts-action="refresh">Refresh</button></div>
             </section>
 
             <section class="settings-section settings-section--security" data-settings-category="security" data-settings-capability="canManageAdvancedSecurity" data-settings-keywords="security owner lock timeout token audit sessions secrets mask">

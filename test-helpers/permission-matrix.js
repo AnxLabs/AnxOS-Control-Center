@@ -282,7 +282,7 @@ const IPC_FAMILIES = [
       "instances:listFiles", "instances:readFile", "instances:listRestartSchedules",
       "instances:serviceOverview", "instances:serviceHistory", "instances:serviceOperation", "instances:safeRestartPreflight",
       "instances:getMinecraftProperties", "instances:getGameServerConfig", "instances:getFiveMReadiness",
-      "instances:checkSteamUpdate", "instances:mods:list", "instances:mods:search", "instances:mods:checkUpdates", "instances:jobs:list", "instances:jobs:get",
+      "instances:checkSteamUpdate", "instances:getSteamUpdateProgress", "instances:checkServerUpdate", "instances:mods:list", "instances:mods:search", "instances:mods:checkUpdates", "instances:jobs:list", "instances:jobs:get",
     ],
   },
   {
@@ -293,7 +293,7 @@ const IPC_FAMILIES = [
     channels: [
       "instances:create", "instances:update", "instances:rename", "instances:duplicate",
       "instances:sendCommand", "instances:signIn", "instances:createRestartSchedule", "instances:updateRestartSchedule",
-      "instances:evaluateRestartSchedules",
+      "instances:evaluateRestartSchedules", "instances:setSteamBranch",
     ],
   },
   {
@@ -494,6 +494,22 @@ const IPC_FAMILIES = [
     guard: "local-owner+permission",
     allow: ["owner-unlocked", "operator-unlocked", "viewer-unlocked"],
     channels: ["networkInventory:get"],
+  },
+  {
+    // Server alerts: the Agent returns only a masked webhook hint.
+    id: "webhook-alerts-read",
+    tier: "nodes:read",
+    guard: "local-owner+permission",
+    allow: ["owner-unlocked", "operator-unlocked", "viewer-unlocked"],
+    channels: ["webhookAlerts:get"],
+  },
+  {
+    // Saving the webhook or sending a test reaches outside the node.
+    id: "webhook-alerts-write",
+    tier: "settings:write",
+    guard: "local-owner+permission",
+    allow: ["owner-unlocked"],
+    channels: ["webhookAlerts:save", "webhookAlerts:test"],
   },
   {
     // AIM-1 infrastructure inventory: cross-node read-only discovery. Refresh
@@ -937,6 +953,10 @@ const REST_FAMILIES = [
   { id: "rest-amp-read", tier: "instance:read", publicRoute: false, routes: [{ method: "GET", path: "/api/v1/amp/status" }] },
   { id: "rest-diagnostics", tier: "owner", publicRoute: false, routes: [{ method: "GET", path: "/api/v1/diagnostics" }] },
   { id: "rest-agent-task", tier: "agent:manage", publicRoute: false, routes: [{ method: "GET", path: "/api/v1/system/agent-task" }] },
+  { id: "rest-notifications-read", tier: "system:read", publicRoute: false, routes: [{ method: "GET", path: "/api/v1/notifications/webhook" }] },
+  // The probe URL is invalid, so the write tier is exercised and validation
+  // refuses it before anything is stored or sent.
+  { id: "rest-notifications-write", tier: "agent:manage", publicRoute: false, routes: [{ method: "PUT", path: "/api/v1/notifications/webhook", body: { url: "not-a-url" } }] },
   // Probed with GET: the tier is enforced before the handler, which refuses GET
   // (405), so the probe never restarts the test Agent.
   { id: "rest-agent-restart", tier: "agent:manage", publicRoute: false, routes: [{ method: "GET", path: "/api/v1/agent/restart" }] },

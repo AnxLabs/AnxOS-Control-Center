@@ -201,6 +201,11 @@ const desktopApi = {
   networkInventory: {
     get: (payload = {}) => ipcRenderer.invoke("networkInventory:get", payload),
   },
+  webhookAlerts: {
+    get: (payload = {}) => ipcRenderer.invoke("webhookAlerts:get", payload),
+    save: (payload = {}) => ipcRenderer.invoke("webhookAlerts:save", payload),
+    test: (payload = {}) => ipcRenderer.invoke("webhookAlerts:test", payload),
+  },
   infrastructureInventory: {
     get: () => ipcRenderer.invoke("infrastructureInventory:get"),
     refresh: (payload = {}) => ipcRenderer.invoke("infrastructureInventory:refresh", payload),
@@ -356,6 +361,9 @@ const desktopApi = {
       remove: (instanceId, fileName, enabled, options = {}) => ipcRenderer.invoke("instances:mods:remove", { ...options, instanceId, fileName, enabled }),
       update: (instanceId, fileName, options = {}) => ipcRenderer.invoke("instances:mods:update", { ...options, instanceId, fileName }),
     },
+    checkServerUpdate: (instanceId, options = {}) => ipcRenderer.invoke("instances:checkServerUpdate", { ...options, instanceId }),
+    getSteamUpdateProgress: (instanceId, options = {}) => ipcRenderer.invoke("instances:getSteamUpdateProgress", { ...options, instanceId }),
+    setSteamBranch: (instanceId, branch, options = {}) => ipcRenderer.invoke("instances:setSteamBranch", { ...options, instanceId, branch }),
     saveFiveMLicenseKey: (instanceId, licenseKey, options = {}) => ipcRenderer.invoke("instances:saveFiveMLicenseKey", { ...options, instanceId, licenseKey }),
     serviceOverview: (instanceId, options = {}) => invokeAgentFeature("instances:serviceOverview", { ...options, instanceId }),
     serviceHistory: (instanceId, options = {}) => invokeAgentFeature("instances:serviceHistory", { ...options, instanceId }),
