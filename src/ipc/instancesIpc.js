@@ -44,6 +44,7 @@ const {
   updateRestartSchedule,
   writeInstanceFile,
 } = require("../services/serviceRouter");
+const { checkServerVersionUpdate } = require("../services/marketplaceService");
 const { openInstanceSignIn, selectInstanceSignInProfile } = require("../services/instanceSignInService");
 const { audit, checkRateLimit, requirePermission } = require("../services/securityService");
 const { wrapExpectedAgentRead } = require("./expectedAgentError");
@@ -263,6 +264,43 @@ function registerInstancesIpc() {
     audit({ action: "instance.restartSchedule.evaluate", target: payload.instanceId });
     return evaluateRestartSchedules(payload.instanceId, payload);
   }));
+  // Mod Manager (Modrinth mods/plugins). Reads are instance:read; anything
+  // that changes the mods folder is a file write (files:write), audited.
+  // Only the fields each operation needs cross into the service.
+  const modManager = () => require("../services/modManagerService");
+  const modTarget = (payload) => ({ instanceId: payload.instanceId, nodeId: payload.nodeId });
+  registerInstanceHandler("instances:mods:list", async (_, payload = {}) => invokeInstanceOperation(() => {
+    requirePermission("instance:read", payload.instanceId);
+    return modManager().listMods(modTarget(payload));
+  }));
+  registerInstanceHandler("instances:mods:search", async (_, payload = {}) => invokeInstanceOperation(() => {
+    requirePermission("instance:read", payload.instanceId);
+    return modManager().searchMods({ ...modTarget(payload), query: String(payload.query || ""), offset: payload.offset, limit: payload.limit });
+  }));
+  registerInstanceHandler("instances:mods:checkUpdates", async (_, payload = {}) => invokeInstanceOperation(() => {
+    requirePermission("instance:read", payload.instanceId);
+    return modManager().checkModUpdates(modTarget(payload));
+  }));
+  registerInstanceHandler("instances:mods:install", async (_, payload = {}) => invokeInstanceOperation(() => {
+    requirePermission("files:write", `${payload.instanceId}:mods`);
+    audit({ action: "instance.mods.install", target: `${payload.instanceId}:${payload.projectId}` });
+    return modManager().installMod({ ...modTarget(payload), projectId: String(payload.projectId || "") });
+  }));
+  registerInstanceHandler("instances:mods:setEnabled", async (_, payload = {}) => invokeInstanceOperation(() => {
+    requirePermission("files:write", `${payload.instanceId}:mods`);
+    audit({ action: payload.enabled ? "instance.mods.enable" : "instance.mods.disable", target: `${payload.instanceId}:${payload.fileName}` });
+    return modManager().setModEnabled({ ...modTarget(payload), fileName: String(payload.fileName || ""), enabled: payload.enabled === true });
+  }));
+  registerInstanceHandler("instances:mods:remove", async (_, payload = {}) => invokeInstanceOperation(() => {
+    requirePermission("files:write", `${payload.instanceId}:mods`);
+    audit({ action: "instance.mods.remove", target: `${payload.instanceId}:${payload.fileName}` });
+    return modManager().removeMod({ ...modTarget(payload), fileName: String(payload.fileName || ""), enabled: payload.enabled !== false });
+  }));
+  registerInstanceHandler("instances:mods:update", async (_, payload = {}) => invokeInstanceOperation(() => {
+    requirePermission("files:write", `${payload.instanceId}:mods`);
+    audit({ action: "instance.mods.update", target: `${payload.instanceId}:${payload.fileName}` });
+    return modManager().updateMod({ ...modTarget(payload), fileName: String(payload.fileName || "") });
+  }));
   registerInstanceHandler("instances:listFiles", async (_, payload = {}) => invokeInstanceOperation(() => { requirePermission("instance:read", payload.instanceId); return listInstanceFiles(payload.instanceId, payload.path, payload); }));
   registerInstanceHandler("instances:readFile", async (_, payload = {}) => invokeInstanceOperation(() => { requirePermission("instance:read", payload.instanceId); return readInstanceFile(payload.instanceId, payload.path, payload); }));
   registerInstanceHandler("instances:writeFile", async (_, payload = {}) => invokeInstanceOperation(() => {
@@ -305,6 +343,15 @@ function registerInstancesIpc() {
     return saveMinecraftProperties(payload.instanceId, payload.properties, payload);
   }));
   registerInstanceHandler("instances:checkSteamUpdate", async (_, payload = {}) => invokeInstanceOperation(() => { requirePermission("instance:read", payload.instanceId); return checkSteamCmdBuildUpdate(payload.instanceId, payload); }));
+  // Check-only update status for Paper, Vanilla, FiveM and Hytale servers: the
+  // installed version comes from the instance record on its node, the latest
+  // from the same upstream resolvers the Marketplace installer uses.
+  registerInstanceHandler("instances:checkServerUpdate", async (_, payload = {}) => invokeInstanceOperation(async () => {
+    requirePermission("instance:read", payload.instanceId);
+    const status = await getInstanceStatus(payload.instanceId, payload);
+    return checkServerVersionUpdate(status?.instance || status, { refresh: payload.refresh === true });
+  }));
+
   registerInstanceHandler("instances:getSteamUpdateProgress", async (_, payload = {}) => invokeInstanceOperation(() => { requirePermission("instance:read", payload.instanceId); return getSteamCmdUpdateProgress(payload.instanceId, payload); }));
   registerInstanceHandler("instances:setSteamBranch", async (_, payload = {}) => invokeInstanceOperation(() => {
     requirePermission("instance:write", payload.instanceId);
