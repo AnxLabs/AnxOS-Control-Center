@@ -2,6 +2,7 @@ const {
   beginInstallationSession,
   beginSteamCmdUpdateSession,
   getSteamCmdUpdateStatus,
+  checkSteamCmdBuildUpdate,
   repairLegacySteamCmdMetadata,
   cancelInstallationSession,
   clearLogs,
@@ -453,6 +454,15 @@ async function handleInstances(request, url) {
       return result(200, await cancelInstallationSession(installationCancelId, parseJsonBody(request)));
     }
 
+    // Read-only update-available check (instance:read via the central GET
+    // gate). `?refresh=1` asks for a fresh SteamCMD lookup; the core still
+    // rate-limits it per Steam app and otherwise answers from its cache.
+    const steamUpdateCheckId = getInstanceIdFromPath(url.pathname, "/steamcmd/update/check");
+    if (request.method === "GET" && steamUpdateCheckId) {
+      return result(200, await checkSteamCmdBuildUpdate(steamUpdateCheckId, {
+        refresh: url.searchParams.get("refresh") === "1",
+      }));
+    }
     const steamUpdateSessionId = getInstanceIdFromPath(url.pathname, "/steamcmd/update/session");
     if (request.method === "POST" && steamUpdateSessionId) {
       return result(201, await beginSteamCmdUpdateSession(steamUpdateSessionId, parseJsonBody(request)));

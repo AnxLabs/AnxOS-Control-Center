@@ -761,6 +761,14 @@ async function saveMinecraftProperties(instanceId, properties, options = {}) {
   return getAgentNodeClient(options).saveMinecraftProperties(instanceId, properties);
 }
 
+async function checkSteamCmdBuildUpdate(instanceId, options = {}) {
+  const refresh = options.refresh === true;
+  if (shouldUseLocalInstances(options)) {
+    return localInstanceService.checkSteamCmdBuildUpdate(instanceId, { refresh });
+  }
+  return getAgentNodeClient(options).checkSteamCmdBuildUpdate(instanceId, { refresh });
+}
+
 async function getFiveMReadiness(instanceId, options = {}) {
   if (shouldUseLocalInstances(options)) {
     return localInstanceService.refreshFiveMReadiness(instanceId);
@@ -1178,6 +1186,7 @@ module.exports = {
   getGameServerConfig,
   openInstanceFolder,
   getFiveMReadiness,
+  checkSteamCmdBuildUpdate,
   getMinecraftProperties,
   getNetworkInventory,
   getPlayitSnapshot,

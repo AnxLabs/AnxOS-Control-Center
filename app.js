@@ -15727,6 +15727,15 @@ function updateInstanceActionButtons() {
       ? "Stop this server before updating its files."
       : busy ? "Wait for the current instance operation to finish." : "Validate and update this server with SteamCMD.";
   });
+  document.querySelectorAll("[data-steam-update-badge]").forEach((badge) => {
+    const supported = isSteamCmdUpdateInstance(selectedInstance);
+    if (supported) refreshSteamUpdateCheck(selectedInstance);
+    const check = supported ? getSteamUpdateCheck(selectedInstance) : null;
+    badge.hidden = check?.updateAvailable !== true;
+    badge.title = check?.updateAvailable === true
+      ? `Installed build ${check.installedBuildId}, latest public build ${check.latestBuildId}. Stop the server, then use Update Server Files.`
+      : "";
+  });
 
   document.querySelectorAll('[data-instance-action="expose-share"]').forEach((button) => {
     const hasCompatibleSuggestion = getInstanceAccessSuggestions(selectedInstance).some((suggestion) => suggestion.compatible !== false && suggestion.localPort);
@@ -21563,6 +21572,53 @@ async function configureBackupSchedule(instanceId) {
   }
 }
 
+// SteamCMD update-available badge. The Agent caches the SteamCMD build lookup
+// and rate-limits fresh ones per Steam app; the renderer only throttles how
+// often it asks and never blocks the instance view on the answer. An Agent
+// without the check route (not yet updated) simply never shows the badge.
+const STEAM_UPDATE_CHECK_RENDERER_TTL_MS = 10 * 60 * 1000;
+const steamUpdateChecks = new Map();
+
+function isSteamCmdUpdateInstance(instance) {
+  return instance?.installerType === "steamcmd-native" && Number.isInteger(Number(instance?.steamAppId));
+}
+
+function getSteamUpdateCheckKey(instance) {
+  return `${getSelectedNodeId() || "local"}:${instance?.id || ""}`;
+}
+
+function getSteamUpdateCheck(instance) {
+  return steamUpdateChecks.get(getSteamUpdateCheckKey(instance))?.result || null;
+}
+
+async function refreshSteamUpdateCheck(instance, options = {}) {
+  const api = getDesktopApiState().api;
+  if (!isSteamCmdUpdateInstance(instance) || typeof api?.instances?.checkSteamUpdate !== "function") return;
+  const key = getSteamUpdateCheckKey(instance);
+  const entry = steamUpdateChecks.get(key);
+  if (entry?.inFlight) return;
+  if (!options.force && entry && Date.now() - entry.fetchedAt < STEAM_UPDATE_CHECK_RENDERER_TTL_MS) return;
+  const requestContext = createNodeActionContext(`steam-update-check:${instance.id}`);
+  steamUpdateChecks.set(key, { result: entry?.result || null, fetchedAt: entry?.fetchedAt || 0, inFlight: true });
+  let result = null;
+  try {
+    const response = await api.instances.checkSteamUpdate(instance.id, getNodeScopedPayload(requestContext, { refresh: options.refresh === true }));
+    result = response && response.ok !== false ? response : null;
+  } catch {
+    result = null;
+  }
+  steamUpdateChecks.set(key, { result, fetchedAt: Date.now(), inFlight: false });
+  if (isNodeRequestCurrent(requestContext)) updateInstanceActionButtons();
+}
+
+function formatRestartScheduleSteamUpdate(schedule) {
+  const last = schedule?.lastSteamUpdate;
+  if (!last) return "";
+  if (last.attempted && last.ok === false) return ` Last scheduled update failed (${last.code}); the server was started on build ${last.buildIdBefore || "unknown"}.`;
+  if (last.attempted && last.ok) return ` Last scheduled update installed build ${last.buildIdAfter}.`;
+  return last.reason === "UP_TO_DATE" ? " Last check: server files were up to date." : ` Last check could not confirm a new build (${last.reason}).`;
+}
+
 // V2-E scheduled restarts: the agent owns schedule storage, player warnings
 // (via the server's own console input), and the lifecycle restart. This panel
 // only manages the schedule records and mirrors the backup schedule flow.
@@ -21624,8 +21680,11 @@ function renderInstanceRestartSchedules(instance) {
     row.className = "instance-network-row";
     const label = document.createElement("span");
     const stateLabel = schedule.enabled === false ? "disabled" : "enabled";
-    label.textContent = `${formatRestartScheduleSummary(schedule)} · warn ${schedule.warnMinutes} min · next ${formatRestartScheduleNextRun(schedule)} · ${stateLabel}`;
-    label.title = `Warnings are sent through the server console before the restart.${schedule.lastError ? ` Last error: ${schedule.lastError}.` : ""}`;
+    const steamAutoUpdate = isSteamCmdUpdateInstance(instance);
+    const autoUpdateLabel = steamAutoUpdate ? ` · auto-update ${schedule.autoUpdateSteam === true ? "on" : "off"}` : "";
+    const autoUpdateFailed = schedule.lastSteamUpdate?.attempted && schedule.lastSteamUpdate.ok === false;
+    label.textContent = `${formatRestartScheduleSummary(schedule)} · warn ${schedule.warnMinutes} min · next ${formatRestartScheduleNextRun(schedule)} · ${stateLabel}${autoUpdateLabel}${autoUpdateFailed ? " · last update failed" : ""}`;
+    label.title = `Warnings are sent through the server console before the restart.${steamAutoUpdate ? formatRestartScheduleSteamUpdate(schedule) : ""}${schedule.lastError ? ` Last error: ${schedule.lastError}.` : ""}`;
     const toggle = document.createElement("button");
     toggle.className = "inline-action";
     toggle.type = "button";
@@ -21636,7 +21695,17 @@ function renderInstanceRestartSchedules(instance) {
     remove.type = "button";
     remove.textContent = "Delete";
     remove.addEventListener("click", () => deleteRestartScheduleEntry(schedule));
-    row.append(label, toggle, remove);
+    row.append(label, toggle);
+    if (steamAutoUpdate) {
+      const autoUpdate = document.createElement("button");
+      autoUpdate.className = "inline-action";
+      autoUpdate.type = "button";
+      autoUpdate.textContent = schedule.autoUpdateSteam === true ? "Disable Auto-Update" : "Enable Auto-Update";
+      autoUpdate.title = "When a newer public Steam build is available, update server files with SteamCMD between the scheduled stop and start. If the update fails, the server starts on its current build.";
+      autoUpdate.addEventListener("click", () => setRestartScheduleAutoUpdate(schedule, schedule.autoUpdateSteam !== true));
+      row.append(autoUpdate);
+    }
+    row.append(remove);
     restartScheduleList.appendChild(row);
   });
 }
@@ -21737,6 +21806,32 @@ async function setRestartScheduleEnabled(schedule, enabled) {
       enabled,
     });
     showToast(enabled ? "Restart schedule enabled." : "Restart schedule disabled.");
+    await refreshRestartSchedules();
+  } catch (error) {
+    showToast(getAgentErrorMessage(error, "Restart schedule update failed."));
+  }
+}
+
+async function setRestartScheduleAutoUpdate(schedule, autoUpdateSteam) {
+  const desktopApiState = getDesktopApiState();
+  const requestContext = createNodeActionContext("restart-schedule-auto-update");
+  const selectedInstance = findInstance();
+  if (!desktopApiState.hasRestartSchedules || !selectedInstance || !schedule?.id || !isSteamCmdUpdateInstance(selectedInstance)) {
+    return;
+  }
+  try {
+    if (!isNodeActionStillCurrent(requestContext)) return;
+    const updated = await desktopApiState.api.instances.updateRestartSchedule(selectedInstance.id, schedule.id, {
+      nodeId: requestContext.nodeId,
+      autoUpdateSteam,
+    });
+    // An Agent that predates scheduled updates ignores the field; say so
+    // instead of claiming the setting took effect.
+    if (autoUpdateSteam && updated?.schedule && updated.schedule.autoUpdateSteam !== true) {
+      showToast("This node's Agent does not support scheduled server updates yet. Update the Agent first.", "warning");
+    } else {
+      showToast(autoUpdateSteam ? "Scheduled restarts will install new server builds." : "Scheduled restarts will no longer update server files.");
+    }
     await refreshRestartSchedules();
   } catch (error) {
     showToast(getAgentErrorMessage(error, "Restart schedule update failed."));
@@ -23465,6 +23560,7 @@ async function runInstanceAction(actionName) {
     let steamUpdateRestarted = false;
     if (actionName === "update-steam") {
       const updateResult = actionResult?.result || {};
+      refreshSteamUpdateCheck(findInstance(targetInstanceId), { force: true });
       const buildLabel = updateResult.buildIdAfter ? `\n\nVerified Steam build: ${updateResult.buildIdAfter}` : "";
       const summary = updateResult.buildChanged === false
         ? `${label} is already up to date.${buildLabel}`
