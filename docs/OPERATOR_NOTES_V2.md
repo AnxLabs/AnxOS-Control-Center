@@ -287,6 +287,21 @@ requests a pre-update backup. Running servers are skipped, a failure does not
 stop the queue, and the result is summarised. Updated servers stay stopped.
 **Open** jumps to the server on its node.
 
+**Non-Steam servers (check only).** The same **Update available** badge
+appears for Paper, Vanilla, FiveM and Hytale servers installed from the
+Marketplace. The Control Center (IPC `instances:checkServerUpdate`,
+`instance:read`) compares the version recorded on the instance at install time
+with the latest upstream version, using the Marketplace's own resolvers:
+- Paper: the newest stable build for the same Minecraft version.
+- Vanilla: the newest Minecraft release. The badge warns that a release
+  upgrades the world, so back up first.
+- FiveM: a higher FXServer artifact number.
+- Hytale: the repository's current release.
+
+Lookups are cached per release track (30 minutes after a success, 5 after a
+failure, refresh at most every 2 minutes). Applying these updates is still
+manual, and the badge links to the download page. No Agent change is needed.
+
 ## 6. Runtime pins
 
 When an install or dependency check resolves a runtime version for a workload

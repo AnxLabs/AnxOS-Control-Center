@@ -282,7 +282,8 @@ const IPC_FAMILIES = [
       "instances:listFiles", "instances:readFile", "instances:listRestartSchedules",
       "instances:serviceOverview", "instances:serviceHistory", "instances:serviceOperation", "instances:safeRestartPreflight",
       "instances:getMinecraftProperties", "instances:getGameServerConfig", "instances:getFiveMReadiness",
-      "instances:checkSteamUpdate", "instances:getSteamUpdateProgress", "instances:jobs:list", "instances:jobs:get",
+
+      "instances:checkSteamUpdate", "instances:getSteamUpdateProgress", "instances:checkServerUpdate", "instances:jobs:list", "instances:jobs:get",
     ],
   },
   {

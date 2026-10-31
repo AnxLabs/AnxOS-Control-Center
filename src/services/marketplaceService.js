@@ -2275,6 +2275,131 @@ async function resolveVanillaDownload(download, options = {}, context = {}) {
   };
 }
 
+// Update checks for Marketplace servers that are not SteamCMD-native. They
+// reuse the same resolvers the installer uses, compare against the version
+// recorded on the instance at install time, and are check-only: applying the
+// update stays a manual step. Results are cached per release track and a
+// forced refresh is held to a per-track floor.
+const SERVER_VERSION_CHECK_TTL_MS = 30 * 60 * 1000;
+const SERVER_VERSION_CHECK_FAILURE_TTL_MS = 5 * 60 * 1000;
+const SERVER_VERSION_CHECK_MIN_INTERVAL_MS = 2 * 60 * 1000;
+const serverVersionCheckCache = new Map();
+const serverVersionCheckInFlight = new Map();
+let serverVersionLatestResolver = null;
+let serverVersionCheckClock = () => Date.now();
+
+function getServerVersionCheckTarget(instance = {}) {
+  const software = String(instance.serverSoftware || "").trim().toLowerCase();
+  const family = [instance.templateId, instance.game, instance.type, instance.displayName].map((value) => String(value || "")).join(" ").toLowerCase();
+  const minecraftVersion = String(instance.minecraftVersion || "").trim();
+  const serverVersion = String(instance.serverVersion || "").trim();
+  if (software === "paper" && /^[0-9][0-9A-Za-z.-]{0,31}$/.test(minecraftVersion) && /^\d{1,9}$/.test(String(instance.paperBuild || ""))) {
+    return { kind: "paper", track: `paper:${minecraftVersion}`, minecraftVersion, installedVersion: String(instance.paperBuild) };
+  }
+  if (software === "vanilla" && /^[0-9][0-9A-Za-z.-]{0,31}$/.test(minecraftVersion)) {
+    return { kind: "minecraft-release", track: "minecraft-release", installedVersion: minecraftVersion };
+  }
+  if (/fivem|fxserver/.test(family) && /^\d{3,9}(?:-[0-9a-f]{6,64})?$/i.test(serverVersion)) {
+    const windows = /windows/.test(family) || /\.exe$/i.test(String(instance.executable || ""));
+    return { kind: "fivem", track: windows ? "fivem-windows" : "fivem-linux", windows, installedVersion: serverVersion };
+  }
+  if (/hytale/.test(family) && /^[0-9A-Za-z][0-9A-Za-z.-]{0,63}$/.test(serverVersion)) {
+    return { kind: "hytale", track: "hytale-release", installedVersion: serverVersion };
+  }
+  return null;
+}
+
+async function resolveLatestServerVersion(target) {
+  if (serverVersionLatestResolver) return serverVersionLatestResolver(target);
+  const context = { operation: "server-version-check" };
+  if (target.kind === "paper") {
+    const resolved = await resolvePaperDownload({ project: "paper" }, { version: target.minecraftVersion, build: "latest" }, context);
+    return String(resolved.build);
+  }
+  if (target.kind === "minecraft-release") {
+    const manifest = await fetchJson(MOJANG_VERSION_MANIFEST_URL, "Mojang version lookup", context);
+    return manifest?.latest?.release ? String(manifest.latest.release) : null;
+  }
+  if (target.kind === "fivem") {
+    return (await resolveFiveMDownload({ resolver: target.windows ? "fivem-windows" : "fivem-linux" }, {}, context)).version;
+  }
+  if (target.kind === "hytale") {
+    const { body } = await fetchTextWithDetails(`${HYTALE_MAVEN_BASE_URL}/release/com/hypixel/hytale/Server/maven-metadata.xml`, "Hytale server version lookup", context);
+    return (body.match(/<release>([^<]+)<\/release>/)?.[1] || "").trim() || null;
+  }
+  return null;
+}
+
+function compareServerVersions(target, latest) {
+  if (!latest) return null;
+  if (target.kind === "paper") return Number(latest) > Number(target.installedVersion);
+  if (target.kind === "fivem") return Number.parseInt(latest, 10) > Number.parseInt(target.installedVersion, 10);
+  return latest !== target.installedVersion;
+}
+
+const SERVER_VERSION_CHECK_NOTES = Object.freeze({
+  paper: (target, latest) => `Paper build ${latest} is available for Minecraft ${target.minecraftVersion} (installed build ${target.installedVersion}).`,
+  "minecraft-release": (target, latest) => `Minecraft ${latest} is available (installed ${target.installedVersion}). A new release upgrades the world, so back up first.`,
+  fivem: (target, latest) => `FXServer artifact ${latest} is available (installed ${target.installedVersion}).`,
+  hytale: (target, latest) => `Hytale server ${latest} is available (installed ${target.installedVersion}).`,
+});
+
+const SERVER_VERSION_CHECK_LINKS = Object.freeze({
+  paper: "https://papermc.io/downloads/paper",
+  "minecraft-release": "https://www.minecraft.net/en-us/download/server",
+  fivem: "https://runtime.fivem.net/artifacts/fivem/build_proot_linux/master/",
+  hytale: null,
+});
+
+async function checkServerVersionUpdate(instance = {}, options = {}) {
+  const target = getServerVersionCheckTarget(instance);
+  if (!target) {
+    return { supported: false, updateAvailable: null };
+  }
+  const atMs = serverVersionCheckClock();
+  const cached = serverVersionCheckCache.get(target.track);
+  const ageMs = cached ? atMs - cached.checkedAtMs : Number.POSITIVE_INFINITY;
+  const ttlMs = cached?.error ? SERVER_VERSION_CHECK_FAILURE_TTL_MS : SERVER_VERSION_CHECK_TTL_MS;
+  let entry;
+  if (cached && (ageMs < SERVER_VERSION_CHECK_MIN_INTERVAL_MS || (!options.refresh && ageMs < ttlMs))) {
+    entry = { ...cached, cached: true };
+  } else {
+    if (!serverVersionCheckInFlight.has(target.track)) {
+      serverVersionCheckInFlight.set(target.track, (async () => {
+        let latestVersion = null;
+        let error = null;
+        try {
+          latestVersion = await resolveLatestServerVersion(target);
+          if (!latestVersion) error = "SERVER_VERSION_UNAVAILABLE";
+        } catch (lookupError) {
+          error = lookupError?.code || "SERVER_VERSION_CHECK_FAILED";
+        }
+        // A failed lookup keeps the last known version (no flicker on outages).
+        const stored = { latestVersion: latestVersion || (error ? cached?.latestVersion || null : null), error, checkedAtMs: serverVersionCheckClock() };
+        serverVersionCheckCache.set(target.track, stored);
+        return stored;
+      })().finally(() => serverVersionCheckInFlight.delete(target.track)));
+    }
+    entry = { ...(await serverVersionCheckInFlight.get(target.track)), cached: false };
+  }
+  const updateAvailable = compareServerVersions(target, entry.latestVersion);
+  return {
+    supported: true,
+    kind: target.kind,
+    installedVersion: target.installedVersion,
+    latestVersion: entry.latestVersion,
+    updateAvailable,
+    note: updateAvailable ? SERVER_VERSION_CHECK_NOTES[target.kind](target, entry.latestVersion) : null,
+    link: target.kind === "fivem" && target.windows
+      ? "https://runtime.fivem.net/artifacts/fivem/build_server_windows/master/"
+      : SERVER_VERSION_CHECK_LINKS[target.kind],
+    checkOnly: true,
+    checkedAt: new Date(entry.checkedAtMs).toISOString(),
+    cached: entry.cached,
+    error: entry.error || null,
+  };
+}
+
 async function resolveDownloadUrl(download, options = {}, context = {}) {
   if (download.resolver === "papermc") {
     return resolvePaperDownload(download, options, context);
@@ -4698,6 +4823,17 @@ async function executeInstallTemplate(payload = {}, context = {}) {
 
 module.exports = {
   _test: {
+    getServerVersionCheckTarget,
+    setServerVersionLatestResolver(resolver) {
+      serverVersionLatestResolver = typeof resolver === "function" ? resolver : null;
+    },
+    setServerVersionCheckClock(clock) {
+      serverVersionCheckClock = typeof clock === "function" ? clock : () => Date.now();
+    },
+    resetServerVersionChecks() {
+      serverVersionCheckCache.clear();
+      serverVersionCheckInFlight.clear();
+    },
     buildInstancePayload,
     buildConfigFileContent,
     buildInstallContext,
@@ -4740,6 +4876,7 @@ module.exports = {
   createDependencyInstallRecord,
   finalizeDependencyInstallRecord,
   getDownloads: (nodeId = null) => sanitizeDownloads(getDownloadsForNode(nodeId)),
+  checkServerVersionUpdate,
   getImportSupport,
   getMinecraftVersionCatalog,
   importCommunityTemplate,
