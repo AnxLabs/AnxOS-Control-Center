@@ -278,6 +278,7 @@ async function scheduleChecks() {
   state.next = { attempted: true, ok: false, code: "STEAMCMD_UPDATE_TIMEOUT", buildIdBefore: "1" };
   state.clockMs = Date.parse(updated.nextRunAt) + 1000;
   await scheduleService.runDueSchedules();
+  await scheduleService.waitForSteamUpdateRestarts();
   let stored = (await scheduleService.listRestartSchedules("steam-schedule")).schedules[0];
   assert.strictEqual(state.updateRestarts, 1);
   assert.strictEqual(state.plainRestarts, 0, "An auto-update schedule must use the update-aware restart.");
@@ -288,6 +289,7 @@ async function scheduleChecks() {
   state.next = { attempted: true, ok: true, buildIdBefore: "1", buildIdAfter: "2" };
   state.clockMs = Date.parse(stored.nextRunAt) + 1000;
   await scheduleService.runDueSchedules();
+  await scheduleService.waitForSteamUpdateRestarts();
   stored = (await scheduleService.listRestartSchedules("steam-schedule")).schedules[0];
   assert.strictEqual(stored.lastError, null, "A successful update clears the previous failure.");
   assert.strictEqual(stored.lastSteamUpdate.buildIdAfter, "2");
@@ -297,6 +299,38 @@ async function scheduleChecks() {
   await scheduleService.runDueSchedules();
   assert.strictEqual(state.plainRestarts, 1, "Disabling auto-update returns the schedule to a plain restart.");
   assert.strictEqual(state.updateRestarts, 2);
+  await scheduleService.deleteRestartSchedule(schedule.id);
+
+  // A long update on one instance must not hold up another instance's
+  // schedule: the tick returns while SteamCMD is still working.
+  let releaseUpdate;
+  const updateGate = new Promise((resolve) => { releaseUpdate = resolve; });
+  const slowRestarts = [];
+  scheduleService.configureRestartScheduleService({
+    restartInstanceWithSteamUpdate: async (instanceId) => {
+      slowRestarts.push(instanceId);
+      await updateGate;
+      return { instance: { state: "Running" }, steamUpdate: { attempted: true, ok: true, buildIdBefore: "1", buildIdAfter: "3" } };
+    },
+  });
+  const slow = (await scheduleService.createRestartSchedule({ instanceId: "steam-slow", intervalHours: 1, warnMinutes: 1, autoUpdateSteam: true })).schedule;
+  const other = (await scheduleService.createRestartSchedule({ instanceId: "other-server", intervalHours: 2, warnMinutes: 1 })).schedule;
+  state.clockMs = Date.parse(slow.nextRunAt) + 1000;
+  const plainBefore = state.plainRestarts;
+  await scheduleService.runDueSchedules();
+  assert.deepStrictEqual(slowRestarts, ["steam-slow"], "The update-aware restart must have started.");
+  state.clockMs = Date.parse(other.nextRunAt) + 1000;
+  await scheduleService.runDueSchedules();
+  assert.strictEqual(state.plainRestarts, plainBefore + 1, "Another instance's due restart must run while SteamCMD is still updating.");
+  assert.deepStrictEqual(slowRestarts, ["steam-slow"], "A schedule with a restart in flight must not be evaluated again.");
+  await scheduleService.updateRestartSchedule(other.id, { warnMinutes: 3 });
+  releaseUpdate();
+  await scheduleService.waitForSteamUpdateRestarts();
+  const after = (await scheduleService.listRestartSchedules()).schedules;
+  const slowStored = after.find((entry) => entry.id === slow.id);
+  assert.strictEqual(slowStored.lastSteamUpdate.buildIdAfter, "3", "The detached outcome must be written back to the schedule.");
+  assert.strictEqual(slowStored.lastError, null);
+  assert.strictEqual(after.find((entry) => entry.id === other.id).warnMinutes, 3, "The write-back must not drop a concurrent edit.");
   await fsp.rm(scheduleRoot, { recursive: true, force: true });
 }
 
@@ -317,6 +351,8 @@ function contractChecks() {
   assert(core.includes('checkSteamCmdBuildUpdate: refuseForServiceManaged("steamcmd-update", checkSteamCmdBuildUpdate)'));
   assert(core.includes("restartInstanceWithSteamUpdate: restartInstanceWithSteamUpdateJob"));
   assert(routes.includes('"/steamcmd/update/check"') && routes.includes('request.method === "GET" && steamUpdateCheckId'), "The check must be a GET (instance:read) Agent route.");
+  const scheduler = read("agent/src/services/restartScheduleService.js");
+  assert(!/await \(executors\.restartInstanceWithSteamUpdate/.test(scheduler.slice(scheduler.indexOf("async function evaluateSchedule"), scheduler.indexOf("function launchSteamUpdateRestart"))), "The tick must not await a SteamCMD update.");
   assert(server.includes("isSteamBuildCheck"), "The Agent must allow the bounded build lookup to finish.");
   assert(client.includes("/steamcmd/update/check"));
   assert(router.includes("async function checkSteamCmdBuildUpdate"));

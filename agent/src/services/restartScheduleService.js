@@ -49,6 +49,27 @@ const TICK_OWNED_FIELDS = Object.freeze([
 let schedulerStarted = false;
 let schedulerTimer = null;
 let tickInFlight = null;
+
+// Update-aware restarts run outside the tick: a SteamCMD update can hold one
+// instance for ten minutes, and the tick evaluates schedules one after
+// another, so awaiting it would delay every other instance's warnings and
+// restarts. While one is in flight (keyed by schedule id) the tick leaves that
+// schedule alone; its outcome is written back to the store when it settles.
+// A tick whose snapshot predates that write also leaves the schedule alone so
+// it cannot overlay the recorded outcome with stale values.
+const steamUpdateRestarts = new Map();
+const steamUpdateCompletedAt = new Map();
+let steamUpdateCompletionSeq = 0;
+
+// Serialises store read-modify-write cycles (CRUD, the tick's merge, and the
+// write-back of a detached restart) so none of them can drop another's write.
+let storeWriteQueue = Promise.resolve();
+
+function withStoreLock(operation) {
+  const run = storeWriteQueue.then(operation, operation);
+  storeWriteQueue = run.catch(() => {});
+  return run;
+}
 let configuredRoot = null;
 
 // Test seams: the hermetic smoke injects a clock and fake executors so no
@@ -352,6 +373,10 @@ async function listRestartSchedules(instanceId = null) {
 }
 
 async function createRestartSchedule(payload = {}) {
+  return withStoreLock(() => createRestartScheduleUnlocked(payload));
+}
+
+async function createRestartScheduleUnlocked(payload = {}) {
   const instanceId = validateInstanceId(payload.instanceId);
   // A scheduled restart warns players through the instance console first. A
   // service-managed instance has no console channel yet (phase 2), so a schedule
@@ -391,6 +416,10 @@ async function getRestartSchedule(id) {
 }
 
 async function updateRestartSchedule(id, payload = {}, options = {}) {
+  return withStoreLock(() => updateRestartScheduleUnlocked(id, payload, options));
+}
+
+async function updateRestartScheduleUnlocked(id, payload = {}, options = {}) {
   const scheduleId = validateScheduleId(id);
   const schedules = await readSchedules();
   const index = schedules.findIndex((entry) => entry.id === scheduleId);
@@ -431,6 +460,10 @@ async function updateRestartSchedule(id, payload = {}, options = {}) {
 }
 
 async function deleteRestartSchedule(id, options = {}) {
+  return withStoreLock(() => deleteRestartScheduleUnlocked(id, options));
+}
+
+async function deleteRestartScheduleUnlocked(id, options = {}) {
   const scheduleId = validateScheduleId(id);
   const schedules = await readSchedules();
   const target = schedules.find((entry) => entry.id === scheduleId);
@@ -586,14 +619,8 @@ async function evaluateSchedule(schedule, changed) {
       schedule.warnState.shortSentAt = nowIso(atMs);
     }
     if (schedule.autoUpdateSteam === true) {
-      const outcome = await (executors.restartInstanceWithSteamUpdate || defaultRestartInstanceWithSteamUpdate)(schedule.instanceId);
-      const steamUpdate = outcome?.steamUpdate || null;
-      schedule.lastSteamUpdate = steamUpdate ? { ...steamUpdate, at: nowIso(atMs) } : null;
-      // The restart itself succeeded (the server is back up); a failed update
-      // is still an operator-visible error on the schedule.
-      schedule.lastError = steamUpdate?.attempted && steamUpdate.ok === false
-        ? `STEAM_AUTO_UPDATE_FAILED:${steamUpdate.code || "STEAMCMD_UPDATE_FAILED"}`
-        : null;
+      // Detached: lastSteamUpdate and lastError are recorded when it settles.
+      launchSteamUpdateRestart(schedule, atMs);
     } else {
       await (executors.restartInstance || defaultRestartInstance)(schedule.instanceId);
       schedule.lastError = null;
@@ -608,6 +635,47 @@ async function evaluateSchedule(schedule, changed) {
   schedule.nextRunAt = new Date(nextDueAtMs(schedule, dueAtMs, atMs)).toISOString();
   schedule.warnState = freshWarnState(Date.parse(schedule.nextRunAt));
   changed.value = true;
+}
+
+function launchSteamUpdateRestart(schedule, atMs) {
+  const scheduleId = schedule.id;
+  const run = (async () => {
+    let fields;
+    try {
+      const outcome = await (executors.restartInstanceWithSteamUpdate || defaultRestartInstanceWithSteamUpdate)(schedule.instanceId);
+      const steamUpdate = outcome?.steamUpdate || null;
+      fields = {
+        lastSteamUpdate: steamUpdate ? { ...steamUpdate, at: nowIso(atMs) } : null,
+        // The restart itself succeeded (the server is back up); a failed
+        // update is still an operator-visible error on the schedule.
+        lastError: steamUpdate?.attempted && steamUpdate.ok === false
+          ? `STEAM_AUTO_UPDATE_FAILED:${steamUpdate.code || "STEAMCMD_UPDATE_FAILED"}`
+          : null,
+      };
+    } catch (error) {
+      fields = { lastError: error?.code || "RESTART_SCHEDULE_FAILED" };
+    }
+    // Let the tick that launched this restart record its own fields first.
+    if (tickInFlight) await tickInFlight.catch(() => {});
+    await withStoreLock(async () => {
+      const schedules = await readSchedules();
+      const target = schedules.find((entry) => entry.id === scheduleId);
+      steamUpdateCompletionSeq += 1;
+      steamUpdateCompletedAt.set(scheduleId, steamUpdateCompletionSeq);
+      // Deleted while the restart ran: nothing to record.
+      if (!target) return;
+      Object.assign(target, fields);
+      await writeSchedules(schedules);
+    });
+  })().catch(() => {}).finally(() => steamUpdateRestarts.delete(scheduleId));
+  steamUpdateRestarts.set(scheduleId, run);
+}
+
+// Test seam: settle every detached update-aware restart.
+async function waitForSteamUpdateRestarts() {
+  while (steamUpdateRestarts.size) {
+    await Promise.all([...steamUpdateRestarts.values()]);
+  }
 }
 
 // Lost-update guard for the tick-vs-CRUD race. The tick loads the schedule
@@ -669,11 +737,15 @@ async function runDueSchedules() {
     return tickInFlight;
   }
   tickInFlight = (async () => {
+    const snapshotSeq = steamUpdateCompletionSeq;
     const snapshot = await readSchedules();
     const changed = { value: false };
     const evaluatedIds = new Set();
     for (const schedule of snapshot) {
       if (!schedule.enabled) {
+        continue;
+      }
+      if (steamUpdateRestarts.has(schedule.id) || (steamUpdateCompletedAt.get(schedule.id) || 0) > snapshotSeq) {
         continue;
       }
       try {
@@ -688,7 +760,7 @@ async function runDueSchedules() {
       }
     }
     if (changed.value) {
-      await writeSchedules(await mergeEvaluatedSchedules(snapshot, evaluatedIds));
+      await withStoreLock(async () => writeSchedules(await mergeEvaluatedSchedules(snapshot, evaluatedIds)));
     }
     return { evaluated: snapshot.length, changed: changed.value };
   })();
@@ -733,4 +805,5 @@ module.exports = {
   startRestartScheduler,
   stopRestartScheduler,
   updateRestartSchedule,
+  waitForSteamUpdateRestarts,
 };
