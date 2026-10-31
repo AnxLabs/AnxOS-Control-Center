@@ -102,7 +102,8 @@ function rendererChecks() {
   for (const [name, expected] of [["paper", true], ["vanilla", true], ["fivem", true], ["hytale", true], ["forge", false], ["steam", false]]) {
     assert.strictEqual(context.checkable(instances[name]), expected, `Renderer asks for ${name}: ${expected}`);
   }
-  const ipc = fs.readFileSync(path.join(__dirname, "..", "src", "ipc", "instancesIpc.js"), "utf8");
+  // Normalised so the check holds on CRLF (Windows autocrlf) checkouts too.
+  const ipc = fs.readFileSync(path.join(__dirname, "..", "src", "ipc", "instancesIpc.js"), "utf8").replace(/\r\n/g, "\n");
   assert(ipc.includes('"instances:checkServerUpdate"') && ipc.includes('requirePermission("instance:read", payload.instanceId);\n    const status = await getInstanceStatus'), "The check is instance:read and reads the instance from its node.");
   assert(source.includes("Update the server files manually"), "The badge says the update itself is manual.");
 }

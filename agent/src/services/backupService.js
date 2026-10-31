@@ -48,6 +48,8 @@ const INSTANCE_ACTIVE_STATES = new Set(["Starting", "Running", "Restarting", "St
 let schedulerStarted = false;
 let schedulerTimer = null;
 
+const BACKUP_REASONS = new Set(["pre-update"]);
+
 function createBackupError(code, statusCode = 400, details = {}) {
   return Object.assign(new Error(code), { code, statusCode, details });
 }
@@ -1215,6 +1217,8 @@ async function performCreateBackup(payload = {}) {
     name: sanitizeName(payload.name, `${instanceId} ${type} backup`),
     createdAt: nowIso(),
     createdBy: sanitizeName(payload.createdBy, "local-user"),
+    // Additive (schema stays at 1): why the backup was taken, from a fixed set.
+    ...(BACKUP_REASONS.has(payload.reason) ? { reason: payload.reason } : {}),
     type,
     size: await getFileSize(archive),
     uncompressedSize: archiveDetails.uncompressedSize,
