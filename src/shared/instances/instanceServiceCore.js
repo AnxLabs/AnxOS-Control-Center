@@ -51,6 +51,21 @@ function configureInstanceService(options = {}) {
   if (typeof options.resolveJavaRuntime === "function") {
     resolveJavaRuntimeProvider = options.resolveJavaRuntime;
   }
+  // The Agent forwards lifecycle events (crashes, SteamCMD update outcomes)
+  // to its alert webhook. The desktop's local instances have no listener.
+  if (typeof options.onInstanceEvent === "function") {
+    instanceEventListener = options.onInstanceEvent;
+  }
+}
+
+let instanceEventListener = null;
+
+// Listener failures are swallowed: alerts must never affect a lifecycle path.
+function emitInstanceEvent(event, details = {}) {
+  if (typeof instanceEventListener !== "function") return;
+  try {
+    instanceEventListener(event, details);
+  } catch {}
 }
 
 function getConfig() {
@@ -766,6 +781,22 @@ async function readSteamManifestBuildId(manifestPath) {
 }
 
 async function executeSteamCmdUpdate(instanceId, request = {}) {
+  try {
+    const result = await executeSteamCmdUpdateUnobserved(instanceId, request);
+    if (result.buildChanged) {
+      emitInstanceEvent("update.succeeded", { instanceId: String(instanceId), message: `AnxOS: ${instanceId} updated to Steam build ${result.buildIdAfter} (was ${result.buildIdBefore || "unknown"}).` });
+    }
+    return result;
+  } catch (error) {
+    // Refusals before anything ran (wrong state, bad session) are not alerts.
+    if (/^STEAMCMD_(?:UPDATE_FAILED|UPDATE_TIMEOUT|UPDATE_NOT_CONFIRMED|UPDATE_BUILD_UNVERIFIED|UPDATE_NOT_APPLIED|UPDATE_ARTIFACTS_MISSING|NETWORK_UNAVAILABLE|AUTHORIZATION_FAILED|APP_ID_INVALID|MISSING|SPAWN_FAILED|PROCESS_ERROR)$/.test(String(error?.code || ""))) {
+      emitInstanceEvent("update.failed", { instanceId: String(instanceId), message: `AnxOS: SteamCMD update for ${instanceId} failed (${error.code}). Server files were left on build ${error.buildIdBefore || "unknown"}.` });
+    }
+    throw error;
+  }
+}
+
+async function executeSteamCmdUpdateUnobserved(instanceId, request = {}) {
   const config = await reconcileConfigState(await loadInstanceConfig(instanceId));
   if (config.installerType !== "steamcmd-native" || !Number.isInteger(config.steamAppId) || config.steamAppId < 1) throw createInstanceError("STEAMCMD_UPDATE_UNSUPPORTED", 409);
   if (
@@ -5959,6 +5990,12 @@ async function startInstanceImpl(instanceId, options = {}) {
         outputTail: entry?.outputTail || [],
       });
       appendLog(config.id, failed ? "stderr" : "stdout", stopReason).catch(() => {});
+      if (failed && !requestedStop) {
+        emitInstanceEvent("instance.crashed", {
+          instanceId: config.id,
+          message: `AnxOS: ${updatedConfig.displayName || config.id} stopped unexpectedly (exit code ${exitCode ?? "none"}${signal ? `, signal ${signal}` : ""}${resolvedFailureReason ? `, ${resolvedFailureReason}` : ""}).`,
+        });
+      }
       if (earlyCleanExit && entry?.outputTail?.length) {
         const tailLines = entry.outputTail.map((line) => `[${line.stream}] ${line.message}`).join("\n");
         appendLog(config.id, "stderr", `Last ${Math.min(PROCESS_TAIL_LINE_LIMIT, entry.outputTail.length)} output lines before early exit:\n${tailLines}`).catch(() => {});

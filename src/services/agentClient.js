@@ -1201,6 +1201,19 @@ async function getNetworkInventory(configOverride = null) {
   });
 }
 
+// Server alerts (Agent webhook). The Agent never returns the URL itself.
+async function getWebhookAlerts(configOverride = null) {
+  return requestJson("/api/v1/notifications/webhook", { config: configOverride });
+}
+
+async function saveWebhookAlerts(payload = {}, configOverride = null) {
+  return requestJson("/api/v1/notifications/webhook", { config: configOverride, method: "PUT", body: payload });
+}
+
+async function testWebhookAlerts(configOverride = null) {
+  return requestJson("/api/v1/notifications/webhook/test", { config: configOverride, method: "POST", body: {} });
+}
+
 async function isHealthy(configOverride = null) {
   try {
     return isHealthyPayload(await getHealth(configOverride));
@@ -3706,6 +3719,9 @@ module.exports = {
   instanceFileExists,
   getMinecraftProperties,
   getNetworkInventory,
+  getWebhookAlerts,
+  saveWebhookAlerts,
+  testWebhookAlerts,
   getPlayitSnapshot,
   getPlayitStatus,
   getPublicAccessPlayitLogs,

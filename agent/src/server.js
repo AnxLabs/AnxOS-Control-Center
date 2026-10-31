@@ -32,6 +32,7 @@ const { handleHealth } = require("./routes/health");
 const { handleInstances } = require("./routes/instances");
 const { handleJobs } = require("./routes/jobs");
 const { handleNetworkInventory } = require("./routes/network");
+const { handleNotifications } = require("./routes/notifications");
 const { handleUiBootstrap, handleUiBootstrapCode, handleUiSession, handleUiSessionError, parseSessionCookie } = require("./routes/ui");
 const { validateSessionToken } = require("./services/sessionService");
 const { CROSS_ORIGIN_DENIED, HOST_NOT_ALLOWED, assertTrustedRequest } = require("./services/hostTrustPolicy");
@@ -202,6 +203,9 @@ function getRoutePermission(request, pathname) {
   // V2-H network inventory: read-only host discovery, same read tier as the
   // system summary routes.
   if (pathname === "/api/v1/network/inventory") return "system:read";
+  // Server alerts: the masked settings are readable at system:read; changing
+  // the webhook or sending a test reaches outside the node, so agent:manage.
+  if (pathname === "/api/v1/notifications/webhook" || pathname.startsWith("/api/v1/notifications/")) return method === "GET" ? "system:read" : "agent:manage";
   if (pathname.startsWith("/api/v1/playit/") || pathname.startsWith("/api/v1/public-access/")) return method === "GET" ? "public-access:read" : "public-access:write";
   if (pathname.startsWith("/api/v1/amp/")) return "instance:read";
   if (pathname.startsWith("/api/v1/files/")) return method === "GET" ? "files:read" : "files:write";
@@ -303,6 +307,10 @@ async function routeRequest(request, url) {
 
   if (pathname === "/api/v1/jobs" || pathname.startsWith("/api/v1/jobs/")) {
     return handleJobs(request, url);
+  }
+
+  if (pathname === "/api/v1/notifications/webhook" || pathname.startsWith("/api/v1/notifications/")) {
+    return handleNotifications(request, url);
   }
 
   if (pathname === "/api/v1/instances" || pathname.startsWith("/api/v1/instances/")) {

@@ -560,3 +560,25 @@ pre-Build-200 build:
 This note records the downgrade limitation where an operator deciding whether to
 roll back should see it. It does not change the update workflow or the manifest
 generator.
+
+## Server alerts (Discord / webhook)
+
+Each node's Agent can post selected events to one Discord or generic HTTPS
+webhook: server crashed (unexpected exit), scheduled restart completed or
+failed, server updated, and server update failed. It is configured in
+**Settings > Notifications > Server Alerts** for the selected node.
+
+- `GET /api/v1/notifications/webhook` (`system:read`) returns a masked hint,
+  never the URL. `PUT` (save) and `POST .../test` require `agent:manage`. On
+  the desktop the channels are `webhookAlerts:get` (`nodes:read`) and
+  `webhookAlerts:save` / `webhookAlerts:test` (`settings:write`, audited
+  without the URL).
+- The URL is stored in `<agent data>/notifications/webhook.json` (mode
+  0600, override with `AGENT_NOTIFICATION_ROOT`). Only `https:` URLs with a
+  public DNS host name are accepted (no IP literals, `localhost`, `.local` or
+  single-label hosts, and no embedded credentials).
+- Discord webhooks get `{content}` with mentions disabled. Other hosts get a
+  JSON event `{source, event, instanceId, message, at}`.
+- Delivery is fire-and-forget (5 s timeout) and never blocks a lifecycle
+  action. At most one alert per event and instance per minute, and 20 per
+  node per minute. The last delivery result is shown in Settings.

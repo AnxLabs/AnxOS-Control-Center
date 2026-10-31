@@ -486,6 +486,16 @@ function assertScheduleInScope(schedule, options) {
   }
 }
 
+let lazyNotificationService = null;
+
+// Scheduled restart outcomes go to the node's alert webhook (if configured).
+function notifyScheduleOutcome(event, schedule, message) {
+  try {
+    if (!lazyNotificationService) lazyNotificationService = require("./notificationService");
+    lazyNotificationService.notify(event, { instanceId: schedule.instanceId, message });
+  } catch {}
+}
+
 async function sendWarning(schedule, message) {
   // Warnings are a best-effort courtesy channel: a failed stdin write (for
   // example the process exited between the liveness check and the write)
@@ -624,10 +634,12 @@ async function evaluateSchedule(schedule, changed) {
     } else {
       await (executors.restartInstance || defaultRestartInstance)(schedule.instanceId);
       schedule.lastError = null;
+      notifyScheduleOutcome("restart.scheduled.completed", schedule, `AnxOS: scheduled restart of ${schedule.instanceId} completed.`);
     }
     schedule.lastRunAt = nowIso(atMs);
   } catch (error) {
     schedule.lastError = error?.code || "RESTART_SCHEDULE_FAILED";
+    notifyScheduleOutcome("restart.scheduled.failed", schedule, `AnxOS: scheduled restart of ${schedule.instanceId} failed (${schedule.lastError}).`);
   }
 
   schedule.skippedAt = null;
@@ -652,8 +664,10 @@ function launchSteamUpdateRestart(schedule, atMs) {
           ? `STEAM_AUTO_UPDATE_FAILED:${steamUpdate.code || "STEAMCMD_UPDATE_FAILED"}`
           : null,
       };
+      notifyScheduleOutcome("restart.scheduled.completed", schedule, `AnxOS: scheduled restart of ${schedule.instanceId} completed${steamUpdate?.attempted ? (steamUpdate.ok ? `; server updated to build ${steamUpdate.buildIdAfter}` : "; the update failed and the server runs its previous build") : ""}.`);
     } catch (error) {
       fields = { lastError: error?.code || "RESTART_SCHEDULE_FAILED" };
+      notifyScheduleOutcome("restart.scheduled.failed", schedule, `AnxOS: scheduled restart of ${schedule.instanceId} failed (${fields.lastError}).`);
     }
     // Let the tick that launched this restart record its own fields first.
     if (tickInFlight) await tickInFlight.catch(() => {});

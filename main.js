@@ -13,6 +13,7 @@ const { registerInstancesIpc } = require("./src/ipc/instancesIpc");
 const { registerMarketplaceIpc } = require("./src/ipc/marketplaceIpc");
 const { registerMaintenanceIpc } = require("./src/ipc/maintenanceIpc");
 const { registerNetworkInventoryIpc } = require("./src/ipc/networkInventoryIpc");
+const { registerWebhookAlertsIpc } = require("./src/ipc/webhookAlertsIpc");
 const { registerInfrastructureInventoryIpc } = require("./src/ipc/infrastructureInventoryIpc");
 const { registerNetworkIpc } = require("./src/ipc/networkIpc");
 const { registerNodesIpc } = require("./src/ipc/nodesIpc");
@@ -1053,6 +1054,7 @@ app.whenReady().then(async () => {
   registerNodesIpc();
   registerComputersIpc();
   registerNetworkInventoryIpc();
+  registerWebhookAlertsIpc();
   registerInfrastructureInventoryIpc();
   registerAlertsIpc();
   // V2-J: the alert engine is inert without a driver. Start a bounded

@@ -4937,6 +4937,21 @@
               <div class="settings-actions"><button class="inline-action" type="button" data-settings-action="test-notification">Test Notification</button><button class="inline-action" type="button" data-settings-reset-category="notifications">Reset Notifications</button></div>
             </section>
 
+            <section class="settings-section settings-section--server-alerts" data-settings-category="notifications" data-settings-keywords="server alerts discord webhook crash restart update node agent" data-webhook-alerts>
+              <div class="settings-section__header"><div><h3>Server Alerts</h3><p>The selected node's Agent posts crashes, scheduled restarts and server updates to a Discord or HTTPS webhook. The URL is stored on the Agent and is never shown again.</p></div><span class="status-pill status-pill--planned" data-webhook-alerts-status>Not loaded</span></div>
+              <div class="settings-grid">
+                <label class="settings-field"><span>Webhook URL</span><input type="password" autocomplete="off" spellcheck="false" placeholder="https://discord.com/api/webhooks/..." data-webhook-alerts-url></label>
+                <label class="settings-check settings-check--toggle"><input type="checkbox" data-webhook-alerts-enabled><span>Send alerts from this node</span></label>
+                <label class="settings-check"><input type="checkbox" data-webhook-alerts-event="instance.crashed"><span>Server crashed</span></label>
+                <label class="settings-check"><input type="checkbox" data-webhook-alerts-event="restart.scheduled.failed"><span>Scheduled restart failed</span></label>
+                <label class="settings-check"><input type="checkbox" data-webhook-alerts-event="restart.scheduled.completed"><span>Scheduled restart completed</span></label>
+                <label class="settings-check"><input type="checkbox" data-webhook-alerts-event="update.succeeded"><span>Server updated</span></label>
+                <label class="settings-check"><input type="checkbox" data-webhook-alerts-event="update.failed"><span>Server update failed</span></label>
+              </div>
+              <p class="settings-note" data-webhook-alerts-detail>Open Settings with a node selected to load its alert settings.</p>
+              <div class="settings-actions"><button class="inline-action inline-action--primary" type="button" data-webhook-alerts-action="save">Save Alerts</button><button class="inline-action" type="button" data-webhook-alerts-action="test">Send Test Alert</button><button class="inline-action" type="button" data-webhook-alerts-action="clear">Remove Webhook</button><button class="inline-action" type="button" data-webhook-alerts-action="refresh">Refresh</button></div>
+            </section>
+
             <section class="settings-section settings-section--security" data-settings-category="security" data-settings-capability="canManageAdvancedSecurity" data-settings-keywords="security owner lock timeout token audit sessions secrets mask">
               <div class="settings-section__header"><div><h3>Security</h3><p>Advanced security policy, audit, and token controls are available only to the Owner.</p></div><span class="owner-only-badge">Owner Only</span></div>
               <div class="settings-grid">
