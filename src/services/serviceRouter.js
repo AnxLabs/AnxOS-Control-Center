@@ -769,6 +769,13 @@ async function checkSteamCmdBuildUpdate(instanceId, options = {}) {
   return getAgentNodeClient(options).checkSteamCmdBuildUpdate(instanceId, { refresh });
 }
 
+async function getSteamCmdUpdateProgress(instanceId, options = {}) {
+  if (shouldUseLocalInstances(options)) {
+    return localInstanceService.getSteamCmdUpdateProgress(instanceId);
+  }
+  return getAgentNodeClient(options).getSteamCmdUpdateProgress(instanceId);
+}
+
 async function setSteamCmdBranch(instanceId, branch, options = {}) {
   if (shouldUseLocalInstances(options)) {
     return { instance: await localInstanceService.setSteamCmdBranch(instanceId, { branch }) };
@@ -1194,6 +1201,7 @@ module.exports = {
   openInstanceFolder,
   getFiveMReadiness,
   checkSteamCmdBuildUpdate,
+  getSteamCmdUpdateProgress,
   setSteamCmdBranch,
   getMinecraftProperties,
   getNetworkInventory,

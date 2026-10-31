@@ -3,6 +3,7 @@ const {
   beginSteamCmdUpdateSession,
   getSteamCmdUpdateStatus,
   checkSteamCmdBuildUpdate,
+  getSteamCmdUpdateProgress,
   setSteamCmdBranch,
   repairLegacySteamCmdMetadata,
   cancelInstallationSession,
@@ -464,6 +465,13 @@ async function handleInstances(request, url) {
         refresh: url.searchParams.get("refresh") === "1",
       }));
     }
+    // Read-only progress of an update the Agent is running (instance:read).
+    // It never exposes the session token, so it cannot control the update.
+    const steamUpdateProgressId = getInstanceIdFromPath(url.pathname, "/steamcmd/update/progress");
+    if (request.method === "GET" && steamUpdateProgressId) {
+      return result(200, getSteamCmdUpdateProgress(steamUpdateProgressId));
+    }
+
     // Branch selection is a settings write (instance:write via the central
     // POST gate); files change only on the next stopped update.
     const steamBranchId = getInstanceIdFromPath(url.pathname, "/steamcmd/branch");

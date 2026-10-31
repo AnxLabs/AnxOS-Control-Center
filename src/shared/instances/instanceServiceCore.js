@@ -1066,6 +1066,29 @@ async function setSteamCmdBranch(instanceId, request = {}) {
 // SteamCMD timeout all still apply). A failed update never leaves the server
 // down: it is started again on the build it already had and the failure is
 // returned (and logged to the instance console) for the caller to surface.
+// Agent-run (scheduled) SteamCMD updates, so clients can show their progress
+// without owning the update session: the active one per instance, and the
+// outcome of the most recent one. Neither holds the session token.
+const activeSteamUpdates = new Map();
+const recentSteamUpdates = new Map();
+
+function getSteamCmdUpdateProgress(instanceId) {
+  const id = validateInstanceId(instanceId);
+  const session = getInstallationSession(id);
+  const state = session?.installerFamily === "steamcmd-update" ? session.updateState || {} : null;
+  return {
+    active: activeSteamUpdates.get(id) || null,
+    last: recentSteamUpdates.get(id) || null,
+    operationId: state ? session.operationId : null,
+    running: Boolean(session?.child),
+    stage: state?.stage || null,
+    label: state?.label || null,
+    percent: Number.isFinite(Number(state?.percent)) ? Number(state.percent) : null,
+    logs: Array.isArray(state?.logs) ? state.logs.slice(-30) : [],
+    updatedAt: state?.updatedAt || null,
+  };
+}
+
 async function restartInstanceWithSteamUpdate(instanceId) {
   const config = await loadInstanceConfig(instanceId);
   const supported = !isServiceManaged(config) && config.installerType === "steamcmd-native" && Number.isInteger(config.steamAppId) && config.steamAppId > 0;
@@ -1096,6 +1119,7 @@ async function restartInstanceWithSteamUpdate(instanceId) {
   let steamUpdate;
   let session = null;
   try {
+    activeSteamUpdates.set(config.id, { operationId, scheduled: true, startedAt: nowIso(), latestBuildId: check.latestBuildId || null });
     session = await beginSteamCmdUpdateSession(config.id, { operationId });
     const updated = await (steamCmdUpdateExecutor || executeSteamCmdUpdate)(config.id, { operationId, token: session.token });
     steamUpdate = { attempted: true, ok: true, buildIdBefore: updated.buildIdBefore, buildIdAfter: updated.buildIdAfter, buildChanged: updated.buildChanged, latestBuildId: check.latestBuildId };
@@ -1114,6 +1138,8 @@ async function restartInstanceWithSteamUpdate(instanceId) {
   } finally {
     if (session) await closeInstallationSession(config.id, { operationId, token: session.token }).catch(() => {});
   }
+  activeSteamUpdates.delete(config.id);
+  recentSteamUpdates.set(config.id, { operationId, scheduled: true, ok: steamUpdate.ok === true, code: steamUpdate.code || null, buildIdBefore: steamUpdate.buildIdBefore || null, buildIdAfter: steamUpdate.buildIdAfter || null, finishedAt: nowIso() });
   return { instance: await startInstance(config.id), steamUpdate };
 }
 
@@ -1926,6 +1952,7 @@ function publicConfig(config) {
         : config.state === INSTANCE_STATES.SETUP_REQUIRED ? "degraded" : "unknown";
   return {
     ...safeConfig,
+    steamUpdateActive: activeSteamUpdates.get(config.id) || null,
     processState: config.state,
     readinessState,
     healthState,
@@ -7636,6 +7663,7 @@ module.exports = {
   beginSteamCmdUpdateSession: refuseForServiceManaged("steamcmd-update", beginSteamCmdUpdateSession),
   getSteamCmdUpdateStatus,
   checkSteamCmdBuildUpdate: refuseForServiceManaged("steamcmd-update", checkSteamCmdBuildUpdate),
+  getSteamCmdUpdateProgress,
   setSteamCmdBranch: refuseForServiceManaged("steamcmd-update", setSteamCmdBranch),
   repairLegacySteamCmdMetadata: refuseForServiceManaged("repair-metadata", repairLegacySteamCmdMetadata),
   cancelInstallationSession: refuseForServiceManaged("installation", cancelInstallationSession),

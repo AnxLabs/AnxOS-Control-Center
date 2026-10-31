@@ -347,6 +347,7 @@ const desktopApi = {
     saveMinecraftProperties: (instanceId, properties, options = {}) => ipcRenderer.invoke("instances:saveMinecraftProperties", { ...options, instanceId, properties }),
     getFiveMReadiness: (instanceId, options = {}) => ipcRenderer.invoke("instances:getFiveMReadiness", { ...options, instanceId }),
     checkSteamUpdate: (instanceId, options = {}) => ipcRenderer.invoke("instances:checkSteamUpdate", { ...options, instanceId }),
+    getSteamUpdateProgress: (instanceId, options = {}) => ipcRenderer.invoke("instances:getSteamUpdateProgress", { ...options, instanceId }),
     setSteamBranch: (instanceId, branch, options = {}) => ipcRenderer.invoke("instances:setSteamBranch", { ...options, instanceId, branch }),
     saveFiveMLicenseKey: (instanceId, licenseKey, options = {}) => ipcRenderer.invoke("instances:saveFiveMLicenseKey", { ...options, instanceId, licenseKey }),
     serviceOverview: (instanceId, options = {}) => invokeAgentFeature("instances:serviceOverview", { ...options, instanceId }),
