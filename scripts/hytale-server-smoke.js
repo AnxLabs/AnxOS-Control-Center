@@ -184,6 +184,27 @@ function launcherScript() {
   assert.match(snapshotRender, /getActivePageName\(\) === "marketplace"\)\s*\{\s*renderMarketplaceTemplates\(\);/, "a loaded instance list re-renders the Marketplace cards");
   pass("H5c opening the Marketplace (main window or its own window) loads instances so installed templates show as installed");
 
+  // H7: version detection. Minecraft parsing once turned a real Hytale
+  // install (0.7.5) into serverVersion "1.0", so the update check reported an
+  // update that did not exist; Palworld cards read "Minecraft 0.0".
+  const detectRoot = fs.mkdtempSync(path.join(os.tmpdir(), "anxos-hytale-version-"));
+  instanceService.configureInstanceService({ getConfig: () => ({ instanceRoot: detectRoot }) });
+  const writeLog = (id, lines) => {
+    fs.mkdirSync(path.join(detectRoot, id, "logs"), { recursive: true });
+    fs.writeFileSync(path.join(detectRoot, id, "logs", "stdout.log"), lines.map((message) => JSON.stringify({ at: "2026-10-31T09:11:00Z", stream: "stdout", message })).join("\n") + "\n");
+  };
+  const detect = instanceService._test.detectInstanceVersion;
+  assert.strictEqual(instanceService._test.parseHytaleBootVersion("x\n[HytaleServer] Booting up HytaleServer - Version: 0.7.5, Revision: 4f7c\ny\n[HytaleServer] Booting up HytaleServer - Version: 0.8.0, Revision: 9a1b"), "0.8.0", "the latest boot line wins after a self-update");
+  writeLog("hytale-version", ["Loading plugin Version 1.0 of something", "[HytaleServer] Booting up HytaleServer - Version: 0.7.5, Revision: 4f7cd77a"]);
+  const hytaleDetected = await detect({ id: "hytale-version", templateId: "hytale", game: "hytale", displayName: "Hytale Dedicated Server", type: "custom-command", tags: ["hytale"], serverVersion: "1.0", gameVersion: "0.7.5", version: "0.7.5" }, { force: true });
+  assert.deepStrictEqual([hytaleDetected.serverVersion, hytaleDetected.gameVersion, hytaleDetected.minecraftVersion], ["0.7.5", "0.7.5", null], "Hytale's version comes from its own boot line, repairing a polluted record");
+  writeLog("palworld-version", ["Game version is v1.0.5.102999", "Running Palworld dedicated server on :8211"]);
+  const palworldDetected = await detect({ id: "palworld-version", templateId: "palworld", game: "palworld", displayName: "Palworld Dedicated Server", type: "custom-command", tags: ["palworld"], serverVersion: "24181105" }, { force: true });
+  assert.strictEqual(palworldDetected.minecraftVersion, null, "non-Minecraft games never get a Minecraft version");
+  assert.strictEqual(palworldDetected.serverVersion, "24181105", "the Steam build stays the server version");
+  fs.rmSync(detectRoot, { recursive: true, force: true });
+  pass("H7 Hytale's version comes from its boot line; non-Minecraft games never get a Minecraft version");
+
   // H6: the launcher itself (needs bash with mkfifo; Linux nodes only).
   if (process.platform === "win32") {
     console.log("SKIP H6 launcher run needs a Linux shell (verify on a Linux node: node scripts/hytale-server-smoke.js)");

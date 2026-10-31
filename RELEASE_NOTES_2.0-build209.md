@@ -26,6 +26,7 @@ Build 209 adds a **Sign in** button for game servers that need an account sign-i
 - **Hytale showed "ready" about 6 seconds early on restarts.** When it restores a saved sign-in, Hytale reports success before it opens its port. "Ready" now waits for the server to finish booting.
 - **Hytale stayed "ready" after a console `auth logout`.** It now shows as needing sign-in again.
 - **A sign-in code could be saved without its expiry time,** because two status updates finished out of order. They now happen in order.
+- **Hytale showed a false "Update available".** Version detection read the Minecraft-style "version" from Hytale's logs and recorded 0.7.5 as "1.0". Hytale's version now comes from its own boot line, which also stays correct after Hytale updates itself. Other non-Minecraft games no longer get a Minecraft version at all. That parsing was also the source of labels like "Minecraft 0.0 - Palworld".
 - **The instance header said "Ready" after any finished action,** including a successful Stop. It now shows the server's real state.
 
 ## Upgrade
