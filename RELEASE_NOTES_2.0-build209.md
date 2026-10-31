@@ -36,9 +36,20 @@ An in-place upgrade keeps all settings, nodes, credentials, instances and worlds
 - **Agents:** update node Agents (Agent `.deb` for packaged nodes, Update Agent for desktop-installed user services). Sign-in, Hytale status, update checks and alerts run in the Agent.
 - **Updating or restarting an Agent stops every server it runs.** Stop them first and back up worlds, then start them again afterwards.
 
+## Known issues
+
+- **One stale version label.** A Palworld server installed before this build can still show "0.0" on its Marketplace card (for example "0.0 · Palworld Dedicated Server · 24181105"). The old version parsing wrote that value; new installs don't get it. Fixed in a later build.
+
 ## QA
 
-Release-candidate acceptance is pending. This section is completed after the signed RC passes:
-- **Repository validation:** `npm run rc:validate`.
-- **Signed CI build:** Authenticode signature, SHA-256 checksum and update manifest.
-- **In-place upgrade and acceptance on real nodes:** includes the Hytale Sign in, profile choice and Signed in flow.
+Release-candidate acceptance passed on RC 2 (commit `83525ec6`). RC 1 was stopped by Hytale's false "Update available" badge, listed under Fixed.
+- **Repository validation:** `npm run rc:validate`, 365 of 365 suites.
+- **Signed CI build:** Authenticode signature valid and timestamped, SHA-256 recorded, and the update manifest matches the installer.
+- **Upgrade:** in-place on Windows. Both node Agents (Linux node and VPS) were updated to Build 209. Servers were backed up and stopped first, then started again from the app. A separately managed systemd game server on the VPS was untouched.
+- **Hytale, on a real server:**
+  - **Readiness:** "ready" only after the server booted.
+  - **Sign-in states:** "✓ Signed in" while signed in. After `auth logout`, it showed as needing sign-in with the **Sign in** button.
+  - **Sign-in flow:** **Sign in** opened the default browser with the code filled in, and **Choose profile** selected the game profile.
+  - **Notification:** "Server signed in" was raised.
+  - **Version:** the installed version was repaired to 0.7.5, and the false update badge cleared.
+- **Fleet updates:** **Check All** read real builds from the nodes (one up to date, one with an update available).
