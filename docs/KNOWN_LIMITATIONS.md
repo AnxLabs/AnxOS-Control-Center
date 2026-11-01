@@ -7,7 +7,7 @@ These limitations are acceptable for Private Alpha if they are clearly communica
 - AnxOS Control Center is Private Alpha.
 - Do not present it as public beta, stable, or v1.0-ready.
 - No version bump, tag, or GitHub Release should be created for readiness-only documentation changes.
-- Current source identity is Version 2.0 Build 203, Private Alpha, per
+- Current source identity is Version 2.0 Build 209, Private Alpha, per
   `release.json`. Historical build-numbered reports are evidence for their named
   artifacts only; see `DOCUMENTATION_INDEX.md`. Availability of matching
   candidate artifacts must be proven separately and is not inferred from source
