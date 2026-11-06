@@ -419,6 +419,7 @@ function stageReleaseIdentity(stageDir, releaseInfo) {
     product: "AnxOS Agent",
     artifactVersion: releaseInfo.artifactVersion,
     releaseTag: releaseInfo.tag,
+    channel: releaseInfo.channel || null,
     builtAt: new Date().toISOString(),
   };
   fs.writeFileSync(target, `${JSON.stringify(identity, null, 2)}\n`);

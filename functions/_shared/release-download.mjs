@@ -55,11 +55,61 @@ function isStableChannelRelease(release) {
   return !channel || channel === "stable";
 }
 
+const RELEASE_LIST_PAGE_SIZE = 100;
+const MAX_RELEASE_LIST_PAGES = 5;
+
+function assetHasChecksum(asset, release) {
+  const digest = String(asset?.digest || asset?.sha256 || asset?.checksum || "").trim();
+  if (/^(?:sha256:)?[a-f0-9]{64}$/i.test(digest)) return true;
+  const name = String(asset?.name || "");
+  return Boolean(name) && (release?.assets || []).some((item) => String(item?.name || "") === `${name}.sha256`);
+}
+
+function releaseHasDownloadChecksum(release) {
+  return (release?.assets || []).some((asset) => {
+    const name = String(asset?.name || "");
+    if (!name || /sha256sums|\.sha256$/i.test(name)) return false;
+    return assetHasChecksum(asset, release);
+  });
+}
+
+function compareDownloadIdentityDesc(left, right) {
+  const versionOf = (release) => {
+    const match = String(release?.tag_name || release?.name || "").match(/(\d+)\.(\d+)/);
+    return match ? [Number(match[1]), Number(match[2])] : [0, 0];
+  };
+  const buildOf = (release) => {
+    const match = [release?.tag_name, release?.name].join(" ").match(/build[-_. ]?(\d+)/i);
+    return match ? Number(match[1]) : 0;
+  };
+  const leftVersion = versionOf(left);
+  const rightVersion = versionOf(right);
+  if (leftVersion[0] !== rightVersion[0]) return rightVersion[0] - leftVersion[0];
+  if (leftVersion[1] !== rightVersion[1]) return rightVersion[1] - leftVersion[1];
+  return buildOf(right) - buildOf(left);
+}
+
+function nextReleasePageUrl(linkHeader, currentUrl) {
+  const match = String(linkHeader || "").match(/<([^>]+)>;\s*rel="next"/i);
+  if (!match) return "";
+  try {
+    const next = new URL(match[1]);
+    const current = new URL(currentUrl);
+    if (next.origin !== current.origin || !next.pathname.endsWith("/releases")) return "";
+    const page = Number(next.searchParams.get("page"));
+    if (!Number.isInteger(page) || page < 1 || page > MAX_RELEASE_LIST_PAGES) return "";
+    return next.toString();
+  } catch {
+    return "";
+  }
+}
+
 function pickReleaseWithInstaller(releases, { allowPrerelease = false } = {}) {
   return (Array.isArray(releases) ? releases : [])
     .filter((candidate) => candidate && !candidate.draft && (allowPrerelease || isStableChannelRelease(candidate)))
-    .sort((left, right) => new Date(right.published_at || right.created_at || 0) - new Date(left.published_at || left.created_at || 0))
-    .find((candidate) => Array.isArray(candidate.assets) && candidate.assets.some((asset) => classifyAssetName(asset?.name))) || null;
+    .filter(releaseHasDownloadChecksum)
+    .sort(compareDownloadIdentityDesc)
+    .find((candidate) => Array.isArray(candidate.assets) && candidate.assets.some((asset) => classifyAssetName(asset?.name) && assetHasChecksum(asset, candidate))) || null;
 }
 
 async function fetchLatestRelease(env = {}, options = {}) {
@@ -70,20 +120,30 @@ async function fetchLatestRelease(env = {}, options = {}) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
-    const response = await fetch(`https://api.github.com/repos/${repository.owner}/${repository.repo}/releases?per_page=20`, {
-      headers: { accept: "application/vnd.github+json", "user-agent": "anxos-download-router" },
-      signal: controller.signal,
-    });
-    const text = await response.text();
-    let releases;
-    try {
-      releases = text ? JSON.parse(text) : [];
-    } catch {
-      throw Object.assign(new Error("GitHub release API returned invalid JSON."), { code: "INVALID_RELEASE_JSON" });
-    }
-    if (!response.ok) {
-      const code = response.status === 404 ? "GITHUB_RELEASE_SOURCE_NOT_FOUND" : response.status === 403 ? "GITHUB_RATE_LIMITED" : `GITHUB_HTTP_${response.status}`;
-      throw Object.assign(new Error(releases?.message || `GitHub release API failed with HTTP ${response.status}.`), { code, status: response.status });
+    const releases = [];
+    let pageUrl = `https://api.github.com/repos/${repository.owner}/${repository.repo}/releases?per_page=${RELEASE_LIST_PAGE_SIZE}&page=1`;
+    const seenPages = new Set();
+    for (let page = 0; pageUrl && !seenPages.has(pageUrl) && page < MAX_RELEASE_LIST_PAGES; page += 1) {
+      seenPages.add(pageUrl);
+      const response = await fetch(pageUrl, {
+        headers: { accept: "application/vnd.github+json", "user-agent": "anxos-download-router" },
+        signal: controller.signal,
+      });
+      const text = await response.text();
+      let batch;
+      try {
+        batch = text ? JSON.parse(text) : [];
+      } catch {
+        throw Object.assign(new Error("GitHub release API returned invalid JSON."), { code: "INVALID_RELEASE_JSON" });
+      }
+      if (!response.ok) {
+        const code = response.status === 404 ? "GITHUB_RELEASE_SOURCE_NOT_FOUND" : response.status === 403 ? "GITHUB_RATE_LIMITED" : `GITHUB_HTTP_${response.status}`;
+        throw Object.assign(new Error(batch?.message || `GitHub release API failed with HTTP ${response.status}.`), { code, status: response.status });
+      }
+      const pageReleases = Array.isArray(batch) ? batch : [];
+      releases.push(...pageReleases);
+      if (pageReleases.length < RELEASE_LIST_PAGE_SIZE) break;
+      pageUrl = nextReleasePageUrl(response.headers?.get?.("link") || "", pageUrl);
     }
     const published = (Array.isArray(releases) ? releases : [])
       .filter((candidate) => candidate && !candidate.draft)

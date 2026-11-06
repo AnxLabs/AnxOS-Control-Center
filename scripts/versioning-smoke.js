@@ -50,9 +50,10 @@ assert(!/^\d+\.\d+\.\d+$/.test(release.version), "Public release version must no
 assert(compareReleaseBuilds({ version: "1.7", build: 143 }, { version: "1.7", build: 142 }) > 0, "Updater must detect newer builds in the same public version.");
 assert(compareReleaseBuilds({ version: "1.8", build: 150 }, { version: "1.7", build: 999 }) > 0, "Updater must detect newer public versions.");
 assert.strictEqual(extractReleaseBuild("v1.7-build143"), 143, "Updater must parse build numbers from release tags.");
-const updaterAsset = (tag) => ({
+const updaterAsset = (tag, digest = `sha256:${"cd".repeat(32)}`) => ({
     name: process.platform === "win32" ? `AnxOS-Control-Center-Setup-${tag.replace(/^v/, "")}.exe` : `AnxOS-Control-Center-${tag.replace(/^v/, "")}.AppImage`,
     size: 100 * 1024 * 1024,
+    digest,
     browser_download_url: `https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/${tag}/update.${process.platform === "win32" ? "exe" : "AppImage"}`,
   });
   const updaterStable = { draft: false, prerelease: false, tag_name: "v1.7-build144", published_at: "2026-07-14T06:00:00Z", assets: [updaterAsset("v1.7-build144")] };
@@ -115,7 +116,12 @@ const updaterAsset = (tag) => ({
     html_url: "https://example.invalid/checksummed-209",
     assets: [{ ...updaterAsset("v2.0-build209"), digest: `sha256:${"ab".repeat(32)}` }],
   };
-  const checksumlessAlpha = { ...privateAlpha, published_at: "2026-12-01T00:00:00Z", html_url: "https://example.invalid/checksumless-209" };
+  const checksumlessAlpha = {
+    ...privateAlpha,
+    published_at: "2026-12-01T00:00:00Z",
+    html_url: "https://example.invalid/checksumless-209",
+    assets: [{ ...updaterAsset("v2.0-build209", ""), digest: "" }],
+  };
   assert.strictEqual(
     pickLatestPublishedRelease([checksumlessAlpha, checksummedAlpha], { channel: "Private Alpha" })?.html_url,
     "https://example.invalid/checksummed-209",
@@ -154,7 +160,45 @@ const updaterAsset = (tag) => ({
   assert(!updateManagerSource.includes("autoUpdater.checkForUpdates") && !updateManagerSource.includes("checkForUpdatesAndNotify"), "The in-app updater must not rely on electron autoUpdater (latest.yml internal semver) to drive update decisions.");
 
 const parsedWebsiteRelease = parseWebsiteConfigRelease(websiteConfig, "https://anxoscontrolcenter.org/config.js");
+const {
+  collectReleasePages,
+  isStableChannelRelease,
+  releaseMatchesSelectionChannel,
+} = require("../src/shared/releaseChannelSelection");
+assert.strictEqual(isStableChannelRelease(parsedWebsiteRelease), false, "The committed website config tag is an RC and must not parse as stable.");
+assert.strictEqual(releaseMatchesSelectionChannel(parsedWebsiteRelease, "private-alpha"), false, "An RC tag must not become Private Alpha because the website channel string says so.");
 assert.strictEqual(parsedWebsiteRelease.version, release.version, "Website config must expose the centralized public version.");
+const pagingChecks = async () => {
+  const seen = [];
+  const collected = await collectReleasePages("https://example.invalid/releases?per_page=100&page=1", async (url) => {
+    seen.push(url);
+    const page = new URL(url).searchParams.get("page");
+    if (page === "2") return { releases: [updaterStable], link: "" };
+    return {
+      releases: Array.from({ length: 100 }, () => misflaggedRc),
+      link: "<https://example.invalid/releases?per_page=100&page=2>; rel=\"next\"",
+    };
+  }, { pageSize: 100, maxPages: 5 });
+  assert.strictEqual(collected.complete, true, "a short later page completes the scan.");
+  assert.strictEqual(collected.urls.length, 2, "the scan must follow one same-origin next page.");
+  assert.strictEqual(pickLatestPublishedRelease(collected.releases)?.tag_name, "v1.7-build144", "a stable release on page 2 must beat a full first page of mis-flagged RCs.");
+  const capped = [];
+  const cappedResult = await collectReleasePages("https://example.invalid/releases?page=1", async (url) => {
+    capped.push(url);
+    const page = Number(new URL(url).searchParams.get("page") || "1") + 1;
+    return {
+      releases: Array.from({ length: 100 }, () => misflaggedRc),
+      link: `<https://example.invalid/releases?page=${page}>; rel="next"`,
+    };
+  }, { pageSize: 100, maxPages: 5 });
+  assert.strictEqual(capped.length, 5, "release paging must stop at the page cap.");
+  assert.strictEqual(cappedResult.complete, false, "a capped scan must not claim the feed was fully read.");
+  const foreign = require("../src/shared/releaseChannelSelection").nextReleasePageUrl(
+    "<https://evil.example/releases?page=2>; rel=\"next\"",
+    "https://example.invalid/releases?page=1",
+  );
+  assert.strictEqual(foreign, "", "a next link to another origin must be ignored.");
+};
 assert(
   parsedWebsiteRelease.build <= release.build,
   "Website config must not advertise a build newer than the local development build.",
@@ -180,7 +224,7 @@ assert(releaseArtifactValidatorSource.includes("SHA256SUMS") && releaseArtifactV
 assert(packageSource.includes('"release:artifacts:smoke": "node scripts/validate-release-artifacts.js --fixture"'), "Package scripts must expose release artifact validation smoke coverage.");
 assert(updateManagerSource.includes("AnxOS-Control-Center-Releases"), "Updater must default to the public release-only repository.");
 assert(updateManagerSource.includes("DEFAULT_UPDATE_REPOSITORY") && updateManagerSource.includes("normalizeUpdateRepository(process.env.ANXOS_UPDATE_REPOSITORY)"), "Updater repository overrides must be validated before use.");
-assert(updateManagerSource.includes("releases?per_page=20") && updateManagerSource.includes("pickLatestPublishedRelease"), "Updater must discover Private Alpha prereleases instead of relying only on GitHub releases/latest.");
+assert(updateManagerSource.includes("per_page=${RELEASE_LIST_PAGE_SIZE}") && updateManagerSource.includes("collectReleasePages") && updateManagerSource.includes("pickLatestPublishedRelease"), "Updater must page the release list and rank Private Alpha prereleases instead of relying only on GitHub releases/latest.");
 assert(updateManagerSource.includes("isProductionSafeMetadataUrl") && updateManagerSource.includes("app?.isPackaged !== true") && updateManagerSource.includes('parsed.protocol === "https:"'), "Packaged builds must ignore local or non-HTTPS update metadata overrides.");
 assert(!updateManagerSource.includes("192.168.1.134:8766"), "Updater must not ship a hardcoded local-network manifest fallback.");
 assert(websiteConfig.includes(`latestVersion: "${release.version}"`) && websiteConfig.includes(`channel: "${release.channel}"`), "Website download metadata must display the public release model.");
@@ -268,4 +312,9 @@ fs.rmSync(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 1
     }
   }
 
+pagingChecks().then(() => {
   console.log("Versioning smoke checks passed.");
+}).catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

@@ -15,6 +15,8 @@
 // channel string, so an RC tag cannot become stable or Private Alpha by
 // labeling itself as one.
 
+const RELEASE_LIST_PAGE_SIZE = 100;
+const MAX_RELEASE_LIST_PAGES = 5;
 const NON_STABLE_MARKER = /(?:^|[^a-z0-9])rc\d*(?:[^a-z0-9]|$)|(?:^|[^a-z0-9])(?:alpha|beta|preview)(?:[^a-z0-9]|$)|release[\s-]*candidate|private[\s-]*alpha|public[\s-]*alpha/i;
 const RELEASE_CANDIDATE_MARKER = /(?:^|[^a-z0-9])rc\d*(?:[^a-z0-9]|$)|release[\s-]*candidate/i;
 
@@ -102,6 +104,68 @@ function compareIdentityDesc(left, right) {
   return rightTime - leftTime;
 }
 
+function nextReleasePageUrl(linkHeader, currentUrl, options = {}) {
+  const maxPages = Number.isInteger(options.maxPages) ? options.maxPages : MAX_RELEASE_LIST_PAGES;
+  const header = Array.isArray(linkHeader) ? linkHeader.join(",") : String(linkHeader || "");
+  const match = header.match(/<([^>]+)>;\s*rel="next"/i);
+  if (!match) return "";
+  let next;
+  let current;
+  try {
+    next = new URL(match[1]);
+    current = new URL(currentUrl);
+  } catch {
+    return "";
+  }
+  if (next.origin !== current.origin || !next.pathname.endsWith("/releases")) return "";
+  if (next.protocol !== "https:" && next.protocol !== "http:") return "";
+  const pageParam = next.searchParams.get("page");
+  if (pageParam !== null) {
+    const page = Number(pageParam);
+    if (!Number.isInteger(page) || page < 1 || page > maxPages) return "";
+  }
+  return next.toString();
+}
+
+// Reads a GitHub-style releases collection, following same-origin next links
+// only. A short page ends the scan. The page cap stops a hostile or looping
+// feed from being treated as endless, and `complete: false` means a later
+// page was not read.
+async function collectReleasePages(firstUrl, fetchPage, options = {}) {
+  const maxPages = Number.isInteger(options.maxPages) ? options.maxPages : MAX_RELEASE_LIST_PAGES;
+  const pageSize = Number.isInteger(options.pageSize) ? options.pageSize : RELEASE_LIST_PAGE_SIZE;
+  const releases = [];
+  const urls = [];
+  const seen = new Set();
+  let url = String(firstUrl || "");
+  let complete = true;
+  for (let page = 0; url && !seen.has(url) && page < maxPages; page += 1) {
+    seen.add(url);
+    urls.push(url);
+    let result;
+    try {
+      result = await fetchPage(url);
+    } catch (error) {
+      if (!releases.length) throw error;
+      complete = false;
+      break;
+    }
+    const batch = result?.releases;
+    if (!Array.isArray(batch)) {
+      if (batch && typeof batch === "object") releases.push(batch);
+      break;
+    }
+    releases.push(...batch);
+    const next = nextReleasePageUrl(result?.link, url, { maxPages });
+    if (batch.length < pageSize || !next) {
+      if (batch.length >= pageSize && result?.link && !next) complete = false;
+      break;
+    }
+    url = next;
+  }
+  return { releases, urls, complete };
+}
+
 function rankReleasesForChannel(releases, options = {}) {
   const channel = options.channel ? normalizeSelectionChannel(options.channel) : "";
   const allowPrerelease = options.allowPrerelease === true;
@@ -117,7 +181,11 @@ function rankReleasesForChannel(releases, options = {}) {
 }
 
 module.exports = {
+  MAX_RELEASE_LIST_PAGES,
   NON_STABLE_MARKER,
+  RELEASE_LIST_PAGE_SIZE,
+  collectReleasePages,
+  nextReleasePageUrl,
   buildNumber,
   classifyReleaseChannel,
   compareIdentityDesc,

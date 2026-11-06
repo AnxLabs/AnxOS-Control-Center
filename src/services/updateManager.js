@@ -10,12 +10,16 @@ const { openExternalUrl } = require("./externalUrlService");
 const { OFFICIAL_SITE_ORIGIN } = require("../shared/officialSite");
 const { sanitize, sanitizeForDiagnostics } = require("../shared/redaction");
 const { getReleaseInfo } = require("../shared/releaseConfig");
-const { rankReleasesForChannel, sameProductIdentity } = require("../shared/releaseChannelSelection");
+const {
+  RELEASE_LIST_PAGE_SIZE,
+  collectReleasePages,
+  rankReleasesForChannel,
+} = require("../shared/releaseChannelSelection");
 const { decideMigrationRecovery, verifyRecoveryPoint } = require("../shared/migrationRecoveryPolicy");
 
 const DEFAULT_UPDATE_REPOSITORY = "AnxLabs/AnxOS-Control-Center-Releases";
 const UPDATE_REPOSITORY = normalizeUpdateRepository(process.env.ANXOS_UPDATE_REPOSITORY) || DEFAULT_UPDATE_REPOSITORY;
-const UPDATE_RELEASES_URL = `https://api.github.com/repos/${UPDATE_REPOSITORY}/releases?per_page=20`;
+const UPDATE_RELEASES_URL = `https://api.github.com/repos/${UPDATE_REPOSITORY}/releases?per_page=${RELEASE_LIST_PAGE_SIZE}&page=1`;
 const UPDATE_LATEST_RELEASE_URL = `https://api.github.com/repos/${UPDATE_REPOSITORY}/releases/latest`;
 const WEBSITE_CONFIG_URLS = [
   process.env.ANXOS_WEBSITE_CONFIG_URL,
@@ -248,12 +252,10 @@ function pickLatestPublishedRelease(releases, options = {}) {
   // Stable selection uses release identity, not the GitHub prerelease flag or
   // the order the API returned. Explicit allowPrerelease remains an opt-in
   // for callers that pass no channel. A channel always wins over that opt-in.
-  // Same version and build prefer metadata that can satisfy the checksum gate
-  // so a checksum-less fallback cannot replace a verifiable candidate.
-  const ranked = rankReleasesForChannel(releases, options).filter(hasSupportedUpdateAsset);
-  if (!ranked.length) return null;
-  const sameIdentity = ranked.filter((release) => sameProductIdentity(ranked[0], release));
-  return sameIdentity.find(releaseAssetHasChecksum) || ranked[0];
+  // A candidate without a SHA-256 is skipped, including when it is newer than
+  // a checksummed release. There is no checksum-less fallback.
+  return rankReleasesForChannel(releases, options)
+    .filter((release) => hasSupportedUpdateAsset(release) && releaseAssetHasChecksum(release))[0] || null;
 }
 
 // ---------------------------------------------------------------------------
@@ -421,6 +423,7 @@ function parseWebsiteConfigRelease(configText, sourceUrl) {
   const latestVersion = normalizeVersion(extractConfigString(configText, "latestVersion") || extractConfigString(configText, "releaseTag"));
   if (!latestVersion) return null;
 
+  const releaseTag = extractConfigString(configText, "releaseTag");
   const releaseUrl = extractConfigString(configText, "releaseUrl") || `${sourceUrl.replace(/\/[^/]*$/, "")}/release-notes.html`;
   const releaseDate = extractConfigString(configText, "releaseDate") || null;
   const build = normalizeBuild(extractConfigString(configText, "build") || extractConfigString(configText, "buildNumber"));
@@ -434,8 +437,10 @@ function parseWebsiteConfigRelease(configText, sourceUrl) {
   }));
 
   return {
-    tag_name: `v${latestVersion}`,
-    name: releaseLabel || `v${latestVersion}`,
+    // Keep the published tag, including an -rc suffix. A channel string must
+    // not hide that suffix, or an RC manifest is ranked as Private Alpha.
+    tag_name: releaseTag || (latestVersion ? `v${latestVersion}` : null),
+    name: [releaseTag, releaseLabel].filter(Boolean).join(" ") || (latestVersion ? `v${latestVersion}` : "AnxOS update"),
     version: latestVersion,
     build,
     channel,
@@ -683,7 +688,7 @@ class UpdateManager extends EventEmitter {
     };
   }
 
-  requestText(url, headers = {}) {
+  requestResponse(url, headers = {}) {
     return new Promise((resolve, reject) => {
       const request = getRequestModule(url).get(url, {
         headers: {
@@ -693,7 +698,7 @@ class UpdateManager extends EventEmitter {
       }, (response) => {
         if ([301, 302, 303, 307, 308].includes(response.statusCode) && response.headers.location) {
           response.resume();
-          this.requestText(resolveRedirectUrl(response.headers.location, url), headers).then(resolve, reject);
+          this.requestResponse(resolveRedirectUrl(response.headers.location, url), headers).then(resolve, reject);
           return;
         }
         let body = "";
@@ -708,7 +713,7 @@ class UpdateManager extends EventEmitter {
             reject(error);
             return;
           }
-          resolve(body);
+          resolve({ body, headers: response.headers, statusCode: response.statusCode });
         });
       });
       this.activeRequests.add(request);
@@ -717,6 +722,10 @@ class UpdateManager extends EventEmitter {
       request.setTimeout(15000, () => request.destroy(new Error("Update metadata request timed out.")));
       request.on("error", reject);
     });
+  }
+
+  requestText(url, headers = {}) {
+    return this.requestResponse(url, headers).then((response) => response.body);
   }
 
   async requestJson(url) {
@@ -821,10 +830,20 @@ class UpdateManager extends EventEmitter {
         }
       }
       try {
-        checkedSources.push(UPDATE_RELEASES_URL);
-        const listed = await this.requestJson(UPDATE_RELEASES_URL);
-        if (Array.isArray(listed)) {
-          for (const listedRelease of listed) remember(listedRelease, UPDATE_RELEASES_URL);
+        const listed = await collectReleasePages(UPDATE_RELEASES_URL, async (pageUrl) => {
+          checkedSources.push(pageUrl);
+          const response = await this.requestResponse(pageUrl, { "Accept": "application/vnd.github+json" });
+          let parsed;
+          try {
+            parsed = JSON.parse(response.body);
+          } catch (error) {
+            throw new Error(`Update metadata response was not valid JSON: ${error.message}`);
+          }
+          return { releases: parsed, link: response.headers?.link || "" };
+        });
+        for (const listedRelease of listed.releases) remember(listedRelease, UPDATE_RELEASES_URL);
+        if (!listed.complete) {
+          this.log("Update release list scan stopped at the page cap.", { checkedSources, pageSize: RELEASE_LIST_PAGE_SIZE }, "warn");
         }
       } catch (error) {
         this.log("GitHub release check failed.", { message: error?.message || String(error), url: safeLogUrl(UPDATE_RELEASES_URL) }, error?.statusCode === 404 ? "warn" : "error");

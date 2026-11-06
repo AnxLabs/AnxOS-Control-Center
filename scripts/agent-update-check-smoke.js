@@ -56,7 +56,10 @@ const RELEASE_206 = {
 };
 const RELEASE_205 = {
   tag_name: "v2.0-build205",
-  assets: [{ name: "AnxOS-Agent-2.0-build205-amd64.deb", browser_download_url: "https://example.invalid/download/amd64-205.deb", size: 20 }],
+  assets: [
+    { name: "AnxOS-Agent-2.0-build205-amd64.deb", browser_download_url: "https://example.invalid/download/amd64-205.deb", size: 20 },
+    { name: "AnxOS-Agent-2.0-build205-amd64.deb.sha256", browser_download_url: "https://example.invalid/download/amd64-205.deb.sha256", size: 1 },
+  ],
 };
 
 function writeStamp(fileName, payload) {
@@ -277,6 +280,64 @@ async function main() {
   assert.strictEqual(olderStable.state, "current");
   assert.strictEqual(olderStable.latestArtifactVersion, "1.7-build144", "the stable candidate must be the plain stable release, not the mis-flagged RC.");
   assert(/no downgrade/i.test(olderStable.reason || ""), "an older stable release must not be suggested as a downgrade.");
+  const channelStamp = readAgentReleaseIdentity({
+    path: writeStamp("stamp-channel.json", { artifactVersion: "2.0-build209", releaseTag: "v2.0-build209", channel: "Private Alpha", product: "anxos-agent" }),
+    searchPaths: [],
+    env: {},
+  });
+  assert.strictEqual(channelStamp.channel, "Private Alpha", "a stamped update channel must be part of the installed identity.");
+  assert(fs.readFileSync(path.join(rootDir, "scripts", "build-agent-deb.js"), "utf8").includes("channel: releaseInfo.channel"), "the Agent package stamp must copy the release.json channel.");
+  const checksumlessNewer = {
+    tag_name: "v2.0-build210",
+    name: "v2.0-build210",
+    prerelease: true,
+    published_at: "2026-12-01T00:00:00Z",
+    assets: [{ name: "AnxOS-Agent-2.0-build210.deb", browser_download_url: "https://example.invalid/210.deb" }],
+  };
+  const stampedChannelUpdate = await updateCheck.checkForUpdate({
+    source: "https://example.invalid/releases?per_page=100&page=1",
+    releaseIdentity: { artifactVersion: "2.0-build200", releaseTag: "v2.0-build200", channel: "Private Alpha" },
+    fetchImpl: respond([misflaggedRc, checksumlessNewer, privateAlpha]),
+  });
+  assert.strictEqual(stampedChannelUpdate.channel, "private-alpha", "the installed stamp must select Private Alpha without ANXOS_UPDATE_CHANNEL.");
+  assert.strictEqual(stampedChannelUpdate.latestArtifactVersion, "2.0-build209", "a newer checksum-less package must not hide the checksummed Private Alpha.");
+  assert.strictEqual(stampedChannelUpdate.checksumUrl, "https://example.invalid/209.deb.sha256");
+  const stableOverride = await updateCheck.checkForUpdate({
+    source: "https://example.invalid/releases?per_page=100&page=1",
+    env: { ANXOS_UPDATE_CHANNEL: "stable" },
+    releaseIdentity: { artifactVersion: "1.7-build100", channel: "Private Alpha" },
+    fetchImpl: respond([misflaggedRc, privateAlpha, plainStable]),
+  });
+  assert.strictEqual(stableOverride.channel, "stable", "ANXOS_UPDATE_CHANNEL must override the installed stamp.");
+  assert.strictEqual(stableOverride.latestArtifactVersion, "1.7-build144");
+  const { RELEASE_LIST_PAGE_SIZE } = require("../src/shared/releaseChannelSelection");
+  const filler = Array.from({ length: RELEASE_LIST_PAGE_SIZE }, (_, index) => ({
+    tag_name: `v9.0-build${index}-rc1`,
+    name: `v9.0-build${index}-rc1`,
+    prerelease: false,
+    assets: [{ name: `AnxOS-Agent-9.0-build${index}.deb`, browser_download_url: "https://example.invalid/filler.deb" }],
+  }));
+  const pageRequests = [];
+  const paged = await updateCheck.checkForUpdate({
+    source: "https://example.invalid/releases?per_page=100&page=1",
+    releaseIdentity: { artifactVersion: "2.0-build200", channel: "Private Alpha" },
+    fetchImpl: async (url) => {
+      pageRequests.push(String(url));
+      const page = new URL(url).searchParams.get("page");
+      if (page === "2") {
+        return { ok: true, status: 200, headers: { get() { return ""; } }, json: async () => [privateAlpha] };
+      }
+      return {
+        ok: true,
+        status: 200,
+        headers: { get() { return "<https://example.invalid/releases?per_page=100&page=2>; rel=\"next\""; } },
+        json: async () => filler,
+      };
+    },
+  });
+  assert.strictEqual(paged.latestArtifactVersion, "2.0-build209", "Agent selection must read the release past the first full page.");
+  assert.strictEqual(pageRequests.length, 2, "a short second page must stop the scan.");
+  assert(pageRequests[1].includes("page=2"), "the second request must be the same-origin next page.");
   console.log("unit legs passed: identity, comparison, evaluation guarantees, payload tolerance, asset selection, channel selection");
 
   // --- CLI end-to-end against a local fake release endpoint ---------------

@@ -15,9 +15,12 @@ These limitations are acceptable for Private Alpha if they are clearly communica
 - In-app and Agent update selection does not treat GitHub's `prerelease` flag
   or `/releases/latest` as the stable channel. Release-candidate tags and
   Private Alpha names stay off the stable channel even when GitHub marks them
-  `prerelease: false`. The installed channel (Private Alpha for Build 209)
-  selects only that channel. This does not correct the live release feed, and
-  it is not a signature or checksum attestation for any published installer.
+  `prerelease: false`. Desktop follows `release.json`. A newly built Agent
+  package stamps that same channel; an explicit `ANXOS_UPDATE_CHANNEL` overrides
+  the stamp, and a stamp with no channel stays on stable. Release lists are
+  read past the first page, up to five pages of 100. A package without a
+  SHA-256 is not offered. This does not correct the live release feed, and it
+  is not a signature or checksum attestation for any published installer.
 
 ## Desktop
 

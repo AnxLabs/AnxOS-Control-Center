@@ -17,10 +17,11 @@ function readWebsite(file) {
   return fs.readFileSync(path.join(websiteRoot, file), "utf8");
 }
 
-function makeAsset(name, size = 1024, urlName = name, owner = publicOwner, repo = publicRepo) {
+function makeAsset(name, size = 1024, urlName = name, owner = publicOwner, repo = publicRepo, digest = `sha256:${"ab".repeat(32)}`) {
   return {
     name,
     size,
+    digest,
     browser_download_url: `https://github.com/${owner}/${repo}/releases/download/v1.7-build142/${encodeURIComponent(urlName)}`,
   };
 }
@@ -205,7 +206,7 @@ async function main() {
   assert(site.includes("No downloadable release is currently available.") && site.includes("Unavailable") && site.includes("Download information is temporarily unavailable. Please try again shortly."), "Failed release loading should clear loading placeholders and show a complete visible error state.");
   assert(site.includes('button.addEventListener("click", () =>') && site.includes("applyDownloads({ force: true })") && site.includes("setDownloadLinksLoading()"), "Retry should reset loading state and force a fresh release lookup.");
   assert(site.includes("isExpectedAssetUrl") || fs.readFileSync(path.join(websiteRoot, "release-download-service.js"), "utf8").includes("isExpectedAssetUrl"), "Download URLs should be allowlisted.");
-  assert(config.includes("releaseRepository") && config.includes(publicRepo) && config.includes(`https://api.github.com/repos/${publicRepository}/releases?per_page=20`), "Config should use the public release-only repository.");
+  assert(config.includes("releaseRepository") && config.includes(publicRepo) && config.includes(`https://api.github.com/repos/${publicRepository}/releases?per_page=100&page=1`), "Config should use the public release-only repository.");
   assert(!new RegExp(`${privateSourceRepositoryUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:/releases|["'])`).test(config), "Browser release discovery must not use the private source repository.");
   assert(!/GITHUB_TOKEN|GH_TOKEN|PERSONAL_ACCESS_TOKEN|ANXOS_RELEASE_REPO_TOKEN/.test(`${download}\n${downloadHtml}\n${site}\n${config}\n${fs.readFileSync(path.join(websiteRoot, "release-download-service.js"), "utf8")}`), "Frontend download code must not contain GitHub tokens or token variable names.");
   assert(config.includes("githubReleasesApiUrl") && config.includes("stableDownloadEndpoints") && config.includes("releaseAssets"), "Config should contain release discovery settings and public release asset fallback metadata.");
@@ -278,6 +279,48 @@ async function main() {
   assert.strictEqual(service.latestPublishedRelease([misflaggedRc, flaggedAlpha, ...sampleReleases()], { repositoryUrl: publicRepositoryUrl })?.tagName, "v1.7-build142");
   assert.strictEqual(service.latestPublishedRelease([...sampleReleases()].reverse().concat(misflaggedRc), { repositoryUrl: publicRepositoryUrl })?.tagName, "v1.7-build142", "Website stable selection must not depend on list order.");
   assert.strictEqual(service.latestPublishedRelease([misflaggedRc, flaggedAlpha], { repositoryUrl: publicRepositoryUrl }), null, "Website stable selection must not fall back to an alpha or RC.");
+  const checksumlessStable = {
+    draft: false,
+    prerelease: false,
+    tag_name: "v1.8-build150",
+    name: "v1.8-build150",
+    published_at: "2026-12-01T00:00:00Z",
+    html_url: `${publicRepositoryUrl}/releases/tag/v1.8-build150`,
+    assets: [{ ...makeAsset("AnxOS-Control-Center-Setup-1.8-build150.exe", 80 * 1024 * 1024), digest: "" }],
+  };
+  assert.strictEqual(
+    service.latestPublishedRelease([checksumlessStable, ...sampleReleases()], { repositoryUrl: publicRepositoryUrl })?.tagName,
+    "v1.7-build142",
+    "A newer stable release without a SHA-256 must not replace a checksummed stable release.",
+  );
+
+  const stableOnLaterPage = sampleReleases()[1];
+  const firstPage = Array.from({ length: 100 }, (_, index) => ({
+    draft: false,
+    prerelease: false,
+    tag_name: `v8.0-build${index}-rc1`,
+    name: `v8.0-build${index}-rc1`,
+    assets: [makeAsset(`AnxOS-Control-Center-Setup-8.0-build${index}-rc1.exe`, 80 * 1024 * 1024)],
+  }));
+  const fetchedPages = [];
+  global.fetch = async (url) => {
+    fetchedPages.push(String(url));
+    const page = new URL(url).searchParams.get("page");
+    const body = page === "2" ? [stableOnLaterPage] : firstPage;
+    const link = page === "2" ? "" : `<${String(url).replace("page=1", "page=2")}>; rel="next"`;
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: (name) => (String(name).toLowerCase() === "link" ? link : "") },
+      text: async () => JSON.stringify(body),
+      json: async () => body,
+    };
+  };
+  const pagedRedirect = await functionsHelper.redirectLatestArtifact(new Request("https://anxoscontrolcenter.org/api/download/latest/windows"), {}, "windows");
+  assert.strictEqual(pagedRedirect.status, 302, "Stable download must keep reading after a full page of release candidates.");
+  assert(pagedRedirect.headers.get("location").includes("AnxOS-Control-Center-Setup-1.7-build142.exe"), "The stable release on the second page must be the download.");
+  assert(!pagedRedirect.headers.get("location").includes("-rc1"), "A full first page of RC tags must not become the stable download.");
+  assert(fetchedPages.some((url) => url.includes("page=2")), "the download route must request the next release page.");
 
   console.log("Website download smoke checks passed.");
 }

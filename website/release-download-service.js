@@ -41,7 +41,7 @@
   }
 
   function githubApiUrl(repository) {
-    return `https://api.github.com/repos/${repository.owner}/${repository.repo}/releases?per_page=20`;
+    return `https://api.github.com/repos/${repository.owner}/${repository.repo}/releases?per_page=100&page=1`;
   }
 
   function isExpectedAssetUrl(value, repository) {
@@ -190,19 +190,73 @@
     return !channel || channel === "stable";
   }
 
-  function latestPublishedRelease(releases, options = {}) {
-    const normalized = (Array.isArray(releases) ? releases : [])
+  const RELEASE_LIST_PAGE_SIZE = 100;
+  const MAX_RELEASE_LIST_PAGES = 5;
+
+  function assetHasChecksum(asset, release) {
+    const digest = String(asset?.digest || asset?.sha256 || asset?.checksum || "").trim();
+    if (/^(?:sha256:)?[a-f0-9]{64}$/i.test(digest)) return true;
+    const name = String(asset?.name || "");
+    if (!name) return false;
+    return (release?.assets || []).some((item) => String(item?.name || "") === `${name}.sha256`);
+  }
+
+  function releaseHasDownloadChecksum(release) {
+    return (release?.assets || []).some((asset) => {
+      const name = String(asset?.name || "");
+      if (!name || /sha256sums|\.sha256$/i.test(name)) return false;
+      return assetHasChecksum(asset, release);
+    });
+  }
+
+  function compareDownloadIdentityDesc(left, right) {
+    const versionOf = (release) => {
+      const match = String(release?.tag_name || release?.name || "").match(/(\d+)\.(\d+)/);
+      return match ? [Number(match[1]), Number(match[2])] : [0, 0];
+    };
+    const buildOf = (release) => {
+      const match = [release?.tag_name, release?.name].join(" ").match(/build[-_. ]?(\d+)/i);
+      return match ? Number(match[1]) : 0;
+    };
+    const leftVersion = versionOf(left);
+    const rightVersion = versionOf(right);
+    if (leftVersion[0] !== rightVersion[0]) return rightVersion[0] - leftVersion[0];
+    if (leftVersion[1] !== rightVersion[1]) return rightVersion[1] - leftVersion[1];
+    return buildOf(right) - buildOf(left);
+  }
+
+  function nextReleasePageUrl(linkHeader, currentUrl) {
+    const header = String(linkHeader || "");
+    const match = header.match(/<([^>]+)>;\s*rel="next"/i);
+    if (!match) return "";
+    try {
+      const next = new URL(match[1]);
+      const current = new URL(currentUrl);
+      if (next.origin !== current.origin || !next.pathname.endsWith("/releases")) return "";
+      const page = Number(next.searchParams.get("page"));
+      if (!Number.isInteger(page) || page < 1 || page > MAX_RELEASE_LIST_PAGES) return "";
+      return next.toString();
+    } catch {
+      return "";
+    }
+  }
+
+  function eligibleDownloadReleases(releases, options = {}) {
+    return (Array.isArray(releases) ? releases : [])
       .filter((release) => release && !release.draft && (options.allowPrerelease || isStableChannelRelease(release)))
-      .sort((left, right) => new Date(right.published_at || right.created_at || 0) - new Date(left.published_at || left.created_at || 0))
+      .filter(releaseHasDownloadChecksum)
+      .sort(compareDownloadIdentityDesc);
+  }
+
+  function latestPublishedRelease(releases, options = {}) {
+    const normalized = eligibleDownloadReleases(releases, options)
       .map((release) => normalizeRelease(release, options))
       .find((release) => release && release.assets.length > 0);
     return normalized || null;
   }
 
   function publishedReleases(releases, options = {}) {
-    return (Array.isArray(releases) ? releases : [])
-      .filter((release) => release && !release.draft && (options.allowPrerelease || isStableChannelRelease(release)))
-      .sort((left, right) => new Date(right.published_at || right.created_at || 0) - new Date(left.published_at || left.created_at || 0));
+    return eligibleDownloadReleases(releases, options);
   }
 
   function preferredAssetForPlatform(release, platform) {
@@ -291,7 +345,7 @@
         error.status = response.status;
         throw error;
       }
-      return payload;
+      return { payload, link: response.headers?.get?.("link") || "" };
     } catch (error) {
       if (error?.name === "AbortError") {
         const timeoutError = new Error("GitHub release API request timed out.");
@@ -322,7 +376,17 @@
       const cached = readCachedRelease(repository);
       if (cached) return cached;
     }
-    const releases = await fetchJsonWithTimeout(options.apiUrl || githubApiUrl(repository), options);
+    const releases = [];
+    let pageUrl = options.apiUrl || githubApiUrl(repository);
+    const seenPages = new Set();
+    for (let page = 0; pageUrl && !seenPages.has(pageUrl) && page < MAX_RELEASE_LIST_PAGES; page += 1) {
+      seenPages.add(pageUrl);
+      const pageResult = await fetchJsonWithTimeout(pageUrl, options);
+      const batch = Array.isArray(pageResult.payload) ? pageResult.payload : [];
+      releases.push(...batch);
+      if (batch.length < RELEASE_LIST_PAGE_SIZE) break;
+      pageUrl = nextReleasePageUrl(pageResult.link, pageUrl);
+    }
     const published = publishedReleases(releases, { allowPrerelease });
     logReleaseDiagnostic("release-source", {
       repository: `${repository.owner}/${repository.repo}`,

@@ -17,7 +17,7 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   },
   repositoryUrl: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases",
   releaseUrl: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v2.0-build205-rc3",
-  githubReleasesApiUrl: "https://api.github.com/repos/AnxLabs/AnxOS-Control-Center-Releases/releases?per_page=20",
+  githubReleasesApiUrl: "https://api.github.com/repos/AnxLabs/AnxOS-Control-Center-Releases/releases?per_page=100&page=1",
   stableDownloadEndpoints: {
     windows: "/api/download/latest/windows",
     windowsPortable: "/api/download/latest/windows-portable",
