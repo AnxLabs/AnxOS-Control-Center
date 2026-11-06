@@ -9,6 +9,7 @@
 - [V2 Campaign Log](v2/V2_CAMPAIGN_LOG.md) — engineering and review history
 - [Historical Release Notes](releases/) — older per-build records (archived by PR #49)
 - [Repository Map & Cleanup Audit](REPOSITORY_MAINTENANCE.md) — navigation, duplication triage, and branch review
+- [Developer Guide](DEVELOPER_GUIDE.md) — detailed source setup, packaging, release, and troubleshooting instructions
 
 ## Current Normative Documents
 
