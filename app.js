@@ -1648,15 +1648,15 @@ const PAGE_INTRODUCTIONS = {
   docker: ["Manage containers", "View Docker containers, images, volumes, networks, logs, and actions for the selected system / node."],
   files: ["Browse and edit files", "Open local or Agent-backed file targets. File actions run against the selected storage profile and system."],
   ssh: ["Connect to remote systems", "Use saved SSH profiles to connect to systems when terminal access is needed."],
-  console: ["Run and view commands", "Monitor instance console output and send supported commands to managed servers."],
-  playit: ["Make services reachable", "Configure Public Access providers for supported services on the selected system / node."],
+  console: ["Console", "Live output from your servers."],
+  playit: ["Public Access", "Share a server on the internet."],
   backups: ["Protect your server data", "Create, restore, import, and manage backups for supported instances."],
-  "agent-control": ["Manage AnxOS connections", "Check the desktop host, local Agent, remote Agents, service registration, logs, and diagnostics."],
+  "agent-control": ["Agent", "Install, start, and repair the Agent."],
   security: ["Review security settings", "Inspect account, session, token, audit, and security status. Some controls are Owner-only."],
-  nodes: ["Manage systems / nodes", "Register and switch between this desktop application host and remote Agent systems."],
-  network: ["Endpoints and connectivity", "Manage saved endpoints, provider status, connectivity diagnostics, and the connectivity graph for the selected system / node."],
+  nodes: ["Computers", "This PC and any other computer you add."],
+  network: ["Addresses", "Saved addresses and connection checks."],
   settings: ["Customize AnxOS", "Change local preferences, guidance options, connections, updates, and Owner-only administration settings."],
-  operations: ["Track background work", "Review installs, file transfers, dependency jobs, and other long-running operations."],
+  operations: ["Tasks", "Work running in the background."],
   maintenance: ["Clean up and repair", "Run supported cleanup, maintenance, and UI-state reset actions."],
 };
 const CONTEXTUAL_HELP_TOPICS = {
@@ -1664,13 +1664,13 @@ const CONTEXTUAL_HELP_TOPICS = {
     title: "Agent",
     explanation: "The Agent runs on a managed computer and allows AnxOS to control services, files, containers, servers, and system information.",
     details: "The desktop app is the interface. The Agent is the service on a local or remote system that performs trusted management actions.",
-    action: { label: "Open Agent Control", page: "agent-control" },
+    action: { label: "Open Agent", page: "agent-control" },
   },
   system: {
     title: "System / Node",
     explanation: "A system is a Windows or Linux computer connected to AnxOS.",
     details: "Node is the technical name for a managed system. The local desktop host and remote Agents use separate identities.",
-    action: { label: "Open Nodes", page: "nodes" },
+    action: { label: "Open Computers", page: "nodes" },
   },
   instance: {
     title: "Instance",
@@ -1724,7 +1724,7 @@ const CONTEXTUAL_HELP_TOPICS = {
     title: "Service Registration",
     explanation: "Service registration allows the AnxOS Agent to start automatically with the operating system.",
     details: "Some service registration changes require administrator privileges and are platform-specific.",
-    action: { label: "Open Agent Control", page: "agent-control" },
+    action: { label: "Open Agent", page: "agent-control" },
   },
 };
 
@@ -26079,8 +26079,8 @@ const NOTIFICATION_ACTIONS = {
   // V2-K operational journal deep links. The journal's action ids use kebab
   // case, so these keys match src/services/operationalNotificationService.js
   // exactly: open-nodes, open-instance, open-network.
-  "open-nodes": { label: "Open Nodes", run: () => showPage("nodes") },
-  "open-network": { label: "Open Network", run: () => showPage("network") },
+  "open-nodes": { label: "Open Computers", run: () => showPage("nodes") },
+  "open-network": { label: "Open Addresses", run: () => showPage("network") },
   "open-instance": {
     label: "Open Instance",
     run: (notification) => {
@@ -41773,7 +41773,7 @@ function buildNetworkDiagnosticsStage(stage) {
 
 function describeNetworkStageAction(kind) {
   const labels = {
-    "open-network": "Open Network",
+    "open-network": "Open Addresses",
     "open-provider": "Open provider",
     "start-service": "Start service",
     "open-console": "Open console",

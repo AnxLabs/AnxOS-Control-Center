@@ -44,7 +44,7 @@ const ENDPOINT_TYPES = Object.freeze(["lan", "private", "tailscale", "public", "
 
 const HINTS = Object.freeze({
   startService: Object.freeze([{ id: "start-service", label: "Start service", kind: "start-service" }]),
-  openNetwork: Object.freeze([{ id: "open-network", label: "Open Network", kind: "open-network" }]),
+  openNetwork: Object.freeze([{ id: "open-network", label: "Open Addresses", kind: "open-network" }]),
   openProvider: Object.freeze([{ id: "open-provider", label: "Open provider", kind: "open-provider" }]),
   copyDetails: Object.freeze([{ id: "copy-details", label: "Copy details", kind: "copy-details" }]),
 });
