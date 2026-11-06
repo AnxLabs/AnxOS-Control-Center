@@ -15,10 +15,13 @@
 
 const fs = require("fs");
 const path = require("path");
+const { normalizeSelectionChannel, rankReleasesForChannel } = require("../../../src/shared/releaseChannelSelection");
 
 const packageJson = require("../../package.json");
 
-const DEFAULT_SOURCE = "https://api.github.com/repos/AnxLabs/AnxOS-Control-Center-Releases/releases/latest";
+// The releases list, not GitHub's /releases/latest alias. That alias follows
+// the prerelease flag, which has marked older RC tags as stable.
+const DEFAULT_SOURCE = "https://api.github.com/repos/AnxLabs/AnxOS-Control-Center-Releases/releases?per_page=20";
 const DEB_ASSET_PATTERN = /^AnxOS-Agent-.*\.deb$/;
 const RELEASE_IDENTITY_FILENAME = "agent-release.json";
 const RELEASE_IDENTITY_ENV = "ANXOS_AGENT_RELEASE_PATH";
@@ -220,6 +223,25 @@ function parseReleasePayload(payload) {
   };
 }
 
+function selectionChannelFrom(options = {}, env = process.env) {
+  return normalizeSelectionChannel(trim(options.channel) || trim(env.ANXOS_UPDATE_CHANNEL) || "stable");
+}
+
+// Picks one release object for the requested channel. Returns
+// `{ release: null, rejected: true }` when every candidate is the wrong
+// channel, so the caller does not fall back to a mis-flagged RC or alpha.
+// A candidate that matches the channel but has no Agent package is left for
+// evaluateUpdateState to explain.
+function selectAgentRelease(payload, options = {}) {
+  const releases = Array.isArray(payload) ? payload : payload && typeof payload === "object" ? [payload] : [];
+  const ranked = rankReleasesForChannel(releases, {
+    channel: selectionChannelFrom(options, options.env || process.env),
+  });
+  if (!ranked.length) return { release: null, rejected: releases.length > 0 };
+  const withPackage = ranked.find((release) => findAgentDebAsset(release));
+  return { release: withPackage || ranked[0], rejected: false };
+}
+
 // ---------------------------------------------------------------------------
 // Update state.
 // ---------------------------------------------------------------------------
@@ -275,6 +297,7 @@ async function checkForUpdate(options = {}) {
   const fetchImpl = options.fetchImpl || globalThis.fetch;
   const runtimeVersion = trim(options.currentVersion) || getCurrentVersion();
   const source = trim(options.source) || trim(env.ANXOS_AGENT_UPDATE_SOURCE) || DEFAULT_SOURCE;
+  const channel = selectionChannelFrom(options, env);
   const timeoutMs = Number.parseInt(options.timeoutMs, 10) > 0 ? Number.parseInt(options.timeoutMs, 10) : DEFAULT_TIMEOUT_MS;
   const identity = options.releaseIdentity === undefined
     ? readAgentReleaseIdentity({ env, path: options.releaseIdentityPath })
@@ -289,6 +312,7 @@ async function checkForUpdate(options = {}) {
     installedReleaseTag: trim(identity?.releaseTag) || null,
     releaseIdentityPath: identity?.identityPath || null,
     source,
+    channel,
     readOnly: true,
   };
 
@@ -325,7 +349,18 @@ async function checkForUpdate(options = {}) {
     return { ...base, state: "unknown", reason: "The release source did not answer with valid JSON.", reachable: true };
   }
 
-  const release = parseReleasePayload(payload);
+  const selected = selectAgentRelease(payload, { ...options, env, channel });
+  if (!selected.release) {
+    return {
+      ...base,
+      state: "unknown",
+      reason: selected.rejected
+        ? `The release source has no candidate for the ${channel} update channel. Alpha and release-candidate builds are not treated as stable, and GitHub's prerelease flag is not the channel.`
+        : "The release source did not answer with valid JSON.",
+      reachable: true,
+    };
+  }
+  const release = parseReleasePayload(selected.release);
   if (!release) {
     return { ...base, state: "unknown", reason: "The release source did not answer with valid JSON.", reachable: true };
   }
@@ -355,6 +390,7 @@ module.exports = {
   DEFAULT_SOURCE,
   checkForUpdate,
   compareArtifactVersions,
+  selectAgentRelease,
   compareVersions,
   deriveVersionFromAssetName,
   deriveVersionFromTag,
@@ -375,6 +411,8 @@ module.exports = {
     parseArtifactVersion,
     parseReleasePayload,
     parseVersionParts,
+    selectAgentRelease,
+    selectionChannelFrom,
     readAgentReleaseIdentity,
     releaseIdentitySearchPaths,
   },

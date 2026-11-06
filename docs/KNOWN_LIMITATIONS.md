@@ -12,6 +12,12 @@ These limitations are acceptable for Private Alpha if they are clearly communica
   artifacts only; see `DOCUMENTATION_INDEX.md`. Availability of matching
   candidate artifacts must be proven separately and is not inferred from source
   metadata.
+- In-app and Agent update selection does not treat GitHub's `prerelease` flag
+  or `/releases/latest` as the stable channel. Release-candidate tags and
+  Private Alpha names stay off the stable channel even when GitHub marks them
+  `prerelease: false`. The installed channel (Private Alpha for Build 209)
+  selects only that channel. This does not correct the live release feed, and
+  it is not a signature or checksum attestation for any published installer.
 
 ## Desktop
 

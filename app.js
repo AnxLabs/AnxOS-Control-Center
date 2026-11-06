@@ -39192,7 +39192,7 @@ async function openNodeReleasePage() {
       await desktopApiState.api.updates.openRelease();
       return;
     }
-    window.open("https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/latest", "_blank", "noopener,noreferrer");
+    window.open("https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases", "_blank", "noopener,noreferrer");
   } catch {
     showToast("Release page could not be opened.", "error");
   }

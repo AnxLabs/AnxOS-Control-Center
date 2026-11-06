@@ -244,6 +244,41 @@ async function main() {
   const clientRc = service.latestPublishedRelease(sampleReleases(), { repositoryUrl: publicRepositoryUrl, config: { channel: "Private Alpha" }, allowPrerelease: true });
   assert.strictEqual(clientRc.tagName, "v1.9-build200", "Client renderer must expose an RC when allowPrerelease is explicitly requested.");
 
+  const misflaggedRc = {
+    draft: false,
+    prerelease: false,
+    tag_name: "v2.0-build205-rc3",
+    name: "v2.0-build205-rc3",
+    channel: "Private Alpha",
+    published_at: "2026-11-06T00:00:00Z",
+    html_url: `${publicRepositoryUrl}/releases/tag/v2.0-build205-rc3`,
+    assets: [makeAsset("AnxOS-Control-Center-Setup-2.0-build205-rc3.exe", 80 * 1024 * 1024)],
+  };
+  const flaggedAlpha = {
+    draft: false,
+    prerelease: true,
+    tag_name: "v2.0-build209",
+    name: "v2.0-build209",
+    published_at: "2026-10-31T19:39:54Z",
+    html_url: `${publicRepositoryUrl}/releases/tag/v2.0-build209`,
+    assets: [makeAsset("AnxOS-Control-Center-Setup-2.0-build209.exe", 80 * 1024 * 1024)],
+  };
+  mockFetchJson([misflaggedRc, flaggedAlpha, ...sampleReleases()].reverse());
+  const misflaggedRedirect = await functionsHelper.redirectLatestArtifact(new Request("https://anxoscontrolcenter.org/api/download/latest/windows"), {}, "windows");
+  assert.strictEqual(misflaggedRedirect.status, 302, "A stable artifact must still resolve when a mis-flagged RC is also published.");
+  assert(misflaggedRedirect.headers.get("location").includes("AnxOS-Control-Center-Setup-1.7-build142.exe"), "Stable download must ignore a newer RC that GitHub marked prerelease=false.");
+  assert(!misflaggedRedirect.headers.get("location").includes("build205"), "Stable download must not redirect to the mis-flagged RC.");
+  assert(!misflaggedRedirect.headers.get("location").includes("build209"), "Stable download must not redirect to a prerelease alpha.");
+  mockFetchJson([misflaggedRc, flaggedAlpha]);
+  const blockedRedirect = await functionsHelper.redirectLatestArtifact(new Request("https://anxoscontrolcenter.org/api/download/latest/windows"), {}, "windows");
+  assert.notStrictEqual(blockedRedirect.status, 302, "Stable download must fail closed when every published release is an alpha or RC.");
+  const blockedBody = await blockedRedirect.text();
+  assert(!blockedBody.includes("build205-rc3"), "The fail-closed response must not point at the mis-flagged RC.");
+  assert.match(blockedBody, /NO_SUPPORTED_INSTALLER/, "The fail-closed response must explain that no stable installer is available.");
+  assert.strictEqual(service.latestPublishedRelease([misflaggedRc, flaggedAlpha, ...sampleReleases()], { repositoryUrl: publicRepositoryUrl })?.tagName, "v1.7-build142");
+  assert.strictEqual(service.latestPublishedRelease([...sampleReleases()].reverse().concat(misflaggedRc), { repositoryUrl: publicRepositoryUrl })?.tagName, "v1.7-build142", "Website stable selection must not depend on list order.");
+  assert.strictEqual(service.latestPublishedRelease([misflaggedRc, flaggedAlpha], { repositoryUrl: publicRepositoryUrl }), null, "Website stable selection must not fall back to an alpha or RC.");
+
   console.log("Website download smoke checks passed.");
 }
 

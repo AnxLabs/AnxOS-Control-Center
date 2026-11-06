@@ -42,13 +42,22 @@ function classifyAssetName(name) {
   return "";
 }
 
-// Stable download routes must treat release candidates as non-promoted. An RC is
-// published with the pre-release flag, so it is never selected by stable/latest until
-// an explicit promotion flips it to a public stable release. This keeps the newest
-// published, non-pre-release build as the only stable "latest".
+// Stable download routes must not treat an alpha or RC as stable because GitHub
+// marked it prerelease:false or returned it first. Explicit ?prerelease=1 still
+// opts in. Keep NON_STABLE_MARKER identical to src/shared/releaseChannelSelection.js.
+const NON_STABLE_MARKER = /(?:^|[^a-z0-9])rc\d*(?:[^a-z0-9]|$)|(?:^|[^a-z0-9])(?:alpha|beta|preview)(?:[^a-z0-9]|$)|release[\s-]*candidate|private[\s-]*alpha|public[\s-]*alpha/i;
+
+function isStableChannelRelease(release) {
+  if (!release || typeof release !== "object" || Array.isArray(release) || release.draft === true || release.prerelease === true) return false;
+  const identity = [release.tag_name, release.tagName, release.name, release.releaseLabel, release.channel].map((value) => (typeof value === "string" ? value : "")).join("\n");
+  if (NON_STABLE_MARKER.test(identity)) return false;
+  const channel = String(release.channel || "").trim().toLowerCase();
+  return !channel || channel === "stable";
+}
+
 function pickReleaseWithInstaller(releases, { allowPrerelease = false } = {}) {
   return (Array.isArray(releases) ? releases : [])
-    .filter((candidate) => candidate && !candidate.draft && (allowPrerelease || !candidate.prerelease))
+    .filter((candidate) => candidate && !candidate.draft && (allowPrerelease || isStableChannelRelease(candidate)))
     .sort((left, right) => new Date(right.published_at || right.created_at || 0) - new Date(left.published_at || left.created_at || 0))
     .find((candidate) => Array.isArray(candidate.assets) && candidate.assets.some((asset) => classifyAssetName(asset?.name))) || null;
 }

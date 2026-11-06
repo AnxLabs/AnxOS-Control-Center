@@ -75,6 +75,78 @@ const updaterAsset = (tag) => ({
   // With only prereleases and no stable build, the steady updater has no stable latest.
   assert.strictEqual(pickLatestPublishedRelease([updaterRc])?.tag_name, undefined, "Updater stable fallback must not treat a lone prerelease as the stable latest.");
 
+  const misflaggedRc = {
+    draft: false,
+    prerelease: false,
+    tag_name: "v2.0-build205-rc3",
+    name: "v2.0-build205-rc3",
+    channel: "Private Alpha",
+    version: "2.0",
+    build: 205,
+    published_at: "2026-11-06T00:00:00Z",
+    assets: [updaterAsset("v2.0-build205-rc3")],
+  };
+  const privateAlpha = {
+    draft: false,
+    prerelease: true,
+    tag_name: "v2.0-build209",
+    name: "v2.0-build209",
+    published_at: "2026-10-31T19:39:54Z",
+    assets: [updaterAsset("v2.0-build209")],
+  };
+  const privateAlphaNamed = {
+    draft: false,
+    prerelease: false,
+    tag_name: "v1.9-build199",
+    name: "AnxOS Control Center v1.9 Build 199 - Private Alpha",
+    published_at: "2026-09-04T10:00:03Z",
+    assets: [updaterAsset("v1.9-build199")],
+  };
+  assert.strictEqual(pickLatestPublishedRelease([misflaggedRc, privateAlpha, updaterStable])?.tag_name, "v1.7-build144", "A mis-flagged RC listed first must not become the stable release.");
+  assert.strictEqual(pickLatestPublishedRelease([updaterStable, privateAlpha, misflaggedRc])?.tag_name, "v1.7-build144", "Stable selection must not depend on GitHub list order.");
+  assert.strictEqual(pickLatestPublishedRelease([misflaggedRc])?.tag_name, undefined, "A release-candidate tag is not stable when GitHub says prerelease=false.");
+  assert.strictEqual(pickLatestPublishedRelease([privateAlphaNamed])?.tag_name, undefined, "A Private Alpha name is not stable when GitHub says prerelease=false.");
+  assert.strictEqual(pickLatestPublishedRelease([misflaggedRc, privateAlpha], { channel: "Private Alpha" })?.tag_name, "v2.0-build209", "Private Alpha selection must prefer the plain prerelease over an older mis-flagged RC.");
+  assert.strictEqual(pickLatestPublishedRelease([privateAlpha, misflaggedRc], { channel: "Private Alpha" })?.tag_name, "v2.0-build209", "Private Alpha selection must not depend on list order.");
+  assert.strictEqual(pickLatestPublishedRelease([misflaggedRc], { channel: "Private Alpha" })?.tag_name, undefined, "An RC tag must not join Private Alpha because its channel string says Private Alpha.");
+  const checksummedAlpha = {
+    ...privateAlpha,
+    published_at: "2026-10-01T00:00:00Z",
+    html_url: "https://example.invalid/checksummed-209",
+    assets: [{ ...updaterAsset("v2.0-build209"), digest: `sha256:${"ab".repeat(32)}` }],
+  };
+  const checksumlessAlpha = { ...privateAlpha, published_at: "2026-12-01T00:00:00Z", html_url: "https://example.invalid/checksumless-209" };
+  assert.strictEqual(
+    pickLatestPublishedRelease([checksumlessAlpha, checksummedAlpha], { channel: "Private Alpha" })?.html_url,
+    "https://example.invalid/checksummed-209",
+    "The same build must keep the checksummed candidate and must not fall back to checksum-less metadata.",
+  );
+  const downgraded = new UpdateManager().resolveUpdateResult({
+    version: "2.0",
+    build: 205,
+    tag_name: "v2.0-build205-rc3",
+    name: "v2.0-build205-rc3",
+    assets: [updaterAsset("v2.0-build205-rc3")],
+  }, "fixture");
+  assert.strictEqual(
+    downgraded.hasUpdate,
+    compareReleaseBuilds({ version: "2.0", build: 205 }, { version: release.version, build: release.build }) > 0,
+    "An older candidate must not be reported as an update.",
+  );
+  assert(updateManagerSource.includes("selectionChannel") && updateManagerSource.includes("pickLatestPublishedRelease(candidates, selectionOptions)"), "Update checks must rank every fetched candidate for the installed channel.");
+  const { NON_STABLE_MARKER } = require("../src/shared/releaseChannelSelection");
+  for (const relativePath of [
+    "website/release-download-service.js",
+    "website/_worker.js",
+    "website/functions/api/download/latest/[platform].js",
+    "functions/_shared/release-download.mjs",
+  ]) {
+    assert(
+      fs.readFileSync(path.join(root, relativePath), "utf8").includes(NON_STABLE_MARKER.toString()),
+      `${relativePath} must use the shared non-stable release marker.`,
+    );
+  }
+
   // W4: the updater decides by release identity (version + build), not by the electron-builder
   // latest.yml internal package semver, so Build 200 is always distinguishable from Build 199.
   assert(compareReleaseBuilds({ version: "1.9", build: 200 }, { version: "1.9", build: 199 }) > 0, "Updater must distinguish Build 200 from Build 199 within the same public version.");

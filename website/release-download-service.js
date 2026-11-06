@@ -178,9 +178,21 @@
     };
   }
 
+  // Keep this marker identical to src/shared/releaseChannelSelection.js.
+  // GitHub's prerelease flag is not channel identity.
+  const NON_STABLE_MARKER = /(?:^|[^a-z0-9])rc\d*(?:[^a-z0-9]|$)|(?:^|[^a-z0-9])(?:alpha|beta|preview)(?:[^a-z0-9]|$)|release[\s-]*candidate|private[\s-]*alpha|public[\s-]*alpha/i;
+
+  function isStableChannelRelease(release) {
+    if (!release || typeof release !== "object" || Array.isArray(release) || release.draft === true || release.prerelease === true) return false;
+    const identity = [release.tag_name, release.tagName, release.name, release.releaseLabel, release.channel].map((value) => (typeof value === "string" ? value : "")).join("\n");
+    if (NON_STABLE_MARKER.test(identity)) return false;
+    const channel = String(release.channel || "").trim().toLowerCase();
+    return !channel || channel === "stable";
+  }
+
   function latestPublishedRelease(releases, options = {}) {
     const normalized = (Array.isArray(releases) ? releases : [])
-      .filter((release) => release && !release.draft && (options.allowPrerelease || !release.prerelease))
+      .filter((release) => release && !release.draft && (options.allowPrerelease || isStableChannelRelease(release)))
       .sort((left, right) => new Date(right.published_at || right.created_at || 0) - new Date(left.published_at || left.created_at || 0))
       .map((release) => normalizeRelease(release, options))
       .find((release) => release && release.assets.length > 0);
@@ -189,7 +201,7 @@
 
   function publishedReleases(releases, options = {}) {
     return (Array.isArray(releases) ? releases : [])
-      .filter((release) => release && !release.draft && (options.allowPrerelease || !release.prerelease))
+      .filter((release) => release && !release.draft && (options.allowPrerelease || isStableChannelRelease(release)))
       .sort((left, right) => new Date(right.published_at || right.created_at || 0) - new Date(left.published_at || left.created_at || 0));
   }
 

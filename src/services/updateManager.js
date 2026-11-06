@@ -10,6 +10,7 @@ const { openExternalUrl } = require("./externalUrlService");
 const { OFFICIAL_SITE_ORIGIN } = require("../shared/officialSite");
 const { sanitize, sanitizeForDiagnostics } = require("../shared/redaction");
 const { getReleaseInfo } = require("../shared/releaseConfig");
+const { rankReleasesForChannel, sameProductIdentity } = require("../shared/releaseChannelSelection");
 const { decideMigrationRecovery, verifyRecoveryPoint } = require("../shared/migrationRecoveryPolicy");
 
 const DEFAULT_UPDATE_REPOSITORY = "AnxLabs/AnxOS-Control-Center-Releases";
@@ -238,12 +239,21 @@ function hasSupportedUpdateAsset(release) {
   return Boolean(pickUpdateAsset(release));
 }
 
+function releaseAssetHasChecksum(release) {
+  const asset = pickUpdateAsset(release);
+  return Boolean(asset && normalizeSha256(asset.sha256 || asset.checksum || asset.digest));
+}
+
 function pickLatestPublishedRelease(releases, options = {}) {
-  const allowPrerelease = Boolean(options.allowPrerelease);
-  return (Array.isArray(releases) ? releases : [])
-    .filter((release) => release && !release.draft && (allowPrerelease || !release.prerelease))
-    .sort((left, right) => new Date(right.published_at || right.created_at || 0) - new Date(left.published_at || left.created_at || 0))
-    .find(hasSupportedUpdateAsset) || null;
+  // Stable selection uses release identity, not the GitHub prerelease flag or
+  // the order the API returned. Explicit allowPrerelease remains an opt-in
+  // for callers that pass no channel. A channel always wins over that opt-in.
+  // Same version and build prefer metadata that can satisfy the checksum gate
+  // so a checksum-less fallback cannot replace a verifiable candidate.
+  const ranked = rankReleasesForChannel(releases, options).filter(hasSupportedUpdateAsset);
+  if (!ranked.length) return null;
+  const sameIdentity = ranked.filter((release) => sameProductIdentity(ranked[0], release));
+  return sameIdentity.find(releaseAssetHasChecksum) || ranked[0];
 }
 
 // ---------------------------------------------------------------------------
@@ -787,46 +797,61 @@ class UpdateManager extends EventEmitter {
     try {
       let release = null;
       let sourceUrl = "";
+      // The installed release channel decides eligibility. GitHub /releases/latest
+      // and its manifest are candidates, not authorities: that alias currently
+      // follows a mis-flagged older RC. Every candidate is ranked together so
+      // an ineligible or older payload cannot hide a newer eligible release,
+      // and nothing ineligible is used as a fallback.
+      const selectionChannel = options.channel || getReleaseInfo().channel;
+      const selectionOptions = {
+        channel: selectionChannel,
+        allowPrerelease: options.allowPrerelease === true,
+      };
+      const candidates = [];
+      const remember = (candidate, url) => {
+        if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return;
+        candidates.push({ ...candidate, sourceUrl: candidate.sourceUrl || url });
+      };
       for (const manifestUrl of UPDATE_MANIFEST_URLS) {
         try {
           checkedSources.push(manifestUrl);
-          release = normalizeManifestRelease(await this.requestJson(manifestUrl), manifestUrl);
-          sourceUrl = manifestUrl;
-          break;
+          remember(normalizeManifestRelease(await this.requestJson(manifestUrl), manifestUrl), manifestUrl);
         } catch (error) {
           this.log("Update manifest check failed.", { message: error?.message || String(error), url: safeLogUrl(manifestUrl) }, "warn");
         }
       }
       try {
-        if (!release) {
-          checkedSources.push(UPDATE_RELEASES_URL);
-          release = pickLatestPublishedRelease(await this.requestJson(UPDATE_RELEASES_URL));
-          sourceUrl = UPDATE_RELEASES_URL;
+        checkedSources.push(UPDATE_RELEASES_URL);
+        const listed = await this.requestJson(UPDATE_RELEASES_URL);
+        if (Array.isArray(listed)) {
+          for (const listedRelease of listed) remember(listedRelease, UPDATE_RELEASES_URL);
         }
       } catch (error) {
         this.log("GitHub release check failed.", { message: error?.message || String(error), url: safeLogUrl(UPDATE_RELEASES_URL) }, error?.statusCode === 404 ? "warn" : "error");
       }
-      if (!release) {
-        try {
-          checkedSources.push(UPDATE_LATEST_RELEASE_URL);
-          release = await this.requestJson(UPDATE_LATEST_RELEASE_URL);
-          sourceUrl = UPDATE_LATEST_RELEASE_URL;
-        } catch (error) {
-          this.log("GitHub latest release check failed.", { message: error?.message || String(error), url: safeLogUrl(UPDATE_LATEST_RELEASE_URL) }, error?.statusCode === 404 ? "warn" : "error");
-        }
+      try {
+        checkedSources.push(UPDATE_LATEST_RELEASE_URL);
+        remember(await this.requestJson(UPDATE_LATEST_RELEASE_URL), UPDATE_LATEST_RELEASE_URL);
+      } catch (error) {
+        this.log("GitHub latest release check failed.", { message: error?.message || String(error), url: safeLogUrl(UPDATE_LATEST_RELEASE_URL) }, error?.statusCode === 404 ? "warn" : "error");
       }
+      release = pickLatestPublishedRelease(candidates, selectionOptions);
+      sourceUrl = release?.sourceUrl || release?.html_url || "";
       if (!release) {
+        const websiteCandidates = [];
         for (const websiteConfigUrl of WEBSITE_CONFIG_URLS) {
           try {
             checkedSources.push(websiteConfigUrl);
-            release = parseWebsiteConfigRelease(await this.requestText(websiteConfigUrl), websiteConfigUrl);
-            if (release) {
-              sourceUrl = websiteConfigUrl;
-              break;
-            }
+            const websiteRelease = parseWebsiteConfigRelease(await this.requestText(websiteConfigUrl), websiteConfigUrl);
+            if (websiteRelease) websiteCandidates.push({ ...websiteRelease, sourceUrl: websiteConfigUrl });
           } catch (error) {
             this.log("Website update config check failed.", { message: error?.message || String(error), url: safeLogUrl(websiteConfigUrl) }, "warn");
           }
+        }
+        release = pickLatestPublishedRelease(websiteCandidates, selectionOptions);
+        sourceUrl = release?.sourceUrl || release?.html_url || "";
+        if (!release && candidates.length > 0) {
+          this.log("Update candidates were rejected for the active channel.", { channel: selectionChannel, checkedSources }, "warn");
         }
       }
       if (!release) {
@@ -1066,13 +1091,13 @@ class UpdateManager extends EventEmitter {
   }
 
   async openRelease() {
-    const releaseUrl = this.state.latest?.releaseUrl || `https://github.com/${UPDATE_REPOSITORY}/releases/latest`;
+    const releaseUrl = this.state.latest?.releaseUrl || `https://github.com/${UPDATE_REPOSITORY}/releases`;
     await openExternalUrl(releaseUrl, { source: "updates-release" });
     return { opened: true };
   }
 
   async openDownload() {
-    const downloadUrl = this.state.latest?.asset?.downloadUrl || this.state.latest?.releaseUrl || `https://github.com/${UPDATE_REPOSITORY}/releases/latest`;
+    const downloadUrl = this.state.latest?.asset?.downloadUrl || this.state.latest?.releaseUrl || `https://github.com/${UPDATE_REPOSITORY}/releases`;
     await openExternalUrl(downloadUrl, { source: "updates-download" });
     return { opened: true };
   }

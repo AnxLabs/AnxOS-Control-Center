@@ -41,10 +41,20 @@ export async function onRequestGet({ request, params, env }) {
     return json({ error: "release_source_unavailable" }, 502);
   }
 
-  // Stable/latest downloads resolve only non-pre-release releases; RCs are served
-  // only when a caller explicitly opts in with ?prerelease=1.
+  // Stable/latest downloads must not treat an alpha or RC as stable from GitHub's
+  // prerelease flag or list order. A prerelease is served only with ?prerelease=1.
+  // Keep NON_STABLE_MARKER identical to src/shared/releaseChannelSelection.js.
+  const NON_STABLE_MARKER = /(?:^|[^a-z0-9])rc\d*(?:[^a-z0-9]|$)|(?:^|[^a-z0-9])(?:alpha|beta|preview)(?:[^a-z0-9]|$)|release[\s-]*candidate|private[\s-]*alpha|public[\s-]*alpha/i;
   const release = (Array.isArray(releases) ? releases : [])
-    .filter((candidate) => candidate && !candidate.draft && (allowPrerelease || !candidate.prerelease))
+    .filter((candidate) => {
+      if (!candidate || candidate.draft) return false;
+      if (allowPrerelease) return true;
+      if (candidate.prerelease === true) return false;
+      const identity = [candidate.tag_name, candidate.tagName, candidate.name, candidate.releaseLabel, candidate.channel].map((value) => (typeof value === "string" ? value : "")).join("\n");
+      if (NON_STABLE_MARKER.test(identity)) return false;
+      const channel = String(candidate.channel || "").trim().toLowerCase();
+      return !channel || channel === "stable";
+    })
     .sort((left, right) => new Date(right.published_at || right.created_at || 0) - new Date(left.published_at || left.created_at || 0))
     .find((candidate) => (candidate.assets || []).some((asset) => select(asset.name || "") && String(asset.browser_download_url || "").startsWith(`https://github.com/${OFFICIAL_RELEASE_REPOSITORY}/releases/download/`)));
   const asset = release?.assets?.find((candidate) => select(candidate.name || "") && String(candidate.browser_download_url || "").startsWith(`https://github.com/${OFFICIAL_RELEASE_REPOSITORY}/releases/download/`));

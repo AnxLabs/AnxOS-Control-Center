@@ -24,10 +24,20 @@ async function latestDownload(request, env, platform) {
   const response = await fetch(`https://api.github.com/repos/${match[1]}/${match[2]}/releases?per_page=20`, { headers: { accept: "application/vnd.github+json", "user-agent": "AnxOS-website-downloads" } });
   if (!response.ok) return json({ error: "release_source_unavailable", status: response.status }, 502);
   const releases = await response.json();
-  // Stable/latest downloads must never resolve an RC to a prerelease. A prerelease is
-  // only served when a caller explicitly opts in with ?prerelease=1.
+  // Stable/latest downloads must not treat an alpha or RC as stable from GitHub's
+  // prerelease flag or list order. A prerelease is served only with ?prerelease=1.
+  // Keep NON_STABLE_MARKER identical to src/shared/releaseChannelSelection.js.
+  const NON_STABLE_MARKER = /(?:^|[^a-z0-9])rc\d*(?:[^a-z0-9]|$)|(?:^|[^a-z0-9])(?:alpha|beta|preview)(?:[^a-z0-9]|$)|release[\s-]*candidate|private[\s-]*alpha|public[\s-]*alpha/i;
   const release = (Array.isArray(releases) ? releases : [])
-    .filter((item) => item && !item.draft && (allowPrerelease || !item.prerelease))
+    .filter((item) => {
+      if (!item || item.draft) return false;
+      if (allowPrerelease) return true;
+      if (item.prerelease === true) return false;
+      const identity = [item.tag_name, item.tagName, item.name, item.releaseLabel, item.channel].map((value) => (typeof value === "string" ? value : "")).join("\n");
+      if (NON_STABLE_MARKER.test(identity)) return false;
+      const channel = String(item.channel || "").trim().toLowerCase();
+      return !channel || channel === "stable";
+    })
     .sort((left, right) => new Date(right.published_at || right.created_at || 0) - new Date(left.published_at || left.created_at || 0))
     .find((item) => (item.assets || []).some((candidate) => select(candidate.name || "") && String(candidate.browser_download_url || "").startsWith(`https://github.com/${OFFICIAL_RELEASE_REPOSITORY}/releases/download/`)));
   const asset = release?.assets?.find((candidate) => select(candidate.name || "") && String(candidate.browser_download_url || "").startsWith(`https://github.com/${OFFICIAL_RELEASE_REPOSITORY}/releases/download/`));
