@@ -15,10 +15,18 @@
 
 const fs = require("fs");
 const path = require("path");
+const {
+  RELEASE_LIST_PAGE_SIZE,
+  collectReleasePages,
+  normalizeSelectionChannel,
+  rankReleasesForChannel,
+} = require("../../../src/shared/releaseChannelSelection");
 
 const packageJson = require("../../package.json");
 
-const DEFAULT_SOURCE = "https://api.github.com/repos/AnxLabs/AnxOS-Control-Center-Releases/releases/latest";
+// The releases list, not GitHub's /releases/latest alias. That alias follows
+// the prerelease flag, which has marked older RC tags as stable.
+const DEFAULT_SOURCE = `https://api.github.com/repos/AnxLabs/AnxOS-Control-Center-Releases/releases?per_page=${RELEASE_LIST_PAGE_SIZE}&page=1`;
 const DEB_ASSET_PATTERN = /^AnxOS-Agent-.*\.deb$/;
 const RELEASE_IDENTITY_FILENAME = "agent-release.json";
 const RELEASE_IDENTITY_ENV = "ANXOS_AGENT_RELEASE_PATH";
@@ -103,6 +111,7 @@ function readAgentReleaseIdentity(options = {}) {
         product: trim(parsed.product) || null,
         artifactVersion,
         releaseTag: trim(parsed.releaseTag) || null,
+        channel: trim(parsed.channel) || null,
         builtAt: trim(parsed.builtAt) || null,
         identityPath: candidate,
       };
@@ -220,6 +229,33 @@ function parseReleasePayload(payload) {
   };
 }
 
+function selectionChannelFrom(options = {}, env = process.env, identity = null) {
+  // An explicit operator channel wins. Otherwise the installed stamp carries
+  // the same channel the desktop reads from release.json. A stamp without a
+  // channel stays on stable; a missing stamp is not treated as Private Alpha.
+  const explicit = trim(options.channel) || trim(env.ANXOS_UPDATE_CHANNEL);
+  if (explicit) return normalizeSelectionChannel(explicit);
+  const stamped = trim(identity?.channel);
+  if (stamped) return normalizeSelectionChannel(stamped);
+  return "stable";
+}
+
+// Picks one release object for the requested channel. Returns
+// `{ release: null, rejected: true }` when every candidate is the wrong
+// channel, so the caller does not fall back to a mis-flagged RC or alpha.
+// A candidate that matches the channel but has no Agent package is left for
+// evaluateUpdateState to explain.
+function selectAgentRelease(payload, options = {}) {
+  const releases = Array.isArray(payload) ? payload : payload && typeof payload === "object" ? [payload] : [];
+  const ranked = rankReleasesForChannel(releases, {
+    channel: selectionChannelFrom(options, options.env || process.env, options.identity),
+  });
+  if (!ranked.length) return { release: null, rejected: releases.length > 0, missingChecksum: false };
+  const withChecksum = ranked.find((release) => findAgentDebAsset(release)?.checksumUrl);
+  if (!withChecksum) return { release: null, rejected: true, missingChecksum: true };
+  return { release: withChecksum, rejected: false, missingChecksum: false };
+}
+
 // ---------------------------------------------------------------------------
 // Update state.
 // ---------------------------------------------------------------------------
@@ -279,6 +315,7 @@ async function checkForUpdate(options = {}) {
   const identity = options.releaseIdentity === undefined
     ? readAgentReleaseIdentity({ env, path: options.releaseIdentityPath })
     : options.releaseIdentity;
+  const channel = selectionChannelFrom(options, env, identity);
   const installedArtifactVersion = trim(options.installedArtifactVersion) || trim(identity?.artifactVersion);
   const base = {
     currentVersion: runtimeVersion,
@@ -289,6 +326,7 @@ async function checkForUpdate(options = {}) {
     installedReleaseTag: trim(identity?.releaseTag) || null,
     releaseIdentityPath: identity?.identityPath || null,
     source,
+    channel,
     readOnly: true,
   };
 
@@ -310,11 +348,10 @@ async function checkForUpdate(options = {}) {
     clearTimeout(timer);
     const code = error?.name === "AbortError" ? "timeout" : error?.cause?.code || error?.code || error?.message || "network error";
     return { ...base, state: "unknown", reason: `The release source is unreachable (${String(code)}).`, reachable: false };
-  } finally {
-    clearTimeout(timer);
   }
 
   if (!response.ok) {
+    clearTimeout(timer);
     return { ...base, state: "unknown", reason: `The release source answered HTTP ${response.status}.`, reachable: true };
   }
 
@@ -322,10 +359,48 @@ async function checkForUpdate(options = {}) {
   try {
     payload = await response.json();
   } catch {
+    clearTimeout(timer);
     return { ...base, state: "unknown", reason: "The release source did not answer with valid JSON.", reachable: true };
   }
 
-  const release = parseReleasePayload(payload);
+  let releaseListComplete = true;
+  if (Array.isArray(payload)) {
+    try {
+      const collected = await collectReleasePages(source, async (pageUrl) => {
+        if (pageUrl === source) return { releases: payload, link: response.headers?.get?.("link") || response.headers?.link || "" };
+        const pageResponse = await fetchImpl(pageUrl, {
+          headers: { accept: "application/vnd.github+json", "user-agent": "anxos-agent-cli" },
+          signal: controller.signal,
+        });
+        if (!pageResponse.ok) {
+          const error = new Error(`The release source answered HTTP ${pageResponse.status}.`);
+          error.status = pageResponse.status;
+          throw error;
+        }
+        return {
+          releases: await pageResponse.json(),
+          link: pageResponse.headers?.get?.("link") || pageResponse.headers?.link || "",
+        };
+      });
+      payload = collected.releases;
+      releaseListComplete = collected.complete;
+    } catch (error) {
+      clearTimeout(timer);
+      return { ...base, state: "unknown", reason: error?.message || "The release list could not be read.", reachable: true };
+    }
+  }
+  clearTimeout(timer);
+
+  const selected = selectAgentRelease(payload, { ...options, env, channel, identity });
+  if (!selected.release) {
+    const reason = selected.missingChecksum
+      ? `The ${channel} update channel has no release with a SHA-256 checksum. A checksum-less package is not offered.`
+      : selected.rejected
+        ? `The release source has no candidate for the ${channel} update channel. Alpha and release-candidate builds are not treated as stable, and GitHub's prerelease flag is not the channel.${releaseListComplete ? "" : " The release list scan stopped at the page cap."}`
+        : "The release source did not answer with valid JSON.";
+    return { ...base, state: "unknown", reason, reachable: true };
+  }
+  const release = parseReleasePayload(selected.release);
   if (!release) {
     return { ...base, state: "unknown", reason: "The release source did not answer with valid JSON.", reachable: true };
   }
@@ -355,6 +430,7 @@ module.exports = {
   DEFAULT_SOURCE,
   checkForUpdate,
   compareArtifactVersions,
+  selectAgentRelease,
   compareVersions,
   deriveVersionFromAssetName,
   deriveVersionFromTag,
@@ -375,6 +451,8 @@ module.exports = {
     parseArtifactVersion,
     parseReleasePayload,
     parseVersionParts,
+    selectAgentRelease,
+    selectionChannelFrom,
     readAgentReleaseIdentity,
     releaseIdentitySearchPaths,
   },

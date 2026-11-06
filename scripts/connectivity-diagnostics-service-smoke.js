@@ -216,7 +216,7 @@ async function main() {
     assert.equal(result.overall.state, "failed");
     assert.ok(result.overall.headline.includes("Local Port"), "(c) headline names Local Port");
     assert.deepEqual(stageOf(result, "local-socket").remediation, [
-      { id: "open-network", label: "Open Network", kind: "open-network" },
+      { id: "open-network", label: "Open Addresses", kind: "open-network" },
     ]);
   }
 

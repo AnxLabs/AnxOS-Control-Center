@@ -42,15 +42,69 @@ function classifyAssetName(name) {
   return "";
 }
 
-// Stable download routes must treat release candidates as non-promoted. An RC is
-// published with the pre-release flag, so it is never selected by stable/latest until
-// an explicit promotion flips it to a public stable release. This keeps the newest
-// published, non-pre-release build as the only stable "latest".
-function pickReleaseWithInstaller(releases, { allowPrerelease = false } = {}) {
+// Stable download routes must not treat an alpha or RC as stable because GitHub
+// marked it prerelease:false or returned it first. Explicit ?prerelease=1 still
+// opts in. Keep NON_STABLE_MARKER identical to src/shared/releaseChannelSelection.js.
+const NON_STABLE_MARKER = /(?:^|[^a-z0-9])rc\d*(?:[^a-z0-9]|$)|(?:^|[^a-z0-9])(?:alpha|beta|preview)(?:[^a-z0-9]|$)|release[\s-]*candidate|private[\s-]*alpha|public[\s-]*alpha/i;
+
+function isStableChannelRelease(release) {
+  if (!release || typeof release !== "object" || Array.isArray(release) || release.draft === true || release.prerelease === true) return false;
+  const identity = [release.tag_name, release.tagName, release.name, release.releaseLabel, release.channel].map((value) => (typeof value === "string" ? value : "")).join("\n");
+  if (NON_STABLE_MARKER.test(identity)) return false;
+  const channel = String(release.channel || "").trim().toLowerCase();
+  return !channel || channel === "stable";
+}
+
+const RELEASE_LIST_PAGE_SIZE = 100;
+const MAX_RELEASE_LIST_PAGES = 5;
+
+function assetHasChecksum(asset, release) {
+  const digest = String(asset?.digest || asset?.sha256 || asset?.checksum || "").trim();
+  if (/^(?:sha256:)?[a-f0-9]{64}$/i.test(digest)) return true;
+  const name = String(asset?.name || "");
+  return Boolean(name) && (release?.assets || []).some((item) => String(item?.name || "") === `${name}.sha256`);
+}
+
+function compareDownloadIdentityDesc(left, right) {
+  const versionOf = (release) => {
+    const match = String(release?.tag_name || release?.name || "").match(/(\d+)\.(\d+)/);
+    return match ? [Number(match[1]), Number(match[2])] : [0, 0];
+  };
+  const buildOf = (release) => {
+    const match = [release?.tag_name, release?.name].join(" ").match(/build[-_. ]?(\d+)/i);
+    return match ? Number(match[1]) : 0;
+  };
+  const leftVersion = versionOf(left);
+  const rightVersion = versionOf(right);
+  if (leftVersion[0] !== rightVersion[0]) return rightVersion[0] - leftVersion[0];
+  if (leftVersion[1] !== rightVersion[1]) return rightVersion[1] - leftVersion[1];
+  return buildOf(right) - buildOf(left);
+}
+
+function nextReleasePageUrl(linkHeader, currentUrl) {
+  const match = String(linkHeader || "").match(/<([^>]+)>;\s*rel="next"/i);
+  if (!match) return "";
+  try {
+    const next = new URL(match[1]);
+    const current = new URL(currentUrl);
+    if (next.origin !== current.origin || !next.pathname.endsWith("/releases")) return "";
+    const page = Number(next.searchParams.get("page"));
+    if (!Number.isInteger(page) || page < 1 || page > MAX_RELEASE_LIST_PAGES) return "";
+    return next.toString();
+  } catch {
+    return "";
+  }
+}
+
+function pickReleaseWithInstaller(releases, { allowPrerelease = false, artifactType = "" } = {}) {
   return (Array.isArray(releases) ? releases : [])
-    .filter((candidate) => candidate && !candidate.draft && (allowPrerelease || !candidate.prerelease))
-    .sort((left, right) => new Date(right.published_at || right.created_at || 0) - new Date(left.published_at || left.created_at || 0))
-    .find((candidate) => Array.isArray(candidate.assets) && candidate.assets.some((asset) => classifyAssetName(asset?.name))) || null;
+    .filter((candidate) => candidate && !candidate.draft && (allowPrerelease || isStableChannelRelease(candidate)))
+    .sort(compareDownloadIdentityDesc)
+    .find((candidate) => (candidate.assets || []).some((asset) => {
+      const classified = classifyAssetName(asset?.name);
+      if (!classified || (artifactType && classified !== artifactType)) return false;
+      return assetHasChecksum(asset, candidate);
+    })) || null;
 }
 
 async function fetchLatestRelease(env = {}, options = {}) {
@@ -61,20 +115,30 @@ async function fetchLatestRelease(env = {}, options = {}) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
-    const response = await fetch(`https://api.github.com/repos/${repository.owner}/${repository.repo}/releases?per_page=20`, {
-      headers: { accept: "application/vnd.github+json", "user-agent": "anxos-download-router" },
-      signal: controller.signal,
-    });
-    const text = await response.text();
-    let releases;
-    try {
-      releases = text ? JSON.parse(text) : [];
-    } catch {
-      throw Object.assign(new Error("GitHub release API returned invalid JSON."), { code: "INVALID_RELEASE_JSON" });
-    }
-    if (!response.ok) {
-      const code = response.status === 404 ? "GITHUB_RELEASE_SOURCE_NOT_FOUND" : response.status === 403 ? "GITHUB_RATE_LIMITED" : `GITHUB_HTTP_${response.status}`;
-      throw Object.assign(new Error(releases?.message || `GitHub release API failed with HTTP ${response.status}.`), { code, status: response.status });
+    const releases = [];
+    let pageUrl = `https://api.github.com/repos/${repository.owner}/${repository.repo}/releases?per_page=${RELEASE_LIST_PAGE_SIZE}&page=1`;
+    const seenPages = new Set();
+    for (let page = 0; pageUrl && !seenPages.has(pageUrl) && page < MAX_RELEASE_LIST_PAGES; page += 1) {
+      seenPages.add(pageUrl);
+      const response = await fetch(pageUrl, {
+        headers: { accept: "application/vnd.github+json", "user-agent": "anxos-download-router" },
+        signal: controller.signal,
+      });
+      const text = await response.text();
+      let batch;
+      try {
+        batch = text ? JSON.parse(text) : [];
+      } catch {
+        throw Object.assign(new Error("GitHub release API returned invalid JSON."), { code: "INVALID_RELEASE_JSON" });
+      }
+      if (!response.ok) {
+        const code = response.status === 404 ? "GITHUB_RELEASE_SOURCE_NOT_FOUND" : response.status === 403 ? "GITHUB_RATE_LIMITED" : `GITHUB_HTTP_${response.status}`;
+        throw Object.assign(new Error(batch?.message || `GitHub release API failed with HTTP ${response.status}.`), { code, status: response.status });
+      }
+      const pageReleases = Array.isArray(batch) ? batch : [];
+      releases.push(...pageReleases);
+      if (pageReleases.length < RELEASE_LIST_PAGE_SIZE) break;
+      pageUrl = nextReleasePageUrl(response.headers?.get?.("link") || "", pageUrl);
     }
     const published = (Array.isArray(releases) ? releases : [])
       .filter((candidate) => candidate && !candidate.draft)
@@ -82,8 +146,12 @@ async function fetchLatestRelease(env = {}, options = {}) {
     if (!published.length) {
       throw Object.assign(new Error("No published AnxOS release is available yet."), { code: "NO_PUBLISHED_RELEASE" });
     }
-    const release = pickReleaseWithInstaller(published, { allowPrerelease: Boolean(options.allowPrerelease) });
+    const release = pickReleaseWithInstaller(published, { allowPrerelease: Boolean(options.allowPrerelease), artifactType: options.artifactType || "" });
     if (!release) {
+      const eligibleExists = published.some((candidate) => options.allowPrerelease || isStableChannelRelease(candidate));
+      if (options.artifactType && eligibleExists) {
+        throw Object.assign(new Error("The requested AnxOS download artifact is not available in the latest published release."), { code: "ARTIFACT_NOT_FOUND" });
+      }
       throw Object.assign(new Error("The latest release does not contain a supported installer."), { code: "NO_SUPPORTED_INSTALLER" });
     }
     return { repository, release };
@@ -103,6 +171,7 @@ async function fetchLatestRelease(env = {}, options = {}) {
 function findArtifact(release, repository, artifactType) {
   const matches = (release.assets || [])
     .filter((asset) => classifyAssetName(asset?.name) === artifactType)
+    .filter((asset) => assetHasChecksum(asset, release))
     .filter((asset) => asset.browser_download_url && isExpectedAssetUrl(asset.browser_download_url, repository));
   if (artifactType === "windows") {
     return matches.find((asset) => /setup/i.test(asset.name)) || matches[0] || null;
@@ -121,7 +190,7 @@ function wantsPrerelease(request) {
 async function redirectLatestArtifact(request, env, artifactType, options = {}) {
   try {
     const allowPrerelease = Boolean(options.allowPrerelease) || wantsPrerelease(request);
-    const { repository, release } = await fetchLatestRelease(env, { allowPrerelease });
+    const { repository, release } = await fetchLatestRelease(env, { allowPrerelease, artifactType });
     const asset = findArtifact(release, repository, artifactType);
     if (!asset) {
       return json({
@@ -134,6 +203,15 @@ async function redirectLatestArtifact(request, env, artifactType, options = {}) 
     }
     return Response.redirect(asset.browser_download_url, 302);
   } catch (error) {
+    if (error?.code === "ARTIFACT_NOT_FOUND") {
+      return json({
+        error: {
+          code: "ARTIFACT_NOT_FOUND",
+          message: error.message,
+          artifactType,
+        },
+      }, 404);
+    }
     return json({
       error: {
         code: error?.code || "RELEASE_LOOKUP_FAILED",

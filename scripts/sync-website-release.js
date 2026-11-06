@@ -168,7 +168,7 @@ const config = `window.ANXOS_DOWNLOAD_CONFIG = {
   },
   repositoryUrl: "${repositoryUrl}",
   releaseUrl: "${repositoryUrl}/releases/tag/${release.tag}",
-  githubReleasesApiUrl: "https://api.github.com/repos/${releaseRepository.owner}/${releaseRepository.repo}/releases?per_page=20",
+  githubReleasesApiUrl: "https://api.github.com/repos/${releaseRepository.owner}/${releaseRepository.repo}/releases?per_page=100&page=1",
   stableDownloadEndpoints: {
     windows: "/api/download/latest/windows",
     windowsPortable: "/api/download/latest/windows-portable",

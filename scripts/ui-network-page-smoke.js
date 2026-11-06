@@ -29,10 +29,10 @@ assert(navStart > -1, "Sidebar navigation container (#app-sidebar-nav) must exis
 const navEnd = index.indexOf("</nav>", navStart);
 const navSource = index.slice(navStart, navEnd === -1 ? index.length : navEnd);
 assert(navSource.includes('data-page-target="network"'), "Sidebar must expose the Network page target.");
-assert(navSource.includes('data-page-label="Network"'), "Network nav item must declare data-page-label.");
+assert(navSource.includes('data-page-target="network"') && navSource.includes('data-page-label="Addresses"'), "Addresses nav item must keep the network route id and the visible label.");
 assert(
-  navSource.includes('data-nav-description="Endpoints, providers and connectivity"'),
-  "Network nav item must carry the standardized description.",
+  navSource.includes('data-nav-description="Saved addresses and connection checks"'),
+  "Addresses nav item must carry the scope description.",
 );
 const nodesNavAt = navSource.indexOf('data-page-target="nodes"');
 const networkNavAt = navSource.indexOf('data-page-target="network"');
@@ -170,7 +170,7 @@ assert(app.includes("let networkState = {"), "app.js must declare networkState."
   "updateNetworkToolbarState",
 ].forEach((name) => assert(app.includes(`function ${name}(`), `app.js must define ${name}().`));
 
-assert(app.includes("PAGE_INTRODUCTIONS") && app.includes("network: [\"Endpoints and connectivity\""), "PAGE_INTRODUCTIONS must include the network entry.");
+assert(app.includes("PAGE_INTRODUCTIONS") && app.includes("network: [\"Addresses\", \"Saved addresses and connection checks.\"]"), "PAGE_INTRODUCTIONS must keep the network route and the Addresses copy.");
 assert(app.includes('"nodes",\n  "network",'), "PRIMARY_NAVIGATION_ORDER must include network after nodes.");
 
 // ---------------------------------------------------------------------------

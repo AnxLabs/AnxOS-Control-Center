@@ -17,10 +17,11 @@ function readWebsite(file) {
   return fs.readFileSync(path.join(websiteRoot, file), "utf8");
 }
 
-function makeAsset(name, size = 1024, urlName = name, owner = publicOwner, repo = publicRepo) {
+function makeAsset(name, size = 1024, urlName = name, owner = publicOwner, repo = publicRepo, digest = `sha256:${"ab".repeat(32)}`) {
   return {
     name,
     size,
+    digest,
     browser_download_url: `https://github.com/${owner}/${repo}/releases/download/v1.7-build142/${encodeURIComponent(urlName)}`,
   };
 }
@@ -107,7 +108,8 @@ async function main() {
   assert(normalized.assets.some((asset) => asset.key === "linux-appimage"), "Linux AppImage should be detected.");
   assert(normalized.assets.some((asset) => asset.key === "linux-deb"), "Linux .deb should be detected.");
   assert.strictEqual(normalized.checksumAssets[0].fileName, "SHA256SUMS", "Checksum manifest should be detected.");
-  assert(normalized.assets.every((asset) => asset.checksumAsset?.fileName === "SHA256SUMS"), "Assets should reference checksum metadata when present.");
+  assert(normalized.assets.every((asset) => /^[a-f0-9]{64}$/.test(asset.sha256)), "Each offered installer must carry its own SHA-256.");
+  assert(normalized.assets.every((asset) => !asset.checksumAsset || asset.checksumAsset.fileName === `${asset.fileName}.sha256`), "An installer may only reference its own sidecar, not another asset's checksum.");
   assert(!normalized.assets.some((asset) => /evil/i.test(asset.fileName)), "Unexpected GitHub repositories must be rejected.");
   assert.strictEqual(service.preferredAssetForPlatform(normalized, "windows").key, "windows-setup", "Windows should prefer Setup.");
   assert.strictEqual(service.preferredAssetForPlatform(normalized, "linux").key, "linux-appimage", "Linux should prefer AppImage.");
@@ -205,7 +207,7 @@ async function main() {
   assert(site.includes("No downloadable release is currently available.") && site.includes("Unavailable") && site.includes("Download information is temporarily unavailable. Please try again shortly."), "Failed release loading should clear loading placeholders and show a complete visible error state.");
   assert(site.includes('button.addEventListener("click", () =>') && site.includes("applyDownloads({ force: true })") && site.includes("setDownloadLinksLoading()"), "Retry should reset loading state and force a fresh release lookup.");
   assert(site.includes("isExpectedAssetUrl") || fs.readFileSync(path.join(websiteRoot, "release-download-service.js"), "utf8").includes("isExpectedAssetUrl"), "Download URLs should be allowlisted.");
-  assert(config.includes("releaseRepository") && config.includes(publicRepo) && config.includes(`https://api.github.com/repos/${publicRepository}/releases?per_page=20`), "Config should use the public release-only repository.");
+  assert(config.includes("releaseRepository") && config.includes(publicRepo) && config.includes(`https://api.github.com/repos/${publicRepository}/releases?per_page=100&page=1`), "Config should use the public release-only repository.");
   assert(!new RegExp(`${privateSourceRepositoryUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:/releases|["'])`).test(config), "Browser release discovery must not use the private source repository.");
   assert(!/GITHUB_TOKEN|GH_TOKEN|PERSONAL_ACCESS_TOKEN|ANXOS_RELEASE_REPO_TOKEN/.test(`${download}\n${downloadHtml}\n${site}\n${config}\n${fs.readFileSync(path.join(websiteRoot, "release-download-service.js"), "utf8")}`), "Frontend download code must not contain GitHub tokens or token variable names.");
   assert(config.includes("githubReleasesApiUrl") && config.includes("stableDownloadEndpoints") && config.includes("releaseAssets"), "Config should contain release discovery settings and public release asset fallback metadata.");
@@ -243,6 +245,191 @@ async function main() {
   assert.strictEqual(clientStable.tagName, "v1.7-build142", "Client renderer stable latest must ignore the newer pre-release RC.");
   const clientRc = service.latestPublishedRelease(sampleReleases(), { repositoryUrl: publicRepositoryUrl, config: { channel: "Private Alpha" }, allowPrerelease: true });
   assert.strictEqual(clientRc.tagName, "v1.9-build200", "Client renderer must expose an RC when allowPrerelease is explicitly requested.");
+
+  const misflaggedRc = {
+    draft: false,
+    prerelease: false,
+    tag_name: "v2.0-build205-rc3",
+    name: "v2.0-build205-rc3",
+    channel: "Private Alpha",
+    published_at: "2026-11-06T00:00:00Z",
+    html_url: `${publicRepositoryUrl}/releases/tag/v2.0-build205-rc3`,
+    assets: [makeAsset("AnxOS-Control-Center-Setup-2.0-build205-rc3.exe", 80 * 1024 * 1024)],
+  };
+  const flaggedAlpha = {
+    draft: false,
+    prerelease: true,
+    tag_name: "v2.0-build209",
+    name: "v2.0-build209",
+    published_at: "2026-10-31T19:39:54Z",
+    html_url: `${publicRepositoryUrl}/releases/tag/v2.0-build209`,
+    assets: [makeAsset("AnxOS-Control-Center-Setup-2.0-build209.exe", 80 * 1024 * 1024)],
+  };
+  mockFetchJson([misflaggedRc, flaggedAlpha, ...sampleReleases()].reverse());
+  const misflaggedRedirect = await functionsHelper.redirectLatestArtifact(new Request("https://anxoscontrolcenter.org/api/download/latest/windows"), {}, "windows");
+  assert.strictEqual(misflaggedRedirect.status, 302, "A stable artifact must still resolve when a mis-flagged RC is also published.");
+  assert(misflaggedRedirect.headers.get("location").includes("AnxOS-Control-Center-Setup-1.7-build142.exe"), "Stable download must ignore a newer RC that GitHub marked prerelease=false.");
+  assert(!misflaggedRedirect.headers.get("location").includes("build205"), "Stable download must not redirect to the mis-flagged RC.");
+  assert(!misflaggedRedirect.headers.get("location").includes("build209"), "Stable download must not redirect to a prerelease alpha.");
+  mockFetchJson([misflaggedRc, flaggedAlpha]);
+  const blockedRedirect = await functionsHelper.redirectLatestArtifact(new Request("https://anxoscontrolcenter.org/api/download/latest/windows"), {}, "windows");
+  assert.notStrictEqual(blockedRedirect.status, 302, "Stable download must fail closed when every published release is an alpha or RC.");
+  const blockedBody = await blockedRedirect.text();
+  assert(!blockedBody.includes("build205-rc3"), "The fail-closed response must not point at the mis-flagged RC.");
+  assert.match(blockedBody, /NO_SUPPORTED_INSTALLER/, "The fail-closed response must explain that no stable installer is available.");
+  assert.strictEqual(service.latestPublishedRelease([misflaggedRc, flaggedAlpha, ...sampleReleases()], { repositoryUrl: publicRepositoryUrl })?.tagName, "v1.7-build142");
+  assert.strictEqual(service.latestPublishedRelease([...sampleReleases()].reverse().concat(misflaggedRc), { repositoryUrl: publicRepositoryUrl })?.tagName, "v1.7-build142", "Website stable selection must not depend on list order.");
+  assert.strictEqual(service.latestPublishedRelease([misflaggedRc, flaggedAlpha], { repositoryUrl: publicRepositoryUrl }), null, "Website stable selection must not fall back to an alpha or RC.");
+  const checksumlessStable = {
+    draft: false,
+    prerelease: false,
+    tag_name: "v1.8-build150",
+    name: "v1.8-build150",
+    published_at: "2026-12-01T00:00:00Z",
+    html_url: `${publicRepositoryUrl}/releases/tag/v1.8-build150`,
+    assets: [{ ...makeAsset("AnxOS-Control-Center-Setup-1.8-build150.exe", 80 * 1024 * 1024), digest: "" }],
+  };
+  assert.strictEqual(
+    service.latestPublishedRelease([checksumlessStable, ...sampleReleases()], { repositoryUrl: publicRepositoryUrl })?.tagName,
+    "v1.7-build142",
+    "A newer stable release without a SHA-256 must not replace a checksummed stable release.",
+  );
+
+  const stableOnLaterPage = sampleReleases()[1];
+  const firstPage = Array.from({ length: 100 }, (_, index) => ({
+    draft: false,
+    prerelease: false,
+    tag_name: `v8.0-build${index}-rc1`,
+    name: `v8.0-build${index}-rc1`,
+    assets: [makeAsset(`AnxOS-Control-Center-Setup-8.0-build${index}-rc1.exe`, 80 * 1024 * 1024)],
+  }));
+  const fetchedPages = [];
+  global.fetch = async (url) => {
+    fetchedPages.push(String(url));
+    const page = new URL(url).searchParams.get("page");
+    const body = page === "2" ? [stableOnLaterPage] : firstPage;
+    const link = page === "2" ? "" : `<${String(url).replace("page=1", "page=2")}>; rel="next"`;
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: (name) => (String(name).toLowerCase() === "link" ? link : "") },
+      text: async () => JSON.stringify(body),
+      json: async () => body,
+    };
+  };
+  const pagedRedirect = await functionsHelper.redirectLatestArtifact(new Request("https://anxoscontrolcenter.org/api/download/latest/windows"), {}, "windows");
+  assert.strictEqual(pagedRedirect.status, 302, "Stable download must keep reading after a full page of release candidates.");
+  assert(pagedRedirect.headers.get("location").includes("AnxOS-Control-Center-Setup-1.7-build142.exe"), "The stable release on the second page must be the download.");
+  assert(!pagedRedirect.headers.get("location").includes("-rc1"), "A full first page of RC tags must not become the stable download.");
+  assert(fetchedPages.some((url) => url.includes("page=2")), "the download route must request the next release page.");
+
+  const workerModule = await import(pathToFileURL(path.join(websiteRoot, "_worker.js")).href);
+  const pagesModule = await import(pathToFileURL(path.join(websiteRoot, "functions", "api", "download", "latest", "[platform].js")).href);
+  const digested = (name) => makeAsset(name, 80 * 1024 * 1024);
+  const undigested = (name) => {
+    const asset = makeAsset(name, 80 * 1024 * 1024);
+    delete asset.digest;
+    return asset;
+  };
+  const githubRelease = (tag, assets, publishedAt) => ({
+    draft: false,
+    prerelease: false,
+    tag_name: tag,
+    name: tag,
+    published_at: publishedAt,
+    html_url: `${publicRepositoryUrl}/releases/tag/${tag}`,
+    assets,
+  });
+  const notesAndAgentRelease = githubRelease("v2.0-build210", [
+    digested("notes.txt"),
+    digested("AnxOS-Agent-2.0-build210.deb"),
+    undigested("AnxOS-Control-Center-Setup-2.0-build210.exe"),
+  ], "2026-12-02T00:00:00Z");
+  const linuxOnlyChecksumRelease = githubRelease("v2.0-build211", [
+    digested("AnxOS-Control-Center-2.0-build211.AppImage"),
+    undigested("AnxOS-Control-Center-Setup-2.0-build211.exe"),
+  ], "2026-12-03T00:00:00Z");
+  const mismatchedSidecarRelease = githubRelease("v2.0-build212", [
+    undigested("AnxOS-Control-Center-Setup-2.0-build212.exe"),
+    digested("notes.txt.sha256"),
+    digested("AnxOS-Agent-2.0-build212.deb.sha256"),
+  ], "2026-12-04T00:00:00Z");
+  const olderValidWindows = sampleReleases()[1];
+  const browserOptions = { repositoryUrl: publicRepositoryUrl, platform: "windows" };
+
+  const notesSelection = service.latestPublishedRelease([notesAndAgentRelease], browserOptions);
+  assert.strictEqual(notesSelection, null, "Checksummed notes or Agent packages must not authorize a checksum-less Windows installer.");
+  const linuxSelection = service.latestPublishedRelease([linuxOnlyChecksumRelease], { repositoryUrl: publicRepositoryUrl });
+  assert(!linuxSelection.assets.some((asset) => asset.fileName.includes("Setup-2.0-build211")), "A checksummed Linux installer must not keep a checksum-less Windows installer in the offered set.");
+  assert(linuxSelection.assets.some((asset) => asset.key === "linux-appimage" && asset.sha256), "The Linux installer with its own digest must remain offered.");
+  assert.strictEqual(service.preferredAssetForPlatform(linuxSelection, "windows"), null, "Windows preference must not fall back to the checksum-less setup.");
+  const mismatchedSelection = service.latestPublishedRelease([mismatchedSidecarRelease], browserOptions);
+  assert.strictEqual(mismatchedSelection, null, "A sidecar for a different file must not authorize the Windows installer.");
+  const matchingSidecarName = "AnxOS-Control-Center-Setup-1.7-build143.exe";
+  const matchingSidecarRelease = githubRelease("v1.7-build143", [
+    undigested(matchingSidecarName),
+    { name: `${matchingSidecarName}.sha256`, size: 96, browser_download_url: `${publicRepositoryUrl}/releases/download/v1.7-build143/${matchingSidecarName}.sha256` },
+    digested("notes.txt.sha256"),
+  ], "2026-07-01T00:00:00Z");
+  const matchingSidecar = service.latestPublishedRelease([matchingSidecarRelease], browserOptions);
+  const matchingSetup = matchingSidecar?.assets?.find((asset) => asset.key === "windows-setup");
+  assert(matchingSetup && matchingSetup.checksumAsset?.fileName === `${matchingSidecarName}.sha256`, "The installer's own .sha256 sidecar is matching integrity evidence.");
+  assert.notStrictEqual(matchingSetup?.checksumAsset?.fileName, "notes.txt.sha256");
+  const olderWindows = service.latestPublishedRelease([linuxOnlyChecksumRelease, notesAndAgentRelease, olderValidWindows], browserOptions);
+  assert.strictEqual(olderWindows.tagName, "v1.7-build142", "A newer checksum-less Windows release must lose to an older release whose Windows installer has its own checksum.");
+  const olderSetup = olderWindows.assets.find((asset) => asset.key === "windows-setup");
+  assert(olderSetup.fileName.includes("1.7-build142") && olderSetup.sha256, "The offered Windows setup must be the older checksummed installer.");
+  const validWindows = service.latestPublishedRelease(sampleReleases(), browserOptions);
+  assert.strictEqual(validWindows.tagName, "v1.7-build142");
+  assert(validWindows.assets.find((asset) => asset.key === "windows-setup").sha256, "A normal checksummed Windows setup must still be selected.");
+
+  async function mockReleaseFetch(releases) {
+    global.fetch = async () => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => "" },
+      text: async () => JSON.stringify(releases),
+      json: async () => JSON.parse(JSON.stringify(releases)),
+    });
+  }
+  async function assertRedirect(label, releases, platform, acceptName, rejectName) {
+    await mockReleaseFetch(releases);
+    const routes = [
+      ["functions", await functionsHelper.redirectLatestArtifact(new Request(`https://anxoscontrolcenter.org/api/download/latest/${platform}`), {}, platform)],
+      ["worker", await workerModule.default.fetch(new Request(`https://anxoscontrolcenter.org/api/download/latest/${platform}`), {})],
+      ["pages", await pagesModule.onRequestGet({ request: new Request(`https://anxoscontrolcenter.org/api/download/latest/${platform}`), params: { platform }, env: {} })],
+    ];
+    for (const [route, response] of routes) {
+      const location = response.headers.get("location") || "";
+      if (acceptName) {
+        assert.strictEqual(response.status, 302, `${label} ${route} must redirect to the checksummed installer.`);
+        assert(location.includes(acceptName), `${label} ${route} must offer ${acceptName}.`);
+      } else {
+        assert.notStrictEqual(response.status, 302, `${label} ${route} must not redirect to an installer without its own checksum.`);
+      }
+      if (rejectName) assert(!location.includes(rejectName), `${label} ${route} must not offer ${rejectName}.`);
+    }
+    await mockReleaseFetch(releases);
+    const loaded = await service.loadLatestRelease({
+      force: true,
+      platform,
+      repositoryUrl: publicRepositoryUrl,
+      config: { releaseRepository: { owner: publicOwner, repo: publicRepo } },
+    }).catch((error) => error);
+    if (acceptName) {
+      assert.strictEqual(loaded.tagName, "v1.7-build142", `${label} fallback loader must select the checksummed Windows release.`);
+      const setup = loaded.assets.find((asset) => asset.key === "windows-setup");
+      assert(setup && setup.fileName.includes(acceptName) && setup.sha256, `${label} fallback loader must return that Windows installer and its digest.`);
+    } else if (platform === "windows") {
+      const setup = loaded?.assets?.find((asset) => asset.key === "windows-setup");
+      assert(!setup, `${label} fallback loader must not offer the checksum-less Windows installer.`);
+    }
+  }
+  await assertRedirect("notes-or-agent", [notesAndAgentRelease], "windows", "", "Setup-2.0-build210.exe");
+  await assertRedirect("linux-only-checksum", [linuxOnlyChecksumRelease], "windows", "", "Setup-2.0-build211.exe");
+  await assertRedirect("mismatched-sidecar", [mismatchedSidecarRelease], "windows", "", "Setup-2.0-build212.exe");
+  await assertRedirect("older-valid-windows", [linuxOnlyChecksumRelease, notesAndAgentRelease, olderValidWindows], "windows", "AnxOS-Control-Center-Setup-1.7-build142.exe", "build21");
+  await assertRedirect("valid-windows", sampleReleases(), "windows", "AnxOS-Control-Center-Setup-1.7-build142.exe", "");
 
   console.log("Website download smoke checks passed.");
 }
