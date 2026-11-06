@@ -37,12 +37,12 @@ Do not purge older smoke tests solely because they are numerous or not reference
 
 ## Release notes / Phase 1
 
-Draft [PR #49](https://github.com/AnxLabs/AnxOS-Control-Center/pull/49) moves **12 old root-level release notes** into `docs/releases/` as unchanged Git blobs. Review of `dev...chore/archive-old-release-notes-20261106` found exactly twelve **renames**, no product-source changes.
+Merged [PR #49](https://github.com/AnxLabs/AnxOS-Control-Center/pull/49) archived **12 old root-level release notes** under `docs/releases/` as unchanged Git blobs. Its final diff included twelve **renames** and one compatibility fix to the historical notes backfill script; no application source was modified.
 
 - Keep **`RELEASE_NOTES_2.0-build209.md`** at the root: `scripts/versioning-smoke.js`, `scripts/sync-website-release.js` and `.github/workflows/windows-release.yml` read a matching current root notes file.
 - `docs/releases/` is an archive, not a replacement for the active release metadata contract.
 - Historical tags and GitHub releases remain untouched.
-- Re-check the tagged-release workflow/notes path before PR #49 is merged. This audit is source inspection, **not a fresh CI or packaged release test**.
+- The current-notes root lookup in the tagged-release workflow was reviewed before PR #49 merged. Its historical backfill helper was updated to check the archive first. No fresh CI or packaged release test was performed in this audit.
 
 ## Identical blobs: do not blindly deduplicate
 
@@ -72,7 +72,7 @@ Compared with `dev` at the audit tip:
 | `docs/aim-0-signoff` | 0 | 62 | Candidate for retirement |
 | `test/stabilization-qa-welcome-order` | 0 | 166 | Candidate for retirement |
 | `cursor/updater-channel-safety-dcd2` | 4 | 0 | **Keep — active draft PR #48** |
-| `chore/archive-old-release-notes-20261106` | 1 | 0 | **Keep — draft PR #49** |
+| `chore/archive-old-release-notes-20261106` | 1 at initial audit | 0 at initial audit | **PR #49 merged — branch retirement still needs a worktree/dependency check** |
 | `dev` | 0 | 0 | **Keep — default branch** |
 
 Four branches have no unique commits versus `dev`, but local-worktree use, external automations, and human references have **not** been ruled out. The AnxPC Bridge was unreachable during this audit. Do not delete those branches until local state and external references are checked and AJ explicitly approves deletion.
@@ -96,7 +96,7 @@ Four branches have no unique commits versus `dev`, but local-worktree use, exter
 
 ## Status at this audit
 
-- **Confirmed content moves:** 12 old release notes in the separate pending draft PR #49.
+- **Confirmed content moves:** 12 old release notes archived by merged PR #49; historical backfill lookup updated.
 - **Proposed in this phase:** navigation/documentation hygiene and a source-attributed cleanup inventory.
 - **No verified dead source scripts or removable duplicated website assets.**
 - **No remote branch deletion or release-operation authorization.**
