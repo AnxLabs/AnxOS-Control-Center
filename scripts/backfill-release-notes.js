@@ -17,7 +17,9 @@ for (const build of builds) {
   if (!entry) { console.log(`No entry for build ${build}`); continue; }
   const isPlaceholder = entry.summary === "Latest AnxOS-Control-Center release.";
   if (!isPlaceholder) { console.log(`Build ${build} already has content`); continue; }
-  const mdPath = path.join(rootDir, `RELEASE_NOTES_1.9-build${build}.md`);
+  const archivedPath = path.join(rootDir, "docs", "releases", `RELEASE_NOTES_1.9-build${build}.md`);
+  const legacyPath = path.join(rootDir, `RELEASE_NOTES_1.9-build${build}.md`);
+  const mdPath = fs.existsSync(archivedPath) ? archivedPath : legacyPath;
   if (!fs.existsSync(mdPath)) { console.log(`No markdown for build ${build}`); continue; }
   const raw = fs.readFileSync(mdPath, "utf8");
   const lines = raw.split(/\r?\n/);
