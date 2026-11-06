@@ -120,9 +120,15 @@
     return null;
   }
 
+  function ownChecksumDigest(asset) {
+    const digest = String(asset?.digest || asset?.sha256 || asset?.checksum || "").trim();
+    const match = digest.match(/^(?:sha256:)?([a-f0-9]{64})$/i);
+    return match ? match[1].toLowerCase() : "";
+  }
+
   function checksumForAsset(asset, checksumAssets) {
-    const exact = checksumAssets.find((checksum) => checksum.fileName.toLowerCase() === `${asset.fileName.toLowerCase()}.sha256`);
-    return exact || checksumAssets.find((checksum) => /sha256sums|checksums/i.test(checksum.fileName)) || checksumAssets[0] || null;
+    const exactName = `${asset.fileName}.sha256`;
+    return checksumAssets.find((checksum) => checksum.fileName === exactName) || null;
   }
 
   function normalizeRelease(release, options = {}) {
@@ -145,6 +151,10 @@
         return;
       }
       if (!isExpectedAssetUrl(asset.browser_download_url, repository)) return;
+      const sha256 = ownChecksumDigest(asset);
+      const sidecarName = `${asset.name}.sha256`;
+      const hasOwnSidecar = (Array.isArray(release.assets) ? release.assets : []).some((item) => item?.name === sidecarName);
+      if (!sha256 && !hasOwnSidecar) return;
       assets.push({
         key: classification.key,
         platform: classification.platform,
@@ -155,6 +165,7 @@
         fileSize: Number(asset.size) || 0,
         fileSizeLabel: formatBytes(asset.size),
         downloadUrl: asset.browser_download_url,
+        sha256: sha256 || null,
       });
     });
     assets.sort((left, right) => ARTIFACT_ORDER.indexOf(left.key) - ARTIFACT_ORDER.indexOf(right.key));
@@ -194,19 +205,20 @@
   const MAX_RELEASE_LIST_PAGES = 5;
 
   function assetHasChecksum(asset, release) {
-    const digest = String(asset?.digest || asset?.sha256 || asset?.checksum || "").trim();
-    if (/^(?:sha256:)?[a-f0-9]{64}$/i.test(digest)) return true;
-    const name = String(asset?.name || "");
+    if (ownChecksumDigest(asset)) return true;
+    const name = String(asset?.name || asset?.fileName || "");
     if (!name) return false;
-    return (release?.assets || []).some((item) => String(item?.name || "") === `${name}.sha256`);
+    return (release?.assets || []).some((item) => item?.name === `${name}.sha256`);
+  }
+
+  function isInstallerAssetName(name) {
+    const lower = String(name || "").toLowerCase();
+    if (!lower || /sha256sums|\.sha256$/i.test(lower)) return false;
+    return lower.endsWith(".exe") || lower.endsWith(".msi") || lower.endsWith(".appimage") || lower.endsWith(".deb");
   }
 
   function releaseHasDownloadChecksum(release) {
-    return (release?.assets || []).some((asset) => {
-      const name = String(asset?.name || "");
-      if (!name || /sha256sums|\.sha256$/i.test(name)) return false;
-      return assetHasChecksum(asset, release);
-    });
+    return (release?.assets || []).some((asset) => isInstallerAssetName(asset?.name) && assetHasChecksum(asset, release));
   }
 
   function compareDownloadIdentityDesc(left, right) {
@@ -249,10 +261,13 @@
   }
 
   function latestPublishedRelease(releases, options = {}) {
-    const normalized = eligibleDownloadReleases(releases, options)
-      .map((release) => normalizeRelease(release, options))
-      .find((release) => release && release.assets.length > 0);
-    return normalized || null;
+    for (const release of eligibleDownloadReleases(releases, options)) {
+      const normalized = normalizeRelease(release, options);
+      if (!normalized?.assets?.length) continue;
+      if (options.platform && !preferredAssetForPlatform(normalized, options.platform)) continue;
+      return normalized;
+    }
+    return null;
   }
 
   function publishedReleases(releases, options = {}) {
@@ -260,7 +275,7 @@
   }
 
   function preferredAssetForPlatform(release, platform) {
-    const assets = release?.assets || [];
+    const assets = (release?.assets || []).filter((asset) => asset?.sha256 || asset?.checksumAsset?.fileName === `${asset?.fileName}.sha256`);
     const os = String(platform || detectPlatform()).toLowerCase();
     if (os === "windows") {
       return assets.find((asset) => asset.key === "windows-setup") ||
@@ -387,20 +402,23 @@
       if (batch.length < RELEASE_LIST_PAGE_SIZE) break;
       pageUrl = nextReleasePageUrl(pageResult.link, pageUrl);
     }
-    const published = publishedReleases(releases, { allowPrerelease });
+    const visible = (Array.isArray(releases) ? releases : []).filter((release) => release && !release.draft);
     logReleaseDiagnostic("release-source", {
       repository: `${repository.owner}/${repository.repo}`,
-      publishedReleases: published.length,
+      publishedReleases: visible.length,
       totalReleases: Array.isArray(releases) ? releases.length : 0,
     });
-    if (published.length === 0) {
+    if (visible.length === 0) {
       const error = new Error("No published AnxOS release is available yet.");
       error.code = "NO_PUBLISHED_RELEASE";
       throw error;
     }
-    const release = published
-      .map((candidate) => normalizeRelease(candidate, { repositoryUrl: repository.repositoryUrl, config }))
-      .find((candidate) => candidate && candidate.assets.length > 0);
+    const release = latestPublishedRelease(releases, {
+      allowPrerelease,
+      platform: options.platform,
+      repositoryUrl: repository.repositoryUrl,
+      config,
+    });
     logReleaseDiagnostic("release-assets", {
       repository: `${repository.owner}/${repository.repo}`,
       validAssets: release?.assets?.length || 0,

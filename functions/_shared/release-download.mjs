@@ -65,14 +65,6 @@ function assetHasChecksum(asset, release) {
   return Boolean(name) && (release?.assets || []).some((item) => String(item?.name || "") === `${name}.sha256`);
 }
 
-function releaseHasDownloadChecksum(release) {
-  return (release?.assets || []).some((asset) => {
-    const name = String(asset?.name || "");
-    if (!name || /sha256sums|\.sha256$/i.test(name)) return false;
-    return assetHasChecksum(asset, release);
-  });
-}
-
 function compareDownloadIdentityDesc(left, right) {
   const versionOf = (release) => {
     const match = String(release?.tag_name || release?.name || "").match(/(\d+)\.(\d+)/);
@@ -104,12 +96,15 @@ function nextReleasePageUrl(linkHeader, currentUrl) {
   }
 }
 
-function pickReleaseWithInstaller(releases, { allowPrerelease = false } = {}) {
+function pickReleaseWithInstaller(releases, { allowPrerelease = false, artifactType = "" } = {}) {
   return (Array.isArray(releases) ? releases : [])
     .filter((candidate) => candidate && !candidate.draft && (allowPrerelease || isStableChannelRelease(candidate)))
-    .filter(releaseHasDownloadChecksum)
     .sort(compareDownloadIdentityDesc)
-    .find((candidate) => Array.isArray(candidate.assets) && candidate.assets.some((asset) => classifyAssetName(asset?.name) && assetHasChecksum(asset, candidate))) || null;
+    .find((candidate) => (candidate.assets || []).some((asset) => {
+      const classified = classifyAssetName(asset?.name);
+      if (!classified || (artifactType && classified !== artifactType)) return false;
+      return assetHasChecksum(asset, candidate);
+    })) || null;
 }
 
 async function fetchLatestRelease(env = {}, options = {}) {
@@ -151,8 +146,12 @@ async function fetchLatestRelease(env = {}, options = {}) {
     if (!published.length) {
       throw Object.assign(new Error("No published AnxOS release is available yet."), { code: "NO_PUBLISHED_RELEASE" });
     }
-    const release = pickReleaseWithInstaller(published, { allowPrerelease: Boolean(options.allowPrerelease) });
+    const release = pickReleaseWithInstaller(published, { allowPrerelease: Boolean(options.allowPrerelease), artifactType: options.artifactType || "" });
     if (!release) {
+      const eligibleExists = published.some((candidate) => options.allowPrerelease || isStableChannelRelease(candidate));
+      if (options.artifactType && eligibleExists) {
+        throw Object.assign(new Error("The requested AnxOS download artifact is not available in the latest published release."), { code: "ARTIFACT_NOT_FOUND" });
+      }
       throw Object.assign(new Error("The latest release does not contain a supported installer."), { code: "NO_SUPPORTED_INSTALLER" });
     }
     return { repository, release };
@@ -172,6 +171,7 @@ async function fetchLatestRelease(env = {}, options = {}) {
 function findArtifact(release, repository, artifactType) {
   const matches = (release.assets || [])
     .filter((asset) => classifyAssetName(asset?.name) === artifactType)
+    .filter((asset) => assetHasChecksum(asset, release))
     .filter((asset) => asset.browser_download_url && isExpectedAssetUrl(asset.browser_download_url, repository));
   if (artifactType === "windows") {
     return matches.find((asset) => /setup/i.test(asset.name)) || matches[0] || null;
@@ -190,7 +190,7 @@ function wantsPrerelease(request) {
 async function redirectLatestArtifact(request, env, artifactType, options = {}) {
   try {
     const allowPrerelease = Boolean(options.allowPrerelease) || wantsPrerelease(request);
-    const { repository, release } = await fetchLatestRelease(env, { allowPrerelease });
+    const { repository, release } = await fetchLatestRelease(env, { allowPrerelease, artifactType });
     const asset = findArtifact(release, repository, artifactType);
     if (!asset) {
       return json({
@@ -203,6 +203,15 @@ async function redirectLatestArtifact(request, env, artifactType, options = {}) 
     }
     return Response.redirect(asset.browser_download_url, 302);
   } catch (error) {
+    if (error?.code === "ARTIFACT_NOT_FOUND") {
+      return json({
+        error: {
+          code: "ARTIFACT_NOT_FOUND",
+          message: error.message,
+          artifactType,
+        },
+      }, 404);
+    }
     return json({
       error: {
         code: error?.code || "RELEASE_LOOKUP_FAILED",

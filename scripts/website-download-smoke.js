@@ -108,7 +108,8 @@ async function main() {
   assert(normalized.assets.some((asset) => asset.key === "linux-appimage"), "Linux AppImage should be detected.");
   assert(normalized.assets.some((asset) => asset.key === "linux-deb"), "Linux .deb should be detected.");
   assert.strictEqual(normalized.checksumAssets[0].fileName, "SHA256SUMS", "Checksum manifest should be detected.");
-  assert(normalized.assets.every((asset) => asset.checksumAsset?.fileName === "SHA256SUMS"), "Assets should reference checksum metadata when present.");
+  assert(normalized.assets.every((asset) => /^[a-f0-9]{64}$/.test(asset.sha256)), "Each offered installer must carry its own SHA-256.");
+  assert(normalized.assets.every((asset) => !asset.checksumAsset || asset.checksumAsset.fileName === `${asset.fileName}.sha256`), "An installer may only reference its own sidecar, not another asset's checksum.");
   assert(!normalized.assets.some((asset) => /evil/i.test(asset.fileName)), "Unexpected GitHub repositories must be rejected.");
   assert.strictEqual(service.preferredAssetForPlatform(normalized, "windows").key, "windows-setup", "Windows should prefer Setup.");
   assert.strictEqual(service.preferredAssetForPlatform(normalized, "linux").key, "linux-appimage", "Linux should prefer AppImage.");
@@ -321,6 +322,114 @@ async function main() {
   assert(pagedRedirect.headers.get("location").includes("AnxOS-Control-Center-Setup-1.7-build142.exe"), "The stable release on the second page must be the download.");
   assert(!pagedRedirect.headers.get("location").includes("-rc1"), "A full first page of RC tags must not become the stable download.");
   assert(fetchedPages.some((url) => url.includes("page=2")), "the download route must request the next release page.");
+
+  const workerModule = await import(pathToFileURL(path.join(websiteRoot, "_worker.js")).href);
+  const pagesModule = await import(pathToFileURL(path.join(websiteRoot, "functions", "api", "download", "latest", "[platform].js")).href);
+  const digested = (name) => makeAsset(name, 80 * 1024 * 1024);
+  const undigested = (name) => {
+    const asset = makeAsset(name, 80 * 1024 * 1024);
+    delete asset.digest;
+    return asset;
+  };
+  const githubRelease = (tag, assets, publishedAt) => ({
+    draft: false,
+    prerelease: false,
+    tag_name: tag,
+    name: tag,
+    published_at: publishedAt,
+    html_url: `${publicRepositoryUrl}/releases/tag/${tag}`,
+    assets,
+  });
+  const notesAndAgentRelease = githubRelease("v2.0-build210", [
+    digested("notes.txt"),
+    digested("AnxOS-Agent-2.0-build210.deb"),
+    undigested("AnxOS-Control-Center-Setup-2.0-build210.exe"),
+  ], "2026-12-02T00:00:00Z");
+  const linuxOnlyChecksumRelease = githubRelease("v2.0-build211", [
+    digested("AnxOS-Control-Center-2.0-build211.AppImage"),
+    undigested("AnxOS-Control-Center-Setup-2.0-build211.exe"),
+  ], "2026-12-03T00:00:00Z");
+  const mismatchedSidecarRelease = githubRelease("v2.0-build212", [
+    undigested("AnxOS-Control-Center-Setup-2.0-build212.exe"),
+    digested("notes.txt.sha256"),
+    digested("AnxOS-Agent-2.0-build212.deb.sha256"),
+  ], "2026-12-04T00:00:00Z");
+  const olderValidWindows = sampleReleases()[1];
+  const browserOptions = { repositoryUrl: publicRepositoryUrl, platform: "windows" };
+
+  const notesSelection = service.latestPublishedRelease([notesAndAgentRelease], browserOptions);
+  assert.strictEqual(notesSelection, null, "Checksummed notes or Agent packages must not authorize a checksum-less Windows installer.");
+  const linuxSelection = service.latestPublishedRelease([linuxOnlyChecksumRelease], { repositoryUrl: publicRepositoryUrl });
+  assert(!linuxSelection.assets.some((asset) => asset.fileName.includes("Setup-2.0-build211")), "A checksummed Linux installer must not keep a checksum-less Windows installer in the offered set.");
+  assert(linuxSelection.assets.some((asset) => asset.key === "linux-appimage" && asset.sha256), "The Linux installer with its own digest must remain offered.");
+  assert.strictEqual(service.preferredAssetForPlatform(linuxSelection, "windows"), null, "Windows preference must not fall back to the checksum-less setup.");
+  const mismatchedSelection = service.latestPublishedRelease([mismatchedSidecarRelease], browserOptions);
+  assert.strictEqual(mismatchedSelection, null, "A sidecar for a different file must not authorize the Windows installer.");
+  const matchingSidecarName = "AnxOS-Control-Center-Setup-1.7-build143.exe";
+  const matchingSidecarRelease = githubRelease("v1.7-build143", [
+    undigested(matchingSidecarName),
+    { name: `${matchingSidecarName}.sha256`, size: 96, browser_download_url: `${publicRepositoryUrl}/releases/download/v1.7-build143/${matchingSidecarName}.sha256` },
+    digested("notes.txt.sha256"),
+  ], "2026-07-01T00:00:00Z");
+  const matchingSidecar = service.latestPublishedRelease([matchingSidecarRelease], browserOptions);
+  const matchingSetup = matchingSidecar?.assets?.find((asset) => asset.key === "windows-setup");
+  assert(matchingSetup && matchingSetup.checksumAsset?.fileName === `${matchingSidecarName}.sha256`, "The installer's own .sha256 sidecar is matching integrity evidence.");
+  assert.notStrictEqual(matchingSetup?.checksumAsset?.fileName, "notes.txt.sha256");
+  const olderWindows = service.latestPublishedRelease([linuxOnlyChecksumRelease, notesAndAgentRelease, olderValidWindows], browserOptions);
+  assert.strictEqual(olderWindows.tagName, "v1.7-build142", "A newer checksum-less Windows release must lose to an older release whose Windows installer has its own checksum.");
+  const olderSetup = olderWindows.assets.find((asset) => asset.key === "windows-setup");
+  assert(olderSetup.fileName.includes("1.7-build142") && olderSetup.sha256, "The offered Windows setup must be the older checksummed installer.");
+  const validWindows = service.latestPublishedRelease(sampleReleases(), browserOptions);
+  assert.strictEqual(validWindows.tagName, "v1.7-build142");
+  assert(validWindows.assets.find((asset) => asset.key === "windows-setup").sha256, "A normal checksummed Windows setup must still be selected.");
+
+  async function mockReleaseFetch(releases) {
+    global.fetch = async () => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => "" },
+      text: async () => JSON.stringify(releases),
+      json: async () => JSON.parse(JSON.stringify(releases)),
+    });
+  }
+  async function assertRedirect(label, releases, platform, acceptName, rejectName) {
+    await mockReleaseFetch(releases);
+    const routes = [
+      ["functions", await functionsHelper.redirectLatestArtifact(new Request(`https://anxoscontrolcenter.org/api/download/latest/${platform}`), {}, platform)],
+      ["worker", await workerModule.default.fetch(new Request(`https://anxoscontrolcenter.org/api/download/latest/${platform}`), {})],
+      ["pages", await pagesModule.onRequestGet({ request: new Request(`https://anxoscontrolcenter.org/api/download/latest/${platform}`), params: { platform }, env: {} })],
+    ];
+    for (const [route, response] of routes) {
+      const location = response.headers.get("location") || "";
+      if (acceptName) {
+        assert.strictEqual(response.status, 302, `${label} ${route} must redirect to the checksummed installer.`);
+        assert(location.includes(acceptName), `${label} ${route} must offer ${acceptName}.`);
+      } else {
+        assert.notStrictEqual(response.status, 302, `${label} ${route} must not redirect to an installer without its own checksum.`);
+      }
+      if (rejectName) assert(!location.includes(rejectName), `${label} ${route} must not offer ${rejectName}.`);
+    }
+    await mockReleaseFetch(releases);
+    const loaded = await service.loadLatestRelease({
+      force: true,
+      platform,
+      repositoryUrl: publicRepositoryUrl,
+      config: { releaseRepository: { owner: publicOwner, repo: publicRepo } },
+    }).catch((error) => error);
+    if (acceptName) {
+      assert.strictEqual(loaded.tagName, "v1.7-build142", `${label} fallback loader must select the checksummed Windows release.`);
+      const setup = loaded.assets.find((asset) => asset.key === "windows-setup");
+      assert(setup && setup.fileName.includes(acceptName) && setup.sha256, `${label} fallback loader must return that Windows installer and its digest.`);
+    } else if (platform === "windows") {
+      const setup = loaded?.assets?.find((asset) => asset.key === "windows-setup");
+      assert(!setup, `${label} fallback loader must not offer the checksum-less Windows installer.`);
+    }
+  }
+  await assertRedirect("notes-or-agent", [notesAndAgentRelease], "windows", "", "Setup-2.0-build210.exe");
+  await assertRedirect("linux-only-checksum", [linuxOnlyChecksumRelease], "windows", "", "Setup-2.0-build211.exe");
+  await assertRedirect("mismatched-sidecar", [mismatchedSidecarRelease], "windows", "", "Setup-2.0-build212.exe");
+  await assertRedirect("older-valid-windows", [linuxOnlyChecksumRelease, notesAndAgentRelease, olderValidWindows], "windows", "AnxOS-Control-Center-Setup-1.7-build142.exe", "build21");
+  await assertRedirect("valid-windows", sampleReleases(), "windows", "AnxOS-Control-Center-Setup-1.7-build142.exe", "");
 
   console.log("Website download smoke checks passed.");
 }
