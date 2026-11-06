@@ -33,6 +33,7 @@ Start here:
 - [Test Commands](docs/TEST_COMMANDS.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Documentation Index](docs/DOCUMENTATION_INDEX.md)
+- [Repository Map & Cleanup Audit](docs/REPOSITORY_MAINTENANCE.md)
 
 Do not paste tokens, passwords, pairing codes, private URLs, exported config files, or unredacted logs into bug reports. Use Diagnostics export or copied summaries only after confirming redaction.
 

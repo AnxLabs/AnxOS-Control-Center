@@ -1,5 +1,15 @@
 # Documentation Status
 
+## Quick Navigation
+
+- [Architecture](ARCHITECTURE.md) — current Electron/Agent boundaries
+- [Security Boundaries](SECURITY_BOUNDARIES.md) — trust and authorization rules
+- [Known Limitations](KNOWN_LIMITATIONS.md) — current limitations and release caveats
+- [Test Commands](TEST_COMMANDS.md) — tiered QA and targeted verification
+- [V2 Campaign Log](v2/V2_CAMPAIGN_LOG.md) — engineering and review history
+- [Historical Release Notes](releases/) — older per-build records (archived by PR #49)
+- [Repository Map & Cleanup Audit](REPOSITORY_MAINTENANCE.md) — navigation, duplication triage, and branch review
+
 ## Current Normative Documents
 
 The following documents describe the current `dev` implementation and release
