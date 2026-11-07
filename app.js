@@ -16475,6 +16475,22 @@ function buildInstanceAddressCell(instance) {
   return wrapper;
 }
 
+// Plain-language meaning of each state pill, shown as its tooltip when there
+// is no failed operation to explain instead. "Running" means the process is
+// up; "Ready" means the server also passed its readiness check.
+const INSTANCE_STATE_EXPLANATIONS = {
+  running: "The server process is running. It may still be loading before players can join.",
+  ready: "The server is running and passed its readiness check. Players can join.",
+  starting: "The server is starting up.",
+  stopping: "The server is shutting down and saving.",
+  restarting: "The server is restarting.",
+  reloading: "An action is in progress on this server.",
+  stopped: "The server is not running.",
+  failed: "The server stopped unexpectedly or could not start. Open it to see the console and the last error.",
+  "setup-required": "The server needs a setting, license or sign-in before it can start. Open it to see what is missing.",
+  unknown: "The Agent could not report this server's state. The node may be offline or still connecting.",
+};
+
 function buildInstanceStatePill(instance) {
   const pill = document.createElement("span");
   const operation = getInstanceOperation(instance?.id);
@@ -16488,6 +16504,7 @@ function buildInstanceStatePill(instance) {
   const lastOperationText = getInstanceOperationFailureText(operation);
   if (lastOperationText) pill.title = lastOperationText;
   else if (operation?.error) pill.title = operation.error;
+  else if (INSTANCE_STATE_EXPLANATIONS[stateClass]) pill.title = INSTANCE_STATE_EXPLANATIONS[stateClass];
   return pill;
 }
 
@@ -33110,11 +33127,44 @@ function inferToastTone(message, tone) {
   return "info";
 }
 
+// How long a toast stays up. Errors and warnings get time to be read; they
+// are also saved to the Notification Center, so the toast links there.
+// (A function, not a const, so toasts raised during startup never hit the
+// temporal dead zone of a declaration further down this file.)
+function getToastDurationMs(tone) {
+  if (tone === "error") return 6500;
+  if (tone === "warning") return 4500;
+  return 2200;
+}
+
+function scheduleToastHide(delay) {
+  window.clearTimeout(showToast.timeoutId);
+  showToast.timeoutId = window.setTimeout(() => {
+    toast?.classList.remove("is-visible", "is-actionable");
+  }, delay);
+}
+
+function bindToastInteractions() {
+  if (!toast || bindToastInteractions.bound) return;
+  bindToastInteractions.bound = true;
+  // Hovering keeps the toast up; leaving gives it a short grace period.
+  toast.addEventListener("mouseenter", () => window.clearTimeout(showToast.timeoutId));
+  toast.addEventListener("mouseleave", () => {
+    if (toast.classList.contains("is-visible")) scheduleToastHide(1500);
+  });
+  toast.addEventListener("click", () => {
+    if (!toast.classList.contains("is-actionable")) return;
+    toast.classList.remove("is-visible", "is-actionable");
+    showPage("notifications");
+  });
+}
+
 function showToast(message, tone = null) {
   const formatted = formatFriendlyToastMessage(message, tone);
   const displayMessage = formatted.message || String(message || "");
   const nextTone = inferToastTone(displayMessage, tone);
-  if (shouldPersistToastNotification(displayMessage, nextTone)) {
+  const persisted = shouldPersistToastNotification(displayMessage, nextTone);
+  if (persisted) {
     createNotification({
       category: inferNotificationCategoryFromText(`${displayMessage} ${formatted.originalMessage || ""}`),
       severity: nextTone,
@@ -33129,14 +33179,15 @@ function showToast(message, tone = null) {
     });
   }
   if (getCurrentSettings()["notifications.enabled"] === false || !toast) return;
+  bindToastInteractions();
   toast.textContent = displayMessage;
   toast.dataset.tone = nextTone;
   toast.setAttribute("role", nextTone === "error" ? "alert" : "status");
+  // A saved toast can be clicked to open its entry in the Notification Center.
+  toast.classList.toggle("is-actionable", persisted);
+  toast.title = persisted ? "Open in Notifications" : "";
   toast.classList.add("is-visible");
-  window.clearTimeout(showToast.timeoutId);
-  showToast.timeoutId = window.setTimeout(() => {
-    toast.classList.remove("is-visible");
-  }, 2200);
+  scheduleToastHide(getToastDurationMs(nextTone));
 }
 
 function logSafeSshDebug(message, details = {}) {
@@ -47851,7 +47902,26 @@ document.querySelectorAll("[data-restart-schedule-action]").forEach((button) => 
   button.addEventListener("click", () => handleRestartScheduleAction(button.dataset.restartScheduleAction));
 });
 instancesSearchInput?.addEventListener("input", debounce(filterInstanceRows, 120));
-instancesFilterSelect?.addEventListener("change", filterInstanceRows);
+// The status filter is remembered between sessions (a per-computer view
+// preference, so localStorage rather than synced settings). Only values the
+// select still offers are restored.
+const INSTANCES_STATUS_FILTER_STORAGE_KEY = "anxos:instances-status-filter";
+(function restoreInstancesStatusFilter() {
+  if (!instancesFilterSelect) return;
+  let stored = null;
+  try {
+    stored = localStorage.getItem(INSTANCES_STATUS_FILTER_STORAGE_KEY);
+  } catch {}
+  if (stored && [...instancesFilterSelect.options].some((option) => option.value === stored)) {
+    instancesFilterSelect.value = stored;
+  }
+})();
+instancesFilterSelect?.addEventListener("change", () => {
+  try {
+    localStorage.setItem(INSTANCES_STATUS_FILTER_STORAGE_KEY, instancesFilterSelect.value || "all");
+  } catch {}
+  filterInstanceRows();
+});
 instancesLogStreamSelect?.addEventListener("change", () => refreshInstanceLogs());
 instancesLogLimitSelect?.addEventListener("change", () => refreshInstanceLogs());
 instancesRefreshButtons.forEach((button) => {

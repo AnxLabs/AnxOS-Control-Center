@@ -4,7 +4,12 @@ Build 210 is in development. These notes are updated as changes land and are fin
 
 ## Added
 
+- **Status explanations.** Hover a server's status (Running, Stopped, Setup Required, Failed and others) to see what it means and what to do next. When an action failed, the tooltip still shows that error instead.
+- **Remembered Instances filter.** The status filter on the Instances page is kept between sessions on this computer.
+
 ## Changed
+
+- **Errors stay up long enough to read.** Error messages now stay about 6.5 seconds and warnings about 4.5 seconds, instead of 2.2. Hovering keeps them up, and clicking one opens it in Notifications. Other messages are unchanged and never block clicks.
 
 - **Faster searching in Settings and Diagnostics.**
   - **Settings:** search reads the settings page once when you start typing, instead of on every keystroke.
