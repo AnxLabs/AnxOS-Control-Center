@@ -2,7 +2,7 @@
   "name": "anxos-control-center",
   "productName": "AnxOS Control Center",
   "version": "2.0.0",
-  "description": "Private local desktop control center for a Debian server.",
+  "description": "A desktop app for managing home servers, game servers, and the computers that run them.",
   "homepage": "https://anxoscontrolcenter.org",
   "author": "Anx",
   "license": "UNLICENSED",
@@ -577,12 +577,12 @@
       "syncDesktopName": true,
       "maintainer": "AnxOS <noreply@anxos.local>",
       "vendor": "AnxOS",
-      "synopsis": "Private local desktop control center for a Debian server.",
-      "description": "AnxOS Control Center is a private local desktop dashboard for homelab server monitoring and management.",
+      "synopsis": "Manage home servers, game servers, and the computers that run them.",
+      "description": "AnxOS Control Center is a desktop app for managing home servers, game servers, and the computers that run them, all from one dashboard.",
       "desktop": {
         "entry": {
           "Name": "AnxOS Control Center",
-          "Comment": "Private local desktop control center for a Debian server",
+          "Comment": "Manage home servers, game servers, and the computers that run them",
           "StartupWMClass": "anxos-control-center"
         }
       }
