@@ -77,7 +77,10 @@ Each landed entry has a scenario and a mutation tooth in `scripts/smoothness-was
 | SMOOTH-1011 / 2016 | **Already in place** before Build 210: the scroll listener is `rafThrottle`d and the sync is one read and one transform write. |
 | SMOOTH-1012 | **Landed.** The summary is drawn once per animation frame during a metrics cycle; row and details updates are unchanged. |
 | SMOOTH-1013 | **Not changed.** `refreshAccountState({ restore: true })` restores the remembered session in the main process and `refreshSecurityState` reports it, and `refreshNodes` reads `securityState.localOwnerAuthenticated`; parallelising them risks a signed-out flash for one round trip of gain. |
-| SMOOTH-1001, 1002, 1003, 2008 | Still queued (medium: row/list diffing). |
+| SMOOTH-1001 | **Landed.** A live snapshot changes almost every second, so a whole-snapshot signature would rarely short-circuit. Instead each per-second renderer skips unchanged work: the Settings health list rebuilds only when an item's drawn fields change; the two Dashboard empty-state cards only when their two flags change; the widget tiles and app cards go through `reconcileChildren` (app cards now carry `data-instance-id`, so a kept card's handler always matches its instance). |
+| SMOOTH-1002 / 2001 | **Landed.** `reconcileLogList` keeps rows still in the tail, removes dropped ones and appends only new lines (the "rotation guard" is the overlap search); any other change, including a list cleared elsewhere, rebuilds in full. Used by `renderInstanceLogs` and `renderConsoleLogs`. |
+| SMOOTH-1003 | **Already in place** before Build 210: rows are keyed and `updateInstanceRow` swaps only changed cells via `reconcileChildren`. The off-document draft per row remains; it was not worth a signature layer. |
+| SMOOTH-2008 | **Landed.** One delegated click/dblclick/contextmenu/keydown set on the file list; rows map to entries through a WeakMap. The search haystack part was already cached. |
 | SMOOTH-2012 | Still an owner decision. |
 
 ## Owner decisions

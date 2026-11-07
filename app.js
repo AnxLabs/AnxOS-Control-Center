@@ -2412,6 +2412,15 @@ function renderSetupHealthCenter() {
   if (setupHealthContinueButton) {
     setupHealthContinueButton.textContent = state.continueAction === "dashboard" ? "Open Dashboard" : "Continue Setup";
   }
+  // SMOOTH-1001: this runs on every 1 s Dashboard snapshot, and the list lives
+  // on the Settings page, usually hidden. It is rebuilt only when a field it
+  // draws changes (the signature lists every field createSetupHealthItem and
+  // createSetupHealthGroup read), or when something else emptied it.
+  const signature = JSON.stringify([state.core, state.recommended, state.optional].map((items) => items.map((item) => [
+    item.status, item.tone, item.title, item.detail, Boolean(item.complete),
+  ])));
+  if (signature === renderSetupHealthCenter.signature && setupHealthGroups.childElementCount === 3) return;
+  renderSetupHealthCenter.signature = signature;
   setupHealthGroups.replaceChildren(
     createSetupHealthGroup("Essential", state.core),
     createSetupHealthGroup("Recommended", state.recommended),
@@ -2496,7 +2505,11 @@ function renderDashboardWidgets(state) {
       state.metrics.ageSeconds === null || state.metrics.ageSeconds * 1000 > DASHBOARD_STALE_AFTER_MS,
     ),
   ];
-  row.replaceChildren(...tiles);
+  // SMOOTH-1001: the tiles have no listeners and change only when their text
+  // or stale state changes, so unchanged tiles are kept on the 1 s refresh.
+  const draft = document.createElement("div");
+  draft.append(...tiles);
+  reconcileChildren(row, draft);
 }
 
 // V2-B Wave 1 app-card grid (docs/v2/V2B_DASHBOARD_APPS_WAVE1.md §3.2): one
@@ -2521,21 +2534,32 @@ function renderDashboardAppGrid(state) {
       page.prepend(section);
     }
   }
-  const grid = document.createElement("div");
-  grid.className = "dashboard-app-grid";
+  const draft = document.createElement("div");
   if (!state.instancesLoaded) {
-    grid.append(createTextElement("p", "Checking installed servers for the selected system…", "dashboard-app-grid-note is-stale"));
+    draft.append(createTextElement("p", "Checking installed servers for the selected system…", "dashboard-app-grid-note is-stale"));
   } else if (!state.instances.length) {
-    grid.append(createTextElement("p", "No applications are installed on the selected system yet. Install one from the Marketplace.", "dashboard-app-grid-note"));
+    draft.append(createTextElement("p", "No applications are installed on the selected system yet. Install one from the Marketplace.", "dashboard-app-grid-note"));
   } else {
-    state.instances.forEach((instance) => grid.append(createDashboardAppCard(instance)));
+    state.instances.forEach((instance) => draft.append(createDashboardAppCard(instance)));
   }
-  section.replaceChildren(createTextElement("h2", "Applications"), grid);
+  // SMOOTH-1001: this runs on every 1 s snapshot. The heading and grid are
+  // created once, and only cards whose markup changed are replaced, so focus
+  // and hover on a card survive the refresh.
+  let grid = section.querySelector(":scope > .dashboard-app-grid");
+  if (!grid || section.childElementCount !== 2) {
+    grid = document.createElement("div");
+    grid.className = "dashboard-app-grid";
+    section.replaceChildren(createTextElement("h2", "Applications"), grid);
+  }
+  reconcileChildren(grid, draft);
 }
 
 function createDashboardAppCard(instance) {
   const card = document.createElement("article");
   card.className = "dashboard-app-card";
+  // The id is in the markup so reconcileChildren never keeps a card whose
+  // click handler targets a different instance.
+  card.dataset.instanceId = instance?.id || "";
   card.tabIndex = 0;
   card.setAttribute("role", "button");
   const name = instance?.displayName || instance?.id || "Unnamed service";
@@ -2613,9 +2637,15 @@ function renderFriendlyDashboard() {
   setDashboardFriendlyField("nextStepDetail", state.next.detail);
   dashboardNextActionState = { page: state.next.action };
   if (dashboardNextAction) dashboardNextAction.textContent = state.next.title;
-  if (dashboardFriendlyEmpty) {
+  // SMOOTH-1001: the two empty-state cards depend only on these two flags, so
+  // the 1 s snapshot no longer recreates them (and their listeners) each tick.
+  const showNoServers = Boolean(state.instancesLoaded && !state.instances.length);
+  const showOnlyThisComputer = !state.remoteNodes.length;
+  const emptySignature = `${showNoServers}|${showOnlyThisComputer}`;
+  if (dashboardFriendlyEmpty && (dashboardFriendlyEmpty.dataset.renderSignature !== emptySignature)) {
+    dashboardFriendlyEmpty.dataset.renderSignature = emptySignature;
     dashboardFriendlyEmpty.replaceChildren();
-    if (state.instancesLoaded && !state.instances.length) {
+    if (showNoServers) {
       const server = document.createElement("article");
       server.append(createTextElement("strong", "No servers yet"), createTextElement("p", "Install a server from the Marketplace to get started."));
       const button = createTextElement("button", "Browse Marketplace", "inline-action");
@@ -2624,7 +2654,7 @@ function renderFriendlyDashboard() {
       server.append(button);
       dashboardFriendlyEmpty.append(server);
     }
-    if (!state.remoteNodes.length) {
+    if (showOnlyThisComputer) {
       const nodes = document.createElement("article");
       nodes.append(createTextElement("strong", "Only this computer is connected"), createTextElement("p", "Add another Windows or Linux system whenever you are ready."));
       const button = createTextElement("button", "Add Remote System", "inline-action");
@@ -17329,30 +17359,78 @@ function clearInstanceLogs(message = "Select an instance and refresh logs.") {
   syncInstanceConsoleActionButtons();
 }
 
+function getLogEntryRenderKey(entry) {
+  // The formatted time is part of the key so a time-format setting change
+  // redraws the rows that show it.
+  const time = entry?.at ? formatDateTime(entry.at) : "No timestamp";
+  return `${entry?.at || ""}\u0000${time}\u0000${entry?.stream || "log"}\u0000${entry?.message || ""}`;
+}
+
+// SMOOTH-1002: log views poll a tail every 2 s and used to clear and rebuild
+// up to ~500 rows each time. A tail only drops lines from the front and adds
+// lines at the end, so the rows still shown are kept, the dropped ones are
+// removed and only new lines are created. Any other change (a different
+// instance, a cleared or filtered buffer) falls back to a full rebuild.
+function reconcileLogList(list, entries, createItem) {
+  if (!list) return;
+  const nextKeys = entries.map(getLogEntryRenderKey);
+  const previousKeys = Array.isArray(list.__logRenderKeys) ? list.__logRenderKeys : null;
+  const rows = [...list.children];
+  let dropped = -1;
+  if (previousKeys && previousKeys.length === rows.length) {
+    for (let start = 0; start <= previousKeys.length; start += 1) {
+      const kept = previousKeys.length - start;
+      if (kept > nextKeys.length) continue;
+      let matches = true;
+      for (let index = 0; index < kept; index += 1) {
+        if (previousKeys[start + index] !== nextKeys[index]) {
+          matches = false;
+          break;
+        }
+      }
+      if (matches) {
+        dropped = start;
+        break;
+      }
+    }
+  }
+  if (dropped < 0) {
+    // First render, or the list was changed elsewhere (row count differs from
+    // what was last drawn), or the new tail does not continue the old one.
+    list.replaceChildren(...entries.map(createItem));
+  } else {
+    rows.slice(0, dropped).forEach((row) => row.remove());
+    const keptCount = previousKeys.length - dropped;
+    const added = entries.slice(keptCount).map(createItem);
+    if (added.length) list.append(...added);
+  }
+  list.__logRenderKeys = nextKeys;
+}
+
+function createInstanceLogItem(entry) {
+  const item = document.createElement("li");
+  const severity = getLogSeverity(entry);
+  item.dataset.stream = entry?.stream || "log";
+  item.dataset.severity = severity;
+  item.classList.toggle("is-stderr", entry?.stream === "stderr");
+  item.classList.toggle("is-stdin", entry?.stream === "stdin");
+  item.classList.toggle("is-warn", severity === "warn");
+  item.classList.toggle("is-error", severity === "error");
+  const time = document.createElement("time");
+  time.dateTime = entry?.at || "";
+  time.textContent = entry?.at ? formatDateTime(entry.at) : "No timestamp";
+  const stream = document.createElement("span");
+  stream.className = "instance-log-stream";
+  stream.textContent = entry?.stream || "log";
+  const message = document.createElement("span");
+  appendAnsiText(message, entry?.message || "");
+  item.append(time, stream, message);
+  return item;
+}
+
 function renderInstanceLogs(payload) {
   const entries = Array.isArray(payload?.entries) ? payload.entries : [];
-  instancesLogList?.replaceChildren();
-
-  entries.forEach((entry) => {
-    const item = document.createElement("li");
-    const severity = getLogSeverity(entry);
-    item.dataset.stream = entry?.stream || "log";
-    item.dataset.severity = severity;
-    item.classList.toggle("is-stderr", entry?.stream === "stderr");
-    item.classList.toggle("is-stdin", entry?.stream === "stdin");
-    item.classList.toggle("is-warn", severity === "warn");
-    item.classList.toggle("is-error", severity === "error");
-    const time = document.createElement("time");
-    time.dateTime = entry?.at || "";
-    time.textContent = entry?.at ? formatDateTime(entry.at) : "No timestamp";
-    const stream = document.createElement("span");
-    stream.className = "instance-log-stream";
-    stream.textContent = entry?.stream || "log";
-    const message = document.createElement("span");
-    appendAnsiText(message, entry?.message || "");
-    item.append(time, stream, message);
-    instancesLogList?.appendChild(item);
-  });
+  reconcileLogList(instancesLogList, entries, createInstanceLogItem);
 
   syncConsoleLogSearch();
 
@@ -25530,12 +25608,66 @@ function filterFileRows() {
   });
 }
 
+// SMOOTH-2008: rows used to get four listeners each, so a large directory
+// bound thousands of closures per render. One delegated set on the list now
+// serves every row, and each row maps to its entry through this WeakMap
+// (rows are recreated on render, so stale entries are collected with them).
+const fileRowEntries = new WeakMap();
+let fileRowDelegatesBound = false;
+
+function getFileRowFromEvent(event) {
+  const row = event.target?.closest?.("tr[data-file-path]") || null;
+  const entry = row ? fileRowEntries.get(row) : null;
+  return entry ? { row, entry } : null;
+}
+
+function bindFileRowDelegates() {
+  if (fileRowDelegatesBound || !filesList) return;
+  fileRowDelegatesBound = true;
+  filesList.addEventListener("click", (event) => {
+    const hit = getFileRowFromEvent(event);
+    if (hit) selectFileEntry(hit.entry);
+  });
+  filesList.addEventListener("dblclick", (event) => {
+    const hit = getFileRowFromEvent(event);
+    if (hit) handleFileEntryActivation(hit.entry);
+  });
+  filesList.addEventListener("contextmenu", (event) => {
+    const hit = getFileRowFromEvent(event);
+    if (!hit) return;
+    event.preventDefault();
+    selectFileEntry(hit.entry);
+    openFilesContextMenu(event.clientX, event.clientY, hit.entry);
+  });
+  filesList.addEventListener("keydown", (event) => {
+    const hit = getFileRowFromEvent(event);
+    if (!hit) return;
+    if (event.key === "Enter") {
+      event.preventDefault();
+      handleFileEntryActivation(hit.entry);
+    }
+
+    if (event.key === " ") {
+      event.preventDefault();
+      selectFileEntry(hit.entry);
+    }
+
+    if ((event.shiftKey && event.key === "F10") || event.key === "ContextMenu") {
+      event.preventDefault();
+      const rect = hit.row.getBoundingClientRect();
+      selectFileEntry(hit.entry);
+      openFilesContextMenu(rect.left + 18, rect.top + 18, hit.entry);
+    }
+  });
+}
+
 function renderFileRows(entries) {
   clearFileRows();
 
   if (!filesList) {
     return;
   }
+  bindFileRowDelegates();
 
   entries.forEach((entry) => {
     const row = document.createElement("tr");
@@ -25544,33 +25676,7 @@ function renderFileRows(entries) {
     row.setAttribute("role", "row");
     row.setAttribute("aria-selected", entry.path === selectedFileEntryPath ? "true" : "false");
     row.title = entry.path || entry.name || "";
-    row.addEventListener("click", () => selectFileEntry(entry));
-    row.addEventListener("dblclick", () => {
-      handleFileEntryActivation(entry);
-    });
-    row.addEventListener("contextmenu", (event) => {
-      event.preventDefault();
-      selectFileEntry(entry);
-      openFilesContextMenu(event.clientX, event.clientY, entry);
-    });
-    row.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        handleFileEntryActivation(entry);
-      }
-
-      if (event.key === " ") {
-        event.preventDefault();
-        selectFileEntry(entry);
-      }
-
-      if ((event.shiftKey && event.key === "F10") || event.key === "ContextMenu") {
-        event.preventDefault();
-        const rect = row.getBoundingClientRect();
-        selectFileEntry(entry);
-        openFilesContextMenu(rect.left + 18, rect.top + 18, entry);
-      }
-    });
+    fileRowEntries.set(row, entry);
     addFileCell(row, buildFileNameCell(entry));
     addFileCell(row, formatFileType(entry));
     addFileCell(row, entry.isDirectory ? "Folder" : formatBytes(entry.size));
@@ -33306,6 +33412,29 @@ function updateConsoleCrashBanner(entries = consoleBufferedEntries) {
   consoleCrashBanner.hidden = crashCount === 0 || consoleCrashBannerDismissed;
 }
 
+function createConsoleLogItem(entry) {
+  const item = document.createElement("li");
+  const kind = getConsoleLogKind(entry);
+  item.dataset.stream = entry?.stream || "log";
+  item.dataset.severity = kind;
+  item.classList.toggle("is-stderr", entry?.stream === "stderr");
+  item.classList.toggle("is-stdin", entry?.stream === "stdin");
+  item.classList.toggle("is-warn", kind === "warn");
+  item.classList.toggle("is-error", kind === "error");
+  item.classList.toggle("is-debug", kind === "debug");
+  item.classList.toggle("is-chat", kind === "chat");
+  const time = document.createElement("time");
+  time.dateTime = entry?.at || "";
+  time.textContent = entry?.at ? formatDateTime(entry.at) : "No timestamp";
+  const stream = document.createElement("span");
+  stream.className = "instance-log-stream";
+  stream.textContent = entry?.stream || "log";
+  const message = document.createElement("span");
+  appendAnsiText(message, entry?.message || "");
+  item.append(time, stream, message);
+  return item;
+}
+
 function renderConsoleLogs(entries = consoleBufferedEntries) {
   const previousLineCount = consoleLastRenderedLineCount;
   const wasPinned = isConsolePinnedToBottom();
@@ -33315,30 +33444,7 @@ function renderConsoleLogs(entries = consoleBufferedEntries) {
     !consoleAutoScrollSuppressed &&
     wasPinned;
 
-  consoleLogList?.replaceChildren();
-
-  entries.forEach((entry) => {
-    const item = document.createElement("li");
-    const kind = getConsoleLogKind(entry);
-    item.dataset.stream = entry?.stream || "log";
-    item.dataset.severity = kind;
-    item.classList.toggle("is-stderr", entry?.stream === "stderr");
-    item.classList.toggle("is-stdin", entry?.stream === "stdin");
-    item.classList.toggle("is-warn", kind === "warn");
-    item.classList.toggle("is-error", kind === "error");
-    item.classList.toggle("is-debug", kind === "debug");
-    item.classList.toggle("is-chat", kind === "chat");
-    const time = document.createElement("time");
-    time.dateTime = entry?.at || "";
-    time.textContent = entry?.at ? formatDateTime(entry.at) : "No timestamp";
-    const stream = document.createElement("span");
-    stream.className = "instance-log-stream";
-    stream.textContent = entry?.stream || "log";
-    const message = document.createElement("span");
-    appendAnsiText(message, entry?.message || "");
-    item.append(time, stream, message);
-    consoleLogList?.append(item);
-  });
+  reconcileLogList(consoleLogList, entries, createConsoleLogItem);
 
   filterConsoleRows();
 
