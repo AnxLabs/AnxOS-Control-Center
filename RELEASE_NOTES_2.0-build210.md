@@ -33,5 +33,5 @@ Build 210 is in development. These notes are updated as changes land and are fin
 
 ## QA
 
-- **Repository validation (source, before the release candidate):** `npm run rc:validate`, 366 of 366 suites, on Windows. The packaged hardware-telemetry helper was set aside for the run, because `infra-inventory-agent-smoke` tries to start it when it is present (a test hermeticity issue that `origin/dev` has as well).
+- **Repository validation (source, before the release candidate):** `npm run rc:validate`, 366 of 366 suites, on Windows. That run set the packaged hardware-telemetry helper aside, because the service-managed Agent test fixture counted the Agent's own temperature sampler as an unexpected launch. The fixture now lists the sampler as a background helper, so the suites pass with the helper present.
 - **Signed CI build, upgrade and acceptance:** not yet run. Results are recorded here before publication.

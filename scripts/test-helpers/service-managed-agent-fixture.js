@@ -54,7 +54,10 @@ function writeJsonAtomic(file, value) {
 }
 
 // Binaries the Agent legitimately launches on its own schedule, unrelated to any instance.
-const BACKGROUND_HELPERS = /(?:^|[\\/])(?:docker|unzip|tar|xz|df|ss|ps|lsblk|uptime|uname|whoami|hostname|wmic|powershell|tasklist|netstat|ipconfig)(?:\.exe)?$/i;
+// anxos-hardware-telemetry is the Windows temperature sampler: it starts only when
+// its helper binary exists (resolveHelperPath in src/shared/windowsHardwareTemperature.js),
+// so without it here the smokes failed on any checkout that had built the helper.
+const BACKGROUND_HELPERS = /(?:^|[\\/])(?:docker|unzip|tar|xz|df|ss|ps|lsblk|uptime|uname|whoami|hostname|wmic|powershell|tasklist|netstat|ipconfig|anxos-hardware-telemetry)(?:\.exe)?$/i;
 
 const UNIT_STATES = {
   running: { activeState: "active", subState: "running", result: "success", mainPid: 4242, execMainStatus: 0, restartCount: 0, loadState: "loaded", unitFileState: "enabled", activeEnterTimestamp: "Tue 2026-10-06 10:00:00 UTC", activeEnterTimestampMs: Date.now() - 3600 * 1000 },
