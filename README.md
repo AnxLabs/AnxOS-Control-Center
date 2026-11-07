@@ -84,7 +84,7 @@ New here? Follow the [step-by-step user guide](docs/NEW_USER_GUIDE.md). You don'
 ## Availability
 
 > [!IMPORTANT]
-> **Current development release: v2.0 Build 209 — Private Alpha.**
+> **Current development release: v2.0 Build 210 — Private Alpha.**
 > AnxOS Control Center is being tested with a limited group of trusted users. This is **not yet a public beta or a generally available stable release**. Some features need specific host software, permissions, or additional validation.
 
 The desktop app targets **Windows and Linux**, with a companion Agent for supported machines. See [Known Limitations](docs/KNOWN_LIMITATIONS.md) for what is still being tested.
