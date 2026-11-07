@@ -81,6 +81,17 @@
 
 New here? Follow the [step-by-step user guide](docs/NEW_USER_GUIDE.md). You don't need to start with a terminal to use the normal setup flow.
 
+### Pair a computer
+
+Normal users should pair Agents from the app, without npm commands, shell commands, environment-variable editing, or manual token synchronization.
+
+1. On the computer you want to manage, get a pairing code:
+   - **Windows or desktop Linux:** install AnxOS Control Center there, open **Agent Control**, select **Connect this computer**, turn on **Another computer will connect to this one**, then select **Generate Pairing Code**.
+   - **Headless Debian or Ubuntu server:** install the AnxOS Agent package from the releases page, run the guided setup, choose **Pair**, and copy the code it shows.
+2. In this Control Center, select **Add Computer**, paste the full code into **Pair with Code**, and select **Pair Agent**.
+
+Pairing codes expire and work once; they are not the permanent Agent credential. After pairing, the app and the Agent set up a permanent credential on their own, store it securely and never show it again. **Advanced Manual Setup** in the same dialog is for recovery and older Agents.
+
 ## Availability
 
 > [!IMPORTANT]
@@ -106,6 +117,8 @@ For news and product information, visit **[anxoscontrolcenter.org](https://anxos
 <summary><strong>For developers</strong></summary>
 
 This is an Electron desktop app with a separate AnxOS Agent. If you're working from source, see the [Developer Guide](docs/DEVELOPER_GUIDE.md), [Test Commands](docs/TEST_COMMANDS.md), and [Development Protocol](AGENTS.md). Normal users should follow the in-app setup instead of running development commands.
+
+The app repairs Playit dependencies and services in-app. Shell commands for a headless host where that flow is unavailable are kept in the Developer Guide under [Advanced Playit Service Recovery](docs/DEVELOPER_GUIDE.md#advanced-playit-service-recovery).
 
 </details>
 

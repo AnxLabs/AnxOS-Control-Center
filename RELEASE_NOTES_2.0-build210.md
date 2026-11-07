@@ -33,4 +33,5 @@ Build 210 is in development. These notes are updated as changes land and are fin
 
 ## QA
 
-- Not yet run. Release-candidate validation and acceptance results are recorded here before publication.
+- **Repository validation (source, before the release candidate):** `npm run rc:validate`, 366 of 366 suites, on Windows. The packaged hardware-telemetry helper was set aside for the run, because `infra-inventory-agent-smoke` tries to start it when it is present (a test hermeticity issue that `origin/dev` has as well).
+- **Signed CI build, upgrade and acceptance:** not yet run. Results are recorded here before publication.
