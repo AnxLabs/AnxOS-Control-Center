@@ -1017,6 +1017,7 @@ let marketplaceActiveCategory = "All";
 let marketplaceInstallProgressEvents = [];
 let marketplaceProgressRenderTimer = null;
 let marketplacePendingProgressSteps = null;
+let marketplacePendingInstallLogs = null;
 let unsubscribeMarketplaceInstallProgress = null;
 let activeMarketplaceOperationId = null;
 let activeMarketplaceInstallNodeId = null;
@@ -12372,8 +12373,29 @@ function renderDockerSnapshot(snapshot) {
   renderFriendlyDashboard();
   captureDockerDiagnostics(snapshot, dockerWorkspaceState);
   if (dockerWorkspaceState.ready && getActivePageName() === "docker") {
-    refreshDockerResources("all");
+    refreshDockerResourcesFromPoll();
   }
+}
+
+// SMOOTH-1006: the 5 s snapshot poll used to re-fetch and rebuild all four
+// resource lists (images, volumes, networks, Compose) every cycle, with no
+// in-flight guard. The poll now refreshes them at most every 30 s, and at once
+// on the first snapshot for a node. Refresh buttons and mutations still call
+// refreshDockerResources(kind) directly, so user actions stay immediate.
+const DOCKER_RESOURCE_POLL_MIN_MS = 30000;
+const dockerResourcePollState = { inFlight: false, lastAt: 0, nodeId: null };
+
+function refreshDockerResourcesFromPoll() {
+  const nodeId = getSelectedNodeId();
+  const isNewNode = dockerResourcePollState.nodeId !== nodeId;
+  if (dockerResourcePollState.inFlight) return null;
+  if (!isNewNode && Date.now() - dockerResourcePollState.lastAt < DOCKER_RESOURCE_POLL_MIN_MS) return null;
+  dockerResourcePollState.inFlight = true;
+  dockerResourcePollState.nodeId = nodeId;
+  dockerResourcePollState.lastAt = Date.now();
+  return refreshDockerResources("all").finally(() => {
+    dockerResourcePollState.inFlight = false;
+  });
 }
 
 function renderDockerUnavailable(message = "Docker status unavailable.") {
@@ -16684,11 +16706,21 @@ function buildInstanceRowCells(row, instance) {
   addInstanceCell(row, buildInstanceActionCell(instance));
 }
 
+// SMOOTH-1012: a metrics cycle calls renderInstanceMetricsUpdate twice per
+// running instance, and the summary covers every instance, so it is drawn at
+// most once per frame from the latest list instead of 2×N times per cycle.
+function scheduleInstanceSummaryRender() {
+  if (!scheduleInstanceSummaryRender.throttled) {
+    scheduleInstanceSummaryRender.throttled = rafThrottle(() => renderInstanceSummary(getInstances()));
+  }
+  scheduleInstanceSummaryRender.throttled();
+}
+
 function renderInstanceMetricsUpdate(instanceId) {
   const instance = findInstance(instanceId);
   const row = [...(instancesList?.querySelectorAll("tr[data-instance-id]") || [])].find((entry) => entry.dataset.instanceId === instanceId);
   if (instance && row) updateInstanceRow(row, instance);
-  renderInstanceSummary(getInstances());
+  scheduleInstanceSummaryRender();
   if (selectedInstanceId === instanceId) setInstanceDetails(instance);
   if (activeConsoleInstanceId === instanceId) renderConsoleStatusPanel();
 }
@@ -20643,14 +20675,11 @@ function startMarketplaceInstallProgressListener() {
       return;
     }
     marketplaceInstallProgressEvents = [...marketplaceInstallProgressEvents, event].slice(-8);
+    // SMOOTH-1009: each event carries the full recent log tail and
+    // renderInstanceLogs replaces the list, so only the newest tail matters.
+    // It is kept here and drawn by the same 180 ms flush as the steps.
     if (event?.instanceId === selectedInstanceId && Array.isArray(event.logs) && event.logs.length) {
-      renderInstanceLogs({
-        entries: event.logs.map((entry) => ({
-          at: entry.timestamp || new Date().toISOString(),
-          stream: entry.stream || "steamcmd",
-          message: entry.message || "",
-        })),
-      });
+      marketplacePendingInstallLogs = { instanceId: event.instanceId, logs: event.logs };
     }
     updateMarketplaceOperationFromEvent(event);
     scheduleMarketplaceProgressRender();
@@ -20676,11 +20705,29 @@ function scheduleMarketplaceProgressRender() {
   }, 180);
 }
 
+function flushMarketplaceInstallLogs() {
+  const pending = marketplacePendingInstallLogs;
+  marketplacePendingInstallLogs = null;
+  // The selection can change during the 180 ms wait; never draw another
+  // instance's install log into the newly selected instance's console.
+  if (!pending || pending.instanceId !== selectedInstanceId) {
+    return;
+  }
+  renderInstanceLogs({
+    entries: pending.logs.map((entry) => ({
+      at: entry.timestamp || new Date().toISOString(),
+      stream: entry.stream || "steamcmd",
+      message: entry.message || "",
+    })),
+  });
+}
+
 function flushMarketplaceProgressRender() {
   if (marketplaceProgressRenderTimer) {
     window.clearTimeout(marketplaceProgressRenderTimer);
     marketplaceProgressRenderTimer = null;
   }
+  flushMarketplaceInstallLogs();
   if (!marketplacePendingProgressSteps) {
     return;
   }

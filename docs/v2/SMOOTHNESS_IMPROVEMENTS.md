@@ -64,6 +64,22 @@ ones. That is why several entries are worse than a call-site count suggests.
 | SMOOTH-1011 + SMOOTH-2016 | **Coalesce the file-editor scroll read/write into one rAF** (`app.js:39979`, `21705-21712`) | code-path-proven; line counts capped at 1 MiB | trivial | ≤1 frame of gutter lag |
 | SMOOTH-2012 | **Revisit two 1 Hz pollers** (dashboard snapshot, marketplace downloads) | code-path-proven; cadence measured | trivial | **OWNER**: 1 Hz → 2–3 s trades freshness for smoothness |
 
+### Wave 2 status (Build 210, branch `chore/build-210`)
+
+Each landed entry has a scenario and a mutation tooth in `scripts/smoothness-wasted-work-smoke.js`.
+
+| ID | Status |
+| --- | --- |
+| SMOOTH-1004 | **Landed.** The input was already debounced (120 ms); each entry's search text is now cached in a WeakMap and skipped for an empty query. |
+| SMOOTH-1006 | **Landed.** The snapshot poll refreshes the resource lists at most every 30 s (at once on a node's first snapshot), with an in-flight guard. Buttons and mutations still refresh their list immediately. The lists are not tabbed, so "gate on tab visibility" did not apply. |
+| SMOOTH-1009 | **Landed.** Install logs are drawn by the same 180 ms flush as the steps, newest tail only, and dropped if the selected instance changed. |
+| SMOOTH-1010 | **Landed.** Entries are built once per search session; focus and `clearRestrictedSettingsState` invalidate them. |
+| SMOOTH-1011 / 2016 | **Already in place** before Build 210: the scroll listener is `rafThrottle`d and the sync is one read and one transform write. |
+| SMOOTH-1012 | **Landed.** The summary is drawn once per animation frame during a metrics cycle; row and details updates are unchanged. |
+| SMOOTH-1013 | **Not changed.** `refreshAccountState({ restore: true })` restores the remembered session in the main process and `refreshSecurityState` reports it, and `refreshNodes` reads `securityState.localOwnerAuthenticated`; parallelising them risks a signed-out flash for one round trip of gain. |
+| SMOOTH-1001, 1002, 1003, 2008 | Still queued (medium: row/list diffing). |
+| SMOOTH-2012 | Still an owner decision. |
+
 ## Owner decisions
 
 | Id | Decision | Why it is not mine |

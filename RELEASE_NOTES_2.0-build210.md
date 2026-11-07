@@ -9,6 +9,10 @@ Build 210 is in development. These notes are updated as changes land and are fin
 - **Faster searching in Settings and Diagnostics.**
   - **Settings:** search reads the settings page once when you start typing, instead of on every keystroke.
   - **Diagnostics:** search prepares each entry's text once, and skips it entirely when the search box is empty.
+- **Less background work while you use the app.**
+  - **Docker page:** the images, volumes, networks and Compose lists refresh every 30 seconds instead of every 5. Refresh buttons and actions such as removing an image still update the list at once.
+  - **Server installs:** the install log redraws at most about five times a second, instead of on every progress message.
+  - **Instances page:** the summary tiles redraw once per screen frame while server metrics update, instead of twice for every running server.
 - **Clearer app description.** Installers and the Linux app menu now describe the app as managing home servers, game servers, and the computers that run them.
 
 ## Fixed

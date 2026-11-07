@@ -1191,6 +1191,162 @@ function scenarioSettingsSearch(source) {
 }
 
 // ============================================================================
+// SMOOTH-1009 — install-progress log renders share the 180 ms progress flush
+// ============================================================================
+
+function scenarioInstallProgressLogs(source) {
+  const checker = createChecker();
+  const calls = { logRenders: [], listener: null };
+  const sandbox = createSandbox({
+    source,
+    functions: [
+      "startMarketplaceInstallProgressListener",
+      "scheduleMarketplaceProgressRender",
+      "flushMarketplaceInstallLogs",
+      "flushMarketplaceProgressRender",
+    ],
+    globals: () => ({
+      unsubscribeMarketplaceInstallProgress: null,
+      activeMarketplaceInstallNodeId: null,
+      marketplaceInstallProgressEvents: [],
+      marketplacePendingProgressSteps: null,
+      marketplacePendingInstallLogs: null,
+      marketplaceProgressRenderTimer: null,
+      selectedInstanceId: "pal-1",
+      getSelectedNodeId: () => "node-a",
+      getDesktopApiState: () => ({
+        hasMarketplaceProviderInstall: true,
+        api: { marketplace: { onInstallProgress: (listener) => { calls.listener = listener; return () => {}; } } },
+      }),
+      renderInstanceLogs: (payload) => { calls.logRenders.push(payload.entries.map((entry) => entry.message)); },
+      updateMarketplaceOperationFromEvent: () => {},
+      collapseMarketplaceProgressSteps: (steps) => steps,
+      marketplaceProgressEventToStep: (event) => event,
+      renderMarketplaceProgress: () => {},
+    }),
+  });
+  sandbox.run("startMarketplaceInstallProgressListener();");
+  const emit = (instanceId, messages) => calls.listener({ nodeId: "node-a", instanceId, logs: messages.map((message) => ({ message })) });
+  const runPendingTimer = () => {
+    const entry = sandbox.win.timers.filter((timer) => timer.kind === "timeout" && !timer.cancelled && !timer.ran).pop();
+    assert.ok(entry, "a 180 ms flush timer must be pending");
+    entry.ran = true;
+    entry.handler();
+  };
+
+  checker.check("a burst of progress events renders the install log once, with the newest tail", () => {
+    emit("pal-1", ["a"]);
+    emit("pal-1", ["a", "b"]);
+    emit("pal-1", ["a", "b", "c"]);
+    assert.strictEqual(calls.logRenders.length, 0, "no log render may happen before the flush");
+    runPendingTimer();
+    assert.deepStrictEqual(calls.logRenders, [["a", "b", "c"]], "exactly one render with the latest tail");
+  });
+
+  checker.check("a log queued for one instance is not drawn after the selection changes", () => {
+    calls.logRenders = [];
+    emit("pal-1", ["x"]);
+    sandbox.run('selectedInstanceId = "other";');
+    runPendingTimer();
+    assert.deepStrictEqual(calls.logRenders, [], "the previous instance's log must be dropped");
+  });
+
+  return checker;
+}
+
+// ============================================================================
+// SMOOTH-1012 — the instance summary is drawn once per frame during metrics
+// ============================================================================
+
+function scenarioInstanceSummary(source) {
+  const checker = createChecker();
+  const calls = { summaries: 0, rows: 0 };
+  const sandbox = createSandbox({
+    source,
+    functions: ["rafThrottle", "scheduleInstanceSummaryRender", "renderInstanceMetricsUpdate"],
+    globals: () => ({
+      instancesList: { querySelectorAll: () => [] },
+      findInstance: (id) => ({ id }),
+      getInstances: () => [{ id: "a" }, { id: "b" }, { id: "c" }],
+      updateInstanceRow: () => { calls.rows += 1; },
+      renderInstanceSummary: () => { calls.summaries += 1; },
+      selectedInstanceId: null,
+      activeConsoleInstanceId: null,
+      setInstanceDetails: () => {},
+      renderConsoleStatusPanel: () => {},
+    }),
+  });
+
+  checker.check("a metrics cycle draws the summary once per frame, not per instance", () => {
+    ["a", "a", "b", "b", "c", "c"].forEach((id) => sandbox.run(`renderInstanceMetricsUpdate(${JSON.stringify(id)});`));
+    assert.strictEqual(calls.summaries, 0, "no summary render may happen before the frame");
+    assert.strictEqual(sandbox.win.pendingFrames(), 1, "six updates must share one frame");
+    sandbox.win.runFrame();
+    assert.strictEqual(calls.summaries, 1, "exactly one summary render per frame");
+  });
+
+  return checker;
+}
+
+// ============================================================================
+// SMOOTH-1006 — Docker resource lists are not re-fetched on every 5 s poll
+// ============================================================================
+
+function scenarioDockerResourcePoll(source) {
+  const checker = createChecker();
+  const clock = { now: 1_000_000, node: "node-a", fetches: [], pending: [] };
+  const sandbox = createSandbox({
+    source,
+    functions: ["refreshDockerResourcesFromPoll"],
+    lines: [
+      "const DOCKER_RESOURCE_POLL_MIN_MS = ",
+      "const dockerResourcePollState = ",
+    ],
+    globals: () => ({
+      Date: { now: () => clock.now },
+      getSelectedNodeId: () => clock.node,
+      // A synchronous stand-in for the fetch promise: settle() runs the
+      // .finally callbacks, so the scenario controls exactly when a fetch ends.
+      refreshDockerResources: (kind) => {
+        clock.fetches.push(kind);
+        return { finally: (callback) => { clock.pending.push(callback); } };
+      },
+    }),
+  });
+  const poll = () => sandbox.run("refreshDockerResourcesFromPoll();");
+  const settle = () => clock.pending.splice(0).forEach((callback) => callback());
+
+  checker.check("the resource lists load on the first snapshot", () => {
+    poll();
+    assert.deepStrictEqual(clock.fetches, ["all"]);
+  });
+
+  checker.check("polls inside 30 s neither re-fetch nor overlap an in-flight fetch", () => {
+    clock.now += 5000;
+    poll();
+    assert.strictEqual(clock.fetches.length, 1, "an in-flight fetch must not be repeated");
+    settle();
+    clock.now += 10000;
+    poll();
+    assert.strictEqual(clock.fetches.length, 1, "a poll 15 s after the last fetch must not re-fetch");
+  });
+
+  checker.check("the lists refresh again after 30 s and at once on a node switch", () => {
+    clock.now += 20000;
+    poll();
+    assert.strictEqual(clock.fetches.length, 2, "a poll past 30 s must re-fetch");
+    settle();
+    clock.node = "node-b";
+    clock.now += 1000;
+    poll();
+    assert.strictEqual(clock.fetches.length, 3, "a node switch must not wait 30 s");
+    settle();
+  });
+
+  return checker;
+}
+
+// ============================================================================
 // mutation teeth
 // ============================================================================
 
@@ -1314,6 +1470,36 @@ const TEETH = [
       '  settingsSearchResults.replaceChildren();\n  matches.forEach((entry) => {\n    const button = document.createElement("button");\n    button.type = "button";\n    button.textContent = entry.title;\n    button.addEventListener("click", () => setActiveSettingsCategory(entry.category, entry.selector));\n    settingsSearchResults.append(button);\n  });',
     ),
   },
+  {
+    label: "SMOOTH-1009 per-event install log render restored",
+    scenario: "installProgressLogs",
+    expect: "renders the install log once",
+    mutate: (sourceValue) => mutate(
+      sourceValue,
+      "      marketplacePendingInstallLogs = { instanceId: event.instanceId, logs: event.logs };",
+      "      marketplacePendingInstallLogs = { instanceId: event.instanceId, logs: event.logs };\n      flushMarketplaceInstallLogs();",
+    ),
+  },
+  {
+    label: "SMOOTH-1012 per-instance summary render restored",
+    scenario: "instanceSummary",
+    expect: "once per frame",
+    mutate: (sourceValue) => mutate(
+      sourceValue,
+      "  if (instance && row) updateInstanceRow(row, instance);\n  scheduleInstanceSummaryRender();",
+      "  if (instance && row) updateInstanceRow(row, instance);\n  renderInstanceSummary(getInstances());",
+    ),
+  },
+  {
+    label: "SMOOTH-1006 resource re-fetch on every poll restored",
+    scenario: "dockerResourcePoll",
+    expect: "neither re-fetch",
+    mutate: (sourceValue) => mutate(
+      sourceValue,
+      "  if (!isNewNode && Date.now() - dockerResourcePollState.lastAt < DOCKER_RESOURCE_POLL_MIN_MS) return null;",
+      "",
+    ),
+  },
 ];
 
 const SCENARIOS = {
@@ -1324,6 +1510,9 @@ const SCENARIOS = {
   consoleLogSearch: scenarioConsoleLogSearch,
   activePage: scenarioActivePage,
   settingsSearch: scenarioSettingsSearch,
+  installProgressLogs: scenarioInstallProgressLogs,
+  instanceSummary: scenarioInstanceSummary,
+  dockerResourcePoll: scenarioDockerResourcePoll,
 };
 
 // --- run --------------------------------------------------------------------
