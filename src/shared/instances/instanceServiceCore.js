@@ -117,7 +117,9 @@ const PAGE_SIZE_BYTES = 4096;
 // 5: non-Minecraft games no longer go through Minecraft version parsing, and
 // Hytale reads its version from its own boot line. Bumping it re-detects the
 // records that version 4 had cached with a wrong version.
-const VERSION_CACHE_VERSION = 5;
+// 6: all-zero placeholder versions ("0.0") are no longer accepted, so records
+// that cached one (Palworld cards read "0.0") are detected again.
+const VERSION_CACHE_VERSION = 6;
 const INSTANCE_CONFIG_SCHEMA_VERSION = 2;
 const ATOMIC_RENAME_RETRY_CODES = new Set(["EPERM", "EACCES", "EBUSY"]);
 const ATOMIC_RENAME_RETRY_ATTEMPTS = 5;
@@ -2298,16 +2300,23 @@ async function publicConfigDetailed(config) {
   return minecraft ? { ...output, minecraft } : output;
 }
 
+// "0", "0.0", "v0.0.0": no game ships these. They are placeholders left by
+// older detection, and accepting them put "0.0" on Marketplace cards.
+function isPlaceholderVersion(text) {
+  return /^v?0+(?:\.0+)*$/i.test(String(text || "").trim());
+}
+
 function cleanVersionValue(value) {
   const text = String(value || "").trim();
-  if (!text || text === "latest" || text === "Unknown version" || /\blatest\b/i.test(text)) {
+  if (!text || text === "latest" || text === "Unknown version" || /\blatest\b/i.test(text) || isPlaceholderVersion(text)) {
     return null;
   }
   return text.slice(0, 80);
 }
 
 function extractGenericVersion(value) {
-  return String(value || "").match(/\b\d+(?:\.\d+){1,4}\b/)?.[0] || null;
+  const match = String(value || "").match(/\b\d+(?:\.\d+){1,4}\b/)?.[0] || null;
+  return match && !isPlaceholderVersion(match) ? match : null;
 }
 
 function inferGameFamily(config = {}) {
@@ -4274,13 +4283,15 @@ async function detectInstanceVersion(config, options = {}) {
     ...detected,
     versionInfo,
     game: versionInfo?.game || config.game || null,
-    gameVersion: versionInfo?.gameVersion || config.gameVersion || detected.minecraftVersion || null,
-    softwareVersion: versionInfo?.softwareVersion || detected.softwareVersion || config.softwareVersion || null,
-    displayVersion: versionInfo?.displayVersion || config.displayVersion || label || detected.minecraftVersion || null,
+    // Saved values go through cleanVersionValue so a placeholder written by an
+    // older Agent ("0.0") is dropped on re-detection instead of carried forward.
+    gameVersion: versionInfo?.gameVersion || cleanVersionValue(config.gameVersion) || detected.minecraftVersion || null,
+    softwareVersion: versionInfo?.softwareVersion || detected.softwareVersion || cleanVersionValue(config.softwareVersion) || null,
+    displayVersion: versionInfo?.displayVersion || cleanVersionValue(config.displayVersion) || label || detected.minecraftVersion || null,
     displayVersionDetail: versionInfo?.displayVersionDetail || config.displayVersionDetail || null,
     buildDate: versionInfo?.buildDate || config.buildDate || null,
-    serverVersion: detected.minecraftVersion || config.serverVersion || null,
-    version: label || detected.minecraftVersion || config.version || null,
+    serverVersion: detected.minecraftVersion || cleanVersionValue(config.serverVersion) || null,
+    version: label || detected.minecraftVersion || cleanVersionValue(config.version) || null,
     detectedVersionAt: nowIso(),
     versionCacheVersion: VERSION_CACHE_VERSION,
   };
@@ -7719,6 +7730,8 @@ module.exports = {
     jobLifecycle,
     detectInstanceVersion,
     parseHytaleBootVersion,
+    cleanVersionValue,
+    extractGenericVersion,
     configuredRuntimePorts,
     atomicWriteManagedFile,
     discoverDetachedRuntime,

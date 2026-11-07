@@ -202,8 +202,31 @@ function launcherScript() {
   const palworldDetected = await detect({ id: "palworld-version", templateId: "palworld", game: "palworld", displayName: "Palworld Dedicated Server", type: "custom-command", tags: ["palworld"], serverVersion: "24181105" }, { force: true });
   assert.strictEqual(palworldDetected.minecraftVersion, null, "non-Minecraft games never get a Minecraft version");
   assert.strictEqual(palworldDetected.serverVersion, "24181105", "the Steam build stays the server version");
+  // H7b: a record cached by an older Agent with a "0.0" placeholder (the
+  // Build 209 known issue: "0.0 · Palworld Dedicated Server · 24181105") is
+  // re-detected without force because the cache version moved, and the
+  // placeholder is dropped instead of carried forward.
+  const { cleanVersionValue, extractGenericVersion } = instanceService._test;
+  for (const placeholder of ["0", "0.0", "0.0.0", "v0.0"]) {
+    assert.strictEqual(cleanVersionValue(placeholder), null, `${placeholder} is a placeholder, not a version`);
+    assert.strictEqual(extractGenericVersion(placeholder), null, `${placeholder} is not extracted as a version`);
+  }
+  assert.strictEqual(cleanVersionValue("0.7.5"), "0.7.5", "real versions starting with 0 are kept");
+  assert.strictEqual(cleanVersionValue("1.0"), "1.0", "real x.0 versions are kept");
+  writeLog("palworld-stale", ["Running Palworld dedicated server on :8211"]);
+  const staleRecord = {
+    id: "palworld-stale", templateId: "palworld", game: "palworld", displayName: "Palworld Dedicated Server", type: "custom-command", tags: ["palworld"],
+    serverVersion: "24181105", gameVersion: "0.0", displayVersion: "0.0", version: "0.0", versionCacheVersion: 5,
+    versionInfo: { game: "palworld", gameVersion: "0.0", softwareVersion: "24181105", displayVersion: "0.0" },
+  };
+  const repaired = await detect(staleRecord);
+  assert.strictEqual(repaired.versionCacheVersion > 5, true, "a record cached at version 5 is detected again");
+  assert.strictEqual(repaired.versionInfo?.gameVersion ?? null, null, "the stale 0.0 game version is dropped");
+  assert.notStrictEqual(repaired.versionInfo?.displayVersion, "0.0", "the card no longer reads 0.0");
+  assert.notStrictEqual(repaired.gameVersion, "0.0", "the top-level game version is not carried forward as 0.0");
+  assert.strictEqual(repaired.serverVersion, "24181105", "the Steam build is kept");
   fs.rmSync(detectRoot, { recursive: true, force: true });
-  pass("H7 Hytale's version comes from its boot line; non-Minecraft games never get a Minecraft version");
+  pass("H7 Hytale's version comes from its boot line; non-Minecraft games never get a Minecraft version; 0.0 placeholders are dropped");
 
   // H6: the launcher itself (needs bash with mkfifo; Linux nodes only).
   if (process.platform === "win32") {
