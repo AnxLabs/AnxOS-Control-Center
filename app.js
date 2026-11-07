@@ -1017,6 +1017,7 @@ let marketplaceActiveCategory = "All";
 let marketplaceInstallProgressEvents = [];
 let marketplaceProgressRenderTimer = null;
 let marketplacePendingProgressSteps = null;
+let marketplacePendingInstallLogs = null;
 let unsubscribeMarketplaceInstallProgress = null;
 let activeMarketplaceOperationId = null;
 let activeMarketplaceInstallNodeId = null;
@@ -2411,6 +2412,15 @@ function renderSetupHealthCenter() {
   if (setupHealthContinueButton) {
     setupHealthContinueButton.textContent = state.continueAction === "dashboard" ? "Open Dashboard" : "Continue Setup";
   }
+  // SMOOTH-1001: this runs on every 1 s Dashboard snapshot, and the list lives
+  // on the Settings page, usually hidden. It is rebuilt only when a field it
+  // draws changes (the signature lists every field createSetupHealthItem and
+  // createSetupHealthGroup read), or when something else emptied it.
+  const signature = JSON.stringify([state.core, state.recommended, state.optional].map((items) => items.map((item) => [
+    item.status, item.tone, item.title, item.detail, Boolean(item.complete),
+  ])));
+  if (signature === renderSetupHealthCenter.signature && setupHealthGroups.childElementCount === 3) return;
+  renderSetupHealthCenter.signature = signature;
   setupHealthGroups.replaceChildren(
     createSetupHealthGroup("Essential", state.core),
     createSetupHealthGroup("Recommended", state.recommended),
@@ -2495,7 +2505,11 @@ function renderDashboardWidgets(state) {
       state.metrics.ageSeconds === null || state.metrics.ageSeconds * 1000 > DASHBOARD_STALE_AFTER_MS,
     ),
   ];
-  row.replaceChildren(...tiles);
+  // SMOOTH-1001: the tiles have no listeners and change only when their text
+  // or stale state changes, so unchanged tiles are kept on the 1 s refresh.
+  const draft = document.createElement("div");
+  draft.append(...tiles);
+  reconcileChildren(row, draft);
 }
 
 // V2-B Wave 1 app-card grid (docs/v2/V2B_DASHBOARD_APPS_WAVE1.md §3.2): one
@@ -2520,21 +2534,32 @@ function renderDashboardAppGrid(state) {
       page.prepend(section);
     }
   }
-  const grid = document.createElement("div");
-  grid.className = "dashboard-app-grid";
+  const draft = document.createElement("div");
   if (!state.instancesLoaded) {
-    grid.append(createTextElement("p", "Checking installed servers for the selected system…", "dashboard-app-grid-note is-stale"));
+    draft.append(createTextElement("p", "Checking installed servers for the selected system…", "dashboard-app-grid-note is-stale"));
   } else if (!state.instances.length) {
-    grid.append(createTextElement("p", "No applications are installed on the selected system yet. Install one from the Marketplace.", "dashboard-app-grid-note"));
+    draft.append(createTextElement("p", "No applications are installed on the selected system yet. Install one from the Marketplace.", "dashboard-app-grid-note"));
   } else {
-    state.instances.forEach((instance) => grid.append(createDashboardAppCard(instance)));
+    state.instances.forEach((instance) => draft.append(createDashboardAppCard(instance)));
   }
-  section.replaceChildren(createTextElement("h2", "Applications"), grid);
+  // SMOOTH-1001: this runs on every 1 s snapshot. The heading and grid are
+  // created once, and only cards whose markup changed are replaced, so focus
+  // and hover on a card survive the refresh.
+  let grid = section.querySelector(":scope > .dashboard-app-grid");
+  if (!grid || section.childElementCount !== 2) {
+    grid = document.createElement("div");
+    grid.className = "dashboard-app-grid";
+    section.replaceChildren(createTextElement("h2", "Applications"), grid);
+  }
+  reconcileChildren(grid, draft);
 }
 
 function createDashboardAppCard(instance) {
   const card = document.createElement("article");
   card.className = "dashboard-app-card";
+  // The id is in the markup so reconcileChildren never keeps a card whose
+  // click handler targets a different instance.
+  card.dataset.instanceId = instance?.id || "";
   card.tabIndex = 0;
   card.setAttribute("role", "button");
   const name = instance?.displayName || instance?.id || "Unnamed service";
@@ -2612,9 +2637,15 @@ function renderFriendlyDashboard() {
   setDashboardFriendlyField("nextStepDetail", state.next.detail);
   dashboardNextActionState = { page: state.next.action };
   if (dashboardNextAction) dashboardNextAction.textContent = state.next.title;
-  if (dashboardFriendlyEmpty) {
+  // SMOOTH-1001: the two empty-state cards depend only on these two flags, so
+  // the 1 s snapshot no longer recreates them (and their listeners) each tick.
+  const showNoServers = Boolean(state.instancesLoaded && !state.instances.length);
+  const showOnlyThisComputer = !state.remoteNodes.length;
+  const emptySignature = `${showNoServers}|${showOnlyThisComputer}`;
+  if (dashboardFriendlyEmpty && (dashboardFriendlyEmpty.dataset.renderSignature !== emptySignature)) {
+    dashboardFriendlyEmpty.dataset.renderSignature = emptySignature;
     dashboardFriendlyEmpty.replaceChildren();
-    if (state.instancesLoaded && !state.instances.length) {
+    if (showNoServers) {
       const server = document.createElement("article");
       server.append(createTextElement("strong", "No servers yet"), createTextElement("p", "Install a server from the Marketplace to get started."));
       const button = createTextElement("button", "Browse Marketplace", "inline-action");
@@ -2623,7 +2654,7 @@ function renderFriendlyDashboard() {
       server.append(button);
       dashboardFriendlyEmpty.append(server);
     }
-    if (!state.remoteNodes.length) {
+    if (showOnlyThisComputer) {
       const nodes = document.createElement("article");
       nodes.append(createTextElement("strong", "Only this computer is connected"), createTextElement("p", "Add another Windows or Linux system whenever you are ready."));
       const button = createTextElement("button", "Add Remote System", "inline-action");
@@ -6843,6 +6874,20 @@ function groupDiagnosticIssues(entries = []) {
   ));
 }
 
+// SMOOTH-1004: the searchable text of a diagnostic entry is computed once per
+// entry object, not on every keystroke. Refreshes replace the entry objects,
+// so a WeakMap keyed by entry needs no explicit invalidation.
+const diagnosticEntrySearchText = new WeakMap();
+
+function getDiagnosticEntrySearchText(entry) {
+  let text = diagnosticEntrySearchText.get(entry);
+  if (text === undefined) {
+    text = JSON.stringify(entry).toLowerCase();
+    diagnosticEntrySearchText.set(entry, text);
+  }
+  return text;
+}
+
 function getFilteredDiagnosticEntries() {
   const search = String(agentLogSearch?.value || "").toLowerCase();
   const severity = agentLogSeverity?.value || "all";
@@ -6851,8 +6896,8 @@ function getFilteredDiagnosticEntries() {
     const normalizedSeverity = String(entry.severity || "").toLowerCase();
     const matchesSeverity = severity === "all" || normalizedSeverity === severity || (severity === "warn" && normalizedSeverity === "warning");
     const matchesSource = source === "all" || String(entry.source || "unknown") === source;
-    const haystack = JSON.stringify(entry).toLowerCase();
-    return matchesSeverity && matchesSource && (!search || haystack.includes(search));
+    if (!matchesSeverity || !matchesSource) return false;
+    return !search || getDiagnosticEntrySearchText(entry).includes(search);
   });
 }
 
@@ -12358,8 +12403,29 @@ function renderDockerSnapshot(snapshot) {
   renderFriendlyDashboard();
   captureDockerDiagnostics(snapshot, dockerWorkspaceState);
   if (dockerWorkspaceState.ready && getActivePageName() === "docker") {
-    refreshDockerResources("all");
+    refreshDockerResourcesFromPoll();
   }
+}
+
+// SMOOTH-1006: the 5 s snapshot poll used to re-fetch and rebuild all four
+// resource lists (images, volumes, networks, Compose) every cycle, with no
+// in-flight guard. The poll now refreshes them at most every 30 s, and at once
+// on the first snapshot for a node. Refresh buttons and mutations still call
+// refreshDockerResources(kind) directly, so user actions stay immediate.
+const DOCKER_RESOURCE_POLL_MIN_MS = 30000;
+const dockerResourcePollState = { inFlight: false, lastAt: 0, nodeId: null };
+
+function refreshDockerResourcesFromPoll() {
+  const nodeId = getSelectedNodeId();
+  const isNewNode = dockerResourcePollState.nodeId !== nodeId;
+  if (dockerResourcePollState.inFlight) return null;
+  if (!isNewNode && Date.now() - dockerResourcePollState.lastAt < DOCKER_RESOURCE_POLL_MIN_MS) return null;
+  dockerResourcePollState.inFlight = true;
+  dockerResourcePollState.nodeId = nodeId;
+  dockerResourcePollState.lastAt = Date.now();
+  return refreshDockerResources("all").finally(() => {
+    dockerResourcePollState.inFlight = false;
+  });
 }
 
 function renderDockerUnavailable(message = "Docker status unavailable.") {
@@ -12609,7 +12675,9 @@ function getInstancePrimaryPort(instance) {
 
 function cleanInstanceVersionValue(value) {
   const text = String(value || "").trim();
-  if (!text || text === "latest" || text === "Unknown version" || /\blatest\b/i.test(text)) {
+  // All-zero versions ("0.0") are placeholders from older Agent detection, not
+  // a real game version; showing them put "0.0" on Palworld Marketplace cards.
+  if (!text || text === "latest" || text === "Unknown version" || /\blatest\b/i.test(text) || /^v?0+(?:\.0+)*$/i.test(text)) {
     return "";
   }
   return text;
@@ -16407,6 +16475,22 @@ function buildInstanceAddressCell(instance) {
   return wrapper;
 }
 
+// Plain-language meaning of each state pill, shown as its tooltip when there
+// is no failed operation to explain instead. "Running" means the process is
+// up; "Ready" means the server also passed its readiness check.
+const INSTANCE_STATE_EXPLANATIONS = {
+  running: "The server process is running. It may still be loading before players can join.",
+  ready: "The server is running and passed its readiness check. Players can join.",
+  starting: "The server is starting up.",
+  stopping: "The server is shutting down and saving.",
+  restarting: "The server is restarting.",
+  reloading: "An action is in progress on this server.",
+  stopped: "The server is not running.",
+  failed: "The server stopped unexpectedly or could not start. Open it to see the console and the last error.",
+  "setup-required": "The server needs a setting, license or sign-in before it can start. Open it to see what is missing.",
+  unknown: "The Agent could not report this server's state. The node may be offline or still connecting.",
+};
+
 function buildInstanceStatePill(instance) {
   const pill = document.createElement("span");
   const operation = getInstanceOperation(instance?.id);
@@ -16420,6 +16504,7 @@ function buildInstanceStatePill(instance) {
   const lastOperationText = getInstanceOperationFailureText(operation);
   if (lastOperationText) pill.title = lastOperationText;
   else if (operation?.error) pill.title = operation.error;
+  else if (INSTANCE_STATE_EXPLANATIONS[stateClass]) pill.title = INSTANCE_STATE_EXPLANATIONS[stateClass];
   return pill;
 }
 
@@ -16668,11 +16753,21 @@ function buildInstanceRowCells(row, instance) {
   addInstanceCell(row, buildInstanceActionCell(instance));
 }
 
+// SMOOTH-1012: a metrics cycle calls renderInstanceMetricsUpdate twice per
+// running instance, and the summary covers every instance, so it is drawn at
+// most once per frame from the latest list instead of 2×N times per cycle.
+function scheduleInstanceSummaryRender() {
+  if (!scheduleInstanceSummaryRender.throttled) {
+    scheduleInstanceSummaryRender.throttled = rafThrottle(() => renderInstanceSummary(getInstances()));
+  }
+  scheduleInstanceSummaryRender.throttled();
+}
+
 function renderInstanceMetricsUpdate(instanceId) {
   const instance = findInstance(instanceId);
   const row = [...(instancesList?.querySelectorAll("tr[data-instance-id]") || [])].find((entry) => entry.dataset.instanceId === instanceId);
   if (instance && row) updateInstanceRow(row, instance);
-  renderInstanceSummary(getInstances());
+  scheduleInstanceSummaryRender();
   if (selectedInstanceId === instanceId) setInstanceDetails(instance);
   if (activeConsoleInstanceId === instanceId) renderConsoleStatusPanel();
 }
@@ -17281,30 +17376,78 @@ function clearInstanceLogs(message = "Select an instance and refresh logs.") {
   syncInstanceConsoleActionButtons();
 }
 
+function getLogEntryRenderKey(entry) {
+  // The formatted time is part of the key so a time-format setting change
+  // redraws the rows that show it.
+  const time = entry?.at ? formatDateTime(entry.at) : "No timestamp";
+  return `${entry?.at || ""}\u0000${time}\u0000${entry?.stream || "log"}\u0000${entry?.message || ""}`;
+}
+
+// SMOOTH-1002: log views poll a tail every 2 s and used to clear and rebuild
+// up to ~500 rows each time. A tail only drops lines from the front and adds
+// lines at the end, so the rows still shown are kept, the dropped ones are
+// removed and only new lines are created. Any other change (a different
+// instance, a cleared or filtered buffer) falls back to a full rebuild.
+function reconcileLogList(list, entries, createItem) {
+  if (!list) return;
+  const nextKeys = entries.map(getLogEntryRenderKey);
+  const previousKeys = Array.isArray(list.__logRenderKeys) ? list.__logRenderKeys : null;
+  const rows = [...list.children];
+  let dropped = -1;
+  if (previousKeys && previousKeys.length === rows.length) {
+    for (let start = 0; start <= previousKeys.length; start += 1) {
+      const kept = previousKeys.length - start;
+      if (kept > nextKeys.length) continue;
+      let matches = true;
+      for (let index = 0; index < kept; index += 1) {
+        if (previousKeys[start + index] !== nextKeys[index]) {
+          matches = false;
+          break;
+        }
+      }
+      if (matches) {
+        dropped = start;
+        break;
+      }
+    }
+  }
+  if (dropped < 0) {
+    // First render, or the list was changed elsewhere (row count differs from
+    // what was last drawn), or the new tail does not continue the old one.
+    list.replaceChildren(...entries.map(createItem));
+  } else {
+    rows.slice(0, dropped).forEach((row) => row.remove());
+    const keptCount = previousKeys.length - dropped;
+    const added = entries.slice(keptCount).map(createItem);
+    if (added.length) list.append(...added);
+  }
+  list.__logRenderKeys = nextKeys;
+}
+
+function createInstanceLogItem(entry) {
+  const item = document.createElement("li");
+  const severity = getLogSeverity(entry);
+  item.dataset.stream = entry?.stream || "log";
+  item.dataset.severity = severity;
+  item.classList.toggle("is-stderr", entry?.stream === "stderr");
+  item.classList.toggle("is-stdin", entry?.stream === "stdin");
+  item.classList.toggle("is-warn", severity === "warn");
+  item.classList.toggle("is-error", severity === "error");
+  const time = document.createElement("time");
+  time.dateTime = entry?.at || "";
+  time.textContent = entry?.at ? formatDateTime(entry.at) : "No timestamp";
+  const stream = document.createElement("span");
+  stream.className = "instance-log-stream";
+  stream.textContent = entry?.stream || "log";
+  const message = document.createElement("span");
+  appendAnsiText(message, entry?.message || "");
+  item.append(time, stream, message);
+  return item;
+}
+
 function renderInstanceLogs(payload) {
   const entries = Array.isArray(payload?.entries) ? payload.entries : [];
-  instancesLogList?.replaceChildren();
-
-  entries.forEach((entry) => {
-    const item = document.createElement("li");
-    const severity = getLogSeverity(entry);
-    item.dataset.stream = entry?.stream || "log";
-    item.dataset.severity = severity;
-    item.classList.toggle("is-stderr", entry?.stream === "stderr");
-    item.classList.toggle("is-stdin", entry?.stream === "stdin");
-    item.classList.toggle("is-warn", severity === "warn");
-    item.classList.toggle("is-error", severity === "error");
-    const time = document.createElement("time");
-    time.dateTime = entry?.at || "";
-    time.textContent = entry?.at ? formatDateTime(entry.at) : "No timestamp";
-    const stream = document.createElement("span");
-    stream.className = "instance-log-stream";
-    stream.textContent = entry?.stream || "log";
-    const message = document.createElement("span");
-    appendAnsiText(message, entry?.message || "");
-    item.append(time, stream, message);
-    instancesLogList?.appendChild(item);
-  });
+  reconcileLogList(instancesLogList, entries, createInstanceLogItem);
 
   syncConsoleLogSearch();
 
@@ -20627,14 +20770,11 @@ function startMarketplaceInstallProgressListener() {
       return;
     }
     marketplaceInstallProgressEvents = [...marketplaceInstallProgressEvents, event].slice(-8);
+    // SMOOTH-1009: each event carries the full recent log tail and
+    // renderInstanceLogs replaces the list, so only the newest tail matters.
+    // It is kept here and drawn by the same 180 ms flush as the steps.
     if (event?.instanceId === selectedInstanceId && Array.isArray(event.logs) && event.logs.length) {
-      renderInstanceLogs({
-        entries: event.logs.map((entry) => ({
-          at: entry.timestamp || new Date().toISOString(),
-          stream: entry.stream || "steamcmd",
-          message: entry.message || "",
-        })),
-      });
+      marketplacePendingInstallLogs = { instanceId: event.instanceId, logs: event.logs };
     }
     updateMarketplaceOperationFromEvent(event);
     scheduleMarketplaceProgressRender();
@@ -20660,11 +20800,29 @@ function scheduleMarketplaceProgressRender() {
   }, 180);
 }
 
+function flushMarketplaceInstallLogs() {
+  const pending = marketplacePendingInstallLogs;
+  marketplacePendingInstallLogs = null;
+  // The selection can change during the 180 ms wait; never draw another
+  // instance's install log into the newly selected instance's console.
+  if (!pending || pending.instanceId !== selectedInstanceId) {
+    return;
+  }
+  renderInstanceLogs({
+    entries: pending.logs.map((entry) => ({
+      at: entry.timestamp || new Date().toISOString(),
+      stream: entry.stream || "steamcmd",
+      message: entry.message || "",
+    })),
+  });
+}
+
 function flushMarketplaceProgressRender() {
   if (marketplaceProgressRenderTimer) {
     window.clearTimeout(marketplaceProgressRenderTimer);
     marketplaceProgressRenderTimer = null;
   }
+  flushMarketplaceInstallLogs();
   if (!marketplacePendingProgressSteps) {
     return;
   }
@@ -25467,12 +25625,66 @@ function filterFileRows() {
   });
 }
 
+// SMOOTH-2008: rows used to get four listeners each, so a large directory
+// bound thousands of closures per render. One delegated set on the list now
+// serves every row, and each row maps to its entry through this WeakMap
+// (rows are recreated on render, so stale entries are collected with them).
+const fileRowEntries = new WeakMap();
+let fileRowDelegatesBound = false;
+
+function getFileRowFromEvent(event) {
+  const row = event.target?.closest?.("tr[data-file-path]") || null;
+  const entry = row ? fileRowEntries.get(row) : null;
+  return entry ? { row, entry } : null;
+}
+
+function bindFileRowDelegates() {
+  if (fileRowDelegatesBound || !filesList) return;
+  fileRowDelegatesBound = true;
+  filesList.addEventListener("click", (event) => {
+    const hit = getFileRowFromEvent(event);
+    if (hit) selectFileEntry(hit.entry);
+  });
+  filesList.addEventListener("dblclick", (event) => {
+    const hit = getFileRowFromEvent(event);
+    if (hit) handleFileEntryActivation(hit.entry);
+  });
+  filesList.addEventListener("contextmenu", (event) => {
+    const hit = getFileRowFromEvent(event);
+    if (!hit) return;
+    event.preventDefault();
+    selectFileEntry(hit.entry);
+    openFilesContextMenu(event.clientX, event.clientY, hit.entry);
+  });
+  filesList.addEventListener("keydown", (event) => {
+    const hit = getFileRowFromEvent(event);
+    if (!hit) return;
+    if (event.key === "Enter") {
+      event.preventDefault();
+      handleFileEntryActivation(hit.entry);
+    }
+
+    if (event.key === " ") {
+      event.preventDefault();
+      selectFileEntry(hit.entry);
+    }
+
+    if ((event.shiftKey && event.key === "F10") || event.key === "ContextMenu") {
+      event.preventDefault();
+      const rect = hit.row.getBoundingClientRect();
+      selectFileEntry(hit.entry);
+      openFilesContextMenu(rect.left + 18, rect.top + 18, hit.entry);
+    }
+  });
+}
+
 function renderFileRows(entries) {
   clearFileRows();
 
   if (!filesList) {
     return;
   }
+  bindFileRowDelegates();
 
   entries.forEach((entry) => {
     const row = document.createElement("tr");
@@ -25481,33 +25693,7 @@ function renderFileRows(entries) {
     row.setAttribute("role", "row");
     row.setAttribute("aria-selected", entry.path === selectedFileEntryPath ? "true" : "false");
     row.title = entry.path || entry.name || "";
-    row.addEventListener("click", () => selectFileEntry(entry));
-    row.addEventListener("dblclick", () => {
-      handleFileEntryActivation(entry);
-    });
-    row.addEventListener("contextmenu", (event) => {
-      event.preventDefault();
-      selectFileEntry(entry);
-      openFilesContextMenu(event.clientX, event.clientY, entry);
-    });
-    row.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        handleFileEntryActivation(entry);
-      }
-
-      if (event.key === " ") {
-        event.preventDefault();
-        selectFileEntry(entry);
-      }
-
-      if ((event.shiftKey && event.key === "F10") || event.key === "ContextMenu") {
-        event.preventDefault();
-        const rect = row.getBoundingClientRect();
-        selectFileEntry(entry);
-        openFilesContextMenu(rect.left + 18, rect.top + 18, entry);
-      }
-    });
+    fileRowEntries.set(row, entry);
     addFileCell(row, buildFileNameCell(entry));
     addFileCell(row, formatFileType(entry));
     addFileCell(row, entry.isDirectory ? "Folder" : formatBytes(entry.size));
@@ -32941,11 +33127,44 @@ function inferToastTone(message, tone) {
   return "info";
 }
 
+// How long a toast stays up. Errors and warnings get time to be read; they
+// are also saved to the Notification Center, so the toast links there.
+// (A function, not a const, so toasts raised during startup never hit the
+// temporal dead zone of a declaration further down this file.)
+function getToastDurationMs(tone) {
+  if (tone === "error") return 6500;
+  if (tone === "warning") return 4500;
+  return 2200;
+}
+
+function scheduleToastHide(delay) {
+  window.clearTimeout(showToast.timeoutId);
+  showToast.timeoutId = window.setTimeout(() => {
+    toast?.classList.remove("is-visible", "is-actionable");
+  }, delay);
+}
+
+function bindToastInteractions() {
+  if (!toast || bindToastInteractions.bound) return;
+  bindToastInteractions.bound = true;
+  // Hovering keeps the toast up; leaving gives it a short grace period.
+  toast.addEventListener("mouseenter", () => window.clearTimeout(showToast.timeoutId));
+  toast.addEventListener("mouseleave", () => {
+    if (toast.classList.contains("is-visible")) scheduleToastHide(1500);
+  });
+  toast.addEventListener("click", () => {
+    if (!toast.classList.contains("is-actionable")) return;
+    toast.classList.remove("is-visible", "is-actionable");
+    showPage("notifications");
+  });
+}
+
 function showToast(message, tone = null) {
   const formatted = formatFriendlyToastMessage(message, tone);
   const displayMessage = formatted.message || String(message || "");
   const nextTone = inferToastTone(displayMessage, tone);
-  if (shouldPersistToastNotification(displayMessage, nextTone)) {
+  const persisted = shouldPersistToastNotification(displayMessage, nextTone);
+  if (persisted) {
     createNotification({
       category: inferNotificationCategoryFromText(`${displayMessage} ${formatted.originalMessage || ""}`),
       severity: nextTone,
@@ -32960,14 +33179,15 @@ function showToast(message, tone = null) {
     });
   }
   if (getCurrentSettings()["notifications.enabled"] === false || !toast) return;
+  bindToastInteractions();
   toast.textContent = displayMessage;
   toast.dataset.tone = nextTone;
   toast.setAttribute("role", nextTone === "error" ? "alert" : "status");
+  // A saved toast can be clicked to open its entry in the Notification Center.
+  toast.classList.toggle("is-actionable", persisted);
+  toast.title = persisted ? "Open in Notifications" : "";
   toast.classList.add("is-visible");
-  window.clearTimeout(showToast.timeoutId);
-  showToast.timeoutId = window.setTimeout(() => {
-    toast.classList.remove("is-visible");
-  }, 2200);
+  scheduleToastHide(getToastDurationMs(nextTone));
 }
 
 function logSafeSshDebug(message, details = {}) {
@@ -33243,6 +33463,29 @@ function updateConsoleCrashBanner(entries = consoleBufferedEntries) {
   consoleCrashBanner.hidden = crashCount === 0 || consoleCrashBannerDismissed;
 }
 
+function createConsoleLogItem(entry) {
+  const item = document.createElement("li");
+  const kind = getConsoleLogKind(entry);
+  item.dataset.stream = entry?.stream || "log";
+  item.dataset.severity = kind;
+  item.classList.toggle("is-stderr", entry?.stream === "stderr");
+  item.classList.toggle("is-stdin", entry?.stream === "stdin");
+  item.classList.toggle("is-warn", kind === "warn");
+  item.classList.toggle("is-error", kind === "error");
+  item.classList.toggle("is-debug", kind === "debug");
+  item.classList.toggle("is-chat", kind === "chat");
+  const time = document.createElement("time");
+  time.dateTime = entry?.at || "";
+  time.textContent = entry?.at ? formatDateTime(entry.at) : "No timestamp";
+  const stream = document.createElement("span");
+  stream.className = "instance-log-stream";
+  stream.textContent = entry?.stream || "log";
+  const message = document.createElement("span");
+  appendAnsiText(message, entry?.message || "");
+  item.append(time, stream, message);
+  return item;
+}
+
 function renderConsoleLogs(entries = consoleBufferedEntries) {
   const previousLineCount = consoleLastRenderedLineCount;
   const wasPinned = isConsolePinnedToBottom();
@@ -33252,30 +33495,7 @@ function renderConsoleLogs(entries = consoleBufferedEntries) {
     !consoleAutoScrollSuppressed &&
     wasPinned;
 
-  consoleLogList?.replaceChildren();
-
-  entries.forEach((entry) => {
-    const item = document.createElement("li");
-    const kind = getConsoleLogKind(entry);
-    item.dataset.stream = entry?.stream || "log";
-    item.dataset.severity = kind;
-    item.classList.toggle("is-stderr", entry?.stream === "stderr");
-    item.classList.toggle("is-stdin", entry?.stream === "stdin");
-    item.classList.toggle("is-warn", kind === "warn");
-    item.classList.toggle("is-error", kind === "error");
-    item.classList.toggle("is-debug", kind === "debug");
-    item.classList.toggle("is-chat", kind === "chat");
-    const time = document.createElement("time");
-    time.dateTime = entry?.at || "";
-    time.textContent = entry?.at ? formatDateTime(entry.at) : "No timestamp";
-    const stream = document.createElement("span");
-    stream.className = "instance-log-stream";
-    stream.textContent = entry?.stream || "log";
-    const message = document.createElement("span");
-    appendAnsiText(message, entry?.message || "");
-    item.append(time, stream, message);
-    consoleLogList?.append(item);
-  });
+  reconcileLogList(consoleLogList, entries, createConsoleLogItem);
 
   filterConsoleRows();
 
@@ -45409,6 +45629,7 @@ function normalizeSettingsCategory(category = "general") {
 }
 
 function clearRestrictedSettingsState() {
+  invalidateSettingsSearchEntries();
   marketplaceConfigInput && (marketplaceConfigInput.value = "");
   latestAgentSettingsPayload = null;
   developerUpdateState = null;
@@ -45551,6 +45772,21 @@ function getSettingSearchEntries() {
   });
 }
 
+// SMOOTH-1010: reading every settings section's textContent is the expensive
+// part of a search, so the entries are built once per search session. Focusing
+// the search box starts a new session (invalidateSettingsSearchEntries), which
+// picks up section text or authorization changes made since the last search.
+let settingsSearchEntriesCache = null;
+
+function getCachedSettingSearchEntries() {
+  if (!settingsSearchEntriesCache) settingsSearchEntriesCache = getSettingSearchEntries();
+  return settingsSearchEntriesCache;
+}
+
+function invalidateSettingsSearchEntries() {
+  settingsSearchEntriesCache = null;
+}
+
 const SETTINGS_SEARCH_RESULT_LIMIT = 8;
 // Result buttons are a fixed pool that is only rebuilt if something else clears
 // the container (clearRestrictedSettingsState). A keystroke then rewrites
@@ -45612,7 +45848,7 @@ function renderSettingsSearch() {
     pool.empty.hidden = true;
     return;
   }
-  const matches = getSettingSearchEntries()
+  const matches = getCachedSettingSearchEntries()
     .filter((entry) => entry.haystack.includes(query))
     .slice(0, SETTINGS_SEARCH_RESULT_LIMIT);
   settingsSearchMatches = matches;
@@ -47666,7 +47902,26 @@ document.querySelectorAll("[data-restart-schedule-action]").forEach((button) => 
   button.addEventListener("click", () => handleRestartScheduleAction(button.dataset.restartScheduleAction));
 });
 instancesSearchInput?.addEventListener("input", debounce(filterInstanceRows, 120));
-instancesFilterSelect?.addEventListener("change", filterInstanceRows);
+// The status filter is remembered between sessions (a per-computer view
+// preference, so localStorage rather than synced settings). Only values the
+// select still offers are restored.
+const INSTANCES_STATUS_FILTER_STORAGE_KEY = "anxos:instances-status-filter";
+(function restoreInstancesStatusFilter() {
+  if (!instancesFilterSelect) return;
+  let stored = null;
+  try {
+    stored = localStorage.getItem(INSTANCES_STATUS_FILTER_STORAGE_KEY);
+  } catch {}
+  if (stored && [...instancesFilterSelect.options].some((option) => option.value === stored)) {
+    instancesFilterSelect.value = stored;
+  }
+})();
+instancesFilterSelect?.addEventListener("change", () => {
+  try {
+    localStorage.setItem(INSTANCES_STATUS_FILTER_STORAGE_KEY, instancesFilterSelect.value || "all");
+  } catch {}
+  filterInstanceRows();
+});
 instancesLogStreamSelect?.addEventListener("change", () => refreshInstanceLogs());
 instancesLogLimitSelect?.addEventListener("change", () => refreshInstanceLogs());
 instancesRefreshButtons.forEach((button) => {
@@ -48012,6 +48267,7 @@ settingsCategoryButtons.forEach((button) => {
 // section across the whole (CSS-hidden, not detached) settings document, so the
 // search is debounced on the input edge; the render itself is now cheap
 // (SMOOTH-2017 updates a pooled result list instead of rebuilding it).
+settingsSearchInput?.addEventListener("focus", invalidateSettingsSearchEntries);
 settingsSearchInput?.addEventListener("input", debounce(renderSettingsSearch, 120));
 settingsResetCategoryButtons.forEach((button) => {
   button.addEventListener("click", () => resetSettings(button.dataset.settingsResetCategory || null));

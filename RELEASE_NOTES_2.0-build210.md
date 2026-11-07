@@ -1,0 +1,37 @@
+# AnxOS Control Center v2.0 — Build 210
+
+Build 210 is in development. These notes are updated as changes land and are finalized before the release candidate is built.
+
+## Added
+
+- **Status explanations.** Hover a server's status (Running, Stopped, Setup Required, Failed and others) to see what it means and what to do next. When an action failed, the tooltip still shows that error instead.
+- **Remembered Instances filter.** The status filter on the Instances page is kept between sessions on this computer.
+
+## Changed
+
+- **Errors stay up long enough to read.** Error messages now stay about 6.5 seconds and warnings about 4.5 seconds, instead of 2.2. Hovering keeps them up, and clicking one opens it in Notifications. Other messages are unchanged and never block clicks.
+
+- **Faster searching in Settings and Diagnostics.**
+  - **Settings:** search reads the settings page once when you start typing, instead of on every keystroke.
+  - **Diagnostics:** search prepares each entry's text once, and skips it entirely when the search box is empty.
+- **Less background work while you use the app.**
+  - **Docker page:** the images, volumes, networks and Compose lists refresh every 30 seconds instead of every 5. Refresh buttons and actions such as removing an image still update the list at once.
+  - **Server installs:** the install log redraws at most about five times a second, instead of on every progress message.
+  - **Instances page:** the summary tiles redraw once per screen frame while server metrics update, instead of twice for every running server.
+  - **Consoles:** server and instance consoles add only new lines, instead of redrawing up to 500 lines every 2 seconds. Text you select in older lines is no longer cleared by the refresh.
+  - **Dashboard:** the tiles, application cards and setup checklist redraw only what changed, instead of rebuilding every second.
+  - **Files:** large folders open with far less setup work per row.
+- **Clearer app description.** Installers and the Linux app menu now describe the app as managing home servers, game servers, and the computers that run them.
+
+## Fixed
+
+- **Palworld cards showed "0.0" as the game version.** Servers installed before Build 209 kept a "0.0" placeholder written by older version detection. "0.0" is no longer accepted as a version, and saved records are detected again once, so the placeholder is dropped. The Steam build number is kept.
+
+## Known issues
+
+- None recorded yet.
+
+## QA
+
+- **Repository validation (source, before the release candidate):** `npm run rc:validate`, 366 of 366 suites, on Windows. That run set the packaged hardware-telemetry helper aside, because the service-managed Agent test fixture counted the Agent's own temperature sampler as an unexpected launch. The fixture now lists the sampler as a background helper, so the suites pass with the helper present.
+- **Signed CI build, upgrade and acceptance:** not yet run. Results are recorded here before publication.

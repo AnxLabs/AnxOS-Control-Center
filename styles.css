@@ -8488,6 +8488,13 @@ dd {
   transform: translateY(0);
 }
 
+/* Only toasts saved to the Notification Center take the pointer (click opens
+   Notifications, hover keeps them up); plain toasts never block clicks. */
+.toast.is-visible.is-actionable {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
 .toast[data-tone="success"] {
   border-color: rgba(69, 224, 143, 0.35);
   background: linear-gradient(135deg, rgba(24, 78, 52, 0.94), rgba(18, 8, 32, 0.96));

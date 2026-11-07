@@ -21,7 +21,7 @@ This document is a **time-stamped audit**, not a release approval or an authoriz
 | `release.json`, `package.json`, `package-lock.json` | Version/channel identity, commands and dependency lock | Do not modify for housekeeping |
 | `AGENTS.md`, `.agent/` | Development and agent operating standards | Active instructions; preserve |
 
-**Current product identity:** `release.json` identifies v2.0 Build 209 as **Private Alpha**. Source-only cleanup does not change release status, publication, signing or update channels.
+**Current product identity:** `release.json` identifies v2.0 Build 210 as **Private Alpha**. Source-only cleanup does not change release status, publication, signing or update channels.
 
 ## Baseline inventory
 
@@ -39,7 +39,7 @@ Do not purge older smoke tests solely because they are numerous or not reference
 
 Merged [PR #49](https://github.com/AnxLabs/AnxOS-Control-Center/pull/49) archived **12 old root-level release notes** under `docs/releases/` as unchanged Git blobs. Its final diff included twelve **renames** and one compatibility fix to the historical notes backfill script; no application source was modified.
 
-- Keep **`RELEASE_NOTES_2.0-build209.md`** at the root: `scripts/versioning-smoke.js`, `scripts/sync-website-release.js` and `.github/workflows/windows-release.yml` read a matching current root notes file.
+- Keep **`RELEASE_NOTES_2.0-build210.md`** at the root: `scripts/versioning-smoke.js`, `scripts/sync-website-release.js` and `.github/workflows/windows-release.yml` read a matching current root notes file.
 - `docs/releases/` is an archive, not a replacement for the active release metadata contract.
 - Historical tags and GitHub releases remain untouched.
 - The current-notes root lookup in the tagged-release workflow was reviewed before PR #49 merged. Its historical backfill helper was updated to check the archive first. No fresh CI or packaged release test was performed in this audit.

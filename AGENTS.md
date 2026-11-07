@@ -486,6 +486,29 @@ Use this section to accumulate verified project knowledge over time. Add entries
   running instance it supervises, back up and stop them from the app, then
   start them again. Don't infer survival from a process's cgroup.
 
+### 2026-11-06 — Wrong game versions: Hytale "1.0" and Palworld "0.0"
+
+- **Problem:** Build 209 RC1 showed a false Hytale "Update available"
+  because 0.7.5 was recorded as "1.0". Palworld Marketplace cards read
+  "0.0 · Palworld Dedicated Server · 24181105", and still did after the
+  Build 209 fix for servers installed before it.
+- **Cause:** The Agent ran Minecraft version parsing over every instance's
+  logs and fields, whatever the game, and wrote the result over the saved
+  version (fixed in `eb5e2032`). After that fix, re-detection still carried
+  the old values forward from the saved record, and an all-zero placeholder
+  ("0.0") passed `cleanVersionValue` and was re-extracted by
+  `extractGenericVersion`.
+- **Resolution:** Minecraft parsing applies only to Minecraft (or
+  unrecognised) instances and Hytale reads its own boot line (`eb5e2032`).
+  All-zero versions are rejected by the Agent and the renderer, saved
+  fallbacks are cleaned on re-detection, and `VERSION_CACHE_VERSION` moved
+  so cached records are detected again once (`d01ca8eb`, with a regression
+  test for a polluted record).
+- **Lesson:** A detector for one game family must never run on another, and
+  a fix to detection must also repair records an older build already
+  wrote: bump the cache version and test with a polluted saved record, not
+  only a fresh one.
+
 ## Future Improvements
 
 Keep optional ideas separate from active work. An item in this list is not authorization to implement it.

@@ -7,7 +7,7 @@ These limitations are acceptable for Private Alpha if they are clearly communica
 - AnxOS Control Center is Private Alpha.
 - Do not present it as public beta, stable, or v1.0-ready.
 - No version bump, tag, or GitHub Release should be created for readiness-only documentation changes.
-- Current source identity is Version 2.0 Build 209, Private Alpha, per
+- Current source identity is Version 2.0 Build 210, Private Alpha, per
   `release.json`. Historical build-numbered reports are evidence for their named
   artifacts only; see `DOCUMENTATION_INDEX.md`. Availability of matching
   candidate artifacts must be proven separately and is not inferred from source
@@ -34,6 +34,18 @@ These limitations are acceptable for Private Alpha if they are clearly communica
 - SteamCMD installs can be large and slow.
 - Some templates may be smoke-tested but not fully live-validated on every supported node type.
 - A failed install may leave partial files for diagnostics and retry; do not assume partial data is safe to delete manually without reviewing it.
+
+## Game Server Updates, Mods, Alerts and Sign-in (Builds 208–209)
+
+- **Applying updates is SteamCMD-only.** Paper, Vanilla, FiveM and Hytale get check-only update badges; applying those updates stays manual.
+- **One SteamCMD job runs per node at a time.** Other updates on that node wait.
+- **Backup before update is optional.** **Roll Back Update** can only restore a backup that was taken before the update.
+- **Scheduled restarts update SteamCMD servers only when that option is turned on.**
+- **The Mod Manager is Minecraft-only and Modrinth-only.** It manages only mods that AnxOS installed. Downloads come only from Modrinth's CDN and must match Modrinth's SHA-512.
+- **Alert webhooks are Discord or HTTPS, one per node.** The URL is stored on the Agent and is never shown again; to change it, enter a new one.
+- **Hytale runs on Linux nodes only** and needs an account sign-in on first start. **Sign in** opens only the publisher's own sign-in site, and Control Center never sees the account credentials.
+- **Updating or restarting an Agent stops every server it runs.** Back up and stop them first, then start them again from the app.
+- **Live acceptance coverage.** The Build 209 release candidate was accepted live for Hytale (readiness, sign-in, version) and the fleet **Check All** update check. The Mod Manager, webhook alerts, backup-before-update and rollback, the restart schedule editor, scheduled SteamCMD updates, Steam beta branches and fleet one-by-one updates are covered by repository smoke tests only until a release candidate accepts them live.
 
 ## Files
 

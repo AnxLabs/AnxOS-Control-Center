@@ -1095,18 +1095,23 @@ function createSettingsSearchSandbox(source) {
       "renderSettingsSearch",
       "ensureSettingsSearchResultPool",
       "bindSettingsSearchResultDelegate",
+      "getCachedSettingSearchEntries",
+      "invalidateSettingsSearchEntries",
     ],
-    lines: ["const SETTINGS_SEARCH_RESULT_LIMIT = 8;"],
+    lines: ["const SETTINGS_SEARCH_RESULT_LIMIT = 8;", "let settingsSearchEntriesCache = null;"],
     globals: () => ({
       settingsSearchResults: results,
       settingsSearchInput: createFakeElement("input"),
       settingsSearchResultPool: { buttons: [], empty: null },
       settingsSearchMatches: [],
       settingsSearchDelegateBound: false,
-      getSettingSearchEntries: () => [
-        { category: "general", title: "General settings", selector: "[data-settings-category=\"general\"]", haystack: "general settings start with anxos" },
-        { category: "network", title: "Network", selector: "[data-settings-category=\"network\"]", haystack: "network port proxy" },
-      ],
+      getSettingSearchEntries: () => {
+        calls.entryBuilds = (calls.entryBuilds || 0) + 1;
+        return [
+          { category: "general", title: "General settings", selector: "[data-settings-category=\"general\"]", haystack: "general settings start with anxos" },
+          { category: "network", title: "Network", selector: "[data-settings-category=\"network\"]", haystack: "network port proxy" },
+        ];
+      },
       setActiveSettingsCategory: (category, selector) => { calls.activated.push({ category, selector }); },
       __calls: calls,
     }),
@@ -1168,6 +1173,333 @@ function scenarioSettingsSearch(source) {
     renderedQuery("general");
     assert.strictEqual(buttons().length, 8, "the pool must be rebuilt after an external clear");
     assert.strictEqual(sandbox.results.counts.listeners.click || 0, 1, "the delegate must not be bound twice");
+  });
+
+  // SMOOTH-1010: the section text is read once per search session, not per keystroke.
+  checker.check("keystrokes reuse the settings search entries until the session is invalidated", () => {
+    sandbox.run("invalidateSettingsSearchEntries();");
+    sandbox.calls.entryBuilds = 0;
+    ["g", "ge", "gen", "gene", "general"].forEach(renderedQuery);
+    assert.strictEqual(sandbox.calls.entryBuilds, 1, "five keystrokes must build the entries once");
+    sandbox.run("invalidateSettingsSearchEntries();");
+    renderedQuery("network");
+    assert.strictEqual(sandbox.calls.entryBuilds, 2, "a new session (focus) must rebuild the entries");
+    assert.strictEqual(visibleButtons()[0].textContent, "Network", "results still come from the rebuilt entries");
+  });
+
+  return checker;
+}
+
+// ============================================================================
+// SMOOTH-1009 — install-progress log renders share the 180 ms progress flush
+// ============================================================================
+
+function scenarioInstallProgressLogs(source) {
+  const checker = createChecker();
+  const calls = { logRenders: [], listener: null };
+  const sandbox = createSandbox({
+    source,
+    functions: [
+      "startMarketplaceInstallProgressListener",
+      "scheduleMarketplaceProgressRender",
+      "flushMarketplaceInstallLogs",
+      "flushMarketplaceProgressRender",
+    ],
+    globals: () => ({
+      unsubscribeMarketplaceInstallProgress: null,
+      activeMarketplaceInstallNodeId: null,
+      marketplaceInstallProgressEvents: [],
+      marketplacePendingProgressSteps: null,
+      marketplacePendingInstallLogs: null,
+      marketplaceProgressRenderTimer: null,
+      selectedInstanceId: "pal-1",
+      getSelectedNodeId: () => "node-a",
+      getDesktopApiState: () => ({
+        hasMarketplaceProviderInstall: true,
+        api: { marketplace: { onInstallProgress: (listener) => { calls.listener = listener; return () => {}; } } },
+      }),
+      renderInstanceLogs: (payload) => { calls.logRenders.push(payload.entries.map((entry) => entry.message)); },
+      updateMarketplaceOperationFromEvent: () => {},
+      collapseMarketplaceProgressSteps: (steps) => steps,
+      marketplaceProgressEventToStep: (event) => event,
+      renderMarketplaceProgress: () => {},
+    }),
+  });
+  sandbox.run("startMarketplaceInstallProgressListener();");
+  const emit = (instanceId, messages) => calls.listener({ nodeId: "node-a", instanceId, logs: messages.map((message) => ({ message })) });
+  const runPendingTimer = () => {
+    const entry = sandbox.win.timers.filter((timer) => timer.kind === "timeout" && !timer.cancelled && !timer.ran).pop();
+    assert.ok(entry, "a 180 ms flush timer must be pending");
+    entry.ran = true;
+    entry.handler();
+  };
+
+  checker.check("a burst of progress events renders the install log once, with the newest tail", () => {
+    emit("pal-1", ["a"]);
+    emit("pal-1", ["a", "b"]);
+    emit("pal-1", ["a", "b", "c"]);
+    assert.strictEqual(calls.logRenders.length, 0, "no log render may happen before the flush");
+    runPendingTimer();
+    assert.deepStrictEqual(calls.logRenders, [["a", "b", "c"]], "exactly one render with the latest tail");
+  });
+
+  checker.check("a log queued for one instance is not drawn after the selection changes", () => {
+    calls.logRenders = [];
+    emit("pal-1", ["x"]);
+    sandbox.run('selectedInstanceId = "other";');
+    runPendingTimer();
+    assert.deepStrictEqual(calls.logRenders, [], "the previous instance's log must be dropped");
+  });
+
+  return checker;
+}
+
+// ============================================================================
+// SMOOTH-1012 — the instance summary is drawn once per frame during metrics
+// ============================================================================
+
+function scenarioInstanceSummary(source) {
+  const checker = createChecker();
+  const calls = { summaries: 0, rows: 0 };
+  const sandbox = createSandbox({
+    source,
+    functions: ["rafThrottle", "scheduleInstanceSummaryRender", "renderInstanceMetricsUpdate"],
+    globals: () => ({
+      instancesList: { querySelectorAll: () => [] },
+      findInstance: (id) => ({ id }),
+      getInstances: () => [{ id: "a" }, { id: "b" }, { id: "c" }],
+      updateInstanceRow: () => { calls.rows += 1; },
+      renderInstanceSummary: () => { calls.summaries += 1; },
+      selectedInstanceId: null,
+      activeConsoleInstanceId: null,
+      setInstanceDetails: () => {},
+      renderConsoleStatusPanel: () => {},
+    }),
+  });
+
+  checker.check("a metrics cycle draws the summary once per frame, not per instance", () => {
+    ["a", "a", "b", "b", "c", "c"].forEach((id) => sandbox.run(`renderInstanceMetricsUpdate(${JSON.stringify(id)});`));
+    assert.strictEqual(calls.summaries, 0, "no summary render may happen before the frame");
+    assert.strictEqual(sandbox.win.pendingFrames(), 1, "six updates must share one frame");
+    sandbox.win.runFrame();
+    assert.strictEqual(calls.summaries, 1, "exactly one summary render per frame");
+  });
+
+  return checker;
+}
+
+// ============================================================================
+// SMOOTH-1006 — Docker resource lists are not re-fetched on every 5 s poll
+// ============================================================================
+
+function scenarioDockerResourcePoll(source) {
+  const checker = createChecker();
+  const clock = { now: 1_000_000, node: "node-a", fetches: [], pending: [] };
+  const sandbox = createSandbox({
+    source,
+    functions: ["refreshDockerResourcesFromPoll"],
+    lines: [
+      "const DOCKER_RESOURCE_POLL_MIN_MS = ",
+      "const dockerResourcePollState = ",
+    ],
+    globals: () => ({
+      Date: { now: () => clock.now },
+      getSelectedNodeId: () => clock.node,
+      // A synchronous stand-in for the fetch promise: settle() runs the
+      // .finally callbacks, so the scenario controls exactly when a fetch ends.
+      refreshDockerResources: (kind) => {
+        clock.fetches.push(kind);
+        return { finally: (callback) => { clock.pending.push(callback); } };
+      },
+    }),
+  });
+  const poll = () => sandbox.run("refreshDockerResourcesFromPoll();");
+  const settle = () => clock.pending.splice(0).forEach((callback) => callback());
+
+  checker.check("the resource lists load on the first snapshot", () => {
+    poll();
+    assert.deepStrictEqual(clock.fetches, ["all"]);
+  });
+
+  checker.check("polls inside 30 s neither re-fetch nor overlap an in-flight fetch", () => {
+    clock.now += 5000;
+    poll();
+    assert.strictEqual(clock.fetches.length, 1, "an in-flight fetch must not be repeated");
+    settle();
+    clock.now += 10000;
+    poll();
+    assert.strictEqual(clock.fetches.length, 1, "a poll 15 s after the last fetch must not re-fetch");
+  });
+
+  checker.check("the lists refresh again after 30 s and at once on a node switch", () => {
+    clock.now += 20000;
+    poll();
+    assert.strictEqual(clock.fetches.length, 2, "a poll past 30 s must re-fetch");
+    settle();
+    clock.node = "node-b";
+    clock.now += 1000;
+    poll();
+    assert.strictEqual(clock.fetches.length, 3, "a node switch must not wait 30 s");
+    settle();
+  });
+
+  return checker;
+}
+
+// ============================================================================
+// SMOOTH-1002 — log tails keep the rows they still show
+// ============================================================================
+
+function scenarioLogTail(source) {
+  const checker = createChecker();
+  const created = { count: 0 };
+  const sandbox = createSandbox({
+    source,
+    functions: ["getLogEntryRenderKey", "reconcileLogList"],
+    globals: () => ({
+      formatDateTime: (value) => `T${value}`,
+      __created: created,
+    }),
+  });
+  const list = createFakeElement("ol");
+  sandbox.context.__list = list;
+  sandbox.context.__createItem = (entry) => {
+    created.count += 1;
+    const item = createFakeElement("li");
+    item.textContent = entry.message;
+    return item;
+  };
+  const entries = (from, to) => Array.from({ length: to - from }, (_, index) => ({ at: String(from + index), stream: "stdout", message: `line ${from + index}` }));
+  const render = (list_) => { sandbox.context.__entries = list_; sandbox.run("reconcileLogList(__list, __entries, __createItem);"); };
+  const texts = () => list.children.map((child) => child.textContent);
+
+  checker.check("the first render draws every line", () => {
+    render(entries(0, 5));
+    assert.strictEqual(created.count, 5);
+    assert.deepStrictEqual(texts(), ["line 0", "line 1", "line 2", "line 3", "line 4"]);
+  });
+
+  checker.check("an unchanged tail creates no rows", () => {
+    created.count = 0;
+    render(entries(0, 5));
+    assert.strictEqual(created.count, 0, "polling an unchanged tail must not rebuild rows");
+  });
+
+  checker.check("a sliding tail removes dropped lines and creates only new ones", () => {
+    created.count = 0;
+    render(entries(2, 8));
+    assert.strictEqual(created.count, 3, "only lines 5-7 are new");
+    assert.deepStrictEqual(texts(), ["line 2", "line 3", "line 4", "line 5", "line 6", "line 7"]);
+  });
+
+  checker.check("a list cleared elsewhere, or a different log, is rebuilt in full", () => {
+    list.replaceChildren();
+    created.count = 0;
+    render(entries(2, 8));
+    assert.strictEqual(created.count, 6, "an external clear must trigger a rebuild");
+    created.count = 0;
+    render([{ at: "x", stream: "stderr", message: "other instance" }]);
+    assert.deepStrictEqual(texts(), ["other instance"]);
+  });
+
+  return checker;
+}
+
+// ============================================================================
+// SMOOTH-2008 — file rows share one delegated listener set
+// ============================================================================
+
+function scenarioFileRowDelegation(source) {
+  const checker = createChecker();
+  const calls = { selected: [], activated: [], menus: [] };
+  const filesList = createFakeElement("tbody");
+  const sandbox = createSandbox({
+    source,
+    functions: ["getFileRowFromEvent", "bindFileRowDelegates", "renderFileRows", "clearFileRows"],
+    lines: ["const fileRowEntries = ", "let fileRowDelegatesBound = "],
+    globals: () => ({
+      WeakMap,
+      filesList,
+      selectedFileEntryPath: null,
+      selectFileEntry: (entry) => { calls.selected.push(entry.path); },
+      handleFileEntryActivation: (entry) => { calls.activated.push(entry.path); },
+      openFilesContextMenu: (x, y, entry) => { calls.menus.push(entry?.path ?? null); },
+      addFileCell: (row, value) => {
+        const cell = createFakeElement("td");
+        if (value && typeof value === "object") cell.append(value); else cell.textContent = String(value ?? "");
+        row.append(cell);
+      },
+      buildFileNameCell: (entry) => { const span = createFakeElement("span"); span.textContent = entry.name; return span; },
+      formatFileType: () => "File",
+      formatBytes: () => "1 KB",
+      formatDateTime: () => "now",
+      filterFileRows: () => {},
+    }),
+  });
+  const entries = Array.from({ length: 50 }, (_, index) => ({ name: `f${index}`, path: `/srv/f${index}` }));
+  sandbox.context.__entries = entries;
+  const rows = () => filesList.children.filter((child) => child.tagName === "TR");
+
+  checker.check("rendering a directory binds one listener set, not one per row", () => {
+    sandbox.run("renderFileRows(__entries); renderFileRows(__entries);");
+    assert.strictEqual(rows().length, 50);
+    assert.strictEqual(filesList.counts.listeners.click, 1, "one delegated click listener for every row and render");
+    assert.strictEqual(rows().every((row) => !row.counts.listeners.click), true, "rows carry no listeners of their own");
+  });
+
+  checker.check("clicks, double-clicks and context menus still reach the right entry", () => {
+    const row = rows()[7];
+    const inner = row.children[0].children[0];
+    filesList.dispatch("click", { target: inner });
+    filesList.dispatch("dblclick", { target: row });
+    filesList.dispatch("contextmenu", { target: inner, clientX: 1, clientY: 2, preventDefault() {} });
+    assert.deepStrictEqual(calls.selected.slice(0, 1), ["/srv/f7"]);
+    assert.deepStrictEqual(calls.activated, ["/srv/f7"]);
+    assert.deepStrictEqual(calls.menus, ["/srv/f7"]);
+  });
+
+  return checker;
+}
+
+// ============================================================================
+// SMOOTH-1001 — the Settings health list is not rebuilt on every snapshot
+// ============================================================================
+
+function scenarioSetupHealth(source) {
+  const checker = createChecker();
+  const groups = createFakeElement("div");
+  Object.defineProperty(groups, "childElementCount", { get: () => groups.children.length });
+  const health = {
+    core: [{ status: "Done", tone: "ok", title: "Agent", detail: "Paired", complete: true }],
+    recommended: [{ status: "Planned", tone: "planned", title: "Backups", detail: "Not set", complete: false }],
+    optional: [],
+  };
+  const sandbox = createSandbox({
+    source,
+    functions: ["renderSetupHealthCenter"],
+    globals: () => ({
+      setupHealthCenter: createFakeElement("section"),
+      setupHealthGroups: groups,
+      setupHealthContinueButton: null,
+      setupHealthActionState: null,
+      getSetupHealthState: () => ({ ...health, continueAction: "dashboard" }),
+      setSetupHealthField: () => {},
+      createSetupHealthGroup: (title) => createFakeElement("section", { text: title }),
+    }),
+  });
+
+  checker.check("unchanged setup health does not rebuild the list", () => {
+    for (let tick = 0; tick < 5; tick += 1) sandbox.run("renderSetupHealthCenter();");
+    assert.strictEqual(groups.counts.replaceChildren, 1, "five 1 s snapshots with the same health must rebuild once");
+  });
+
+  checker.check("a changed item or an external clear rebuilds the list", () => {
+    health.recommended = [{ ...health.recommended[0], status: "Done", tone: "ok", complete: true }];
+    sandbox.run("renderSetupHealthCenter();");
+    assert.strictEqual(groups.counts.replaceChildren, 2, "a changed status must rebuild");
+    groups.replaceChildren();
+    sandbox.run("renderSetupHealthCenter();");
+    assert.strictEqual(groups.children.length, 3, "an emptied list must be redrawn");
   });
 
   return checker;
@@ -1297,6 +1629,66 @@ const TEETH = [
       '  settingsSearchResults.replaceChildren();\n  matches.forEach((entry) => {\n    const button = document.createElement("button");\n    button.type = "button";\n    button.textContent = entry.title;\n    button.addEventListener("click", () => setActiveSettingsCategory(entry.category, entry.selector));\n    settingsSearchResults.append(button);\n  });',
     ),
   },
+  {
+    label: "SMOOTH-1009 per-event install log render restored",
+    scenario: "installProgressLogs",
+    expect: "renders the install log once",
+    mutate: (sourceValue) => mutate(
+      sourceValue,
+      "      marketplacePendingInstallLogs = { instanceId: event.instanceId, logs: event.logs };",
+      "      marketplacePendingInstallLogs = { instanceId: event.instanceId, logs: event.logs };\n      flushMarketplaceInstallLogs();",
+    ),
+  },
+  {
+    label: "SMOOTH-1012 per-instance summary render restored",
+    scenario: "instanceSummary",
+    expect: "once per frame",
+    mutate: (sourceValue) => mutate(
+      sourceValue,
+      "  if (instance && row) updateInstanceRow(row, instance);\n  scheduleInstanceSummaryRender();",
+      "  if (instance && row) updateInstanceRow(row, instance);\n  renderInstanceSummary(getInstances());",
+    ),
+  },
+  {
+    label: "SMOOTH-1006 resource re-fetch on every poll restored",
+    scenario: "dockerResourcePoll",
+    expect: "neither re-fetch",
+    mutate: (sourceValue) => mutate(
+      sourceValue,
+      "  if (!isNewNode && Date.now() - dockerResourcePollState.lastAt < DOCKER_RESOURCE_POLL_MIN_MS) return null;",
+      "",
+    ),
+  },
+  {
+    label: "SMOOTH-1002 full log rebuild restored",
+    scenario: "logTail",
+    expect: "unchanged tail",
+    mutate: (sourceValue) => mutate(
+      sourceValue,
+      "  if (dropped < 0) {",
+      "  if (true) {",
+    ),
+  },
+  {
+    label: "SMOOTH-2008 per-row click listener restored",
+    scenario: "fileRows",
+    expect: "one listener set",
+    mutate: (sourceValue) => mutate(
+      sourceValue,
+      "    fileRowEntries.set(row, entry);",
+      "    fileRowEntries.set(row, entry);\n    row.addEventListener(\"click\", () => selectFileEntry(entry));",
+    ),
+  },
+  {
+    label: "SMOOTH-1001 per-snapshot health list rebuild restored",
+    scenario: "setupHealth",
+    expect: "does not rebuild the list",
+    mutate: (sourceValue) => mutate(
+      sourceValue,
+      "  if (signature === renderSetupHealthCenter.signature && setupHealthGroups.childElementCount === 3) return;",
+      "",
+    ),
+  },
 ];
 
 const SCENARIOS = {
@@ -1307,6 +1699,12 @@ const SCENARIOS = {
   consoleLogSearch: scenarioConsoleLogSearch,
   activePage: scenarioActivePage,
   settingsSearch: scenarioSettingsSearch,
+  installProgressLogs: scenarioInstallProgressLogs,
+  instanceSummary: scenarioInstanceSummary,
+  dockerResourcePoll: scenarioDockerResourcePoll,
+  logTail: scenarioLogTail,
+  fileRows: scenarioFileRowDelegation,
+  setupHealth: scenarioSetupHealth,
 };
 
 // --- run --------------------------------------------------------------------
