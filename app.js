@@ -6843,6 +6843,20 @@ function groupDiagnosticIssues(entries = []) {
   ));
 }
 
+// SMOOTH-1004: the searchable text of a diagnostic entry is computed once per
+// entry object, not on every keystroke. Refreshes replace the entry objects,
+// so a WeakMap keyed by entry needs no explicit invalidation.
+const diagnosticEntrySearchText = new WeakMap();
+
+function getDiagnosticEntrySearchText(entry) {
+  let text = diagnosticEntrySearchText.get(entry);
+  if (text === undefined) {
+    text = JSON.stringify(entry).toLowerCase();
+    diagnosticEntrySearchText.set(entry, text);
+  }
+  return text;
+}
+
 function getFilteredDiagnosticEntries() {
   const search = String(agentLogSearch?.value || "").toLowerCase();
   const severity = agentLogSeverity?.value || "all";
@@ -6851,8 +6865,8 @@ function getFilteredDiagnosticEntries() {
     const normalizedSeverity = String(entry.severity || "").toLowerCase();
     const matchesSeverity = severity === "all" || normalizedSeverity === severity || (severity === "warn" && normalizedSeverity === "warning");
     const matchesSource = source === "all" || String(entry.source || "unknown") === source;
-    const haystack = JSON.stringify(entry).toLowerCase();
-    return matchesSeverity && matchesSource && (!search || haystack.includes(search));
+    if (!matchesSeverity || !matchesSource) return false;
+    return !search || getDiagnosticEntrySearchText(entry).includes(search);
   });
 }
 
@@ -12609,7 +12623,9 @@ function getInstancePrimaryPort(instance) {
 
 function cleanInstanceVersionValue(value) {
   const text = String(value || "").trim();
-  if (!text || text === "latest" || text === "Unknown version" || /\blatest\b/i.test(text)) {
+  // All-zero versions ("0.0") are placeholders from older Agent detection, not
+  // a real game version; showing them put "0.0" on Palworld Marketplace cards.
+  if (!text || text === "latest" || text === "Unknown version" || /\blatest\b/i.test(text) || /^v?0+(?:\.0+)*$/i.test(text)) {
     return "";
   }
   return text;
@@ -45409,6 +45425,7 @@ function normalizeSettingsCategory(category = "general") {
 }
 
 function clearRestrictedSettingsState() {
+  invalidateSettingsSearchEntries();
   marketplaceConfigInput && (marketplaceConfigInput.value = "");
   latestAgentSettingsPayload = null;
   developerUpdateState = null;
@@ -45551,6 +45568,21 @@ function getSettingSearchEntries() {
   });
 }
 
+// SMOOTH-1010: reading every settings section's textContent is the expensive
+// part of a search, so the entries are built once per search session. Focusing
+// the search box starts a new session (invalidateSettingsSearchEntries), which
+// picks up section text or authorization changes made since the last search.
+let settingsSearchEntriesCache = null;
+
+function getCachedSettingSearchEntries() {
+  if (!settingsSearchEntriesCache) settingsSearchEntriesCache = getSettingSearchEntries();
+  return settingsSearchEntriesCache;
+}
+
+function invalidateSettingsSearchEntries() {
+  settingsSearchEntriesCache = null;
+}
+
 const SETTINGS_SEARCH_RESULT_LIMIT = 8;
 // Result buttons are a fixed pool that is only rebuilt if something else clears
 // the container (clearRestrictedSettingsState). A keystroke then rewrites
@@ -45612,7 +45644,7 @@ function renderSettingsSearch() {
     pool.empty.hidden = true;
     return;
   }
-  const matches = getSettingSearchEntries()
+  const matches = getCachedSettingSearchEntries()
     .filter((entry) => entry.haystack.includes(query))
     .slice(0, SETTINGS_SEARCH_RESULT_LIMIT);
   settingsSearchMatches = matches;
@@ -48012,6 +48044,7 @@ settingsCategoryButtons.forEach((button) => {
 // section across the whole (CSS-hidden, not detached) settings document, so the
 // search is debounced on the input edge; the render itself is now cheap
 // (SMOOTH-2017 updates a pooled result list instead of rebuilding it).
+settingsSearchInput?.addEventListener("focus", invalidateSettingsSearchEntries);
 settingsSearchInput?.addEventListener("input", debounce(renderSettingsSearch, 120));
 settingsResetCategoryButtons.forEach((button) => {
   button.addEventListener("click", () => resetSettings(button.dataset.settingsResetCategory || null));

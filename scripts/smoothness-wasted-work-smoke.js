@@ -1095,18 +1095,23 @@ function createSettingsSearchSandbox(source) {
       "renderSettingsSearch",
       "ensureSettingsSearchResultPool",
       "bindSettingsSearchResultDelegate",
+      "getCachedSettingSearchEntries",
+      "invalidateSettingsSearchEntries",
     ],
-    lines: ["const SETTINGS_SEARCH_RESULT_LIMIT = 8;"],
+    lines: ["const SETTINGS_SEARCH_RESULT_LIMIT = 8;", "let settingsSearchEntriesCache = null;"],
     globals: () => ({
       settingsSearchResults: results,
       settingsSearchInput: createFakeElement("input"),
       settingsSearchResultPool: { buttons: [], empty: null },
       settingsSearchMatches: [],
       settingsSearchDelegateBound: false,
-      getSettingSearchEntries: () => [
-        { category: "general", title: "General settings", selector: "[data-settings-category=\"general\"]", haystack: "general settings start with anxos" },
-        { category: "network", title: "Network", selector: "[data-settings-category=\"network\"]", haystack: "network port proxy" },
-      ],
+      getSettingSearchEntries: () => {
+        calls.entryBuilds = (calls.entryBuilds || 0) + 1;
+        return [
+          { category: "general", title: "General settings", selector: "[data-settings-category=\"general\"]", haystack: "general settings start with anxos" },
+          { category: "network", title: "Network", selector: "[data-settings-category=\"network\"]", haystack: "network port proxy" },
+        ];
+      },
       setActiveSettingsCategory: (category, selector) => { calls.activated.push({ category, selector }); },
       __calls: calls,
     }),
@@ -1168,6 +1173,18 @@ function scenarioSettingsSearch(source) {
     renderedQuery("general");
     assert.strictEqual(buttons().length, 8, "the pool must be rebuilt after an external clear");
     assert.strictEqual(sandbox.results.counts.listeners.click || 0, 1, "the delegate must not be bound twice");
+  });
+
+  // SMOOTH-1010: the section text is read once per search session, not per keystroke.
+  checker.check("keystrokes reuse the settings search entries until the session is invalidated", () => {
+    sandbox.run("invalidateSettingsSearchEntries();");
+    sandbox.calls.entryBuilds = 0;
+    ["g", "ge", "gen", "gene", "general"].forEach(renderedQuery);
+    assert.strictEqual(sandbox.calls.entryBuilds, 1, "five keystrokes must build the entries once");
+    sandbox.run("invalidateSettingsSearchEntries();");
+    renderedQuery("network");
+    assert.strictEqual(sandbox.calls.entryBuilds, 2, "a new session (focus) must rebuild the entries");
+    assert.strictEqual(visibleButtons()[0].textContent, "Network", "results still come from the rebuilt entries");
   });
 
   return checker;
