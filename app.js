@@ -8733,6 +8733,71 @@ function getCpuTemperatureUnavailableLabel(reason = "", source = "") {
   return "Temperature unavailable";
 }
 
+function getForgeHealthPresentation() {
+  return typeof window !== "undefined" ? window.AnxForgeHealthPresentation || null : null;
+}
+
+function renderGpuTemperature(snapshot) {
+  const presentation = getForgeHealthPresentation();
+  const gpu = presentation ? presentation.describeGpuTemperature(snapshot?.gpu) : { text: "Not reported", title: "" };
+  setField("gpuTemperature", gpu.text);
+  updateFieldAttributes("gpuTemperature", (field) => {
+    field.title = gpu.title || "";
+  });
+}
+
+let lastForgeHealthRenderKey = null;
+
+// Shows Project Forge's health report for the selected node. `forge` is
+// undefined when the node's Agent predates the Forge reader; the card then says
+// so instead of guessing.
+function renderForgeHealth(forge) {
+  const card = document.querySelector("[data-forge-health-card]");
+  const presentation = getForgeHealthPresentation();
+  if (!card || !presentation) return;
+  const view = presentation.describeForgeHealth(forge);
+  // The Dashboard polls every second; only touch the DOM when the card changes.
+  const renderKey = JSON.stringify(view);
+  if (renderKey === lastForgeHealthRenderKey) return;
+  lastForgeHealthRenderKey = renderKey;
+
+  const pill = card.querySelector("[data-forge-health-pill]");
+  if (pill) {
+    pill.className = `status-pill status-pill--${view.pillKey}`;
+    pill.textContent = view.pillLabel;
+  }
+  const summary = card.querySelector("[data-forge-health-summary]");
+  if (summary) summary.textContent = view.summary;
+  setField("forgeHealthStatus", view.statusLabel);
+  setField("forgeHealthUpdated", view.updatedLabel);
+  card.dataset.forgeHealthCurrent = view.current ? "true" : "false";
+
+  const alertsPanel = card.querySelector("[data-forge-health-alerts]");
+  const caption = card.querySelector("[data-forge-health-alerts-caption]");
+  const list = card.querySelector("[data-forge-health-alerts-list]");
+  if (!alertsPanel || !list) return;
+  alertsPanel.hidden = !view.showAlerts;
+  alertsPanel.classList.toggle("is-stale", !view.current);
+  if (caption) {
+    caption.hidden = !view.alertsCaption;
+    caption.textContent = view.alertsCaption || "";
+  }
+  list.replaceChildren(...view.alerts.map((alert) => {
+    const item = document.createElement("li");
+    item.className = "forge-health-alert";
+    const header = document.createElement("div");
+    header.className = "forge-health-alert__header";
+    header.append(
+      createTextElement("span", alert.severityLabel, `status-pill status-pill--${alert.severityKey}`),
+      createTextElement("strong", alert.title, "forge-health-alert__title"),
+    );
+    item.append(header);
+    if (alert.detail) item.append(createTextElement("span", alert.detail, "forge-health-alert__detail"));
+    if (alert.code) item.title = alert.code;
+    return item;
+  }));
+}
+
 function getCpuTemperatureUnavailableDetail(reason = "", source = "") {
   const label = getCpuTemperatureUnavailableLabel(reason, source);
   if (reason === "provider_missing") return "CPU temperature unavailable: the bundled sensor provider is missing.";
@@ -8826,6 +8891,8 @@ function renderSnapshot(snapshot, nodeId = getSelectedNodeId()) {
 
   setField("uptime", formatDuration(safeSnapshot.uptimeSeconds));
   renderCpuTemperature(safeSnapshot);
+  renderGpuTemperature(safeSnapshot);
+  renderForgeHealth(safeSnapshot.forge);
   refreshNodeHealth({ notify: false });
   renderFriendlyDashboard();
 }
@@ -37793,6 +37860,26 @@ function clearDashboardMetricsForActiveTarget(placeholder = DASHBOARD_METRIC_PLA
   setField("networkTotalUpload", value);
   setField("uptime", value);
   setField("temperature", "Unavailable");
+  setField("gpuTemperature", "Unavailable");
+  resetForgeHealthCard(value);
+}
+
+function resetForgeHealthCard(value) {
+  lastForgeHealthRenderKey = null;
+  const card = document.querySelector("[data-forge-health-card]");
+  if (!card) return;
+  const pill = card.querySelector("[data-forge-health-pill]");
+  if (pill) {
+    pill.className = "status-pill status-pill--muted";
+    pill.textContent = "Checking";
+  }
+  const summary = card.querySelector("[data-forge-health-summary]");
+  if (summary) summary.textContent = "Project Forge's health report appears here when Forge runs on this node.";
+  setField("forgeHealthStatus", value);
+  setField("forgeHealthUpdated", value);
+  const alertsPanel = card.querySelector("[data-forge-health-alerts]");
+  if (alertsPanel) alertsPanel.hidden = true;
+  card.querySelector("[data-forge-health-alerts-list]")?.replaceChildren();
 }
 
 function resetNodeScopedRendererState(message = "Loading selected node...") {

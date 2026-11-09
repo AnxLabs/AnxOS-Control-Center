@@ -5,10 +5,12 @@ const path = require("path");
 const agentClient = require("./agentClient");
 const { getExecutionTarget, getSelectedNodeId } = require("./nodeService");
 const { readWindowsHardwareTemperature } = require("../shared/windowsHardwareTemperature");
+const { createCachedForgeHealthReader, mergeForgeGpuTemperature } = require("../shared/forgeHealth");
 
 let previousCpuSample = readCpuSample();
 let previousNetworkSample = null;
 let localTemperatureUnavailableReason = null;
+const getLocalForgeHealth = createCachedForgeHealthReader();
 const loggedAgentMetricWarnings = new Set();
 const EXPECTED_AGENT_SYSTEM_ERROR_CODES = new Set([
   "UNAUTHORIZED",
@@ -419,11 +421,12 @@ async function getCpuTemperature() {
 }
 
 async function getLocalSystemSnapshot() {
-  const [osVersion, disk, network, localCpuTemperature] = await Promise.all([
+  const [osVersion, disk, network, localCpuTemperature, forge] = await Promise.all([
     getOsVersion(),
     getDiskUsage(),
     getNetworkUsage(),
     getCpuTemperature(),
+    getLocalForgeHealth(),
   ]);
 
   let cpuTemperature = localCpuTemperature;
@@ -461,6 +464,7 @@ async function getLocalSystemSnapshot() {
   const cpuTemperatureCelsius = windowsTemperature?.available
     ? windowsTemperature.cpu?.temperatureCelsius ?? null
     : cpuTemperature;
+  const gpuTemperature = mergeForgeGpuTemperature(windowsTemperature?.gpu || null, forge);
   const totalMemory = os.totalmem();
   const freeMemory = os.freemem();
   const usedMemory = totalMemory - freeMemory;
@@ -489,20 +493,21 @@ async function getLocalSystemSnapshot() {
     temperatureSensor: windowsTemperature?.cpu?.sensorName || null,
     temperatureTimestamp: windowsTemperature?.timestamp || null,
     temperatureReason: windowsTemperature?.reason || null,
-    gpu: windowsTemperature?.gpu ? {
-      core: windowsTemperature.gpu.core ? {
-        temperatureCelsius: windowsTemperature.gpu.core.temperatureCelsius,
-        temperatureSource: windowsTemperature.gpu.core.source,
-        temperatureSensor: windowsTemperature.gpu.core.sensorName,
-        temperatureTimestamp: windowsTemperature.timestamp,
+    gpu: gpuTemperature ? {
+      core: gpuTemperature.core ? {
+        temperatureCelsius: gpuTemperature.core.temperatureCelsius,
+        temperatureSource: gpuTemperature.core.source,
+        temperatureSensor: gpuTemperature.core.sensorName,
+        temperatureTimestamp: gpuTemperature.core.timestamp || windowsTemperature?.timestamp || null,
       } : null,
-      hotspot: windowsTemperature.gpu.hotspot ? {
-        temperatureCelsius: windowsTemperature.gpu.hotspot.temperatureCelsius,
-        temperatureSource: windowsTemperature.gpu.hotspot.source,
-        temperatureSensor: windowsTemperature.gpu.hotspot.sensorName,
-        temperatureTimestamp: windowsTemperature.timestamp,
+      hotspot: gpuTemperature.hotspot ? {
+        temperatureCelsius: gpuTemperature.hotspot.temperatureCelsius,
+        temperatureSource: gpuTemperature.hotspot.source,
+        temperatureSensor: gpuTemperature.hotspot.sensorName,
+        temperatureTimestamp: gpuTemperature.hotspot.timestamp || windowsTemperature?.timestamp || null,
       } : null,
     } : null,
+    forge,
     memory: {
       total: totalMemory,
       used: usedMemory,

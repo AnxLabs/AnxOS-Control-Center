@@ -767,7 +767,7 @@
                 <span class="status-pill status-pill--manual">Live</span>
               </div>
               <h3>Runtime</h3>
-              <p>System uptime and CPU temperature when available.</p>
+              <p>System uptime and CPU and GPU temperatures when available.</p>
               <dl>
                 <div>
                   <dt>Uptime</dt>
@@ -777,7 +777,34 @@
                   <dt>Temperature</dt>
                   <dd data-field="temperature">Checking...</dd>
                 </div>
+                <div>
+                  <dt>GPU Temperature</dt>
+                  <dd data-field="gpuTemperature">Checking...</dd>
+                </div>
               </dl>
+            </article>
+
+            <article class="status-card forge-health-card" data-forge-health-card>
+              <div class="status-card__top">
+                <span class="service-icon">PC</span>
+                <span class="status-pill status-pill--muted" data-forge-health-pill>Checking</span>
+              </div>
+              <h3>PC Health</h3>
+              <p data-forge-health-summary>Project Forge's health report appears here when Forge runs on this node.</p>
+              <dl>
+                <div>
+                  <dt>Forge Status</dt>
+                  <dd data-field="forgeHealthStatus">Checking...</dd>
+                </div>
+                <div>
+                  <dt>Last Report</dt>
+                  <dd data-field="forgeHealthUpdated">Checking...</dd>
+                </div>
+              </dl>
+              <div class="forge-health-alerts" data-forge-health-alerts hidden>
+                <p class="forge-health-alerts__caption" data-forge-health-alerts-caption hidden></p>
+                <ul class="forge-health-alerts__list" data-forge-health-alerts-list></ul>
+              </div>
             </article>
 
             <article class="status-card">
@@ -5765,6 +5792,7 @@
     <script src="src/shared/resourceOperationLifecycle.js"></script>
     <script src="src/shared/instanceMetricsLifecycle.js"></script>
     <script src="src/shared/instanceHealthSummary.js"></script>
+    <script src="src/shared/forgeHealthPresentation.js"></script>
     <script src="src/shared/instances/minecraftPlayerFiles.js"></script>
     <script src="node_modules/@xterm/xterm/lib/xterm.js"></script>
     <script src="src/shared/healthModel.js"></script>

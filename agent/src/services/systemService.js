@@ -6,7 +6,9 @@ const path = require("path");
 const { getConfig } = require("../config");
 const { logger } = require("./diagnosticsLogger");
 const { readWindowsHardwareTemperature } = require("../../../src/shared/windowsHardwareTemperature");
+const { createCachedForgeHealthReader, mergeForgeGpuTemperature } = require("../../../src/shared/forgeHealth");
 let windowsHardwareTemperatureReader = readWindowsHardwareTemperature;
+let getForgeHealth = createCachedForgeHealthReader();
 
 let previousCpuSample = readCpuSample();
 let previousNetworkSample = null;
@@ -597,11 +599,12 @@ async function getCpuTemperature() {
 }
 
 async function getSystemSummary() {
-  const [osVersion, disk, network, cpuTemperature] = await Promise.all([
+  const [osVersion, disk, network, cpuTemperature, forge] = await Promise.all([
     readOsVersion(),
     getDiskUsage(),
     getNetworkUsage(),
     getCpuTemperature(),
+    getForgeHealth(),
   ]);
   const cpuTemperatureCelsius = cpuTemperature?.temperatureValid ? cpuTemperature.temperatureCelsius : null;
   const totalMemory = os.totalmem();
@@ -634,7 +637,8 @@ async function getSystemSummary() {
     temperatureSensor: cpuTemperature?.temperatureSensor || null,
     temperatureReason: cpuTemperature?.temperatureReason || null,
     temperatureTimestamp: cpuTemperature?.temperatureTimestamp || null,
-    gpu: cpuTemperature?.gpuTemperature || null,
+    gpu: mergeForgeGpuTemperature(cpuTemperature?.gpuTemperature || null, forge),
+    forge,
     memory: {
       total: totalMemory,
       used: usedMemory,
@@ -686,6 +690,9 @@ module.exports = {
     },
     resetCpuTemperatureCacheForTest() {
       cpuTemperatureCache = null;
+    },
+    setForgeHealthReaderForTest(fn) {
+      getForgeHealth = createCachedForgeHealthReader(fn ? { reader: fn } : {});
     },
   },
 };
