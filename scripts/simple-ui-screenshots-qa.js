@@ -14,7 +14,11 @@
 //   S4 Activity lists running work from the shared operations state and
 //      opens its Task details; finished work leaves the list;
 //   S5 a server's Share dialog explains in plain words whether friends can
-//      join, and Test connection runs the read-only connectivity diagnostics.
+//      join, and Test connection runs the read-only connectivity diagnostics;
+//   S6 sharing asks first: cancelling creates nothing, approving sends the
+//      request (refused here because the QA app is locked), and a server on a
+//      management port (SSH) is refused before any approval dialog. Playit is
+//      marked installed in memory only; this disposable app has no real Playit.
 // Set SIMPLE_UI_SHOTS=<dir> to save screenshots of each screen.
 //
 // Never touches the installed app or its data.
@@ -183,6 +187,34 @@ async function main() {
     assert.ok(testText.length > 0, "the connection test reports a result");
     await shot(page, "05b-share-test");
     await page.keyboard.press("Escape");
+    // S6: approval, cancellation and the management-port guard.
+    const readyPlayit = () => page.evaluate(() => {
+      latestPublicAccessSnapshot = { ...(latestPublicAccessSnapshot || {}), providers: [{ id: "playit", name: "Playit.gg", installed: true }], services: [] };
+    });
+    const waitForApproval = () => waitFor(page, () => Boolean(document.querySelector("[data-confirm-ok]")), null, "approval dialog");
+    await readyPlayit();
+    await page.evaluate((id) => { window.__shareAttempt = createAccessServiceForInstance(findInstance(id), "playit").then((value) => ({ value }), (error) => ({ error: error?.code || error?.message })); }, instanceId);
+    await waitForApproval();
+    const approvalText = await page.evaluate(() => document.querySelector("[data-confirm-ok]").closest(".app-modal").textContent);
+    assert.match(approvalText, /over the internet\?/, "the approval names internet sharing");
+    assert.match(approvalText, /(TCP|UDP) port \d+/, "the approval names the exact port and protocol");
+    assert.match(approvalText, /Only this game port is shared/);
+    await shot(page, "06-share-approval");
+    await page.locator("[data-confirm-cancel]").last().click();
+    const cancelled = await page.evaluate(() => window.__shareAttempt);
+    assert.deepStrictEqual(cancelled, { value: null }, "cancelling creates nothing and is not an error");
+    await readyPlayit();
+    await page.evaluate((id) => { window.__shareAttempt = createAccessServiceForInstance(findInstance(id), "playit").then((value) => ({ value: Boolean(value) }), (error) => ({ error: error?.code || error?.message || "error" })); }, instanceId);
+    await waitForApproval();
+    await page.locator("[data-confirm-ok]").last().click();
+    const approved = await page.evaluate(() => window.__shareAttempt);
+    assert.ok(approved.error || approved.value, "approving sends the request");
+    await readyPlayit();
+    const guarded = await page.evaluate(() => createAccessServiceForInstance({ id: "qa-ssh", displayName: "SSH test", state: "running", primaryPort: 22, ports: [22] }, "playit").then(() => "created", (error) => error?.code || "error"));
+    assert.strictEqual(guarded, "PUBLIC_ACCESS_SENSITIVE_PORT", "a management port is refused");
+    assert.strictEqual(await page.locator("[data-confirm-ok]").count(), 0, "no approval dialog is shown for a refused port");
+    console.log(`PASS S6 sharing asks first, cancel creates nothing, approve sends the request (${approved.error || "created"}), port 22 refused`);
+
     console.log(`PASS S5 Share dialog explains sharing and runs Test connection (${shareBefore.status}; test: ${testText.slice(0, 80)})`);
 
     // S2: Create Server.
@@ -254,7 +286,7 @@ async function main() {
     console.log("PASS S2 Create Server: one setup step, Advanced options collapsed and opened on errors");
 
     assert.deepStrictEqual(rendererErrors, [], "no renderer errors");
-    console.log("Simple UI QA passed (5 checks).");
+    console.log("Simple UI QA passed (6 checks).");
   } catch (error) {
     console.error(error && error.stack ? error.stack : error);
     process.exitCode = 1;
