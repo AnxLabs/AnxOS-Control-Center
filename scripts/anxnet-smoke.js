@@ -20,6 +20,9 @@
 //   X9 relay when direct fails; relay sees only ciphertext; revoked peers cut
 //   X10 public gateway: plain TCP and UDP clients reach the game, grants are
 //       required, unpublishing closes the port
+//   X12 several game servers on one gateway at once: each public port
+//       reaches only its own server under concurrent load, the gateway
+//       counts real connections, and removing one route leaves the other
 //   X11 security review fixes (Phase 6.1): stale UDP hellos refused; a
 //       replayed hello can't redirect UDP traffic; stream ids can't be
 //       reused; services can't point at internet hosts; coordinator and
@@ -332,6 +335,27 @@ async function main() {
   await ownerNode.unshareService(udpGame.serviceId);
   await waitFor(() => !edge.status().routes.some((route) => route.routeId === udpRoute.routeId), "UDP route removed when the service stops being shared", 10000);
   pass(`X10 gateway: plain TCP (3 at once) and UDP clients reach the game on ${tcpRoute.publicPort}/${udpRoute.publicPort}; forged and wrong-gateway grants refused; routes removed on unpublish and unshare`);
+
+  // X12
+  const serverA = await tcpEchoServer("srvA:");
+  const serverB = await tcpEchoServer("srvB:");
+  const shareA = await ownerNode.shareService({ name: "Server A", port: 25630, protocol: "tcp", targetHost: "127.0.0.1", targetPort: serverA, allow: [] });
+  const shareB = await ownerNode.shareService({ name: "Server B", port: 25631, protocol: "tcp", targetHost: "127.0.0.1", targetPort: serverB, allow: [] });
+  const routeA = await ownerNode.publish({ gateway, ...ownerNode.signGatewayGrant({ serviceId: shareA.serviceId, protocol: "tcp", gatewayFingerprint: edgeInfo.fingerprint }) });
+  const routeB = await ownerNode.publish({ gateway, ...ownerNode.signGatewayGrant({ serviceId: shareB.serviceId, protocol: "tcp", gatewayFingerprint: edgeInfo.fingerprint }) });
+  assert.notStrictEqual(routeA.publicPort, routeB.publicPort, "each server gets its own public port");
+  const load = await Promise.all(Array.from({ length: 20 }, (_, index) => {
+    const route = index % 2 ? routeB : routeA;
+    return tcpRoundTrip(route.publicPort, "127.0.0.1", `player${index}`).then((reply) => ({ index, reply }));
+  }));
+  for (const { index, reply } of load) assert.strictEqual(reply, `${index % 2 ? "srvB" : "srvA"}:player${index}`, "no traffic crosses between servers");
+  assert.ok(edge.status().stats.gatewayConnections >= 20, "the gateway counted the real connections");
+  await ownerNode.unpublish(routeA.routeId);
+  await waitFor(() => !edge.status().routes.some((route) => route.routeId === routeA.routeId), "route A removed");
+  assert.strictEqual(await tcpRoundTrip(routeB.publicPort, "127.0.0.1", "still"), "srvB:still", "the other server keeps its public route");
+  await assert.rejects(tcpRoundTrip(routeA.publicPort, "127.0.0.1", "gone", 2000));
+  await ownerNode.unpublish(routeB.routeId);
+  pass(`X12 two servers on one gateway (${routeA.publicPort}, ${routeB.publicPort}): 20 concurrent players each reached the right server; removing one route left the other working`);
 
   // X11
   const staleHandshake = secureUdp.createHandshake({ identity: identityLib.createIdentity(), networkId: ownerNode.doc.networkId, peerDeviceId: "dev-x" });

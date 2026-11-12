@@ -21379,3 +21379,22 @@ body.create-server-window .page[data-page="marketplace"] .page-introduction {
 .anxnet-dns p {
   margin: 0;
 }
+
+.anxnet-availability {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.anxnet-chip {
+  padding: 3px 10px;
+  border: 1px solid rgba(190, 170, 220, 0.16);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.anxnet-chip.is-ok {
+  border-color: rgba(66, 211, 146, 0.35);
+  color: #9ff0c4;
+}

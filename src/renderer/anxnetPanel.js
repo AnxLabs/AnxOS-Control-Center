@@ -144,6 +144,26 @@
     container.append(actions);
   }
 
+  // Can servers be opened to everyone right now? Only when a gateway is
+  // configured and this computer is actually connected to it.
+  function renderAvailability(container, status) {
+    const gateway = (status.edgeLinks || []).find((link) => link.role === "gateway");
+    const relay = (status.edgeLinks || []).find((link) => link.role === "relay");
+    const line = el("div", "anxnet-availability");
+    const gatewayText = !status.network.gateways?.length
+      ? "Anyone can join: needs an AnxNet gateway (or use Playit)."
+      : gateway?.state === "connected"
+        ? `Anyone can join: available through ${gateway.host}.`
+        : status.network.role !== "owner"
+          ? "Anyone can join: set up by the network owner."
+          : `Anyone can join: gateway ${status.network.gateways[0].host} isn't reachable right now${gateway?.message ? ` (${gateway.message})` : ""}.`;
+    const relayText = !status.network.relays?.length
+      ? "No relay: devices that can't reach each other directly won't connect."
+      : relay?.state === "connected" ? `Relay ${relay.host} connected.` : `Relay ${status.network.relays[0].host} isn't reachable right now.`;
+    line.append(el("span", `anxnet-chip is-${gateway?.state === "connected" ? "ok" : "muted"}`, gatewayText), el("span", `anxnet-chip is-${relay?.state === "connected" ? "ok" : "muted"}`, relayText));
+    container.append(line);
+  }
+
   function renderInvite(container) {
     if (!lastInvite) return;
     const box = el("div", "anxnet-invite");
@@ -154,6 +174,19 @@
     actions.append(button("Copy", () => { navigator.clipboard?.writeText(lastInvite.code).then(() => showToast("Invite copied.", "success")); }), button("Hide", () => { lastInvite = null; render(); }));
     box.append(actions);
     container.append(box);
+  }
+
+  function renderInvites(container, status) {
+    if (status.network.role !== "owner" || !status.invites?.length) return;
+    const section = el("div", "anxnet-pending");
+    section.append(el("h4", "", "Open invites"));
+    status.invites.forEach((invite) => {
+      const row = el("div", "anxnet-row");
+      row.append(el("div", "anxnet-row__text", `Invite ${invite.inviteId}: ${invite.maxUses - invite.uses} use${invite.maxUses - invite.uses === 1 ? "" : "s"} left, expires ${new Date(invite.expiresAt).toLocaleString()}${invite.preApproved ? " (joins without approval)" : ""}`));
+      row.append(button("Cancel", () => run("Cancel invite", () => api().revokeInvite(invite.inviteId), "Invite cancelled.")));
+      section.append(row);
+    });
+    container.append(section);
   }
 
   function renderPending(container, status) {
@@ -314,7 +347,9 @@
     else if (!latest.network) renderSetup(content);
     else {
       renderNetworkHeader(content, latest);
+      renderAvailability(content, latest);
       renderInvite(content);
+      renderInvites(content, latest);
       renderPending(content, latest);
       renderDevices(content, latest);
       renderNameLookup(content, latest);

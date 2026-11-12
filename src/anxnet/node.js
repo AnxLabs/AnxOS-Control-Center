@@ -1554,6 +1554,8 @@ class AnxNetNode extends EventEmitter {
       dns: this.dns ? { host: this.dns.host, port: this.dns.port, domain: doc?.domain } : null,
       forwards: [...this.forwards.values()].map((forward) => ({ protocol: forward.protocol, address: forward.address, port: forward.service.port, serviceId: forward.service.serviceId })),
       relayLinks: [...(this.edgeLinks?.values() || [])].filter((link) => link.kind === "relay-register").map((link) => ({ host: link.edge.host, port: link.edge.port, state: link.state })),
+      // Relay and gateway connections as they really are right now.
+      edgeLinks: [...(this.edgeLinks?.values() || [])].map((link) => ({ role: link.kind === "relay-register" ? "relay" : "gateway", host: link.edge.host, port: link.edge.port, state: link.state, message: link.state === "connected" ? "" : link.message || "" })),
       publicRoutes: [...(this.gatewayRoutes?.values() || [])].map((route) => ({ ...route })),
     };
   }
