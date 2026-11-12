@@ -206,8 +206,17 @@ function assertRemoteSystemMetricsNormalize() {
   );
   assert.deepStrictEqual(
     snapshot.network,
-    { downloadPerSecond: 1024, uploadPerSecond: 512, totalDownload: 4096, totalUpload: 2048 },
+    { downloadPerSecond: 1024, uploadPerSecond: 512, totalDownload: 4096, totalUpload: 2048, reason: null },
     "Remote network metrics should normalize to renderer network card shape."
+  );
+  // Phase 4.1: a rate the Agent could not measure yet stays null, never 0.
+  const warmingUp = systemService._test.normalizeAgentSystemSnapshot({
+    network: { downloadPerSecond: null, uploadPerSecond: null, totalDownload: 4096, totalUpload: 2048, reason: "warming_up" },
+  }, { url: "http://agent.local" });
+  assert.deepStrictEqual(
+    [warmingUp.network.downloadPerSecond, warmingUp.network.uploadPerSecond, warmingUp.network.reason],
+    [null, null, "warming_up"],
+    "An unmeasured network rate must stay null with its reason, not become 0.",
   );
   assert.strictEqual(snapshot.cpuTempC, 58.4, "Remote CPU temperature should normalize from top-level cpuTempC.");
   assert.strictEqual(snapshot.cpu.temperatureCelsius, 58.4, "Remote CPU temperature should remain available on the nested CPU shape.");

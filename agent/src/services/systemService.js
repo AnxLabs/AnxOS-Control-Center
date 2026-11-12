@@ -10,8 +10,12 @@ const { createCachedForgeHealthReader, mergeForgeGpuTemperature } = require("../
 let windowsHardwareTemperatureReader = readWindowsHardwareTemperature;
 let getForgeHealth = createCachedForgeHealthReader();
 
-let previousCpuSample = readCpuSample();
-let previousNetworkSample = null;
+// CPU, network and GPU rates come from shared samplers so several clients
+// polling close together never reset each other's baseline (metricsSampler.js).
+const metricsSampler = require("./metricsSampler");
+const sampleCpu = metricsSampler.createCpuSampler();
+const sampleNetwork = metricsSampler.createNetworkSampler();
+const sampleGpu = metricsSampler.createGpuSampler();
 const DISK_STATS_UNAVAILABLE = "DISK_STATS_UNAVAILABLE";
 const diskStatsWarningState = new Map();
 const DISK_STATS_WARNING_REPEAT_INTERVAL_MS = 5 * 60 * 1000;
@@ -67,29 +71,6 @@ async function readOsVersion() {
   }
 
   return `${os.type()} ${os.release()}`;
-}
-
-function readCpuSample() {
-  const cpus = os.cpus();
-  return cpus.reduce((acc, cpu) => {
-    const times = cpu.times;
-    acc.idle += times.idle;
-    acc.total += times.user + times.nice + times.sys + times.idle + times.irq;
-    return acc;
-  }, { idle: 0, total: 0 });
-}
-
-function getCpuUsagePercent() {
-  const nextSample = readCpuSample();
-  const idleDelta = nextSample.idle - previousCpuSample.idle;
-  const totalDelta = nextSample.total - previousCpuSample.total;
-  previousCpuSample = nextSample;
-
-  if (totalDelta <= 0) {
-    return null;
-  }
-
-  return round((1 - idleDelta / totalDelta) * 100);
 }
 
 function buildDiskUsage(total, free, mount, freeIncludingReserved = null) {
@@ -300,77 +281,6 @@ async function getDiskUsage(targetPath = getConfig().instanceRoot) {
   }
 
   return buildDiskUsage(Number(parts[1]) * 1024, Number(parts[3]) * 1024, parts[5]);
-}
-
-async function getLinuxNetworkTotals() {
-  try {
-    const content = await fs.readFile("/proc/net/dev", "utf8");
-    return content
-      .split(/\r?\n/)
-      .slice(2)
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .reduce((acc, line) => {
-        const [namePart, dataPart] = line.split(":");
-        const name = String(namePart || "").trim();
-        if (!dataPart || name === "lo") {
-          return acc;
-        }
-        const values = dataPart.trim().split(/\s+/).map(Number);
-        acc.download += values[0] || 0;
-        acc.upload += values[8] || 0;
-        return acc;
-      }, { download: 0, upload: 0 });
-  } catch (error) {
-    console.warn("[AnxOS Agent][Stats] Network counters unavailable.", {
-      message: error?.message || String(error),
-    });
-    return null;
-  }
-}
-
-async function getNetworkUsage() {
-  if (process.platform !== "linux") {
-    return {
-      uploadPerSecond: 0,
-      downloadPerSecond: 0,
-      totalUpload: null,
-      totalDownload: null,
-      supported: false,
-      reason: "unsupported_platform",
-    };
-  }
-
-  const totals = await getLinuxNetworkTotals();
-  const now = Date.now();
-
-  if (!totals) {
-    return null;
-  }
-
-  const current = { ...totals, at: now };
-
-  if (!previousNetworkSample) {
-    previousNetworkSample = current;
-    return {
-      uploadPerSecond: 0,
-      downloadPerSecond: 0,
-      totalUpload: totals.upload,
-      totalDownload: totals.download,
-    };
-  }
-
-  const seconds = Math.max((now - previousNetworkSample.at) / 1000, 0.001);
-  const uploadPerSecond = Math.max((current.upload - previousNetworkSample.upload) / seconds, 0);
-  const downloadPerSecond = Math.max((current.download - previousNetworkSample.download) / seconds, 0);
-  previousNetworkSample = current;
-
-  return {
-    uploadPerSecond: round(uploadPerSecond, 0),
-    downloadPerSecond: round(downloadPerSecond, 0),
-    totalUpload: totals.upload,
-    totalDownload: totals.download,
-  };
 }
 
 function normalizeThermalLabel(value) {
@@ -599,12 +509,14 @@ async function getCpuTemperature() {
 }
 
 async function getSystemSummary() {
-  const [osVersion, disk, network, cpuTemperature, forge] = await Promise.all([
+  const cpuSample = sampleCpu();
+  const [osVersion, disk, network, cpuTemperature, forge, gpuUsage] = await Promise.all([
     readOsVersion(),
     getDiskUsage(),
-    getNetworkUsage(),
+    sampleNetwork(),
     getCpuTemperature(),
     getForgeHealth(),
+    sampleGpu(),
   ]);
   const cpuTemperatureCelsius = cpuTemperature?.temperatureValid ? cpuTemperature.temperatureCelsius : null;
   const totalMemory = os.totalmem();
@@ -620,7 +532,10 @@ async function getSystemSummary() {
     cpu: {
       model: cpus[0]?.model || "Unknown CPU",
       cores: cpus.length,
-      usagePercent: getCpuUsagePercent(),
+      // null with usageReason (e.g. warming_up) until two samples exist.
+      usagePercent: cpuSample.usagePercent,
+      usageReason: cpuSample.reason,
+      perCore: cpuSample.perCore,
       loadAverage: os.loadavg(),
       temperatureCelsius: cpuTemperatureCelsius,
       temperatureAvailable: cpuTemperature?.temperatureAvailable === true,
@@ -638,6 +553,9 @@ async function getSystemSummary() {
     temperatureReason: cpuTemperature?.temperatureReason || null,
     temperatureTimestamp: cpuTemperature?.temperatureTimestamp || null,
     gpu: mergeForgeGpuTemperature(cpuTemperature?.gpuTemperature || null, forge),
+    // Utilization and VRAM where a vendor tool reports them (NVIDIA today);
+    // otherwise available: false with a reason. Never estimated.
+    gpuUsage,
     forge,
     memory: {
       total: totalMemory,

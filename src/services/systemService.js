@@ -155,11 +155,14 @@ function normalizeNetworkMetric(snapshot = {}) {
     return null;
   }
 
+  // A missing rate stays null ("not measured yet"), never 0: the Agent
+  // reports null while warming up or when the platform cannot measure.
   return {
-    downloadPerSecond: downloadPerSecond ?? 0,
-    uploadPerSecond: uploadPerSecond ?? 0,
+    downloadPerSecond,
+    uploadPerSecond,
     totalDownload,
     totalUpload,
+    reason: typeof source?.reason === "string" ? source.reason : null,
   };
 }
 
@@ -374,9 +377,11 @@ async function getNetworkUsage() {
 
   if (!previousNetworkSample) {
     previousNetworkSample = current;
+    // The first reading has no rate yet; report null, not a made-up 0.
     return {
-      uploadPerSecond: 0,
-      downloadPerSecond: 0,
+      reason: "warming_up",
+      uploadPerSecond: null,
+      downloadPerSecond: null,
       totalUpload: totals.upload,
       totalDownload: totals.download,
     };
