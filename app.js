@@ -9085,6 +9085,8 @@ function renderPlayitServiceStatus(status = null) {
     const service = status?.service || {};
     const checked = service.lastCheckedAt || status?.lastCheckedAt;
     playitServiceMetaText.textContent = service.message || (status?.installed ? "Playit service status is available." : "Install Playit to manage public tunnel service state.");
+    const recovery = AnxShareHealth.describePlayitServiceRecovery(service);
+    if (recovery) playitServiceMetaText.textContent += ` ${recovery}`;
     if (checked) {
       playitServiceMetaText.textContent += ` Last checked ${formatDateTime(checked)}.`;
     }
@@ -10376,12 +10378,18 @@ function getShareServerAccessHealth(instance = findInstance()) {
 
   // The shared rules never report "Public access ready" for a tunnel whose
   // game port is not confirmed listening.
+  // Required protocol comes from the per-game suggestion (Palworld UDP,
+  // Minecraft TCP, ...); the tunnel protocol only from what Playit reports.
+  const requiredProtocol = String(getInstanceAccessSuggestions(instance).find((suggestion) => suggestion.providerId === "playit")?.protocol || "").toUpperCase();
+  const reportedTunnelProtocol = playitMatches.length === 1 ? String(playitMatches[0].protocol || "").toUpperCase() : "";
+  const tunnelProtocol = AnxShareHealth.assessTunnelProtocol(reportedTunnelProtocol, requiredProtocol);
   const status = AnxShareHealth.classifyShareHealth({
     nodeUnavailable: Boolean(nodeUnavailable),
     processState,
     portState,
     playitState,
     tunnelMatch,
+    tunnelProtocol,
     usablePublic,
     usableLan,
     usableTailscale,
@@ -10394,6 +10402,9 @@ function getShareServerAccessHealth(instance = findInstance()) {
     lan: usableLan ? "available" : "unavailable",
     playitState,
     tunnelMatch,
+    tunnelProtocol,
+    requiredProtocol,
+    reportedTunnelProtocol,
     publicAddress: usablePublic ? "available" : "unavailable",
     tailscale: usableTailscale || tailscaleProvider?.connected ? "available" : tailscaleProvider ? "configured" : "unavailable",
     nodeState: nodeUnavailable ? "disconnected" : "available",
@@ -10414,6 +10425,9 @@ function getRecommendedShareServerAddress(instance = findInstance()) {
 
 function getShareServerDiagnosticMessages(instance = findInstance(), health = getShareServerAccessHealth(instance)) {
   const described = AnxShareHealth.describeShareHealth(health.status);
+  if (health.status === AnxShareHealth.STATUS.PROTOCOL_MISMATCH) {
+    return [described.nextStep, `Playit reports this tunnel as ${health.reportedTunnelProtocol}; this game needs ${health.requiredProtocol}.`];
+  }
   const recommended = getRecommendedShareServerAddress(instance);
   if (health.status === AnxShareHealth.STATUS.PUBLIC_READY && recommended?.availability !== "lan") {
     return [described.nextStep, "Ask your friend to paste the copied address exactly."];
@@ -10431,6 +10445,7 @@ function getInstanceAccessBadges(instance = findInstance()) {
   else if (health.portState === "not-listening") badges.push({ label: "Port not listening", tone: "warning" });
   if (health.status === "Public access ready") badges.push({ label: "Public access ready", tone: "ok" });
   else if (health.status === AnxShareHealth.STATUS.GAME_NOT_VERIFIED) badges.push({ label: "Tunnel up, game not verified", tone: "warning" });
+  else if (health.status === AnxShareHealth.STATUS.PROTOCOL_MISMATCH) badges.push({ label: "Wrong tunnel protocol", tone: "warning" });
   else if (health.tunnelMatch === "multiple") badges.push({ label: "Multiple tunnels", tone: "warning" });
   else if (health.playitState === "running" && health.tunnelMatch === "matched") badges.push({ label: "Playit online", tone: "ok" });
   else if (health.tailscale === "available") badges.push({ label: "Tailscale available", tone: "planned" });

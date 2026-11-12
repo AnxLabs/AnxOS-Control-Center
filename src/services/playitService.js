@@ -163,9 +163,14 @@ function extractTunnelId(content) {
   return match?.[1] || null;
 }
 
+// "tcp+udp" / "both" tunnels are reported as TCP+UDP, not as the first
+// protocol named (which made UDP games look mismatched).
 function extractProtocol(content) {
-  const match = content.match(/\b(?:protocol|proto)\b\s*[:=]\s*["']?(tcp|udp|http|https)\b/i);
-  return match?.[1]?.toUpperCase() || null;
+  const match = content.match(/\b(?:protocol|proto)\b\s*[:=]\s*["']?(tcp\s*[+/&,]\s*udp|udp\s*[+/&,]\s*tcp|both|tcp|udp|http|https)\b/i);
+  const token = String(match?.[1] || "").toLowerCase();
+  if (!token) return null;
+  if (token === "both" || (token.includes("tcp") && token.includes("udp"))) return "TCP+UDP";
+  return token.toUpperCase();
 }
 
 function splitHostPort(value) {

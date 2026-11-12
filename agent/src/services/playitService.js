@@ -164,11 +164,25 @@ function extractLocalTarget(content) {
   return value.match(LOCAL_TARGET_PATTERN)?.[0] || null;
 }
 
+// A tunnel can carry both TCP and UDP ("tcp+udp", "both"). Reporting only the
+// first protocol named made such tunnels look TCP-only, so UDP games behind
+// them would be flagged as using the wrong protocol.
+const PROTOCOL_TOKEN = String.raw`(tcp\s*[+/&,]\s*udp|udp\s*[+/&,]\s*tcp|both|tcp|udp|http|https)`;
+const LABELED_PROTOCOL_PATTERN = new RegExp(String.raw`\b(?:protocol|proto|port[_ -]?type|tunnel[_ -]?type)\b\s*[:=]\s*["']?` + PROTOCOL_TOKEN + String.raw`\b`, "i");
+const BARE_PROTOCOL_PATTERN = new RegExp(String.raw`\b` + PROTOCOL_TOKEN + String.raw`\b`, "i");
+
+function canonicalProtocol(token) {
+  const text = String(token || "").trim().toLowerCase();
+  if (!text) return null;
+  if (text === "both" || (text.includes("tcp") && text.includes("udp"))) return "TCP+UDP";
+  return text.toUpperCase();
+}
+
 function extractProtocol(content) {
-  const match = String(content || "").match(/\b(?:protocol|proto|port[_ -]?type|tunnel[_ -]?type)\b\s*[:=]\s*["']?(tcp|udp|http|https)\b/i);
+  const match = String(content || "").match(LABELED_PROTOCOL_PATTERN);
 
   if (match?.[1]) {
-    return match[1].toUpperCase();
+    return canonicalProtocol(match[1]);
   }
 
   const urlMatch = String(content || "").match(/\b(tcp|udp|http|https):\/\//i);
@@ -188,8 +202,8 @@ function extractTunnelId(content) {
 }
 
 function normalizeProtocol(value) {
-  const match = String(value || "").match(/\b(tcp|udp|http|https)\b/i);
-  return match?.[1]?.toUpperCase() || null;
+  const match = String(value || "").match(BARE_PROTOCOL_PATTERN);
+  return canonicalProtocol(match?.[1]);
 }
 
 function normalizeEndpointHost(value) {
@@ -1158,6 +1172,44 @@ async function getPlayitStatus() {
   };
 }
 
+// systemd Restart= values: "no" never restarts; the others restart on at
+// least some exits. Anything else is reported as unknown (null).
+function parseSystemdRestartSetting(value) {
+  const text = String(value || "").trim().toLowerCase();
+  if (!text) return null;
+  if (text === "no") return false;
+  if (["on-failure", "always", "on-abnormal", "on-abort", "on-watchdog", "on-success"].includes(text)) return true;
+  return null;
+}
+
+// Get-Service StartType is a number (2 Automatic, 3 Manual, 4 Disabled) or its
+// name, depending on the PowerShell version.
+function parseWindowsStartType(value) {
+  if (value === undefined || value === null || value === "") return null;
+  const text = String(value).trim().toLowerCase();
+  if (["2", "automatic", "auto"].includes(text)) return "enabled";
+  if (["3", "manual"].includes(text)) return "manual";
+  if (["4", "disabled"].includes(text)) return "disabled";
+  return null;
+}
+
+// systemctl is-enabled / Windows start type -> starts at boot (true/false),
+// or null for states that do not answer the question (static, indirect, ...).
+function parseStartsOnBoot(value) {
+  const text = String(value || "").trim().toLowerCase();
+  if (["enabled", "enabled-runtime"].includes(text)) return true;
+  if (["disabled", "manual", "masked", "masked-runtime"].includes(text)) return false;
+  return null;
+}
+
+// sc.exe qfailure lists FAILURE_ACTIONS such as "RESTART -- Delay = 60000".
+function parseWindowsFailureActions(output) {
+  const text = String(output || "");
+  const at = text.search(/FAILURE_ACTIONS/i);
+  if (at < 0) return null;
+  return /\bRESTART\b/i.test(text.slice(at));
+}
+
 function normalizeServiceState(value, runningFallback = false) {
   const text = String(value || "").trim().toLowerCase();
   if (/^(active|running)$/.test(text)) return "running";
@@ -1172,9 +1224,12 @@ async function inspectSystemdService(name, user = false) {
     return null;
   }
   const prefix = user ? ["--user"] : [];
-  const [active, enabled] = await Promise.all([
+  const [active, enabled, restart] = await Promise.all([
     exec("systemctl", [...prefix, "is-active", name], { timeout: CONTROL_COMMAND_TIMEOUT_MS }),
     exec("systemctl", [...prefix, "is-enabled", name], { timeout: CONTROL_COMMAND_TIMEOUT_MS }),
+    // Read-only: the unit's own restart setting. AnxOS reports it and never
+    // supervises Playit itself, so the service manager stays the one restarter.
+    exec("systemctl", [...prefix, "show", "-p", "Restart", "--value", name], { timeout: CONTROL_COMMAND_TIMEOUT_MS }),
   ]);
   const rawState = active.stdout || active.stderr || "";
   const state = normalizeServiceState(rawState);
@@ -1185,6 +1240,7 @@ async function inspectSystemdService(name, user = false) {
     found,
     state: found ? state : "service-not-found",
     enabled: enabled.ok ? enabled.stdout.split(/\r?\n/)[0] || "enabled" : null,
+    restartOnFailure: restart.ok ? parseSystemdRestartSetting(restart.stdout) : null,
     diagnostics: {
       active: { ok: active.ok, errorCode: active.errorCode, output: sanitizeCommandLine(rawState) },
       enabled: { ok: enabled.ok, errorCode: enabled.errorCode, output: sanitizeCommandLine(enabled.stdout || enabled.stderr) },
@@ -1196,16 +1252,21 @@ async function inspectWindowsService(name) {
   if (process.platform !== "win32") {
     return null;
   }
-  const script = `Get-Service -Name ${JSON.stringify(name)} -ErrorAction SilentlyContinue | Select-Object -First 1 Name,Status | ConvertTo-Json -Compress`;
+  const script = `Get-Service -Name ${JSON.stringify(name)} -ErrorAction SilentlyContinue | Select-Object -First 1 Name,Status,StartType | ConvertTo-Json -Compress`;
   const result = await exec("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script], { timeout: CONTROL_COMMAND_TIMEOUT_MS });
   let parsed = null;
   try { parsed = result.stdout ? JSON.parse(result.stdout) : null; } catch {}
+  // Read-only: the service's own recovery actions (restart after failure).
+  const failure = parsed?.Name
+    ? await exec("sc.exe", ["qfailure", String(parsed.Name)], { timeout: CONTROL_COMMAND_TIMEOUT_MS })
+    : { ok: false, stdout: "" };
   return {
     manager: "windows-service",
     name,
     found: Boolean(parsed?.Name),
     state: parsed?.Status ? normalizeServiceState(parsed.Status) : "service-not-found",
-    enabled: null,
+    enabled: parseWindowsStartType(parsed?.StartType),
+    restartOnFailure: failure.ok ? parseWindowsFailureActions(failure.stdout) : null,
     diagnostics: {
       query: { ok: result.ok, errorCode: result.errorCode, hasOutput: Boolean(result.stdout), stderr: sanitizeCommandLine(result.stderr) },
     },
@@ -1246,6 +1307,10 @@ async function getPlayitServiceStatusFromSnapshot(snapshot = null) {
     state,
     serviceName: selected?.name || null,
     manager: selected?.manager || null,
+    // Read-only facts about the service manager's own recovery; null when
+    // unknown. AnxOS shows these and does not add a second supervisor.
+    startsOnBoot: selected?.found ? parseStartsOnBoot(selected.enabled) : null,
+    restartOnFailure: selected?.found && typeof selected.restartOnFailure === "boolean" ? selected.restartOnFailure : null,
     lastCheckedAt: checkedAt,
     message: !installed
       ? "Playit is not installed on this node."
@@ -1487,6 +1552,12 @@ module.exports = {
   startPlayit,
   stopPlayit,
   _test: {
+    parseSystemdRestartSetting,
+    parseWindowsStartType,
+    parseWindowsFailureActions,
+    parseStartsOnBoot,
+    normalizeProtocol,
+    extractProtocol,
     collectTunnelObjects,
     normalizeTunnel,
     parseTunnelObjectsFromContent,

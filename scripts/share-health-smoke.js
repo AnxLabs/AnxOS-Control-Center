@@ -96,4 +96,43 @@ assert.ok(createFn.includes("if (!approved) return null;"), "declining creates n
 assert.ok(app.includes("message: \"AnxOS removes this server's sharing settings. A tunnel you created on playit.gg stays there"), "Stop sharing says what it does not remove");
 console.log("PASS H5 sharing needs approval and never covers management ports");
 
-console.log("Share health smoke passed (5 checks).");
+// H6 tunnel protocol: a known mismatch is flagged, unknown never is, and
+// "tcp+udp" tunnels are not mistaken for TCP-only ones.
+assert.strictEqual(share.assessTunnelProtocol("TCP", "UDP"), "mismatch");
+assert.strictEqual(share.assessTunnelProtocol("TCP+UDP", "UDP"), "match");
+assert.strictEqual(share.assessTunnelProtocol("UDP", "UDP"), "match");
+assert.strictEqual(share.assessTunnelProtocol(null, "UDP"), "unknown");
+assert.strictEqual(share.assessTunnelProtocol("HTTPS", "TCP"), "unknown");
+const upAndListening = { processState: "running", portState: "listening", playitState: "running", tunnelMatch: "matched", usablePublic: true };
+assert.strictEqual(share.classifyShareHealth({ ...upAndListening, tunnelProtocol: "mismatch" }), STATUS.PROTOCOL_MISMATCH);
+assert.strictEqual(share.classifyShareHealth({ ...upAndListening, tunnelProtocol: "unknown" }), STATUS.PUBLIC_READY, "an unreported protocol is not a problem");
+const agentPlayit = require(path.join(root, "agent", "src", "services", "playitService.js"))._test;
+for (const [raw, expected] of [["tcp", "TCP"], ["udp", "UDP"], ["tcp+udp", "TCP+UDP"], ["udp/tcp", "TCP+UDP"], ["both", "TCP+UDP"], ["https", "HTTPS"], [null, null]]) {
+  assert.strictEqual(agentPlayit.normalizeProtocol(raw), expected, `Agent normalizes ${raw}`);
+}
+assert.strictEqual(agentPlayit.extractProtocol("protocol: tcp+udp"), "TCP+UDP");
+assert.strictEqual(agentPlayit.extractProtocol("proto=udp"), "UDP");
+assert.ok(app.includes("Playit reports this tunnel as ${health.reportedTunnelProtocol}; this game needs ${health.requiredProtocol}."), "the dialog names both protocols");
+console.log("PASS H6 tunnel protocol mismatches are flagged without false alarms");
+
+// H7 Playit recovery facts are read-only, and reported only when known.
+assert.deepStrictEqual(["no", "on-failure", "always", "", "weird"].map(agentPlayit.parseSystemdRestartSetting), [false, true, true, null, null]);
+assert.deepStrictEqual([2, "Automatic", 3, "Disabled", null].map(agentPlayit.parseWindowsStartType), ["enabled", "enabled", "manual", "disabled", null]);
+assert.deepStrictEqual(["enabled", "disabled", "manual", "static", null].map(agentPlayit.parseStartsOnBoot), [true, false, false, null, null]);
+assert.strictEqual(agentPlayit.parseWindowsFailureActions("SERVICE_NAME: playit\n FAILURE_ACTIONS : RESTART -- Delay = 60000 milliseconds."), true);
+assert.strictEqual(agentPlayit.parseWindowsFailureActions("SERVICE_NAME: playit\n FAILURE_ACTIONS :"), false);
+assert.strictEqual(agentPlayit.parseWindowsFailureActions("[SC] OpenService FAILED 1060"), null);
+assert.match(share.describePlayitServiceRecovery({ startsOnBoot: true, restartOnFailure: true }), /restarts itself/);
+assert.match(share.describePlayitServiceRecovery({ manager: "systemd", restartOnFailure: false }), /Restart=on-failure/);
+assert.match(share.describePlayitServiceRecovery({ manager: "windows-service", restartOnFailure: false }), /Recovery/);
+assert.strictEqual(share.describePlayitServiceRecovery({}), "", "unknown facts say nothing");
+const agentPlayitSource = fs.readFileSync(path.join(root, "agent", "src", "services", "playitService.js"), "utf8");
+// Writes would be "systemctl set-property/edit" or "sc.exe failure/config";
+// the Agent only uses "systemctl show" and "sc.exe qfailure".
+for (const write of ['"set-property"', '"edit"', '["failure"', '["config"']) {
+  assert.ok(!agentPlayitSource.includes(write), `the Agent never changes Playit service settings (${write})`);
+}
+assert.ok(agentPlayitSource.includes('"show", "-p", "Restart", "--value"') && agentPlayitSource.includes('"qfailure"'), "the Agent reads the restart settings");
+console.log("PASS H7 Playit restart settings are reported, not supervised");
+
+console.log("Share health smoke passed (7 checks).");
