@@ -1021,6 +1021,11 @@ let createServerWizardStep = "configuration";
 let createServerRecommendationNotes = [];
 let createServerDependencyState = { templateId: "", nodeId: "", status: "idle", missing: [], names: "" };
 let createServerDependencyRequest = 0;
+// Live listener check for the selected computer (Agent network inventory):
+// which ports other programs already hold. Read-only.
+let createServerPortCheck = { templateId: "", nodeId: "", status: "idle", owners: {}, truncated: false };
+let createServerPortCheckRequest = 0;
+let createServerRecommendedPort = "";
 let marketplaceActiveCategory = "All";
 let marketplaceInstallProgressEvents = [];
 let marketplaceProgressRenderTimer = null;
@@ -20359,7 +20364,7 @@ function appendCreateServerFact(container, label, value, tone = "") {
 
 // Port and memory chosen for the selected computer: the template default
 // unless another server already uses the port or the computer is too small.
-function getCreateServerRecommendations(template = {}) {
+function getCreateServerRecommendations(template = {}, { owners = {} } = {}) {
   const node = getSelectedNode();
   const usedPorts = isInstancesSnapshotCurrentForSelectedNode()
     ? getInstances().flatMap((instance) => getInstancePorts(instance))
@@ -20367,7 +20372,7 @@ function getCreateServerRecommendations(template = {}) {
   const memory = getSystemSnapshotForNode(node)?.memory || getNodeIdentity(node || {}).memory || null;
   const defaultPort = Array.isArray(template.defaultPorts) && template.defaultPorts.length ? template.defaultPorts[0] : null;
   return {
-    port: AnxCreateServerDefaults.recommendPort(defaultPort, usedPorts),
+    port: AnxCreateServerDefaults.recommendPort(defaultPort, usedPorts, { owners }),
     memory: AnxCreateServerDefaults.recommendMemory(template.defaultRam || "1G", { totalBytes: Number(memory?.total) || null }),
   };
 }
@@ -20403,6 +20408,57 @@ async function refreshCreateServerDependencyState(template) {
     createServerDependencyState = { templateId: template?.id || "", nodeId, status: "unknown", missing: [], names };
   }
   if (findMarketplaceTemplate()?.id === template?.id) renderCreateServerPackageSummary(template);
+}
+
+// Who holds this port on the selected computer, per the last live check for
+// the open template; "" when free or not known.
+function getCreateServerPortHolder(portValue) {
+  const check = createServerPortCheck;
+  if (check.status !== "done" || check.nodeId !== getSelectedNodeId() || check.templateId !== findMarketplaceTemplate()?.id) return "";
+  return AnxCreateServerDefaults.isPortFree(portValue, check.owners, { truncated: check.truncated }) === false
+    ? check.owners[Number.parseInt(String(portValue).trim(), 10)]
+    : "";
+}
+
+// Reads the computer's live listeners once per opened template. If the user
+// has not changed the port AnxOS chose, a busy port is moved to a free one
+// and the note says which program holds it.
+async function refreshCreateServerPortCheck(template) {
+  const api = getDesktopApiState().api?.networkInventory;
+  const nodeId = getSelectedNodeId();
+  const requestId = ++createServerPortCheckRequest;
+  createServerPortCheck = { templateId: template?.id || "", nodeId, status: "unavailable", owners: {}, truncated: false };
+  if (typeof api?.get !== "function" || !isCreateServerAgentNodeReady(resolveActiveManagementTarget())) return;
+  createServerPortCheck.status = "checking";
+  let result = null;
+  try {
+    result = await api.get({ nodeId });
+  } catch {
+    result = null;
+  }
+  if (requestId !== createServerPortCheckRequest || findMarketplaceTemplate()?.id !== template?.id) return;
+  if (!result || result.ok === false || !Array.isArray(result.listeners)) {
+    createServerPortCheck.status = "unavailable";
+    return;
+  }
+  const owners = AnxCreateServerDefaults.listenerPortOwners(result.listeners);
+  createServerPortCheck = { templateId: template?.id || "", nodeId, status: "done", owners, truncated: result.listenersTruncated === true };
+  const portField = getMarketplaceField("port");
+  if (portField && String(portField.value).trim() === createServerRecommendedPort) {
+    const recommendations = getCreateServerRecommendations(template, { owners });
+    if (recommendations.port.port) {
+      portField.value = String(recommendations.port.port);
+      createServerRecommendedPort = portField.value;
+      syncMarketplacePortValidity();
+    }
+    createServerRecommendationNotes = [recommendations.port.reason, recommendations.memory.warning].filter(Boolean);
+  } else if (portField) {
+    const holder = getCreateServerPortHolder(portField.value);
+    if (holder && !createServerRecommendationNotes.some((note) => note.includes(holder))) {
+      createServerRecommendationNotes = [...createServerRecommendationNotes, `Port ${String(portField.value).trim()} is already in use on this computer by ${holder}.`];
+    }
+  }
+  renderCreateServerPackageSummary(template);
 }
 
 function formatCreateServerDependencyName(id) {
@@ -20606,6 +20662,15 @@ function validateCreateServerStep(step, { report = true } = {}) {
       if (report) openCreateServerAdvancedOptions();
       return false;
     }
+    const busyHolder = getCreateServerPortHolder(getMarketplaceField("port")?.value);
+    if (busyHolder) {
+      if (report) {
+        setMarketplaceMessage(`Port ${String(getMarketplaceField("port")?.value).trim()} is already in use on this computer by ${busyHolder}. Pick another port under Advanced options, or stop that program first.`, "error");
+        openCreateServerAdvancedOptions();
+        getMarketplaceField("port")?.focus();
+      }
+      return false;
+    }
     if (isMinecraftMarketplaceTemplate(template) && !getMarketplaceField("acceptEula")?.checked) {
       if (report) {
         setMarketplaceMessage("Tick \"I agree to the Minecraft EULA\" to continue.", "error");
@@ -20715,6 +20780,7 @@ function openMarketplaceWizard(templateId, { source = "" } = {}) {
   createServerWizardStep = "configuration";
   if (createServerAdvancedOptions) createServerAdvancedOptions.open = false;
   refreshCreateServerDependencyState(template).catch(() => {});
+  refreshCreateServerPortCheck(template).catch(() => {});
   if (marketplaceWizard) {
     marketplaceWizard.hidden = false;
   }
@@ -20761,6 +20827,7 @@ function openMarketplaceWizard(templateId, { source = "" } = {}) {
   }
   const recommendations = getCreateServerRecommendations(template);
   createServerRecommendationNotes = [recommendations.port.reason, recommendations.memory.warning].filter(Boolean);
+  createServerRecommendedPort = recommendations.port.port ? String(recommendations.port.port) : "";
   if (memoryField) {
     memoryField.value = recommendations.memory.memory || template.defaultRam || "1G";
   }

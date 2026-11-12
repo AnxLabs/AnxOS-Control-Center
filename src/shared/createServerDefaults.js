@@ -24,17 +24,22 @@
   // The template's default port when no other server on this computer uses
   // it, otherwise the next free port above it. Ports the template itself
   // reserves (e.g. a query or RCON port) are skipped too.
-  function recommendPort(defaultPort, usedPorts = [], { reserved = [] } = {}) {
+  // owners (optional) maps a busy port to who holds it, e.g. "java (PID 412)";
+  // ports without an owner are other AnxOS servers.
+  function recommendPort(defaultPort, usedPorts = [], { reserved = [], owners = {} } = {}) {
     const preferred = toPort(defaultPort);
     if (!preferred) return { port: null, changed: false, reason: "" };
-    const taken = new Set([...usedPorts, ...reserved].map(toPort).filter(Boolean));
+    const taken = new Set([...usedPorts, ...reserved, ...Object.keys(owners || {})].map(toPort).filter(Boolean));
     if (!taken.has(preferred)) return { port: preferred, changed: false, reason: "" };
+    const holder = owners?.[preferred];
     for (let candidate = preferred + 1; candidate <= Math.min(65535, preferred + PORT_SEARCH_LIMIT); candidate += 1) {
       if (!taken.has(candidate)) {
         return {
           port: candidate,
           changed: true,
-          reason: `Port ${preferred} is already used by another server on this computer, so AnxOS picked ${candidate}.`,
+          reason: holder
+            ? `Port ${preferred} is already in use on this computer by ${holder}, so AnxOS picked ${candidate}.`
+            : `Port ${preferred} is already used by another server on this computer, so AnxOS picked ${candidate}.`,
         };
       }
     }
@@ -83,8 +88,33 @@
     };
   }
 
+  // Busy ports from the Agent's live listener list (TCP and UDP alike, since
+  // templates do not declare a protocol): { port: "program (PID n)" }.
+  function listenerPortOwners(listeners = []) {
+    const owners = {};
+    (Array.isArray(listeners) ? listeners : []).forEach((row) => {
+      const port = toPort(row && row.localPort);
+      if (!port || owners[port]) return;
+      const name = String((row && row.processName) || "").trim();
+      const pid = Number.isInteger(row && row.pid) ? row.pid : null;
+      owners[port] = name ? `${name}${pid ? ` (PID ${pid})` : ""}` : pid ? `a program (PID ${pid})` : "another program";
+    });
+    return owners;
+  }
+
+  // Is this exact port free according to the listener list? null when the
+  // list could be incomplete and the port is not in it.
+  function isPortFree(port, owners = {}, { truncated = false } = {}) {
+    const number = toPort(port);
+    if (!number) return null;
+    if (owners[number]) return false;
+    return truncated ? null : true;
+  }
+
   return Object.freeze({
     recommendPort,
+    listenerPortOwners,
+    isPortFree,
     recommendMemory,
     parseMemoryMiB,
     formatMemoryMiB,

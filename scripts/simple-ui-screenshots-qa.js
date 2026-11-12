@@ -282,6 +282,24 @@ async function main() {
     assert.strictEqual(afterBadPort.advancedOpen, true, "Advanced options opens to show the bad field");
     assert.strictEqual(afterBadPort.step, "configuration", "the wizard stays on setup");
     await shot(wizardWindow, "02c-advanced-options");
+
+    // An occupied port is explained and blocks Create server. The QA computer
+    // is offline, so the live listener result is injected in memory.
+    const occupied = await wizardWindow.evaluate(() => {
+      document.querySelector('[data-marketplace-field="port"]').value = "25565";
+      document.querySelector("[data-create-server-advanced]").open = false;
+      createServerPortCheck = { templateId: findMarketplaceTemplate().id, nodeId: getSelectedNodeId(), status: "done", owners: { 25565: "java (PID 412)" }, truncated: false };
+      const ok = window.validateCreateServerStep("configuration");
+      return {
+        ok,
+        message: document.querySelector("[data-marketplace-message]")?.textContent || "",
+        advancedOpen: document.querySelector("[data-create-server-advanced]").open,
+      };
+    });
+    assert.strictEqual(occupied.ok, false, "an occupied port blocks Create server");
+    assert.ok(occupied.message.includes("Port 25565 is already in use on this computer by java (PID 412)"), occupied.message);
+    assert.strictEqual(occupied.advancedOpen, true, "Advanced options opens to the port");
+    await shot(wizardWindow, "02d-occupied-port");
     await wizardWindow.close().catch(() => {});
     console.log("PASS S2 Create Server: one setup step, Advanced options collapsed and opened on errors");
 

@@ -5,7 +5,8 @@
 //   C1 the port moves off one already used by another server on the computer;
 //   C2 memory is lowered to fit a small computer and kept otherwise;
 //   C3 the renderer prefills the wizard from these recommendations and
-//      checks the template's software before the user clicks Create server.
+//      checks the template's software before the user clicks Create server;
+//   C4 ports held by other programs are avoided and explained.
 // Run: node scripts/create-server-defaults-smoke.js
 
 const assert = require("assert");
@@ -55,4 +56,21 @@ const moduleAt = index.indexOf('src="src/shared/createServerDefaults.js"');
 assert.ok(moduleAt > 0 && moduleAt < index.indexOf('src="app.js"'), "createServerDefaults.js loads before app.js");
 console.log("PASS C3 the wizard uses the recommendations and checks software up front");
 
-console.log("Create Server defaults smoke passed (3 checks).");
+// C4 ports held by other programs (live listener list).
+const owners = defaults.listenerPortOwners([
+  { localPort: 25565, protocol: "tcp", processName: "java", pid: 412 },
+  { localPort: "8080/tcp", pid: 9 },
+  { localPort: 3000 },
+]);
+assert.deepStrictEqual(owners, { 25565: "java (PID 412)", 8080: "a program (PID 9)", 3000: "another program" });
+port = defaults.recommendPort(25565, [], { owners });
+assert.strictEqual(port.port, 25566);
+assert.ok(port.reason.includes("in use on this computer by java (PID 412), so AnxOS picked 25566"), port.reason);
+assert.strictEqual(defaults.isPortFree(25565, owners), false);
+assert.strictEqual(defaults.isPortFree(25566, owners), true);
+assert.strictEqual(defaults.isPortFree(25566, owners, { truncated: true }), null, "a truncated list never proves a port free");
+assert.ok(app.includes("refreshCreateServerPortCheck(template).catch(() => {});"), "the live port check runs when setup opens");
+assert.ok(app.includes("const busyHolder = getCreateServerPortHolder("), "Create server refuses a port another program holds");
+console.log("PASS C4 ports held by other programs are avoided and explained");
+
+console.log("Create Server defaults smoke passed (4 checks).");
