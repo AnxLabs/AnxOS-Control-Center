@@ -418,6 +418,20 @@ async function searchServerProjects(options = {}) {
   };
 }
 
+// Identify a file by its SHA-512 (used when a .jar is imported by hand).
+// Returns null when Modrinth doesn't know the file.
+async function getVersionByHash(sha512) {
+  const hash = String(sha512 || "").toLowerCase();
+  if (!/^[a-f0-9]{128}$/.test(hash)) return null;
+  try {
+    const version = await requestJson(createUrl(`/version_file/${hash}`, { algorithm: "sha512" }), "Modrinth file lookup");
+    return version ? normalizeVersion(version) : null;
+  } catch (error) {
+    if (error?.details?.status === 404 || /404/.test(String(error?.message || ""))) return null;
+    throw error;
+  }
+}
+
 async function getProject(projectIdOrSlug) {
   assertProviderMetadata(projectIdOrSlug, "Modrinth project");
   const cacheKey = String(projectIdOrSlug);
@@ -551,6 +565,7 @@ module.exports = {
   downloadVersionFiles,
   getProject,
   getVersion,
+  getVersionByHash,
   getVersions,
   resolveDependencies,
   resolveVersion,

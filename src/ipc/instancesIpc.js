@@ -269,13 +269,15 @@ function registerInstancesIpc() {
   // Only the fields each operation needs cross into the service.
   const modManager = () => require("../services/modManagerService");
   const modTarget = (payload) => ({ instanceId: payload.instanceId, nodeId: payload.nodeId });
+  const modProvider = (payload) => (payload.provider === "curseforge" ? "curseforge" : "modrinth");
+  const modDependencies = (payload) => (Array.isArray(payload.approvedDependencies) ? payload.approvedDependencies.slice(0, 32).map((id) => String(id || "").slice(0, 64)) : []);
   registerInstanceHandler("instances:mods:list", async (_, payload = {}) => invokeInstanceOperation(() => {
     requirePermission("instance:read", payload.instanceId);
     return modManager().listMods(modTarget(payload));
   }));
   registerInstanceHandler("instances:mods:search", async (_, payload = {}) => invokeInstanceOperation(() => {
     requirePermission("instance:read", payload.instanceId);
-    return modManager().searchMods({ ...modTarget(payload), query: String(payload.query || ""), offset: payload.offset, limit: payload.limit });
+    return modManager().searchMods({ ...modTarget(payload), provider: modProvider(payload), query: String(payload.query || ""), offset: payload.offset, limit: payload.limit });
   }));
   registerInstanceHandler("instances:mods:checkUpdates", async (_, payload = {}) => invokeInstanceOperation(() => {
     requirePermission("instance:read", payload.instanceId);
@@ -284,7 +286,26 @@ function registerInstancesIpc() {
   registerInstanceHandler("instances:mods:install", async (_, payload = {}) => invokeInstanceOperation(() => {
     requirePermission("files:write", `${payload.instanceId}:mods`);
     audit({ action: "instance.mods.install", target: `${payload.instanceId}:${payload.projectId}` });
-    return modManager().installMod({ ...modTarget(payload), projectId: String(payload.projectId || "") });
+    return modManager().installMod({ ...modTarget(payload), provider: modProvider(payload), projectId: String(payload.projectId || ""), approvedDependencies: modDependencies(payload) });
+  }));
+  registerInstanceHandler("instances:mods:plan", async (_, payload = {}) => invokeInstanceOperation(() => {
+    requirePermission("instance:read", payload.instanceId);
+    return modManager().planInstall({ ...modTarget(payload), provider: modProvider(payload), projectId: String(payload.projectId || "") });
+  }));
+  registerInstanceHandler("instances:mods:updateAll", async (_, payload = {}) => invokeInstanceOperation(() => {
+    requirePermission("files:write", `${payload.instanceId}:mods`);
+    audit({ action: "instance.mods.updateAll", target: payload.instanceId });
+    return modManager().updateAllMods(modTarget(payload));
+  }));
+  registerInstanceHandler("instances:mods:rollback", async (_, payload = {}) => invokeInstanceOperation(() => {
+    requirePermission("files:write", `${payload.instanceId}:mods`);
+    audit({ action: "instance.mods.rollback", target: `${payload.instanceId}:${payload.fileName}` });
+    return modManager().rollbackMod({ ...modTarget(payload), fileName: String(payload.fileName || "") });
+  }));
+  registerInstanceHandler("instances:mods:import", async (_, payload = {}) => invokeInstanceOperation(() => {
+    requirePermission("files:write", `${payload.instanceId}:mods`);
+    audit({ action: "instance.mods.import", target: `${payload.instanceId}:${String(payload.fileName || "").slice(0, 200)}` });
+    return modManager().importModFile({ ...modTarget(payload), fileName: String(payload.fileName || ""), contentBase64: String(payload.contentBase64 || "") });
   }));
   registerInstanceHandler("instances:mods:setEnabled", async (_, payload = {}) => invokeInstanceOperation(() => {
     requirePermission("files:write", `${payload.instanceId}:mods`);

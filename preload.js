@@ -356,6 +356,10 @@ const desktopApi = {
     mods: {
       list: (instanceId, options = {}) => ipcRenderer.invoke("instances:mods:list", { ...options, instanceId }),
       search: (instanceId, query, options = {}) => ipcRenderer.invoke("instances:mods:search", { ...options, instanceId, query }),
+      plan: (instanceId, projectId, options = {}) => ipcRenderer.invoke("instances:mods:plan", { ...options, instanceId, projectId }),
+      updateAll: (instanceId, options = {}) => ipcRenderer.invoke("instances:mods:updateAll", { ...options, instanceId }),
+      rollback: (instanceId, fileName, options = {}) => ipcRenderer.invoke("instances:mods:rollback", { ...options, instanceId, fileName }),
+      importFile: (instanceId, fileName, contentBase64, options = {}) => ipcRenderer.invoke("instances:mods:import", { ...options, instanceId, fileName, contentBase64 }),
       checkUpdates: (instanceId, options = {}) => ipcRenderer.invoke("instances:mods:checkUpdates", { ...options, instanceId }),
       install: (instanceId, projectId, options = {}) => ipcRenderer.invoke("instances:mods:install", { ...options, instanceId, projectId }),
       setEnabled: (instanceId, fileName, enabled, options = {}) => ipcRenderer.invoke("instances:mods:setEnabled", { ...options, instanceId, fileName, enabled }),

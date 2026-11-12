@@ -1517,6 +1517,30 @@ async function searchModpacks(queryOrOptions = "", minecraftVersion = "", loader
   };
 }
 
+// Server add-on search for the instance Add-ons tab: Minecraft mods (class 6)
+// or Bukkit plugins (class 5), filtered to the server's version and loader.
+const MOD_CLASS_ID = 6;
+const BUKKIT_PLUGIN_CLASS_ID = 5;
+async function searchServerProjects(options = {}) {
+  const projectType = options.projectType === "plugin" ? "plugin" : "mod";
+  const offset = Math.max(Number.parseInt(options.offset, 10) || 0, 0);
+  const limit = Math.min(Math.max(Number.parseInt(options.limit, 10) || 20, 1), 50);
+  const query = String(options.query || "").trim().slice(0, 120);
+  const payload = await curseForgeClient.searchMods({
+    gameId: MINECRAFT_GAME_ID,
+    classId: projectType === "plugin" ? BUKKIT_PLUGIN_CLASS_ID : MOD_CLASS_ID,
+    searchFilter: query,
+    gameVersion: options.minecraftVersion || "",
+    modLoaderType: projectType === "mod" ? normalizeLoader(options.loader || "") : "",
+    sortField: 2,
+    sortOrder: "desc",
+    index: offset,
+    pageSize: limit,
+  }, options.config || {});
+  const results = (Array.isArray(payload?.data) ? payload.data : []).map(normalizeMod);
+  return { provider: "curseforge", offset, limit, total: payload?.pagination?.totalCount || results.length, results };
+}
+
 async function getMod(projectId, config = {}) {
   if (!projectId) {
     assertProviderMetadata(projectId, "CurseForge mod");
@@ -1727,5 +1751,6 @@ module.exports = {
   resolveDependencies,
   resolveFile,
   searchModpacks,
+  searchServerProjects,
   testConnection,
 };
