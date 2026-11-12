@@ -62,6 +62,10 @@ async function owner() {
   console.log(`Network ${status.network.name} (${status.network.domain}); AnxNet port TCP/UDP ${status.listening.tcpPort}/${status.listening.udpPort}`);
   console.log(`Advertised addresses: ${node.tcpEndpoints().map((entry) => entry.host).join(", ")}`);
   console.log(`\nINVITE ${code}\n`);
+  node.on("peer", ({ deviceId, path: kind }) => {
+    const peer = node.peers.get(deviceId);
+    console.log(`Peer ${deviceId} connected (${kind}) from ${peer?.socket.remoteAddress}, ${peer?.socket.getProtocol?.()} ${peer?.socket.getCipher?.()?.name}`);
+  });
   node.on("peer-message", async ({ deviceId, message }) => {
     if (message.t === "interrupt") {
       console.log("Member asked for an interruption: dropping all sessions.");
@@ -126,7 +130,9 @@ async function member() {
     }
     times.sort((a, b) => a - b);
     const connection = node.status().devices.find((device) => device.role === "owner").connection;
-    record("T5", true, `connect + round trip median ${times[25].toFixed(2)} ms over a ${connection} connection`);
+    const ownerPeer = node.peers.get(node.doc.owner.deviceId);
+    const wire = ownerPeer ? `${ownerPeer.socket.getProtocol?.() || "?"} ${ownerPeer.socket.getCipher?.()?.name || "?"}, ${ownerPeer.socket.localAddress} -> ${ownerPeer.socket.remoteAddress}:${ownerPeer.socket.remotePort}` : "no peer socket";
+    record("T5", true, `connect + round trip median ${times[25].toFixed(2)} ms over a ${connection} connection (${wire})`);
 
     await sendControl({ t: "interrupt" });
     await delay(1500);

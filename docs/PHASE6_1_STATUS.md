@@ -84,19 +84,57 @@ with a signed timestamp plus key confirmation.
 step is WireGuard (wireguard-go with a userspace netstack, no admin needed)
 or QUIC from a mature library, keeping AnxNet's roster and enrollment.
 
-## Priority 4: real multi-computer test. Blocked on one approval.
+## Priority 4: Windows-to-WSL test. Done (approved run, 2026-11-12).
 
-- **Candidate.** This PC has an Ubuntu 24.04 WSL2 VM: separate Linux, its
-  own network stack, behind its own NAT (`192.168.109.111/20`).
-- **What's missing.** It has no Node.js. Running the test needs the official
-  Node.js Linux build downloaded into that VM (a temporary folder; nothing
-  system-wide). That is a download, so it waits for your OK.
-- **Prepared.** `scripts/anxnet-two-machine-test.js` runs as owner on one
-  machine and member on the other. It checks enrollment, names, 1 MB over
-  TCP, UDP, measured round trip, reconnection after interruption, and
-  revocation. Verified with both roles on this PC: 7/7 (loopback).
-- **Your other computers** (Anxlab, the VPS) are production and weren't
-  touched.
+**Setup**
+- **Owner:** Linux inside the Ubuntu 24.04 WSL2 VM (kernel
+  6.18.33.2-microsoft-standard-WSL2), listening on the VM's own address
+  `192.168.109.111:47790`.
+- **Member:** Windows 11 on this PC, bound to loopback only. No inbound
+  Windows port and no firewall prompt.
+- **Node.js in WSL:** the official v22.23.5 Linux build.
+  - Downloaded from nodejs.org into `/tmp/anxnet-node-*`.
+  - `SHASUMS256.txt` verified with `gpgv` against the Node.js release keys
+    (`nodejs/release-keys`), using a keyring file in the temp folder: "Good
+    signature" from a Node.js releaser.
+  - Archive SHA-256 OK.
+  - Never installed system-wide; `~/.gnupg` was not created.
+
+**Results** from `scripts/anxnet-two-machine-test.js`, 7/7:
+
+| Check | Result |
+| --- | --- |
+| T1 enrollment | Joined `anx-juniper41` with a pre-approved test invite; roster synced |
+| T2 private names | The member's AnxNet resolver answered the owner's hostname with `127.77.0.2` |
+| T3 TCP forwarding | 1 MB through AnxNet to a test server in WSL, 1,048,576 bytes back |
+| T4 UDP forwarding | UDP round trip answered |
+| T5 encryption and path | TLS 1.3, `TLS_AES_256_GCM_SHA384`, direct from Windows `192.168.96.1` (the WSL virtual adapter) to `192.168.109.111:47790`; median connect plus round trip 1.20 ms over 50 tries |
+| T6 reconnection | The owner dropped every session; the member reconnected, and traffic resumed (the owner logged the second TLS 1.3 connection from `192.168.96.1`) |
+| T7 revocation | The owner removed the member; the test server then refused it |
+
+**What this shows**
+- AnxNet works between two different operating systems with separate
+  network stacks: Windows' and the VM's, joined by Hyper-V's virtual switch
+  through WSL's NAT.
+- Traffic crossed between them encrypted with TLS 1.3.
+- Enrollment, names, TCP, UDP, reconnection and revocation all worked across
+  that boundary.
+
+**What it does not show**
+- **Two independent physical computers.** It was one machine; the virtual
+  switch is not a real LAN.
+- **Real internet connectivity or real home-router NAT.** Hole punching
+  across real routers is still only tested against emulated NAT.
+- **OS name lookup in apps.** The names were resolved by AnxNet's own
+  resolver, not through an NRPT rule, which is still not applied.
+- **The window-closed path cross-machine.** It was run with the test
+  script's nodes, not the AnxOS app and background host. That path is
+  covered on one machine by `anxnet-ui-qa` U7 and `anxnet-host-smoke` H2.
+
+**Cleanup.** No AnxNet processes or `/tmp/anxnet*` files are left in WSL,
+and no system Node.js was installed. No test folders or processes are left
+on Windows. No Windows DNS, firewall, routing or network settings were
+changed.
 
 ## Priority 5: internet P2P, relay and gateway
 
@@ -130,14 +168,13 @@ Phase 4 Home and the Phase 5 server pages are untouched.
 | `anxnet-host-smoke` H1–H6 | Real detached process | 6/6: window-closed serving, duplicate refused, bad token refused, hard-kill recovery, shutdown, idle 0.00% CPU / 68 MB |
 | `anxnet-dns-smoke` D1–D5 | Plans and real Windows DNS client queries | 5/5 (no OS change) |
 | `anxnet-ui-qa` U1–U7 | Real app, real Agent | 7/7, including U7: the shared server keeps working after AnxOS quits |
-| `anxnet-two-machine-test` | Both roles on this PC | 7/7; the real two-machine run is pending |
+| `anxnet-two-machine-test` | Windows member ↔ Linux (WSL2) owner, separate network stacks on one PC | 7/7: TLS 1.3 across `192.168.96.1` → `192.168.109.111` |
 | `permission-matrix-smoke` | Unit | 391 channels |
 | `qa:feature` | Feature tier | 107 checks passed |
 
 ## Blocked: needs your approval or hardware
 
-1. **Download Node.js into the WSL VM** for the two-machine test, or give
-   another LAN computer with Node.js 20+.
+1. **Two physical computers** on a real LAN (the Windows ↔ WSL run is done). Needs a second machine with Node.js 20+.
 2. **Apply the NRPT rule on this PC** (one UAC click), to verify OS-wide
    name lookup.
 3. **Start AnxNet at sign-in:** a per-user startup entry.
