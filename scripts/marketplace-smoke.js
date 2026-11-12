@@ -3901,7 +3901,9 @@ function assertMarketplaceProductionPolishRendererContracts() {
   assert(appSource.includes("providerProjectId") && appSource.includes("getMarketplaceInstalledProviderVersionId"), "Provider-installed modpacks should match existing instances by provider project/file metadata.");
   assert(appSource.includes("function getMarketplaceTemplateDependencyIds"), "Renderer should present dependency requirements from template metadata.");
   assert(appSource.includes("function formatDependencyPreparationPlan") && appSource.includes("getDependencyPreparationPlan"), "Marketplace dependency recovery should show a structured preparation plan before installing.");
-  assert(appSource.includes("Commands:\\n") && appSource.includes("Packages:\\n"), "Dependency preparation confirmations should include package and command previews.");
+  // The preview text is built by the shared module every dependency install uses.
+  const dependencyPreparationSource = fs.readFileSync(path.join(__dirname, "..", "src", "shared", "dependencyPreparation.js"), "utf8");
+  assert(dependencyPreparationSource.includes("Commands:\\n") && dependencyPreparationSource.includes("Packages:\\n") && appSource.includes("AnxDependencyPreparation.formatPlan(plan)"), "Dependency preparation confirmations should include package and command previews.");
   assert(appSource.includes("Compatibility unknown"), "Renderer must show unknown compatibility honestly when metadata is absent.");
   assert(appSource.includes("Install path\", \"Managed by the selected Agent instance data root"), "Install review should avoid exposing or inventing raw filesystem paths.");
   assert(appSource.includes("Data preservation\", \"Uninstall and backup behavior are managed"), "Install review should not imply unsupported uninstall/data-preservation choices.");

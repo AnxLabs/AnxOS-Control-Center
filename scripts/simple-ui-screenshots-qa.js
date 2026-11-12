@@ -10,7 +10,9 @@
 //   S2 Create Server is one setup step: name, EULA for Minecraft, and
 //      collapsed Advanced options; Create server validates everything and
 //      opens Advanced options when a field inside it is wrong;
-//   S3 Computers and Sharing show tabs to their joined pages.
+//   S3 Computers and Sharing show tabs to their joined pages;
+//   S4 Activity lists running work from the shared operations state and
+//      opens its Task details; finished work leaves the list.
 // Set SIMPLE_UI_SHOTS=<dir> to save screenshots of each screen.
 //
 // Never touches the installed app or its data.
@@ -101,6 +103,28 @@ async function main() {
     }
     console.log("PASS S3 Computers and Sharing show tabs to their joined pages");
 
+    // S4: Activity shows running work from operationsState.
+    await page.evaluate(() => window.showPage("notifications"));
+    const operationId = await page.evaluate(() => window.startOperation({ type: "Backups", title: "Back up Friends Server", target: "OVH", step: "Copying world files", percent: 40 }));
+    await page.waitForTimeout(200);
+    const activity = await page.evaluate(() => ({
+      shown: document.querySelector("[data-activity-in-progress]").checkVisibility(),
+      items: [...document.querySelectorAll("[data-activity-in-progress-list] [data-operation-id]")].map((row) => row.textContent),
+      navLabel: document.querySelector('.nav-menu [data-page-target="notifications"] [data-nav-label]').textContent,
+    }));
+    assert.strictEqual(activity.navLabel, "Activity");
+    assert.strictEqual(activity.shown, true, "In progress is shown while work runs");
+    assert.ok(activity.items.some((text) => text.includes("Back up Friends Server") && text.includes("Copying world files")), "the running task is listed with its step");
+    await shot(page, "04-activity");
+    await page.locator(`[data-activity-in-progress-list] [data-operation-id="${operationId}"]`).click();
+    await page.waitForTimeout(200);
+    assert.strictEqual(await page.evaluate(() => document.querySelector(".page.is-active")?.dataset.page), "operations", "clicking a task opens Task details");
+    await page.evaluate((id) => window.finishOperation(id, true, "Backup complete."), operationId);
+    await page.evaluate(() => window.showPage("notifications"));
+    await page.waitForTimeout(200);
+    assert.strictEqual(await page.evaluate(() => document.querySelector("[data-activity-in-progress]").checkVisibility()), false, "finished work leaves In progress");
+    console.log("PASS S4 Activity lists running work and links to Task details");
+
     // S2: Create Server.
     await page.evaluate(() => window.showPage("dashboard"));
     const opened = app.waitForEvent("window", { timeout: 20000 });
@@ -144,6 +168,8 @@ async function main() {
     assert.strictEqual(wizard.memoryVisible, false, "memory is under Advanced options");
     assert.strictEqual(wizard.createLabel, "Create server");
     assert.ok(wizard.createVisible && !wizard.nextVisible, "Create server is the only forward button");
+    const summaryText = await wizardWindow.evaluate(() => document.querySelector("[data-create-server-package-summary]").textContent);
+    assert.match(summaryText, /Software it needs/, "the setup step says what software the game needs");
     await shot(wizardWindow, "02b-set-up");
 
     // A bad port inside Advanced options must open it and block the install.
@@ -168,7 +194,7 @@ async function main() {
     console.log("PASS S2 Create Server: one setup step, Advanced options collapsed and opened on errors");
 
     assert.deepStrictEqual(rendererErrors, [], "no renderer errors");
-    console.log("Simple UI QA passed (3 checks).");
+    console.log("Simple UI QA passed (4 checks).");
   } catch (error) {
     console.error(error && error.stack ? error.stack : error);
     process.exitCode = 1;

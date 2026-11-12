@@ -19459,3 +19459,64 @@ body.create-server-window [data-marketplace-selected-meta],
 body.create-server-window .page[data-page="marketplace"] .page-introduction {
   display: none;
 }
+
+/* Activity: running work from operationsState, above alerts and history. */
+.activity-in-progress {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border: 1px solid rgba(175, 105, 255, 0.28);
+  border-radius: 10px;
+  background: rgba(123, 55, 210, 0.08);
+}
+
+.activity-in-progress[hidden] {
+  display: none;
+}
+
+.activity-in-progress h3 {
+  margin: 0;
+}
+
+.activity-in-progress__list {
+  display: grid;
+  gap: 8px;
+}
+
+.activity-in-progress__item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 12px;
+  align-items: center;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid rgba(190, 170, 220, 0.12);
+  border-radius: 8px;
+  background: rgba(7, 9, 14, 0.4);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.activity-in-progress__item:hover,
+.activity-in-progress__item:focus-visible {
+  border-color: rgba(202, 169, 255, 0.4);
+  outline: none;
+}
+
+.activity-in-progress__text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.activity-in-progress__text span,
+.activity-in-progress__item small {
+  color: var(--muted);
+}
+
+.activity-in-progress__item .operation-progress {
+  grid-column: 1 / -1;
+}

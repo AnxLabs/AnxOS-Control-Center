@@ -362,7 +362,7 @@
             </span>
             <span class="nav-item__label" data-nav-label>Backups</span>
           </button>
-          <button class="nav-item" type="button" data-page-target="operations" data-page-label="Operations" data-nav-description="Track background work" data-tooltip="Operations" aria-label="Operations">
+          <button class="nav-item" type="button" data-page-target="operations" data-page-label="Task details" data-nav-description="Step-by-step task history and logs" data-tooltip="Task details" aria-label="Task details">
             <span class="nav-item__icon" aria-hidden="true">
               <svg viewBox="0 0 24 24">
                 <rect x="4" y="5" width="16" height="14" rx="2"></rect>
@@ -372,16 +372,16 @@
                 <path d="M16 15.5 18 17.5 21 14"></path>
               </svg>
             </span>
-            <span class="nav-item__label" data-nav-label>Operations</span>
+            <span class="nav-item__label" data-nav-label>Task details</span>
           </button>
-          <button class="nav-item" type="button" data-page-target="notifications" data-page-label="Notifications" data-nav-description="Review app messages" data-tooltip="Notifications" aria-label="Notifications">
+          <button class="nav-item" type="button" data-page-target="notifications" data-page-label="Activity" data-nav-description="What AnxOS is doing and what happened" data-tooltip="Activity" aria-label="Activity">
             <span class="nav-item__icon" aria-hidden="true">
               <svg viewBox="0 0 24 24">
                 <path d="M18 8a6 6 0 1 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"></path>
                 <path d="M10 20a2 2 0 0 0 4 0"></path>
               </svg>
             </span>
-            <span class="nav-item__label" data-nav-label>Notifications</span>
+            <span class="nav-item__label" data-nav-label>Activity</span>
             <span class="nav-item__badge" data-notification-nav-count hidden>0</span>
           </button>
           <button class="nav-item" type="button" data-page-target="maintenance" data-nav-description="Clean up and repair" data-page-label="Maintenance" data-tooltip="Maintenance" aria-label="Maintenance">
@@ -3284,11 +3284,15 @@
         <section class="page" data-page="operations">
           <header class="page-header">
             <div>
-              <p class="eyebrow">Runtime Work</p>
-              <h1>Operations</h1>
-              <p class="lede">Live and recent desktop work from Marketplace installs, runtime preparation, file transfers, Agent actions, diagnostics, updates, and backups.</p>
+              <p class="eyebrow">Activity</p>
+              <h1>Task details</h1>
+              <p class="lede">Step-by-step history and logs for every task AnxOS ran: installs, runtime preparation, file transfers, Agent actions, diagnostics, updates and backups.</p>
             </div>
           </header>
+          <nav class="page-tabs" aria-label="Activity sections">
+            <button class="page-tabs__tab" type="button" data-page-tab="notifications">Activity</button>
+            <button class="page-tabs__tab" type="button" data-page-tab="operations">Task details</button>
+          </nav>
 
           <section class="operations-shell" aria-label="Operations center">
             <div class="operations-summary-grid">
@@ -3373,11 +3377,20 @@
         <section class="page" data-page="notifications">
           <header class="page-header">
             <div>
-              <p class="eyebrow">Event History</p>
-              <h1>Notifications</h1>
-              <p class="lede">Durable, actionable application events from operations, diagnostics, Marketplace, files, security, account, updates, and maintenance.</p>
+              <p class="eyebrow">Activity</p>
+              <h1>Activity</h1>
+              <p class="lede">What AnxOS is working on right now, and everything that happened recently: installs, backups, updates, problems and fixes.</p>
             </div>
           </header>
+          <nav class="page-tabs" aria-label="Activity sections">
+            <button class="page-tabs__tab" type="button" data-page-tab="notifications">Activity</button>
+            <button class="page-tabs__tab" type="button" data-page-tab="operations">Task details</button>
+          </nav>
+
+          <section class="activity-in-progress" data-activity-in-progress aria-label="In progress" hidden>
+            <h3>In progress</h3>
+            <div class="activity-in-progress__list" data-activity-in-progress-list role="list" aria-live="polite"></div>
+          </section>
 
           <section class="alerts-panel" aria-label="Active alerts">
             <div class="alerts-panel__header">
@@ -5810,6 +5823,8 @@
     <script src="src/shared/instanceMetricsLifecycle.js"></script>
     <script src="src/shared/instanceHealthSummary.js"></script>
     <script src="src/shared/forgeHealthPresentation.js"></script>
+    <script src="src/shared/dependencyPreparation.js"></script>
+    <script src="src/shared/createServerDefaults.js"></script>
     <script src="src/shared/instances/minecraftPlayerFiles.js"></script>
     <script src="node_modules/@xterm/xterm/lib/xterm.js"></script>
     <script src="src/shared/healthModel.js"></script>

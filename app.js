@@ -1016,6 +1016,11 @@ const CREATE_SERVER_STEP_LABELS = Object.freeze({
 });
 const CREATE_SERVER_PRE_INSTALL_CHECKS = Object.freeze(["summary", "node", "runtime", "configuration"]);
 let createServerWizardStep = "configuration";
+// Notes about settings AnxOS chose for the user (a moved port, lowered
+// memory), and the up-front software check for the selected template.
+let createServerRecommendationNotes = [];
+let createServerDependencyState = { templateId: "", nodeId: "", status: "idle", missing: [], names: "" };
+let createServerDependencyRequest = 0;
 let marketplaceActiveCategory = "All";
 let marketplaceInstallProgressEvents = [];
 let marketplaceProgressRenderTimer = null;
@@ -1426,7 +1431,7 @@ const NAV_GROUPS_STORAGE_KEY = "anxos.sidebar.collapsedGroups.v2";
 // Pages joined to another page by its tab strip. When the page has no visible
 // sidebar entry of its own (Advanced Mode off), its parent's entry is
 // highlighted instead.
-const NAV_PARENT_PAGES = Object.freeze({ "agent-control": "nodes", network: "playit" });
+const NAV_PARENT_PAGES = Object.freeze({ "agent-control": "nodes", network: "playit", operations: "notifications" });
 const PRIMARY_NAVIGATION_ORDER = [
   ...PRIMARY_NAVIGATION_TOP,
   ...PRIMARY_NAVIGATION_GROUPS.flatMap((group) => group.pages),
@@ -6012,48 +6017,42 @@ async function runDependencyAction(action) {
   let operationId = null;
   try {
     if (normalizedAction === "install") {
-      const plan = await getDependencyPreparationPlan(payload);
-      const planText = formatDependencyPreparationPlan(plan);
-      if (plan.ok && !plan.installableActions?.length) {
+      const prepared = await prepareNodeDependencies({
+        payload,
+        title: `${dependencyActionLabels[action] || "Prepare dependencies"}?`,
+        confirmLabel: action === "repair" ? "Repair" : action === "update" ? "Update" : "Install Missing",
+        onConfirmed: async () => {
+          operationId = startOperation({
+            type: "Dependencies",
+            title: dependencyActionLabels[action] || "Install missing dependencies",
+            target: requestContext.nodeLabel || requestContext.nodeId || "Selected node",
+            step: "Preparing trusted dependency installation.",
+          });
+          dependencyOperationState = "installing";
+          dependencyLastError = null;
+          renderDependencyStatus(latestDependencyNodeId === requestContext.nodeId ? latestDependencyResult : null, { updateSnapshot: false });
+          await refreshMarketplaceDownloads();
+        },
+      });
+      if (!isNodeRequestCurrent(requestContext) || requestId !== dependencyRequestSerial) {
+        return;
+      }
+      if (prepared.status === "declined") return;
+      if (prepared.status === "not-needed") {
         dependencyOperationState = "idle";
         dependencyLastError = null;
         renderDependencyStatus(latestDependencyNodeId === requestContext.nodeId ? latestDependencyResult : null, { updateSnapshot: false });
         showToast("No dependency installation is needed.");
         return;
       }
-      if (!plan.installableActions?.length) {
+      if (prepared.status === "manual") {
         dependencyOperationState = "failed";
         dependencyLastError = new Error("Dependency preparation requires manual steps.");
         renderDependencyStatus(latestDependencyNodeId === requestContext.nodeId ? latestDependencyResult : null, { updateSnapshot: false });
         showToast("Dependency preparation requires manual steps.", "warning");
         return;
       }
-      if (!(await createSecurityConfirmation({
-        title: `${dependencyActionLabels[action] || "Prepare dependencies"}?`,
-        message: `${planText}\n\nThe Agent will use the trusted dependency installer with in-app progress, then verify the dependencies afterward.`,
-        confirmLabel: action === "repair" ? "Repair" : action === "update" ? "Update" : "Install Missing",
-      }))) {
-        return;
-      }
-      operationId = startOperation({
-        type: "Dependencies",
-        title: dependencyActionLabels[action] || "Install missing dependencies",
-        target: requestContext.nodeLabel || requestContext.nodeId || "Selected node",
-        step: "Preparing trusted dependency installation.",
-      });
-      dependencyOperationState = "installing";
-      dependencyLastError = null;
-      renderDependencyStatus(latestDependencyNodeId === requestContext.nodeId ? latestDependencyResult : null, { updateSnapshot: false });
-      await refreshMarketplaceDownloads();
-      const installResult = await desktopApiState.api.dependencies.install(payload);
-      if (!isNodeRequestCurrent(requestContext) || requestId !== dependencyRequestSerial) {
-        return;
-      }
-      if (installResult?.ok === false) {
-        throw Object.assign(new Error(installResult.error?.friendlyMessage || installResult.error?.message || "Dependency installation failed."), {
-          code: installResult.error?.code || "DEPENDENCY_INSTALL_FAILED",
-        });
-      }
+      const installResult = prepared.installResult;
       dependencyOperationState = "idle";
       dependencyLastError = null;
       renderDependencyStatus(installResult);
@@ -11328,23 +11327,22 @@ async function runPublicAccessAction(action) {
       return null;
     }
     const requestContext = createNodeActionContext("public-access");
-    if (!(await createSecurityConfirmation({
+    const prepared = await prepareNodeDependencies({
+      payload: {
+        nodeId: requestContext.nodeId,
+        dependencyIds: [provider.dependencyId],
+      },
       title: `Install ${provider.name}?`,
-      message: `AnxOS will install ${provider.name} on ${requestContext.nodeLabel || requestContext.nodeId || "the selected node"} using the selected backend, then verify the dependency and refresh Public Access.`,
+      intro: `AnxOS will install ${provider.name} on ${requestContext.nodeLabel || requestContext.nodeId || "the selected node"} using the selected backend, then verify the dependency and refresh Sharing.`,
       confirmLabel: "Install",
-    }))) {
+      onConfirmed: () => refreshMarketplaceDownloads(),
+    });
+    if (prepared.status === "declined") return null;
+    if (prepared.status === "manual") {
+      showToast(`${provider.name} needs a manual step on this computer before AnxOS can use it. Open Agent Control > Prepare Node for details.`, "warning");
       return null;
     }
-    await refreshMarketplaceDownloads();
-    const result = await getDesktopApiState().api.dependencies.install({
-      nodeId: requestContext.nodeId,
-      dependencyIds: [provider.dependencyId],
-    });
-    if (result?.ok === false) {
-      throw Object.assign(new Error(result.error?.message || "Dependency installation failed."), {
-        code: result.error?.code || "DEPENDENCY_INSTALL_FAILED",
-      });
-    }
+    const result = prepared.installResult || prepared.plan;
     const dependencyCheck = await getDesktopApiState().api.dependencies.check({
       nodeId: requestContext.nodeId,
       dependencyIds: [provider.dependencyId],
@@ -20126,6 +20124,72 @@ function appendCreateServerFact(container, label, value, tone = "") {
   container.append(row);
 }
 
+// Port and memory chosen for the selected computer: the template default
+// unless another server already uses the port or the computer is too small.
+function getCreateServerRecommendations(template = {}) {
+  const node = getSelectedNode();
+  const usedPorts = isInstancesSnapshotCurrentForSelectedNode()
+    ? getInstances().flatMap((instance) => getInstancePorts(instance))
+    : [];
+  const memory = getSystemSnapshotForNode(node)?.memory || getNodeIdentity(node || {}).memory || null;
+  const defaultPort = Array.isArray(template.defaultPorts) && template.defaultPorts.length ? template.defaultPorts[0] : null;
+  return {
+    port: AnxCreateServerDefaults.recommendPort(defaultPort, usedPorts),
+    memory: AnxCreateServerDefaults.recommendMemory(template.defaultRam || "1G", { totalBytes: Number(memory?.total) || null }),
+  };
+}
+
+// Asks the selected computer, before the user clicks Create server, whether
+// the software this template needs is already there. Missing software is
+// installed through prepareNodeDependencies when the install asks for it.
+async function refreshCreateServerDependencyState(template) {
+  const dependencyIds = getMarketplaceTemplateDependencyIds(template || {});
+  const nodeId = getSelectedNodeId();
+  const requestId = ++createServerDependencyRequest;
+  const names = AnxDependencyPreparation.joinNames(dependencyIds.map(formatCreateServerDependencyName));
+  if (!dependencyIds.length) {
+    createServerDependencyState = { templateId: template?.id || "", nodeId, status: "none", missing: [], names: "" };
+    return;
+  }
+  const api = getDesktopApiState().api?.dependencies;
+  if (typeof api?.check !== "function" || !isCreateServerAgentNodeReady(resolveActiveManagementTarget())) {
+    createServerDependencyState = { templateId: template?.id || "", nodeId, status: "unknown", missing: [], names };
+    return;
+  }
+  createServerDependencyState = { templateId: template?.id || "", nodeId, status: "checking", missing: [], names };
+  renderCreateServerPackageSummary(template);
+  try {
+    const result = await api.check({ nodeId, dependencyIds });
+    if (requestId !== createServerDependencyRequest) return;
+    if (result?.ok === false) throw new Error(result.error?.message || "Dependency check failed.");
+    const byId = new Map((Array.isArray(result?.dependencies) ? result.dependencies : []).map((dependency) => [String(dependency?.id || ""), dependency]));
+    const missing = dependencyIds.filter((id) => byId.get(id)?.installed !== true);
+    createServerDependencyState = { templateId: template?.id || "", nodeId, status: missing.length ? "missing" : "ready", missing, names };
+  } catch {
+    if (requestId !== createServerDependencyRequest) return;
+    createServerDependencyState = { templateId: template?.id || "", nodeId, status: "unknown", missing: [], names };
+  }
+  if (findMarketplaceTemplate()?.id === template?.id) renderCreateServerPackageSummary(template);
+}
+
+function formatCreateServerDependencyName(id) {
+  const names = { java: "Java", steamcmd: "SteamCMD", dotnet: ".NET", docker: "Docker", unzip: "unzip", "7zip": "7-Zip" };
+  return names[String(id || "").toLowerCase()] || String(id || "");
+}
+
+function describeCreateServerDependencyState(template) {
+  const state = createServerDependencyState;
+  if (state.templateId !== (template?.id || "") || state.nodeId !== getSelectedNodeId()) return null;
+  if (state.status === "none" || state.status === "idle") return null;
+  if (state.status === "checking") return { value: `Checking for ${state.names}...`, tone: "" };
+  if (state.status === "ready") return { value: `${state.names}: already installed`, tone: "ready" };
+  if (state.status === "missing") {
+    const missingNames = AnxDependencyPreparation.joinNames(state.missing.map(formatCreateServerDependencyName));
+    return { value: `${missingNames}: AnxOS will offer to install it when you click Create server`, tone: "" };
+  }
+  return { value: `Needs ${state.names}. AnxOS checks this when you click Create server.`, tone: "" };
+}
+
 function renderCreateServerPackageSummary(template) {
   if (!createServerPackageSummary) return;
   createServerPackageSummary.replaceChildren();
@@ -20154,6 +20218,9 @@ function renderCreateServerPackageSummary(template) {
   if (capability.installable === false) {
     appendCreateServerFact(createServerPackageSummary, "Server support", capability.label || "Can't run as a server", "blocked");
   }
+  const software = describeCreateServerDependencyState(template);
+  if (software) appendCreateServerFact(createServerPackageSummary, "Software it needs", software.value, software.tone);
+  createServerRecommendationNotes.forEach((note) => appendCreateServerFact(createServerPackageSummary, "Set for you", note));
 }
 
 // Create-server steps run on an Agent node; the application host is not a
@@ -20414,6 +20481,7 @@ function openMarketplaceWizard(templateId, { source = "" } = {}) {
   createServerDraft = normalizeCreateServerDraft(template, { source });
   createServerWizardStep = "configuration";
   if (createServerAdvancedOptions) createServerAdvancedOptions.open = false;
+  refreshCreateServerDependencyState(template).catch(() => {});
   if (marketplaceWizard) {
     marketplaceWizard.hidden = false;
   }
@@ -20458,11 +20526,15 @@ function openMarketplaceWizard(templateId, { source = "" } = {}) {
   if (storageField) {
     storageField.value = "data";
   }
+  const recommendations = getCreateServerRecommendations(template);
+  createServerRecommendationNotes = [recommendations.port.reason, recommendations.memory.warning].filter(Boolean);
   if (memoryField) {
-    memoryField.value = template.defaultRam || "1G";
+    memoryField.value = recommendations.memory.memory || template.defaultRam || "1G";
   }
   if (portField) {
-    portField.value = Array.isArray(template.defaultPorts) && template.defaultPorts.length > 0 ? String(template.defaultPorts[0]) : "";
+    portField.value = recommendations.port.port
+      ? String(recommendations.port.port)
+      : Array.isArray(template.defaultPorts) && template.defaultPorts.length > 0 ? String(template.defaultPorts[0]) : "";
     portField.title = getMarketplacePortHelpText();
     portField.setAttribute("aria-label", `${template.displayName || "Template"} primary port`);
     syncMarketplacePortValidity();
@@ -23207,22 +23279,7 @@ function formatMissingDependencyList(dependencies = []) {
 }
 
 function formatDependencyPreparationPlan(plan = {}) {
-  const installable = Array.isArray(plan.installableActions) ? plan.installableActions : [];
-  const manual = Array.isArray(plan.manualActions) ? plan.manualActions : [];
-  const commandLines = installable
-    .flatMap((action) => Array.isArray(action.commands) ? action.commands.map((command) => command.display || `${command.command} ${(command.args || []).join(" ")}`.trim()) : [])
-    .filter(Boolean);
-  const packageLines = installable
-    .map((action) => {
-      const packages = Array.isArray(action.packages) && action.packages.length ? action.packages.join(", ") : "no package mapping";
-      return `${action.displayName || action.id}: ${packages}`;
-    });
-  const manualLines = manual.map((action) => `${action.displayName || action.id}: ${action.reason || "manual installation required"}`);
-  const parts = [];
-  if (packageLines.length) parts.push(`Packages:\n${packageLines.join("\n")}`);
-  if (commandLines.length) parts.push(`Commands:\n${commandLines.join("\n")}`);
-  if (manualLines.length) parts.push(`Manual steps still required:\n${manualLines.join("\n")}`);
-  return parts.join("\n\n") || "No dependency changes are planned.";
+  return AnxDependencyPreparation.formatPlan(plan);
 }
 
 async function getDependencyPreparationPlan(payload = {}) {
@@ -23240,6 +23297,50 @@ async function getDependencyPreparationPlan(payload = {}) {
   return plan;
 }
 
+// The one plan -> confirm -> install -> verify flow for node dependencies.
+// Prepare Node (Agent Control), Sharing provider installs and Create Server's
+// missing-dependency recovery all call this, so every install shows the same
+// plan (packages and commands) before anything runs and is verified the same
+// way afterwards. Callers keep their own progress and status rendering.
+// Resolves to { status, plan, installResult } where status is "installed",
+// "not-needed", "manual" (only manual steps) or "declined"; throws when the
+// install fails or its verification still reports missing dependencies.
+async function prepareNodeDependencies({
+  payload = {},
+  title = "Install missing software?",
+  intro = "",
+  confirmLabel = "Install Missing",
+  onConfirmed = null,
+} = {}) {
+  const desktopApiState = getDesktopApiState();
+  const plan = await getDependencyPreparationPlan(payload);
+  const planKind = AnxDependencyPreparation.classifyPlan(plan);
+  if (planKind !== "installable") return { status: planKind, plan, installResult: null };
+  const message = [
+    intro,
+    AnxDependencyPreparation.formatPlan(plan),
+    "AnxOS uses the trusted dependency installer, shows progress in Activity, and checks that everything works afterwards.",
+  ].filter(Boolean).join("\n\n");
+  if (!(await createSecurityConfirmation({ title, message, confirmLabel }))) {
+    return { status: "declined", plan, installResult: null };
+  }
+  await onConfirmed?.(plan);
+  const installResult = await desktopApiState.api.dependencies.install(payload);
+  if (installResult?.ok === false) {
+    throw Object.assign(new Error(installResult.error?.friendlyMessage || installResult.error?.message || "Dependency installation failed."), {
+      code: installResult.error?.code || "DEPENDENCY_INSTALL_FAILED",
+    });
+  }
+  const stillMissing = AnxDependencyPreparation.getStillMissingIds(installResult);
+  if (stillMissing.length) {
+    throw Object.assign(new Error(`Installation finished, but these are still not working: ${stillMissing.join(", ")}. Try again, or open Agent Control > Prepare Node for details.`), {
+      code: "DEPENDENCY_VERIFY_FAILED",
+      details: { missingDependencyIds: stillMissing },
+    });
+  }
+  return { status: "installed", plan, installResult };
+}
+
 async function maybePrepareMarketplaceDependencies(normalizedError, template, options, requestContext, providerInstall = false) {
   const desktopApiState = getDesktopApiState();
   const details = normalizedError?.details || {};
@@ -23250,44 +23351,40 @@ async function maybePrepareMarketplaceDependencies(normalizedError, template, op
   }
 
   const dependencyList = formatMissingDependencyList(missingDependencies);
-  const plan = await getDependencyPreparationPlan({
-    dependencyIds,
-    nodeId: requestContext.nodeId,
+  const friendlyNames = AnxDependencyPreparation.describeDependencies(missingDependencies) || dependencyList;
+  const prepared = await prepareNodeDependencies({
+    payload: {
+      dependencyIds,
+      nodeId: requestContext.nodeId,
+    },
+    title: `Install ${friendlyNames}?`,
+    intro: `${template.displayName || template.id} needs ${friendlyNames} on ${requestContext.nodeLabel || "this computer"}. AnxOS can install it now and then continue creating your server.`,
+    confirmLabel: "Install and continue",
+    onConfirmed: () => {
+      setMarketplaceInstallState("Preparing", "running");
+      setMarketplaceMessage(`Installing ${friendlyNames}. Your server is created right after.`, "warning");
+      updateOperation(activeMarketplaceOperationId, {
+        type: "Marketplace",
+        status: "running",
+        step: `Preparing dependencies: ${dependencyList}.`,
+      });
+      renderMarketplaceProgress([
+        { label: "Prepare node", status: "running", detail: `Installing ${dependencyList}.` },
+      ]);
+    },
   });
-  const planText = formatDependencyPreparationPlan(plan);
-  if (!plan.installableActions?.length) {
+  // "not-needed" here means the Agent's plan disagrees with the install
+  // error, so it is treated like a manual step instead of retrying in a loop.
+  if (prepared.status === "manual" || prepared.status === "not-needed") {
     setMarketplaceMessage(`Install blocked until dependencies are prepared manually: ${dependencyList}.`, "warning");
     renderMarketplaceProgress([
-      { label: "Prepare node", status: "failed", detail: planText },
+      { label: "Prepare node", status: "failed", detail: AnxDependencyPreparation.formatPlan(prepared.plan) },
     ]);
     return true;
   }
-  const confirmed = await createSecurityConfirmation({
-    title: "Prepare Node Dependencies",
-    message: `${template.displayName || template.id} requires missing node dependencies: ${dependencyList}.\n\n${planText}\n\nAnxOS will verify the dependencies after installation before retrying the Marketplace install.`,
-    confirmLabel: "Install Missing",
-  });
-  if (!confirmed) {
+  if (prepared.status === "declined") {
     setMarketplaceMessage(`Install blocked until dependencies are ready: ${dependencyList}.`, "warning");
     return true;
-  }
-
-  setMarketplaceInstallState("Preparing", "running");
-  setMarketplaceMessage(`Installing node dependencies: ${dependencyList}.`, "warning");
-  updateOperation(activeMarketplaceOperationId, {
-    type: "Marketplace",
-    status: "running",
-    step: `Preparing dependencies: ${dependencyList}.`,
-  });
-  renderMarketplaceProgress([
-    { label: "Prepare node", status: "running", detail: `Installing ${dependencyList}.` },
-  ]);
-  const installResult = await desktopApiState.api.dependencies.install({
-    dependencyIds,
-    nodeId: requestContext.nodeId,
-  });
-  if (installResult?.ok === false || (Array.isArray(installResult?.missingDependencyIds) && installResult.missingDependencyIds.length > 0)) {
-    throw new Error(installResult?.error?.message || "Dependency installation failed.");
   }
   setMarketplaceMessage("Dependencies installed. Retrying template install.");
   updateOperation(activeMarketplaceOperationId, {
@@ -27631,7 +27728,42 @@ async function cancelDurableJob(jobId) {
   }
 }
 
+// Activity's "In progress" list. It reads the same operationsState as Task
+// details (Operations) and is redrawn by renderOperationsCenter, so running
+// work has one source of truth however many places show it.
+function renderActivityInProgress() {
+  const section = document.querySelector("[data-activity-in-progress]");
+  const list = section?.querySelector("[data-activity-in-progress-list]");
+  if (!section || !list) return;
+  loadOperationHistory();
+  const running = [...operationsState.items.values()]
+    .filter((operation) => ["queued", "running", "waiting"].includes(operation.status))
+    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  section.hidden = running.length === 0;
+  list.replaceChildren(...running.map((operation) => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "activity-in-progress__item";
+    row.setAttribute("role", "listitem");
+    row.dataset.operationId = operation.id;
+    const text = document.createElement("div");
+    text.className = "activity-in-progress__text";
+    text.append(
+      createTextElement("strong", getFriendlyOperationText(operation.title)),
+      createTextElement("span", [operation.target, getFriendlyOperationText(operation.step)].filter(Boolean).join(" · ")),
+    );
+    row.append(text, createTextElement("small", operationStatusLabel(operation.status)), createProgressBar(operation.percent, operation.status));
+    row.addEventListener("click", () => {
+      operationsState.selectedId = operation.id;
+      showPage("operations");
+      renderOperationsCenter();
+    });
+    return row;
+  }));
+}
+
 function renderOperationsCenter() {
+  renderActivityInProgress();
   if (!operationList && !operationSummaryFields.length) return;
   loadOperationHistory();
   const operations = [...operationsState.items.values()].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));

@@ -10,7 +10,7 @@
 //      page has exactly one entry; legacy pages stay hidden;
 //   N2 each group header toggles its items and reports aria-expanded;
 //   N3 collapsed groups persist across a restart (same profile);
-//   N4 pages joined by tabs (Agent Control, Network) highlight their parent
+//   N4 pages joined by tabs (Agent Control, Network, Task details) highlight their parent
 //      while Advanced Mode is off, and the tabs switch pages;
 //   N5 Advanced Mode shows Advanced tools; opening a page whose group is
 //      collapsed opens that group, so the current page is never hidden;
@@ -36,7 +36,7 @@ const EXPECTED_GROUPS = {
   advanced: ["console", "operations", "docker", "files", "network", "ssh", "agent-control", "maintenance"],
 };
 // Pages joined to a parent page by tabs (child -> parent).
-const JOINED_PAGES = { "agent-control": "nodes", network: "playit" };
+const JOINED_PAGES = { "agent-control": "nodes", network: "playit", operations: "notifications" };
 const expectedAll = [...TOP_PAGES, ...Object.values(EXPECTED_GROUPS).flat(), "settings"];
 
 function activeTab(page, pageName) {
