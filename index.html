@@ -512,74 +512,91 @@
               <h1>Home</h1>
               <p class="lede">Your servers and computers at a glance.</p>
             </div>
+            <button class="inline-action" type="button" data-home-customize-toggle aria-expanded="false" aria-controls="home-customize">Customize</button>
           </header>
 
-          <section class="dashboard-welcome" aria-labelledby="dashboard-overview-title">
-            <div class="dashboard-welcome__header">
-              <div>
-                <p class="eyebrow">Control Center</p>
-                <h2 id="dashboard-overview-title">Here's how your servers are doing.</h2>
+          <section class="home-customize" id="home-customize" data-home-customize hidden aria-label="Customize Home"></section>
+          <section class="home-overview" data-home-overview aria-label="Overview"></section>
+          <div class="home-sections" data-home-sections>
+            <section class="home-section" data-home-section="attention" aria-labelledby="home-attention-title">
+              <header class="home-section__header"><h2 id="home-attention-title">Needs attention</h2></header>
+              <div class="home-attention" data-home-attention role="list" aria-live="polite"></div>
+            </section>
+            <section class="home-section" data-home-section="servers" aria-labelledby="home-servers-title">
+              <header class="home-section__header"><h2 id="home-servers-title">My Servers</h2><button class="inline-action inline-action--primary" type="button" data-dashboard-action="create-server">New Server</button></header>
+              <div data-home-servers-slot></div>
+            </section>
+            <section class="home-section" data-home-section="computers" aria-labelledby="home-computers-title">
+              <header class="home-section__header"><h2 id="home-computers-title">Computers</h2><button class="inline-action" type="button" data-dashboard-action="nodes">Add Computer</button></header>
+              <div class="home-computers" data-home-computers></div>
+            </section>
+            <section class="dashboard-setup-health home-section" data-home-section="setup" data-setup-health-center aria-labelledby="setup-health-title">
+              <div class="dashboard-setup-health__header">
+                <div>
+                  <p class="eyebrow">Setup Health</p>
+                  <h2 id="setup-health-title">Your setup checklist</h2>
+                  <p>Core setup and optional features are tracked separately so optional tools do not look like critical failures.</p>
+                </div>
+                <button class="primary-button" type="button" data-setup-health-action="continue">Continue Setup</button>
               </div>
-            </div>
-            <div class="dashboard-friendly-grid" data-dashboard-friendly-grid>
-              <article class="dashboard-friendly-card">
-                <span>This Computer</span>
-                <strong data-dashboard-friendly="computerStatus">Checking</strong>
-                <p data-dashboard-friendly="computerDetail">Checking local system state.</p>
-              </article>
-              <article class="dashboard-friendly-card">
-                <span>Connected Computers</span>
-                <strong data-dashboard-friendly="systemsStatus">Checking</strong>
-                <p data-dashboard-friendly="systemsDetail">Checking connected systems.</p>
-              </article>
-              <article class="dashboard-friendly-card">
-                <span>Running Servers</span>
-                <strong data-dashboard-friendly="servicesStatus">Checking</strong>
-                <p data-dashboard-friendly="servicesDetail">Checking managed servers and containers.</p>
-              </article>
-              <article class="dashboard-friendly-card">
-                <span>Setup Status</span>
-                <strong data-dashboard-friendly="setupStatus">Checking</strong>
-                <p data-dashboard-friendly="setupDetail">Checking setup progress.</p>
-              </article>
-            </div>
-            <div class="dashboard-next-step">
-              <div>
-                <span>Recommended Next Step</span>
-                <strong data-dashboard-friendly="nextStepTitle">Checking current state</strong>
-                <p data-dashboard-friendly="nextStepDetail">AnxOS is checking what is ready.</p>
+              <div class="dashboard-setup-progress" aria-live="polite">
+                <div><span>Core setup</span><strong data-setup-health="coreProgress">Checking</strong></div>
+                <div><span>Optional features</span><strong data-setup-health="optionalProgress">Checking</strong></div>
               </div>
-              <button class="primary-button" type="button" data-dashboard-next-action>Open Dashboard</button>
-            </div>
-            <div class="dashboard-quick-actions" aria-label="Dashboard quick actions">
-              <button class="inline-action dashboard-launcher dashboard-launcher--primary" type="button" data-dashboard-action="create-server"><span>Create</span><strong>New Server</strong></button>
-              <button class="inline-action dashboard-launcher" type="button" data-dashboard-action="instances"><span>Manage</span><strong>My Servers</strong></button>
-              <button class="inline-action dashboard-launcher" type="button" data-dashboard-action="share-server"><span>Invite</span><strong>Share with Friends</strong></button>
-              <button class="inline-action dashboard-launcher" type="button" data-dashboard-action="nodes"><span>Connect</span><strong>Add Computer</strong></button>
-            </div>
-            <div class="dashboard-friendly-empty" data-dashboard-friendly-empty hidden></div>
-          </section>
+              <div class="setup-health-groups" data-setup-health-groups aria-live="polite">
+                <div class="security-empty-state">Checking setup health.</div>
+              </div>
+            </section>
+          </div>
 
-          <section class="dashboard-setup-health" data-setup-health-center aria-labelledby="setup-health-title">
-            <div class="dashboard-setup-health__header">
-              <div>
-                <p class="eyebrow">Setup Health</p>
-                <h2 id="setup-health-title">Your setup checklist</h2>
-                <p>Core setup and optional features are tracked separately so optional tools do not look like critical failures.</p>
-              </div>
-              <button class="primary-button" type="button" data-setup-health-action="continue">Continue Setup</button>
-            </div>
-            <div class="dashboard-setup-progress" aria-live="polite">
-              <div><span>Core setup</span><strong data-setup-health="coreProgress">Checking</strong></div>
-              <div><span>Optional features</span><strong data-setup-health="optionalProgress">Checking</strong></div>
-            </div>
-            <div class="setup-health-groups" data-setup-health-groups aria-live="polite">
-              <div class="security-empty-state">Checking setup health.</div>
-            </div>
-          </section>
 
           <details class="dashboard-details" data-dashboard-details>
             <summary><strong>More actions and computer details</strong><small>Start or stop everything, CPU, memory, disk and network.</small></summary>
+            <section class="dashboard-welcome" aria-labelledby="dashboard-overview-title">
+              <div class="dashboard-welcome__header">
+                <div>
+                  <p class="eyebrow">Control Center</p>
+                  <h2 id="dashboard-overview-title">Here's how your servers are doing.</h2>
+                </div>
+              </div>
+              <div class="dashboard-friendly-grid" data-dashboard-friendly-grid>
+                <article class="dashboard-friendly-card">
+                  <span>This Computer</span>
+                  <strong data-dashboard-friendly="computerStatus">Checking</strong>
+                  <p data-dashboard-friendly="computerDetail">Checking local system state.</p>
+                </article>
+                <article class="dashboard-friendly-card">
+                  <span>Connected Computers</span>
+                  <strong data-dashboard-friendly="systemsStatus">Checking</strong>
+                  <p data-dashboard-friendly="systemsDetail">Checking connected systems.</p>
+                </article>
+                <article class="dashboard-friendly-card">
+                  <span>Running Servers</span>
+                  <strong data-dashboard-friendly="servicesStatus">Checking</strong>
+                  <p data-dashboard-friendly="servicesDetail">Checking managed servers and containers.</p>
+                </article>
+                <article class="dashboard-friendly-card">
+                  <span>Setup Status</span>
+                  <strong data-dashboard-friendly="setupStatus">Checking</strong>
+                  <p data-dashboard-friendly="setupDetail">Checking setup progress.</p>
+                </article>
+              </div>
+              <div class="dashboard-next-step">
+                <div>
+                  <span>Recommended Next Step</span>
+                  <strong data-dashboard-friendly="nextStepTitle">Checking current state</strong>
+                  <p data-dashboard-friendly="nextStepDetail">AnxOS is checking what is ready.</p>
+                </div>
+                <button class="primary-button" type="button" data-dashboard-next-action>Open Dashboard</button>
+              </div>
+              <div class="dashboard-quick-actions" aria-label="Dashboard quick actions">
+                <button class="inline-action dashboard-launcher dashboard-launcher--primary" type="button" data-dashboard-action="create-server"><span>Create</span><strong>New Server</strong></button>
+                <button class="inline-action dashboard-launcher" type="button" data-dashboard-action="instances"><span>Manage</span><strong>My Servers</strong></button>
+                <button class="inline-action dashboard-launcher" type="button" data-dashboard-action="share-server"><span>Invite</span><strong>Share with Friends</strong></button>
+                <button class="inline-action dashboard-launcher" type="button" data-dashboard-action="nodes"><span>Connect</span><strong>Add Computer</strong></button>
+              </div>
+              <div class="dashboard-friendly-empty" data-dashboard-friendly-empty hidden></div>
+            </section>
             <div class="dashboard-quick-actions dashboard-quick-actions--more" aria-label="More dashboard actions">
               <button class="inline-action dashboard-launcher" type="button" data-dashboard-action="refresh"><span>Update</span><strong>Refresh Dashboard</strong></button>
               <button class="inline-action dashboard-launcher" type="button" data-dashboard-action="start-all"><span>Launch</span><strong>Start All Servers</strong></button>
@@ -4671,6 +4688,7 @@
             <button class="page-tabs__tab" type="button" data-page-tab="nodes">Computers</button>
             <button class="page-tabs__tab" type="button" data-page-tab="agent-control">Agent &amp; connection</button>
           </nav>
+          <section class="computer-details" data-computer-details aria-label="Computer details"></section>
 
           <div class="nodes-dashboard" data-nodes-dashboard>
             <section class="nodes-summary-grid" aria-label="Node summary">
@@ -5829,11 +5847,13 @@
     <script src="src/shared/shareHealth.js"></script>
     <script src="src/shared/restorePreview.js"></script>
     <script src="src/shared/instances/serverFailures.js"></script>
+    <script src="src/shared/homeDashboardModel.js"></script>
     <script src="src/shared/instances/minecraftPlayerFiles.js"></script>
     <script src="node_modules/@xterm/xterm/lib/xterm.js"></script>
     <script src="src/shared/healthModel.js"></script>
     <script src="src/shared/connectivityDiagnostics.js"></script>
     <script src="src/shared/connectivityPresentation.js"></script>
     <script src="app.js"></script>
+    <script src="src/renderer/homeDashboard.js"></script>
   </body>
 </html>

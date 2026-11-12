@@ -72,32 +72,75 @@ async function main() {
     await waitFor(page, () => (document.querySelector(".nav-menu")?.getBoundingClientRect().width || 0) > 0, null, "sidebar");
     await page.waitForTimeout(1500);
 
-    // S1: Home.
+    // S1: Home (Phase 4 layout).
     await page.evaluate(() => window.showPage("dashboard"));
+    await page.waitForTimeout(2500);
     await shot(page, "01-home");
     const home = await page.evaluate(() => {
       // checkVisibility also treats content inside a closed <details> as hidden.
       const visible = (el) => Boolean(el) && el.checkVisibility() && el.getBoundingClientRect().height > 0;
-      const quick = [...document.querySelectorAll('.dashboard-welcome [data-dashboard-action]')].filter(visible).map((b) => b.dataset.dashboardAction);
       const details = document.querySelector("[data-dashboard-details]");
       return {
-        quick,
+        tiles: [...document.querySelectorAll("[data-home-overview] [data-home-tile]")].filter(visible).map((tile) => tile.dataset.homeTile),
+        serversTile: document.querySelector('[data-home-tile="servers"]')?.textContent || "",
+        sections: [...document.querySelectorAll("[data-home-sections] > [data-home-section]")].filter(visible).map((section) => section.dataset.homeSection),
+        attentionRows: document.querySelectorAll("[data-home-attention] [role=listitem]").length,
+        computerCards: [...document.querySelectorAll("[data-home-computers] [data-computer-id]")].map((card) => ({ freshness: card.dataset.freshness, text: card.textContent })),
+        serverGridInSection: Boolean(document.querySelector('[data-home-section="servers"] [data-dashboard-app-grid]')),
+        welcomeVisible: visible(document.querySelector(".dashboard-welcome")),
         detailsOpen: details?.open,
         cpuVisible: visible(document.querySelector('[data-dashboard-details] [data-field="cpuUsage"]')),
         tileRow: Boolean(document.querySelector("[data-dashboard-widgets]")),
-        serversHeading: document.querySelector("[data-dashboard-app-grid] h2")?.textContent || "",
       };
     });
-    assert.deepStrictEqual(home.quick, ["create-server", "instances", "share-server", "nodes"], "Home shows four everyday actions");
-    assert.strictEqual(home.detailsOpen, false, "computer details start collapsed");
+    assert.deepStrictEqual(home.tiles, ["servers", "computers", "players", "attention"], "four overview tiles");
+    assert.deepStrictEqual(home.sections, ["attention", "servers", "computers", "setup"], "default section order");
+    assert.ok(home.attentionRows >= 1, "Needs attention always shows a row (an item or All good)");
+    assert.ok(home.serversTile.includes("—") && home.serversTile.includes("Computer not connected"), `the QA computer is offline, so its last-known servers are not counted as running (${home.serversTile})`);
+    assert.ok(home.computerCards.length >= 1, "each computer has a card");
+    // The QA computer is disconnected: its card must not show live numbers.
+    for (const card of home.computerCards) {
+      if (card.freshness !== "fresh") assert.ok(!/\b\d{1,3}%/.test(card.text), `a computer without live readings shows no percentages (${card.text})`);
+    }
+    assert.strictEqual(home.serverGridInSection, true, "server cards live in My Servers");
+    assert.strictEqual(home.welcomeVisible, false, "the old summary grid is tucked into details, not duplicated");
+    assert.strictEqual(home.detailsOpen, false, "details start collapsed");
     assert.strictEqual(home.cpuVisible, false, "CPU details are tucked away");
-    assert.strictEqual(home.tileRow, false, "the duplicate summary tile row is gone");
-    assert.strictEqual(home.serversHeading, "Your Servers");
+    assert.strictEqual(home.tileRow, false, "the old duplicate tile row stays gone");
     await page.locator("[data-dashboard-details] > summary").click();
     await page.waitForTimeout(200);
     assert.strictEqual(await page.evaluate(() => document.querySelector('[data-dashboard-details] [data-field="cpuUsage"]').checkVisibility()), true, "opening the details shows CPU");
     await page.locator("[data-dashboard-details] > summary").click();
-    console.log("PASS S1 Home: four everyday actions, technical details collapsed, no duplicate tiles");
+    console.log(`PASS S1 Home: overview, Needs attention, My Servers, Computers (${home.computerCards.map((card) => card.freshness).join(", ")})`);
+
+    // S7: Customize reorders and hides sections, and the choice survives a reload.
+    await page.locator("[data-home-customize-toggle]").click();
+    await page.waitForTimeout(200);
+    assert.strictEqual(await page.locator('[data-home-customize] [data-section-id="attention"] input').isDisabled(), true, "Needs attention cannot be hidden");
+    await page.locator('[data-home-customize] [data-section-id="computers"] button', { hasText: "Move up" }).click();
+    await page.locator('[data-home-customize] [data-section-id="setup"] input').uncheck();
+    await shot(page, "07-customize");
+    await page.locator("[data-home-customize-toggle]").click();
+    // Put the DOM back in the default order, then re-apply from storage: the
+    // stored preference alone must restore the layout. (Storage surviving a
+    // real restart is proven for the sidebar groups by N3.)
+    const customized = await page.evaluate(() => {
+      const container = document.querySelector("[data-home-sections]");
+      ["attention", "servers", "computers", "setup"].forEach((id) => {
+        const section = container.querySelector(`[data-home-section="${id}"]`);
+        section.hidden = false;
+        container.append(section);
+      });
+      window.AnxHomeDashboard.applySectionPreferences();
+      return ({
+      order: [...document.querySelectorAll("[data-home-sections] > [data-home-section]")].map((section) => section.dataset.homeSection),
+      setupHidden: document.querySelector('[data-home-section="setup"]').hidden,
+      });
+    });
+    assert.deepStrictEqual(customized.order.slice(0, 3), ["attention", "computers", "servers"], "the stored order is applied");
+    assert.strictEqual(customized.setupHidden, true, "a hidden section stays hidden");
+    await page.evaluate(() => { localStorage.removeItem("anxos.home.sections.v1"); window.AnxHomeDashboard.applySectionPreferences(); });
+    console.log("PASS S7 Customize reorders and hides sections and remembers them");
 
     // S3: joined pages show their tabs.
     for (const [pageName, tabs] of [["nodes", ["nodes", "agent-control"]], ["playit", ["playit", "network"]]]) {
@@ -108,6 +151,25 @@ async function main() {
       await shot(page, `03-${pageName}`);
     }
     console.log("PASS S3 Computers and Sharing show tabs to their joined pages");
+
+    // S8: the Computers page shows the detail panel for a computer.
+    await page.evaluate(() => window.showPage("nodes"));
+    await page.waitForTimeout(800);
+    const detailPanel = await page.evaluate(() => ({
+      chips: document.querySelectorAll("[data-computer-details] [data-view-computer]").length,
+      cards: document.querySelectorAll("[data-computer-details] .computer-card").length,
+      graph: Boolean(document.querySelector("[data-computer-details] .computer-graph__svg")),
+      info: [...document.querySelectorAll("[data-computer-details] .computer-details__row span")].map((span) => span.textContent),
+      sections: [...document.querySelectorAll("[data-computer-details] h3")].map((h) => h.textContent),
+    }));
+    assert.ok(detailPanel.chips >= 1, "a chip per computer");
+    assert.ok(detailPanel.cards >= 4, "CPU, memory, disk and network cards");
+    assert.ok(detailPanel.graph, "a recent-activity graph");
+    assert.deepStrictEqual(detailPanel.sections, ["Recent activity", "Computer and Agent", "Servers on this computer", "Alerts"]);
+    assert.ok(detailPanel.info.includes("Agent version") && detailPanel.info.includes("Operating system"));
+    await page.evaluate(() => document.querySelector("[data-computer-details]").scrollIntoView());
+    await shot(page, "08-computer-details");
+    console.log("PASS S8 Computers page shows resource cards, graph, Agent info, servers and alerts");
 
     // S4: Activity shows running work from operationsState.
     await page.evaluate(() => window.showPage("notifications"));
@@ -220,7 +282,7 @@ async function main() {
     // S2: Create Server.
     await page.evaluate(() => window.showPage("dashboard"));
     const opened = app.waitForEvent("window", { timeout: 20000 });
-    await page.locator('.dashboard-welcome [data-dashboard-action="create-server"]').click();
+    await page.locator('[data-home-section="servers"] [data-dashboard-action="create-server"]').click();
     const wizardWindow = await opened;
     wizardWindow.on("pageerror", (error) => rendererErrors.push(`create-server: ${error.message}`));
     await wizardWindow.waitForLoadState("domcontentloaded");
@@ -304,7 +366,7 @@ async function main() {
     console.log("PASS S2 Create Server: one setup step, Advanced options collapsed and opened on errors");
 
     assert.deepStrictEqual(rendererErrors, [], "no renderer errors");
-    console.log("Simple UI QA passed (6 checks).");
+    console.log("Simple UI QA passed (8 checks).");
   } catch (error) {
     console.error(error && error.stack ? error.stack : error);
     process.exitCode = 1;

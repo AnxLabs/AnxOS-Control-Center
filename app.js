@@ -2448,7 +2448,10 @@ function renderDashboardAppGrid(state) {
     section.className = "dashboard-app-grid-section";
     section.dataset.dashboardAppGrid = "true";
     const header = page.querySelector(".page-header");
-    if (header) {
+    const slot = page.querySelector("[data-home-servers-slot]");
+    if (slot) {
+      slot.append(section);
+    } else if (header) {
       header.insertAdjacentElement("afterend", section);
     } else {
       page.prepend(section);
@@ -2466,10 +2469,11 @@ function renderDashboardAppGrid(state) {
   // created once, and only cards whose markup changed are replaced, so focus
   // and hover on a card survive the refresh.
   let grid = section.querySelector(":scope > .dashboard-app-grid");
-  if (!grid || section.childElementCount !== 2) {
+  if (!grid || section.childElementCount !== 1) {
     grid = document.createElement("div");
     grid.className = "dashboard-app-grid";
-    section.replaceChildren(createTextElement("h2", "Your Servers"), grid);
+    // The My Servers section supplies its own heading.
+    section.replaceChildren(grid);
   }
   reconcileChildren(grid, draft);
 }
@@ -2502,6 +2506,25 @@ function createDashboardAppCard(instance) {
 
   const footer = document.createElement("div");
   footer.className = "dashboard-app-card__footer";
+  const players = getMinecraftSummaryData(instance)?.players || {};
+  if (isInstanceRunning(instance) && Number.isFinite(Number(players.online)) && players.online !== null && players.online !== undefined) {
+    footer.append(createTextElement("span", `${players.online}${Number.isFinite(Number(players.max)) && players.max !== null ? ` / ${players.max}` : ""} players`, "dashboard-app-card__players"));
+  }
+  const quickAction = isInstanceRunning(instance) ? "stop" : /fail|stop|crash/i.test(String(instance?.state || "")) ? "start" : "";
+  if (quickAction && instance?.id) {
+    const control = document.createElement("button");
+    control.type = "button";
+    control.className = "inline-action dashboard-app-card__control";
+    control.dataset.dashboardServerControl = quickAction;
+    control.textContent = quickAction === "stop" ? "Stop" : "Start";
+    control.addEventListener("click", (event) => {
+      event.stopPropagation();
+      // The same path as the server page's buttons, on this server.
+      selectInstance(instance.id);
+      runInstanceAction(quickAction);
+    });
+    footer.append(control);
+  }
   // Best-effort HTTP launch link: only when the service is running and has a
   // primary port; never guess HTTPS (V2-B Wave 1 launch-link primitive).
   const serviceUrl = isInstanceRunning(instance) ? getInstanceServiceUrl(instance) : "";
@@ -2517,7 +2540,7 @@ function createDashboardAppCard(instance) {
   }
 
   card.addEventListener("click", (event) => {
-    if (event.target.closest("a")) return;
+    if (event.target.closest("a, button")) return;
     openDashboardInstanceDetails(instance?.id);
   });
   card.addEventListener("keydown", (event) => {
@@ -2589,6 +2612,7 @@ function renderFriendlyDashboard() {
   // The old summary tile row repeated the cards in the Dashboard welcome
   // section, so only the server cards are rendered here.
   renderDashboardAppGrid(state);
+  window.AnxHomeDashboard?.renderHome();
   refreshBackupSummaryForSetup().catch((error) => {
     console.warn("[Backups] Setup backup summary refresh failed.", { message: error?.message || String(error) });
   });
@@ -8783,6 +8807,9 @@ function renderSnapshot(snapshot, nodeId = getSelectedNodeId()) {
   latestSystemSnapshot = safeSnapshot;
   latestSystemSnapshotAt = Date.now();
   latestSystemSnapshotNodeId = nodeId || getSelectedNodeId() || "application-host";
+  // One store of live readings per computer (src/renderer/homeDashboard.js):
+  // Home and the Computers page read from it instead of polling again.
+  window.AnxComputerVitals?.record(latestSystemSnapshotNodeId, safeSnapshot, latestSystemSnapshotAt);
   const timestamp = safeSnapshot.currentTime ? new Date(safeSnapshot.currentTime) : new Date();
 
   if (timeTarget) {
@@ -31724,6 +31751,7 @@ async function refreshDashboard() {
       stack: error?.stack || null,
     });
     recordAgentPollingFailure("system", requestContext, error);
+    window.AnxComputerVitals?.recordError(requestContext.nodeId, error);
     clearDashboardMetricsForActiveTarget("Unavailable");
     latestSystemSnapshot = null;
     latestSystemSnapshotAt = 0;
@@ -40557,6 +40585,7 @@ function openNodeRoutesModal(nodeId) {
 }
 
 function renderNodes() {
+  window.AnxHomeDashboard?.renderComputerDetails();
   renderRoutingDiagnostics();
   syncAgentConnectionDisplayWithSelectedNode();
   renderNodeSummary();
@@ -49930,9 +49959,11 @@ renderFriendlyDashboard();
 bootstrapApplication();
 
 registerRefreshTask(updateLocalTime, 30000);
+// 2 s (was 1 s): the readings are just as live for people, at half the Agent
+// work. Other computers are read every 10 s by src/renderer/homeDashboard.js.
 registerRefreshTask(() => {
   if (!shouldSkipNodeScopedPolling() && getActivePageName() === "dashboard") refreshDashboard();
-}, 1000);
+}, 2000);
 registerRefreshTask(() => {
   if (!shouldSkipNodeScopedPolling() && ["dashboard", "amp", "minecraft"].includes(getActivePageName())) refreshAmpDashboard();
 }, AMP_REFRESH_INTERVAL_MS);
