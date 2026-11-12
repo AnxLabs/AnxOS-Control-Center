@@ -29,6 +29,7 @@ const agentPlayitServiceSource = fs.readFileSync(agentPlayitServicePath, "utf8")
 const agentServerSource = fs.readFileSync(agentServerPath, "utf8");
 const agentClientSource = fs.readFileSync(agentClientPath, "utf8");
 const appSource = fs.readFileSync(appPath, "utf8");
+const shareHealthSource = fs.readFileSync(path.join(__dirname, "..", "src", "shared", "shareHealth.js"), "utf8");
 const indexSource = fs.readFileSync(indexPath, "utf8");
 const stylesSource = fs.readFileSync(stylesPath, "utf8");
 const preloadSource = fs.readFileSync(preloadPath, "utf8");
@@ -566,7 +567,8 @@ assert(indexSource.includes("data-playit-service-actions") && indexSource.includ
   "article.addEventListener(\"click\"",
   "selectedPublicAccessProviderId",
   "selectedPublicAccessServiceId",
-].forEach((needle) => assert(appSource.includes(needle), `Public Access UX should include ${needle}.`));
+// Sharing status wording now lives in the shared rules module the renderer uses.
+].forEach((needle) => assert(appSource.includes(needle) || shareHealthSource.includes(needle), `Public Access UX should include ${needle}.`));
 assert(stylesSource.includes(".share-server-health") && stylesSource.includes(".share-server-diagnostics") && stylesSource.includes(".instance-access-badge--ok"), "Share Server access health and compact instance badges must have CSS.");
 assert(functionBody(appSource, "copyInstanceAccessAddress").includes("getRecommendedShareServerAddress"), "Copy Access should use the recommended healthy address instead of requiring a linked service address.");
 assert(appSource.includes("function buildShareServerInviteText") && appSource.includes("if (!isUsableShareAddress(entry.address)) return \"\";"), "Invite text must not copy empty, placeholder, or Checking addresses.");

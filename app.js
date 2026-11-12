@@ -10325,15 +10325,38 @@ function getInstanceListeningPorts(instance = {}) {
     .filter((port) => Number.isInteger(port) && port > 0);
 }
 
+// Latest Share dialog connection test per server (instance id -> { result,
+// at }). A test only settles the game's port while it is recent.
+const shareConnectionTests = new Map();
+const SHARE_CONNECTION_TEST_FRESH_MS = 5 * 60 * 1000;
+
+function getRecentShareConnectionTest(instance) {
+  const entry = instance?.id ? shareConnectionTests.get(instance.id) : null;
+  return entry && Date.now() - entry.at < SHARE_CONNECTION_TEST_FRESH_MS ? entry : null;
+}
+
+// Plain wording for the stored restart policy values (never, on-failure,
+// always); the Agent keeps the values, and backoff plus crash-loop
+// protection apply to both restarting modes.
+function formatRestartPolicyLabel(value) {
+  const labels = { never: "Don't restart automatically", "on-failure": "Restart if it crashes", always: "Always keep it running" };
+  return labels[String(value || "").trim()] || formatInstanceValue(value);
+}
+
 function getShareServerAccessHealth(instance = findInstance()) {
   const port = Number(getInstancePrimaryPort(instance));
   const processState = getInstanceProcessAccessState(instance);
   const listeningPorts = getInstanceListeningPorts(instance);
-  const portState = processState === "running"
+  let portState = processState === "running"
     ? Number.isInteger(port) && listeningPorts.length
       ? listeningPorts.includes(port) ? "listening" : "not-listening"
       : "unknown"
     : processState === "stopped" || processState === "failed" ? "not-listening" : "unknown";
+  // Without runtime port data, a recent connection test (which probes the
+  // game's port on its own computer) decides whether the game answers.
+  if (processState === "running" && portState === "unknown") {
+    portState = AnxShareHealth.portStateFromDiagnostics(getRecentShareConnectionTest(instance)?.result) || "unknown";
+  }
   const nodeUnavailable = getPublicAccessUnavailableReason();
   const playitState = nodeUnavailable
     ? "unavailable"
@@ -10351,17 +10374,18 @@ function getShareServerAccessHealth(instance = findInstance()) {
   else if (playitMatches.length === 1 || services.some((service) => service.providerId === "playit" && isUsableShareAddress(getInstanceAccessAddress(service)))) tunnelMatch = "matched";
   else tunnelMatch = "not-matched";
 
-  let status = "Unknown";
-  if (nodeUnavailable) status = "Node disconnected";
-  else if (processState === "failed") status = "Server failed";
-  else if (processState === "stopped") status = "Server stopped";
-  else if (portState === "not-listening") status = "Port not listening";
-  else if (usablePublic && playitState === "running" && tunnelMatch === "matched") status = "Public access ready";
-  else if (usablePublic && tunnelMatch === "multiple") status = "Multiple tunnels matched";
-  else if (playitState === "stopped" && !usablePublic) status = "Playit stopped";
-  else if (tunnelMatch === "not-matched" && !usablePublic) status = usableLan || usableTailscale ? "Local only" : "No tunnel matched";
-  else if (usableLan || usableTailscale) status = "Local only";
-  else if (processState === "running") status = "Ready";
+  // The shared rules never report "Public access ready" for a tunnel whose
+  // game port is not confirmed listening.
+  const status = AnxShareHealth.classifyShareHealth({
+    nodeUnavailable: Boolean(nodeUnavailable),
+    processState,
+    portState,
+    playitState,
+    tunnelMatch,
+    usablePublic,
+    usableLan,
+    usableTailscale,
+  });
 
   return {
     status,
@@ -10389,16 +10413,12 @@ function getRecommendedShareServerAddress(instance = findInstance()) {
 }
 
 function getShareServerDiagnosticMessages(instance = findInstance(), health = getShareServerAccessHealth(instance)) {
-  if (health.nodeState === "disconnected") return ["Reconnect to the node to refresh access health."];
-  if (health.processState === "stopped") return ["Start the server first."];
-  if (health.processState === "failed") return ["The server failed to start. Check console logs."];
-  if (health.portState === "not-listening") return ["The game port is not listening yet."];
-  if (health.playitState === "stopped") return ["Start Playit in Public Access."];
-  if (health.tunnelMatch === "not-matched") return ["Create or select a Playit tunnel for this server port."];
-  if (health.tunnelMatch === "multiple") return ["Multiple tunnels match this port. Pick the correct public address manually."];
+  const described = AnxShareHealth.describeShareHealth(health.status);
   const recommended = getRecommendedShareServerAddress(instance);
-  if (recommended?.availability === "lan") return ["Only people on your local network can join with this address."];
-  return ["Access looks ready. Ask your friend to paste the copied address exactly."];
+  if (health.status === AnxShareHealth.STATUS.PUBLIC_READY && recommended?.availability !== "lan") {
+    return [described.nextStep, "Ask your friend to paste the copied address exactly."];
+  }
+  return [described.nextStep];
 }
 
 function getInstanceAccessBadges(instance = findInstance()) {
@@ -10410,6 +10430,7 @@ function getInstanceAccessBadges(instance = findInstance()) {
   else if (health.processState === "stopped") badges.push({ label: "Server stopped", tone: "planned" });
   else if (health.portState === "not-listening") badges.push({ label: "Port not listening", tone: "warning" });
   if (health.status === "Public access ready") badges.push({ label: "Public access ready", tone: "ok" });
+  else if (health.status === AnxShareHealth.STATUS.GAME_NOT_VERIFIED) badges.push({ label: "Tunnel up, game not verified", tone: "warning" });
   else if (health.tunnelMatch === "multiple") badges.push({ label: "Multiple tunnels", tone: "warning" });
   else if (health.playitState === "running" && health.tunnelMatch === "matched") badges.push({ label: "Playit online", tone: "ok" });
   else if (health.tailscale === "available") badges.push({ label: "Tailscale available", tone: "planned" });
@@ -10877,6 +10898,7 @@ async function submitProviderAccessService(provider = {}, values = {}, requestCo
       throw Object.assign(new Error("Choose a valid instance."), { code: "INVALID_INSTANCE" });
     }
     const result = await createAccessServiceForInstance(instance, "playit");
+    if (result === null) return null;
     if (!result) {
       throw Object.assign(new Error("The selected instance could not be linked to Public Access."), { code: "PUBLIC_ACCESS_INSTANCE_LINK_FAILED" });
     }
@@ -10971,6 +10993,25 @@ async function createAccessServiceForInstance(instance = findInstance(), preferr
   const tailscaleEndpointOptions = suggestion.providerId === "tailscale"
     ? getTailscaleEndpointOptions(provider, suggestion.localPort)
     : [];
+  // Every per-server share passes here (Share dialog, server actions, the
+  // Sharing form's "existing server" source), so this is the single place
+  // that refuses management ports and asks for explicit approval.
+  const managementPortName = AnxShareHealth.getManagementPortName(suggestion.localPort);
+  if (managementPortName) {
+    throw Object.assign(new Error(`Port ${suggestion.localPort} is used by ${managementPortName}. AnxOS never shares management ports automatically.`), { code: "PUBLIC_ACCESS_SENSITIVE_PORT" });
+  }
+  const approved = await createSecurityConfirmation({
+    title: suggestion.providerId === "tailscale" ? `Share ${instance.displayName || instance.id} on your Tailscale network?` : `Share ${instance.displayName || instance.id} over the internet?`,
+    message: AnxShareHealth.describeShareExposure({
+      serverName: instance.displayName || instance.id,
+      port: suggestion.localPort,
+      protocol: suggestion.protocol,
+      providerName: provider?.name || suggestion.providerName || getInstanceAccessProviderLabel(suggestion.providerId),
+      privateNetwork: suggestion.accessType === "private-tailnet",
+    }),
+    confirmLabel: "Share",
+  });
+  if (!approved) return null;
   const payload = {
     nodeId: requestContext.nodeId,
     providerId: suggestion.providerId,
@@ -11064,6 +11105,155 @@ function createShareServerAddressRow(entry, instance) {
   return row;
 }
 
+// Start/stop sharing for one server. Starting goes through
+// createAccessServiceForInstance (explicit approval, management ports
+// refused); stopping removes AnxOS's access records after confirmation.
+function createShareServerControls(instance, publicAddresses = [], reopen = () => {}) {
+  const section = document.createElement("section");
+  section.className = "share-server-controls";
+  section.dataset.shareServerControls = "";
+  const playitServices = getInstanceAccessServices(instance).filter((service) => service.providerId === "playit");
+  const allServices = getInstanceAccessServices(instance);
+  const hasPublic = publicAddresses.length > 0;
+  const actions = document.createElement("div");
+  actions.className = "share-server-controls__actions";
+
+  if (!playitServices.length && !hasPublic) {
+    section.append(
+      createTextElement("h3", "Share over the internet"),
+      createTextElement("p", "Let friends outside your home join through Playit. AnxOS asks before sharing anything and only shares this game's port."),
+    );
+    const start = document.createElement("button");
+    start.type = "button";
+    start.className = "inline-action inline-action--primary";
+    start.dataset.shareServerStart = "";
+    start.textContent = "Share over the internet";
+    start.addEventListener("click", async () => {
+      start.disabled = true;
+      try {
+        const result = await createAccessServiceForInstance(instance, "playit");
+        if (result) reopen();
+      } catch (error) {
+        showToast(getAgentErrorMessage(error, "Sharing could not be set up."), "warning");
+      } finally {
+        if (start.isConnected) start.disabled = false;
+      }
+    });
+    actions.append(start);
+  } else {
+    section.append(createTextElement("h3", "Sharing is on"));
+    const pending = playitServices.find((service) => !isUsableShareAddress(getInstanceAccessAddress(service)));
+    if (pending && !hasPublic) {
+      const steps = document.createElement("ol");
+      steps.className = "share-server-tunnel-steps";
+      AnxShareHealth.describePlayitTunnelSetup({ port: pending.localPort, protocol: pending.protocol })
+        .forEach((step) => steps.append(createTextElement("li", step)));
+      section.append(createTextElement("p", "One last step: Playit needs a tunnel for this server."), steps);
+    }
+  }
+
+  if (allServices.length) {
+    const stop = document.createElement("button");
+    stop.type = "button";
+    stop.className = "inline-action";
+    stop.dataset.shareServerStop = "";
+    stop.textContent = "Stop sharing";
+    stop.addEventListener("click", async () => {
+      const confirmed = await createSecurityConfirmation({
+        title: `Stop sharing ${instance.displayName || instance.id}?`,
+        message: "AnxOS removes this server's sharing settings. A tunnel you created on playit.gg stays there until you delete it on playit.gg; delete it there too to fully close access.",
+        confirmLabel: "Stop sharing",
+      });
+      if (!confirmed) return;
+      stop.disabled = true;
+      try {
+        const result = await deleteAccessServicesForInstance(instance);
+        await refreshPlayitStatus();
+        showToast(result.failed ? "Some sharing settings could not be removed. Try again from Sharing settings." : "Sharing stopped.", result.failed ? "warning" : "success");
+        reopen();
+      } catch (error) {
+        showToast(getAgentErrorMessage(error, "Sharing could not be stopped."), "warning");
+        if (stop.isConnected) stop.disabled = false;
+      }
+    });
+    actions.append(stop);
+  }
+  if (actions.childElementCount) section.append(actions);
+  return section;
+}
+
+function createShareChecklist(health) {
+  const list = document.createElement("ul");
+  list.className = "share-server-checklist";
+  AnxShareHealth.buildShareChecklist(health).forEach((check) => {
+    const item = createTextElement("li", check.label);
+    item.dataset.checkState = check.state;
+    item.dataset.checkId = check.id;
+    item.setAttribute("aria-label", `${check.label}: ${check.state === "ok" ? "yes" : check.state === "problem" ? "no" : "not known"}`);
+    list.append(item);
+  });
+  return list;
+}
+
+function renderShareConnectionTest(container, result) {
+  if (!container) return;
+  container.replaceChildren();
+  if (!result) return;
+  const { rows, firstFailure } = AnxShareHealth.explainDiagnostics(result);
+  if (firstFailure) {
+    container.append(createTextElement("p", `The connection breaks at: ${firstFailure.label}.${firstFailure.detail ? ` ${firstFailure.detail}` : ""}`, "share-server-test-result__problem"));
+  } else if (rows.length) {
+    container.append(createTextElement("p", "Every check that could run passed.", "share-server-test-result__ok"));
+  }
+  const list = document.createElement("ul");
+  list.className = "share-server-checklist share-server-checklist--test";
+  rows.forEach((row) => {
+    const item = createTextElement("li", `${row.label}: ${row.stateLabel}`);
+    item.dataset.checkState = row.state === "healthy" ? "ok" : row.state === "failed" ? "problem" : "unknown";
+    list.append(item);
+  });
+  container.append(list);
+}
+
+// Runs the existing connectivity diagnostics (process, port, network, Agent,
+// tunnel, public address) for one server. Read-only: it changes nothing.
+async function runShareConnectionTest(instance, button, container) {
+  const api = getDesktopApi();
+  if (typeof api?.connectivity?.runDiagnostics !== "function") {
+    showToast("Connection tests are unavailable in this build.", "warning");
+    return false;
+  }
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Testing...";
+  }
+  container?.replaceChildren(createTextElement("p", "Checking the path from the internet to your game..."));
+  try {
+    const result = await api.connectivity.runDiagnostics({
+      // The Instances list always belongs to the selected computer.
+      nodeId: getSelectedNodeId(),
+      serviceId: instance.id,
+      refresh: true,
+    });
+    if (result?.ok === false) throw new Error(normalizeIpcErrorMessage(result.error?.message, "The connection test failed."));
+    if (isDiscardedConnectivityResult(result)) {
+      container?.replaceChildren(createTextElement("p", "The server changed while testing. Try again."));
+      return false;
+    }
+    shareConnectionTests.set(instance.id, { result, at: Date.now() });
+    renderShareConnectionTest(container, result);
+    return true;
+  } catch (error) {
+    container?.replaceChildren(createTextElement("p", getFriendlyErrorMessage(error, "The connection test failed."), "share-server-test-result__problem"));
+    return false;
+  } finally {
+    if (button?.isConnected) {
+      button.disabled = false;
+      button.textContent = "Test connection";
+    }
+  }
+}
+
 function openShareServerModal(instance = findInstance()) {
   // Accept an instance id so the endpoint picker can hand the selection over
   // without re-resolving; every existing call site still passes an object.
@@ -11094,7 +11284,7 @@ function openShareServerModal(instance = findInstance()) {
   header.append(
     createTextElement("p", "Share Server", "app-modal__eyebrow"),
     Object.assign(createTextElement("h2", instance.displayName || instance.id || "Server"), { id: "share-server-title" }),
-    createTextElement("p", "Copy the right address for friends and keep Public Access setup in one place."),
+    createTextElement("p", "Check that friends can join, then copy the address to send them."),
   );
 
   const body = document.createElement("div");
@@ -11108,9 +11298,12 @@ function openShareServerModal(instance = findInstance()) {
   });
   const healthSection = document.createElement("section");
   healthSection.className = "share-server-health";
+  const described = AnxShareHealth.describeShareHealth(health.status);
+  healthSection.dataset.shareHealthStatus = health.status;
   healthSection.append(
-    createTextElement("h3", "Access Health"),
-    createTextElement("strong", health.status, `share-server-health__status share-server-health__status--${String(health.status).toLowerCase().replace(/[^a-z0-9]+/g, "-")}`),
+    createTextElement("h3", "Can friends join?"),
+    createTextElement("strong", described.headline, `share-server-health__status share-server-health__status--${String(health.status).toLowerCase().replace(/[^a-z0-9]+/g, "-")} share-server-health__status--tone-${described.tone}`),
+    createShareChecklist(health),
   );
   const healthGrid = document.createElement("div");
   healthGrid.className = "share-server-health__grid";
@@ -11128,13 +11321,34 @@ function openShareServerModal(instance = findInstance()) {
     item.append(createTextElement("span", label), createTextElement("strong", value || "unknown"));
     healthGrid.append(item);
   });
+  const nextStep = document.createElement("div");
+  nextStep.className = "share-server-next-step";
+  const diagnosticList = document.createElement("ul");
+  getShareServerDiagnosticMessages(instance, health).forEach((message) => diagnosticList.append(createTextElement("li", message)));
+  const testButton = document.createElement("button");
+  testButton.type = "button";
+  testButton.className = "inline-action";
+  testButton.dataset.shareServerTest = "";
+  testButton.textContent = "Test connection";
+  const testResult = document.createElement("div");
+  testResult.className = "share-server-test-result";
+  testResult.dataset.shareServerTestResult = "";
+  testResult.setAttribute("aria-live", "polite");
+  renderShareConnectionTest(testResult, getRecentShareConnectionTest(instance)?.result || null);
+  testButton.addEventListener("click", () => {
+    runShareConnectionTest(instance, testButton, testResult).then((tested) => {
+      if (!tested || !overlay.isConnected) return;
+      // The test can settle the game's port, so reopen with fresh health.
+      close();
+      openShareServerModal(findInstance(instance.id) || instance);
+    });
+  });
+  nextStep.append(createTextElement("strong", "What to do next"), diagnosticList, testButton, testResult);
   const diagnostics = document.createElement("details");
   diagnostics.className = "share-server-diagnostics";
   diagnostics.append(createTextElement("summary", "Friend can’t join?"));
-  const diagnosticList = document.createElement("ul");
-  getShareServerDiagnosticMessages(instance, health).forEach((message) => diagnosticList.append(createTextElement("li", message)));
-  diagnostics.append(diagnosticList);
-  healthSection.append(healthGrid, diagnostics);
+  diagnostics.append(createTextElement("p", "These are the raw checks AnxOS used. Access Health:"), healthGrid);
+  healthSection.append(nextStep, diagnostics);
   const list = document.createElement("div");
   list.className = "share-server-address-list";
   if (addresses.length) {
@@ -11154,20 +11368,24 @@ function openShareServerModal(instance = findInstance()) {
     list.append(note);
   }
 
+  const sharingControls = createShareServerControls(instance, publicAddresses, () => {
+    close();
+    openShareServerModal(findInstance(instance.id) || instance);
+  });
   const instructions = document.createElement("section");
   instructions.className = "share-server-instructions";
   instructions.append(createTextElement("h3", "How Friends Join"));
   const steps = document.createElement("ol");
   getShareServerInstructions(instance).forEach((step) => steps.append(createTextElement("li", step)));
   instructions.append(steps);
-  body.append(healthSection, list, instructions);
+  body.append(healthSection, sharingControls, list, instructions);
 
   const footer = document.createElement("div");
   footer.className = "app-modal__actions";
   const publicAccessButton = document.createElement("button");
   publicAccessButton.type = "button";
   publicAccessButton.className = "inline-action";
-  publicAccessButton.textContent = "Open Public Access";
+  publicAccessButton.textContent = "Sharing settings";
   publicAccessButton.addEventListener("click", () => {
     close();
     openInstanceAccessManager(instance);
@@ -33989,7 +34207,7 @@ function renderConsoleStatusPanel() {
   setConsoleDetail("pid", formatInstanceValue(instance?.pid));
   setConsoleDetail("uptime", formatDuration(metrics?.uptimeSeconds));
   setConsoleDetail("memoryLimit", formatInstanceValue(instance?.memoryLimit));
-  setConsoleDetail("restartPolicy", formatInstanceValue(instance?.restartPolicy));
+  setConsoleDetail("restartPolicy", formatRestartPolicyLabel(instance?.restartPolicy));
   setConsoleDetail("ports", formatInstancePorts(instance, metrics));
   setConsoleDetail("lastStartedAt", formatDateTime(instance?.lastStartedAt));
   setConsoleDetail("lastStoppedAt", formatDateTime(instance?.lastStoppedAt));

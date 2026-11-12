@@ -12,7 +12,9 @@
 //      opens Advanced options when a field inside it is wrong;
 //   S3 Computers and Sharing show tabs to their joined pages;
 //   S4 Activity lists running work from the shared operations state and
-//      opens its Task details; finished work leaves the list.
+//      opens its Task details; finished work leaves the list;
+//   S5 a server's Share dialog explains in plain words whether friends can
+//      join, and Test connection runs the read-only connectivity diagnostics.
 // Set SIMPLE_UI_SHOTS=<dir> to save screenshots of each screen.
 //
 // Never touches the installed app or its data.
@@ -125,6 +127,64 @@ async function main() {
     assert.strictEqual(await page.evaluate(() => document.querySelector("[data-activity-in-progress]").checkVisibility()), false, "finished work leaves In progress");
     console.log("PASS S4 Activity lists running work and links to Task details");
 
+    // S5: Share dialog for the test Agent's server.
+    await page.evaluate(() => window.showPage("instances"));
+    await waitFor(page, () => typeof getInstances === "function" && getInstances().length > 0, null, "test server in My Servers");
+    const instanceId = await page.evaluate(() => getInstances()[0].id);
+    await page.evaluate((id) => window.openShareServerModal(id), instanceId);
+    await page.waitForTimeout(300);
+    const shareBefore = await page.evaluate(() => {
+      const dialog = document.querySelector("[data-share-server-modal]");
+      return {
+        open: Boolean(dialog),
+        heading: dialog?.querySelector(".share-server-health h3")?.textContent || "",
+        headline: dialog?.querySelector(".share-server-health__status")?.textContent || "",
+        status: dialog?.querySelector("[data-share-health-status]")?.dataset.shareHealthStatus || "",
+        checks: [...(dialog?.querySelectorAll(".share-server-health > .share-server-checklist li") || [])].map((li) => li.dataset.checkId),
+        hasTest: Boolean(dialog?.querySelector("[data-share-server-test]")),
+      };
+    });
+    assert.ok(shareBefore.open, "the Share dialog opens");
+    assert.strictEqual(shareBefore.heading, "Can friends join?");
+    assert.ok(shareBefore.headline && !/^(running|matched|unknown)$/i.test(shareBefore.headline), "the headline is a plain sentence");
+    assert.notStrictEqual(shareBefore.status, "Public access ready", "the test server has no verified public path, so it is not reported ready");
+    assert.deepStrictEqual(shareBefore.checks, ["server", "game", "playit", "tunnel", "address"]);
+    assert.ok(shareBefore.hasTest, "Test connection is offered");
+    await shot(page, "05-share-dialog");
+    // Sharing never starts without approval: in QA, Playit on the test
+    // computer is not ready, so the start is refused before any approval
+    // dialog; either way no access record may be created.
+    const servicesBefore = await page.evaluate((id) => getInstanceAccessServices(findInstance(id)).length, instanceId);
+    const startButton = page.locator("[data-share-server-start]");
+    if (await startButton.count()) {
+      await startButton.click();
+      await page.waitForTimeout(600);
+      const confirmOpen = await page.locator("[data-confirm-ok]").count();
+      if (confirmOpen) {
+        const message = await page.evaluate(() => document.querySelector("[data-confirm-ok]")?.closest(".app-modal")?.textContent || "");
+        assert.match(message, /Only this game port is shared/, "the approval says exactly what is shared");
+        await page.locator("[data-confirm-cancel]").last().click();
+        await page.waitForTimeout(300);
+      }
+      const servicesAfter = await page.evaluate((id) => getInstanceAccessServices(findInstance(id)).length, instanceId);
+      assert.strictEqual(servicesAfter, servicesBefore, "nothing is shared without approval");
+      console.log(`  share start: ${confirmOpen ? "approval dialog shown and cancelled" : "refused before approval (Playit not ready)"}`);
+      await page.keyboard.press("Escape");
+      await page.evaluate((id) => window.openShareServerModal(id), instanceId);
+      await page.waitForTimeout(300);
+    }
+    await page.locator("[data-share-server-test]").click();
+    await waitFor(page, () => {
+      const result = document.querySelector("[data-share-server-test-result]");
+      return Boolean(result) && result.textContent.trim().length > 0 && !/Checking the path/.test(result.textContent);
+    }, null, "connection test result");
+    await page.waitForTimeout(400);
+    const testText = await page.evaluate(() => document.querySelector("[data-share-server-test-result]")?.textContent || "");
+    assert.ok(testText.length > 0, "the connection test reports a result");
+    await shot(page, "05b-share-test");
+    await page.keyboard.press("Escape");
+    console.log(`PASS S5 Share dialog explains sharing and runs Test connection (${shareBefore.status}; test: ${testText.slice(0, 80)})`);
+
     // S2: Create Server.
     await page.evaluate(() => window.showPage("dashboard"));
     const opened = app.waitForEvent("window", { timeout: 20000 });
@@ -194,7 +254,7 @@ async function main() {
     console.log("PASS S2 Create Server: one setup step, Advanced options collapsed and opened on errors");
 
     assert.deepStrictEqual(rendererErrors, [], "no renderer errors");
-    console.log("Simple UI QA passed (4 checks).");
+    console.log("Simple UI QA passed (5 checks).");
   } catch (error) {
     console.error(error && error.stack ? error.stack : error);
     process.exitCode = 1;

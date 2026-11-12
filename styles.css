@@ -19520,3 +19520,114 @@ body.create-server-window .page[data-page="marketplace"] .page-introduction {
 .activity-in-progress__item .operation-progress {
   grid-column: 1 / -1;
 }
+
+/* Share dialog: plain checklist, next step and connection test. */
+.share-server-health__status--tone-ok {
+  color: #9ff0c4;
+}
+
+.share-server-health__status--tone-warning {
+  color: #ffd48a;
+}
+
+.share-server-health__status--tone-critical {
+  color: #ff9db0;
+}
+
+.share-server-checklist {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.share-server-checklist li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.share-server-checklist li::before {
+  content: "?";
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 20px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.share-server-checklist li[data-check-state="ok"]::before {
+  content: "\2713";
+  background: rgba(66, 211, 146, 0.18);
+  color: #9ff0c4;
+}
+
+.share-server-checklist li[data-check-state="problem"]::before {
+  content: "!";
+  background: rgba(255, 99, 132, 0.18);
+  color: #ff9db0;
+}
+
+.share-server-next-step {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid rgba(190, 170, 220, 0.12);
+  border-radius: 8px;
+  background: rgba(7, 9, 14, 0.4);
+}
+
+.share-server-next-step ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.share-server-next-step > .inline-action {
+  justify-self: start;
+}
+
+.share-server-test-result:empty {
+  display: none;
+}
+
+.share-server-test-result__problem {
+  color: #ffd48a;
+}
+
+.share-server-test-result__ok {
+  color: #9ff0c4;
+}
+
+/* Share dialog: start/stop sharing and Playit tunnel steps. */
+.share-server-controls {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 14px;
+  border: 1px solid rgba(175, 105, 255, 0.28);
+  border-radius: 10px;
+  background: rgba(123, 55, 210, 0.08);
+}
+
+.share-server-controls h3,
+.share-server-controls p {
+  margin: 0;
+}
+
+.share-server-controls__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.share-server-tunnel-steps {
+  margin: 0;
+  padding-left: 20px;
+}
