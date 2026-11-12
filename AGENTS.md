@@ -530,6 +530,33 @@ Use this section to accumulate verified project knowledge over time. Add entries
   resolving to the root it lives in. Fixes must also cover records older
   builds already wrote.
 
+### 2026-11-12 — Controls that looked right but did the wrong thing
+
+- **Problem:** Several controls on a server's page did something other than
+  what they said:
+  - Settings had a second set of startup inputs that looked editable but were
+    never saved.
+  - The console's Clear deleted the Agent's captured logs.
+  - The backup dialog's Cancel button meant "make a full backup", so a backup
+    could not be cancelled.
+  - Drag-and-drop uploads read every file as text, corrupting jars and other
+    binaries.
+- **Cause:** Each control was wired to the nearest available call, and was
+  only tested for "something happened", never for its exact effect.
+  `file.text()` UTF-8-decodes bytes, and `createSecurityConfirmation` has
+  no "cancel" result distinct from "decline".
+- **Resolution:** In Phase 5:
+  - The duplicate inputs were removed.
+  - Clear is now a view-only marker.
+  - The backup dialog offers Whole server / World only / Cancel.
+  - Uploads are sent base64.
+  - `scripts/server-view-ui-qa.js` checks each effect on the Agent or on
+    disk (V3, V8, V9).
+- **Lesson:** Test a control by its effect on the data, not by the UI
+  reacting. Assert what is on disk or in the Agent after the click. A Cancel
+  must always cancel. Never read user files as text unless the format is
+  known to be text.
+
 ## Future Improvements
 
 Keep optional ideas separate from active work. An item in this list is not authorization to implement it.
