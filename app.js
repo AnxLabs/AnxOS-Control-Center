@@ -293,6 +293,8 @@ const createServerNodeSummary = document.querySelector("[data-create-server-node
 const createServerRuntimeSummary = document.querySelector("[data-create-server-runtime-summary]");
 const createServerDeploymentState = document.querySelector("[data-create-server-deployment-state]");
 const createServerBackButton = document.querySelector("[data-create-server-back]");
+const createServerAdvancedOptions = document.querySelector("[data-create-server-advanced]");
+const createServerTrust = document.querySelector("[data-create-server-trust]");
 const createServerNextButton = document.querySelector("[data-create-server-next]");
 const marketplaceFields = document.querySelectorAll("[data-marketplace-field]");
 const marketplaceVersionToggle = document.querySelector("[data-marketplace-version-toggle]");
@@ -1003,16 +1005,17 @@ let marketplaceCatalog = { categories: [], templates: [] };
 let marketplaceSelectedTemplateId = null;
 let createServerDraft = null;
 let deploymentSyncRefreshTimer = null;
-const CREATE_SERVER_STEPS = Object.freeze(["summary", "node", "runtime", "configuration", "review", "deployment"]);
+// Create Server is two steps: set it up (name plus optional advanced
+// options), then watch it being created. The package, computer and runtime
+// checks that used to be separate steps still run, all at once, when the user
+// clicks Create server (see validateCreateServerBeforeInstall).
+const CREATE_SERVER_STEPS = Object.freeze(["configuration", "deployment"]);
 const CREATE_SERVER_STEP_LABELS = Object.freeze({
-  summary: "Package",
-  node: "Node",
-  runtime: "Runtime",
-  configuration: "Configure",
-  review: "Review",
-  deployment: "Deploy",
+  configuration: "Set up",
+  deployment: "Create",
 });
-let createServerWizardStep = "summary";
+const CREATE_SERVER_PRE_INSTALL_CHECKS = Object.freeze(["summary", "node", "runtime", "configuration"]);
+let createServerWizardStep = "configuration";
 let marketplaceActiveCategory = "All";
 let marketplaceInstallProgressEvents = [];
 let marketplaceProgressRenderTimer = null;
@@ -1404,36 +1407,30 @@ const COMMAND_PALETTE_DEBOUNCE_MS = 80;
 const COMMAND_PALETTE_RECENT_LIMIT = 8;
 const staleInstanceIds = new Set();
 const instanceRemovalAllowedIds = new Set();
-// Sidebar groups, in display order. Every primary page belongs to exactly one
-// group except Settings, which stays pinned below the groups.
+// Sidebar layout, top to bottom: the everyday pages (no group header), then
+// the groups, then Settings pinned at the bottom. Every primary page has
+// exactly one entry.
+const PRIMARY_NAVIGATION_TOP = ["dashboard", "instances", "marketplace", "nodes", "playit"];
+// A group marked advancedOnly is shown only while Settings > Advanced Mode is
+// on. Its pages stay reachable from search, the command palette and links.
 const PRIMARY_NAVIGATION_GROUPS = [
-  { id: "overview", label: "Overview", pages: ["dashboard", "notifications", "console", "operations"] },
-  { id: "servers", label: "Servers & Instances", pages: ["instances", "marketplace", "docker", "files", "backups"] },
-  { id: "infrastructure", label: "Infrastructure", pages: ["nodes", "network", "playit", "ssh", "agent-control"] },
-  { id: "administration", label: "Administration", pages: ["security", "maintenance"] },
+  { id: "more", label: "More", pages: ["notifications", "backups", "security"] },
+  { id: "advanced", label: "Advanced tools", advancedOnly: true, pages: ["console", "operations", "docker", "files", "network", "ssh", "agent-control", "maintenance"] },
 ];
 const PRIMARY_NAVIGATION_UNGROUPED = ["settings"];
 // Groups collapsed until the user opens them (the active page's group always opens).
-const NAV_GROUPS_COLLAPSED_BY_DEFAULT = ["infrastructure", "administration"];
-const NAV_GROUPS_STORAGE_KEY = "anxos.sidebar.collapsedGroups";
+const NAV_GROUPS_COLLAPSED_BY_DEFAULT = [];
+// v2: the groups were reorganised, so collapse state saved for the old group
+// ids is not carried over.
+const NAV_GROUPS_STORAGE_KEY = "anxos.sidebar.collapsedGroups.v2";
+// Pages joined to another page by its tab strip. When the page has no visible
+// sidebar entry of its own (Advanced Mode off), its parent's entry is
+// highlighted instead.
+const NAV_PARENT_PAGES = Object.freeze({ "agent-control": "nodes", network: "playit" });
 const PRIMARY_NAVIGATION_ORDER = [
-  "dashboard",
-  "notifications",
-  "console",
-  "operations",
-  "instances",
-  "marketplace",
-  "docker",
-  "files",
-  "backups",
-  "nodes",
-  "network",
-  "playit",
-  "ssh",
-  "agent-control",
-  "security",
-  "maintenance",
-  "settings",
+  ...PRIMARY_NAVIGATION_TOP,
+  ...PRIMARY_NAVIGATION_GROUPS.flatMap((group) => group.pages),
+  ...PRIMARY_NAVIGATION_UNGROUPED,
 ];
 const LEGACY_PRIMARY_PAGES = new Set(["minecraft", "amp", "coolpals"]);
 // Instance health states that the Instances summary tiles do not already show.
@@ -2428,90 +2425,6 @@ function renderSetupHealthCenter() {
   );
 }
 
-// V2-B Wave 1 staleness threshold (docs/v2/V2B_DASHBOARD_APPS_WAVE1.md §3.2).
-// The agent health surface applies its metricsUpdated staleness policy
-// server-side and does not export a renderer constant, so the dashboard
-// mirrors the operator-facing rule locally: data older than 90 seconds renders
-// as stale, never healthy.
-const DASHBOARD_STALE_AFTER_MS = 90 * 1000;
-
-function formatDashboardStaleAge(ageSeconds) {
-  if (!Number.isFinite(ageSeconds)) return "an unknown time";
-  return `${Math.max(1, Math.round(ageSeconds / 60))} min`;
-}
-
-// V2-B app slice (docs/v2/V2B_DASHBOARD_APPS_WAVE1.md §3.2): a compact widget
-// row over the data the dashboard already polls. Staleness policy: when the
-// instances snapshot is not current for the selected node, the tile says
-// "Checking…" — never a fake zero — and the tile is marked is-stale.
-function renderDashboardWidgets(state) {
-  const page = document.querySelector('[data-page="dashboard"]');
-  if (!page) return;
-  let row = page.querySelector("[data-dashboard-widgets]");
-  if (!row) {
-    row = document.createElement("div");
-    row.className = "dashboard-widget-row";
-    row.dataset.dashboardWidgets = "true";
-    row.style.display = "flex";
-    row.style.flexWrap = "wrap";
-    row.style.gap = "12px";
-    const header = page.querySelector(".page-header");
-    if (header) {
-      header.insertAdjacentElement("afterend", row);
-    } else {
-      page.prepend(row);
-    }
-  }
-  const tile = (value, label, stale) => {
-    const card = document.createElement("article");
-    card.style.flex = "1 1 180px";
-    if (stale) {
-      card.classList.add("is-stale");
-      card.title = "Underlying data is not current for the selected system.";
-    }
-    card.append(createTextElement("strong", value), createTextElement("p", label));
-    return card;
-  };
-  const running = state.instances.filter(isInstanceRunning).length;
-  const tiles = [
-    tile(
-      state.instancesLoaded ? `${running} running` : "Checking…",
-      state.instancesLoaded
-        ? `${state.instances.length} installed server${state.instances.length === 1 ? "" : "s"} on the selected system`
-        : "Installed servers are being re-checked",
-      !state.instancesLoaded,
-    ),
-    tile(
-      state.remoteNodes
-        ? `${state.remoteNodes.filter((node) => getNodeVisualState(node) === "online").length}/${state.remoteNodes.length}`
-        : "—",
-      "Remote systems online",
-      !state.remoteNodes,
-    ),
-    tile(
-      state.metrics.health,
-      state.metrics.healthAgeSeconds === null || state.metrics.healthAgeSeconds * 1000 > DASHBOARD_STALE_AFTER_MS
-        ? `Health data is ${formatDashboardStaleAge(state.metrics.healthAgeSeconds)} old — refresh`
-        : "Node health",
-      state.metrics.healthAgeSeconds === null || state.metrics.healthAgeSeconds * 1000 > DASHBOARD_STALE_AFTER_MS,
-    ),
-    tile(
-      state.metrics.updated,
-      state.metrics.ageSeconds === null
-        ? "No fresh metrics yet — refresh"
-        : state.metrics.ageSeconds * 1000 > DASHBOARD_STALE_AFTER_MS
-          ? `Data is ${formatDashboardStaleAge(state.metrics.ageSeconds)} old — refresh`
-          : "Metrics freshness",
-      state.metrics.ageSeconds === null || state.metrics.ageSeconds * 1000 > DASHBOARD_STALE_AFTER_MS,
-    ),
-  ];
-  // SMOOTH-1001: the tiles have no listeners and change only when their text
-  // or stale state changes, so unchanged tiles are kept on the 1 s refresh.
-  const draft = document.createElement("div");
-  draft.append(...tiles);
-  reconcileChildren(row, draft);
-}
-
 // V2-B Wave 1 app-card grid (docs/v2/V2B_DASHBOARD_APPS_WAVE1.md §3.2): one
 // card per installed instance from the already-polled snapshot. The grid is
 // honest about data state — a stale snapshot shows "Checking…", an empty one
@@ -2524,11 +2437,8 @@ function renderDashboardAppGrid(state) {
     section = document.createElement("section");
     section.className = "dashboard-app-grid-section";
     section.dataset.dashboardAppGrid = "true";
-    const widgetRow = page.querySelector("[data-dashboard-widgets]");
     const header = page.querySelector(".page-header");
-    if (widgetRow) {
-      widgetRow.insertAdjacentElement("afterend", section);
-    } else if (header) {
+    if (header) {
       header.insertAdjacentElement("afterend", section);
     } else {
       page.prepend(section);
@@ -2538,7 +2448,7 @@ function renderDashboardAppGrid(state) {
   if (!state.instancesLoaded) {
     draft.append(createTextElement("p", "Checking installed servers for the selected system…", "dashboard-app-grid-note is-stale"));
   } else if (!state.instances.length) {
-    draft.append(createTextElement("p", "No applications are installed on the selected system yet. Install one from the Marketplace.", "dashboard-app-grid-note"));
+    draft.append(createTextElement("p", "You don't have any servers on this computer yet. Click New Server to create one.", "dashboard-app-grid-note"));
   } else {
     state.instances.forEach((instance) => draft.append(createDashboardAppCard(instance)));
   }
@@ -2549,7 +2459,7 @@ function renderDashboardAppGrid(state) {
   if (!grid || section.childElementCount !== 2) {
     grid = document.createElement("div");
     grid.className = "dashboard-app-grid";
-    section.replaceChildren(createTextElement("h2", "Applications"), grid);
+    section.replaceChildren(createTextElement("h2", "Your Servers"), grid);
   }
   reconcileChildren(grid, draft);
 }
@@ -2666,7 +2576,8 @@ function renderFriendlyDashboard() {
     dashboardFriendlyEmpty.hidden = dashboardFriendlyEmpty.childElementCount === 0;
   }
   renderSetupHealthCenter();
-  renderDashboardWidgets(state);
+  // The old summary tile row repeated the cards in the Dashboard welcome
+  // section, so only the server cards are rendered here.
   renderDashboardAppGrid(state);
   refreshBackupSummaryForSetup().catch((error) => {
     console.warn("[Backups] Setup backup summary refresh failed.", { message: error?.message || String(error) });
@@ -2814,10 +2725,18 @@ function setNavGroupCollapsed(group, collapsed) {
 function buildNavigationGroups(navMenu) {
   if (navMenu.querySelector(".nav-group")) return;
   const collapsed = readCollapsedNavGroups();
+  PRIMARY_NAVIGATION_TOP.forEach((pageName) => {
+    const item = navMenu.querySelector(`[data-page-target="${pageName}"]`);
+    if (item) {
+      item.classList.add("nav-item--pinned", "nav-item--primary");
+      navMenu.appendChild(item);
+    }
+  });
   PRIMARY_NAVIGATION_GROUPS.forEach((definition) => {
     const group = document.createElement("div");
     group.className = "nav-group";
     group.dataset.navGroup = definition.id;
+    if (definition.advancedOnly) group.dataset.navAdvanced = "true";
     const toggle = document.createElement("button");
     toggle.type = "button";
     toggle.className = "nav-group__toggle";
@@ -4366,6 +4285,9 @@ function applySettings(settings, options = {}) {
   document.documentElement.dataset.transparency = settings["appearance.transparency"] === false ? "off" : "on";
   document.documentElement.dataset.guidedMode = settings["interface.guidedMode"] === true ? "true" : "false";
   document.documentElement.dataset.advancedMode = settings["interface.advancedMode"] === true ? "true" : "false";
+  // Turning Advanced Mode on or off shows or hides the Advanced tools group,
+  // which can change which sidebar entry owns the current page.
+  if (activePageName) syncNavigationActiveState(activePageName);
   applyPageIntroductionPreference(settings);
   appNameTargets.forEach((target) => {
     target.textContent = displayName;
@@ -4869,14 +4791,25 @@ async function handleWebhookAlertsAction(action) {
   }
 }
 
-function showPage(pageName) {
-  const safePageName = getSafePageName(pageName);
-  if (safePageName === "owner-workspace" && !isOwnerWorkspaceAuthorized()) {
-    showToast("Sign in as Owner to open Owner Workspace.");
-    return showPage(getDesktopApiState().hasSecurity ? "security" : "dashboard");
-  }
+// Advanced-only groups are hidden by CSS (not the hidden attribute), so their
+// items stay in search and the command palette; this is the visible check.
+function isNavItemShown(item) {
+  if (!item || item.hidden) return false;
+  // Read the applied flag (set in applySettings) rather than the settings
+  // store, so this agrees with the CSS that hides the group.
+  return !item.closest("[data-nav-advanced]") || document.documentElement.dataset.advancedMode === "true";
+}
+
+function getNavigationOwnerPage(pageName) {
+  const own = Array.from(navItems).find((item) => item.dataset.pageTarget === pageName);
+  if (isNavItemShown(own)) return pageName;
+  return NAV_PARENT_PAGES[pageName] || pageName;
+}
+
+function syncNavigationActiveState(pageName) {
+  const ownerPage = getNavigationOwnerPage(pageName);
   navItems.forEach((item) => {
-    const isActive = item.dataset.pageTarget === safePageName;
+    const isActive = item.dataset.pageTarget === ownerPage;
     item.classList.toggle("is-active", isActive);
 
     if (isActive) {
@@ -4885,6 +4818,21 @@ function showPage(pageName) {
       item.removeAttribute("aria-current");
     }
   });
+  document.querySelectorAll("[data-page-tab]").forEach((tab) => {
+    const isActive = tab.dataset.pageTab === pageName;
+    tab.classList.toggle("is-active", isActive);
+    if (isActive) tab.setAttribute("aria-current", "page");
+    else tab.removeAttribute("aria-current");
+  });
+}
+
+function showPage(pageName) {
+  const safePageName = getSafePageName(pageName);
+  if (safePageName === "owner-workspace" && !isOwnerWorkspaceAuthorized()) {
+    showToast("Sign in as Owner to open Owner Workspace.");
+    return showPage(getDesktopApiState().hasSecurity ? "security" : "dashboard");
+  }
+  syncNavigationActiveState(safePageName);
   revealNavigationGroupFor(safePageName);
   ownerWorkspaceToggle?.classList.toggle("is-active", safePageName === "owner-workspace");
   if (safePageName === "owner-workspace") {
@@ -19435,7 +19383,7 @@ function getMarketplaceTrustVerdictForTemplate(template) {
   return record?.trustVerdict || null;
 }
 
-function renderMarketplaceInstallSummary(template) {
+function renderMarketplaceInstallSummary(template, { includeTrustNotice = true } = {}) {
   if (!marketplaceInstallSummary) return;
   renderMarketplaceReadiness();
   marketplaceInstallSummary.replaceChildren();
@@ -19506,10 +19454,12 @@ function renderMarketplaceInstallSummary(template) {
     });
     overview.append(unsupported, actions);
   }
-  const trustNotice = createPublisherTrustNotice(
-    describePublisherTrustNotice(getMarketplaceTrustVerdictForTemplate(template)),
-    "marketplace-summary-section",
-  );
+  const trustNotice = includeTrustNotice
+    ? createPublisherTrustNotice(
+      describePublisherTrustNotice(getMarketplaceTrustVerdictForTemplate(template)),
+      "marketplace-summary-section",
+    )
+    : null;
   marketplaceInstallSummary.append(
     ...(trustNotice ? [trustNotice] : []),
     overview,
@@ -20183,15 +20133,27 @@ function renderCreateServerPackageSummary(template) {
     createServerPackageSummary.append(createEmptyState("Choose a Marketplace package or server template to continue."));
     return;
   }
+  // Only what a non-technical user needs to confirm; the full package,
+  // computer and runtime facts live under Technical details.
   const capability = template.serverPackCapability || classifyMarketplaceServerPackCapability(template);
-  appendCreateServerFact(createServerPackageSummary, "Package", template.displayName || template.name || template.id || "Selected package");
-  appendCreateServerFact(createServerPackageSummary, "Provider", isProviderMarketplaceTemplate(template) ? formatMarketplaceProviderLabel(template) : "AnxOS Templates");
-  appendCreateServerFact(createServerPackageSummary, "Game", template.game || template.category || "Application");
-  appendCreateServerFact(createServerPackageSummary, "Version", getMarketplaceCompactPackVersion(template) || template.minecraftVersion || template.gameVersion || template.version || "Latest compatible");
-  appendCreateServerFact(createServerPackageSummary, "Loader", formatMarketplaceLoaderLabel(template) || "Not required");
-  appendCreateServerFact(createServerPackageSummary, "Server pack", capability.label || "Compatibility Unknown", capability.installable === false ? "blocked" : "ready");
-  appendCreateServerFact(createServerPackageSummary, "Recommended memory", template.defaultRam || template.recommendedMemory || "Not specified");
-  appendCreateServerFact(createServerPackageSummary, "Estimated size", template.estimatedSize || template.downloadSize || "Calculated during preflight");
+  const target = resolveActiveManagementTarget();
+  const computerReady = isCreateServerAgentNodeReady(target);
+  appendCreateServerFact(createServerPackageSummary, "You're creating", template.displayName || template.name || template.id || "Selected package");
+  // A built-in template's own "version" is the template revision, not the
+  // game version, so it is never shown here.
+  const gameVersion = isProviderMarketplaceTemplate(template)
+    ? getMarketplaceCompactPackVersion(template)
+    : String(getMarketplaceField("version")?.value || "").trim() || template.minecraftVersion || template.gameVersion;
+  appendCreateServerFact(createServerPackageSummary, "Version", gameVersion || "Latest");
+  appendCreateServerFact(
+    createServerPackageSummary,
+    "Runs on",
+    computerReady ? target.name : "No connected computer",
+    computerReady ? "ready" : "blocked",
+  );
+  if (capability.installable === false) {
+    appendCreateServerFact(createServerPackageSummary, "Server support", capability.label || "Can't run as a server", "blocked");
+  }
 }
 
 // Create-server steps run on an Agent node; the application host is not a
@@ -20313,14 +20275,17 @@ function validateCreateServerStep(step, { report = true } = {}) {
     if (createServerDraft?.validation) createServerDraft.validation.summary = [];
     const capability = template.serverPackCapability || classifyMarketplaceServerPackCapability(template);
     if (isProviderMarketplaceTemplate(template) && capability.installable === false) {
-      if (report) setMarketplaceMessage("Choose a version that provides a dedicated-server pack.", "error");
+      if (report) {
+        setMarketplaceMessage("This version can't run as a server. Pick another version under Advanced options.", "error");
+        openCreateServerAdvancedOptions();
+      }
       return false;
     }
   }
   if (step === "node" || step === "runtime") {
     const target = resolveActiveManagementTarget();
     if (!isCreateServerAgentNodeReady(target)) {
-      if (report) setMarketplaceMessage("Select a connected Agent node first. Choose a connected node in the node switcher, or pair one in Agent Control, then continue.", "error");
+      if (report) setMarketplaceMessage("No computer is connected yet. Pick a connected computer in the computer switcher (bottom left of the main window), or add one under Computers, then try again.", "error");
       return false;
     }
     if (step === "runtime" && !getDesktopApiState().hasMarketplace) {
@@ -20337,13 +20302,40 @@ function validateCreateServerStep(step, { report = true } = {}) {
       }
       return false;
     }
-    if (!syncMarketplacePortValidity({ report }) || !syncMarketplaceMemoryValidity({ report })) return false;
+    if (!syncMarketplacePortValidity({ report }) || !syncMarketplaceMemoryValidity({ report })) {
+      if (report) openCreateServerAdvancedOptions();
+      return false;
+    }
     if (isMinecraftMarketplaceTemplate(template) && !getMarketplaceField("acceptEula")?.checked) {
-      if (report) setMarketplaceMessage("Accept the Minecraft EULA before reviewing deployment.", "error");
+      if (report) {
+        setMarketplaceMessage("Tick \"I agree to the Minecraft EULA\" to continue.", "error");
+        getMarketplaceField("acceptEula")?.focus();
+      }
       return false;
     }
   }
   return true;
+}
+
+function openCreateServerAdvancedOptions() {
+  if (createServerAdvancedOptions && !createServerAdvancedOptions.open) createServerAdvancedOptions.open = true;
+}
+
+// Runs every check the old step-by-step wizard ran, in the same order, and
+// stops at the first one that fails so its message is the one shown.
+function validateCreateServerBeforeInstall() {
+  return CREATE_SERVER_PRE_INSTALL_CHECKS.every((step) => validateCreateServerStep(step));
+}
+
+// The publisher trust notice stays visible on the setup step instead of being
+// tucked into Technical details with the rest of the install summary.
+function renderCreateServerTrustNotice(template) {
+  if (!createServerTrust) return;
+  const notice = template
+    ? createPublisherTrustNotice(describePublisherTrustNotice(getMarketplaceTrustVerdictForTemplate(template)), "marketplace-summary-section")
+    : null;
+  createServerTrust.replaceChildren(...(notice ? [notice] : []));
+  createServerTrust.hidden = !notice;
 }
 
 function renderCreateServerWizard(template = findMarketplaceTemplate()) {
@@ -20368,30 +20360,24 @@ function renderCreateServerWizard(template = findMarketplaceTemplate()) {
     panel.hidden = panel.dataset.createServerStepPanel !== createServerWizardStep;
   });
   renderCreateServerPackageSummary(template);
+  renderCreateServerTrustNotice(template);
   renderCreateServerNodeSummary();
   renderCreateServerRuntimeSummary(template);
-  if (createServerWizardStep === "review") renderMarketplaceInstallSummary(template);
+  if (createServerWizardStep === "configuration") renderMarketplaceInstallSummary(template, { includeTrustNotice: false });
   const terminal = createServerWizardStep === "deployment";
-  if (createServerBackButton) createServerBackButton.disabled = marketplaceInstallInFlight || activeIndex === 0 || terminal;
-  if (createServerNextButton) {
-    createServerNextButton.hidden = activeIndex >= CREATE_SERVER_STEPS.indexOf("review");
-    createServerNextButton.disabled = marketplaceInstallInFlight;
-  }
+  if (createServerBackButton) createServerBackButton.hidden = true;
+  if (createServerNextButton) createServerNextButton.hidden = true;
   if (marketplaceInstallButton) {
-    marketplaceInstallButton.hidden = createServerWizardStep !== "review";
-    marketplaceInstallButton.textContent = "Deploy";
+    marketplaceInstallButton.hidden = terminal;
+    marketplaceInstallButton.textContent = "Create server";
   }
   if (marketplaceCancelButton) marketplaceCancelButton.textContent = terminal ? "Close" : "Cancel";
-  if (!marketplaceInstallInFlight && !terminal) {
-    setMarketplaceMessage(`Step ${activeIndex + 1} of ${CREATE_SERVER_STEPS.length - 1}: ${CREATE_SERVER_STEP_LABELS[createServerWizardStep]}.`);
-  }
 }
 
+// Back/Next stay wired for their existing listeners, but with one setup step
+// there is nothing to move between: Next only validates, Back re-renders.
 function moveCreateServerWizard(direction) {
-  const index = CREATE_SERVER_STEPS.indexOf(createServerWizardStep);
-  if (direction > 0 && !validateCreateServerStep(createServerWizardStep)) return;
-  const nextIndex = Math.min(CREATE_SERVER_STEPS.indexOf("review"), Math.max(0, index + direction));
-  createServerWizardStep = CREATE_SERVER_STEPS[nextIndex];
+  if (direction > 0) validateCreateServerBeforeInstall();
   renderCreateServerWizard();
 }
 
@@ -20426,7 +20412,8 @@ function openMarketplaceWizard(templateId, { source = "" } = {}) {
 
   marketplaceSelectedTemplateId = template.id;
   createServerDraft = normalizeCreateServerDraft(template, { source });
-  createServerWizardStep = "summary";
+  createServerWizardStep = "configuration";
+  if (createServerAdvancedOptions) createServerAdvancedOptions.open = false;
   if (marketplaceWizard) {
     marketplaceWizard.hidden = false;
   }
@@ -20511,9 +20498,10 @@ function openMarketplaceWizard(templateId, { source = "" } = {}) {
       return;
     }
     if (isMinecraftMarketplaceTemplate(template) && serverTypeField?.dataset?.runtimeDetected !== "true") {
-      setMarketplaceMessage("Server runtime could not be determined. Vanilla is selected; choose the correct runtime if this is a modpack.", "warning");
+      setMarketplaceMessage("AnxOS couldn't tell which server type this needs, so Vanilla is selected. If this is a modpack, pick its type under Advanced options.", "warning");
+      openCreateServerAdvancedOptions();
     } else {
-      setMarketplaceMessage("Review the generated settings, then install.");
+      setMarketplaceMessage("Give your server a name, then click Create server.");
     }
   } else {
     setMarketplaceInstallState("Installing", "running");
@@ -20525,7 +20513,7 @@ function openMarketplaceWizard(templateId, { source = "" } = {}) {
 function closeMarketplaceWizard() {
   marketplaceSelectedTemplateId = null;
   createServerDraft = null;
-  createServerWizardStep = "summary";
+  createServerWizardStep = "configuration";
   if (marketplaceWizard) {
     marketplaceWizard.hidden = true;
   }
@@ -20557,14 +20545,9 @@ function createFirstServerOptionCard(option) {
   card.dataset.firstServerTemplate = option.templateId;
   const title = createTextElement("strong", option.title);
   const description = createTextElement("span", option.description);
-  const meta = createTextElement("small", [
-    template?.platform || template?.supportedPlatform || "Supported platform varies by node",
-    `Default port ${option.port}`,
-    `Recommended memory ${option.memory}`,
-    getMarketplaceTemplateDependencyIds(template || {}).length
-      ? `Requires ${getMarketplaceTemplateDependencyIds(template || {}).join(", ")}`
-      : "No extra dependency preflight declared",
-  ].filter(Boolean).join(" · "));
+  // Port, platform and dependency details are on the setup step under
+  // Technical details; the card only says how much memory the server wants.
+  const meta = createTextElement("small", option.memory ? `Uses about ${option.memory} of memory` : "");
   card.append(title, description, meta);
   return card;
 }
@@ -20605,7 +20588,7 @@ function openFirstServerGuide() {
   header.className = "app-modal__header";
   const title = createTextElement("h2", "Create Your First Server");
   title.id = "first-server-guide-title";
-  const description = createTextElement("p", "Choose a beginner-friendly path. AnxOS will use the existing Marketplace installer, dependency preflight, selected node, and Download Manager.");
+  const description = createTextElement("p", "Pick a game. AnxOS downloads and sets up everything for you; you can name it and change details on the next screen.");
   description.id = "first-server-guide-description";
   header.append(
     createTextElement("p", "Guided setup", "eyebrow"),
@@ -20615,8 +20598,8 @@ function openFirstServerGuide() {
   const body = document.createElement("div");
   body.className = "first-server-body";
   body.append(
-    createFirstServerSection("Minecraft Server", "Choose a Minecraft server type. You can change versions and options before installing.", FIRST_SERVER_OPTIONS.minecraft),
-    createFirstServerSection("Game Server", "Show only supported game-server templates and their real dependency requirements.", FIRST_SERVER_OPTIONS.game),
+    createFirstServerSection("Minecraft", "Not sure which one? Pick Paper. It works for most people.", FIRST_SERVER_OPTIONS.minecraft),
+    createFirstServerSection("Other games", "Servers for other games AnxOS can set up for you.", FIRST_SERVER_OPTIONS.game),
   );
   const actions = document.createElement("div");
   actions.className = "settings-actions";
@@ -20624,7 +20607,7 @@ function openFirstServerGuide() {
   marketplace.type = "button";
   marketplace.className = "inline-action inline-action--primary";
   marketplace.dataset.firstServerAction = "marketplace";
-  marketplace.textContent = "Start from Marketplace";
+  marketplace.textContent = "Browse all games and modpacks";
   const cancel = document.createElement("button");
   cancel.type = "button";
   cancel.className = "inline-action";
@@ -23174,7 +23157,7 @@ async function completeMarketplaceInstallResult(result, template, providerInstal
   selectedInstanceId = result?.instance?.id || selectedInstanceId;
   forgetStaleInstanceId(selectedInstanceId);
   setMarketplaceInstallState("Complete", "complete");
-  setMarketplaceMessage("Deployment complete. The new server passed registration and readiness validation.");
+  setMarketplaceMessage("Done! Your server is set up and passed its checks.");
   renderMarketplaceRecoveryActions(template);
   finishOperation(activeMarketplaceOperationId, true, `Installed ${template.displayName || template.id || "template"}.`);
   createNotification({
@@ -23189,13 +23172,13 @@ async function completeMarketplaceInstallResult(result, template, providerInstal
     relatedWorkspace: "instances",
     actions: ["openInstances"],
   });
-  showToast("Server deployment completed.");
+  showToast("Your server is ready.");
   if (workspaceSurface === "create-server") {
     createServerWizardStep = "deployment";
     if (createServerDeploymentState) {
       createServerDeploymentState.replaceChildren(
-        createTextElement("strong", "Server ready"),
-        createTextElement("span", "Deployment, registration, and readiness validation completed successfully."),
+        createTextElement("strong", "Your server is ready"),
+        createTextElement("span", "It is set up and passed its checks. Find it under My Servers."),
       );
     }
     renderCreateServerWizard(template);
@@ -23383,10 +23366,10 @@ async function installMarketplaceTemplate(event) {
     return;
   }
 
-  if (!validateCreateServerStep("review")) return;
+  if (!validateCreateServerBeforeInstall()) return;
 
   if (isMinecraftMarketplaceTemplate(template) && !options.acceptEula) {
-    setMarketplaceMessage("Accept the Minecraft EULA to generate eula.txt.", "error");
+    setMarketplaceMessage("Tick \"I agree to the Minecraft EULA\" to continue.", "error");
     return;
   }
 
@@ -23414,8 +23397,8 @@ async function installMarketplaceTemplate(event) {
     createServerWizardStep = "deployment";
     if (createServerDeploymentState) {
       createServerDeploymentState.replaceChildren(
-        createTextElement("strong", "Deployment in progress"),
-        createTextElement("span", "Live progress is synchronized with Download Manager and Operations."),
+        createTextElement("strong", "Creating your server"),
+        createTextElement("span", "This can take a few minutes. Progress shows here and in Downloads."),
       );
     }
     renderCreateServerWizard(template);
@@ -23538,8 +23521,8 @@ async function installMarketplaceTemplate(event) {
     setMarketplaceMessage(`${normalizedError.body || normalizedError.title || "Marketplace install failed."} See Download Manager for progress details.`, "error");
     if (workspaceSurface === "create-server" && createServerDeploymentState) {
       createServerDeploymentState.replaceChildren(
-        createTextElement("strong", "Deployment failed"),
-        createTextElement("span", "Return to Review to adjust settings, retry, or inspect technical details."),
+        createTextElement("strong", "The server could not be created"),
+        createTextElement("span", "Click \"1. Set up\" above to change settings and try again, or use the actions below."),
       );
     }
     showToast(normalizedError.title);
@@ -36407,7 +36390,7 @@ async function applyWorkspaceWindowContext(context = {}) {
   const marketplaceHeading = document.querySelector('[data-page="marketplace"] .page-header h1');
   const marketplaceLede = document.querySelector('[data-page="marketplace"] .page-header .lede');
   if (marketplaceHeading) marketplaceHeading.textContent = "Create Server";
-  if (marketplaceLede) marketplaceLede.textContent = "Review the selected template, adjust its settings, and create the server.";
+  if (marketplaceLede) marketplaceLede.textContent = "Give your server a name and click Create server. Everything else is optional.";
   const hasExplicitTemplateContext = Object.prototype.hasOwnProperty.call(context || {}, "template");
   const requestedTemplateId = hasExplicitTemplateContext
     ? context?.template?.id || ""
@@ -47239,6 +47222,9 @@ instanceAddressCopyButton?.addEventListener("click", () => {
   }
 });
 
+document.querySelectorAll("[data-page-tab]").forEach((tab) => {
+  tab.addEventListener("click", () => showPage(tab.dataset.pageTab));
+});
 navItems.forEach((item) => {
   item.addEventListener("click", () => {
     if (item.hidden || item.getAttribute("aria-disabled") === "true") {
@@ -48189,14 +48175,14 @@ getMarketplaceField("memory")?.addEventListener("input", () => {
   const memoryField = getMarketplaceField("memory");
   memoryField?.setCustomValidity("");
   if (marketplaceSelectedTemplateId) {
-    setMarketplaceMessage("Review the generated settings, then install.");
+    setMarketplaceMessage("Give your server a name, then click Create server.");
   }
 });
 getMarketplaceField("port")?.addEventListener("input", () => {
   const portField = getMarketplaceField("port");
   portField?.setCustomValidity("");
   if (marketplaceSelectedTemplateId) {
-    setMarketplaceMessage("Review the generated settings, then install.");
+    setMarketplaceMessage("Give your server a name, then click Create server.");
   }
 });
 getMarketplaceField("port")?.addEventListener("invalid", () => {

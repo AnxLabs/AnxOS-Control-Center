@@ -171,7 +171,8 @@ assert(app.includes("let networkState = {"), "app.js must declare networkState."
 ].forEach((name) => assert(app.includes(`function ${name}(`), `app.js must define ${name}().`));
 
 assert(app.includes("PAGE_INTRODUCTIONS") && app.includes("network: [\"Endpoints and connectivity\""), "PAGE_INTRODUCTIONS must include the network entry.");
-assert(app.includes('"nodes",\n  "network",'), "PRIMARY_NAVIGATION_ORDER must include network after nodes.");
+assert(/pages: \[[^\]]*"network"[^\]]*\]/.test(app) && app.includes('network: "playit"'), "Network must keep a sidebar entry (Advanced tools) and be joined to Sharing.");
+assert(index.includes('data-page-tab="network"'), "The Sharing page tabs must link to Network.");
 
 // ---------------------------------------------------------------------------
 // 6. Wiring: showPage, refreshActiveWorkspace, refresh task, delegation,

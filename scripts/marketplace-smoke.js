@@ -1074,7 +1074,7 @@ function assertNonMinecraftServerTypeIsCleared() {
   assert(source.includes("serverType: isMinecraft ?"), "Renderer option collection should gate serverType by template category.");
   assert(source.includes('!["steamcmd-native", "archive-download", "direct-download", "java-runtime", "docker-image"].includes'), "Renderer must not route native/static templates through provider pack install.");
   assert(source.includes("function isMarketplaceProviderSectionVisible() {\n  return isMarketplaceProviderBrowserActive();\n}"), "Marketplace provider filters should only show when the Modpacks category is active.");
-  assert(indexSource.includes("Server Runtime"), "Marketplace wizard should label the Minecraft runtime selector as Server Runtime.");
+  assert(indexSource.includes("<span>Server type</span><select data-marketplace-field=\"serverType\">"), "Marketplace wizard should label the Minecraft runtime selector in plain words (Server type).");
   assert(!indexSource.includes("<option selected>Paper</option>"), "Marketplace wizard must not preselect Paper in static markup.");
   assert(source.includes("configureMarketplaceRuntimeField(template"), "Renderer should configure server runtime from template metadata.");
   assert(!source.includes('template.displayName || template.id || "Paper"'), "Renderer must not use template display names to force Paper defaults.");

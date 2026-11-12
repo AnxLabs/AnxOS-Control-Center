@@ -10,7 +10,8 @@ const app = fs.readFileSync(path.join(root, "app.js"), "utf8");
 
 assert(index.includes('data-ui-generation="v1.9"'), "The v1.9 renderer must opt into the refreshed workspace theme.");
 assert(index.includes('class="inline-action dashboard-launcher'), "Dashboard must expose compact service launchers.");
-for (const action of ["create-server", "instances", "share-server", "public-access", "backups", "marketplace", "docker", "nodes"]) {
+// "marketplace" was removed: it opened the same Add Server flow as "create-server".
+for (const action of ["create-server", "instances", "share-server", "public-access", "backups", "docker", "nodes"]) {
   assert(index.includes(`data-dashboard-action="${action}"`), `Dashboard launcher is missing: ${action}`);
 }
 assert(app.includes('if (action === "share-server")') && app.includes("openShareServerModal(instance)"), "Dashboard Share Server must reuse the existing safe sharing flow.");

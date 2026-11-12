@@ -13284,7 +13284,7 @@ body.create-server-window .marketplace-side-panel {
 
 .create-server-step-nav {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
   min-width: 0;
 }
@@ -19296,4 +19296,166 @@ html[data-ui-generation="v1.9"] .nav-item:hover .nav-item__icon {
   font-size: 0.8rem;
   line-height: 1.4;
   overflow-wrap: anywhere;
+}
+
+/* ==========================================================================
+   Simple navigation
+   Everyday pages sit at the top without a group header. The Advanced tools
+   group appears only in Advanced Mode (Settings); its pages remain reachable
+   from search and the command palette, so this is presentation only.
+   ========================================================================== */
+
+.nav-item--pinned.nav-item--primary {
+  margin-top: 0;
+}
+
+.nav-item--primary + .nav-group {
+  margin-top: 10px;
+}
+
+:root:not([data-advanced-mode="true"]) .nav-group[data-nav-advanced] {
+  display: none;
+}
+
+.sidebar[data-sidebar-state="collapsed"] .nav-item--pinned.nav-item--primary {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+/* Tabs that join two related pages (Computers + Agent, Sharing + Network). */
+.page-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 16px;
+}
+
+.page-tabs__tab {
+  border: 1px solid rgba(202, 169, 255, 0.16);
+  border-radius: var(--anx-radius-sm);
+  padding: 8px 14px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.04);
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: color 160ms ease, background 160ms ease, border-color 160ms ease;
+}
+
+.page-tabs__tab:hover,
+.page-tabs__tab:focus-visible {
+  color: var(--text);
+  border-color: rgba(202, 169, 255, 0.32);
+  outline: none;
+}
+
+.page-tabs__tab:focus-visible {
+  box-shadow: 0 0 0 2px rgba(182, 108, 255, 0.55);
+}
+
+.page-tabs__tab.is-active {
+  color: var(--text);
+  border-color: rgba(202, 169, 255, 0.44);
+  background: rgba(139, 92, 246, 0.22);
+}
+
+/* Create Server: one setup screen with optional, collapsed extras. */
+.create-server-setup > .create-server-config-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.create-server-name-field {
+  grid-column: 1 / -1;
+}
+
+.create-server-name-field input {
+  font-size: 1rem;
+}
+
+.create-server-advanced {
+  min-width: 0;
+  border: 1px solid rgba(190, 170, 220, 0.12);
+  border-radius: 8px;
+  background: rgba(15, 11, 24, 0.4);
+}
+
+.create-server-advanced > summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  padding: 10px 12px;
+  color: var(--text);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.create-server-advanced > summary small {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.create-server-advanced[open] > summary {
+  border-bottom: 1px solid rgba(190, 170, 220, 0.1);
+}
+
+.create-server-advanced > .create-server-config-grid,
+.create-server-advanced > .create-server-node-summary,
+.create-server-advanced > .create-server-runtime-summary,
+.create-server-advanced > .marketplace-install-summary {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+}
+
+.create-server-trust[hidden] {
+  display: none;
+}
+
+/* Dashboard: technical snapshot and extra actions, collapsed by default. */
+.dashboard-details {
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+  border: 1px solid rgba(190, 170, 220, 0.12);
+  border-radius: 10px;
+  background: rgba(7, 9, 14, 0.3);
+}
+
+.dashboard-details > summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  padding: 12px 16px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.dashboard-details > summary small {
+  color: var(--muted);
+}
+
+.dashboard-details[open] {
+  padding-bottom: 16px;
+}
+
+.dashboard-details[open] > summary {
+  border-bottom: 1px solid rgba(190, 170, 220, 0.1);
+}
+
+.dashboard-details > :not(summary) {
+  margin-inline: 16px;
+}
+
+/* The Create Server window shows the computer in the setup summary ("Runs
+   on") and the full checks under Technical details, so the duplicate
+   readiness strip, template id line and page introduction are hidden there. */
+body.create-server-window .marketplace-readiness-strip,
+body.create-server-window [data-marketplace-selected-meta],
+body.create-server-window .page[data-page="marketplace"] .page-introduction {
+  display: none;
 }

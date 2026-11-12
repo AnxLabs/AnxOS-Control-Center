@@ -1,18 +1,21 @@
 #!/usr/bin/env node
 "use strict";
 
-// Desktop UI regression for the grouped sidebar.
+// Desktop UI regression for the simple, grouped sidebar.
 //
 // Launches the REAL Electron app (isolated profile and config, --qa-mode) and
-// proves that grouping the sidebar kept every page reachable:
-//   N1 every primary page has exactly one visible entry: the 16 grouped pages
-//      in their groups, Settings pinned below them; legacy pages stay hidden;
+// proves that simplifying the sidebar kept every page reachable:
+//   N1 by default the everyday pages sit on top, then the More group, with
+//      the Advanced tools group hidden and Settings pinned last; every primary
+//      page has exactly one entry; legacy pages stay hidden;
 //   N2 each group header toggles its items and reports aria-expanded;
 //   N3 collapsed groups persist across a restart (same profile);
-//   N4 opening a page whose group is collapsed opens that group, so the
-//      current page is never hidden;
-//   N5 the icon-only sidebar shows every item with no group headers;
-//   N6 every entry still navigates to its page (Marketplace opens its own
+//   N4 pages joined by tabs (Agent Control, Network) highlight their parent
+//      while Advanced Mode is off, and the tabs switch pages;
+//   N5 Advanced Mode shows Advanced tools; opening a page whose group is
+//      collapsed opens that group, so the current page is never hidden;
+//   N6 the icon-only sidebar shows every item with no group headers;
+//   N7 every entry still navigates to its page (Add Server opens its own
 //      workspace window, as before).
 //
 // Never touches the installed app or its data.
@@ -27,12 +30,18 @@ const { createIsolatedQaEnv } = require("./test-helpers/isolated-qa-env");
 const { startServiceManagedAgent } = require("./test-helpers/service-managed-agent-fixture");
 
 const root = path.resolve(__dirname, "..");
+const TOP_PAGES = ["dashboard", "instances", "marketplace", "nodes", "playit"];
 const EXPECTED_GROUPS = {
-  overview: ["dashboard", "notifications", "console", "operations"],
-  servers: ["instances", "marketplace", "docker", "files", "backups"],
-  infrastructure: ["nodes", "network", "playit", "ssh", "agent-control"],
-  administration: ["security", "maintenance"],
+  more: ["notifications", "backups", "security"],
+  advanced: ["console", "operations", "docker", "files", "network", "ssh", "agent-control", "maintenance"],
 };
+// Pages joined to a parent page by tabs (child -> parent).
+const JOINED_PAGES = { "agent-control": "nodes", network: "playit" };
+const expectedAll = [...TOP_PAGES, ...Object.values(EXPECTED_GROUPS).flat(), "settings"];
+
+function activeTab(page, pageName) {
+  return page.evaluate((name) => document.querySelector(`.page[data-page="${name}"] .page-tabs__tab.is-active`)?.dataset.pageTab || null, pageName);
+}
 
 async function launch(qa, userData) {
   const env = { ...process.env, ...qa.env, ANXOS_QA_MODE: "1" };
@@ -101,30 +110,30 @@ async function main() {
     let { page } = ui;
     let state = await navState(page);
 
-    // N1: every primary page, exactly once, in its group; Settings pinned.
-    for (const [groupId, pages] of Object.entries(EXPECTED_GROUPS)) {
-      assert.ok(state.groups[groupId], `group ${groupId} exists`);
-      assert.deepStrictEqual(state.groups[groupId].pages, pages, `group ${groupId} holds its pages in order`);
-    }
-    assert.deepStrictEqual(state.pinned, ["settings"], "Settings is pinned below the groups");
-    const expectedAll = [...Object.values(EXPECTED_GROUPS).flat(), "settings"];
-    assert.deepStrictEqual([...state.shownTargets].sort(), [...expectedAll].sort(), "exactly the primary pages are shown");
+    // N1: simple layout by default. Everyday pages on top, More group, the
+    // Advanced tools group hidden, Settings pinned last, nothing listed twice.
+    assert.deepStrictEqual(state.pinned, [...TOP_PAGES, "settings"], "everyday pages on top, Settings pinned last");
+    assert.deepStrictEqual(state.groups.more.pages, EXPECTED_GROUPS.more, "More holds its pages in order");
+    assert.deepStrictEqual(state.groups.advanced.pages, EXPECTED_GROUPS.advanced, "Advanced tools holds its pages in order");
+    assert.strictEqual(state.groups.advanced.headerVisible, false, "Advanced tools is hidden while Advanced Mode is off");
+    assert.deepStrictEqual(state.groups.advanced.visiblePages, [], "no advanced page is visible while Advanced Mode is off");
+    assert.deepStrictEqual([...state.shownTargets].sort(), [...expectedAll].sort(), "exactly the primary pages have entries");
     assert.strictEqual(new Set(state.shownTargets).size, state.shownTargets.length, "no page is listed twice");
     assert.strictEqual(state.legacyShown, 0, "legacy pages stay hidden");
-    console.log("PASS N1 every primary page has exactly one entry in its group; Settings pinned");
+    console.log("PASS N1 simple sidebar: everyday pages, More, Advanced tools hidden, Settings last");
 
     // N2: toggling a group hides/shows its items and updates aria-expanded.
     await page.evaluate(() => window.showPage("dashboard"));
-    const toggle = page.locator('[data-nav-group="servers"] .nav-group__toggle');
-    if ((await navState(page)).groups.servers.collapsed) await toggle.click();
+    const toggle = page.locator('[data-nav-group="more"] .nav-group__toggle');
+    if ((await navState(page)).groups.more.collapsed) await toggle.click();
     state = await navState(page);
-    assert.strictEqual(state.groups.servers.expanded, "true");
-    assert.deepStrictEqual(state.groups.servers.visiblePages, EXPECTED_GROUPS.servers, "an open group shows its items");
+    assert.strictEqual(state.groups.more.expanded, "true");
+    assert.deepStrictEqual(state.groups.more.visiblePages, EXPECTED_GROUPS.more, "an open group shows its items");
     await toggle.click();
     state = await navState(page);
-    assert.strictEqual(state.groups.servers.collapsed, true);
-    assert.strictEqual(state.groups.servers.expanded, "false");
-    assert.deepStrictEqual(state.groups.servers.visiblePages, [], "a collapsed group hides its items");
+    assert.strictEqual(state.groups.more.collapsed, true);
+    assert.strictEqual(state.groups.more.expanded, "false");
+    assert.deepStrictEqual(state.groups.more.visiblePages, [], "a collapsed group hides its items");
     console.log("PASS N2 group headers toggle their items and aria-expanded");
 
     // N3: the collapsed state survives a restart.
@@ -134,21 +143,44 @@ async function main() {
     await page.evaluate(() => window.showPage("dashboard"));
     if (process.env.NAV_QA_SHOT) await page.screenshot({ path: process.env.NAV_QA_SHOT });
     state = await navState(page);
-    assert.strictEqual(state.groups.servers.collapsed, true, "the collapsed group is still collapsed after a restart");
+    assert.strictEqual(state.groups.more.collapsed, true, "the collapsed group is still collapsed after a restart");
     console.log("PASS N3 collapsed groups persist across restarts");
 
-    // N4: opening a page in a collapsed group opens the group.
+    // N4: pages joined by tabs highlight their parent entry in simple mode,
+    // and the tabs switch between the joined pages.
+    for (const [child, parent] of Object.entries(JOINED_PAGES)) {
+      await page.evaluate((name) => window.showPage(name), child);
+      state = await navState(page);
+      assert.strictEqual(state.active, parent, `${child} highlights ${parent} while Advanced Mode is off`);
+      assert.strictEqual(await activeTab(page, child), child, `${child}'s own tab is active`);
+      await page.locator(`.page[data-page="${child}"] [data-page-tab="${parent}"]`).click();
+      await page.waitForTimeout(150);
+      assert.strictEqual((await navState(page)).active, parent, `the ${parent} tab opens ${parent}`);
+      await page.locator(`.page[data-page="${parent}"] [data-page-tab="${child}"]`).click();
+      await page.waitForTimeout(150);
+      assert.strictEqual(await page.evaluate(() => document.querySelector(".page.is-active")?.dataset.page), child, `the ${child} tab opens ${child}`);
+    }
+    console.log("PASS N4 joined pages highlight their parent and the tabs switch pages");
+
+    // N5: Advanced Mode shows Advanced tools; opening a page inside a
+    // collapsed group opens that group; joined pages highlight themselves.
+    await page.evaluate(() => window.saveSettingsPatch({ "interface.advancedMode": true }));
+    await page.waitForTimeout(300);
+    if (!(await navState(page)).groups.advanced.collapsed) await page.locator('[data-nav-group="advanced"] .nav-group__toggle').click();
+    assert.strictEqual((await navState(page)).groups.advanced.collapsed, true);
     await page.evaluate(() => window.showPage("docker"));
     state = await navState(page);
-    assert.strictEqual(state.groups.servers.collapsed, false, "the active page's group opens");
-    assert.ok(state.groups.servers.visiblePages.includes("docker"), `the active page is visible (${JSON.stringify(state)} ${JSON.stringify(await page.evaluate(() => { const i = document.querySelector(".nav-menu [data-page-target=docker]"); const r = i.getBoundingClientRect(); return { r: [r.width, r.height, r.top], vis: getComputedStyle(i).visibility, disp: getComputedStyle(i).display, itemsDisp: getComputedStyle(i.parentElement).display }; }))})`);
+    assert.strictEqual(state.groups.advanced.headerVisible, true, "Advanced tools is shown in Advanced Mode");
+    assert.strictEqual(state.groups.advanced.collapsed, false, "the active page's group opens");
+    assert.ok(state.groups.advanced.visiblePages.includes("docker"), "the active page is visible");
     assert.strictEqual(state.active, "docker");
-    console.log("PASS N4 the active page's group always opens");
+    await page.evaluate(() => window.showPage("agent-control"));
+    assert.strictEqual((await navState(page)).active, "agent-control", "with its own entry visible, a joined page highlights itself");
+    console.log("PASS N5 Advanced Mode shows Advanced tools and the active page's group opens");
 
-    // N5: icon-only sidebar shows every item and no headers.
-    // Make sure at least one group is collapsed, through its header like a user.
-    if (!(await navState(page)).groups.administration.collapsed) await page.locator('[data-nav-group="administration"] .nav-group__toggle').click();
-    assert.strictEqual((await navState(page)).groups.administration.collapsed, true);
+    // N6: icon-only sidebar shows every item and no headers.
+    if (!(await navState(page)).groups.more.collapsed) await page.locator('[data-nav-group="more"] .nav-group__toggle').click();
+    assert.strictEqual((await navState(page)).groups.more.collapsed, true);
     await page.locator("[data-sidebar-toggle]").click();
     await page.waitForTimeout(500);
     state = await navState(page);
@@ -159,17 +191,17 @@ async function main() {
     }
     await page.locator("[data-sidebar-toggle]").click();
     await page.waitForTimeout(500);
-    console.log("PASS N5 the icon-only sidebar shows every item without group headers");
+    console.log("PASS N6 the icon-only sidebar shows every item without group headers");
 
-    // N6: every entry still navigates (open all groups first).
+    // N7: every entry still navigates (open all groups first).
     await page.evaluate(() => document.querySelectorAll(".nav-group.is-collapsed .nav-group__toggle").forEach((button) => button.click()));
     for (const pageName of expectedAll) {
       if (pageName === "marketplace") {
-        // Marketplace opens in its own workspace window (existing behaviour).
+        // Add Server opens in its own workspace window (existing behaviour).
         const opened = ui.app.waitForEvent("window", { timeout: 15000 });
         await page.locator(`.nav-menu [data-page-target="${pageName}"]`).click();
         const workspace = await opened;
-        assert.ok(workspace, "clicking marketplace opens the Marketplace workspace window");
+        assert.ok(workspace, "clicking Add Server opens the Marketplace workspace window");
         await workspace.close().catch(() => {});
         continue;
       }
@@ -178,10 +210,11 @@ async function main() {
       state = await navState(page);
       assert.strictEqual(state.active, pageName, `clicking ${pageName} opens it (active: ${state.active})`);
     }
-    console.log("PASS N6 every entry navigates to its page (Marketplace in its own window)");
+    await page.evaluate(() => window.saveSettingsPatch({ "interface.advancedMode": false }));
+    console.log("PASS N7 every entry navigates to its page (Add Server in its own window)");
 
     assert.deepStrictEqual(ui.rendererErrors, [], "no renderer errors");
-    console.log("Sidebar navigation groups UI QA passed (6 checks).");
+    console.log("Sidebar navigation groups UI QA passed (7 checks).");
   } catch (error) {
     console.error(error && error.stack ? error.stack : error);
     process.exitCode = 1;
