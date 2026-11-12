@@ -402,6 +402,32 @@ function parseTarEntries(archiveBuffer, options = {}) {
   };
 }
 
+// The world folders a world archive restores: every folder holding a
+// level.dat (nested ones folded into their parent). Every file in the archive
+// must sit inside one of them, so restoring the archive can only ever replace
+// world folders. Archives that are not world-only are refused
+// (BACKUP_WORLD_ARCHIVE_INVALID) rather than recorded as world backups.
+function deriveWorldArchiveSourcePaths(entries = []) {
+  const names = entries.map((entry) => ({ name: String(entry.name || "").replace(/\/+$/, ""), type: entry.type }));
+  const roots = [...new Set(names
+    .filter((entry) => entry.type === "file" && path.posix.basename(entry.name) === "level.dat")
+    .map((entry) => path.posix.dirname(entry.name))
+    .filter((dir) => dir && dir !== "."))]
+    .sort((left, right) => left.length - right.length)
+    .filter((dir, index, all) => !all.slice(0, index).some((parent) => dir.startsWith(`${parent}/`)));
+  if (!roots.length) {
+    throw createBackupError("BACKUP_WORLD_ARCHIVE_INVALID", 400, { reason: "NO_WORLD_FOUND" });
+  }
+  const insideRoot = (name) => roots.some((dir) => name === dir || name.startsWith(`${dir}/`));
+  const ancestorOfRoot = (name) => roots.some((dir) => dir.startsWith(`${name}/`));
+  for (const entry of names) {
+    if (insideRoot(entry.name)) continue;
+    if (entry.type === "directory" && ancestorOfRoot(entry.name)) continue;
+    throw createBackupError("BACKUP_WORLD_ARCHIVE_INVALID", 400, { reason: "FILES_OUTSIDE_WORLD", entryName: entry.name });
+  }
+  return roots;
+}
+
 // Header checks alone cannot detect corruption inside file payloads that keeps
 // the tar structure intact, so callers with a create-time digest get a whole
 // archive hash verification first. Legacy metadata without a digest keeps the
@@ -1355,6 +1381,22 @@ async function readTargetInstanceStatus(targetInstanceId) {
 // mutation, so the safety snapshot widens to the whole instance instead —
 // strictly safer, and it lets a fresh target receive a workload restore. The
 // world-scope error is carried for preview reporting instead of thrown.
+// The folders a world restore replaces. Older builds recorded imported world
+// backups with sourcePaths ["."]; deleting "." would remove the whole server,
+// so such records are re-derived from the archive's own world folders (and
+// refused if the archive is not world-only) instead of being trusted.
+async function resolveWorldRestorePaths(backup, instancePath) {
+  const recorded = Array.isArray(backup.sourcePaths) ? backup.sourcePaths : [];
+  const root = path.resolve(instancePath);
+  const coversWholeServer = recorded.length === 0 || recorded.some((sourcePath) => path.resolve(instancePath, sourcePath) === root);
+  if (!coversWholeServer) return recorded;
+  const archiveBuffer = await fs.readFile(backup.path);
+  if (backup.archiveSha256 && sha256Hex(archiveBuffer) !== backup.archiveSha256) {
+    throw createBackupError("BACKUP_ARCHIVE_HASH_MISMATCH", 400);
+  }
+  return deriveWorldArchiveSourcePaths(parseTarEntries(archiveBuffer).entries);
+}
+
 async function resolveRestoreSafetyScope(instancePath, type) {
   if (type !== "world") {
     return { type, sourcePaths: ["."], worldSourcePaths: null, worldScopeError: null };
@@ -1639,6 +1681,9 @@ async function restoreBackup(payload = {}) {
       stillRunning: "RESTORE_INSTANCE_STILL_RUNNING",
     });
     targetWasRunning = isInstanceActive(before);
+    // Resolved before anything is touched, so a bad scope fails with no
+    // safety snapshot, no stop side effects on files, and no deletion.
+    const worldRestorePaths = backup.type === "world" ? await resolveWorldRestorePaths(backup, instancePath) : [];
     const safetyScope = await resolveRestoreSafetyScope(instancePath, backup.type);
     let safetySnapshotSize = 0;
     for (const sourcePath of safetyScope.sourcePaths) {
@@ -1650,9 +1695,10 @@ async function restoreBackup(payload = {}) {
     mutationStarted = true;
     let targetRecord = null;
     if (backup.type === "world") {
-      for (const sourcePath of Array.isArray(backup.sourcePaths) ? backup.sourcePaths : []) {
+      for (const sourcePath of worldRestorePaths) {
         const targetPath = path.resolve(instancePath, sourcePath);
-        if (!isInsideRoot(targetPath, instancePath)) {
+        // A world restore never removes the server folder itself.
+        if (!isInsideRoot(targetPath, instancePath) || targetPath === path.resolve(instancePath)) {
           throw createBackupError("BACKUP_ARCHIVE_PATH_UNSAFE", 400);
         }
         await fs.rm(targetPath, { recursive: true, force: true });
@@ -1770,9 +1816,17 @@ async function importBackup(payload = {}) {
   const backupId = `${instanceId}-${Date.now()}-${crypto.randomBytes(3).toString("hex")}`;
   const archive = archivePath(backupId);
   const tempArchive = `${archive}.${process.pid}.${Date.now()}.tmp`;
+  const importType = String(payload.type || "full") === "world" ? "world" : "full";
   let archiveDetails;
+  // A world import must record the world folders it holds. Recording "." made
+  // a later world restore delete the whole server folder.
+  let sourcePaths = ["."];
   try {
-    await fs.writeFile(tempArchive, Buffer.from(content, payload.encoding === "base64" ? "base64" : "utf8"), { mode: 0o600 });
+    const archiveBuffer = Buffer.from(content, payload.encoding === "base64" ? "base64" : "utf8");
+    if (importType === "world") {
+      sourcePaths = deriveWorldArchiveSourcePaths(parseTarEntries(archiveBuffer).entries);
+    }
+    await fs.writeFile(tempArchive, archiveBuffer, { mode: 0o600 });
     archiveDetails = await validateArchiveFile(tempArchive);
     await fs.rename(tempArchive, archive);
   } catch (error) {
@@ -1786,14 +1840,14 @@ async function importBackup(payload = {}) {
     name: sanitizeName(payload.name, `${instanceId} imported backup`),
     createdAt: nowIso(),
     createdBy: sanitizeName(payload.createdBy, "import"),
-    type: String(payload.type || "full") === "world" ? "world" : "full",
+    type: importType,
     size: await getFileSize(archive),
     uncompressedSize: archiveDetails.uncompressedSize,
     requiredDiskSpace: archiveDetails.uncompressedSize,
     entryCount: archiveDetails.entryCount,
     compression: BACKUP_FORMAT,
     archiveSha256: archiveDetails.sha256,
-    sourcePaths: ["."],
+    sourcePaths,
     archiveName: path.basename(archive),
     status: "imported",
     // Imported archives carry a digest computed from the stored bytes, so they

@@ -509,6 +509,27 @@ Use this section to accumulate verified project knowledge over time. Add entries
   wrote: bump the cache version and test with a polluted saved record, not
   only a fresh one.
 
+### 2026-11-12 — Restoring an imported world backup deleted the whole server
+
+- **Problem:** Restoring a backup imported with type "world" removed the
+  server's whole folder (config.json and server files), keeping only the
+  restored world. Reproduced in a sandbox
+  (`scripts/world-import-restore-smoke.js`).
+- **Cause:** `importBackup` recorded every import with `sourcePaths: ["."]`.
+  A world restore deletes each recorded source path before extracting, so it
+  deleted the instance root. Its world-only safety copy could not bring the
+  other files back.
+- **Resolution:** World imports record the world folders found in the archive
+  (folders holding `level.dat`) and are refused when any file lies outside
+  them. At restore time, world records that cover the whole server are
+  re-derived from the archive before anything is touched, and refused if
+  the archive is not world-only. A world restore never removes the instance
+  root.
+- **Lesson:** Metadata that drives deletion must be derived from the data it
+  describes, never defaulted. Every destructive path needs a guard against
+  resolving to the root it lives in. Fixes must also cover records older
+  builds already wrote.
+
 ## Future Improvements
 
 Keep optional ideas separate from active work. An item in this list is not authorization to implement it.
