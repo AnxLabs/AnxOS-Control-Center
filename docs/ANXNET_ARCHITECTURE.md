@@ -249,10 +249,10 @@ change that.
 | Item | Why | Needs |
 | --- | --- | --- |
 | Kernel WireGuard / virtual interface | Admin rights and OS routing changes | Approved, signed helper; owner approval |
-| OS DNS integration for `.internal` | NRPT / systemd-resolved changes need elevation | Same helper; restore on disconnect is designed (scoped rule only) |
+| OS DNS integration for `.internal` | Built in Phase 6.1 (`src/anxnet/dnsIntegration.js`): one scoped NRPT rule / resolved routing domain, applied only from the UI through UAC / pkexec | Your approval to apply it on a real computer |
 | TCP over hole-punched UDP | Needs a reliable transport over UDP (userspace TCP) | WireGuard + netstack, or QUIC, later |
 | Internet coordinator / relay / gateway | Needs a reachable machine | Owner-provided server and deployment approval |
-| AnxNet inside the Agent | Agent build and deployment | Approval of the next Agent build |
+| AnxNet inside the Agent | Agent build and deployment. Since Phase 6.1 AnxNet runs in its own background process on the desktop (`src/anxnet/host.js`), which the Agent can embed | Approval of the next Agent build |
 
 ## 10. Threats and answers
 
