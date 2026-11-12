@@ -35,6 +35,11 @@ function write(channel, action, operation) {
 
 function registerAnxNetIpc() {
   read("anxnet:status", () => anxnet.status());
+  read("anxnet:dnsStatus", () => anxnet.dnsStatus());
+  // OS name lookup: the user confirms in the UI and the OS asks for
+  // administrator permission (UAC / pkexec).
+  write("anxnet:dnsEnable", "anxnet.dns.enable", () => anxnet.enableDns());
+  write("anxnet:dnsDisable", "anxnet.dns.disable", () => anxnet.disableDns());
   write("anxnet:createNetwork", "anxnet.network.create", (payload) => anxnet.createNetwork({ name: payload.name, deviceName: payload.deviceName }));
   write("anxnet:joinNetwork", "anxnet.network.join", (payload) => anxnet.joinNetwork({ code: payload.code, deviceName: payload.deviceName }));
   write("anxnet:leaveNetwork", "anxnet.network.leave", () => anxnet.leaveNetwork());

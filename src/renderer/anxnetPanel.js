@@ -9,6 +9,8 @@
 
   const panel = document.querySelector("[data-anxnet-panel]");
   let latest = null;
+  let dnsInfo = null;
+  let dnsCheckedAt = 0;
   let lastInvite = null;
   let busy = false;
   let timer = null;
@@ -62,6 +64,10 @@
       latest = unwrap(await api().status(), "AnxNet status is unavailable.");
     } catch (error) {
       latest = { error: error.message };
+    }
+    if (latest?.network && Date.now() - dnsCheckedAt > 60000 && typeof api().dnsStatus === "function") {
+      dnsCheckedAt = Date.now();
+      try { dnsInfo = unwrap(await api().dnsStatus(), "Name lookup status is unavailable."); } catch (error) { dnsInfo = { available: false, reason: error.message }; }
     }
     render();
     return latest;
@@ -127,7 +133,13 @@
     }
     actions.append(button("Leave network", async () => {
       const ok = await createSecurityConfirmation({ title: network.role === "owner" ? "Leave and close this network?" : "Leave this network?", message: network.role === "owner" ? "This computer owns the network. Other devices lose their connection to it and its shared servers." : "This computer stops being part of the network. You'll need a new invite to come back.", confirmLabel: "Leave" });
-      if (ok) run("Leave", () => api().leaveNetwork(), "Left the network.");
+      if (!ok) return;
+      const hadNames = dnsInfo?.enabled === true;
+      await run("Leave", () => api().leaveNetwork(), "Left the network.");
+      if (hadNames && await createSecurityConfirmation({ title: "Remove the AnxNet name rule too?", message: "This computer still sends AnxNet names to AnxNet, which is no longer running. Removing the rule restores the previous setting. Windows will ask for administrator permission.", confirmLabel: "Remove rule" })) {
+        await run("Remove name rule", () => api().dnsDisable(), "The AnxNet name rule was removed.");
+      }
+      dnsInfo = null;
     }, { danger: true }));
     container.append(actions);
   }
@@ -190,6 +202,37 @@
     container.append(section);
   }
 
+  // Name lookup on this computer: whether apps (games, browsers) can use the
+  // .internal names. Turning it on changes one scoped OS setting, so it asks
+  // first and the OS asks for administrator permission.
+  function renderNameLookup(container, status) {
+    const box = el("div", "anxnet-dns");
+    box.append(el("h4", "", "Names on this computer"));
+    if (!dnsInfo) { box.append(el("p", "anxnet-note", "Checking…")); container.append(box); return; }
+    if (!dnsInfo.available) { box.append(el("p", "anxnet-note", dnsInfo.reason || "Not available here.")); container.append(box); return; }
+    const self = status.devices.find((device) => device.self);
+    if (dnsInfo.enabled) {
+      box.append(el("p", "", `On: apps on this computer can use names like ${self?.hostname || status.network.domain}.`));
+      box.append(button("Turn off", async () => {
+        const ok = await createSecurityConfirmation({ title: "Stop using AnxNet names on this computer?", message: "Removes the AnxNet name rule. Windows will ask for administrator permission. Your normal DNS is not affected either way.", confirmLabel: "Turn off" });
+        if (ok) { await run("Turn off names", () => api().dnsDisable(), "AnxNet names are off on this computer."); dnsCheckedAt = 0; refresh(); }
+      }));
+    } else {
+      box.append(el("p", "anxnet-note", dnsInfo.conflict
+        ? "Another program already handles these names on this computer, so AnxNet leaves them alone."
+        : `Off: games and browsers here can't use ${status.network.domain} names yet. Use the addresses shown (for example ${self?.address}).`));
+      if (!dnsInfo.conflict) box.append(button("Turn on", async () => {
+        const ok = await createSecurityConfirmation({ title: "Use AnxNet names on this computer?", message: `${dnsInfo.summary} Windows will ask for administrator permission.`, confirmLabel: "Turn on" });
+        if (!ok) return;
+        const result = await run("Turn on names", () => api().dnsEnable());
+        dnsCheckedAt = 0;
+        if (result?.verify) showToast(result.verify.ok ? `${result.verify.name} now resolves to ${result.verify.address} on this computer.` : `The rule is in place, but ${result.verify.name} didn't resolve yet (${result.verify.error || result.verify.address}).`, result.verify.ok ? "success" : "warning");
+        refresh();
+      }));
+    }
+    container.append(box);
+  }
+
   function renderServices(container, status) {
     if (!status.services?.length) return;
     const section = el("div", "anxnet-services");
@@ -217,6 +260,7 @@
     const fact = (label, value) => { facts.append(el("dt", "", label), el("dd", "", value)); };
     fact("This device", `${status.deviceId} · ${status.fingerprint}`);
     fact("Listening", status.listening ? `TCP ${status.listening.tcpPort}, UDP ${status.listening.udpPort}` : "Not listening");
+    fact("Runs in", status.mode === "background" ? `its own background process (pid ${status.host?.pid}, ${status.host?.rssMb} MB), so it keeps working when AnxOS is closed` : "AnxOS itself (stops when AnxOS closes)");
     fact("Private DNS", status.dns ? `${status.dns.host}:${status.dns.port} answers *.${status.dns.domain}. Windows and Linux don't use it automatically yet; use the addresses shown instead.` : "Not running");
     fact("Relay", status.network.relays?.length ? status.network.relays.map((relay) => `${relay.host}:${relay.port}`).join(", ") : "None. Devices that can't reach each other directly can't connect.");
     fact("Gateway", status.network.gateways?.length ? status.network.gateways.map((gateway) => `${gateway.host}:${gateway.port}`).join(", ") : "None. Anyone-can-join needs a gateway on a server with a public address.");
@@ -228,6 +272,15 @@
     checkbox.addEventListener("change", () => run("Change setting", () => api().setDirectInbound(!checkbox.checked), checkbox.checked ? "Other devices now reach this computer only through the relay." : "Other devices can connect to this computer directly again."));
     relayOnly.append(checkbox, el("span", "", "Relay only: don't accept direct connections from other devices"));
     details.append(relayOnly);
+    if (status.mode === "background") {
+      const keep = el("label", "console-toggle");
+      const keepBox = el("input");
+      keepBox.type = "checkbox";
+      keepBox.checked = status.settings?.keepRunningWhenClosed !== false;
+      keepBox.addEventListener("change", () => run("Change setting", () => api().setKeepRunning(keepBox.checked), keepBox.checked ? "AnxNet keeps running when AnxOS is closed." : "AnxNet stops when AnxOS closes."));
+      keep.append(keepBox, el("span", "", "Keep AnxNet running when AnxOS is closed"));
+      details.append(keep);
+    }
     if (status.network.role === "owner") {
       const form = el("form", "anxnet-edges");
       form.append(el("p", "anxnet-note", "Run the AnxNet edge on a server you control (node src/anxnet/bin/anxnet-edge.js --config edge.json), then enter its address and the fingerprint it prints. AnxOS never sets this up on a computer by itself."));
@@ -264,6 +317,7 @@
       renderInvite(content);
       renderPending(content, latest);
       renderDevices(content, latest);
+      renderNameLookup(content, latest);
       renderServices(content, latest);
       renderAdvanced(content, latest);
     }

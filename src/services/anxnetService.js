@@ -28,6 +28,7 @@ const { AnxNetHostClient } = require("../anxnet/hostClient");
 const { METHODS } = require("../anxnet/host");
 const identityLib = require("../anxnet/identity");
 const roster = require("../anxnet/roster");
+const dnsIntegration = require("../anxnet/dnsIntegration");
 const { decryptPayload, encryptPayload, getDefaultConfigDirectory } = require("./secureSessionStore");
 
 const DEFAULT_PORT = 47710;
@@ -96,6 +97,7 @@ async function nodeOptions() {
     // computer only.
     listenHost: ["0.0.0.0", "127.0.0.1"].includes(current.listenHost) ? current.listenHost : "0.0.0.0",
     directInbound: current.directInbound !== false,
+    dnsPort: Number.isInteger(current.dnsPort) ? current.dnsPort : 5353,
     deviceName: os.hostname(),
   };
 }
@@ -104,7 +106,7 @@ async function startHostBackend() {
   const options = await nodeOptions();
   const client = new AnxNetHostClient({
     dataDir: dataDir(),
-    hostArgs: ["--listen-host", options.listenHost, "--listen-port", String(options.listenPort)],
+    hostArgs: ["--listen-host", options.listenHost, "--listen-port", String(options.listenPort), "--dns-port", String(options.dnsPort)],
   });
   await client.connect();
   await client.call("unlock", { keyPem: devicePrivateKeyPem() });
@@ -351,6 +353,54 @@ async function setDirectInbound(enabled) {
   return status();
 }
 
+// ---- OS name lookup (approval-gated; see src/anxnet/dnsIntegration.js) ----
+
+async function dnsStatus() {
+  const current = await status();
+  if (!current.network) return { available: false, reason: "Create or join a network first." };
+  const plan = dnsIntegration.plan({ domain: current.network.domain, networkId: current.network.networkId });
+  if (!plan.supported) return { available: false, reason: plan.reason };
+  const detected = await dnsIntegration.detect({ domain: current.network.domain });
+  return {
+    available: true,
+    enabled: detected.enabled,
+    conflict: detected.conflict,
+    leftover: detected.leftover,
+    summary: plan.summary,
+    resolver: current.dns,
+    needsPort: plan.resolverPort,
+    portReady: current.dns?.port === plan.resolverPort,
+  };
+}
+
+// The user confirmed in the UI; the OS asks for administrator permission.
+async function enableDns() {
+  const active = await requireNetwork();
+  const current = await status();
+  const plan = dnsIntegration.plan({ domain: current.network.domain, networkId: current.network.networkId });
+  if (!plan.supported) throw roster.error("ANXNET_DNS_UNSUPPORTED", plan.reason, 409);
+  const detected = await dnsIntegration.detect({ domain: current.network.domain });
+  if (detected.conflict) throw roster.error("ANXNET_DNS_CONFLICT", "Another program already handles these names on this computer, so AnxNet left them alone.", 409);
+  if (current.dns?.port !== plan.resolverPort) {
+    await active.call("setDnsEndpoint", { port: plan.resolverPort });
+    writeSettings({ dnsPort: plan.resolverPort });
+  }
+  await dnsIntegration.elevate({ lines: plan.apply });
+  writeSettings({ osDns: true });
+  const self = (current.devices || []).find((device) => device.self);
+  const check = self ? await dnsIntegration.verify({ name: self.hostname, expected: self.address }) : null;
+  return { enabled: true, verify: check, status: await dnsStatus() };
+}
+
+async function disableDns() {
+  const plan = dnsIntegration.plan({ domain: "anx-placeholder.internal", networkId: `net-${"a".repeat(26)}` });
+  if (!plan.supported) throw roster.error("ANXNET_DNS_UNSUPPORTED", plan.reason, 409);
+  await dnsIntegration.elevate({ lines: plan.remove });
+  writeSettings({ osDns: false, dnsPort: 5353 });
+  if (backend) await backend.call("setDnsEndpoint", { port: 5353 }).catch(() => {});
+  return { enabled: false };
+}
+
 async function setKeepRunning(enabled) {
   writeSettings({ keepRunningWhenClosed: enabled !== false });
   return status();
@@ -374,6 +424,9 @@ module.exports = {
   setDirectInbound,
   setEdges: ownerAction("setEdges", (edges) => edges),
   setKeepRunning,
+  dnsStatus,
+  enableDns,
+  disableDns,
   shareService,
   shutdown,
   status,

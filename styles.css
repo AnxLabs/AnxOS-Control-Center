@@ -21361,3 +21361,21 @@ body.create-server-window .page[data-page="marketplace"] .page-introduction {
 .anxnet-edges > p { grid-column: 1 / -1; }
 
 .anxnet-share .anxnet-actions { margin-top: 6px; }
+
+.anxnet-dns {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+}
+
+.anxnet-dns h4 {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.anxnet-dns p {
+  margin: 0;
+}

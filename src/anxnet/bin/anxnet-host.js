@@ -35,7 +35,7 @@ async function main() {
       listenPort: Number.isInteger(listenPort) ? listenPort : 47710,
       directInbound: settings.directInbound !== false,
       dnsHost: settings.dnsHost || "127.77.0.1",
-      dnsPort: Number.isInteger(settings.dnsPort) ? settings.dnsPort : 5353,
+      dnsPort: Number(argument("--dns-port", Number.isInteger(settings.dnsPort) ? settings.dnsPort : 5353)),
     },
     onStopped: () => setTimeout(() => process.exit(0), 50),
   });

@@ -69,6 +69,7 @@ const METHODS = {
   publish: (node, params) => node.publish(params || {}),
   unpublish: (node, params) => node.unpublish(String(params?.routeId || "")),
   setDirectInbound: (node, params) => { node.options.directInbound = params?.enabled !== false; return node.status(); },
+  setDnsEndpoint: (node, params) => node.setDnsEndpoint({ port: Number(params?.port) || 5353 }),
   testPeer: async (node, params) => {
     const started = Date.now();
     const peer = await node.ensurePeer(String(params?.deviceId || ""));

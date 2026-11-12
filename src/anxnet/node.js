@@ -476,6 +476,18 @@ class AnxNetNode extends EventEmitter {
     return null;
   }
 
+  // Move the resolver (for example to port 53 while OS name lookup is on).
+  async setDnsEndpoint({ host = this.options.dnsHost, port = this.options.dnsPort } = {}) {
+    if (!String(host).startsWith("127.")) throw error("ANXNET_DNS_LOOPBACK_ONLY", "The resolver only listens on loopback.", 400);
+    this.options.dnsHost = host;
+    this.options.dnsPort = Number(port);
+    await this.dns?.close().catch(() => {});
+    this.dns = null;
+    if (this.doc && roster.memberFor(this.doc, this.identity.deviceId) && this.options.enableDns) await this.ensureDns();
+    if (!this.dns) throw error("ANXNET_DNS_UNAVAILABLE", `The resolver couldn't listen on ${host}:${port}. Another program may be using it.`, 409);
+    return { host: this.dns.host, port: this.dns.port };
+  }
+
   async ensureDns() {
     const domain = this.doc.domain;
     if (this.dns) { this.dns.update({ domain, lookup: (name) => this.lookupName(name) }); return; }
