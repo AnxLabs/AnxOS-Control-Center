@@ -182,6 +182,14 @@ async function main() {
   lifecycleStates.set(TARGET_ID, { state: "Running", pid: 7777 });
   const previewRunning = await backupService.restoreBackup({ backupId: worldBackup.id, preview: true, targetInstanceId: TARGET_ID });
   assert.strictEqual(previewRunning.target.running, true, "Preview must report a running target.");
+  // The restore confirmation's presenter reads these real preview objects.
+  const presentRestorePreview = require(path.join(__dirname, "..", "src", "shared", "restorePreview.js")).describeRestorePreview;
+  const presentedSame = presentRestorePreview(previewSame);
+  assert.match(presentedSame.lines[0], /^Only the world is replaced/, "a real world-backup preview is presented as a world-only restore");
+  assert.ok(presentedSame.lines.some((line) => /safety copy/.test(line)), "the presented preview names the safety copy");
+  assert.deepStrictEqual(presentedSame.warnings, []);
+  assert.ok(presentRestorePreview(previewCross).lines.some((line) => /original server is not changed/.test(line)), "a real cross-instance preview says the source is untouched");
+  assert.deepStrictEqual(presentRestorePreview(previewRunning).warnings, ["The server is running. AnxOS stops it before restoring."], "a real running-target warning is presented in plain words");
   assert(previewRunning.conflict.warnings.includes("RESTORE_TARGET_RUNNING"), "Preview must warn that a running target would be stopped.");
   assert.deepStrictEqual(lifecycleMethodsFor(TARGET_ID), [], "Preview must never stop the running target.");
   lifecycleStates.set(TARGET_ID, { state: "Stopped", pid: null });

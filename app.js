@@ -13565,6 +13565,7 @@ const SERVICE_MANAGED_LOCKED_SELECTORS = Object.freeze([
   '[data-instance-backup-action="backup-now"]',
   '[data-instance-backup-action="restore"]',
   '[data-instance-backup-action="schedule"]',
+  '[data-instance-backup-action="import"]',
   '[data-restart-schedule-action="create"]',
   "[data-instance-console-command]",
   "[data-instance-console-form] button",
@@ -21977,7 +21978,7 @@ function handleInstanceBackupAction(action) {
     showToast("Select an instance first.");
     return;
   }
-  if (["backup-now", "restore", "schedule"].includes(action) && refuseServiceManagedAction(selectedInstance, "Backups")) {
+  if (["backup-now", "restore", "schedule", "import"].includes(action) && refuseServiceManagedAction(selectedInstance, "Backups")) {
     return;
   }
 
@@ -21989,6 +21990,9 @@ function handleInstanceBackupAction(action) {
     return;
   } else if (action === "schedule") {
     configureBackupSchedule(selectedInstance.id);
+    return;
+  } else if (action === "import") {
+    importBackupForInstance(selectedInstance.id);
     return;
   } else if (action === "history") {
     showToast("Opening shared backup history.");
@@ -22549,9 +22553,10 @@ async function restoreSelectedBackup(backupOverride = null) {
   if (!selected || !desktopApiState.hasBackups) {
     return;
   }
+  const previewMessage = await getRestorePreviewMessage(selected, requestContext);
   if (!(await confirmDestructiveAction({
     title: "Restore this backup?",
-    message: `${selected.name || selected.id} will replace the current instance data. Files created or changed since this backup was taken are overwritten. The instance may be stopped first, and AnxOS will create a safety snapshot before replacing files.`,
+    message: previewMessage || `${selected.name || selected.id} will replace the current instance data. Files created or changed since this backup was taken are overwritten. The instance may be stopped first, and AnxOS will create a safety snapshot before replacing files.`,
     confirmLabel: "Restore Backup",
   }))) {
     return;
@@ -22569,6 +22574,24 @@ async function restoreSelectedBackup(backupOverride = null) {
     await refreshBackups();
   } catch (error) {
     showToast(getBackupErrorMessage(error, "Backup restore failed."), "error");
+  }
+}
+
+// Asks the Agent for its read-only restore preview (nothing is stopped,
+// copied or replaced) and turns it into the confirmation text. Returns "" when
+// the preview is unavailable, so the caller keeps its generic wording.
+async function getRestorePreviewMessage(backup, requestContext) {
+  try {
+    const preview = await getDesktopApiState().api.backups.restore({ nodeId: requestContext.nodeId, backupId: backup.id, preview: true });
+    const described = AnxRestorePreview.describeRestorePreview(preview, { formatDate: formatDateTime });
+    if (!described) return "";
+    return [
+      `${backup.name || backup.id} will be restored.`,
+      ...described.lines,
+      ...(described.warnings.length ? ["", ...described.warnings] : []),
+    ].join("\n");
+  } catch {
+    return "";
   }
 }
 
@@ -22656,13 +22679,15 @@ async function downloadSelectedBackup() {
   }
 }
 
-async function importBackupForInstance() {
+async function importBackupForInstance(knownInstanceId = "") {
   const desktopApiState = getDesktopApiState();
   const requestContext = createNodeActionContext("backup-import");
   if (!desktopApiState.hasBackups) {
     return;
   }
-  const instanceId = await promptBackupText({
+  // From a server's Backups tab the server is known; the Backups page still
+  // asks which server should own the imported backup.
+  const instanceId = knownInstanceId || await promptBackupText({
     title: "Import Backup",
     message: "Enter the instance ID that should own the imported backup.",
     label: "Instance ID",
