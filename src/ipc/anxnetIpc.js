@@ -47,6 +47,7 @@ function registerAnxNetIpc() {
   write("anxnet:renameDevice", "anxnet.device.rename", (payload) => anxnet.renameDevice(String(payload.deviceId || ""), String(payload.name || "")));
   write("anxnet:setEdges", "anxnet.edges.set", (payload) => anxnet.setEdges({ relays: payload.relays, gateways: payload.gateways }));
   write("anxnet:setDirectInbound", "anxnet.settings.directInbound", (payload) => anxnet.setDirectInbound(payload.enabled !== false));
+  write("anxnet:setKeepRunning", "anxnet.settings.keepRunning", (payload) => anxnet.setKeepRunning(payload.enabled !== false));
   write("anxnet:shareService", "anxnet.service.share", (payload) => anxnet.shareService({
     name: payload.name,
     port: payload.port,
@@ -57,7 +58,7 @@ function registerAnxNetIpc() {
     instanceId: payload.instanceId,
   }));
   write("anxnet:unshareService", "anxnet.service.unshare", (payload) => anxnet.unshareService(String(payload.serviceId || "")));
-  write("anxnet:publishService", "anxnet.service.publish", (payload) => anxnet.publishService({ serviceId: String(payload.serviceId || ""), publicHost: payload.publicHost }));
+  write("anxnet:publishService", "anxnet.service.publish", (payload) => anxnet.publishService({ serviceId: String(payload.serviceId || ""), publicHost: payload.publicHost, game: typeof payload.game === "string" ? payload.game.slice(0, 40) : undefined }));
   write("anxnet:unpublishService", "anxnet.service.unpublish", (payload) => anxnet.unpublishService(String(payload.serviceId || "")));
   write("anxnet:testPeer", "anxnet.peer.test", (payload) => anxnet.testPeer(String(payload.deviceId || "")));
 }

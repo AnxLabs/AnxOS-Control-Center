@@ -213,6 +213,7 @@ const desktopApi = {
     renameDevice: (deviceId, name) => ipcRenderer.invoke("anxnet:renameDevice", { deviceId, name }),
     setEdges: (payload = {}) => ipcRenderer.invoke("anxnet:setEdges", payload),
     setDirectInbound: (enabled) => ipcRenderer.invoke("anxnet:setDirectInbound", { enabled }),
+    setKeepRunning: (enabled) => ipcRenderer.invoke("anxnet:setKeepRunning", { enabled }),
     shareService: (payload = {}) => ipcRenderer.invoke("anxnet:shareService", payload),
     unshareService: (serviceId) => ipcRenderer.invoke("anxnet:unshareService", { serviceId }),
     publishService: (serviceId, payload = {}) => ipcRenderer.invoke("anxnet:publishService", { ...payload, serviceId }),

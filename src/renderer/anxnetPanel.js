@@ -348,7 +348,8 @@
             confirmLabel: "Open to everyone",
           });
           if (!ok) return;
-          const published = await run("Publish", () => api().publishService(service.serviceId, {}));
+          const game = typeof getInstanceAccessGameKind === "function" ? getInstanceAccessGameKind(instance) || "" : "";
+          const published = await run("Publish", () => api().publishService(service.serviceId, { game }));
           if (!published) return;
           const test = published.test || {};
           const address = published.routes?.map((entry) => `${entry.publicHost}:${entry.publicPort} (${entry.protocol.toUpperCase()})`).join(", ");

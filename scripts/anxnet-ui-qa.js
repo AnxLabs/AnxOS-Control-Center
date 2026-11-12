@@ -19,6 +19,9 @@
 //      turning it off closes the public port
 //   U5 removing the device from the UI cuts its access
 //   U6 no renderer errors
+//   U7 AnxNet runs in its own background process: after the AnxOS window
+//      closes, a device still reaches the shared server (the host is shut
+//      down by the test afterwards)
 // Run: node scripts/anxnet-ui-qa.js
 
 const assert = require("assert");
@@ -32,6 +35,7 @@ const { startServiceManagedAgent } = require("./test-helpers/service-managed-age
 const { fakeMinecraftInstance } = require("./test-helpers/fake-minecraft-instance");
 const { AnxNetNode, fileStore } = require("../src/anxnet/node");
 const { AnxNetEdge } = require("../src/anxnet/edge");
+const { AnxNetHostClient } = require("../src/anxnet/hostClient");
 
 const root = path.resolve(__dirname, "..");
 const SERVER_ID = "survival-test";
@@ -60,6 +64,8 @@ function greeting(port, host, timeoutMs = 8000) {
     const socket = net.connect(port, host);
     const timer = setTimeout(() => { socket.destroy(); reject(new Error(`no answer from ${host}:${port}`)); }, timeoutMs);
     socket.on("error", (error) => { clearTimeout(timer); reject(error); });
+    // The stand-in server waits for the client to speak, like a real one.
+    socket.on("connect", () => socket.write("hi\n"));
     socket.on("data", (data) => { clearTimeout(timer); socket.destroy(); resolve(String(data).trim()); });
   });
 }
@@ -82,6 +88,7 @@ async function main() {
   const app = await electron.launch({ args: [`--user-data-dir=${userData}`, "--no-sandbox", root, "--qa-mode"], env });
   const errors = [];
   let friend = null;
+  let friend2 = null;
   let edge = null;
   const shot = (page, name) => page.screenshot({ path: path.join(artifacts, `${name}.png`) });
   try {
@@ -169,6 +176,7 @@ async function main() {
     await waitFor(page, () => (window.__toasts || []).some((text) => /Friends can join at|isn't confirmed/.test(text)), null, "publish result", 30000);
     const toast = await page.evaluate(() => window.__toasts.find((text) => /Friends can join at|isn't confirmed/.test(text)));
     assert.match(toast, /^Friends can join at 127\.0\.0\.1:459\d\d/, `only a passed test says friends can join (${toast})`);
+    assert.match(toast, /answered as a Minecraft server \(Paper 1\.21\.1, 0\/20 players\)/, "the readiness check spoke Minecraft's status protocol through the gateway");
     const publicPort = Number(/127\.0\.0\.1:(\d+)/.exec(toast)[1]);
     assert.strictEqual(await greeting(publicPort, "127.0.0.1"), "fake-minecraft", "a plain client without AnxNet reaches the server through the gateway");
     await waitFor(page, () => Boolean(document.querySelector(".anxnet-share")), null, "share dialog reopened");
@@ -192,11 +200,37 @@ async function main() {
 
     assert.deepStrictEqual(errors, [], "no renderer errors");
     console.log("PASS U6 no renderer errors");
-    await page.evaluate((id) => getDesktopApiState().api.instances.stop(id, getNodeScopedPayload(getNodeRequestContext("qa"))), SERVER_ID).catch(() => {});
-    console.log(`AnxNet UI QA passed (6 checks). Screenshots: ${artifacts}`);
+
+    // U7: a second device joins, then the window closes.
+    const status7 = await page.evaluate(() => getDesktopApiState().api.anxnet.status());
+    assert.strictEqual(status7.mode, "background", "AnxNet runs in its background process");
+    assert.ok(status7.host?.pid && status7.host.pid !== (await app.evaluate(() => process.pid)), "the host is not the app's process");
+    const invite7 = await page.evaluate(() => getDesktopApiState().api.anxnet.createInvite({ preApproved: true }));
+    friend2 = new AnxNetNode({ dataDir: path.join(temp, "friend2"), deviceName: "Friend 2", listenHost: "127.0.0.1", dnsPort: 0 });
+    await friend2.start();
+    await friend2.joinNetwork(invite7.code, { deviceName: "Friend 2" });
+    await until(() => friend2.status().forwards.some((forward) => forward.port === GAME_PORT), "friend 2 gets the server");
+    // Quit AnxOS. On Windows the detached host inherits Electron's stdout
+    // pipe, so Playwright's close() can wait on that pipe; wait for the
+    // Electron process itself to exit instead.
+    const electronPid = app.process().pid;
+    app.close().catch(() => {});
+    const exited = await new Promise((resolve) => { if (app.process().exitCode !== null) resolve(true); app.process().once("exit", () => resolve(true)); setTimeout(() => resolve(false), 30000); });
+    assert.ok(exited, `AnxOS (pid ${electronPid}) quit`);
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    assert.strictEqual(await greeting(GAME_PORT, ownerAddress), "fake-minecraft", "with AnxOS closed, the device still reaches the server");
+    console.log(`PASS U7 with the AnxOS window closed, AnxNet's background process (pid ${status7.host.pid}) still serves the shared server`);
+    console.log(`AnxNet UI QA passed (7 checks). Screenshots: ${artifacts}`);
   } finally {
     await app.close().catch(() => {});
     await friend?.stop().catch(() => {});
+    await friend2?.stop().catch(() => {});
+    // The background host outlives the app on purpose; stop it here.
+    try {
+      const hostClient = new AnxNetHostClient({ dataDir: path.join(qa.configDir, "anxnet"), spawnHost: false });
+      if (await hostClient.tryConnect()) await hostClient.call("shutdown").catch(() => {});
+      hostClient.disconnect();
+    } catch {}
     await edge?.stop().catch(() => {});
     await agent.stop().catch(() => {});
     try { qa.cleanup(); } catch {}

@@ -1,28 +1,38 @@
 "use strict";
 
-// Hosts this computer's AnxNet node in the desktop main process.
+// This computer's AnxNet, as seen from the desktop main process.
 //
-// - The node starts only when this computer is in an AnxNet network (or the
-//   user creates or joins one), so AnxOS opens no extra ports otherwise.
-// - The device key is encrypted with Electron safeStorage (machine-bound
-//   AES-GCM where safeStorage is unavailable), using the app's existing
-//   secure store helpers.
+// - AnxNet runs in its own background process (src/anxnet/host.js) by
+//   default, so networks, shared servers and public routes keep working
+//   while the Control Center window is closed. One host runs per data
+//   folder; the desktop connects to it, or starts it (detached, as the
+//   signed-in user, never as a system service). "backgroundService: false"
+//   in anxnet-settings.json runs the node in this process instead.
+// - The device key is encrypted with Electron safeStorage on disk and handed
+//   to the host in memory over its token-protected pipe.
+// - Nothing starts unless this computer is in a network or the user creates
+//   or joins one.
 // - Public exposure (a gateway route) needs the owner's explicit approval in
-//   the renderer and an owner-signed grant; this service never publishes on
-//   its own. Nothing here changes OS DNS, routing or firewall settings.
+//   the renderer and an owner-signed grant; nothing is published on its own.
+//   Nothing here changes OS DNS, routing or firewall settings (OS name lookup
+//   is a separate, approval-gated step: src/anxnet/dnsIntegration.js).
 
 const fs = require("fs");
 const net = require("net");
+const os = require("os");
 const path = require("path");
 const { EventEmitter } = require("events");
 
-const { AnxNetNode, fileStore } = require("../anxnet/node");
+const { AnxNetNode } = require("../anxnet/node");
+const { AnxNetHostClient } = require("../anxnet/hostClient");
+const { METHODS } = require("../anxnet/host");
+const identityLib = require("../anxnet/identity");
 const roster = require("../anxnet/roster");
 const { decryptPayload, encryptPayload, getDefaultConfigDirectory } = require("./secureSessionStore");
 
 const DEFAULT_PORT = 47710;
 const events = new EventEmitter();
-let node = null;
+let backend = null; // { mode, call(method, params), stop(), detach() }
 let starting = null;
 let settings = null;
 
@@ -37,7 +47,7 @@ function settingsPath() {
 function readSettings() {
   if (settings) return settings;
   try { settings = JSON.parse(fs.readFileSync(settingsPath(), "utf8")); } catch { settings = {}; }
-  settings = { listenHost: "0.0.0.0", listenPort: DEFAULT_PORT, directInbound: true, publicRoutes: {}, ...settings };
+  settings = { listenHost: "0.0.0.0", listenPort: DEFAULT_PORT, directInbound: true, backgroundService: true, keepRunningWhenClosed: true, publicRoutes: {}, ...settings };
   return settings;
 }
 
@@ -48,24 +58,22 @@ function writeSettings(next) {
   return settings;
 }
 
-// The device key, encrypted at rest.
-function encryptedKeyStore() {
+// The device key, encrypted at rest; created on first use.
+function devicePrivateKeyPem() {
   const file = path.join(dataDir(), "anxnet-device.key.json");
-  return {
-    read() {
-      try { return decryptPayload(JSON.parse(fs.readFileSync(file, "utf8")), file); } catch { return null; }
-    },
-    write(text) {
-      fs.mkdirSync(path.dirname(file), { recursive: true });
-      fs.writeFileSync(file, JSON.stringify(encryptPayload(text, file)), { mode: 0o600 });
-    },
-  };
+  try {
+    const pem = decryptPayload(JSON.parse(fs.readFileSync(file, "utf8")), file);
+    if (pem) return pem;
+  } catch {}
+  const identity = identityLib.createIdentity();
+  const pem = identity.privateKey.export({ format: "pem", type: "pkcs8" });
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(encryptPayload(pem, file)), { mode: 0o600 });
+  return pem;
 }
 
 function hasNetwork() {
-  return fs.existsSync(path.join(dataDir(), "anxnet-state.json")) && (() => {
-    try { return Boolean(JSON.parse(fs.readFileSync(path.join(dataDir(), "anxnet-state.json"), "utf8")).network); } catch { return false; }
-  })();
+  try { return Boolean(JSON.parse(fs.readFileSync(path.join(dataDir(), "anxnet-state.json"), "utf8")).network); } catch { return false; }
 }
 
 function portFree(port) {
@@ -76,207 +84,300 @@ function portFree(port) {
   });
 }
 
-async function ensureNode() {
-  if (node?.started) return node;
+async function nodeOptions() {
+  const current = readSettings();
+  // A fixed port keeps invite codes valid across restarts; fall back to any
+  // free port if another program holds it.
+  const listenPort = current.listenPort && (await portFree(current.listenPort)) ? current.listenPort : 0;
+  return {
+    listenPort,
+    // "0.0.0.0" lets devices on the LAN connect directly (Windows may ask once
+    // to allow it through the firewall); "127.0.0.1" keeps AnxNet on this
+    // computer only.
+    listenHost: ["0.0.0.0", "127.0.0.1"].includes(current.listenHost) ? current.listenHost : "0.0.0.0",
+    directInbound: current.directInbound !== false,
+    deviceName: os.hostname(),
+  };
+}
+
+async function startHostBackend() {
+  const options = await nodeOptions();
+  const client = new AnxNetHostClient({
+    dataDir: dataDir(),
+    hostArgs: ["--listen-host", options.listenHost, "--listen-port", String(options.listenPort)],
+  });
+  await client.connect();
+  await client.call("unlock", { keyPem: devicePrivateKeyPem() });
+  await client.call("subscribe");
+  client.on("change", () => events.emit("change"));
+  client.on("pending", (entry) => events.emit("pending", entry));
+  client.on("disconnected", () => { if (backend?.client === client) backend = null; events.emit("change"); });
+  return {
+    mode: "background",
+    client,
+    call: (method, params) => client.call(method, params),
+    stop: async () => { await client.call("shutdown").catch(() => {}); client.disconnect(); },
+    detach: () => client.disconnect(),
+  };
+}
+
+async function startInProcessBackend() {
+  const pem = devicePrivateKeyPem();
+  const node = new AnxNetNode({ ...(await nodeOptions()), dataDir: dataDir(), keyStore: { read: () => pem, write: () => {} } });
+  node.on("change", () => events.emit("change"));
+  node.on("pending", (entry) => events.emit("pending", entry));
+  await node.start();
+  return {
+    mode: "in-app",
+    node,
+    call: async (method, params) => {
+      const handler = METHODS[method];
+      if (!handler) throw roster.error("ANXNET_HOST_METHOD", "Unknown method.");
+      return handler(node, params);
+    },
+    stop: () => node.stop(),
+    detach: () => node.stop(),
+  };
+}
+
+async function ensureBackend() {
+  if (backend) return backend;
   if (starting) return starting;
   starting = (async () => {
-    const current = readSettings();
-    // A fixed port keeps invite codes valid across restarts; fall back to any
-    // free port if another program holds it.
-    const listenPort = current.listenPort && (await portFree(current.listenPort)) ? current.listenPort : 0;
-    const created = new AnxNetNode({
-      dataDir: dataDir(),
-      keyStore: encryptedKeyStore(),
-      listenPort,
-      // "0.0.0.0" lets devices on the LAN connect directly (Windows may ask
-      // once to allow it through the firewall); "127.0.0.1" keeps AnxNet on
-      // this computer only.
-      listenHost: ["0.0.0.0", "127.0.0.1"].includes(current.listenHost) ? current.listenHost : "0.0.0.0",
-      directInbound: current.directInbound !== false,
-      deviceName: require("os").hostname(),
-    });
-    created.on("change", () => events.emit("change"));
-    created.on("pending", (entry) => events.emit("pending", entry));
-    created.on("warning", (warning) => events.emit("warning", warning));
-    await created.start();
-    node = created;
-    return node;
+    if (readSettings().backgroundService !== false) {
+      try {
+        backend = await startHostBackend();
+        return backend;
+      } catch (error) {
+        // Never leave the user without AnxNet because the helper couldn't
+        // start: run it in this process and say so.
+        events.emit("warning", { code: error.code || "ANXNET_HOST_START_FAILED", message: `AnxNet's background process couldn't start (${error.message}); running inside AnxOS instead.` });
+      }
+    }
+    backend = await startInProcessBackend();
+    return backend;
   })().finally(() => { starting = null; });
   return starting;
 }
 
-// Called at app start: resume only if this computer is in a network.
+// At app start: connect to (or start) AnxNet only if this computer is in a
+// network.
 async function resume() {
   if (!hasNetwork()) return null;
-  return ensureNode().then(() => status()).catch((error) => {
+  try {
+    await ensureBackend();
+    await republishRoutes();
+    return status();
+  } catch (error) {
     events.emit("warning", { code: error.code || "ANXNET_START_FAILED", message: error.message });
     return null;
-  });
+  }
 }
 
+// At app quit: the background process keeps running unless the user turned
+// that off; an in-app node always stops with the app.
 async function shutdown() {
-  if (node) await node.stop().catch(() => {});
-  node = null;
-}
-
-function status() {
-  if (!node) return { running: false, network: null, settings: publicSettings() };
-  return { running: true, ...node.status(), settings: publicSettings() };
+  if (!backend) return;
+  const current = backend;
+  backend = null;
+  if (current.mode === "background" && readSettings().keepRunningWhenClosed !== false) current.detach();
+  else await current.stop().catch(() => {});
 }
 
 function publicSettings() {
   const current = readSettings();
-  return { listenPort: current.listenPort, directInbound: current.directInbound !== false };
+  return {
+    listenPort: current.listenPort,
+    directInbound: current.directInbound !== false,
+    backgroundService: current.backgroundService !== false,
+    keepRunningWhenClosed: current.keepRunningWhenClosed !== false,
+  };
+}
+
+async function status() {
+  if (!backend) return { running: false, mode: null, network: null, settings: publicSettings() };
+  try {
+    const nodeStatus = await backend.call("status");
+    let usage = null;
+    if (backend.mode === "background") usage = await backend.call("usage").catch(() => null);
+    return { running: true, mode: backend.mode, ...nodeStatus, host: usage ? { pid: usage.pid, uptimeSeconds: usage.uptimeSeconds, rssMb: Math.round(usage.rss / 1048576) } : null, settings: publicSettings() };
+  } catch (error) {
+    return { running: false, mode: backend?.mode || null, network: null, error: error.message, settings: publicSettings() };
+  }
+}
+
+async function call(method, params) {
+  return (await ensureBackend()).call(method, params);
+}
+
+async function requireNetwork() {
+  if (!backend && !hasNetwork()) throw roster.error("ANXNET_NOT_RUNNING", "This computer isn't in an AnxNet network yet.", 409);
+  return ensureBackend();
 }
 
 async function createNetwork(input = {}) {
-  const active = await ensureNode();
-  await active.createNetwork({ name: input.name || undefined, deviceName: input.deviceName || undefined });
+  await call("createNetwork", { name: input.name || undefined, deviceName: input.deviceName || undefined });
   return status();
 }
 
 async function joinNetwork(input = {}) {
-  const active = await ensureNode();
-  const result = await active.joinNetwork(String(input.code || ""), { deviceName: input.deviceName || undefined });
-  return { ...status(), pendingApproval: Boolean(result.pendingApproval) };
+  const result = await call("joinNetwork", { code: String(input.code || ""), deviceName: input.deviceName || undefined });
+  return { ...(await status()), pendingApproval: Boolean(result.pendingApproval) };
 }
 
 async function leaveNetwork() {
-  if (!node) return { left: false };
-  for (const routeId of Object.keys(readSettings().publicRoutes || {})) await node.unpublish(routeId).catch(() => {});
+  if (!backend && !hasNetwork()) return { left: false };
+  const active = await ensureBackend();
+  for (const routeId of Object.keys(readSettings().publicRoutes || {})) await active.call("unpublish", { routeId }).catch(() => {});
   writeSettings({ publicRoutes: {} });
-  const result = await node.leaveNetwork();
-  await shutdown();
+  const result = await active.call("leaveNetwork");
+  backend = null;
+  await active.stop().catch(() => {});
   return result;
 }
 
-function requireNode() {
-  if (!node) throw roster.error("ANXNET_NOT_RUNNING", "This computer isn't in an AnxNet network yet.", 409);
-  return node;
-}
-
 function createInvite(input = {}) {
-  return requireNode().createInvite({ ttlMs: Number(input.ttlMinutes || 60) * 60 * 1000, maxUses: Number(input.maxUses || 1), preApproved: input.preApproved === true, label: input.label });
+  return requireNetwork().then((active) => active.call("createInvite", { ttlMs: Number(input.ttlMinutes || 60) * 60 * 1000, maxUses: Number(input.maxUses || 1), preApproved: input.preApproved === true, label: input.label }));
 }
 
-const ownerAction = (method) => async (...args) => { const result = await requireNode()[method](...args); return { result, status: status() }; };
+const ownerAction = (method, toParams) => async (...args) => {
+  const active = await requireNetwork();
+  const result = await active.call(method, toParams(...args));
+  return { result, status: await status() };
+};
 
-// Share a server through AnxNet for invited devices. The target must answer
-// from this computer before anything is shared.
-async function shareService(input = {}) {
-  const active = requireNode();
-  const port = Number(input.port);
-  const targetHost = String(input.targetHost || "127.0.0.1");
-  const targetPort = Number(input.targetPort || port);
-  const reachable = await new Promise((resolve) => {
+async function serviceTargetReachable(targetHost, targetPort) {
+  return new Promise((resolve) => {
     const socket = net.connect(targetPort, targetHost);
     const timer = setTimeout(() => { socket.destroy(); resolve(false); }, 3000);
     socket.once("connect", () => { clearTimeout(timer); socket.destroy(); resolve(true); });
     socket.once("error", () => { clearTimeout(timer); resolve(false); });
   });
-  if (!reachable && input.protocol !== "udp") {
+}
+
+// Share a server through AnxNet for invited devices. The target must answer
+// from this computer before anything is shared.
+async function shareService(input = {}) {
+  const active = await requireNetwork();
+  const port = Number(input.port);
+  const targetHost = String(input.targetHost || "127.0.0.1");
+  const targetPort = Number(input.targetPort || port);
+  if (input.protocol !== "udp" && !(await serviceTargetReachable(targetHost, targetPort))) {
     throw roster.error("ANXNET_TARGET_UNREACHABLE", `This computer can't reach the server at ${targetHost}:${targetPort}. Start the server first. AnxNet on this computer can share servers running here or on this computer's network.`, 409);
   }
-  const service = await active.shareService({ name: input.name, port, protocol: input.protocol, targetHost, targetPort, allow: input.allow, instanceId: input.instanceId });
-  return { service, status: status() };
+  const service = await active.call("shareService", { name: input.name, port, protocol: input.protocol, targetHost, targetPort, allow: input.allow, instanceId: input.instanceId });
+  return { service, status: await status() };
 }
 
 async function unshareService(serviceId) {
-  const active = requireNode();
+  const active = await requireNetwork();
   const routes = readSettings().publicRoutes || {};
   for (const [routeId, route] of Object.entries(routes)) {
-    if (route.serviceId === serviceId) { await active.unpublish(routeId).catch(() => {}); delete routes[routeId]; }
+    if (route.serviceId === serviceId) { await active.call("unpublish", { routeId }).catch(() => {}); delete routes[routeId]; }
   }
   writeSettings({ publicRoutes: routes });
-  await active.unshareService(serviceId);
-  return { removed: true, status: status() };
+  await active.call("unshareService", { serviceId });
+  return { removed: true, status: await status() };
+}
+
+async function publishRoutes(active, nodeStatus, serviceId, publicHost) {
+  const gateway = nodeStatus.network?.gateways?.[0];
+  if (!gateway) throw roster.error("ANXNET_NO_GATEWAY", "This network has no AnxNet gateway yet. Anyone-can-join needs a gateway on a server with a public address (see Relay and gateway).", 409);
+  const service = (nodeStatus.services || []).find((entry) => entry.serviceId === serviceId);
+  if (!service) throw roster.error("ANXNET_SERVICE_NOT_FOUND", "Share the server with your network first.", 404);
+  const routes = [];
+  for (const protocol of service.protocol === "both" ? ["tcp", "udp"] : [service.protocol]) {
+    const signed = await active.call("signGatewayGrant", { serviceId, protocol, gatewayFingerprint: gateway.fingerprint });
+    routes.push(await active.call("publish", { gateway: { ...gateway, publicHost: publicHost || gateway.host }, ...signed }));
+  }
+  return { routes, service };
 }
 
 // "Anyone can join": publish a shared service on the network's gateway. The
-// renderer asks the owner first; this signs the grant (owner only) and opens
-// the route, then tests it from this computer.
+// renderer asks the owner first; then the route is tested from this computer
+// before anything says friends can join.
 async function publishService(input = {}) {
-  const active = requireNode();
-  const doc = active.doc;
-  const gateway = doc?.gateways?.[0];
-  if (!gateway) throw roster.error("ANXNET_NO_GATEWAY", "This network has no AnxNet gateway yet. Anyone-can-join needs a gateway on a server with a public address (see Relay and gateway).", 409);
-  const service = doc.services.find((entry) => entry.serviceId === input.serviceId);
-  if (!service) throw roster.error("ANXNET_SERVICE_NOT_FOUND", "Share the server with your network first.", 404);
-  const protocols = service.protocol === "both" ? ["tcp", "udp"] : [service.protocol];
-  const routes = [];
-  for (const protocol of protocols) {
-    const signed = active.signGatewayGrant({ serviceId: service.serviceId, protocol, gatewayFingerprint: gateway.fingerprint });
-    const route = await active.publish({ gateway: { ...gateway, publicHost: input.publicHost || gateway.host }, ...signed });
-    routes.push(route);
-  }
+  const active = await requireNetwork();
+  const nodeStatus = await active.call("status");
+  const { routes, service } = await publishRoutes(active, nodeStatus, String(input.serviceId || ""), input.publicHost);
   const stored = readSettings().publicRoutes || {};
   routes.forEach((route) => { stored[route.routeId] = { serviceId: route.serviceId, protocol: route.protocol, publicHost: route.publicHost, publicPort: route.publicPort }; });
   writeSettings({ publicRoutes: stored });
-  const test = await testPublicRoute(routes.find((route) => route.protocol === "tcp") || routes[0]);
-  return { routes, test, status: status() };
+  const tcpRoute = routes.find((route) => route.protocol === "tcp");
+  const test = await require("../anxnet/readiness").testPublicRoute(tcpRoute || routes[0], { game: input.game, minecraft: /minecraft/i.test(`${service.name} ${input.game || ""}`) });
+  return { routes, test, status: await status() };
+}
+
+// After a restart, routes saved as on are opened again (with fresh grants).
+async function republishRoutes() {
+  const stored = readSettings().publicRoutes || {};
+  const serviceIds = [...new Set(Object.values(stored).map((route) => route.serviceId))];
+  if (!serviceIds.length) return;
+  const active = await ensureBackend();
+  const nodeStatus = await active.call("status");
+  const live = new Set((nodeStatus.publicRoutes || []).map((route) => route.serviceId));
+  const next = {};
+  for (const serviceId of serviceIds) {
+    if (live.has(serviceId)) { Object.entries(stored).filter(([, route]) => route.serviceId === serviceId).forEach(([id, route]) => { next[id] = route; }); continue; }
+    try {
+      const { routes } = await publishRoutes(active, nodeStatus, serviceId);
+      routes.forEach((route) => { next[route.routeId] = { serviceId, protocol: route.protocol, publicHost: route.publicHost, publicPort: route.publicPort }; });
+    } catch (error) {
+      events.emit("warning", { code: error.code || "ANXNET_REPUBLISH_FAILED", message: `A public route couldn't be reopened: ${error.message}` });
+    }
+  }
+  writeSettings({ publicRoutes: next });
 }
 
 async function unpublishService(serviceId) {
-  const active = requireNode();
+  const active = await requireNetwork();
   const stored = readSettings().publicRoutes || {};
   for (const [routeId, route] of Object.entries(stored)) {
-    if (route.serviceId === serviceId) { await active.unpublish(routeId).catch(() => {}); delete stored[routeId]; }
+    if (route.serviceId === serviceId) { await active.call("unpublish", { routeId }).catch(() => {}); delete stored[routeId]; }
   }
   writeSettings({ publicRoutes: stored });
-  return { removed: true, status: status() };
-}
-
-// Connect to the public address through the gateway and keep the
-// connection briefly: a gateway that couldn't reach the game closes it.
-// This checks the path from this computer only; a friend's network may
-// still block it.
-function testPublicRoute(route) {
-  if (!route || route.protocol !== "tcp") return Promise.resolve({ tested: false, reason: "UDP routes can't be confirmed without a game client." });
-  return new Promise((resolve) => {
-    const socket = net.connect(route.publicPort, route.publicHost);
-    let settled = false;
-    const done = (result) => { if (!settled) { settled = true; socket.destroy(); resolve(result); } };
-    socket.once("error", (error) => done({ tested: true, ok: false, reason: `Couldn't connect to ${route.publicHost}:${route.publicPort} (${error.code || error.message}).` }));
-    socket.once("close", () => done({ tested: true, ok: false, reason: "The gateway accepted the connection but couldn't reach the server." }));
-    socket.once("connect", () => setTimeout(() => done({ tested: true, ok: true, reason: `${route.publicHost}:${route.publicPort} reached the server through the gateway (tested from this computer).` }), 1500));
-    setTimeout(() => done({ tested: true, ok: false, reason: "No answer from the gateway." }), 8000);
-  });
+  return { removed: true, status: await status() };
 }
 
 async function testPeer(deviceId) {
-  const active = requireNode();
-  const started = Date.now();
-  const peer = await active.ensurePeer(String(deviceId || ""));
-  return { ok: true, path: peer.path, connectMs: Date.now() - started, latencyMs: peer.latencyMs, status: status() };
+  const active = await requireNetwork();
+  const result = await active.call("testPeer", { deviceId: String(deviceId || "") });
+  return { ok: true, ...result, status: await status() };
 }
 
 async function setDirectInbound(enabled) {
   writeSettings({ directInbound: enabled !== false });
-  if (node) node.options.directInbound = enabled !== false;
+  if (backend) await backend.call("setDirectInbound", { enabled: enabled !== false }).catch(() => {});
+  return status();
+}
+
+async function setKeepRunning(enabled) {
+  writeSettings({ keepRunningWhenClosed: enabled !== false });
   return status();
 }
 
 module.exports = {
-  approveDevice: ownerAction("approveDevice"),
+  approveDevice: ownerAction("approveDevice", (deviceId) => ({ deviceId })),
   createInvite,
   createNetwork,
+  dataDir,
   events,
   joinNetwork,
   leaveNetwork,
   publishService,
-  rejectDevice: ownerAction("rejectDevice"),
-  renameDevice: ownerAction("renameDevice"),
-  renameNetwork: ownerAction("renameNetwork"),
+  rejectDevice: ownerAction("rejectDevice", (deviceId) => ({ deviceId })),
+  renameDevice: ownerAction("renameDevice", (deviceId, name) => ({ deviceId, name })),
+  renameNetwork: ownerAction("renameNetwork", (name) => ({ name })),
   resume,
-  revokeDevice: ownerAction("revokeDevice"),
-  revokeInvite: ownerAction("revokeInvite"),
+  revokeDevice: ownerAction("revokeDevice", (deviceId) => ({ deviceId })),
+  revokeInvite: ownerAction("revokeInvite", (inviteId) => ({ inviteId })),
   setDirectInbound,
-  setEdges: ownerAction("setEdges"),
+  setEdges: ownerAction("setEdges", (edges) => edges),
+  setKeepRunning,
   shareService,
   shutdown,
   status,
   testPeer,
   unpublishService,
   unshareService,
-  _test: { dataDir, fileStore, testPublicRoute },
 };

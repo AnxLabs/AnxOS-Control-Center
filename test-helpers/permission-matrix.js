@@ -643,7 +643,7 @@ const IPC_FAMILIES = [
       // AnxNet (Phase 6): network changes, sharing and public routes.
       "anxnet:createNetwork", "anxnet:joinNetwork", "anxnet:leaveNetwork", "anxnet:renameNetwork",
       "anxnet:createInvite", "anxnet:revokeInvite", "anxnet:approveDevice", "anxnet:rejectDevice",
-      "anxnet:revokeDevice", "anxnet:renameDevice", "anxnet:setEdges", "anxnet:setDirectInbound",
+      "anxnet:revokeDevice", "anxnet:renameDevice", "anxnet:setEdges", "anxnet:setDirectInbound", "anxnet:setKeepRunning",
       "anxnet:shareService", "anxnet:unshareService", "anxnet:publishService", "anxnet:unpublishService",
       "anxnet:testPeer"],
   },

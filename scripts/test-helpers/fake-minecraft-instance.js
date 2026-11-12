@@ -8,9 +8,26 @@
 function fakeServerSource(softwareLabel, port) {
   return `const SOFTWARE_LABEL = ${JSON.stringify(softwareLabel)};
 const readline = require("readline");
-// Answers on the game port like a server would (one greeting line, then
-// echo), so sharing and network tests have something to reach.
-require("net").createServer((socket) => { socket.on("error", () => {}); socket.write("fake-minecraft\\n"); socket.on("data", (data) => socket.write(data)); }).on("error", () => {}).listen(${Number(port)}, "127.0.0.1");
+// The game port: answers a Minecraft Server List Ping (handshake + status
+// request) with a status like a real server; any other first message gets
+// "fake-minecraft" and is then echoed, for plain connectivity tests.
+const varint = (value) => { const out = []; do { let byte = value & 0x7f; value >>>= 7; if (value) byte |= 0x80; out.push(byte); } while (value); return Buffer.from(out); };
+require("net").createServer((socket) => {
+  socket.on("error", () => {});
+  let mode = null;
+  socket.on("data", (data) => {
+    // A Minecraft handshake starts with a short packet length, then packet id 0.
+    if (mode === null) mode = data.length >= 3 && data[0] < 0x80 && data[0] + 1 <= data.length && data[1] === 0x00 ? "status" : "echo";
+    if (mode === "status") {
+      const json = Buffer.from(JSON.stringify({ version: { name: "Paper 1.21.1", protocol: 767 }, players: { online: 0, max: 20 }, description: { text: "AnxOS test server" } }));
+      const body = Buffer.concat([varint(0), varint(json.length), json]);
+      socket.end(Buffer.concat([varint(body.length), body]));
+      return;
+    }
+    if (!socket.greeted) { socket.greeted = true; socket.write("fake-minecraft\\n"); return; }
+    socket.write(data);
+  });
+}).on("error", () => {}).listen(${Number(port)}, "127.0.0.1");
 const stamp = () => new Date().toTimeString().slice(0, 8);
 const log = (level, message) => console.log("[" + stamp() + " " + level + "]: " + message);
 log("INFO", "Starting minecraft server version 1.21.1");
