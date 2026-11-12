@@ -20,7 +20,7 @@ part can and cannot do.
 | Identity | The Agent has `deviceIdentityService` (deviceId, installation id, generation) and `enrollmentService` (nonce, scoped enrollment, revocation). | The same ideas: stable device id, short-lived single-use secrets, revocation by generation. |
 | Secrets | `secureSessionStore` uses Electron `safeStorage`. | The AnxNet device key is stored through `safeStorage` on the desktop. |
 | SSH | Host-key approval, unattended key-only rule, restricted monitoring credentials. | Untouched. AnxNet never uses SSH credentials. |
-| Crypto available | Node 24 / OpenSSL 3.5: TLS 1.3, Ed25519, X25519, ChaCha20-Poly1305, HKDF. No X.509 builder in direct dependencies. | Used as is; no new dependency. |
+| Crypto available | Node 24 / OpenSSL 3.5: TLS 1.3, Ed25519, X25519, HKDF, AES-GCM. Electron 43 uses BoringSSL: Ed25519 TLS works only with explicit `sigalgs`, and ChaCha20-Poly1305 isn't exposed. No X.509 builder in direct dependencies. | Used as is; no new dependency. Both runtimes are tested. |
 | WireGuard | Not installed. A WireGuard interface needs admin rights and changes OS routing and DNS. | Not used yet; see section 9. |
 
 ## 2. Shape
@@ -125,7 +125,9 @@ its version is newer than the one it holds.
     key together with both device ids and the network id, using its
     roster-pinned Ed25519 key.
   - **Keys:** HKDF-SHA256 over the shared secret and the transcript gives one
-    ChaCha20-Poly1305 key per direction.
+    AES-256-GCM key per direction. ChaCha20-Poly1305 was the first choice,
+    but Electron's BoringSSL doesn't expose it, so AES-GCM is used in both
+    runtimes.
   - **Nonces and replay:** a 64-bit counter nonce with a 2048-packet replay
     window.
   - **Rekeying:** after 2^32 packets or 10 minutes.
