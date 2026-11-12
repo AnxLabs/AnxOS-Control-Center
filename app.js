@@ -14736,8 +14736,17 @@ function formatInstanceCommandForDisplay(instance) {
   return parts.length ? parts.map(quoteCommandPartForDisplay).join(" ") : "Unavailable";
 }
 
+// Known Agent failure codes read as a plain cause and the next step; unknown
+// codes and free-text reasons are shown as before.
+function describeServerFailureCode(code) {
+  const explained = AnxServerFailures.explainServerFailure(code);
+  return explained ? `${explained.title}. ${explained.fix}` : "";
+}
+
 function getInstanceFailureReason(instance) {
   const serviceManagedReason = isServiceManagedInstance(instance) ? describeServiceManagedFailure(instance?.failureReason) : "";
+  const explainedReason = serviceManagedReason ? "" : describeServerFailureCode(instance?.failureReason);
+  if (explainedReason) return explainedReason;
   return formatInstanceValue(
     serviceManagedReason ||
     instance?.failureReason ||
@@ -34277,7 +34286,7 @@ function renderConsoleActivity(instance) {
     ["Updated", instance?.updatedAt],
     ["Last started", instance?.lastStartedAt],
     ["Last stopped", instance?.lastStoppedAt],
-    ["Failure", instance?.failureReason],
+    ["Failure", describeServerFailureCode(instance?.failureReason) || instance?.failureReason],
   ].filter(([, value]) => value);
 
   if (!instance || events.length === 0) {

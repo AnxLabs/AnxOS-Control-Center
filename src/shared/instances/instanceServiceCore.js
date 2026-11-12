@@ -26,6 +26,7 @@ const {
 
 const serviceManagedRuntime = require("./serviceManagedRuntime");
 const serviceManagedOperations = require("./serviceManagedOperations");
+const serverFailures = require("./serverFailures");
 
 let runtimeConfigProvider = () => ({
   instanceRoot: process.env.AGENT_INSTANCE_ROOT || path.join(process.cwd(), "instances"),
@@ -3770,6 +3771,21 @@ async function validateNeoForgeRuntimeFiles(config) {
   };
 }
 
+// Records a common startup failure (port taken, out of memory, disk full)
+// recognised in the server's own output. Port and disk failures only count
+// before the server reports ready, so a later log line cannot block restarts
+// for an unrelated crash; out-of-memory counts at any time but never blocks
+// restarts (restart policy and crash-loop protection decide).
+function noteCommonServerFailure(entry, text) {
+  if (!entry || entry.requestedStop) return null;
+  const failure = serverFailures.classifyServerOutput(text);
+  if (!failure) return null;
+  if (failure.code !== "OUT_OF_MEMORY" && entry.readinessState === "ready") return null;
+  entry.failureReason = entry.failureReason || failure.code;
+  if (failure.suppressRestart) entry.suppressRestart = true;
+  return failure;
+}
+
 function classifyNeoForgeRuntimeOutput(text = "") {
   const match = String(text || "").match(/(?:could not open|No such file or directory).*?`?((?:\.\/)?libraries\/net\/neoforged\/neoforge\/([^\/\s'`]+)\/unix_args\.txt)'?/i);
   if (!match) {
@@ -6072,6 +6088,7 @@ async function startInstanceImpl(instanceId, options = {}) {
     const text = String(chunk || "");
     appendLog(config.id, "stdout", chunk, { correlationId: runCorrelationId }).catch(() => {});
     appendProcessTail(runningProcesses.get(config.id), "stdout", chunk);
+    noteCommonServerFailure(runningProcesses.get(config.id), text);
     if (isFiveMInstance(config) && FIVEM_LICENSE_FAILURE_PATTERN.test(text)) {
       const entry = runningProcesses.get(config.id);
       if (entry) {
@@ -6104,6 +6121,7 @@ async function startInstanceImpl(instanceId, options = {}) {
     appendLog(config.id, "stderr", chunk, { correlationId: runCorrelationId }).catch(() => {});
     const entry = runningProcesses.get(config.id);
     appendProcessTail(entry, "stderr", chunk);
+    noteCommonServerFailure(entry, text);
     const benignPalworldStderr = isBenignPalworldStderrOutput(config, text, {
       requestedStop: Boolean(entry?.requestedStop),
     });
@@ -7726,6 +7744,7 @@ function refuseForServiceManaged(operation, fn) {
 }
 
 module.exports = {
+  noteCommonServerFailure,
   _test: {
     jobLifecycle,
     detectInstanceVersion,
