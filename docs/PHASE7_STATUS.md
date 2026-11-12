@@ -1,6 +1,7 @@
 # Phase 7 status: phone companion (mobile adaptation)
 
 Last update: 2026-11-12. Builds on the Phase 6.1 checkpoint (`27f62a1f`).
+Implementation commit: `6dec0139` (local, not pushed).
 Plan and architecture: [PHASE7_MOBILE_PLAN.md](PHASE7_MOBILE_PLAN.md).
 
 ## What exists now
