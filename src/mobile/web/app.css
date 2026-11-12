@@ -123,7 +123,7 @@ a { color: var(--accent-strong); }
   grid-template-columns: repeat(5, 1fr);
   height: calc(var(--tabbar-h) + var(--safe-bottom));
   padding-bottom: var(--safe-bottom);
-  background: rgba(13, 11, 19, 0.98);
+  background: #0d0b13;
   border-top: 1px solid var(--line);
 }
 
@@ -514,7 +514,7 @@ a { color: var(--accent-strong); }
 /* Short landscape screens: a slimmer bar and a shorter console. */
 @media (orientation: landscape) and (max-height: 500px) {
   :root { --tabbar-h: 50px; }
-  .tabbar__item { grid-auto-flow: column; gap: 6px; }
+  .tabbar__item { display: flex; align-items: center; justify-content: center; gap: 6px; }
   .console { height: 60vh; height: 60dvh; }
   .tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }

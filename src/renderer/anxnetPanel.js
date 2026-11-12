@@ -94,7 +94,14 @@
       try {
         agentStates.set(node.id, unwrap(await api().agentStatus(node.id), "Unavailable"));
       } catch (error) {
-        agentStates.set(node.id, { error: /not found|404|NOT_FOUND/i.test(error?.message || "") ? "This computer's Agent is older and can't run AnxNet yet. Update the Agent to add it." : error?.message || "Unavailable" });
+        const message = String(error?.message || "").replace(/^Error invoking remote method '[^']+': (?:Error: )?/, "");
+        agentStates.set(node.id, {
+          error: /AGENT_UNAVAILABLE|ECONNREFUSED|ETIMEDOUT|unreachable|unavailable/i.test(message)
+            ? "Can't reach this computer's Agent right now."
+            : /not found|404|NOT_FOUND/i.test(message)
+              ? "This computer's Agent is older and can't run AnxNet yet. Update the Agent to add it."
+              : message.replace(/^[A-Z_]+: /, "") || "Unavailable",
+        });
       }
     }
   }
