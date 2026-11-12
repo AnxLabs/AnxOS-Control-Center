@@ -2560,6 +2560,7 @@ function openDashboardInstanceDetails(instanceId) {
   // navigate to, selected the same way.
   showPage("instances");
   selectInstance(instanceId);
+  window.AnxServerView?.open(instanceId, "overview");
 }
 
 function renderFriendlyDashboard() {
@@ -14208,19 +14209,10 @@ async function openInstanceShortcut(shortcut) {
 }
 
 function renderInstanceBackupProfile(profile) {
-  if (instanceBackupTitle) {
-    instanceBackupTitle.textContent = profile?.backupTitle || "Instance Backups";
-  }
+  // Phase 5: plain wording; the list itself is drawn by src/renderer/serverBackups.js.
+  if (instanceBackupTitle) instanceBackupTitle.textContent = "Backups";
   if (instanceBackupDescription) {
-    instanceBackupDescription.textContent = profile?.backupDescription || "Use the shared backup system for this instance.";
-  }
-  if (instanceBackupEmptyTitle) {
-    instanceBackupEmptyTitle.textContent = profile?.id === "minecraft" ? "Minecraft backup history" : "Backup history is shared";
-  }
-  if (instanceBackupEmptyMessage) {
-    instanceBackupEmptyMessage.textContent = profile?.id === "minecraft"
-      ? "Use Backup Now or open the Backups page for configured schedules and restore history."
-      : "Open the Backups page to view configured local backup paths.";
+    instanceBackupDescription.textContent = profile?.backupDescription || "Copies of this server's files you can go back to.";
   }
 }
 
@@ -14545,6 +14537,8 @@ function setActiveInstanceTab(tabName) {
   try {
     window.localStorage.setItem(INSTANCE_TAB_STORAGE_KEY, activeInstanceTab);
   } catch {}
+  window.AnxServerView?.syncTabs(activeInstanceTab);
+  if (activeInstanceTab === "overview") window.AnxServerView?.render(findInstance());
 
   if (activeInstanceTab === "console") {
     refreshInstanceLogs({ silent: true });
@@ -14561,6 +14555,7 @@ function setActiveInstanceTab(tabName) {
   } else if (activeInstanceTab === "settings") {
     stopInstanceConsolePolling();
     loadGameServerConfig();
+    refreshRestartSchedules({ silent: true });
   } else if (activeInstanceTab === "players") {
     stopInstanceConsolePolling();
     refreshMinecraftPlayerFiles();
@@ -14569,7 +14564,7 @@ function setActiveInstanceTab(tabName) {
     refreshInstanceMods();
   } else if (activeInstanceTab === "backups") {
     stopInstanceConsolePolling();
-    refreshRestartSchedules({ silent: true });
+    window.AnxServerBackups?.refresh();
   } else {
     stopInstanceConsolePolling();
   }
@@ -14579,7 +14574,6 @@ function setActiveInstanceTab(tabName) {
 // Modrinth and writes through the instance file API; this tab only lists,
 // searches and asks for changes.
 const MOD_MANAGER_SOFTWARE = new Set(["fabric", "quilt", "forge", "neoforge", "paper", "purpur"]);
-let modsState = { instanceId: null, mods: [], updates: new Map(), results: [], busy: false, context: null };
 
 function isModManagerInstance(instance) {
   return MOD_MANAGER_SOFTWARE.has(String(instance?.serverSoftware || "").toLowerCase()) && Boolean(instance?.minecraftVersion);
@@ -14593,150 +14587,13 @@ function getModsApi() {
   return getDesktopApiState().api?.instances?.mods || null;
 }
 
-function describeModRow(mod, update) {
-  return [
-    mod.title,
-    mod.versionNumber ? mod.versionNumber : null,
-    mod.source === "manual" ? "added manually" : null,
-    mod.enabled ? null : "disabled",
-    update ? `update to ${update.latestVersion}` : null,
-  ].filter(Boolean).join(" · ");
-}
-
+// Drawing, loading and changes live in src/renderer/addonsTab.js (Phase 5).
 function renderInstanceMods() {
-  const instance = findInstance();
-  const list = document.querySelector("[data-mods-installed]");
-  const results = document.querySelector("[data-mods-results]");
-  const empty = document.querySelector("[data-mods-empty]");
-  const status = document.querySelector("[data-mods-status]");
-  const title = document.querySelector("[data-mods-title]");
-  const description = document.querySelector("[data-mods-description]");
-  const plugin = isPluginServer(instance);
-  const noun = plugin ? "plugin" : "mod";
-  if (title) title.textContent = plugin ? "Plugins" : "Mods";
-  if (description) {
-    description.textContent = modsState.context
-      ? `${plugin ? "Plugins" : "Mods"} in ${modsState.context.folder}/ for Minecraft ${modsState.context.minecraftVersion} (${modsState.context.software}). Changes take effect the next time the server starts.`
-      : `Server ${noun}s installed in this instance.`;
-  }
-  const mods = modsState.instanceId === instance?.id ? modsState.mods : [];
-  if (status) status.textContent = modsState.busy ? "Working..." : `${mods.length} ${noun}${mods.length === 1 ? "" : "s"}${modsState.updates.size ? `, ${modsState.updates.size} update${modsState.updates.size === 1 ? "" : "s"}` : ""}`;
-  if (empty) empty.hidden = mods.length > 0;
-  document.querySelectorAll("[data-mods-action]").forEach((button) => { button.disabled = modsState.busy || !instance; });
-  if (list) {
-    list.replaceChildren();
-    mods.forEach((mod) => {
-      const update = modsState.updates.get(mod.fileName);
-      const row = document.createElement("div");
-      row.className = "instance-network-row";
-      const label = document.createElement("span");
-      label.textContent = describeModRow(mod, update);
-      label.title = mod.fileName;
-      row.append(label);
-      const addButton = (text, handler) => {
-        const button = document.createElement("button");
-        button.className = "inline-action";
-        button.type = "button";
-        button.textContent = text;
-        button.disabled = modsState.busy;
-        button.addEventListener("click", handler);
-        row.append(button);
-      };
-      if (update) addButton("Update", () => runModAction("update", mod));
-      addButton(mod.enabled ? "Disable" : "Enable", () => runModAction("toggle", mod));
-      addButton("Remove", () => runModAction("remove", mod));
-      list.appendChild(row);
-    });
-  }
-  if (results) {
-    results.replaceChildren();
-    const installedProjects = new Set(mods.map((mod) => mod.projectId).filter(Boolean));
-    modsState.results.forEach((project) => {
-      const row = document.createElement("div");
-      row.className = "instance-network-row";
-      const label = document.createElement("span");
-      label.textContent = `${project.name} · ${project.author || "Modrinth"} · ${Number(project.downloads || 0).toLocaleString()} downloads`;
-      label.title = project.description || "";
-      const install = document.createElement("button");
-      install.className = "inline-action";
-      install.type = "button";
-      install.textContent = installedProjects.has(project.id) ? "Installed" : "Install";
-      install.disabled = modsState.busy || installedProjects.has(project.id);
-      install.addEventListener("click", () => runModAction("install", project));
-      row.append(label, install);
-      results.appendChild(row);
-    });
-  }
+  window.AnxAddons?.render();
 }
 
 async function refreshInstanceMods() {
-  const api = getModsApi();
-  const instance = findInstance();
-  if (!api || !isModManagerInstance(instance)) return;
-  const requestContext = createNodeActionContext("instance-mods");
-  if (modsState.instanceId !== instance.id) modsState = { instanceId: instance.id, mods: [], updates: new Map(), results: [], busy: false, context: null };
-  try {
-    const result = await api.list(instance.id, getNodeScopedPayload(requestContext));
-    if (!isNodeRequestCurrent(requestContext) || findInstance()?.id !== instance.id) return;
-    if (result?.ok === false) throw Object.assign(new Error(result.error?.message || "Mods could not be loaded."), { code: result.error?.code });
-    modsState.mods = Array.isArray(result?.mods) ? result.mods : [];
-    modsState.context = result ? { folder: result.folder, minecraftVersion: result.minecraftVersion, software: result.software } : null;
-  } catch (error) {
-    showToast(getAgentErrorMessage(error, "Mods could not be loaded."), "warning");
-  }
-  renderInstanceMods();
-}
-
-async function runModAction(action, target = null) {
-  const api = getModsApi();
-  const instance = findInstance();
-  if (!api || !instance || modsState.busy) return;
-  const requestContext = createNodeActionContext(`instance-mods-${action}`);
-  const payload = getNodeScopedPayload(requestContext);
-  if (action === "remove") {
-    const confirmed = await createSecurityConfirmation({ title: `Remove ${target.title}?`, message: `${target.fileName} is deleted from the server. It stops loading the next time the server starts.`, confirmLabel: "Remove" });
-    if (!confirmed) return;
-  }
-  modsState.busy = true;
-  renderInstanceMods();
-  try {
-    let result;
-    if (action === "search") {
-      const query = String(document.querySelector("[data-mods-search-input]")?.value || "").trim();
-      result = await api.search(instance.id, query, payload);
-      if (result?.ok === false) throw Object.assign(new Error(result.error?.message || "Search failed."), { code: result.error?.code });
-      modsState.results = Array.isArray(result?.hits) ? result.hits : [];
-      if (!modsState.results.length) showToast("No compatible projects found.", "warning");
-    } else if (action === "check-updates") {
-      result = await api.checkUpdates(instance.id, payload);
-      if (result?.ok === false) throw Object.assign(new Error(result.error?.message || "Update check failed."), { code: result.error?.code });
-      modsState.updates = new Map((result?.updates || []).map((update) => [update.fileName, update]));
-      showToast(modsState.updates.size ? `${modsState.updates.size} update(s) available.` : "Everything installed from Modrinth is up to date.", modsState.updates.size ? "warning" : "success");
-    } else {
-      if (action === "install") result = await api.install(instance.id, target.id, payload);
-      if (action === "toggle") result = await api.setEnabled(instance.id, target.fileName, !target.enabled, payload);
-      if (action === "remove") result = await api.remove(instance.id, target.fileName, target.enabled, payload);
-      if (action === "update") result = await api.update(instance.id, target.fileName, payload);
-      if (result?.ok === false) throw Object.assign(new Error(result.error?.message || "The change failed."), { code: result.error?.code });
-      if (action === "update") modsState.updates.delete(target.fileName);
-      const restartNote = isInstanceRunning(instance) ? " Restart the server to apply it." : "";
-      const done = {
-        install: `Installed ${target.name}${(result?.installed?.length || 1) > 1 ? ` and ${result.installed.length - 1} required dependenc${result.installed.length === 2 ? "y" : "ies"}` : ""}.`,
-        toggle: `${target.title} ${target.enabled ? "disabled" : "enabled"}.`,
-        remove: `${target.title} removed.`,
-        update: result?.updated === false ? `${target.title} is already up to date.` : `${target.title} updated.`,
-      }[action];
-      showToast(`${done}${restartNote}`, "success");
-      modsState.busy = false;
-      await refreshInstanceMods();
-      return;
-    }
-  } catch (error) {
-    showToast(getAgentErrorMessage(error, "The mod change failed."), "warning");
-  } finally {
-    modsState.busy = false;
-  }
-  renderInstanceMods();
+  await window.AnxAddons?.refresh();
 }
 
 function stringifyArgs(args) {
@@ -14946,7 +14803,7 @@ function renderGameConfigPanel() {
     return;
   }
 
-  if (gameConfigTitle) gameConfigTitle.textContent = model?.label ? `${model.label} Configuration` : "Game Configuration";
+  if (gameConfigTitle) gameConfigTitle.textContent = model?.label ? `${model.label} game settings` : "Game settings";
   // The search box is deliberately never written back from here. `gameConfigState.query`
   // is synced from the input on every `input` event (see the listener near the bottom of
   // this file), so a rebuild always reads the user's live text. Projecting the state back
@@ -15154,7 +15011,50 @@ function resetGameConfigToDefaults() {
   renderGameConfigPanel();
 }
 
+// Environment variables (Settings > Advanced). The app only knows variable
+// names (values are redacted before they reach it), so saved variables show
+// as NAME=•••• and the save sends changes, not the whole set. Agents that do
+// not accept name-level changes get a read-only list.
+const INSTANCE_ENV_MASK = "••••";
+
+function formatInstanceEnvironmentForEditor(instance) {
+  return Object.keys(instance?.environment || {}).map((name) => `${name}=${INSTANCE_ENV_MASK}`).join("\n");
+}
+
+function readInstanceEnvironmentEditor(instance = findInstance()) {
+  const editor = Array.from(instanceConfigInputs).find((input) => input.dataset.instanceConfig === "environment");
+  const original = Object.keys(instance?.environment || {});
+  if (!editor || !instance || instance.environmentEditable !== true) return { changes: null, invalid: [] };
+  const set = {};
+  const seen = new Set();
+  const invalid = [];
+  String(editor.value || "").split(/\r?\n/).forEach((line) => {
+    const text = line.trim();
+    if (!text || text.startsWith("#")) return;
+    const index = text.indexOf("=");
+    const name = index > 0 ? text.slice(0, index).trim() : text;
+    const value = index > 0 ? text.slice(index + 1) : null;
+    if (index <= 0 || !/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(name)) {
+      invalid.push(name || text);
+      return;
+    }
+    seen.add(name);
+    if (value === INSTANCE_ENV_MASK && original.includes(name)) return;
+    set[name] = value;
+  });
+  const remove = original.filter((name) => !seen.has(name));
+  const changes = Object.keys(set).length || remove.length ? { set, remove } : null;
+  return { changes, invalid };
+}
+
 function collectInstanceConfigPayload() {
+  const payload = collectInstanceConfigPayloadBase();
+  const environment = readInstanceEnvironmentEditor();
+  if (environment.changes) payload.environmentChanges = environment.changes;
+  return payload;
+}
+
+function collectInstanceConfigPayloadBase() {
   const selectedInstance = findInstance();
   const args = parseArgs(getInstanceConfigValue("args"));
   const jar = getInstanceConfigValue("jar");
@@ -15255,6 +15155,14 @@ function populateInstanceConfigForm(instance) {
   setInstanceConfigValue("startupTimeoutMs", instance.startupTimeoutMs || "");
   setInstanceConfigValue("shutdownTimeoutMs", instance.shutdownTimeoutMs || "");
   setInstanceConfigValue("autoStart", instance.autoStart === true);
+  setInstanceConfigValue("environment", formatInstanceEnvironmentForEditor(instance));
+  instanceConfigInputs.forEach((input) => {
+    if (input.dataset.instanceConfig === "environment") {
+      input.readOnly = instance.environmentEditable !== true;
+      input.title = input.readOnly ? "This computer's Agent can't edit environment variables yet. Update the Agent to edit them here." : "";
+    }
+  });
+  populatedInstanceConfig.expected = pickInstanceConflictFields(instance);
   instanceConfigSnapshot = JSON.stringify(collectInstanceConfigPayload());
 
   if (instanceMinecraftSettings) {
@@ -15412,6 +15320,42 @@ async function updateInstancePorts(ports) {
   }
 }
 
+// Inline field errors for Settings (cleared on the next save attempt).
+function showInstanceSettingsErrors(errors = {}) {
+  document.querySelectorAll("[data-server-field-error]").forEach((node) => {
+    const message = errors[node.dataset.serverFieldError] || "";
+    node.hidden = !message;
+    node.textContent = message;
+    node.closest("label")?.classList.toggle("has-error", Boolean(message));
+  });
+  const first = Object.keys(errors)[0];
+  if (first) {
+    const input = Array.from(instanceConfigInputs).find((candidate) => candidate.dataset.instanceConfig === first);
+    if (input?.closest("details") && !input.closest("details").open) input.closest("details").open = true;
+    input?.focus();
+  }
+}
+
+// The stored values of the settings the form edits, sent with a save so the
+// Agent can refuse it if any changed elsewhere in the meantime.
+function pickInstanceConflictFields(instance) {
+  if (!instance) return null;
+  const fields = ["displayName", "workingDirectory", "executable", "args", "memoryLimit", "restartPolicy", "startupTimeoutMs", "shutdownTimeoutMs", "autoStart"];
+  return Object.fromEntries(fields.filter((field) => field in instance).map((field) => [field, instance[field] ?? null]));
+}
+
+function validateInstanceSettingsForm() {
+  const errors = window.AnxServerViewModel?.validateServerSettings({
+    displayName: getInstanceConfigValue("displayName"),
+    memoryLimit: getInstanceConfigValue("memoryLimit"),
+    startupTimeoutMs: getInstanceConfigValue("startupTimeoutMs"),
+    shutdownTimeoutMs: getInstanceConfigValue("shutdownTimeoutMs"),
+  }) || {};
+  const environment = readInstanceEnvironmentEditor();
+  if (environment.invalid.length) errors.environment = `Use NAME=value lines. Check: ${environment.invalid.slice(0, 3).join(", ")}.`;
+  return errors;
+}
+
 async function saveInstanceConfiguration(event) {
   event?.preventDefault();
   const selectedInstance = findInstance();
@@ -15422,13 +15366,24 @@ async function saveInstanceConfiguration(event) {
     return;
   }
   if (refuseServiceManagedAction(selectedInstance, "Editing settings")) return;
+  const settingsErrors = validateInstanceSettingsForm();
+  showInstanceSettingsErrors(settingsErrors);
+  if (Object.keys(settingsErrors).length) {
+    showToast("Check the highlighted settings.");
+    return;
+  }
+  const configBefore = JSON.parse(instanceConfigSnapshot || "{}");
+  const configPayload = collectInstanceConfigPayload();
+  const gameConfigWasDirty = gameConfigState.model?.supported && isGameConfigDirty();
 
   instanceActionRequestInFlight = true;
   syncInstanceConfigDirtyState();
 
   try {
     if (!isNodeActionStillCurrent(requestContext)) return;
-    await desktopApiState.api.instances.update(selectedInstance.id, collectInstanceConfigPayload(), getNodeScopedPayload(requestContext));
+    const savedRecord = await desktopApiState.api.instances.update(selectedInstance.id, { ...configPayload, expectedConfig: populatedInstanceConfig.expected || undefined }, getNodeScopedPayload(requestContext));
+    const savedInstance = savedRecord?.instance || savedRecord;
+    if (savedInstance?.id) populatedInstanceConfig.expected = pickInstanceConflictFields(savedInstance);
 
     if (gameConfigState.model?.supported && isGameConfigDirty()) {
       const changedValues = getChangedGameConfigValues();
@@ -15443,7 +15398,14 @@ async function saveInstanceConfiguration(event) {
       await desktopApiState.api.instances.saveMinecraftProperties(selectedInstance.id, collectMinecraftProperties(), getNodeScopedPayload(requestContext));
     }
 
-    showToast("Instance configuration saved.");
+    showToast("Settings saved.");
+    // Settings the running process only reads at start-up: say so until the
+    // server restarts.
+    const restartFields = window.AnxServerViewModel?.changedRestartFields(configBefore, configPayload) || [];
+    if (configPayload.environmentChanges) restartFields.push("environment");
+    const restartLabels = { executable: "program", jar: "server jar", args: "startup arguments", memoryLimit: "memory", environment: "environment variables", workingDirectory: "server folder", ports: "ports" };
+    restartFields.forEach((field) => window.AnxServerView?.markRestartRequired(selectedInstance.id, restartLabels[field] || field));
+    if (gameConfigWasDirty) window.AnxServerView?.markRestartRequired(selectedInstance.id, "game settings");
     // The form's values are the saved values now: mark it clean so the next
     // refresh can load the stored (normalized) configuration into it.
     instanceConfigSnapshot = JSON.stringify(collectInstanceConfigPayload());
@@ -15453,6 +15415,8 @@ async function saveInstanceConfiguration(event) {
   } catch (error) {
     if (isInstanceNotFoundError(error)) {
       await handleMissingSelectedInstance(error, selectedInstance.id);
+    } else if (getAgentErrorCode(error) === "INSTANCE_CONFIG_CONFLICT") {
+      showToast("These settings were changed somewhere else after you opened them. Discard to load the latest, then make your change again.", "error");
     } else if (extractGameConfigValidationErrors(error)) {
       gameConfigState.fieldErrors = extractGameConfigValidationErrors(error) || {};
       renderGameConfigPanel();
@@ -15749,7 +15713,22 @@ async function sendInstanceConsoleCommand(event) {
   }
 }
 
-async function clearInstanceConsole() {
+let lastRenderedInstanceLogEntries = [];
+
+// Clear the view only (Phase 5): nothing on the server is deleted.
+function clearInstanceConsole() {
+  const selectedInstance = findInstance();
+  if (!selectedInstance) return;
+  const last = lastRenderedInstanceLogEntries[lastRenderedInstanceLogEntries.length - 1];
+  if (last) consoleClearedMarkers.set(selectedInstance.id, instanceLogEntryKey(last));
+  clearInstanceLogs("Cleared. New lines will appear here. The server's log files are kept.");
+  lastRenderedInstanceLogEntries = [];
+  syncInstanceConsoleActionButtons();
+}
+
+// Deletes the Agent's captured log buffer. No longer wired to a button; kept
+// for callers that really mean to delete captured logs.
+async function deleteInstanceCapturedLogs() {
   const selectedInstance = findInstance();
   const requestContext = createNodeActionContext("instance-console-clear");
 
@@ -16511,12 +16490,9 @@ function updateInstanceActionButtons() {
     button.disabled = busy || !state.actionable || !hasInstancesBridge || typeof desktopApiState.api?.instances?.signIn !== "function";
     button.title = state.title;
   });
-  document.querySelectorAll('[data-instance-tab="mods"]').forEach((tab) => {
-    const supported = isModManagerInstance(selectedInstance) && typeof desktopApiState.api?.instances?.mods?.list === "function";
-    tab.hidden = !supported;
-    tab.textContent = isPluginServer(selectedInstance) ? "Plugins" : "Mods";
-    if (!supported && activeInstanceTab === "mods") window.queueMicrotask(() => setActiveInstanceTab("overview"));
-  });
+  // Add-ons: shown for every Minecraft server (vanilla explains why it can't
+  // load any); other games have no add-on adapter yet.
+  window.AnxServerView?.syncAddonTab(selectedInstance);
   document.querySelectorAll('[data-instance-action="update-steam"]').forEach((button) => {
     const supported = selectedInstance?.installerType === "steamcmd-native" && Number.isInteger(Number(selectedInstance?.steamAppId));
     const running = isInstanceRunning(selectedInstance);
@@ -17018,13 +16994,20 @@ function updateInstanceRow(row, instance) {
   row.dataset.instanceId = instance.id || "";
   row.dataset.instanceState = getInstanceStateClass(instance?.state);
   row.tabIndex = 0;
-  row.onclick = () => selectInstance(instance.id);
+  row.onclick = () => openInstanceServerView(instance.id);
   row.onkeydown = (event) => {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
-      selectInstance(instance.id);
+      openInstanceServerView(instance.id);
     }
   };
+}
+
+// Phase 5: a row opens that server on its own page (header and six tabs).
+async function openInstanceServerView(instanceId) {
+  if (selectedInstanceId !== instanceId && window.AnxServerView && !(await window.AnxServerView.confirmLeaveSettings("open another server"))) return;
+  selectInstance(instanceId);
+  window.AnxServerView?.open(instanceId);
 }
 
 function buildInstanceRowCells(row, instance) {
@@ -17354,6 +17337,7 @@ function setInstanceDetails(instance = null) {
     if (instanceAddressCopyButton) {
       instanceAddressCopyButton.disabled = true;
     }
+    window.AnxServerView?.render(null);
     return;
   }
 
@@ -17427,12 +17411,14 @@ function setInstanceDetails(instance = null) {
   renderMinecraftWorkspaceSummary(instance, metrics);
   renderMinecraftPlayersPanel(instance);
   if (shouldRepopulateInstanceConfigForm(instance)) populateInstanceConfigForm(instance);
+  else if (populatedInstanceConfig.instanceId === instance.id && !hasUnsavedInstanceSettings()) populatedInstanceConfig.expected = pickInstanceConflictFields(instance);
   renderInstanceNetwork(instance);
   renderInstanceRestartSchedules(instance);
   if (instanceAddressCopyButton) {
     instanceAddressCopyButton.disabled = !getInstancePrimaryPort(instance);
   }
   applyServiceManagedRestrictions(instance);
+  window.AnxServerView?.render(instance);
 }
 
 // What the settings form shows for an instance. Live fields (state, pid,
@@ -17456,6 +17442,18 @@ function getInstanceConfigFormKey(instance) {
     instance.tags,
     instance.ports,
   ]);
+}
+
+// Unsaved edits in the Settings tab (focus alone does not count).
+function hasUnsavedInstanceSettings() {
+  if (!findInstance()) return false;
+  try {
+    if (JSON.stringify(collectInstanceConfigPayload()) !== instanceConfigSnapshot) return true;
+  } catch {
+    return false;
+  }
+  if (JSON.stringify(collectMinecraftProperties()) !== instanceMinecraftSnapshot) return true;
+  return isGameConfigDirty();
 }
 
 function isInstanceConfigFormBusy() {
@@ -17733,15 +17731,47 @@ function createInstanceLogItem(entry) {
   return item;
 }
 
+// "Clear" hides what is on screen; the server's own logs are kept. The
+// marker is the last line shown when Clear was pressed (per server); lines
+// after it keep streaming in. If the marker has scrolled out of the loaded
+// window, everything loaded is newer and is shown.
+const consoleClearedMarkers = new Map();
+
+function instanceLogEntryKey(entry) {
+  return `${entry?.at || ""}|${entry?.stream || ""}|${entry?.message ?? entry?.line ?? entry?.text ?? ""}`;
+}
+
+function visibleInstanceLogEntries(entries) {
+  const marker = consoleClearedMarkers.get(selectedInstanceId);
+  if (!marker) return entries;
+  const index = entries.map(instanceLogEntryKey).lastIndexOf(marker);
+  return index >= 0 ? entries.slice(index + 1) : entries;
+}
+
+// Auto-scroll follows new lines only while the view is at the bottom, so
+// reading older lines is never interrupted. "Jump to latest" resumes.
+function isConsoleScrolledToBottom() {
+  if (!instanceConsoleViewer) return true;
+  return instanceConsoleViewer.scrollHeight - instanceConsoleViewer.scrollTop - instanceConsoleViewer.clientHeight < 48;
+}
+
+function syncConsoleJumpButton() {
+  const jump = document.querySelector("[data-console-jump]");
+  if (jump) jump.hidden = isConsoleScrolledToBottom() || !instancesLogList?.children.length;
+}
+
 function renderInstanceLogs(payload) {
-  const entries = Array.isArray(payload?.entries) ? payload.entries : [];
+  const entries = visibleInstanceLogEntries(Array.isArray(payload?.entries) ? payload.entries : []);
+  lastRenderedInstanceLogEntries = entries;
+  const followTail = isConsoleScrolledToBottom();
   reconcileLogList(instancesLogList, entries, createInstanceLogItem);
 
   syncConsoleLogSearch();
 
-  if (instanceConsoleAutoscrollInput?.checked && !instanceConsolePauseInput?.checked && instanceConsoleViewer) {
+  if (followTail && instanceConsoleAutoscrollInput?.checked && !instanceConsolePauseInput?.checked && instanceConsoleViewer) {
     instanceConsoleViewer.scrollTop = instanceConsoleViewer.scrollHeight;
   }
+  syncConsoleJumpButton();
 
   if (instancesLogEmpty) {
     instancesLogEmpty.hidden = entries.length > 0;
@@ -22274,6 +22304,7 @@ async function verifyBackupIntegrity(backupId) {
 }
 
 function renderBackups() {
+  window.AnxServerBackups?.render();
   if (!backupTableBody) {
     return;
   }
@@ -22399,27 +22430,91 @@ function getBackupWorldGameLabel(instance = null) {
   return BACKUP_WORLD_GAME_LABELS[getInstanceAccessGameKind(instance)] || null;
 }
 
+// What a backup includes (Phase 5). Three plain choices: the whole server
+// (default), its world only (when the game's world layout is known), or
+// Cancel, which really cancels. The previous dialog used Cancel to mean
+// "full backup", so there was no way to back out.
+function createBackupScopeDialog({ title, gameLabel, offerPause }) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "app-modal-backdrop";
+    const dialog = document.createElement("section");
+    dialog.className = "app-modal";
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-modal", "true");
+    dialog.setAttribute("aria-label", title);
+    dialog.tabIndex = -1;
+    const header = document.createElement("div");
+    header.className = "app-modal__header";
+    header.append(
+      createTextElement("p", "Backup", "eyebrow"),
+      createTextElement("h2", title),
+      createTextElement("p", gameLabel
+        ? `Whole server copies every file: world, settings, add-ons. World only copies the ${gameLabel} world data and is smaller.`
+        : "Whole server copies every file: world, settings and add-ons."),
+      createTextElement("p", "The server keeps running while a crash-consistent copy is taken."),
+    );
+    dialog.append(header);
+    let pause = null;
+    if (offerPause) {
+      const option = document.createElement("label");
+      option.className = "security-option";
+      pause = document.createElement("input");
+      pause.type = "checkbox";
+      option.append(pause, createTextElement("span", "Pause server during backup"));
+      dialog.append(option);
+    }
+    const actions = document.createElement("div");
+    actions.className = "settings-actions";
+    const whole = createTextElement("button", "Whole server", "inline-action inline-action--primary");
+    whole.type = "button";
+    whole.dataset.confirmOk = "";
+    whole.dataset.backupScope = "full";
+    actions.append(whole);
+    if (gameLabel) {
+      const world = createTextElement("button", `World only (${gameLabel})`, "inline-action");
+      world.type = "button";
+      world.dataset.backupScope = "world";
+      actions.append(world);
+    }
+    const cancel = createTextElement("button", "Cancel", "inline-action");
+    cancel.type = "button";
+    cancel.dataset.confirmCancel = "";
+    actions.append(cancel);
+    dialog.append(actions);
+    overlay.append(dialog);
+    const close = (value) => {
+      document.removeEventListener("keydown", onKeyDown);
+      deactivateModal();
+      overlay.remove();
+      resolve(value);
+    };
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") close(null);
+    };
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay || event.target.closest("[data-confirm-cancel]")) { close(null); return; }
+      const scope = event.target.closest("[data-backup-scope]");
+      if (scope) close({ scope: scope.dataset.backupScope, pause: pause?.checked === true });
+    });
+    document.addEventListener("keydown", onKeyDown);
+    document.body.append(overlay);
+    const deactivateModal = activateModal(overlay, { initialFocus: () => whole });
+  });
+}
+
 async function chooseBackupType(title = "Create world-only backup?", instance = null, options = {}) {
   const gameLabel = getBackupWorldGameLabel(instance);
-  const message = gameLabel
-    ? `World data (${gameLabel}) will be included. Choose World Backup for world-only data, or Cancel to create a full instance backup.`
-    : "This instance does not have a recognized world data layout, so World Backup may not be available. Cancel to create a full instance backup, or continue to try a World Backup.";
-  const confirmation = await createSecurityConfirmation({
-    title,
-    message,
-    confirmLabel: gameLabel ? `World Backup (${gameLabel})` : "World Backup",
-    // Workload-consistency disclosure (V2-F): without the pause option the
-    // archive is a crash-consistent copy taken while the server keeps running.
-    note: "The server keeps running while a crash-consistent copy is taken.",
-    checkboxLabel: options.offerPause ? "Pause server during backup" : "",
+  const scheduling = /^Schedule/i.test(String(title || ""));
+  const choice = await createBackupScopeDialog({
+    title: scheduling ? "What should scheduled backups include?" : "What do you want to back up?",
+    gameLabel,
+    offerPause: options.offerPause === true,
   });
-  if (!confirmation) {
-    return { type: "full", consistency: "crash" };
-  }
-  const worldOnly = confirmation === true || confirmation?.confirmed === true;
+  if (!choice) return { cancelled: true, type: null, consistency: null };
   return {
-    type: worldOnly ? "world" : "full",
-    consistency: options.offerPause && confirmation?.checked === true ? "stopped" : "crash",
+    type: choice.scope === "world" ? "world" : "full",
+    consistency: options.offerPause && choice.pause ? "stopped" : "crash",
   };
 }
 
@@ -22533,7 +22628,8 @@ async function createBackupForInstance(instanceId = null) {
   if (!targetInstanceId) {
     return;
   }
-  const { type, consistency } = await chooseBackupType("Create world-only backup?", findInstance(targetInstanceId) || null, { offerPause: true });
+  const { type, consistency, cancelled } = await chooseBackupType("Create world-only backup?", findInstance(targetInstanceId) || null, { offerPause: true });
+  if (cancelled) return;
   backupRequestInFlight = true;
   renderBackups();
   try {
@@ -22576,6 +22672,7 @@ function getBackupErrorMessage(error, fallback = "Backup operation failed.") {
     BACKUP_ARCHIVE_INVALID: "This backup archive is invalid or damaged.",
     BACKUP_ARCHIVE_MISSING: "The backup's archive file is missing from backup storage. The backup metadata exists, but the archive cannot be found; nothing was replaced.",
     BACKUP_NOT_FOUND: "This backup is no longer available. Refresh the backup list and try again.",
+    WORLD_PATH_NOT_FOUND: "This server has no world yet, so there is nothing to back up as a world. Start it once to create the world, or back up the whole server.",
     RESTORE_INSTANCE_STOP_FAILED: "The server could not be stopped safely, so no files were replaced.",
     RESTORE_ROLLBACK_FAILED: "Restore failed and AnxOS could not complete the automatic rollback. Review diagnostics before starting this server.",
   };
@@ -22785,7 +22882,8 @@ async function configureBackupSchedule(instanceId) {
     showToast(error?.message || "Backup schedule values are invalid.", "warning");
     return;
   }
-  const { type } = await chooseBackupType("Schedule world-only backups?", findInstance(instanceId) || null);
+  const { type, cancelled } = await chooseBackupType("Schedule world-only backups?", findInstance(instanceId) || null);
+  if (cancelled) return;
   try {
     if (!isNodeActionStillCurrent(requestContext)) return;
     await desktopApiState.api.backups.saveSchedule({
@@ -47729,6 +47827,10 @@ navItems.forEach((item) => {
       openWorkspaceSurface("marketplace");
       return;
     }
+    if (item.dataset.pageTarget === "instances" && window.AnxServerView?.isOpen()) {
+      window.AnxServerView.close().then((closed) => { if (closed) showPage("instances"); });
+      return;
+    }
     showPage(item.dataset.pageTarget);
   });
 });
@@ -48509,18 +48611,7 @@ instancesRestartButtons.forEach((button) => {
 instancesRepairNeoForgeButtons.forEach((button) => {
   button.addEventListener("click", () => runInstanceAction("repair-neoforge-runtime"));
 });
-document.querySelectorAll("[data-mods-action]").forEach((button) => {
-  button.addEventListener("click", () => {
-    if (button.dataset.modsAction === "refresh") refreshInstanceMods();
-    else runModAction(button.dataset.modsAction);
-  });
-});
-document.querySelector("[data-mods-search-input]")?.addEventListener("keydown", (event) => {
-  if (event.key === "Enter") {
-    event.preventDefault();
-    runModAction("search");
-  }
-});
+// Add-ons tab controls are wired in src/renderer/addonsTab.js.
 
 document.querySelectorAll("[data-server-updates-action]").forEach((button) => {
   button.addEventListener("click", () => {
@@ -48582,6 +48673,11 @@ document.querySelectorAll('[data-instance-action="manage-access"]').forEach((but
   button.addEventListener("click", () => runInstanceAction("manage-access"));
 });
 document.querySelector('[data-instance-action="clear-console"]')?.addEventListener("click", clearInstanceConsole);
+instanceConsoleViewer?.addEventListener("scroll", syncConsoleJumpButton, { passive: true });
+document.querySelector("[data-console-jump]")?.addEventListener("click", () => {
+  if (instanceConsoleViewer) instanceConsoleViewer.scrollTop = instanceConsoleViewer.scrollHeight;
+  syncConsoleJumpButton();
+});
 document.querySelector('[data-instance-action="copy-console"]')?.addEventListener("click", copyInstanceConsole);
 instancesDownloadLogButtons.forEach((button) => {
   button.addEventListener("click", downloadInstanceLogs);
@@ -48598,7 +48694,11 @@ instanceConsolePauseInput?.addEventListener("change", syncInstanceConsoleScrollM
 syncConsoleWrap();
 instanceConsoleForm?.addEventListener("submit", sendInstanceConsoleCommand);
 instanceTabs.forEach((button) => {
-  button.addEventListener("click", () => setActiveInstanceTab(button.dataset.instanceTab || "overview"));
+  button.addEventListener("click", async () => {
+    const target = button.dataset.instanceTab || "overview";
+    if (target !== activeInstanceTab && window.AnxServerView && !(await window.AnxServerView.confirmLeaveSettings("leave Settings"))) return;
+    setActiveInstanceTab(target);
+  });
 });
 instanceTemplateButtons.forEach((button) => {
   button.addEventListener("click", () => {
@@ -48792,6 +48892,21 @@ instanceFileDropzone?.addEventListener("dragover", (event) => {
 instanceFileDropzone?.addEventListener("dragleave", () => {
   instanceFileDropzone.classList.remove("is-dragging");
 });
+// Drag-and-drop upload (Phase 5): files are sent byte for byte (base64), so
+// jars, images and archives arrive intact; the old handler read every file as
+// text and corrupted binaries. A name that already exists asks before it is
+// replaced, and progress shows in the drop zone.
+const INSTANCE_UPLOAD_MAX_BYTES = 100 * 1024 * 1024;
+
+function readFileAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error || new Error("The file could not be read."));
+    reader.onload = () => resolve(String(reader.result || "").replace(/^data:[^,]*,/, ""));
+    reader.readAsDataURL(file);
+  });
+}
+
 instanceFileDropzone?.addEventListener("drop", async (event) => {
   event.preventDefault();
   instanceFileDropzone.classList.remove("is-dragging");
@@ -48801,24 +48916,47 @@ instanceFileDropzone?.addEventListener("drop", async (event) => {
   if (!selectedInstance || files.length === 0) {
     return;
   }
+  const tooLarge = files.filter((file) => file.size > INSTANCE_UPLOAD_MAX_BYTES);
+  if (tooLarge.length) {
+    showToast(`${tooLarge.map((file) => file.name).join(", ")} ${tooLarge.length === 1 ? "is" : "are"} larger than 100 MB. Copy large files with the computer's own tools.`, "warning");
+    return;
+  }
+  const existing = new Set([...(instanceFilesList?.querySelectorAll("tr[data-instance-file-path]") || [])].map((row) => String(row.dataset.instanceFilePath || "").split(/[\/]/).pop()));
+  const clashes = files.filter((file) => existing.has(file.name));
+  if (clashes.length && !(await createSecurityConfirmation({
+    title: "Replace existing files?",
+    message: `${clashes.map((file) => file.name).join(", ")} already ${clashes.length === 1 ? "exists" : "exist"} in this folder. Replace ${clashes.length === 1 ? "it" : "them"}?`,
+    confirmLabel: "Replace",
+  }))) {
+    return;
+  }
+  const originalLabel = instanceFileDropzone.dataset.idleLabel || instanceFileDropzone.textContent;
+  instanceFileDropzone.dataset.idleLabel = originalLabel;
+  let uploaded = 0;
   try {
     for (const file of files) {
-      const content = await file.text();
+      instanceFileDropzone.textContent = `Uploading ${file.name} (${uploaded + 1} of ${files.length})…`;
+      const content = await readFileAsBase64(file);
       if (!isNodeActionStillCurrent(requestContext)) return;
       await getDesktopApiState().api.instances.writeFile(
         selectedInstance.id,
         joinInstancePath(instanceCurrentFilePath, file.name),
         content,
-        getNodeScopedPayload(requestContext),
+        getNodeScopedPayload(requestContext, { encoding: "base64" }),
       );
+      uploaded += 1;
     }
+    showToast(`Uploaded ${uploaded} file${uploaded === 1 ? "" : "s"}.`, "success");
     refreshInstanceFiles();
   } catch (error) {
     if (isInstanceNotFoundError(error)) {
       await handleMissingSelectedInstance(error, selectedInstance.id);
     } else {
-      showToast(getAgentErrorMessage(error, "Upload failed."));
+      showToast(`${getAgentErrorMessage(error, "Upload failed.")}${uploaded ? ` ${uploaded} of ${files.length} uploaded before the error.` : ""}`, "error");
     }
+    if (uploaded) refreshInstanceFiles();
+  } finally {
+    instanceFileDropzone.textContent = instanceFileDropzone.dataset.idleLabel || "Drop files here to upload them into this folder.";
   }
 });
 applyInstanceServerPreset("minecraft-paper");

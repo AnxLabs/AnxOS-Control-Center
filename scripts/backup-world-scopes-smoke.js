@@ -255,9 +255,12 @@ async function main() {
     "const BACKUP_WORLD_GAME_LABELS = Object.freeze({",
     "function getBackupWorldGameLabel",
     "BACKUP_WORLD_GAME_LABELS[getInstanceAccessGameKind(instance)] || null",
-    "World data (${gameLabel}) will be included. Choose World Backup for world-only data, or Cancel to create a full instance backup.",
-    "This instance does not have a recognized world data layout, so World Backup may not be available. Cancel to create a full instance backup, or continue to try a World Backup.",
-    "confirmLabel: gameLabel ? `World Backup (${gameLabel})` : \"World Backup\",",
+    // Phase 5: Whole server / World only / Cancel. World only is offered
+    // only when the game's world layout is known, labeled with the game.
+    "function createBackupScopeDialog({ title, gameLabel, offerPause })",
+    "createTextElement(\"button\", `World only (${gameLabel})`, \"inline-action\")",
+    "World only copies the ${gameLabel} world data and is smaller.",
+    "if (!choice) return { cancelled: true, type: null, consistency: null };",
     "await chooseBackupType(\"Create world-only backup?\", findInstance(targetInstanceId) || null, { offerPause: true })",
     "await chooseBackupType(\"Schedule world-only backups?\", findInstance(instanceId) || null)",
   ].forEach((needle) => assert(appSource.includes(needle), `Backup world-scope renderer pinning missing: ${needle}`));

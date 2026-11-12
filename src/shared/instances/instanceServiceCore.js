@@ -1383,6 +1383,20 @@ function normalizeEnvironment(value) {
   }, {});
 }
 
+// Editors only ever see variable names (publicConfig redacts values), so they
+// send changes, never the whole set: { set: { NAME: value }, remove: [NAME] }.
+// Variables that are not mentioned keep their stored values.
+function applyEnvironmentChanges(currentEnvironment, changes) {
+  if (!changes || typeof changes !== "object" || Array.isArray(changes)) throw createInstanceError("INVALID_ENVIRONMENT");
+  const next = { ...(currentEnvironment || {}) };
+  const remove = Array.isArray(changes.remove) ? changes.remove : [];
+  if (remove.length > 128) throw createInstanceError("INVALID_ENVIRONMENT");
+  for (const key of remove) delete next[String(key || "").trim()];
+  const set = changes.set && typeof changes.set === "object" && !Array.isArray(changes.set) ? changes.set : {};
+  for (const [key, value] of Object.entries(set)) next[String(key || "").trim()] = value;
+  return normalizeEnvironment(next);
+}
+
 function validateRestartPolicy(value) {
   const restartPolicy = String(value || DEFAULT_RESTART_POLICY).trim();
 
@@ -2040,6 +2054,8 @@ function publicConfig(config) {
     crashLoop,
     instancePath: instancePath(config.id),
     signIn: signInState(config, processRunning),
+    // This build accepts environmentChanges (name-level edits).
+    environmentEditable: true,
     environment: Object.keys(config.environment || {}).reduce((redacted, key) => {
       redacted[key] = "[configured]";
       return redacted;
@@ -5295,11 +5311,38 @@ async function createInstance(payload) {
   return publicConfig(config);
 }
 
+const CONFLICT_CHECKED_FIELDS = new Set(["displayName", "workingDirectory", "executable", "args", "memoryLimit", "restartPolicy", "startupTimeoutMs", "shutdownTimeoutMs", "autoStart"]);
+
+// One comparable form per field, so representation differences (a missing
+// flag versus false, "15000" versus 15000) never look like someone else's edit.
+function conflictComparable(field, value) {
+  if (field === "autoStart") return value === true ? "true" : "false";
+  if (field === "startupTimeoutMs" || field === "shutdownTimeoutMs") {
+    const number = Number(value);
+    return Number.isFinite(number) && number > 0 ? String(number) : "";
+  }
+  if (field === "args") return JSON.stringify(Array.isArray(value) ? value.map(String) : []);
+  if (field === "restartPolicy") return String(value || DEFAULT_RESTART_POLICY);
+  if (field === "workingDirectory") return String(value || "data").trim();
+  return String(value ?? "").trim();
+}
+
 async function updateInstance(instanceId, payload = {}) {
   const current = await loadInstanceConfig(instanceId);
   if (isServiceManaged(current)) {
     // Operator-authored on disk; not editable through the Agent API.
     throw serviceManagedUnsupported(current, "update");
+  }
+
+  // Optional conflict check: an editor sends the values it loaded for the
+  // settings it edits; if any changed since, the save is refused instead of
+  // overwriting someone else's newer change. Field values, not updatedAt, so
+  // unrelated file writes (which also touch updatedAt) never cause a conflict.
+  if (payload.expectedConfig && typeof payload.expectedConfig === "object" && !Array.isArray(payload.expectedConfig)) {
+    const changedFields = Object.keys(payload.expectedConfig)
+      .filter((field) => CONFLICT_CHECKED_FIELDS.has(field))
+      .filter((field) => conflictComparable(field, current[field]) !== conflictComparable(field, payload.expectedConfig[field]));
+    if (changedFields.length) throw createInstanceError("INSTANCE_CONFIG_CONFLICT", 409, { fields: changedFields });
   }
 
   if (payload.javaRuntime !== undefined || payload.javaRuntimeOverride !== undefined || payload.requiredJavaMajor !== undefined) {
@@ -5338,7 +5381,9 @@ async function updateInstance(instanceId, payload = {}) {
     startupScript: payload.startupScript !== undefined ? (payload.startupScript ? validateRelativeAssetPath(payload.startupScript, "ENTRYPOINT") : null) : current.startupScript,
     environment: payload.environment !== undefined || payload.env !== undefined
       ? normalizeEnvironment(payload.environment || payload.env)
-      : current.environment,
+      : payload.environmentChanges !== undefined
+        ? applyEnvironmentChanges(current.environment, payload.environmentChanges)
+        : current.environment,
     autoStart: payload.autoStart !== undefined ? validateBoolean(payload.autoStart, current.autoStart) : current.autoStart,
     restartPolicy: payload.restartPolicy !== undefined ? validateRestartPolicy(payload.restartPolicy) : current.restartPolicy,
     startupTimeoutMs: payload.startupTimeoutMs !== undefined

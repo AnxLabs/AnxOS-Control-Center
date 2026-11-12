@@ -7,8 +7,8 @@
 // against a REAL Agent at a 1440x900 window and checks:
 //   L1 the instance table fits its panel (no sideways scrolling) and every
 //      row's power actions are fully visible;
-//   L2 every inspector action is present exactly once, grouped as Power,
-//      Access, Manage and Danger zone;
+//   L2 every server action is present exactly once: Power (with Share) in
+//      the header, Access, Manage and Danger zone in the More menu (Phase 5);
 //   L3 the console-only Stream/Lines selects live in the Console tab;
 //   L4 console log lines do not overlap: timestamp, stream and message
 //      columns are laid out side by side, and rows pack at the top.
@@ -26,9 +26,9 @@ const { startServiceManagedAgent, INSTANCE_ID } = require("./test-helpers/servic
 
 const root = path.resolve(__dirname, "..");
 const ACTIONS = {
-  Power: ["start", "stop", "restart", "refresh", "repair-neoforge-runtime", "update-steam", "configure-fivem"],
-  Access: ["expose-share", "share-server", "copy-access-address", "manage-access"],
-  Manage: ["rename", "duplicate", "transfer-workload", "open-folder"],
+  Power: ["start", "stop", "restart", "share-server", "repair-neoforge-runtime", "update-steam", "configure-fivem", "sign-in"],
+  Access: ["expose-share", "copy-access-address", "manage-access"],
+  Manage: ["refresh", "rename", "duplicate", "transfer-workload", "open-folder"],
   "Danger zone": ["delete", "forget"],
 };
 
@@ -75,7 +75,9 @@ async function main() {
     assert.deepStrictEqual(fit.rowActions, ["start", "stop", "restart"], "rows carry the power actions");
     console.log("PASS L1 the instance table fits and row actions are fully visible");
 
-    // L2: inspector actions, each exactly once, in their groups.
+    // L2: server actions, each exactly once, in their groups.
+    const menuPlacement = await page.evaluate(() => ["Access", "Manage", "Danger zone"].every((label) => Boolean(document.querySelector(`[data-server-more-menu] .instance-action-group[aria-label="${label}"]`))));
+    assert.ok(menuPlacement, "Access, Manage and Danger zone live in the More menu");
     const groups = await page.evaluate(() => Object.fromEntries([...document.querySelectorAll(".instance-quick-actions .instance-action-group")].map((group) => [
       group.getAttribute("aria-label"),
       [...group.querySelectorAll("[data-instance-action]")].map((button) => button.dataset.instanceAction),
@@ -96,6 +98,7 @@ async function main() {
 
     // L4: console columns do not overlap and rows pack at the top.
     await page.locator(`[data-instances-list] tr[data-instance-id="${INSTANCE_ID}"] td`).first().click();
+    assert.strictEqual(await page.evaluate(() => document.querySelector('.page[data-page="instances"]').dataset.serverView), "open", "clicking a row opens the server");
     await page.locator('[data-instance-tab="console"]').first().click();
     for (let i = 0; i < 80 && (await page.evaluate(() => document.querySelectorAll("[data-instances-logs] li").length)) < 2; i += 1) await page.waitForTimeout(250);
     const lines = await page.evaluate(() => [...document.querySelectorAll("[data-instances-logs] li")].slice(0, 2).map((line) => {

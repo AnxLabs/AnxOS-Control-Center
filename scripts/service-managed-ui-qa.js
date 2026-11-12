@@ -134,6 +134,8 @@ async function controls(page, selector) {
 }
 
 async function selectRow(page, id) {
+  // Phase 5: an open server hides the list; go back to it first.
+  await page.evaluate(() => window.AnxServerView?.close());
   await waitFor(page, `row ${id} listed`, () => rowInfo(page, id));
   await page.locator(`[data-instances-list] tr[data-instance-id="${id}"] td`).first().click();
   await waitFor(page, "workspace card visible", () => page.evaluate(() => { const card = document.querySelector(".instance-workspace-card"); return card && !card.hidden; }));
@@ -267,13 +269,17 @@ async function scenarioRunning(report) {
     await openTab(page, "files");
     await assertLocked(page, "files", ['[data-instance-file-action="new-folder"]', '[data-instance-file-action="delete"]', '[data-instance-file-action="save"]']);
     await openTab(page, "backups");
-    await assertLocked(page, "backups", ['[data-instance-backup-action="backup-now"]', '[data-instance-backup-action="restore"]', '[data-instance-backup-action="schedule"]', '[data-restart-schedule-action="create"]']);
+    await assertLocked(page, "backups", ['[data-instance-backup-action="backup-now"]', '[data-instance-backup-action="restore"]', '[data-instance-backup-action="schedule"]']);
     await page.screenshot({ path: path.join(artifactDir, "running-backups.png") });
     await openTab(page, "settings");
+    // Phase 5: scheduled restarts live under Settings > Server behavior.
+    await assertLocked(page, "settings", ['[data-restart-schedule-action="create"]']);
     const settings = await controls(page, '[data-instance-panel="settings"] input, [data-instance-panel="settings"] select, [data-instance-panel="settings"] textarea');
     assert.ok(settings.length > 5 && settings.every((control) => control.disabled), "every settings field is disabled");
     await eventually("Forget (Agent record only) stays available", async () => {
-      const forget = await controls(page, '[data-instance-panel="settings"] [data-instance-action="forget"]');
+      // Phase 5: Forget lives in the header's More menu.
+      await page.evaluate(() => document.querySelector("[data-server-more-menu]")?.setAttribute("open", ""));
+      const forget = await controls(page, '[data-server-more-menu] [data-instance-action="forget"]');
       assert.ok(forget.length === 1 && forget[0].disabled === false, JSON.stringify(forget));
     });
     await page.screenshot({ path: path.join(artifactDir, "running-settings.png") });
@@ -282,7 +288,8 @@ async function scenarioRunning(report) {
     assert.match(gameConfig, /not supported for this instance/i);
 
     // Locks survive a refresh, which re-runs the generic button updaters.
-    await clickVisibleEnabled(page, '[data-instance-action="refresh"]');
+    await page.evaluate(() => document.querySelector("[data-server-more-menu]")?.setAttribute("open", ""));
+    await clickVisibleEnabled(page, '[data-server-more-menu] [data-instance-action="refresh"]');
     await page.waitForTimeout(1500);
     await openTab(page, "overview");
     await assertLocked(page, "after refresh", LOCKED_SELECTORS);

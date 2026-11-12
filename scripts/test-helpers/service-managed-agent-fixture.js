@@ -135,6 +135,20 @@ async function startServiceManagedAgent(options = {}) {
 `);
   }
 
+  // Fully specified disposable instances (Phase 5 UI tests): a config plus
+  // seed files under its data folder. Paths are relative to data/.
+  for (const extra of options.extraInstanceConfigs || []) {
+    const dir = path.join(instanceRoot, extra.config.id);
+    fs.mkdirSync(path.join(dir, "data"), { recursive: true });
+    fs.mkdirSync(path.join(dir, "logs"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "config.json"), `${JSON.stringify({ schemaVersion: 2, installationState: "active", workingDirectory: "data", environment: {}, autoStart: false, restartPolicy: "never", startupTimeoutMs: 15000, shutdownTimeoutMs: 10000, ...extra.config }, null, 2)}\n`);
+    for (const [relative, content] of Object.entries(extra.files || {})) {
+      const target = path.join(dir, "data", relative);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, content);
+    }
+  }
+
   writeJsonAtomic(stateFile, {
     unit: { unit: UNIT, ...UNIT_STATES[options.initial || "running"] },
     calls: [],

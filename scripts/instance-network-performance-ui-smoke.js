@@ -40,18 +40,17 @@ assertOnce(index, 'data-instance-tab="performance"', "Instance Performance tab b
 assertOnce(index, 'data-instance-panel="network"', "Instance Network panel");
 assertOnce(index, 'data-instance-panel="performance"', "Instance Performance panel");
 
-const tabOrder = ["overview", "console", "network", "performance", "players", "files", "backups", "settings"]
-  .map((tab) => index.indexOf(`data-instance-tab="${tab}"`));
-tabOrder.forEach((position, indexInOrder) => {
-  assert(position > -1, `Missing instance tab: ${["overview", "console", "network", "performance", "players", "files", "backups", "settings"][indexInOrder]}`);
-  if (indexInOrder > 0) {
-    assert(position > tabOrder[indexInOrder - 1], "Instance tabs must stay in the documented order: Network after Console, Performance after Network, Players before Files.");
-  }
+// Phase 5: six main tabs in this order; Players, Performance and Network are
+// detail views opened from Overview and Settings, listed after them.
+const mainTabs = ["overview", "console", "files", "mods", "backups", "settings"];
+const mainOrder = mainTabs.map((tab) => index.indexOf(`data-instance-tab="${tab}"`));
+mainOrder.forEach((position, indexInOrder) => {
+  assert(position > -1, `Missing instance tab: ${mainTabs[indexInOrder]}`);
+  if (indexInOrder > 0) assert(position > mainOrder[indexInOrder - 1], "Main instance tabs must stay in the documented order: Overview, Console, Files, Add-ons, Backups, Settings.");
 });
-assert(
-  index.indexOf('data-instance-tab="players"') < index.indexOf('data-instance-tab="files"'),
-  "The pinned Players-before-Files instance tab order must be preserved.",
-);
+["players", "performance", "network"].forEach((tab) => {
+  assert(/class="instance-tab instance-tab--detail"[^>]*data-instance-tab="/.test(index) && index.indexOf(`data-instance-tab="${tab}"`) > mainOrder[mainOrder.length - 1], `${tab} must be a detail tab listed after the main tabs.`);
+});
 assert(
   index.indexOf('data-instance-panel="network"') < index.indexOf('data-instance-panel="players"'),
   "The Network panel must sit before the Players panel in the workspace card.",

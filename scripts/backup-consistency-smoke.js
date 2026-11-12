@@ -226,11 +226,11 @@ async function main() {
   // failure (the renderer cannot run under Node, so the source is pinned).
   const appSource = fs.readFileSync(path.join(__dirname, "..", "app.js"), "utf8");
   [
-    "note: \"The server keeps running while a crash-consistent copy is taken.\",",
-    "checkboxLabel: options.offerPause ? \"Pause server during backup\" : \"\",",
-    "const { type, consistency } = await chooseBackupType(\"Create world-only backup?\", findInstance(targetInstanceId) || null, { offerPause: true });",
-    "const { type } = await chooseBackupType(\"Schedule world-only backups?\", findInstance(instanceId) || null);",
-    "close({ confirmed: true, checked: checkbox.checked });",
+    "createTextElement(\"p\", \"The server keeps running while a crash-consistent copy is taken.\"),",
+    "option.append(pause, createTextElement(\"span\", \"Pause server during backup\"));",
+    "consistency: options.offerPause && choice.pause ? \"stopped\" : \"crash\",",
+    "const { type, consistency, cancelled } = await chooseBackupType(\"Create world-only backup?\", findInstance(targetInstanceId) || null, { offerPause: true });",
+    "const { type, cancelled } = await chooseBackupType(\"Schedule world-only backups?\", findInstance(instanceId) || null);",
     "result?.restart?.attempted && result.restart.restarted === false",
   ].forEach((needle) => assert(appSource.includes(needle), `Backup consistency renderer pinning missing: ${needle}`));
 
