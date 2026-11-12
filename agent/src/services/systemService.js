@@ -12,7 +12,8 @@ let getForgeHealth = createCachedForgeHealthReader();
 
 // CPU, network and GPU rates come from shared samplers so several clients
 // polling close together never reset each other's baseline (metricsSampler.js).
-const metricsSampler = require("./metricsSampler");
+// Shared with the desktop's own "This PC" metrics (src/services/systemService.js).
+const metricsSampler = require("../../../src/shared/metricsSampler");
 const sampleCpu = metricsSampler.createCpuSampler();
 const sampleNetwork = metricsSampler.createNetworkSampler();
 const sampleGpu = metricsSampler.createGpuSampler();

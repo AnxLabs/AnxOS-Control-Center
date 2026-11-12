@@ -19,7 +19,7 @@ const fs = require("fs");
 const path = require("path");
 
 const root = path.resolve(__dirname, "..");
-const sampler = require(path.join(root, "agent", "src", "services", "metricsSampler.js"));
+const sampler = require(path.join(root, "src", "shared", "metricsSampler.js"));
 
 function clock(start = 1000) {
   let now = start;

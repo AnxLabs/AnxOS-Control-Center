@@ -8,7 +8,6 @@ const { readWindowsHardwareTemperature } = require("../shared/windowsHardwareTem
 const { createCachedForgeHealthReader, mergeForgeGpuTemperature } = require("../shared/forgeHealth");
 
 let previousCpuSample = readCpuSample();
-let previousNetworkSample = null;
 let localTemperatureUnavailableReason = null;
 const getLocalForgeHealth = createCachedForgeHealthReader();
 const loggedAgentMetricWarnings = new Set();
@@ -312,92 +311,15 @@ function buildDiskUsage(total, free, mount) {
   };
 }
 
-async function getLinuxNetworkTotals() {
-  try {
-    const content = await fs.readFile("/proc/net/dev", "utf8");
-    return content
-      .split("\n")
-      .slice(2)
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .reduce(
-        (acc, line) => {
-          const [namePart, dataPart] = line.split(":");
-          const name = namePart.trim();
-          if (name === "lo" || !dataPart) {
-            return acc;
-          }
-
-          const values = dataPart.trim().split(/\s+/).map(Number);
-          acc.download += values[0] || 0;
-          acc.upload += values[8] || 0;
-          return acc;
-        },
-        { upload: 0, download: 0 },
-      );
-  } catch {
-    return null;
-  }
-}
-
-async function getWindowsNetworkTotals() {
-  const output = await exec("powershell.exe", [
-    "-NoProfile",
-    "-ExecutionPolicy",
-    "Bypass",
-    "-Command",
-    "Get-NetAdapterStatistics | Select-Object ReceivedBytes,SentBytes | ConvertTo-Json -Compress",
-  ]);
-
-  try {
-    const rows = JSON.parse(output);
-    const adapters = Array.isArray(rows) ? rows : [rows];
-    return adapters.reduce(
-      (acc, adapter) => {
-        acc.download += Number(adapter.ReceivedBytes) || 0;
-        acc.upload += Number(adapter.SentBytes) || 0;
-        return acc;
-      },
-      { upload: 0, download: 0 },
-    );
-  } catch {
-    return null;
-  }
-}
+// Network throughput for this PC comes from the same shared sampler the
+// Agent uses (src/shared/metricsSampler.js): /proc/net/dev on Linux and
+// netstat -e on Windows. It used to start PowerShell on every poll on
+// Windows, and reported a made-up 0 B/s on the first reading.
+const sampleLocalNetwork = require("../shared/metricsSampler").createNetworkSampler();
 
 async function getNetworkUsage() {
-  const totals = process.platform === "win32" ? await getWindowsNetworkTotals() : await getLinuxNetworkTotals();
-  const now = Date.now();
-
-  if (!totals) {
-    return null;
-  }
-
-  const current = { ...totals, at: now };
-
-  if (!previousNetworkSample) {
-    previousNetworkSample = current;
-    // The first reading has no rate yet; report null, not a made-up 0.
-    return {
-      reason: "warming_up",
-      uploadPerSecond: null,
-      downloadPerSecond: null,
-      totalUpload: totals.upload,
-      totalDownload: totals.download,
-    };
-  }
-
-  const seconds = Math.max((now - previousNetworkSample.at) / 1000, 0.001);
-  const uploadPerSecond = Math.max((current.upload - previousNetworkSample.upload) / seconds, 0);
-  const downloadPerSecond = Math.max((current.download - previousNetworkSample.download) / seconds, 0);
-  previousNetworkSample = current;
-
-  return {
-    uploadPerSecond: round(uploadPerSecond, 0),
-    downloadPerSecond: round(downloadPerSecond, 0),
-    totalUpload: totals.upload,
-    totalDownload: totals.download,
-  };
+  const network = await sampleLocalNetwork();
+  return network.supported === false && network.totalDownload === null ? null : network;
 }
 
 async function getCpuTemperature() {

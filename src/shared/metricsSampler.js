@@ -1,7 +1,9 @@
 "use strict";
 
-// Rate-based host metrics for the Agent: CPU (total and per core), network
-// throughput and NVIDIA GPU usage.
+// Rate-based host metrics: CPU (total and per core), network throughput and
+// NVIDIA GPU usage. Used by the Agent (agent/src/services/systemService.js)
+// and by the desktop when it manages this PC directly
+// (src/services/systemService.js), so both measure the same way.
 //
 // Rules:
 //   * Never fabricate. A rate needs two samples, so the first reading (and any
