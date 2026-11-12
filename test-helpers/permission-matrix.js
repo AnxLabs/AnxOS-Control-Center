@@ -638,6 +638,8 @@ const IPC_FAMILIES = [
       "publicAccess:getReverseProxy",
       // AnxNet status (Phase 6).
       "anxnet:status", "anxnet:dnsStatus",
+      // Phase 7.1: AnxNet status of an Agent computer.
+      "anxnet:agentStatus",
     ],
   },
   {
@@ -659,7 +661,9 @@ const IPC_FAMILIES = [
       "anxnet:createInvite", "anxnet:revokeInvite", "anxnet:approveDevice", "anxnet:rejectDevice",
       "anxnet:revokeDevice", "anxnet:renameDevice", "anxnet:setEdges", "anxnet:setDirectInbound", "anxnet:setKeepRunning", "anxnet:dnsEnable", "anxnet:dnsDisable",
       "anxnet:shareService", "anxnet:unshareService", "anxnet:publishService", "anxnet:unpublishService",
-      "anxnet:testPeer"],
+      "anxnet:testPeer",
+      // Phase 7.1: adding Agent computers and sharing from them.
+      "anxnet:addComputer", "anxnet:removeComputer", "anxnet:agentShare", "anxnet:agentUnshare"],
   },
   {
     id: "amp-read",
@@ -973,6 +977,11 @@ const REST_FAMILIES = [
     publicRoute: false,
     routes: [{ method: "POST", path: "/api/v1/public-access/reverse-proxy/routes", body: {} }],
   },
+  // AnxNet inside the Agent (Phase 7.1): status is public-access:read; joining,
+  // leaving and sharing are public-access:write. The write probe names a path
+  // that doesn't exist, so an allowed caller gets 404 without starting AnxNet.
+  { id: "rest-anxnet-read", tier: "public-access:read", publicRoute: false, routes: [{ method: "GET", path: "/api/v1/anxnet/status" }] },
+  { id: "rest-anxnet-write", tier: "public-access:write", publicRoute: false, routes: [{ method: "POST", path: "/api/v1/anxnet/matrix-probe", body: {} }] },
   { id: "rest-amp-read", tier: "instance:read", publicRoute: false, routes: [{ method: "GET", path: "/api/v1/amp/status" }] },
   { id: "rest-diagnostics", tier: "owner", publicRoute: false, routes: [{ method: "GET", path: "/api/v1/diagnostics" }] },
   { id: "rest-agent-task", tier: "agent:manage", publicRoute: false, routes: [{ method: "GET", path: "/api/v1/system/agent-task" }] },

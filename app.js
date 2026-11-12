@@ -43892,6 +43892,10 @@ async function refreshFleetSummary() {
     const summary = await desktopApiState.api.nodes.fleetSummary();
     if (serial !== fleetSummarySerial) return;
     fleetState = summary;
+    // The fleet summary re-checks every computer and records the result in
+    // the main process. If that disagrees with the node list this window
+    // holds, reload the list so Home and Computers don't show an old state.
+    if (fleetConnectionChanged(summary)) refreshNodes().catch(() => {});
   } catch (error) {
     if (serial !== fleetSummarySerial) return;
     fleetState = { error: normalizeIpcErrorMessage(error, "Fleet summary is unavailable."), nodes: [], totals: null, checkedAt: null };
@@ -43902,6 +43906,13 @@ async function refreshFleetSummary() {
   }
   renderFleetSummary();
   syncFleetControls();
+}
+
+function fleetConnectionChanged(summary) {
+  const known = new Map((nodesState?.nodes || []).map((node) => [node.id, String(node.connection?.status || node.lastConnectionState || "").toLowerCase()]));
+  return (summary?.nodes || []).some((entry) => entry.kind === "agent"
+    && known.has(entry.nodeId)
+    && String(entry.connection?.status || "").toLowerCase() !== known.get(entry.nodeId));
 }
 
 async function runFleetBatchActionFromUi(action) {

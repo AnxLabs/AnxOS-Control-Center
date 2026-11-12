@@ -496,3 +496,37 @@ a { color: var(--accent-strong); }
   .view { max-width: 720px; margin: 0 auto; }
   .tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
+
+/* ---- Phase 7.1: real-phone fixes ---------------------------------------------------- */
+
+/* iPhone Safari zooms into any text field under 16px; keep fields at 16px. */
+.input, .select, .textarea, .command .input { font-size: 16px; }
+.textarea { font-size: 16px; line-height: 1.35; }
+
+/* Landscape on notched phones: keep content clear of the side insets. */
+.topbar, .view, .banner, .tabbar {
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.tabbar { padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); }
+.banner { margin-left: max(16px, env(safe-area-inset-left, 0px)); margin-right: max(16px, env(safe-area-inset-right, 0px)); padding-left: 12px; padding-right: 12px; }
+
+/* Short landscape screens: a slimmer bar and a shorter console. */
+@media (orientation: landscape) and (max-height: 500px) {
+  :root { --tabbar-h: 50px; }
+  .tabbar__item { grid-auto-flow: column; gap: 6px; }
+  .console { height: 60vh; height: 60dvh; }
+  .tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+/* No grey flash on tap; buttons react to touch like native ones. */
+a, button { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+.button:active { filter: brightness(1.15); }
+
+/* Measures the safe-area insets for "Check this phone". */
+.safe-area-probe {
+  position: fixed;
+  visibility: hidden;
+  pointer-events: none;
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+}

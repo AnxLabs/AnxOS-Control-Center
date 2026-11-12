@@ -53,6 +53,8 @@ const REQUIRED_RUNTIME_PATHS = [
   "src/shared/redaction.js",
   "src/shared/releaseConfig.js",
   "src/shared/structuredLogger.js",
+  // Phase 7.1: AnxNet runs inside the Agent.
+  "src/anxnet/node.js",
 ];
 const CLOSURE_CANARIES = ["dotenv", "js-yaml", "ssh2"];
 

@@ -67,6 +67,34 @@ function isPrivateAddress(address) {
   return false;
 }
 
+// How a phone reached this computer, in words, from its source address.
+function connectionPath(address) {
+  const ip = plainAddress(address);
+  if (ip === "127.0.0.1" || ip === "::1") return "this computer";
+  if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(ip)) return "a VPN (100.64.0.0/10, for example Tailscale)";
+  return "your home network";
+}
+
+// One on-device check result, reduced to plain values with fixed keys.
+function cleanPhoneCheck(body) {
+  const number = (value) => (Number.isFinite(Number(value)) ? Math.round(Number(value) * 100) / 100 : null);
+  const text = (value, max = 120) => String(value ?? "").replace(/[\u0000-\u001f<>]/g, "").slice(0, max);
+  const flag = (value) => value === true;
+  const checks = Array.isArray(body.checks) ? body.checks.slice(0, 30).map((entry) => ({ id: text(entry?.id, 40), ok: entry?.ok === true ? true : entry?.ok === false ? false : null, detail: text(entry?.detail, 200) })) : [];
+  return {
+    userAgent: text(body.userAgent, 300),
+    standalone: flag(body.standalone),
+    secureContext: flag(body.secureContext),
+    serviceWorker: text(body.serviceWorker, 20),
+    viewport: { width: number(body.viewport?.width), height: number(body.viewport?.height), dpr: number(body.viewport?.dpr) },
+    safeArea: { top: number(body.safeArea?.top), right: number(body.safeArea?.right), bottom: number(body.safeArea?.bottom), left: number(body.safeArea?.left) },
+    orientation: text(body.orientation, 30),
+    touchPoints: number(body.touchPoints),
+    latencyMs: number(body.latencyMs),
+    checks,
+  };
+}
+
 function parseCookies(header) {
   const cookies = {};
   String(header || "").split(";").forEach((part) => {
@@ -107,7 +135,7 @@ function loadStatic(webRoot, sharedRoot, iconsRoot) {
   return files;
 }
 
-function createGateway({ certificates, sessions, api, webRoot, sharedRoot, iconsRoot, port = 0, host = "0.0.0.0", allowedHosts = [], onDevicesChanged = () => {}, log = () => {} }) {
+function createGateway({ certificates, sessions, api, webRoot, sharedRoot, iconsRoot, port = 0, host = "0.0.0.0", allowedHosts = [], onDevicesChanged = () => {}, onPhoneCheck = () => {}, log = () => {} }) {
   const staticFiles = loadStatic(webRoot, sharedRoot, iconsRoot);
   const caDer = pemToDer(certificates.caCert);
   const rate = new Map();
@@ -219,7 +247,17 @@ function createGateway({ certificates, sessions, api, webRoot, sharedRoot, icons
     const publicDevice = { id: device.id, name: device.name, role: device.role, createdAt: device.createdAt, expiresAt: device.expiresAt };
 
     if (pathname === "/session" && method === "GET") {
-      return sendJson(res, 200, { ok: true, device: publicDevice, capabilities: api.capabilities(device), csrf: sessions.csrfFor(device.tokenHash) });
+      return sendJson(res, 200, { ok: true, device: publicDevice, capabilities: api.capabilities(device), csrf: sessions.csrfFor(device.tokenHash), connection: { via: connectionPath(address), tls: req.socket.getProtocol?.() || "" } });
+    }
+    // The owner runs "Check this phone" on a real device and sends the result
+    // to the computer, where Phone Access lists it. Any paired role may send
+    // one; it holds only browser facts, never server data.
+    if (pathname === "/phone-check" && method === "POST") {
+      if (limited(rate, `check:${device.id}`, 10, 60 * 1000)) return sendError(res, 429, "SLOW_DOWN", "Too many checks. Wait a moment.");
+      const body = await readBody(req, 32 * 1024);
+      const report = { ...cleanPhoneCheck(body), deviceId: device.id, deviceName: device.name, role: device.role, via: connectionPath(address), tls: req.socket.getProtocol?.() || "", at: new Date().toISOString() };
+      onPhoneCheck(report);
+      return sendJson(res, 200, { ok: true, received: report.at });
     }
     if (pathname === "/logout" && method === "POST") {
       sessions.revokeDevice(device.id);
@@ -308,4 +346,4 @@ function createGateway({ certificates, sessions, api, webRoot, sharedRoot, icons
   };
 }
 
-module.exports = { createGateway, isPrivateAddress, COOKIE };
+module.exports = { createGateway, isPrivateAddress, connectionPath, COOKIE };

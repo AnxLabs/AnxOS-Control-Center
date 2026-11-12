@@ -183,6 +183,8 @@
     5985: "Windows Remote Management",
     5986: "Windows Remote Management (TLS)",
     6566: "AnxOS Agent",
+    47131: "AnxOS Agent",
+    47800: "AnxOS Phone Access",
   });
 
   function getManagementPortName(port) {

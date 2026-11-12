@@ -154,6 +154,7 @@
     "steamcmd:auto-update:smoke": "node scripts/steamcmd-auto-update-smoke.js",
     "mod-manager:smoke": "node scripts/mod-manager-smoke.js",
     "mobile-gateway:smoke": "node scripts/mobile-gateway-smoke.js",
+    "anxnet-agent:smoke": "node scripts/anxnet-agent-smoke.js",
     "mobile:ui-qa": "node scripts/mobile-ui-qa.js",
     "server-version-checks:smoke": "node scripts/server-version-checks-smoke.js",
     "fleet-update-view:smoke": "node scripts/fleet-update-view-smoke.js",
@@ -505,6 +506,14 @@
       {
         "from": "src/services",
         "to": "local-agent-runtime/src/services",
+        "filter": [
+          "**/*.js",
+          "!**/*.map"
+        ]
+      },
+      {
+        "from": "src/anxnet",
+        "to": "local-agent-runtime/src/anxnet",
         "filter": [
           "**/*.js",
           "!**/*.map"

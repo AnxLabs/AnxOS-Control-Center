@@ -2,7 +2,7 @@
 // Builds the official AnxOS Agent Debian package.
 //
 // The package is assembled from the same file selection the desktop
-// extraResources use (agent/**, src/shared/**, src/services/**, the staged
+// extraResources use (agent/**, src/shared/**, src/services/**, src/anxnet/**, the staged
 // runtime dependency closure, and the runtime config files) plus the Debian
 // control metadata, the systemd unit and the /usr/bin wrapper. An official Node
 // 22 LTS Linux binary is bundled so a fresh Debian/Ubuntu host needs neither
@@ -437,6 +437,9 @@ async function stagePayload(stageDir, options, arch, releaseInfo) {
     skipFile: (name) => !isRuntimeSourceFile(name),
   });
   copyTree(path.join(rootDir, "src", "services"), path.join(runtimeRoot, "src", "services"), {
+    skipFile: (name) => !isRuntimeSourceFile(name),
+  });
+  copyTree(path.join(rootDir, "src", "anxnet"), path.join(runtimeRoot, "src", "anxnet"), {
     skipFile: (name) => !isRuntimeSourceFile(name),
   });
   copyTree(stagedDependenciesDir, path.join(runtimeRoot, "node_modules"), {});

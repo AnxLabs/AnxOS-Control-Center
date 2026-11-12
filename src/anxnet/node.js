@@ -25,6 +25,7 @@ const tls = require("tls");
 
 const identityLib = require("./identity");
 const roster = require("./roster");
+const { assessReachability } = require("./reachability");
 const { FrameReader, TYPES, chunks, encode, jsonLineReader, sendJsonLine } = require("./frames");
 const secureUdp = require("./secureUdp");
 const { startDnsServer } = require("./dns");
@@ -150,6 +151,17 @@ class AnxNetNode extends EventEmitter {
     this.pendingPunch = new Map();
     this.coordinator = { state: "idle", socket: null, attempt: 0, timer: null, message: "" };
     this.started = false;
+    // Extra ports this computer never forwards to (its Agent's configured
+    // port, the phone gateway's), on top of roster.MANAGEMENT_PORTS.
+    this.blockedPorts = new Map((options.blockedPorts || []).map((entry) => [Number(entry.port), String(entry.name || "a management service")]));
+  }
+
+  // A service this device hosts may be reached only on a private target and
+  // never on a management port. Checked when sharing and again on every
+  // connection, so a roster from an older build can't open one either.
+  blockedTargetName(service) {
+    const port = Number(service.targetPort);
+    return roster.managementPortName(port) || this.blockedPorts.get(port) || (roster.isPrivateTarget(service.targetHost) ? null : "a non-private address");
   }
 
   // ---- lifecycle ---------------------------------------------------------------
@@ -380,6 +392,8 @@ class AnxNetNode extends EventEmitter {
   // that the service really lives on the asking device.
   async shareService(input) {
     const request = { ...input, deviceId: this.identity.deviceId };
+    const blocked = this.blockedTargetName({ targetHost: "127.0.0.1", targetPort: Number(input.targetPort) || Number(input.port) }); // the target host is checked by the roster
+    if (blocked) throw error("ANXNET_SERVICE_SENSITIVE_PORT", `That port is used by ${blocked}. AnxNet never shares management ports.`, 403);
     if (this.isOwner()) return this.changeRoster((signed) => roster.addService(signed, this.identity, request));
     const reply = await this.coordinatorRequest({ t: "service-add", service: request });
     if (reply.error) throw error(reply.error.code, reply.error.message, 403);
@@ -800,7 +814,7 @@ class AnxNetNode extends EventEmitter {
       const service = doc?.services.find((entry) => entry.serviceId === request.serviceId);
       // Only declared services on this device, for allowed devices, on a
       // stream id that isn't already in use.
-      if (!service || service.deviceId !== this.identity.deviceId || !roster.serviceAllows(doc, service, peer.deviceId) || peer.streams.size >= MAX_STREAMS_PER_PEER || peer.streams.has(frame.id)) {
+      if (!service || service.deviceId !== this.identity.deviceId || this.blockedTargetName(service) || !roster.serviceAllows(doc, service, peer.deviceId) || peer.streams.size >= MAX_STREAMS_PER_PEER || peer.streams.has(frame.id)) {
         this.writeFrame(peer, TYPES.CLOSE, frame.id);
         return;
       }
@@ -842,7 +856,7 @@ class AnxNetNode extends EventEmitter {
     if (!service) return;
     if (service.deviceId === this.identity.deviceId) {
       // Host side: deliver to the real game port.
-      if (!roster.serviceAllows(doc, service, peerId) || !["udp", "both"].includes(service.protocol)) return;
+      if (this.blockedTargetName(service) || !roster.serviceAllows(doc, service, peerId) || !["udp", "both"].includes(service.protocol)) return;
       const key = `${peerId}:${flowId}`;
       let flow = this.hostFlows.get(key);
       if (!flow) {
@@ -1449,7 +1463,7 @@ class AnxNetNode extends EventEmitter {
   async acceptGatewayConnection(gateway, { connId, routeId }) {
     const route = this.gatewayRoutes?.get(routeId);
     const service = route && this.doc?.services.find((entry) => entry.serviceId === route.serviceId);
-    if (!route || !service || service.deviceId !== this.identity.deviceId) return;
+    if (!route || !service || service.deviceId !== this.identity.deviceId || this.blockedTargetName(service)) return;
     const target = net.connect(service.targetPort, service.targetHost);
     target.on("error", () => target.destroy());
     const socket = tlsConnect(this.identity, { host: gateway.host, port: gateway.port });
@@ -1467,6 +1481,8 @@ class AnxNetNode extends EventEmitter {
   }
 
   async openGatewayUdp(gateway, route, service) {
+    const blocked = this.blockedTargetName(service);
+    if (blocked) throw error("ANXNET_SERVICE_SENSITIVE_PORT", `That port is used by ${blocked}. AnxNet never shares management ports.`, 403);
     const socket = tlsConnect(this.identity, { host: gateway.host, port: gateway.port });
     await onceSecure(socket);
     if (identityLib.fingerprint(socket.getPeerX509Certificate().publicKey) !== gateway.fingerprint) { socket.destroy(); throw error("ANXNET_EDGE_IDENTITY", "The gateway's key doesn't match.", 403); }
@@ -1509,6 +1525,8 @@ class AnxNetNode extends EventEmitter {
       deviceId: me,
       fingerprint: this.identity?.fingerprint || null,
       listening: this.server ? { tcpPort: this.server.address()?.port || null, udpPort: this.udp?.address?.()?.port || null } : null,
+      // A local reading of this computer's addresses (never a test from outside).
+      reachability: assessReachability(),
     };
     if (!this.state.network) return { ...base, network: null };
     const peerError = (deviceId) => this.lastPeerErrors?.get(deviceId)?.message || null;

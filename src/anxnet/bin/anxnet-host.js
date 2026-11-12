@@ -36,6 +36,7 @@ async function main() {
       directInbound: settings.directInbound !== false,
       dnsHost: settings.dnsHost || "127.77.0.1",
       dnsPort: Number(argument("--dns-port", Number.isInteger(settings.dnsPort) ? settings.dnsPort : 5353)),
+      blockedPorts: String(argument("--blocked-ports", "")).split(",").map(Number).filter((port) => Number.isInteger(port) && port > 0 && port < 65536).map((port) => ({ port, name: "a management service on this computer" })),
     },
     onStopped: () => setTimeout(() => process.exit(0), 50),
   });

@@ -14,6 +14,9 @@
   let lastInvite = null;
   let busy = false;
   let timer = null;
+  // AnxNet status of each computer running the AnxOS Agent (Phase 7.1).
+  const agentStates = new Map();
+  let agentsCheckedAt = 0;
 
   function api() {
     return getDesktopApiState().api?.anxnet || null;
@@ -69,8 +72,74 @@
       dnsCheckedAt = Date.now();
       try { dnsInfo = unwrap(await api().dnsStatus(), "Name lookup status is unavailable."); } catch (error) { dnsInfo = { available: false, reason: error.message }; }
     }
+    if (latest?.network && Date.now() - agentsCheckedAt > 30000) {
+      agentsCheckedAt = Date.now();
+      await refreshAgents();
+    }
     render();
     return latest;
+  }
+
+  function agentNodes() {
+    try {
+      return (Array.isArray(nodesState?.nodes) ? nodesState.nodes : []).filter((node) => node && node.kind === "agent" && node.enabled !== false);
+    } catch {
+      return [];
+    }
+  }
+
+  async function refreshAgents() {
+    if (typeof api()?.agentStatus !== "function") return;
+    for (const node of agentNodes()) {
+      try {
+        agentStates.set(node.id, unwrap(await api().agentStatus(node.id), "Unavailable"));
+      } catch (error) {
+        agentStates.set(node.id, { error: /not found|404|NOT_FOUND/i.test(error?.message || "") ? "This computer's Agent is older and can't run AnxNet yet. Update the Agent to add it." : error?.message || "Unavailable" });
+      }
+    }
+  }
+
+  // Computers that run the AnxOS Agent can join the network themselves, so
+  // their servers are shared from where they run, even with this PC off.
+  function renderAgents(container, status) {
+    const nodes = agentNodes();
+    if (!nodes.length) return;
+    const section = el("div", "anxnet-devices anxnet-agents");
+    section.append(el("h4", "", "Computers with the AnxOS Agent"));
+    const list = el("ul", "anxnet-list");
+    nodes.forEach((node) => {
+      const state = agentStates.get(node.id);
+      const item = el("li", "anxnet-row");
+      const text = el("div", "anxnet-row__text");
+      text.append(el("strong", "", node.displayName || node.name || node.id));
+      const actions = el("div", "anxnet-actions");
+      if (!state) text.append(el("span", "anxnet-note", "Checking…"));
+      else if (state.error) text.append(el("span", "anxnet-note", state.error));
+      else if (state.network && state.network.networkId === status.network.networkId) {
+        const me = (state.devices || []).find((device) => device.self);
+        text.append(el("span", "anxnet-host", me?.hostname || state.network.name), el("span", "anxnet-conn is-direct", "In this network; shares its servers itself"));
+        if (status.network.role === "owner") {
+          actions.append(button("Remove", async () => {
+            const ok = await createSecurityConfirmation({ title: `Remove ${node.displayName || node.id} from AnxNet?`, message: "Its servers stop being shared through AnxNet and it leaves the network. The Agent itself keeps running.", confirmLabel: "Remove" });
+            if (ok) { await run("Remove computer", () => api().removeComputer(node.id), "Removed from AnxNet."); agentsCheckedAt = 0; refresh(); }
+          }, { danger: true }));
+        }
+      } else if (state.network) {
+        text.append(el("span", "anxnet-note", `In another AnxNet network (${state.network.name}).`));
+      } else {
+        text.append(el("span", "anxnet-note", "Not in AnxNet"));
+        if (status.network.role === "owner") {
+          actions.append(button("Add to AnxNet", async () => {
+            const ok = await createSecurityConfirmation({ title: `Add ${node.displayName || node.id} to ${status.network.name}?`, message: "Its AnxOS Agent joins this network with a one-time invite and can then share its own game servers. The Agent opens one AnxNet port on that computer's network. SSH, Docker and the Agent's own port are never shared.", confirmLabel: "Add" });
+            if (ok) { await run("Add computer", () => api().addComputer(node.id), "Added to AnxNet."); agentsCheckedAt = 0; refresh(); }
+          }, { primary: true }));
+        }
+      }
+      item.append(text, actions);
+      list.append(item);
+    });
+    section.append(list);
+    container.append(section);
   }
 
   const CONNECTION_LABELS = {
@@ -147,6 +216,7 @@
   // Can servers be opened to everyone right now? Only when a gateway is
   // configured and this computer is actually connected to it.
   function renderAvailability(container, status) {
+    if (status.reachability?.verdict?.text) container.append(el("p", "anxnet-note", status.reachability.verdict.text));
     const gateway = (status.edgeLinks || []).find((link) => link.role === "gateway");
     const relay = (status.edgeLinks || []).find((link) => link.role === "relay");
     const line = el("div", "anxnet-availability");
@@ -352,6 +422,7 @@
       renderInvites(content, latest);
       renderPending(content, latest);
       renderDevices(content, latest);
+      renderAgents(content, latest);
       renderNameLookup(content, latest);
       renderServices(content, latest);
       renderAdvanced(content, latest);
@@ -393,12 +464,36 @@
     const section = el("section", "share-server-controls anxnet-share");
     section.append(el("h3", "", "Share with AnxNet"), el("p", "anxnet-note", "Checking AnxNet…"));
     if (!api()) { section.remove(); return section; }
-    api().status().then((result) => {
+    api().status().then(async (result) => {
       const status = result?.ok === false ? null : result;
       section.replaceChildren(el("h3", "", "Share with AnxNet"));
       if (!status?.network) {
         section.append(el("p", "anxnet-note", "AnxNet is AnxOS's own free private network: no port forwarding when a path exists, no third-party account. Create a network on the Computers page first."));
         section.append(button("Set up AnxNet", () => { document.querySelector("[data-share-server-close]")?.click(); showPage("nodes"); }));
+        return;
+      }
+      const selectedNode = typeof getSelectedNode === "function" ? getSelectedNode() : null;
+      if (selectedNode?.kind === "agent" && typeof api().agentStatus === "function") {
+        try { agentStates.set(selectedNode.id, unwrap(await api().agentStatus(selectedNode.id), "Unavailable")); } catch { agentStates.delete(selectedNode.id); }
+      }
+      const agentHost = selectedNode && selectedNode.kind === "agent" ? agentStates.get(selectedNode.id) : null;
+      const hostedByAgent = Boolean(agentHost?.network && agentHost.network.networkId === status.network.networkId && agentHost.deviceId);
+      if (hostedByAgent) {
+        const remote = (status.services || []).find((entry) => entry.instanceId === instance.id && entry.deviceId === agentHost.deviceId);
+        const target = instanceTarget(instance);
+        if (!remote) {
+          section.append(el("p", "anxnet-note", `${selectedNode.displayName || selectedNode.id} is in ${status.network.name}, so this server is shared from that computer and stays reachable when this PC is off.`));
+          section.append(button("Invite only", async () => {
+            const ok = await createSecurityConfirmation({ title: `Share ${instance.displayName || instance.id} with ${status.network.name}?`, message: `Devices in your AnxNet network can reach port ${target.port} (${instanceProtocol(instance).toUpperCase()}) of this server, through ${selectedNode.displayName || "its computer"}'s Agent. Nothing is opened to the internet.`, confirmLabel: "Share" });
+            if (!ok) return;
+            const shared = await run("Share", () => api().agentShare({ nodeId: selectedNode.id, instanceId: instance.id, port: target.port, protocol: instanceProtocol(instance), name: instance.displayName || instance.id }), "Shared with your AnxNet network.");
+            if (shared) reopen();
+          }, { primary: true }));
+          return;
+        }
+        section.append(el("p", "", `Invite only is on, from ${selectedNode.displayName || "its computer"}. Network members join at ${remote.hostname}:${remote.port}.`));
+        section.append(el("p", "anxnet-note", "Anyone can join for servers on other computers isn't available yet; use Playit below for public access."));
+        section.append(button("Stop sharing", () => run("Stop sharing", () => api().agentUnshare(selectedNode.id, remote.serviceId), "No longer shared through AnxNet.").then(() => reopen())));
         return;
       }
       const service = (status.services || []).find((entry) => entry.instanceId === instance.id && entry.local);
@@ -459,5 +554,5 @@
     refresh();
   }
 
-  window.AnxNetUi = { refresh, render, createShareSection, _state: () => latest };
+  window.AnxNetUi = { refresh, render, createShareSection, refreshAgents: () => { agentsCheckedAt = 0; return refresh(); }, _state: () => latest };
 })();

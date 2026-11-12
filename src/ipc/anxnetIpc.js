@@ -66,6 +66,12 @@ function registerAnxNetIpc() {
   write("anxnet:publishService", "anxnet.service.publish", (payload) => anxnet.publishService({ serviceId: String(payload.serviceId || ""), publicHost: payload.publicHost, game: typeof payload.game === "string" ? payload.game.slice(0, 40) : undefined }));
   write("anxnet:unpublishService", "anxnet.service.unpublish", (payload) => anxnet.unpublishService(String(payload.serviceId || "")));
   write("anxnet:testPeer", "anxnet.peer.test", (payload) => anxnet.testPeer(String(payload.deviceId || "")));
+  // Computers with the AnxOS Agent (Phase 7.1): AnxNet runs in their Agent.
+  read("anxnet:agentStatus", (payload) => anxnet.agentStatus(String(payload.nodeId || "")));
+  write("anxnet:addComputer", "anxnet.agent.add", (payload) => anxnet.addComputer(String(payload.nodeId || "")));
+  write("anxnet:removeComputer", "anxnet.agent.remove", (payload) => anxnet.removeComputer(String(payload.nodeId || "")));
+  write("anxnet:agentShare", "anxnet.agent.share", (payload) => anxnet.agentShare({ nodeId: payload.nodeId, instanceId: payload.instanceId, port: payload.port, protocol: payload.protocol, name: payload.name }));
+  write("anxnet:agentUnshare", "anxnet.agent.unshare", (payload) => anxnet.agentUnshare({ nodeId: payload.nodeId, serviceId: payload.serviceId }));
 }
 
 module.exports = { registerAnxNetIpc };

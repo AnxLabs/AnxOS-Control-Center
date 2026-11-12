@@ -615,6 +615,7 @@ function createMobileApi({ services, security, now = () => Date.now() } = {}) {
         services: (status?.services || []).map((service) => ({ name: text(service.name, 80), port: service.port ?? null, protocol: text(service.protocol, 5), local: service.local === true, reachableHere: service.reachableHere === true })),
         edgeLinks: (status?.edgeLinks || []).map((link) => ({ role: text(link.role, 10), state: text(link.state, 20) })),
         publicRoutes: (status?.publicRoutes || []).length,
+        reachability: status?.reachability?.verdict ? text(status.reachability.verdict.text, 300) : "",
       },
     };
   });

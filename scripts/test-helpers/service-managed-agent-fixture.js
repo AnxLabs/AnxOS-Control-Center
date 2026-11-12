@@ -188,6 +188,7 @@ async function startServiceManagedAgent(options = {}) {
       AGENT_API_PERMISSIONS: options.permissions || "*",
       AGENT_API_RATE_LIMIT_PER_MINUTE: "20000",
       ...(options.operations ? { AGENT_SERVICE_STATUS_ROOTS: statusDir } : {}),
+      ...(options.env || {}),
     },
     stdio: ["ignore", "pipe", "pipe"],
   });

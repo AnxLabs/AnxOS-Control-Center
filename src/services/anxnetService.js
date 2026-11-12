@@ -85,6 +85,28 @@ function portFree(port) {
   });
 }
 
+// Ports AnxNet must never forward to on this computer's network, beyond the
+// fixed list in roster.MANAGEMENT_PORTS: every registered Agent's port and
+// the phone gateway's port.
+function blockedPorts() {
+  const ports = new Map();
+  try {
+    for (const node of require("./nodeService").getAllNodesSync()) {
+      const port = Number(new URL(node.baseUrl || node.agentUrl || "http://x").port);
+      if (Number.isInteger(port) && port > 0) ports.set(port, "the AnxOS Agent");
+    }
+  } catch {
+    // The fixed list still applies.
+  }
+  try {
+    const phone = JSON.parse(fs.readFileSync(path.join(getDefaultConfigDirectory(), "mobile", "settings.json"), "utf8"));
+    if (Number.isInteger(Number(phone.port))) ports.set(Number(phone.port), "AnxOS Phone Access");
+  } catch {
+    // Phone access not configured.
+  }
+  return [...ports].map(([port, name]) => ({ port, name }));
+}
+
 async function nodeOptions() {
   const current = readSettings();
   // A fixed port keeps invite codes valid across restarts; fall back to any
@@ -99,6 +121,7 @@ async function nodeOptions() {
     directInbound: current.directInbound !== false,
     dnsPort: Number.isInteger(current.dnsPort) ? current.dnsPort : 5353,
     deviceName: os.hostname(),
+    blockedPorts: blockedPorts(),
   };
 }
 
@@ -106,7 +129,7 @@ async function startHostBackend() {
   const options = await nodeOptions();
   const client = new AnxNetHostClient({
     dataDir: dataDir(),
-    hostArgs: ["--listen-host", options.listenHost, "--listen-port", String(options.listenPort), "--dns-port", String(options.dnsPort)],
+    hostArgs: ["--listen-host", options.listenHost, "--listen-port", String(options.listenPort), "--dns-port", String(options.dnsPort), "--blocked-ports", options.blockedPorts.map((entry) => entry.port).join(",") || "none"],
   });
   await client.connect();
   await client.call("unlock", { keyPem: devicePrivateKeyPem() });
@@ -406,7 +429,69 @@ async function setKeepRunning(enabled) {
   return status();
 }
 
+// ---- Computers with the AnxOS Agent (Phase 7.1) --------------------------------
+// An Agent runs the same AnxNet node, so a server can be shared from its own
+// computer. This desktop (the network's owner) sends the Agent a single-use,
+// pre-approved invite over the Agent's authenticated API.
+
+function agentCall(nodeId, action, body) {
+  const agentClient = require("./agentClient");
+  const target = agentClient.forNode(String(nodeId || "")).target;
+  if (!target?.config) throw roster.error("ANXNET_NOT_AN_AGENT", "That computer doesn't run the AnxOS Agent.", 400);
+  return agentClient.anxnetRequest(action, body, target.config);
+}
+
+async function agentStatus(nodeId) {
+  return agentCall(nodeId, "status");
+}
+
+async function addComputer(nodeId) {
+  const active = await requireNetwork();
+  const nodeStatus = await active.call("status");
+  if (nodeStatus.network?.role !== "owner") throw roster.error("ANXNET_OWNER_ONLY", "Only the computer that owns this AnxNet network can add other computers.", 403);
+  const current = await agentStatus(nodeId);
+  if (current?.network) {
+    if (current.network.networkId === nodeStatus.network.networkId) return { already: true, agent: current, status: await status() };
+    throw roster.error("ANXNET_AGENT_OTHER_NETWORK", `That computer is already in another AnxNet network (${current.network.name}).`, 409);
+  }
+  let name = "";
+  try { name = require("./nodeService").getNode(nodeId)?.displayName || ""; } catch {}
+  const invite = await active.call("createInvite", { ttlMs: 10 * 60 * 1000, maxUses: 1, preApproved: true, label: `AnxOS Agent: ${name || nodeId}`.slice(0, 60) });
+  try {
+    const joined = await agentCall(nodeId, "join", { code: invite.code, deviceName: name || undefined });
+    return { agent: joined, status: await status() };
+  } finally {
+    // The code is single-use; withdraw it if the Agent didn't consume it.
+    await active.call("revokeInvite", { inviteId: invite.invite?.inviteId }).catch(() => {});
+  }
+}
+
+async function removeComputer(nodeId) {
+  const current = await agentStatus(nodeId);
+  if (current?.deviceId && current.network) {
+    const active = await requireNetwork();
+    await active.call("revokeDevice", { deviceId: current.deviceId }).catch(() => {});
+  }
+  const left = await agentCall(nodeId, "leave", {});
+  return { agent: left, status: await status() };
+}
+
+async function agentShare(input = {}) {
+  const shared = await agentCall(input.nodeId, "share", { instanceId: String(input.instanceId || ""), port: input.port, protocol: input.protocol, name: input.name });
+  return { ...shared, status: await status() };
+}
+
+async function agentUnshare(input = {}) {
+  const left = await agentCall(input.nodeId, "unshare", { serviceId: String(input.serviceId || "") });
+  return { agent: left, status: await status() };
+}
+
 module.exports = {
+  addComputer,
+  agentShare,
+  agentStatus,
+  agentUnshare,
+  removeComputer,
   approveDevice: ownerAction("approveDevice", (deviceId) => ({ deviceId })),
   createInvite,
   createNetwork,

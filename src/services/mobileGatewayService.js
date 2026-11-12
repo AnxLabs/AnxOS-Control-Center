@@ -86,6 +86,28 @@ function log(level, event, details) {
   }
 }
 
+const MAX_PHONE_CHECKS = 20;
+
+function phoneChecksPath() {
+  return path.join(dataDir(), "phone-checks.json");
+}
+
+function readPhoneChecks() {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(phoneChecksPath(), "utf8"));
+    return Array.isArray(parsed.checks) ? parsed.checks : [];
+  } catch {
+    return [];
+  }
+}
+
+function recordPhoneCheck(report) {
+  const checks = [report, ...readPhoneChecks()].slice(0, MAX_PHONE_CHECKS);
+  fs.mkdirSync(dataDir(), { recursive: true });
+  fs.writeFileSync(phoneChecksPath(), JSON.stringify({ checks }, null, 2), { mode: 0o600 });
+  events.emit("changed");
+}
+
 function urls() {
   if (!gateway || !certificates) return [];
   // Home-network address first (lanAddresses ranks them); only addresses the
@@ -106,6 +128,7 @@ function status() {
     devices: getSessions().listDevices(),
     pendingPairings: getSessions().pendingPairings(),
     roles: ROLES,
+    phoneChecks: readPhoneChecks(),
     error: lastError,
   };
 }
@@ -132,6 +155,7 @@ async function start({ services = defaultServices(), security = defaultSecurity(
       port: settings.port,
       host,
       onDevicesChanged: () => events.emit("changed"),
+      onPhoneCheck: recordPhoneCheck,
       log,
     });
     await candidate.start();

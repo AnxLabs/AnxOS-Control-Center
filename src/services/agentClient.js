@@ -3452,6 +3452,19 @@ async function restoreBackup(payload = {}, configOverride = null) {
   });
 }
 
+// AnxNet inside an Agent (Phase 7.1): "status" is a GET; "join", "leave",
+// "share" and "unshare" are POSTs.
+const ANXNET_AGENT_ACTIONS = new Set(["status", "join", "leave", "share", "unshare"]);
+async function anxnetRequest(action, body = {}, configOverride = null) {
+  if (!ANXNET_AGENT_ACTIONS.has(action)) throw Object.assign(new Error("Unknown AnxNet action."), { code: "ANXNET_ACTION_INVALID" });
+  return requestJson(`/api/v1/anxnet/${action}`, {
+    config: configOverride,
+    method: action === "status" ? "GET" : "POST",
+    ...(action === "status" ? {} : { body }),
+    timeoutMs: PUBLIC_ACCESS_REQUEST_TIMEOUT_MS,
+  });
+}
+
 async function verifyBackup(backupId, configOverride = null) {
   return requestJson(`/api/v1/backups/${encodeURIComponent(String(backupId || ""))}/verify`, {
     config: configOverride,
@@ -3802,6 +3815,7 @@ module.exports = {
   restartInstance,
   restoreBackup,
   verifyBackup,
+  anxnetRequest,
   testConnection,
   startInstance,
   stopInstance,

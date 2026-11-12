@@ -214,7 +214,38 @@
     const heading = el("h3", "phone-access__heading", "Paired phones");
     draft.append(heading);
     renderDevices(draft);
+    renderPhoneChecks(draft);
     panel.replaceChildren(draft);
+  }
+
+  // Results of "Check this phone", run on real phones (More > Check this
+  // phone) and sent here. Newest first.
+  function browserName(agent) {
+    const text = String(agent || "");
+    const os = /iPhone|iPad/.test(text) ? `iOS ${(/OS (\d+)_(\d+)/.exec(text) || []).slice(1, 3).join(".")}` : /Android (\d+)/.test(text) ? `Android ${/Android (\d+)/.exec(text)[1]}` : "Other";
+    const browser = /CriOS|Chrome\//.test(text) ? "Chrome" : /FxiOS|Firefox\//.test(text) ? "Firefox" : /EdgiOS|EdgA|Edg\//.test(text) ? "Edge" : /Safari\//.test(text) ? "Safari" : "Browser";
+    return `${browser} on ${os}`;
+  }
+
+  function renderPhoneChecks(container) {
+    const checks = latest.phoneChecks || [];
+    if (!checks.length) return;
+    container.append(el("h3", "phone-access__heading", "Phone checks"));
+    const list = el("div", "phone-devices");
+    checks.slice(0, 5).forEach((check) => {
+      const row = el("div", "phone-device");
+      const info = el("div", "phone-device__info");
+      const failed = (check.checks || []).filter((entry) => entry.ok === false);
+      info.append(
+        el("strong", "", `${check.deviceName} · ${browserName(check.userAgent)}`),
+        el("span", `status-pill ${failed.length ? "status-pill--planned" : "status-pill--ok"}`, failed.length ? `${failed.length} to look at` : "All passed"),
+        el("small", "", `${when(check.at)} · ${check.standalone ? "installed app" : "in the browser"} · through ${check.via} · ${check.latencyMs !== null ? `${Math.round(check.latencyMs)} ms` : "no answer"} · ${check.viewport?.width}×${check.viewport?.height} ${check.orientation || ""}`),
+      );
+      failed.forEach((entry) => info.append(el("small", "", `${entry.id.replace(/-/g, " ")}: ${entry.detail}`)));
+      row.append(info);
+      list.append(row);
+    });
+    container.append(list);
   }
 
   document.querySelector('[data-security-section-target="phone"]')?.addEventListener("click", () => refresh());

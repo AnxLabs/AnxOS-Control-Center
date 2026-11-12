@@ -18,7 +18,9 @@ const MAX_INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_DEVICES = 250;
 const MAX_SERVICES = 200;
 // Ports AnxNet never shares, matching the Sharing guard (shareHealth.js).
-const MANAGEMENT_PORTS = new Map([[22, "SSH"], [2375, "Docker"], [2376, "Docker (TLS)"], [3389, "Remote Desktop"], [5900, "VNC"], [5985, "WinRM"], [5986, "WinRM (TLS)"], [6566, "the AnxOS Agent"]]);
+// 47131 is the AnxOS Agent's default port and 47800 the phone gateway's;
+// computers may add their own (the Agent's configured port) as blockedPorts.
+const MANAGEMENT_PORTS = new Map([[22, "SSH"], [2375, "Docker"], [2376, "Docker (TLS)"], [3389, "Remote Desktop"], [5900, "VNC"], [5985, "WinRM"], [5986, "WinRM (TLS)"], [6566, "the AnxOS Agent"], [47131, "the AnxOS Agent"], [47800, "AnxOS Phone Access"]]);
 
 function error(code, message, statusCode = 400) {
   return Object.assign(new Error(message || code), { code, statusCode });
@@ -183,6 +185,9 @@ function addService(signed, ownerIdentity, input) {
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw error("ANXNET_SERVICE_PORT", "Choose a port between 1 and 65535.");
   const reserved = managementPortName(port);
   if (reserved) throw error("ANXNET_SERVICE_SENSITIVE_PORT", `Port ${port} is used by ${reserved}. AnxNet never shares management ports.`, 403);
+  // The port traffic is forwarded to matters as much as the one advertised.
+  const reservedTarget = managementPortName(Number(input.targetPort) || port);
+  if (reservedTarget) throw error("ANXNET_SERVICE_SENSITIVE_PORT", `Port ${Number(input.targetPort)} is used by ${reservedTarget}. AnxNet never shares management ports.`, 403);
   const protocol = ["tcp", "udp", "both"].includes(input.protocol) ? input.protocol : "tcp";
   const targetHost = String(input.targetHost || "127.0.0.1");
   if (!isPrivateTarget(targetHost)) throw error("ANXNET_SERVICE_TARGET", "A shared service must run on the device itself or its private network (a loopback or private IP address).", 403);

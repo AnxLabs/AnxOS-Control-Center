@@ -5,7 +5,7 @@
 // responses are never cached: server data, consoles and files always come
 // live from the computer, or not at all.
 
-const CACHE = "anxos-shell-v1";
+const CACHE = "anxos-shell-v2";
 const SHELL = [
   "/",
   "/index.html",

@@ -27,6 +27,11 @@
 // G18 Responses never leak paths, commands, environment values or tokens.
 // G19 Oversized bodies are refused.
 // G20 The desktop service: on/off, pairing link and QR, device list.
+// G21 Phase 7.1: paired phones stay paired across an AnxOS restart.
+// G22 An upload cut off mid-way writes nothing.
+// G23 A second gateway on a port in use reports it instead of crashing.
+// G24 Phone checks are accepted from any paired phone, cleaned, rate limited.
+// G25 The session says how the phone is connected.
 
 const assert = require("assert");
 const crypto = require("crypto");
@@ -193,6 +198,7 @@ async function main() {
   const tls = ensureCertificates(path.join(tempRoot, "tls"), { ips: ["192.168.50.10"], hostname: "SMOKE" });
   const sessions = createSessionStore({ folder: path.join(tempRoot, "sessions"), now });
   const api = createMobileApi({ services, security, now });
+  const phoneChecks = [];
   const gateway = createGateway({
     certificates: tls,
     sessions,
@@ -202,6 +208,7 @@ async function main() {
     iconsRoot: path.join(root, "assets", "icons", "png"),
     port: 0,
     host: "127.0.0.1",
+    onPhoneCheck: (report) => phoneChecks.push(report),
   });
   const { port } = await gateway.start();
   const ca = tls.caCert;
@@ -408,6 +415,52 @@ async function main() {
     const huge = await post("/api/servers/node-1/survival/command", { command: "x".repeat(300 * 1024) }, { headers: ownerHeaders });
     assert.strictEqual(huge.status, 413);
     pass("G19", "oversized request bodies refused (413)");
+
+    // G24 and G25
+    const sessionInfo = await get("/api/session", { headers: { Cookie: owner.cookie } });
+    assert.strictEqual(sessionInfo.json.connection.via, "this computer");
+    assert.match(sessionInfo.json.connection.tls, /^TLSv1\.[23]$/);
+    const checkBody = { userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) <script>", standalone: true, secureContext: true, serviceWorker: "active", viewport: { width: 390, height: 844, dpr: 3 }, safeArea: { top: 47, bottom: 34, left: 0, right: 0 }, orientation: "portrait-primary", touchPoints: 5, latencyMs: 12.345, checks: [{ id: "service-worker", ok: true, detail: "Offline app shell: active" }], serverData: "should be dropped", cookie: "x" };
+    const sent = await post("/api/phone-check", checkBody, { headers: { Cookie: viewerCookie, "X-AnxOS-CSRF": viewerCsrf } });
+    assert.strictEqual(sent.status, 200, "a Viewer phone may send a check");
+    const stored = phoneChecks.at(-1);
+    assert.strictEqual(stored.role, "Viewer");
+    assert.strictEqual(stored.viewport.width, 390);
+    assert.ok(!stored.userAgent.includes("<"), "markup removed");
+    assert.ok(!("serverData" in stored) && !("cookie" in stored), "only known fields are kept");
+    assert.strictEqual((await post("/api/phone-check", checkBody, { headers: { Cookie: viewerCookie } })).status, 403, "CSRF still required");
+    let checkLimited = false;
+    for (let attempt = 0; attempt < 12; attempt += 1) if ((await post("/api/phone-check", {}, { headers: { Cookie: viewerCookie, "X-AnxOS-CSRF": viewerCsrf } })).status === 429) checkLimited = true;
+    assert.ok(checkLimited, "phone checks are rate limited");
+    pass("G24", "phone check from a Viewer phone stored with fixed fields only (markup and extra keys dropped); CSRF and rate limit apply");
+    pass("G25", `session reports the path ("${sessionInfo.json.connection.via}") and ${sessionInfo.json.connection.tls}`);
+
+    // G22: the body stops half-way; the service is never called.
+    const writesBefore = called("writeInstanceFile").length;
+    await new Promise((resolve) => {
+      const payload = Buffer.from(JSON.stringify({ path: "partial.jar", contentBase64: crypto.randomBytes(200000).toString("base64") }));
+      const req = https.request({ host: "127.0.0.1", port, method: "POST", path: "/api/servers/node-1/survival/files/upload", ca, agent: false, checkServerIdentity: (_host, cert) => tlsLib.checkServerIdentity("127.0.0.1", cert), headers: { Host: `127.0.0.1:${port}`, Origin: origin, Cookie: owner.cookie, "X-AnxOS-CSRF": owner.csrf, "Content-Type": "application/json", "Content-Length": payload.length } });
+      req.on("error", () => resolve());
+      req.on("response", () => resolve());
+      req.write(payload.subarray(0, Math.floor(payload.length / 2)), () => setTimeout(() => { req.destroy(); resolve(); }, 300));
+    });
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    assert.strictEqual(called("writeInstanceFile").length, writesBefore, "nothing is written from a cut-off upload");
+    pass("G22", "an upload cut off half-way never reaches the file service");
+
+    // G21: a new gateway over the same folders accepts the existing cookie.
+    const restartedSessions = createSessionStore({ folder: path.join(tempRoot, "sessions"), now });
+    const restarted = createGateway({ certificates: ensureCertificates(path.join(tempRoot, "tls"), { ips: ["192.168.50.10"], hostname: "SMOKE" }), sessions: restartedSessions, api, webRoot: path.join(root, "src", "mobile", "web"), sharedRoot: path.join(root, "src", "shared"), iconsRoot: path.join(root, "assets", "icons", "png"), port: 0, host: "127.0.0.1" });
+    const restartedInfo = await restarted.start();
+    const again = await request(restartedInfo.port, ca, { pathname: "/api/session", headers: { Cookie: owner.cookie } });
+    assert.strictEqual(again.status, 200, "the phone is still paired after a restart");
+    assert.strictEqual(again.json.csrf, owner.csrf, "and its CSRF token is unchanged");
+    // G23: the same port twice.
+    const clash = createGateway({ certificates: tls, sessions: restartedSessions, api, webRoot: path.join(root, "src", "mobile", "web"), sharedRoot: path.join(root, "src", "shared"), iconsRoot: path.join(root, "assets", "icons", "png"), port: restartedInfo.port, host: "127.0.0.1" });
+    await assert.rejects(clash.start(), (error) => error.code === "EADDRINUSE");
+    await restarted.stop();
+    pass("G21", "phones stay paired (same cookie and CSRF) when AnxOS restarts; certificates are reused");
+    pass("G23", "a second gateway on a port in use fails with EADDRINUSE (the desktop shows it as a message)");
 
     // G13
     assert.ok(sessions.revokeDevice(owner.id));

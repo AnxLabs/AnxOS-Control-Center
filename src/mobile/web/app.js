@@ -1201,6 +1201,7 @@
       add("This computer", anxnet.network.role === "owner" ? "Owner of the network" : "Member");
       add("Running", anxnet.running ? "Yes" : "No");
       card.append(facts);
+      if (anxnet.reachability) card.append(el("p", "muted", anxnet.reachability));
     }
     draft.append(card);
     if (anxnet.devices?.length) {
@@ -1247,6 +1248,7 @@
     add("This phone", device.name || "");
     add("Access", device.role || "");
     add("Access ends", device.expiresAt ? `${when(device.expiresAt)} if not used before then` : "");
+    if (state.session?.connection?.via) add("Connected through", state.session.connection.via);
     card.append(el("h2", "", "This phone"), facts);
     card.append(button("Sign out this phone", async () => {
       if (!(await confirmSheet({ title: "Sign out this phone?", message: "The phone loses access. Pair it again from the computer to come back.", confirmLabel: "Sign out", danger: true }))) return;
@@ -1268,7 +1270,95 @@
       el("p", "muted", "Install it: on iPhone, Share > Add to Home Screen. On Android, the browser menu > Install app."),
     );
     draft.append(about);
+    const check = el("div", "card");
+    check.append(
+      el("h2", "", "Check this phone"),
+      el("p", "muted", "Tests this phone's browser with AnxOS (certificate trust, installed app, screen, connection speed) and sends the result to Phone Access on the computer. It sends no server data."),
+      button("Run the check", () => runPhoneCheck(check), { kind: "primary" }),
+    );
+    draft.append(check);
     view.replaceChildren(draft);
+  }
+
+  // ---- Phone check -----------------------------------------------------------------------------
+
+  // Browser facts measured on the real device, so real-phone results are
+  // recorded rather than assumed.
+  async function collectPhoneCheck() {
+    const checks = [];
+    const add = (id, ok, detail) => checks.push({ id, ok, detail });
+    add("secure-context", window.isSecureContext, window.isSecureContext ? "HTTPS page with a trusted certificate" : "Not a secure context");
+    let serviceWorker = "unsupported";
+    if ("serviceWorker" in navigator) {
+      try {
+        const registration = await Promise.race([navigator.serviceWorker.getRegistration("/"), new Promise((resolve) => setTimeout(() => resolve(null), 3000))]);
+        serviceWorker = registration?.active ? "active" : registration ? "installing" : "none";
+      } catch (error) {
+        serviceWorker = "error";
+      }
+    }
+    // Browsers refuse service workers on certificates they don't trust, so
+    // this also shows whether the AnxOS certificate is really trusted.
+    add("service-worker", serviceWorker === "active", `Offline app shell: ${serviceWorker}`);
+    const standalone = window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+    // Not installed isn't a fault, just a fact worth recording.
+    add("installed", standalone ? true : null, standalone ? "Opened as an installed app" : "Opened in the browser (not installed, or installed but opened from the browser)");
+    const times = [];
+    for (let index = 0; index < 5; index += 1) {
+      const started = performance.now();
+      try { await api("/session"); times.push(performance.now() - started); } catch { /* counted below */ }
+    }
+    times.sort((a, b) => a - b);
+    const latencyMs = times.length ? times[Math.floor(times.length / 2)] : null;
+    add("connection", times.length === 5, latencyMs === null ? "The computer didn't answer" : `${Math.round(latencyMs)} ms median over ${times.length} requests`);
+    const probe = el("div");
+    probe.className = "safe-area-probe";
+    document.body.append(probe);
+    const style = getComputedStyle(probe);
+    const safeArea = { top: parseFloat(style.paddingTop) || 0, right: parseFloat(style.paddingRight) || 0, bottom: parseFloat(style.paddingBottom) || 0, left: parseFloat(style.paddingLeft) || 0 };
+    probe.remove();
+    const overflow = document.documentElement.scrollWidth > window.innerWidth + 1;
+    add("layout", !overflow, overflow ? `Page is ${document.documentElement.scrollWidth}px wide in a ${window.innerWidth}px screen` : "No sideways scrolling");
+    const sample = el("input", "input");
+    document.body.append(sample);
+    const inputSize = parseFloat(getComputedStyle(sample).fontSize);
+    sample.remove();
+    add("input-zoom", inputSize >= 16, `Text fields use ${inputSize}px text${inputSize >= 16 ? "" : " (iPhone zooms in under 16px)"}`);
+    const orientation = (screen.orientation && screen.orientation.type) || (window.matchMedia("(orientation: landscape)").matches ? "landscape" : "portrait");
+    return {
+      userAgent: navigator.userAgent,
+      standalone,
+      secureContext: window.isSecureContext,
+      serviceWorker,
+      viewport: { width: window.innerWidth, height: window.innerHeight, dpr: window.devicePixelRatio },
+      safeArea,
+      orientation,
+      touchPoints: navigator.maxTouchPoints || 0,
+      latencyMs,
+      checks,
+    };
+  }
+
+  async function runPhoneCheck(container) {
+    const result = el("div", "list");
+    container.querySelectorAll(".list, .notice").forEach((node) => node.remove());
+    container.append(el("p", "notice", "Checking…"));
+    const report = await collectPhoneCheck();
+    container.querySelectorAll(".notice").forEach((node) => node.remove());
+    report.checks.forEach((entry) => {
+      const row = el("div", `row tone-${entry.ok === true ? "ok" : entry.ok === false ? "warning" : "muted"}`);
+      const main = el("span", "row__main");
+      main.append(el("strong", "", entry.id.replace(/-/g, " ")), el("span", "", entry.detail));
+      row.append(el("span", "dot"), main);
+      result.append(row);
+    });
+    container.append(result);
+    try {
+      await api("/phone-check", { method: "POST", body: report });
+      container.append(el("p", "notice", "Sent to Phone Access on the computer."));
+    } catch (error) {
+      container.append(el("p", "notice", `Not sent: ${error.message}`));
+    }
   }
 
   // ---- Start ---------------------------------------------------------------------------------

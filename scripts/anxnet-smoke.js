@@ -27,6 +27,8 @@
 //       replayed hello can't redirect UDP traffic; stream ids can't be
 //       reused; services can't point at internet hosts; coordinator and
 //       enrollment rate limits; expired gateway grants close their route
+//   X13 management ports refused as advertised or forwarded ports, and at
+//       connect time (Phase 7.1)
 // Run: node scripts/anxnet-smoke.js
 
 const assert = require("assert");
@@ -164,7 +166,17 @@ function unitChecks() {
   // DNS packet handling
   const query = Buffer.from("abcd0100000100000000000006676f6f676c6503636f6d0000010001", "hex");
   assert.strictEqual(buildResponse(query, { domain: "anx-frost72.internal", lookup: () => "127.77.0.2" }).readUInt16BE(2) & 0xf, 5, "other domains are refused, never recursed");
-  pass("X1 names, roster signatures, collisions, management ports, single-use expiring invites, DNS refusal");
+  // Phase 7.1: local reachability reading. Carrier-grade NAT is told apart
+  // from a VPN using the same 100.64/10 range, and nothing claims an outside test.
+  const { assessReachability, classifyAddress } = require("../src/anxnet/reachability");
+  assert.strictEqual(classifyAddress({ address: "100.80.0.5", name: "eth0" }), "cgnat");
+  assert.strictEqual(classifyAddress({ address: "100.80.0.5", name: "tailscale0" }), "vpn");
+  assert.strictEqual(classifyAddress({ address: "192.168.56.1", name: "Ethernet 2", mac: "0a:00:27:00:00:09" }), "virtual");
+  assert.strictEqual(assessReachability({ eth0: [{ family: "IPv4", address: "100.80.0.5" }] }).verdict.key, "cgnat");
+  assert.strictEqual(assessReachability({ eth0: [{ family: "IPv4", address: "51.38.10.20" }] }).verdict.key, "public");
+  assert.strictEqual(assessReachability({ tailscale0: [{ family: "IPv4", address: "100.80.0.5" }], eth0: [{ family: "IPv4", address: "192.168.0.4" }] }).verdict.key, "private");
+  assert.strictEqual(assessReachability().testedFromOutside, false);
+  pass("X1 names, roster signatures, collisions, management ports, single-use expiring invites, DNS refusal, CGNAT/VPN/public address reading");
 }
 
 async function main() {
@@ -412,6 +424,37 @@ async function main() {
   }
   assert.ok(outcomes.slice(0, 10).every((code) => code === "ANXNET_INVITE_INVALID") && outcomes.slice(10).every((code) => code === "ANXNET_RATE_LIMITED"), `guessing invite codes is throttled (${outcomes.join(",")})`);
   pass("X11 review fixes: stale hellos refused, replayed hello can't carry traffic, stream ids not reusable, no internet targets, control and enrollment rate limits, expired grants close routes");
+
+  // X13 (Phase 7.1): management ports are refused whether advertised or
+  // forwarded to, including the Agent's default port and computer-specific
+  // ports, and a hosting node re-checks on every connection.
+  for (const attempt of [
+    { name: "Sneaky", port: 25622, targetPort: 22 },
+    { name: "Agent", port: 47131 },
+    { name: "AgentFwd", port: 25623, targetPort: 47131 },
+    { name: "Phone", port: 25624, targetPort: 47800 },
+  ]) {
+    await assert.rejects(ownerNode.shareService({ protocol: "tcp", targetHost: "127.0.0.1", ...attempt }), (error) => error.code === "ANXNET_SERVICE_SENSITIVE_PORT", `${attempt.name} refused`);
+  }
+  assert.throws(() => roster.addService(ownerNode.state.roster, ownerNode.identity, { deviceId: ownerNode.identity.deviceId, port: 25625, targetPort: 3389 }), (error) => error.code === "ANXNET_SERVICE_SENSITIVE_PORT", "the roster itself refuses a management target port");
+  const forwardX = memberX.status().forwards.find((forward) => forward.serviceId === svcX.serviceId);
+  assert.strictEqual(await tcpRoundTrip(svcX.port, forwardX.address, "before"), "mc:before", "the shared game works");
+  // This computer now says that port belongs to a management service (as if
+  // its Agent ran there): the next connection is refused at the host.
+  ownerNode.blockedPorts.set(gameTcp, "the AnxOS Agent");
+  const blockedReply = await new Promise((resolve) => {
+    const socket = net.connect(svcX.port, forwardX.address);
+    let data = "";
+    socket.on("data", (chunk) => { data += chunk; });
+    socket.on("connect", () => socket.write("after"));
+    socket.on("close", () => resolve(data));
+    socket.on("error", () => resolve(data));
+    setTimeout(() => { socket.destroy(); resolve(data); }, 3000);
+  });
+  assert.strictEqual(blockedReply, "", "no bytes reach a blocked port");
+  await assert.rejects(ownerNode.shareService({ name: "Again", port: 25626, protocol: "tcp", targetHost: "127.0.0.1", targetPort: gameTcp }), (error) => error.code === "ANXNET_SERVICE_SENSITIVE_PORT");
+  ownerNode.blockedPorts.delete(gameTcp);
+  pass("X13 management ports refused as advertised or forwarded ports (SSH, RDP, Agent 47131, Phone Access 47800, computer-specific); blocked at connect time too");
 
   await edge.stop();
   console.log(`AnxNet smoke passed (${checks} checks). Real sockets on one host; separate computers and NAT are simulated.`);

@@ -19,6 +19,9 @@
 //      turning it off closes the public port
 //   U5 removing the device from the UI cuts its access
 //   U6 no renderer errors
+//   U8 Phase 7.1: Computers > AnxNet adds the Agent's computer to the
+//      network; the Share dialog then shares the server from that computer's
+//      own Agent, the owner reaches it, Stop sharing and Remove clean up
 //   U7 AnxNet runs in its own background process: after the AnxOS window
 //      closes, a device still reaches the shared server (the host is shut
 //      down by the test afterwards)
@@ -72,7 +75,9 @@ function greeting(port, host, timeoutMs = 8000) {
 
 async function main() {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "anxnet-ui-qa-"));
-  const agent = await startServiceManagedAgent({ initial: "stopped", extraInstanceConfigs: [fakeMinecraftInstance({ id: SERVER_ID, port: GAME_PORT })] });
+  const agentAnxnetPort = await new Promise((resolve) => { const probe = net.createServer(); probe.listen(0, "127.0.0.1", () => { const { port } = probe.address(); probe.close(() => resolve(port)); }); });
+  // The Agent's AnxNet listens on loopback only in this test.
+  const agent = await startServiceManagedAgent({ initial: "stopped", extraInstanceConfigs: [fakeMinecraftInstance({ id: SERVER_ID, port: GAME_PORT })], env: { AGENT_ANXNET_ROOT: path.join(temp, "agent-anxnet"), AGENT_ANXNET_HOST: "127.0.0.1", AGENT_ANXNET_PORT: String(agentAnxnetPort) } });
   const qa = createIsolatedQaEnv("anx-anxnet-qa-config-");
   const userData = fs.mkdtempSync(path.join(os.tmpdir(), "anx-anxnet-qa-profile-"));
   const artifacts = fs.mkdtempSync(path.join(os.tmpdir(), "anx-anxnet-qa-shots-"));
@@ -198,6 +203,45 @@ async function main() {
     await shot(page, "08-anxnet-after-remove");
     console.log("PASS U5 removing the device in the UI cuts its access");
 
+    // U8
+    await page.evaluate(() => window.AnxNetUi.refreshAgents());
+    await waitFor(page, () => [...document.querySelectorAll("[data-anxnet-panel] .anxnet-agents .anxnet-row")].some((row) => row.textContent.includes("OVH") && row.textContent.includes("Not in AnxNet")), null, "the Agent computer listed", 20000);
+    await shot(page, "09-agent-not-in-anxnet");
+    await page.locator("[data-anxnet-panel] .anxnet-agents .anxnet-row", { hasText: "OVH" }).locator("button", { hasText: "Add to AnxNet" }).click();
+    await waitFor(page, () => Boolean(document.querySelector("[data-confirm-ok]")), null, "add confirmation");
+    assert.match(await page.evaluate(() => document.querySelector("[data-confirm-ok]").closest(".app-modal").textContent), /SSH, Docker and the Agent's own port are never shared/);
+    await page.locator("[data-confirm-ok]").last().click();
+    await waitFor(page, () => [...document.querySelectorAll("[data-anxnet-panel] .anxnet-agents .anxnet-row")].some((row) => row.textContent.includes("OVH") && row.textContent.includes("In this network")), null, "the Agent joined", 30000);
+    const agentAnx = (await agent.api("GET", "/api/v1/anxnet/status")).json;
+    assert.strictEqual(agentAnx.network.networkId, (await page.evaluate(() => getDesktopApiState().api.anxnet.status())).network.networkId, "the Agent is in this network");
+    await shot(page, "10-agent-in-anxnet");
+    await page.evaluate(() => window.showPage("instances"));
+    await page.evaluate((id) => window.openShareServerModal(id), SERVER_ID);
+    await waitFor(page, () => /shared from that computer/.test(document.querySelector(".anxnet-share")?.textContent || ""), null, "share from the Agent's computer", 20000);
+    await shot(page, "11-share-from-agent");
+    await page.locator(".anxnet-share button", { hasText: "Invite only" }).click();
+    await waitFor(page, () => Boolean(document.querySelector("[data-confirm-ok]")), null, "agent share approval");
+    await page.locator("[data-confirm-ok]").last().click();
+    let agentForward = null;
+    await until(async () => {
+      const desk = await page.evaluate(() => getDesktopApiState().api.anxnet.status());
+      const service = (desk.services || []).find((entry) => entry.deviceId === agentAnx.deviceId);
+      agentForward = service && (desk.forwards || []).find((entry) => entry.serviceId === service.serviceId);
+      return Boolean(agentForward);
+    }, "the owner gets a forward to the Agent's server", 20000);
+    assert.strictEqual(await greeting(agentForward.port, agentForward.address), "fake-minecraft", "the owner reaches the server through the Agent's own AnxNet node");
+    await waitFor(page, () => /Invite only is on, from OVH/.test(document.querySelector(".anxnet-share")?.textContent || ""), null, "shared state in the dialog", 20000);
+    await page.locator(".anxnet-share button", { hasText: "Stop sharing" }).click();
+    await until(async () => !((await page.evaluate(() => getDesktopApiState().api.anxnet.status())).forwards || []).some((entry) => entry.serviceId === agentForward.serviceId), "forward removed", 20000);
+    await page.locator("[data-share-server-close]").last().click().catch(() => {});
+    await page.evaluate(() => window.showPage("nodes"));
+    await page.evaluate(() => window.AnxNetUi.refreshAgents());
+    await page.locator("[data-anxnet-panel] .anxnet-agents .anxnet-row", { hasText: "OVH" }).locator("button", { hasText: "Remove" }).click();
+    await waitFor(page, () => Boolean(document.querySelector("[data-confirm-ok]")), null, "remove computer confirmation");
+    await page.locator("[data-confirm-ok]").last().click();
+    await until(async () => (await agent.api("GET", "/api/v1/anxnet/status")).json.network === null, "the Agent left", 20000);
+    console.log(`PASS U8 the Agent's computer was added from the UI, shared the server itself (reached at ${agentForward.address}:${agentForward.port}), and Stop sharing and Remove cleaned up`);
+
     assert.deepStrictEqual(errors, [], "no renderer errors");
     console.log("PASS U6 no renderer errors");
 
@@ -220,17 +264,23 @@ async function main() {
     await new Promise((resolve) => setTimeout(resolve, 2000));
     assert.strictEqual(await greeting(GAME_PORT, ownerAddress), "fake-minecraft", "with AnxOS closed, the device still reaches the server");
     console.log(`PASS U7 with the AnxOS window closed, AnxNet's background process (pid ${status7.host.pid}) still serves the shared server`);
-    console.log(`AnxNet UI QA passed (7 checks). Screenshots: ${artifacts}`);
+    console.log(`AnxNet UI QA passed (8 checks). Screenshots: ${artifacts}`);
+  } catch (error) {
+    // Print now: cleanup below can take a while, and the reason matters.
+    console.error("FAILED:", error);
+    throw error;
   } finally {
-    await app.close().catch(() => {});
-    await friend?.stop().catch(() => {});
-    await friend2?.stop().catch(() => {});
-    // The background host outlives the app on purpose; stop it here.
+    // The background host outlives the app on purpose (and holds Playwright's
+    // pipe), so stop it first, then close the app with a time limit.
     try {
       const hostClient = new AnxNetHostClient({ dataDir: path.join(qa.configDir, "anxnet"), spawnHost: false });
       if (await hostClient.tryConnect()) await hostClient.call("shutdown").catch(() => {});
       hostClient.disconnect();
     } catch {}
+    await Promise.race([app.close().catch(() => {}), new Promise((resolve) => setTimeout(resolve, 15000))]);
+    try { app.process().kill(); } catch {}
+    await friend?.stop().catch(() => {});
+    await friend2?.stop().catch(() => {});
     await edge?.stop().catch(() => {});
     await agent.stop().catch(() => {});
     try { qa.cleanup(); } catch {}

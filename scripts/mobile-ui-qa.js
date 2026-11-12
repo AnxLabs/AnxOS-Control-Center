@@ -31,6 +31,11 @@
 //   M15 Closing the phone's browser doesn't touch the running server.
 //   M16 PWA: manifest, service worker registered, installability errors.
 //   M17 No page errors or CSP violations in the phone app; none on desktop.
+//   M18 Phase 7.1: landscape (844×390) without sideways scrolling; text
+//       fields at 16px so iPhone doesn't zoom; the desktop Home agrees with
+//       the phone by itself.
+//   M19 "Check this phone" runs on the phone and its result appears in
+//       Phone Access on the desktop.
 // Screenshots go to the artifacts folder printed at the end.
 // Run: node scripts/mobile-ui-qa.js
 
@@ -226,18 +231,18 @@ async function main() {
     // (127.0.0.1:9) can't, so the truth is 1 of 2 online.
     const nodesListed = await desk.evaluate(() => getDesktopApiState().api.nodes.list().then((list) => list.nodes.filter((node) => node.kind !== "application-host" && node.enabled !== false).length));
     assert.strictEqual(tiles[1], `1 of ${nodesListed} online`, "computers tile matches what is actually reachable");
-    // The desktop's own Home, for the record (it reads its renderer's last
-    // node list, refreshed by its own polling).
+    // The desktop's own Home must agree by itself (its fleet check reloads
+    // the node list when the recorded state changed; Phase 7.1 fix).
     await desk.evaluate(() => window.showPage("dashboard"));
-    await desk.waitForTimeout(3000);
     const desktopTile = () => desk.evaluate(() => `${document.querySelector(".home-tile--computers .home-tile__value")?.textContent} ${document.querySelector(".home-tile--computers .home-tile__detail")?.textContent}`);
-    const desktopBefore = await desktopTile();
-    await desk.evaluate(() => refreshNodes());
-    await desk.waitForTimeout(3000);
-    const desktopAfter = await desktopTile();
+    let desktopComputers = "";
+    const settleStart = Date.now();
+    await until(async () => (desktopComputers = await desktopTile()) === tiles[1], "desktop Home to agree", 45000).catch(() => {
+      throw new Error(`desktop Home shows "${desktopComputers}", phone and reality "${tiles[1]}"`);
+    });
     await shot(phone, "02-phone-home");
     await shot(desk, "02-desktop-home");
-    pass("M2", `paired from the link; phone Home: servers "${tiles[0]}" (= Agent), computers "${tiles[1]}" (= reachable); desktop Home showed "${desktopBefore}", "${desktopAfter}" after a node refresh`);
+    pass("M2", `paired from the link; phone Home: servers "${tiles[0]}" (= Agent), computers "${tiles[1]}" (= reachable); desktop Home agreed by itself after ${Math.round((Date.now() - settleStart) / 1000)} s`);
 
     const checkOverflow = async (label) => {
       const result = await phone.evaluate(() => ({ scroll: document.documentElement.scrollWidth, width: window.innerWidth }));
@@ -411,7 +416,35 @@ async function main() {
     await waitFor(phone, () => document.querySelector("[data-banner]").hidden && document.querySelector("[data-status]")?.textContent === "Live", null, "recovered", 60000);
     pass("M13", "network loss: banner with the data's age; reconnects and returns to Live by itself");
 
-    // M14
+    // M18
+    await phone.setViewportSize({ width: 844, height: 390 });
+    for (const target of ["#/home", "#/servers", `#/server/ovh/${SERVER_ID}/overview`, `#/server/ovh/${SERVER_ID}/console`, `#/server/ovh/${SERVER_ID}/settings`]) {
+      await phone.evaluate((hash) => { location.hash = hash; }, target);
+      await phone.waitForTimeout(900);
+      await checkOverflow(`landscape ${target}`);
+    }
+    await shot(phone, "16-phone-landscape-settings");
+    const fieldSize = await phone.evaluate(() => parseFloat(getComputedStyle(document.querySelector(".input")).fontSize));
+    assert.ok(fieldSize >= 16, `text fields are ${fieldSize}px`);
+    await phone.setViewportSize(PHONES.pixel.viewport);
+    pass("M18", `landscape 844×390 without sideways scrolling on 5 views; text fields ${fieldSize}px`);
+
+    // M19
+    await phone.evaluate(() => { location.hash = "#/more"; });
+    await phone.getByRole("button", { name: "Run the check" }).click();
+    await waitFor(phone, () => /Sent to Phone Access/.test(document.body.textContent), null, "phone check sent", 30000);
+    await shot(phone, "17-phone-check");
+    await desk.evaluate(() => window.showPage("security"));
+    await desk.locator('[data-security-section-target="phone"]').click();
+    await waitFor(desk, () => /Phone checks/.test(document.querySelector("[data-phone-access-panel]")?.textContent || ""), null, "phone check on the desktop", 20000);
+    const listed = await desk.evaluate(() => [...document.querySelectorAll("[data-phone-access-panel] .phone-device")].map((row) => row.textContent).find((text) => text.includes("Chrome on Android")) || "");
+    assert.match(listed, /QA Pixel/);
+    await shot(desk, "18-desktop-phone-checks");
+    pass("M19", `phone check ran on the (emulated) phone and is listed on the desktop: "${listed.slice(0, 120)}"`);
+
+    // M14 (Home polls; More doesn't, so the lock shows on the next poll)
+    await phone.evaluate(() => { location.hash = "#/home"; });
+    await waitFor(phone, () => document.querySelectorAll(".tile").length === 4, null, "Home before lock");
     await desk.evaluate(() => (window.anxhub?.security || window.anx?.security).logout());
     await phone.evaluate(() => window.dispatchEvent(new Event("online")));
     await waitFor(phone, () => /locked on the computer/.test(document.querySelector("[data-banner]")?.textContent || ""), null, "locked banner", 30000);

@@ -222,6 +222,11 @@ const desktopApi = {
     publishService: (serviceId, payload = {}) => ipcRenderer.invoke("anxnet:publishService", { ...payload, serviceId }),
     unpublishService: (serviceId) => ipcRenderer.invoke("anxnet:unpublishService", { serviceId }),
     testPeer: (deviceId) => ipcRenderer.invoke("anxnet:testPeer", { deviceId }),
+    agentStatus: (nodeId) => ipcRenderer.invoke("anxnet:agentStatus", { nodeId }),
+    addComputer: (nodeId) => ipcRenderer.invoke("anxnet:addComputer", { nodeId }),
+    removeComputer: (nodeId) => ipcRenderer.invoke("anxnet:removeComputer", { nodeId }),
+    agentShare: (payload = {}) => ipcRenderer.invoke("anxnet:agentShare", payload),
+    agentUnshare: (nodeId, serviceId) => ipcRenderer.invoke("anxnet:agentUnshare", { nodeId, serviceId }),
   },
   // Phone access (Phase 7): the LAN gateway for the AnxOS phone app.
   mobile: {

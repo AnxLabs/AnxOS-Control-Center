@@ -15,6 +15,7 @@ const FALLBACK_INCLUDED_PATHS = [
   "agent/src",
   "src/shared",
   "src/services",
+  "src/anxnet",
   "node_modules",
   "config/agent.example.json",
   "config/marketplace-templates.json",

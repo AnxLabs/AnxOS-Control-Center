@@ -6,6 +6,8 @@ const { handleActionInvoke, handleActionsList } = require("./routes/actions");
 const { handleAgentTask } = require("./routes/agentTask");
 const { AGENT_SELF_RESTART_EXIT_CODE, handleAgentRestart } = require("./routes/agentLifecycle");
 const { handleAmpInstances, handleAmpSnapshot, handleAmpStatus } = require("./routes/amp");
+const { handleAnxNet } = require("./routes/anxnet");
+const anxnetAgentService = require("./services/anxnetAgentService");
 const { auditAction } = require("./audit/auditLogger");
 const { handleBackups, handleBackupsList } = require("./routes/backups");
 const { recoverBackupArtifacts, startBackupScheduler, stopBackupScheduler } = require("./services/backupService");
@@ -207,6 +209,8 @@ function getRoutePermission(request, pathname) {
   // the webhook or sending a test reaches outside the node, so agent:manage.
   if (pathname === "/api/v1/notifications/webhook" || pathname.startsWith("/api/v1/notifications/")) return method === "GET" ? "system:read" : "agent:manage";
   if (pathname.startsWith("/api/v1/playit/") || pathname.startsWith("/api/v1/public-access/")) return method === "GET" ? "public-access:read" : "public-access:write";
+  // AnxNet sharing from this computer (Phase 7.1): same tiers as Public Access.
+  if (pathname === "/api/v1/anxnet" || pathname.startsWith("/api/v1/anxnet/")) return method === "GET" ? "public-access:read" : "public-access:write";
   if (pathname.startsWith("/api/v1/amp/")) return "instance:read";
   if (pathname.startsWith("/api/v1/files/")) return method === "GET" ? "files:read" : "files:write";
   if (pathname.startsWith("/api/v1/console/")) return method === "GET" ? "console:read" : "console:write";
@@ -339,6 +343,10 @@ async function routeRequest(request, url) {
 
   if (pathname.startsWith("/api/v1/public-access/playit/")) {
     return handlePublicAccessPlayit(request, url);
+  }
+
+  if (pathname.startsWith("/api/v1/anxnet/")) {
+    return handleAnxNet(request, url);
   }
 
   if (pathname === "/api/v1/marketplace/curseforge/status" || pathname === "/api/v1/marketplace/curseforge/api" || pathname === "/api/v1/marketplace/curseforge/download" || pathname.startsWith("/api/v1/marketplace/curseforge/")) {
@@ -687,6 +695,8 @@ async function startServer() {
     startBackupScheduler();
     startRestartScheduler();
     console.info(`AnxOS Agent listening on http://${config.host}:${config.port}`);
+    // AnxNet comes back only if this computer was already in a network.
+    anxnetAgentService.resume().catch((error) => logger.warn("anxnet", "AnxNet could not resume", { code: error?.code || "ANXNET_RESUME_FAILED" }, { file: "agent" }));
     logger.info("startup", "AnxOS Agent listening", { host: config.host, port: config.port, pid: process.pid });
   });
 }
@@ -709,6 +719,7 @@ async function shutdown(signal, exitCode = 0) {
   forceTimer.unref?.();
   server.close();
   for (const socket of connectedClients) socket.end();
+  await anxnetAgentService.shutdown();
   const instances = await instanceService.shutdownInstanceService({ timeoutMs: 5000 }).catch((error) => ({
     stopped: 0,
     forced: 0,
