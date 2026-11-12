@@ -5,8 +5,9 @@ commit `125ff707` (local, not pushed). Combines the
 remaining Phase 6.2 AnxNet work with Phase 7 phone verification.
 
 **In one line:** everything that could be built and verified on this one PC
-is done and tested; every real-hardware, real-internet and system-change
-check is still open and listed under "Needs your approval".
+is done and tested, and AnxNet now passed 7/7 between two physical computers
+(this Windows desktop and Anxlab, approved run). The internet, public gateway,
+DNS rule and real phones are still open under "Needs your approval".
 
 ## 7.1A Audit and gap matrix
 
@@ -174,21 +175,76 @@ cleanup waited forever on the background AnxNet host (it holds Playwright's
 pipe). Cleanup now stops the host first and closes the app with a time limit,
 and prints the failure immediately.
 
+## Two physical computers: Windows desktop ↔ Anxlab (approved run, 2026-11-12)
+
+Approved by the owner with these limits: temporary files under /tmp only,
+nothing installed, no changes to Anxlab's servers, Agent, firewall, DNS,
+routing or SSH configuration, no public access.
+
+**Setup.**
+- **Owner:** Anxlab, Debian 13, kernel 6.12, x86_64, 192.168.1.134.
+- **Member:** this desktop, Windows 11 build 26300, 192.168.1.20.
+- **Runtime:** both machines ran Node v24.18.0. Anxlab already had one at
+  `/usr/bin/node`, so nothing was downloaded or installed.
+- **Files:** only `src/anxnet/*.js` and `scripts/anxnet-two-machine-test.js`,
+  copied as one tar into a fresh 0700 folder `/tmp/anxnet-2m-M0XKxy`. Its
+  SHA-256 `2e17857a…f489658` matched on both ends.
+- **Owner process:** ran as `anx` with `TMPDIR` set to that folder. It
+  listened on TCP and UDP 47790 on the LAN; the port was checked free before.
+  The test servers were on 127.0.0.1.
+- **Member process:** listened on loopback only, so no Windows Firewall rule or
+  prompt was involved. Anxlab had no ufw or firewalld active, so nothing had
+  to be opened.
+
+**Results (`anxnet-two-machine-test.js`, member report):**
+
+| Check | Result |
+| --- | --- |
+| T1 enrollment and roster sync | Pass: enrolled in `anx-cobalt10` with a pre-approved test invite |
+| T2 private name through the AnxNet resolver | Pass: `anxlab.anx-cobalt10.internal` → `127.77.0.2` |
+| T3 TCP forwarding | Pass: 1 MB through AnxNet, 1,048,576 bytes back |
+| T4 UDP forwarding | Pass: UDP round trip answered |
+| T5 encryption, latency, path | Pass: **direct**, TLSv1.3 `TLS_AES_256_GCM_SHA384`, 192.168.1.20 → 192.168.1.134:47790, connect + round trip median **3.72 ms** (50 samples) |
+| T6 interruption and reconnection | Pass: Anxlab dropped every session; the desktop reconnected and traffic resumed |
+| T7 revocation | Pass: after removal the server was unreachable |
+
+The owner's log shows the peer connecting directly from 192.168.1.20 over
+TLS 1.3 / AES-256-GCM, the interruption, the reconnection, the revocation,
+and its own stop 10 s later.
+
+**Limits of this run.**
+- **UDP path.** The member listened on loopback, so UDP travelled inside the
+  encrypted TCP session. The direct UDP channel between the two machines was
+  not used.
+- **Private names.** T2 used the AnxNet test resolver, not the OS-wide DNS
+  rule, which is still not applied.
+- **Network.** Both machines are on the same home LAN. Internet and NAT
+  traversal are still unverified.
+
+**Cleanup.** The owner process exited by itself, and port 47790 was free again
+afterwards. `/tmp/anxnet-2m-M0XKxy` was removed by exact path; no
+`/tmp/anxnet*` was left. On the desktop, the member's temporary folder
+removed itself and no test process remained. Anxlab's Agent was still active
+with its unchanged start time (2026-11-01 22:01:51), and no server on Anxlab
+was touched.
+
 ## Simulated vs real
 
 - **Real:** sockets, TLS, the Agent process, the Electron app, Microsoft
-  Edge's engine.
-- **Simulated:** separate computers (separate processes and identities on one
-  PC), NAT, phones (Edge with phone viewport, touch and user agent).
-- **Not done at all:** two physical computers, the internet, a public
-  gateway, real iPhone or Android, the OS-wide DNS rule.
+  Edge's engine, and **two physical computers on the home LAN** (the run
+  above).
+- **Simulated:** NAT, phones (Edge with phone viewport, touch and user agent);
+  in the automated suites, separate computers are separate processes on one
+  PC.
+- **Not done at all:** the internet, a public gateway, real iPhone or Android,
+  the OS-wide DNS rule, AnxNet inside a real installed Agent.
 
 ## Needs your approval (nothing below was done)
 
-1. **Anxlab as the second computer** (192.168.1.134, hosts live servers): run
-   `scripts/anxnet-two-machine-test.js` there with a temporary Node in /tmp,
-   as was done in WSL; or update its Agent to a build with AnxNet and use Add
-   to AnxNet. An Agent update stops its servers (Lessons Learned, 2026-10-30).
+1. ~~Anxlab as the second computer~~: done (see above). Still open:
+   **AnxNet inside Anxlab's real Agent** (a new Agent build and **Add to
+   AnxNet**). An Agent update stops its servers (Lessons Learned,
+   2026-10-30), so plan it for a quiet time.
 2. **Windows DNS rule** for `.<network>.internal` (one UAC prompt), to verify
    generated names in real games.
 3. **An AnxNet edge on the VPS** (relay and gateway): a process plus a firewall
