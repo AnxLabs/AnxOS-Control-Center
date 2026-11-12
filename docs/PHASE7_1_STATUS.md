@@ -1,6 +1,7 @@
 # Phase 7.1 status: AnxNet real-world validation and phone integration
 
-Last update: 2026-11-12. Continues from `32881de4` (Phase 7). Combines the
+Last update: 2026-11-12. Continues from `32881de4` (Phase 7); implementation
+commit `125ff707` (local, not pushed). Combines the
 remaining Phase 6.2 AnxNet work with Phase 7 phone verification.
 
 **In one line:** everything that could be built and verified on this one PC
