@@ -205,7 +205,7 @@ const loadedIpcModuleFiles = new Set([
   "diagnosticsIpc.js", "accountAuthIpc.js", "accountIpc.js", "securityIpc.js", "agentControlIpc.js",
   "dependenciesIpc.js", "storageWindowIpc.js", "updatesIpc.js", "actionIpc.js",
   "systemIpc.js", "ampIpc.js", "backupsIpc.js", "playitIpc.js",
-  "publicAccessIpc.js", "dockerIpc.js", "instancesIpc.js", "marketplaceIpc.js",
+  "publicAccessIpc.js", "anxnetIpc.js", "dockerIpc.js", "instancesIpc.js", "marketplaceIpc.js",
   "maintenanceIpc.js", "nodesIpc.js", "networkInventoryIpc.js", "infrastructureInventoryIpc.js", "workloadIpc.js", "ownerWorkspaceIpc.js",
   "filesIpc.js", "settingsIpc.js", "sshIpc.js", "alertsIpc.js", "webhookAlertsIpc.js",
   "networkIpc.js", "telemetryIpc.js", "notificationsIpc.js", "computersIpc.js",
@@ -253,6 +253,7 @@ try {
   require("../src/ipc/backupsIpc").registerBackupsIpc();
   require("../src/ipc/playitIpc").registerPlayitIpc();
   require("../src/ipc/publicAccessIpc").registerPublicAccessIpc();
+  require("../src/ipc/anxnetIpc").registerAnxNetIpc();
   require("../src/ipc/networkIpc").registerNetworkIpc();
   require("../src/ipc/telemetryIpc").registerTelemetryIpc();
   require("../src/ipc/notificationsIpc").registerNotificationsIpc();

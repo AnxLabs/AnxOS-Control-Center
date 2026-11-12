@@ -11,7 +11,8 @@
 // the ephemeral key. Each side checks the peer's signature against the
 // roster before deriving keys, so a stranger or revoked device cannot
 // complete the exchange. HKDF-SHA256 over the shared secret and the full
-// transcript gives one ChaCha20-Poly1305 key per direction. Packets carry a
+// transcript gives one AES-256-GCM key per direction (ChaCha20-Poly1305 is
+// not exposed by Electron's BoringSSL, so AES-GCM is used in both runtimes). Packets carry a
 // 64-bit counter used as the nonce; a 2048-packet sliding window rejects
 // replays. Only standard primitives from OpenSSL are used.
 
@@ -99,7 +100,7 @@ class SecureUdpSession {
     header.writeUInt8(KIND.DATA, 4);
     header.writeBigUInt64BE(counter, 5);
     const nonce = Buffer.concat([Buffer.alloc(4), header.subarray(5, 13)]);
-    const cipher = crypto.createCipheriv("chacha20-poly1305", this.sendKey, nonce, { authTagLength: TAG });
+    const cipher = crypto.createCipheriv("aes-256-gcm", this.sendKey, nonce, { authTagLength: TAG });
     cipher.setAAD(header);
     const body = Buffer.concat([cipher.update(plaintext), cipher.final()]);
     return Buffer.concat([header, body, cipher.getAuthTag()]);
@@ -113,7 +114,7 @@ class SecureUdpSession {
     const header = packet.subarray(0, 13);
     const nonce = Buffer.concat([Buffer.alloc(4), packet.subarray(5, 13)]);
     try {
-      const decipher = crypto.createDecipheriv("chacha20-poly1305", this.receiveKey, nonce, { authTagLength: TAG });
+      const decipher = crypto.createDecipheriv("aes-256-gcm", this.receiveKey, nonce, { authTagLength: TAG });
       decipher.setAAD(header);
       decipher.setAuthTag(packet.subarray(packet.length - TAG));
       const plaintext = Buffer.concat([decipher.update(packet.subarray(13, packet.length - TAG)), decipher.final()]);

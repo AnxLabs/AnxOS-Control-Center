@@ -1133,8 +1133,11 @@ class AnxNetNode extends EventEmitter {
         if (!certificate || identityLib.fingerprint(certificate.publicKey) !== expectFingerprint) {
           clearTimeout(timer); socket.destroy(); reject(error("ANXNET_OWNER_MISMATCH", "That address isn't the network owner's device.", 403)); return;
         }
+        clearTimeout(timer);
+        const replyTimer = setTimeout(() => { socket.destroy(); reject(error("ANXNET_COORDINATOR_TIMEOUT", "The network owner's device didn't answer.", 504)); }, HANDSHAKE_TIMEOUT_MS);
         sendJsonLine(socket, message);
-        jsonLineReader(socket, (reply) => { clearTimeout(timer); socket.end(); resolve(reply); });
+        jsonLineReader(socket, (reply) => { clearTimeout(replyTimer); socket.end(); resolve(reply); });
+        socket.once("close", () => { clearTimeout(replyTimer); reject(error("ANXNET_CONNECTION_CLOSED", "The network owner's device closed the connection.", 503)); });
       });
     });
   }
@@ -1475,6 +1478,7 @@ class AnxNetNode extends EventEmitter {
         version: doc?.version || 0,
         role: this.isOwner() ? "owner" : "member",
         ownerFingerprint: this.state.network.ownerFingerprint,
+        ownerPublicKey: this.state.network.ownerPublicKey,
         coordinator: this.isOwner() ? { state: "this-device" } : { state: this.coordinator.state, message: this.coordinator.message },
         relays: doc?.relays || [],
         gateways: doc?.gateways || [],

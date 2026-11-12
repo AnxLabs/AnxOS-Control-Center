@@ -63,7 +63,8 @@ function fromPrivateKeyPem(pem) {
     // TLS material, created once per process.
     tlsOptions() {
       if (!certificate) certificate = createSelfSignedCertificate({ privateKey, publicKey }, deviceId);
-      return { key: privateKey.export({ format: "pem", type: "pkcs8" }), cert: certificate };
+      // sigalgs: Electron's BoringSSL only offers Ed25519 in TLS when asked.
+      return { key: privateKey.export({ format: "pem", type: "pkcs8" }), cert: certificate, sigalgs: "ed25519" };
     },
     sign(data) {
       return crypto.sign(null, Buffer.isBuffer(data) ? data : Buffer.from(String(data)), privateKey).toString("base64");

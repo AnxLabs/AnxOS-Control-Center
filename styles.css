@@ -21159,3 +21159,205 @@ body.create-server-window .page[data-page="marketplace"] .page-introduction {
 .console-jump[hidden] {
   display: none;
 }
+
+/* AnxNet (Phase 6) */
+.anxnet-panel {
+  margin: 0 0 18px;
+  padding: 16px 18px;
+  border: 1px solid rgba(190, 170, 220, 0.14);
+  border-radius: 16px;
+  background: linear-gradient(160deg, rgba(123, 55, 210, 0.1), rgba(10, 10, 18, 0.55) 60%);
+}
+
+.anxnet-content {
+  display: grid;
+  gap: 12px;
+}
+
+.anxnet-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.anxnet-title h3 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.anxnet-badge {
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: rgba(182, 108, 255, 0.16);
+  color: var(--text);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.anxnet-lede,
+.anxnet-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.anxnet-error {
+  margin: 0;
+  color: #ff9cb1;
+  font-size: 0.86rem;
+}
+
+.anxnet-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.anxnet-join {
+  display: flex;
+  flex: 1 1 320px;
+  gap: 8px;
+}
+
+.anxnet-join input {
+  flex: 1;
+  min-width: 0;
+}
+
+.anxnet-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.anxnet-head > div {
+  display: grid;
+  gap: 2px;
+}
+
+.anxnet-name {
+  font-size: 1.25rem;
+}
+
+.anxnet-domain,
+.anxnet-host {
+  color: var(--muted);
+  font-family: var(--anx-font-mono, monospace);
+  font-size: 0.84rem;
+  overflow-wrap: anywhere;
+}
+
+.anxnet-state {
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.anxnet-state.is-ok { background: rgba(66, 211, 146, 0.14); color: #9ff0c4; }
+.anxnet-state.is-busy { background: rgba(185, 140, 255, 0.16); color: #d6c2ff; }
+.anxnet-state.is-bad { background: rgba(255, 107, 138, 0.16); color: #ff9cb1; }
+
+.anxnet-invite {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid rgba(66, 211, 146, 0.35);
+  border-radius: 12px;
+  background: rgba(66, 211, 146, 0.06);
+}
+
+.anxnet-invite__code {
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: 0.82rem;
+  user-select: all;
+}
+
+.anxnet-pending,
+.anxnet-devices,
+.anxnet-services {
+  display: grid;
+  gap: 8px;
+}
+
+.anxnet-pending h4,
+.anxnet-devices h4,
+.anxnet-services h4 {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.anxnet-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.anxnet-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(190, 170, 220, 0.1);
+  border-radius: 12px;
+  background: rgba(10, 10, 18, 0.45);
+}
+
+.anxnet-row__text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.anxnet-conn {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.anxnet-conn.is-direct,
+.anxnet-conn.is-udp { color: #9ff0c4; }
+.anxnet-conn.is-relay { color: #ffd48a; }
+
+.anxnet-advanced summary {
+  color: var(--muted);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.anxnet-advanced[open] {
+  display: grid;
+  gap: 10px;
+}
+
+.anxnet-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 8px 0 0;
+  font-size: 0.84rem;
+}
+
+.anxnet-facts dt { color: var(--muted); }
+.anxnet-facts dd { margin: 0; overflow-wrap: anywhere; }
+
+.anxnet-edges {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px 12px;
+  align-items: end;
+}
+
+.anxnet-edges > p { grid-column: 1 / -1; }
+
+.anxnet-share .anxnet-actions { margin-top: 6px; }

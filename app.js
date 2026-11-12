@@ -11426,7 +11426,9 @@ function openShareServerModal(instance = findInstance()) {
   const steps = document.createElement("ol");
   getShareServerInstructions(instance).forEach((step) => steps.append(createTextElement("li", step)));
   instructions.append(steps);
-  body.append(healthSection, sharingControls, list, instructions);
+  // AnxNet (Phase 6) comes first: AnxOS's own sharing, preferred once set up.
+  const anxnetSection = window.AnxNetUi?.createShareSection(instance, { reopen: () => { close(); openShareServerModal(findInstance(instance.id) || instance); } });
+  body.append(...[healthSection, anxnetSection, sharingControls, list, instructions].filter(Boolean));
 
   const footer = document.createElement("div");
   footer.className = "app-modal__actions";

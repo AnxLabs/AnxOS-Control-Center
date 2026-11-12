@@ -22,6 +22,8 @@ const { registerNotificationsIpc } = require("./src/ipc/notificationsIpc");
 const { registerOwnerWorkspaceIpc } = require("./src/ipc/ownerWorkspaceIpc");
 const { registerPlayitIpc } = require("./src/ipc/playitIpc");
 const { registerPublicAccessIpc } = require("./src/ipc/publicAccessIpc");
+const { registerAnxNetIpc } = require("./src/ipc/anxnetIpc");
+const anxnetService = require("./src/services/anxnetService");
 const { registerSecurityIpc } = require("./src/ipc/securityIpc");
 const { registerSettingsIpc } = require("./src/ipc/settingsIpc");
 const { disposeSshIpc, registerSshIpc } = require("./src/ipc/sshIpc");
@@ -1044,6 +1046,9 @@ app.whenReady().then(async () => {
   registerBackupsIpc();
   registerPlayitIpc();
   registerPublicAccessIpc();
+  registerAnxNetIpc();
+  // AnxNet resumes only if this computer is already in a network.
+  anxnetService.resume().catch(() => {});
   registerNetworkIpc();
   registerTelemetryIpc();
   registerNotificationsIpc();
@@ -1199,7 +1204,7 @@ app.on("before-quit", (event) => {
   updateManager.stop();
   disposeFilesIpc();
   disposeSshIpc();
-  localInstanceService.shutdownInstanceService({ timeoutMs: 5000 })
+  Promise.all([anxnetService.shutdown().catch(() => {}), localInstanceService.shutdownInstanceService({ timeoutMs: 5000 })])
     .catch((error) => diagnostics.logError("shutdown", "instances", error, {}, { file: "desktop" }))
     .finally(() => {
       appShutdownComplete = true;

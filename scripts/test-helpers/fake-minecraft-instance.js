@@ -5,9 +5,12 @@
 // answers "list", "say" and "stop" on stdin, and writes nothing outside its
 // own data folder. It never downloads or runs Minecraft.
 
-function fakeServerSource(softwareLabel) {
+function fakeServerSource(softwareLabel, port) {
   return `const SOFTWARE_LABEL = ${JSON.stringify(softwareLabel)};
 const readline = require("readline");
+// Answers on the game port like a server would (one greeting line, then
+// echo), so sharing and network tests have something to reach.
+require("net").createServer((socket) => { socket.on("error", () => {}); socket.write("fake-minecraft\\n"); socket.on("data", (data) => socket.write(data)); }).on("error", () => {}).listen(${Number(port)}, "127.0.0.1");
 const stamp = () => new Date().toTimeString().slice(0, 8);
 const log = (level, message) => console.log("[" + stamp() + " " + level + "]: " + message);
 log("INFO", "Starting minecraft server version 1.21.1");
@@ -63,7 +66,7 @@ function fakeMinecraftInstance(options = {}) {
       state: "Stopped",
     },
     files: {
-      "fake-server.js": fakeServerSource(softwareLabel),
+      "fake-server.js": fakeServerSource(softwareLabel, options.port || 25599),
       "server.properties": SERVER_PROPERTIES,
       "eula.txt": "eula=true\n",
       "plugins/.keep": "",

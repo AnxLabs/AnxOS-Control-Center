@@ -198,6 +198,27 @@ const desktopApi = {
   playit: {
     getSnapshot: (payload = {}) => ipcRenderer.invoke("playit:getSnapshot", payload),
   },
+  // AnxNet (Phase 6): this computer's private network and server sharing.
+  anxnet: {
+    status: () => ipcRenderer.invoke("anxnet:status", {}),
+    createNetwork: (payload = {}) => ipcRenderer.invoke("anxnet:createNetwork", payload),
+    joinNetwork: (payload = {}) => ipcRenderer.invoke("anxnet:joinNetwork", payload),
+    leaveNetwork: () => ipcRenderer.invoke("anxnet:leaveNetwork", {}),
+    renameNetwork: (name) => ipcRenderer.invoke("anxnet:renameNetwork", { name }),
+    createInvite: (payload = {}) => ipcRenderer.invoke("anxnet:createInvite", payload),
+    revokeInvite: (inviteId) => ipcRenderer.invoke("anxnet:revokeInvite", { inviteId }),
+    approveDevice: (deviceId) => ipcRenderer.invoke("anxnet:approveDevice", { deviceId }),
+    rejectDevice: (deviceId) => ipcRenderer.invoke("anxnet:rejectDevice", { deviceId }),
+    revokeDevice: (deviceId) => ipcRenderer.invoke("anxnet:revokeDevice", { deviceId }),
+    renameDevice: (deviceId, name) => ipcRenderer.invoke("anxnet:renameDevice", { deviceId, name }),
+    setEdges: (payload = {}) => ipcRenderer.invoke("anxnet:setEdges", payload),
+    setDirectInbound: (enabled) => ipcRenderer.invoke("anxnet:setDirectInbound", { enabled }),
+    shareService: (payload = {}) => ipcRenderer.invoke("anxnet:shareService", payload),
+    unshareService: (serviceId) => ipcRenderer.invoke("anxnet:unshareService", { serviceId }),
+    publishService: (serviceId, payload = {}) => ipcRenderer.invoke("anxnet:publishService", { ...payload, serviceId }),
+    unpublishService: (serviceId) => ipcRenderer.invoke("anxnet:unpublishService", { serviceId }),
+    testPeer: (deviceId) => ipcRenderer.invoke("anxnet:testPeer", { deviceId }),
+  },
   networkInventory: {
     get: (payload = {}) => ipcRenderer.invoke("networkInventory:get", payload),
   },

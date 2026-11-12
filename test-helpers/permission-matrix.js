@@ -622,6 +622,8 @@ const IPC_FAMILIES = [
       "publicAccess:previewFirewallRule", "publicAccess:listFirewallRules",
       // V2-H reverse-proxy/certificate state read (Agent-owned; no mutation).
       "publicAccess:getReverseProxy",
+      // AnxNet status (Phase 6).
+      "anxnet:status",
     ],
   },
   {
@@ -637,7 +639,13 @@ const IPC_FAMILIES = [
       // playit account linking: these open playit.gg claim/sign-in links,
       // which act like short-lived credentials, so polling is write-tier too.
       "publicAccess:startPlayitLink", "publicAccess:getPlayitLink", "publicAccess:openPlayitLink",
-      "publicAccess:cancelPlayitLink", "publicAccess:openPlayitManage"],
+      "publicAccess:cancelPlayitLink", "publicAccess:openPlayitManage",
+      // AnxNet (Phase 6): network changes, sharing and public routes.
+      "anxnet:createNetwork", "anxnet:joinNetwork", "anxnet:leaveNetwork", "anxnet:renameNetwork",
+      "anxnet:createInvite", "anxnet:revokeInvite", "anxnet:approveDevice", "anxnet:rejectDevice",
+      "anxnet:revokeDevice", "anxnet:renameDevice", "anxnet:setEdges", "anxnet:setDirectInbound",
+      "anxnet:shareService", "anxnet:unshareService", "anxnet:publishService", "anxnet:unpublishService",
+      "anxnet:testPeer"],
   },
   {
     id: "amp-read",
