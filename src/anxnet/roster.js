@@ -163,6 +163,16 @@ function renameDevice(signed, ownerIdentity, deviceId, newName) {
   });
 }
 
+// Service targets: loopback or private-range IPv4 literals only, so a
+// device can't turn the network into a proxy to internet hosts.
+function isPrivateTarget(host) {
+  const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(String(host));
+  if (!match) return false;
+  const [a, b] = [Number(match[1]), Number(match[2])];
+  if (match.slice(1).some((part) => Number(part) > 255)) return false;
+  return a === 127 || a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127);
+}
+
 function managementPortName(port) {
   return MANAGEMENT_PORTS.get(Number(port)) || null;
 }
@@ -175,7 +185,7 @@ function addService(signed, ownerIdentity, input) {
   if (reserved) throw error("ANXNET_SERVICE_SENSITIVE_PORT", `Port ${port} is used by ${reserved}. AnxNet never shares management ports.`, 403);
   const protocol = ["tcp", "udp", "both"].includes(input.protocol) ? input.protocol : "tcp";
   const targetHost = String(input.targetHost || "127.0.0.1");
-  if (!/^[A-Za-z0-9.:-]{1,253}$/.test(targetHost)) throw error("ANXNET_SERVICE_TARGET", "The service address is not valid.");
+  if (!isPrivateTarget(targetHost)) throw error("ANXNET_SERVICE_TARGET", "A shared service must run on the device itself or its private network (a loopback or private IP address).", 403);
   const allow = input.allow === "members" || input.allow === undefined ? "members" : (Array.isArray(input.allow) ? input.allow.map(String) : []);
   return update(signed, ownerIdentity, (doc) => {
     const host = doc.devices.find((device) => device.deviceId === input.deviceId);
@@ -296,6 +306,7 @@ module.exports = {
   error,
   hashSecret,
   isInviteUsable,
+  isPrivateTarget,
   isRevoked,
   managementPortName,
   matchInvite,

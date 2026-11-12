@@ -89,6 +89,12 @@ class AnxNetEdge extends EventEmitter {
   start() {
     this.server = tls.createServer({ ...this.identity.tlsOptions(), requestCert: true, rejectUnauthorized: false, minVersion: "TLSv1.3" }, (socket) => this.onConnection(socket));
     this.server.on("tlsClientError", () => {});
+    this.server.maxConnections = this.options.maxConnections || 1024;
+    // Routes end when their owner-signed grant expires.
+    this.grantSweep = setInterval(() => {
+      for (const route of [...this.routes.values()]) if (Date.parse(route.grant.expiresAt) <= Date.now()) this.closeRoute(route);
+    }, this.options.grantSweepMs || 30000);
+    this.grantSweep.unref?.();
     return new Promise((resolve, reject) => {
       this.server.once("error", reject);
       this.server.listen(this.options.port, this.options.listenHost, () => resolve({ port: this.server.address().port, fingerprint: this.fingerprint }));
@@ -96,6 +102,7 @@ class AnxNetEdge extends EventEmitter {
   }
 
   async stop() {
+    clearInterval(this.grantSweep);
     for (const route of this.routes.values()) this.closeRoute(route);
     for (const link of this.links.values()) link.socket.destroy();
     for (const session of this.sessions.values()) { session.a?.destroy(); session.b?.destroy(); }

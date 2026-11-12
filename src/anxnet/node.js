@@ -40,6 +40,8 @@ const UDP_FLOW_IDLE_MS = 60000;
 const PUNCH_INTERVAL_MS = 200;
 const PUNCH_TIMEOUT_MS = 5000;
 const MAX_PENDING = 20;
+const MAX_SERVICES_PER_MEMBER = 20;
+const MAX_TLS_CONNECTIONS = 256;
 
 function error(code, message, statusCode = 400) {
   return roster.error(code, message, statusCode);
@@ -209,6 +211,7 @@ class AnxNetNode extends EventEmitter {
     const tlsOptions = this.identity.tlsOptions();
     this.server = tls.createServer({ ...tlsOptions, requestCert: true, rejectUnauthorized: false, minVersion: "TLSv1.3" }, (socket) => this.onIncoming(socket));
     this.server.on("tlsClientError", () => {});
+    this.server.maxConnections = MAX_TLS_CONNECTIONS;
     this.udp = this.createUdpSocket();
     this.udp.on("message", (message, remote) => this.onUdp(message, remote));
     this.udp.on("error", () => {});
@@ -394,7 +397,7 @@ class AnxNetNode extends EventEmitter {
   }
 
   // Owner-signed grant that lets a gateway publish one service on one port.
-  signGatewayGrant({ serviceId, protocol, publicPort, gatewayFingerprint, ttlMs = 30 * 24 * 60 * 60 * 1000 }) {
+  signGatewayGrant({ serviceId, protocol, publicPort, gatewayFingerprint, ttlMs = 7 * 24 * 60 * 60 * 1000 }) {
     this.requireOwner();
     const service = this.doc.services.find((entry) => entry.serviceId === serviceId);
     if (!service) throw error("ANXNET_SERVICE_NOT_FOUND", "That shared service doesn't exist.", 404);
@@ -605,7 +608,9 @@ class AnxNetNode extends EventEmitter {
   async sendDatagram(service, flowId, payload) {
     const udp = this.udpSessions.get(service.deviceId);
     const frame = encode(TYPES.DGRAM, flowId, Buffer.concat([Buffer.from(service.serviceId.padEnd(24).slice(0, 24)), payload]));
-    if (udp && udp.session && !udp.session.needsRekey()) {
+    if (udp && udp.session?.needsRekey()) this.udpSessions.delete(service.deviceId); // a fresh key exchange is needed
+    // Only a confirmed session (the peer proved it has the keys) carries data.
+    if (udp && udp.confirmed && udp.session && !udp.session.needsRekey()) {
       this.udp.send(udp.session.seal(frame), udp.address.port, udp.address.host);
       udp.sent = (udp.sent || 0) + 1;
       return;
@@ -793,8 +798,9 @@ class AnxNetNode extends EventEmitter {
       let request;
       try { request = JSON.parse(frame.payload.toString("utf8")); } catch { request = {}; }
       const service = doc?.services.find((entry) => entry.serviceId === request.serviceId);
-      // Only declared services on this device, for allowed devices.
-      if (!service || service.deviceId !== this.identity.deviceId || !roster.serviceAllows(doc, service, peer.deviceId) || peer.streams.size >= MAX_STREAMS_PER_PEER) {
+      // Only declared services on this device, for allowed devices, on a
+      // stream id that isn't already in use.
+      if (!service || service.deviceId !== this.identity.deviceId || !roster.serviceAllows(doc, service, peer.deviceId) || peer.streams.size >= MAX_STREAMS_PER_PEER || peer.streams.has(frame.id)) {
         this.writeFrame(peer, TYPES.CLOSE, frame.id);
         return;
       }
@@ -926,9 +932,20 @@ class AnxNetNode extends EventEmitter {
 
   onEnroll(socket, peer, hello) {
     if (!this.isOwner()) return this.refuse(socket, "ANXNET_NOT_COORDINATOR", "This device can't enroll devices.");
+    // Guessing invite codes: after 10 wrong codes in a minute from one
+    // address, that address is refused for the rest of the minute.
+    const address = String(socket.remoteAddress || "");
+    this.enrollFailures = this.enrollFailures || new Map();
+    const failures = (this.enrollFailures.get(address) || []).filter((at) => Date.now() - at < 60000);
+    if (failures.length >= 10) return this.refuse(socket, "ANXNET_RATE_LIMITED", "Too many attempts. Try again in a minute.");
     if (roster.isRevoked(this.doc, peer.deviceId)) return this.refuse(socket, "ANXNET_DEVICE_REVOKED", "This device was removed from the network.");
     let invite;
-    try { invite = roster.matchInvite(this.state.invites, hello.secret); } catch (cause) { return this.refuse(socket, cause.code, cause.message); }
+    try {
+      invite = roster.matchInvite(this.state.invites, hello.secret);
+    } catch (cause) {
+      this.enrollFailures.set(address, [...failures, Date.now()].slice(-20));
+      return this.refuse(socket, cause.code, cause.message);
+    }
     invite.uses += 1;
     const name = String(hello.name || "device").slice(0, 64);
     if (invite.preApproved || roster.memberFor(this.doc, peer.deviceId, peer.publicKeyBase64)) {
@@ -965,6 +982,13 @@ class AnxNetNode extends EventEmitter {
   }
 
   onCoordinatorMessage(socket, peer, message) {
+    // A member's control session may make 20 requests a second (burst 40).
+    const now = Date.now();
+    socket.bucket = socket.bucket || { tokens: 40, at: now };
+    socket.bucket.tokens = Math.min(40, socket.bucket.tokens + ((now - socket.bucket.at) / 1000) * 20);
+    socket.bucket.at = now;
+    if (socket.bucket.tokens < 1) { if (message.id) sendJsonLine(socket, { id: message.id, error: { code: "ANXNET_RATE_LIMITED", message: "Too many requests." } }); return; }
+    socket.bucket.tokens -= 1;
     const doc = this.doc;
     const member = roster.memberFor(doc, peer.deviceId, peer.publicKeyBase64);
     const reply = (body) => sendJsonLine(socket, { id: message.id, ...body });
@@ -993,6 +1017,7 @@ class AnxNetNode extends EventEmitter {
     }
     if (message.t === "service-add") {
       const service = { ...(message.service || {}), deviceId: peer.deviceId }; // members share only their own services
+      if (doc.services.filter((entry) => entry.deviceId === peer.deviceId).length >= MAX_SERVICES_PER_MEMBER) { reply({ error: { code: "ANXNET_SERVICE_LIMIT", message: `A device can share at most ${MAX_SERVICES_PER_MEMBER} services.` } }); return; }
       this.changeRoster((signed) => roster.addService(signed, this.identity, service))
         .then((created) => reply({ ok: true, service: created }))
         .catch((cause) => reply({ error: { code: cause.code, message: cause.message } }));
@@ -1236,6 +1261,7 @@ class AnxNetNode extends EventEmitter {
       if (entry.address.host !== remote.address || entry.address.port !== remote.port) continue;
       const plaintext = entry.session.open(message);
       if (!plaintext) return;
+      entry.confirmed = true;
       entry.received = (entry.received || 0) + 1;
       if (plaintext.length < 7) return;
       const id = plaintext.readUInt32BE(1);
@@ -1279,6 +1305,9 @@ class AnxNetNode extends EventEmitter {
     this.pendingPunch.delete(deviceId);
     const session = { session: new secureUdp.SecureUdpSession(keys), address: { host: remote.address, port: remote.port }, establishedAt: Date.now(), peerRandom: hello.random, helloPacket: entry.packet };
     this.udpSessions.set(deviceId, session);
+    // Key confirmation: an authenticated packet tells the peer this side has
+    // the keys; neither side sends data over UDP until it has received one.
+    for (let index = 0; index < 3; index += 1) setTimeout(() => { try { this.udp.send(session.session.seal(Buffer.from([0])), remote.port, remote.address); } catch {} }, index * 100);
     this.emit("change");
     entry.resolve(session);
   }
@@ -1296,12 +1325,14 @@ class AnxNetNode extends EventEmitter {
   // device through it.
   syncRelayLinks() {
     this.edgeLinks = this.edgeLinks || new Map();
-    const wanted = new Map((this.doc?.relays || []).map((relay) => [`relay:${relay.host}:${relay.port}`, relay]));
+    const wanted = new Map((this.doc?.relays || []).map((relay) => [`relay:${relay.host}:${relay.port}`, { edge: relay, kind: "relay-register" }]));
+    if (this.isOwner()) for (const gateway of this.doc?.gateways || []) wanted.set(`gateway:${gateway.host}:${gateway.port}`, { edge: gateway, kind: "gateway-register" });
     for (const [key, link] of this.edgeLinks) {
-      if (link.kind === "relay-register" && !wanted.has(key)) { link.closed = true; clearTimeout(link.timer); link.socket?.destroy(); this.edgeLinks.delete(key); }
+      const stillWanted = wanted.has(key) || (link.kind === "gateway-register" && [...(this.gatewayRoutes?.values() || [])].some((route) => route.linkKey === key));
+      if (!stillWanted) { link.closed = true; clearTimeout(link.timer); link.socket?.destroy(); this.edgeLinks.delete(key); }
     }
-    for (const [key, relay] of wanted) {
-      if (!this.edgeLinks.has(key)) this.openEdgeLink(key, relay, "relay-register");
+    for (const [key, entry] of wanted) {
+      if (!this.edgeLinks.has(key)) this.openEdgeLink(key, entry.edge, entry.kind).catch(() => {});
     }
   }
 

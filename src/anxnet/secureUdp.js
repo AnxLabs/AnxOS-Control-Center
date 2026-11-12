@@ -4,6 +4,11 @@
 // can reach each other over UDP (same LAN, public addresses, or after hole
 // punching).
 //
+// Freshness and key confirmation (Phase 6.1 review): each hello carries a
+// signed timestamp (60 s window), and a node uses a new session only after
+// the peer sent an authenticated packet with it, so a replayed hello from
+// another address can't redirect traffic there.
+//
 // Key exchange (signed ephemeral Diffie-Hellman, the SIGMA pattern used by
 // IKE and TLS 1.3): each side sends an ephemeral X25519 public key and an
 // Ed25519 signature, made with its roster-pinned device key, over a
@@ -25,9 +30,12 @@ const REKEY_AFTER_MS = 10 * 60 * 1000;
 const REKEY_AFTER_PACKETS = 2n ** 32n;
 const TAG = 16;
 
-function transcriptFor(networkId, from, to, random, ephemeral) {
-  return Buffer.concat([Buffer.from(`anxnet-udp-v1|${networkId}|${from}|${to}|`), random, ephemeral]);
+// The timestamp is signed too, so an old hello can't be replayed later.
+function transcriptFor(networkId, from, to, random, ephemeral, at) {
+  return Buffer.concat([Buffer.from(`anxnet-udp-v2|${networkId}|${from}|${to}|${at}|`), random, ephemeral]);
 }
+
+const MAX_HELLO_AGE_MS = 60000;
 
 function x25519Raw(publicKey) {
   return publicKey.export({ format: "der", type: "spki" }).subarray(-32);
@@ -44,10 +52,12 @@ function createHandshake({ identity, networkId, peerDeviceId }) {
   const ephemeral = crypto.generateKeyPairSync("x25519");
   const random = crypto.randomBytes(16);
   const raw = x25519Raw(ephemeral.publicKey);
-  const transcript = transcriptFor(networkId, identity.deviceId, peerDeviceId, random, raw);
+  const at = Date.now();
+  const transcript = transcriptFor(networkId, identity.deviceId, peerDeviceId, random, raw, at);
   const hello = {
     from: identity.deviceId,
     to: peerDeviceId,
+    at,
     random: random.toString("base64"),
     ephemeral: raw.toString("base64"),
     signature: identity.sign(transcript),
@@ -60,7 +70,9 @@ function createHandshake({ identity, networkId, peerDeviceId }) {
       const peerRandom = Buffer.from(String(peerHello.random), "base64");
       const peerRaw = Buffer.from(String(peerHello.ephemeral), "base64");
       if (peerRandom.length !== 16 || peerRaw.length !== 32) throw Object.assign(new Error("Malformed handshake."), { code: "ANXNET_UDP_HANDSHAKE_INVALID" });
-      const peerTranscript = transcriptFor(networkId, peerDeviceId, identity.deviceId, peerRandom, peerRaw);
+      const peerAt = Number(peerHello.at);
+      if (!Number.isFinite(peerAt) || Math.abs(Date.now() - peerAt) > MAX_HELLO_AGE_MS) throw Object.assign(new Error("Stale or replayed handshake."), { code: "ANXNET_UDP_HANDSHAKE_STALE" });
+      const peerTranscript = transcriptFor(networkId, peerDeviceId, identity.deviceId, peerRandom, peerRaw, peerAt);
       if (!verifyPeer(peerDeviceId, peerTranscript, peerHello.signature)) throw Object.assign(new Error("The peer's handshake signature is not from an allowed device."), { code: "ANXNET_UDP_HANDSHAKE_AUTH" });
       const shared = crypto.diffieHellman({ privateKey: ephemeral.privateKey, publicKey: x25519FromRaw(peerRaw) });
       // Order both transcripts the same way on both sides.

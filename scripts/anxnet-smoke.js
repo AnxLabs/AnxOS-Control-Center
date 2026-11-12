@@ -20,6 +20,10 @@
 //   X9 relay when direct fails; relay sees only ciphertext; revoked peers cut
 //   X10 public gateway: plain TCP and UDP clients reach the game, grants are
 //       required, unpublishing closes the port
+//   X11 security review fixes (Phase 6.1): stale UDP hellos refused; a
+//       replayed hello can't redirect UDP traffic; stream ids can't be
+//       reused; services can't point at internet hosts; coordinator and
+//       enrollment rate limits; expired gateway grants close their route
 // Run: node scripts/anxnet-smoke.js
 
 const assert = require("assert");
@@ -38,6 +42,7 @@ const names = require("../src/anxnet/names");
 const roster = require("../src/anxnet/roster");
 const identityLib = require("../src/anxnet/identity");
 const { buildResponse } = require("../src/anxnet/dns");
+const secureUdp = require("../src/anxnet/secureUdp");
 const { createNatSocketFactory } = require("./test-helpers/udp-nat-emulator");
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "anxnet-smoke-"));
@@ -256,6 +261,9 @@ async function main() {
   // X8 hole punching through emulated NATs
   const coneA = await join(ownerNode, "cone-a", { preApproved: true, nodeOptions: { createUdpSocket: createNatSocketFactory("cone"), enableForwards: false } });
   const coneB = await join(ownerNode, "cone-b", { preApproved: true, nodeOptions: { createUdpSocket: createNatSocketFactory("cone") } });
+  const sentHellos = [];
+  const originalSend = coneA.udp.send.bind(coneA.udp);
+  coneA.udp.send = (buffer, port, host) => { const control = secureUdp.parseControl(buffer); if (control?.kind === secureUdp.KIND.HELLO) sentHellos.push(buffer); return originalSend(buffer, port, host); };
   const udpPeer = await coneA.connectUdp(coneB.identity.deviceId);
   assert.ok(udpPeer.session, "a UDP secure session exists");
   await waitFor(() => coneB.udpSessions.has(coneA.identity.deviceId), "both sides have the UDP session");
@@ -324,6 +332,62 @@ async function main() {
   await ownerNode.unshareService(udpGame.serviceId);
   await waitFor(() => !edge.status().routes.some((route) => route.routeId === udpRoute.routeId), "UDP route removed when the service stops being shared", 10000);
   pass(`X10 gateway: plain TCP (3 at once) and UDP clients reach the game on ${tcpRoute.publicPort}/${udpRoute.publicPort}; forged and wrong-gateway grants refused; routes removed on unpublish and unshare`);
+
+  // X11
+  const staleHandshake = secureUdp.createHandshake({ identity: identityLib.createIdentity(), networkId: ownerNode.doc.networkId, peerDeviceId: "dev-x" });
+  const oldHello = { ...staleHandshake.hello, at: Date.now() - 5 * 60 * 1000 };
+  const receiver = secureUdp.createHandshake({ identity: { deviceId: "dev-x", sign: () => "" }, networkId: ownerNode.doc.networkId, peerDeviceId: staleHandshake.hello.from });
+  assert.throws(() => receiver.complete(oldHello, () => true), (error) => error.code === "ANXNET_UDP_HANDSHAKE_STALE", "an old hello is refused");
+  // Replay cone-a's real hello to cone-b from another address.
+  assert.ok(sentHellos.length > 0, "a hello was captured");
+  const attacker = dgram.createSocket("udp4");
+  await new Promise((resolve) => attacker.bind(0, "127.0.0.1", resolve));
+  assert.ok(coneB.udpSessions.get(coneA.identity.deviceId)?.confirmed, "the genuine session was confirmed by key confirmation");
+  coneB.udpSessions.delete(coneA.identity.deviceId); // worst case: no session to protect
+  const bPort = coneB.udp.externalPorts ? coneB.udp.externalPorts()[0] : coneB.status().listening.udpPort;
+  attacker.send(sentHellos[sentHellos.length - 1], bPort, "127.0.0.1");
+  await delay(500);
+  const replayed = coneB.udpSessions.get(coneA.identity.deviceId);
+  assert.ok(!replayed || replayed.confirmed !== true, "a session from a replayed hello is never confirmed, so it carries nothing");
+  attacker.close();
+  // Stream ids can't be reused.
+  const memberX = await join(ownerNode, "x11-member", { preApproved: true });
+  // Only this member may use it, so no other test device in this process
+  // binds the same address and port first.
+  const svcX = await ownerNode.shareService({ name: "X11", port: 25620, protocol: "tcp", targetHost: "127.0.0.1", targetPort: gameTcp, allow: [memberX.identity.deviceId] });
+  await waitFor(() => memberX.status().forwards.some((forward) => forward.serviceId === svcX.serviceId), "x11 forward");
+  const peerX = await memberX.ensurePeer(ownerNode.identity.deviceId);
+  const hostSide = ownerNode.peers.get(memberX.identity.deviceId);
+  memberX.writeFrame(peerX, 1, 4001, { serviceId: svcX.serviceId });
+  await waitFor(() => hostSide.streams.has(4001), "first stream open");
+  const firstTarget = hostSide.streams.get(4001);
+  memberX.writeFrame(peerX, 1, 4001, { serviceId: svcX.serviceId });
+  await delay(300);
+  assert.strictEqual(hostSide.streams.get(4001), firstTarget, "a reused stream id doesn't replace or leak the open stream");
+  // Services can't point at internet hosts.
+  await assert.rejects(ownerNode.shareService({ name: "Proxy", port: 25621, protocol: "tcp", targetHost: "8.8.8.8", targetPort: 53 }), (error) => error.code === "ANXNET_SERVICE_TARGET");
+  await assert.rejects(ownerNode.shareService({ name: "Proxy", port: 25621, protocol: "tcp", targetHost: "example.com", targetPort: 80 }), (error) => error.code === "ANXNET_SERVICE_TARGET");
+  // Coordinator rate limit.
+  const flood = await Promise.all(Array.from({ length: 80 }, () => memberX.coordinatorRequest({ t: "lookup", deviceId: ownerNode.identity.deviceId })));
+  assert.ok(flood.some((reply) => reply.error?.code === "ANXNET_RATE_LIMITED"), "a flood of control requests is rate limited");
+  // Expired grants close their route.
+  const shortEdge = new AnxNetEdge({ keyStore: fileStore(path.join(root, "edge2", "edge.key")), listenHost: "127.0.0.1", port: 0, networks: [{ networkId: ownerNode.doc.networkId, ownerPublicKey: ownerNode.doc.owner.publicKey }], gateway: { enabled: true, bindHost: "127.0.0.1", publicHost: "127.0.0.1", portRange: [45820, 45829] }, grantSweepMs: 200 });
+  const shortInfo = await shortEdge.start();
+  const shortGrant = ownerNode.signGatewayGrant({ serviceId: svcX.serviceId, protocol: "tcp", gatewayFingerprint: shortInfo.fingerprint, ttlMs: 1500 });
+  const shortRoute = await ownerNode.publish({ gateway: { host: "127.0.0.1", port: shortInfo.port, fingerprint: shortInfo.fingerprint }, ...shortGrant });
+  assert.strictEqual(await tcpRoundTrip(shortRoute.publicPort, "127.0.0.1", "early"), "mc:early");
+  await waitFor(() => shortEdge.status().routes.length === 0, "expired grant closes the route", 5000);
+  await shortEdge.stop();
+  // Enrollment throttle (last: it blocks this address for a minute).
+  const guesser = await makeNode("guesser");
+  const realInvite = roster.decodeInviteCode(ownerNode.createInvite({}).code);
+  const outcomes = [];
+  for (let index = 0; index < 12; index += 1) {
+    const reply = await guesser.request(realInvite.coordinator[0], { t: "enroll", networkId: ownerNode.doc.networkId, secret: "a".repeat(26), name: "guess" }, { expectFingerprint: realInvite.ownerFingerprint }).catch((error) => ({ error: { code: error.code } }));
+    outcomes.push(reply.error?.code);
+  }
+  assert.ok(outcomes.slice(0, 10).every((code) => code === "ANXNET_INVITE_INVALID") && outcomes.slice(10).every((code) => code === "ANXNET_RATE_LIMITED"), `guessing invite codes is throttled (${outcomes.join(",")})`);
+  pass("X11 review fixes: stale hellos refused, replayed hello can't carry traffic, stream ids not reusable, no internet targets, control and enrollment rate limits, expired grants close routes");
 
   await edge.stop();
   console.log(`AnxNet smoke passed (${checks} checks). Real sockets on one host; separate computers and NAT are simulated.`);
