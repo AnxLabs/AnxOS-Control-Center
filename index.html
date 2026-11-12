@@ -3610,6 +3610,7 @@
                   <p class="settings-category-group__label">Devices</p>
                   <button type="button" data-security-section-target="devices">Trusted Devices</button>
                   <button type="button" data-security-section-target="activations">Device Activations</button>
+                  <button type="button" data-security-section-target="phone">Phone Access</button>
                 </div>
                 <div class="settings-category-group">
                   <p class="settings-category-group__label">Credentials</p>
@@ -3898,6 +3899,16 @@
                   </tbody>
                 </table>
               </div>
+            </section>
+
+            <section class="settings-section settings-section--security-phone" data-security-section="phone">
+              <div class="settings-section__header">
+                <div>
+                  <h2>Phone Access</h2>
+                  <p>Use the AnxOS web app on your phone, on your home network. Each phone gets the role you choose and can be removed at any time.</p>
+                </div>
+              </div>
+              <div data-phone-access-panel aria-live="polite"></div>
             </section>
 
             <section class="settings-section settings-section--security-remote" data-security-section="remote">
@@ -5911,5 +5922,6 @@
     <script src="src/renderer/addonsTab.js"></script>
     <script src="src/renderer/serverBackups.js"></script>
     <script src="src/renderer/anxnetPanel.js"></script>
+    <script src="src/renderer/phoneAccessPanel.js"></script>
   </body>
 </html>

@@ -223,6 +223,22 @@ const desktopApi = {
     unpublishService: (serviceId) => ipcRenderer.invoke("anxnet:unpublishService", { serviceId }),
     testPeer: (deviceId) => ipcRenderer.invoke("anxnet:testPeer", { deviceId }),
   },
+  // Phone access (Phase 7): the LAN gateway for the AnxOS phone app.
+  mobile: {
+    status: () => ipcRenderer.invoke("mobile:status", {}),
+    enable: () => ipcRenderer.invoke("mobile:enable", {}),
+    disable: () => ipcRenderer.invoke("mobile:disable", {}),
+    createPairing: (role) => ipcRenderer.invoke("mobile:createPairing", { role }),
+    cancelPairings: () => ipcRenderer.invoke("mobile:cancelPairings", {}),
+    revokeDevice: (deviceId) => ipcRenderer.invoke("mobile:revokeDevice", { deviceId }),
+    revokeAll: () => ipcRenderer.invoke("mobile:revokeAll", {}),
+    saveCaCertificate: () => ipcRenderer.invoke("mobile:saveCaCertificate", {}),
+    onChanged: (callback) => {
+      const handler = () => callback();
+      ipcRenderer.on("mobile:changed", handler);
+      return () => ipcRenderer.removeListener("mobile:changed", handler);
+    },
+  },
   networkInventory: {
     get: (payload = {}) => ipcRenderer.invoke("networkInventory:get", payload),
   },

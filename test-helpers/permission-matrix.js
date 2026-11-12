@@ -181,6 +181,18 @@ const IPC_FAMILIES = [
     ],
   },
   {
+    // Phone access (Phase 7): turning it on, pairing phones (with a role)
+    // and revoking them is owner-only and audited.
+    id: "phone-access-owner",
+    tier: "owner",
+    guard: "owner",
+    allow: ["owner-unlocked"],
+    channels: [
+      "mobile:enable", "mobile:disable", "mobile:createPairing", "mobile:cancelPairings",
+      "mobile:revokeDevice", "mobile:revokeAll", "mobile:saveCaCertificate",
+    ],
+  },
+  {
     id: "owner-workspace-public",
     tier: null,
     guard: "none",
@@ -551,6 +563,8 @@ const IPC_FAMILIES = [
     channels: [
       "settings:getPreferences",
       "workload:getTrustPolicy", "workload:evaluateTrust",
+      // Phone access status (Phase 7).
+      "mobile:status",
     ],
   },
   {

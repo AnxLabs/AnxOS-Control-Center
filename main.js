@@ -24,6 +24,8 @@ const { registerPlayitIpc } = require("./src/ipc/playitIpc");
 const { registerPublicAccessIpc } = require("./src/ipc/publicAccessIpc");
 const { registerAnxNetIpc } = require("./src/ipc/anxnetIpc");
 const anxnetService = require("./src/services/anxnetService");
+const { registerMobileGatewayIpc } = require("./src/ipc/mobileGatewayIpc");
+const mobileGatewayService = require("./src/services/mobileGatewayService");
 const { registerSecurityIpc } = require("./src/ipc/securityIpc");
 const { registerSettingsIpc } = require("./src/ipc/settingsIpc");
 const { disposeSshIpc, registerSshIpc } = require("./src/ipc/sshIpc");
@@ -1049,6 +1051,9 @@ app.whenReady().then(async () => {
   registerAnxNetIpc();
   // AnxNet resumes only if this computer is already in a network.
   anxnetService.resume().catch(() => {});
+  registerMobileGatewayIpc();
+  // Phone access starts again only if the owner left it on.
+  mobileGatewayService.resume().catch(() => {});
   registerNetworkIpc();
   registerTelemetryIpc();
   registerNotificationsIpc();
@@ -1204,7 +1209,7 @@ app.on("before-quit", (event) => {
   updateManager.stop();
   disposeFilesIpc();
   disposeSshIpc();
-  Promise.all([anxnetService.shutdown().catch(() => {}), localInstanceService.shutdownInstanceService({ timeoutMs: 5000 })])
+  Promise.all([anxnetService.shutdown().catch(() => {}), mobileGatewayService.shutdown().catch(() => {}), localInstanceService.shutdownInstanceService({ timeoutMs: 5000 })])
     .catch((error) => diagnostics.logError("shutdown", "instances", error, {}, { file: "desktop" }))
     .finally(() => {
       appShutdownComplete = true;

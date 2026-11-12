@@ -208,7 +208,7 @@ const loadedIpcModuleFiles = new Set([
   "publicAccessIpc.js", "anxnetIpc.js", "dockerIpc.js", "instancesIpc.js", "marketplaceIpc.js",
   "maintenanceIpc.js", "nodesIpc.js", "networkInventoryIpc.js", "infrastructureInventoryIpc.js", "workloadIpc.js", "ownerWorkspaceIpc.js",
   "filesIpc.js", "settingsIpc.js", "sshIpc.js", "alertsIpc.js", "webhookAlertsIpc.js",
-  "networkIpc.js", "telemetryIpc.js", "notificationsIpc.js", "computersIpc.js",
+  "networkIpc.js", "telemetryIpc.js", "notificationsIpc.js", "computersIpc.js", "mobileGatewayIpc.js",
 ]);
 // accountIpc.js delegates to accountAuthIpc.registerAccountAuthIpc (which IS
 // loaded here); loading it again would double-register the account channels.
@@ -254,6 +254,7 @@ try {
   require("../src/ipc/playitIpc").registerPlayitIpc();
   require("../src/ipc/publicAccessIpc").registerPublicAccessIpc();
   require("../src/ipc/anxnetIpc").registerAnxNetIpc();
+  require("../src/ipc/mobileGatewayIpc").registerMobileGatewayIpc();
   require("../src/ipc/networkIpc").registerNetworkIpc();
   require("../src/ipc/telemetryIpc").registerTelemetryIpc();
   require("../src/ipc/notificationsIpc").registerNotificationsIpc();
@@ -363,6 +364,7 @@ const DESKTOP_PROBES = {
   "security-session": { channel: "security:updateSessionSettings", payload: { inactiveSessionExpirationMs: 86400000 }, serviceRecorded: false },
   "security-owner": { channel: "security:lockOwnerWorkspace", serviceRecorded: false },
   "owner-workspace": { channel: "ownerWorkspace:getWorkspace", serviceRecorded: false },
+  "phone-access-owner": { channel: "mobile:cancelPairings" },
   "owner-workspace-public": { channel: "ownerWorkspace:getStatus", serviceRecorded: false },
   "agent-control": { channel: "agentControl:list" },
   "action-bridge": { channel: "action:execute", payload: { actionId: "docker.start", params: {} } },

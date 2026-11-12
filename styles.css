@@ -21398,3 +21398,130 @@ body.create-server-window .page[data-page="marketplace"] .page-introduction {
   border-color: rgba(66, 211, 146, 0.35);
   color: #9ff0c4;
 }
+
+/* Phase 7: Phone access (Security > Devices). */
+.phone-access {
+  display: grid;
+  gap: 14px;
+}
+
+.phone-access__state {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.phone-access__heading {
+  margin: 8px 0 0;
+  font-size: 1rem;
+}
+
+.phone-steps {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding-left: 20px;
+  color: var(--muted);
+}
+
+.phone-steps li > .inline-action {
+  margin-top: 8px;
+}
+
+.phone-steps strong {
+  color: var(--text);
+}
+
+.phone-roles {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.phone-role-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.phone-role-option .inline-action {
+  min-width: 150px;
+}
+
+.phone-pairing {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 14px;
+  border: 1px solid rgba(190, 170, 220, 0.16);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.phone-pairing__qr {
+  width: 200px;
+  height: 200px;
+  border-radius: 8px;
+  background: #fff;
+  image-rendering: pixelated;
+}
+
+.phone-pairing__text {
+  display: grid;
+  flex: 1 1 260px;
+  align-content: start;
+  gap: 8px;
+}
+
+.phone-pairing__text p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.phone-pairing__link {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.phone-pairing__link code {
+  overflow-wrap: anywhere;
+}
+
+.phone-devices {
+  display: grid;
+  gap: 8px;
+}
+
+.phone-device {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(190, 170, 220, 0.12);
+  border-radius: 10px;
+}
+
+.phone-device__info {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+
+.phone-device__info small {
+  flex-basis: 100%;
+  color: var(--muted);
+}
+
+.phone-pairing__more summary {
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.phone-pairing__more[open] {
+  display: grid;
+  gap: 8px;
+}
