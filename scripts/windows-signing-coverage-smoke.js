@@ -13,6 +13,11 @@
 //   W4 (when electron-builder's NSIS toolsets are cached here) the real
 //      toolsets hold the plugins Smart App Control blocked (nsExec, System)
 //      and the extractor (nsis7z)
+//   W6 the NSIS signing step prepares PowerShell exactly as electron-builder
+//      does (pwsh.exe when present; the same NuGet and TrustedSigning setup
+//      commands, read from electron-builder itself) and reports the shell's
+//      own error text when module setup fails (CI run 43503163673 failed
+//      silently in Windows PowerShell)
 //   W5 (when Build 209 or later is installed here) the coverage check run on
 //      the installed release lists exactly its unsigned files
 "use strict";
@@ -24,7 +29,7 @@ const path = require("path");
 
 const root = path.resolve(__dirname, "..");
 const { classifySignatures, isSignedByAnxOS, listCoveredFiles, readSignatures } = require("./windows-signature-coverage");
-const { listPluginDlls, locateNsisToolsets, prepareSignedNsisToolsets, trustedSigningCommand } = require("./sign-nsis-toolsets");
+const { TRUSTED_SIGNING_SETUP_COMMANDS, listPluginDlls, locateNsisToolsets, prepareSignedNsisToolsets, prepareTrustedSigning, resolvePowerShell, trustedSigningCommand } = require("./sign-nsis-toolsets");
 
 const OURS = { status: "Valid", subject: "CN=Anjo ROSIMO, O=Anjo ROSIMO, L=calgary, S=ab, C=CA", issuer: "CN=Microsoft ID Verified CS AOC CA 03, O=Microsoft Corporation, C=US", timestamped: true };
 const MICROSOFT = { status: "Valid", subject: "CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US", issuer: "CN=Microsoft Code Signing PCA 2011, O=Microsoft Corporation", timestamped: true };
@@ -157,6 +162,24 @@ async function main() {
   } else {
     console.log("SKIP W5 no installed AnxOS release on this machine");
   }
+  // W6
+  const ebSource = fs.readFileSync(require.resolve("app-builder-lib/out/codeSign/windowsSignAzureManager.js"), "utf8");
+  for (const command of TRUSTED_SIGNING_SETUP_COMMANDS) assert.ok(ebSource.includes(command), `electron-builder runs the same setup: ${command}`);
+  const ebVm = fs.readFileSync(require.resolve("app-builder-lib/out/vm/vm.js"), "utf8");
+  assert.ok(ebVm.includes("Get-Command pwsh.exe") && ebVm.includes('"pwsh.exe"'), "electron-builder prefers pwsh.exe");
+  const calls = [];
+  const runner = (outcomes) => (command, args) => { calls.push([command, args[args.length - 1]]); return outcomes.shift() || { status: 0, stdout: "", stderr: "" }; };
+  assert.strictEqual(resolvePowerShell(runner([{ status: 0 }])), "pwsh.exe");
+  assert.strictEqual(resolvePowerShell(runner([{ status: 1 }])), "powershell.exe");
+  calls.length = 0;
+  const shell = prepareTrustedSigning(runner([{ status: 0 }, { status: 1, stderr: "NuGet already present" }, { status: 0 }]));
+  assert.strictEqual(shell, "pwsh.exe", "a failed NuGet step is tolerated, as electron-builder does");
+  assert.deepStrictEqual(calls.map((call) => call[0]), ["powershell.exe", "pwsh.exe", "pwsh.exe"], "probe with Windows PowerShell, then set up in the chosen shell");
+  assert.deepStrictEqual(calls.slice(1).map((call) => call[1]), TRUSTED_SIGNING_SETUP_COMMANDS);
+  assert.throws(() => prepareTrustedSigning(runner([{ status: 1 }, { status: 0 }, { status: 1, stderr: "Unable to find repository 'PSGallery'" }])), /powershell\.exe failed \(exit 1\): Unable to find repository 'PSGallery'/);
+  assert.doesNotMatch(trustedSigningCommand({ endpoint: "e", certificateProfileName: "p", codeSigningAccountName: "a" }, "C:/x.dll"), /Install-Module/, "module setup runs once, not per file");
+  console.log("PASS W6 NSIS signing prepares PowerShell exactly as electron-builder does and reports setup errors");
+
   console.log("Windows signing coverage smoke passed.");
 }
 

@@ -63,17 +63,56 @@ function trustedSigningCommand(azure, filePath) {
   const quote = (value) => `'${String(value).replace(/'/g, "''")}'`;
   return [
     "$ErrorActionPreference = 'Stop'",
-    "if (-not (Get-Module -ListAvailable -Name TrustedSigning)) { Install-Module -Name TrustedSigning -MinimumVersion 0.5.0 -Force -Repository PSGallery -Scope CurrentUser }",
     `Invoke-TrustedSigning -Endpoint ${quote(azure.endpoint)} -CertificateProfileName ${quote(azure.certificateProfileName)} -CodeSigningAccountName ${quote(azure.codeSigningAccountName)} -TimestampRfc3161 'http://timestamp.acs.microsoft.com' -TimestampDigest 'SHA256' -FileDigest 'SHA256' -Files ${quote(filePath)}`,
   ].join("; ");
 }
 
+// The same module setup electron-builder runs before it signs: the NuGet
+// provider (best effort; runners usually have it), then TrustedSigning.
+// Without the provider, Windows PowerShell 5.1 stops Install-Module at a
+// prompt, which fails at once in a non-interactive build (CI run
+// 43503163673).
+const TRUSTED_SIGNING_SETUP_COMMANDS = [
+  "Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser",
+  "Install-Module -Name TrustedSigning -MinimumVersion 0.5.0 -Force -Repository PSGallery -Scope CurrentUser",
+];
+
+// electron-builder signs through pwsh.exe when it exists and falls back to
+// powershell.exe; this step uses the same shell so the module it installs is
+// the one Invoke-TrustedSigning loads.
+function resolvePowerShell(run = spawnSync) {
+  const probe = run("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", "Get-Command pwsh.exe"], { encoding: "utf8", windowsHide: true });
+  return probe.status === 0 ? "pwsh.exe" : "powershell.exe";
+}
+
+function tail(text, length = 800) {
+  const value = String(text || "").trim();
+  return value.length > length ? `...${value.slice(-length)}` : value;
+}
+
+let preparedShell = null;
+
+function prepareTrustedSigning(run = spawnSync) {
+  // Cached for the real build only; tests pass their own runner.
+  if (preparedShell && run === spawnSync) return preparedShell;
+  const shell = resolvePowerShell(run);
+  const provider = run(shell, ["-NoProfile", "-NonInteractive", "-Command", TRUSTED_SIGNING_SETUP_COMMANDS[0]], { encoding: "utf8", windowsHide: true });
+  if (provider.status !== 0) console.log(`NuGet provider setup did not complete (it is often preinstalled): ${tail(provider.stderr, 300)}`);
+  const module = run(shell, ["-NoProfile", "-NonInteractive", "-Command", TRUSTED_SIGNING_SETUP_COMMANDS[1]], { encoding: "utf8", windowsHide: true });
+  if (module.status !== 0) throw new Error(`Installing the TrustedSigning module with ${shell} failed (exit ${module.status}): ${tail(module.stderr || module.stdout)}`);
+  console.log(`Trusted Signing module ready (${shell}).`);
+  if (run === spawnSync) preparedShell = shell;
+  return shell;
+}
+
 // Signs one file with the build's Azure Trusted Signing account (the same
 // Invoke-TrustedSigning call electron-builder makes). Credentials come from
-// the AZURE_* environment the build already has; nothing is printed.
+// the AZURE_* environment the build already has and are never printed; the
+// error text on failure is PowerShell's own (CI masks secret values).
 function signWithTrustedSigning(filePath, azure) {
-  const result = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", trustedSigningCommand(azure, filePath)], { encoding: "utf8", windowsHide: true });
-  if (result.status !== 0) throw new Error(`Trusted Signing failed for ${path.basename(filePath)} (exit ${result.status}).`);
+  const shell = prepareTrustedSigning();
+  const result = spawnSync(shell, ["-NoProfile", "-NonInteractive", "-Command", trustedSigningCommand(azure, filePath)], { encoding: "utf8", windowsHide: true });
+  if (result.status !== 0) throw new Error(`Trusted Signing failed for ${path.basename(filePath)} (exit ${result.status}): ${tail(result.stderr || result.stdout)}`);
 }
 
 function readAuthenticode(filePath) {
@@ -113,4 +152,4 @@ async function prepareSignedNsisToolsets(options) {
   };
 }
 
-module.exports = { listPluginDlls, locateNsisToolsets, prepareSignedNsisToolsets, trustedSigningCommand };
+module.exports = { TRUSTED_SIGNING_SETUP_COMMANDS, listPluginDlls, locateNsisToolsets, prepareSignedNsisToolsets, prepareTrustedSigning, resolvePowerShell, trustedSigningCommand };
