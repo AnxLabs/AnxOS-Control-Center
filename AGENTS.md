@@ -591,6 +591,22 @@ Use this section to accumulate verified project knowledge over time. Add entries
   before installing it. A matching checksum file only proves the package
   is the one you built, not that it is right.
 
+### 2026-11-13 — The Phase X assistant read no console lines on a real server
+
+- **Problem:** Asked why a crashed server would not start, the assistant
+  said it found no error in its "last 0 console lines", although the
+  console showed a port conflict. All 18 hermetic checks had passed.
+- **Cause:** `readLogs` (desktop and Agent, `instanceServiceCore`) returns
+  `{ entries: [{ at, stream, message }] }` and takes `limit`. The assistant
+  expected `lines`, and the hermetic test's fake returned the shape the
+  code expected. Found by `scripts/phasex-ui-qa.js` in the real app.
+- **Resolution:** The diagnostics read `entries` and request `limit`; the
+  hermetic fake now returns the real shape and asserts the real option.
+- **Lesson:** A fake service must copy the real service's response shape and
+  options, not the consumer's assumptions. Run a new consumer once against
+  the real service (a disposable local server is enough) before trusting
+  its hermetic tests.
+
 ## Future Improvements
 
 Keep optional ideas separate from active work. An item in this list is not authorization to implement it.
