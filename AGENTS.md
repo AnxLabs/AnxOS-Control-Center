@@ -557,6 +557,22 @@ Use this section to accumulate verified project knowledge over time. Add entries
   must always cancel. Never read user files as text unless the format is
   known to be text.
 
+### 2026-11-12 — A disconnected computer's servers still looked live
+
+- **Problem:** After a computer's Agent stopped, My Servers kept showing
+  the computer as "Connected" and its servers as "Running" for as long as
+  the page stayed open; the title-bar chip stayed green.
+- **Cause:** Node health was only re-checked while Home or Computers was
+  open, and the server list kept its last snapshot without marking it as
+  old. Found by a Phase 8 UI test that stops the Agent mid-run.
+- **Resolution:** My Servers checks the selected computer's health every
+  15 s (never during a server action) and, once the computer is not
+  connected and the list has not loaded for 15 s, marks each state
+  "Last known" and the chip "<computer>: last known list".
+- **Lesson:** Every page that shows live state needs its own freshness
+  rule. Test it by stopping the data source during a UI test, not only by
+  starting with it offline.
+
 ## Future Improvements
 
 Keep optional ideas separate from active work. An item in this list is not authorization to implement it.

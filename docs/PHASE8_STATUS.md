@@ -227,3 +227,60 @@ in-process SSH server).
 
 Tests: `phase8-ui-qa` P1 and P6 check the chip; node-state consistency,
 node-status classification and UI polish smokes pass.
+
+## P8-H Stabilization and handoff
+
+Commits (local, nothing pushed): `ae816e2b` network telemetry and SSH
+privacy fix, `f52721c0` players, `d7596482` My Servers, `f112f412` Docker,
+`5c03f585` Files, `665241e3` SSH and Tools, `4501adc9` title-bar chip,
+`21cc1434` sign-in hook fix, plus this documentation commit.
+
+Validation (all executed, all passing at the end):
+
+- `node scripts/release-validation.js --tier=feature`: 112 checks. The
+  first run stopped on `server-sign-in-smoke`: sorting had renamed a
+  parameter that test pins in the source; fixed in `21cc1434`, rerun clean.
+- `phase8-ui-qa` 9/9 in the real app: network section and check, SSH
+  starts empty, default-page names, players, My Servers sort, bulk
+  actions and stale state, Docker sections, Files drop upload, SSH saved
+  connections, title-bar chip.
+- New smokes: `network-details-smoke` 8, `player-monitor-smoke` 8,
+  `files-drop-upload-smoke` 5 (all in both validation tiers).
+- Existing UI tests rerun: server view 9/9, instances layout 4/4,
+  instances refresh 4/4, sidebar groups 7/7, simple UI 8/8, files layout,
+  mobile widths (45 checks, 0 failures; it also reports the two missing
+  xterm files below).
+- `git diff --check` clean for every commit.
+
+Environment limits (not product failures): this worktree has no
+`node_modules`, so xterm.js does not load in its UI test runs (two
+"file not found" console errors that also appear on the unchanged code;
+`responsive-mobile-ui-qa` and `service-managed-ui-qa` count them as
+renderer errors). Docker Desktop is stopped on this PC and was not started.
+
+### Phase 8 acceptance
+
+| Goal | State |
+| --- | --- |
+| Reliable server lifecycle | Existing services; bulk actions use the same path; stale state fixed |
+| Docker management | Page reorganised on the existing backend; live daemon not tested here |
+| Safe local/remote files | Drag-and-drop, byte for byte, atomic, no silent overwrite |
+| Agent telemetry | Per-adapter network data on Agents and this PC |
+| Network diagnostics | Router / name lookup / internet check, on request |
+| Real player information | Minecraft, FiveM, Palworld, Valheim, Rust, CS2 |
+| Real player ping | FiveM and Palworld (server-reported); "Not supported" elsewhere |
+| No redesign of accepted work | Home, Computers, server pages, AnxNet, Phone kept; one Network section and the Players panel added |
+| No fabricated data | Unknown values stay "Not reported"/"Not supported" |
+
+### Not done or not verified
+
+- Live checks on real hardware: Docker against a running daemon, an SFTP
+  drop upload, typing in a live SSH terminal, players on a real FiveM or
+  Palworld server, network telemetry on Anxlab's Linux Agent. Anxlab runs
+  live servers and its Agent was not updated (an Agent update stops its
+  servers; needs your approval and a quiet moment).
+- AMD/Intel GPU usage (still NVIDIA only; others report "unavailable").
+- One My Servers list across several computers; server grouping.
+- Resuming interrupted transfers; dropping folders.
+- Phase 7.1 items still open: real iPhone test, public internet/VPS
+  relay, the Windows DNS rule, AnxNet inside Anxlab's Agent.
