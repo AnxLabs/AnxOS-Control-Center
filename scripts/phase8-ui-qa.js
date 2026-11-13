@@ -13,6 +13,12 @@
 //   P4 a running Minecraft test server: Overview's Players card opens the
 //      Players tab, where Online now lists the two players its status ping
 //      reports, and ping says "Not supported" (Minecraft does not report it)
+//   P5 My Servers: rows show the game; Sort by name reorders them; in select
+//      mode a checkbox click selects without opening the server; bulk Start
+//      confirms with every name, skips the running one, starts the stopped
+//      one through the normal action path; bulk Stop stops it again
+//   P6 when the Agent goes away, a server that was running reads
+//      "Last known: Running", never a live "Running"
 // Set PHASE8_SHOTS=<dir> to keep screenshots.
 // Run: node scripts/phase8-ui-qa.js
 
@@ -166,10 +172,66 @@ async function main() {
     assert.ok(live.rows.every((row) => /Not supported/.test(row)), "each player's ping says Not supported");
     await shot(page, "p4-players");
     await agent.api("POST", `/api/v1/instances/${MC_ID}/stop`, {});
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const list = (await agent.api("GET", "/api/v1/instances")).json;
+      const entry = (Array.isArray(list) ? list : list?.instances || []).find((instance) => instance.id === MC_ID);
+      if (/stopped/i.test(String(entry?.state || ""))) break;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
     console.log(`PASS P4 Players tab: ${live.names.join(", ")} online (${live.count.replace(/\s+/g, " ")}); ping Not supported for Minecraft`);
 
+    // P5
+    await page.evaluate(async () => { if (window.AnxServerView.isOpen()) await window.AnxServerView.close(); window.showPage("instances"); });
+    await page.evaluate(() => refreshInstances?.());
+    await waitFor(page, (id) => getInstances().some((instance) => instance.id === id && /stopped/i.test(instance.state || "")), MC_ID, "the test server stopped in the list", 40000);
+    await waitFor(page, () => document.querySelectorAll("[data-instances-list] tr[data-instance-id]").length >= 2 && document.querySelector("[data-instances-list]").checkVisibility(), null, "the server list", 20000);
+    const rowMeta = await page.evaluate((id) => document.querySelector(`[data-instances-list] tr[data-instance-id="${id}"] .instance-name-cell span`)?.textContent, MC_ID);
+    assert.match(rowMeta, /^Minecraft · Paper 1\.21\.1 · players-test$/, `the row says what the server is (${rowMeta})`);
+    await page.locator("[data-servers-sort]").selectOption("name");
+    await page.waitForTimeout(300);
+    const order = await page.evaluate(() => [...document.querySelectorAll("[data-instances-list] tr[data-instance-id]")].map((row) => row.querySelector(".instance-name-cell strong").textContent));
+    assert.deepStrictEqual(order, [...order].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base", numeric: true })), `sorted by name (${order.join(", ")})`);
+    await page.locator("[data-servers-select-toggle]").click();
+    await waitFor(page, () => document.querySelectorAll("[data-instances-list] [data-server-select]").length >= 2, null, "checkboxes in select mode");
+    const runningId = await page.evaluate((id) => getInstances().find((instance) => instance.id !== id && /running/i.test(instance.state || ""))?.id, MC_ID);
+    assert.ok(runningId, "the fixture's running server is listed");
+    for (const id of [MC_ID, runningId]) await page.locator(`[data-server-select="${id}"]`).click();
+    assert.strictEqual(await page.evaluate(() => window.AnxServerView.isOpen()), false, "a checkbox click does not open the server");
+    assert.match(await page.locator("[data-servers-bulk-count]").textContent(), /2 selected/);
+    await page.locator('[data-servers-bulk-action="start"]').click();
+    await waitFor(page, () => Boolean(document.querySelector("[data-confirm-ok]")), null, "bulk start confirmation");
+    const confirmText = await page.evaluate(() => document.querySelector("[data-confirm-ok]").closest(".app-modal").textContent);
+    assert.match(confirmText, /Players Test/, "the confirmation names the server to start");
+    assert.match(confirmText, /Skipped \(already running or busy\)/, "the running server is skipped and said so");
+    await shot(page, "p5-bulk-confirm");
+    await page.locator("[data-confirm-ok]").last().click();
+    await waitFor(page, (id) => getInstances().some((instance) => instance.id === id && /running/i.test(instance.state || "")), MC_ID, "the selected server started", 60000);
+    await page.waitForTimeout(1500);
+    await page.locator('[data-servers-bulk-action="stop"]').waitFor({ state: "visible" });
+    await waitFor(page, () => !document.querySelector('[data-servers-bulk-action="stop"]').disabled, null, "bulk stop enabled", 20000);
+    // Deselect the fixture's service so only the test server is stopped.
+    await page.locator(`[data-server-select="${runningId}"]`).click();
+    await page.locator('[data-servers-bulk-action="stop"]').click();
+    await waitFor(page, () => Boolean(document.querySelector("[data-confirm-ok]")), null, "bulk stop confirmation");
+    await page.locator("[data-confirm-ok]").last().click();
+    await waitFor(page, (id) => getInstances().some((instance) => instance.id === id && /stopped/i.test(instance.state || "")), MC_ID, "the selected server stopped", 60000);
+    await shot(page, "p5-servers");
+    await page.locator("[data-servers-select-toggle]").click();
+    console.log(`PASS P5 My Servers: game shown, sorted by name, bulk Start skipped the running server and started the stopped one, bulk Stop stopped it`);
+
+    // P6
+    await agent.stop();
+    await waitFor(page, (id) => { const pill = document.querySelector(`[data-instances-list] tr[data-instance-id="${id}"] .instance-state`); return Boolean(pill) && pill.classList.contains("is-stale") && pill.textContent === "Last knownRunning"; }, runningId, "the stale state marked as last known", 90000).catch(async (error) => {
+      console.log("Row at timeout:", await page.evaluate((id) => document.querySelector(`[data-instances-list] tr[data-instance-id="${id}"]`)?.textContent, runningId), await page.evaluate(() => JSON.stringify({ visual: getNodeVisualState(getSelectedNode()), status: getAgentStatusSnapshot(getSelectedNode()), page: getActivePageName() }).slice(0, 600)));
+      throw error;
+    });
+    await shot(page, "p6-last-known");
+    const actionsVisible = await page.evaluate((id) => { const row = document.querySelector(`[data-instances-list] tr[data-instance-id="${id}"]`); const table = row.closest("table").parentElement.getBoundingClientRect(); const last = row.querySelector(".instance-row-actions button:last-child").getBoundingClientRect(); return last.right <= table.right + 1; }, runningId);
+    assert.ok(actionsVisible, "the row actions still fit in the table");
+    console.log("PASS P6 with the Agent gone, a running server reads 'Last known · Running' and its actions still fit");
+
     assert.deepStrictEqual(errors, [], `renderer errors: ${errors.join(" | ")}`);
-    console.log(`Phase 8 UI QA: 4 checks passed. Screenshots: ${shotsDir}`);
+    console.log(`Phase 8 UI QA: 6 checks passed. Screenshots: ${shotsDir}`);
   } finally {
     await Promise.race([app.close().catch(() => {}), new Promise((resolve) => setTimeout(resolve, 15000))]);
     await agent.stop().catch(() => {});

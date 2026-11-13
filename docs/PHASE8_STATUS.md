@@ -91,3 +91,37 @@ Tests: `player-monitor-smoke` (8, real local HTTP and UDP fakes),
 `server-view-ui-qa` 9/9 and `minecraft-players-smoke` still pass (its
 tab-order assertion was stale since Phase 5 and now checks the Overview
 parent instead).
+
+### P8-B My Servers (this commit)
+
+The list keeps its table and hooks (the Phase 5 server view opens from a
+row; layout, refresh and service-managed tests depend on them):
+
+- Columns: Server, Status, Address, CPU, RAM, Uptime, Actions. Under each
+  name: the game and version ("Minecraft · Paper 1.21.1", "FiveM") and the
+  id; the process type moved to a tooltip; tags and "Update available"
+  became badges. The row actions no longer get pushed out of the table
+  when a server has tags.
+- Sort: Status (problems first), Name, Most CPU, Most memory (remembered).
+- Select servers: checkboxes on the names (a click selects, it does not open
+  the server); Start / Stop / Restart selected. One confirmation names every
+  server and says which are skipped (already running, stopped or busy);
+  servers run one at a time through the same action path as a single row,
+  re-checked just before each.
+- Stale state (a real bug found by the test): with the Agent gone, the
+  app kept saying the computer was "Connected" and its servers "Running"
+  on My Servers, because node health was only re-checked on Home and
+  Computers. My Servers now asks for the selected computer's health every
+  15 s (one request, never during a server action) and, when the computer
+  is not connected and the list has not loaded for 15 s, each state reads
+  "Last known · Running" with a dashed outline.
+
+Tests: `phase8-ui-qa` P5 (sort, select, bulk start/stop with skip) and P6
+(stale state after stopping the Agent; actions still fit);
+`instances-layout-ui-qa` 4/4, `instances-refresh-preservation-ui-qa` 4/4,
+`server-view-ui-qa` 9/9, `responsive-mobile-ui-qa` 45 checks with 0
+failures (it reports two missing xterm files: this worktree has no
+`node_modules`, an environment limit that also shows on the unchanged code).
+
+Not done: one list across several computers (the list shows the selected
+computer, as before); grouping.

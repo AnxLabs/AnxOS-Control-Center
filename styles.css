@@ -15424,7 +15424,7 @@ html[data-ui-generation="v1.9"] .inline-action {
   }
 
   .page[data-page="instances"] .instances-table td:nth-child(1),
-  .page[data-page="instances"] .instances-table td:nth-child(9) {
+  .page[data-page="instances"] .instances-table td:nth-child(7) {
     grid-column: 1 / -1;
   }
 
@@ -15433,20 +15433,18 @@ html[data-ui-generation="v1.9"] .inline-action {
     align-items: center;
   }
 
-  .page[data-page="instances"] .instances-table td:nth-child(9) {
+  .page[data-page="instances"] .instances-table td:nth-child(7) {
     grid-template-columns: minmax(78px, auto) minmax(0, 1fr);
     align-items: center;
   }
 
   .page[data-page="instances"] .instances-table td:nth-child(1)::before { content: "Server"; }
-  .page[data-page="instances"] .instances-table td:nth-child(2)::before { content: "Type"; }
-  .page[data-page="instances"] .instances-table td:nth-child(3)::before { content: "Status"; }
-  .page[data-page="instances"] .instances-table td:nth-child(4)::before { content: "Address"; }
-  .page[data-page="instances"] .instances-table td:nth-child(5)::before { content: "CPU"; }
-  .page[data-page="instances"] .instances-table td:nth-child(6)::before { content: "RAM"; }
-  .page[data-page="instances"] .instances-table td:nth-child(7)::before { content: "Uptime"; }
-  .page[data-page="instances"] .instances-table td:nth-child(8)::before { content: "Tags"; }
-  .page[data-page="instances"] .instances-table td:nth-child(9)::before { content: "Actions"; }
+  .page[data-page="instances"] .instances-table td:nth-child(2)::before { content: "Status"; }
+  .page[data-page="instances"] .instances-table td:nth-child(3)::before { content: "Address"; }
+  .page[data-page="instances"] .instances-table td:nth-child(4)::before { content: "CPU"; }
+  .page[data-page="instances"] .instances-table td:nth-child(5)::before { content: "RAM"; }
+  .page[data-page="instances"] .instances-table td:nth-child(6)::before { content: "Uptime"; }
+  .page[data-page="instances"] .instances-table td:nth-child(7)::before { content: "Actions"; }
 
   .page[data-page="instances"] .instances-table td:first-child,
   .page[data-page="instances"] .instances-table td:last-child {
@@ -21741,4 +21739,70 @@ body.create-server-window .page[data-page="marketplace"] .page-introduction {
 .live-players__event--leave::before {
   content: "− ";
   color: #ffb36b;
+}
+
+/* My Servers (Phase 8): last-known state, selection and bulk actions. */
+.instance-state.is-stale {
+  opacity: 0.6;
+  border-style: dashed;
+}
+
+.servers-select {
+  width: 16px;
+  height: 16px;
+  margin: 0 8px 0 0;
+  accent-color: #b98aff;
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+.instance-name-cell:has(> .servers-select) {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 4px;
+  align-items: center;
+}
+
+.instance-name-cell:has(> .servers-select) > :not(.servers-select) {
+  grid-column: 2;
+}
+
+.instance-name-cell:has(> .servers-select) > .servers-select {
+  grid-row: 1 / span 3;
+}
+
+.servers-bulk {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+  padding: 10px 14px;
+  border: 1px solid rgba(185, 138, 255, 0.25);
+  border-radius: 12px;
+  background: rgba(185, 138, 255, 0.06);
+}
+
+.servers-bulk [data-servers-bulk-count] {
+  margin-right: auto;
+  color: var(--muted);
+}
+
+.instance-state.is-stale {
+  display: inline-grid;
+  line-height: 1.15;
+  text-align: center;
+}
+
+.instance-state__note {
+  font-size: 0.65rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+.instance-name-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
 }

@@ -16675,8 +16675,12 @@ function buildInstanceNameCell(instance) {
   const title = document.createElement("strong");
   title.textContent = instance?.displayName || instance?.id || "Unnamed instance";
   const meta = document.createElement("span");
-  meta.textContent = instance?.id || "missing-id";
+  // Phase 8: what the server is (game and version) reads better than its id;
+  // the id stays in the line (and in search) after them.
+  meta.textContent = [getInstanceListGameLabel(instance) || getInstanceTypeLabel(instance), instance?.id || "missing-id"].filter(Boolean).join(" · ");
+  meta.title = `Runs as: ${getInstanceTypeLabel(instance)}`;
   wrapper.append(title, meta);
+  window.AnxServersList?.decorateNameCell(wrapper, instance);
   const accessBadges = getInstanceAccessBadges(instance);
   if (accessBadges.length > 0) {
     const badges = document.createElement("div");
@@ -16689,7 +16693,29 @@ function buildInstanceNameCell(instance) {
     });
     wrapper.appendChild(badges);
   }
+  // Tags and "Update available" (formerly their own column).
+  const tags = buildInstanceTagsCell(instance);
+  if (tags.childElementCount > 0) {
+    tags.classList.add("instance-name-tags");
+    wrapper.appendChild(tags);
+  }
   return wrapper;
+}
+
+// "Minecraft · Paper 1.21.1", "FiveM", "Palworld": the game and, when known,
+// its version. Empty when nothing better than the process type is known.
+function getInstanceListGameLabel(instance) {
+  const profile = getInstanceWorkspaceProfile(instance);
+  const software = String(instance?.serverSoftware || "").trim();
+  const version = String(instance?.minecraftVersion || instance?.gameVersion || instance?.versionInfo?.gameVersion || "").trim();
+  let game = "";
+  if (profile?.id === "minecraft") game = software ? `Minecraft · ${software.charAt(0).toUpperCase()}${software.slice(1)}` : "Minecraft";
+  else if (profile && profile.id !== "generic" && profile.label) game = profile.label;
+  else {
+    const kind = getInstanceAccessGameKind(instance);
+    game = { palworld: "Palworld", fivem: "FiveM", terraria: "Terraria" }[kind] || "";
+  }
+  return [game, version && /\d/.test(version) && !/^0(\.0)*$/.test(version) ? version : ""].filter(Boolean).join(" ");
 }
 
 function buildInstanceVersionCell(instance) {
@@ -16771,11 +16797,58 @@ function buildInstanceStatePill(instance) {
   const stateClass = operation?.status === "running" ? "reloading" : getInstanceStateClass(state);
   pill.className = `instance-state is-${stateClass}`;
   pill.textContent = state;
+  // Phase 8: with its computer disconnected, a server's state is only the last
+  // one AnxOS saw; it must not look live.
+  if (!operation || operation.status !== "running") {
+    const nodeState = safeGetInstanceNodeState(instance);
+    if (nodeState === "disconnected") {
+      pill.className = `instance-state is-${stateClass} is-stale`;
+      // Two short lines keep the Status column narrow.
+      const note = document.createElement("small");
+      note.className = "instance-state__note";
+      note.textContent = "Last known";
+      pill.replaceChildren(note, document.createTextNode(state));
+      pill.title = "This server's computer is not connected. This is the last state AnxOS saw.";
+      return pill;
+    }
+  }
   const lastOperationText = getInstanceOperationFailureText(operation);
   if (lastOperationText) pill.title = lastOperationText;
   else if (operation?.error) pill.title = operation.error;
   else if (INSTANCE_STATE_EXPLANATIONS[stateClass]) pill.title = INSTANCE_STATE_EXPLANATIONS[stateClass];
   return pill;
+}
+
+// The listed servers belong to the selected computer, so its own connection
+// state (the one Home and Computers show) decides; the sharing check is the
+// fallback for the application host.
+// When the list last loaded from its computer. With the computer not
+// connected (offline, failed or reconnecting) and no successful load for a
+// few polls, the states shown are only the last ones AnxOS saw.
+let instancesLastLiveAt = 0;
+const INSTANCE_LIST_LIVE_GRACE_MS = 15 * 1000;
+
+function isInstanceListStale() {
+  try {
+    const node = getSelectedNode();
+    if (!node || node.kind === "application-host") return false;
+    const visual = getNodeVisualState(node);
+    if (visual === "online" || visual === "warning") return false;
+    return Date.now() - instancesLastLiveAt > INSTANCE_LIST_LIVE_GRACE_MS;
+  } catch {
+    return false;
+  }
+}
+
+function safeGetInstanceNodeState(instance) {
+  if (isInstanceListStale()) return "disconnected";
+  try {
+    const node = getSelectedNode();
+    if (node && node.kind !== "application-host") return "available";
+    return getShareServerAccessHealth(instance).nodeState;
+  } catch {
+    return null;
+  }
 }
 
 function buildInstanceMetricCell(value) {
@@ -16938,11 +17011,13 @@ async function pollScheduledSteamUpdates() {
   refreshMarketplaceDownloads();
 }
 
-function renderInstanceRows(instances) {
-  noteInstanceSignInTransitions(instances);
+function renderInstanceRows(unsortedInstances) {
+  noteInstanceSignInTransitions(unsortedInstances);
   if (!instancesList) {
     return;
   }
+  // Phase 8: the list follows the Sort choice (serversList.js).
+  const instances = window.AnxServersList ? window.AnxServersList.sort(unsortedInstances) : unsortedInstances;
   syncScheduledSteamUpdates(instances);
   const existingRows = new Map([...instancesList.querySelectorAll("tr[data-instance-id]")].map((row) => [row.dataset.instanceId, row]));
   // Stale rows go first so they never sit between rows that are in order.
@@ -16967,6 +17042,7 @@ function renderInstanceRows(instances) {
   });
 
   filterInstanceRows();
+  window.AnxServersList?.renderBar();
 }
 
 // Applies a freshly built set of children to `container`, keeping every
@@ -17019,14 +17095,14 @@ async function openInstanceServerView(instanceId) {
 function buildInstanceRowCells(row, instance) {
   const metrics = getInstanceRowMetrics(instance);
   const metricsPlaceholder = metrics ? null : getInstanceMetricsPlaceholder(instance);
+  // Phase 8: the process type and tags moved into the Server cell (game and
+  // version line, tag badges), so the row keeps room for its actions.
   addInstanceCell(row, buildInstanceNameCell(instance));
-  addInstanceCell(row, getInstanceTypeLabel(instance));
   addInstanceCell(row, buildInstanceStatePill(instance));
   addInstanceCell(row, buildInstanceAddressCell(instance));
   addInstanceCell(row, buildInstanceMetricCell(metricsPlaceholder || formatInstanceCpuPercent(metrics)));
   addInstanceCell(row, buildInstanceMetricCell(metricsPlaceholder || formatInstanceMemoryUsage(instance, metrics)));
   addInstanceCell(row, buildInstanceMetricCell(metricsPlaceholder || formatDuration(metrics?.uptimeSeconds)));
-  addInstanceCell(row, buildInstanceTagsCell(instance));
   addInstanceCell(row, buildInstanceActionCell(instance));
 }
 
@@ -24371,6 +24447,7 @@ async function refreshInstances(options = {}) {
     if (!isNodeRequestCurrent(requestContext)) {
       return getInstances();
     }
+    instancesLastLiveAt = Date.now();
     renderInstancesSnapshot(snapshot);
     clearAgentPollingBackoff("instances", requestContext);
     if (options.refreshMetrics !== false) refreshEligibleInstanceMetrics();
@@ -25055,7 +25132,9 @@ async function openWorkloadTransfer(selectedInstance = findInstance()) {
   }
 }
 
-async function runInstanceAction(actionName) {
+// options.confirmed: the caller already showed a confirmation that named this
+// server (My Servers bulk actions), so Stop/Restart do not ask a second time.
+async function runInstanceAction(actionName, options = {}) {
   const selectedInstance = findInstance();
   const desktopApiState = getDesktopApiState();
   const requestContext = createNodeActionContext(`instance-${actionName}`);
@@ -25310,7 +25389,7 @@ async function runInstanceAction(actionName) {
       showToast("Forget canceled.");
       return;
     }
-  } else if (["stop", "restart", "forceKill"].includes(actionName) && !(await confirmDestructiveAction({
+  } else if (["stop", "restart", "forceKill"].includes(actionName) && !(options.confirmed === true && actionName !== "forceKill") && !(await confirmDestructiveAction({
     title: `${actionName[0].toUpperCase()}${actionName.slice(1)} this server?`,
     message: `${label} may disconnect active players or services while this action runs.`,
     confirmLabel: actionName === "forceKill" ? "Force Stop" : `${actionName[0].toUpperCase()}${actionName.slice(1)} Server`,
