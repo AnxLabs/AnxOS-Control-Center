@@ -310,6 +310,58 @@ Limit: NSIS pages use standard Windows controls, so the folder and progress
 pages stay light; the dark styling is on Welcome, Finish, the header and the
 artwork. A fully custom-drawn installer would mean a new installer engine.
 
+## 10. Signed release candidate (2026-11-13, owner-approved)
+
+Pushed (new branch, fast-forwards only, no tag, no release):
+`rc/2.0-build210-phase9`. Before the first push the unpublished history
+was rewritten to remove this PC's Tailscale address from `125ff707`
+(backup kept locally as `backup/phase9-before-tailscale-rewrite`; final
+files byte-identical, 55 of 56 commits with identical patches). Four
+`workflow_dispatch` runs of the existing Desktop Release workflow:
+
+| Run | Commit | Result | Cause and fix |
+| --- | --- | --- | --- |
+| 43488712302 | `52509fcd` | rc-validation failed (check 261/376) | Five RC-suite checks still described pre-Phase 4 code; updated in `eb814952` (all 376 pass locally) |
+| 43503163673 | `eb814952` | windows failed at NSIS plugin signing | Windows PowerShell 5.1 without the NuGet provider; now prepared exactly as electron-builder does (`f55286ef`) |
+| 43506235515 | `f55286ef` | windows failed after the first plugin was signed | Windows PowerShell started from PowerShell 7 inherits PSModulePath and `Get-AuthenticodeSignature` returns nothing; fixed for all three signature readers (`ccfca398`) |
+| **43509375484** | **`ccfca398`** | **success** (static, rc-validation, linux, windows; publish skipped) | — |
+
+Signing in the successful run (CI log): 25 NSIS plugin DLLs signed and
+verified; electron-builder signed 99 files including the six Electron DLLs,
+both `.node` modules and `install-agent-task.ps1`; "Authenticode
+verification passed for 89 executable(s)"; "Signature coverage passed: 651
+program, library, module, script and NSIS plugin file(s) are validly
+signed".
+
+Downloaded artifacts (workflow artifact, 14 days), checked on this PC:
+installer SHA-512 and size match `latest.yml`; installer SHA-256
+`12169cda73b9f78920bcb2d4df24e34da8d7f072a34a47b1927e5ad3a0f4e166`, portable
+SHA-256 `5be66cb2e5606ea81e518afffa1aaa10277ca2a0d623cbfd05fc4aba13d386f1`;
+both Valid, timestamped, signed by Anjo ROSIMO with issuer Microsoft ID
+Verified CS AOC CA 04 (Trusted Signing rotated from CA 03; the update check
+accepts the rotation by design); Microsoft Defender scan (scan only): no
+threats in either file.
+
+**Windows Sandbox, Smart App Control ON (state 1), networking on, installer
+marked as downloaded (Mark of the Web):**
+
+| Step | Result |
+| --- | --- |
+| Silent install | exit 0 in 125 s; program files, shortcuts, Helper task registered and running |
+| Code Integrity blocks | **0** (Build 209: 12, install failed) |
+| Installed files | **625 executables, DLLs, native modules and scripts, 0 not Valid** (Build 209: 9 unsigned) |
+| Add/Remove Programs | "AnxOS Control Center", publisher AnxLabs, https://anxlabs.net |
+| First launch | window opened; bundled Local Agent healthy |
+| Reinstall (update/repair path) | exit 0; user data kept (16/16) |
+| Uninstall | program files, entry, Helper task and shortcut removed; user data kept |
+| Interactive branded install (UI tour, same signed installer, Smart App Control on) | every page, including "Set up AnxOS" (nsDialogs) and the Finish checkbox (System plugin); the app opened from Finish; Helper running; interactive uninstall removed app and Helper, kept user data |
+
+Defender antivirus is not active inside Windows Sandbox, so Defender was
+checked on the host (above). SmartScreen evaluated the file through Mark of
+the Web inside the sandbox without blocking the silent install; a
+reputation prompt for interactive users of a brand-new file cannot be ruled
+out by this test.
+
 Not caused by Phase 9, recorded for follow-up: `agent-cli-smoke` fails on
 Anxlab ("the system env file must be applied") at `73563e47` too, before any
 Phase 9 code.
