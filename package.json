@@ -4,7 +4,10 @@
   "version": "2.0.0",
   "description": "A desktop app for managing home servers, game servers, and the computers that run them.",
   "homepage": "https://anxoscontrolcenter.org",
-  "author": "Anx",
+  "author": {
+    "name": "AnxLabs",
+    "url": "https://anxlabs.net"
+  },
   "license": "UNLICENSED",
   "desktopName": "anxos-control-center.desktop",
   "main": "main.js",
@@ -442,7 +445,7 @@
   "build": {
     "appId": "com.anxos.controlcenter",
     "productName": "AnxOS Control Center",
-    "copyright": "Copyright © 2026 Anx",
+    "copyright": "Copyright © 2026 AnxLabs",
     "afterPack": "scripts/normalize-package-permissions.js",
     "files": [
       "main.js",
@@ -609,8 +612,8 @@
       "icon": "assets/icons/png",
       "executableName": "anxos-control-center",
       "syncDesktopName": true,
-      "maintainer": "AnxOS <noreply@anxos.local>",
-      "vendor": "AnxOS",
+      "maintainer": "AnxLabs <noreply@anxos.local>",
+      "vendor": "AnxLabs",
       "synopsis": "Manage home servers, game servers, and the computers that run them.",
       "description": "AnxOS Control Center is a desktop app for managing home servers, game servers, and the computers that run them, all from one dashboard.",
       "desktop": {
@@ -642,7 +645,9 @@
       "installerIcon": "assets/icon.ico",
       "uninstallerIcon": "assets/icon.ico",
       "installerHeaderIcon": "assets/icon.ico",
-      "include": "windows/installer.nsh"
+      "include": "windows/installer.nsh",
+      "uninstallDisplayName": "AnxOS Control Center",
+      "uninstallUrlInfoAbout": "https://anxlabs.net"
     }
   },
   "devDependencies": {

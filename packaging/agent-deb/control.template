@@ -6,7 +6,7 @@ Architecture: {{ARCH}}
 Depends: libc6 (>= 2.28), libstdc++6
 Recommends: ca-certificates
 Installed-Size: {{INSTALLED_SIZE}}
-Maintainer: AnxOS <noreply@anxos.local>
+Maintainer: AnxLabs <noreply@anxos.local>
 Homepage: https://anxoscontrolcenter.org
 Description: AnxOS Agent - remote control endpoint for AnxOS Control Center
  The AnxOS Agent is the headless server-side endpoint used by AnxOS Control
