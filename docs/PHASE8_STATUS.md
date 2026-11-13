@@ -352,16 +352,74 @@ After (all checked on the live Agent):
 Findings to follow up (not caused by the update):
 - The previously installed Node runtime differed from the official
   package by one flipped bit (offset 26583638, 0x34 instead of 0x74) in
-  machine code. The reinstall replaced it. A single-bit flip suggests
-  memory or storage trouble on Anxlab; a memory test and a SMART check are
-  worth running.
-- `POST /api/v1/actions/docker.start|stop|restart` always fails with
-  `ERR_INVALID_ARG_TYPE`: `agent/src/actions/dockerActions.js` passes the
-  object returned by `resolveDockerExecutable()` to `execFile` instead of
-  its `executablePath`. Unchanged since 209; the desktop app does not use
-  this route.
+  machine code. The reinstall replaced it (now md5 `4cd77384…`, the
+  official value); the corrupt copy is kept as evidence in
+  `rollback/usr-lib-anxos-agent-209-installed-*.tar.gz`. Investigated
+  without root (see below).
+- `POST /api/v1/actions/docker.start|stop|restart` always failed with
+  `ERR_INVALID_ARG_TYPE`. Fixed in the source (see below); Anxlab's
+  running Agent keeps the bug until its next Agent build.
 - The Agent logs "Shared config directory holds an enrollment bound to a
-  different Agent identity" (it points at the old checkout's identity).
-  Present in 209 as well.
+  different Agent identity". Checked read-only (see below).
 - The installed desktop build has no single-instance lock: launching it
   again started a second copy beside the one in the tray.
+
+### Follow-up fixes and checks (2026-11-13)
+
+Docker action route (`POST /api/v1/actions/docker.*`):
+- Cause: `agent/src/actions/dockerActions.js` passed the record from
+  `resolveDockerExecutable()` (`{ executablePath, found, checks }`) to
+  `execFile` as the command.
+- Fix: the runner now uses the Docker service's existing
+  `getDockerExecutableOrThrow()` (now exported from
+  `src/shared/dockerService.js`), which returns the path string and
+  raises `DOCKER_NOT_INSTALLED` (503) when Docker is missing. The route,
+  the `actions:execute` API permission, the `docker:write` action
+  permission, the start/stop/restart allowlist and the container-name
+  pattern are unchanged.
+- `scripts/agent-docker-actions-smoke.js` (both release-validation tiers,
+  `npm run agent:docker-actions:smoke`) drives the real route handler with
+  Docker execution faked: start/stop/restart use the resolved path string
+  (fails on the old code with `'object' !== 'string'`), unknown (404) and
+  not-implemented (501) actions, a missing `docker:write` permission
+  (403), invalid/option-like/missing targets and bad JSON (400), a
+  missing Docker executable (503), an unknown container (404) and a failed
+  command (502). Passed on Windows and on Anxlab with the packaged Node.
+- On Anxlab the fixed handler ran in its own process (the live Agent was
+  not restarted) against real Docker on a disposable `nginx:alpine`
+  container: start (created → running), restart, stop (→ exited), an
+  unknown container (404); the container was removed and the 19 running
+  containers were unchanged.
+- The existing Docker and Agent smokes still pass (capabilities, hostile
+  input, IPC authorization, IPC error contract, job lifecycle, policy,
+  route IO, API authorization, permission matrix, compatibility).
+
+Pairing-record warning (read-only, nothing changed):
+- `/srv/anxos/agent-config/enrollment.json` (state `enrolled`, enrolled
+  2026-09-24 by the old checkout Agent) pins `identityPath` to
+  `/home/anx/Projects/AnxOS-Control-Center/agent/device-identity.json`.
+  The packaged Agent uses `/srv/anxos/agent-device-identity.json`. The two
+  identity files are byte-identical, the record's device ID and instance
+  root match this Agent, and no other Agent uses the folder (the old user
+  unit is retired, no checkout Agent process runs).
+- Effect: `assertEnrollmentBinding` treats this Agent as unenrolled, so
+  its identity/credential/instance-root drift check (453) is skipped.
+  Token authentication is unaffected.
+- Fix options, each needing separate approval: re-pin `identityPath` in
+  the record (after a backup) or re-enroll Anxlab from Control Center.
+
+Node runtime bit flip (non-destructive checks, no root):
+- `dpkg --verify` over all 2,321 packages (176,549 files): the only
+  content mismatches are 463 files (plus 59 missing) under
+  `/usr/lib/node_modules/npm`, from npm being upgraded to 12.0.1 outside
+  dpkg. No other file differs, so the flip was a single isolated bit.
+- No recorded errors: ext4 `errors_count` 0, NVMe (Intel
+  SSDPEKNU512GZ, firmware 002C) PCIe AER correctable/non-fatal/fatal 0,
+  `HardwareCorrupted` 0 kB. The memory has no ECC/EDAC reporting.
+- Not checked (needs root or a reboot): SMART/NVMe health log (no
+  `smartctl` or `nvme` installed), the kernel log, a memory test.
+- Conclusion: one flipped bit with no other corruption and no logged
+  errors does not establish a hardware fault; a transient memory error
+  while the file was written, or a storage error, both fit. A SMART check
+  (`sudo smartctl -a /dev/nvme0` after installing `smartmontools`) and a
+  memtest86+ pass in a maintenance window would narrow it down.

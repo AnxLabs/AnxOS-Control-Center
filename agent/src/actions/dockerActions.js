@@ -1,6 +1,6 @@
 const { execFile } = require("child_process");
 
-const { resolveDockerExecutable } = require("../services/dockerService");
+const { getDockerExecutableOrThrow } = require("../services/dockerService");
 
 const COMMAND_TIMEOUT_MS = 8000;
 const CONTAINER_TARGET_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/;
@@ -110,7 +110,10 @@ async function inspectContainer(dockerPath, container) {
 async function runDockerAction(action, request) {
   const command = getDockerCommand(action.actionId);
   const container = getContainerTarget(request);
-  const dockerPath = await resolveDockerExecutable();
+  // The path string, not resolveDockerExecutable()'s { executablePath, found,
+  // checks } record (passing that record to execFile failed every action with
+  // ERR_INVALID_ARG_TYPE). A missing Docker is DOCKER_NOT_INSTALLED (503).
+  const dockerPath = await getDockerExecutableOrThrow();
   const before = await inspectContainer(dockerPath, container);
   const result = await exec(dockerPath, [command, container]);
 

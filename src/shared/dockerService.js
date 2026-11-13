@@ -1310,6 +1310,7 @@ module.exports = {
   getContainerLogs,
   getContainerStats,
   getDockerContainers,
+  getDockerExecutableOrThrow,
   getDockerSnapshot,
   getDockerSummary,
   inspectImage,
