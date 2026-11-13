@@ -274,13 +274,94 @@ renderer errors). Docker Desktop is stopped on this PC and was not started.
 
 ### Not done or not verified
 
-- Live checks on real hardware: Docker against a running daemon, an SFTP
-  drop upload, typing in a live SSH terminal, players on a real FiveM or
-  Palworld server, network telemetry on Anxlab's Linux Agent. Anxlab runs
-  live servers and its Agent was not updated (an Agent update stops its
-  servers; needs your approval and a quiet moment).
+- Live checks still open: an SFTP drop upload, typing in a live SSH
+  terminal, players on a real FiveM or Palworld server with people online.
+  (Docker on a running daemon and Anxlab's Linux telemetry were verified in
+  the Anxlab maintenance below.)
 - AMD/Intel GPU usage (still NVIDIA only; others report "unavailable").
 - One My Servers list across several computers; server grouping.
 - Resuming interrupted transfers; dropping folders.
 - Phase 7.1 items still open: real iPhone test, public internet/VPS
-  relay, the Windows DNS rule, AnxNet inside Anxlab's Agent.
+  relay, the Windows DNS rule. (AnxNet now ships in Anxlab's Agent and
+  loads; Anxlab has not joined a network yet.)
+
+## Anxlab Agent maintenance (2026-11-13, approved)
+
+Anxlab's packaged Agent went from 2.0-build209 to a pre-release
+2.0-build210 built from `52dd3967` (release tag
+`v2.0-build210-anxlab-maint`; not published, nothing pushed). When the
+official Build 210 ships with the same version, install it with
+`apt-get install --reinstall`.
+
+Before:
+- No game server was running and no Agent job was in progress, so no
+  player could be connected. Docker (22 containers, 19 running) runs
+  outside the Agent.
+- Fresh backups, each gzip-tested and listed:
+  `/srv/anxos/backups/manual/*-pre-agent210-20261113-012614.tar.gz`
+  (Palworld `Saved`, FiveM staging resources, Hytale universe). A restore
+  test of the Palworld save matched the live files exactly.
+- Rollback set in `~/anxos-maint-20261113/rollback/` on Anxlab: the
+  official 2.0-build209 `.deb` from the releases repository (SHA-256
+  matches the published `.sha256`), the Agent state (config,
+  credentials, identity, schedules, runtime pins), every instance
+  `config.json`, the service drop-in, the unit file and a copy of the
+  installed `/usr/lib/anxos-agent`.
+- The package was built on Anxlab in its own folder (`npm ci
+  --ignore-scripts`, official Node 22.14.0 with verified SHA-256). Its
+  maintainer scripts, unit, sudoers rule, wrapper, Node runtime and
+  `node_modules` are byte-identical to 209; 38 Agent source files differ.
+  `node --check` passed on all 227 packaged JS files, and 12 Agent smokes
+  passed on Anxlab with the packaged Node (package closure, network
+  details, player monitor, AnxNet Agent, API authorization, permission
+  matrix, compatibility, headless golden path, instance records, health
+  mode, files root, drop upload).
+
+Install: the owner ran `sudo apt-get install ./AnxOS-Agent-2.0-build210.deb`
+(the password is never handled by an agent). Downtime: the old Agent began
+shutting down at 08:33:23.257Z and the new one listened at 08:33:23.485Z.
+
+After (all checked on the live Agent):
+- Service active, 0 restarts, same drop-in (User=anx, 0.0.0.0:47131,
+  /srv/anxos), `dpkg -V` clean.
+- The desktop app shows "Anxlab: Connected · Linux 6.12.94".
+- The same 7 servers with the same states and versions; no new
+  authentication or compatibility errors in the Agent logs.
+- A disposable custom-command instance: start (healthy in 19 ms),
+  restart (new process, healthy in about 1 s), stop, then deleted; the
+  other servers were untouched.
+- Docker on a disposable container through
+  `/api/v1/docker/containers/:name/start|restart|stop`: each state matched
+  Docker's own; container removed; the 19 running containers unchanged.
+- Network details: gateway 192.168.1.1 on `wlo1`, DNS from
+  `/etc/resolv.conf` (Tailscale), Wi-Fi/ethernet/VPN/virtual adapters
+  matching `ip route` and `/sys/class/net`; Wi-Fi link speed is not
+  exposed by Linux sysfs and shows as not reported. Connection check:
+  router 1.6 ms, name lookup 11.5 ms, internet 61.3 ms.
+- AnxNet: the Agent route answers (`running: false`, not joined); the
+  Agent holds no UDP socket and its only listener is 47131.
+- Players route: "The server is not running" for stopped Palworld/FiveM;
+  Terraria reports unsupported with the reason.
+- Files: world folders identical to the backups. The only changes were
+  expected: `config.json` version-cache bump 5 → 6 with the "0.0"
+  Palworld/Rust versions cleared (the d01ca8eb repair), refreshed
+  timestamps, the test's own job records, and a SteamCMD self-update and
+  app-info cache refresh for Palworld and Rust at 01:38 from a read-only
+  Steam update check (same code as 209).
+
+Findings to follow up (not caused by the update):
+- The previously installed Node runtime differed from the official
+  package by one flipped bit (offset 26583638, 0x34 instead of 0x74) in
+  machine code. The reinstall replaced it. A single-bit flip suggests
+  memory or storage trouble on Anxlab; a memory test and a SMART check are
+  worth running.
+- `POST /api/v1/actions/docker.start|stop|restart` always fails with
+  `ERR_INVALID_ARG_TYPE`: `agent/src/actions/dockerActions.js` passes the
+  object returned by `resolveDockerExecutable()` to `execFile` instead of
+  its `executablePath`. Unchanged since 209; the desktop app does not use
+  this route.
+- The Agent logs "Shared config directory holds an enrollment bound to a
+  different Agent identity" (it points at the old checkout's identity).
+  Present in 209 as well.
+- The installed desktop build has no single-instance lock: launching it
+  again started a second copy beside the one in the tray.

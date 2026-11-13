@@ -573,6 +573,24 @@ Use this section to accumulate verified project knowledge over time. Add entries
   rule. Test it by stopping the data source during a UI test, not only by
   starting with it offline.
 
+### 2026-11-13 — An Agent package built from a Windows export had CRLF scripts
+
+- **Problem:** The first Build 210 Agent package built for Anxlab had
+  CRLF line endings in every text file, including `DEBIAN/postinst`,
+  which `/bin/sh` cannot run. Caught before install by diffing it against
+  the official 209 package.
+- **Cause:** The source was sent with `git archive` from a Windows
+  checkout where `core.autocrlf=true`; `git archive` applies the same
+  end-of-line conversion as a checkout.
+- **Resolution:** Exported with `git -c core.autocrlf=false archive`,
+  rebuilt, and confirmed the maintainer scripts, unit, sudoers rule and
+  Node runtime were byte-identical to 209 and that no packaged file had a
+  CR.
+- **Lesson:** Build Linux packages from LF sources and compare a new
+  package's maintainer scripts and unit with the last known-good package
+  before installing it. A matching checksum file only proves the package
+  is the one you built, not that it is right.
+
 ## Future Improvements
 
 Keep optional ideas separate from active work. An item in this list is not authorization to implement it.
