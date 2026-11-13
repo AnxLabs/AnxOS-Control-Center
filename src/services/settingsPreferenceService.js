@@ -100,6 +100,19 @@ const SETTING_DEFINITIONS = {
   "guidance.pageIntroductions": { category: "onboarding", type: "boolean", default: true },
   "guidance.dismissedTips": { category: "onboarding", type: "string", default: "", maxLength: 1000 },
   "onboarding.version": { category: "onboarding", type: "number", default: ONBOARDING_VERSION, min: 1, max: ONBOARDING_VERSION },
+  // Phase X: optional AI assistance. Off by default; Owner-only (see
+  // settingsPermissionService). Remote processing needs its own explicit consent.
+  "ai.enabled": { category: "ai", type: "boolean", default: false },
+  "ai.provider": { category: "ai", type: "enum", default: "deterministic", values: ["deterministic", "ollama", "sona"] },
+  "ai.ollamaUrl": { category: "ai", type: "string", default: "http://127.0.0.1:11434", maxLength: 200 },
+  "ai.ollamaModel": { category: "ai", type: "string", default: "", maxLength: 128 },
+  "ai.allowRemoteProvider": { category: "ai", type: "boolean", default: false },
+  "ai.modelExplanations": { category: "ai", type: "boolean", default: true },
+  "ai.maxContextTokens": { category: "ai", type: "number", default: 4096, min: 1024, max: 32768 },
+  "ai.maxOutputTokens": { category: "ai", type: "number", default: 512, min: 64, max: 4096 },
+  "ai.requestTimeoutMs": { category: "ai", type: "number", default: 60000, min: 5000, max: 300000 },
+  "ai.keepModelLoaded": { category: "ai", type: "boolean", default: false },
+  "ai.avoidLocalGameServers": { category: "ai", type: "boolean", default: true },
   "developer.debugMode": { category: "developer", type: "boolean", default: false },
   "developer.verboseLogging": { category: "developer", type: "boolean", default: false },
 };

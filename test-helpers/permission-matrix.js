@@ -894,6 +894,34 @@ const IPC_FAMILIES = [
     allow: ["owner-unlocked", "operator-unlocked", "viewer-unlocked"],
     channels: ["computers:getSummary"],
   },
+  {
+    // Phase X assistant (src/ipc/aiOperationsIpc.js). Reading its status is a
+    // settings read; asking, proposing repairs, approving, rejecting,
+    // cancelling and history are nodes:read at the IPC layer. Running an
+    // approved operation re-checks the tool's own tier (instance:lifecycle,
+    // backups:write) inside aiOperationsService, and the assistant is off
+    // by default (AI_DISABLED is not an authorization denial).
+    id: "ai-status",
+    tier: "settings:read",
+    guard: "permission",
+    allow: ["owner-unlocked", "operator-unlocked", "viewer-unlocked"],
+    channels: ["ai:status"],
+  },
+  {
+    id: "ai-assistant",
+    tier: "nodes:read",
+    guard: "permission",
+    allow: ["owner-unlocked", "operator-unlocked", "viewer-unlocked"],
+    channels: ["ai:ask", "ai:proposeRepair", "ai:approve", "ai:reject", "ai:cancel", "ai:history"],
+  },
+  {
+    // Testing the model provider contacts the configured endpoint: Owner only.
+    id: "ai-provider-owner",
+    tier: "owner",
+    guard: "owner",
+    allow: ["owner-unlocked"],
+    channels: ["ai:testProvider"],
+  },
 ];
 
 // ---------------------------------------------------------------------------

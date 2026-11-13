@@ -36,10 +36,24 @@ const OWNER_ONLY_SETTING_KEYS = new Set([
   "backups.includeNodes",
   "backups.includeIntegrations",
   "amp.username",
+  // Phase X: only the Owner turns AI assistance on, picks its provider and
+  // allows processing on another computer.
+  "ai.enabled",
+  "ai.provider",
+  "ai.ollamaUrl",
+  "ai.ollamaModel",
+  "ai.allowRemoteProvider",
+  "ai.modelExplanations",
+  "ai.maxContextTokens",
+  "ai.maxOutputTokens",
+  "ai.requestTimeoutMs",
+  "ai.keepModelLoaded",
+  "ai.avoidLocalGameServers",
 ]);
 
 const OWNER_ONLY_CATEGORIES = new Set([
   "developer",
+  "ai",
 ]);
 
 function isOwnerStatus(status = getStatus()) {

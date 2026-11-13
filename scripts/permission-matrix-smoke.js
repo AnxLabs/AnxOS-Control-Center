@@ -209,6 +209,7 @@ const loadedIpcModuleFiles = new Set([
   "maintenanceIpc.js", "nodesIpc.js", "networkInventoryIpc.js", "infrastructureInventoryIpc.js", "workloadIpc.js", "ownerWorkspaceIpc.js",
   "filesIpc.js", "settingsIpc.js", "sshIpc.js", "alertsIpc.js", "webhookAlertsIpc.js",
   "networkIpc.js", "telemetryIpc.js", "notificationsIpc.js", "computersIpc.js", "mobileGatewayIpc.js",
+  "aiOperationsIpc.js",
 ]);
 // accountIpc.js delegates to accountAuthIpc.registerAccountAuthIpc (which IS
 // loaded here); loading it again would double-register the account channels.
@@ -273,6 +274,7 @@ try {
   require("../src/ipc/filesIpc").registerFilesIpc();
   require("../src/ipc/settingsIpc").registerSettingsIpc();
   require("../src/ipc/sshIpc").registerSshIpc();
+  require("../src/ipc/aiOperationsIpc").registerAiOperationsIpc();
 } finally {
   Module._load = originalModuleLoad;
 }
@@ -436,6 +438,11 @@ const DESKTOP_PROBES = {
   "notifications-read": { channel: "notifications:list", payload: {} },
   "computers-read": { channel: "computers:getSummary", payload: {} },
   "backups-verify": { channel: "backups:verify", payload: { backupId: "matrix-backup" } },
+  // The assistant is off in the matrix profile, so an allowed call stops at
+  // AI_DISABLED (not an authorization code) before any transport service.
+  "ai-status": { channel: "ai:status", payload: {}, serviceRecorded: false },
+  "ai-assistant": { channel: "ai:ask", payload: { question: "matrix probe" }, serviceRecorded: false },
+  "ai-provider-owner": { channel: "ai:testProvider", payload: {}, serviceRecorded: false },
 };
 
 function channelFamilyMap() {

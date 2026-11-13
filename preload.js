@@ -612,6 +612,18 @@ const desktopApi = {
       return () => ipcRenderer.removeListener("ssh:status", handler);
     },
   },
+  // Phase X: optional assistant. Approval sends only the proposal id and its
+  // digest; the main process holds the exact action.
+  ai: {
+    status: () => ipcRenderer.invoke("ai:status"),
+    testProvider: () => ipcRenderer.invoke("ai:testProvider"),
+    ask: (question, context = {}) => ipcRenderer.invoke("ai:ask", { question, context }),
+    proposeRepair: (tool, target) => ipcRenderer.invoke("ai:proposeRepair", { tool, target }),
+    approve: (proposalId, digest) => ipcRenderer.invoke("ai:approve", { proposalId, digest }),
+    reject: (proposalId) => ipcRenderer.invoke("ai:reject", { proposalId }),
+    cancel: () => ipcRenderer.invoke("ai:cancel"),
+    history: () => ipcRenderer.invoke("ai:history"),
+  },
   settings: {
     getPermissions: () => ipcRenderer.invoke("settings:getPermissions"),
     getPreferences: () => ipcRenderer.invoke("settings:getPreferences"),

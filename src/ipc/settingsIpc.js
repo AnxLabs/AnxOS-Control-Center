@@ -248,6 +248,8 @@ function registerSettingsIpc() {
     assertCanWriteSettingsPayload(settings, "preferences");
     const result = updatePreferences(settings);
     audit({ action: "settings.preferences.save", target: "preferences" });
+    // Phase X: turning AI assistance off cancels its waiting proposals.
+    require("./aiOperationsIpc").notifyAiSettingsSaved(settings);
     return result;
   });
   registerSettingsHandler("settings:resetPreferences", async (_, payload = {}) => {

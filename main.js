@@ -28,6 +28,7 @@ const { registerMobileGatewayIpc } = require("./src/ipc/mobileGatewayIpc");
 const mobileGatewayService = require("./src/services/mobileGatewayService");
 const { registerSecurityIpc } = require("./src/ipc/securityIpc");
 const { registerSettingsIpc } = require("./src/ipc/settingsIpc");
+const { registerAiOperationsIpc } = require("./src/ipc/aiOperationsIpc");
 const { disposeSshIpc, registerSshIpc } = require("./src/ipc/sshIpc");
 const { registerSystemIpc } = require("./src/ipc/systemIpc");
 const { registerTelemetryIpc } = require("./src/ipc/telemetryIpc");
@@ -1143,6 +1144,9 @@ app.whenReady().then(async () => {
   registerOwnerWorkspaceIpc();
   registerFilesIpc();
   registerSettingsIpc();
+  // Phase X: optional assistant. Registers channels only; nothing behind them
+  // loads until the first ai:* call.
+  registerAiOperationsIpc();
   registerSshIpc();
   createTray();
   createWindow();
