@@ -193,6 +193,7 @@ function parseArgs(argv) {
     outputDir: defaultDistDir,
     refreshDeps: true,
     keepStage: false,
+    allowDirty: false,
     nodeVersion: process.env.ANXOS_AGENT_NODE_VERSION || DEFAULT_NODE_VERSION,
     help: false,
   };
@@ -222,6 +223,7 @@ function parseArgs(argv) {
       case "output-dir": options.outputDir = path.resolve(value); break;
       case "no-refresh-deps": options.refreshDeps = false; break;
       case "keep-stage": options.keepStage = true; break;
+      case "allow-dirty": options.allowDirty = true; break;
       case "help": options.help = true; break;
       default: throw new Error(`Unsupported argument: --${name}`);
     }
@@ -259,6 +261,9 @@ function printUsage() {
     "  --output-dir <path>  Artifact directory (default dist).",
     "  --no-refresh-deps    Reuse resources/agent-runtime-node-modules as staged.",
     "  --keep-stage         Keep the staged tree after a successful build.",
+    "  --allow-dirty        Build a package from uncommitted or unknown source (recorded",
+    "                       as such in agent-release.json). Without it a real build",
+    "                       refuses. From an exported archive, set ANXOS_SOURCE_COMMIT.",
     "  --help               Show this help.",
   ].join("\n"));
 }
@@ -411,7 +416,54 @@ async function stageNodeRuntime(stageDir, options, arch) {
 // update check reads /usr/lib/anxos-agent/agent-release.json instead of the
 // placeholder version in agent/package.json. It contains only release
 // provenance (no secrets), so it is safe to stage and ship.
-function stageReleaseIdentity(stageDir, releaseInfo) {
+// Phase 9 provenance. The source paths that end up in the package (or decide
+// what does); a change anywhere else in the repository cannot alter the .deb.
+const PROVENANCE_PATHS = ["agent", "src/shared", "src/services", "src/anxnet", "config", "packaging/agent-deb", "release.json", "package.json", "package-lock.json", "scripts/build-agent-deb.js", "scripts/prepare-agent-runtime-dependencies.js"];
+const COMMIT_PATTERN = /^[0-9a-f]{40}$/;
+
+function runGit(args, root = rootDir) {
+  const result = spawnSync("git", args, { cwd: root, encoding: "utf8", shell: false });
+  return result.error || result.status !== 0 ? null : String(result.stdout || "");
+}
+
+// Where the packaged source came from: a clean or dirty Git checkout (checked
+// over PROVENANCE_PATHS, untracked files included), or an exported archive
+// whose commit the builder states with ANXOS_SOURCE_COMMIT. A checkout always
+// wins over the variable, and the two must agree when both exist.
+function resolveSourceProvenance(env = process.env, root = rootDir) {
+  const declared = String(env.ANXOS_SOURCE_COMMIT || "").trim().toLowerCase();
+  if (declared && !COMMIT_PATTERN.test(declared)) {
+    throw new Error("ANXOS_SOURCE_COMMIT must be a full 40-character Git commit id.");
+  }
+  const head = fs.existsSync(path.join(root, ".git")) ? (runGit(["rev-parse", "HEAD"], root) || "").trim() : "";
+  if (COMMIT_PATTERN.test(head)) {
+    if (declared && declared !== head) {
+      throw new Error(`ANXOS_SOURCE_COMMIT (${declared.slice(0, 12)}) does not match this checkout's HEAD (${head.slice(0, 12)}).`);
+    }
+    const status = runGit(["status", "--porcelain", "--untracked-files=all", "--", ...PROVENANCE_PATHS], root);
+    if (status === null) return { sourceCommit: head, sourceTree: "unknown", changedPaths: null };
+    const changed = status.split(/\r?\n/).filter(Boolean).length;
+    return { sourceCommit: head, sourceTree: changed ? "dirty" : "clean", changedPaths: changed };
+  }
+  if (declared) return { sourceCommit: declared, sourceTree: "exported", changedPaths: null };
+  return { sourceCommit: null, sourceTree: "unknown", changedPaths: null };
+}
+
+// A real package must come from a clean checkout or a declared export. A
+// stage-only tree (closure verification) never refuses; it is not installable.
+function enforceSourceProvenance(provenance, options) {
+  if (options.stageOnly || provenance.sourceTree === "clean" || provenance.sourceTree === "exported") return;
+  const why = provenance.sourceTree === "dirty"
+    ? `${provenance.changedPaths} uncommitted change(s) under the packaged paths`
+    : "no Git checkout and no ANXOS_SOURCE_COMMIT";
+  if (options.allowDirty) {
+    console.warn(`WARNING: building from ${provenance.sourceTree} source (${why}); agent-release.json records sourceTree "${provenance.sourceTree}".`);
+    return;
+  }
+  throw new Error(`Refusing to build a package from ${provenance.sourceTree} source (${why}). Commit first, set ANXOS_SOURCE_COMMIT for an exported archive, or pass --allow-dirty for a test build.`);
+}
+
+function stageReleaseIdentity(stageDir, releaseInfo, provenance = { sourceCommit: null, sourceTree: "unknown" }) {
   const target = path.join(stageDir, RUNTIME_ROOT_RELATIVE, AGENT_RELEASE_FILENAME);
   fs.mkdirSync(path.dirname(target), { recursive: true });
   const identity = {
@@ -420,13 +472,15 @@ function stageReleaseIdentity(stageDir, releaseInfo) {
     artifactVersion: releaseInfo.artifactVersion,
     releaseTag: releaseInfo.tag,
     builtAt: new Date().toISOString(),
+    sourceCommit: provenance.sourceCommit,
+    sourceTree: provenance.sourceTree,
   };
   fs.writeFileSync(target, `${JSON.stringify(identity, null, 2)}\n`);
-  console.log(`Stamped release identity ${identity.artifactVersion} (${identity.releaseTag}) at ${path.join(RUNTIME_ROOT_RELATIVE, AGENT_RELEASE_FILENAME)}.`);
+  console.log(`Stamped release identity ${identity.artifactVersion} (${identity.releaseTag}, source ${identity.sourceCommit ? identity.sourceCommit.slice(0, 12) : "unknown"} ${identity.sourceTree}) at ${path.join(RUNTIME_ROOT_RELATIVE, AGENT_RELEASE_FILENAME)}.`);
   return target;
 }
 
-async function stagePayload(stageDir, options, arch, releaseInfo) {
+async function stagePayload(stageDir, options, arch, releaseInfo, provenance) {
   const artifactVersion = releaseInfo.artifactVersion;
   const runtimeRoot = path.join(stageDir, RUNTIME_ROOT_RELATIVE);
   copyTree(path.join(rootDir, "agent"), path.join(runtimeRoot, "agent"), {
@@ -460,7 +514,7 @@ async function stagePayload(stageDir, options, arch, releaseInfo) {
     copyFileInto(path.join(packagingDir, script), path.join(stageDir, "DEBIAN", script));
   }
 
-  stageReleaseIdentity(stageDir, releaseInfo);
+  stageReleaseIdentity(stageDir, releaseInfo, provenance);
 
   const installedKiB = measureInstalledKiB(stageDir);
   const template = fs.readFileSync(path.join(packagingDir, "control.template"), "utf8");
@@ -544,7 +598,10 @@ async function main() {
   console.log(`AnxOS Agent deb build: ${artifactVersion} (${arch})`);
   ensureDependencies(options);
   prepareStageDirectory(stageDir);
-  const staged = await stagePayload(stageDir, options, arch, releaseInfo);
+  const provenance = resolveSourceProvenance();
+  enforceSourceProvenance(provenance, options);
+  console.log(`Source: ${provenance.sourceCommit ? provenance.sourceCommit.slice(0, 12) : "unknown commit"} (${provenance.sourceTree})`);
+  const staged = await stagePayload(stageDir, options, arch, releaseInfo, provenance);
   console.log(`Staged ${staged.files} file(s), Installed-Size=${staged.installedKiB} KiB, at ${stageDir}`);
 
   if (options.stageOnly) {
@@ -588,7 +645,9 @@ async function main() {
   }
 }
 
-main().catch((error) => {
+if (require.main === module) main().catch((error) => {
   console.error(`AnxOS Agent deb build failed: ${error.message}`);
   process.exitCode = 1;
 });
+
+module.exports = { PROVENANCE_PATHS, enforceSourceProvenance, resolveSourceProvenance, stageReleaseIdentity };

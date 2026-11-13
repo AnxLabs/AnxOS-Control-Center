@@ -154,6 +154,8 @@ async function collectStatusReport(client, serviceManager) {
     runtimeVersion: getCurrentVersion(),
     packageVersion: releaseIdentity?.artifactVersion || null,
     releaseTag: releaseIdentity?.releaseTag || null,
+    sourceCommit: releaseIdentity?.sourceCommit || null,
+    sourceTree: releaseIdentity?.sourceTree || null,
     releaseIdentityPath: releaseIdentity?.identityPath || null,
     connection: {
       mode: connection.mode,
@@ -210,6 +212,7 @@ function formatPlainStatus(report) {
   }
   lines.push(`Runtime:    ${report.runtimeVersion || "unknown"}`);
   lines.push(`Package:    ${report.packageVersion ? `${report.packageVersion}${report.releaseTag ? ` (${report.releaseTag})` : ""}` : "development or source install"}`);
+  if (report.sourceCommit) lines.push(`Source:     ${report.sourceCommit.slice(0, 12)} (${report.sourceTree || "unknown"} tree)`);
   lines.push(`Enrollment: ${report.enrollment?.state || "unknown"}`);
   lines.push(`Pairing:    ${report.pairing?.status || "unknown"}`);
   const service = report.service;

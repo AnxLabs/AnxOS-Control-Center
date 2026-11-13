@@ -104,6 +104,9 @@ function readAgentReleaseIdentity(options = {}) {
         artifactVersion,
         releaseTag: trim(parsed.releaseTag) || null,
         builtAt: trim(parsed.builtAt) || null,
+        // Phase 9 provenance; absent on packages built before it.
+        sourceCommit: /^[0-9a-f]{40}$/.test(trim(parsed.sourceCommit)) ? trim(parsed.sourceCommit) : null,
+        sourceTree: ["clean", "dirty", "exported", "unknown"].includes(trim(parsed.sourceTree)) ? trim(parsed.sourceTree) : null,
         identityPath: candidate,
       };
     }
