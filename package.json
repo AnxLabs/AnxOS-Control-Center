@@ -158,6 +158,7 @@
     "network-details:smoke": "node scripts/network-details-smoke.js",
     "player-monitor:smoke": "node scripts/player-monitor-smoke.js",
     "agent:docker-actions:smoke": "node scripts/agent-docker-actions-smoke.js",
+    "installer-signature:smoke": "node scripts/installer-signature-smoke.js",
     "files-drop-upload:smoke": "node scripts/files-drop-upload-smoke.js",
     "phase8:ui-qa": "node scripts/phase8-ui-qa.js",
     "mobile:ui-qa": "node scripts/mobile-ui-qa.js",

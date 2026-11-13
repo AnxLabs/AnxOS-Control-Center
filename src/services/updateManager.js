@@ -11,6 +11,7 @@ const { OFFICIAL_SITE_ORIGIN } = require("../shared/officialSite");
 const { sanitize, sanitizeForDiagnostics } = require("../shared/redaction");
 const { getReleaseInfo } = require("../shared/releaseConfig");
 const { decideMigrationRecovery, verifyRecoveryPoint } = require("../shared/migrationRecoveryPolicy");
+const { verifyInstallerSignature } = require("../shared/installerSignature");
 
 const DEFAULT_UPDATE_REPOSITORY = "AnxLabs/AnxOS-Control-Center-Releases";
 const UPDATE_REPOSITORY = normalizeUpdateRepository(process.env.ANXOS_UPDATE_REPOSITORY) || DEFAULT_UPDATE_REPOSITORY;
@@ -663,6 +664,11 @@ class UpdateManager extends EventEmitter {
     this.emit("status", message);
   }
 
+  // Seam for tests; production always uses the shared Authenticode policy.
+  verifyInstallerSignature(filePath) {
+    return verifyInstallerSignature(filePath);
+  }
+
   getState() {
     return {
       ...this.state,
@@ -992,6 +998,7 @@ class UpdateManager extends EventEmitter {
     }
     this.state.downloadInFlight = true;
     this.state.downloadedPath = null;
+    this.state.signature = null;
     this.state.status = "downloading";
     this.state.progress = { receivedBytes: 0, totalBytes: update.asset.size || 0, percent: 0 };
     const destinationPath = createDownloadPath(getUpdateDownloadDirectory(), sanitizeFileName(update.asset.name));
@@ -1033,6 +1040,12 @@ class UpdateManager extends EventEmitter {
     }
     try {
       await verifyUpdateArtifact(this.state.downloadedPath, this.state.latest?.asset);
+      // Phase 9: a Windows installer must also carry a valid Authenticode
+      // signature from the AnxOS Control Center publisher. The checksum above
+      // only proves the bytes match the (unsigned) release metadata.
+      const signature = await this.verifyInstallerSignature(this.state.downloadedPath);
+      this.state.signature = signature;
+      if (signature.applicable) this.log("Installer signature verified.", { publisher: signature.publisher, issuer: signature.issuer, timestamped: signature.timestamped });
       const previous = getReleaseInfo();
       this.pendingInstall = sanitize({
         status: "handoff-pending",
@@ -1042,6 +1055,7 @@ class UpdateManager extends EventEmitter {
         targetBuild: this.state.latest?.latestBuild ?? null,
         artifactName: this.state.latest?.asset?.name || path.basename(this.state.downloadedPath),
         sha256: this.state.latest?.asset?.sha256 || null,
+        signaturePublisher: signature.applicable ? signature.publisher : null,
         requestedAt: new Date().toISOString(),
       });
       this.saveStore();
@@ -1056,6 +1070,9 @@ class UpdateManager extends EventEmitter {
       if (this.pendingInstall?.status === "handoff-pending") {
         this.pendingInstall = { ...this.pendingInstall, status: "handoff-failed", failedAt: new Date().toISOString(), errorCode: error?.code || "UPDATE_INSTALL_FAILED" };
         try { this.saveStore(); } catch {}
+      }
+      if (String(error?.code || "").startsWith("UPDATE_INSTALLER_")) {
+        this.state.signature = { applicable: true, verified: false, code: error.code, ...(error.details || {}) };
       }
       this.state.status = "error";
       this.state.error = error?.message || "The update installer could not be opened.";
