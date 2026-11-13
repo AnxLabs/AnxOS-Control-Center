@@ -1598,6 +1598,17 @@ const DEFAULT_SETTINGS = {
   "guidance.dismissedTips": "",
   "onboarding.version": 1,
   "developer.debugMode": false,
+  "ai.enabled": false,
+  "ai.provider": "deterministic",
+  "ai.ollamaUrl": "http://127.0.0.1:11434",
+  "ai.ollamaModel": "",
+  "ai.allowRemoteProvider": false,
+  "ai.modelExplanations": true,
+  "ai.maxContextTokens": 4096,
+  "ai.maxOutputTokens": 512,
+  "ai.requestTimeoutMs": 60000,
+  "ai.keepModelLoaded": false,
+  "ai.avoidLocalGameServers": true,
 };
 let currentSettings = { ...DEFAULT_SETTINGS };
 let settingsPermissionState = {

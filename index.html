@@ -116,6 +116,13 @@
               <span>Commands</span>
               <kbd>Ctrl Shift P</kbd>
             </button>
+            <button class="app-titlebar__search app-titlebar__search--assistant" type="button" data-assistant-open aria-label="Open the assistant" aria-expanded="false" aria-controls="assistant-panel" title="Assistant (optional AI help)" hidden>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 3l1.8 4.6L18.5 9.4 13.8 11.2 12 16l-1.8-4.8L5.5 9.4l4.7-1.8z"></path>
+                <path d="M18 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"></path>
+              </svg>
+              <span>Assistant</span>
+            </button>
             <span class="app-titlebar__divider" aria-hidden="true"></span>
             <button class="app-titlebar__dev-badge" type="button" data-development-badge aria-label="Open Developer Update status" title="Open Developer Update status" hidden>
               <span class="app-titlebar__dev-icon" aria-hidden="true">&gt;_</span>
@@ -4980,6 +4987,7 @@
                   <button type="button" data-settings-category-target="security">Security</button>
                   <button type="button" data-settings-category-target="marketplace-admin">Marketplace Administration</button>
                   <button type="button" data-settings-category-target="developer">Developer</button>
+                  <button type="button" data-settings-category-target="ai">AI Assistant</button>
                 </div>
               </nav>
             </aside>
@@ -5344,6 +5352,25 @@
                 <button class="inline-action" type="button" data-onboarding-action="reset">Reset Onboarding State</button>
                 <button class="inline-action" type="button" data-settings-reset>Reset Settings</button>
               </div>
+            </section>
+
+            <section class="settings-section settings-section--ai" data-settings-category="ai" data-settings-capability="canManageDeveloperSettings" data-settings-keywords="ai assistant artificial intelligence model ollama sona local provider privacy">
+              <div class="settings-section__header"><div><h3>AI Assistant</h3><p>Optional help with questions and fixes. Control Center works the same with it off.</p></div><span class="owner-only-badge">Owner Only</span></div>
+              <p class="settings-note">The assistant only reads what your role can read, never changes anything without your approval, and never deletes, restores, exposes or updates anything. Without a model it answers from measurements only.</p>
+              <div class="settings-grid">
+                <label class="settings-check settings-check--toggle"><input type="checkbox" data-setting="ai.enabled"><span>Turn on AI assistance</span></label>
+                <label class="settings-field"><span>Model provider</span><select data-setting="ai.provider"><option value="deterministic">Built-in (no model)</option><option value="ollama">Ollama (a model you run)</option><option value="sona">Sona (not available yet)</option></select></label>
+                <label class="settings-field"><span>Ollama address</span><input type="url" data-setting="ai.ollamaUrl" placeholder="http://127.0.0.1:11434"></label>
+                <label class="settings-field"><span>Ollama model</span><input data-setting="ai.ollamaModel" placeholder="qwen2.5:3b-instruct"></label>
+                <label class="settings-check settings-check--toggle"><input type="checkbox" data-setting="ai.modelExplanations"><span>Let the model write a plain-English summary</span></label>
+                <label class="settings-check settings-check--toggle"><input type="checkbox" data-setting="ai.avoidLocalGameServers"><span>Don't use a model on this PC while it runs game servers</span></label>
+                <label class="settings-check settings-check--toggle"><input type="checkbox" data-setting="ai.keepModelLoaded"><span>Keep the model loaded between questions (uses memory)</span></label>
+                <label class="settings-field"><span>Context limit (tokens)</span><input type="number" min="1024" max="32768" data-setting="ai.maxContextTokens"></label>
+                <label class="settings-field"><span>Answer limit (tokens)</span><input type="number" min="64" max="4096" data-setting="ai.maxOutputTokens"></label>
+                <label class="settings-field"><span>Model time limit (ms)</span><input type="number" min="5000" max="300000" data-setting="ai.requestTimeoutMs"></label>
+                <label class="settings-check settings-check--toggle settings-field--wide"><input type="checkbox" data-setting="ai.allowRemoteProvider"><span>Allow processing on another computer or service (sends redacted server details off this PC, including Ollama "cloud" models)</span></label>
+              </div>
+              <div class="settings-actions"><button class="inline-action" type="button" data-ai-provider-test>Test provider</button><span class="settings-note" data-ai-provider-status role="status"></span></div>
             </section>
 
             <section class="settings-section settings-section--about" data-settings-category="about" data-settings-keywords="about version electron node chromium git commit license repository website">
@@ -5904,6 +5931,23 @@
       </section>
     </div>
     <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
+    <aside class="assistant-panel" id="assistant-panel" data-assistant-panel role="dialog" aria-label="Assistant" hidden>
+      <header class="assistant-panel__header">
+        <div>
+          <h2>Assistant</h2>
+          <p data-assistant-provider>Built-in (no model)</p>
+        </div>
+        <button class="inline-action" type="button" data-assistant-history>History</button>
+        <button class="app-modal__close" type="button" data-assistant-close aria-label="Close the assistant">&times;</button>
+      </header>
+      <p class="assistant-panel__context" data-assistant-context></p>
+      <div class="assistant-panel__log" data-assistant-log aria-live="polite"></div>
+      <form class="assistant-panel__form" data-assistant-form>
+        <input type="text" maxlength="500" data-assistant-input placeholder="Ask, e.g. Why is my Minecraft server crashing?" aria-label="Question for the assistant" autocomplete="off">
+        <button class="primary-button" type="submit" data-assistant-ask>Ask</button>
+        <button class="inline-action" type="button" data-assistant-stop hidden>Stop</button>
+      </form>
+    </aside>
     <script src="src/shared/marketplaceError.js"></script>
     <script src="src/shared/resourceOperationLifecycle.js"></script>
     <script src="src/shared/instanceMetricsLifecycle.js"></script>
@@ -5933,5 +5977,6 @@
     <script src="src/renderer/serverBackups.js"></script>
     <script src="src/renderer/anxnetPanel.js"></script>
     <script src="src/renderer/phoneAccessPanel.js"></script>
+    <script src="src/renderer/assistantPanel.js"></script>
   </body>
 </html>
