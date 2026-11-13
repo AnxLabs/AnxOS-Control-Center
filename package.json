@@ -647,7 +647,10 @@
       "installerHeaderIcon": "assets/icon.ico",
       "include": "windows/installer.nsh",
       "uninstallDisplayName": "AnxOS Control Center",
-      "uninstallUrlInfoAbout": "https://anxlabs.net"
+      "uninstallUrlInfoAbout": "https://anxlabs.net",
+      "installerSidebar": "windows/installer-art/sidebar.bmp",
+      "uninstallerSidebar": "windows/installer-art/sidebar.bmp",
+      "installerHeader": "windows/installer-art/header.bmp"
     }
   },
   "devDependencies": {
