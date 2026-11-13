@@ -290,11 +290,21 @@ unsigned build) captured Welcome, install mode, folder, Set up AnxOS,
 progress and Finish, and the uninstaller's Welcome and progress; the Helper
 task was registered and Add/Remove Programs showed the AnxLabs metadata.
 Two fixes came out of that tour (the Finish page's checkbox text was
-unreadable on the dark page; the footer said "2.0.0"); both compile, but the
-**second tour could not run**: after stale sandbox sessions were closed,
-Windows Sandbox now logs off immediately ("The remote environment is logging
-off"). Recovering it needs a restart of Windows' container service or of the
-PC, which was not done without approval.
+unreadable on the dark page; the footer said "2.0.0"). The second tour
+(2026-11-13, same unsigned local build, Smart App Control off inside the
+sandbox only) passed end to end: every installer page clicked through, the
+Finish checkbox reads in white and the footer reads "AnxOS Control Center by
+AnxLabs", **the app opened from the Finish page**, the Helper task ran,
+Add/Remove Programs showed "AnxOS Control Center / AnxLabs /
+https://anxlabs.net"; the uninstaller removed the app and the Helper task
+and kept user data.
+
+Windows Sandbox note: after the harness shuts the guest down, the sandbox
+sometimes returns to a sign-in screen instead of closing. Starting another
+sandbox then, or force-stopping its processes, made new sandboxes log off at
+once. Closing the window with its own Close button (UI Automation) and
+waiting for its processes to exit recovers it without restarting any service
+or the PC (verified).
 
 Limit: NSIS pages use standard Windows controls, so the folder and progress
 pages stay light; the dark styling is on Welcome, Finish, the header and the
