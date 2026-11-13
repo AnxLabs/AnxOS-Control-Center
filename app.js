@@ -16989,17 +16989,17 @@ async function pollScheduledSteamUpdates() {
   refreshMarketplaceDownloads();
 }
 
-function renderInstanceRows(unsortedInstances) {
-  noteInstanceSignInTransitions(unsortedInstances);
+function renderInstanceRows(instances) {
+  noteInstanceSignInTransitions(instances);
   if (!instancesList) {
     return;
   }
   // Phase 8: the list follows the Sort choice (serversList.js).
-  const instances = window.AnxServersList ? window.AnxServersList.sort(unsortedInstances) : unsortedInstances;
+  const ordered = window.AnxServersList ? window.AnxServersList.sort(instances) : instances;
   syncScheduledSteamUpdates(instances);
   const existingRows = new Map([...instancesList.querySelectorAll("tr[data-instance-id]")].map((row) => [row.dataset.instanceId, row]));
   // Stale rows go first so they never sit between rows that are in order.
-  const incomingIds = new Set(instances.map((instance) => instance.id));
+  const incomingIds = new Set(ordered.map((instance) => instance.id));
   existingRows.forEach((row, instanceId) => {
     if (!incomingIds.has(instanceId)) {
       row.remove();
@@ -17007,7 +17007,7 @@ function renderInstanceRows(unsortedInstances) {
     }
   });
   let previousRow = null;
-  instances.forEach((instance) => {
+  ordered.forEach((instance) => {
     const row = existingRows.get(instance.id) || document.createElement("tr");
     existingRows.delete(instance.id);
     updateInstanceRow(row, instance);
