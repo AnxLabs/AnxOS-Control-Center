@@ -94,6 +94,18 @@ function evaluateInstallerSignature(raw, publisher = TRUSTED_WINDOWS_PUBLISHER) 
   return { ...summary, verified: true };
 }
 
+// The environment for a Windows PowerShell (powershell.exe) child process.
+// PSModulePath is left out: when the parent is PowerShell 7 (pwsh, as in
+// GitHub's Windows runners), its PSModulePath makes Windows PowerShell fail to
+// load Microsoft.PowerShell.Security, so Get-AuthenticodeSignature returns
+// nothing (reproduced; CI run 43506235515). Windows PowerShell rebuilds its own
+// default module path when the variable is absent.
+function windowsPowerShellEnv(extra = {}) {
+  const env = { ...process.env, ...extra };
+  for (const key of Object.keys(env)) if (key.toLowerCase() === "psmodulepath") delete env[key];
+  return env;
+}
+
 function runSignatureQuery(filePath) {
   return new Promise((resolve, reject) => {
     execFile(
@@ -102,7 +114,7 @@ function runSignatureQuery(filePath) {
       {
         timeout: POWERSHELL_TIMEOUT_MS,
         windowsHide: true,
-        env: { ...process.env, ANXOS_VERIFY_INSTALLER_PATH: filePath },
+        env: windowsPowerShellEnv({ ANXOS_VERIFY_INSTALLER_PATH: filePath }),
       },
       (error, stdout) => {
         if (error) {
@@ -135,6 +147,7 @@ async function verifyInstallerSignature(filePath, options = {}) {
 
 module.exports = {
   TRUSTED_WINDOWS_PUBLISHER,
+  windowsPowerShellEnv,
   evaluateInstallerSignature,
   parseDistinguishedName,
   verifyInstallerSignature,

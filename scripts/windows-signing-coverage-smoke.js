@@ -18,6 +18,8 @@
 //      commands, read from electron-builder itself) and reports the shell's
 //      own error text when module setup fails (CI run 43503163673 failed
 //      silently in Windows PowerShell)
+//   W7 (with PowerShell 7) every signature reader still works when started
+//      from a PowerShell 7 process, as in GitHub's Windows steps
 //   W5 (when Build 209 or later is installed here) the coverage check run on
 //      the installed release lists exactly its unsigned files
 "use strict";
@@ -179,6 +181,24 @@ async function main() {
   assert.throws(() => prepareTrustedSigning(runner([{ status: 1 }, { status: 0 }, { status: 1, stderr: "Unable to find repository 'PSGallery'" }])), /powershell\.exe failed \(exit 1\): Unable to find repository 'PSGallery'/);
   assert.doesNotMatch(trustedSigningCommand({ endpoint: "e", certificateProfileName: "p", codeSigningAccountName: "a" }, "C:/x.dll"), /Install-Module/, "module setup runs once, not per file");
   console.log("PASS W6 NSIS signing prepares PowerShell exactly as electron-builder does and reports setup errors");
+
+  // W7: under a PowerShell 7 parent (GitHub's Windows steps), Windows
+  // PowerShell children inherit PSModulePath and Get-AuthenticodeSignature
+  // used to return nothing (CI run 43506235515). Every reader must still see
+  // this Node binary's valid signature.
+  const { spawnSync } = require("child_process");
+  const pwsh = process.platform === "win32" ? spawnSync("pwsh.exe", ["-NoProfile", "-NonInteractive", "-Command", "$PSVersionTable.PSVersion.Major"], { encoding: "utf8", windowsHide: true }) : null;
+  if (pwsh && pwsh.status === 0) {
+    const probe = path.join(__dirname, "test-helpers", "pwsh-parent-signature-probe.js");
+    const run = spawnSync("pwsh.exe", ["-NoProfile", "-NonInteractive", "-Command", `& '${process.execPath.replace(/'/g, "''")}' '${probe.replace(/'/g, "''")}' '${process.execPath.replace(/'/g, "''")}'`], { encoding: "utf8", windowsHide: true, timeout: 120000 });
+    const line = String(run.stdout || "").trim().split(/\r?\n/).pop();
+    const result = JSON.parse(line || "{}");
+    assert.strictEqual(result.inheritedPSModulePath, true, "the probe really ran with PowerShell 7's PSModulePath");
+    assert.deepStrictEqual({ signNsis: result.signNsis, coverage: result.coverage, updater: result.updater }, { signNsis: "Valid", coverage: "Valid", updater: "Valid" }, `readers under a PowerShell 7 parent: ${line} ${run.stderr || ""}`);
+    console.log(`PASS W7 under PowerShell ${String(pwsh.stdout).trim()}, all three signature readers see the valid signature`);
+  } else {
+    console.log("SKIP W7 PowerShell 7 is not installed here (GitHub's Windows runners have it)");
+  }
 
   console.log("Windows signing coverage smoke passed.");
 }

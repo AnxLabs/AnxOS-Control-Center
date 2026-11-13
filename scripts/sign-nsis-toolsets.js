@@ -21,7 +21,7 @@ const { spawnSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 
-const { evaluateInstallerSignature } = require("../src/shared/installerSignature");
+const { evaluateInstallerSignature, windowsPowerShellEnv } = require("../src/shared/installerSignature");
 
 const PLUGIN_ARCH_DIRS = new Set(["x86-unicode"]);
 
@@ -117,9 +117,13 @@ function signWithTrustedSigning(filePath, azure) {
 
 function readAuthenticode(filePath) {
   const script = "$s = Get-AuthenticodeSignature -LiteralPath $env:ANXOS_SIGNATURE_PATH; [pscustomobject]@{ status = [string]$s.Status; subject = if ($s.SignerCertificate) { $s.SignerCertificate.Subject } else { $null }; issuer = if ($s.SignerCertificate) { $s.SignerCertificate.Issuer } else { $null }; timestamped = [bool]$s.TimeStamperCertificate } | ConvertTo-Json -Compress";
-  const result = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { encoding: "utf8", windowsHide: true, env: { ...process.env, ANXOS_SIGNATURE_PATH: filePath } });
-  if (result.status !== 0) throw new Error(`Could not read the signature of ${path.basename(filePath)}.`);
-  return JSON.parse(String(result.stdout).trim());
+  const result = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { encoding: "utf8", windowsHide: true, env: windowsPowerShellEnv({ ANXOS_SIGNATURE_PATH: filePath }) });
+  if (result.status !== 0) throw new Error(`Could not read the signature of ${path.basename(filePath)}: ${tail(result.stderr)}`);
+  const parsed = JSON.parse(String(result.stdout).trim());
+  // An empty status means PowerShell could not run the check at all; say why
+  // rather than reporting an unknown signature.
+  if (!parsed?.status) throw new Error(`Could not read the signature of ${path.basename(filePath)}: ${tail(result.stderr) || "no status returned"}`);
+  return parsed;
 }
 
 // Copies both toolsets to stageRoot, signs and verifies every plugin DLL, and
@@ -152,4 +156,4 @@ async function prepareSignedNsisToolsets(options) {
   };
 }
 
-module.exports = { TRUSTED_SIGNING_SETUP_COMMANDS, listPluginDlls, locateNsisToolsets, prepareSignedNsisToolsets, prepareTrustedSigning, resolvePowerShell, trustedSigningCommand };
+module.exports = { TRUSTED_SIGNING_SETUP_COMMANDS, listPluginDlls, locateNsisToolsets, prepareSignedNsisToolsets, prepareTrustedSigning, readAuthenticode, resolvePowerShell, trustedSigningCommand };

@@ -17,7 +17,7 @@ const { spawnSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 
-const { evaluateInstallerSignature } = require("../src/shared/installerSignature");
+const { evaluateInstallerSignature, windowsPowerShellEnv } = require("../src/shared/installerSignature");
 
 const COVERED_EXTENSIONS = new Set([".exe", ".dll", ".node", ".ps1"]);
 
@@ -83,10 +83,16 @@ function readSignatures(files) {
       "  [pscustomobject]@{ file = $path; status = [string]$s.Status; subject = if ($s.SignerCertificate) { $s.SignerCertificate.Subject } else { $null }; issuer = if ($s.SignerCertificate) { $s.SignerCertificate.Issuer } else { $null }; timestamped = [bool]$s.TimeStamperCertificate }",
       "} | ConvertTo-Json -Compress -Depth 3",
     ].join("\n");
-    const result = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { encoding: "utf8", windowsHide: true, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, ANXOS_SIGNATURE_LIST: listPath } });
+    // windowsPowerShellEnv: see installerSignature.js (the CI step runs under
+    // PowerShell 7, whose PSModulePath breaks Get-AuthenticodeSignature here).
+    const result = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { encoding: "utf8", windowsHide: true, maxBuffer: 64 * 1024 * 1024, env: windowsPowerShellEnv({ ANXOS_SIGNATURE_LIST: listPath }) });
     if (result.status !== 0) throw new Error(`Get-AuthenticodeSignature failed: ${String(result.stderr || "").slice(0, 300)}`);
     const parsed = JSON.parse(String(result.stdout || "[]").trim() || "[]");
-    return Array.isArray(parsed) ? parsed : [parsed];
+    const rows = Array.isArray(parsed) ? parsed : [parsed];
+    // Rows with no status mean the check itself did not run; never let that
+    // read as a verdict on the files.
+    if (files.length && rows.some((row) => !row?.status)) throw new Error(`Get-AuthenticodeSignature returned no status: ${String(result.stderr || "").slice(0, 300)}`);
+    return rows;
   } finally {
     fs.rmSync(listPath, { force: true });
   }
