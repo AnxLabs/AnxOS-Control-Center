@@ -245,6 +245,61 @@ with Smart App Control **on** — needs an RC build from that workflow, which
 needs a push and a tag. Until then Smart App Control compatibility is
 designed and tested up to signing, not proven.
 
+## 9. Publisher identity and the branded installer (2026-11-13)
+
+Owner decision: product **AnxOS Control Center**, displayed publisher
+**AnxLabs** (https://anxlabs.net), Authenticode certificate unchanged
+(**Anjo ROSIMO**).
+
+- `0f123174`: package author, copyright, Linux vendor/maintainer and the
+  Agent `.deb` maintainer are AnxLabs; Add/Remove Programs shows
+  "AnxOS Control Center", publisher AnxLabs, publisher link
+  https://anxlabs.net (help/update links stay on the product site).
+  Verified: a local build's `AnxOS Control Center.exe` reports CompanyName
+  AnxLabs and "Copyright © 2026 AnxLabs"; in Windows Sandbox the uninstall
+  entry read "AnxOS Control Center / AnxLabs / https://anxlabs.net".
+- `09d815e7`: Settings → About shows "Publisher: AnxLabs"; the update
+  verification line names the AnxLabs signature and its certificate.
+
+Branded installer (same electron-builder NSIS engine, no new installer
+technology, no new plugins):
+
+- Artwork `windows/installer-art/sidebar.bmp` (164×314) and `header.bmp`
+  (150×57), charcoal with a purple glow, generated from the app icon by
+  `scripts/make-installer-art.ps1`.
+- `windows/installer.nsh`: dark Welcome/Finish pages and header bar; a
+  Welcome page that says when an existing install will be updated or
+  repaired in place and that servers, settings and data are kept; a
+  "Set up AnxOS" page (Control Center always installed; AnxOS Helper
+  recommended, with what it does, that it includes AnxNet, and the one
+  administrator prompt explained before it can appear); `/NOHELPER` for
+  unattended opt-out; Helper failures no longer abort the install (the app
+  is installed, the message points to Agent Control → Repair, exit code 3);
+  a declined UAC prompt (1223) and a blocked setup step get plain
+  explanations instead of a raw command line; `/SD IDOK` so a silent install
+  never waits on a dialog; uninstall Welcome says what is kept; footer
+  "AnxOS Control Center by AnxLabs".
+- Found while testing: with Smart App Control on and networking on, the
+  signed Build 209 installer copies its files and then hangs on its own
+  warning dialog even in silent mode, because `nsExec.dll` is blocked and
+  the old message box had no silent default.
+
+Verified: the installer compiles with electron-builder's warnings-as-errors;
+a UI tour in Windows Sandbox (Smart App Control off inside the sandbox, local
+unsigned build) captured Welcome, install mode, folder, Set up AnxOS,
+progress and Finish, and the uninstaller's Welcome and progress; the Helper
+task was registered and Add/Remove Programs showed the AnxLabs metadata.
+Two fixes came out of that tour (the Finish page's checkbox text was
+unreadable on the dark page; the footer said "2.0.0"); both compile, but the
+**second tour could not run**: after stale sandbox sessions were closed,
+Windows Sandbox now logs off immediately ("The remote environment is logging
+off"). Recovering it needs a restart of Windows' container service or of the
+PC, which was not done without approval.
+
+Limit: NSIS pages use standard Windows controls, so the folder and progress
+pages stay light; the dark styling is on Welcome, Finish, the header and the
+artwork. A fully custom-drawn installer would mean a new installer engine.
+
 Not caused by Phase 9, recorded for follow-up: `agent-cli-smoke` fails on
 Anxlab ("the system env file must be applied") at `73563e47` too, before any
 Phase 9 code.
