@@ -4,6 +4,7 @@ const os = require("os");
 const path = require("path");
 const { EventEmitter } = require("events");
 const { pipeline } = require("stream/promises");
+const { Readable } = require("stream");
 const { BrowserWindow, dialog } = require("electron");
 const { Client } = require("ssh2");
 const { AgentClientError, downloadFile, getFileListing, getFilesystemIdentity, mutateFile, readFileText } = require("./agentClient");
@@ -19,6 +20,8 @@ const DEFAULT_TEXT_READ_LIMIT_BYTES = 1024 * 1024;
 const BINARY_SAMPLE_BYTES = 4096;
 const READ_CHUNK_BYTES = 64 * 1024;
 const TEXT_DECODER = new TextDecoder("utf-8", { fatal: true });
+
+const UPLOAD_CONTENT_MAX_BYTES = 100 * 1024 * 1024;
 
 class FileServiceError extends Error {
   constructor(message, details = {}) {
@@ -1251,6 +1254,74 @@ class FileService extends EventEmitter {
     } catch (error) {
       throw mapFileOperationError(error, "Remote delete failed.");
     }
+  }
+
+  // Phase 8: files dropped on the Files page arrive as base64 from the
+  // renderer, one at a time, and are written byte for byte to the current
+  // folder of the selected target (this PC, a computer's Agent, or SFTP).
+  // Same rules as upload(): no silent overwrite, temp file then rename.
+  async uploadContent(options = {}) {
+    const name = String(options.name || "");
+    if (!name || name === "." || name === ".." || name.length > 255 || /[\\/\u0000-\u001f]/.test(name)) {
+      throw new FileServiceError("That file name can't be used here.", { code: "FILES_INVALID_NAME", status: 400 });
+    }
+    const content = typeof options.contentBase64 === "string" ? options.contentBase64 : "";
+    if (content.length > Math.ceil(UPLOAD_CONTENT_MAX_BYTES / 3) * 4 + 4) {
+      throw new FileServiceError("Files over 100 MB can't be dropped here. Use Upload or the computer's own tools.", { code: "FILES_TOO_LARGE", status: 413 });
+    }
+    if (!/^[A-Za-z0-9+/]*={0,2}$/.test(content)) {
+      throw new FileServiceError("The file content could not be read.", { code: "FILES_INVALID_CONTENT", status: 400 });
+    }
+    const buffer = Buffer.from(content, "base64");
+    const transferNodeId = getTransferNodeId(options);
+    const conflict = () => new FileServiceError("An item with that name already exists. Choose a different destination name or confirm replacement first.", { code: "FILES_CONFLICT", status: 409 });
+    const emit = (status, targetPath, received) => this.emitTransfer({ nodeId: transferNodeId, id: options.transferId || null, type: "upload", status, path: targetPath, receivedBytes: received, totalBytes: buffer.length, percent: status === "complete" ? 100 : 0 });
+
+    if (shouldUseNodeAgent(options)) {
+      const remotePath = posixPath.join(options.directoryPath || "/", name);
+      if (options.conflictPolicy !== "replace") {
+        const listing = await getFileListing(options.directoryPath || "/", getFileNodeConfig(options));
+        if (Array.isArray(listing?.entries) && listing.entries.some((entry) => entry.name === name)) throw conflict();
+      }
+      emit("running", remotePath, 0);
+      const result = await mutateFile({ action: "upload", path: remotePath, content: buffer.toString("base64") }, getFileNodeConfig(options));
+      emit("complete", remotePath, buffer.length);
+      return { ...result, uploaded: true, remotePath, bytes: buffer.length };
+    }
+    if (shouldUseLocalFiles(options)) {
+      const targetDirectory = normalizeLocalPath(options.directoryPath, options.currentPath || getLocalHomePath());
+      const destinationPath = path.join(targetDirectory, name);
+      if (path.dirname(destinationPath) !== targetDirectory) throw new FileServiceError("That file name can't be used here.", { code: "FILES_INVALID_NAME", status: 400 });
+      if (options.conflictPolicy !== "replace" && await pathExists(destinationPath)) throw conflict();
+      emit("running", destinationPath, 0);
+      await commitLocalFile(destinationPath, (temporaryPath) => fsPromises.writeFile(temporaryPath, buffer, { flag: "wx", mode: 0o600 }), "upload");
+      emit("complete", destinationPath, buffer.length);
+      return { uploaded: true, local: true, remotePath: destinationPath, bytes: buffer.length };
+    }
+    const session = await this.ensureSession(options);
+    const targetDirectory = normalizeRemotePath(options.directoryPath, session.currentPath || session.homePath);
+    const remotePath = normalizeRemotePath(posixPath.join(targetDirectory, name));
+    if (options.conflictPolicy !== "replace") {
+      let exists = false;
+      try {
+        await this.statRemotePath(session, remotePath);
+        exists = true;
+      } catch {
+        exists = false;
+      }
+      if (exists) throw conflict();
+    }
+    emit("running", remotePath, 0);
+    const temporaryPath = createRemoteTemporaryPath(remotePath, "upload");
+    try {
+      await pipeline(Readable.from([buffer]), session.sftp.createWriteStream(temporaryPath, { flags: "wx", mode: 0o600 }));
+      await this.sftpCall(session, "rename", temporaryPath, remotePath);
+    } catch (error) {
+      await this.sftpCall(session, "unlink", temporaryPath).catch(() => {});
+      throw error;
+    }
+    emit("complete", remotePath, buffer.length);
+    return { uploaded: true, remotePath, bytes: buffer.length };
   }
 
   async upload(options = {}) {

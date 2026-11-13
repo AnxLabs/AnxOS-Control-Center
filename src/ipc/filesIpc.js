@@ -109,6 +109,12 @@ function registerFilesIpc() {
     audit({ action: "files.upload", target: payload.directoryPath });
     return fileService.upload(payload);
   });
+  registerFileHandler("files:uploadContent", async (_, payload = {}) => {
+    requirePermission("files:write", payload.directoryPath);
+    checkRateLimit("files-upload-content", 120, 60 * 1000);
+    audit({ action: "files.upload", target: payload.directoryPath, detail: { dropped: true } });
+    return fileService.uploadContent(payload);
+  });
   registerFileHandler("files:download", async (_, payload = {}) => { requirePermission("files:read", payload.path); return fileService.download(payload); });
   return fileService;
 }

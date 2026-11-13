@@ -562,6 +562,7 @@ const desktopApi = {
     newFile: (payload) => ipcRenderer.invoke("files:newFile", payload),
     delete: (payload) => ipcRenderer.invoke("files:delete", payload),
     upload: (payload) => ipcRenderer.invoke("files:upload", payload),
+    uploadContent: (payload) => ipcRenderer.invoke("files:uploadContent", payload),
     download: (payload) => ipcRenderer.invoke("files:download", payload),
     onTransfer: (callback) => {
       const handler = (_, payload) => callback(payload);

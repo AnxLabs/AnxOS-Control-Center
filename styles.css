@@ -21840,3 +21840,16 @@ body.create-server-window .page[data-page="marketplace"] .page-introduction {
   padding: 4px 10px;
   font-size: 0.8rem;
 }
+
+/* Files (Phase 8): drop to upload. */
+[data-files-drop-zone].is-file-drop-target {
+  outline: 2px dashed rgba(185, 138, 255, 0.8);
+  outline-offset: -6px;
+  background: rgba(185, 138, 255, 0.06);
+}
+
+.files-drop-hint {
+  margin: 6px 2px 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}

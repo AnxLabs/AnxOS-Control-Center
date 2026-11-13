@@ -151,3 +151,27 @@ started); all eight `docker-*` smokes pass.
 Not verified here: live containers, logs, terminal and Compose against a
 running Docker daemon (no daemon on this PC during the run; Anxlab has
 Docker but is a live server).
+
+### P8-D Files (this commit)
+
+The file service already wrote uploads atomically (temp file, then rename),
+refused silent overwrites, guarded paths and moved binaries intact, but
+only through a one-file picker. Added:
+
+- Drag and drop on the Files list: several files at once, to the folder
+  being shown, on this PC, a computer's Agent or an SFTP server
+  (`files:uploadContent`, `files:write`, rate limited). Content travels as
+  base64 and is written byte for byte; names that would leave the folder,
+  control characters, over-100 MB files and malformed content are refused
+  before anything is written. Existing names are listed in one
+  confirmation; nothing is replaced without it. Uploads appear in
+  Transfers and the list refreshes.
+- This PC and Agent storage open when selected; only SFTP keeps its
+  Connect step (it asks for a password).
+- The path field no longer suggests the developer's home folder.
+
+Tests: `files-drop-upload-smoke` (5), `phase8-ui-qa` P8 (two files dropped
+in the real app into a disposable folder, checked on disk);
+`files-layout-ui-qa`, files IPC and pipeline smokes pass.
+
+Not done: resuming an interrupted transfer; dropping folders.

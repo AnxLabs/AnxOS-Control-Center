@@ -425,7 +425,7 @@ const IPC_FAMILIES = [
     guard: "permission",
     allow: ["owner-unlocked"],
     channels: [
-      "files:upload", "files:writeText", "files:delete", "files:mkdir",
+      "files:upload", "files:uploadContent", "files:writeText", "files:delete", "files:mkdir",
       "files:newFile", "files:rename", "files:copy", "files:cancelTransfer",
     ],
   },

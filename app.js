@@ -30328,9 +30328,13 @@ function renderStorageConnections() {
       }
       setFilesPasswordPromptState(false);
       syncFilesSelectionState();
-      activateFilesTargetState({ loading: false, message: "Select Connect to browse this filesystem." });
+      // Phase 8: this PC and Agent storage need no sign-in, so they open on
+      // selection; SFTP keeps its Connect step (it asks for a password).
+      const opensDirectly = connection.id === "local" || connection.provider === "agent-native";
+      activateFilesTargetState({ loading: opensDirectly, message: opensDirectly ? "Opening…" : "Select Connect to browse this filesystem." });
       renderStorageConnections();
       renderFilesView();
+      if (opensDirectly) connectFilesSession();
     });
     storageList.append(item);
   });
