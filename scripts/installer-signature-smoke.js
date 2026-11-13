@@ -184,7 +184,7 @@ async function main() {
   assert.deepStrictEqual(describe({}), { state: "pending", text: "Checked when an update is downloaded." });
   assert.strictEqual(describe({ status: "downloaded" }).state, "checksum");
   assert.match(describe({ status: "downloaded" }).text, /signature is checked before installing/);
-  assert.deepStrictEqual(describe({ signature: { applicable: true, verified: true, publisher: "Anjo ROSIMO" } }), { state: "verified", text: "Checksum and publisher signature verified (Anjo ROSIMO)." });
+  assert.deepStrictEqual(describe({ signature: { applicable: true, verified: true, publisher: "Anjo ROSIMO" } }), { state: "verified", text: "Checksum and AnxLabs signature verified (certificate: Anjo ROSIMO)." });
   assert.strictEqual(describe({ signature: { applicable: false, verified: false } }).state, "checksum");
   const refused = describe({ status: "error", error: "The downloaded installer is not signed, so it was not opened.", signature: { applicable: true, verified: false, code: "UPDATE_INSTALLER_UNSIGNED" } });
   assert.deepStrictEqual(refused, { state: "refused", text: "Not installed: The downloaded installer is not signed, so it was not opened." });

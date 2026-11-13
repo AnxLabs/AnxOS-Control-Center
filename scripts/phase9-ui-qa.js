@@ -114,7 +114,7 @@ async function main() {
       state: { status: "downloaded", error: null, signature: { applicable: true, verified: true, publisher: "Anjo ROSIMO", issuer: "Microsoft ID Verified CS AOC CA 03" }, logs: [] },
     });
     await waitFor(page, () => document.querySelector("[data-update-verification]")?.dataset.updateVerificationState === "verified", null, "verified state", 10000);
-    assert.strictEqual((await page.locator("[data-update-verification]").textContent()).trim(), "Checksum and publisher signature verified (Anjo ROSIMO).");
+    assert.strictEqual((await page.locator("[data-update-verification]").textContent()).trim(), "Checksum and AnxLabs signature verified (certificate: Anjo ROSIMO).");
     await page.screenshot({ path: path.join(shotsDir, "u3-verified.png") });
     console.log("PASS U3 a verified installer names the publisher");
 
@@ -157,8 +157,19 @@ async function main() {
     await page.screenshot({ path: path.join(shotsDir, "u4-install-refused.png") });
     console.log(`PASS U4 "${primaryLabel}" on a refused installer: the dialog switches to "${dialog.title.trim()}" with the reason ("${dialog.primary.trim()}"), Settings row and toast agree`);
 
+    // U5: Settings > About names the publisher (owner decision: AnxLabs).
+    await page.locator('[data-update-modal] [data-update-action="dismiss"]').first().click();
+    await page.evaluate(() => setActiveSettingsCategory("about"));
+    await waitFor(page, () => {
+      const field = document.querySelector("[data-about-publisher]");
+      return field && field.getBoundingClientRect().height > 0;
+    }, null, "About publisher row", 10000);
+    assert.strictEqual((await page.locator("[data-about-publisher]").textContent()).trim(), "AnxLabs");
+    await page.screenshot({ path: path.join(shotsDir, "u5-about.png") });
+    console.log("PASS U5 Settings > About shows Publisher: AnxLabs");
+
     assert.deepStrictEqual(errors, [], `no renderer errors (${errors.join(" | ")})`);
-    console.log(`Phase 9 UI QA: 4 checks passed. Screenshots: ${shotsDir}`);
+    console.log(`Phase 9 UI QA: 5 checks passed. Screenshots: ${shotsDir}`);
   } finally {
     await app.close().catch(() => {});
     fs.rmSync(userData, { recursive: true, force: true });

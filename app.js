@@ -47448,7 +47448,9 @@ function describeUpdateVerification(state = {}) {
     return { state: "refused", text: `Not installed: ${state?.error || "the installer's signature could not be confirmed."}` };
   }
   if (signature?.applicable && signature.verified) {
-    return { state: "verified", text: `Checksum and publisher signature verified (${signature.publisher}).` };
+    // AnxLabs is the publisher; the certificate is issued to its verified
+    // owner, so both are named.
+    return { state: "verified", text: `Checksum and AnxLabs signature verified (certificate: ${signature.publisher}).` };
   }
   if (signature && signature.applicable === false) {
     return { state: "checksum", text: "Checksum verified. Packages for this system are not code-signed." };
