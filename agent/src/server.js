@@ -43,7 +43,7 @@ const { CLAIM_PAGE_PATH, handleMobileClaimPage } = require("./routes/mobileClaim
 const { authorizeApiPermission } = require("./permissions");
 const { handlePlayitSnapshot, handlePlayitStatus, handlePublicAccessPlayit } = require("./routes/playit");
 const { handlePublicAccess } = require("./routes/publicAccess");
-const { handleStats, handleSystemSummary } = require("./routes/system");
+const { handleNetworkCheck, handleStats, handleSystemSummary } = require("./routes/system");
 
 const config = getConfig();
 const { logger } = require("./services/diagnosticsLogger");
@@ -205,6 +205,9 @@ function getRoutePermission(request, pathname) {
   // V2-H network inventory: read-only host discovery, same read tier as the
   // system summary routes.
   if (pathname === "/api/v1/network/inventory") return "system:read";
+  // Phase 8 connection check (router ping, one name lookup, one HTTPS
+  // connection): read-only, on request. Sub-paths share the tier and 404.
+  if (pathname === "/api/v1/system/network-check" || pathname.startsWith("/api/v1/system/network-check/")) return "system:read";
   // Server alerts: the masked settings are readable at system:read; changing
   // the webhook or sending a test reaches outside the node, so agent:manage.
   if (pathname === "/api/v1/notifications/webhook" || pathname.startsWith("/api/v1/notifications/")) return method === "GET" ? "system:read" : "agent:manage";
@@ -353,6 +356,12 @@ async function routeRequest(request, url) {
     return handleCurseForgeProxy(request, url);
   }
 
+  // Phase 8: the on-demand connection check is the one POST among the
+  // read-only system routes.
+  if (pathname === "/api/v1/system/network-check" && request.method === "POST") {
+    return handleNetworkCheck();
+  }
+
   if (request.method !== "GET") {
     return {
       statusCode: 405,
@@ -379,6 +388,7 @@ async function routeRequest(request, url) {
   if (pathname === "/api/v1/network/inventory") {
     return handleNetworkInventory(url);
   }
+
 
   if (pathname === "/api/v1/playit/snapshot") {
     return handlePlayitSnapshot();

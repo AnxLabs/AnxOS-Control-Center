@@ -621,7 +621,7 @@ const IPC_FAMILIES = [
     tier: "system:read",
     guard: "permission",
     allow: ["owner-unlocked", "operator-unlocked", "viewer-unlocked"],
-    channels: ["system:getSnapshot"],
+    channels: ["system:getSnapshot", "system:networkCheck"],
   },
   {
     id: "public-access-read",
@@ -923,6 +923,9 @@ const REST_FAMILIES = [
     publicRoute: false,
     routes: [{ method: "GET", path: "/api/v1/network/inventory" }],
   },
+  // The probe path shares the network check's tier but does not exist, so an
+  // allowed caller gets 404 without pinging or connecting anywhere.
+  { id: "rest-network-check", tier: "system:read", publicRoute: false, routes: [{ method: "POST", path: "/api/v1/system/network-check/matrix-probe", body: {} }] },
   { id: "rest-files-read", tier: "files:read", publicRoute: false, routes: [{ method: "GET", path: "/api/v1/files/identity" }] },
   {
     id: "rest-files-write",

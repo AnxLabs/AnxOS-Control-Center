@@ -17,7 +17,7 @@ class SettingsStoreError extends Error {
 
 const SETTING_DEFINITIONS = {
   "app.displayName": { category: "general", type: "string", default: "AnxOS Control Center", maxLength: 48 },
-  "general.defaultPage": { category: "general", type: "enum", default: "dashboard", values: ["dashboard", "minecraft", "amp", "playit", "docker", "ssh", "files", "console", "backups", "operations", "notifications", "maintenance", "security", "nodes", "agent-control", "coolpals", "settings"] },
+  "general.defaultPage": { category: "general", type: "enum", default: "dashboard", values: ["dashboard", "instances", "marketplace", "network", "minecraft", "amp", "playit", "docker", "ssh", "files", "console", "backups", "operations", "notifications", "maintenance", "security", "nodes", "agent-control", "coolpals", "settings"] },
   "general.restorePreviousPage": { category: "general", type: "boolean", default: true },
   "general.confirmDestructiveActions": { category: "general", type: "boolean", default: true },
   "interface.guidedMode": { category: "general", type: "boolean", default: false },

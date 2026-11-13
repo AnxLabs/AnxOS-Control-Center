@@ -155,6 +155,8 @@
     "mod-manager:smoke": "node scripts/mod-manager-smoke.js",
     "mobile-gateway:smoke": "node scripts/mobile-gateway-smoke.js",
     "anxnet-agent:smoke": "node scripts/anxnet-agent-smoke.js",
+    "network-details:smoke": "node scripts/network-details-smoke.js",
+    "phase8:ui-qa": "node scripts/phase8-ui-qa.js",
     "mobile:ui-qa": "node scripts/mobile-ui-qa.js",
     "server-version-checks:smoke": "node scripts/server-version-checks-smoke.js",
     "fleet-update-view:smoke": "node scripts/fleet-update-view-smoke.js",
@@ -450,8 +452,7 @@
         "filter": [
           "agent.example.json",
           "marketplace-templates.json",
-          "marketplace-server-certifications.json",
-          "ssh-profiles.json"
+          "marketplace-server-certifications.json"
         ]
       },
       "website/anxos-design-system.css",

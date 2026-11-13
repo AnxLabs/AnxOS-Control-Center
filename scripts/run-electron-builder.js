@@ -90,7 +90,6 @@ function normalizePackageInputs() {
     path.join(process.cwd(), "agent", "package.json"),
     path.join(process.cwd(), "config", "agent.example.json"),
     path.join(process.cwd(), "config", "marketplace-templates.json"),
-    path.join(process.cwd(), "config", "ssh-profiles.json"),
     path.join(process.cwd(), "website", "account-config.js"),
     path.join(process.cwd(), "website", "anxos-design-system.css"),
   ].forEach(normalizePackageInputPath);

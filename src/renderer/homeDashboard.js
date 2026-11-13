@@ -603,6 +603,121 @@
 
   let lastGraphSignature = "";
 
+  // ---------------------------------------------------------------------------
+  // Network section (Phase 8)
+  // ---------------------------------------------------------------------------
+
+  // Latest connection check per computer: { running, at, result, error }.
+  const networkChecks = new Map();
+
+  async function runNetworkCheck(nodeId) {
+    const api = safe(() => getDesktopApiState().api, null);
+    if (!nodeId || typeof api?.system?.networkCheck !== "function" || networkChecks.get(nodeId)?.running) return;
+    networkChecks.set(nodeId, { ...(networkChecks.get(nodeId) || {}), running: true });
+    lastGraphSignature = "";
+    renderComputerDetails();
+    let entry;
+    try {
+      const result = await api.system.networkCheck({ nodeId });
+      entry = result && result.ok === false
+        ? { running: false, at: Date.now(), result: null, error: result.error?.message || "The check could not run." }
+        : { running: false, at: Date.now(), result, error: null };
+    } catch (error) {
+      entry = { running: false, at: Date.now(), result: null, error: String(error?.message || error || "The check could not run.") };
+    }
+    networkChecks.set(nodeId, entry);
+    lastGraphSignature = "";
+    renderComputerDetails();
+  }
+
+  function adapterRow(adapter) {
+    const row = el("div", `computer-network__adapter${adapter.connected ? "" : " is-down"}`);
+    row.setAttribute("role", "row");
+    const name = el("div", "computer-network__name");
+    name.setAttribute("role", "cell");
+    name.append(el("strong", "", adapter.name), el("span", "", `${adapter.kindLabel} · ${adapter.status}`));
+    const cells = [
+      ["Address", adapter.address || "—"],
+      ["Link speed", adapter.link],
+      ["Download", rate(adapter.down)],
+      ["Upload", rate(adapter.up)],
+      ["Errors", adapter.issuesText],
+    ].map(([label, value]) => {
+      const cell = el("div", "computer-network__cell");
+      cell.setAttribute("role", "cell");
+      cell.append(el("span", "", label), el("strong", "", value));
+      return cell;
+    });
+    row.append(name, ...cells);
+    return row;
+  }
+
+  function renderNetworkSection(computer, reading) {
+    const section = el("section", "computer-network");
+    section.dataset.computerNetwork = computer.id;
+    const head = el("div", "computer-network__head");
+    head.append(el("h3", "", "Network"));
+    const online = computer.connection === "online" || computer.connection === "warning";
+    const check = networkChecks.get(computer.id) || null;
+    const button = el("button", "inline-action", check?.running ? "Checking…" : "Check connection");
+    button.type = "button";
+    button.dataset.networkCheck = computer.id;
+    button.disabled = !online || check?.running === true;
+    button.title = "Pings the router three times, looks up one name and opens one HTTPS connection to example.com.";
+    head.append(button);
+    section.append(head);
+
+    const details = Model.describeNetworkDetails(reading ? reading.networkDetails : null);
+    if (!reading) {
+      section.append(el("p", "home-empty", online ? "Collecting readings…" : "No readings: this computer is not connected."));
+    } else if (!details.available) {
+      section.append(el("p", "home-empty", details.reason));
+    } else {
+      const summary = el("div", "computer-network__summary");
+      summary.append(
+        detailRow("Router", details.router || "Not found"),
+        detailRow("DNS servers", details.dnsServers.length ? details.dnsServers.join(", ") : "Not reported"),
+      );
+      section.append(summary);
+      if (details.reason) section.append(el("p", "home-empty", details.reason));
+      const table = el("div", "computer-network__table");
+      table.setAttribute("role", "table");
+      table.setAttribute("aria-label", "Network adapters");
+      if (!details.main.length) table.append(el("p", "home-empty", "No wired or Wi-Fi connection is active."));
+      details.main.forEach((adapter) => table.append(adapterRow(adapter)));
+      section.append(table);
+      if (details.other.length) {
+        const more = el("details", "computer-network__other");
+        more.append(el("summary", "", `Virtual, VPN and disconnected adapters (${details.other.length})`));
+        const otherTable = el("div", "computer-network__table");
+        otherTable.setAttribute("role", "table");
+        otherTable.setAttribute("aria-label", "Other network adapters");
+        details.other.forEach((adapter) => otherTable.append(adapterRow(adapter)));
+        more.append(otherTable);
+        section.append(more);
+      }
+      section.append(el("small", "", `${details.warming ? "Speeds appear after the next reading. " : ""}Link speed is the connection to your router or switch, not your internet speed.`));
+    }
+
+    if (check && !check.running) {
+      const results = el("div", "computer-network__check");
+      results.dataset.networkCheckResult = computer.id;
+      if (check.error) {
+        results.append(el("p", "home-attention__item home-attention__item--warning", check.error));
+      } else {
+        Model.describeNetworkCheck(check.result).forEach((step) => {
+          const row = el("div", `computer-network__step computer-network__step--${step.ok ? "ok" : "bad"}`);
+          row.dataset.step = step.id;
+          row.append(el("span", "", step.label), el("strong", "", step.text));
+          results.append(row);
+        });
+      }
+      results.append(el("small", "", `Checked ${safe(() => new Date(check.at).toLocaleTimeString(), "just now")}.`));
+      section.append(results);
+    }
+    return section;
+  }
+
   function renderComputerDetails() {
     const panel = document.querySelector("[data-computer-details]");
     if (!panel) return;
@@ -689,6 +804,8 @@
         detailRow("Address", node.agentUrl || node.baseUrl || (node.kind === "application-host" ? "This computer" : "")),
       );
 
+      const networkSection = renderNetworkSection(computer, reading);
+
       const servers = el("section", "computer-details__servers");
       servers.append(el("h3", "", "Servers on this computer"));
       if (computer.selected) {
@@ -715,7 +832,7 @@
         alerts.append(row);
       });
 
-      body.append(header, cards, graph, info, servers, alerts);
+      body.append(header, cards, graph, info, networkSection, servers, alerts);
       if (!computer.selected) {
         const manage = el("button", "inline-action inline-action--primary", `Switch to ${card.name}`);
         manage.type = "button";
@@ -726,7 +843,7 @@
 
     // The graph is the costliest part; skip re-rendering when nothing changed.
     const historyEntry = computer ? AnxComputerVitals.get(computer.id) : null;
-    const signature = [viewing, historyEntry?.history?.length || 0, historyEntry?.reading?.at || 0, historyEntry?.error || "", computer?.connection || "", fleetState?.checkedAt || "", Math.floor(now / 10000)].join("|");
+    const signature = [viewing, networkChecks.get(viewing)?.at || 0, networkChecks.get(viewing)?.running ? 1 : 0, historyEntry?.history?.length || 0, historyEntry?.reading?.at || 0, historyEntry?.error || "", computer?.connection || "", fleetState?.checkedAt || "", Math.floor(now / 10000)].join("|");
     if (signature === lastGraphSignature && panel.childElementCount) return;
     lastGraphSignature = signature;
     const draft = el("div");
@@ -744,6 +861,11 @@
           }
           lastGraphSignature = "";
           renderComputerDetails();
+          return;
+        }
+        const checkButton = event.target.closest("[data-network-check]");
+        if (checkButton) {
+          runNetworkCheck(checkButton.dataset.networkCheck);
           return;
         }
         const switchButton = event.target.closest("[data-switch-computer]");

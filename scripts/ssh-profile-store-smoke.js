@@ -10,6 +10,12 @@ const service = new SshService();
 const filePath = path.join(root, "ssh-profiles.json");
 const legacy = { servers: [{ id: "host-a", displayName: "Host A", host: "10.0.0.2" }], profiles: [{ id: "profile-a", serverId: "host-a", displayName: "Host A", host: "10.0.0.2", port: 22, username: "admin", authType: "password" }], defaultProfileId: "profile-a" };
 
+// Phase 8: a new install starts with no SSH profiles. Earlier builds seeded
+// the developer's own server into every install.
+const fresh = service.listProfiles();
+assert.deepStrictEqual([fresh.profiles.length, fresh.servers.length, fresh.defaultProfileId], [0, 0, null], "a fresh profiles file is empty");
+assert.doesNotMatch(fs.readFileSync(filePath, "utf8"), /192\.168\.1\.134|"anx"/, "no developer host or username is written");
+
 fs.writeFileSync(filePath, `${JSON.stringify(legacy)}\n`, { mode: 0o600 });
 assert.strictEqual(service.listProfiles().profiles[0].host, "10.0.0.2");
 assert.strictEqual(JSON.parse(fs.readFileSync(filePath, "utf8")).schemaVersion, SSH_PROFILES_SCHEMA_VERSION);

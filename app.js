@@ -34834,11 +34834,11 @@ function getSshProfileFormValues() {
 
 function resetSshProfileForm() {
   if (sshProfileNameInput) {
-    sshProfileNameInput.value = "Debian";
+    sshProfileNameInput.value = "";
   }
 
   if (sshProfileHostInput) {
-    sshProfileHostInput.value = "192.168.1.134";
+    sshProfileHostInput.value = "";
   }
 
   if (sshProfilePortInput) {
@@ -34846,7 +34846,7 @@ function resetSshProfileForm() {
   }
 
   if (sshProfileUsernameInput) {
-    sshProfileUsernameInput.value = "anx";
+    sshProfileUsernameInput.value = "";
   }
 
   if (sshProfileAuthSelect) {

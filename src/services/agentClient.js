@@ -1207,6 +1207,11 @@ async function getNetworkInventory(configOverride = null) {
   });
 }
 
+// Phase 8: router ping, one name lookup, one HTTPS connection, on request.
+async function runNetworkCheck(configOverride = null) {
+  return requestJson("/api/v1/system/network-check", { config: configOverride, method: "POST", body: {} });
+}
+
 // Server alerts (Agent webhook). The Agent never returns the URL itself.
 async function getWebhookAlerts(configOverride = null) {
   return requestJson("/api/v1/notifications/webhook", { config: configOverride });
@@ -3742,6 +3747,7 @@ module.exports = {
   getHealth,
   getDependencyCatalog,
   getSystemStats,
+  runNetworkCheck,
   getWindowsAgentTask,
   getInstanceLogs,
   getInstanceMetrics,

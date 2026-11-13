@@ -17,6 +17,10 @@ const metricsSampler = require("../../../src/shared/metricsSampler");
 const sampleCpu = metricsSampler.createCpuSampler();
 const sampleNetwork = metricsSampler.createNetworkSampler();
 const sampleGpu = metricsSampler.createGpuSampler();
+// Per-interface network details (Phase 8): addresses, link speed, rates,
+// errors and drops, the default gateway and DNS servers.
+const networkDetails = require("../../../src/shared/networkDetails");
+const sampleNetworkDetails = networkDetails.createNetworkDetailsSampler();
 const DISK_STATS_UNAVAILABLE = "DISK_STATS_UNAVAILABLE";
 const diskStatsWarningState = new Map();
 const DISK_STATS_WARNING_REPEAT_INTERVAL_MS = 5 * 60 * 1000;
@@ -511,13 +515,14 @@ async function getCpuTemperature() {
 
 async function getSystemSummary() {
   const cpuSample = sampleCpu();
-  const [osVersion, disk, network, cpuTemperature, forge, gpuUsage] = await Promise.all([
+  const [osVersion, disk, network, cpuTemperature, forge, gpuUsage, details] = await Promise.all([
     readOsVersion(),
     getDiskUsage(),
     sampleNetwork(),
     getCpuTemperature(),
     getForgeHealth(),
     sampleGpu(),
+    sampleNetworkDetails().catch(() => null),
   ]);
   const cpuTemperatureCelsius = cpuTemperature?.temperatureValid ? cpuTemperature.temperatureCelsius : null;
   const totalMemory = os.totalmem();
@@ -569,14 +574,23 @@ async function getSystemSummary() {
     },
     disk,
     network,
+    networkDetails: details,
     currentTime: new Date().toISOString(),
     source: "agent",
     instanceRoot: getConfig().instanceRoot,
   };
 }
 
+// The on-demand connection check: router, name lookup, internet. Only runs
+// when someone asks (Computers > Network > Check connection).
+async function runNetworkCheck() {
+  const details = await sampleNetworkDetails().catch(() => null);
+  return networkDetails.runNetworkCheck({ gateway: details?.gateway?.address || null });
+}
+
 module.exports = {
   getSystemSummary,
+  runNetworkCheck,
   _test: {
     DISK_STATS_UNAVAILABLE,
     WINDOWS_CPU_TEMP_INVALID,

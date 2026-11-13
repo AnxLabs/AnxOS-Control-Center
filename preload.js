@@ -191,6 +191,7 @@ const desktopApi = {
   window: windowApi,
   system: {
     getSnapshot: (payload = {}) => invokeAgentFeature("system:getSnapshot", payload),
+    networkCheck: (payload = {}) => invokeAgentFeature("system:networkCheck", payload),
   },
   amp: {
     getSnapshot: (payload = {}) => invokeAgentFeature("amp:getSnapshot", payload),

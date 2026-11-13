@@ -87,7 +87,6 @@ const requiredEntries = [
   "/assets/icons/png/512x512.png",
   "/config/agent.example.json",
   "/config/marketplace-templates.json",
-  "/config/ssh-profiles.json",
   "/src/shared/redaction.js",
   "/src/shared/structuredLogger.js",
   "/src/shared/releaseConfig.js",
@@ -108,6 +107,8 @@ const forbiddenEntries = [
   "/config/marketplace.json",
   "/config/nodes.json",
   "/config/owner-accounts.json",
+  // The developer's own SSH profiles must never ship (Phase 8).
+  "/config/ssh-profiles.json",
 ];
 
 const forbiddenRuntimeNames = new Set([

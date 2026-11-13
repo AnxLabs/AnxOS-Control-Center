@@ -102,29 +102,15 @@ class SshServiceError extends Error {
   }
 }
 
+// A new profiles file starts empty. Earlier builds seeded every install with
+// the developer's own server (Phase 8 audit); users add their own instead.
 function getDefaultProfilesConfig() {
   return {
     schemaVersion: SSH_PROFILES_SCHEMA_VERSION,
-    servers: [
-      {
-        id: "debian-server",
-        displayName: "Debian",
-        host: "192.168.1.134",
-      },
-    ],
-    profiles: [
-      {
-        id: "debian-anx",
-        serverId: "debian-server",
-        displayName: "Debian",
-        host: "192.168.1.134",
-        port: 22,
-        username: "anx",
-        authType: "password",
-      },
-    ],
-    defaultServerId: "debian-server",
-    defaultProfileId: "debian-anx",
+    servers: [],
+    profiles: [],
+    defaultServerId: null,
+    defaultProfileId: null,
   };
 }
 
@@ -143,10 +129,6 @@ function getProfilesPath() {
     return path.join(app.getPath("userData"), "config", "ssh-profiles.json");
   }
 
-  return DEV_SSH_PROFILES_PATH;
-}
-
-function getSeedProfilesPath() {
   return DEV_SSH_PROFILES_PATH;
 }
 
@@ -173,13 +155,6 @@ function ensureProfilesFile() {
   const profilesPath = getProfilesPath();
 
   if (fs.existsSync(profilesPath)) {
-    return;
-  }
-
-  const seedPath = getSeedProfilesPath();
-
-  if (seedPath !== profilesPath && fs.existsSync(seedPath)) {
-    fs.copyFileSync(seedPath, profilesPath);
     return;
   }
 

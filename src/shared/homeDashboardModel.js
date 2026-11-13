@@ -100,7 +100,77 @@
       platform: snapshot && snapshot.platform ? String(snapshot.platform) : "",
       osVersion: snapshot && snapshot.osVersion ? String(snapshot.osVersion) : "",
       uptimeSeconds: finite(snapshot && snapshot.uptimeSeconds),
+      networkDetails: snapshot && snapshot.networkDetails && typeof snapshot.networkDetails === "object" ? snapshot.networkDetails : null,
     };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Network (Phase 8)
+  // ---------------------------------------------------------------------------
+
+  const ADAPTER_KIND_LABELS = Object.freeze({ ethernet: "Wired", wifi: "Wi-Fi", vpn: "VPN", virtual: "Virtual", other: "Other" });
+
+  // The speed the adapter negotiated with the router or switch, never
+  // presented as internet speed.
+  function linkSpeedText(mbps) {
+    if (!(mbps > 0)) return "Not reported";
+    return mbps >= 1000 ? `${Math.round(mbps / 100) / 10} Gb/s` : `${mbps} Mb/s`;
+  }
+
+  // What the Network section of a computer shows. Connected wired and Wi-Fi
+  // adapters come first; virtual, VPN and disconnected adapters are listed
+  // separately so they do not crowd the ones that carry the traffic.
+  function describeNetworkDetails(details) {
+    const empty = { main: [], other: [], router: null, dnsServers: [], warming: false };
+    if (!details || typeof details !== "object") return { ...empty, available: false, reason: "This computer's Agent does not report network details yet." };
+    if (details.supported === false) return { ...empty, available: false, reason: "Network details are not available on this operating system." };
+    const rows = (Array.isArray(details.interfaces) ? details.interfaces : []).map((entry) => {
+      const errors = finite(entry.errors);
+      const dropped = finite(entry.dropped);
+      const kind = ADAPTER_KIND_LABELS[entry.kind] ? entry.kind : "other";
+      return {
+        name: String(entry.name || ""),
+        kind,
+        kindLabel: ADAPTER_KIND_LABELS[kind],
+        connected: entry.up === true,
+        status: entry.up === true ? "Connected" : "Not connected",
+        address: [...(Array.isArray(entry.ipv4) ? entry.ipv4 : []), ...(Array.isArray(entry.ipv6) ? entry.ipv6 : [])][0] || "",
+        link: linkSpeedText(finite(entry.linkSpeedMbps)),
+        down: finite(entry.downloadPerSecond),
+        up: finite(entry.uploadPerSecond),
+        errors,
+        dropped,
+        issuesText: errors === null || dropped === null ? "Not reported" : errors + dropped === 0 ? "None" : `${errors} errors, ${dropped} dropped`,
+      };
+    });
+    const isMain = (row) => row.connected && (row.kind === "ethernet" || row.kind === "wifi" || (row.kind === "other" && Boolean(row.address)));
+    return {
+      available: true,
+      reason: details.reason === "counters_unreadable" ? "The network counters could not be read." : "",
+      warming: details.reason === "warming_up",
+      main: rows.filter(isMain),
+      other: rows.filter((row) => !isMain(row)),
+      router: details.gateway && details.gateway.address ? String(details.gateway.address) : null,
+      dnsServers: Array.isArray(details.dnsServers) ? details.dnsServers.map(String) : [],
+    };
+  }
+
+  // One line per step of a connection check, in plain words.
+  function describeNetworkCheck(check) {
+    if (!check || typeof check !== "object") return [];
+    const latency = (ms) => (finite(ms) === null ? "" : ` · ${ms < 1 ? "under 1" : Math.round(ms)} ms`);
+    const router = check.router || {};
+    const lookup = check.nameLookup || {};
+    const internet = check.internet || {};
+    let routerText = "Did not answer";
+    if (router.reason === "no_gateway") routerText = "No router found (no default route)";
+    else if (router.reason === "ping_unavailable") routerText = "Can't test: ping is not available on this computer";
+    else if (router.ok) routerText = `Reachable${latency(router.latencyMs)}${finite(router.lossPercent) ? ` · ${router.lossPercent}% of checks lost` : ""}`;
+    return [
+      { id: "router", label: router.address ? `Router (${router.address})` : "Router", ok: router.ok === true, text: routerText },
+      { id: "lookup", label: "Name lookup", ok: lookup.ok === true, text: lookup.ok ? `Working${latency(lookup.latencyMs)}` : "Failed: names can't be looked up" },
+      { id: "internet", label: "Internet", ok: internet.ok === true, text: internet.ok ? `Reachable${latency(internet.latencyMs)}` : internet.reason === "name_lookup_failed" ? "Not tested (name lookup failed)" : "Not reachable" },
+    ];
   }
 
   function appendHistory(history, reading, limit = HISTORY_LIMIT) {
@@ -341,6 +411,9 @@
     isSustained,
     platformLabel,
     buildComputerCard,
+    describeNetworkDetails,
+    describeNetworkCheck,
+    linkSpeedText,
     buildAttentionItems,
     findDuplicateComputers,
     buildOverview,

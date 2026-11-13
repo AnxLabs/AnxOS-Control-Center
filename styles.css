@@ -20171,6 +20171,110 @@ body.create-server-window .page[data-page="marketplace"] .page-introduction {
   color: var(--muted);
 }
 
+/* Computers > Network (Phase 8): adapters, router, DNS and a connection check. */
+.computer-network {
+  display: grid;
+  gap: 8px;
+}
+
+.computer-network__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.computer-network__head h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.computer-network small {
+  color: var(--muted);
+}
+
+.computer-network__table {
+  display: grid;
+  gap: 6px;
+}
+
+.computer-network__adapter {
+  display: grid;
+  grid-template-columns: minmax(150px, 1.4fr) repeat(5, minmax(80px, 1fr));
+  gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.computer-network__adapter.is-down {
+  opacity: 0.65;
+}
+
+.computer-network__name,
+.computer-network__cell {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.computer-network__name strong,
+.computer-network__cell strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.computer-network__name span,
+.computer-network__cell span {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.computer-network__other > summary {
+  cursor: pointer;
+  color: var(--muted);
+  padding: 4px 0;
+}
+
+.computer-network__other[open] > summary {
+  margin-bottom: 6px;
+}
+
+.computer-network__check {
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.computer-network__step {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.computer-network__step span {
+  color: var(--muted);
+}
+
+.computer-network__step--ok strong {
+  color: #6be3a4;
+}
+
+.computer-network__step--bad strong {
+  color: #ffb36b;
+}
+
+@media (max-width: 900px) {
+  .computer-network__adapter {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 900px) {
   .home-overview {
     grid-template-columns: repeat(2, minmax(0, 1fr));

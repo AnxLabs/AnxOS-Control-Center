@@ -316,6 +316,10 @@ function buildDiskUsage(total, free, mount) {
 // netstat -e on Windows. It used to start PowerShell on every poll on
 // Windows, and reported a made-up 0 B/s on the first reading.
 const sampleLocalNetwork = require("../shared/metricsSampler").createNetworkSampler();
+// Per-interface details and the on-demand connection check (Phase 8), the
+// same module the Agent uses.
+const networkDetails = require("../shared/networkDetails");
+const sampleLocalNetworkDetails = networkDetails.createNetworkDetailsSampler();
 
 async function getNetworkUsage() {
   const network = await sampleLocalNetwork();
@@ -348,12 +352,13 @@ async function getCpuTemperature() {
 }
 
 async function getLocalSystemSnapshot() {
-  const [osVersion, disk, network, localCpuTemperature, forge] = await Promise.all([
+  const [osVersion, disk, network, localCpuTemperature, forge, details] = await Promise.all([
     getOsVersion(),
     getDiskUsage(),
     getNetworkUsage(),
     getCpuTemperature(),
     getLocalForgeHealth(),
+    sampleLocalNetworkDetails().catch(() => null),
   ]);
 
   let cpuTemperature = localCpuTemperature;
@@ -443,6 +448,7 @@ async function getLocalSystemSnapshot() {
     },
     disk,
     network,
+    networkDetails: details,
     uptimeSeconds: os.uptime(),
     source: "local",
   };
@@ -497,7 +503,17 @@ async function getSystemSnapshot(options = {}) {
   return getLocalSystemSnapshot();
 }
 
+// Router ping, one name lookup and one HTTPS connection, run on the selected
+// computer: by its Agent, or here when this PC is managed directly.
+async function runNetworkCheck(options = {}) {
+  const target = getExecutionTarget(options?.nodeId || getSelectedNodeId());
+  if (target.type === "agent" && target.config) return agentClient.runNetworkCheck(target.config);
+  const details = await sampleLocalNetworkDetails().catch(() => null);
+  return networkDetails.runNetworkCheck({ gateway: details?.gateway?.address || null });
+}
+
 module.exports = {
+  runNetworkCheck,
   _test: {
     normalizeAgentSystemSnapshot,
     normalizeDiskMetric,
