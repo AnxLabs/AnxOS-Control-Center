@@ -161,6 +161,7 @@
     "installer-signature:smoke": "node scripts/installer-signature-smoke.js",
     "agent:deb-provenance:smoke": "node scripts/agent-deb-provenance-smoke.js",
     "preserved-copy-dedupe:smoke": "node scripts/preserved-copy-dedupe-smoke.js",
+    "windows-signing-coverage:smoke": "node scripts/windows-signing-coverage-smoke.js",
     "files-drop-upload:smoke": "node scripts/files-drop-upload-smoke.js",
     "phase8:ui-qa": "node scripts/phase8-ui-qa.js",
     "phase9:ui-qa": "node scripts/phase9-ui-qa.js",
@@ -563,8 +564,11 @@
         ]
       },
       {
-        "from": "windows/install-agent-task.ps1",
-        "to": "install-agent-task.ps1"
+        "from": "windows",
+        "to": ".",
+        "filter": [
+          "install-agent-task.ps1"
+        ]
       }
     ],
     "win": {
@@ -584,7 +588,17 @@
         }
       ],
       "icon": "assets/icon.ico",
-      "verifyUpdateCodeSignature": true
+      "verifyUpdateCodeSignature": true,
+      "signExts": [
+        ".node",
+        ".ps1",
+        "ffmpeg.dll",
+        "libEGL.dll",
+        "libGLESv2.dll",
+        "vk_swiftshader.dll",
+        "vulkan-1.dll",
+        "dxcompiler.dll"
+      ]
     },
     "linux": {
       "target": [

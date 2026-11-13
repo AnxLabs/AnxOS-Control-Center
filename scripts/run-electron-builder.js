@@ -128,41 +128,67 @@ normalizePackageInputs();
 const localBinDir = path.join(process.cwd(), "node_modules", ".bin");
 const dynamicConfigPath = path.join(__dirname, "electron-builder-config.js");
 if (!builderArgs.includes("--config")) builderArgs.push("--config", dynamicConfigPath);
+let azureSigning = null;
 try {
-  console.log(`Windows Azure Trusted Signing: ${getAzureSigningConfig() ? "enabled" : "disabled; unsigned Windows builds fail release signature verification"}`);
+  azureSigning = getAzureSigningConfig();
+  console.log(`Windows Azure Trusted Signing: ${azureSigning ? "enabled" : "disabled; unsigned Windows builds fail release signature verification"}`);
 } catch (error) {
   console.error(error.message);
   process.exit(1);
 }
-const result = spawnSync(
-  process.platform === "win32" ? "electron-builder.cmd" : "electron-builder",
-  builderArgs,
-  {
-    cwd: process.cwd(),
-    stdio: "inherit",
-    shell: process.platform === "win32",
-    env: {
-      ...process.env,
-      // Ensure resolution works even when this script is invoked directly
-      // (e.g. `node scripts/run-electron-builder.js ...`) rather than only
-      // through an npm script, where npm would otherwise prepend this path
-      // automatically.
-      PATH: [localBinDir, process.env.PATH || ""].filter(Boolean).join(path.delimiter),
-      ANXOS_RELEASE_ARTIFACT_VERSION: info.artifactVersion,
+
+async function prepareWindowsInstallerToolsets() {
+  if (process.env.ANXOS_WINDOWS_BUILD_REQUESTED !== "1") return {};
+  if (!azureSigning) {
+    console.log("NSIS plugins: unsigned (development build). Windows Smart App Control blocks this installer; only a signed release build installs on protected PCs.");
+    return {};
+  }
+  // Phase 9: the installer's NSIS plugin DLLs must be signed too, or Smart
+  // App Control refuses to load them and the signed installer aborts.
+  const { prepareSignedNsisToolsets } = require("./sign-nsis-toolsets");
+  const prepared = await prepareSignedNsisToolsets({
+    azure: azureSigning,
+    stageRoot: path.join(process.cwd(), "dist", ".signed-nsis"),
+    buildConfig: JSON.parse(fs.readFileSync(path.join(process.cwd(), "package.json"), "utf8")).build || {},
+  });
+  return prepared.env;
+}
+
+prepareWindowsInstallerToolsets().then((toolsetEnv) => {
+  const result = spawnSync(
+    process.platform === "win32" ? "electron-builder.cmd" : "electron-builder",
+    builderArgs,
+    {
+      cwd: process.cwd(),
+      stdio: "inherit",
+      shell: process.platform === "win32",
+      env: {
+        ...process.env,
+        ...toolsetEnv,
+        // Ensure resolution works even when this script is invoked directly
+        // (e.g. `node scripts/run-electron-builder.js ...`) rather than only
+        // through an npm script, where npm would otherwise prepend this path
+        // automatically.
+        PATH: [localBinDir, process.env.PATH || ""].filter(Boolean).join(path.delimiter),
+        ANXOS_RELEASE_ARTIFACT_VERSION: info.artifactVersion,
+      },
     },
-  },
-);
+  );
 
-if (result.error) {
-  console.error(`electron-builder could not be started: ${result.error.message}`);
+  if (result.error) {
+    console.error(`electron-builder could not be started: ${result.error.message}`);
+    process.exit(1);
+  }
+
+  if (result.signal) {
+    console.error(`electron-builder was terminated by signal ${result.signal}.`);
+    process.exit(1);
+  }
+
+  // result.status is 0 on success. A non-zero exit code must propagate as a
+  // failure; it must never be silently coerced into a success exit code.
+  process.exit(typeof result.status === "number" ? result.status : 1);
+}, (error) => {
+  console.error(`Preparing signed NSIS toolsets failed: ${error.message}`);
   process.exit(1);
-}
-
-if (result.signal) {
-  console.error(`electron-builder was terminated by signal ${result.signal}.`);
-  process.exit(1);
-}
-
-// result.status is 0 on success. A non-zero exit code must propagate as a
-// failure; it must never be silently coerced into a success exit code.
-process.exit(typeof result.status === "number" ? result.status : 1);
+});

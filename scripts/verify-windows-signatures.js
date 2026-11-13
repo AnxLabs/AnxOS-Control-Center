@@ -12,6 +12,9 @@ function walk(directory) {
   if (!fs.existsSync(directory)) return;
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
     const filePath = path.join(directory, entry.name);
+    // dist/.signed-nsis holds the NSIS build toolsets (makensis and friends,
+    // never shipped); only their plugin DLLs are checked, further below.
+    if (entry.isDirectory() && entry.name === ".signed-nsis") continue;
     if (entry.isDirectory()) walk(filePath);
     else if (entry.isFile() && filePath.toLowerCase().endsWith(".exe")) files.push(filePath);
   }
@@ -90,3 +93,29 @@ if (failures.length > 0) {
   process.exit(1);
 }
 console.log(`Authenticode verification passed for ${files.length} executable(s).`);
+
+// Phase 9: Smart App Control also refuses unsigned DLLs, native modules,
+// scripts and the installer's NSIS plugins, so every one of them is checked,
+// and the ones AnxOS signs itself must carry the AnxOS publisher.
+const { classifySignatures, listCoveredFiles, readSignatures } = require("./windows-signature-coverage");
+const buildConfig = JSON.parse(fs.readFileSync(path.join(process.cwd(), "package.json"), "utf8")).build || {};
+const nsisStageRoot = path.join(dist, ".signed-nsis");
+const signedPluginsRecord = path.join(nsisStageRoot, "signed-plugins.json");
+if (!fs.existsSync(signedPluginsRecord)) {
+  console.error("The installer's NSIS plugins were not signed (dist/.signed-nsis is missing); Smart App Control would block the installer.");
+  process.exit(1);
+}
+const stagedPlugins = JSON.parse(fs.readFileSync(signedPluginsRecord, "utf8")).plugins.map((plugin) => path.join(nsisStageRoot, plugin.file));
+const coverageRoots = [path.join(dist, "win-unpacked"), ...files.filter((filePath) => path.dirname(filePath) === dist), ...stagedPlugins];
+const covered = listCoveredFiles(coverageRoots);
+const coverageFailures = classifySignatures(readSignatures(covered), {
+  signExts: buildConfig.win?.signExts || [],
+  ourExecutables: [`${buildConfig.productName || "AnxOS Control Center"}.exe`, "elevate.exe"],
+  nsisStageRoot,
+});
+if (coverageFailures.length > 0) {
+  console.error(`Signature coverage failed for ${coverageFailures.length} of ${covered.length} file(s):`);
+  coverageFailures.forEach((failure) => console.error(`- ${failure.file}: ${failure.reason}`));
+  process.exit(1);
+}
+console.log(`Signature coverage passed: ${covered.length} program, library, module, script and NSIS plugin file(s) are validly signed.`);

@@ -157,3 +157,94 @@ Consequences:
    verification in a disposable environment.
 7. **P9-G/H:** private-alpha documents refreshed from what is verified;
    handoff with evidence and remaining approvals.
+
+## 7. Progress (2026-11-13)
+
+| Item | Commit | Evidence |
+| --- | --- | --- |
+| Audit (this document) | `03e6741e` | — |
+| Authenticode publisher check before an update installer is opened | `91212623` | `installer-signature-smoke` 6/6 on Windows: genuine installed uninstaller passes; another publisher's valid signature, a byte-flipped copy (HashMismatch), the same program with its signature removed (NotSigned) and a non-program are refused; `install()` never hands off a refused installer. Existing update smokes (download safety, rollback signalling, versioning, promotion, rollback caveat display, migration store recovery, diagnostics, permission matrix) pass |
+| Agent `.deb` provenance (`sourceCommit`, `sourceTree`; dirty/unknown source refused unless `--allow-dirty`) | `211bb867` | `agent-deb-provenance-smoke` 4/4 on Windows and Anxlab; on Anxlab a real build from a clean clone stamped `211bb867…` / `clean`, and one stray untracked file under `agent/` made the build refuse; `agent-package-closure-smoke` PASS (421 paths) on Anxlab |
+| Unreadable encrypted stores preserved once per distinct contents | `b184b969` | `preserved-copy-dedupe-smoke` 4/4 (12 starts with one unreadable session → 1 copy; the old code left 12); 10 existing credential/session/migration store smokes pass |
+| Settings → Updates "Verification" row; refused installs now reach the screen | `0e6ec87d` | `phase9-ui-qa` 4/4 in the real app (isolated profile): row, refusal event, verified publisher, and clicking the dialog's install on a refused installer switches it to "Update Not Installed" with the reason. Found and fixed: `installUpdate()` discarded `{ installed: false }` and the renderer ignored `install-error` |
+
+## 8. Windows Smart App Control compatibility
+
+Goal (owner, 2026-11-13): a properly signed release installs and runs with
+Defender, SmartScreen and Smart App Control **on**; nothing in Windows
+security is weakened to make AnxOS run.
+
+### Findings (Windows Sandbox, Windows 11 26100, networking off)
+
+| Run | Smart App Control | Installer | Result |
+| --- | --- | --- | --- |
+| 1 | On (state 1) | Local Phase 9 build, unsigned | Blocked before running ("An Application Control policy has blocked this file") |
+| 2–3 | On | Official Build 209, signed (Valid, Anjo ROSIMO, SHA-512 matches `latest.yml`) | **Install fails** (exit 2): Code Integrity events 3033/3077 — the installer may not load `nsExec.dll` and `System.dll` it extracts to `%TEMP%` (unsigned NSIS plugins). Shortcuts and an uninstall entry are left behind; no program files |
+| 4–5 | Off **inside the disposable sandbox only** (diagnostic, to isolate the cause) | Official Build 209 | Install 69–81 s, Agent task registered and running, first launch shows the welcome, bundled Local Agent healthy, reinstall keeps user data (16/16 files), uninstall removes program files, entry, task and shortcut and keeps user data |
+
+Run 4's first uninstall result was a harness timing error (the NSIS
+uninstaller re-launches itself from `%TEMP%`); run 5 waited and passed.
+
+Signature audit of the installed Build 209 (625 executables, DLLs, native
+modules and scripts): 616 validly signed (AnxOS, Microsoft, .NET, Eclipse
+Temurin, Xamarin); **9 unsigned**: `ffmpeg.dll`, `libEGL.dll`,
+`libGLESv2.dll`, `vk_swiftshader.dll`, `vulkan-1.dll`, `dxcompiler.dll`
+(Electron runtime, loaded at start), `sshcrypto.node`, `cpufeatures.node`
+(SSH native code) and `resources/install-agent-task.ps1`. The installer's
+25 Unicode NSIS plugins (compiler bundle and electron-builder resources) are
+all unsigned. With Smart App Control on, the app itself would therefore be
+at risk even once installed.
+
+### Changes (this branch)
+
+- `build.win.signExts` names the 9 unsigned files' patterns (`.node`, `.ps1`
+  and the six DLL names), never `.dll` as a whole, so Microsoft, .NET and
+  Eclipse signatures are not replaced.
+- `install-agent-task.ps1` is packaged through a directory mapping (same
+  file, same path) because electron-builder only signs extra resources
+  copied that way.
+- `scripts/sign-nsis-toolsets.js`: for a signed (Azure) build, copies the
+  NSIS compiler and resources bundles to `dist/.signed-nsis`, signs every
+  x86-unicode plugin DLL with the same `Invoke-TrustedSigning` call
+  electron-builder uses, verifies each against the pinned publisher, and
+  points electron-builder at the copies (`ELECTRON_BUILDER_NSIS_DIR`,
+  `ELECTRON_BUILDER_NSIS_RESOURCES_DIR`). Unsigned development builds say
+  plainly that Smart App Control blocks them.
+- `scripts/verify-windows-signatures.js` (the CI release gate) now also
+  requires a Valid signature on every `.dll`, `.node` and `.ps1` in the
+  package and on every staged NSIS plugin, and the AnxOS publisher on
+  everything AnxOS signs.
+
+### Verified without a certificate
+
+- `windows-signing-coverage-smoke`: coverage rules, the release gate's
+  classification, NSIS staging (fails closed), the real cached toolsets
+  (25 plugins incl. nsExec, System, nsis7z, UAC), and the installed Build 209
+  (exactly its 9 unsigned files are reported).
+- A real electron-builder build with a test-only recording signer: it used
+  the staged NSIS overrides and marked the six DLLs, both `.node` modules,
+  the PowerShell script, the app, `elevate.exe`, the installer and the
+  uninstaller for signing.
+- That installer (staged toolsets, new script mapping; unsigned) in Windows
+  Sandbox with Smart App Control off inside the sandbox: install 89 s with
+  the Agent task running, first launch with a healthy Local Agent, reinstall
+  keeping user data (16/16), clean uninstall keeping user data, no Code
+  Integrity events. `packaging-artifact-smoke` passes for the Windows
+  installer and portable build (Local Agent dependency closure verified).
+- Privilege note: the installer runs as the user (`asInvoker`); the Local
+  Agent's scheduled task runs with highest privileges, as it did before
+  Phase 9. Whether every Agent operation still needs elevation was not
+  re-assessed here.
+
+### Not yet verified (needs your approval)
+
+Real signing happens only in the GitHub "Desktop Release" workflow (Azure
+Trusted Signing secrets). The acceptance test — a signed build of this
+branch installing, launching, updating and uninstalling in Windows Sandbox
+with Smart App Control **on** — needs an RC build from that workflow, which
+needs a push and a tag. Until then Smart App Control compatibility is
+designed and tested up to signing, not proven.
+
+Not caused by Phase 9, recorded for follow-up: `agent-cli-smoke` fails on
+Anxlab ("the system env file must be applied") at `73563e47` too, before any
+Phase 9 code.
