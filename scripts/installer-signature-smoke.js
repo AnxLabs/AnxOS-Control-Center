@@ -13,6 +13,7 @@
 //      the installed AnxOS uninstaller is present, its genuine signature passes
 //   S5 UpdateManager.install() refuses to hand off an installer whose signature
 //      check fails, records why, and never marks the install as handed off
+//   S6 Settings > Updates describes the verification state in plain words
 "use strict";
 
 const assert = require("assert");
@@ -165,7 +166,30 @@ async function main() {
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
-  console.log("Installer signature smoke: 5 checks passed.");
+
+  // S6: Settings > Updates explains what was verified, from the same state.
+  const appSource = fs.readFileSync(path.join(__dirname, "..", "app.js"), "utf8");
+  const start = appSource.indexOf("function describeUpdateVerification(");
+  assert.ok(start >= 0, "app.js defines describeUpdateVerification");
+  let depth = 0;
+  let end = -1;
+  // The body starts after the parameter list (which has a `= {}` default).
+  for (let index = appSource.indexOf(") {", start) + 2; index < appSource.length; index += 1) {
+    if (appSource[index] === "{") depth += 1;
+    else if (appSource[index] === "}" && --depth === 0) { end = index + 1; break; }
+  }
+  const describeInVm = require("vm").runInNewContext(`(${appSource.slice(start, end)})`);
+  // Objects from another context have their own prototypes; compare as data.
+  const describe = (state) => JSON.parse(JSON.stringify(describeInVm(state)));
+  assert.deepStrictEqual(describe({}), { state: "pending", text: "Checked when an update is downloaded." });
+  assert.strictEqual(describe({ status: "downloaded" }).state, "checksum");
+  assert.match(describe({ status: "downloaded" }).text, /signature is checked before installing/);
+  assert.deepStrictEqual(describe({ signature: { applicable: true, verified: true, publisher: "Anjo ROSIMO" } }), { state: "verified", text: "Checksum and publisher signature verified (Anjo ROSIMO)." });
+  assert.strictEqual(describe({ signature: { applicable: false, verified: false } }).state, "checksum");
+  const refused = describe({ status: "error", error: "The downloaded installer is not signed, so it was not opened.", signature: { applicable: true, verified: false, code: "UPDATE_INSTALLER_UNSIGNED" } });
+  assert.deepStrictEqual(refused, { state: "refused", text: "Not installed: The downloaded installer is not signed, so it was not opened." });
+  console.log("PASS S6 Settings > Updates says what was verified, or why the installer was not opened");
+  console.log("Installer signature smoke: 6 checks passed.");
 }
 
 main().catch((error) => {

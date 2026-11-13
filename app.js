@@ -47425,11 +47425,38 @@ function renderUpdateSurfaces(state = updateUiState) {
     button.disabled = !isReady || !canInstallUpdate;
   });
 
+  const verification = describeUpdateVerification(state);
+  const verificationField = document.querySelector("[data-update-verification]");
+  if (verificationField) {
+    verificationField.textContent = verification.text;
+    verificationField.dataset.updateVerificationState = verification.state;
+  }
+
   if (state?.status === "up-to-date") setUpdateStatusMessage("You're up to date.");
   else if (state?.status === "available") setUpdateStatusMessage(`Update ${latestVersion} is available.`);
   else if (state?.status === "downloading") setUpdateStatusMessage("Downloading update...");
   else if (state?.status === "downloaded") setUpdateStatusMessage("Update ready to install.");
-  else if (state?.status === "error") setUpdateStatusMessage("Update failed.");
+  else if (state?.status === "error") setUpdateStatusMessage(verification.state === "refused" ? "Update not installed: the installer did not pass verification." : "Update failed.");
+}
+
+// Phase 9: what was verified about the downloaded update, in plain words. The
+// checksum is checked when the download finishes and again before installing;
+// a Windows installer's publisher signature is checked before it is opened.
+function describeUpdateVerification(state = {}) {
+  const signature = state?.signature || null;
+  if (signature && signature.applicable && signature.verified === false) {
+    return { state: "refused", text: `Not installed: ${state?.error || "the installer's signature could not be confirmed."}` };
+  }
+  if (signature?.applicable && signature.verified) {
+    return { state: "verified", text: `Checksum and publisher signature verified (${signature.publisher}).` };
+  }
+  if (signature && signature.applicable === false) {
+    return { state: "checksum", text: "Checksum verified. Packages for this system are not code-signed." };
+  }
+  if (state?.status === "downloaded") {
+    return { state: "checksum", text: "Checksum verified. The publisher's signature is checked before installing." };
+  }
+  return { state: "pending", text: "Checked when an update is downloaded." };
 }
 
 function renderUpdateModal(mode = getUpdateModeFromState()) {
@@ -47447,7 +47474,7 @@ function renderUpdateModal(mode = getUpdateModeFromState()) {
           : mode === "unavailable"
             ? "Update Check Unavailable"
             : mode === "error"
-              ? "Update Check Failed"
+              ? (updateUiState?.signature?.verified === false ? "Update Not Installed" : "Update Check Failed")
               : "New Version Available";
   }
 
@@ -47592,7 +47619,7 @@ function handleUpdateStatus(payload = {}) {
     renderUpdateModal("error");
     return;
   }
-  if (["checking", "not-available", "unavailable", "error", "skipped"].includes(payload.type)) {
+  if (["checking", "not-available", "unavailable", "error", "skipped", "install-error"].includes(payload.type)) {
     if (payload.type !== "checking") {
       updateCheckInFlight = false;
       if (updateUiState) updateUiState.checkInFlight = false;
@@ -47758,7 +47785,20 @@ async function installUpdate() {
     return;
   }
   try {
-    await (desktopApiState.api.updates.install ? desktopApiState.api.updates.install() : desktopApiState.api.updates.openDownloaded());
+    const result = await (desktopApiState.api.updates.install ? desktopApiState.api.updates.install() : desktopApiState.api.updates.openDownloaded());
+    // install() reports a refusal (checksum mismatch, Phase 9 signature
+    // check, missing file) as { installed: false, error } rather than
+    // throwing, so it has to be shown here.
+    if (result && result.installed === false && !result.alreadyRequested) {
+      if (result.state) {
+        updateUiState = result.state;
+        renderUpdateSurfaces(updateUiState);
+      }
+      // The update dialog would otherwise keep offering "Restart Now", with
+      // the toast hidden behind its backdrop.
+      if (updateModal && !updateModal.hidden) renderUpdateModal("error");
+      showToast(result.error || result.message || "Update installer could not be opened.", "error");
+    }
   } catch {
     showToast("Update installer could not be opened.");
   }

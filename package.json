@@ -163,6 +163,7 @@
     "preserved-copy-dedupe:smoke": "node scripts/preserved-copy-dedupe-smoke.js",
     "files-drop-upload:smoke": "node scripts/files-drop-upload-smoke.js",
     "phase8:ui-qa": "node scripts/phase8-ui-qa.js",
+    "phase9:ui-qa": "node scripts/phase9-ui-qa.js",
     "mobile:ui-qa": "node scripts/mobile-ui-qa.js",
     "server-version-checks:smoke": "node scripts/server-version-checks-smoke.js",
     "fleet-update-view:smoke": "node scripts/fleet-update-view-smoke.js",
