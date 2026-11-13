@@ -17,6 +17,12 @@
 //      mode a checkbox click selects without opening the server; bulk Start
 //      confirms with every name, skips the running one, starts the stopped
 //      one through the normal action path; bulk Stop stops it again
+//   P7 Docker: one section at a time (Containers by default), shortcuts,
+//      the toolbar keeps only Refresh and the container actions sit in the
+//      selected container's details panel; Manage storage opens Volumes;
+//      images and volumes say whether a container uses them (Docker is not
+//      running on this PC, so the image and volume lists come from fake IPC
+//      handlers installed in the test app only)
 //   P6 when the Agent goes away, a server that was running reads
 //      "Last known: Running", never a live "Running"
 // Set PHASE8_SHOTS=<dir> to keep screenshots.
@@ -219,7 +225,66 @@ async function main() {
     await page.locator("[data-servers-select-toggle]").click();
     console.log(`PASS P5 My Servers: game shown, sorted by name, bulk Start skipped the running server and started the stopped one, bulk Stop stopped it`);
 
+    // P7
+    await app.evaluate(({ ipcMain }) => {
+      ipcMain.removeHandler("docker:listImages");
+      ipcMain.handle("docker:listImages", async () => ({ images: [
+        { id: "sha256:aaa", repository: "nginx", tag: "1.27", size: "190MB", containersUsing: ["web"] },
+        { id: "sha256:bbb", repository: "redis", tag: "7", size: "130MB", containersUsing: [] },
+      ] }));
+      ipcMain.removeHandler("docker:listVolumes");
+      ipcMain.handle("docker:listVolumes", async () => ({ volumes: [
+        { name: "web-data", driver: "local", mountpoint: "/var/lib/docker/volumes/web-data/_data", containersUsing: ["web"] },
+        { name: "old-cache", driver: "local", mountpoint: "/var/lib/docker/volumes/old-cache/_data", containersUsing: [] },
+      ] }));
+    });
+    await page.evaluate(() => { try { localStorage.removeItem("anxos.docker.section.v1"); } catch {} window.showPage("docker"); window.AnxDockerWorkspace.show("containers"); });
+    await page.waitForTimeout(800);
+    const docker = await page.evaluate(() => {
+      const host = document.querySelector('.page[data-page="docker"]');
+      const visible = (el) => Boolean(el) && el.checkVisibility();
+      return {
+        sections: [...host.querySelectorAll("[data-docker-section]")].map((button) => button.dataset.dockerSection),
+        shortcuts: [...host.querySelectorAll("[data-docker-shortcuts] button")].map((button) => button.textContent),
+        toolbar: [...host.querySelectorAll(".docker-toolbar .docker-actions [data-docker-action]")].map((button) => button.dataset.dockerAction),
+        detailActions: [...host.querySelectorAll("[data-docker-details-actions] [data-docker-action]")].map((button) => button.dataset.dockerAction),
+        tableVisible: visible(host.querySelector(".docker-table-panel")),
+        resourcePanelsVisible: [...host.querySelectorAll(".docker-resource-panel")].filter(visible).length,
+        height: host.scrollHeight,
+      };
+    });
+    assert.deepStrictEqual(docker.sections, ["containers", "images", "volumes", "networks", "compose", "create", "cleanup"]);
+    assert.deepStrictEqual(docker.shortcuts, ["Create a container", "View logs", "Manage storage", "View networks"]);
+    assert.deepStrictEqual(docker.toolbar, ["refresh"], "the toolbar keeps only Refresh");
+    assert.deepStrictEqual(docker.detailActions, ["start", "stop", "restart", "pause", "unpause", "kill", "remove", "logs", "terminal"], "container actions sit in the details panel");
+    assert.deepStrictEqual([docker.tableVisible, docker.resourcePanelsVisible], [true, 0], "Containers shows only the container table and details");
+    await shot(page, "p7-docker-containers");
+    await page.locator("[data-docker-shortcuts] button", { hasText: "Manage storage" }).click();
+    await waitFor(page, () => document.querySelectorAll("[data-docker-volumes-list] .docker-resource-item").length === 2, null, "volumes listed", 15000);
+    const storage = await page.evaluate(() => {
+      const host = document.querySelector('.page[data-page="docker"]');
+      const visible = (el) => Boolean(el) && el.checkVisibility();
+      return {
+        tableVisible: visible(host.querySelector(".docker-table-panel")),
+        panels: [...host.querySelectorAll(".docker-resource-panel")].filter(visible).map((panel) => panel.querySelector("h3").textContent.trim()),
+        volumes: [...host.querySelectorAll("[data-docker-volumes-list] .docker-resource-item")].map((item) => ({ text: item.textContent, removeDisabled: item.querySelector("button.inline-action--danger")?.disabled })),
+        active: host.querySelector("[data-docker-section].is-active")?.dataset.dockerSection,
+      };
+    });
+    assert.deepStrictEqual([storage.active, storage.tableVisible, storage.panels], ["volumes", false, ["Volumes"]]);
+    assert.ok(/used by web/.test(storage.volumes[0].text) && storage.volumes[0].removeDisabled === true, "a volume in use cannot be removed");
+    assert.ok(/used by none/.test(storage.volumes[1].text) && storage.volumes[1].removeDisabled === false, "an unused volume can be removed (with confirmation)");
+    await shot(page, "p7-docker-storage");
+    await page.locator("[data-docker-section=\"images\"]").click();
+    await waitFor(page, () => document.querySelectorAll("[data-docker-images-list] .docker-resource-item").length === 2, null, "images listed", 15000);
+    const images = await page.evaluate(() => [...document.querySelectorAll("[data-docker-images-list] .docker-resource-item")].map((item) => item.textContent));
+    assert.ok(/used by 1 container/.test(images[0]) && /not used by any container/.test(images[1]), `image usage in plain words (${images.join(" | ")})`);
+    await page.evaluate(() => window.AnxDockerWorkspace.show("containers"));
+    console.log(`PASS P7 Docker: 7 sections, toolbar = Refresh, 9 container actions in the details panel, page ${docker.height}px tall; storage and image usage in plain words`);
+
     // P6
+    await page.evaluate(() => window.showPage("instances"));
+    await page.waitForTimeout(500);
     await agent.stop();
     await waitFor(page, (id) => { const pill = document.querySelector(`[data-instances-list] tr[data-instance-id="${id}"] .instance-state`); return Boolean(pill) && pill.classList.contains("is-stale") && pill.textContent === "Last knownRunning"; }, runningId, "the stale state marked as last known", 90000).catch(async (error) => {
       console.log("Row at timeout:", await page.evaluate((id) => document.querySelector(`[data-instances-list] tr[data-instance-id="${id}"]`)?.textContent, runningId), await page.evaluate(() => JSON.stringify({ visual: getNodeVisualState(getSelectedNode()), status: getAgentStatusSnapshot(getSelectedNode()), page: getActivePageName() }).slice(0, 600)));
@@ -231,7 +296,7 @@ async function main() {
     console.log("PASS P6 with the Agent gone, a running server reads 'Last known · Running' and its actions still fit");
 
     assert.deepStrictEqual(errors, [], `renderer errors: ${errors.join(" | ")}`);
-    console.log(`Phase 8 UI QA: 6 checks passed. Screenshots: ${shotsDir}`);
+    console.log(`Phase 8 UI QA: 7 checks passed. Screenshots: ${shotsDir}`);
   } finally {
     await Promise.race([app.close().catch(() => {}), new Promise((resolve) => setTimeout(resolve, 15000))]);
     await agent.stop().catch(() => {});

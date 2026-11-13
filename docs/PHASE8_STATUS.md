@@ -125,3 +125,29 @@ failures (it reports two missing xterm files: this worktree has no
 
 Not done: one list across several computers (the list shows the selected
 computer, as before); grouping.
+
+### P8-C Docker (this commit)
+
+The Docker backend already covered containers, images, volumes, networks,
+Compose, guided create with a safety preflight, a cleanup preview and
+"used by" for images and volumes. What was wrong was the page, so only the
+page changed (`src/renderer/dockerWorkspace.js`):
+
+- One section at a time: Containers, Images, Storage (volumes), Networks,
+  Compose, Create, Clean up (remembered). The page went from about 2,400 px
+  of stacked panels to 1,174 px.
+- Shortcuts: Create a container, View logs, Manage storage, View networks.
+- The top toolbar acted on a hidden selection with ten buttons; it now has
+  only Refresh. Start, Stop, Restart, Pause, Resume, Kill, Remove, Logs and
+  Terminal sit in the selected container's details panel (the same button
+  elements, so their wiring is unchanged). Rows keep their quick actions.
+- Images say "not used by any container" or "used by N containers";
+  removing an image or volume that a container uses stays disabled.
+
+Tests: `phase8-ui-qa` P7 (fake image and volume lists injected at the IPC
+layer in the test app; Docker Desktop is stopped on this PC and was not
+started); all eight `docker-*` smokes pass.
+
+Not verified here: live containers, logs, terminal and Compose against a
+running Docker daemon (no daemon on this PC during the run; Anxlab has
+Docker but is a live server).

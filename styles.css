@@ -21806,3 +21806,37 @@ body.create-server-window .page[data-page="marketplace"] .page-introduction {
   flex-wrap: wrap;
   gap: 4px;
 }
+
+/* Docker (Phase 8): one section at a time, shortcuts, actions on the
+   selected container. */
+.is-docker-section-hidden {
+  display: none !important;
+}
+
+.docker-resource-grid.is-docker-single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.docker-shortcuts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 4px;
+}
+
+.docker-sections {
+  margin: 8px 0 12px;
+  flex-wrap: wrap;
+}
+
+.docker-details-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0 10px;
+}
+
+.docker-details-actions .inline-action {
+  padding: 4px 10px;
+  font-size: 0.8rem;
+}

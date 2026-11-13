@@ -32157,7 +32157,9 @@ async function refreshDockerResources(kind = "all") {
       const result = await api.listImages(payload);
       renderDockerResourceList("[data-docker-images-list]", result.images || [], "No Docker images found.", (image) => {
         const ref = `${image.repository || "<none>"}:${image.tag || "<none>"}`;
-        return createDockerResourceItem(ref, `${image.id || "unknown"} · ${image.size || "unknown size"} · used by ${(image.containersUsing || []).length}`, [
+        const usedBy = (image.containersUsing || []).length;
+        // Phase 8: say plainly whether an image is in use (and so safe to remove).
+        return createDockerResourceItem(ref, `${image.id || "unknown"} · ${image.size || "unknown size"} · ${usedBy === 0 ? "not used by any container" : `used by ${usedBy} container${usedBy === 1 ? "" : "s"}`}`, [
           { label: "Inspect", action: () => inspectDockerResource("image", ref) },
           { label: "Create", action: () => seedDockerCreateFromImage(ref) },
           { label: "Remove", danger: true, disabled: (image.containersUsing || []).length > 0, action: () => removeDockerImage(ref) },
