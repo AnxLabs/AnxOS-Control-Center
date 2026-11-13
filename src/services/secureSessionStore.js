@@ -3,6 +3,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { decideMigrationRecovery, verifyRecoveryPoint } = require("../shared/migrationRecoveryPolicy");
+const { preserveUnreadableFile } = require("../shared/preserveUnreadableFile");
 let app = null;
 let safeStorage = null;
 const SECURE_SESSION_SCHEMA_VERSION = 1;
@@ -101,8 +102,7 @@ class SecureSessionStore {
     try {
       record = JSON.parse(fs.readFileSync(this.filePath, "utf8"));
     } catch (error) {
-      const preservedPath = `${this.filePath}.corrupt-${Date.now()}.backup`;
-      try { fs.copyFileSync(this.filePath, preservedPath, fs.constants.COPYFILE_EXCL); } catch {}
+      try { preserveUnreadableFile(this.filePath, { kind: "corrupt" }); } catch {}
       throw secureSessionError("SECURE_SESSION_CORRUPT", "Encrypted session state is unreadable and was preserved for recovery.", this.filePath, error);
     }
     const schemaVersion = record?.schemaVersion === undefined ? 0 : Number(record.schemaVersion);
@@ -113,8 +113,7 @@ class SecureSessionStore {
       value = decryptPayload(record, this.filePath);
       if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Decrypted session payload must be an object.");
     } catch (error) {
-      const preservedPath = `${this.filePath}.undecryptable-${Date.now()}.backup`;
-      try { fs.copyFileSync(this.filePath, preservedPath, fs.constants.COPYFILE_EXCL); } catch {}
+      try { preserveUnreadableFile(this.filePath); } catch {}
       throw secureSessionError("SECURE_SESSION_DECRYPT_FAILED", "Encrypted session state could not be decrypted and was preserved for recovery.", this.filePath, error);
     }
     if (schemaVersion < SECURE_SESSION_SCHEMA_VERSION) {

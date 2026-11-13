@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const { app } = require("electron");
+const { preserveUnreadableFile } = require("../shared/preserveUnreadableFile");
 const { decryptPayload, encryptPayload } = require("./secureSessionStore");
 const {
   decideMigrationRecovery,
@@ -225,8 +226,7 @@ function replaceUnreadableStore(nodes = {}) {
     if (error?.code !== "NODE_CREDENTIAL_DECRYPT_FAILED") throw error;
   }
 
-  const preservedPath = `${filePath}.undecryptable-${Date.now()}.backup`;
-  fs.copyFileSync(filePath, preservedPath, fs.constants.COPYFILE_EXCL);
+  const preservedPath = preserveUnreadableFile(filePath).path;
   const store = { schemaVersion: NODE_CREDENTIAL_SCHEMA_VERSION, nodes: recoveredNodes };
   writeStore(store);
   return { recovered: true, preservedPath, recoveredNodeCount: Object.keys(recoveredNodes).length };

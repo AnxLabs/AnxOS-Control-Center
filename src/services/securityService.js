@@ -24,6 +24,7 @@ const {
 const diagnostics = require("./diagnosticsService");
 const auditRetentionPolicy = require("../shared/auditRetentionPolicy");
 const { sanitizeForDiagnostics } = require("../shared/redaction");
+const { preserveUnreadableFile } = require("../shared/preserveUnreadableFile");
 const { decideMigrationRecovery, verifyRecoveryPoint } = require("../shared/migrationRecoveryPolicy");
 
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
@@ -484,8 +485,7 @@ function parsePersistentSessionRecord({ preserveFailure = false } = {}) {
     record = JSON.parse(fs.readFileSync(filePath, "utf8"));
   } catch (error) {
     if (preserveFailure) {
-      const backupPath = `${filePath}.corrupt-${Date.now()}.backup`;
-      try { fs.copyFileSync(filePath, backupPath, fs.constants.COPYFILE_EXCL); } catch {}
+      try { preserveUnreadableFile(filePath, { kind: "corrupt" }); } catch {}
     }
     return null;
   }
@@ -540,8 +540,7 @@ function readPersistentSessionFile() {
   } catch (error) {
     if (["PERSISTENT_SESSION_SCHEMA_UNSUPPORTED", "PERSISTENT_SESSION_MIGRATION_RECOVERY_UNVERIFIED"].includes(error?.code)) return null;
     const filePath = getPersistentSessionPath();
-    const backupPath = `${filePath}.undecryptable-${Date.now()}.backup`;
-    try { fs.copyFileSync(filePath, backupPath, fs.constants.COPYFILE_EXCL); } catch {}
+    try { preserveUnreadableFile(filePath); } catch {}
     return null;
   }
 }
