@@ -26,6 +26,10 @@
 //   P8 Files: two files dropped on the list of a disposable folder on this
 //      PC are uploaded byte for byte; the existing one is replaced only after
 //      a confirmation that names it
+//   P9 SSH: one "New session" tab (not two); Saved connections lists every
+//      saved server under its computer (the selected one first; a
+//      connection on another computer offers "Switch to ..."); Use fills the pickers;
+//      the status bar has a Handshake field
 //   P6 when the Agent goes away, a server that was running reads
 //      "Last known: Running", never a live "Running"
 // Set PHASE8_SHOTS=<dir> to keep screenshots.
@@ -318,6 +322,39 @@ async function main() {
     fs.rmSync(dropFolder, { recursive: true, force: true });
     console.log("PASS P8 Files: two dropped files uploaded byte for byte; the existing one replaced after a named confirmation");
 
+    // P9
+    await page.evaluate(() => window.showPage("ssh"));
+    await page.waitForTimeout(500);
+    const emptyTabs = await page.evaluate(() => [...document.querySelectorAll(".ssh-session-tabs .ssh-tab")].map((tab) => tab.textContent));
+    assert.strictEqual(emptyTabs.length, 1, `one New session tab with no sessions (${emptyTabs.join(" | ")})`);
+    assert.match(await page.locator("[data-ssh-saved]").textContent(), /No saved servers yet/);
+    await page.evaluate(async () => {
+      const api = getDesktopApiState().api.ssh;
+      await api.saveProfile({ displayName: "Game box", host: "192.0.2.10", port: 22, username: "gamer", authType: "password", nodeId: "ovh" });
+      await api.saveProfile({ displayName: "Spare box", host: "192.0.2.20", port: 2222, username: "admin", authType: "password" });
+      // New profiles belong to the selected computer; move this one to this PC.
+      await loadSshProfiles();
+      const spareId = sshProfilesState.profiles.find((profile) => profile.displayName === "Spare box")?.id;
+      await api.assignProfileToNode({ profileId: spareId, nodeId: "application-host" });
+      await loadSshProfiles();
+      renderSshView();
+    });
+    await waitFor(page, () => document.querySelectorAll("[data-ssh-saved] [data-ssh-saved-profile]").length === 2, null, "two saved connections", 15000);
+    const saved = await page.evaluate(() => [...document.querySelectorAll("[data-ssh-saved] .ssh-saved__group")].map((group) => ({ computer: group.dataset.sshSavedComputer, label: group.querySelector(".ssh-saved__computer").textContent, rows: [...group.querySelectorAll("[data-ssh-saved-profile]")].map((row) => row.textContent) })));
+    assert.deepStrictEqual(saved.map((group) => group.computer), ["ovh", "application-host"], `grouped by computer, the selected one first (${JSON.stringify(saved)})`);
+    assert.match(saved[0].label, /OVH · this computer is selected/);
+    assert.match(saved[0].rows[0], /gamer@192\.0\.2\.10:22/);
+    assert.ok(!/this computer is selected/.test(saved[1].label), "the other computer is not marked selected");
+    assert.match(saved[1].rows[0], /Switch$/, "a connection on another computer offers to switch to it");
+    assert.match(await page.locator('[data-ssh-saved-computer="application-host"] [data-ssh-saved-use]').getAttribute("aria-label"), /^Switch to .+ and use Spare box$/);
+    assert.ok(!JSON.stringify(saved).match(/password/i), "no credential appears in the list");
+    await page.locator('[data-ssh-saved-profile] [data-ssh-saved-use]').first().click();
+    await waitFor(page, () => document.querySelector("[data-ssh-status=\"endpoint\"]")?.textContent === "gamer@192.0.2.10:22", null, "Use fills the endpoint", 10000);
+    assert.strictEqual(await page.evaluate(() => document.querySelectorAll(".ssh-session-tabs .ssh-tab").length), 1, "still one New session tab");
+    assert.strictEqual(await page.locator("[data-ssh-status=\"handshake\"]").textContent(), "—", "no handshake time before a session connects");
+    await shot(page, "p9-ssh");
+    console.log("PASS P9 SSH: one New session tab, saved connections grouped by computer, Use fills the pickers, Handshake field present");
+
     // P6
     await page.evaluate(() => window.showPage("instances"));
     await page.waitForTimeout(500);
@@ -332,7 +369,7 @@ async function main() {
     console.log("PASS P6 with the Agent gone, a running server reads 'Last known · Running' and its actions still fit");
 
     assert.deepStrictEqual(errors, [], `renderer errors: ${errors.join(" | ")}`);
-    console.log(`Phase 8 UI QA: 8 checks passed. Screenshots: ${shotsDir}`);
+    console.log(`Phase 8 UI QA: 9 checks passed. Screenshots: ${shotsDir}`);
   } finally {
     await Promise.race([app.close().catch(() => {}), new Promise((resolve) => setTimeout(resolve, 15000))]);
     await agent.stop().catch(() => {});

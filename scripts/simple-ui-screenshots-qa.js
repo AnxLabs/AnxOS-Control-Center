@@ -165,7 +165,8 @@ async function main() {
     assert.ok(detailPanel.chips >= 1, "a chip per computer");
     assert.ok(detailPanel.cards >= 4, "CPU, memory, disk and network cards");
     assert.ok(detailPanel.graph, "a recent-activity graph");
-    assert.deepStrictEqual(detailPanel.sections, ["Recent activity", "Computer and Agent", "Servers on this computer", "Alerts"]);
+    // Phase 8 added the Network section.
+    assert.deepStrictEqual(detailPanel.sections, ["Recent activity", "Computer and Agent", "Network", "Servers on this computer", "Alerts"]);
     assert.ok(detailPanel.info.includes("Agent version") && detailPanel.info.includes("Operating system"));
     await page.evaluate(() => document.querySelector("[data-computer-details]").scrollIntoView());
     await shot(page, "08-computer-details");

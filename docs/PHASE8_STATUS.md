@@ -175,3 +175,44 @@ in the real app into a disposable folder, checked on disk);
 `files-layout-ui-qa`, files IPC and pipeline smokes pass.
 
 Not done: resuming an interrupted transfer; dropping folders.
+
+### SSH and the Tools area (this commit)
+
+SSH already had a real PTY terminal (xterm.js, `xterm-256color`, resize,
+Ctrl+C), several sessions, host-key approval, an SSH-agent option and
+redacted output. Fixed and added:
+
+- **Bug:** with no sessions the session strip showed two "New Session"
+  tabs (one inert). Now one, saying what to do next.
+- **Saved connections by computer:** profiles were filtered to the
+  selected computer, so a server saved for another computer was invisible
+  ("No profiles configured"). A Saved connections list now shows every
+  saved server under its computer (selected one first, no credentials).
+  Use fills the pickers; for another computer, Switch selects that
+  computer first (the SSH service only connects a profile from the
+  selected computer, which stays enforced). Nothing connects by itself.
+- **Handshake time:** the status bar shows how long the TCP connection and
+  SSH handshake took for the active session, from the SSH service's own
+  stage timings (no extra probe).
+- Game-server consoles, administrative SSH and the read-only monitoring
+  credentials stay separate; nothing here gives a monitoring connection a
+  shell.
+
+Navigation:
+
+- The eight technical pages (Console, Task details, Docker, Files,
+  Network, SSH, Agent Control, Maintenance) are now one **Tools** group,
+  always in the sidebar and collapsed by default, instead of being hidden
+  until Settings > Advanced Mode was found. Advanced Mode still adds
+  technical detail. Pages joined to Computers, Sharing and Activity by
+  tabs keep highlighting their parent while Tools is closed, so switching
+  tabs never pops the group open.
+
+Tests: `phase8-ui-qa` P9; `sidebar-navigation-groups-ui-qa` 7/7 (updated
+for the visible Tools group); `simple-ui-screenshots-qa` 8/8 (updated for
+the new Network section); SSH smokes pass.
+
+Not verified in the app here: typing into a live terminal (this worktree
+has no `node_modules`, so xterm.js does not load in its test runs; the
+service is covered by `ssh-interactive-session-smoke` against an
+in-process SSH server).

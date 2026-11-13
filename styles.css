@@ -21853,3 +21853,66 @@ body.create-server-window .page[data-page="marketplace"] .page-introduction {
   color: var(--muted);
   font-size: 0.8rem;
 }
+
+/* SSH (Phase 8): saved connections grouped by computer. */
+.ssh-saved {
+  display: grid;
+  gap: 8px;
+  margin: 4px 0 12px;
+}
+
+.ssh-saved h4 {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.ssh-saved__empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.ssh-saved__group {
+  display: grid;
+  gap: 4px;
+}
+
+.ssh-saved__computer {
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.ssh-saved__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.ssh-saved__text {
+  display: grid;
+  min-width: 0;
+}
+
+.ssh-saved__text strong,
+.ssh-saved__text span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ssh-saved__text span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.ssh-saved__row .inline-action {
+  flex: none;
+  padding: 3px 9px;
+  font-size: 0.78rem;
+}

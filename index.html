@@ -2820,6 +2820,7 @@
                   <span>Status: <strong data-ssh-status="state">Disconnected</strong></span>
                   <span>Session: <strong data-ssh-status="session">None</strong></span>
                   <span>Endpoint: <strong data-ssh-status="endpoint">Unavailable</strong></span>
+                  <span title="Time to reach the server and finish the SSH handshake, measured when this session connected">Handshake: <strong data-ssh-status="handshake">—</strong></span>
                   <span>Lines: <strong data-ssh-status="lines">0 lines</strong></span>
                   <span>Auto-scroll: <strong data-ssh-status="autoscroll">On</strong></span>
                 </footer>
@@ -5021,7 +5022,7 @@
                 <label class="settings-check settings-check--toggle"><input type="checkbox" data-setting="general.restorePreviousPage"><span>Restore previous page on launch</span></label>
                 <label class="settings-check settings-check--toggle"><input type="checkbox" data-setting="general.confirmDestructiveActions"><span>Confirm before destructive actions</span></label>
                 <label class="settings-check settings-check--toggle"><input type="checkbox" data-setting="interface.guidedMode"><span>Guided Mode</span><small>Adds explanations, recommendations, and extra confirmation for advanced actions.</small></label>
-                <label class="settings-check settings-check--toggle"><input type="checkbox" data-setting="interface.advancedMode"><span>Advanced Mode</span><small>Shows the Advanced tools in the sidebar (Console, Docker, Files, SSH, Network, Agent Control and more) and more technical detail. Leave it off if you just want to run servers.</small></label>
+                <label class="settings-check settings-check--toggle"><input type="checkbox" data-setting="interface.advancedMode"><span>Advanced Mode</span><small>Shows more technical detail, such as setup logs and connection internals. The Tools group in the sidebar (Console, Docker, Files, SSH, Network, Agent Control and more) is always there; open it when you need it.</small></label>
                 <label class="settings-check settings-check--toggle"><input type="checkbox" data-setting="onboarding.welcomeGuidance"><span>Enable welcome guidance</span></label>
                 <label class="settings-check settings-check--toggle"><input type="checkbox" data-setting="onboarding.contextualTips"><span>Enable contextual tips</span></label>
                 <label class="settings-check settings-check--toggle"><input type="checkbox" data-setting="guidance.pageIntroductions"><span>Show page introductions</span></label>
@@ -5922,6 +5923,7 @@
     <script src="src/renderer/serversList.js"></script>
     <script src="src/renderer/dockerWorkspace.js"></script>
     <script src="src/renderer/filesDrop.js"></script>
+    <script src="src/renderer/sshConnections.js"></script>
     <script src="src/renderer/addonsTab.js"></script>
     <script src="src/renderer/serverBackups.js"></script>
     <script src="src/renderer/anxnetPanel.js"></script>

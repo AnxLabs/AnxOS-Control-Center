@@ -1421,15 +1421,17 @@ const instanceRemovalAllowedIds = new Set();
 // the groups, then Settings pinned at the bottom. Every primary page has
 // exactly one entry.
 const PRIMARY_NAVIGATION_TOP = ["dashboard", "instances", "marketplace", "nodes", "playit"];
-// A group marked advancedOnly is shown only while Settings > Advanced Mode is
-// on. Its pages stay reachable from search, the command palette and links.
+// Phase 8: the technical pages sit in one "Tools" group that is always in
+// the sidebar but starts collapsed, so beginners see one header instead of
+// eight entries and nothing is hidden behind a setting. (advancedOnly is
+// still honoured for any group that sets it.)
 const PRIMARY_NAVIGATION_GROUPS = [
   { id: "more", label: "More", pages: ["notifications", "backups", "security"] },
-  { id: "advanced", label: "Advanced tools", advancedOnly: true, pages: ["console", "operations", "docker", "files", "network", "ssh", "agent-control", "maintenance"] },
+  { id: "advanced", label: "Tools", pages: ["console", "operations", "docker", "files", "network", "ssh", "agent-control", "maintenance"] },
 ];
 const PRIMARY_NAVIGATION_UNGROUPED = ["settings"];
 // Groups collapsed until the user opens them (the active page's group always opens).
-const NAV_GROUPS_COLLAPSED_BY_DEFAULT = [];
+const NAV_GROUPS_COLLAPSED_BY_DEFAULT = ["advanced"];
 // v2: the groups were reorganised, so collapse state saved for the old group
 // ids is not carried over.
 const NAV_GROUPS_STORAGE_KEY = "anxos.sidebar.collapsedGroups.v2";
@@ -2825,6 +2827,9 @@ function syncNavigationGroupVisibility() {
 function revealNavigationGroupFor(pageName) {
   const item = document.querySelector(`.nav-group [data-page-target="${pageName}"]`);
   const group = item?.closest(".nav-group");
+  // A joined page shown through its parent's tabs keeps the group closed;
+  // its parent entry is the one highlighted (isNavItemShown).
+  if (NAV_PARENT_PAGES[pageName] && group?.classList.contains("is-collapsed")) return;
   if (group?.classList.contains("is-collapsed")) {
     setNavGroupCollapsed(group, false);
     storeCollapsedNavGroups();
@@ -4830,6 +4835,11 @@ async function handleWebhookAlertsAction(action) {
 // items stay in search and the command palette; this is the visible check.
 function isNavItemShown(item) {
   if (!item || item.hidden) return false;
+  // A page joined to another by tabs (Agent Control, Network, Task details)
+  // keeps highlighting its parent while the collapsed Tools group holds its
+  // own entry, so switching tabs does not pop the group open.
+  const group = item.closest(".nav-group");
+  if (group?.classList.contains("is-collapsed") && NAV_PARENT_PAGES[item.dataset.pageTarget]) return false;
   // Read the applied flag (set in applySettings) rather than the settings
   // store, so this agrees with the CSS that hides the group.
   return !item.closest("[data-nav-advanced]") || document.documentElement.dataset.advancedMode === "true";
@@ -35777,6 +35787,10 @@ function updateSshWorkspaceStatus() {
   setSshWorkspaceStatus("endpoint", endpoint);
   setSshWorkspaceStatus("lines", `${rows.length} ${rows.length === 1 ? "line" : "lines"}`);
   setSshWorkspaceStatus("autoscroll", sshAutoscrollInput?.checked ? "On" : "Off");
+  // Phase 8: how long the network connection and SSH handshake took, as
+  // measured by the SSH service for this session (no extra probe).
+  const handshakeMs = Number(session?.diagnostics?.timings?.connecting);
+  setSshWorkspaceStatus("handshake", session && Number.isFinite(handshakeMs) ? `${Math.round(handshakeMs)} ms` : "—");
 }
 
 function getSshFilteredProfiles() {
@@ -35860,18 +35874,9 @@ function renderSshSessionTabs() {
   sshSessionTabs.replaceChildren();
   const sessions = getSshSessionList();
 
-  if (sessions.length === 0) {
-    const draftTab = document.createElement("button");
-    draftTab.className = "ssh-tab is-active";
-    draftTab.type = "button";
-    draftTab.role = "tab";
-    draftTab.setAttribute("aria-selected", "true");
-    draftTab.append(
-      createTextElement("strong", "New Session"),
-      createTextElement("span", "Select a profile and connect."),
-    );
-    sshSessionTabs.appendChild(draftTab);
-  } else {
+  // Phase 8: with no sessions only the one "New session" tab below is shown
+  // (a second, inert placeholder tab used to sit above it).
+  if (sessions.length > 0) {
     sessions.forEach((session) => {
       const rows = getSshRenderableRows(session);
       const row = document.createElement("div");
@@ -35924,9 +35929,10 @@ function renderSshSessionTabs() {
   addTab.role = "tab";
   addTab.setAttribute("aria-selected", activeSshSessionId === null ? "true" : "false");
   addTab.append(
-    createTextElement("strong", "New Session"),
-    createTextElement("span", "Open another connection"),
+    createTextElement("strong", "New session"),
+    createTextElement("span", sshProfilesState.profiles.length === 0 ? "Save a server first" : sessions.length === 0 ? "Pick a saved server and connect" : "Open another connection"),
   );
+  addTab.dataset.sshNewSession = "";
   addTab.disabled = sshProfilesState.profiles.length === 0;
   addTab.addEventListener("click", () => {
     activeSshSessionId = null;
@@ -35968,6 +35974,7 @@ async function setActiveSshProfileAgent(enabled) {
 function renderSshView() {
   renderSshProfileSelectors();
   renderSshSessionTabs();
+  window.AnxSshConnections?.render();
   renderSshAgentToggle();
 
   const session = getActiveSshSession();

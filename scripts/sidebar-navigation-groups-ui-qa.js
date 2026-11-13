@@ -6,14 +6,15 @@
 // Launches the REAL Electron app (isolated profile and config, --qa-mode) and
 // proves that simplifying the sidebar kept every page reachable:
 //   N1 by default the everyday pages sit on top, then the More group, with
-//      the Advanced tools group hidden and Settings pinned last; every primary
+//      the Tools group present but collapsed (Phase 8; it used to be hidden
+//      until Advanced Mode) and Settings pinned last; every primary
 //      page has exactly one entry; legacy pages stay hidden;
 //   N2 each group header toggles its items and reports aria-expanded;
 //   N3 collapsed groups persist across a restart (same profile);
 //   N4 pages joined by tabs (Agent Control, Network, Task details) highlight their parent
 //      while Advanced Mode is off, and the tabs switch pages;
-//   N5 Advanced Mode shows Advanced tools; opening a page whose group is
-//      collapsed opens that group, so the current page is never hidden;
+//   N5 opening a page whose group is collapsed (Tools) opens that group, so
+//      the current page is never hidden;
 //   N6 the icon-only sidebar shows every item with no group headers;
 //   N7 every entry still navigates to its page (Add Server opens its own
 //      workspace window, as before).
@@ -114,13 +115,14 @@ async function main() {
     // Advanced tools group hidden, Settings pinned last, nothing listed twice.
     assert.deepStrictEqual(state.pinned, [...TOP_PAGES, "settings"], "everyday pages on top, Settings pinned last");
     assert.deepStrictEqual(state.groups.more.pages, EXPECTED_GROUPS.more, "More holds its pages in order");
-    assert.deepStrictEqual(state.groups.advanced.pages, EXPECTED_GROUPS.advanced, "Advanced tools holds its pages in order");
-    assert.strictEqual(state.groups.advanced.headerVisible, false, "Advanced tools is hidden while Advanced Mode is off");
-    assert.deepStrictEqual(state.groups.advanced.visiblePages, [], "no advanced page is visible while Advanced Mode is off");
+    assert.deepStrictEqual(state.groups.advanced.pages, EXPECTED_GROUPS.advanced, "Tools holds its pages in order");
+    assert.strictEqual(state.groups.advanced.headerVisible, true, "the Tools header is always in the sidebar");
+    assert.strictEqual(state.groups.advanced.collapsed, true, "Tools starts collapsed");
+    assert.deepStrictEqual(state.groups.advanced.visiblePages, [], "no Tools page is listed until the group is opened");
     assert.deepStrictEqual([...state.shownTargets].sort(), [...expectedAll].sort(), "exactly the primary pages have entries");
     assert.strictEqual(new Set(state.shownTargets).size, state.shownTargets.length, "no page is listed twice");
     assert.strictEqual(state.legacyShown, 0, "legacy pages stay hidden");
-    console.log("PASS N1 simple sidebar: everyday pages, More, Advanced tools hidden, Settings last");
+    console.log("PASS N1 simple sidebar: everyday pages, More, Tools collapsed, Settings last");
 
     // N2: toggling a group hides/shows its items and updates aria-expanded.
     await page.evaluate(() => window.showPage("dashboard"));
@@ -170,13 +172,13 @@ async function main() {
     assert.strictEqual((await navState(page)).groups.advanced.collapsed, true);
     await page.evaluate(() => window.showPage("docker"));
     state = await navState(page);
-    assert.strictEqual(state.groups.advanced.headerVisible, true, "Advanced tools is shown in Advanced Mode");
+    assert.strictEqual(state.groups.advanced.headerVisible, true, "the Tools header is shown");
     assert.strictEqual(state.groups.advanced.collapsed, false, "the active page's group opens");
     assert.ok(state.groups.advanced.visiblePages.includes("docker"), "the active page is visible");
     assert.strictEqual(state.active, "docker");
     await page.evaluate(() => window.showPage("agent-control"));
     assert.strictEqual((await navState(page)).active, "agent-control", "with its own entry visible, a joined page highlights itself");
-    console.log("PASS N5 Advanced Mode shows Advanced tools and the active page's group opens");
+    console.log("PASS N5 opening a Tools page opens the Tools group; with it open, a joined page highlights itself");
 
     // N6: icon-only sidebar shows every item and no headers.
     if (!(await navState(page)).groups.more.collapsed) await page.locator('[data-nav-group="more"] .nav-group__toggle').click();
