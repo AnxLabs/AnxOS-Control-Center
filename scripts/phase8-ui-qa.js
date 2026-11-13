@@ -122,6 +122,7 @@ async function main() {
     assert.match(network.text, /not your internet speed/, "link speed is never presented as internet speed");
     assert.ok(network.rows.length >= 1, "at least one connected adapter");
     assert.strictEqual(network.button, false, "Check connection is available for a connected computer");
+    assert.match(await page.locator("[data-titlebar-connection-label]").textContent(), /^OVH: Connected$/, "the title-bar chip names the computer it is about");
     await page.evaluate(() => document.querySelector("[data-computer-network]").scrollIntoView({ block: "start" }));
     await shot(page, "p1-network");
     await page.locator("[data-computer-network] [data-network-check]").click();
@@ -364,6 +365,7 @@ async function main() {
       throw error;
     });
     await shot(page, "p6-last-known");
+    await waitFor(page, () => /^OVH: last known list$/.test(document.querySelector("[data-titlebar-connection-label]")?.textContent || ""), null, "the title-bar chip says the list is the last known one", 20000);
     const actionsVisible = await page.evaluate((id) => { const row = document.querySelector(`[data-instances-list] tr[data-instance-id="${id}"]`); const table = row.closest("table").parentElement.getBoundingClientRect(); const last = row.querySelector(".instance-row-actions button:last-child").getBoundingClientRect(); return last.right <= table.right + 1; }, runningId);
     assert.ok(actionsVisible, "the row actions still fit in the table");
     console.log("PASS P6 with the Agent gone, a running server reads 'Last known · Running' and its actions still fit");

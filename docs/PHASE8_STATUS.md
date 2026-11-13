@@ -216,3 +216,14 @@ Not verified in the app here: typing into a live terminal (this worktree
 has no `node_modules`, so xterm.js does not load in its test runs; the
 service is covered by `ssh-interactive-session-smoke` against an
 in-process SSH server).
+
+### P8-G Remaining polish (this commit)
+
+- The title-bar status chip names what it is about: "OVH: Connected",
+  "SSH: no session", "Files: open", "Playit: …", "AMP: …". It used to show
+  a bare "Connected" on most pages (several hard-coded it, two page cases
+  were unreachable duplicates) and stayed green on My Servers while the
+  list was stale; there it now reads "OVH: last known list".
+
+Tests: `phase8-ui-qa` P1 and P6 check the chip; node-state consistency,
+node-status classification and UI polish smokes pass.

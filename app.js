@@ -4223,75 +4223,43 @@ function setTitlebarConnectionState(connected, label) {
   titlebarConnectionLabel.textContent = label;
 }
 
+// Phase 8: the chip says what it is about ("OVH: Connected", "SSH: no
+// session", "Files: open"). It used to show a bare "Connected" on most pages
+// (some hard-coded it) and stayed green on My Servers while the list was
+// only the last one seen.
 function getTitlebarConnectionState(pageName = getActivePageName()) {
+  const computer = () => {
+    const status = getActiveAgentStatusSnapshot();
+    const node = getSelectedNode();
+    const name = node?.displayName || node?.name || "This computer";
+    return { connected: isAgentStatusConnected(status), label: `${name}: ${status.primary}` };
+  };
   switch (pageName) {
-    case "dashboard":
-    case "nodes":
-    case "agent-control":
-    case "marketplace":
-    case "files":
-    case "docker":
-    case "console":
-    case "backups": {
-      const status = getActiveAgentStatusSnapshot();
-      return {
-        connected: isAgentStatusConnected(status),
-        label: status.primary,
-      };
-    }
     case "amp":
     case "minecraft": {
       const connected = latestAmpSnapshot?.connected === true;
-      return {
-        connected,
-        label: connected ? "Connected" : "Disconnected",
-      };
+      return { connected, label: connected ? "AMP: Connected" : "AMP: Disconnected" };
     }
     case "playit": {
       const playitState = getPlayitState(latestPlayitSnapshot, getConfiguredPlayitAddress());
       const connected = playitState.state === "connected" || playitState.state === "running";
-      return {
-        connected,
-        label: playitState.label === "Unknown" ? "Disconnected" : playitState.label,
-      };
-    }
-    case "docker": {
-      const connected = Boolean(latestDockerSnapshot?.installed && latestDockerSnapshot?.daemonRunning);
-      return {
-        connected,
-        label: connected ? "Connected" : "Disconnected",
-      };
+      return { connected, label: `Playit: ${playitState.label === "Unknown" ? "Not connected" : playitState.label}` };
     }
     case "instances": {
-      const connected = Array.isArray(latestInstancesSnapshot?.instances);
-      return {
-        connected,
-        label: connected ? "Connected" : "Disconnected",
-      };
+      if (isInstanceListStale()) {
+        const node = getSelectedNode();
+        return { connected: false, label: `${node?.displayName || node?.name || "Computer"}: last known list` };
+      }
+      return computer();
     }
     case "ssh": {
       const session = getActiveSshSession();
-      return {
-        connected: session?.status === "connected",
-        label: session?.status === "connected" ? "Connected" : "Disconnected",
-      };
+      return { connected: session?.status === "connected", label: session ? `SSH: ${getSshSessionStatusLabel(session)}` : "SSH: no session" };
     }
     case "files":
-      return {
-        connected: filesConnectionState.connected,
-        label: filesConnectionState.connected ? "Connected" : "Disconnected",
-      };
-    case "settings":
-      const status = getActiveAgentStatusSnapshot();
-      return {
-        connected: isAgentStatusConnected(status),
-        label: status.primary,
-      };
+      return { connected: filesConnectionState.connected, label: filesConnectionState.connected ? "Files: open" : "Files: not open" };
     default:
-      return {
-        connected: true,
-        label: "Connected",
-      };
+      return computer();
   }
 }
 

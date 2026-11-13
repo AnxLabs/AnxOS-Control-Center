@@ -83,6 +83,7 @@
 
   function rerender() {
     safe(() => renderInstanceRows(instances()), null);
+    safe(() => updateTitlebar(), null);
     renderBar();
   }
 
