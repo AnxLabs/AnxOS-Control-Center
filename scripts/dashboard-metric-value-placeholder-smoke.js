@@ -91,6 +91,8 @@ function createHarness() {
   const context = {
     console,
     setField: (name, value) => fields.set(name, value),
+    // clearDashboardForNodeSwitch also resets the Forge health card (8745dcce).
+    resetForgeHealthCard: () => {},
   };
   vm.createContext(context);
   vm.runInContext(

@@ -63,6 +63,7 @@ function fakeElement() {
       contains: (name) => classes.has(name),
     },
     setAttribute(name, value) { this.attributes[name] = value; },
+    replaceChildren(...nodes) { this.children = nodes; },
     addEventListener(type, handler) { (listeners[type] = listeners[type] || []).push(handler); },
     dispatch(type) { (listeners[type] || []).forEach((handler) => handler({})); },
     listenerCount(type) { return (listeners[type] || []).length; },
@@ -154,12 +155,15 @@ function check(label, fn) {
 // --- instance state pill tooltips ----------------------------------------------
 {
   const context = {
-    document: { createElement: () => fakeElement() },
+    document: { createElement: () => fakeElement(), createTextNode: (text) => ({ textContent: String(text) }) },
     getInstanceOperation: () => context.__operation,
     getInstanceOperationLabel: () => "Reloading",
     getInstanceStateClass: (state) => String(state || "stopped").trim().toLowerCase().replace(/\s+/g, "-"),
     getInstanceOperationFailureText: (operation) => (operation?.status === "failed" ? "Last restart failed: port in use" : ""),
+    // Phase 8: the pill reads the server's computer connection state.
+    safeGetInstanceNodeState: () => context.__nodeState,
     __operation: null,
+    __nodeState: "connected",
   };
   vm.createContext(context);
   vm.runInContext(`${extractStatement("const INSTANCE_STATE_EXPLANATIONS = {")}\n${extractFunction("buildInstanceStatePill")}\nthis.INSTANCE_STATE_EXPLANATIONS = INSTANCE_STATE_EXPLANATIONS;`, context);
@@ -177,6 +181,15 @@ function check(label, fn) {
     const pill = context.buildInstanceStatePill({ id: "a", state: "Running" });
     assert.strictEqual(pill.title, "Last restart failed: port in use");
     context.__operation = null;
+  });
+
+  check("with its computer disconnected, a server's state is marked Last known", () => {
+    context.__nodeState = "disconnected";
+    const pill = context.buildInstanceStatePill({ id: "a", state: "Running" });
+    context.__nodeState = "connected";
+    assert.match(pill.className, /\bis-stale\b/);
+    assert.deepStrictEqual(pill.children.map((child) => child.textContent), ["Last known", "Running"]);
+    assert.match(pill.title, /not connected/);
   });
 }
 

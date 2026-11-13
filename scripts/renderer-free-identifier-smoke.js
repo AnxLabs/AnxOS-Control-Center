@@ -240,6 +240,14 @@ const GLOBAL_ALLOWLIST = new Map([
   ["electronAPI", "preload bridge (window.electronAPI)"],
   // --- CDN script globals ---------------------------------------------------
   ["monaco", "Monaco editor loaded from the CDN bundle"],
+  // --- shared modules loaded by index.html before app.js -------------------
+  // Each sets one root.Anx* object from its own <script> tag (checked: every
+  // tag precedes the app.js tag), so these bare reads always resolve.
+  ["AnxShareHealth", "src/shared/shareHealth.js script global"],
+  ["AnxServerFailures", "src/shared/instances/serverFailures.js script global"],
+  ["AnxCreateServerDefaults", "src/shared/createServerDefaults.js script global"],
+  ["AnxDependencyPreparation", "src/shared/dependencyPreparation.js script global"],
+  ["AnxRestorePreview", "src/shared/restorePreview.js script global"],
 ]);
 
 // Names below this count mean the declaration collector collapsed; the gate

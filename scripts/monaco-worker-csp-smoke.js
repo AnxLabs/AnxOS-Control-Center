@@ -267,7 +267,12 @@ async function main() {
       };
     });
 
-    // Open the Files page the way a user does.
+    // Open the Files page the way a user does. Since Phase 8 it sits in the
+    // Tools group, which starts collapsed, so open the group first.
+    const toolsGroup = window.locator('[data-nav-group="advanced"]');
+    if (await toolsGroup.evaluate((group) => group.classList.contains("is-collapsed")).catch(() => false)) {
+      await toolsGroup.locator(".nav-group__toggle").click({ timeout: ACTION_TIMEOUT_MS });
+    }
     const filesNav = window.locator('[data-page-target="files"]').first();
     await filesNav.scrollIntoViewIfNeeded().catch(() => {});
     await clickNavWithOverlayRetry(window, filesNav);
