@@ -151,9 +151,13 @@ function main() {
     "index.html must load the shared player-file module before app.js.");
   assert.ok(indexHtml.includes('data-instance-tab="players"'), "index.html must declare the Players tab button.");
   assert.ok(indexHtml.includes('data-instance-panel="players"'), "index.html must declare the Players tab panel.");
-  assert.ok(indexHtml.indexOf('data-instance-tab="players"') < indexHtml.indexOf('data-instance-tab="files"'),
-    "The Players tab must sit beside Console/Files in the tab order.");
-  assert.ok(indexHtml.includes("Player rosters are available for Minecraft servers only."),
+  // Phase 5: Players is opened from the Overview card, not the tab strip.
+  const serverViewModel = fs.readFileSync(path.join(__dirname, "..", "src", "shared", "serverViewModel.js"), "utf8");
+  assert.ok(serverViewModel.includes('TAB_PARENT = Object.freeze({ players: "overview"'),
+    "The Players tab must belong to Overview.");
+  // Phase 8: other games list who is online (playersPanel.js), so the notice
+  // now speaks only about the Minecraft player files.
+  assert.ok(indexHtml.includes("The whitelist, operator and ban lists are Minecraft files."),
     "The game-level unsupported state must be pinned copy.");
 
   // --- 7. Renderer source pins: tab wiring and detail lifecycle --------------

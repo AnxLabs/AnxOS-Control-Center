@@ -35,3 +35,59 @@ Phase 8.
 Order of work: SSH privacy fix and small repairs, Agent network telemetry,
 player monitoring, My Servers, Docker, Files, SSH page, Tools navigation,
 then stabilization.
+
+## Done so far
+
+### P8-E Network telemetry (`ae816e2b`)
+
+- `src/shared/networkDetails.js`, used by the Agent and by this PC directly:
+  every adapter's type (wired, Wi-Fi, VPN, virtual), state, IPv4/IPv6
+  addresses (link-local left out), link speed, download/upload rates,
+  errors and drops, the default router and DNS servers. Linux reads
+  `/proc` and `/sys`; Windows runs one PowerShell query, cached 15 s.
+  Unknown values stay "Not reported", never 0.
+- Computers > Network (a section added to the Phase 4 panel, layout kept):
+  connected wired/Wi-Fi adapters first, the rest folded away. "Link speed
+  is the connection to your router or switch, not your internet speed."
+- Check connection, only when clicked: three pings to the router, one name
+  lookup and one HTTPS connection to example.com, run on the computer
+  itself (`POST /api/v1/system/network-check`, `system:read`).
+- No continuous probes or speed tests.
+
+### Fixes from the audit (`ae816e2b`)
+
+- SSH: new installs no longer get the developer's own server
+  (`anx@192.168.1.134`) as a profile; `config/ssh-profiles.json` is no
+  longer packaged and the form starts blank. Installs that already copied
+  it keep it (it may be the owner's real profile); remove it under SSH if
+  it is not yours. The tracked dev file is unchanged so the owner's
+  source runs keep their profile.
+- Settings > Default page lists the current page names.
+
+### P8-F Players (this commit)
+
+`src/shared/instances/playerMonitor.js`, read through
+`GET /api/v1/instances/:id/players` (`instance:read`) and
+`instances:getPlayers`:
+
+| Game | Source | Names | Per-player ping | Time online |
+| --- | --- | --- | --- | --- |
+| Minecraft | Server List Ping | Status sample (may be partial; marked) | Not supported (vanilla does not report it) | Seen by AnxOS |
+| FiveM | `/players.json`, `/dynamic.json` on 127.0.0.1 | Yes | **Yes, from the server** | Seen by AnxOS |
+| Palworld | REST API on 127.0.0.1 (when the owner enables it) | Yes | **Yes, from the server** | Seen by AnxOS |
+| Valheim, Rust, CS2 | Steam A2S query | Yes | Not supported (A2S has none) | Yes, from the server |
+| Hytale, Terraria | — | Not supported | Not supported | — |
+
+- Identifiers, IP addresses, account ids and locations from the game are
+  dropped; names are shown, never stored or logged. Service-managed
+  servers keep their stricter rule: counts and pings, no names.
+- Join/leave events are what AnxOS saw between reads (memory only, last 40).
+- Polled every 10 s only while a server's Players tab is open; replies are
+  cached 5 s; loopback only.
+- The Players tab now opens for every supported game ("Who is online").
+
+Tests: `player-monitor-smoke` (8, real local HTTP and UDP fakes),
+`phase8-ui-qa` P4 (a running test server's two players in the real app),
+`server-view-ui-qa` 9/9 and `minecraft-players-smoke` still pass (its
+tab-order assertion was stale since Phase 5 and now checks the Overview
+parent instead).

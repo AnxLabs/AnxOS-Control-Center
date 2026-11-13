@@ -10,6 +10,9 @@
 //   P2 a fresh install has no SSH profile and the SSH form is blank (the
 //      developer's own server used to be pre-filled)
 //   P3 Settings > Default page lists the current page names
+//   P4 a running Minecraft test server: Overview's Players card opens the
+//      Players tab, where Online now lists the two players its status ping
+//      reports, and ping says "Not supported" (Minecraft does not report it)
 // Set PHASE8_SHOTS=<dir> to keep screenshots.
 // Run: node scripts/phase8-ui-qa.js
 
@@ -20,7 +23,9 @@ const os = require("os");
 const path = require("path");
 const { _electron: electron } = require("playwright-core");
 const { createIsolatedQaEnv } = require("./test-helpers/isolated-qa-env");
+const net = require("net");
 const { startServiceManagedAgent } = require("./test-helpers/service-managed-agent-fixture");
+const { fakeMinecraftInstance } = require("./test-helpers/fake-minecraft-instance");
 
 const root = path.resolve(__dirname, "..");
 const shotsDir = process.env.PHASE8_SHOTS || fs.mkdtempSync(path.join(os.tmpdir(), "anx-phase8-shots-"));
@@ -35,7 +40,9 @@ async function waitFor(page, predicate, arg, label, timeoutMs = 30000) {
 }
 
 async function main() {
-  const agent = await startServiceManagedAgent({ initial: "running" });
+  const gamePort = await new Promise((resolve) => { const probe = net.createServer(); probe.listen(0, "127.0.0.1", () => { const { port } = probe.address(); probe.close(() => resolve(port)); }); });
+  const MC_ID = "players-test";
+  const agent = await startServiceManagedAgent({ initial: "running", extraInstanceConfigs: [fakeMinecraftInstance({ id: MC_ID, displayName: "Players Test", port: gamePort, players: ["Alex", "Sam"] })] });
   const qa = createIsolatedQaEnv("anx-phase8-qa-config-");
   const write = (name, value) => fs.writeFileSync(path.join(qa.configDir, name), `${JSON.stringify(value, null, 2)}\n`);
   write("agent.json", { backendMode: "agent", agentUrl: "http://127.0.0.1:9", agentToken: "legacy-token-must-not-be-used" });
@@ -74,7 +81,12 @@ async function main() {
     // P1
     await page.evaluate(() => { try { localStorage.setItem("anxos.computers.selected.v1", "ovh"); } catch {} window.showPage("nodes"); });
     await page.evaluate(() => document.querySelector('[data-computer-details] [data-view-computer="ovh"]')?.click());
-    await waitFor(page, () => document.querySelectorAll("[data-computer-network] .computer-network__adapter").length > 0, null, "network adapters", 45000);
+    // The Agent reads Windows adapters with one PowerShell query, cached for
+    // 15 s, so allow a few polls before giving up.
+    await waitFor(page, () => document.querySelectorAll("[data-computer-network] .computer-network__adapter").length > 0, null, "network adapters", 90000).catch(async (error) => {
+      console.log("Network section at timeout:", await page.evaluate(() => document.querySelector("[data-computer-details]")?.textContent.slice(0, 1200)));
+      throw error;
+    });
     const network = await page.evaluate(() => {
       const section = document.querySelector("[data-computer-network]");
       return {
@@ -126,8 +138,38 @@ async function main() {
     assert.ok(!options.some((label) => /Dashboard|Minecraft|AMP|CoolPals|Nodes|Public Access/.test(label)), "retired names are gone");
     console.log("PASS P3 Default page lists the current page names");
 
+    // P4
+    const started = await agent.api("POST", `/api/v1/instances/${MC_ID}/start`, {});
+    assert.ok(started.status < 300, `the test server starts (${started.status} ${started.text.slice(0, 200)})`);
+    let reported = null;
+    for (let attempt = 0; attempt < 60 && !(reported && reported.available); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      reported = (await agent.api("GET", `/api/v1/instances/${MC_ID}/players`)).json;
+    }
+    assert.ok(reported && reported.available, `the Agent reads the players (${JSON.stringify(reported)})`);
+    await page.evaluate((id) => { window.showPage("instances"); refreshInstances?.(); }, MC_ID);
+    await waitFor(page, (id) => typeof getInstances === "function" && getInstances().some((instance) => instance.id === id && /running/i.test(instance.state || "")), MC_ID, "the test server running in My Servers", 40000);
+    await page.evaluate((id) => openDashboardInstanceDetails(id), MC_ID);
+    await waitFor(page, () => [...document.querySelectorAll(".server-card")].some((card) => /Players/.test(card.textContent)), null, "Players card on Overview", 20000);
+    await page.locator("[data-server-open-tab=\"players\"]").first().click();
+    await waitFor(page, () => document.querySelectorAll("[data-live-players] [data-live-player]").length === 2, null, "two players online", 30000);
+    const live = await page.evaluate(() => ({
+      names: [...document.querySelectorAll("[data-live-players] [data-live-player]")].map((row) => row.dataset.livePlayer),
+      count: document.querySelector("[data-live-players-count]")?.textContent,
+      ping: document.querySelector("[data-live-players-ping]")?.textContent,
+      pingKind: document.querySelector("[data-live-players-ping]")?.dataset.livePlayersPing,
+      rows: [...document.querySelectorAll("[data-live-players] [data-live-player]")].map((row) => row.textContent),
+    }));
+    assert.deepStrictEqual(live.names, ["Alex", "Sam"]);
+    assert.match(live.count, /2 of 20/);
+    assert.deepStrictEqual([live.pingKind, /Not supported/.test(live.ping)], ["not-supported", true], "no ping is invented for Minecraft");
+    assert.ok(live.rows.every((row) => /Not supported/.test(row)), "each player's ping says Not supported");
+    await shot(page, "p4-players");
+    await agent.api("POST", `/api/v1/instances/${MC_ID}/stop`, {});
+    console.log(`PASS P4 Players tab: ${live.names.join(", ")} online (${live.count.replace(/\s+/g, " ")}); ping Not supported for Minecraft`);
+
     assert.deepStrictEqual(errors, [], `renderer errors: ${errors.join(" | ")}`);
-    console.log(`Phase 8 UI QA: 3 checks passed. Screenshots: ${shotsDir}`);
+    console.log(`Phase 8 UI QA: 4 checks passed. Screenshots: ${shotsDir}`);
   } finally {
     await Promise.race([app.close().catch(() => {}), new Promise((resolve) => setTimeout(resolve, 15000))]);
     await agent.stop().catch(() => {});

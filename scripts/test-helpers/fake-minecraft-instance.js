@@ -5,8 +5,9 @@
 // answers "list", "say" and "stop" on stdin, and writes nothing outside its
 // own data folder. It never downloads or runs Minecraft.
 
-function fakeServerSource(softwareLabel, port) {
+function fakeServerSource(softwareLabel, port, players = []) {
   return `const SOFTWARE_LABEL = ${JSON.stringify(softwareLabel)};
+const PLAYERS = ${JSON.stringify(players)};
 const readline = require("readline");
 // The game port: answers a Minecraft Server List Ping (handshake + status
 // request) with a status like a real server; any other first message gets
@@ -19,7 +20,7 @@ require("net").createServer((socket) => {
     // A Minecraft handshake starts with a short packet length, then packet id 0.
     if (mode === null) mode = data.length >= 3 && data[0] < 0x80 && data[0] + 1 <= data.length && data[1] === 0x00 ? "status" : "echo";
     if (mode === "status") {
-      const json = Buffer.from(JSON.stringify({ version: { name: "Paper 1.21.1", protocol: 767 }, players: { online: 0, max: 20 }, description: { text: "AnxOS test server" } }));
+      const json = Buffer.from(JSON.stringify({ version: { name: "Paper 1.21.1", protocol: 767 }, players: { online: PLAYERS.length, max: 20, sample: PLAYERS.map((name, index) => ({ name, id: "00000000-0000-0000-0000-00000000000" + (index + 1) })) }, description: { text: "AnxOS test server" } }));
       const body = Buffer.concat([varint(0), varint(json.length), json]);
       socket.end(Buffer.concat([varint(body.length), body]));
       return;
@@ -83,7 +84,8 @@ function fakeMinecraftInstance(options = {}) {
       state: "Stopped",
     },
     files: {
-      "fake-server.js": fakeServerSource(softwareLabel, options.port || 25599),
+      // options.players: names the status ping reports as online (Phase 8).
+      "fake-server.js": fakeServerSource(softwareLabel, options.port || 25599, options.players || []),
       "server.properties": SERVER_PROPERTIES,
       "eula.txt": "eula=true\n",
       "plugins/.keep": "",

@@ -21629,3 +21629,116 @@ body.create-server-window .page[data-page="marketplace"] .page-introduction {
   display: grid;
   gap: 8px;
 }
+
+/* Players tab: Online now (Phase 8). */
+.live-players {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border: 1px solid rgba(190, 170, 220, 0.12);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.live-players__head h3,
+.live-players__recent h4 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.live-players__head span,
+.live-players__note {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+.live-players__note--warning {
+  color: #ffb36b;
+}
+
+.live-players__summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.live-players__stat {
+  display: grid;
+  gap: 2px;
+  min-width: 140px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.live-players__stat span {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.live-players__stat--warning strong {
+  color: #ffb36b;
+}
+
+.live-players__table {
+  display: grid;
+  gap: 4px;
+}
+
+.live-players__row {
+  display: grid;
+  grid-template-columns: minmax(140px, 2fr) minmax(90px, 1fr) minmax(120px, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.live-players__row--head {
+  background: none;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.live-players__name {
+  display: grid;
+  min-width: 0;
+}
+
+.live-players__name strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-players__name small {
+  color: var(--muted);
+}
+
+.live-players__row .is-high {
+  color: #ffb36b;
+  font-weight: 600;
+}
+
+.live-players__events {
+  display: grid;
+  gap: 2px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.live-players__event--join::before {
+  content: "+ ";
+  color: #6be3a4;
+}
+
+.live-players__event--leave::before {
+  content: "− ";
+  color: #ffb36b;
+}

@@ -29,6 +29,7 @@ const {
   readMinecraftProperties,
   repairNeoForgeRuntime,
   refreshFiveMReadiness,
+  getPlayers,
   renameInstance,
   renameInstanceFile,
   restartInstance,
@@ -496,6 +497,11 @@ async function handleInstances(request, url) {
     const steamUpdateId = getInstanceIdFromPath(url.pathname, "/steamcmd/update");
     if (request.method === "POST" && steamUpdateId) {
       return result(200, await executeSteamCmdUpdate(steamUpdateId, parseJsonBody(request)));
+    }
+
+    const playersId = getInstanceIdFromPath(url.pathname, "/players");
+    if (request.method === "GET" && playersId) {
+      return result(200, await getPlayers(playersId));
     }
 
     const fivemReadinessId = getInstanceIdFromPath(url.pathname, "/fivem/readiness");

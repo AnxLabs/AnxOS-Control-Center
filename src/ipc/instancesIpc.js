@@ -16,6 +16,7 @@ const {
   getInstanceMetrics,
   getInstanceStatus,
   getFiveMReadiness,
+  getInstancePlayers,
   checkSteamCmdBuildUpdate,
   getSteamCmdUpdateProgress,
   setSteamCmdBranch,
@@ -379,6 +380,7 @@ function registerInstancesIpc() {
     audit({ action: "instance.steamBranch.set", target: payload.instanceId });
     return setSteamCmdBranch(payload.instanceId, payload.branch, payload);
   }));
+  registerInstanceHandler("instances:getPlayers", async (_, payload = {}) => wrapExpectedAgentRead("instances:getPlayers", () => { requirePermission("instance:read", payload.instanceId); return getInstancePlayers(payload.instanceId, payload); }));
   registerInstanceHandler("instances:getFiveMReadiness", async (_, payload = {}) => invokeInstanceOperation(() => { requirePermission("instance:read", payload.instanceId); return getFiveMReadiness(payload.instanceId, payload); }));
   registerInstanceHandler("instances:saveFiveMLicenseKey", async (_, payload = {}) => invokeInstanceOperation(() => {
     requirePermission("files:write", `${payload.instanceId}:server.cfg`);

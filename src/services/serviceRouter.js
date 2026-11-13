@@ -795,6 +795,13 @@ async function setSteamCmdBranch(instanceId, branch, options = {}) {
   return getAgentNodeClient(options).setSteamCmdBranch(instanceId, branch);
 }
 
+async function getInstancePlayers(instanceId, options = {}) {
+  if (shouldUseLocalInstances(options)) {
+    return localInstanceService.getPlayers(instanceId);
+  }
+  return getAgentNodeClient(options).getPlayers(instanceId);
+}
+
 async function getFiveMReadiness(instanceId, options = {}) {
   if (shouldUseLocalInstances(options)) {
     return localInstanceService.refreshFiveMReadiness(instanceId);
@@ -1212,6 +1219,7 @@ module.exports = {
   getGameServerConfig,
   openInstanceFolder,
   getFiveMReadiness,
+  getInstancePlayers,
   checkSteamCmdBuildUpdate,
   getSteamCmdUpdateProgress,
   setSteamCmdBranch,

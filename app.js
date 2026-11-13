@@ -14451,6 +14451,9 @@ function renderMinecraftPlayersPanel(instance) {
   const isSupported = isMinecraftPlayersSupportedInstance(instance);
   renderMinecraftPlayersUnsupported(isSupported);
   if (!isSupported) {
+    // Phase 8: other games still list who is online (playersPanel.js); the
+    // Minecraft-files notice is only for games without that either.
+    if (instanceMinecraftPlayersUnsupported && window.AnxLivePlayers?.supports(instance)) instanceMinecraftPlayersUnsupported.hidden = true;
     return;
   }
   if (instanceMinecraftPlayersOnlineMax) {
@@ -14561,6 +14564,7 @@ function setActiveInstanceTab(tabName) {
   } else if (activeInstanceTab === "players") {
     stopInstanceConsolePolling();
     refreshMinecraftPlayerFiles();
+    window.AnxLivePlayers?.refresh();
   } else if (activeInstanceTab === "mods") {
     stopInstanceConsolePolling();
     refreshInstanceMods();

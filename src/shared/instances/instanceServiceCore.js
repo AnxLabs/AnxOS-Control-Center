@@ -27,6 +27,7 @@ const {
 const serviceManagedRuntime = require("./serviceManagedRuntime");
 const serviceManagedOperations = require("./serviceManagedOperations");
 const serverFailures = require("./serverFailures");
+const { createPlayerMonitor } = require("./playerMonitor");
 
 let runtimeConfigProvider = () => ({
   instanceRoot: process.env.AGENT_INSTANCE_ROOT || path.join(process.cwd(), "instances"),
@@ -2857,6 +2858,24 @@ async function persistFiveMReadiness(config, readiness) {
       lastStoppedAt: hasActiveRuntimeState ? config.lastStoppedAt : nowIso(),
     };
   return updateRuntimeState(config.id, patch);
+}
+
+// Who is online, from the game's own status interface (Phase 8,
+// playerMonitor.js). Read-only and loopback only.
+const playerMonitor = createPlayerMonitor({
+  queryMinecraft: (config) => queryMinecraftRuntimeStatus(config),
+  readFile: async (config, relativePath) => {
+    const file = await readInstanceFile(config.id, relativePath);
+    return file && file.supported !== false ? file.content : null;
+  },
+});
+
+async function getPlayers(instanceId) {
+  const config = await loadInstanceConfig(instanceId);
+  return playerMonitor.read(config, {
+    running: config.state === INSTANCE_STATES.RUNNING,
+    serviceManaged: isServiceManaged(config),
+  });
 }
 
 async function refreshFiveMReadiness(instanceId) {
@@ -7890,6 +7909,7 @@ module.exports = {
   deleteInstanceFile: refuseForServiceManaged("file-write", deleteInstanceFile),
   forceKillInstance,
   getMetrics,
+  getPlayers,
   getWorldScopeCandidates,
   hytaleReadinessUpdate,
   nextSignInChallenge,

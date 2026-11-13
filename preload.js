@@ -398,6 +398,7 @@ const desktopApi = {
     saveGameServerConfig: (instanceId, payload = {}, options = {}) => ipcRenderer.invoke("instances:saveGameServerConfig", { ...options, ...payload, instanceId }),
     getMinecraftProperties: (instanceId, options = {}) => ipcRenderer.invoke("instances:getMinecraftProperties", { ...options, instanceId }),
     saveMinecraftProperties: (instanceId, properties, options = {}) => ipcRenderer.invoke("instances:saveMinecraftProperties", { ...options, instanceId, properties }),
+    getPlayers: (instanceId, options = {}) => ipcRenderer.invoke("instances:getPlayers", { ...options, instanceId }),
     getFiveMReadiness: (instanceId, options = {}) => ipcRenderer.invoke("instances:getFiveMReadiness", { ...options, instanceId }),
     checkSteamUpdate: (instanceId, options = {}) => ipcRenderer.invoke("instances:checkSteamUpdate", { ...options, instanceId }),
     mods: {

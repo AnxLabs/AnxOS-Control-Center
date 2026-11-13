@@ -1488,6 +1488,10 @@ class NodeAgentClient {
     return this.put(`/instances/${encodeInstanceId(instanceId)}/minecraft/properties`, { properties });
   }
 
+  getPlayers(instanceId) {
+    return this.get(`/instances/${encodeInstanceId(instanceId)}/players`);
+  }
+
   getFiveMReadiness(instanceId) {
     return this.get(`/instances/${encodeInstanceId(instanceId)}/fivem/readiness`);
   }

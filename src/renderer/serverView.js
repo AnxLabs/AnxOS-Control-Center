@@ -149,7 +149,16 @@
   }
 
   function playersInfo(instance) {
-    if (typeof isMinecraftInstance !== "function" || !isMinecraftInstance(instance)) return null;
+    const isMinecraft = typeof isMinecraftInstance === "function" && isMinecraftInstance(instance);
+    if (!isMinecraft) {
+      // Phase 8: FiveM, Palworld, Valheim, Rust and CS2 report players too.
+      if (!window.AnxLivePlayers?.supports(instance)) return null;
+      const live = window.AnxLivePlayers.latest(instance.id);
+      const fallback = instance.players || {};
+      const online = live && live.available ? live.online : Number.isFinite(Number(fallback.online)) && fallback.online !== null ? Number(fallback.online) : null;
+      const max = live && live.available ? live.max : Number.isFinite(Number(fallback.max)) && fallback.max !== null ? Number(fallback.max) : null;
+      return { online: online ?? null, max: max ?? null, minecraft: false };
+    }
     const minecraft = instance.minecraft || {};
     const players = minecraft.players || instance.players || instance.status?.players || {};
     const online = [players.online, minecraft.onlinePlayers, instance.onlinePlayers].find((value) => Number.isFinite(Number(value)) && value !== null && value !== "");
@@ -250,7 +259,7 @@
           : `${players.online}${players.max ? ` of ${players.max}` : ""} online`;
       playersCard.append(el("strong", "server-card__big", text));
       if (players.max && !readings.running) playersCard.append(fact("Room for", `${players.max} players`));
-      playersCard.append(linkButton("Players, whitelist and operators", { serverOpenTab: "players" }));
+      playersCard.append(linkButton(players.minecraft === false ? "Who is online" : "Players, whitelist and operators", { serverOpenTab: "players" }));
       fragment.append(playersCard);
     }
 
