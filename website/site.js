@@ -2148,7 +2148,11 @@ function bindAccountForms() {
   });
   document.querySelectorAll('[data-auth-action="signout"]').forEach((button) => {
     button.addEventListener("click", async () => {
-      await getSupabase()?.auth.signOut();
+      // supabase-js v2 defaults to scope "global", which revokes the account's
+      // refresh tokens on every device and silently signed out the desktop app.
+      // Signing out of the website ends only this browser's session; desktop
+      // sessions are revoked by the explicit "Sign out all desktop sessions".
+      await getSupabase()?.auth.signOut({ scope: "local" });
       currentSession = null;
       currentProfile = null;
       authState = "signed-out";

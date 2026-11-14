@@ -82,9 +82,16 @@ function nodeIdentity(node, index) {
 // A node is "online" only when its connection state resolves to online; every
 // other recorded state (offline, degraded, connecting, authentication_failed,
 // unknown) is observed as offline, with the raw state kept for the message.
+// "connecting" is a health check retrying, which usually recovers within a
+// minute: 41 of 52 real "Machine disconnected" alerts were such blips (median
+// 60 s to "back online"). It only counts as a disconnect once it has lasted
+// NODE_TRANSITIONAL_GRACE_MS; "offline" still alerts at once.
+const NODE_TRANSITIONAL_STATES = new Set(["connecting", "reconnecting", "checking"]);
+const NODE_TRANSITIONAL_GRACE_MS = 3 * 60 * 1000;
+
 function normalizeNodeObservedState(node) {
   const raw = textOf(node?.state ?? node?.health ?? node?.connection?.status ?? node?.status).toLowerCase();
-  return { observed: raw === "online" ? "online" : "offline", rawState: raw || "unknown" };
+  return { observed: raw === "online" ? "online" : "offline", rawState: raw || "unknown", transitional: NODE_TRANSITIONAL_STATES.has(raw) };
 }
 
 function isCrashLoopInstance(instance) {
@@ -327,9 +334,25 @@ function createOperationalNotificationService(options = {}) {
   function processNodes(state, context) {
     listOf(state?.nodes).forEach((node, index) => {
       const { id: nodeId, name } = nodeIdentity(node, index);
-      const { observed, rawState } = normalizeNodeObservedState(node);
+      const { observed, rawState, transitional } = normalizeNodeObservedState(node);
       const dedupKey = `node:${nodeId}`;
+      const entry = store.state[dedupKey];
+      if (transitional && entry && entry.state === "online") {
+        // Hold an online node through a short reconnect instead of flapping.
+        const since = Date.parse(entry.transitionalSince || "");
+        if (!Number.isFinite(since)) {
+          entry.transitionalSince = context.at;
+          dirty = true;
+          return;
+        }
+        if (context.atMs - since < NODE_TRANSITIONAL_GRACE_MS) return;
+      }
+      if (entry && entry.transitionalSince && !transitional) {
+        delete entry.transitionalSince;
+        dirty = true;
+      }
       const result = observeState(dedupKey, observed, context.at);
+      if (result.kind === "transition" && store.state[dedupKey]?.transitionalSince) delete store.state[dedupKey].transitionalSince;
       if (result.kind !== "transition") return;
       if (observed === "offline") {
         emitEvent(context, {

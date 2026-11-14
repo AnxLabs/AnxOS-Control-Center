@@ -26,6 +26,20 @@ const ACTIVE_STATUSES = new Set(["queued", "running", "paused"]);
 const TERMINAL_STATUSES = new Set(["complete", "failed", "cancelled", "interrupted"]);
 const PERSIST_DEBOUNCE_MS = 300;
 const MAX_LOG_ENTRIES = 50;
+// Finished operations kept in memory and on disk. The whole store is rewritten
+// on every update, and without a limit it only grew (135 records back to
+// July, 446 KB, on a real machine). Active operations are never dropped.
+const MAX_FINISHED_OPERATIONS = 100;
+
+function pruneFinishedOperations() {
+  const finished = [...operations.values()].filter((operation) => !ACTIVE_STATUSES.has(operation.status));
+  if (finished.length <= MAX_FINISHED_OPERATIONS) return;
+  const stamp = (operation) => Date.parse(operation.updatedAt || operation.completedAt || operation.createdAt || "") || 0;
+  finished.sort((left, right) => stamp(right) - stamp(left));
+  for (const operation of finished.slice(MAX_FINISHED_OPERATIONS)) {
+    operations.delete(operation.id);
+  }
+}
 const OPERATION_SCHEMA_VERSION = 1;
 
 class LongOperationError extends Error {
@@ -133,6 +147,7 @@ function flushPersist() {
   }
   pendingPersist = false;
   try {
+    pruneFinishedOperations();
     const snapshot = [...operations.values()].map((operation) => sanitizeForPersistence(operation));
     atomicWriteJson(getOperationsStatePath(), { schemaVersion: OPERATION_SCHEMA_VERSION, operations: snapshot });
   } catch (error) {

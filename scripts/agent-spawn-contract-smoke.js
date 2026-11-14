@@ -70,6 +70,11 @@ function main() {
   const legacy = evaluateSpawnEnvironment({ ANXHUB_CONFIG_DIR: "/home/user/.anxhub/AnxHub/config" });
   assert.strictEqual(legacy.spawnContract, "legacy-anxhub");
   assert.match(legacy.diagnostic, /legacy AnxHub/i);
+  // Regression: the Windows desktop's own data folder is %APPDATA%\AnxHub; a
+  // Local Agent the desktop launched (runtime manifest set) is not legacy.
+  const windowsDesktop = evaluateSpawnEnvironment({ ANXHUB_CONFIG_DIR: "C:\\Users\\qa\\AppData\\Roaming\\AnxHub\\config", ANXOS_LOCAL_AGENT_RUNTIME_MANIFEST: "C:\\Users\\qa\\AppData\\Roaming\\AnxHub\\local-agent-runtime\\manifest.json" });
+  assert.strictEqual(windowsDesktop.spawnContract, "desktop", "the desktop-launched Local Agent in %APPDATA%\\AnxHub is a desktop spawn");
+  assert.strictEqual(windowsDesktop.diagnostic, null, "and logs no legacy warning");
   const desktop = evaluateSpawnEnvironment({ ANXHUB_CONFIG_DIR: "/home/user/.config/anxos-control-center/config" });
   assert.strictEqual(desktop.spawnContract, "desktop");
   assert.strictEqual(desktop.canonical, true);

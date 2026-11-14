@@ -157,7 +157,12 @@ function evaluateSpawnEnvironment(env = process.env) {
         + "Start the Agent from the Control Center desktop app, or set ANXHUB_CONFIG_DIR (and AGENT_INSTANCE_ROOT / AGENT_IDENTITY_PATH) explicitly to the canonical AnxOS config directory.",
     };
   }
-  if (LEGACY_ANXHUB_PATTERN.test(configDir)) {
+  // The Windows desktop's own data folder is %APPDATA%\AnxHub, so its Local
+  // Agent always matched the legacy pattern and logged a false warning on every
+  // start. The desktop launcher (agentControlService agentEnvironment) always
+  // sets the Local Agent runtime manifest, so a start it made is a desktop start.
+  const desktopLaunched = Boolean(String(env.ANXOS_LOCAL_AGENT_RUNTIME_MANIFEST || "").trim());
+  if (LEGACY_ANXHUB_PATTERN.test(configDir) && !desktopLaunched) {
     return {
       spawnContract: "legacy-anxhub",
       canonical: false,

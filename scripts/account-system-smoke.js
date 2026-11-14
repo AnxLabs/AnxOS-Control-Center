@@ -201,7 +201,20 @@ function assertDocsAndEnv() {
   assert(readme.includes("account-config.js") && readme.includes("public browser-safe values"), "Website README should document public account config.");
 }
 
+// Regression: the website Sign out used supabase-js signOut() with its v2
+// default scope "global", which revoked refresh tokens on every device and
+// signed the desktop app out ("account.refresh revoked HTTP_400" in its audit).
+function assertWebsiteSignOutIsLocal() {
+  const site = read("website/site.js");
+  const calls = site.match(/auth\.signOut\([^)]*\)/g) || [];
+  assert(calls.length > 0, "the website should have a Sign out action");
+  for (const call of calls) {
+    assert(/scope:\s*["']local["']/.test(call), `website sign-out must not revoke other devices' sessions: ${call}`);
+  }
+}
+
 assertWebsiteAccountUi();
+assertWebsiteSignOutIsLocal();
 assertSupabaseBackend();
 assertDesktopIntegration();
 assertDocsAndEnv();

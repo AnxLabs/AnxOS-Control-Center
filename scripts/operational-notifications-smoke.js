@@ -171,6 +171,33 @@ async function phaseFirstObservationSeeding() {
 }
 
 // ---------------------------------------------------------------------------
+// Regression: a health check retrying ("connecting") raised "Machine
+// disconnected" and "back online" a minute later; 41 of 52 real disconnect
+// alerts were such blips. A short reconnect is silent; a long one, or
+// "offline", still alerts.
+// ---------------------------------------------------------------------------
+async function phaseNodeReconnectGrace() {
+  const service = createService(storeFile("reconnect-grace"), { dedupeWindowMs: 0 });
+  const observe = async (iso, state) => {
+    at(iso);
+    return service.evaluate({ collectState: async () => ({ nodes: [nodeRow("node-g", state)] }) });
+  };
+  await observe("2026-03-01T10:00:00.000Z", "online");
+  assert.strictEqual((await observe("2026-03-01T10:01:00.000Z", "connecting")).events.length, 0, "a reconnect starting is silent");
+  assert.strictEqual((await observe("2026-03-01T10:02:00.000Z", "connecting")).events.length, 0, "a reconnect inside the grace period is silent");
+  assert.strictEqual((await observe("2026-03-01T10:02:30.000Z", "online")).events.length, 0, "recovering within the grace period emits nothing");
+  assert.strictEqual((await observe("2026-03-01T10:10:00.000Z", "connecting")).events.length, 0, "a new reconnect starts a new grace period");
+  const long = await observe("2026-03-01T10:13:30.000Z", "connecting");
+  assert.strictEqual(long.events.length, 1, "a reconnect lasting past the grace period alerts");
+  assert.strictEqual(long.events[0].title, "Machine disconnected");
+  const back = await observe("2026-03-01T10:20:00.000Z", "online");
+  assert.strictEqual(back.events.length, 1, "and its recovery is reported");
+  assert.strictEqual(back.events[0].title, "Machine back online");
+  const offline = await observe("2026-03-01T10:30:00.000Z", "offline");
+  assert.strictEqual(offline.events.length, 1, "offline still alerts at once");
+}
+
+// ---------------------------------------------------------------------------
 // Phase 3: restart persistence.
 // ---------------------------------------------------------------------------
 async function phaseRestartPersistence() {
@@ -874,6 +901,7 @@ async function main() {
   await phaseBackupDefaultSource();
   await phaseCanonicalProviderStates();
   await phaseReviewRegressions();
+  await phaseNodeReconnectGrace();
 
   console.log("operational-notifications-smoke passed");
 }

@@ -108,6 +108,36 @@ async function main() {
     assert(!fs.existsSync(restored.accountPath), "revoked refresh token must clear the saved account session.");
   });
 
+  // Regression: with Supabase sign-in, logout only deleted the local copy and
+  // the refresh token stayed valid on the server. It must revoke this device's
+  // session (scope=local), never every device (the default, global).
+  await withTempService(async (configDir) => {
+    const service = loadService(configDir);
+    await signIn(service, makeSessionResponse({ accessToken: "logout-access" }));
+    const calls = [];
+    global.fetch = async (url, init = {}) => {
+      calls.push({ url: String(url), auth: init.headers?.authorization || "" });
+      return { ok: true, status: 204, async text() { return ""; } };
+    };
+    await service.logout();
+    const revoke = calls.find((call) => /\/auth\/v1\/logout/.test(call.url));
+    assert(revoke, "Supabase logout must revoke the session on the server.");
+    assert.match(revoke.url, /[?&]scope=local\b/, "logout must sign out this device only.");
+    assert.strictEqual(revoke.auth, "Bearer logout-access", "logout must revoke this session's token.");
+    assert.strictEqual(service.getStatus().authenticated, false);
+  });
+
+  // Regression: a rejected refresh was reported as "Invalid email or password."
+  await withTempService(async (configDir) => {
+    const service = loadService(configDir);
+    await signIn(service, makeSessionResponse({ accessToken: "expired-access", refreshToken: "refresh-revoked-2", expiresIn: -5 }));
+    global.fetch = async () => fetchResponse({ error: "invalid_grant", error_description: "Invalid Refresh Token: Refresh Token Not Found" }, 400);
+    const error = await service.refreshSession().then(() => null, (failure) => failure);
+    assert(error, "a rejected refresh must fail");
+    assert.doesNotMatch(error.message, /email or password/i, "a rejected refresh is not a password problem");
+    assert.match(error.message, /no longer valid/i);
+  });
+
   await withTempService(async (configDir) => {
     const service = loadService(configDir);
     await signIn(service);

@@ -263,6 +263,28 @@ async function main() {
   assert(!secretsEntry.metadata.downloadUrl.includes("sk_live_abcdefghijklmnop"), "A bearer-token-shaped value embedded in a string must be redacted before persistence.");
   assert.strictEqual(longOperations.getOperation(withSecrets.id).metadata.agentToken, "anxos_super-secret-token-value", "The live in-memory metadata must retain real values for runtime use; only the persisted copy is redacted.");
 
+  // Regression: finished operations were kept forever (135 records, 446 KB
+  // rewritten on every update on a real machine). Only the newest 100
+  // finished ones are kept; running ones are never dropped.
+  {
+    const active = longOperations.createOperation({ kind: "smoke-retention-active", lockKey: "smoke-retention-active" });
+    longOperations.updateOperation(active.id, { status: "running" });
+    const finishedIds = [];
+    for (let i = 0; i < 130; i += 1) {
+      const op = longOperations.createOperation({ kind: "smoke-retention", lockKey: `smoke-retention-${i}` });
+      longOperations.completeOperation(op.id);
+      finishedIds.push(op.id);
+    }
+    longOperations._test.flushPersist();
+    const saved = JSON.parse(fs.readFileSync(path.join(process.env.ANXHUB_CONFIG_DIR, "long-operations.json"), "utf8")).operations;
+    const finishedSaved = saved.filter((op) => !["queued", "running", "paused"].includes(op.status));
+    assert(finishedSaved.length <= 100, `at most 100 finished operations are kept (${finishedSaved.length})`);
+    assert(saved.some((op) => op.id === active.id), "a running operation is never dropped");
+    assert.strictEqual(longOperations.getOperation(active.id)?.status, "running", "and stays in memory");
+    assert(saved.some((op) => op.id === finishedIds[finishedIds.length - 1]), "the newest finished operation is kept");
+    longOperations.completeOperation(active.id);
+  }
+
   // The Agent runtime requires this module without "electron" installed.
   assertModuleWorksWithoutElectron(modulePath, fs.mkdtempSync(path.join(os.tmpdir(), "anxos-long-operation-agent-safe-")));
 

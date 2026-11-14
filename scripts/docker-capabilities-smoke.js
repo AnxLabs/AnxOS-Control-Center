@@ -114,6 +114,12 @@ async function main() {
   assert.strictEqual(daemonGeneral.code, "DOCKER_SERVICE_UNREACHABLE",
     "A daemon-unreachable message without a socket path must report the service diagnostic.");
   assert.strictEqual(daemonGeneral.statusCode, 503);
+  // Regression: Docker Desktop stopped on Windows was reported as the Agent
+  // being unable to reach the Docker socket.
+  const desktopStopped = classifyDockerFailure({ errorCode: null, stdout: "", stderr: "failed to connect to the docker API at npipe:////./pipe/dockerDesktopLinuxEngine; check if the path is correct and if the daemon is running: open //./pipe/dockerDesktopLinuxEngine: The system cannot find the file specified." });
+  assert.strictEqual(desktopStopped.code, "DOCKER_SERVICE_UNREACHABLE", "Docker Desktop not running is a service problem, not a socket permission one.");
+  assert.match(desktopStopped.message, /Docker Desktop isn't running/);
+  assert.strictEqual(desktopStopped.statusCode, 503);
   const unknown = classifyDockerFailure({ errorCode: null, stdout: "boom", stderr: "" });
   assert.strictEqual(unknown.code, "DOCKER_COMMAND_FAILED");
   assert.strictEqual(unknown.statusCode, 502);

@@ -668,9 +668,11 @@ async function postSupabaseAuth(pathname, payload, options = {}) {
     const { data, text } = await readResponsePayload(response);
     if (!response.ok) {
       const reason = data.error_code || data.error || data.msg || data.message || `HTTP_${response.status}`;
+      // A 400/401 means bad credentials only for the password grant; for a
+      // refresh it means the saved session is no longer valid.
       const error = new Error(redactSecret(
         response.status === 400 || response.status === 401
-          ? "Invalid email or password."
+          ? options.rejectedMessage || "Invalid email or password."
           : data.msg || data.message || getHttpErrorMessage(response, data, text, "Supabase Auth request failed")
       ));
       error.code = reason;
@@ -857,7 +859,7 @@ async function refreshSession() {
         projectRef: getAccountProjectRef(),
         projectId: getAccountProjectRef(),
       })
-    : await postSupabaseAuth("token?grant_type=refresh_token", { refresh_token: session.refreshToken });
+    : await postSupabaseAuth("token?grant_type=refresh_token", { refresh_token: session.refreshToken }, { rejectedMessage: "Account session is no longer valid. Sign in again." });
   const nextSession = normalizeSession(response);
   writeSession({
     ...nextSession,
@@ -956,6 +958,13 @@ async function logout() {
   const session = getCurrentSession({ allowExpired: true });
   if (session?.accessToken && getAccountApiUrl()) {
     await postJson(`${getAccountApiUrl()}/api/auth/logout`, {}, { accessToken: session.accessToken }).catch((error) => {
+      console.warn("[Account] Logout revoke failed.", { code: error?.code || null, message: redactSecret(error?.message || String(error)) });
+    });
+  } else if (session?.accessToken && getSupabaseUrl() && getSupabaseAnonKey()) {
+    // Supabase sign-in: revoke this session's refresh token on the server, not
+    // only the local copy. scope=local ends this device's session only; the
+    // default (global) would sign the user out of every device.
+    await postSupabaseAuth("logout?scope=local", {}, { accessToken: session.accessToken, rejectedMessage: "Account session was already signed out." }).catch((error) => {
       console.warn("[Account] Logout revoke failed.", { code: error?.code || null, message: redactSecret(error?.message || String(error)) });
     });
   }

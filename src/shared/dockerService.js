@@ -142,6 +142,14 @@ function classifyDockerFailure(result) {
     );
   }
 
+  // Docker Desktop stopped on Windows: its engine pipe does not exist. The CLI
+  // says "failed to connect to the docker API at npipe:////./pipe/
+  // dockerDesktopLinuxEngine ... cannot find the file specified", which the
+  // socket rule below misreported as the Agent being unable to reach the socket.
+  if (/pipe\/dockerDesktop[A-Za-z]*Engine/i.test(output) && /cannot find the file specified|no such file|does not exist/i.test(output)) {
+    return new DockerServiceError("Docker Desktop isn't running on this computer. Start Docker Desktop, then refresh.", "DOCKER_SERVICE_UNREACHABLE", 503, output.trim() || null);
+  }
+
   if (/cannot connect|is the docker daemon running|error during connect|docker daemon is not running|open \/\/\.\/pipe\/docker|Cannot connect to the Docker daemon/i.test(output)) {
     const socketUnavailable = /docker\.sock|\/\/\.\/pipe\/docker|docker_engine|var\/run\/docker/i.test(output);
     return new DockerServiceError(
