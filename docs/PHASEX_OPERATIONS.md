@@ -155,7 +155,7 @@ integration, mobile AI, scheduled or autonomous actions.
 
 ### Tests actually run
 
-**Hermetic** — `npm run ai-operations:smoke`: 18 checks, all passing.
+**Hermetic** — `npm run ai-operations:smoke`: 19 checks, all passing.
 Simulated computers and servers, **mocked** model replies, and a local fake
 HTTP server for the Ollama contract. Covers AI off, provider privacy rules,
 freshness, wrong-target clarification, offline computers, diagnosis with an
@@ -207,10 +207,40 @@ Defects the real-app run found and fixed before acceptance:
 
 **Regression** — every `*:smoke` script (the `rc:validate` set, 378 scripts) run locally with continue-on-failure: 377 passed in 33 minutes. The one failure, `permission-matrix:smoke`, was a real gap: the new `ai:*` channels had no permission-matrix rows. Fixed by adding three matrix families (status: `settings:read`; ask, repair, approve, reject, cancel, history: `nodes:read`; provider test: Owner) and an IPC-level guard on approve, reject and cancel; the matrix smoke then passed (81 families, 415 channels), and `ai-operations:smoke` (18) and `phasex-ui-qa` (12, with the local model) passed again. The other 376 were not re-run after that fix, which touched only the assistant's own files and the matrix test. `git diff --check` clean; `node --check` on every changed JavaScript file.
 
-**Not run (needs you):** read-only questions against the real remote
-computers (Anxlab, VPS). They need your signed-in, unlocked Control Center
-session, which an agent must not unlock. No approved action has run on a real
-game server; only on disposable local test servers.
+**Real computers (read-only, 2026-11-13)** — the dev app on the owner's real
+profile (config backed up first; the installed app quit from its tray), the
+owner signed in and unlocked it themselves, then a script asked 11 read-only
+questions with the built-in provider. No proposal was created; `ai.enabled`
+was restored to `false` afterwards and the dev app closed. Real answers:
+
+- Anxlab connected: CPU 10.2%, memory 33%, disk 64.8% (live); 7 servers,
+  none running; room for another Minecraft server.
+- The VPS (`vps-7360e3ad`) reported as not connected; its servers were not
+  checked and the assistant said so.
+- Docker: 22 containers on Anxlab read; one problem found with evidence
+  (`nodelink-dev-test` exited with code 1). Docker on this PC did not answer
+  within 15 s and was reported as unreadable, not as healthy.
+- Updates: none reported; all 7 servers report a version. Ping: honestly
+  "not measured". "Why can't my friends join?" asked which of the 7 servers.
+
+Two defects found on the real fleet and fixed (`ai-operations:smoke` A4,
+A4b; now 19 checks):
+
+- "Which computer is using the most RAM/CPU?" compared only cached
+  summaries, which carried no reading for Agent computers, so it named this
+  PC. Connected computers without a current summary value now get a live
+  reading.
+- "Check my VPS" did not find `vps-7360e3ad`. A distinctive part of a
+  compound name now matches, only when exactly one computer matches best.
+
+These two fixes were verified hermetically and in the isolated real-app test
+(`phasex-ui-qa`, 11/11 without a model), not yet by a second run on the real
+fleet. `phasex-ui-qa` X6 failed once in four runs because of its own fixture
+(which console lines are quoted depends on the fake server's restart
+timing); the assertion now accepts either real port line.
+
+No approved action has run on a real game server; only on disposable local
+test servers.
 
 ### Security results
 
@@ -239,8 +269,9 @@ before it is shown or sent to a model.
   pushed, tagged, released or deployed. The Phase 9 RC (`ccfca398`) is
   unchanged.
 - **Next steps:**
-  1. With your session unlocked, ask a few read-only questions about Anxlab
-     and the VPS in the dev app to confirm real remote data.
+  1. Optional: repeat the read-only real-fleet check once to confirm the two
+     fixes on real data (needs the owner to unlock the dev app again). The
+     VPS Agent was not connected during the check.
   2. Decide whether the assistant ships in the next RC (it is off by
      default) — that needs a new signed RC and its approvals.
   3. Sona: an owner-approved service contract (route, credential, data

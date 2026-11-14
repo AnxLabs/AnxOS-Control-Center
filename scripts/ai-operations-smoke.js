@@ -228,17 +228,43 @@ async function rejects(promise, code) {
     assert.strictEqual(zero.freshness, "live");
   });
 
-  await check("A4 most-RAM answer uses real readings and labels stale data", async () => {
+  await check("A4 most-RAM answer: live readings replace missing or stale summaries", async () => {
+    // Found on the real fleet: Agent summaries often carry no reading, so a
+    // comparison from summaries alone named the wrong computer.
     const { service } = makeService();
     const response = await service.ask({ question: "Which computer is using the most RAM?" });
     assert.strictEqual(response.intent, "resource_top");
-    assert.match(response.answer, /^VPS is using the most RAM: 88% \(old \(stale\) reading\)/);
+    assert.match(response.answer, /^VPS is using the most RAM: 87\.5%\.$/, "the stale 88% summary was replaced by a live reading");
     assert.strictEqual(response.target.nodeId, "node-vps");
-    assert.ok(response.missing.some((line) => /VPS: the last reading is old/.test(line)));
-    assert.ok(response.missing.some((line) => /Laptop: no RAM reading/.test(line)));
+    assert.ok(response.missing.some((line) => /Laptop: no RAM reading/.test(line)), "an offline computer is listed, not guessed");
     const laptop = response.observations.find((entry) => entry.target.nodeId === "node-laptop");
     assert.strictEqual(laptop.freshness, "unavailable");
     assert.strictEqual(laptop.value, null);
+    // With no live reading available, the stale summary is still used and labelled.
+    const noLive = makeService({ serviceOverrides: { getSystemSnapshot: async () => { throw Object.assign(new Error("down"), { code: "AGENT_UNAVAILABLE" }); } } });
+    const stale = await noLive.service.ask({ question: "Which computer is using the most RAM?" });
+    assert.match(stale.answer, /^VPS is using the most RAM: 88% \(old \(stale\) reading\)/);
+    assert.ok(stale.missing.some((line) => /VPS: the last reading is old/.test(line)));
+    // Summaries without readings at all (as on the real fleet).
+    const world = makeWorld();
+    for (const computer of world.computers) { computer.memory = null; computer.cpu = null; }
+    const live = await makeService({ world }).service.ask({ question: "Which computer is using the most CPU?" });
+    assert.match(live.answer, /^Anxlab is using the most CPU: 14%\.$/);
+  });
+
+  await check("A4b a distinctive part of a computer's name finds it, never two", async () => {
+    const world = makeWorld();
+    world.computers[1].name = "vps-7360e3ad";
+    const { service } = makeService({ world });
+    const vps = await service.ask({ question: "Check my VPS." });
+    assert.match(vps.answer, /^vps-7360e3ad is connected\./, vps.answer);
+    const storage = await service.ask({ question: "Check if I have enough storage for backups on the VPS." });
+    assert.strictEqual(storage.target.nodeId, "node-vps");
+    const { findNamedComputers } = require("../src/shared/aiOperations/intent");
+    const twins = [{ id: "a", name: "vps-east" }, { id: "b", name: "vps-west" }];
+    assert.deepStrictEqual(findNamedComputers("check my vps", twins), [], "a shared part never picks between two computers");
+    assert.deepStrictEqual(findNamedComputers("check my vps west", twins).map((entry) => entry.id), ["b"]);
+    assert.deepStrictEqual(findNamedComputers("check windows", [{ id: "w", name: "Windows Desktop" }]), [], "generic words do not match");
   });
 
   await check("A5 ambiguous servers ask; offline computers are reported, never swapped", async () => {
@@ -554,7 +580,7 @@ async function rejects(promise, code) {
     const ping = await service.ask({ question: "Show me which players have high ping." });
     assert.match(ping.answer, /not measured/);
     const network = await service.ask({ question: "Is AnxNet working?" });
-    assert.match(network.answer, /1 of 3 computers are not connected/);
+    assert.match(network.answer, /1 of 3 computers is not connected/);
     assert.ok(network.missing.includes("Internet reachability is not measured by this check."));
   });
 

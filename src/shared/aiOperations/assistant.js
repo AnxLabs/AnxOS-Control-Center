@@ -12,7 +12,7 @@
 // contains a number that is not in the measurements.
 
 const { getTool, validateToolCall, describeToolsForModel } = require("./toolRegistry");
-const { parseIntent, resolveTarget } = require("./intent");
+const { findNamedComputers, parseIntent, resolveTarget } = require("./intent");
 const { untrustedText } = require("./observation");
 
 const GIB = 1024 ** 3;
@@ -239,6 +239,21 @@ function createAssistant({ executeReadTool, checkPermission = null, broker, prov
     const computers = result.data.computers || [];
     const key = intent.metric;
     const rows = computers.map((computer) => ({ computer, observation: (result.observations || []).find((entry) => entry.target.nodeId === computer.id && entry.source === `computer.${key}`) }));
+    // Summaries come from the last health check and often carry no reading
+    // for Agent computers. A connected computer without a current summary
+    // value gets a live reading instead (bounded, under system:read), so a
+    // computer is never left out of the comparison just for lack of a cache.
+    await Promise.all(rows.slice(0, 8).map(async (row) => {
+      const needsLive = row.computer.online !== false && (!row.observation || row.observation.freshness === "unavailable" || row.observation.freshness === "stale");
+      if (!needsLive) return;
+      try {
+        const live = await read("computer.status", { nodeId: row.computer.id }, {}, actor);
+        const reading = (live.observations || []).find((entry) => entry.source === `system.${key}`);
+        if (reading && reading.freshness !== "unavailable") row.observation = reading;
+      } catch {
+        // Keep the summary value (or its absence); the answer lists it.
+      }
+    }));
     response.observations.push(...rows.map((row) => row.observation).filter(Boolean));
     const measured = rows.filter((row) => row.observation && row.observation.freshness !== "unavailable");
     const word = key === "memory" ? "RAM" : key === "cpu" ? "CPU" : "disk";
@@ -314,7 +329,7 @@ function createAssistant({ executeReadTool, checkPermission = null, broker, prov
 
   async function handleDocker({ question, actor, context, response }) {
     const inventory = await loadInventory(actor);
-    const named = inventory.computers.filter((computer) => new RegExp(`\\b${String(computer.name || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(question));
+    const named = findNamedComputers(question, inventory.computers);
     const computers = (named.length ? named : inventory.computers).filter((computer) => computer.online !== false);
     if (!computers.length) {
       response.answer = "No connected computer is available to check Docker on.";
@@ -351,7 +366,7 @@ function createAssistant({ executeReadTool, checkPermission = null, broker, prov
       response.findings.push({ code: "AGENT_DISCONNECTED", problem: `${computer.name} is not connected.`, explanation: "Control Center cannot reach its Agent. The computer may be off, asleep, or its network or Agent may be down.", evidence: [{ source: "computer status", text: `Last contact: ${computer.lastContact || "unknown"}` }], confidence: "high", suggestedFix: "Check the computer is on and its Agent service is running; then use Reconnect in Computers.", impact: "None.", verification: "It shows Connected in Computers." });
     }
     response.answer = offline.length
-      ? `${offline.length} of ${computers.length} computer${computers.length === 1 ? " is" : "s are"} not connected.`
+      ? `${offline.length} of ${computers.length} computer${computers.length === 1 ? "" : "s"} ${offline.length === 1 ? "is" : "are"} not connected.`
       : `All ${computers.length} computer${computers.length === 1 ? " is" : "s are"} connected.${anxnet ? ` AnxNet: ${untrustedText(anxnet.state || "unknown", 40)}.` : ""}`;
     response.missing.push("Internet reachability is not measured by this check.");
   }
@@ -432,7 +447,7 @@ function createAssistant({ executeReadTool, checkPermission = null, broker, prov
     const plan = { game: intent.game, players: intent.players, runtime: runtime.runtime, runtimeReason: runtime.why, memoryGb, diskGb: SERVER_DISK_GB[intent.game] || SERVER_DISK_GB.other, wantsPlugins: intent.wantsPlugins, wantsMods: intent.wantsMods, nodeId: null, computerLabel: null };
     const online = inventory.computers.filter((computer) => computer.online !== false);
     let candidates = online;
-    const named = online.filter((computer) => new RegExp(`\\b${String(computer.name || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(question));
+    const named = findNamedComputers(question, online);
     if (named.length) candidates = named;
     const assessed = [];
     for (const computer of candidates.slice(0, 6)) {

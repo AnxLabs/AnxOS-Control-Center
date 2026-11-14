@@ -107,6 +107,26 @@ function mentions(text, name) {
   return new RegExp(`(^|[^a-z0-9])${escapeRegExp(clean)}($|[^a-z0-9])`).test(text);
 }
 
+// Computers named by the question: the full name or id first; failing that, a
+// distinctive part of a compound name ("VPS" for "vps-7360e3ad"), but only
+// when exactly one computer has that part, so a part never picks between two.
+function findNamedComputers(question, computers = []) {
+  const text = lower(question);
+  const full = computers.filter((computer) => mentions(text, computer.name) || mentions(text, computer.id));
+  if (full.length) return full;
+  const words = new Set(text.split(/[^a-z0-9]+/).filter(Boolean));
+  const scored = computers.map((computer) => ({
+    computer,
+    score: lower(computer.name || computer.id)
+      .split(/[^a-z0-9]+/)
+      .filter((part) => part.length >= 3 && /[a-z]/.test(part) && !["the", "server", "computer", "node", "desktop", "windows", "linux", "agent"].includes(part) && words.has(part))
+      .length,
+  }));
+  const best = Math.max(0, ...scored.map((entry) => entry.score));
+  const top = scored.filter((entry) => entry.score === best && best > 0);
+  return top.length === 1 ? [top[0].computer] : [];
+}
+
 function computerLabel(computer) {
   return computer?.name || computer?.id || "this computer";
 }
@@ -129,7 +149,7 @@ function resolveTarget(question, kind, inventory = {}, context = {}) {
   const containers = Array.isArray(inventory.containers) ? inventory.containers : [];
   const pointsAtSelection = /\b(this|it|current|selected)\b/.test(text);
 
-  const namedComputers = computers.filter((computer) => mentions(text, computer.name) || mentions(text, computer.id));
+  const namedComputers = findNamedComputers(text, computers);
 
   function computerResult(computer) {
     const target = { nodeId: computer.id };
@@ -198,6 +218,7 @@ function clarify(question, options) {
 
 module.exports = {
   GAMES,
+  findNamedComputers,
   parseIntent,
   resolveTarget,
   serverLabel,

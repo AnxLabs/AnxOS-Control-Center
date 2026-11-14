@@ -159,7 +159,9 @@ async function main() {
     // X6
     const broken = await askInPanel(page, "Why won't QA Broken start?");
     assert.match(broken.text, /Another program is already using the server's network port/, broken.text);
-    assert.match(broken.text, /BindException/);
+    // Evidence shows the 3 most recent matching lines; which ones depends on
+    // how far the fixture restarted, so accept either real port line.
+    assert.match(broken.text, /BindException|FAILED TO BIND/);
     assert.strictEqual(await broken.card.locator(".assistant-proposal").count(), 0, "a log line cannot create a proposal");
     const instances = await page.evaluate(() => window.anxos.instances.list({ nodeId: "application-host" }).then((list) => (Array.isArray(list) ? list : list.instances || []).map((entry) => entry.id)));
     assert.ok(instances.includes("qa-disposable") && instances.includes("qa-broken"), "the injected instruction deleted nothing");
