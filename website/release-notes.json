@@ -1,6 +1,31 @@
 [
   {
     "version": "2.0",
+    "build": 211,
+    "channel": "Private Alpha",
+    "tag": "v2.0-build211",
+    "date": "November 14, 2026",
+    "datetime": "2026-11-14",
+    "title": "AnxOS Control Center v2.0 — Build 211",
+    "summary": "Build 211 is the first public build since Build 209. It adds an **optional AI assistant** (off by default) and a **signed, branded Windows installer that works with Smart App Control on**. It also includes every Build 210 improvement; Build 210 was never published.",
+    "changes": [
+      "**Optional AI assistant (Phase X).** An Owner can turn it on in **Settings › AI Assistant**; until then nothing about it runs.",
+      "**Branded AnxLabs installer.** A dark AnxLabs installer that explains each choice, including whether to set up the background Helper. Add/Remove Programs lists the publisher as AnxLabs.",
+      "**Status explanations and remembered filters.** Hover a server's status to see what it means and what to do next. The Instances status filter is remembered.",
+      "**Works with Smart App Control on.** Every program file Windows checks is now signed, including the installer's own helper files and native modules. The signed release candidate installed, ran, reinstalled and uninstalled in a clean Windows with Smart App Control on, with no blocks.",
+      "**Updates are checked before they open.** A downloaded update installer must carry a valid signature from the AnxOS publisher, or it is not opened. Settings › Updates shows what was verified, and why an install was refused.",
+      "**Errors stay up long enough to read**, and the Docker page, installs, consoles, Instances, Dashboard and Files do much less background work.",
+      "**Docker start, stop and restart from the Agent** failed because the Docker path was passed incorrectly.",
+      "**Palworld cards showed \"0.0\" as the game version.**",
+      "**Restoring an imported world backup could delete the whole server folder.** World restores now touch only the world folders and refuse archives that hold anything else.",
+      "**New downloads may show a SmartScreen prompt** until this release builds download reputation. The installer is validly signed; choose **More info › Run anyway** only if the publisher shown is Anjo ROSIMO.",
+      "**Upgrading from Build 209 with Smart App Control on** was not tested in a clean machine; fresh installs, reinstalls and uninstalls were.",
+      "**AI assistant:** off by default. Player ping, server TPS and internet reachability are not measured, and it says so. It does not change ports. Sona is not available yet. Its fixes for comparing computers and matching partial computer names were verified in tests and in the app, not yet re-run against a real remote fleet."
+    ],
+    "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v2.0-build211"
+  },
+  {
+    "version": "2.0",
     "build": 210,
     "channel": "Private Alpha",
     "tag": "v2.0-build210",
