@@ -1357,6 +1357,9 @@ const filesConnectionState = {
   targetKey: null,
   message: "No remote filesystem connected.",
 };
+// Last Files listing failure in this session; cleared by a successful listing.
+// Node health counts a Files issue only for this, not for Files simply not being open.
+let filesConnectionFailure = null;
 const sshSessions = new Map();
 const sshSessionFailures = new Map();
 const sshRemovedSessionIds = new Set();
@@ -30968,6 +30971,7 @@ function updateFilesConnectionState(nextState = {}) {
   filesConnectionState.nodeId = nextState.nodeId || null;
   filesConnectionState.targetKey = nextState.targetKey || null;
   filesConnectionState.message = nextState.message || (filesConnectionState.connected ? "Remote filesystem connected." : "No remote filesystem connected.");
+  if (filesConnectionState.connected) filesConnectionFailure = null;
 
   if (filesPathInput) {
     filesPathInput.value = filesConnectionState.currentPath || filesConnectionState.homePath || "";
@@ -33033,7 +33037,8 @@ async function refreshFileListing(options = {}) {
       return null;
     }
     const message = getSafeFilesConnectionError(error, target.label || "filesystem");
-    renderFileListingUnavailable(`File listing request failed: ${message}`);
+    filesConnectionFailure = { message: `File listing request failed: ${message}`, at: Date.now() };
+    renderFileListingUnavailable(filesConnectionFailure.message);
     renderFilesView();
     showToast(message);
 
@@ -38599,6 +38604,7 @@ function resetNodeScopedRendererState(message = "Loading selected node...") {
   filesConnectionState.nodeId = null;
   filesConnectionState.targetKey = null;
   filesConnectionState.message = message;
+  filesConnectionFailure = null;
   filesClipboardState.action = null;
   filesClipboardState.entry = null;
   filesClipboardState.sourceDirectory = null;
@@ -39195,15 +39201,19 @@ function buildMarketplaceHealth() {
 function buildFilesHealth() {
   const unavailable = !getDesktopApiState().hasFiles;
   const connected = filesConnectionState.connected === true;
+  // Files not being open is not a fault: only a failed listing or a degraded connection counts.
+  const failed = !connected && (filesConnectionState.status === "degraded" || Boolean(filesConnectionFailure));
   return buildNodeHealthCategory({
     id: "files",
     label: "Files/storage provider",
-    state: unavailable ? "Unavailable" : connected ? "Healthy" : "Warning",
+    state: unavailable ? "Unavailable" : connected ? "Healthy" : failed ? "Warning" : "Not Tested",
     evidence: connected
       ? `${latestFilesListing?.entries?.length || 0} entries visible at ${filesConnectionState.currentPath || filesConnectionState.homePath || "current path"}.`
-      : unavailable ? "Files IPC bridge is unavailable." : filesConnectionState.message || "No storage provider is connected.",
-    checkedAt: latestFilesListingAt || Date.now(),
-    issueCount: connected ? 0 : 1,
+      : unavailable ? "Files IPC bridge is unavailable."
+        : failed ? (filesConnectionFailure?.message || filesConnectionState.message || "The storage connection failed.")
+          : "Files has not been opened in this session.",
+    checkedAt: (failed ? filesConnectionFailure?.at : latestFilesListingAt) || Date.now(),
+    issueCount: failed ? 1 : 0,
     required: false,
     current: !unavailable,
     workspace: "files",
@@ -40539,11 +40549,33 @@ function describeNodeRoute(node) {
     const reason = tunnel?.state === "failed" && tunnel.lastError?.message ? ` · ${tunnel.lastError.message}` : "";
     return `SSH tunnel · ${label}${reason}`;
   }
+  const tunnelHint = describeUnmanagedLocalPortRoute(node, getNodeVisualState(node));
+  if (tunnelHint) return tunnelHint;
   const status = nodeRouteStatusById.get(node.id);
   if (!status) return node.fallbackUrls?.length ? "Main · checking routes" : "Main";
   const active = status.routes.find((route) => route.url === status.activeUrl && route.verified);
   if (!active) return "No route answering";
   return `${active.label}${Number.isFinite(active.latencyMs) ? ` · ${active.latencyMs} ms` : ""}`;
+}
+
+// A remote computer whose address is a port on this PC (127.0.0.1:47132) is
+// reached through something else forwarding that port, usually a hand-started
+// SSH tunnel. When it stops answering, the generic "Agent unavailable" hides
+// why, so say what the address means and where AnxOS can keep the tunnel open.
+function describeUnmanagedLocalPortRoute(node, visualState) {
+  if (node?.kind !== "agent" || node.localAgent === true || node.connection?.localAgent === true) return null;
+  if (node.transport?.type === "ssh-tunnel" || visualState !== "offline") return null;
+  // With fallback routes the route list explains itself (a working Tailscale
+  // route must not read "not answering").
+  if (Array.isArray(node.fallbackUrls) && node.fallbackUrls.length) return null;
+  let url;
+  try {
+    url = new URL(String(node.baseUrl || node.agentUrl || ""));
+  } catch {
+    return null;
+  }
+  if (!["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)) return null;
+  return `Local port ${url.port || "(default)"} not answering · if an SSH tunnel carried it, turn on Routes › SSH tunnel so AnxOS keeps it open`;
 }
 
 function describeNodeAgentBuild(node) {

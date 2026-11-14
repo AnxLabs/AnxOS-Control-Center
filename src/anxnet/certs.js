@@ -25,8 +25,15 @@ function tlv(tag, content) {
 const seq = (...parts) => tlv(0x30, Buffer.concat(parts));
 const set = (...parts) => tlv(0x31, Buffer.concat(parts));
 
+// DER INTEGERs must use the fewest bytes: drop redundant leading zeros, then
+// add one zero only when the top bit would otherwise make the value negative.
+// A random serial starting 0x00 0x00-0x7f was otherwise "illegal padding", and
+// TLS refused the certificate (about 1 start in 512).
 function integer(buffer) {
-  const bytes = buffer[0] & 0x80 ? Buffer.concat([Buffer.from([0]), buffer]) : buffer;
+  let start = 0;
+  while (start < buffer.length - 1 && buffer[start] === 0 && !(buffer[start + 1] & 0x80)) start += 1;
+  const minimal = buffer.subarray(start);
+  const bytes = minimal[0] & 0x80 ? Buffer.concat([Buffer.from([0]), minimal]) : minimal;
   return tlv(0x02, bytes);
 }
 

@@ -52,7 +52,9 @@ async function main() {
     }, setup);
 
     let view = await card("nodeRouteStatusById = new Map(); nodeTunnelStatusById = new Map();");
-    assert.strictEqual(view.route, "Main", "a plain node uses its main address");
+    // QA Remote's only address is a closed local port (127.0.0.1:9), so it is
+    // offline and the card explains a local-port address instead of "Main".
+    assert.match(view.route, /^Local port 9 not answering · .*Routes › SSH tunnel/, "an offline local-port node explains its address");
     assert.ok(view.actions.includes("routes"), "Agent nodes offer a Routes action");
     view = await card(`const n = nodesState.nodes.find((x) => x.id === "qa-remote"); n.fallbackUrls = [{ url: "${TS}", label: "Tailscale" }]; nodeRouteStatusById.set("qa-remote", { nodeId: "qa-remote", activeUrl: "${TS}", routes: [{ url: n.baseUrl, label: "Main", verified: false, error: "ETIMEDOUT" }, { url: "${TS}", label: "Tailscale", verified: true, latencyMs: 38 }] });`);
     assert.strictEqual(view.route, "Tailscale · 38 ms", "the card shows the route in use and its latency");

@@ -120,6 +120,8 @@ async function rowInfo(page, id) {
     if (!row) return null;
     return {
       text: row.innerText.replace(/\s+/g, " "),
+      // Phase 8: the line shows the game; how it runs is in the name cell's tooltip.
+      runsAs: row.querySelector(".instance-name-cell span[title]")?.title || "",
       buttons: Object.fromEntries(Array.from(row.querySelectorAll("button[data-instance-row-action]")).map((button) => [button.dataset.instanceRowAction, { disabled: button.disabled }])),
     };
   }, id);
@@ -238,7 +240,7 @@ async function scenarioRunning(report) {
     let row = null;
     await eventually("row renders as a running systemd service with Stop/Reload enabled", async () => {
       row = await rowInfo(page, INSTANCE_ID);
-      assert.match(row.text, /systemd service/i, "type renders as 'systemd service'");
+      assert.strictEqual(row.runsAs, "Runs as: systemd service", "the row says it runs as a systemd service");
       assert.match(row.text, /RUNNING/i);
       assert.strictEqual(row.buttons.start.disabled, true, "Start is disabled while the service runs");
       assert.strictEqual(row.buttons.stop.disabled, false);

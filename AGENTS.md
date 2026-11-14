@@ -607,6 +607,47 @@ Use this section to accumulate verified project knowledge over time. Add entries
   the real service (a disposable local server is enough) before trusting
   its hermetic tests.
 
+### 2026-11-14 — `qa:release` was broken, and "isolated" UI tests reached the real Agent
+
+- **Problem:** `npm run qa:release` failed at its first real-app test
+  (`stabilization-ui-qa.js`), and `service-managed-ui-qa.js` failed too.
+  Separately, the developer's real Local Agent had logged about 3,500
+  "Agent request authorization failed" lines, in bursts during UI test runs.
+  Some of those requests were writes (`public-access/firewall-rule`,
+  `notifications/webhook`).
+- **Cause:** CI runs only `rc:validate` (the `:smoke` scripts), so the
+  real-app tests in `qa:release` were never run after Phase 5 and Phase 8
+  changed the layout and labels they checked. The UI tests' isolated profile
+  did not set `AGENT_URL`, so the app fell back to `http://127.0.0.1:47131`,
+  the developer's real Agent. Only the missing token stopped those requests.
+- **Resolution:** The stale tests now check the current design (server page
+  opened with `AnxServerView.open`, "game settings" title, Auto Start under
+  Server behavior, "Runs as" tooltip). `isolated-qa-env.js` sets
+  `AGENT_URL=http://127.0.0.1:9`. A full UI run went from 66 requests at the
+  real Agent to 5. The rest come from code that has its own 47131 default
+  (Agent Control, local Agent detection).
+- **Lesson:** Run `qa:release` before a release, not only `rc:validate`. A
+  test environment is isolated only once you've checked that the real service
+  logged nothing during the run, not because it has a temporary profile.
+
+### 2026-11-14 — AnxNet sometimes could not start ("illegal padding")
+
+- **Problem:** `anxnet-dns-smoke` failed once in `qa:release` with
+  `ERR_OSSL_ASN1_ILLEGAL_PADDING` from `tls.createServer`, and passed on the
+  next run.
+- **Cause:** `src/anxnet/certs.js` encoded the certificate's random 16-byte
+  serial as a DER INTEGER without dropping leading zero bytes. A serial that
+  starts 0x00 followed by 0x00-0x7f is not valid DER, so TLS refused the
+  certificate. The certificate is made once per process, so about 1 start in
+  512 had no working AnxNet until the app or Agent restarted.
+- **Resolution:** `integer()` now uses minimal encoding: it drops redundant
+  zero bytes and adds one only before a high bit.
+  `scripts/anxnet-cert-der-smoke.js` forces the serials that used to fail and
+  loads 300 random certificates through TLS.
+- **Lesson:** Treat a one-off crypto or encoding failure as a likely 1-in-N
+  bug, not as flakiness. Force the rare input in a test, instead of rerunning
+  until the test passes.
+
 ## Future Improvements
 
 Keep optional ideas separate from active work. An item in this list is not authorization to implement it.

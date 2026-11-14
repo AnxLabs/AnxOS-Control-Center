@@ -263,4 +263,34 @@ assert(!app.includes("security score") && !app.includes("health score"), "Node h
 assert(!index.includes("data-node-health-fix-all"), "Unsupported Fix All bulk remediation should remain omitted.");
 assert(app.includes("refreshNodeHealth({ notify: false })"), "Node health should support quiet refreshes to avoid notification floods.");
 
+// Regression: Files not being open counted as a health issue on the selected
+// computer ("Warning · 2 issues" on a healthy node). Run the real
+// buildFilesHealth with stubbed state: only a failed listing is an issue.
+{
+  const vm = require("vm");
+  const match = app.replace(/\r\n/g, "\n").match(/\nfunction buildFilesHealth\(\) \{[\s\S]*?\n\}\n/);
+  assert(match, "buildFilesHealth should exist");
+  const run = (state) => vm.runInNewContext(`${match[0]}; buildFilesHealth();`, {
+    getDesktopApiState: () => ({ hasFiles: true }),
+    buildNodeHealthCategory: (category) => category,
+    latestFilesListing: state.connected ? { entries: [1, 2] } : null,
+    latestFilesListingAt: 0,
+    filesConnectionState: { connected: false, status: "disconnected", message: "No remote filesystem connected.", ...state },
+    filesConnectionFailure: state.failure || null,
+    Date,
+  });
+  const notOpened = run({});
+  assert.strictEqual(notOpened.state, "Not Tested", "Files never opened is Not Tested");
+  assert.strictEqual(notOpened.issueCount, 0, "Files never opened is not an issue");
+  const connected = run({ connected: true, status: "connected", currentPath: "/srv" });
+  assert.strictEqual(connected.state, "Healthy");
+  assert.strictEqual(connected.issueCount, 0);
+  const failed = run({ failure: { message: "File listing request failed: timed out", at: 1 } });
+  assert.strictEqual(failed.state, "Warning", "a failed listing is a warning");
+  assert.strictEqual(failed.issueCount, 1, "a failed listing counts as one issue");
+  assert.match(failed.evidence, /timed out/);
+  const degraded = run({ status: "degraded", message: "Agent unavailable. Reconnect or refresh before retrying." });
+  assert.strictEqual(degraded.issueCount, 1, "a degraded connection counts as one issue");
+}
+
 console.log("Node health smoke checks passed.");

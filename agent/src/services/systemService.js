@@ -27,7 +27,9 @@ const DISK_STATS_WARNING_REPEAT_INTERVAL_MS = 5 * 60 * 1000;
 const WINDOWS_CPU_TEMP_UNAVAILABLE = "WINDOWS_CPU_TEMP_UNAVAILABLE";
 const WINDOWS_CPU_TEMP_PROVIDER_FAILED = "WINDOWS_CPU_TEMP_PROVIDER_FAILED";
 const WINDOWS_CPU_TEMP_INVALID = "WINDOWS_CPU_TEMP_INVALID";
-const CPU_TEMP_WARNING_REPEAT_INTERVAL_MS = 5 * 60 * 1000;
+// A missing temperature sensor does not change while the Agent runs: warn once,
+// then only every 6 hours (with the suppressed count) so it does not flood the log.
+const CPU_TEMP_WARNING_REPEAT_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const CPU_TEMP_CACHE_MS = 30 * 1000;
 const cpuTempWarningState = new Map();
 let cpuTemperatureCache = null;

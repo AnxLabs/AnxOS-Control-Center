@@ -516,11 +516,13 @@ async function main() {
     // the card again. The fixture is re-established immediately before the wait,
     // so the exposure is one poll interval wide, and if a poll does win the
     // failure names `cardHidden` and the snapshot length.
+    // Since Phase 5 a server's tabs live on its own page (data-server-view="open");
+    // in the list view the workspace card is display:none. Open it the way a row
+    // click does, straight onto the Files tab.
     await page.evaluate((instance) => window.eval(`
       latestInstancesSnapshot = { instances: [${JSON.stringify(instance)}] };
-      selectInstance(${JSON.stringify(instance.id)});
       showPage("instances");
-      setActiveInstanceTab("files");
+      window.AnxServerView.open(${JSON.stringify(instance.id)}, "files");
     `), QA_INSTANCE);
     await waitFor({
       label: "The Files tab panel must be active and laid out before its fit and overflow are measured",
@@ -607,17 +609,18 @@ async function main() {
     }, QA_INSTANCE);
     await page.waitForSelector("[data-game-config-manager]:not([hidden])");
     await page.locator("[data-game-config-title]").waitFor({ state: "visible" });
-    assert(/Minecraft Configuration/i.test(await page.locator("[data-game-config-title]").textContent()), "Game config title must identify the adapter.");
+    // The title reads "<adapter> game settings" (app.js renderGameConfigPanel).
+    assert(/Minecraft game settings/i.test(await page.locator("[data-game-config-title]").textContent()), "Game config title must identify the adapter.");
+    // Phase 5 layout: game settings sit under General; Auto Start is a row under
+    // Server behavior, below them; the timeouts moved into Advanced.
     const settingsFormBox = await page.locator("[data-instance-config-form]").boundingBox();
-    const startupTimeoutBox = await page.locator('[data-instance-config="startupTimeoutMs"]').boundingBox();
-    const shutdownTimeoutBox = await page.locator('[data-instance-config="shutdownTimeoutMs"]').boundingBox();
     const gameConfigBox = await page.locator("[data-game-config-manager]").boundingBox();
     const autoStartLabel = page.locator('[data-instance-config="autoStart"]').locator("xpath=ancestor::label[1]");
     const autoStartBox = await autoStartLabel.boundingBox();
-    assert(settingsFormBox && startupTimeoutBox && shutdownTimeoutBox && gameConfigBox && autoStartBox, "Settings layout controls must be measurable.");
+    assert(settingsFormBox && gameConfigBox && autoStartBox, "Settings layout controls must be measurable.");
     assert(autoStartBox.height <= 48, "Auto Start must render as a compact setting row, not a stretched empty panel.");
-    assert(autoStartBox.y <= Math.max(startupTimeoutBox.y + startupTimeoutBox.height, shutdownTimeoutBox.y + shutdownTimeoutBox.height) + 24, "Auto Start must stay near the normal instance settings.");
-    assert(autoStartBox.y + autoStartBox.height <= gameConfigBox.y + 4, "Auto Start must not share or float inside the game config layout.");
+    assert(await page.evaluate(() => Boolean(document.querySelector('[data-instance-config="autoStart"]')?.closest('[aria-labelledby="server-settings-behavior"]'))), "Auto Start must live in the Server behavior group.");
+    assert(autoStartBox.y >= gameConfigBox.y + gameConfigBox.height - 4, "Auto Start must not share or float inside the game config layout.");
     assert(gameConfigBox.x <= settingsFormBox.x + 4, "Minecraft Configuration must start at the settings form left edge.");
     assert(gameConfigBox.width >= settingsFormBox.width - 8, "Minecraft Configuration must span the settings form width.");
     await page.locator("[data-game-config-search]").fill("players");

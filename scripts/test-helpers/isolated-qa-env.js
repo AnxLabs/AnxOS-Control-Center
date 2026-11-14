@@ -22,6 +22,12 @@ function createIsolatedQaEnv(prefix = "anx-qa-") {
       ANXOS_QA_CONFIG_DIR: configDir,
       ANXOS_LOG_DIR: logDir,
       ANXHUB_AGENT_CONFIG_PATH: path.join(configDir, "agent.json"),
+      // Without this the QA app falls back to http://127.0.0.1:47131, which is the
+      // developer's real Local Agent: every QA run sent it requests (stats,
+      // backups, firewall-rule writes) that were refused only for lack of a token.
+      // Port 9 (discard) on loopback is closed, so the default route fails fast.
+      // A test that starts its own Agent still sets its own node URL.
+      AGENT_URL: "http://127.0.0.1:9",
       TMP: tempDir,
       TEMP: tempDir,
       TMPDIR: tempDir,
