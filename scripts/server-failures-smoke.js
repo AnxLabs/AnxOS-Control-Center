@@ -117,9 +117,42 @@ async function main() {
     const logText = await fs.promises.readFile(path.join(process.env.AGENT_INSTANCE_ROOT, "plain-crash", "logs", "latest.log"), "utf8").catch(() => "");
     assert.ok(restarted || /Auto-restart scheduled/.test(logText), "an ordinary crash is still restarted by the policy");
     console.log(`PASS F3 a real bind failure is reported and not restarted; an ordinary crash ${restarted ? "was restarted" : "scheduled a restart"}`);
+
+    // F4: a status poll that sees the crashed child's PID gone before Node
+    // delivers its "exit" event must not record Stopped/STALE_PID (it used to,
+    // and could overwrite the crash: F3 failed about 1 run in 15 under load).
+    // The window is forced by reporting the still-running child as dead.
+    await instanceService.createInstance({
+      id: "exit-pending",
+      displayName: "exit-pending",
+      type: "custom-command",
+      workingDirectory: "data",
+      executable: process.execPath,
+      args: ["-e", "setTimeout(() => process.exit(1), 1500);"],
+      restartPolicy: "never",
+    });
+    await instanceService.startInstance("exit-pending");
+    instanceService._test.setProcessAliveProvider(() => false);
+    let pending;
+    try {
+      pending = await instanceService.getStatus("exit-pending");
+    } finally {
+      instanceService._test.setProcessAliveProvider(null);
+    }
+    assert.notStrictEqual(pending?.failureReason, "STALE_PID", "a pending exit is not recorded as a stale PID");
+    assert.notStrictEqual(String(pending?.state || "").toLowerCase(), "stopped", `a pending exit is not recorded as Stopped (${pending?.state})`);
+    let settled = null;
+    for (let i = 0; i < 60; i += 1) {
+      await wait(100);
+      settled = await instanceService.getStatus("exit-pending");
+      if (String(settled?.state || "").toLowerCase() === "failed") break;
+    }
+    assert.strictEqual(String(settled?.state || "").toLowerCase(), "failed", `the crash is recorded once the exit arrives (${settled?.state})`);
+    assert.strictEqual(settled?.failureReason, "PROCESS_EXITED", `the crash keeps its reason (${settled?.failureReason})`);
+    console.log("PASS F4 a status poll before the exit event does not overwrite the crash");
   } finally {
     childProcess.spawn = originalSpawn;
-    for (const id of ["bind-failure", "plain-crash"]) {
+    for (const id of ["bind-failure", "plain-crash", "exit-pending"]) {
       await instanceService.stopInstance(id).catch(() => {});
     }
     await wait(300);
@@ -127,7 +160,7 @@ async function main() {
     try { fs.rmSync(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); } catch {}
   }
 
-  console.log("Server failures smoke passed (3 checks).");
+  console.log("Server failures smoke passed (4 checks).");
 }
 
 main().then(() => process.exit(process.exitCode || 0), (error) => {

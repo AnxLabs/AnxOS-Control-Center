@@ -648,6 +648,25 @@ Use this section to accumulate verified project knowledge over time. Add entries
   bug, not as flakiness. Force the rare input in a test, instead of rerunning
   until the test passes.
 
+### 2026-11-14 — A crashed server sometimes showed as "Stopped"
+
+- **Problem:** `server-failures-smoke` failed about 1 run in 15 under load:
+  a server that crashed (exit code 1) was reported "Stopped" instead of
+  "Failed / PROCESS_EXITED".
+- **Cause:** A status poll (`reconcileConfigState`) could see the crashed
+  child's PID gone before Node delivered the child's `exit` event. It then
+  wrote Stopped/STALE_PID. The exit handler and the poll both load and
+  save `config.json` with no lock, so the poll's write could land last and
+  replace the crash.
+- **Resolution:** While the Agent still tracks a spawned child whose exit has
+  not been observed, a status poll reports the current state and writes
+  nothing; the exit handler records the result. The F4 case in
+  `scripts/server-failures-smoke.js` forces the window by reporting the
+  live child as dead, and fails without the fix.
+- **Lesson:** Two writers of the same state file need one owner per fact.
+  Here, a process's exit result belongs to its exit handler. Force a race's
+  window in the test (a liveness hook) instead of rerunning until it passes.
+
 ## Future Improvements
 
 Keep optional ideas separate from active work. An item in this list is not authorization to implement it.

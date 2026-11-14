@@ -5151,6 +5151,15 @@ async function reconcileConfigState(config) {
     };
   }
 
+  // A child this Agent spawned and still tracks has died, but Node has not
+  // delivered its "exit" event yet. That handler records the real result
+  // (Failed with its reason, or Stopped). Writing Stopped/STALE_PID here races
+  // it: both load-then-save the same config.json, so a status poll could
+  // overwrite a confirmed crash with "Stopped".
+  if (processEntry?.child?.pid && !processEntry.exitObserved) {
+    return config;
+  }
+
   // A persisted failure is evidence about a process that already exited, not a
   // stale claim that the process is still active. Preserve it until an explicit
   // start/stop/update transition replaces it so crash status survives refresh
