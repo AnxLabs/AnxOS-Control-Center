@@ -5,18 +5,18 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   siteUrl: "https://anxoscontrolcenter.org",
   logoPath: "/assets/anxos-logo.png",
   latestVersion: "2.0",
-  build: "205",
-  buildNumber: "205",
+  build: "211",
+  buildNumber: "211",
   channel: "Private Alpha",
-  releaseLabel: "Version 2.0 Build 205 Private Alpha",
-  releaseDate: "September 26, 2026",
-  releaseTag: "v2.0-build205-rc3",
+  releaseLabel: "Version 2.0 Build 211 Private Alpha",
+  releaseDate: "November 14, 2026",
+  releaseTag: "v2.0-build211",
   releaseRepository: {
     owner: "AnxLabs",
     repo: "AnxOS-Control-Center-Releases",
   },
   repositoryUrl: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases",
-  releaseUrl: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v2.0-build205-rc3",
+  releaseUrl: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v2.0-build211",
   githubReleasesApiUrl: "https://api.github.com/repos/AnxLabs/AnxOS-Control-Center-Releases/releases?per_page=20",
   stableDownloadEndpoints: {
     windows: "/api/download/latest/windows",
@@ -26,23 +26,171 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   },
   releaseAssets: [
       {
-          fileName: "AnxOS-Control-Center-Setup-2.0-build205.exe",
-          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build205-rc3/AnxOS-Control-Center-Setup-2.0-build205.exe"
+          fileName: "AnxOS-Control-Center-Setup-2.0-build211.exe",
+          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build211/AnxOS-Control-Center-Setup-2.0-build211.exe"
       },
       {
-          fileName: "AnxOS-Control-Center-2.0-build205-portable.exe",
-          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build205-rc3/AnxOS-Control-Center-2.0-build205-portable.exe"
+          fileName: "AnxOS-Control-Center-2.0-build211-portable.exe",
+          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build211/AnxOS-Control-Center-2.0-build211-portable.exe"
       },
       {
-          fileName: "AnxOS-Control-Center-2.0-build205.AppImage",
-          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build205-rc3/AnxOS-Control-Center-2.0-build205.AppImage"
+          fileName: "AnxOS-Control-Center-2.0-build211.AppImage",
+          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build211/AnxOS-Control-Center-2.0-build211.AppImage"
       },
       {
-          fileName: "AnxOS-Control-Center-2.0-build205.deb",
-          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build205-rc3/AnxOS-Control-Center-2.0-build205.deb"
+          fileName: "AnxOS-Control-Center-2.0-build211.deb",
+          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build211/AnxOS-Control-Center-2.0-build211.deb"
       }
   ],
   releaseNotes: [
+      {
+          "version": "2.0",
+          "build": 211,
+          "channel": "Private Alpha",
+          "tag": "v2.0-build211",
+          "date": "November 14, 2026",
+          "datetime": "2026-11-14",
+          "title": "AnxOS Control Center v2.0 — Build 211",
+          "summary": "Build 211 is the first public build since Build 209. It adds an **optional AI assistant** (off by default) and a **signed, branded Windows installer that works with Smart App Control on**. It also includes every Build 210 improvement; Build 210 was never published.",
+          "changes": [
+              "**Optional AI assistant (Phase X).** An Owner can turn it on in **Settings › AI Assistant**; until then nothing about it runs.",
+              "**Branded AnxLabs installer.** A dark AnxLabs installer that explains each choice, including whether to set up the background Helper. Add/Remove Programs lists the publisher as AnxLabs.",
+              "**Status explanations and remembered filters.** Hover a server's status to see what it means and what to do next. The Instances status filter is remembered.",
+              "**Works with Smart App Control on.** Every program file Windows checks is now signed, including the installer's own helper files and native modules. The signed release candidate installed, ran, reinstalled and uninstalled in a clean Windows with Smart App Control on, with no blocks.",
+              "**Updates are checked before they open.** A downloaded update installer must carry a valid signature from the AnxOS publisher, or it is not opened. Settings › Updates shows what was verified, and why an install was refused.",
+              "**Errors stay up long enough to read**, and the Docker page, installs, consoles, Instances, Dashboard and Files do much less background work.",
+              "**Docker start, stop and restart from the Agent** failed because the Docker path was passed incorrectly.",
+              "**Palworld cards showed \"0.0\" as the game version.**",
+              "**Restoring an imported world backup could delete the whole server folder.** World restores now touch only the world folders and refuse archives that hold anything else.",
+              "**New downloads may show a SmartScreen prompt** until this release builds download reputation. The installer is validly signed; choose **More info › Run anyway** only if the publisher shown is Anjo ROSIMO.",
+              "**Upgrading from Build 209 with Smart App Control on** was not tested in a clean machine; fresh installs, reinstalls and uninstalls were.",
+              "**AI assistant:** off by default. Player ping, server TPS and internet reachability are not measured, and it says so. It does not change ports. Sona is not available yet. Its fixes for comparing computers and matching partial computer names were verified in tests and in the app, not yet re-run against a real remote fleet."
+          ],
+          "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v2.0-build211"
+      },
+      {
+          "version": "2.0",
+          "build": 210,
+          "channel": "Private Alpha",
+          "tag": "v2.0-build210",
+          "date": "November 13, 2026",
+          "datetime": "2026-11-13",
+          "title": "AnxOS Control Center v2.0 — Build 210",
+          "summary": "Build 210 was not published on its own. Its changes ship in Build 211: status explanations, a remembered Instances filter, readable error messages, much less background work, and the Palworld version fix.",
+          "changes": [
+              "**Status explanations.** Hover a server's status (Running, Stopped, Setup Required, Failed and others) to see what it means and what to do next. When an action failed, the tooltip still shows that error instead.",
+              "**Remembered Instances filter.** The status filter on the Instances page is kept between sessions on this computer.",
+              "**Errors stay up long enough to read.** Error messages now stay about 6.5 seconds and warnings about 4.5 seconds, instead of 2.2. Hovering keeps them up, and clicking one opens it in Notifications. Other messages are unchanged and never block clicks.",
+              "**Faster searching in Settings and Diagnostics.**",
+              "**Less background work while you use the app.**",
+              "**Clearer app description.** Installers and the Linux app menu now describe the app as managing home servers, game servers, and the computers that run them.",
+              "**Palworld cards showed \"0.0\" as the game version.** Servers installed before Build 209 kept a \"0.0\" placeholder written by older version detection. \"0.0\" is no longer accepted as a version, and saved records are detected again once, so the placeholder is dropped. The Steam build number is kept.",
+              "None recorded yet.",
+              "**Repository validation (source, before the release candidate):** `npm run rc:validate`, 366 of 366 suites, on Windows. That run set the packaged hardware-telemetry helper aside, because the service-managed Agent test fixture counted the Agent's own temperature sampler as an unexpected launch. The fixture now lists the sampler as a background helper, so the suites pass with the helper present.",
+              "**Signed CI build, upgrade and acceptance:** not yet run. Results are recorded here before publication."
+          ],
+          "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v2.0-build211"
+      },
+      {
+          "version": "2.0",
+          "build": 209,
+          "channel": "Private Alpha",
+          "tag": "v2.0-build209",
+          "date": "October 31, 2026",
+          "datetime": "2026-10-31",
+          "title": "AnxOS Control Center v2.0 — Build 209",
+          "summary": "Build 209 adds a **Sign in** button for game servers that need an account sign-in and fixes Hytale's status reporting. It also adds automatic server update checks with backups and rollback, Discord/webhook alerts, and a Mod Manager for Minecraft servers.",
+          "changes": [
+              "**Sign in for game servers (Hytale first).** While a running server needs an account sign-in, its instance page shows **Sign in**.",
+              "**Server updates.**",
+              "**Restart schedules** use a single dialog and can be edited.",
+              "**Server alerts:** each node can post crashes, scheduled restarts and updates to a Discord or HTTPS webhook. The webhook URL stays on the Agent and is never shown again.",
+              "**Mod Manager for Minecraft.** A **Mods** tab (**Plugins** on Paper/Purpur) searches Modrinth for the server's version and loader.",
+              "**Hytale showed \"ready\" about 6 seconds early on restarts.** When it restores a saved sign-in, Hytale reports success before it opens its port. \"Ready\" now waits for the server to finish booting.",
+              "**Hytale stayed \"ready\" after a console `auth logout`.** It now shows as needing sign-in again.",
+              "**A sign-in code could be saved without its expiry time,** because two status updates finished out of order. They now happen in order.",
+              "**Hytale showed a false \"Update available\".** Version detection read the Minecraft-style \"version\" from Hytale's logs and recorded 0.7.5 as \"1.0\". Hytale's version now comes from its own boot line, which also stays correct after Hytale updates itself. Other non-Minecraft games no longer get a Minecraft version at all. That parsing was also the source of labels like \"Minecraft 0.0 - Palworld\".",
+              "**The instance header said \"Ready\" after any finished action,** including a successful Stop. It now shows the server's real state.",
+              "**Agents:** update node Agents (Agent `.deb` for packaged nodes, Update Agent for desktop-installed user services). Sign-in, Hytale status, update checks and alerts run in the Agent.",
+              "**Updating or restarting an Agent stops every server it runs.** Stop them first and back up worlds, then start them again afterwards."
+          ],
+          "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v2.0-build209"
+      },
+      {
+          "version": "2.0",
+          "build": 208,
+          "channel": "Private Alpha",
+          "tag": "v2.0-build208",
+          "date": "October 31, 2026",
+          "datetime": "2026-10-31",
+          "title": "AnxOS Control Center v2.0 — Build 208",
+          "summary": "Build 208 adds the official Hytale dedicated server and checks whether AI services actually work, not only whether they run. It also includes Sona as the officially supported AnxLabs AI app and keeps Palworld on the current Steam client library after updates.",
+          "changes": [
+              "**Hytale dedicated server (Linux nodes).** The Marketplace installs Hypixel Studios' official server.",
+              "**Health vs Function in the Infrastructure Inventory (AIM-2).** A new Function column shows whether an AI service actually works, next to whether it is running. A service that hasn't been checked shows \"Not checked\" and is never green.",
+              "**Sona is the officially supported AnxLabs AI app.**",
+              "**Discontinued integrations.** Open WebUI, Open Terminal and ANX-CorTex no longer appear in AI service diagnostics. Nothing on your machines was removed.",
+              "**Palworld kept loading an old Steam client library after updates.** Palworld's launcher copies `steamclient.so` only when the copy is missing, so updated servers kept running an outdated library.",
+              "**Network inventory** now says when the netstat fallback could not read a protocol, instead of returning a silently incomplete list.",
+              "**Installed Marketplace servers were labelled as Minecraft.** An installed Hytale server's card read \"Minecraft 0.7.5\". The card now names Minecraft only for Minecraft servers.",
+              "**Installed servers showed as \"Available\" in the Marketplace.** When the Marketplace was the first page opened, either in its own window or after a restart, installed templates weren't recognised. The Marketplace now loads the node's servers when it opens.",
+              "**Agents:** update node Agents (Agent `.deb` for packaged nodes, Update Agent for desktop-installed user services). Hytale's status and Palworld's library refresh run in the Agent.",
+              "**Functional checks:** off by default. To enable one, add an approved scope to `%APPDATA%\\AnxHub\\config\\functional-probe-scopes.json`. See `docs/v2/AIM2_IMPLEMENTATION_RECORD.md`.",
+              "**Repository validation:** `npm run rc:validate`, 355 of 355 suites.",
+              "**Signed CI build:** Authenticode signature valid and timestamped, SHA-256 recorded, and the update manifest matches the installer."
+          ],
+          "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v2.0-build208"
+      },
+      {
+          "version": "2.0",
+          "build": 207,
+          "channel": "Private Alpha",
+          "tag": "v2.0-build207",
+          "date": "October 30, 2026",
+          "datetime": "2026-10-30",
+          "title": "AnxOS Control Center v2.0 — Build 207",
+          "summary": "Build 207 makes AnxOS behave like a proper server app across several machines.",
+          "changes": [
+              "nodes stay reachable through SSH tunnels and Tailscale fallbacks;",
+              "every node's Agent can be started, stopped and restarted from Control Center, and only on the machine AnxOS has verified;",
+              "passphrase-protected SSH keys work for background tasks through the system SSH agent;",
+              "connection blips no longer flash nodes offline;",
+              "Playit is set up by linking an account instead of pasting an address;",
+              "the desktop app is reorganized, animated and lighter on the GPU.",
+              "**Agent Start, Stop and Restart for remote Linux nodes.** Agent Control now controls remote Agents, not only this PC's.",
+              "**Verify Access before Agent control.** SSH Start, Stop, Restart and Agent Update stay disabled until a read-only access check passes for the node and its SSH profile. The check signs in, confirms the machine reached is that node, finds the Agent service and checks passwordless control.",
+              "**Protection against controlling the wrong machine.** Every SSH Agent action and Agent Update first confirms that the machine reached is the node: its Agent's device ID, or its hostname when the Agent is stopped. If it isn't, nothing runs.",
+              "**SSH keys with passphrases for background tasks.** A key profile can use the system SSH agent (on Windows, the OpenSSH Authentication Agent; load the key once with `ssh-add`).",
+              "**App-managed SSH tunnels for nodes.** A node whose Agent listens only on the node itself (for example `127.0.0.1` on a VPS) can be reached through an SSH tunnel that Control Center opens, watches and reconnects with backoff. Tunnels use key authentication and a host key you have already approved; they never prompt or accept an unknown key.",
+              "**Route fallback with Tailscale suggestions.** A node can have up to four extra addresses. Control Center uses the first one whose Agent proves the paired device identity, so a different machine answering on an address is never trusted. \"Find Tailscale route\" suggests the node's tailnet address from `tailscale status` (read only)."
+          ],
+          "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v2.0-build207"
+      },
+      {
+          "version": "2.0",
+          "build": 206,
+          "channel": "Private Alpha",
+          "tag": "v2.0-build206-rc1",
+          "date": "October 8, 2026",
+          "datetime": "2026-10-09",
+          "title": "AnxOS Control Center v2.0 — Build 206",
+          "summary": "Build 206 adds **service-managed instances**: the Agent can now observe and control an existing OS service (a systemd unit) without ever owning its process. The first use is adopting a production FiveM server that already runs as `anxrp-fxserver.service`, without any risk of the Agent launching a second copy.",
+          "changes": [
+              "Package: `AnxOS-Agent-2.0-build206.deb`, SHA-256 `59842c83fd66d98084d991cd7d9769ef1e21f26d71dabd695049770394cb979f`, built on Linux from the LF-exact archive of `cc862de` with only `release.json` changed to build 206 in the build copy.",
+              "The official Build 205 package (SHA-256 `7b9410c0433332d30ebb0d8a0b73aed36902f30063ec36d74403e20e60357acd`) is kept on that host as the rollback artifact.",
+              "That host's Agent must **not** be self-updated or upgraded until an official release containing this change exists. The official Build 206 package supersedes it. It is **not** identical: it adds the service operations layer (PR #2: `serviceManagedOperations.js`, the operations routes, `safe-restart` on the lifecycle permission tier, `systemctl show --timestamp=unix`), carries official provenance, and no longer ships a stray `ssh2/lib/protocol/crypto/build/` directory that the temporary package picked up from the build host. Both share the dpkg version string `2.0-build206`, so move a host from one to the other with `dpkg -i` (a same-version reinstall); `apt` will report it as already installed. Either way only the Agent service restarts; a managed service such as FXServer is never restarted by the package.",
+              "**Service-managed instances (`type: \"systemd-service\"`).** systemd stays the single owner of the process. The Agent runs only `[sudo -n] systemctl start|stop|restart <unit>` and `systemctl show`; it never spawns, signals or adopts the workload and holds no PID for it. Unreadable service state is shown as Unknown, never Stopped, and lifecycle actions refuse to act on it.",
+              "**Operator-authored and allowlisted.** The record is written on disk by an operator and cannot be created or edited through the API. The unit must also be listed in `AGENT_SYSTEMD_UNIT_ALLOWLIST` in the root-owned Agent environment file, and control is limited to exact commands pinned by a sudoers drop-in. See `docs/SERVICE_MANAGED_INSTANCES.md`.",
+              "**Desktop support.** Control Center shows these instances as \"systemd service\" / \"Managed by systemd\" with a notice naming the unit, a readable reason for Unknown and Failed states, and disables (with an explanation) everything the Agent refuses: console commands, force-kill, editing, renaming, duplicating, deleting, backups and scheduled restarts.",
+              "**Capability report.** The Agent health response gains an additive `serviceManagedInstances` capability listing the allowed units.",
+              "**Service operations layer (second Build 206 pass).** For a service-managed instance the Agent can now read, without owning anything: systemd's MainPID and uptime, AnxRP health (READY, version, boot id, sessions) from its status file, the connected player **count** from FXServer's loopback `/dynamic.json` and `/players.json` (names and identifiers are never stored or logged), the listening game ports from `/proc/net`, and an optional operator-written deployment manifest (unofficial-build flag, rollback artifact and backup status). New Agent environment variable: `AGENT_SERVICE_STATUS_ROOTS`.",
+              "**Safe Restart.** One guarded action that automates the proven Phase 5 flow: verify the instance, unit and MainPID, systemd health, AnxRP READY (fresh) and 0 players, writable history; re-check players; issue **exactly one** `systemctl restart` (never retried); wait for a new MainPID, the listening ports, AnxRP READY with a **new boot id**, and a settle window with no automatic restart. Anything unknown, unreadable or ambiguous refuses or fails closed. Plain start, stop and restart are locked while it runs.",
+              "**Restart history.** An append-only `service-history.jsonl` records every Safe Restart (started, then finished), every refusal and every plain start, stop and restart; interrupted operations are detected. A restart is refused if the history cannot be written.",
+              "**Control Center.** A SYSTEMD MANAGED badge and operations panel (MainPID, uptime, AnxRP state and boot id, players, ports, preflight checklist, progress, result, history, unofficial-build warning, rollback artifact and backup status, read-only journal in the Console tab) and a specific reason on every disabled control.",
+              "**Port-conflict check failed open.** The start preflight ignored listening sockets whose owner it could not identify (for example a server running as another user), counted a process owned by another user as dead, and swallowed errors from the check as \"no conflict\". Unknown owners and unreadable socket tables now block the start for every instance type."
+          ],
+          "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v2.0-build206-rc1"
+      },
       {
           "version": "2.0",
           "build": 205,
