@@ -13,7 +13,8 @@
 | `bc9f0db3` | Improvement campaign: 136 verified defects fixed (Sharing, server page, backups, AnxNet, shell, instance engine, Agent connectivity and security, alerts, installs, observability, leaks), 21 regression suites, AGENTS.md lessons |
 | `ca68dd07` | An interrupted restore never leaves a server deleted: the restore and its rollback share one crash-safe swap; Agent shutdown waits for running restores |
 | `89718695` | An update keeps or restores the AnxOS Helper: Setup re-registers an existing Helper, leaves a marker if it cannot, and the app offers Restore AnxOS Helper |
-| (release commit) | Build 212 version, release notes, this handoff |
+| `e7e8f03e` | Build 212 version, release notes, this handoff |
+| `b6770673` | Runtime-state writes for one server run one at a time, so a status poll can no longer replace CRASH_LOOP with STALE_PID (caught by `qa:release`) |
 
 Earlier campaign commits already on this branch: `0e7e7904`, `a919e41d`.
 
@@ -22,6 +23,7 @@ Earlier campaign commits already on this branch: `0e7e7904`, `a919e41d`.
 - Full run on the campaign tree (`bc9f0db3` content): 417 smoke suites and `qa:release` (119 checks, real-app UI tests) passed. The installed Local Agent logged no authorization failures and kept running.
 - After that, focused suites only: upgrade-migration (6 checks, including the interrupted rollback and the installer), foreign-task (5, including Helper restore), 22 backup/restore suites, 60 security/pairing/permission suites, 7 IPC exposure suites, release metadata suites.
 - `windows/installer.nsh` compiled with NSIS 3.0.4 in an unsigned local build (moved out of `dist/`, not an artifact).
+- Final tree (`b6770673`): `qa:release` passed, 128 checks including the real-app UI tests; the installed Agent logged no authorization failures and stayed running. IE9 passed 16 of 16 runs with eight in parallel.
 
 ## Test isolation (your installed Agent)
 
