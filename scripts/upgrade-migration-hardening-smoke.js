@@ -123,6 +123,56 @@ async function runInterruptedRestoreChild(smokeRoot) {
   process.exit(0);
 }
 
+// Child process for check 5: a full restore fails at its swap, so it rolls
+// back from the safety snapshot, and the Agent is stopped in the middle of
+// that rollback.
+async function runInterruptedRollbackChild(smokeRoot) {
+  pinRoots(smokeRoot);
+  stubBackupDependencies();
+  const fsp = require("fs/promises");
+  const backupService = require("../agent/src/services/backupService");
+  const instancePath = makeInstance("mc6");
+  const backup = (await backupService.createBackup({ instanceId: "mc6", type: "full", name: "before" })).backup;
+  fs.writeFileSync(path.join(instancePath, "data", "world", "level.dat"), "mc6-world-after");
+  const livePath = await fsp.realpath(instancePath);
+  const same = (candidate) => path.resolve(String(candidate)) === path.resolve(livePath);
+  const realRm = fsp.rm;
+  const realRename = fsp.rename;
+  let swapFailed = false;
+  let putBack = false;
+  // The restore's own swap fails once (a locked file, say), so it puts the
+  // live folder back and the rollback runs.
+  fsp.rename = async (from, to) => {
+    if (!swapFailed && String(from).includes(".restore-staging-") && same(to)) {
+      swapFailed = true;
+      throw Object.assign(new Error("resource busy"), { code: "EBUSY" });
+    }
+    const result = await realRename(from, to);
+    if (swapFailed && same(to)) putBack = true;
+    // Rollback by rename-aside: the kill lands between its two renames.
+    else if (putBack && same(from)) process.exit(143);
+    return result;
+  };
+  // Rollback by delete-in-place: the kill lands after config.json is gone.
+  fsp.rm = async (target, options) => {
+    if (putBack && same(target)) {
+      await realRm(path.join(livePath, "config.json"), { force: true });
+      process.exit(143);
+    }
+    return realRm(target, options);
+  };
+  await backupService.restoreBackup({ backupId: backup.id, confirmOverwrite: true, restart: false }).catch(() => {});
+  process.exit(swapFailed ? 0 : 3);
+}
+
+if (process.argv[2] === "--interrupted-rollback-child") {
+  runInterruptedRollbackChild(process.argv[3]).catch((error) => {
+    console.error(error);
+    process.exit(2);
+  });
+  return;
+}
+
 if (process.argv[2] === RESTORE_CHILD_FLAG) {
   runInterruptedRestoreChild(process.argv[3]).catch((error) => {
     console.error(error);
@@ -404,6 +454,61 @@ check(3, "upgrade-migration-3: an interrupted full restore is recovered at start
   await backupService.restoreBackup({ backupId: backup.id, confirmOverwrite: true, restart: false });
   assert.strictEqual(fs.readFileSync(path.join(mc5, "data", "world", "level.dat"), "utf8"), "mc5-world-before");
   assert.deepStrictEqual(fs.readdirSync(instanceRoot).filter((name) => name.startsWith("mc5.")), [], "A finished restore leaves no staging or pre-restore folder.");
+});
+
+check(5, "Build 212: a restore's rollback is crash-safe and Agent shutdown waits for restores", async () => {
+  // (a) Stopped in the middle of the rollback, the server still comes back.
+  const rollbackRoot = path.join(smokeRoot, "rollback");
+  fs.mkdirSync(rollbackRoot, { recursive: true });
+  const child = childProcess.spawnSync(process.execPath, [__filename, "--interrupted-rollback-child", rollbackRoot], { encoding: "utf8", timeout: 120000 });
+  assert.strictEqual(child.status, 143, `The rollback child must be stopped mid-rollback (status ${child.status}): ${child.stdout}${child.stderr}`);
+  pinRoots(rollbackRoot);
+  stubBackupDependencies();
+  for (const key of Object.keys(require.cache)) if (key.includes(`${path.sep}agent${path.sep}src${path.sep}services${path.sep}backupService`)) delete require.cache[key];
+  const backupService = require("../agent/src/services/backupService");
+  const report = await backupService.recoverInterruptedRestores();
+  const instanceRoot = process.env.AGENT_INSTANCE_ROOT;
+  const configPath = path.join(instanceRoot, "mc6", "config.json");
+  assert(fs.existsSync(configPath), `A rollback stopped mid-way must not leave the server deleted (${JSON.stringify(report)}).`);
+  const world = fs.readFileSync(path.join(instanceRoot, "mc6", "data", "world", "level.dat"), "utf8");
+  assert(["mc6-world-after", "mc6-world-before"].includes(world), "The server holds a complete world after recovery.");
+  assert.deepStrictEqual(fs.readdirSync(instanceRoot).filter((name) => name.includes(".restore-")), [], "No staging or pre-restore folder is left behind.");
+
+  // (b) Agent shutdown waits for a restore that is still running.
+  assert.strictEqual(typeof backupService.waitForActiveRestores, "function", "The Agent must be able to wait for running restores.");
+  const idle = await backupService.waitForActiveRestores(1000);
+  assert.strictEqual(idle.pending, 0, "With no restore running there is nothing to wait for.");
+  const mc7 = makeInstance("mc7");
+  const backup = (await backupService.createBackup({ instanceId: "mc7", type: "full", name: "before" })).backup;
+  const fsp = require("fs/promises");
+  const realRename = fsp.rename;
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  let gated = false;
+  fsp.rename = async (from, to) => {
+    if (!gated && String(from).includes(".restore-staging-")) { gated = true; await gate; }
+    return realRename(from, to);
+  };
+  try {
+    const restoring = backupService.restoreBackup({ backupId: backup.id, confirmOverwrite: true, restart: false });
+    for (let i = 0; i < 200 && !gated; i += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+    assert(gated, "The restore reached its swap.");
+    let settled = false;
+    const waiting = backupService.waitForActiveRestores(10000).then((result) => { settled = true; return result; });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.strictEqual(settled, false, "Shutdown waits while a restore is still swapping folders.");
+    release();
+    await restoring;
+    const waited = await waiting;
+    assert.strictEqual(waited.pending, 0, "The wait ends once the restore has finished.");
+    assert(fs.existsSync(path.join(mc7, "config.json")));
+  } finally {
+    fsp.rename = realRename;
+    release?.();
+  }
+  const serverSource = fs.readFileSync(path.join(rootDir, "agent", "src", "server.js"), "utf8");
+  const shutdownBody = serverSource.slice(serverSource.indexOf("async function shutdown("), serverSource.indexOf("process.once(\"SIGTERM\""));
+  assert(/waitForActiveRestores\(/.test(shutdownBody) && shutdownBody.indexOf("waitForActiveRestores(") < shutdownBody.lastIndexOf("process.exit(exitCode)"), "Agent shutdown waits for running restores before it exits.");
 });
 
 check(4, "upgrade-migration-4: Install reopens the verified installer after a handoff", async () => {

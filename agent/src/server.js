@@ -15,7 +15,7 @@ const { handleAnxNet } = require("./routes/anxnet");
 const anxnetAgentService = require("./services/anxnetAgentService");
 const { auditAction } = require("./audit/auditLogger");
 const { handleBackups, handleBackupsList } = require("./routes/backups");
-const { recoverBackupArtifacts, recoverInterruptedRestores, startBackupScheduler, stopBackupScheduler } = require("./services/backupService");
+const { recoverBackupArtifacts, recoverInterruptedRestores, startBackupScheduler, stopBackupScheduler, waitForActiveRestores } = require("./services/backupService");
 const { startRestartScheduler, stopRestartScheduler } = require("./services/restartScheduleService");
 const instanceService = require("./services/instances/instanceService");
 const { handleConsoleCommands, handleConsoleLogs } = require("./routes/console");
@@ -821,13 +821,19 @@ async function shutdown(signal, exitCode = 0) {
   server.close();
   for (const socket of connectedClients) socket.end();
   await anxnetAgentService.shutdown();
-  const instances = await instanceService.shutdownInstanceService().catch((error) => ({
-    stopped: 0,
-    forced: 0,
-    failures: [{ code: error?.code || "INSTANCE_SHUTDOWN_FAILED" }],
-  }));
+  // A running restore (its server is already stopped) gets the same budget as
+  // the servers, alongside them, so an update or restart does not stop it
+  // between steps. A stop that comes anyway is repaired at the next start.
+  const [instances, restores] = await Promise.all([
+    instanceService.shutdownInstanceService().catch((error) => ({
+      stopped: 0,
+      forced: 0,
+      failures: [{ code: error?.code || "INSTANCE_SHUTDOWN_FAILED" }],
+    })),
+    waitForActiveRestores(instanceService.SERVICE_SHUTDOWN_CEILING_MS).catch(() => ({ waited: false, pending: null })),
+  ]);
   clearTimeout(forceTimer);
-  logger.info("shutdown", "AnxOS Agent shutdown completed", { signal, instances });
+  logger.info("shutdown", "AnxOS Agent shutdown completed", { signal, instances, restores });
   process.exit(exitCode);
 }
 

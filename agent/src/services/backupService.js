@@ -1734,11 +1734,18 @@ async function rollbackRestoreFromSafetySnapshot(instancePath, safetyBackup) {
       }
       await fs.rm(targetPath, { recursive: true, force: true });
     }
+    await extractTarGzArchive(safetyArchivePath, instancePath, safetyBackup.archiveSha256);
   } else {
-    await fs.rm(instancePath, { recursive: true, force: true });
-    await fs.mkdir(instancePath, { recursive: true, mode: 0o700 });
+    // Same crash-safe swap as the restore: deleting the server and then
+    // extracting the snapshot in place left nothing to recover from when the
+    // Agent stopped in between.
+    await swapInStagedInstance(instancePath, async (stagingPath) => {
+      await extractTarGzArchive(safetyArchivePath, stagingPath, safetyBackup.archiveSha256);
+      if (!await fs.stat(path.join(stagingPath, "config.json")).then((stats) => stats.isFile(), () => false)) {
+        throw createBackupError("RESTORE_ROLLBACK_VERIFICATION_FAILED", 500);
+      }
+    });
   }
-  await extractTarGzArchive(safetyArchivePath, instancePath, safetyBackup.archiveSha256);
   const rollbackVerified = safetyBackup.type === "world"
     ? (Array.isArray(safetyBackup.sourcePaths) && safetyBackup.sourcePaths.length > 0 && await Promise.all(
       safetyBackup.sourcePaths.map((sourcePath) => fs.stat(path.resolve(instancePath, sourcePath)).then(() => true, () => false)),
@@ -1772,7 +1779,70 @@ async function runRestoreArchiveStep(backup, step) {
   }
 }
 
-async function restoreBackup(payload = {}) {
+// Replaces the server folder with a complete copy built beside it.
+// fillStaging(stagingPath) writes that copy. Then two renames and a delete: at
+// every instant a complete copy of the server is either at its path or beside
+// it (<id>.restore-old-*), so an Agent stopped mid-swap (update, restart,
+// crash) is repaired at startup by recoverInterruptedRestores().
+async function swapInStagedInstance(instancePath, fillStaging) {
+  const swapSuffix = crypto.randomBytes(3).toString("hex");
+  const stagingPath = `${instancePath}${RESTORE_STAGING_MARKER}${swapSuffix}`;
+  const previousPath = `${instancePath}${RESTORE_PREVIOUS_MARKER}${swapSuffix}`;
+  let result;
+  try {
+    await fs.rm(stagingPath, { recursive: true, force: true });
+    await fs.mkdir(stagingPath, { recursive: true, mode: 0o700 });
+    result = await fillStaging(stagingPath);
+    // A failed earlier swap may already have lost the live folder; then there
+    // is nothing to move aside.
+    let movedAside = false;
+    try {
+      await fs.rename(instancePath, previousPath);
+      movedAside = true;
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+    try {
+      await fs.rename(stagingPath, instancePath);
+    } catch (swapError) {
+      if (movedAside) await fs.rename(previousPath, instancePath).catch(() => {});
+      throw swapError;
+    }
+  } catch (stagingError) {
+    await fs.rm(stagingPath, { recursive: true, force: true }).catch(() => {});
+    throw stagingError;
+  }
+  // The new copy is in place; a leftover previous copy is removed at the next
+  // startup if this delete does not finish.
+  await fs.rm(previousPath, { recursive: true, force: true }).catch(() => {});
+  return result;
+}
+
+// Restores that are still running. Agent shutdown waits for them (bounded),
+// so an update or restart does not stop one between its steps; the swap and
+// startup recovery cover a stop that comes anyway.
+const activeRestores = new Set();
+
+function restoreBackup(payload = {}) {
+  const running = restoreBackupNow(payload);
+  activeRestores.add(running);
+  running.then(() => activeRestores.delete(running), () => activeRestores.delete(running));
+  return running;
+}
+
+async function waitForActiveRestores(timeoutMs = 60000) {
+  if (!activeRestores.size) return { waited: false, pending: 0 };
+  let timer = null;
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(resolve, timeoutMs);
+    timer.unref?.();
+  });
+  await Promise.race([Promise.allSettled([...activeRestores]), timeout]);
+  clearTimeout(timer);
+  return { waited: true, pending: activeRestores.size };
+}
+
+async function restoreBackupNow(payload = {}) {
   const backup = await readBackupMetadata(payload.backupId);
   const sourceInstanceId = backup.instanceId;
   // Historical source-side guard: payload.instanceId keeps naming the backup's
@@ -1880,36 +1950,13 @@ async function restoreBackup(payload = {}) {
       // directory (phantom instance) or race the rebrand. Extract + rebrand
       // in a sibling staging dir, then swap atomically (P1 review finding).
       // The rebrand also clears a stale Running/pid captured while running.
-      const swapSuffix = crypto.randomBytes(3).toString("hex");
-      const stagingPath = `${instancePath}${RESTORE_STAGING_MARKER}${swapSuffix}`;
-      const previousPath = `${instancePath}${RESTORE_PREVIOUS_MARKER}${swapSuffix}`;
-      try {
-        await fs.rm(stagingPath, { recursive: true, force: true });
-        await fs.mkdir(stagingPath, { recursive: true, mode: 0o700 });
+      targetRecord = await swapInStagedInstance(instancePath, async (stagingPath) => {
         await runRestoreArchiveStep(backup, () => extractTarGzArchive(backup.path, stagingPath, backup.archiveSha256));
         if (!await fs.stat(path.join(stagingPath, "config.json")).then((stats) => stats.isFile(), () => false)) {
           throw createBackupError("RESTORE_VERIFICATION_FAILED", 500);
         }
-        targetRecord = await rebrandRestoredInstanceRecord(stagingPath, targetInstanceId);
-        // Two renames, then the delete: at every instant a complete copy of
-        // the server is either at its path or beside it, so an Agent stopped
-        // mid-swap (update, restart, crash) is repaired at startup by
-        // recoverInterruptedRestores(). Deleting a big world in place first
-        // left a half-deleted server with nothing to recover from.
-        await fs.rename(instancePath, previousPath);
-        try {
-          await fs.rename(stagingPath, instancePath);
-        } catch (swapError) {
-          await fs.rename(previousPath, instancePath).catch(() => {});
-          throw swapError;
-        }
-      } catch (stagingError) {
-        await fs.rm(stagingPath, { recursive: true, force: true }).catch(() => {});
-        throw stagingError;
-      }
-      // The restore is in place; a leftover previous copy is removed at the
-      // next startup if this delete does not finish.
-      await fs.rm(previousPath, { recursive: true, force: true }).catch(() => {});
+        return rebrandRestoredInstanceRecord(stagingPath, targetInstanceId);
+      });
     }
 
     if (backup.type !== "world" && !await fs.stat(path.join(instancePath, "config.json")).then((stats) => stats.isFile(), () => false)) {
@@ -2303,6 +2350,7 @@ module.exports = {
   restoreBackup,
   recoverBackupArtifacts,
   recoverInterruptedRestores,
+  waitForActiveRestores,
   saveSchedule,
   startBackupScheduler,
   stopBackupScheduler,
