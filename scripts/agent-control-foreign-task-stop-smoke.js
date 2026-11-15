@@ -33,6 +33,10 @@ fs.mkdirSync(process.env.ANXHUB_CONFIG_DIR, { recursive: true });
 
 const platformDescriptor = Object.getOwnPropertyDescriptor(process, "platform");
 Object.defineProperty(process, "platform", { value: "win32" });
+// The faked Windows user, matching the fake task's principal. CI runs this on
+// Linux, where these variables do not exist.
+process.env.USERDOMAIN = "TEST";
+process.env.USERNAME = "User";
 
 const calls = [];
 let taskExecutable = null;
