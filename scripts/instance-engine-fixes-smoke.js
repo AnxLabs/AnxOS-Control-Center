@@ -28,10 +28,20 @@
 // port, and injected clocks. No real Agent, service or scheduled task.
 // Run: node scripts/instance-engine-fixes-smoke.js
 
-process.env.TZ = "America/Edmonton";
+const childProcess = require("child_process");
+
+// The DST checks need America/Edmonton from process start. Assigning TZ at
+// runtime is not honoured everywhere (CI's Linux runner kept UTC rules), so
+// the smoke re-runs itself with TZ in its environment.
+if (process.env.TZ !== "America/Edmonton") {
+  const rerun = childProcess.spawnSync(process.execPath, [__filename, ...process.argv.slice(2)], {
+    env: { ...process.env, TZ: "America/Edmonton" },
+    stdio: "inherit",
+  });
+  process.exit(rerun.status === null ? 1 : rerun.status);
+}
 
 const assert = require("assert");
-const childProcess = require("child_process");
 const { EventEmitter } = require("events");
 const fs = require("fs");
 const http = require("http");
@@ -57,6 +67,9 @@ for (const [key, sub] of Object.entries({
 }
 // Never the developer's real Local Agent.
 process.env.AGENT_URL = "http://127.0.0.1:9";
+// The test servers run this Node binary, wherever it is installed (CI's lives
+// outside the default executable roots).
+process.env.AGENT_INSTANCE_EXECUTABLE_ROOTS = path.dirname(process.execPath);
 const instanceRoot = process.env.AGENT_INSTANCE_ROOT;
 fs.mkdirSync(instanceRoot, { recursive: true });
 
@@ -83,6 +96,8 @@ function createFakeChild() {
   child.kill = () => true;
   return child;
 }
+// Kept for IE8's per-zone runs of this same Node binary (never a server).
+const realSpawnSync = childProcess.spawnSync;
 childProcess.spawn = () => {
   const child = createFakeChild();
   children.push(child);
@@ -483,7 +498,9 @@ function dailyScheduleWorkerMain() {
   const assert = require("assert");
   const fs = require("fs");
   const path = require("path");
-  const { parentPort, workerData } = require("worker_threads");
+  // Runs in a child process started with TZ set (see the runner below).
+  const workerData = JSON.parse(process.env.ANX_DAILY_SCHEDULE_RUN || "{}");
+  const parentPort = { postMessage: (message) => process.stdout.write(`${JSON.stringify(message)}\n`) };
   const { repoRoot, root, zone, integration, sweepFromIso, sweepToIso, minimalityChecked } = workerData;
   const service = require(path.join(repoRoot, "agent", "src", "services", "restartScheduleService"));
   const HOUR = 60 * 60 * 1000;
@@ -613,11 +630,10 @@ function dailyScheduleWorkerMain() {
 }
 
 async function checkDailyMidnightSchedulesTerminate() {
-  const { Worker } = require("worker_threads");
   const root = path.join(tempRoot, "midnight-schedules");
   fs.mkdirSync(root, { recursive: true });
-  // The time zone is process-wide and a worker reads it when it starts, so
-  // each zone switches TZ here, runs one worker, and switches back. Havana
+  // The time zone is read when a process starts, so each zone runs in its own
+  // child process with TZ in its environment, killed after 30 s. Havana
   // repeats 00:xx when DST ends; Santiago and Beirut change at midnight;
   // Lord Howe moves by 30 minutes; Apia skipped 2011-12-30 entirely.
   const runs = [
@@ -629,25 +645,25 @@ async function checkDailyMidnightSchedulesTerminate() {
     { zone: "Europe/London", sweepFromIso: "2026-01-01T00:00:00.000Z", sweepToIso: "2027-01-01T00:00:00.000Z", minimalityChecked: true },
     { zone: "Pacific/Apia", sweepFromIso: "2011-12-01T00:00:00.000Z", sweepToIso: "2012-02-01T00:00:00.000Z", minimalityChecked: false },
   ];
-  try {
-    for (const run of runs) {
-      process.env.TZ = run.zone;
-      const worker = new Worker(`(${dailyScheduleWorkerMain.toString()})();`, { eval: true, workerData: { repoRoot, root, ...run } });
-      let timer = null;
-      const result = await new Promise((resolve) => {
-        timer = setTimeout(() => resolve({ ok: false, error: "the scheduler did not return within 30 s (it loops forever)" }), 30000);
-        worker.once("message", resolve);
-        worker.once("error", (error) => resolve({ ok: false, error: error?.stack || String(error) }));
-      });
-      clearTimeout(timer);
-      await worker.terminate();
-      assert.ok(result.ok, `${run.zone}: ${result.error}`);
-      assert.ok(result.transitions > 0 || run.zone === "Pacific/Apia", `${run.zone}: the sweep crossed a DST change`);
+  for (const run of runs) {
+    const child = realSpawnSync(process.execPath, ["-e", `(${dailyScheduleWorkerMain.toString()})();`], {
+      env: { ...process.env, TZ: run.zone, ANX_DAILY_SCHEDULE_RUN: JSON.stringify({ repoRoot, root, ...run }) },
+      encoding: "utf8",
+      timeout: 30000,
+      maxBuffer: 16 * 1024 * 1024,
+    });
+    const line = String(child.stdout || "").trim().split(/\r?\n/).filter(Boolean).pop() || "";
+    let result;
+    try { result = JSON.parse(line); } catch { result = null; }
+    if (!result) {
+      result = child.error?.code === "ETIMEDOUT" || child.signal
+        ? { ok: false, error: "the scheduler did not return within 30 s (it loops forever)" }
+        : { ok: false, error: `no result (exit ${child.status}): ${String(child.stderr || "").slice(-600)}` };
     }
-  } finally {
-    process.env.TZ = "America/Edmonton";
+    assert.ok(result.ok, `${run.zone}: ${result.error}`);
+    assert.ok(result.transitions > 0 || run.zone === "Pacific/Apia", `${run.zone}: the sweep crossed a DST change`);
   }
-  assert.strictEqual(new Date(Date.parse("2026-07-01T12:00:00.000Z")).getHours(), 6, "the smoke's own time zone is restored");
+  assert.strictEqual(new Date(Date.parse("2026-07-01T12:00:00.000Z")).getHours(), 6, "the smoke runs in America/Edmonton");
 }
 
 const checks = [

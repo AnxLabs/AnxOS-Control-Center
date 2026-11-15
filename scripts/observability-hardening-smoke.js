@@ -89,6 +89,9 @@ function readJsonLines(filePath) {
 async function checkConsoleLogOrder() {
   const temp = makeTemp("o1");
   process.env.AGENT_INSTANCE_ROOT = path.join(temp, "instances");
+  // The test server runs this Node binary, wherever it is installed (on Linux
+  // the default executable roots do not include it).
+  process.env.AGENT_INSTANCE_EXECUTABLE_ROOTS = path.dirname(process.execPath);
   const instanceService = require(path.join(root, "agent", "src", "services", "instances", "instanceService.js"));
   const core = instanceService;
   try {
