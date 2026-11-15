@@ -5599,8 +5599,17 @@ async function reconcileConfigState(config) {
     // Process-exit handling may persist a terminal result while detached-runtime
     // inspection is in flight. Re-read before writing a stale active snapshot
     // back as Unknown so a confirmed crash cannot be lost to reconciliation.
+    // The re-read and the write run under the instance's state lock, and the
+    // write happens only if the record still shows the same active run: an
+    // exit result, a stop or a new start written meanwhile is kept.
+    return withInstanceStateLock(config.id, async () => {
     const latest = await loadInstanceConfig(config.id).catch(() => config);
-    if (latest.state === INSTANCE_STATES.FAILED) {
+    const activeStates = [INSTANCE_STATES.RUNNING, INSTANCE_STATES.STARTING, INSTANCE_STATES.STOPPING, INSTANCE_STATES.RESTARTING];
+    if (
+      !activeStates.includes(latest.state)
+      || normalizePid(latest.pid) !== normalizePid(config.pid)
+      || runningProcesses.has(config.id)
+    ) {
       return latest;
     }
     const intentionalStop = config.state === INSTANCE_STATES.STOPPING;
@@ -5612,7 +5621,7 @@ async function reconcileConfigState(config) {
     // the honest result stays Unknown rather than a possibly false "Stopped".
     const hadTrackedPid = Boolean(processEntry || normalizePid(config.pid) || normalizePid(config.runtimeProcess?.pid));
     const updated = {
-      ...config,
+      ...latest,
       state: intentionalStop || hadTrackedPid ? INSTANCE_STATES.STOPPED : INSTANCE_STATES.UNKNOWN,
       pid: null,
       runtimeProcess: null,
@@ -5624,6 +5633,7 @@ async function reconcileConfigState(config) {
 
     await saveInstanceConfig(updated);
     return updated;
+    });
   }
 
   return config;
@@ -6191,16 +6201,36 @@ function readinessTimeoutClearPatch(entry) {
   return entry?.readinessTimedOut ? { failureReason: null } : {};
 }
 
-async function updateRuntimeState(instanceId, patch) {
-  const current = await loadInstanceConfig(instanceId);
-  const updated = {
-    ...current,
-    ...patch,
-    updatedAt: nowIso(),
-  };
+// Runtime-state writes for one instance run one at a time. The exit handler
+// (Failed, then CRASH_LOOP or a restart) and a status poll (stale PID) both
+// load and save config.json; unserialized, a poll that loaded before the
+// handler's write could save after it and replace the crash result.
+const instanceStateQueues = new Map();
 
-  await saveInstanceConfig(updated);
-  return updated;
+function withInstanceStateLock(instanceId, task) {
+  const key = String(instanceId);
+  const previous = instanceStateQueues.get(key) || Promise.resolve();
+  const run = previous.then(() => task());
+  const settled = run.catch(() => {});
+  instanceStateQueues.set(key, settled);
+  settled.then(() => {
+    if (instanceStateQueues.get(key) === settled) instanceStateQueues.delete(key);
+  });
+  return run;
+}
+
+async function updateRuntimeState(instanceId, patch) {
+  return withInstanceStateLock(instanceId, async () => {
+    const current = await loadInstanceConfig(instanceId);
+    const updated = {
+      ...current,
+      ...patch,
+      updatedAt: nowIso(),
+    };
+
+    await saveInstanceConfig(updated);
+    return updated;
+  });
 }
 
 // Writes to one log file run one at a time, in call order. Pipe handlers call
