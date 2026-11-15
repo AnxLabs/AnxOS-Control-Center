@@ -48,6 +48,18 @@ function isPlainObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+// Playit IPC v2 does not report a tunnel's protocol (and "TCP+UDP" has no
+// single endpoint protocol), so it is taken from this computer's own service
+// endpoints on the tunnel's local port. With none there, the tunnel is skipped.
+function inferTunnelProtocols(endpoints, localPort) {
+  return [...new Set(endpoints
+    .filter((endpoint) => endpoint.source !== "provider"
+      && Boolean(endpoint.serviceId)
+      && endpoint.port === localPort
+      && TUNNEL_LOCAL_PROTOCOLS.includes(endpoint.protocol))
+    .map((endpoint) => endpoint.protocol))].sort();
+}
+
 // Built once, lazily: the shared adapters are pure mappers with no dependency
 // on this layer, but keeping the require here means importing this module does
 // no work beyond the dependency-free contract and endpoint model.
@@ -392,23 +404,29 @@ function createProviderIntegrationService({ deps = {}, now } = {}) {
         pushNote(result, `Skipped tunnel ${label}: no local port to associate.`);
         continue;
       }
-      if (!TUNNEL_LOCAL_PROTOCOLS.includes(tunnel.protocol)) {
+      const protocols = TUNNEL_LOCAL_PROTOCOLS.includes(tunnel.protocol)
+        ? [tunnel.protocol]
+        : tunnel.protocol ? [] : inferTunnelProtocols(existingEndpoints, tunnel.localPort);
+      if (protocols.length === 0) {
         pushNote(result, `Skipped tunnel ${label}: protocol ${tunnel.protocol || "unknown"} is not tcp or udp.`);
         continue;
       }
-      const candidates = existingEndpoints.filter((endpoint) =>
-        endpoint.source !== "provider"
-        && Boolean(endpoint.serviceId)
-        && endpoint.port === tunnel.localPort
-        && endpoint.protocol === tunnel.protocol,
-      );
-      const serviceIds = [...new Set(candidates.map((endpoint) => endpoint.serviceId))].sort();
-      const serviceId = serviceIds.length === 1 ? serviceIds[0] : null;
-      pending.push({
-        tunnel,
-        serviceIds,
-        input: adapter.endpointFromTunnel(tunnel, { computerId: resolvedNodeId, serviceId }),
-      });
+      for (const protocol of protocols) {
+        const resolved = protocol === tunnel.protocol ? tunnel : { ...tunnel, protocol };
+        const candidates = existingEndpoints.filter((endpoint) =>
+          endpoint.source !== "provider"
+          && Boolean(endpoint.serviceId)
+          && endpoint.port === resolved.localPort
+          && endpoint.protocol === resolved.protocol,
+        );
+        const serviceIds = [...new Set(candidates.map((endpoint) => endpoint.serviceId))].sort();
+        const serviceId = serviceIds.length === 1 ? serviceIds[0] : null;
+        pending.push({
+          tunnel: resolved,
+          serviceIds,
+          input: adapter.endpointFromTunnel(resolved, { computerId: resolvedNodeId, serviceId }),
+        });
+      }
     }
 
     for (const entry of pending) {

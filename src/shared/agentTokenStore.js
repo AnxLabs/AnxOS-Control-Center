@@ -29,6 +29,20 @@ function tokenFingerprint(value) {
   return crypto.createHash("sha256").update(token).digest("hex").slice(0, 12);
 }
 
+// Proof of possession: the presented credential must equal the expected one
+// in full. Never compare tokenFingerprint values for this: the fingerprint is
+// 48 bits, so a different string with the same fingerprint can be found
+// offline. Both sides are hashed to a fixed length first so the timing-safe
+// comparison does not reveal the expected token's length.
+function agentTokensMatch(presented, expected) {
+  const left = trimValue(presented);
+  const right = trimValue(expected);
+  if (!left || !right) return false;
+  const leftDigest = crypto.createHash("sha256").update(left).digest();
+  const rightDigest = crypto.createHash("sha256").update(right).digest();
+  return crypto.timingSafeEqual(leftDigest, rightDigest) && left === right;
+}
+
 function base64UrlEncodeJson(payload) {
   return Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
 }
@@ -334,6 +348,7 @@ function parseAgentPairingPayload(value) {
 module.exports = {
   AGENT_CONFIG_SCHEMA_VERSION,
   DEFAULT_AGENT_CONFIG,
+  agentTokensMatch,
   generateAgentToken,
   createAgentPairingPayload,
   getCandidateConfigPaths,

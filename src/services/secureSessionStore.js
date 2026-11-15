@@ -24,12 +24,14 @@ function getDefaultConfigDirectory() {
   }
 }
 
-function getFallbackEncryptionKey(filePath, purpose = "anxos-secure-session") {
+// `hostname` lets a caller that recorded the computer name next to a fallback
+// record decrypt it after the computer was renamed (anxnetService).
+function getFallbackEncryptionKey(filePath, purpose = "anxos-secure-session", hostname = os.hostname()) {
   let username = "local-user";
   try {
     username = os.userInfo().username || username;
   } catch {}
-  return crypto.scryptSync(`${username}:${os.hostname()}:${filePath}`, purpose, 32);
+  return crypto.scryptSync(`${username}:${hostname}:${filePath}`, purpose, 32);
 }
 
 function encryptPayload(value, filePath) {
@@ -52,7 +54,7 @@ function encryptPayload(value, filePath) {
   };
 }
 
-function decryptPayload(record, filePath) {
+function decryptPayload(record, filePath, options = {}) {
   if (!record || typeof record !== "object") {
     return null;
   }
@@ -60,7 +62,7 @@ function decryptPayload(record, filePath) {
     return JSON.parse(safeStorage.decryptString(Buffer.from(record.data || "", "base64")));
   }
   if (record.method === "aes-256-gcm") {
-    const decipher = crypto.createDecipheriv("aes-256-gcm", getFallbackEncryptionKey(filePath), Buffer.from(record.iv || "", "base64"));
+    const decipher = crypto.createDecipheriv("aes-256-gcm", getFallbackEncryptionKey(filePath, undefined, options.hostname || os.hostname()), Buffer.from(record.iv || "", "base64"));
     decipher.setAuthTag(Buffer.from(record.tag || "", "base64"));
     const decrypted = Buffer.concat([decipher.update(Buffer.from(record.data || "", "base64")), decipher.final()]);
     return JSON.parse(decrypted.toString("utf8"));

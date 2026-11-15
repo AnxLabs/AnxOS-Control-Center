@@ -2,6 +2,12 @@ const path = require("path");
 
 const WINDOWS_AGENT_TASK_NAME = "AnxOSAgent";
 const WINDOWS_AGENT_LEGACY_TASK_NAMES = ["AnxOS Agent"];
+// The Agent runs inside the task's own process, so the task must never time
+// out: New-ScheduledTaskSettingsSet defaults to ExecutionTimeLimit PT72H, and
+// Task Scheduler then ends the Agent after 3 days with nothing to start it
+// again until the next sign-in. A failed run is also restarted a few times.
+const WINDOWS_AGENT_TASK_RESTART_COUNT = 3;
+const WINDOWS_AGENT_TASK_RESTART_INTERVAL_MINUTES = 1;
 
 function quotePowerShellValue(value) {
   return `'${String(value ?? "").replace(/'/g, "''")}'`;
@@ -60,6 +66,9 @@ function buildWindowsAgentTaskDefinition({ executablePath = process.execPath, us
       allowStartOnBatteries: true,
       stopOnBatteryTransition: false,
       multipleInstances: "IgnoreNew",
+      executionTimeLimit: "PT0S",
+      restartCount: WINDOWS_AGENT_TASK_RESTART_COUNT,
+      restartIntervalMinutes: WINDOWS_AGENT_TASK_RESTART_INTERVAL_MINUTES,
     },
     legacyTaskNames: [...WINDOWS_AGENT_LEGACY_TASK_NAMES],
   };
@@ -93,8 +102,18 @@ function normalizeTaskSnapshot(snapshot = {}) {
     allowStartOnBatteries: settings.allowStartOnBatteries ?? settings.AllowStartIfOnBatteries ?? snapshot.allowStartOnBatteries ?? false,
     stopOnBatteryTransition: settings.stopOnBatteryTransition ?? settings.StopIfGoingOnBatteries ?? snapshot.stopOnBatteryTransition ?? true,
     multipleInstances: settings.multipleInstances ?? settings.MultipleInstances ?? snapshot.multipleInstances ?? null,
+    executionTimeLimit: settings.executionTimeLimit ?? settings.ExecutionTimeLimit ?? snapshot.executionTimeLimit ?? null,
+    restartCount: settings.restartCount ?? settings.RestartCount ?? snapshot.restartCount ?? null,
     legacyTaskNames: Array.isArray(snapshot.legacyTaskNames) ? snapshot.legacyTaskNames.filter(Boolean) : [],
   };
+}
+
+const WINDOWS_AGENT_TASK_SETTINGS_DRIFT = new Set(["execution-time-limit", "restart-on-failure"]);
+
+// "PT0S" (any all-zero ISO 8601 duration) means no execution time limit.
+function isUnlimitedExecutionTimeLimit(value) {
+  const text = String(value ?? "").trim().toUpperCase();
+  return /^P[0-9YMWDTHS.]+$/.test(text) && !/[1-9]/.test(text);
 }
 
 function compareWindowsAgentTask(snapshot, canonical) {
@@ -118,7 +137,15 @@ function compareWindowsAgentTask(snapshot, canonical) {
   if (actual.allowStartOnBatteries !== true) mismatches.push("battery-start");
   if (actual.stopOnBatteryTransition !== false) mismatches.push("battery-stop");
   if (!/^(ignorenew|2)$/i.test(String(actual.multipleInstances || ""))) mismatches.push("multiple-instances");
-  return { matches: mismatches.length === 0, mismatches, actual, expected };
+  // Snapshots from older inspection scripts carry neither setting; only a
+  // value the inspection actually read is judged.
+  if (actual.executionTimeLimit !== null && actual.executionTimeLimit !== "" && !isUnlimitedExecutionTimeLimit(actual.executionTimeLimit)) mismatches.push("execution-time-limit");
+  if (actual.restartCount !== null && actual.restartCount !== "" && !(Number(actual.restartCount) >= 1)) mismatches.push("restart-on-failure");
+  // Every task registered before these two settings existed has them, and the
+  // task still runs this installation's Agent elevated. Only that Agent can
+  // re-register it, so such a task is reported for repair but still run.
+  const runnable = actual.found === true && mismatches.every((reason) => WINDOWS_AGENT_TASK_SETTINGS_DRIFT.has(reason));
+  return { matches: mismatches.length === 0, runnable, mismatches, actual, expected };
 }
 
 function buildWindowsTaskInspectionScript(taskName = WINDOWS_AGENT_TASK_NAME) {
@@ -131,7 +158,7 @@ function buildWindowsTaskInspectionScript(taskName = WINDOWS_AGENT_TASK_NAME) {
     "$info = Get-ScheduledTaskInfo -TaskName $task.TaskName -TaskPath $task.TaskPath -ErrorAction SilentlyContinue",
     "$actions = @($task.Actions | ForEach-Object { @{ execute = $_.Execute; arguments = $_.Arguments; workingDirectory = $_.WorkingDirectory } })",
     "$triggers = @($task.Triggers | ForEach-Object { @{ type = $_.CimClass.CimClassName; userId = $_.UserId; enabled = $_.Enabled } })",
-    "@{ found = $true; taskName = $task.TaskName; taskPath = $task.TaskPath; legacyTaskNames = $legacyTasks; actions = $actions; principal = @{ userId = $task.Principal.UserId; logonType = [string]$task.Principal.LogonType; runLevel = [string]$task.Principal.RunLevel }; triggers = $triggers; settings = @{ enabled = $task.Settings.Enabled; startWhenAvailable = $task.Settings.StartWhenAvailable; allowStartOnBatteries = (-not $task.Settings.DisallowStartIfOnBatteries); stopOnBatteryTransition = $task.Settings.StopIfGoingOnBatteries; multipleInstances = [string]$task.Settings.MultipleInstances }; state = [string]$task.State; lastRunTime = $info.LastRunTime; lastTaskResult = $info.LastTaskResult } | ConvertTo-Json -Depth 6 -Compress",
+    "@{ found = $true; taskName = $task.TaskName; taskPath = $task.TaskPath; legacyTaskNames = $legacyTasks; actions = $actions; principal = @{ userId = $task.Principal.UserId; logonType = [string]$task.Principal.LogonType; runLevel = [string]$task.Principal.RunLevel }; triggers = $triggers; settings = @{ enabled = $task.Settings.Enabled; startWhenAvailable = $task.Settings.StartWhenAvailable; allowStartOnBatteries = (-not $task.Settings.DisallowStartIfOnBatteries); stopOnBatteryTransition = $task.Settings.StopIfGoingOnBatteries; multipleInstances = [string]$task.Settings.MultipleInstances; executionTimeLimit = $task.Settings.ExecutionTimeLimit; restartCount = $task.Settings.RestartCount }; state = [string]$task.State; lastRunTime = $info.LastRunTime; lastTaskResult = $info.LastTaskResult } | ConvertTo-Json -Depth 6 -Compress",
   ].join("; ");
 }
 
@@ -145,7 +172,7 @@ function buildWindowsTaskRegistrationScript(definition) {
     `$action = New-ScheduledTaskAction -Execute ${quotePowerShellValue(definition.executable)} -Argument ${quotePowerShellValue(definition.arguments)} -WorkingDirectory ${quotePowerShellValue(definition.workingDirectory)}`,
     `$principal = New-ScheduledTaskPrincipal -UserId ${quotePowerShellValue(definition.userId)} -LogonType Interactive -RunLevel Highest`,
     `$trigger = New-ScheduledTaskTrigger -AtLogOn -User ${quotePowerShellValue(definition.userId)}`,
-    "$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew",
+    `$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount ${WINDOWS_AGENT_TASK_RESTART_COUNT} -RestartInterval (New-TimeSpan -Minutes ${WINDOWS_AGENT_TASK_RESTART_INTERVAL_MINUTES})`,
     `Register-ScheduledTask -TaskName ${quotePowerShellValue(definition.taskName)} -Action $action -Principal $principal -Trigger $trigger -Settings $settings -Force -ErrorAction Stop | Out-Null`,
   ].join("; ");
 }

@@ -841,9 +841,63 @@ class FileService extends EventEmitter {
     return Buffer.concat(chunks);
   }
 
-  async writeRemoteBuffer(session, remotePath, buffer) {
+  // Moves a fully written temporary file onto its final path. Plain SFTP v3
+  // RENAME refuses an existing target (OpenSSH answers "Failure"), so when a
+  // replacement is intended the commit uses posix-rename@openssh.com, which
+  // replaces atomically. A server without that extension gets the existing
+  // file moved aside to a hidden sibling, the new file renamed in, and only
+  // then the old copy removed; if the second rename fails the old file is
+  // moved back, so a failed commit never loses both versions. A folder is
+  // never moved aside for a file: posix-rename and a local rename refuse that
+  // too, and SFTP REMOVE could not delete it afterwards, so it would be left
+  // hidden. Without replace the plain rename keeps refusing to overwrite.
+  async commitRemoteTemporaryFile(session, temporaryPath, remotePath, { replace = false } = {}) {
+    if (!replace) {
+      await this.sftpCall(session, "rename", temporaryPath, remotePath);
+      return;
+    }
+    if (typeof session.sftp.ext_openssh_rename === "function") {
+      try {
+        await this.sftpCall(session, "ext_openssh_rename", temporaryPath, remotePath);
+        return;
+      } catch (error) {
+        if (!/does not support/i.test(String(error?.message || ""))) throw error;
+      }
+    }
+    try {
+      await this.sftpCall(session, "rename", temporaryPath, remotePath);
+    } catch (error) {
+      // lstat, like posix-rename: a link is replaced itself, never its target.
+      const targetAttrs = await this.lstatRemotePath(session, remotePath).catch(() => null);
+      if (!targetAttrs) throw error;
+      if (getEntryTypeFromAttrs(targetAttrs) === "directory") {
+        throw new FileServiceError("A folder with that name is in the way. A file cannot replace a folder; rename or remove the folder first.", {
+          code: "FILES_PATH_NOT_FILE",
+          status: 409,
+        });
+      }
+      const asidePath = createRemoteTemporaryPath(remotePath, "replace");
+      await this.sftpCall(session, "rename", remotePath, asidePath);
+      try {
+        await this.sftpCall(session, "rename", temporaryPath, remotePath);
+      } catch (commitError) {
+        const restored = await this.sftpCall(session, "rename", asidePath, remotePath).then(() => true, () => false);
+        // If even the move back fails, the original is still on the server
+        // under the hidden name; say where instead of losing track of it.
+        if (!restored && commitError && typeof commitError === "object") commitError.preservedOriginalPath = asidePath;
+        throw commitError;
+      }
+      await this.sftpCall(session, "unlink", asidePath).catch((unlinkError) => {
+        // The new file is in place; say where the old copy was left.
+        diagnostics.log("warn", "files", "replace-cleanup-failed", "The replaced file could not be removed after an SFTP replace.", { remotePath, asidePath, error: String(unlinkError?.message || unlinkError) }, { file: "files" });
+      });
+    }
+  }
+
+  async writeRemoteBuffer(session, remotePath, buffer, { replace = true } = {}) {
     const temporaryPath = createRemoteTemporaryPath(remotePath);
     const handle = await this.sftpCall(session, "open", temporaryPath, "wx");
+    let handleOpen = true;
     let position = 0;
 
     try {
@@ -862,15 +916,18 @@ class FileService extends EventEmitter {
         position += nextChunk.length;
       }
       await this.sftpCall(session, "close", handle);
-      await this.sftpCall(session, "rename", temporaryPath, remotePath);
+      handleOpen = false;
+      await this.commitRemoteTemporaryFile(session, temporaryPath, remotePath, { replace });
       return;
     } catch (error) {
       await this.sftpCall(session, "unlink", temporaryPath).catch(() => {});
       throw error;
     } finally {
-      try {
-        await this.sftpCall(session, "close", handle);
-      } catch {}
+      if (handleOpen) {
+        try {
+          await this.sftpCall(session, "close", handle);
+        } catch {}
+      }
     }
   }
 
@@ -1216,7 +1273,7 @@ class FileService extends EventEmitter {
         });
       }
       const buffer = await this.readRemoteBuffer(session, sourcePath, attrs.size || 0);
-      await this.writeRemoteBuffer(session, destinationPath, buffer);
+      await this.writeRemoteBuffer(session, destinationPath, buffer, { replace: options.conflictPolicy === "replace" });
       return { sourcePath, destinationPath, copied: true };
     } catch (error) {
       throw mapFileOperationError(error, "Remote copy failed.");
@@ -1315,7 +1372,7 @@ class FileService extends EventEmitter {
     const temporaryPath = createRemoteTemporaryPath(remotePath, "upload");
     try {
       await pipeline(Readable.from([buffer]), session.sftp.createWriteStream(temporaryPath, { flags: "wx", mode: 0o600 }));
-      await this.sftpCall(session, "rename", temporaryPath, remotePath);
+      await this.commitRemoteTemporaryFile(session, temporaryPath, remotePath, { replace: options.conflictPolicy === "replace" });
     } catch (error) {
       await this.sftpCall(session, "unlink", temporaryPath).catch(() => {});
       throw error;
@@ -1432,7 +1489,7 @@ class FileService extends EventEmitter {
         if (controller?.canceled) {
           throw new FileServiceError("Transfer canceled.", { code: "FILES_TRANSFER_CANCELED", status: 499 });
         }
-        await this.sftpCall(session, "rename", temporaryPath, remotePath);
+        await this.commitRemoteTemporaryFile(session, temporaryPath, remotePath, { replace: options.conflictPolicy === "replace" });
       } catch (error) {
         await this.sftpCall(session, "unlink", temporaryPath).catch(() => {});
         throw error;

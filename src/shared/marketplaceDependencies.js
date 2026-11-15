@@ -27,6 +27,8 @@ const DEPENDENCY_REGISTRY = Object.freeze({
     commands: ["dotnet"],
     versionCommand: { command: "dotnet", args: ["--list-runtimes"], stream: "stdout" },
     versionPattern: /Microsoft\.NETCore\.App\s+(\d+(?:\.\d+){0,2})/,
+    // --list-runtimes prints every installed runtime, oldest first: rank them.
+    versionSelection: "highest",
     minVersion: "8.0",
     groups: ["dotnet-game-servers"],
     reason: "Required by TShock and other .NET-based servers.",
@@ -48,6 +50,8 @@ const DEPENDENCY_REGISTRY = Object.freeze({
     commands: ["dotnet"],
     versionCommand: { command: "dotnet", args: ["--list-runtimes"], stream: "stdout" },
     versionPattern: /Microsoft\.WindowsDesktop\.App\s+(\d+(?:\.\d+){0,2})/,
+    // --list-runtimes prints every installed runtime, oldest first: rank them.
+    versionSelection: "highest",
     minVersion: "8.0",
     groups: ["dotnet-game-servers", "windows-support"],
     reason: "Required by Windows desktop-runtime server tools and launchers when a template declares it.",
@@ -576,6 +580,23 @@ function getTemplateExplicitDependencyIds(template = {}) {
   });
 }
 
+// Archive tools depend on the platform the template variant targets. Windows
+// installers extract .zip with PowerShell Expand-Archive and .tar/.tar.gz with
+// the tar.exe Windows ships (they refuse .tar.xz), so asking a Windows node for
+// the Linux-only unzip and xz blocked every TShock and FiveM install and start
+// there. A template without a resolved platform keeps the Linux tool set.
+function archiveToolDependencyIds(template = {}) {
+  const primaryArchive = String(template.installer?.archive || template.downloadSource?.fileName || "").toLowerCase();
+  if (template.targetPlatform === "windows") {
+    const archives = [
+      primaryArchive,
+      ...(Array.isArray(template.installer?.additionalArchives) ? template.installer.additionalArchives.map((entry) => String(entry?.archive || "").toLowerCase()) : []),
+    ];
+    return archives.some((name) => /\.(?:tar|tar\.gz|tgz)$/.test(name)) ? ["tar"] : [];
+  }
+  return primaryArchive.endsWith(".xz") ? ["unzip", "tar", "xz"] : ["unzip", "tar"];
+}
+
 function resolveTemplateDependencyIds(template = {}) {
   const ids = [];
   ids.push(...getTemplateExplicitDependencyIds(template));
@@ -603,11 +624,7 @@ function resolveTemplateDependencyIds(template = {}) {
     ids.push("python");
   }
   if (template.installer?.type === "archive" || installerType.includes("archive")) {
-    ids.push("unzip", "tar");
-    const archiveName = String(template.installer?.archive || template.downloadSource?.fileName || "").toLowerCase();
-    if (archiveName.endsWith(".xz") || archiveName.endsWith(".tar.xz")) {
-      ids.push("xz");
-    }
+    ids.push(...archiveToolDependencyIds(template));
   }
 
   const requiredCommands = Array.isArray(template.startup?.requiredCommands) ? template.startup.requiredCommands : [];

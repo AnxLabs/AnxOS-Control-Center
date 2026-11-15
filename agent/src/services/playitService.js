@@ -2,7 +2,10 @@ const { execFile } = require("child_process");
 const fs = require("fs/promises");
 const net = require("net");
 
-const { getPlayitSnapshot: getBasePlayitSnapshot } = require("../../../src/services/playitService");
+const {
+  getPlayitSnapshot: getBasePlayitSnapshot,
+  invalidatePlayitCache: invalidateBasePlayitCache,
+} = require("../../../src/services/playitService");
 
 const COMMAND_TIMEOUT_MS = 2200;
 const CONTROL_COMMAND_TIMEOUT_MS = 15000;
@@ -11,7 +14,14 @@ const PLAYIT_IPC_VERSION = 2;
 const MAX_METADATA_FILE_BYTES = 256 * 1024;
 const MAX_LOG_BYTES = 128 * 1024;
 const PLAYIT_SERVICE_CANDIDATES = ["playit", "playit-agent"];
-const PLAYIT_DOMAIN_PATTERN = /\b[a-z0-9][a-z0-9.-]*\.(?:playit\.(?:gg|cloud|fan)|ply\.gg)\b/gi;
+// The optional port matters: *.ply.gg TCP/UDP tunnels get a random public
+// port, and the host alone sends friends to the game's default port.
+// joinmc.link is Playit's Minecraft Java domain.
+const PLAYIT_DOMAIN_PATTERN = /\b[a-z0-9][a-z0-9.-]*\.(?:playit\.(?:gg|cloud|fan)|ply\.gg|joinmc\.link)(?::\d{1,5})?\b/gi;
+const MAX_SNAPSHOT_TUNNELS = 64;
+// One Playit inspection runs many child processes. The status, tunnel and
+// account requests of one refresh share a result for this long.
+const PLAYIT_INSPECTION_TTL_MS = 5000;
 const LOCAL_TARGET_PATTERN = /\b(?:127\.0\.0\.1|localhost|0\.0\.0\.0|\d{1,3}(?:\.\d{1,3}){3}):\d{1,5}\b/i;
 const PLAYIT_IPC_PERMISSION_CODES = new Set(["EACCES", "EPERM"]);
 const PLAYIT_CONTROL_HOSTS = new Set(["api.playit.gg"]);
@@ -127,6 +137,17 @@ function extractPlayitAddress(content) {
   return matches.find((match) => !isPlayitControlEndpoint(match)) || null;
 }
 
+// A structured display_address / assigned_domain is kept as Playit gives it
+// (custom domains included) when it is a plain host or host:port, instead of
+// being re-extracted from text.
+function structuredTunnelAddress(value) {
+  const text = typeof value === "string" ? value.trim() : "";
+  if (!/^[a-z0-9][a-z0-9.-]*\.[a-z][a-z0-9-]*(?::\d{1,5})?$/i.test(text) || isPlayitControlEndpoint(text)) {
+    return null;
+  }
+  return text;
+}
+
 function splitHostPort(value) {
   const match = String(value || "").match(/^(.+):(\d{1,5})$/);
 
@@ -147,7 +168,7 @@ function extractLocalTarget(content) {
   }
 
   const arrowMatch = value.match(
-    /\b[a-z0-9][a-z0-9.-]*\.(?:playit\.(?:gg|cloud|fan)|ply\.gg)(?::\d{1,5})?\b[^\n]{0,120}(?:->|=>|to|forward(?:s|ing)?\s+to)[^\n]{0,80}?((?:127\.0\.0\.1|localhost|0\.0\.0\.0|\d{1,3}(?:\.\d{1,3}){3}):\d{1,5})/i,
+    /\b[a-z0-9][a-z0-9.-]*\.(?:playit\.(?:gg|cloud|fan)|ply\.gg|joinmc\.link)(?::\d{1,5})?\b[^\n]{0,120}(?:->|=>|to|forward(?:s|ing)?\s+to)[^\n]{0,80}?((?:127\.0\.0\.1|localhost|0\.0\.0\.0|\d{1,3}(?:\.\d{1,3}){3}):\d{1,5})/i,
   );
 
   if (arrowMatch?.[1]) {
@@ -347,6 +368,11 @@ function parsePlayitStateObject(value, metadata = {}) {
     return metadata;
   }
 
+  setMetadataValue(
+    metadata,
+    "tunnelAddress",
+    structuredTunnelAddress(value.display_address || value.displayAddress || value.assigned_domain || value.assignedDomain),
+  );
   mergeMetadataValues(
     metadata,
     metadataFromEndpointValue(
@@ -1069,7 +1095,88 @@ function createPlayitError(code, message, details = {}) {
   return Object.assign(new Error(message), { code, statusCode: details.statusCode || 400, ...details });
 }
 
-async function getPlayitSnapshot() {
+const inspectionCache = new Map();
+
+// Single flight plus a short TTL: concurrent and back-to-back callers share
+// one inspection. A failed inspection is not kept.
+function cachedInspection(key, load) {
+  const entry = inspectionCache.get(key);
+  if (entry && (entry.pending || Date.now() - entry.settledAt < PLAYIT_INSPECTION_TTL_MS)) {
+    return entry.promise;
+  }
+  const next = { pending: true, settledAt: 0, promise: null };
+  next.promise = Promise.resolve()
+    .then(load)
+    .then((value) => {
+      next.pending = false;
+      next.settledAt = Date.now();
+      return value;
+    }, (error) => {
+      if (inspectionCache.get(key) === next) inspectionCache.delete(key);
+      throw error;
+    });
+  inspectionCache.set(key, next);
+  return next.promise;
+}
+
+// Called after a start/stop/restart so the result reflects the action.
+function invalidatePlayitCache() {
+  inspectionCache.clear();
+  invalidateBasePlayitCache();
+}
+
+// Every tunnel Playit reports in structured output (IPC frames or --json CLI
+// output). mergeMetadata keeps only the first value of each field, so the list
+// is built here, before the raw source content is dropped from the snapshot.
+function collectStructuredTunnels(sources = []) {
+  const tunnels = [];
+  for (const source of sources) {
+    const trimmed = String(source?.content || "").trim();
+    let roots = parseIpcFrames(trimmed);
+    if (roots.length === 0 && /^[{[]/.test(trimmed)) {
+      try {
+        roots = [JSON.parse(trimmed)];
+      } catch {
+        roots = [];
+      }
+    }
+    for (const root of roots) {
+      collectTunnelObjects(root).forEach((raw, index) => {
+        const tunnel = normalizeTunnel(raw, "playit", index);
+        if (tunnel.publicAddress || tunnel.localPort) tunnels.push(tunnel);
+      });
+    }
+  }
+  return dedupeTunnelsByEndpoint(tunnels).slice(0, MAX_SNAPSHOT_TUNNELS);
+}
+
+// The same tunnel arrives from get_state and from subscribe with a per-source
+// id, so tunnels are told apart by public address and local port.
+function dedupeTunnelsByEndpoint(tunnels = []) {
+  const seen = new Set();
+  return tunnels.filter((tunnel) => {
+    const key = `${String(tunnel.publicAddress || "").toLowerCase()}|${tunnel.localPort || ""}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function snapshotTunnel(snapshot) {
+  if (!snapshot.tunnelAddress && !snapshot.localPort && !snapshot.tunnelId) return null;
+  return normalizeTunnel({
+    display_address: snapshot.tunnelAddress || snapshot.tunnelDomain,
+    destination: snapshot.localTarget || (snapshot.localPort ? `${snapshot.localIp || "127.0.0.1"}:${snapshot.localPort}` : null),
+    tunnel_id: snapshot.tunnelId,
+    protocol: snapshot.protocol,
+  }, "snapshot", 0);
+}
+
+function getPlayitSnapshot() {
+  return cachedInspection("snapshot", collectPlayitSnapshot);
+}
+
+async function collectPlayitSnapshot() {
   const baseSnapshot = await getBasePlayitSnapshot();
 
   if (!baseSnapshot.installed && !baseSnapshot.running) {
@@ -1093,9 +1200,7 @@ async function getPlayitSnapshot() {
   };
   const metadataFound = Object.values(metadata.fieldSources).some(Boolean);
   const ipcPermissionDenied = daemon.diagnostics.ipcAccess?.reason === "permission_denied";
-
-  return {
-    ...baseSnapshot,
+  const merged = {
     tunnelAddress,
     tunnelDomain: pickTunnelValue(baseSnapshot.tunnelDomain, tunnelAddress ? tunnelAddress.split(":")[0] : null, baseTunnelAddress),
     localTarget,
@@ -1103,6 +1208,16 @@ async function getPlayitSnapshot() {
     localPort: localParts.port,
     protocol,
     tunnelId: pickValue(baseSnapshot.tunnelId, metadata.tunnelId),
+  };
+  const structuredTunnels = collectStructuredTunnels(daemon.diagnostics.sources);
+  const fallbackTunnel = structuredTunnels.length ? null : snapshotTunnel(merged);
+
+  return {
+    ...baseSnapshot,
+    ...merged,
+    // Sanitized tunnel list (addresses, local target, protocol, status) for
+    // the tunnel list, provider sync and saved-share reconciliation.
+    tunnels: structuredTunnels.length ? structuredTunnels : fallbackTunnel ? [fallbackTunnel] : [],
     diagnostics: {
       ...baseSnapshot.diagnostics,
       tunnelMetadataSources: [
@@ -1153,7 +1268,11 @@ async function getPlayitVersion(binaryPath) {
   };
 }
 
-async function getPlayitStatus() {
+function getPlayitStatus() {
+  return cachedInspection("status", collectPlayitStatus);
+}
+
+async function collectPlayitStatus() {
   const snapshot = await getPlayitSnapshot();
   const version = await getPlayitVersion(snapshot.diagnostics?.binaryPath);
   const service = await getPlayitServiceStatusFromSnapshot(snapshot);
@@ -1356,6 +1475,7 @@ async function runServiceControl(action) {
     const prefix = selected.manager === "systemd-user" ? ["--user"] : [];
     result = await exec("systemctl", [...prefix, action, selected.name], { timeout: CONTROL_COMMAND_TIMEOUT_MS });
   }
+  invalidatePlayitCache();
   if (!result.ok) {
     const code = action === "start" ? "PLAYIT_START_FAILED" : action === "stop" ? "PLAYIT_STOP_FAILED" : "PLAYIT_RESTART_FAILED";
     throw createPlayitError(code, `Playit ${action} failed.`, {
@@ -1519,21 +1639,12 @@ async function listPlayitTunnels() {
   if (!snapshot.running && snapshot.serviceState !== "running") {
     return { ok: false, code: "PLAYIT_NOT_RUNNING", message: "Start Playit to refresh tunnel status.", tunnels: [], lastCheckedAt: snapshot.lastCheckedAt };
   }
-  const sources = snapshot.diagnostics?.tunnelMetadataSources || [];
-  const tunnels = [];
-  sources.forEach((source, sourceIndex) => {
-    parseTunnelObjectsFromContent(source.content || "").forEach((raw, index) => {
-      tunnels.push(normalizeTunnel(raw, source.name || `source-${sourceIndex}`, index));
-    });
-  });
-  if (snapshot.tunnelAddress || snapshot.localPort || snapshot.tunnelId) {
-    tunnels.push(normalizeTunnel({
-      display_address: snapshot.tunnelAddress || snapshot.tunnelDomain,
-      destination: snapshot.localTarget || (snapshot.localPort ? `${snapshot.localIp || "127.0.0.1"}:${snapshot.localPort}` : null),
-      tunnel_id: snapshot.tunnelId,
-      protocol: snapshot.protocol,
-    }, "snapshot", 0));
-  }
+  // Every tunnel the snapshot collected; the merged single-tunnel view is only
+  // a fallback for a snapshot without a list.
+  const fallbackTunnel = snapshotTunnel(snapshot);
+  const tunnels = Array.isArray(snapshot.tunnels) && snapshot.tunnels.length
+    ? snapshot.tunnels.map((tunnel) => ({ ...tunnel }))
+    : fallbackTunnel ? [fallbackTunnel] : [];
   return {
     ok: true,
     tunnels: dedupeTunnels(tunnels),
@@ -1547,11 +1658,13 @@ module.exports = {
   getPlayitStatus,
   getPlayitServiceStatus: getPlayitStatus,
   getPlayitLogs,
+  invalidatePlayitCache,
   listPlayitTunnels,
   restartPlayit,
   startPlayit,
   stopPlayit,
   _test: {
+    extractPlayitAddress,
     parseSystemdRestartSetting,
     parseWindowsStartType,
     parseWindowsFailureActions,

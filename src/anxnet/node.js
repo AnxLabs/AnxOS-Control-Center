@@ -43,9 +43,20 @@ const PUNCH_TIMEOUT_MS = 5000;
 const MAX_PENDING = 20;
 const MAX_SERVICES_PER_MEMBER = 20;
 const MAX_TLS_CONNECTIONS = 256;
+const GRANT_RENEW_BEFORE_MS = 24 * 60 * 60 * 1000;
+const GRANT_MIN_RENEW_LIFETIME_MS = 10 * 60 * 1000;
+const COORDINATOR_NOTIFY_MAX_MS = 15 * 60 * 1000;
+const COORDINATOR_NOTIFY_LIVE_LINK_ATTEMPTS = 6;
+const COORDINATOR_PROBE_MS = 5000;
 
 function error(code, message, statusCode = 400) {
   return roster.error(code, message, statusCode);
+}
+
+// A gateway route as callers see it: no sockets, grants or internal flags.
+function publicRouteView(route) {
+  const { routeId, serviceId, protocol, publicHost, publicPort, gateway, linkKey } = route;
+  return { routeId, serviceId, protocol, publicHost, publicPort, gateway: { ...gateway }, linkKey };
 }
 
 // Read one JSON line from a socket; any bytes after it go back to the socket.
@@ -145,6 +156,7 @@ class AnxNetNode extends EventEmitter {
     this.peers = new Map(); // deviceId -> peer session
     this.endpoints = new Map(); // coordinator: deviceId -> { tcp: [], udp, seenAt }
     this.coordClients = new Map(); // coordinator: deviceId -> control socket
+    this.coordLinkSeq = 0; // coordinator: numbers control sockets in the order they opened
     this.forwards = new Map(); // key -> listener
     this.hostFlows = new Map(); // `${peer}:${flow}` -> udp socket to target
     this.udpSessions = new Map(); // deviceId -> { session, address }
@@ -172,9 +184,20 @@ class AnxNetNode extends EventEmitter {
     this.loadState();
     await this.listen();
     this.started = true;
-    this.pingTimer = setInterval(() => this.pingPeers(), PING_INTERVAL_MS);
+    this.pingTimer = setInterval(() => {
+      this.pingPeers();
+      this.renewGatewayGrants().catch(() => {});
+      this.refreshOwnerEndpoints().catch(() => {});
+      this.notifyMovedCoordinator().catch(() => {});
+    }, PING_INTERVAL_MS);
     this.pingTimer.unref?.();
     await this.applyRoster();
+    // After a restart a member may still dial an address this computer no
+    // longer has. Members that don't reconnect by themselves soon are told
+    // where it is now (at once, below, if the address changed). Every
+    // coordinator link open now was opened after this start.
+    this.markCoordinatorNotify(Date.now() + RECONNECT_MAX_MS + PING_INTERVAL_MS, 0);
+    await this.refreshOwnerEndpoints().catch((cause) => this.emit("warning", { code: cause.code, message: cause.message }));
     if (this.state.network && !this.isOwner()) this.connectCoordinator();
     return this.status();
   }
@@ -206,7 +229,7 @@ class AnxNetNode extends EventEmitter {
     if (!text) return;
     try {
       const parsed = JSON.parse(text);
-      this.state = { network: parsed.network || null, roster: parsed.roster || null, invites: parsed.invites || [], pending: parsed.pending || [] };
+      this.state = { network: parsed.network || null, roster: parsed.roster || null, invites: parsed.invites || [], pending: parsed.pending || [], memberEndpoints: parsed.memberEndpoints || {} };
       if (this.state.roster) roster.verify(this.state.roster, this.state.network.ownerPublicKey, { networkId: this.state.network.networkId });
     } catch (cause) {
       // A damaged or forged state file is never trusted.
@@ -337,8 +360,83 @@ class AnxNetNode extends EventEmitter {
     const { secret, invites, record } = roster.createInvite(this.state.invites, options);
     this.state.invites = invites;
     this.saveState();
-    const coordinator = options.coordinator || this.state.network.coordinator || this.tcpEndpoints();
+    // This computer's addresses now, not the ones it had when the network
+    // was created (the last known list only while it has none, e.g. offline).
+    const current = this.tcpEndpoints();
+    const coordinator = options.coordinator || (current.length ? current : this.state.network.coordinator);
     return { code: roster.encodeInviteCode({ doc: this.doc, secret, coordinator }), invite: { ...record, hash: undefined } };
+  }
+
+  // Owner: keep the coordinator addresses current (a new DHCP lease, Wi-Fi to
+  // Ethernet, a fallback port). Once they change, the signed roster carries
+  // them, so members follow the owner to its new address.
+  async refreshOwnerEndpoints() {
+    if (!this.started || !this.state.network || !this.isOwner()) return;
+    const current = this.tcpEndpoints();
+    if (!current.length) return; // no address right now: keep the last known one
+    const same = (a, b) => JSON.stringify(roster.normalizeCoordinator(a)) === JSON.stringify(roster.normalizeCoordinator(b));
+    const changed = !same(current, this.state.network.coordinator);
+    if (changed) {
+      this.state.network.coordinator = current;
+      this.saveState();
+    }
+    if (changed || (this.doc.coordinator && !same(this.doc.coordinator, current))) await this.changeRoster((signed) => roster.setCoordinator(signed, this.identity, current));
+    if (changed) {
+      this.markCoordinatorNotify(Date.now());
+      this.notifyMovedCoordinator().catch(() => {});
+    }
+  }
+
+  // Owner: the members to tell where the coordinator listens now. A member
+  // that is disconnected when the owner moves never gets the roster with the
+  // new address over the coordinator link (it dials the old one), so the
+  // owner reaches it over a peer connection: its last registered address,
+  // or a relay. `since` is the last coordinator link opened before the move.
+  markCoordinatorNotify(at, since = this.coordLinkSeq) {
+    if (!this.state.network || !this.isOwner()) return;
+    this.coordinatorNotify = new Map();
+    for (const device of this.doc.devices) {
+      if (device.deviceId !== this.identity.deviceId && roster.memberFor(this.doc, device.deviceId)) this.coordinatorNotify.set(device.deviceId, { attempt: 0, at, since });
+    }
+  }
+
+  notifyMovedCoordinator(now = Date.now()) {
+    if (!this.started || !this.isOwner() || !this.coordinatorNotify?.size) return Promise.resolve();
+    const notify = this.coordinatorNotify;
+    const coordinator = roster.normalizeCoordinator(this.state.network.coordinator);
+    const attempts = [];
+    for (const [deviceId, entry] of notify) {
+      // A member on a coordinator link opened since the move already has the
+      // signed roster. A link from before it may be dead (the old address
+      // vanished without a FIN), so that member is still told.
+      const linkedSinceMove = () => (this.coordClients.get(deviceId)?.coordLinkSeq || 0) > entry.since;
+      if (linkedSinceMove() || !roster.memberFor(this.doc, deviceId)) { notify.delete(deviceId); continue; }
+      if (entry.busy || entry.at > now) continue;
+      entry.busy = true;
+      const hadError = this.lastPeerErrors?.has(deviceId);
+      attempts.push(this.ensurePeer(deviceId)
+        .then((peer) => {
+          if (!linkedSinceMove()) this.writeFrame(peer, TYPES.CTRL, 0, { t: "coordinator", coordinator });
+          if (notify.get(deviceId) === entry) notify.delete(deviceId);
+        })
+        .catch(() => {
+          // An offline member is not a peer error the owner asked about.
+          if (!hadError) this.lastPeerErrors?.delete(deviceId);
+          entry.attempt += 1;
+          // A member on an older build never re-registers when the roster
+          // moves the coordinator. If its pre-move link is still open after
+          // this many dials (about 16 minutes), TCP keepalive would have closed
+          // it were it dead, so it got the roster there: stop dialing a member
+          // that cannot be reached directly. A gone link is still retried.
+          if (entry.attempt >= COORDINATOR_NOTIFY_LIVE_LINK_ATTEMPTS && this.coordClients.has(deviceId)) {
+            if (notify.get(deviceId) === entry) notify.delete(deviceId);
+            return;
+          }
+          entry.at = Date.now() + Math.min(COORDINATOR_NOTIFY_MAX_MS, PING_INTERVAL_MS * 2 ** Math.min(entry.attempt - 1, 6));
+        })
+        .finally(() => { entry.busy = false; }));
+    }
+    return Promise.all(attempts);
   }
 
   revokeInvite(inviteId) {
@@ -434,6 +532,9 @@ class AnxNetNode extends EventEmitter {
     const current = this.doc?.version || 0;
     const doc = roster.verify(signed, this.state.network.ownerPublicKey, { networkId: this.state.network.networkId, minVersion: current });
     this.state.roster = signed;
+    // Members dial the owner at the addresses its signed roster lists.
+    const coordinator = roster.normalizeCoordinator(doc.coordinator);
+    if (coordinator.length && doc.owner.deviceId !== this.identity.deviceId) this.state.network.coordinator = coordinator;
     return doc;
   }
 
@@ -638,7 +739,7 @@ class AnxNetNode extends EventEmitter {
   candidatesFor(deviceId) {
     const own = this.state.network?.coordinator || [];
     if (deviceId === this.doc?.owner.deviceId) return own;
-    return this.endpoints.get(deviceId)?.tcp || [];
+    return this.endpoints.get(deviceId)?.tcp || this.state.memberEndpoints?.[deviceId] || [];
   }
 
   async ensurePeer(deviceId) {
@@ -843,6 +944,9 @@ class AnxNetNode extends EventEmitter {
     if (frame.type === TYPES.CTRL) {
       let message;
       try { message = JSON.parse(frame.payload.toString("utf8")); } catch { return; }
+      // Only the owner (its key checked when this peer connected) says
+      // where the coordinator listens.
+      if (message?.t === "coordinator" && doc && peer.deviceId === doc.owner.deviceId) { this.onCoordinatorMoved(message.coordinator); return; }
       this.emit("peer-message", { deviceId: peer.deviceId, message });
     }
   }
@@ -985,6 +1089,10 @@ class AnxNetNode extends EventEmitter {
   onCoordinatorClient(socket, peer, isMember) {
     const previous = this.coordClients.get(peer.deviceId);
     if (previous && previous !== socket) previous.destroy(); // one control session per device
+    this.coordLinkSeq += 1;
+    socket.coordLinkSeq = this.coordLinkSeq;
+    // A member that vanishes without a FIN is dropped instead of listed online.
+    socket.setKeepAlive?.(true, 15000);
     this.coordClients.set(peer.deviceId, socket);
     sendJsonLine(socket, isMember ? { ok: true, roster: this.state.roster } : { ok: true, pending: true });
     jsonLineReader(socket, (message) => this.onCoordinatorMessage(socket, peer, message));
@@ -1015,6 +1123,17 @@ class AnxNetNode extends EventEmitter {
       const seen = { host: socket.remoteAddress?.replace(/^::ffff:/, ""), port: tcp[0]?.port };
       const list = seen.host && seen.port && !tcp.some((entry) => entry.host === seen.host) ? [seen, ...tcp] : tcp;
       this.endpoints.set(peer.deviceId, { ...(this.endpoints.get(peer.deviceId) || {}), tcp: list, seenAt: Date.now() });
+      // Kept across restarts: the owner tells members its new address there
+      // after it moves (notifyMovedCoordinator).
+      const known = this.state.memberEndpoints || {};
+      if (JSON.stringify(known[peer.deviceId]) !== JSON.stringify(list)) {
+        this.state.memberEndpoints = { ...known, [peer.deviceId]: list };
+        this.saveState();
+      }
+      // A register that reaches the owner proves this link works now, so the
+      // member got the moved roster over it (members re-register when a roster
+      // moves the coordinator). A dead link never answers and stays noticed.
+      this.coordinatorNotify?.delete(peer.deviceId);
       reply({ ok: true });
       return;
     }
@@ -1064,7 +1183,9 @@ class AnxNetNode extends EventEmitter {
         return tryEndpoint(index + 1);
       }
     };
-    tryEndpoint(0).then((socket) => this.onCoordinatorConnected(socket)).catch((cause) => this.scheduleCoordinatorRetry(cause));
+    const state = this.coordinator;
+    state.dialing = true;
+    tryEndpoint(0).finally(() => { state.dialing = false; }).then((socket) => this.onCoordinatorConnected(socket)).catch((cause) => this.scheduleCoordinatorRetry(cause));
   }
 
   dialCoordinator(endpoint, owner) {
@@ -1085,6 +1206,9 @@ class AnxNetNode extends EventEmitter {
   onCoordinatorConnected(socket) {
     this.coordinator.socket = socket;
     this.coordinator.requests = new Map();
+    // A member writes little on this link; keepalive notices an owner whose
+    // address vanished without a FIN, so this device redials it.
+    socket.setKeepAlive?.(true, 15000);
     let first = true;
     jsonLineReader(socket, (message) => {
       if (first) {
@@ -1120,12 +1244,18 @@ class AnxNetNode extends EventEmitter {
 
   onRosterFromCoordinator(signed) {
     try {
+      const coordinatorBefore = JSON.stringify(roster.normalizeCoordinator(this.doc?.coordinator));
       this.acceptRoster(signed);
       this.saveState();
       this.applyRoster().then(() => this.emit("change"));
       if (this.coordinator.state === "pending-approval" && roster.memberFor(this.doc, this.identity.deviceId)) {
         this.coordinator.state = "connected";
         this.coordinator.message = "";
+        this.registerWithCoordinator();
+      } else if (this.coordinator.state === "connected" && JSON.stringify(roster.normalizeCoordinator(this.doc?.coordinator)) !== coordinatorBefore) {
+        // The owner moved and this link still works: say so over it, so the
+        // owner need not reach this device another way (it may be unable to
+        // dial in) and stops trying (notifyMovedCoordinator).
         this.registerWithCoordinator();
       }
       if (!roster.memberFor(this.doc, this.identity.deviceId)) {
@@ -1135,6 +1265,36 @@ class AnxNetNode extends EventEmitter {
     } catch (cause) {
       if (cause.code !== "ANXNET_ROSTER_STALE") this.emit("warning", { code: cause.code, message: cause.message });
     }
+  }
+
+  // Member: the owner moved and reached this device over a peer connection.
+  // Dial it at its new address now; the signed roster follows on connect.
+  onCoordinatorMoved(list) {
+    const coordinator = roster.normalizeCoordinator(list);
+    if (!coordinator.length || !this.state.network || this.isOwner()) return;
+    if (JSON.stringify(coordinator) !== JSON.stringify(roster.normalizeCoordinator(this.state.network.coordinator))) {
+      this.state.network.coordinator = coordinator;
+      this.saveState();
+    }
+    if (this.coordinator.state === "removed") return;
+    this.coordinator.attempt = 0; // a dial still in flight retries the new address soon
+    const socket = this.coordinator.socket;
+    if (socket) {
+      // The owner tells only members it doesn't see on a link opened since it
+      // moved, so this link may be dead (its old address vanished without a
+      // FIN, and no close ever arrives). Keep it only if the owner answers on
+      // it; once closed, the close handler redials the saved new address.
+      if (socket.coordProbe) return;
+      socket.coordProbe = true;
+      this.coordinatorRequest({ t: "register", tcp: this.tcpEndpoints() }, COORDINATOR_PROBE_MS).then((reply) => {
+        socket.coordProbe = false;
+        if (["ANXNET_COORDINATOR_TIMEOUT", "ANXNET_COORDINATOR_DISCONNECTED"].includes(reply?.error?.code)) socket.destroy();
+      }, () => socket.destroy());
+      return;
+    }
+    if (this.coordinator.dialing) return;
+    clearTimeout(this.coordinator.timer);
+    this.connectCoordinator();
   }
 
   registerWithCoordinator() {
@@ -1350,10 +1510,23 @@ class AnxNetNode extends EventEmitter {
     }
   }
 
+  // One connection per link at a time. The edge keeps one registration per
+  // device and kind and drops the older one, so a second connect (start()'s
+  // background link racing publish(), or a retry timer) would knock out the
+  // live registration and loop.
   async openEdgeLink(key, edge, kind) {
     const link = this.edgeLinks.get(key) || { key, edge, kind, attempt: 0, state: "connecting", requests: new Map() };
     this.edgeLinks.set(key, link);
     if (link.closed || !this.started) return link;
+    if (link.socket && !link.socket.destroyed) return link;
+    if (link.connecting) return link.connecting;
+    clearTimeout(link.timer);
+    link.connecting = this.connectEdgeLink(link).finally(() => { link.connecting = null; });
+    return link.connecting;
+  }
+
+  async connectEdgeLink(link) {
+    const { edge, kind } = link;
     try {
       const socket = tlsConnect(this.identity, { host: edge.host, port: edge.port });
       await onceSecure(socket);
@@ -1361,6 +1534,8 @@ class AnxNetNode extends EventEmitter {
       sendJsonLine(socket, { t: kind, networkId: this.doc.networkId, roster: this.state.roster });
       const reply = await readLine(socket);
       if (!reply?.ok) { socket.destroy(); throw error(reply?.error?.code || "ANXNET_EDGE_REFUSED", reply?.error?.message || "The edge refused.", 403); }
+      // The link was closed (stop, leave, edge removed) while connecting.
+      if (link.closed || !this.started) { socket.destroy(); return link; }
       socket.resume();
       socket.on("error", () => {});
       link.socket = socket;
@@ -1368,12 +1543,20 @@ class AnxNetNode extends EventEmitter {
       link.attempt = 0;
       jsonLineReader(socket, (message) => this.onEdgeMessage(link, message));
       socket.on("close", () => {
+        // Only the link's current socket owns its state and requests.
+        if (link.socket !== socket) return;
         link.socket = null;
         for (const resolve of link.requests.values()) resolve({ error: { code: "ANXNET_EDGE_DISCONNECTED", message: "Lost the connection to the edge." } });
         link.requests.clear();
+        // The gateway drops a host's routes soon after its link goes: they
+        // aren't public again until the reconnect reopens them.
+        for (const route of this.gatewayRoutes?.values() || []) if (route.linkKey === link.key) route.live = false;
         if (link.closed || !this.started || !this.state.network) return;
         this.scheduleEdgeRetry(link);
       });
+      // The gateway keeps routes only in memory: ask again for every route
+      // this node has on it (the same route comes back if it's still open).
+      if (kind === "gateway-register") this.reopenGatewayRoutes(link);
       this.emit("change");
       return link;
     } catch (cause) {
@@ -1408,7 +1591,27 @@ class AnxNetNode extends EventEmitter {
   onEdgeMessage(link, message) {
     if (message.id && link.requests.has(message.id)) { const resolve = link.requests.get(message.id); link.requests.delete(message.id); resolve(message); return; }
     if (message.t === "incoming" && link.kind === "relay-register") { this.acceptRelayed(link.edge, message).catch(() => {}); return; }
-    if (message.t === "incoming" && link.kind === "gateway-register") this.acceptGatewayConnection(link.edge, message).catch(() => {});
+    if (message.t === "incoming" && link.kind === "gateway-register") { this.acceptGatewayConnection(link.edge, message).catch(() => {}); return; }
+    // The gateway closed a route on its own (its grant expired, or the
+    // gateway is shutting down): reopen it a moment later, or drop it if the
+    // gateway refuses. A link that drops meanwhile reopens it on reconnect.
+    if (message.t === "route-closed" && link.kind === "gateway-register") {
+      const route = this.gatewayRoutes?.get(String(message.routeId || ""));
+      if (!route || route.linkKey !== link.key) return;
+      route.live = false;
+      this.scheduleGatewayRouteReopen(link, route, RECONNECT_MIN_MS);
+      this.emit("change");
+    }
+  }
+
+  // Ask the gateway for one route again a little later, while this link is
+  // up (a link that drops meanwhile reopens it on reconnect).
+  scheduleGatewayRouteReopen(link, route, delay) {
+    clearTimeout(route.reopenTimer);
+    route.reopenTimer = setTimeout(() => {
+      if (this.started && link.socket && !link.socket.destroyed) this.reopenGatewayRoute(link, route).catch(() => {});
+    }, delay);
+    route.reopenTimer.unref?.();
   }
 
   // The other side of a relayed connection: this device is the TLS server.
@@ -1438,26 +1641,136 @@ class AnxNetNode extends EventEmitter {
     this.edgeLinks = this.edgeLinks || new Map();
     this.gatewayRoutes = this.gatewayRoutes || new Map();
     const key = `gateway:${gateway.host}:${gateway.port}`;
-    let link = this.edgeLinks.get(key);
-    if (!link?.socket) link = await this.openEdgeLink(key, gateway, "gateway-register");
+    // Waits for a connect already in flight instead of opening a second one.
+    const link = await this.openEdgeLink(key, gateway, "gateway-register");
     const reply = await this.edgeRequest(link, { t: "route", grant, signature });
     if (reply.error) throw error(reply.error.code, reply.error.message, 403);
-    const route = { routeId: reply.routeId, serviceId: grant.serviceId, protocol: reply.protocol, publicHost: reply.publicHost || gateway.publicHost || gateway.host, publicPort: reply.publicPort, gateway: { host: gateway.host, port: gateway.port, fingerprint: gateway.fingerprint }, linkKey: key };
+    const route = { routeId: reply.routeId, serviceId: grant.serviceId, protocol: reply.protocol, publicHost: reply.publicHost || gateway.publicHost || gateway.host, publicPort: reply.publicPort, gateway: { host: gateway.host, port: gateway.port, fingerprint: gateway.fingerprint }, linkKey: key, grant, signature, grantIssuedAt: Date.now(), live: true };
+    // One route per service and protocol on a gateway.
+    for (const [routeId, other] of this.gatewayRoutes) {
+      if (other.linkKey !== key || other.serviceId !== route.serviceId || other.protocol !== route.protocol) continue;
+      this.gatewayRoutes.delete(routeId);
+      clearTimeout(other.reopenTimer);
+      const udpLink = other.udpLink;
+      other.udpLink = null;
+      udpLink?.destroy();
+    }
     this.gatewayRoutes.set(route.routeId, route);
     if (route.protocol === "udp") await this.openGatewayUdp(gateway, route, service);
     this.emit("change");
-    return route;
+    return publicRouteView(route);
+  }
+
+  // Ask the gateway again for each route this node has on it: after the link
+  // (re)connects, when the gateway says it closed a route, or to renew a grant.
+  // The gateway answers with the same route while it is still open.
+  reopenGatewayRoutes(link) {
+    for (const route of [...(this.gatewayRoutes?.values() || [])]) {
+      if (route.linkKey === link.key) this.reopenGatewayRoute(link, route).catch(() => {});
+    }
+  }
+
+  async reopenGatewayRoute(link, route) {
+    if (route.reopening) return route.reopening;
+    route.reopening = this.requestGatewayRoute(link, route).finally(() => { route.reopening = null; });
+    return route.reopening;
+  }
+
+  async requestGatewayRoute(link, route) {
+    if (this.gatewayRoutes?.get(route.routeId) !== route) return;
+    const drop = (message) => {
+      if (this.gatewayRoutes.get(route.routeId) === route) this.gatewayRoutes.delete(route.routeId);
+      const udpLink = route.udpLink;
+      route.udpLink = null;
+      udpLink?.destroy();
+      this.emit("warning", { code: "ANXNET_GATEWAY_ROUTE_CLOSED", message: `A public route was closed by the gateway: ${message}` });
+      this.emit("change");
+    };
+    const grantFor = (publicPort) => {
+      // The owner signs a fresh grant; another host can only reuse its own
+      // grant until it expires.
+      if (this.isOwner()) return this.signGatewayGrant({ serviceId: route.serviceId, protocol: route.protocol, publicPort, gatewayFingerprint: route.gateway.fingerprint });
+      if (route.grant && Date.parse(route.grant.expiresAt) > Date.now() + 5000) return { grant: route.grant, signature: route.signature };
+      return null;
+    };
+    let signed;
+    try { signed = grantFor(route.publicPort); } catch (cause) { drop(cause.message); return; }
+    if (!signed) { drop("its grant expired."); return; }
+    let reply = await this.edgeRequest(link, { t: "route", ...signed });
+    // Keep the public address when the gateway can; otherwise take any port.
+    if (reply.error?.code === "ANXNET_GATEWAY_PORT" && this.isOwner()) reply = await this.edgeRequest(link, { t: "route", ...grantFor(0) });
+    if (this.gatewayRoutes?.get(route.routeId) !== route) return; // unpublished meanwhile
+    if (reply.error) {
+      // Not reachable right now: try again when the link reconnects.
+      if (reply.error.code === "ANXNET_EDGE_DISCONNECTED") { route.live = false; this.emit("change"); return; }
+      // No answer, but the link is still up, so no reconnect will come: ask
+      // again with backoff (the gateway keeps a route it opened late).
+      if (reply.error.code === "ANXNET_EDGE_TIMEOUT") {
+        route.live = false;
+        route.reopenAttempt = (route.reopenAttempt || 0) + 1;
+        this.scheduleGatewayRouteReopen(link, route, Math.min(RECONNECT_MAX_MS, RECONNECT_MIN_MS * 2 ** Math.min(route.reopenAttempt - 1, 6)));
+        this.emit("change");
+        return;
+      }
+      drop(reply.error.message);
+      return;
+    }
+    route.reopenAttempt = 0;
+    const changed = reply.routeId !== route.routeId;
+    if (changed) {
+      this.gatewayRoutes.delete(route.routeId);
+      route.routeId = reply.routeId;
+      this.gatewayRoutes.set(route.routeId, route);
+    }
+    Object.assign(route, { publicPort: reply.publicPort, publicHost: reply.publicHost || route.publicHost, grant: signed.grant, signature: signed.signature, live: true });
+    if (this.isOwner()) route.grantIssuedAt = Date.now();
+    if (route.protocol === "udp" && (changed || !route.udpLink || route.udpLink.destroyed)) {
+      const service = this.doc?.services.find((entry) => entry.serviceId === route.serviceId);
+      const old = route.udpLink;
+      route.udpLink = null;
+      old?.destroy();
+      if (service) await this.openGatewayUdp(link.edge, route, service).catch((cause) => drop(cause.message));
+    }
+    this.emit("change");
+  }
+
+  // Owner: renew grants before they expire (less than a day, or half their
+  // lifetime, left), so the gateway never closes a route under players.
+  // Grants shorter than GRANT_MIN_RENEW_LIFETIME_MS are deliberately brief
+  // and run out; the gateway then closes the route and it is reopened.
+  async renewGatewayGrants(now = Date.now()) {
+    if (!this.isOwner()) return;
+    for (const route of [...(this.gatewayRoutes?.values() || [])]) {
+      const expiresAt = Date.parse(route.grant?.expiresAt || "");
+      const issuedAt = Number.isFinite(route.grantIssuedAt) ? route.grantIssuedAt : now;
+      if (!Number.isFinite(expiresAt) || expiresAt - issuedAt < GRANT_MIN_RENEW_LIFETIME_MS) continue;
+      if (expiresAt - now > Math.min(GRANT_RENEW_BEFORE_MS, (expiresAt - issuedAt) / 2)) continue;
+      const link = this.edgeLinks?.get(route.linkKey);
+      if (link?.socket && !link.socket.destroyed) await this.reopenGatewayRoute(link, route).catch(() => {});
+    }
   }
 
   async unpublish(routeId) {
     const route = this.gatewayRoutes?.get(routeId);
     if (!route) return { removed: false };
     this.gatewayRoutes.delete(routeId);
+    clearTimeout(route.reopenTimer);
     route.udpLink?.destroy();
     const link = this.edgeLinks?.get(route.linkKey);
     if (link) await this.edgeRequest(link, { t: "unroute", routeId });
     this.emit("change");
     return { removed: true };
+  }
+
+  // Every route this node holds for a service, live or not and whatever its
+  // current id (a reopened route can have a new one): turning Anyone can join
+  // off must not leave one that a later reconnect reopens.
+  async unpublishService(serviceId) {
+    let removed = 0;
+    for (const route of [...(this.gatewayRoutes?.values() || [])]) {
+      if (route.serviceId === serviceId && (await this.unpublish(route.routeId)).removed) removed += 1;
+    }
+    return { removed };
   }
 
   async acceptGatewayConnection(gateway, { connId, routeId }) {
@@ -1513,7 +1826,20 @@ class AnxNetNode extends EventEmitter {
       for (const [id, flow] of flows) if (flow.lastSeen < cutoff) { flow.socket.close(); flows.delete(id); }
     }, 15000);
     sweep.unref?.();
-    socket.on("close", () => { clearInterval(sweep); for (const flow of flows.values()) flow.socket.close(); flows.clear(); });
+    socket.on("close", () => {
+      clearInterval(sweep);
+      for (const flow of flows.values()) flow.socket.close();
+      flows.clear();
+      // The UDP channel dropped while the route is still published: open it
+      // again (if the gateway link is down, its reconnect does that).
+      if (route.udpLink !== socket || this.gatewayRoutes?.get(route.routeId) !== route) return;
+      route.udpLink = null;
+      const retry = setTimeout(() => {
+        const link = this.edgeLinks?.get(route.linkKey);
+        if (this.started && link?.socket && !link.socket.destroyed) this.reopenGatewayRoute(link, route).catch(() => {});
+      }, RECONNECT_MIN_MS);
+      retry.unref?.();
+    });
   }
 
   // ---- status ---------------------------------------------------------------------------------
@@ -1574,7 +1900,9 @@ class AnxNetNode extends EventEmitter {
       relayLinks: [...(this.edgeLinks?.values() || [])].filter((link) => link.kind === "relay-register").map((link) => ({ host: link.edge.host, port: link.edge.port, state: link.state })),
       // Relay and gateway connections as they really are right now.
       edgeLinks: [...(this.edgeLinks?.values() || [])].map((link) => ({ role: link.kind === "relay-register" ? "relay" : "gateway", host: link.edge.host, port: link.edge.port, state: link.state, message: link.state === "connected" ? "" : link.message || "" })),
-      publicRoutes: [...(this.gatewayRoutes?.values() || [])].map((route) => ({ ...route })),
+      // Only routes the gateway has confirmed are open; one being reopened
+      // isn't reachable yet.
+      publicRoutes: [...(this.gatewayRoutes?.values() || [])].filter((route) => route.live !== false).map(publicRouteView),
     };
   }
 }

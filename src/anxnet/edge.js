@@ -305,7 +305,13 @@ class AnxNetEdge extends EventEmitter {
     if (roster.managementPortName(service.targetPort) || roster.managementPortName(service.port)) throw error("ANXNET_SERVICE_SENSITIVE_PORT", "Management ports are never published.");
     const protocol = grant.protocol === "udp" ? "udp" : "tcp";
     const existing = [...this.routes.values()].find((route) => route.grant.serviceId === grant.serviceId && route.protocol === protocol);
-    if (existing) return existing;
+    if (existing) {
+      // The host asking again (after reconnecting, or to renew its grant)
+      // keeps the route: it moves to this link and takes a later grant.
+      existing.hostLink = link;
+      if (Date.parse(grant.expiresAt) > Date.parse(existing.grant.expiresAt)) existing.grant = grant;
+      return existing;
+    }
     if ([...this.routes.values()].filter((route) => route.grant.networkId === grant.networkId).length >= options.maxRoutesPerNetwork) throw error("ANXNET_GATEWAY_ROUTE_LIMIT", "This network has reached its public route limit.");
     const [low, high] = options.portRange;
     const used = new Set([...this.routes.values()].map((route) => `${route.protocol}:${route.port}`));
@@ -389,6 +395,9 @@ class AnxNetEdge extends EventEmitter {
     for (const client of route.connections) client.destroy();
     try { route.udp?.close(); } catch {}
     route.link?.destroy();
+    // Tell the host, so it reopens the route (with a fresh grant) or stops
+    // listing it as public.
+    if (route.hostLink?.socket && !route.hostLink.socket.destroyed) sendJsonLine(route.hostLink.socket, { t: "route-closed", routeId: route.routeId });
     this.emit("route-closed", { routeId: route.routeId });
   }
 

@@ -21,7 +21,6 @@ const {
 } = require("./marketplaceInstallContext");
 const {
   MARKETPLACE_JOB_TYPES,
-  buildMarketplaceInstallKey,
   mintMarketplaceJob,
 } = require("./marketplaceInstallJobService");
 const longOperations = require("../shared/longOperationService");
@@ -652,6 +651,27 @@ function resolveTemplateForPlatform(template = {}, platform = "") {
     platformVariant: targetPlatform,
     platformNotes: platformConfig.notes || template.platformNotes || null,
   };
+}
+
+// Publish the template's container ports on the host ports the user chose:
+// "8080:80" with port 8081 becomes "8081:80". Sending the template's fixed
+// mappings ignored the chosen port, so a busy 8080 failed the install even
+// after the wizard moved the server to 8081. A missing host port keeps the
+// template's mapping.
+function buildDockerTemplatePortMappings(templatePorts = [], hostPorts = []) {
+  return templatePorts.map((mapping, index) => {
+    const match = /^(?:(\d{1,3}(?:\.\d{1,3}){3}):)?(\d{1,5}):(\d{1,5})(\/(?:tcp|udp))?$/i.exec(String(mapping || "").trim());
+    const hostPort = Number(hostPorts[index]);
+    if (!match || !Number.isInteger(hostPort) || hostPort < 1 || hostPort > 65535) return mapping;
+    return `${match[1] ? `${match[1]}:` : ""}${hostPort}:${match[3]}${match[4] || ""}`;
+  });
+}
+
+// The template variant a node actually runs (its platform overlay applied), for
+// callers outside the install flow such as the start-time dependency gate.
+function resolveTemplateForNode(template, nodeId = null) {
+  if (!template) return null;
+  return resolveTemplateForPlatform(template, getInstallTargetPlatform({ nodeId }, resolveMarketplaceAgentConfig(nodeId)));
 }
 
 function listTemplates() {
@@ -1940,6 +1960,7 @@ async function resolvePaperDownload(download, options = {}, context = {}) {
         version,
         build: selectedBuild.id || selectedBuild.build,
         checksum: serverDownload.checksums?.sha256 || null,
+        sha256: normalizeHexDigest(serverDownload.checksums?.sha256, 64),
         size: serverDownload.size || null,
         javaMinimum: javaMinimumByVersion.get(String(version)) || null,
       };
@@ -1979,6 +2000,7 @@ async function resolvePaperProjectDownload(download, options = {}, context = {})
         version,
         build: selectedBuild.id || selectedBuild.build,
         checksum: serverDownload.checksums?.sha256 || null,
+        sha256: normalizeHexDigest(serverDownload.checksums?.sha256, 64),
         size: serverDownload.size || null,
       };
     }
@@ -2271,8 +2293,26 @@ async function resolveVanillaDownload(download, options = {}, context = {}) {
   return {
     url,
     version: versionId,
+    // Mojang publishes the server jar's SHA-1; the download is checked against it.
+    sha1: normalizeHexDigest(versionPayload?.downloads?.server?.sha1, 40),
     javaMinimum: Number.isInteger(javaMinimum) && javaMinimum > 0 ? javaMinimum : null,
   };
+}
+
+// A publisher digest as lowercase hex of the expected length, or null.
+function normalizeHexDigest(value, length) {
+  const digest = String(value ?? "").trim().toLowerCase().replace(/^sha(?:1|256):/, "");
+  return digest.length === length && /^[a-f0-9]+$/.test(digest) ? digest : null;
+}
+
+// The digests downloadOneToInstance compares with the downloaded bytes.
+function getResolvedDownloadDigests(resolved) {
+  const digests = [];
+  const sha1 = normalizeHexDigest(resolved?.sha1, 40);
+  const sha256 = normalizeHexDigest(resolved?.sha256, 64);
+  if (sha1) digests.push({ algorithm: "sha1", value: sha1 });
+  if (sha256) digests.push({ algorithm: "sha256", value: sha256 });
+  return digests;
 }
 
 // Update checks for Marketplace servers that are not SteamCMD-native. They
@@ -4203,19 +4243,25 @@ async function downloadOneToInstance(template, download, options, instanceId, pr
     }
 
     const buffer = Buffer.concat(chunks);
-    if (resolved?.sha1) {
-      const actualSha1 = require("crypto").createHash("sha1").update(buffer).digest("hex");
-      if (actualSha1 !== resolved.sha1) {
+    // Every digest the publisher gave the resolver (Hytale's .sha1, Mojang's
+    // server sha1, PaperMC's sha256) is compared with the bytes before
+    // anything is written to the instance.
+    for (const expected of getResolvedDownloadDigests(resolved)) {
+      const actual = require("crypto").createHash(expected.algorithm).update(buffer).digest("hex");
+      if (actual !== expected.value) {
+        const label = expected.algorithm === "sha1" ? "SHA-1" : "SHA-256";
         throw createMarketplaceStepError(`${fileName} failed checksum verification.`, "DOWNLOAD_CHECKSUM_MISMATCH", {
           ...baseContext,
           step: "Verify download",
           url,
-          expectedSha1: resolved.sha1,
-          actualSha1,
-          message: `Downloaded ${fileName} does not match the publisher's SHA-1, so it was not installed.`,
+          algorithm: expected.algorithm,
+          expected: expected.value,
+          actual,
+          ...(expected.algorithm === "sha1" ? { expectedSha1: expected.value, actualSha1: actual } : { expectedSha256: expected.value, actualSha256: actual }),
+          message: `Downloaded ${fileName} does not match the publisher's ${label}, so it was not installed.`,
         });
       }
-      appendDownloadLog(record, { step: "Verify download", message: `SHA-1 verified for ${fileName}.`, url });
+      appendDownloadLog(record, { step: "Verify download", message: `${expected.algorithm === "sha1" ? "SHA-1" : "SHA-256"} verified for ${fileName}.`, url });
     }
     await writeInstanceBuffer(instanceId, destination, buffer, agentConfig);
     await agentClient.readInstanceFile(instanceId, destination, agentConfig);
@@ -4363,22 +4409,22 @@ function buildTemplateInstallSubject(payload = {}) {
 }
 
 // The exported installTemplate wrapper rides the durable V2-A job lifecycle
-// (V2-D install transactions) so every install is recorded, idempotent on
-// keyed retry, and reconciled as interrupted if the desktop restarts
-// mid-flight. The real executor is executeInstallTemplate below.
+// (V2-D install transactions) so every install is recorded, idempotent when
+// the caller supplies a key, and reconciled as interrupted if the desktop
+// restarts mid-flight. The real executor is executeInstallTemplate below.
 async function installTemplate(payload = {}) {
-  const subject = buildTemplateInstallSubject(payload);
-  const version = payload.packageVersion || payload.options?.packageVersion || "unversioned";
   const templateInstallController = new AbortController();
   // Callers (IPC, renderer, smokes) receive the install result exactly as
   // before the job wrapper existed: the durable job record lives in the job
   // store, not in this function's return shape.
   const job = await mintMarketplaceJob({
     type: MARKETPLACE_JOB_TYPES.INSTALL,
-    target: { nodeId: payload.nodeId || null, templateId: payload.templateId || null },
-    idempotencyKey: payload.idempotencyKey !== undefined && payload.idempotencyKey !== null
-      ? payload.idempotencyKey
-      : buildMarketplaceInstallKey({ nodeId: payload.nodeId, subject, version }),
+    target: { nodeId: payload.nodeId || null, templateId: payload.templateId || null, requestedId: buildTemplateInstallSubject(payload) },
+    // Only a key the caller supplies dedupes. A key derived from the node and
+    // server name replayed the first install's success when a server of the
+    // same name was installed again later: the user saw "Server ready" and
+    // nothing was created.
+    idempotencyKey: payload.idempotencyKey ?? undefined,
     // The executor checks the shared controller at phase boundaries, so a
     // durable-job cancel stops the next phase from starting; the executor's
     // final guard refuses to report success after a late cancel (P1-1).
@@ -4472,7 +4518,7 @@ async function executeInstallTemplate(payload = {}, context = {}) {
       const result = await agentClient.createDockerContainer({
         name: slugify(options.id || options.name || template.id),
         image: template.docker?.image || template.downloadSource?.image,
-        ports: Array.isArray(template.docker?.ports) ? template.docker.ports : portMappings,
+        ports: Array.isArray(template.docker?.ports) ? buildDockerTemplatePortMappings(template.docker.ports, ports) : portMappings,
         memory: normalizeName(options.memory, template.defaultRam || ""),
         restartPolicy: template.docker?.restartPolicy || "unless-stopped",
         start: options.start !== false,
@@ -4864,6 +4910,7 @@ module.exports = {
     resolveDownloadUrl,
     downloadOneToInstance,
     resolveTemplateForPlatform,
+    buildDockerTemplatePortMappings,
     parsePorts,
     resolveMarketplaceAgentConfig,
     uniqueVersionEntries,
@@ -4883,6 +4930,7 @@ module.exports = {
   installTemplate,
   getTemplateInstallPlanPreview,
   listTemplates,
+  resolveTemplateForNode,
   retryDownload,
   updateDependencyInstallRecord,
   validateCommunityTemplate,

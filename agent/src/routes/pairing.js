@@ -1,9 +1,11 @@
 const { createPairingSessionPayload, normalizePairingCode } = require("../../../src/shared/agentPairing");
-const { generateAgentToken, tokenFingerprint, writeAgentConfigToken } = require("../../../src/shared/agentTokenStore");
+const { agentTokensMatch, generateAgentToken, tokenFingerprint, writeAgentConfigToken } = require("../../../src/shared/agentTokenStore");
 const {
   AGENT_STATE_ENROLLED,
+  AGENT_STATE_REVOKED,
+  bindEnrollmentFromPairing,
+  isLoopbackAddress,
   readEnrollmentRecord,
-  recoverRevokedEnrollmentFromPairing,
 } = require("../services/enrollmentService");
 const { getDeviceIdentity } = require("../services/deviceIdentityService");
 const { isEchoableAgentHost, trustedAgentAuthority } = require("../services/hostTrustPolicy");
@@ -22,19 +24,29 @@ const failedAttempts = new Map();
 // Re-pairing an enrolled node therefore requires EITHER
 //   (a) a loopback origin — the operator acting on the Agent machine, which is
 //       how the desktop repairs a LOCAL node and how `npm run agent:pair` runs, or
-//   (b) proof of possession of a credential the agent already trusts: the live
-//       credential (config.token / config.tokenStatus.fingerprint) or the one
-//       bound on the enrollment record (record.tokenFingerprint).
+//   (b) proof of possession of the live credential (config.token), compared
+//       in full (agentTokensMatch). A tokenFingerprint match is NOT proof: the
+//       fingerprint is 48 bits, so a colliding string can be found offline.
 //
-// No record, or a record that is not `enrolled` (pending / unenrolled / revoked),
-// stays UNCHANGED: those are the bootstrap and recovery paths, and the first
-// pairing of any node must keep working for both local and remote nodes.
+// A `revoked` record (what Control Center's "Remove computer" leaves behind
+// while the Agent keeps running with its servers and files) gets the same gate
+// for start/status/cancel. Its /pairing/complete is also accepted for a session
+// that the operator opened from the Agent machine (loopback) or with the live
+// credential: that is the lost-credential recovery, where `anxos-agent pair`
+// shows the code on the host and a remote desktop that holds no credential
+// redeems it. A network caller cannot read that code, so it cannot redeem it.
+//
+// No record, or a record that is `unenrolled` / `pending`, stays open: that is
+// the bootstrap path, and the first pairing of any node must keep working for
+// both local and remote nodes. A completed pairing writes an `enrolled` record
+// at once (bindEnrollmentFromPairing), so the bootstrap window closes with the
+// first pairing instead of at the next Agent restart.
 //
 // The gate is evaluated before any mutation, so a refused request can neither
-// create, replace, nor cancel a session. Only fingerprints of the cheap
-// comparison are computed; token material is never logged or echoed.
+// create, replace, nor cancel a session. Token material is never logged or
+// echoed.
 const PAIRING_REQUIRES_EXISTING_CREDENTIAL = "PAIRING_REQUIRES_EXISTING_CREDENTIAL";
-const LOOPBACK_ADDRESSES = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
+const PRIVILEGED_SESSION_OPENERS = new Set(["loopback", "existing-credential"]);
 const PAIRING_ROUTE_METHODS = Object.freeze({
   "/api/v1/pairing/status": "GET",
   "/api/v1/pairing/start": "POST",
@@ -42,13 +54,9 @@ const PAIRING_ROUTE_METHODS = Object.freeze({
   "/api/v1/pairing/complete": "POST",
 });
 // Body fields a caller may use to prove possession of an existing credential.
-// Only fingerprint equality against a trusted fingerprint is accepted; the
-// values themselves are never logged, returned, or persisted.
+// Only a full match with the live credential is accepted; the values
+// themselves are never logged, returned, or persisted.
 const PROOF_BODY_FIELDS = ["previousAgentToken", "previousCredential", "agentToken", "permanentToken"];
-
-function isLoopbackAddress(address) {
-  return typeof address === "string" && LOOPBACK_ADDRESSES.has(address);
-}
 
 function readHeaderCredential(request) {
   const headers = request?.headers || {};
@@ -74,40 +82,43 @@ function readBodyCredentials(request) {
   return PROOF_BODY_FIELDS.map((field) => String(parsed[field] || "").trim()).filter(Boolean);
 }
 
-function trustedCredentialFingerprints(record, config = {}) {
-  return new Set([
-    tokenFingerprint(config?.token),
-    config?.tokenStatus?.fingerprint || null,
-    record?.tokenFingerprint || null,
-  ].filter(Boolean));
-}
-
 // Read-only: never mutates the session or the enrollment record, so a refused
 // request leaves both exactly as they were.
-function assertPairingAuthorization(request, config = {}) {
+function assertPairingAuthorization(request, config = {}, pathname = null) {
   const record = readEnrollmentRecord();
-  if (!record || record.state !== AGENT_STATE_ENROLLED) return { mode: "bootstrap-or-recovery" };
+  const revoked = record?.state === AGENT_STATE_REVOKED;
+  if (!record || (record.state !== AGENT_STATE_ENROLLED && !revoked)) return { mode: "bootstrap-or-recovery" };
   if (isLoopbackAddress(request?.socket?.remoteAddress)) return { mode: "loopback" };
-  const trusted = trustedCredentialFingerprints(record, config);
+  // Only the live credential authenticates anything on this Agent (auth.js),
+  // so it is the only one that proves possession here.
   const presented = [readHeaderCredential(request), ...readBodyCredentials(request)];
-  const authorized = presented.some((candidate) => {
-    const fingerprint = tokenFingerprint(candidate);
-    return Boolean(fingerprint && trusted.has(fingerprint));
-  });
+  const authorized = presented.some((candidate) => agentTokensMatch(candidate, config?.token));
   if (authorized) return { mode: "existing-credential" };
+  // Path only: a query string could carry caller-supplied material, and the
+  // audit line must never echo it.
+  const requestPath = pathname || String(request?.url || "").split("?")[0] || null;
+  if (revoked
+    && request?.method === "POST"
+    && requestPath === "/api/v1/pairing/complete"
+    && activeSession
+    && !isExpired(activeSession)
+    && PRIVILEGED_SESSION_OPENERS.has(activeSession.openedBy)) {
+    return { mode: "operator-session" };
+  }
   logger.warn("pairing", "Pairing request refused: the existing Agent credential is required", {
     method: request?.method || null,
-    // Path only: a query string could carry caller-supplied material, and the
-    // audit line must never echo it.
-    pathname: String(request?.url || "").split("?")[0] || null,
+    pathname: requestPath,
     code: PAIRING_REQUIRES_EXISTING_CREDENTIAL,
     enrollmentState: record.state,
   }, { file: "pairing", errorCode: PAIRING_REQUIRES_EXISTING_CREDENTIAL });
-  const error = new Error(
-    "This Agent is already enrolled. Re-pairing it over the network requires the existing Agent credential. "
-    + "On the Agent machine, open AnxOS Control Center → Agent Control → Connect this computer; "
-    + "on a headless server, run `sudo anxos-agent pair` and paste the full pairing code into Add Computer. "
-    + "If the credential was lost, revoke the enrollment on the Agent machine and pair again.",
+  const error = new Error(revoked
+    ? "This Agent's enrollment was revoked, so it can only be paired again from the Agent machine. "
+      + "On the Agent machine, open AnxOS Control Center → Agent Control → Connect this computer; "
+      + "on a headless server, run `sudo anxos-agent pair` and paste the full pairing code into Add Computer."
+    : "This Agent is already enrolled. Re-pairing it over the network requires the existing Agent credential. "
+      + "On the Agent machine, open AnxOS Control Center → Agent Control → Connect this computer; "
+      + "on a headless server, run `sudo anxos-agent pair` and paste the full pairing code into Add Computer. "
+      + "If the credential was lost, revoke the enrollment on the Agent machine and pair again.",
   );
   error.code = PAIRING_REQUIRES_EXISTING_CREDENTIAL;
   error.statusCode = 403;
@@ -185,10 +196,16 @@ function recordFailedAttempt(address) {
   failedAttempts.set(address, attempts);
 }
 
-function createSession(request, config = {}) {
-  activeSession = createPairingSessionPayload({
-    agentUrl: getPublicAgentUrl(request, config),
-  });
+// `authorization` is the gate's verdict for the start request. Its mode is
+// kept on the session (never returned) so a revoked Agent can tell an
+// operator-opened recovery session from one a network caller opened.
+function createSession(request, config = {}, authorization = null) {
+  activeSession = {
+    ...createPairingSessionPayload({
+      agentUrl: getPublicAgentUrl(request, config),
+    }),
+    openedBy: authorization?.mode || null,
+  };
   return safeSession(activeSession);
 }
 
@@ -228,19 +245,22 @@ function completePairing(request, config = {}) {
     tokenOrigin: "pairing",
     fingerprint: tokenFingerprint(permanentToken),
   };
-  // Revoked-enrollment recovery: a re-pair after `unpair` must reach the same
-  // end state as completeEnrollment's after-revocation recovery, or the fresh
-  // credential authorizes nothing and every authenticated route keeps answering
-  // 410 REVOKED. The helper acts only when the CURRENT record is revoked; for
-  // enrolled/pending/unenrolled/missing records it is a read-only no-op. A
-  // recovery failure must not turn an installed credential into a failed
-  // pairing, so it is logged (fingerprints/states only) and the pairing result
-  // stays honest — enrollment/status will surface the persistent state.
+  // Enrollment binding: a first pairing (no record) is enrolled at once so the
+  // gate above protects the node from now on, not only after the next restart;
+  // a re-pair after `unpair` must reach the same end state as
+  // completeEnrollment's after-revocation recovery, or the fresh credential
+  // authorizes nothing and every authenticated route keeps answering 410
+  // REVOKED. An enrolled record is left alone (it self-heals to the new
+  // credential on the next authenticated request). A binding failure must not
+  // turn an installed credential into a failed pairing, so it is logged
+  // (fingerprints/states only) and the pairing result stays honest —
+  // enrollment/status will surface the persistent state.
   let recoveredEnrollment = null;
   try {
-    recoveredEnrollment = recoverRevokedEnrollmentFromPairing(config, tokenFingerprint(permanentToken));
+    const bound = bindEnrollmentFromPairing(config, tokenFingerprint(permanentToken));
+    recoveredEnrollment = bound?.recoveredFromRevocation ? bound : null;
   } catch (error) {
-    logger.warn("pairing", "Enrollment recovery after revocation failed; the revoked record remains.", {
+    logger.warn("pairing", "Enrollment binding after pairing failed; the previous enrollment record remains.", {
       code: error?.code || "ENROLLMENT_RECOVERY_FAILED",
     }, { file: "pairing", errorCode: error?.code || "ENROLLMENT_RECOVERY_FAILED" });
   }
@@ -269,14 +289,15 @@ function completePairing(request, config = {}) {
 async function handlePairing(request, url, config = {}) {
   // Security P1: evaluated before any session is created, replaced, or
   // cancelled, so a refused request has no side effect.
+  let authorization = null;
   if (PAIRING_ROUTE_METHODS[url.pathname] === request.method) {
-    assertPairingAuthorization(request, config);
+    authorization = assertPairingAuthorization(request, config, url.pathname);
   }
   if (request.method === "GET" && url.pathname === "/api/v1/pairing/status") {
     return { statusCode: 200, body: safeSession() };
   }
   if (request.method === "POST" && url.pathname === "/api/v1/pairing/start") {
-    return { statusCode: 200, body: createSession(request, config) };
+    return { statusCode: 200, body: createSession(request, config, authorization) };
   }
   if (request.method === "POST" && url.pathname === "/api/v1/pairing/cancel") {
     activeSession = null;

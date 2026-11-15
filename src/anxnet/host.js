@@ -68,6 +68,7 @@ const METHODS = {
   signGatewayGrant: (node, params) => node.signGatewayGrant(params || {}),
   publish: (node, params) => node.publish(params || {}),
   unpublish: (node, params) => node.unpublish(String(params?.routeId || "")),
+  unpublishService: (node, params) => node.unpublishService(String(params?.serviceId || "")),
   setDirectInbound: (node, params) => { node.options.directInbound = params?.enabled !== false; return node.status(); },
   setDnsEndpoint: (node, params) => node.setDnsEndpoint({ port: Number(params?.port) || 5353 }),
   testPeer: async (node, params) => {

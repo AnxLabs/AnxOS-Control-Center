@@ -41,6 +41,7 @@ const { configureElectronPaths } = require("./src/services/electronPaths");
 const { createAlertStateCollector } = require("./src/services/alertStateCollector");
 const { DeveloperGitUpdater } = require("./src/services/developerGitUpdater");
 const { openExternalUrl } = require("./src/services/externalUrlService");
+const { applyWindowNavigationGuard } = require("./src/services/windowNavigationGuard");
 const { getReleaseInfo } = require("./src/shared/releaseConfig");
 const packageJson = require("./package.json");
 const qaMode = process.argv.includes("--qa-mode") || process.env.ANXOS_QA_MODE === "1";
@@ -629,19 +630,15 @@ function openAddStorageWindow(payload = {}) {
     pendingAddStoragePayload = null;
   });
 
-  addStorageWindow.webContents.setWindowOpenHandler(({ url }) => {
-    openExternalUrl(url, { source: "add-storage-window-open" }).catch(() => {});
-    return { action: "deny" };
+  const addStoragePage = path.join(__dirname, "windows", "add-storage.html");
+  applyWindowNavigationGuard(addStorageWindow.webContents, {
+    allowedPages: [addStoragePage],
+    openExternalUrl,
+    openSource: "add-storage-window-open",
+    navigationSource: "add-storage-navigation",
   });
 
-  addStorageWindow.webContents.on("will-navigate", (event, url) => {
-    if (!url.startsWith("file://")) {
-      event.preventDefault();
-      openExternalUrl(url, { source: "add-storage-navigation" }).catch(() => {});
-    }
-  });
-
-  addStorageWindow.loadFile(path.join(__dirname, "windows", "add-storage.html"));
+  addStorageWindow.loadFile(addStoragePage);
   return { opened: true, focused: false };
 }
 
@@ -707,8 +704,14 @@ function openWorkspaceWindow(surface, context = {}) {
     workspaceWindows.delete(normalizedSurface);
     pendingWorkspacePayloads.delete(normalizedSurface);
   });
-  workspaceWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-  workspaceWindow.loadFile(path.join(__dirname, "index.html"), {
+  const workspacePage = path.join(__dirname, "index.html");
+  applyWindowNavigationGuard(workspaceWindow.webContents, {
+    allowedPages: [workspacePage],
+    openExternalUrl,
+    openSource: "workspace-window-open",
+    navigationSource: "workspace-navigation",
+  });
+  workspaceWindow.loadFile(workspacePage, {
     query: {
       surface: normalizedSurface,
       ...(context?.template?.id ? { templateId: String(context.template.id) } : {}),
@@ -741,6 +744,13 @@ function createStartupDiagnosticWindow(title, detail, context = {}) {
       nodeIntegration: false,
       sandbox: true,
     },
+  });
+  // The diagnostic page is a data: URL loaded by main; nothing may replace it.
+  applyWindowNavigationGuard(diagnosticWindow.webContents, {
+    allowedPages: [],
+    openExternalUrl,
+    openSource: "diagnostic-window-open",
+    navigationSource: "diagnostic-window-navigation",
   });
   const escapedTitle = String(title || "AnxOS startup problem").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
   const escapedDetail = String(detail || "The app window could not be opened.").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
@@ -952,16 +962,11 @@ function createWindow(options = {}) {
     });
   }
 
-  window.webContents.setWindowOpenHandler(({ url }) => {
-    openExternalUrl(url, { source: "main-window-open" }).catch(() => {});
-    return { action: "deny" };
-  });
-
-  window.webContents.on("will-navigate", (event, url) => {
-    if (!url.startsWith("file://")) {
-      event.preventDefault();
-      openExternalUrl(url, { source: "main-window-navigation" }).catch(() => {});
-    }
+  applyWindowNavigationGuard(window.webContents, {
+    allowedPages: [path.join(__dirname, "index.html")],
+    openExternalUrl,
+    openSource: "main-window-open",
+    navigationSource: "main-window-navigation",
   });
 
   window.webContents.on("context-menu", (_, params) => {
@@ -1075,8 +1080,10 @@ app.whenReady().then(async () => {
     const alertService = require("./src/services/alertService");
     const nodeService = require("./src/services/nodeService");
     const serviceRouter = require("./src/services/serviceRouter");
+    // Telemetry supplies each computer's latest disk reading (DISK_PRESSURE).
+    const telemetryService = require("./src/services/telemetryService");
     alertService.startAlertScheduler({
-      collectState: createAlertStateCollector({ nodeService, alertService, serviceRouter }),
+      collectState: createAlertStateCollector({ nodeService, alertService, serviceRouter, telemetryService }),
     });
     app.on("before-quit", () => {
       try { alertService.stopAlertScheduler(); } catch {}
@@ -1183,6 +1190,17 @@ app.whenReady().then(async () => {
     })
     .catch((error) => {
       diagnostics.logError("startup", "marketplace-job-recovery", error, {}, { file: "desktop" });
+    })
+    // "Start this server when the computer starts" for local servers, after
+    // job recovery as on the Agent.
+    .then(() => localInstanceService.startAutoStartInstances())
+    .then((autoStart) => {
+      if (autoStart?.started?.length || autoStart?.failures?.length) {
+        diagnostics.log("info", "startup", "instance-auto-start", "Local servers set to start with the computer were started.", autoStart, { file: "desktop" });
+      }
+    })
+    .catch((error) => {
+      diagnostics.logError("startup", "instance-auto-start", error, {}, { file: "desktop" });
     });
 
   app.on("activate", () => {
@@ -1213,7 +1231,7 @@ app.on("before-quit", (event) => {
   updateManager.stop();
   disposeFilesIpc();
   disposeSshIpc();
-  Promise.all([anxnetService.shutdown().catch(() => {}), mobileGatewayService.shutdown().catch(() => {}), localInstanceService.shutdownInstanceService({ timeoutMs: 5000 })])
+  Promise.all([anxnetService.shutdown().catch(() => {}), mobileGatewayService.shutdown().catch(() => {}), localInstanceService.shutdownInstanceService()])
     .catch((error) => diagnostics.logError("shutdown", "instances", error, {}, { file: "desktop" }))
     .finally(() => {
       appShutdownComplete = true;

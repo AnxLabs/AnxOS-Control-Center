@@ -501,7 +501,9 @@ async function main() {
 
   await test("notifications: first observation seeds and a down service emits exactly one event", async () => {
     const dir = tempDir();
-    const instanceState = (state) => ({ instances: [{ nodeId: "node-1", instanceId: "svc-1", state }] });
+    // A service that went down on its own: the real record reports a failure
+    // reason (a user's Stop leaves it null and is not an incident).
+    const instanceState = (state) => ({ instances: [{ nodeId: "node-1", instanceId: "svc-1", state, failureReason: state === "Running" ? null : "STALE_PID" }] });
 
     {
       let clock = Date.parse("2026-09-27T12:00:00.000Z");

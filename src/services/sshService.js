@@ -3,6 +3,7 @@ const { EventEmitter } = require("events");
 const { app } = require("electron");
 const fs = require("fs");
 const path = require("path");
+const { StringDecoder } = require("string_decoder");
 const { BaseAgent, Client, OpenSSHAgent, utils: { parseKey } } = require("ssh2");
 const { getAllNodesSync, getSelectedNodeId } = require("./nodeService");
 const { redactString } = require("../shared/redaction");
@@ -610,17 +611,47 @@ class SshService extends EventEmitter {
     return this.terminalSessions.get(sessionId) || null;
   }
 
-  approveHostKey(profileId, fingerprint) {
+  // Approves the host key captured by the last connection attempt. A key that
+  // REPLACES a saved, different one (server rebuilt, or an attacker in the
+  // path) is only accepted with options.replaceChangedKey === true, which the
+  // renderer sends after a separate "host identity changed" confirmation that
+  // shows both fingerprints. The saved key must still be the one the attempt
+  // saw, so a stale approval can never overwrite a newer decision.
+  approveHostKey(profileId, fingerprint, options = {}) {
     const profile = this.getProfile(profileId);
     const pending = this.pendingHostKeys.get(profile.id);
-    if (!pending || pending.fingerprint !== trimValue(fingerprint)) {
-      throw new SshServiceError("The host-key approval is stale. Start a new connection attempt.", { code: "SSH_HOST_KEY_APPROVAL_STALE", stage: "verifying-host", retryable: true });
-    }
+    const stale = () => new SshServiceError("The host-key approval is stale. Start a new connection attempt.", { code: "SSH_HOST_KEY_APPROVAL_STALE", stage: "verifying-host", retryable: true });
+    if (!pending || pending.fingerprint !== trimValue(fingerprint)) throw stale();
     const knownHosts = readKnownHosts();
-    knownHosts[knownHostId(profile)] = { fingerprint: pending.fingerprint, approvedAt: new Date().toISOString() };
+    const hostId = knownHostId(profile);
+    const savedFingerprint = trimValue(knownHosts[hostId]?.fingerprint) || null;
+    if (pending.previousFingerprint) {
+      if (savedFingerprint !== pending.previousFingerprint) throw stale();
+      if (options?.replaceChangedKey !== true) {
+        throw new SshServiceError("This server's SSH host key changed. Confirm that the server was rebuilt or reinstalled before replacing its saved identity.", {
+          code: "SSH_HOST_KEY_CHANGE_CONFIRMATION_REQUIRED",
+          stage: "verifying-host",
+          retryable: false,
+          details: { expectedFingerprint: pending.previousFingerprint, receivedFingerprint: pending.fingerprint },
+        });
+      }
+    } else if (savedFingerprint && savedFingerprint !== pending.fingerprint) {
+      // A different key was saved after this attempt captured an unknown one.
+      throw stale();
+    }
+    knownHosts[hostId] = {
+      fingerprint: pending.fingerprint,
+      approvedAt: new Date().toISOString(),
+      ...(pending.previousFingerprint ? { replacedFingerprint: pending.previousFingerprint } : {}),
+    };
     writeKnownHosts(knownHosts);
     this.pendingHostKeys.delete(profile.id);
-    return { profileId: profile.id, fingerprint: pending.fingerprint, approved: true };
+    return {
+      profileId: profile.id,
+      fingerprint: pending.fingerprint,
+      approved: true,
+      ...(pending.previousFingerprint ? { previousFingerprint: pending.previousFingerprint, replaced: true } : {}),
+    };
   }
 
   transition(session, nextState, message, details = {}) {
@@ -1063,6 +1094,9 @@ class SshService extends EventEmitter {
       }
       if (knownFingerprint !== fingerprint) {
         session.changedHostKey = { expected: knownFingerprint, received: fingerprint };
+        // Held for an explicit replacement (approveHostKey with
+        // replaceChangedKey); the connection itself is still refused.
+        this.pendingHostKeys.set(profile.id, { fingerprint, previousFingerprint: knownFingerprint, capturedAt: new Date().toISOString() });
         this.transition(session, SSH_STATES.VERIFYING_HOST, "The saved host identity does not match.");
         return false;
       }
@@ -1112,14 +1146,20 @@ class SshService extends EventEmitter {
           }
 
           session.stream = stream;
+          // One decoder per shell: ssh2 packet boundaries can split a
+          // multi-byte UTF-8 character, which per-chunk decoding turns into
+          // U+FFFD replacement characters.
+          const outputDecoder = new StringDecoder("utf8");
+          const emitOutput = (text) => {
+            if (!text) return;
+            this.emit("session-output", { sessionId, chunk: text });
+          };
           stream.on("data", (chunk) => {
-            this.emit("session-output", {
-              sessionId,
-              chunk: Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk),
-            });
+            emitOutput(Buffer.isBuffer(chunk) ? outputDecoder.write(chunk) : String(chunk));
           });
 
           stream.on("close", () => {
+            emitOutput(outputDecoder.end());
             this.handleSessionClosed(sessionId, "SSH session closed.");
           });
 

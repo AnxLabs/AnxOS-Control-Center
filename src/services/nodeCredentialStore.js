@@ -78,6 +78,13 @@ function readStore() {
   if (schemaVersion === NODE_CREDENTIAL_SCHEMA_VERSION) {
     try {
       const decrypted = decryptPayload(parsed.encrypted, filePath);
+      if (decrypted === null && parsed.encrypted?.method === "safeStorage") {
+        // decryptPayload returns null for a safeStorage envelope only when OS
+        // encryption is unavailable right now (for example a locked Linux
+        // keyring). The ciphertext may decrypt again later, so recovery must
+        // never replace it (see replaceUnreadableStore).
+        throw Object.assign(new Error("OS credential encryption is unavailable."), { code: "ENCRYPTION_UNAVAILABLE" });
+      }
       if (!decrypted || typeof decrypted !== "object" || Array.isArray(decrypted)) {
         throw new Error("Encrypted credential payload is invalid.");
       }
@@ -91,7 +98,7 @@ function readStore() {
       throw new NodeCredentialStoreError(
         "Saved node credentials could not be decrypted on this device.",
         "NODE_CREDENTIAL_DECRYPT_FAILED",
-        { causeCode: error?.code || "DECRYPT_FAILED" },
+        { causeCode: error?.code || "DECRYPT_FAILED", temporary: error?.code === "ENCRYPTION_UNAVAILABLE" },
       );
     }
   }
@@ -224,6 +231,15 @@ function replaceUnreadableStore(nodes = {}) {
     );
   } catch (error) {
     if (error?.code !== "NODE_CREDENTIAL_DECRYPT_FAILED") throw error;
+    if (error.details?.temporary === true) {
+      // Replacing it now would discard every saved credential the moment the
+      // keyring comes back; keep the ciphertext as the active store.
+      throw new NodeCredentialStoreError(
+        "Saved node credentials are temporarily unavailable because OS credential encryption is not ready. They were left untouched.",
+        "NODE_CREDENTIAL_STORE_TEMPORARILY_UNAVAILABLE",
+        { causeCode: error.details.causeCode },
+      );
+    }
   }
 
   const preservedPath = preserveUnreadableFile(filePath).path;

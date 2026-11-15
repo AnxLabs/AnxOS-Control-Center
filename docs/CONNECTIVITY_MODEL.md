@@ -212,7 +212,7 @@ target. See `docs/ENDPOINT_MANAGER.md` for the endpoint fields it reads.
 | `agent` | Offline → online (only when an unresolved incident exists) | `info` "Machine back online" | `open-nodes` |
 | `service` | → failed with crash-loop evidence | `critical` "Service crash loop" | `open-instance` |
 | `service` | Running → failed | `critical` "Service crashed" | `open-instance` |
-| `service` | Running → stopped | `warning` "Service stopped unexpectedly" | `open-instance` |
+| `service` | Running → stopped with a failure reason (a user's Stop, and Starting/Stopping/Restarting, are not incidents) | `warning` "Service stopped unexpectedly" | `open-instance` |
 | `service` | Failed/stopped → running (only with an unresolved incident) | `info` "Service running again" | `open-instance` |
 | `provider` | Connected → stopped / not installed | `critical` "Tunnel provider disconnected" | `open-network` |
 | `provider` | Connected → degraded | `warning` "Tunnel provider degraded" | `open-network` |
@@ -225,9 +225,14 @@ Journal rules:
 
 - Severities are `info`, `warning`, `critical`; categories are `agent`,
   `service`, `provider`, `endpoint`, `backup`.
-- Repeat changes within the dedupe window (default 10 minutes) are suppressed
-  entirely. Recoveries and once-per-backup failures are window-exempt so a
-  resolution is never lost to a just-sent warning.
+- A problem within the dedupe window (default 10 minutes) of the last
+  notification for the same target is deferred: it is announced once the
+  window has passed if the target is still in that state, and dropped if the
+  target changes state first (a flap stays silent). Recoveries and
+  once-per-backup failures are window-exempt so a resolution is never lost to a
+  just-sent warning.
+- Instance records carry no node id; the collector binds each one to the node
+  its list was read for.
 - A recovery is only announced when there is an unresolved incident to resolve,
   so the journal never claims "back online" for a problem it never announced.
 - Events are redacted (`redactString`) before storage or return; technical

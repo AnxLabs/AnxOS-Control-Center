@@ -579,7 +579,10 @@ async function main() {
       return window.eval(`
         latestInstancesSnapshot = { instances: [${JSON.stringify(qaInstance)}] };
         selectedInstanceId = ${JSON.stringify(qaInstance.id)};
+        // Loaded game settings record their server (loadGameServerConfig);
+        // settings with no owner count as stale and are reloaded.
         gameConfigState = {
+          instanceId: ${JSON.stringify(qaInstance.id)},
           loading: false,
           loaded: true,
           supported: true,

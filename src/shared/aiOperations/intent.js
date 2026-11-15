@@ -168,18 +168,36 @@ function resolveTarget(question, kind, inventory = {}, context = {}) {
   }
 
   if (kind === "instance") {
-    let candidates = servers.filter((server) => mentions(text, server.name) || mentions(text, server.id));
+    const game = GAMES.find((entry) => new RegExp(`\\b${entry}\\b`).test(text));
+    const matchesName = (server) => mentions(text, server.name) || mentions(text, server.id);
+    const matchesGame = (server) => lower(server.game).includes(game) || lower(server.name).includes(game);
+    let candidates = servers.filter(matchesName);
     if (namedComputers.length === 1) {
-      const scoped = (candidates.length ? candidates : servers).filter((server) => server.nodeId === namedComputers[0].id);
-      candidates = candidates.length ? scoped : (scoped.length === 1 ? scoped : candidates);
-      if (!candidates.length && scoped.length > 1) {
-        return clarify(`Which server on ${computerLabel(namedComputers[0])}?`, scoped.map((server) => ({ label: serverLabel(server, computers), target: { nodeId: server.nodeId, instanceId: server.id } })));
+      // A named computer bounds every step to its own servers. An offline one
+      // has no servers in the inventory, so it is reported, never swapped for
+      // a server on another computer.
+      const named = namedComputers[0];
+      if (named.online === false) return computerResult(named);
+      const scoped = servers.filter((server) => server.nodeId === named.id);
+      const namesAServer = candidates.length > 0;
+      candidates = scoped.filter(matchesName);
+      if (!candidates.length && game) candidates = scoped.filter(matchesGame);
+      // Its only server is taken only when the question names no game or
+      // server that rules it out.
+      if (!candidates.length && !game && !namesAServer) {
+        if (scoped.length === 1) candidates = scoped;
+        else if (scoped.length > 1) {
+          return clarify(`Which server on ${computerLabel(named)}?`, scoped.map((server) => ({ label: serverLabel(server, computers), target: { nodeId: server.nodeId, instanceId: server.id } })));
+        }
+      }
+      if (!candidates.length) {
+        const label = computerLabel(named);
+        if (!scoped.length) return { status: "none", message: `There are no game servers on ${label}.` };
+        if (game && !namesAServer) return { status: "none", message: `${label} has no ${game.charAt(0).toUpperCase()}${game.slice(1)} server.` };
+        return { status: "none", message: `No server by that name is on ${label}.` };
       }
     }
-    if (!candidates.length) {
-      const game = GAMES.find((entry) => new RegExp(`\\b${entry}\\b`).test(text));
-      if (game) candidates = servers.filter((server) => lower(server.game).includes(game) || lower(server.name).includes(game));
-    }
+    if (!candidates.length && game) candidates = servers.filter(matchesGame);
     if (candidates.length > 1) {
       const selected = candidates.find((server) => server.id === context.selectedInstanceId && server.nodeId === context.selectedNodeId);
       if (selected && pointsAtSelection) candidates = [selected];

@@ -63,6 +63,14 @@
     return now - at <= freshMs ? "live" : "stale";
   }
 
+  // A sample with neither CPU time nor memory means the computer does not
+  // measure this server (a Windows Agent, or a server systemd runs), not that
+  // a first reading is still coming. A first Linux sample has both.
+  function reportsUsage(sample) {
+    if (!sample) return false;
+    return Number.isFinite(sample.cpuPercent) || Number.isFinite(sample.cpuSeconds) || Number.isFinite(sample.memoryRssBytes);
+  }
+
   // Which settings only take effect after a restart.
   const RESTART_FIELDS = Object.freeze(["executable", "jar", "args", "memoryLimit", "environment", "workingDirectory", "ports"]);
 
@@ -102,7 +110,10 @@
   }
 
   // Settings validation before anything is sent. Returns { field: message }.
-  const MEMORY_PATTERN = /^\d{1,6}(?:\.\d{1,2})?\s*[KMGT]?(?:i?B)?$/i;
+  // The same rule as the app's save (normalizeMemoryLimit) and the Agent's
+  // validation: anything this accepts must also save. No decimals, spaces,
+  // "B" suffix or T.
+  const MEMORY_PATTERN = /^[1-9][0-9]{0,5}[kKmMgG]?$/;
   function validateServerSettings(values = {}) {
     const errors = {};
     const name = String(values.displayName ?? "").trim();
@@ -196,6 +207,7 @@
     markRestartRequired,
     parseMemoryBytes,
     readingFreshness,
+    reportsUsage,
     restartRequiredFor,
     settleRestartRequired,
     suggestMemory,

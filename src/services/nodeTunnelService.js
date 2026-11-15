@@ -35,6 +35,18 @@ const PERMANENT_ERROR_CODES = new Set([
   "SSH_PRIVATE_KEY_READ_FAILED",
   "SSH_AUTH_FAILED",
 ]);
+// sshService already explains these in words the user can act on.
+const EXPLAINED_ERROR_CODES = new Set([
+  "SSH_AGENT_UNAVAILABLE",
+  "SSH_AGENT_PUBLIC_KEY_MISSING",
+  "SSH_KEY_PASSPHRASE_UNATTENDED",
+]);
+// Preparation errors that clear on their own, such as the OpenSSH agent
+// service starting after AnxOS. sshService's own "retryable" flag also marks
+// errors only the user can fix (an unparseable key), so it is not used here.
+const TRANSIENT_PREPARATION_ERROR_CODES = new Set([
+  "SSH_AGENT_UNAVAILABLE",
+]);
 
 function localPortForNode(node = {}) {
   try {
@@ -52,9 +64,9 @@ function tunnelKey(node) {
 }
 
 function classifySshError(error, hostKeyState) {
-  if (hostKeyState?.mismatch) return { code: "SSH_HOST_KEY_MISMATCH", message: "The node's SSH host key changed. Verify the server, then approve the new key in the SSH terminal." };
+  if (hostKeyState?.mismatch) return { code: "SSH_HOST_KEY_MISMATCH", message: "The node's SSH host key changed. Verify the server, then connect from the SSH terminal and confirm the new host key; the tunnel retries once it is approved." };
   const code = error?.code || null;
-  if (code && PERMANENT_ERROR_CODES.has(code)) return { code, message: error.message };
+  if (code && (PERMANENT_ERROR_CODES.has(code) || EXPLAINED_ERROR_CODES.has(code))) return { code, message: error.message };
   if (error?.level === "client-authentication") return { code: "SSH_AUTH_FAILED", message: "The SSH key was not accepted by the node." };
   if (["ECONNREFUSED", "ETIMEDOUT", "EHOSTUNREACH", "ENETUNREACH", "ENOTFOUND", "EAI_AGAIN", "ECONNRESET"].includes(code)) {
     return { code: "SSH_UNREACHABLE", message: "The node's SSH port could not be reached." };
@@ -143,12 +155,25 @@ function createNodeTunnelService(overrides = {}) {
     } catch (error) {
       const failure = classifySshError(error);
       tunnel.attempts += 1;
+      // A transient preparation error (for example the SSH agent service not
+      // running yet) is retried with backoff like a dropped session; nothing
+      // else (sync, incoming requests) would ever revive a failed tunnel.
+      if (TRANSIENT_PREPARATION_ERROR_CODES.has(failure.code)) {
+        setState(tunnel, tunnel.connectedAt ? "reconnecting" : "connecting", failure);
+        scheduleReconnect(tunnel);
+        return;
+      }
       setState(tunnel, "failed", failure);
       return;
     }
     const client = getSsh().createClient();
     tunnel.client = client;
-    setState(tunnel, tunnel.connectedAt ? "reconnecting" : "connecting");
+    // Keep only a reason this attempt has not moved past. A "failed" tunnel
+    // only tries again after the user's Reconnect (once they acted on the
+    // reason), and a preparation error is over once preparation succeeded. A
+    // dropped or unreachable session still explains the retry's handshake.
+    const resolved = tunnel.state === "failed" || TRANSIENT_PREPARATION_ERROR_CODES.has(tunnel.lastError?.code);
+    setState(tunnel, tunnel.connectedAt ? "reconnecting" : "connecting", resolved ? null : tunnel.lastError);
     let settledReady = false;
     client.on("ready", () => {
       settledReady = true;

@@ -24,6 +24,11 @@ const BACKUP_EXTENSION = ".tar.gz";
 // destroy a possibly-recoverable recovery point. The directory lives under the
 // backup root so the move stays on the same filesystem.
 const BACKUP_QUARANTINE_DIRECTORY = "quarantine";
+// A full restore swaps `<id>.restore-staging-<hex>` in for `<id>` and keeps
+// the live copy at `<id>.restore-old-<hex>` until the swap is done. The dot
+// keeps both out of instance discovery (ids never contain one).
+const RESTORE_STAGING_MARKER = ".restore-staging-";
+const RESTORE_PREVIOUS_MARKER = ".restore-old-";
 const DEFAULT_RETENTION_COUNT = 10;
 const DEFAULT_RETENTION_DAYS = 30;
 const TAR_BLOCK_SIZE = 512;
@@ -47,6 +52,20 @@ const BACKUP_VERIFICATION_UNAVAILABLE_DETAIL = "No create-time checksum is recor
 const INSTANCE_ACTIVE_STATES = new Set(["Starting", "Running", "Restarting", "Stopping"]);
 let schedulerStarted = false;
 let schedulerTimer = null;
+// One scheduler pass at a time: a tick that fires while backups from the last
+// tick are still running returns at once instead of running them again.
+let scheduleRunInProgress = false;
+// Test seam: the hermetic smoke replaces the backup a schedule runs.
+let scheduledBackupRunner = null;
+// Every read-modify-write of schedules.json runs through this queue, so a
+// save, a delete and the scheduler's result never overwrite one another.
+let scheduleStoreQueue = Promise.resolve();
+
+function withScheduleStoreLock(operation) {
+  const run = scheduleStoreQueue.then(operation, operation);
+  scheduleStoreQueue = run.catch(() => {});
+  return run;
+}
 
 const BACKUP_REASONS = new Set(["pre-update"]);
 
@@ -275,8 +294,36 @@ async function collectArchiveEntries(instancePath, sourcePaths) {
   return entries;
 }
 
+// The limits restore enforces (parseTarEntries), applied to the entries a
+// backup is about to write, so a backup is never recorded complete when every
+// restore of it would be refused. The projected size is the tar stream restore
+// decompresses: a header per entry, data padded to whole blocks, and the
+// two-block trailer.
+function assertArchiveWithinRestoreLimits(entries, limits = {}) {
+  const maxEntryBytes = Math.max(1, Number(limits.maxEntryBytes) || MAX_BACKUP_ENTRY_BYTES);
+  const maxEntryCount = Math.max(1, Number(limits.maxEntryCount) || MAX_BACKUP_ENTRY_COUNT);
+  const maxExpandedBytes = Math.max(1, Number(limits.maxExpandedBytes) || MAX_BACKUP_EXPANDED_BYTES);
+  if (entries.length > maxEntryCount) {
+    throw createBackupError("BACKUP_SOURCE_LIMIT_EXCEEDED", 413, { reason: "TOO_MANY_ENTRIES", entryCount: entries.length, maxEntryCount });
+  }
+  let projectedBytes = TAR_BLOCK_SIZE * 2;
+  for (const entry of entries) {
+    const size = entry.type === "file" ? Math.max(0, Number(entry.size) || 0) : 0;
+    if (size > maxEntryBytes) {
+      throw createBackupError("BACKUP_SOURCE_LIMIT_EXCEEDED", 413, { reason: "ENTRY_TOO_LARGE", entryName: entry.name, entryBytes: size, maxEntryBytes });
+    }
+    projectedBytes += TAR_BLOCK_SIZE + Math.ceil(size / TAR_BLOCK_SIZE) * TAR_BLOCK_SIZE;
+  }
+  if (projectedBytes > maxExpandedBytes) {
+    throw createBackupError("BACKUP_SOURCE_LIMIT_EXCEEDED", 413, { reason: "ARCHIVE_TOO_LARGE", projectedBytes, maxExpandedBytes });
+  }
+}
+
 async function writeTarGzArchive(archivePathValue, instancePath, sourcePaths) {
   const entries = await collectArchiveEntries(instancePath, sourcePaths);
+  // Rechecked on the entries actually written: files can grow between the
+  // create-time precheck and the archive step.
+  assertArchiveWithinRestoreLimits(entries);
   const chunks = [];
   let uncompressedSize = 0;
 
@@ -545,6 +592,17 @@ async function ensureDiskSpace(targetPath, requiredBytes, errorCode) {
   return { requiredBytes: payloadBytes, reserveBytes, availableBytes };
 }
 
+// Unknown (a path that cannot be read) counts as shared, so the disk check
+// errs towards refusing a restore rather than failing it midway.
+async function pathsShareFilesystem(firstPath, secondPath) {
+  try {
+    const [first, second] = await Promise.all([fs.stat(firstPath), fs.stat(secondPath)]);
+    return first.dev === second.dev;
+  } catch {
+    return true;
+  }
+}
+
 async function getInstancePath(instanceId) {
   const root = getInstanceRoot();
   const resolved = path.resolve(root, validateInstanceId(instanceId));
@@ -635,7 +693,9 @@ async function listMetadataFiles() {
     .map((entry) => path.join(getBackupRoot(), entry.name));
 }
 
-async function readSchedules() {
+// Reads (and, for an older schema, migrates) the store. Callers that are
+// already inside withScheduleStoreLock use this; everyone else readSchedules.
+async function readSchedulesUnlocked() {
   await ensureBackupRoot();
   const filePath = schedulesPath();
   if (!await fs.stat(filePath).then((stats) => stats.isFile(), () => false)) return [];
@@ -658,10 +718,6 @@ async function readSchedules() {
     // two concurrent reads can race this copy. The loser must treat EEXIST as
     // success (the original is preserved either way) rather than fail the read
     // and take the schedule store down with it.
-    // Same migration race as the backup metadata above: any read migrates, so
-    // two concurrent reads can race this copy. The loser must treat EEXIST as
-    // success (the original is preserved either way) rather than fail the read
-    // and take the schedule store down with it.
     try {
       await fs.copyFile(filePath, backupPath, fsSync.constants.COPYFILE_EXCL);
     } catch (error) {
@@ -672,6 +728,10 @@ async function readSchedules() {
     await writeSchedules(schedules);
   }
   return schedules;
+}
+
+function readSchedules() {
+  return withScheduleStoreLock(readSchedulesUnlocked);
 }
 
 async function writeSchedules(schedules) {
@@ -700,16 +760,20 @@ async function saveSchedule(payload = {}) {
     nextRunAt: payload.nextRunAt || new Date(Date.now() + intervalHours * 60 * 60 * 1000).toISOString(),
     updatedAt: nowIso(),
   };
-  const schedules = (await readSchedules()).filter((entry) => entry.instanceId !== instanceId);
-  schedules.push(schedule);
-  await writeSchedules(schedules);
+  await withScheduleStoreLock(async () => {
+    const schedules = (await readSchedulesUnlocked()).filter((entry) => entry.instanceId !== instanceId);
+    schedules.push(schedule);
+    await writeSchedules(schedules);
+  });
   return { schedule };
 }
 
 async function deleteSchedule(instanceId) {
   const id = validateInstanceId(instanceId);
-  const schedules = (await readSchedules()).filter((entry) => entry.instanceId !== id);
-  await writeSchedules(schedules);
+  await withScheduleStoreLock(async () => {
+    const schedules = (await readSchedulesUnlocked()).filter((entry) => entry.instanceId !== id);
+    await writeSchedules(schedules);
+  });
   return { id, deleted: true };
 }
 
@@ -846,8 +910,61 @@ async function* readArchiveChunks(handle, maxArchiveBytes) {
 // the compressed count is checked before hashing, so an archive that grew
 // after its size check (or a run of empty gzip members) ends as a limit
 // outcome instead of being read without bound.
-async function inspectArchiveStream(handle, { maxArchiveBytes, maxExpandedBytes }) {
+// Walks tar headers in the decompressed stream (headers may straddle chunks)
+// and reports the first per-entry or entry-count limit restore would refuse
+// (parseTarEntries), so "verified" also means "restorable". Structure errors
+// are left to restore's full parse; only the limits are judged here.
+function createTarEntryLimitTracker({ maxEntryBytes, maxEntryCount }) {
+  let pendingHeader = Buffer.alloc(0);
+  let skipBytes = 0;
+  let entryCount = 0;
+  let ended = false;
+  let violation = null;
+  return {
+    get violation() {
+      return violation;
+    },
+    update(chunk) {
+      let offset = 0;
+      while (offset < chunk.length && !ended && !violation) {
+        if (skipBytes > 0) {
+          const skipped = Math.min(skipBytes, chunk.length - offset);
+          skipBytes -= skipped;
+          offset += skipped;
+          continue;
+        }
+        const taken = chunk.subarray(offset, offset + TAR_BLOCK_SIZE - pendingHeader.length);
+        offset += taken.length;
+        pendingHeader = Buffer.concat([pendingHeader, taken]);
+        if (pendingHeader.length < TAR_BLOCK_SIZE) break;
+        const header = pendingHeader;
+        pendingHeader = Buffer.alloc(0);
+        if (header.every((byte) => byte === 0)) {
+          ended = true;
+          break;
+        }
+        const size = parseOctal(header, 124, 12);
+        if (!Number.isSafeInteger(size) || size < 0) {
+          ended = true;
+          break;
+        }
+        entryCount += 1;
+        if (size > maxEntryBytes) {
+          const name = readTarString(header, 0, 100);
+          const prefix = readTarString(header, 345, 155);
+          violation = { entryName: prefix ? `${prefix}/${name}` : name, entryBytes: size, maxEntryBytes };
+        } else if (entryCount > maxEntryCount) {
+          violation = { entryCount, maxEntryCount };
+        }
+        skipBytes = size + ((TAR_BLOCK_SIZE - (size % TAR_BLOCK_SIZE)) % TAR_BLOCK_SIZE);
+      }
+    },
+  };
+}
+
+async function inspectArchiveStream(handle, { maxArchiveBytes, maxExpandedBytes, maxEntryBytes = MAX_BACKUP_ENTRY_BYTES, maxEntryCount = MAX_BACKUP_ENTRY_COUNT }) {
   const hash = crypto.createHash("sha256");
+  const entryLimits = createTarEntryLimitTracker({ maxEntryBytes, maxEntryCount });
   let archiveBytes = 0;
   let expandedBytes = 0;
   const hasher = new Transform({
@@ -868,6 +985,7 @@ async function inspectArchiveStream(handle, { maxArchiveBytes, maxExpandedBytes 
         callback(Object.assign(new Error("Expanded archive exceeds the verification size limit."), { code: "ERR_BUFFER_TOO_LARGE", archiveLimit: "expanded" }));
         return;
       }
+      entryLimits.update(chunk);
       callback();
     },
   });
@@ -894,7 +1012,7 @@ async function inspectArchiveStream(handle, { maxArchiveBytes, maxExpandedBytes 
     }
     throw error;
   }
-  return { sha256: hash.digest("hex"), archiveBytes, expandedBytes };
+  return { sha256: hash.digest("hex"), archiveBytes, expandedBytes, restoreLimitViolation: entryLimits.violation };
 }
 
 // Rechecks the same open handle, so the answer is about the file that was
@@ -956,7 +1074,12 @@ async function verifyBackup(backupId, options = {}) {
     // or undecodable archive is classified as corrupt rather than as a checksum
     // mismatch, while a readable archive whose content was replaced (a valid
     // gzip that no longer matches the create-time digest) fails below.
-    inspected = await inspectArchiveStream(opened.handle, { maxArchiveBytes, maxExpandedBytes });
+    inspected = await inspectArchiveStream(opened.handle, {
+      maxArchiveBytes,
+      maxExpandedBytes,
+      maxEntryBytes: Math.max(1, Number(options.maxEntryBytes) || MAX_BACKUP_ENTRY_BYTES),
+      maxEntryCount: Math.max(1, Number(options.maxEntryCount) || MAX_BACKUP_ENTRY_COUNT),
+    });
   } catch (error) {
     if (error?.archiveFailure === "limit") {
       const detail = error?.archiveLimit === "archive"
@@ -1001,6 +1124,16 @@ async function verifyBackup(backupId, options = {}) {
       checkedAt,
       detail: "checksum mismatch",
     }, { ok: false, code: "BACKUP_ARCHIVE_HASH_MISMATCH", expectedSha256, actualSha256 });
+  }
+  if (inspected.restoreLimitViolation) {
+    // The bytes are intact, but every restore would refuse this archive, so
+    // it must not be reported as a usable recovery point.
+    return persistVerificationOutcome(record, {
+      state: "failed",
+      method: "sha256",
+      checkedAt,
+      detail: "archive exceeds the restore safety limits",
+    }, { ok: false, code: "BACKUP_ARCHIVE_LIMIT_EXCEEDED", details: inspected.restoreLimitViolation });
   }
   return persistVerificationOutcome(record, {
     state: "verified",
@@ -1070,8 +1203,7 @@ async function listBackups(options = {}) {
       newestBackupIds.set(backup.instanceId, backup.id);
     }
     const schedule = scheduleByInstance.get(backup.instanceId) || null;
-    const keepLast = Number.parseInt(schedule?.keepLast ?? process.env.AGENT_BACKUP_KEEP_LAST ?? DEFAULT_RETENTION_COUNT, 10);
-    const maxAgeDays = Number.parseInt(schedule?.maxAgeDays ?? process.env.AGENT_BACKUP_MAX_AGE_DAYS ?? DEFAULT_RETENTION_DAYS, 10);
+    const { keepLast, maxAgeDays } = resolveRetentionPolicy({}, schedule);
     const createdAtMs = new Date(backup.createdAt).getTime();
     const ageMs = Number.isFinite(createdAtMs) ? Math.max(0, nowMs - createdAtMs) : null;
     const tooOld = ageMs !== null && createdAtMs < retentionCutoffMs(maxAgeDays);
@@ -1126,9 +1258,30 @@ function retentionCutoffMs(maxAgeDays) {
   return Date.now() - Math.max(maxAgeDays, 1) * 24 * 60 * 60 * 1000;
 }
 
+// The one retention policy for an instance: an explicit policy from the
+// caller, else the instance's saved schedule, else the Agent's environment,
+// else the defaults. listBackups reports it and pruneRetention enforces it, so
+// a manual, pre-update, assistant or transfer backup can never prune with a
+// stricter policy than the one the Backups list shows.
+function resolveRetentionPolicy(options = {}, schedule = null) {
+  return {
+    keepLast: Number.parseInt(options.keepLast ?? schedule?.keepLast ?? process.env.AGENT_BACKUP_KEEP_LAST ?? DEFAULT_RETENTION_COUNT, 10),
+    maxAgeDays: Number.parseInt(options.maxAgeDays ?? schedule?.maxAgeDays ?? process.env.AGENT_BACKUP_MAX_AGE_DAYS ?? DEFAULT_RETENTION_DAYS, 10),
+  };
+}
+
 async function pruneRetention(instanceId, options = {}) {
-  const keepLast = Number.parseInt(options.keepLast ?? process.env.AGENT_BACKUP_KEEP_LAST ?? DEFAULT_RETENTION_COUNT, 10);
-  const maxAgeDays = Number.parseInt(options.maxAgeDays ?? process.env.AGENT_BACKUP_MAX_AGE_DAYS ?? DEFAULT_RETENTION_DAYS, 10);
+  let schedule = null;
+  if (options.keepLast == null || options.maxAgeDays == null) {
+    try {
+      schedule = (await readSchedules()).find((entry) => entry.instanceId === instanceId) || null;
+    } catch (error) {
+      // Without a readable schedule the policy is unknown, and guessing the
+      // stricter default could delete recovery points the user chose to keep.
+      return { pruned: [], skipped: [], errorCode: error?.code || "BACKUP_SCHEDULE_STORE_UNAVAILABLE" };
+    }
+  }
+  const { keepLast, maxAgeDays } = resolveRetentionPolicy(options, schedule);
   const backups = (await listBackups({ instanceId })).backups;
   const cutoff = retentionCutoffMs(maxAgeDays);
   const pruned = [];
@@ -1180,6 +1333,10 @@ async function performCreateBackup(payload = {}) {
   if (sourceSize > MAX_BACKUP_EXPANDED_BYTES) {
     throw createBackupError("BACKUP_SOURCE_LIMIT_EXCEEDED", 413, { sourceSize, maxSourceBytes: MAX_BACKUP_EXPANDED_BYTES });
   }
+  // Refused before anything is stopped or written when restore would refuse
+  // the archive anyway (one file over the per-entry limit, too many entries,
+  // or a tar stream over the expanded limit once headers are counted).
+  assertArchiveWithinRestoreLimits(await collectArchiveEntries(instancePath, sourcePaths));
   await ensureDiskSpace(getBackupRoot(), sourceSize, "BACKUP_DISK_SPACE_INSUFFICIENT");
 
   // Workload-consistent backup hook (V2-F): "crash" stays byte-identical to
@@ -1672,6 +1829,7 @@ async function restoreBackup(payload = {}) {
   let safety = null;
   let mutationStarted = false;
   let targetWasRunning = null;
+  let restartAttempted = false;
   try {
     instancePath = await getInstancePath(targetInstanceId);
     const validation = await runRestoreArchiveStep(backup, () => validateArchiveFile(backup.path, backup.archiveSha256));
@@ -1690,7 +1848,14 @@ async function restoreBackup(payload = {}) {
       safetySnapshotSize += await calculatePathSize(path.resolve(instancePath, sourcePath));
     }
     await ensureDiskSpace(getBackupRoot(), safetySnapshotSize, "RESTORE_SNAPSHOT_DISK_SPACE_INSUFFICIENT");
-    await ensureDiskSpace(path.dirname(instancePath), validation.uncompressedSize, "RESTORE_DISK_SPACE_INSUFFICIENT");
+    // A full restore extracts into a staging folder while the live folder is
+    // still on disk, after the safety snapshot was written. When the snapshot
+    // lands on the same filesystem, both must fit at once, or the restore
+    // would fail midway with ENOSPC instead of being refused up front.
+    const extractionBytes = backup.type !== "world" && await pathsShareFilesystem(getBackupRoot(), path.dirname(instancePath))
+      ? validation.uncompressedSize + safetySnapshotSize
+      : validation.uncompressedSize;
+    await ensureDiskSpace(path.dirname(instancePath), extractionBytes, "RESTORE_DISK_SPACE_INSUFFICIENT");
     safety = await createSafetySnapshot(targetInstanceId, safetyScope.type);
     mutationStarted = true;
     let targetRecord = null;
@@ -1704,22 +1869,20 @@ async function restoreBackup(payload = {}) {
         await fs.rm(targetPath, { recursive: true, force: true });
       }
       await runRestoreArchiveStep(backup, () => extractTarGzArchive(backup.path, instancePath, backup.archiveSha256));
-    } else if (sameTarget) {
-      await fs.rm(instancePath, { recursive: true, force: true });
-      await fs.mkdir(instancePath, { recursive: true, mode: 0o700 });
-      await runRestoreArchiveStep(backup, () => extractTarGzArchive(backup.path, instancePath, backup.archiveSha256));
-      if (!await fs.stat(path.join(instancePath, "config.json")).then((stats) => stats.isFile(), () => false)) {
-        throw createBackupError("RESTORE_VERIFICATION_FAILED", 500);
-      }
     } else {
-      // Cross-instance full restore: the extracted config.json carries the
-      // SOURCE id until it is rebranded. Instance state IS <dir>/config.json
-      // and self-heal writes follow config.id, so an intermediate window
-      // would let a concurrent status read follow the source identity into
-      // the source's directory (phantom instance) or race the rebrand.
-      // Extract + rebrand in a sibling staging dir, then swap atomically
-      // (P1 review finding).
-      const stagingPath = `${instancePath}.restore-staging-${crypto.randomBytes(3).toString("hex")}`;
+      // Full restore: the extracted config.json carries the id it was backed
+      // up under. That is not the target's id for a cross-instance restore,
+      // nor for a same-instance restore of an imported backup (the import is
+      // attached to the instance it was imported onto, but its record keeps
+      // the id it was taken from). Instance state IS <dir>/config.json and
+      // self-heal writes follow config.id, so an intermediate window would
+      // let a concurrent status read follow the old identity into another
+      // directory (phantom instance) or race the rebrand. Extract + rebrand
+      // in a sibling staging dir, then swap atomically (P1 review finding).
+      // The rebrand also clears a stale Running/pid captured while running.
+      const swapSuffix = crypto.randomBytes(3).toString("hex");
+      const stagingPath = `${instancePath}${RESTORE_STAGING_MARKER}${swapSuffix}`;
+      const previousPath = `${instancePath}${RESTORE_PREVIOUS_MARKER}${swapSuffix}`;
       try {
         await fs.rm(stagingPath, { recursive: true, force: true });
         await fs.mkdir(stagingPath, { recursive: true, mode: 0o700 });
@@ -1728,12 +1891,25 @@ async function restoreBackup(payload = {}) {
           throw createBackupError("RESTORE_VERIFICATION_FAILED", 500);
         }
         targetRecord = await rebrandRestoredInstanceRecord(stagingPath, targetInstanceId);
-        await fs.rm(instancePath, { recursive: true, force: true });
-        await fs.rename(stagingPath, instancePath);
+        // Two renames, then the delete: at every instant a complete copy of
+        // the server is either at its path or beside it, so an Agent stopped
+        // mid-swap (update, restart, crash) is repaired at startup by
+        // recoverInterruptedRestores(). Deleting a big world in place first
+        // left a half-deleted server with nothing to recover from.
+        await fs.rename(instancePath, previousPath);
+        try {
+          await fs.rename(stagingPath, instancePath);
+        } catch (swapError) {
+          await fs.rename(previousPath, instancePath).catch(() => {});
+          throw swapError;
+        }
       } catch (stagingError) {
         await fs.rm(stagingPath, { recursive: true, force: true }).catch(() => {});
         throw stagingError;
       }
+      // The restore is in place; a leftover previous copy is removed at the
+      // next startup if this delete does not finish.
+      await fs.rm(previousPath, { recursive: true, force: true }).catch(() => {});
     }
 
     if (backup.type !== "world" && !await fs.stat(path.join(instancePath, "config.json")).then((stats) => stats.isFile(), () => false)) {
@@ -1748,6 +1924,9 @@ async function restoreBackup(payload = {}) {
     const shouldRestart = sameTarget
       ? payload.restart === true
       : targetWasRunning === true && payload.restart !== false;
+    // From here the restore has succeeded and the user's restart choice
+    // decides; the failure path must not start the instance a second time.
+    restartAttempted = true;
     const restart = shouldRestart
       ? await restartInstanceAfterBackup(targetInstanceId, {}, "restore")
       : IDLE_RESTART_REPORT;
@@ -1792,6 +1971,16 @@ async function restoreBackup(payload = {}) {
       error.details = {
         ...(error.details || {}),
         rollback,
+      };
+    }
+    // The target's files are unchanged (the failure came before any
+    // mutation) or rolled back, so a server this restore stopped is started
+    // again, as a failed backup does: a failed restore must not leave a
+    // running server down. A failed rollback never gets here.
+    if (targetWasRunning === true && !restartAttempted) {
+      error.details = {
+        ...(error.details || {}),
+        restart: await restartInstanceAfterBackup(targetInstanceId, {}, "restore"),
       };
     }
     longOperations.failOperation(operation.id, {
@@ -1875,40 +2064,63 @@ async function getBackupDownload(backupId) {
   };
 }
 
+function isScheduleDue(schedule, now) {
+  return Boolean(schedule?.enabled) && new Date(schedule.nextRunAt || 0).getTime() <= now;
+}
+
+// A backup can take minutes, and the user can change schedules meanwhile. So
+// each due schedule is read again just before its backup (skipped if it was
+// disabled, deleted or moved), and its result is written onto the schedule as
+// it is in the store afterwards, never by saving a list read before the run.
 async function runDueSchedules() {
-  const schedules = await readSchedules();
-  const now = Date.now();
-  let changed = false;
-
-  for (const schedule of schedules) {
-    if (!schedule.enabled || new Date(schedule.nextRunAt || 0).getTime() > now) {
-      continue;
-    }
-
-    try {
-      await createBackup({
-        instanceId: schedule.instanceId,
-        type: schedule.type,
-        name: `${schedule.instanceId} scheduled ${schedule.type} backup`,
-        createdBy: "schedule",
-        retention: {
-          keepLast: schedule.keepLast,
-          maxAgeDays: schedule.maxAgeDays,
-        },
-      });
-      schedule.lastRunAt = nowIso();
-      schedule.lastError = null;
-    } catch (error) {
-      schedule.lastError = error?.code || "SCHEDULE_FAILED";
-    }
-
-    schedule.nextRunAt = new Date(Date.now() + schedule.intervalHours * 60 * 60 * 1000).toISOString();
-    schedule.updatedAt = nowIso();
-    changed = true;
+  if (scheduleRunInProgress) {
+    return;
   }
+  scheduleRunInProgress = true;
+  try {
+    const now = Date.now();
+    const dueIds = (await readSchedules()).filter((schedule) => isScheduleDue(schedule, now)).map((schedule) => schedule.instanceId);
+    for (const instanceId of dueIds) {
+      const schedule = (await readSchedules()).find((entry) => entry.instanceId === instanceId);
+      if (!isScheduleDue(schedule, now)) {
+        continue;
+      }
+      const result = await runScheduledBackup(schedule);
+      await withScheduleStoreLock(async () => {
+        const schedules = await readSchedulesUnlocked();
+        const current = schedules.find((entry) => entry.instanceId === instanceId);
+        if (!current) {
+          return;
+        }
+        Object.assign(current, result);
+        // A schedule the user saved during the backup keeps its new timing.
+        if (current.updatedAt === schedule.updatedAt) {
+          current.nextRunAt = new Date(Date.now() + current.intervalHours * 60 * 60 * 1000).toISOString();
+          current.updatedAt = nowIso();
+        }
+        await writeSchedules(schedules);
+      });
+    }
+  } finally {
+    scheduleRunInProgress = false;
+  }
+}
 
-  if (changed) {
-    await writeSchedules(schedules);
+async function runScheduledBackup(schedule) {
+  try {
+    await (scheduledBackupRunner || createBackup)({
+      instanceId: schedule.instanceId,
+      type: schedule.type,
+      name: `${schedule.instanceId} scheduled ${schedule.type} backup`,
+      createdBy: "schedule",
+      retention: {
+        keepLast: schedule.keepLast,
+        maxAgeDays: schedule.maxAgeDays,
+      },
+    });
+    return { lastRunAt: nowIso(), lastError: null };
+  } catch (error) {
+    return { lastError: error?.code || "SCHEDULE_FAILED" };
   }
 }
 
@@ -1963,6 +2175,90 @@ async function recoverBackupArtifacts() {
   return { removed, quarantined };
 }
 
+const RESTORE_SWAP_ENTRY_PATTERN = /^([a-zA-Z0-9][a-zA-Z0-9_-]{0,63})(\.restore-staging-|\.restore-old-)([0-9a-f]{1,32})$/;
+
+async function directoryHasConfig(directory) {
+  return fs.stat(path.join(directory, "config.json")).then((stats) => stats.isFile(), () => false);
+}
+
+async function readConfigId(directory) {
+  try {
+    const parsed = JSON.parse(await fs.readFile(path.join(directory, "config.json"), "utf8"));
+    return typeof parsed?.id === "string" ? parsed.id : null;
+  } catch {
+    return null;
+  }
+}
+
+// Startup repair for a full restore the Agent did not finish (stopped by an
+// update, a restart or a crash). Runs before instances are listed:
+//   - the server folder is missing but its pre-restore copy
+//     (`<id>.restore-old-*`) is complete: put that copy back (the restore
+//     shows as interrupted and can be run again);
+//   - no pre-restore copy, the server folder is missing or has lost its
+//     config.json, and a staging folder holds the fully extracted restore
+//     (its config already rebranded to this id): finish the swap with it.
+//     Only the older delete-then-rename swap could stop there;
+//   - once the server folder is intact, leftover staging and pre-restore
+//     folders are removed.
+// Anything it cannot decide safely is left on disk and reported.
+async function recoverInterruptedRestores() {
+  const report = { restored: [], adopted: [], removed: [], kept: [] };
+  const root = getInstanceRoot();
+  let entries;
+  try {
+    entries = await fs.readdir(root, { withFileTypes: true });
+  } catch (error) {
+    if (error?.code === "ENOENT") return report;
+    throw error;
+  }
+  const groups = new Map();
+  for (const entry of entries) {
+    const match = entry.isDirectory() ? entry.name.match(RESTORE_SWAP_ENTRY_PATTERN) : null;
+    if (!match) continue;
+    const group = groups.get(match[1]) || { staging: [], previous: [] };
+    (match[2] === RESTORE_STAGING_MARKER ? group.staging : group.previous).push(entry.name);
+    groups.set(match[1], group);
+  }
+  for (const [instanceId, group] of groups) {
+    const targetPath = path.join(root, instanceId);
+    const targetExists = await fs.lstat(targetPath).then(() => true, () => false);
+    let targetIntact = targetExists && await directoryHasConfig(targetPath);
+    if (!targetIntact && !targetExists) {
+      for (const name of group.previous.sort()) {
+        if (!await directoryHasConfig(path.join(root, name))) continue;
+        await fs.rename(path.join(root, name), targetPath);
+        group.previous = group.previous.filter((entry) => entry !== name);
+        report.restored.push({ instanceId, from: name });
+        targetIntact = true;
+        break;
+      }
+    }
+    if (!targetIntact && group.previous.length === 0) {
+      for (const name of group.staging.sort()) {
+        const stagingPath = path.join(root, name);
+        if (await readConfigId(stagingPath) !== instanceId) continue;
+        if (targetExists) await fs.rm(targetPath, { recursive: true, force: true });
+        await fs.rename(stagingPath, targetPath);
+        group.staging = group.staging.filter((entry) => entry !== name);
+        report.adopted.push({ instanceId, from: name });
+        targetIntact = true;
+        break;
+      }
+    }
+    const leftovers = [...group.staging, ...group.previous];
+    if (!targetIntact) {
+      report.kept.push({ instanceId, entries: leftovers });
+      continue;
+    }
+    for (const name of leftovers) {
+      await fs.rm(path.join(root, name), { recursive: true, force: true });
+      report.removed.push({ instanceId, entry: name });
+    }
+  }
+  return report;
+}
+
 function stopBackupScheduler() {
   if (schedulerTimer) {
     clearInterval(schedulerTimer);
@@ -1975,6 +2271,7 @@ module.exports = {
   BACKUP_METADATA_SCHEMA_VERSION,
   BACKUP_SCHEDULE_SCHEMA_VERSION,
   _test: {
+    assertArchiveWithinRestoreLimits,
     buildBackupRecord,
     createTarHeader,
     ensureDiskSpace,
@@ -1984,6 +2281,10 @@ module.exports = {
     recoverBackupArtifacts,
     restartInstanceAfterBackup,
     rollbackRestoreFromSafetySnapshot,
+    runDueSchedules,
+    setScheduledBackupRunner(runner) {
+      scheduledBackupRunner = typeof runner === "function" ? runner : null;
+    },
   },
   createBackup,
   deleteBackup,
@@ -2001,6 +2302,7 @@ module.exports = {
   readBackupMetadata,
   restoreBackup,
   recoverBackupArtifacts,
+  recoverInterruptedRestores,
   saveSchedule,
   startBackupScheduler,
   stopBackupScheduler,

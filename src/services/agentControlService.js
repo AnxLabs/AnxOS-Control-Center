@@ -9,7 +9,9 @@ const { getAllNodesSync, getNode, getNodeAgentConfig, getSelectedNodeId, listNod
 const diagnostics = require("./diagnosticsService");
 const { AGENT_STATUS, classifyAgentError, createAgentStatusSnapshot } = require("../shared/agentStatus");
 const { readAgentRuntimeConfig, restoreAgentRuntimeConfig, saveAgentRuntimeConfig } = require("../shared/agentRuntimeConfigStore");
+const { tokenFingerprint } = require("../shared/agentTokenStore");
 const { getReleaseInfo } = require("../shared/releaseConfig");
+const { AGENT_BUILD_ENV, compareAgentArtifactVersions, normalizeAgentArtifactVersion, readDesktopBundledAgentArtifactVersion } = require("../shared/agentBuildIdentity");
 const {
   getBundledLocalAgentRuntime,
   getBundledLocalAgentVersion,
@@ -41,6 +43,12 @@ let operationInFlight = null;
 let lastRestartReason = null;
 let lastError = null;
 let lastInstallSteps = [];
+let managedRestartTimer = null;
+let managedRapidRestarts = 0;
+const MANAGED_AGENT_RESTART_MIN_MS = 1000;
+const MANAGED_AGENT_RESTART_MAX_MS = 60000;
+const MANAGED_AGENT_STABLE_RUN_MS = 60000;
+const MANAGED_AGENT_MAX_RAPID_RESTARTS = 5;
 const remoteDiagnosticsRequests = new Map();
 const remoteDiagnosticsCache = new Map();
 
@@ -59,7 +67,19 @@ function compareVersions(left, right) {
 function getConfigDirectory() { if (process.env.ANXHUB_CONFIG_DIR) return process.env.ANXHUB_CONFIG_DIR; try { return path.join(app.getPath("userData"), "config"); } catch { return path.join(process.cwd(), "config"); } }
 function getRuntimeConfigPath() { return path.join(getConfigDirectory(), "agent-runtime.json"); }
 function getAgentDataDirectory() { try { return path.join(app.getPath("userData"), "agent"); } catch { return path.join(path.dirname(getConfigDirectory()), "agent"); } }
-function getAgentLogsDirectory() { return path.join(getAgentDataDirectory(), "logs"); }
+// The Agent chooses its own log folder (agent/src/services/diagnosticsLogger.js):
+// ANXOS_LOG_DIR, else .dev-logs in a checkout, else <dirname(ANXHUB_CONFIG_DIR)>/logs.
+// It never read AGENT_LOG_DIR, so the <userData>/agent/logs folder advertised
+// here stayed empty. Mirror the Agent's rule instead (it always runs with
+// NODE_ENV=production, so only the checkout test applies).
+function getAgentLogsDirectory() {
+  if (process.env.ANXOS_LOG_DIR) return process.env.ANXOS_LOG_DIR;
+  try {
+    const { runtimeRoot } = getBundledLocalAgentRuntime();
+    if (runtimeRoot && fs.existsSync(path.join(runtimeRoot, ".git"))) return path.join(runtimeRoot, ".dev-logs");
+  } catch {}
+  return path.join(path.dirname(getConfigDirectory()), "logs");
+}
 function getAgentInstancesDirectory() { return path.join(getAgentDataDirectory(), "instances"); }
 function getAgentBackupsDirectory() { return path.join(getAgentDataDirectory(), "backups"); }
 function getAgentTempDirectory() { return path.join(getAgentDataDirectory(), "tmp"); }
@@ -328,9 +348,12 @@ function ensureManagedAgentDirectories() {
   return directories;
 }
 
+// The bundled runtime folder carries no release file, so the Desktop that
+// starts it (directly, or main.js in --agent mode) tells it which build it
+// is. Both are the same install, so this is the build of the code started.
 function agentEnvironment(config) {
   const runtime = getBundledLocalAgentRuntime();
-  return { ...process.env, ELECTRON_RUN_AS_NODE: "1", NODE_ENV: "production", AGENT_HOST: config.host, AGENT_PORT: String(config.port), AGENT_FILE_ROOTS: config.allowedFolders.join(path.delimiter), AGENT_INSTANCE_ROOT: getAgentInstancesDirectory(), AGENT_BACKUP_ROOT: getAgentBackupsDirectory(), AGENT_LOG_DIR: getAgentLogsDirectory(), AGENT_TEMP_DIR: getAgentTempDirectory(), AGENT_IDENTITY_PATH: path.join(getAgentDataDirectory(), "device-identity.json"), ANXHUB_CONFIG_DIR: getConfigDirectory(), ANXOS_LOCAL_AGENT_RUNTIME_ROOT: runtime.runtimeRoot, ANXOS_LOCAL_AGENT_RUNTIME_MANIFEST: runtime.manifestPath };
+  return { ...process.env, ELECTRON_RUN_AS_NODE: "1", NODE_ENV: "production", AGENT_HOST: config.host, AGENT_PORT: String(config.port), AGENT_FILE_ROOTS: config.allowedFolders.join(path.delimiter), AGENT_INSTANCE_ROOT: getAgentInstancesDirectory(), AGENT_BACKUP_ROOT: getAgentBackupsDirectory(), AGENT_LOG_DIR: getAgentLogsDirectory(), AGENT_TEMP_DIR: getAgentTempDirectory(), AGENT_IDENTITY_PATH: path.join(getAgentDataDirectory(), "device-identity.json"), ANXHUB_CONFIG_DIR: getConfigDirectory(), ANXOS_LOCAL_AGENT_RUNTIME_ROOT: runtime.runtimeRoot, ANXOS_LOCAL_AGENT_RUNTIME_MANIFEST: runtime.manifestPath, [AGENT_BUILD_ENV]: readDesktopBundledAgentArtifactVersion() || "" };
 }
 function isWindowsAccessDenied(result = {}) { return /access is denied|administrator|elevat/i.test(`${result.stderr || ""}\n${result.stdout || ""}\n${result.code || ""}`); }
 
@@ -414,6 +437,8 @@ async function stopVerifiedOldLocalAgentProcess({ health = null, processInfo = n
     });
   }
   const pid = Number(processInfo.pid || processInfo.ProcessId || 0);
+  // taskkill /F exits with code 1, which the restart policy must not undo.
+  if (managedProcess && Number(managedProcess.pid) === pid) managedProcess.intentionalStop = true;
   const result = await command("taskkill.exe", ["/PID", String(pid), "/T", "/F"], { timeout: 15000 });
   if (!result.ok) throw Object.assign(new Error(result.stderr || result.stdout || "Verified old Local Agent process could not be stopped."), { code: "LOCAL_AGENT_STOP_FAILED", pid });
   return { stopped: true, pid, processKind: "verified-old-anxos-agent" };
@@ -582,9 +607,49 @@ function ensureLocalAgentBackendSelected(config) {
   return { changed: true, reason: "selected-local-agent", settings };
 }
 
+// Restart policy for the desktop-managed Agent child, with the meaning the
+// systemd unit gives the same setting (Restart=on-failure/always/no). An exit
+// AnxOS caused (Stop, Restart, Stop Old Local Agent) is never restarted; on
+// Windows a forced kill exits with code 1.
+function shouldRestartManagedAgent({ policy, code, intentionalStop = false } = {}) {
+  if (intentionalStop) return false;
+  if (policy === "always") return true;
+  if (policy === "on-failure") return code !== 0;
+  return false;
+}
+
+function cancelManagedAgentRestart() {
+  if (managedRestartTimer) clearTimeout(managedRestartTimer);
+  managedRestartTimer = null;
+}
+
+function scheduleManagedAgentRestart(child, { code, signal, correlationId } = {}) {
+  // An exit before the Agent became healthy is reported by start() itself.
+  if (!child?.healthy) return;
+  const policy = readConfig().restartPolicy;
+  if (!shouldRestartManagedAgent({ policy, code, signal, intentionalStop: child.intentionalStop === true })) return;
+  const ranMs = Date.now() - (child.spawnAt || Date.now());
+  managedRapidRestarts = ranMs >= MANAGED_AGENT_STABLE_RUN_MS ? 1 : managedRapidRestarts + 1;
+  if (managedRapidRestarts > MANAGED_AGENT_MAX_RAPID_RESTARTS) {
+    diagnostics.log("error", "agent", "process-restart-abandoned", "Local Agent kept exiting; automatic restarts stopped", { code, signal, restartPolicy: policy, attempts: managedRapidRestarts - 1 }, { file: "agent", correlationId });
+    return;
+  }
+  const delayMs = Math.min(MANAGED_AGENT_RESTART_MAX_MS, MANAGED_AGENT_RESTART_MIN_MS * 2 ** (managedRapidRestarts - 1));
+  cancelManagedAgentRestart();
+  managedRestartTimer = setTimeout(() => {
+    managedRestartTimer = null;
+    start()
+      .then(() => { lastRestartReason = `Restarted automatically after the Local Agent exited (restart policy: ${policy})`; })
+      .catch((error) => diagnostics.logError("agent-control", "automatic-restart", error, { restartPolicy: policy }, { file: "service-manager" }));
+  }, delayMs);
+  diagnostics.log("info", "agent", "process-restart-scheduled", "Local Agent restart scheduled", { code, signal, restartPolicy: policy, delayMs }, { file: "agent", correlationId });
+}
+
 async function start() {
   if (operationInFlight) throw Object.assign(new Error("Another Agent operation is already running."), { code: "AGENT_OPERATION_BUSY" });
-  if (managedProcess && !managedProcess.killed) return getStatus();
+  cancelManagedAgentRestart();
+  // A child AnxOS is stopping (taskkill does not set .killed) is not reused.
+  if (managedProcess && !managedProcess.killed && !managedProcess.intentionalStop) return getStatus();
   operationInFlight = "start";
   try {
     const config = readConfig(); fs.mkdirSync(getAgentDataDirectory(), { recursive: true });
@@ -620,7 +685,9 @@ async function start() {
         code: "AGENT_PORT_IN_USE",
       });
     }
-    if (service.installed && service.valid !== false && (process.platform !== "win32" || service.enabled !== false)) {
+    // A Windows task that differs only in settings drift (runnable) is still
+    // run: the elevated Agent it starts is the one that can repair it.
+    if (service.installed && (service.valid !== false || service.runnable === true) && (process.platform !== "win32" || service.enabled !== false)) {
       const result = process.platform === "linux" ? await command("systemctl", ["--user", "start", "anxos-agent.service"]) : await command("schtasks.exe", ["/Run", "/TN", SERVICE_NAME], { timeout: 30000 });
       if (!result.ok) throw Object.assign(new Error(result.stderr || result.stdout || "Background Agent could not be started."), { code: "SERVICE_START_FAILED" });
       await waitForLocalAgentHealth(config, config.connectionTimeoutMs || 10000);
@@ -635,25 +702,51 @@ async function start() {
     assertAgentSpawnContractEnvironment(spawnEnv);
     managedProcess = spawn(process.execPath, [getAgentScript()], { cwd: getAppRoot(), env: spawnEnv, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
     managedProcess.spawnAt = Date.now();
+    const child = managedProcess;
     const correlationId = diagnostics.correlationId("agent-start");
     for (const [stream, severity] of [[managedProcess.stdout, "info"], [managedProcess.stderr, "error"]]) stream.on("data", (chunk) => diagnostics.log(severity, "agent", "process-output", String(chunk).trim(), { pid: managedProcess?.pid }, { file: "agent", correlationId }));
-    managedProcess.once("exit", (code, signal) => { diagnostics.log(code === 0 ? "info" : "error", "agent", "process-exit", "Local Agent process exited", { code, signal, restartPolicy: config.restartPolicy }, { file: "agent", correlationId }); managedProcess = null; if (code && config.restartPolicy === "always") start().catch(() => {}); });
+    managedProcess.once("exit", (code, signal) => { diagnostics.log(code === 0 ? "info" : "error", "agent", "process-exit", "Local Agent process exited", { code, signal, restartPolicy: config.restartPolicy }, { file: "agent", correlationId }); if (managedProcess === child) managedProcess = null; scheduleManagedAgentRestart(child, { code, signal, correlationId }); });
     await new Promise((resolve) => setTimeout(resolve, 500));
     if (managedProcess?.exitCode !== null) throw Object.assign(new Error("Agent exited during startup."), { code: "AGENT_START_FAILED" });
     await waitForLocalAgentHealth(config, config.connectionTimeoutMs || 3500);
+    child.healthy = true;
     ensureLocalAgentBackendSelected(config);
     lastRestartReason = "Started from AnxOS"; lastError = null; return getStatus();
   } catch (error) { lastError = { code: error.code || "AGENT_START_FAILED", message: error.message }; diagnostics.logError("agent-control", "start", error, {}, { file: "service-manager" }); throw error; }
   finally { operationInFlight = null; }
 }
 
+// The Windows Agent task is machine-wide, not per config folder: a development
+// checkout, a test run or a second install on the same PC sees the installed
+// app's task too. Ending it stopped the developer's real Local Agent on every
+// agent-control-smoke run (Task Scheduler: "terminated by the user", 0x41306),
+// and nothing restarted it until the next logon. Only end a task that runs this
+// installation's executable. The systemd user unit needs no extra check: it only
+// counts as active when it points at this installation's Agent and config.
+function backgroundServiceBelongsToThisInstallation(service = {}) {
+  if (service.type !== "windows-scheduled-task") return true;
+  const mismatches = Array.isArray(service.verification?.mismatchReasons) ? service.verification.mismatchReasons : [];
+  return !mismatches.includes("executable") && !mismatches.includes("arguments");
+}
+
 async function stop({ force = false } = {}) {
   if (operationInFlight) throw Object.assign(new Error("Another Agent operation is already running."), { code: "AGENT_OPERATION_BUSY" });
   operationInFlight = "stop";
-  try { const config = readConfig(); const service = await getServiceState(); if (service.installed && service.active) { const result = process.platform === "linux" ? await command("systemctl", ["--user", "stop", "anxos-agent.service"]) : await command("schtasks.exe", ["/End", "/TN", SERVICE_NAME], { timeout: 30000 }); if (!result.ok && !force && !/not been started|not running|not currently running/i.test(`${result.stdout}\n${result.stderr}`)) throw Object.assign(new Error(result.stderr || result.stdout || "Background Agent could not be stopped."), { code: "SERVICE_STOP_FAILED" }); if (process.platform === "win32") await stopVerifiedWindowsTaskAgent(config); } if (managedProcess && !managedProcess.killed) { const child = managedProcess; child.kill(force ? "SIGKILL" : "SIGTERM"); await new Promise((resolve) => { const timer = setTimeout(() => { if (child.exitCode === null) child.kill("SIGKILL"); resolve(); }, 5000); child.once("exit", () => { clearTimeout(timer); resolve(); }); }); } managedProcess = null; await waitForLocalAgentStopped(config).catch(() => false); lastRestartReason = force ? "Force stopped from AnxOS" : "Stopped from AnxOS"; return getStatus(); }
+  cancelManagedAgentRestart();
+  try { const config = readConfig(); const service = await getServiceState(); if (service.installed && service.active && backgroundServiceBelongsToThisInstallation(service)) { const result = process.platform === "linux" ? await command("systemctl", ["--user", "stop", "anxos-agent.service"]) : await command("schtasks.exe", ["/End", "/TN", SERVICE_NAME], { timeout: 30000 }); if (!result.ok && !force && !/not been started|not running|not currently running/i.test(`${result.stdout}\n${result.stderr}`)) throw Object.assign(new Error(result.stderr || result.stdout || "Background Agent could not be stopped."), { code: "SERVICE_STOP_FAILED" }); if (process.platform === "win32") await stopVerifiedWindowsTaskAgent(config); } if (managedProcess && !managedProcess.killed) { const child = managedProcess; child.intentionalStop = true; child.kill(force ? "SIGKILL" : "SIGTERM"); await new Promise((resolve) => { const timer = setTimeout(() => { if (child.exitCode === null) child.kill("SIGKILL"); resolve(); }, 5000); child.once("exit", () => { clearTimeout(timer); resolve(); }); }); } managedProcess = null; await waitForLocalAgentStopped(config).catch(() => false); lastRestartReason = force ? "Force stopped from AnxOS" : "Stopped from AnxOS"; return getStatus(); }
   finally { operationInFlight = null; }
 }
 async function restart({ force = false } = {}) { await stop({ force }); lastRestartReason = force ? "Force restarted from AnxOS" : "Restarted from AnxOS"; return start(); }
+
+// Best effort after a failed install or repair step: start() returns at once
+// when the Agent is already healthy.
+async function startLocalAgentAfterFailure(reason) {
+  try {
+    await start();
+  } catch (error) {
+    diagnostics.logError("agent-control", "restore-local-agent", error, { reason }, { file: "service-manager" });
+  }
+}
 
 async function stopOldLocalAgentAndRepair(options = {}) {
   if (operationInFlight) throw Object.assign(new Error("Another Agent operation is already running."), { code: "AGENT_OPERATION_BUSY" });
@@ -664,8 +757,20 @@ async function stopOldLocalAgentAndRepair(options = {}) {
     const health = await agentClient.getHealth(getLocalAgentHealthConfig(config)).catch(() => null);
     if (listener?.listening && health?.ok) {
       const stopped = await stopVerifiedOldLocalAgentProcess({ health, processInfo: listener.process });
+      await waitForLocalAgentStopped(config).catch(() => false);
       operationInFlight = null;
-      const repaired = await installLocalAgent({ autoStart: true, installService: true, reason: "old-local-agent-repair", ...options });
+      // Windows startup is repaired through the elevated Agent (installService
+      // posts the repair to it), so the Agent just stopped must be replaced by
+      // the current one first. Whatever fails later, the Local Agent is left
+      // running rather than stopped.
+      await start();
+      let repaired;
+      try {
+        repaired = await installLocalAgent({ autoStart: true, installService: true, reason: "old-local-agent-repair", ...options });
+      } catch (error) {
+        await startLocalAgentAfterFailure("old-local-agent-repair");
+        throw error;
+      }
       return { ...repaired, stoppedOldLocalAgent: stopped, listener: { port: listener.port, pid: listener.pid, processKind: stopped.processKind } };
     }
     operationInFlight = null;
@@ -747,6 +852,7 @@ async function getServiceState() {
       type: "windows-scheduled-task",
       installed: true,
       valid: verification.valid,
+      runnable: comparison.runnable,
       enabled,
       active: active || Boolean(managedProcess),
       state: active ? "running" : verification.valid ? serviceState || "stopped" : "invalid",
@@ -885,12 +991,32 @@ async function installLocalAgent(options = {}) {
       mark("service", "skipped", "Background startup was skipped.");
     }
 
-    const pairing = pairLocalAgent({ agentUrl: localAgentUrl, rotate: true, reason: "local-agent-install" });
-    credentialRotated = true;
-    mark("credentials", "complete", `Secure local credentials were generated. Fingerprint ${pairing.fingerprint || "available"}.`);
-
+    // The Agent reads its token once, at startup. Rotating the credential under
+    // a running Agent made the verify step fail with 401 every time, so a
+    // credential the running Agent already accepts is kept; otherwise the new
+    // one is generated and the running Agent restarted to load it.
     const statusBeforeStart = await getStatus();
-    if (!statusBeforeStart.running) {
+    const runningAgentAcceptsCredential = statusBeforeStart.running
+      ? (await testConnection({ backendMode: "agent", agentUrl: localAgentUrl }).catch(() => null))?.connected === true
+      : false;
+    const pairing = pairLocalAgent({ agentUrl: localAgentUrl, rotate: !runningAgentAcceptsCredential, reason: "local-agent-install" });
+    credentialRotated = true;
+    mark("credentials", "complete", runningAgentAcceptsCredential
+      ? `The running Local Agent accepted the existing credentials. Fingerprint ${pairing.fingerprint || "available"}.`
+      : `Secure local credentials were generated. Fingerprint ${pairing.fingerprint || "available"}.`);
+
+    if (statusBeforeStart.running && pairing.restartRequired) {
+      operationInFlight = null;
+      try {
+        await restart();
+      } catch (error) {
+        mark("start", "failed", error.message || "Local Agent could not be restarted with the new credentials.");
+        rollbackPendingChanges("Local Agent restart failed; pending credentials were rolled back.");
+        await startLocalAgentAfterFailure("local-agent-install-restart");
+        throw error;
+      }
+      operationInFlight = "install";
+    } else if (!statusBeforeStart.running) {
       operationInFlight = null;
       try {
         await start();
@@ -933,15 +1059,31 @@ async function installLocalAgent(options = {}) {
   }
 }
 
+// The runtime versions in agent/package.json are a fixed placeholder, so the
+// release build is compared whenever both sides report one. The running build
+// comes only from the Agent's own health identity, never from a fallback. An
+// Agent that reports none predates build reporting; it keeps the legacy
+// comparison rather than being guessed older or newer.
 function getLocalAgentUpdateState(status = {}) {
-  const bundledVersion = getBundledLocalAgentVersion(null);
-  const installedVersion = status.agentVersion || status.identity?.agentVersion || null;
-  const comparison = installedVersion && bundledVersion ? compareVersions(installedVersion, bundledVersion) : null;
+  const bundledPackageVersion = getBundledLocalAgentVersion(null);
+  const installedPackageVersion = status.agentVersion || status.identity?.agentVersion || null;
+  const bundledBuild = readDesktopBundledAgentArtifactVersion();
+  const installedBuild = normalizeAgentArtifactVersion(status.identity?.agentArtifactVersion);
+  const buildComparison = compareAgentArtifactVersions(installedBuild, bundledBuild);
+  const comparisonBasis = buildComparison !== null ? "build" : "package-version";
+  const comparison = buildComparison !== null
+    ? buildComparison
+    : installedPackageVersion && bundledPackageVersion ? compareVersions(installedPackageVersion, bundledPackageVersion) : null;
+  const bundledVersion = comparisonBasis === "build" ? bundledBuild : bundledPackageVersion;
+  const installedVersion = comparisonBasis === "build" ? installedBuild : installedPackageVersion;
   const updateAvailable = comparison !== null && comparison < 0;
   const agentNewerThanDesktop = comparison !== null && comparison > 0;
   return {
     bundledVersion: bundledVersion || "unavailable",
     installedVersion,
+    bundledBuild,
+    installedBuild,
+    comparisonBasis,
     updateAvailable,
     agentNewerThanDesktop,
     versionMismatch: comparison !== null && comparison !== 0,
@@ -1061,14 +1203,13 @@ async function updateLocalAgent(options = {}) {
     operationInFlight = "update";
     mark("start", "complete", "Local Agent restarted.");
     const afterUpdate = getLocalAgentUpdateState(started);
-    const bundledVersion = getBundledLocalAgentVersion(null);
-    if (bundledVersion && afterUpdate.installedVersion && compareVersions(afterUpdate.installedVersion, bundledVersion) !== 0) {
+    if (afterUpdate.versionMismatch) {
       throw Object.assign(new Error("Local Agent restarted but did not report the bundled runtime version."), { code: "LOCAL_AGENT_UPDATE_VERIFY_FAILED", steps, update: afterUpdate });
     }
     mark("verify", "complete", "Local Agent health verified after update.");
     const recordPath = writeLocalAgentUpdateRecord({
       fromVersion: update.installedVersion,
-      toVersion: bundledVersion || "unavailable",
+      toVersion: afterUpdate.bundledVersion,
       backupRoot: backup.backupRoot,
       status: "complete",
     });
@@ -1183,8 +1324,7 @@ async function updateLinuxAgent(options = {}) {
     mark("reconnect", "complete", "Desktop reconnected to the updated Local Agent.");
 
     const afterUpdate = getLocalAgentUpdateState(await getStatus());
-    const bundledVersion = getBundledLocalAgentVersion(null);
-    if (bundledVersion && afterUpdate.installedVersion && compareVersions(afterUpdate.installedVersion, bundledVersion) !== 0) {
+    if (afterUpdate.versionMismatch) {
       throw Object.assign(new Error("Local Agent restarted but did not report the bundled runtime version."), { code: "LOCAL_AGENT_UPDATE_VERIFY_FAILED", steps, update: afterUpdate });
     }
     mark("verify", "complete", "Local Agent health verified after update.");
@@ -1515,11 +1655,12 @@ function getLocalAgentUrl(config) {
   return `http://127.0.0.1:${config.port}`;
 }
 
+// No agentToken key: this PC's Local Agent is authenticated with the
+// configured Agent token (repair, uninstall and dependency checks need it).
 function getLocalAgentHealthConfig(config) {
   return {
     backendMode: "agent",
     agentUrl: getLocalAgentUrl(config),
-    agentToken: "",
     targetLabel: "local-agent",
     suppressConnectionRefusedLog: true,
     logThrottleMs: 60000,
@@ -1535,6 +1676,16 @@ function getRemoteHealthConfig(node, selectedNodeId) {
     targetLabel: `node:${node.id}`,
     logThrottleMs: node.id === selectedNodeId ? 15000 : 30000,
   };
+}
+
+// The Agent accepts exactly one token and reports its fingerprint on the
+// public health route, so a matching fingerprint proves the saved credential
+// without another request. "probe" means the Agent did not report one.
+function getRemoteCredentialCheck(health = {}, agentToken = "") {
+  const remoteFingerprint = health?.tokenFingerprint || null;
+  if (!remoteFingerprint) return "probe";
+  const storedFingerprint = tokenFingerprint(agentToken);
+  return storedFingerprint && storedFingerprint === remoteFingerprint ? "verified" : "rejected";
 }
 
 function getUrlHostname(url) {
@@ -1964,7 +2115,11 @@ async function getStatus(_options = {}) {
   }
 
   const listeningProcess = process.platform === "win32" ? await getWindowsListeningProcess(config.port).catch((error) => ({ port: config.port, verified: false, error: { code: error?.code || "LISTENER_INSPECTION_FAILED", message: error?.message || "Could not inspect listening process." } })) : null;
-  const running = Boolean(managedProcess && !managedProcess.killed) || service.active || Boolean(health?.ok);
+  // Another installation's running task (the task is machine-wide) is not
+  // this installation's Agent; its own health check still counts.
+  const running = Boolean(managedProcess && !managedProcess.killed)
+    || (service.active && backgroundServiceBelongsToThisInstallation(service))
+    || Boolean(health?.ok);
   const pairing = readLocalAgentPairingStatus();
   const lifecycleOwnership = getLocalAgentLifecycleOwnership({ health, service, pairing, managed: managedProcess });
   const releaseInfo = getReleaseInfo();
@@ -1989,7 +2144,8 @@ async function getStatus(_options = {}) {
     base: { agentUrl, hostname: os.hostname(), agentVersion: health?.identity?.agentVersion || getBundledLocalAgentVersion("unavailable"), uptime: managedProcess ? Math.max(0, Math.round((Date.now() - (managedProcess.spawnAt || Date.now())) / 1000)) : null, serviceManaged: lifecycleOwnership.managed },
     health,
     stats: localStats,
-    service,
+    // Another installation's task state is not this Agent's service state.
+    service: backgroundServiceBelongsToThisInstallation(service) ? service : null,
     latencyMs,
     connected: running,
     reachable: Boolean(health?.ok),
@@ -2095,16 +2251,25 @@ async function listAgents(options = {}) {
       const health = await agentClient.getHealth(healthConfig);
       let stats = null;
       let partialFailure = null;
-      if (node.id === selectedNodeId) {
+      const credentialRejected = (code = "UNAUTHORIZED", status = 401) => {
+        const authError = new Error(`${node.displayName || node.name || node.id} credential rejected`);
+        authError.code = code;
+        authError.status = status;
+        return authError;
+      };
+      // /api/v1/health is public, so its reply proves nothing about the saved
+      // credential. The selected node is checked with an authenticated call;
+      // other nodes by the live Agent's token fingerprint, and only with an
+      // authenticated call when the Agent does not report one.
+      const credentialCheck = node.id === selectedNodeId ? "probe" : getRemoteCredentialCheck(health, healthConfig.agentToken);
+      if (credentialCheck === "rejected") throw credentialRejected();
+      if (credentialCheck === "probe") {
         try {
           stats = await agentClient.getSystemStats(healthConfig);
           logRuntimePayloadShape(`${healthConfig.targetLabel}-stats`, stats);
         } catch (statsError) {
           if (statsError.status === 401 || statsError.code === "UNAUTHORIZED") {
-            const authError = new Error(`${node.displayName || node.name || node.id} credential rejected`);
-            authError.code = statsError.code || "UNAUTHORIZED";
-            authError.status = statsError.status || 401;
-            throw authError;
+            throw credentialRejected(statsError.code || "UNAUTHORIZED", statsError.status || 401);
           }
           partialFailure = { code: statsError.code || null, message: statsError.message || "Agent metrics endpoint unavailable." };
         }
@@ -2130,12 +2295,15 @@ async function listAgents(options = {}) {
           ? `Authenticated Agent health recovered; metrics remain degraded: ${partialFailure.message}`
           : "Authenticated Agent endpoint responded from Agent Control.",
       });
+      if (canonicalNode.connection?.status === "agent_incompatible") {
+        partialFailure = { code: "AGENT_INCOMPATIBLE", message: canonicalNode.connection.message || "The Agent version is not compatible with this app." };
+      }
       return {
         local: false,
         targetType: healthConfig.targetLabel,
         healthTargetLabel: healthConfig.targetLabel,
         nodeId: canonicalNode.id,
-        state: "Running",
+        state: partialFailure?.code === "AGENT_INCOMPATIBLE" ? "Agent incompatible" : "Running",
         name: node.displayName,
         agentUrl: node.agentUrl,
         identity: health.identity,
@@ -2418,6 +2586,7 @@ module.exports = {
   _test: {
     agentEnvironment,
     assertAgentSpawnContractEnvironment,
+    backgroundServiceBelongsToThisInstallation,
     buildWindowsAgentTaskDefinition,
     buildWindowsTaskInspectionScript,
     buildWindowsTaskRegistrationScript,
@@ -2429,6 +2598,7 @@ module.exports = {
     getAgentScript,
     getLocalAgentPairingNetworkState,
     inspectWindowsAgentScheduledTask,
+    getLocalAgentHealthConfig,
     getLocalAgentUpdateState,
     getRegistrationStatusFromServiceState,
     getLocalAgentStartupSummary,
@@ -2442,6 +2612,7 @@ module.exports = {
     planLocalAgentPairingRestore,
     PAIRING_NETWORK_OPT_IN_KEY,
     resolvePairingNetworkPlan,
+    shouldRestartManagedAgent,
   },
   captureRemoteDiagnostics,
   createUiBootstrapCode,

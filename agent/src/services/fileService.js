@@ -602,6 +602,47 @@ async function resolveAllowedPath(requestedPath) {
   };
 }
 
+// Delete and rename act on the entry the user selected, never on what it
+// points to: resolving the whole path made Delete remove a symlink's or
+// junction's target folder and leave the link. Only the parent is resolved
+// (so a linked parent still cannot leave the root); the entry itself is
+// examined with lstat. A configured root keeps the full resolution so the
+// root-delete guard still sees it.
+async function resolveAllowedEntryPath(requestedPath) {
+  if (!requestedPath || requestedPath.includes("\0")) {
+    return resolveAllowedPath(requestedPath);
+  }
+  const entryPath = path.resolve(requestedPath);
+  const parentPath = path.dirname(entryPath);
+  const rootReport = await getRootValidationReport();
+  if (parentPath === entryPath || rootReport.validRoots.some((root) => path.relative(root, entryPath) === "")) {
+    return resolveAllowedPath(requestedPath);
+  }
+  const parent = await resolveAllowedPath(parentPath);
+  const realEntryPath = path.join(parent.path, path.basename(entryPath));
+  if (!isInsideRoot(realEntryPath, parent.root)) {
+    throw createFileError("PATH_NOT_ALLOWED", 403, "The requested path is outside the configured Agent filesystem root.", {
+      field: "path",
+      value: requestedPath,
+      filesystemRoot: parent.root,
+    });
+  }
+  try {
+    await fsPromises.lstat(realEntryPath);
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      throw createFileError("PATH_NOT_FOUND", 404, "The requested path does not exist.", {
+        field: "path",
+        value: requestedPath,
+        filesystemRoot: parent.root,
+        suggestion: "Refresh the folder or choose an existing path inside the configured root.",
+      });
+    }
+    throw error;
+  }
+  return { path: realEntryPath, root: parent.root };
+}
+
 async function resolveAllowedTargetPath(requestedPath) {
   if (!requestedPath || requestedPath.includes("\0")) {
     throw createFileError("INVALID_PATH", 400, "The target path is malformed.", {
@@ -782,6 +823,9 @@ async function listFiles(requestedPath) {
       return {
         path: entryPath,
         ...normalizeMetadata(entryPath, entryStats),
+        // Links are listed by what they point to so a linked folder still
+        // opens; the flag tells the UI that Delete removes only the link.
+        ...(entry.isSymbolicLink() ? { isSymlink: true } : {}),
       };
     } catch {
       return {
@@ -917,7 +961,8 @@ async function mutateFile(action, payload = {}) {
     return { path: target.path, created: true };
   }
   if (action === "rename" || action === "copy") {
-    const source = await resolveAllowedPath(payload.sourcePath || payload.oldPath);
+    const sourcePath = payload.sourcePath || payload.oldPath;
+    const source = action === "rename" ? await resolveAllowedEntryPath(sourcePath) : await resolveAllowedPath(sourcePath);
     const destination = await resolveAllowedTargetPath(payload.destinationPath || payload.newPath);
     if (action === "rename") await fsPromises.rename(source.path, destination.path);
     else await copyPathAtomically(source.path, destination.path, payload.conflictPolicy);
@@ -926,7 +971,7 @@ async function mutateFile(action, payload = {}) {
       : { sourcePath: source.path, destinationPath: destination.path, copied: true };
   }
   if (action === "delete") {
-    const target = await resolveAllowedPath(payload.path);
+    const target = await resolveAllowedEntryPath(payload.path);
     if (target.path === target.root) {
       throw createFileError("ROOT_DELETE_FORBIDDEN", 403, "Configured filesystem roots cannot be deleted through the file browser.", {
         field: "path",

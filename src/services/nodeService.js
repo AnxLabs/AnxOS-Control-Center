@@ -92,7 +92,24 @@ function hasNodeToken(nodeId) {
 
 function setNodeToken(nodeId, token) {
   requireNodeCredentialWrite("node-credential-write", "Unlock AnxOS to manage nodes.");
-  return setStoredNodeToken(nodeId, token);
+  try {
+    return setStoredNodeToken(nodeId, token);
+  } catch (error) {
+    // A store this device can never decrypt again (another PC's DPAPI, a
+    // changed fallback key) would otherwise block every re-pair. A credential
+    // being saved now starts a fresh store; the unreadable ciphertext is kept
+    // as a backup. A store that is only temporarily unavailable (locked
+    // keyring) is never replaced, so the error reaches the caller.
+    if (error?.code !== "NODE_CREDENTIAL_DECRYPT_FAILED" || error.details?.temporary === true) throw error;
+    if (!String(token || "").trim()) throw error;
+    const recovery = replaceUnreadableStore({ [nodeId]: { agentToken: token } });
+    nodeCredentialRecovery = null;
+    console.info("[Nodes] Started a new protected node credential store; the unreadable one was preserved.", {
+      recoveredNodeCount: recovery.recoveredNodeCount,
+      preserved: true,
+    });
+    return true;
+  }
 }
 
 function deleteNodeToken(nodeId) {
@@ -1118,6 +1135,24 @@ function readNodeState() {
   return state;
 }
 
+// The configured Agent token (agent.json / the shared Local Agent token) belongs
+// to the Agent at the configured URL, which is This PC's Local Agent on a
+// normal install. Recovery may hand it only to that node: giving it to a
+// remote node sends This PC's owner token to another host as its bearer.
+function configuredAgentTokenBelongsToNode(node, legacy) {
+  const nodeUrl = normalizeUrl(node?.baseUrl || node?.agentUrl || "");
+  if (!nodeUrl) return false;
+  return isThisPcAgentUrl(nodeUrl) || nodeUrl === normalizeUrl(legacy?.agentUrl || "");
+}
+
+function selectedNodeConfiguredCredential(state) {
+  const selectedNode = state.nodes.find((node) => node.id === state.selectedNodeId && node.kind === "agent");
+  const legacy = getEffectiveAgentSettings();
+  if (!selectedNode || legacy.backendMode !== "agent" || !legacy.agentToken) return null;
+  if (!configuredAgentTokenBelongsToNode(selectedNode, legacy)) return null;
+  return { node: selectedNode, agentToken: legacy.agentToken };
+}
+
 function writeNodeState(state) {
   requireNodeCredentialWrite("node-config-write", "Unlock AnxOS to manage nodes.");
   ensureConfigDirectory();
@@ -1126,22 +1161,32 @@ function writeNodeState(state) {
       .filter((node) => node.kind === "agent" && node.id && node.agentToken)
       .map((node) => [node.id, { agentToken: node.agentToken }]),
   );
-  if (nodeCredentialRecovery?.degraded) {
-    const selectedNode = state.nodes.find((node) => node.id === state.selectedNodeId && node.kind === "agent");
-    const legacy = getEffectiveAgentSettings();
-    if (selectedNode && legacy.backendMode === "agent" && legacy.agentToken) {
-      const recovery = replaceUnreadableStore({
-        ...recoverableCredentials,
-        [selectedNode.id]: { agentToken: legacy.agentToken },
-      });
+  // Set when the store failed only because OS encryption is unavailable right
+  // now: it is left untouched and credential syncing waits for the keyring.
+  // Tokens the user provides go through setNodeToken, which reports the error.
+  let credentialStoreTemporarilyUnavailable = false;
+  const recoverUnreadableStore = (credentials) => {
+    if (!Object.keys(credentials).length) return;
+    try {
+      const recovery = replaceUnreadableStore(credentials);
       nodeCredentialRecovery = null;
       console.info("[Nodes] Recovered the protected node credential store from existing configured credentials.", {
         recoveredNodeCount: recovery.recoveredNodeCount,
         preserved: true,
       });
+    } catch (error) {
+      if (error?.code !== "NODE_CREDENTIAL_STORE_TEMPORARILY_UNAVAILABLE") throw error;
+      credentialStoreTemporarilyUnavailable = true;
     }
+  };
+  if (nodeCredentialRecovery?.degraded) {
+    const configured = selectedNodeConfiguredCredential(state);
+    recoverUnreadableStore({
+      ...recoverableCredentials,
+      ...(configured ? { [configured.node.id]: { agentToken: configured.agentToken } } : {}),
+    });
   }
-  if (Object.keys(recoverableCredentials).length) {
+  if (Object.keys(recoverableCredentials).length && !credentialStoreTemporarilyUnavailable) {
     try {
       for (const node of state.nodes.filter((entry) => entry.kind === "agent" && entry.id && entry.agentToken)) {
         if (getNodeToken(node.id) !== node.agentToken) {
@@ -1150,19 +1195,10 @@ function writeNodeState(state) {
       }
     } catch (error) {
       if (error?.code !== "NODE_CREDENTIAL_DECRYPT_FAILED") throw error;
-      const selectedNode = state.nodes.find((node) => node.id === state.selectedNodeId && node.kind === "agent");
-      const legacy = getEffectiveAgentSettings();
-      const emergencyCredentials = {
+      const configured = selectedNodeConfiguredCredential(state);
+      recoverUnreadableStore({
         ...recoverableCredentials,
-        ...(selectedNode && !selectedNode.agentToken && legacy.backendMode === "agent" && legacy.agentToken
-          ? { [selectedNode.id]: { agentToken: legacy.agentToken } }
-          : {}),
-      };
-      const recovery = replaceUnreadableStore(emergencyCredentials);
-      nodeCredentialRecovery = null;
-      console.info("[Nodes] Recovered the protected node credential store from existing configured credentials.", {
-        recoveredNodeCount: recovery.recoveredNodeCount,
-        preserved: true,
+        ...(configured && !configured.node.agentToken ? { [configured.node.id]: { agentToken: configured.agentToken } } : {}),
       });
     }
   }
@@ -1294,12 +1330,14 @@ function recordAuthenticatedNodeHealth(payload = {}) {
     return { node: resolution.node, disconnected: true };
   }
   advanceNodeHealthGeneration(resolution.nodeId);
+  // Same rule as checkNodeHealth: an incompatible Agent is never "online".
+  const compatibility = payload.compatibility || getAgentCompatibilityReport(health);
   const updated = updateNodeHealthState(resolution.nodeId, {
-    state: "online",
-    message: payload.message || "Authenticated Agent endpoint responded.",
+    state: compatibility.compatible ? "online" : "agent_incompatible",
+    message: compatibility.compatible ? payload.message || "Authenticated Agent endpoint responded." : formatAgentCompatibilityMessage(compatibility),
     latencyMs: payload.latencyMs,
     health,
-    compatibility: payload.compatibility || getAgentCompatibilityReport(health),
+    compatibility,
     checkedAt: payload.checkedAt || new Date().toISOString(),
   });
   return publicNode(updated);
@@ -1396,11 +1434,19 @@ async function checkNodeHealth(nodeId, options = {}) {
   const run = (async () => {
     const startedAt = Date.now();
     const checkedAt = new Date().toISOString();
-    updateNodeHealthState(node.id, {
-      state: "connecting",
-      message: "Checking Agent health.",
-      checkedAt,
-    });
+    // A computer that answered its last check keeps that state until this
+    // probe answers: readers that do not wait for the check (the Computers
+    // poll, the title-bar chip, the alert engine) must not see a working
+    // computer as "connecting". Only a computer not yet (or no longer)
+    // connected is shown as being checked.
+    const previousState = normalizeConnectionState(node.lastConnectionState || node.connection?.status || "unknown");
+    if (!["online", "degraded"].includes(previousState)) {
+      updateNodeHealthState(node.id, {
+        state: "connecting",
+        message: "Checking Agent health.",
+        checkedAt,
+      });
+    }
     try {
       const health = await getHealth(getNodeAgentConfigFromNode(node), {
         timeoutMs: options.timeoutMs || 8000,

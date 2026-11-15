@@ -5,6 +5,7 @@ const fsSync = require("fs");
 const net = require("net");
 const os = require("os");
 const path = require("path");
+const { StringDecoder } = require("string_decoder");
 const zlib = require("zlib");
 const javaRuntimeResolver = require("../minecraftJavaRuntime");
 const bundledRuntimePaths = require("../bundledRuntimePaths");
@@ -106,12 +107,36 @@ const DEFAULT_STARTUP_TIMEOUT_MS = 15000;
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 10000;
 const MAX_STARTUP_TIMEOUT_MS = 2 * 60 * 60 * 1000;
 const MAX_SHUTDOWN_TIMEOUT_MS = 10 * 60 * 1000;
+// During an Agent or desktop shutdown each server gets its own
+// shutdownTimeoutMs, capped here. The worst case for one stop is this ceiling
+// (console stop) + STOP_SIGNAL_GRACE_MS (SIGTERM) + 5 s (forced kill), which
+// must stay inside systemd's default 90 s TimeoutStopSec for the Agent unit.
+const SERVICE_SHUTDOWN_CEILING_MS = 60 * 1000;
+// After a console stop command times out, SIGTERM still gets this long before
+// the forced kill (POSIX only; on Windows SIGTERM is already TerminateProcess).
+const STOP_SIGNAL_GRACE_MS = 5000;
+// Servers set to start with the computer are started one after another.
+const AUTO_START_STAGGER_MS = 3000;
+// A persisted PID is matched to the process recorded at spawn by its start
+// time; a same-boot check is only a fallback when no start time is readable.
+const SPAWN_IDENTITY_START_TOLERANCE_MS = 15000;
+const SPAWN_IDENTITY_BOOT_TOLERANCE_MS = 5 * 60 * 1000;
+const LIVE_IDENTITY_CACHE_TTL_MS = 15000;
 const MAX_LOG_BYTES = 5 * 1024 * 1024;
 const MAX_LOG_LINES = 1000;
+// A partial line (no newline yet) is held back so a line cut at a pipe chunk
+// boundary is stored once. It is written anyway after this quiet period, or
+// once it grows past the size cap, so a prompt without a newline still shows.
+const LOG_PARTIAL_LINE_FLUSH_MS = 1000;
+const LOG_PARTIAL_LINE_MAX_CHARS = 64 * 1024;
 const STARTUP_EARLY_EXIT_MS = 8000;
 const RESTART_BACKOFF_BASE_MS = 1000;
 const RESTART_BACKOFF_MAX_MS = 30000;
 const RESTART_BACKOFF_MAX_IMMEDIATE_FAILURES = 3;
+// A run shorter than this counts toward the crash-loop budget, and only a
+// longer run resets it. A server that crashes while loading (30 s, a few
+// minutes) is still a crash loop, not just one that dies within 8 s.
+const RESTART_BACKOFF_STABLE_RUN_MS = 10 * 60 * 1000;
 const PROCESS_TAIL_LINE_LIMIT = 20;
 const PORT_CONNECT_TIMEOUT_MS = 500;
 const PROC_STAT_TICKS_PER_SECOND = 100;
@@ -186,6 +211,12 @@ const startingInstances = new Set();
 const stoppingInstances = new Map();
 let processInspectionProvider = null;
 let processAliveProvider = null;
+// Windows reads of a live process's name/start time (PowerShell) are cached
+// briefly: reconciliation runs on every status poll.
+const liveProcessIdentityCache = new Map();
+// Bumped by shutdownInstanceService so a boot-time autoStart pass that is
+// still running stops starting servers once shutdown begins.
+let serviceLifecycleGeneration = 0;
 
 const INSTALLER_PHASES = Object.freeze({
   forge: Object.freeze({
@@ -199,6 +230,14 @@ const INSTALLER_PHASES = Object.freeze({
 const INSTALLATION_OPERATION_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_-]{7,127}$/;
 const INSTALLER_TIMEOUT_MIN_MS = 1000;
 const INSTALLER_TIMEOUT_MAX_MS = 10 * 60 * 1000;
+// SteamCMD updates of large servers (a multi-GB download plus the `validate`
+// re-read of tens of GB) take far longer than the ten-minute installer cap, so
+// they get the same two-hour ceiling as a first SteamCMD install
+// (STEAMCMD_INSTALL_TIMEOUT_MS on the Desktop). A run that prints nothing at
+// all for the stall window is ended earlier: SteamCMD reports download and
+// verify progress continuously while it works.
+const STEAMCMD_UPDATE_TIMEOUT_MAX_MS = 2 * 60 * 60 * 1000;
+const STEAMCMD_UPDATE_STALL_TIMEOUT_MS = 30 * 60 * 1000;
 const INSTALLER_OUTPUT_MAX_BYTES = 1024 * 1024;
 const LEGACY_STEAMCMD_TEMPLATES = Object.freeze({
   palworld: { appId: 2394010, installDir: "server", verifyFiles: ["server/PalServer.sh", "server/Pal/Binaries/Linux/PalServer-Linux-Shipping"] },
@@ -525,7 +564,7 @@ async function executeInstallationPhase(instanceId, request = {}) {
       child = childProcess.spawn(command.executable, command.args, {
         cwd: workingDirectory,
         env: buildSpawnEnvironment(config),
-        detached: false,
+        detached: boundedChildDetached(),
         shell: false,
         stdio: ["ignore", "pipe", "pipe"],
         windowsHide: true,
@@ -537,17 +576,22 @@ async function executeInstallationPhase(instanceId, request = {}) {
     session.child = child;
     session.cancel = () => {
       cancelled = true;
-      if (!child.killed) child.kill("SIGKILL");
+      killChildProcessTree(child);
     };
     child.stdout?.on("data", (chunk) => { stdout = appendBoundedOutput(stdout, chunk); });
     child.stderr?.on("data", (chunk) => { stderr = appendBoundedOutput(stderr, chunk); });
-    child.once("error", (error) => reject(createInstanceError("INSTALLER_PROCESS_ERROR", 500, { causeCode: error?.code || null })));
-    child.once("close", (exitCode, signal) => resolve({ exitCode, signal }));
+    child.once("error", (error) => {
+      clearTimeout(timer);
+      reject(createInstanceError("INSTALLER_PROCESS_ERROR", 500, { causeCode: error?.code || null }));
+    });
     const timer = setTimeout(() => {
       timedOut = true;
-      if (!child.killed) child.kill("SIGKILL");
+      killChildProcessTree(child);
     }, timeoutMs);
-    child.once("close", () => clearTimeout(timer));
+    settleBoundedChild(child, (exitCode, signal) => {
+      clearTimeout(timer);
+      resolve({ exitCode, signal });
+    });
   }).finally(() => {
     session.child = null;
     session.cancel = null;
@@ -812,13 +856,129 @@ async function readSteamManifestBetaKey(manifestPath) {
 
 // One SteamCMD process per node at a time: concurrent runs contend for
 // SteamCMD's own package/appinfo lock and fail. Build lookups and updates
-// queue here instead (an update's ten-minute timeout starts at its spawn).
+// queue here instead (an update's timeout starts at its spawn).
+// deadlineMs (counted from when the operation starts) is a backstop: if an
+// operation never settles, the queue moves on instead of blocking every later
+// SteamCMD task on the node until the Agent restarts. Without one, the longest
+// single SteamCMD run budget applies. The margin leaves room past a run's own
+// timeout for the process-tree kill and the stdio drain grace.
+const STEAMCMD_LOCK_DEADLINE_MARGIN_MS = 45 * 1000;
 let steamCmdQueue = Promise.resolve();
 
-function withSteamCmdLock(operation) {
-  const run = steamCmdQueue.then(operation, operation);
-  steamCmdQueue = run.catch(() => {});
+function withSteamCmdLock(operation, options = {}) {
+  const deadlineMs = Number(options.deadlineMs) > 0
+    ? Number(options.deadlineMs)
+    : INSTALLER_TIMEOUT_MAX_MS + STEAMCMD_LOCK_DEADLINE_MARGIN_MS;
+  let release;
+  const released = new Promise((resolve) => { release = resolve; });
+  const guarded = () => {
+    let result;
+    try { result = Promise.resolve(operation()); } catch (error) { result = Promise.reject(error); }
+    let deadline = null;
+    if (Number.isFinite(deadlineMs)) {
+      deadline = setTimeout(release, deadlineMs);
+      deadline.unref?.();
+    }
+    const done = () => { if (deadline) clearTimeout(deadline); release(); };
+    result.then(done, done);
+    return result;
+  };
+  const run = steamCmdQueue.then(guarded, guarded);
+  steamCmdQueue = released;
   return run;
+}
+
+// Bounded child runs (SteamCMD, installer phases, repair commands). A wrapper
+// such as Debian's /usr/games/steamcmd -> steamcmd.sh runs the real binary as
+// a child, so killing only the direct child leaves a grandchild that holds the
+// stdout/stderr pipes open and 'close' never fires. POSIX runs therefore get
+// their own process group and the whole group is killed; Windows ends the
+// tree with taskkill /T. A run settles on 'close', or shortly after 'exit'
+// with its pipes destroyed if something outside the tree still holds them.
+const CHILD_STDIO_DRAIN_GRACE_MS = 2000;
+let processTreePlatformOverride = null;
+
+function processTreePlatform() {
+  return processTreePlatformOverride || process.platform;
+}
+
+function boundedChildDetached() {
+  return processTreePlatform() !== "win32";
+}
+
+function childHasExited(child) {
+  return (child.exitCode !== null && child.exitCode !== undefined)
+    || (child.signalCode !== null && child.signalCode !== undefined);
+}
+
+function killChildProcessTree(child) {
+  if (!child) return;
+  const pid = Number(child.pid);
+  const killDirect = () => {
+    if (childHasExited(child)) return;
+    try { child.kill("SIGKILL"); } catch {}
+  };
+  if (!Number.isInteger(pid) || pid <= 0) {
+    killDirect();
+    return;
+  }
+  if (processTreePlatform() === "win32") {
+    // Only our own, still-running child: a PID that has exited may be reused.
+    if (childHasExited(child)) return;
+    try {
+      childProcess.execFile("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true, shell: false }, (error) => {
+        if (error) killDirect();
+      });
+    } catch {
+      killDirect();
+    }
+    return;
+  }
+  // The group id is our child's PID (spawned detached). While any member is
+  // alive the id cannot be reused, so this is safe after the wrapper exited.
+  try {
+    process.kill(-pid, "SIGKILL");
+  } catch {
+    killDirect();
+  }
+}
+
+function settleBoundedChild(child, onSettled) {
+  let settled = false;
+  let drainTimer = null;
+  const finish = (exitCode, signal) => {
+    if (settled) return;
+    settled = true;
+    if (drainTimer) clearTimeout(drainTimer);
+    onSettled(exitCode, signal);
+  };
+  child.once("close", (exitCode, signal) => finish(exitCode, signal));
+  child.once("exit", (exitCode, signal) => {
+    drainTimer = setTimeout(() => {
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+      finish(exitCode, signal);
+    }, CHILD_STDIO_DRAIN_GRACE_MS);
+  });
+}
+
+// Steam's appmanifest StateFlags: 4 is "fully installed", 2 "update required"
+// (the installed build is intact but not the latest). Any other bit (update
+// started or running, files missing or corrupt, staging, committing...) means
+// SteamCMD stopped part-way and the install may be inconsistent. Returns null
+// when the manifest or its StateFlags cannot be read.
+async function readSteamManifestStateFlags(manifestPath) {
+  try {
+    const content = await fs.readFile(manifestPath, "utf8");
+    const value = content.match(/"StateFlags"\s+"(\d+)"/i)?.[1];
+    return value === undefined ? null : Number(value);
+  } catch {
+    return null;
+  }
+}
+
+function isSteamInstallConsistent(stateFlags) {
+  return Number.isInteger(stateFlags) && (stateFlags & ~2) === 4;
 }
 
 async function readSteamManifestBuildId(manifestPath) {
@@ -841,7 +1001,13 @@ async function executeSteamCmdUpdate(instanceId, request = {}) {
     // Refusals before anything ran (wrong state, bad session) are not alerts.
     // A failed pre-update backup is: the update was cancelled because of it.
     if (/^STEAMCMD_(?:UPDATE_FAILED|UPDATE_TIMEOUT|UPDATE_NOT_CONFIRMED|UPDATE_BUILD_UNVERIFIED|UPDATE_NOT_APPLIED|UPDATE_ARTIFACTS_MISSING|NETWORK_UNAVAILABLE|AUTHORIZATION_FAILED|APP_ID_INVALID|MISSING|SPAWN_FAILED|PROCESS_ERROR|PRE_UPDATE_BACKUP_FAILED)$/.test(String(error?.code || ""))) {
-      emitInstanceEvent("update.failed", { instanceId: String(instanceId), message: `AnxOS: SteamCMD update for ${instanceId} failed (${error.code}). Server files were left on build ${error.buildIdBefore || "unknown"}.` });
+      // A SteamCMD that was stopped part-way may have changed files already:
+      // "left on build X" is only claimed when nothing says otherwise.
+      const interrupted = error.code === "STEAMCMD_UPDATE_TIMEOUT" && !isSteamInstallConsistent(error.stateFlagsAfter);
+      const message = interrupted
+        ? `AnxOS: SteamCMD update for ${instanceId} failed (${error.code}${error.stalled ? ", no progress" : ""}) and SteamCMD was stopped before it finished. The server files may be incomplete (manifest build ${error.buildIdAfter || error.buildIdBefore || "unknown"}); run the update again before starting the server.`
+        : `AnxOS: SteamCMD update for ${instanceId} failed (${error.code}). Server files were left on build ${error.buildIdBefore || "unknown"}.`;
+      emitInstanceEvent("update.failed", { instanceId: String(instanceId), message });
     }
     throw error;
   }
@@ -886,27 +1052,37 @@ async function executeSteamCmdUpdateUnobserved(instanceId, request = {}) {
     }
     if (!preUpdateBackup) throw createInstanceError("STEAMCMD_PRE_UPDATE_BACKUP_FAILED", 422, { causeCode: "BACKUP_NOT_RECORDED", buildIdBefore });
   }
-  const timeoutMs = Math.min(INSTALLER_TIMEOUT_MAX_MS, Math.max(INSTALLER_TIMEOUT_MIN_MS, Number(request.timeoutMs) || 10 * 60 * 1000));
-  const startedAt = Date.now(); let stdout = ""; let stderr = ""; let timedOut = false; let cancelled = false;
+  const timeoutMs = Math.min(STEAMCMD_UPDATE_TIMEOUT_MAX_MS, Math.max(INSTALLER_TIMEOUT_MIN_MS, Number(request.timeoutMs) || STEAMCMD_UPDATE_TIMEOUT_MAX_MS));
+  const stallTimeoutMs = Math.min(timeoutMs, STEAMCMD_UPDATE_STALL_TIMEOUT_MS);
+  const startedAt = Date.now(); let stdout = ""; let stderr = ""; let timedOut = false; let stalled = false; let cancelled = false;
   assertNotServiceManaged(config, "steamcmd-spawn");
   Object.assign(session.updateState, { stage: "preparing", label: "Waiting for another SteamCMD task on this node...", updatedAt: nowIso() });
   const result = await withSteamCmdLock(() => new Promise((resolve, reject) => {
     let child;
     const steamCmdExecutable = resolveSteamCmdExecutable();
-    try { child = childProcess.spawn(steamCmdExecutable, args, { cwd: workingDirectory, env: buildSpawnEnvironment(config), shell: false, detached: false, stdio: ["ignore", "pipe", "pipe"], windowsHide: true }); }
+    try { child = childProcess.spawn(steamCmdExecutable, args, { cwd: workingDirectory, env: buildSpawnEnvironment(config), shell: false, detached: boundedChildDetached(), stdio: ["ignore", "pipe", "pipe"], windowsHide: true }); }
     catch (error) { reject(createInstanceError(error?.code === "ENOENT" ? "STEAMCMD_MISSING" : "STEAMCMD_SPAWN_FAILED", 500, { causeCode: error?.code || null })); return; }
-    session.child = child; session.cancel = () => { cancelled = true; if (!child.killed) child.kill("SIGKILL"); };
-    child.stdout?.on("data", (chunk) => { stdout = appendBoundedOutput(stdout, chunk); recordSteamCmdUpdateOutput(session, "stdout", chunk); });
-    child.stderr?.on("data", (chunk) => { stderr = appendBoundedOutput(stderr, chunk); recordSteamCmdUpdateOutput(session, "stderr", chunk); });
-    child.once("error", (error) => reject(createInstanceError(error?.code === "ENOENT" ? "STEAMCMD_MISSING" : "STEAMCMD_PROCESS_ERROR", 500, { causeCode: error?.code || null })));
-    child.once("close", (exitCode, signal) => resolve({ exitCode, signal }));
-    const timer = setTimeout(() => { timedOut = true; if (!child.killed) child.kill("SIGKILL"); }, timeoutMs); child.once("close", () => clearTimeout(timer));
-  })).finally(() => { session.child = null; session.cancel = null; });
+    session.child = child; session.cancel = () => { cancelled = true; killChildProcessTree(child); };
+    // No-progress watchdog: re-armed by every chunk of output.
+    let stallTimer = null;
+    const armStallTimer = () => {
+      if (stallTimer) clearTimeout(stallTimer);
+      stallTimer = setTimeout(() => { timedOut = true; stalled = true; killChildProcessTree(child); }, stallTimeoutMs);
+    };
+    armStallTimer();
+    child.stdout?.on("data", (chunk) => { armStallTimer(); stdout = appendBoundedOutput(stdout, chunk); recordSteamCmdUpdateOutput(session, "stdout", chunk); });
+    child.stderr?.on("data", (chunk) => { armStallTimer(); stderr = appendBoundedOutput(stderr, chunk); recordSteamCmdUpdateOutput(session, "stderr", chunk); });
+    const timer = setTimeout(() => { timedOut = true; killChildProcessTree(child); }, timeoutMs);
+    const clearTimers = () => { clearTimeout(timer); if (stallTimer) clearTimeout(stallTimer); };
+    child.once("error", (error) => { clearTimers(); reject(createInstanceError(error?.code === "ENOENT" ? "STEAMCMD_MISSING" : "STEAMCMD_PROCESS_ERROR", 500, { causeCode: error?.code || null })); });
+    settleBoundedChild(child, (exitCode, signal) => { clearTimers(); resolve({ exitCode, signal }); });
+  }), { deadlineMs: timeoutMs + STEAMCMD_LOCK_DEADLINE_MARGIN_MS }).finally(() => { session.child = null; session.cancel = null; });
   const buildIdAfter = await readBuildId();
+  const stateFlagsAfter = await readSteamManifestStateFlags(manifestPath);
   const output = `${stdout}\n${stderr}`;
   const downloadedBytes = parseSteamCmdDownloadedBytes(output);
   const successMarker = new RegExp(`Success!\\s+App\\s+['"]?${config.steamAppId}['"]?\\s+fully installed`, "i").test(output);
-  const details = { operationId: session.operationId, appId: config.steamAppId, args, installDirectory, exitCode: result.exitCode, signal: result.signal || null, timeoutMs, durationMs: Date.now() - startedAt, stdout, stderr, manifest: manifestRelative, buildIdBefore, buildIdAfter, downloadedBytes, successMarker };
+  const details = { operationId: session.operationId, appId: config.steamAppId, args, installDirectory, exitCode: result.exitCode, signal: result.signal || null, timeoutMs, stallTimeoutMs, stalled, durationMs: Date.now() - startedAt, stdout, stderr, manifest: manifestRelative, buildIdBefore, buildIdAfter, stateFlagsAfter, downloadedBytes, successMarker };
   if (cancelled) throw createInstanceError("STEAMCMD_UPDATE_CANCELLED", 409, details);
   if (timedOut) throw createInstanceError("STEAMCMD_UPDATE_TIMEOUT", 504, details);
   if (result.exitCode !== 0) throw createInstanceError(classifySteamCmdFailure(output), 422, details);
@@ -924,15 +1100,18 @@ async function executeSteamCmdUpdateUnobserved(instanceId, request = {}) {
   }
   // The server is stopped (checked above), so refreshing its Steam client copy is safe.
   const steamClientSync = await syncSteamClientRuntimeCopies({ appId: config.steamAppId, installDirectory });
+  // The backup and download can take minutes, and settings saved meanwhile
+  // must survive: reload the config and set only the update's own fields.
+  const latest = await loadInstanceConfig(config.id);
   await saveInstanceConfig({
-    ...config,
+    ...latest,
     steamBuildId: buildIdAfter,
     steamUpdatedAt: nowIso(),
     // The rollback point for this update; an update without a backup keeps
     // the previous one only if the build did not change.
     steamPreUpdateBackup: preUpdateBackup
       ? { ...preUpdateBackup, buildIdAfter }
-      : buildIdAfter === buildIdBefore ? config.steamPreUpdateBackup || null : null,
+      : buildIdAfter === buildIdBefore ? latest.steamPreUpdateBackup || null : null,
     updatedAt: nowIso(),
   });
   return { ok: true, ...details, verified: verifyFiles, steamClientSync, preUpdateBackup, buildChanged: Boolean(buildIdBefore && buildIdAfter !== buildIdBefore) };
@@ -1026,7 +1205,7 @@ async function runSteamAppInfoPrint(config) {
     let stdout = "";
     let overflow = false;
     let timedOut = false;
-    try { child = childProcess.spawn(resolveSteamCmdExecutable(), args, { cwd: workingDirectory, env: buildSpawnEnvironment(config), shell: false, detached: false, stdio: ["ignore", "pipe", "pipe"], windowsHide: true }); }
+    try { child = childProcess.spawn(resolveSteamCmdExecutable(), args, { cwd: workingDirectory, env: buildSpawnEnvironment(config), shell: false, detached: boundedChildDetached(), stdio: ["ignore", "pipe", "pipe"], windowsHide: true }); }
     catch (error) { reject(createInstanceError(error?.code === "ENOENT" ? "STEAMCMD_MISSING" : "STEAMCMD_SPAWN_FAILED", 500, { causeCode: error?.code || null })); return; }
     // The app section is at the head of the output, so keep the head and stop
     // reading (rather than keeping the tail) if the output is unexpectedly large.
@@ -1036,9 +1215,9 @@ async function runSteamAppInfoPrint(config) {
       if (Buffer.byteLength(stdout) > STEAM_APP_INFO_OUTPUT_MAX_BYTES) overflow = true;
     });
     child.stderr?.on("data", () => {});
-    child.once("error", (error) => reject(createInstanceError(error?.code === "ENOENT" ? "STEAMCMD_MISSING" : "STEAMCMD_PROCESS_ERROR", 500, { causeCode: error?.code || null })));
-    const timer = setTimeout(() => { timedOut = true; if (!child.killed) child.kill("SIGKILL"); }, STEAM_BUILD_CHECK_TIMEOUT_MS);
-    child.once("close", (exitCode) => {
+    child.once("error", (error) => { clearTimeout(timer); reject(createInstanceError(error?.code === "ENOENT" ? "STEAMCMD_MISSING" : "STEAMCMD_PROCESS_ERROR", 500, { causeCode: error?.code || null })); });
+    const timer = setTimeout(() => { timedOut = true; killChildProcessTree(child); }, STEAM_BUILD_CHECK_TIMEOUT_MS);
+    settleBoundedChild(child, (exitCode) => {
       clearTimeout(timer);
       if (timedOut) reject(createInstanceError("STEAMCMD_BUILD_CHECK_TIMEOUT", 504));
       else resolve({ exitCode, stdout });
@@ -1135,10 +1314,13 @@ async function setSteamCmdBranch(instanceId, request = {}) {
 // Scheduled restart with opt-in SteamCMD update. The update runs only when a
 // newer public build is confirmed, between the stop and the start, through the
 // same session + execute path as the manual "Update Server Files" action (so
-// the stopped-state check, before/after build verification and the ten-minute
-// SteamCMD timeout all still apply). A failed update never leaves the server
-// down: it is started again on the build it already had and the failure is
-// returned (and logged to the instance console) for the caller to surface.
+// the stopped-state check, before/after build verification and the SteamCMD
+// timeout and stall watchdog all still apply). A failed update does not leave
+// the server down: it is started again on the build it already had and the
+// failure is returned (and logged to the instance console) for the caller to
+// surface. The one exception is a SteamCMD that was killed part-way and left
+// the appmanifest saying the install is not whole: the server is then marked
+// Failed (STEAMCMD_INSTALL_INCOMPLETE) instead of started on mixed files.
 
 // Agent-run (scheduled) SteamCMD updates, so clients can show their progress
 // without owning the update session: the active one per instance, and the
@@ -1208,12 +1390,30 @@ async function restartInstanceWithSteamUpdate(instanceId, options = {}) {
       buildIdAfter: error?.buildIdAfter ?? null,
       latestBuildId: check.latestBuildId,
     };
-    await appendLog(config.id, "stderr", `Scheduled SteamCMD update failed (${steamUpdate.code}); starting the server on its current build.`).catch(() => {});
+    // A SteamCMD that was killed (timeout, no progress, or a signal) may have
+    // stopped while committing files. Starting the server then would run a
+    // half-patched install, so the manifest has to say the install is whole.
+    // A manifest without StateFlags (or none at all) keeps the old behaviour.
+    if (steamUpdate.code === "STEAMCMD_UPDATE_TIMEOUT" || error?.signal) {
+      let stateFlags = null;
+      try { stateFlags = await readSteamManifestStateFlags(resolveSteamAppManifest(config).manifestPath); } catch { stateFlags = null; }
+      steamUpdate.stateFlags = stateFlags;
+      if (stateFlags !== null && !isSteamInstallConsistent(stateFlags)) steamUpdate.installIncomplete = true;
+    }
+    await appendLog(config.id, "stderr", steamUpdate.installIncomplete
+      ? `Scheduled SteamCMD update failed (${steamUpdate.code}) and SteamCMD was stopped part-way (StateFlags ${steamUpdate.stateFlags}); the server was not started because its files may be incomplete. Run the update again.`
+      : `Scheduled SteamCMD update failed (${steamUpdate.code}); starting the server on its current build.`).catch(() => {});
   } finally {
     if (session) await closeInstallationSession(config.id, { operationId, token: session.token }).catch(() => {});
   }
   activeSteamUpdates.delete(config.id);
-  recentSteamUpdates.set(config.id, { operationId, scheduled: true, ok: steamUpdate.ok === true, code: steamUpdate.code || null, buildIdBefore: steamUpdate.buildIdBefore || null, buildIdAfter: steamUpdate.buildIdAfter || null, finishedAt: nowIso() });
+  recentSteamUpdates.set(config.id, { operationId, scheduled: true, ok: steamUpdate.ok === true, code: steamUpdate.installIncomplete ? "STEAMCMD_INSTALL_INCOMPLETE" : steamUpdate.code || null, buildIdBefore: steamUpdate.buildIdBefore || null, buildIdAfter: steamUpdate.buildIdAfter || null, finishedAt: nowIso() });
+  if (steamUpdate.installIncomplete) {
+    await updateRuntimeState(config.id, { state: INSTANCE_STATES.FAILED, pid: null, failureReason: "STEAMCMD_INSTALL_INCOMPLETE", lastStoppedAt: nowIso() });
+    const error = createInstanceError("STEAMCMD_INSTALL_INCOMPLETE", 409, { instanceId: config.id, steamUpdate });
+    error.message = "The scheduled SteamCMD update was stopped part-way and the server files may be incomplete, so the server was not started. Run the update again.";
+    throw error;
+  }
   return { instance: await startInstance(config.id), steamUpdate };
 }
 
@@ -2026,7 +2226,7 @@ function resolveInstanceJavaRuntime(config) {
 
 function publicConfig(config) {
   config = clearInstallerRuntimeJarMetadata(config);
-  const { crashLoopDetectedAt: _crashLoopDetectedAt, signInChallenge: _signInChallenge, ...safeConfig } = config;
+  const { crashLoopDetectedAt: _crashLoopDetectedAt, signInChallenge: _signInChallenge, processIdentity: _processIdentity, ...safeConfig } = config;
   const crashLoop = config.state === INSTANCE_STATES.FAILED && config.failureReason === "CRASH_LOOP";
   const processRunning = [INSTANCE_STATES.STARTING, INSTANCE_STATES.RUNNING, INSTANCE_STATES.STOPPING, INSTANCE_STATES.RESTARTING].includes(config.state);
   const readinessState = config.state === INSTANCE_STATES.RUNNING ? config.readinessState || "unknown"
@@ -2868,6 +3068,9 @@ const playerMonitor = createPlayerMonitor({
     const file = await readInstanceFile(config.id, relativePath);
     return file && file.supported !== false ? file.content : null;
   },
+  // The same resolver Game Settings uses, so a Marketplace install
+  // (data/server/Pal/...) is found.
+  palworldSettingsPaths: (config) => getPalworldConfigCandidates(config),
 });
 
 async function getPlayers(instanceId) {
@@ -3360,10 +3563,13 @@ function disposeInstanceService() {
 }
 
 async function shutdownInstanceService(options = {}) {
+  serviceLifecycleGeneration += 1;
   disposeInstanceService();
-  const timeoutMs = validatePositiveInteger(options.timeoutMs, 5000, 30000, "shutdownTimeoutMs");
+  // timeoutMs is a ceiling: each server still stops within its own
+  // shutdownTimeoutMs when that is shorter (stopInstanceImpl takes the min).
+  const timeoutMs = validatePositiveInteger(options.timeoutMs, SERVICE_SHUTDOWN_CEILING_MS, MAX_SHUTDOWN_TIMEOUT_MS, "shutdownTimeoutMs");
   const instanceIds = [...runningProcesses.keys()];
-  const results = await Promise.allSettled(instanceIds.map((instanceId) => stopInstance(instanceId, { timeoutMs })));
+  const results = await Promise.allSettled(instanceIds.map((instanceId) => stopInstance(instanceId, { timeoutMs, serviceShutdown: true })));
 
   for (const [index, result] of results.entries()) {
     if (result.status === "fulfilled") continue;
@@ -3398,6 +3604,15 @@ async function shutdownInstanceService(options = {}) {
   };
 }
 
+// True when a crash came before the run proved stable (see
+// RESTART_BACKOFF_STABLE_RUN_MS); such crashes count toward CRASH_LOOP.
+function isUnstableRun(runtimeMs) {
+  return runtimeMs > 0 && runtimeMs < RESTART_BACKOFF_STABLE_RUN_MS;
+}
+
+// options.immediateExit: the exit counts toward the crash-loop budget (a crash
+// before the run was stable, or a clean "always" exit within 8 s, which an
+// operator's own in-game stop does not hit).
 function getRestartBackoffDecision(instanceId, options = {}) {
   const immediateExit = Boolean(options.immediateExit);
 
@@ -3850,7 +4065,7 @@ async function runBoundedRepairCommand(config, command, timeoutMs) {
       child = childProcess.spawn(command.executable, command.args, {
         cwd: workingDirectory,
         env: buildSpawnEnvironment(config),
-        detached: false,
+        detached: boundedChildDetached(),
         shell: false,
         stdio: ["ignore", "pipe", "pipe"],
         windowsHide: true,
@@ -3861,13 +4076,18 @@ async function runBoundedRepairCommand(config, command, timeoutMs) {
     }
     child.stdout?.on("data", (chunk) => { stdout = appendBoundedOutput(stdout, chunk); });
     child.stderr?.on("data", (chunk) => { stderr = appendBoundedOutput(stderr, chunk); });
-    child.once("error", (error) => reject(createInstanceError("NEOFORGE_REPAIR_PROCESS_ERROR", 500, { causeCode: error?.code || null })));
-    child.once("close", (exitCode, signal) => resolve({ exitCode, signal }));
+    child.once("error", (error) => {
+      clearTimeout(timer);
+      reject(createInstanceError("NEOFORGE_REPAIR_PROCESS_ERROR", 500, { causeCode: error?.code || null }));
+    });
     const timer = setTimeout(() => {
       timedOut = true;
-      if (!child.killed) child.kill("SIGKILL");
+      killChildProcessTree(child);
     }, timeoutMs);
-    child.once("close", () => clearTimeout(timer));
+    settleBoundedChild(child, (exitCode, signal) => {
+      clearTimeout(timer);
+      resolve({ exitCode, signal });
+    });
   });
   return { ...result, timedOut, stdout, stderr };
 }
@@ -4984,10 +5204,178 @@ function normalizeIdentityPath(value) {
 // still match before treating a persisted PID as live.
 // Returns "verified", "mismatch", or "unavailable" (no snapshot data to judge
 // with — callers must keep treating the process as running in that case).
+function currentBootTimeMs() {
+  return Date.now() - Math.round(os.uptime() * 1000);
+}
+
+function readLinuxBootId() {
+  try {
+    return fsSync.readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+// /proc/<pid>/stat: the name sits in parentheses and may contain spaces, so
+// fields are counted from the last ")". Field 5 is the process group, field
+// 22 the start time in clock ticks since boot.
+function readLinuxProcStat(pid) {
+  try {
+    const raw = fsSync.readFileSync(`/proc/${pid}/stat`, "utf8");
+    const open = raw.indexOf("(");
+    const close = raw.lastIndexOf(")");
+    if (open < 0 || close < open) return null;
+    const fields = raw.slice(close + 1).trim().split(/\s+/);
+    return {
+      name: raw.slice(open + 1, close),
+      processGroupId: normalizePid(fields[2]),
+      startTicks: fields[19] || null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+// Comparable executable name: no directory, no ".exe", lower case, and cut to
+// the 15 characters Linux keeps in /proc/<pid>/stat.
+function normalizeImageName(value) {
+  const name = path.basename(String(value || "").trim().replace(/\\/g, "/")).toLowerCase().replace(/\.exe$/, "");
+  return name ? name.slice(0, 15) : null;
+}
+
+function imageNamesMatch(left, right) {
+  return left === right || left.startsWith(right) || right.startsWith(left);
+}
+
+function windowsSystemExecutable(...segments) {
+  return path.join(process.env.SystemRoot || process.env.windir || "C:\\Windows", ...segments);
+}
+
+function readWindowsProcessIdentity(pid) {
+  // pid is a validated integer, so it cannot inject into the command.
+  const script = `$p = Get-Process -Id ${pid} -ErrorAction Stop; $t = ''; try { $t = $p.StartTime.ToUniversalTime().ToString('o') } catch {}; Write-Output ($p.ProcessName + '|' + $t)`;
+  return new Promise((resolve) => {
+    try {
+      childProcess.execFile(
+        windowsSystemExecutable("System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
+        ["-NoProfile", "-NonInteractive", "-Command", script],
+        { windowsHide: true, timeout: 8000, maxBuffer: 64 * 1024 },
+        (error, stdout) => {
+          if (error) {
+            resolve(null);
+            return;
+          }
+          const line = String(stdout || "").trim().split(/\r?\n/).pop() || "";
+          const [name, started] = line.split("|");
+          const startedAtMs = started ? Date.parse(started) : NaN;
+          resolve(name ? {
+            imageName: normalizeImageName(name),
+            startedAtMs: Number.isFinite(startedAtMs) ? startedAtMs : null,
+            startTicks: null,
+            bootId: null,
+          } : null);
+        },
+      );
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+// What can be read about a live PID now: executable name plus, when the
+// platform allows, its start (Linux ticks + boot id, Windows start time).
+async function readLiveProcessIdentity(pid) {
+  if (typeof processInspectionProvider === "function") {
+    const snapshot = await inspectSystemProcesses().catch(() => null);
+    const proc = snapshot?.processes?.find((entry) => normalizePid(entry.pid) === pid);
+    return proc ? {
+      imageName: normalizeImageName(proc.name || proc.exe),
+      startTicks: proc.startTicks ? String(proc.startTicks) : null,
+      startedAtMs: Number.isFinite(proc.startedAtMs) ? proc.startedAtMs : null,
+      bootId: proc.bootId || null,
+    } : null;
+  }
+  if (process.platform === "linux") {
+    const stat = readLinuxProcStat(pid);
+    return stat ? { imageName: normalizeImageName(stat.name), startTicks: stat.startTicks, startedAtMs: null, bootId: readLinuxBootId() } : null;
+  }
+  if (process.platform === "win32") {
+    const cached = liveProcessIdentityCache.get(pid);
+    if (cached && Date.now() - cached.at < LIVE_IDENTITY_CACHE_TTL_MS) {
+      return cached.value;
+    }
+    const value = await readWindowsProcessIdentity(pid);
+    liveProcessIdentityCache.set(pid, { at: Date.now(), value });
+    return value;
+  }
+  return null;
+}
+
+// Recorded with the PID of every process the service spawns, so a persisted
+// PID can later be told apart from an unrelated process that reused it.
+function buildSpawnIdentity(pid, executable, startedAtMs = Date.now()) {
+  const linux = process.platform === "linux";
+  const stat = linux ? readLinuxProcStat(pid) : null;
+  return {
+    pid,
+    imageName: normalizeImageName(executable),
+    startedAtMs,
+    bootTimeMs: currentBootTimeMs(),
+    bootId: linux ? readLinuxBootId() : null,
+    startTicks: stat?.startTicks || null,
+  };
+}
+
+function spawnIdentityBootChanged(identity) {
+  return Number.isFinite(identity.bootTimeMs) &&
+    Math.abs(currentBootTimeMs() - identity.bootTimeMs) > SPAWN_IDENTITY_BOOT_TOLERANCE_MS;
+}
+
+// "verified" | "mismatch" | "unavailable" for a PID that has a spawn identity.
+function compareSpawnIdentity(identity, live) {
+  if (live) {
+    if (identity.bootId && live.bootId && identity.bootId !== live.bootId) {
+      return "mismatch";
+    }
+    if (identity.startTicks && live.startTicks) {
+      return String(identity.startTicks) === String(live.startTicks) ? "verified" : "mismatch";
+    }
+    if (Number.isFinite(identity.startedAtMs) && Number.isFinite(live.startedAtMs)) {
+      return Math.abs(live.startedAtMs - identity.startedAtMs) <= SPAWN_IDENTITY_START_TOLERANCE_MS ? "verified" : "mismatch";
+    }
+    if (identity.imageName && live.imageName && !imageNamesMatch(identity.imageName, live.imageName)) {
+      return "mismatch";
+    }
+  }
+  // With no start time to compare, a different boot still proves the PID was
+  // reused: a process the service spawned never outlives a reboot.
+  return spawnIdentityBootChanged(identity) ? "mismatch" : "unavailable";
+}
+
+// Records written before spawn identities existed: the live executable name
+// must at least match the configured executable.
+async function verifyByExecutableImage(config, pid) {
+  const expected = normalizeImageName(config.executable);
+  const live = await readLiveProcessIdentity(pid).catch(() => null);
+  if (expected && live?.imageName && !imageNamesMatch(expected, live.imageName)) {
+    return "mismatch";
+  }
+  return "unavailable";
+}
+
 async function verifyPersistedRuntimeIdentity(config = {}, pid = null) {
   const normalizedPid = normalizePid(pid);
   if (!normalizedPid) {
     return "unavailable";
+  }
+  const spawnIdentity = config.processIdentity && normalizePid(config.processIdentity.pid) === normalizedPid
+    ? config.processIdentity
+    : null;
+  if (spawnIdentity && !config.runtimeProcess) {
+    const verdict = compareSpawnIdentity(spawnIdentity, await readLiveProcessIdentity(normalizedPid).catch(() => null));
+    if (verdict !== "unavailable") {
+      return verdict;
+    }
   }
   let snapshot = null;
   try {
@@ -4996,7 +5384,12 @@ async function verifyPersistedRuntimeIdentity(config = {}, pid = null) {
     return "unavailable";
   }
   if (!Array.isArray(snapshot.processes) || snapshot.processes.length === 0) {
-    return "unavailable";
+    // No process table here (Windows). Detached runtimes and spawn identities
+    // were judged above; only a legacy record is still checked by name.
+    if (config.runtimeProcess || spawnIdentity || await buildDetachedRuntimeSpec(config).catch(() => null)) {
+      return "unavailable";
+    }
+    return verifyByExecutableImage(config, normalizedPid);
   }
   const proc = snapshot.processes.find((entry) => normalizePid(entry.pid) === normalizedPid);
   if (!proc) {
@@ -5020,7 +5413,7 @@ async function verifyPersistedRuntimeIdentity(config = {}, pid = null) {
   }
   const runtime = config.runtimeProcess;
   if (!runtime) {
-    return "unavailable";
+    return spawnIdentity ? "unavailable" : verifyByExecutableImage(config, normalizedPid);
   }
   const liveName = path.basename(String(proc.name || proc.exe || "")).toLowerCase();
   const liveExe = String(proc.exe || "").replace(/\\/g, "/").toLowerCase();
@@ -5100,8 +5493,12 @@ async function reconcileConfigState(config) {
   const processEntry = runningProcesses.get(config.id);
   const pid = processEntry?.child?.pid || config.pid;
 
+  // The exit was observed and its handler is still recording the result
+  // (Failed or Stopped, then possibly CRASH_LOOP or a restart). Report that
+  // result, but leave the write to the handler: a poll that saved here could
+  // land after the handler's CRASH_LOOP and replace it with PROCESS_EXITED.
   if (processEntry?.exitObserved) {
-    const updated = {
+    return {
       ...config,
       state: processEntry.failed ? INSTANCE_STATES.FAILED : INSTANCE_STATES.STOPPED,
       pid: null,
@@ -5113,8 +5510,6 @@ async function reconcileConfigState(config) {
       healthState: processEntry.failed ? "crashed" : "unknown",
       lastStoppedAt: config.lastStoppedAt || nowIso(),
     };
-    await saveInstanceConfig(updated);
-    return updated;
   }
 
   if (pid && isProcessAlive(pid)) {
@@ -5790,6 +6185,12 @@ async function forgetInstance(instanceId) {
   }
 }
 
+// A server that reached readiness after the startup timer fired drops the
+// READINESS_TIMEOUT that timer recorded; any other failure reason stays.
+function readinessTimeoutClearPatch(entry) {
+  return entry?.readinessTimedOut ? { failureReason: null } : {};
+}
+
 async function updateRuntimeState(instanceId, patch) {
   const current = await loadInstanceConfig(instanceId);
   const updated = {
@@ -5800,6 +6201,74 @@ async function updateRuntimeState(instanceId, patch) {
 
   await saveInstanceConfig(updated);
   return updated;
+}
+
+// Writes to one log file run one at a time, in call order. Pipe handlers call
+// appendLog without awaiting it, and unserialized stat+append chains finished
+// in threadpool order, storing a burst of output (a stack trace) scrambled.
+const logWriteQueues = new Map();
+
+function enqueueLogWrite(filePath, task) {
+  const previous = logWriteQueues.get(filePath) || Promise.resolve();
+  const run = previous.then(() => task());
+  const settled = run.catch(() => {});
+  logWriteQueues.set(filePath, settled);
+  settled.then(() => {
+    if (logWriteQueues.get(filePath) === settled) {
+      logWriteQueues.delete(filePath);
+    }
+  });
+  return run;
+}
+
+// Turns a process stream's raw chunks into whole lines. Bytes are decoded with
+// a StringDecoder, so a UTF-8 character cut between chunks stays intact, and
+// the trailing partial line is carried into the next chunk. flush() writes
+// what is left when the stream ends.
+function createLogLineAssembler(writeText) {
+  const decoder = new StringDecoder("utf8");
+  let pending = "";
+  let timer = null;
+
+  const clearTimer = () => {
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+  };
+  const writePending = () => {
+    const held = pending;
+    pending = "";
+    if (held) {
+      writeText(held);
+    }
+  };
+
+  return {
+    push(chunk) {
+      const text = pending + (Buffer.isBuffer(chunk) ? decoder.write(chunk) : String(chunk ?? ""));
+      const lastBreak = text.lastIndexOf("\n");
+      pending = lastBreak === -1 ? text : text.slice(lastBreak + 1);
+      if (lastBreak !== -1) {
+        writeText(text.slice(0, lastBreak + 1));
+      }
+      clearTimer();
+      if (pending.length > LOG_PARTIAL_LINE_MAX_CHARS) {
+        writePending();
+      } else if (pending) {
+        timer = setTimeout(() => {
+          timer = null;
+          writePending();
+        }, LOG_PARTIAL_LINE_FLUSH_MS);
+        timer.unref?.();
+      }
+    },
+    flush() {
+      clearTimer();
+      pending += decoder.end();
+      writePending();
+    },
+  };
 }
 
 async function rotateLogIfNeeded(filePath) {
@@ -5880,6 +6349,9 @@ async function getJavaVersionForLog(executable) {
 // exists, so lines written outside a correlation scope are byte-identical to
 // before and `readLogs` (the Agent's reader path) only surfaces the field when
 // it is genuinely present.
+//
+// Lines are stamped and queued synchronously, when the output arrives; the
+// write itself (rotation check, then append) runs in this file's queue.
 async function appendLog(instanceId, streamName, chunk, metadata = {}) {
   const filePath = logPath(instanceId, streamName);
   const lines = String(chunk || "").split(/\r?\n/).filter(Boolean);
@@ -5888,19 +6360,21 @@ async function appendLog(instanceId, streamName, chunk, metadata = {}) {
     return;
   }
 
-  await rotateLogIfNeeded(filePath);
-
+  const at = nowIso();
   const correlation = correlationMetadata(metadata?.correlationId);
   const payload = lines.map((line) => {
     return JSON.stringify({
-      at: nowIso(),
+      at,
       stream: streamName,
       message: redactLogLine(line),
       ...correlation,
     });
   }).join("\n");
 
-  await fs.appendFile(filePath, `${payload}\n`, { mode: 0o600 });
+  await enqueueLogWrite(filePath, async () => {
+    await rotateLogIfNeeded(filePath);
+    await fs.appendFile(filePath, `${payload}\n`, { mode: 0o600 });
+  });
 }
 
 function scheduleVersionRefresh(instanceId, delayMs = 2500) {
@@ -6072,6 +6546,8 @@ async function startInstanceImpl(instanceId, options = {}) {
     readinessState: "starting",
     healthState: "unknown",
     runtimeProcess: null,
+    processIdentity: null,
+    stopOrigin: null,
     lastStartedAt: nowIso(),
   });
 
@@ -6093,7 +6569,9 @@ async function startInstanceImpl(instanceId, options = {}) {
     child = runWithCorrelationScope({ correlationId: runCorrelationId }, () => childProcess.spawn(config.executable, config.args, {
       cwd: workingDirectory,
       env: buildSpawnEnvironment(config),
-      detached: false,
+      // POSIX: the server gets its own process group so Stop reaches the whole
+      // tree a launcher script starts (see signalInstanceProcesses).
+      detached: spawnsOwnProcessGroup(),
       shell: false,
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
@@ -6109,9 +6587,15 @@ async function startInstanceImpl(instanceId, options = {}) {
 
     return publicConfig(failedConfig);
   }
+  // The spawn time, recorded with the PID (buildSpawnIdentity) before the
+  // awaits below can delay the write.
+  const spawnedAtMs = Date.now();
 
     runningProcesses.set(config.id, {
       child,
+      ownProcessGroup: spawnsOwnProcessGroup(),
+      // An installer helper run through this pipeline has no game console.
+      installerRun: options.role === "installer",
       startedAt: Date.now(),
       requestedStop: false,
       suppressRestart: false,
@@ -6157,9 +6641,24 @@ async function startInstanceImpl(instanceId, options = {}) {
     return publicConfig(failedConfig);
   }
 
+  // A console write after the server closed its stdin (a stop command, a
+  // late operator command) must not crash the service with EPIPE.
+  child.stdin?.on?.("error", () => {});
+
+  // The console log is written in whole lines; the readiness and failure
+  // checks below still see each raw chunk as it arrives.
+  const stdoutLog = createLogLineAssembler((chunk) => {
+    appendLog(config.id, "stdout", chunk, { correlationId: runCorrelationId }).catch(() => {});
+  });
+  const stderrLog = createLogLineAssembler((chunk) => {
+    appendLog(config.id, "stderr", chunk, { correlationId: runCorrelationId }).catch(() => {});
+  });
+  child.stdout.on("end", () => stdoutLog.flush());
+  child.stderr.on("end", () => stderrLog.flush());
+
   child.stdout.on("data", (chunk) => {
     const text = String(chunk || "");
-    appendLog(config.id, "stdout", chunk, { correlationId: runCorrelationId }).catch(() => {});
+    stdoutLog.push(chunk);
     appendProcessTail(runningProcesses.get(config.id), "stdout", chunk);
     noteCommonServerFailure(runningProcesses.get(config.id), text);
     if (isFiveMInstance(config) && FIVEM_LICENSE_FAILURE_PATTERN.test(text)) {
@@ -6178,12 +6677,18 @@ async function startInstanceImpl(instanceId, options = {}) {
         return;
       }
       const entry = runningProcesses.get(config.id);
-      if (entry) entry.readinessState = "ready";
+      if (entry) {
+        entry.readinessState = "ready";
+        // The ready line is authoritative, as for Hytale and the port probe:
+        // the generic startup timeout must not later write READINESS_TIMEOUT.
+        if (entry.startupTimer) clearTimeout(entry.startupTimer);
+      }
       updateRuntimeState(config.id, {
         state: INSTANCE_STATES.RUNNING,
         pid: child.pid,
         readinessState: "ready",
         healthState: "healthy",
+        ...readinessTimeoutClearPatch(entry),
       }).catch(() => {});
       scheduleVersionRefresh(config.id, 1000);
     }
@@ -6191,7 +6696,7 @@ async function startInstanceImpl(instanceId, options = {}) {
 
   child.stderr.on("data", (chunk) => {
     const text = String(chunk || "");
-    appendLog(config.id, "stderr", chunk, { correlationId: runCorrelationId }).catch(() => {});
+    stderrLog.push(chunk);
     const entry = runningProcesses.get(config.id);
     appendProcessTail(entry, "stderr", chunk);
     noteCommonServerFailure(entry, text);
@@ -6346,7 +6851,7 @@ async function startInstanceImpl(instanceId, options = {}) {
       }
 
       if (failed && !suppressRestart && !invalidCommandExit && !earlyCleanExit && (updatedConfig.restartPolicy === "always" || updatedConfig.restartPolicy === "on-failure")) {
-        const backoff = getRestartBackoffDecision(config.id, { immediateExit: runtimeMs > 0 && runtimeMs < STARTUP_EARLY_EXIT_MS });
+        const backoff = getRestartBackoffDecision(config.id, { immediateExit: isUnstableRun(runtimeMs) });
         if (backoff.allowed) {
           appendLog(config.id, "stderr", `Auto-restart scheduled in ${Math.round(backoff.delayMs / 1000)}s after failure ${backoff.failures || 1}.`).catch(() => {});
           scheduleAutomaticRestart(config.id, backoff.delayMs);
@@ -6358,7 +6863,7 @@ async function startInstanceImpl(instanceId, options = {}) {
             restartFailures: backoff.failures,
             crashLoopDetectedAt: nowIso(),
           });
-          appendLog(config.id, "stderr", `Auto-restart disabled after ${backoff.failures} immediate failures. Manual Start will reset retries.`).catch(() => {});
+          appendLog(config.id, "stderr", `Auto-restart disabled after ${backoff.failures} failures in a row, each within ${RESTART_BACKOFF_STABLE_RUN_MS / 60000} minutes of starting. Manual Start will reset retries.`).catch(() => {});
         }
       } else if (!failed && !suppressRestart && !invalidCommandExit && updatedConfig.restartPolicy === "always" && !requestedStop) {
         const backoff = getRestartBackoffDecision(config.id, { immediateExit: runtimeMs > 0 && runtimeMs < STARTUP_EARLY_EXIT_MS });
@@ -6382,7 +6887,8 @@ async function startInstanceImpl(instanceId, options = {}) {
   const startupTimer = setTimeout(() => {
     const entry = runningProcesses.get(config.id);
 
-    if (!isPalworldRuntimeCandidate(config) && entry?.child === child && child.exitCode === null && isProcessAlive(child.pid)) {
+    if (!isPalworldRuntimeCandidate(config) && entry?.child === child && child.exitCode === null && entry.readinessState !== "ready" && isProcessAlive(child.pid)) {
+      entry.readinessTimedOut = true;
       updateRuntimeState(config.id, {
         state: INSTANCE_STATES.RUNNING,
         pid: child.pid,
@@ -6423,6 +6929,7 @@ async function startInstanceImpl(instanceId, options = {}) {
         pid: child.pid,
         readinessState: "ready",
         healthState: "healthy",
+        ...readinessTimeoutClearPatch(entry),
       }).catch(() => {});
       scheduleVersionRefresh(config.id, 1000);
     }).catch(() => {});
@@ -6452,6 +6959,8 @@ async function startInstanceImpl(instanceId, options = {}) {
   const existingEntry = runningProcesses.get(config.id);
   runningProcesses.set(config.id, {
     child,
+    ownProcessGroup: existingEntry?.ownProcessGroup ?? spawnsOwnProcessGroup(),
+    installerRun: existingEntry?.installerRun ?? options.role === "installer",
     startedAt: Date.now(),
     requestedStop: existingEntry?.requestedStop || false,
     suppressRestart: existingEntry?.suppressRestart || false,
@@ -6467,6 +6976,7 @@ async function startInstanceImpl(instanceId, options = {}) {
   const updated = await updateRuntimeState(config.id, {
     state: INSTANCE_STATES.STARTING,
     pid: child.pid,
+    processIdentity: buildSpawnIdentity(child.pid, config.executable, spawnedAtMs),
     signInChallenge: null,
   });
   await appendLog(config.id, "stdout", `Process PID: ${child.pid}`);
@@ -6534,12 +7044,19 @@ async function forceKillInstance(instanceId) {
     }
   }
 
-  process.kill(pid, "SIGKILL");
+  const forceTarget = buildStopTarget(entry, normalizePid(pid));
+  if (forceTarget.treeKill) {
+    // A child this service spawned: kill the whole tree it started.
+    await forceKillInstanceProcesses(forceTarget);
+  } else {
+    process.kill(pid, "SIGKILL");
+  }
   const updated = await updateRuntimeState(config.id, {
     state: INSTANCE_STATES.STOPPED,
     pid: null,
     signal: "SIGKILL",
     runtimeProcess: null,
+    stopOrigin: "operator",
     lastStoppedAt: nowIso(),
   });
 
@@ -6549,41 +7066,136 @@ async function forceKillInstance(instanceId) {
   return publicConfig(updated);
 }
 
-function waitForPidExit(pid, timeoutMs) {
+// The server console command that saves and exits, written to stdin before
+// any signal. On Windows a signal is TerminateProcess, so without this a
+// server never gets to save. null: the server has no stdin console stop, and
+// the signal path is used directly.
+function getConsoleStopCommand(config = {}) {
+  const family = inferGameFamily(config);
+  if (family === "minecraft") {
+    const software = inferServerSoftware(config);
+    if (software === "BungeeCord" || software === "Waterfall") return "end";
+    if (software === "Velocity") return "shutdown";
+    return "stop";
+  }
+  if (family === "terraria") return "exit";
+  if (family === "fivem") return "quit";
+  return null;
+}
+
+function spawnsOwnProcessGroup() {
+  return process.platform !== "win32";
+}
+
+function isProcessGroupAlive(groupId) {
+  if (!groupId) return false;
+  if (typeof processAliveProvider === "function") {
+    return Boolean(processAliveProvider(-groupId));
+  }
+  try {
+    process.kill(-groupId, 0);
+    return true;
+  } catch (error) {
+    return error?.code === "EPERM";
+  }
+}
+
+// What Stop has to end: the chosen runtime PID, the tracked launcher (the
+// root of the tree this service spawned) and, on POSIX, its process group.
+// Group signals and taskkill /T act outside process.kill, so they are used
+// only for a real child process this service spawned, never for a PID it
+// merely tracks or a stand-in object.
+function buildStopTarget(entry, pid) {
+  const rootPid = normalizePid(entry?.child?.pid);
+  const spawnedChild = Boolean(rootPid && entry.child instanceof childProcess.ChildProcess);
+  return {
+    pid,
+    rootPid: rootPid && isProcessAlive(rootPid) ? rootPid : null,
+    groupId: spawnedChild && entry.ownProcessGroup ? rootPid : null,
+    treeKill: spawnedChild,
+  };
+}
+
+function signalInstanceProcesses(target, signal) {
+  if (target.groupId) {
+    try { process.kill(-target.groupId, signal); } catch {}
+  }
+  // A runtime outside the group (a detached server the launcher handed off
+  // to) is signalled on its own; a group member is not signalled twice.
+  const inGroup = target.groupId && (target.pid === target.groupId ||
+    (process.platform === "linux" && readLinuxProcStat(target.pid)?.processGroupId === target.groupId));
+  if (target.pid && !inGroup) {
+    try { process.kill(target.pid, signal); } catch {}
+  }
+}
+
+function killWindowsProcessTree(pid) {
   return new Promise((resolve) => {
-    if (!pid || !isProcessAlive(pid)) {
-      resolve(true);
-      return;
+    try {
+      childProcess.execFile(
+        windowsSystemExecutable("System32", "taskkill.exe"),
+        ["/PID", String(pid), "/T", "/F"],
+        { windowsHide: true, timeout: 10000 },
+        (error) => resolve(!error),
+      );
+    } catch {
+      resolve(false);
     }
-    const startedAt = Date.now();
-    const timer = setInterval(() => {
-      if (!isProcessAlive(pid)) {
-        clearInterval(timer);
-        resolve(true);
-        return;
-      }
-      if (Date.now() - startedAt >= timeoutMs) {
-        clearInterval(timer);
-        resolve(false);
-      }
-    }, 250);
-    timer.unref?.();
   });
 }
 
-function waitForExit(child, timeoutMs) {
+async function forceKillInstanceProcesses(target) {
+  if (process.platform !== "win32") {
+    signalInstanceProcesses(target, "SIGKILL");
+    return;
+  }
+  // Windows has no process groups: taskkill /T walks the tree from the
+  // launcher this service spawned. A PID the service did not spawn itself is
+  // never tree-killed. Any signal name is TerminateProcess on Windows.
+  if (target.rootPid && isProcessAlive(target.rootPid)) {
+    const killed = target.treeKill ? await killWindowsProcessTree(target.rootPid) : false;
+    if (!killed && isProcessAlive(target.rootPid)) {
+      try { process.kill(target.rootPid, "SIGTERM"); } catch {}
+    }
+  }
+  if (target.pid && target.pid !== target.rootPid && isProcessAlive(target.pid)) {
+    try { process.kill(target.pid, "SIGTERM"); } catch {}
+  }
+}
+
+function stopTargetsAlive(entry, target) {
+  const child = entry?.child;
+  const childRunning = Boolean(child && child.exitCode === null && child.signalCode === null);
+  return childRunning ||
+    Boolean(target.pid && isProcessAlive(target.pid)) ||
+    isProcessGroupAlive(target.groupId);
+}
+
+// Resolves true once the tracked launcher, the runtime PID and every member of
+// the instance's process group have exited, false on timeout.
+function waitForStopTargets(entry, target, timeoutMs) {
   return new Promise((resolve) => {
-    if (child.exitCode !== null || child.signalCode !== null) {
+    if (!stopTargetsAlive(entry, target)) {
       resolve(true);
       return;
     }
-
-    const timer = setTimeout(() => resolve(false), timeoutMs);
-
-    child.once("exit", () => {
+    let settled = false;
+    const child = entry?.child;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
-      resolve(true);
-    });
+      clearInterval(poll);
+      child?.removeListener?.("exit", check);
+      resolve(value);
+    };
+    const check = () => {
+      if (!stopTargetsAlive(entry, target)) finish(true);
+    };
+    const timer = setTimeout(() => finish(!stopTargetsAlive(entry, target)), timeoutMs);
+    const poll = setInterval(check, 100);
+    poll.unref?.();
+    child?.on?.("exit", check);
   });
 }
 
@@ -6625,12 +7237,16 @@ async function stopInstanceImpl(instanceId, options = {}) {
     : (trackedRuntimePid && isProcessAlive(trackedRuntimePid)
     ? trackedRuntimePid
     : (entryPid && isProcessAlive(entryPid) ? entryPid : configPid));
+  // Recorded so the boot-time autoStart pass can tell a server the operator
+  // stopped from one stopped only because the Agent or desktop shut down.
+  const stopOrigin = options.serviceShutdown === true ? "service-shutdown" : "operator";
 
   if (!pid || !isProcessAlive(pid)) {
     resetRestartBackoff(config.id);
     config = await updateRuntimeState(config.id, {
       state: INSTANCE_STATES.STOPPED,
       pid: null,
+      stopOrigin,
       lastStoppedAt: config.lastStoppedAt || nowIso(),
     });
     return publicConfig(config);
@@ -6654,27 +7270,38 @@ async function stopInstanceImpl(instanceId, options = {}) {
     }
   }
 
-  try {
-    process.kill(pid, "SIGTERM");
-  } catch {
-    // The reconcile path below will correct stale PIDs.
-  }
-
   const requestedTimeout = Number(options.timeoutMs);
   const shutdownTimeoutMs = Number.isFinite(requestedTimeout) && requestedTimeout > 0
     ? Math.min(config.shutdownTimeoutMs, requestedTimeout)
     : config.shutdownTimeoutMs;
-  let exited = entry && entryPid === pid
-    ? await waitForExit(entry.child, shutdownTimeoutMs)
-    : await waitForPidExit(pid, shutdownTimeoutMs);
+  const target = buildStopTarget(entry, pid);
+  let exited = false;
 
-  if (!exited && isProcessAlive(pid)) {
+  // 1. The server's own console stop: it saves and exits. Only a child this
+  // service spawned has a console to write to.
+  const consoleStopCommand = entry && !entry.installerRun ? getConsoleStopCommand(config) : null;
+  if (consoleStopCommand && entry.child?.stdin?.writable) {
     try {
-      process.kill(pid, "SIGKILL");
+      entry.child.stdin.write(`${consoleStopCommand}\n`);
+      await appendLog(config.id, "stdin", `> ${consoleStopCommand}`).catch(() => {});
+      exited = await waitForStopTargets(entry, target, shutdownTimeoutMs);
     } catch {
-      // The process may have exited between checks.
+      exited = false;
     }
-    exited = await waitForPidExit(pid, Math.min(shutdownTimeoutMs, 5000));
+  }
+
+  // 2. POSIX: SIGTERM (to the whole process group) for servers without a
+  // console stop, or that ignored it. On Windows SIGTERM is TerminateProcess,
+  // so it is left to the forced step.
+  if (!exited && process.platform !== "win32") {
+    signalInstanceProcesses(target, "SIGTERM");
+    exited = await waitForStopTargets(entry, target, consoleStopCommand ? Math.min(shutdownTimeoutMs, STOP_SIGNAL_GRACE_MS) : shutdownTimeoutMs);
+  }
+
+  // 3. Forced: the whole tree this service spawned.
+  if (!exited && stopTargetsAlive(entry, target)) {
+    await forceKillInstanceProcesses(target);
+    exited = await waitForStopTargets(entry, target, Math.min(shutdownTimeoutMs, 5000));
   }
 
   if (!exited && isProcessAlive(pid)) {
@@ -6713,6 +7340,7 @@ async function stopInstanceImpl(instanceId, options = {}) {
     state: INSTANCE_STATES.STOPPED,
     pid: null,
     runtimeProcess: null,
+    stopOrigin,
     lastStoppedAt: nowIso(),
   });
 
@@ -6764,7 +7392,9 @@ function stripJobOptions(options = {}) {
   if (!options || typeof options !== "object" || Array.isArray(options)) {
     return options;
   }
-  const { idempotencyKey: _idempotencyKey, jobTimeoutMs: _jobTimeoutMs, ...rest } = options;
+  // serviceShutdown is internal to shutdownInstanceService; a caller of the
+  // public operations cannot mark its stop as a service shutdown.
+  const { idempotencyKey: _idempotencyKey, jobTimeoutMs: _jobTimeoutMs, serviceShutdown: _serviceShutdown, ...rest } = options;
   return rest;
 }
 
@@ -6888,12 +7518,14 @@ async function restartInstanceWithJob(instanceId, options = {}) {
 
 // Same durable "instance.restart" job as a plain restart, so job recovery and
 // the restart scheduler's busy-instance check see it. Budgeted for stop +
-// the ten-minute SteamCMD timeout + start. Mid-flight cancel is not offered:
+// the SteamCMD update ceiling + start. Mid-flight cancel is not offered:
 // cancelling between the update and the start would leave the server down,
 // which is exactly what this path promises not to do.
-const STEAM_UPDATE_RESTART_JOB_TIMEOUT_MS = 25 * 60 * 1000;
+// The SteamCMD step may run up to its two-hour ceiling, so the job allows that
+// plus fifteen minutes for the stop and start.
+const STEAM_UPDATE_RESTART_JOB_TIMEOUT_MS = STEAMCMD_UPDATE_TIMEOUT_MAX_MS + 15 * 60 * 1000;
 // A full pre-update backup of a large server can itself take many minutes.
-const STEAM_UPDATE_WITH_BACKUP_RESTART_JOB_TIMEOUT_MS = 45 * 60 * 1000;
+const STEAM_UPDATE_WITH_BACKUP_RESTART_JOB_TIMEOUT_MS = STEAMCMD_UPDATE_TIMEOUT_MAX_MS + 35 * 60 * 1000;
 
 async function restartInstanceWithSteamUpdateJob(instanceId, options = {}) {
   await ensureInstanceJobsRecovered();
@@ -7105,7 +7737,12 @@ async function clearLogs(instanceId, options = {}) {
     throw createInstanceError("INVALID_LOG_STREAM");
   }
 
-  await Promise.all(streams.map((streamName) => fs.writeFile(logPath(config.id, streamName), "", { mode: 0o600 }).catch(() => {})));
+  // Truncate through the write queue so a line queued before Clear cannot
+  // land after it.
+  await Promise.all(streams.map((streamName) => {
+    const filePath = logPath(config.id, streamName);
+    return enqueueLogWrite(filePath, () => fs.writeFile(filePath, "", { mode: 0o600 })).catch(() => {});
+  }));
   return {
     id: config.id,
     cleared: streams,
@@ -7230,12 +7867,14 @@ async function writeInstanceFile(instanceId, requestedPath, content, options = {
   await fs.mkdir(path.dirname(resolved.path), { recursive: true });
   await atomicWriteManagedFile(resolved.path, payload, encoding === "base64" ? {} : { encoding: "utf8" });
   if (/\.(jar|json|properties)$/i.test(resolved.relativePath) || /metadata\.json|install_profile\.json|version\.json/i.test(resolved.relativePath)) {
-    await saveInstanceConfig({
-      ...config,
+    // Reloaded after the (possibly large) write, so settings saved during an
+    // upload are kept.
+    await loadInstanceConfig(config.id).then((latest) => saveInstanceConfig({
+      ...latest,
       versionCacheVersion: null,
       detectedVersionAt: null,
       updatedAt: nowIso(),
-    }).catch(() => {});
+    })).catch(() => {});
   }
   if (isFiveMInstance(config) && resolved.relativePath === FIVEM_CONFIG_RELATIVE_PATH) {
     await refreshFiveMReadiness(config.id).catch(() => {});
@@ -7702,12 +8341,14 @@ async function getMetrics(instanceId) {
   }
 
   const startedAt = config.lastStartedAt ? Date.parse(config.lastStartedAt) : null;
+  // A service-managed server has no PID here; its unit's own uptime is used.
+  const serviceUptimeSeconds = Number.isFinite(config.serviceStatus?.uptimeSeconds) ? config.serviceStatus.uptimeSeconds : null;
 
   return {
     id: config.id,
     state: config.state,
     pid,
-    uptimeSeconds: pid && startedAt ? Math.max(0, Math.floor((Date.now() - startedAt) / 1000)) : 0,
+    uptimeSeconds: pid && startedAt ? Math.max(0, Math.floor((Date.now() - startedAt) / 1000)) : (serviceUptimeSeconds ?? 0),
     cpuPercent,
     cpuSeconds: processTicks === null ? null : processTicks / PROC_STAT_TICKS_PER_SECOND,
     memoryRssBytes: procStat ? procStat.rssPages * PAGE_SIZE_BYTES : null,
@@ -7816,6 +8457,91 @@ function refuseForServiceManaged(operation, fn) {
   };
 }
 
+const PROCESS_UP_STATES = new Set([
+  INSTANCE_STATES.STARTING,
+  INSTANCE_STATES.RUNNING,
+  INSTANCE_STATES.STOPPING,
+  INSTANCE_STATES.RESTARTING,
+]);
+
+// Whether a server set to start with the computer should be started now.
+// Started: it was up when the Agent/desktop went away (power loss, crash), it
+// was stopped only by a service shutdown (reboot, Agent upgrade), or its last
+// stop is older than this boot. Skipped: the operator stopped it (or it
+// crashed) during this boot, so an Agent restart does not undo that.
+async function decideAutoStart(stored, bootTimeMs) {
+  if (isServiceManaged(stored)) return { start: false, reason: "SERVICE_MANAGED" };
+  if (stored.installationState !== "active") return { start: false, reason: "INSTALLATION_NOT_ACTIVE" };
+  if (stored.state === INSTANCE_STATES.SETUP_REQUIRED) return { start: false, reason: "SETUP_REQUIRED" };
+  const current = await reconcileConfigState(stored);
+  if (getActiveRunningProcess(stored.id) || PROCESS_UP_STATES.has(current?.state)) {
+    return { start: false, reason: "ALREADY_RUNNING" };
+  }
+  if (PROCESS_UP_STATES.has(stored.state)) return { start: true, reason: "WAS_RUNNING" };
+  if (stored.stopOrigin === "service-shutdown") return { start: true, reason: "SERVICE_SHUTDOWN" };
+  const stoppedAt = Date.parse(stored.lastStoppedAt || "");
+  if (!Number.isFinite(stoppedAt) || stoppedAt < bootTimeMs) return { start: true, reason: "COMPUTER_STARTED" };
+  return { start: false, reason: "STOPPED_THIS_BOOT" };
+}
+
+// Boot-time pass for "Start this server when the computer starts". Run once
+// by the Agent after job recovery and by the desktop local host at launch.
+// Failures are logged per server and returned, never thrown.
+async function startAutoStartInstances(options = {}) {
+  const staggerMs = Number.isInteger(options.staggerMs) && options.staggerMs >= 0 ? options.staggerMs : AUTO_START_STAGGER_MS;
+  const generation = serviceLifecycleGeneration;
+  const bootTimeMs = currentBootTimeMs();
+  const result = { started: [], skipped: [], failures: [] };
+  let ids = [];
+  try {
+    ids = await listInstanceIds();
+  } catch (error) {
+    result.failures.push({ code: error?.code || "INSTANCE_LIST_FAILED" });
+    return result;
+  }
+  let startedOne = false;
+  for (const id of ids) {
+    if (generation !== serviceLifecycleGeneration) break;
+    let stored;
+    try {
+      stored = await loadInstanceConfig(id);
+    } catch {
+      continue;
+    }
+    if (stored.autoStart !== true) continue;
+    try {
+      const decision = await decideAutoStart(stored, bootTimeMs);
+      if (!decision.start) {
+        result.skipped.push({ instanceId: id, reason: decision.reason });
+        continue;
+      }
+      if (startedOne && staggerMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, staggerMs));
+        if (generation !== serviceLifecycleGeneration) break;
+      }
+      startedOne = true;
+      await appendLog(id, "stdout", "Starting automatically: this server is set to start with the computer.").catch(() => {});
+      const startedConfig = await startInstance(id);
+      if (startedConfig?.state === INSTANCE_STATES.FAILED) {
+        const code = startedConfig.failureReason || "AUTO_START_FAILED";
+        result.failures.push({ instanceId: id, code });
+        await appendLog(id, "stderr", `Automatic start failed: ${code}`).catch(() => {});
+        continue;
+      }
+      result.started.push(id);
+    } catch (error) {
+      if (error?.code === "INSTANCE_ALREADY_RUNNING") {
+        result.skipped.push({ instanceId: id, reason: "ALREADY_RUNNING" });
+        continue;
+      }
+      const code = error?.code || "AUTO_START_FAILED";
+      result.failures.push({ instanceId: id, code });
+      await appendLog(id, "stderr", `Automatic start failed: ${code}`).catch(() => {});
+    }
+  }
+  return result;
+}
+
 module.exports = {
   noteCommonServerFailure,
   _test: {
@@ -7844,6 +8570,7 @@ module.exports = {
     // propagation through instance log lines can be proven hermetically
     // (scripts/correlation-id-smoke.js) without starting a real workload.
     appendLog,
+    createLogLineAssembler,
     logPath,
     readRecentLines,
     isBenignPalworldStderrOutput,
@@ -7876,6 +8603,11 @@ module.exports = {
     setSteamCmdExecutable(executable) {
       steamCmdExecutableOverride = executable ? String(executable) : null;
     },
+    // Chooses the process-tree kill strategy ("linux" process group or
+    // "win32" taskkill) without faking process.platform for the whole core.
+    setProcessTreePlatform(platform) {
+      processTreePlatformOverride = platform ? String(platform) : null;
+    },
     setSteamBuildCheckClock(clock) {
       steamBuildCheckClock = typeof clock === "function" ? clock : () => Date.now();
     },
@@ -7883,6 +8615,9 @@ module.exports = {
       steamLatestBuildCache.clear();
       steamLatestBuildInFlight.clear();
     },
+    isSteamInstallConsistent,
+    STEAMCMD_UPDATE_TIMEOUT_MAX_MS,
+    STEAMCMD_UPDATE_STALL_TIMEOUT_MS,
   },
   configureInstanceService,
   getServiceOverview,
@@ -7892,6 +8627,8 @@ module.exports = {
   listServiceHistory,
   disposeInstanceService,
   shutdownInstanceService,
+  startAutoStartInstances,
+  SERVICE_SHUTDOWN_CEILING_MS,
   listInstanceJobs,
   getInstanceJob,
   cancelInstanceJob,

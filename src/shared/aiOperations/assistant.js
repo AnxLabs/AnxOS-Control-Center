@@ -485,6 +485,7 @@ function createAssistant({ executeReadTool, checkPermission = null, broker, prov
     }
     const kind = definition.target === "container" ? "container" : "instance";
     const inventory = await loadInventory(actor, { withContainers: kind === "container" });
+    response.missing.push(...inventory.missing);
     // Consequential actions only use a target named in the user's own words or
     // explicitly selected ("this server"); the model never picks it.
     const resolution = resolveTarget(question, kind, inventory, { ...context, requireExplicit: true });

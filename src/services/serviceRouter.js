@@ -180,7 +180,11 @@ async function ensureInstanceDependenciesBeforeStart(instanceId, options = {}) {
   if (instance?.type === "systemd-service") {
     return;
   }
-  const template = findMarketplaceTemplateById(instance?.templateId);
+  // Resolve the variant this node runs: the raw template is the Linux one, so a
+  // Windows TShock server was refused for the Linux-only unzip it never uses.
+  // Lazy require: marketplaceService is heavy and only needed here.
+  const rawTemplate = findMarketplaceTemplateById(instance?.templateId);
+  const template = rawTemplate ? require("./marketplaceService").resolveTemplateForNode(rawTemplate, getRequestNodeId(options)) : null;
   const dependencyIds = template ? resolveTemplateDependencyIds(template) : [];
   if (dependencyIds.length === 0) {
     return;

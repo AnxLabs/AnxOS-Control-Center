@@ -10,6 +10,7 @@ const {
   startEnrollment,
 } = require("../services/enrollmentService");
 const { logger } = require("../services/diagnosticsLogger");
+const { canReadCredentialDetails } = require("../auth");
 
 // V2-A enrollment routes. Public handshake paths (/enroll/start, /enroll/complete,
 // /enroll/status) are nonce/public protected and handled before bearer auth.
@@ -34,13 +35,15 @@ function handlePublicEnrollment(request, url, config = {}) {
   const pathname = url.pathname;
   if (!PUBLIC_ENROLL_PATHS.has(pathname)) return null;
   if (request.method === "GET" && pathname === "/api/v1/enroll/status") {
-    return enrollmentStatusSummary(config);
+    return enrollmentStatusSummary(config, { includeTokenFingerprint: canReadCredentialDetails(request, config) });
   }
   if (request.method === "POST" && pathname === "/api/v1/enroll/start") {
     return startEnrollment(parseJsonBody(request));
   }
   if (request.method === "POST" && pathname === "/api/v1/enroll/complete") {
-    return completeEnrollment(parseJsonBody(request), config);
+    // The caller's address decides whether a revoked record may be recovered
+    // (only from the Agent machine, or with the live credential).
+    return completeEnrollment(parseJsonBody(request), config, { remoteAddress: request.socket?.remoteAddress || null });
   }
   return null;
 }

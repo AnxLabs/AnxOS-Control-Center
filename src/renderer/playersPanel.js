@@ -10,7 +10,9 @@
   const POLL_MS = 10 * 1000;
   // Same families as src/shared/instances/playerMonitor.js.
   const SUPPORTED = /palworld|fivem|fxserver|valheim|counter-strike|\bcs2\b|\brust\b|minecraft|paper|purpur|spigot|bukkit|fabric|quilt|forge|neoforge|vanilla|velocity|waterfall|bungeecord/;
-  const latest = new Map(); // instanceId -> last result
+  // instanceId -> { result, nodeId, at }. Server ids can repeat across
+  // computers, so a reading is returned only for the computer it was read on.
+  const latest = new Map();
   let timer = null;
   let inFlight = false;
 
@@ -168,20 +170,34 @@
     if (typeof api?.getPlayers !== "function") return;
     inFlight = true;
     try {
+      const nodeId = selectedNodeId();
       const context = safe(() => getNodeRequestContext("live-players"), null);
       const result = await api.getPlayers(instance.id, safe(() => getNodeScopedPayload(context), {}));
-      if (safe(() => findInstance()?.id, null) !== instance.id) return;
+      if (safe(() => findInstance()?.id, null) !== instance.id || selectedNodeId() !== nodeId) return;
       if (result && result.ok === false) {
         render(instance, null, result.error?.message || "Player information could not be read.");
         return;
       }
-      latest.set(instance.id, result);
+      latest.set(instance.id, { result, nodeId, at: Date.now() });
       render(instance, result, null);
     } catch (error) {
       render(instance, null, safe(() => getAgentErrorMessage(error, "Player information could not be read."), "Player information could not be read."));
     } finally {
       inFlight = false;
     }
+  }
+
+  function selectedNodeId() {
+    return safe(() => getSelectedNodeId(), null);
+  }
+
+  // The last reading of a server on the selected computer; with maxAgeMs,
+  // only one taken within that time.
+  function latestReading(instanceId, { maxAgeMs = null } = {}) {
+    const entry = latest.get(instanceId);
+    if (!entry || entry.nodeId !== selectedNodeId()) return null;
+    if (Number.isFinite(maxAgeMs) && Date.now() - entry.at > maxAgeMs) return null;
+    return entry.result || null;
   }
 
   function tabOpen() {
@@ -200,7 +216,7 @@
   root.AnxLivePlayers = {
     supports,
     refresh,
-    latest: (instanceId) => latest.get(instanceId) || null,
+    latest: latestReading,
     start,
   };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);

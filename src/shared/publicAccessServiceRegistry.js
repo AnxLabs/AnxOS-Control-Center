@@ -469,8 +469,42 @@ function deleteAccessService(serviceId, options = {}) {
   };
 }
 
+// Playit IPC v2 reports no tunnel protocol, and one tunnel can carry TCP and
+// UDP, so only a known, different protocol keeps a record from adopting it.
+function detectedProtocolMatches(detectedProtocol, savedProtocol) {
+  const detected = String(detectedProtocol || "").trim().toLowerCase();
+  const saved = String(savedProtocol || "").trim().toLowerCase();
+  if (!detected || detected === saved) return true;
+  return detected.includes("tcp") && detected.includes("udp") && (saved === "tcp" || saved === "udp");
+}
+
+// Every tunnel Playit reported, as detected services: snapshot.services holds
+// one merged Playit service, so a share on another server's port would never
+// find its own tunnel. A tunnel list kept while Playit is stopped is only
+// configuration, and the status follows buildServiceFromPlayitSnapshot: an
+// unknown connection is "Provider running", never "Public".
+function detectedPlayitTunnelServices(snapshot = {}) {
+  const playit = snapshot.playit && typeof snapshot.playit === "object" ? snapshot.playit : {};
+  if (playit.running !== true) return [];
+  const tunnels = Array.isArray(playit.tunnels) ? playit.tunnels : [];
+  return tunnels
+    .filter((tunnel) => tunnel && tunnel.publicAddress && tunnel.localPort && tunnel.status !== "offline")
+    .map((tunnel) => ({
+      providerId: "playit",
+      providerName: "Playit.gg",
+      localPort: tunnel.localPort,
+      protocol: tunnel.protocol || null,
+      publicAddress: tunnel.publicAddress,
+      status: playit.connected === true ? "Public" : "Provider running",
+      lastCheckedAt: snapshot.checkedAt || null,
+    }));
+}
+
 function reconcileAccessServices(services = [], snapshot = {}) {
-  const detectedServices = Array.isArray(snapshot.services) ? snapshot.services : [];
+  const detectedServices = [
+    ...(Array.isArray(snapshot.services) ? snapshot.services : []),
+    ...detectedPlayitTunnelServices(snapshot),
+  ];
   const providers = Array.isArray(snapshot.providers) ? snapshot.providers : [];
   return services.map((service) => {
     const provider = providers.find((entry) => entry.id === service.providerId || entry.providerId === service.providerId) || {};
@@ -518,7 +552,7 @@ function reconcileAccessServices(services = [], snapshot = {}) {
     const detected = detectedServices.find((entry) => (
       entry.providerId === service.providerId &&
       Number(entry.localPort) === Number(service.localPort) &&
-      String(entry.protocol || "").toLowerCase() === service.protocol
+      detectedProtocolMatches(entry.protocol, service.protocol)
     )) || null;
     if (detected?.publicAddress || detected?.providerResourceId || detected?.tunnelId) {
       return {

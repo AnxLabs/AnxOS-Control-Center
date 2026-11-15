@@ -292,7 +292,7 @@ async function phaseSchedulerWiring() {
   // suite; the live startup path itself is not exercised here.
   const source = normalizeSource(fs.readFileSync(path.join(__dirname, "..", "main.js"), "utf8"));
   assert(
-    source.includes("alertService.startAlertScheduler({ collectState: createAlertStateCollector({ nodeService, alertService, serviceRouter }), });"),
+    source.includes("alertService.startAlertScheduler({ collectState: createAlertStateCollector({ nodeService, alertService, serviceRouter, telemetryService }), });"),
     "main.js must start the alert scheduler with the extracted state collector (otherwise the engine is dead code).",
   );
   assert(

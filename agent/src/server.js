@@ -1,5 +1,10 @@
 const http = require("http");
 const { sanitizeForDiagnostics } = require("../../src/shared/redaction");
+// The Agent keeps its own long-operation file: the desktop may share this
+// config folder and would otherwise overwrite the Agent's records (and the
+// Agent the desktop's).
+require("../../src/shared/longOperationService").configureOperationStore({ owner: "agent" });
+const { pipeline } = require("stream");
 const { URL } = require("url");
 
 const { handleActionInvoke, handleActionsList } = require("./routes/actions");
@@ -10,7 +15,7 @@ const { handleAnxNet } = require("./routes/anxnet");
 const anxnetAgentService = require("./services/anxnetAgentService");
 const { auditAction } = require("./audit/auditLogger");
 const { handleBackups, handleBackupsList } = require("./routes/backups");
-const { recoverBackupArtifacts, startBackupScheduler, stopBackupScheduler } = require("./services/backupService");
+const { recoverBackupArtifacts, recoverInterruptedRestores, startBackupScheduler, stopBackupScheduler } = require("./services/backupService");
 const { startRestartScheduler, stopRestartScheduler } = require("./services/restartScheduleService");
 const instanceService = require("./services/instances/instanceService");
 const { handleConsoleCommands, handleConsoleLogs } = require("./routes/console");
@@ -116,13 +121,11 @@ function sendStream(response, statusCode, stream, headers = {}) {
     ...headers,
   });
 
-  stream.on("error", () => {
-    if (!response.destroyed) {
-      response.destroy();
-    }
-  });
-
-  stream.pipe(response);
+  // pipeline, not pipe: when the client disconnects (or the desktop gives up)
+  // the source is destroyed too. pipe() only unpipes it, which left the
+  // archive's file descriptor open, and a deleted backup's disk space held,
+  // until the Agent restarted. A source error still destroys the response.
+  pipeline(stream, response, () => {});
 }
 
 function sendResult(response, result) {
@@ -254,23 +257,72 @@ function getRoutePermission(request, pathname) {
   return null;
 }
 
-function readRequestBody(request) {
+// A caller without a valid Agent token may send at most this much. The
+// pre-auth surfaces (pairing, enrollment, UI bootstrap) take small JSON bodies
+// and every other route refuses such a caller anyway; the large configurable
+// limit (uploads, imports) applies only once the token has been checked. The
+// whole body is buffered in memory, so without this an anonymous caller could
+// hold maxRequestBytes (256 MB by default) per request before the 401.
+const PRE_AUTH_MAX_REQUEST_BYTES = 64 * 1024;
+
+function isPreAuthPath(pathname) {
+  return pathname === "/api/v1/health"
+    || PUBLIC_ENROLL_PATHS.has(pathname)
+    || pathname.startsWith("/api/v1/pairing/")
+    || pathname === "/api/v1/ui" || pathname.startsWith("/api/v1/ui/")
+    || pathname === CLAIM_PAGE_PATH;
+}
+
+// Decided from the headers alone, before any of the body is read.
+function resolveRequestBodyPolicy(request, pathname) {
+  const auth = isAuthorized(request, config, pathname);
+  if (auth.code === "AUTHORIZED") return { maxBytes: config.maxRequestBytes, refusal: null };
+  const maxBytes = Math.min(PRE_AUTH_MAX_REQUEST_BYTES, config.maxRequestBytes);
+  // Over the cap, a protected route answers as it would for a small body
+  // (401/503), so clients keep their credential-repair handling; a pre-auth
+  // route answers 413.
+  const refusal = !auth.ok && !isPreAuthPath(pathname)
+    ? { statusCode: auth.statusCode, code: auth.code, message: getAuthErrorMessage(auth.code) }
+    : null;
+  return { maxBytes, refusal };
+}
+
+function requestBodyRefusal(policy) {
+  const error = policy.refusal
+    ? Object.assign(new Error(policy.refusal.message), { statusCode: policy.refusal.statusCode, code: policy.refusal.code, authRefusal: true })
+    : Object.assign(new Error("request too large"), { statusCode: 413, code: "REQUEST_TOO_LARGE" });
+  // The rest of the body is never read, so the connection cannot be reused.
+  error.closeConnection = true;
+  return error;
+}
+
+function readRequestBody(request, policy = { maxBytes: config.maxRequestBytes, refusal: null }) {
   return new Promise((resolve, reject) => {
+    const declaredBytes = Number(request.headers?.["content-length"]);
+    if (Number.isFinite(declaredBytes) && declaredBytes > policy.maxBytes) {
+      reject(requestBodyRefusal(policy));
+      return;
+    }
+
     let bytes = 0;
     const chunks = [];
 
-    request.on("data", (chunk) => {
+    const onData = (chunk) => {
       bytes += chunk.length;
 
-      if (bytes > config.maxRequestBytes) {
-        reject(Object.assign(new Error("request too large"), { statusCode: 413 }));
-        request.destroy();
+      if (bytes > policy.maxBytes) {
+        // Stop buffering and let the refusal be sent; the connection is
+        // closed after the response (Connection: close).
+        chunks.length = 0;
+        request.off("data", onData);
+        reject(requestBodyRefusal(policy));
         return;
       }
 
       chunks.push(chunk);
-    });
+    };
 
+    request.on("data", onData);
     request.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
     request.on("error", reject);
   });
@@ -375,7 +427,7 @@ async function routeRequest(request, url) {
   }
 
   if (pathname === "/api/v1/health") {
-    return handleHealth({ ...config, connectedClients: connectedClients.size });
+    return handleHealth({ ...config, connectedClients: connectedClients.size }, request);
   }
 
   if (pathname === "/api/v1/stats" || pathname === "/api/stats" || pathname === "/api/v1/system/summary") {
@@ -466,11 +518,12 @@ async function handleRequest(request, response) {
   const isLongInstallerOperation = request.method === "POST" && /\/(?:steamcmd\/update|installation\/execute|neoforge\/repair-runtime)$/.test(request.url || "");
   // A fresh SteamCMD build lookup is bounded at two minutes by the instance core.
   const isSteamBuildCheck = request.method === "GET" && /\/steamcmd\/update\/check(?:\?|$)/.test(request.url || "");
-  // A SteamCMD update may first take a full pre-update backup, so it gets a
-  // longer budget than other installer steps (11 min).
+  // A SteamCMD update may run up to its two-hour ceiling after a full
+  // pre-update backup, so it gets that ceiling on top of the earlier 31-minute
+  // backup-plus-update budget; other installer steps keep 11 min.
   const isSteamCmdUpdate = request.method === "POST" && /\/steamcmd\/update$/.test(request.url || "");
   const requestTimeoutMs = isSteamCmdUpdate
-    ? Math.max(config.requestTimeoutMs, 31 * 60 * 1000)
+    ? Math.max(config.requestTimeoutMs, 2 * 60 * 60 * 1000 + 31 * 60 * 1000)
     : isLongInstallerOperation
     ? Math.max(config.requestTimeoutMs, 11 * 60 * 1000)
     : isSteamBuildCheck ? Math.max(config.requestTimeoutMs, 3 * 60 * 1000)
@@ -489,8 +542,6 @@ async function handleRequest(request, response) {
       checkRateLimit(`console:${address}`, config.consoleRateLimitPerMinute, 60 * 1000);
     }
 
-    request.body = await readRequestBody(request);
-
     // Security hardening (DNS-rebinding precondition): validate the caller's
     // Host header and explicitly refuse cross-origin state changes BEFORE any
     // authentication, session, enrollment, or route work runs, so a refused
@@ -498,8 +549,11 @@ async function handleRequest(request, response) {
     // caller's Host. The URL is parsed against a fixed internal base — only
     // pathname/searchParams are consumed anywhere — so a caller-supplied Host
     // (or an absolute-form request target) can no longer shape the parsed URL.
+    // Both run on the headers, before the body is read, so a refused caller
+    // cannot make the Agent buffer its upload first.
     assertTrustedRequest(request, config);
     const url = new URL(request.url, "http://127.0.0.1");
+    request.body = await readRequestBody(request, resolveRequestBodyPolicy(request, url.pathname));
     // V2-A public enrollment handshake: nonce-protected start/complete plus a
     // public status summary, handled before bearer authentication.
     if (url.pathname.startsWith("/api/v1/enroll/")) {
@@ -622,6 +676,22 @@ async function handleRequest(request, response) {
   } catch (error) {
     const statusCode = error.statusCode || 500;
     const code = error.code || (error.statusCode === 413 ? "REQUEST_TOO_LARGE" : "INTERNAL_ERROR");
+    if (error.closeConnection && !response.headersSent) {
+      response.setHeader("Connection", "close");
+    }
+    // An oversized body from a caller without a valid token is refused with
+    // the same auth error (and the same warning) as a small one.
+    if (error.authRefusal) {
+      logger.warn("authentication", "Agent request authorization failed", {
+        method: request.method,
+        pathname: String(request.url || "").split("?")[0].slice(0, 200),
+        code,
+      }, { file: "auth", errorCode: code });
+      if (!response.headersSent) {
+        sendError(response, statusCode, code, error.message || "Request failed.");
+      }
+      return;
+    }
     // Request-trust refusals are pre-auth and shaped entirely by the caller, so
     // they get a hardened path: only the method and the pathname are logged (no
     // Host header, no Origin, no absolute-form target) and the response carries
@@ -681,6 +751,15 @@ async function startServer() {
   // V2-A enrollment contract (Decision 1): loud spawn-contract diagnostic +
   // legacy binding auto-migration before the agent accepts traffic.
   registerEnrollmentStartup(config);
+  // Before anything lists instances: a full restore stopped mid-swap must
+  // put a server folder back, or discovery would not see the server at all.
+  const restoreRecovery = await recoverInterruptedRestores().catch((error) => {
+    logger.warn("startup-recovery", "Interrupted server restores could not be checked.", { code: error?.code || "RESTORE_RECOVERY_FAILED" }, { file: "agent" });
+    return null;
+  });
+  if (restoreRecovery && (restoreRecovery.restored.length || restoreRecovery.adopted.length || restoreRecovery.removed.length || restoreRecovery.kept.length)) {
+    logger.info("startup-recovery", "Interrupted server restores were repaired.", restoreRecovery, { file: "agent" });
+  }
   const recovery = await instanceService.recoverIncompleteInstallations();
   if (recovery.repaired.length || recovery.failures.length) {
     logger.info("startup-recovery", "Incomplete Marketplace installations were repaired.", recovery, { file: "agent" });
@@ -707,6 +786,15 @@ async function startServer() {
     console.info(`AnxOS Agent listening on http://${config.host}:${config.port}`);
     // AnxNet comes back only if this computer was already in a network.
     anxnetAgentService.resume().catch((error) => logger.warn("anxnet", "AnxNet could not resume", { code: error?.code || "ANXNET_RESUME_FAILED" }, { file: "agent" }));
+    // "Start this server when the computer starts": servers that were up when
+    // the Agent went away, or were stopped only by an Agent shutdown.
+    instanceService.startAutoStartInstances()
+      .then((autoStart) => {
+        if (autoStart.started.length || autoStart.failures.length) {
+          logger.info("startup", "Servers set to start with the computer were started.", autoStart, { file: "agent" });
+        }
+      })
+      .catch((error) => logger.warn("startup", "Servers set to start with the computer could not be started", { code: error?.code || "AUTO_START_FAILED" }, { file: "agent" }));
     logger.info("startup", "AnxOS Agent listening", { host: config.host, port: config.port, pid: process.pid });
   });
 }
@@ -722,15 +810,18 @@ async function shutdown(signal, exitCode = 0) {
   stopBackupScheduler();
   stopRestartScheduler();
   logger.info("shutdown", "AnxOS Agent shutdown started", { signal, connectedClients: connectedClients.size });
+  // Servers stop within their own shutdownTimeoutMs (capped at the service
+  // ceiling, then SIGTERM grace and a forced kill), so the force-exit timer
+  // must outlast that, and stay under systemd's 90 s TimeoutStopSec.
   const forceTimer = setTimeout(() => {
     for (const socket of connectedClients) socket.destroy();
     process.exit(exitCode);
-  }, 10000);
+  }, instanceService.SERVICE_SHUTDOWN_CEILING_MS + 20000);
   forceTimer.unref?.();
   server.close();
   for (const socket of connectedClients) socket.end();
   await anxnetAgentService.shutdown();
-  const instances = await instanceService.shutdownInstanceService({ timeoutMs: 5000 }).catch((error) => ({
+  const instances = await instanceService.shutdownInstanceService().catch((error) => ({
     stopped: 0,
     forced: 0,
     failures: [{ code: error?.code || "INSTANCE_SHUTDOWN_FAILED" }],

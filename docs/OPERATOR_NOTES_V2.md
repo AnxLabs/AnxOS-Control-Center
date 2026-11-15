@@ -122,7 +122,10 @@ imported backups as `unknown` (their true provenance is not known).
 
 **Retention newest-protection.** The retention policy (defaults `keepLast: 10`,
 `maxAgeDays: 30`, overridable per schedule or by `AGENT_BACKUP_KEEP_LAST` /
-`AGENT_BACKUP_MAX_AGE_DAYS`) is applied per instance. Pruning never deletes the
+`AGENT_BACKUP_MAX_AGE_DAYS`) is applied per instance. Every backup that is not
+from the schedule (manual, pre-update, assistant, transfer) prunes with the
+instance's schedule policy when one is saved, and prunes nothing when the
+schedule store cannot be read. Pruning never deletes the
 **newest** recovery point of an instance even when the age or count policy says
 it should go; it is reported in `skipped` with `protectedAs: "newest"`.
 `listBackups` exposes `protectedNewest`, `retentionPolicy`, `retentionPolicyMet`,
@@ -138,7 +141,11 @@ any mutation and refuse with a stable code on: `BACKUP_ARCHIVE_LIMIT_EXCEEDED`
 exists but whose archive file is missing refuses with `BACKUP_ARCHIVE_MISSING`
 (404) before any state is touched. Implemented ceilings are 512 MiB
 compressed, 512 MiB expanded, 256 MiB per entry, and 100,000 entries; archives
-above a ceiling fail rather than risking process exhaustion.
+above a ceiling fail rather than risking process exhaustion. Create refuses a
+backup that restore would refuse (`BACKUP_SOURCE_LIMIT_EXCEEDED` with a
+`reason` of `ENTRY_TOO_LARGE`, `TOO_MANY_ENTRIES` or `ARCHIVE_TOO_LARGE`, the
+last counting tar headers and padding), and verify records such an archive as
+`failed` (`BACKUP_ARCHIVE_LIMIT_EXCEEDED`) instead of `verified`.
 
 **Quarantine.** Agent startup recovery moves an archive that has no committed
 metadata into `<backupRoot>/quarantine/` (timestamped rename) instead of deleting

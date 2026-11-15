@@ -58,18 +58,22 @@ function* chunks(buffer, size = 16 * 1024) {
 // the payload is the datagram itself.
 
 // JSON lines for control channels that run before the multiplexer.
+// Lines are cut from bytes and decoded whole: a TLS record (16 KB) can end
+// inside a multi-byte UTF-8 character, and decoding each chunk on its own
+// would corrupt it (and break the roster signature).
 function jsonLineReader(stream, onMessage, { maxLineBytes = 256 * 1024 } = {}) {
-  let pending = "";
+  let pending = Buffer.alloc(0);
   const handler = (chunk) => {
-    pending += chunk.toString("utf8");
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk), "utf8");
+    pending = pending.length ? Buffer.concat([pending, bytes]) : bytes;
     if (pending.length > maxLineBytes) {
       stream.destroy(Object.assign(new Error("Control message too large."), { code: "ANXNET_CONTROL_TOO_LARGE" }));
       return;
     }
     let index;
-    while ((index = pending.indexOf("\n")) >= 0) {
-      const line = pending.slice(0, index);
-      pending = pending.slice(index + 1);
+    while ((index = pending.indexOf(10)) >= 0) {
+      const line = pending.subarray(0, index).toString("utf8");
+      pending = pending.subarray(index + 1);
       if (!line.trim()) continue;
       let message;
       try { message = JSON.parse(line); } catch { stream.destroy(Object.assign(new Error("Bad control message."), { code: "ANXNET_CONTROL_INVALID" })); return; }

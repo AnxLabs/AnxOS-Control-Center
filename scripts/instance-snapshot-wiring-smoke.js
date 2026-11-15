@@ -453,7 +453,11 @@ async function phaseCollector() {
       `reuse-wiring violated: resolveInstanceSnapshot must be called with the SELECTED node id, not a constant (got ${JSON.stringify(world.calls.resolve[0].nodeId)}).`,
     );
     assert.strictEqual(typeof world.calls.resolve[0].fetcher, "function", "resolveInstanceSnapshot must receive a fetcher function.");
-    assert.deepStrictEqual(state, { nodes: [{ id: "node-a" }], instances: [{ id: "inst-1" }] }, "the collector must shape the two payloads into { nodes, instances }.");
+    // Instance records carry no nodeId of their own; the collector stamps the
+    // node the list was read for, or the evaluator drops every row.
+    // `observed` names the nodes each read succeeded for, so the evaluator does
+    // not recover alerts of a node it could not see this pass.
+    assert.deepStrictEqual(state, { nodes: [{ id: "node-a" }], instances: [{ id: "inst-1", nodeId: "node-selected" }], observed: { nodes: ["node-a"], instances: ["node-selected"] } }, "the collector must shape the two payloads into { nodes, instances }, binding each instance to the selected node.");
   });
 
   await check("B2. RESOLVE: the APPLICATION_HOST_NODE_ID fallback is used for every falsy selection", async () => {
@@ -492,6 +496,7 @@ async function phaseCollector() {
     });
     const state = await createAlertStateCollector(world)({});
     assert.deepStrictEqual(state.instances, [], "an unreachable router must degrade to an empty instance list, not fail the evaluation pass.");
+    assert.deepStrictEqual(state.observed.instances, [], "a failed instance read must not count as observing the node.");
   });
 
   await check("B5. READ: nodes and instances are read CONCURRENTLY (a serial implementation cannot pass this)", async () => {
@@ -510,7 +515,7 @@ async function phaseCollector() {
       },
     });
     const state = await createAlertStateCollector(world)({});
-    assert.deepStrictEqual(state, { nodes: [{ id: "node-a" }], instances: [{ id: "inst-1" }] }, "both concurrent reads must contribute to the state.");
+    assert.deepStrictEqual(state, { nodes: [{ id: "node-a" }], instances: [{ id: "inst-1", nodeId: "node-a" }], observed: { nodes: ["node-a"], instances: ["node-a"] } }, "both concurrent reads must contribute to the state.");
   });
 
   await check("B6. READ: listNodes receives exactly the read-only options", async () => {
@@ -546,7 +551,7 @@ async function phaseCollector() {
       const state = await createAlertStateCollector(world)({});
       assert.deepStrictEqual(
         state,
-        { nodes: [], instances: [] },
+        { nodes: [], instances: [], observed: { nodes: null, instances: [] } },
         `${label}: the evaluator's snapshot must receive empty arrays, not undefined (buildAlertSnapshot tolerates it, but the shape contract is arrays).`,
       );
     }
@@ -620,8 +625,8 @@ function phaseResidualMainSurface() {
 
   syncCheck("C4. TEXT: main.js starts the scheduler with the extracted collector", () => {
     exact(
-      "alertService.startAlertScheduler({ collectState: createAlertStateCollector({ nodeService, alertService, serviceRouter }), });",
-      "main.js must start the alert scheduler with the extracted collector built from nodeService/alertService/serviceRouter.",
+      "alertService.startAlertScheduler({ collectState: createAlertStateCollector({ nodeService, alertService, serviceRouter, telemetryService }), });",
+      "main.js must start the alert scheduler with the extracted collector built from nodeService/alertService/serviceRouter/telemetryService.",
     );
   });
 

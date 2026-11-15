@@ -4,6 +4,7 @@ const { app } = require("electron");
 const { SshService } = require("./sshService");
 const { enumerateRuntimePayload } = require("../shared/agentRuntimePayload");
 const { createTarGz } = require("../shared/agentRuntimeTar");
+const { AGENT_BUILD_FILENAME, buildAgentBuildStamp, compareAgentArtifactVersions, normalizeAgentArtifactVersion, readDesktopBundledAgentArtifactVersion } = require("../shared/agentBuildIdentity");
 const { getBundledLocalAgentRuntime, getBundledLocalAgentVersion } = require("./localAgentRuntimeService");
 const { getNode } = require("./nodeService");
 const { APPLICATION_HOST_NODE_ID } = require("./applicationHostService");
@@ -144,9 +145,15 @@ function buildStageCommand(stagedDir) {
 }
 
 // Backup-before-publish swap. The live paths are copied aside while the Agent
-// still runs, the unit is stopped, the staged payload replaces the live paths,
-// and the unit is restarted. A failed start restores the backup and restarts
-// the previous runtime, so the node is never left with a half-published tree.
+// still runs, older update folders are pruned, the free space for the publish
+// is checked, the unit is stopped, the staged payload replaces the live paths,
+// and the unit is restarted. A failed copy while publishing or a failed start
+// restores the backup and restarts the previous runtime, so the node is never
+// left with a half-published tree. Every exit after the stop prints a marker
+// saying whether that restore and restart worked (SWAP_ROLLED_BACK,
+// PUBLISH_FAILED_ROLLED_BACK or ROLLBACK_FAILED); the Desktop reports what the
+// marker says, never "restored" by default. The staged copy is removed on every
+// exit after the backup; the backup stays for the verify-failure rollback.
 function buildSwapScript({ runtimeRoot, stagedDir, backupDir, unitName = LINUX_AGENT_UNIT_NAME, includedPaths }) {
   const paths = normalizeIncludedPaths(includedPaths);
   const pathList = paths.map(shellQuote).join(" ");
@@ -158,18 +165,125 @@ function buildSwapScript({ runtimeRoot, stagedDir, backupDir, unitName = LINUX_A
     `STAGE=${shellQuote(stagedDir)}`,
     `BACKUP=${shellQuote(backupDir)}`,
     `UNIT=${shellQuote(unitName)}`,
+    // Restores every included path from the backup; a path the live runtime did
+    // not have before the update is removed again. It runs inside a condition,
+    // so set -e cannot end the script half-way through a restore: a failed path
+    // is reported through the return value instead.
+    "restore_backup() {",
+    "  restore_status=0",
+    `  for p in ${pathList}; do`,
+    '    if [ -e "$BACKUP/$p" ]; then',
+    '      { rm -rf "$ROOT/$p" && mkdir -p "$ROOT/$(dirname "$p")" && cp -a "$BACKUP/$p" "$ROOT/$p"; } || restore_status=1',
+    "    else",
+    '      rm -rf "$ROOT/$p" || restore_status=1',
+    "    fi",
+    "  done",
+    '  return "$restore_status"',
+    "}",
+    // Restore, restart, and print $1 only when both worked.
+    "roll_back() {",
+    "  if restore_backup; then",
+    '    echo "RESTORE_OK"',
+    '    if systemctl --user start "$UNIT"; then echo "$1"; else echo "ROLLBACK_START_FAILED"; echo "ROLLBACK_FAILED"; fi',
+    "  else",
+    '    echo "RESTORE_FAILED"',
+    '    systemctl --user start "$UNIT" || true',
+    '    echo "ROLLBACK_FAILED"',
+    "  fi",
+    '  rm -rf "$STAGE" || true',
+    "}",
     'test -d "$STAGE" || { echo "STAGE_MISSING"; exit 4; }',
     'mkdir -p "$BACKUP"',
-    `for p in ${pathList}; do if [ -e "$ROOT/$p" ]; then mkdir -p "$BACKUP/$(dirname "$p")"; rm -rf "$BACKUP/$p"; cp -a "$ROOT/$p" "$BACKUP/$p"; fi; done`,
+    // A failed backup (a full disk, typically) ends here with the Agent still
+    // running and untouched; the partial copies are removed so they do not
+    // fill the disk further.
+    "backup_ok=1",
+    `for p in ${pathList}; do if [ -e "$ROOT/$p" ]; then if ! { mkdir -p "$BACKUP/$(dirname "$p")" && rm -rf "$BACKUP/$p" && cp -a "$ROOT/$p" "$BACKUP/$p"; }; then backup_ok=0; break; fi; fi; done`,
+    'if [ "$backup_ok" -ne 1 ]; then echo "BACKUP_FAILED"; rm -rf "$BACKUP" "$STAGE" || true; exit 9; fi',
     'echo "BACKUP_OK"',
+    // The backup of the runtime that is live right now exists (and that runtime
+    // passed the pre-flight health check), so the folders earlier attempts left
+    // behind (their staged copies and older backups) are pruned: each retry
+    // would otherwise keep two more runtime copies on disk.
+    // Only ever inside the dedicated update folder, never a parent of it.
+    'CURRENT_UPDATE=$(dirname "$BACKUP")',
+    'UPDATE_PARENT=$(dirname "$CURRENT_UPDATE")',
+    `case "$UPDATE_PARENT" in */${REMOTE_STAGE_DIRNAME}) for d in "$UPDATE_PARENT"/*; do if [ -d "$d" ] && [ "$d" != "$CURRENT_UPDATE" ]; then rm -rf "$d" || true; fi; done ;; esac`,
+    // Free-space gate before the Agent is stopped: publishing writes a full copy
+    // of the staged runtime. When df or du gives no number the gate is skipped,
+    // and a failed copy still rolls back below.
+    'STAGE_KB=$(du -sk "$STAGE" 2>/dev/null | cut -f1 || true)',
+    "FREE_KB=$(df -Pk \"$ROOT\" 2>/dev/null | awk 'NR==2 {print $4}' || true)",
+    'case "$STAGE_KB" in ""|*[!0-9]*) STAGE_KB="" ;; esac',
+    'case "$FREE_KB" in ""|*[!0-9]*) FREE_KB="" ;; esac',
+    'if [ -n "$STAGE_KB" ] && [ -n "$FREE_KB" ] && [ "$FREE_KB" -lt "$STAGE_KB" ]; then echo "INSUFFICIENT_SPACE need=${STAGE_KB}KiB free=${FREE_KB}KiB"; rm -rf "$STAGE" || true; exit 7; fi',
     'systemctl --user stop "$UNIT" || { echo "STOP_FAILED"; exit 2; }',
     'echo "STOP_OK"',
-    `for p in ${pathList}; do rm -rf "$ROOT/$p"; mkdir -p "$ROOT/$(dirname "$p")"; cp -a "$STAGE/$p" "$ROOT/$p"; done`,
+    "publish_ok=1",
+    `for p in ${pathList}; do if ! { rm -rf "$ROOT/$p" && mkdir -p "$ROOT/$(dirname "$p")" && cp -a "$STAGE/$p" "$ROOT/$p"; }; then publish_ok=0; break; fi; done`,
+    'if [ "$publish_ok" -ne 1 ]; then echo "PUBLISH_FAILED"; roll_back "PUBLISH_FAILED_ROLLED_BACK"; exit 8; fi',
     'echo "PUBLISH_OK"',
-    'if systemctl --user start "$UNIT"; then echo "SWAP_OK"; else echo "START_FAILED"; ' +
-      `for p in ${pathList}; do if [ -e "$BACKUP/$p" ]; then rm -rf "$ROOT/$p"; mkdir -p "$ROOT/$(dirname "$p")"; cp -a "$BACKUP/$p" "$ROOT/$p"; fi; done; ` +
-      'systemctl --user start "$UNIT" || true; echo "SWAP_ROLLED_BACK"; exit 3; fi',
+    'if systemctl --user start "$UNIT"; then rm -rf "$STAGE" || true; echo "SWAP_OK"; else echo "START_FAILED"; roll_back "SWAP_ROLLED_BACK"; exit 3; fi',
   ].join("\n");
+}
+
+// Reads the swap script's markers. Returns null when nothing failed (the
+// caller still requires SWAP_OK), otherwise what happened to the node: only a
+// rolled-back marker means the previous runtime is back and running.
+function classifySwapOutput(swap) {
+  const lines = new Set(String(swap?.stdout || "").split(/\r?\n/).map((line) => line.trim().split(/\s+/)[0]).filter(Boolean));
+  const stopped = lines.has("STOP_OK");
+  if (lines.has("ROLLBACK_FAILED")) {
+    return {
+      code: "REMOTE_AGENT_UPDATE_ROLLBACK_FAILED",
+      status: "rollback-failed",
+      stepMessage: "The update failed and the previous runtime could not be restored and restarted.",
+      message: lines.has("RESTORE_FAILED")
+        ? "The Agent update failed and the previous runtime could not be restored. The node may have no working Agent: inspect it over SSH, using the backup the update kept."
+        : "The Agent update failed; the previous runtime was copied back but the Agent did not start again. Inspect the node over SSH.",
+    };
+  }
+  if (lines.has("SWAP_ROLLED_BACK")) {
+    return {
+      code: "REMOTE_AGENT_UPDATE_SWAP_FAILED",
+      status: "rolled-back",
+      stepMessage: "The Agent did not start after the swap; the previous runtime was restored.",
+      message: "The remote Agent did not restart with the staged runtime; the previous runtime was restored.",
+    };
+  }
+  if (lines.has("PUBLISH_FAILED_ROLLED_BACK")) {
+    return {
+      code: "REMOTE_AGENT_UPDATE_SWAP_FAILED",
+      status: "rolled-back",
+      stepMessage: "Copying the update into place failed; the previous runtime was restored.",
+      message: "Copying the staged runtime into place failed on the node (for example, its disk is full); the previous runtime was restored and restarted.",
+    };
+  }
+  if (lines.has("INSUFFICIENT_SPACE")) {
+    return {
+      code: "REMOTE_AGENT_UPDATE_INSUFFICIENT_SPACE",
+      status: "not-applied",
+      stepMessage: "Not enough free disk space on the node to publish the update.",
+      message: "The node does not have enough free disk space to publish the Agent update. The Agent was not stopped and its runtime is unchanged; free some space and try again.",
+    };
+  }
+  if (Number(swap?.code) === 0 && !lines.has("PUBLISH_FAILED") && !lines.has("START_FAILED")) return null;
+  if (!stopped) {
+    return {
+      code: "REMOTE_AGENT_UPDATE_SWAP_FAILED",
+      status: "not-applied",
+      stepMessage: "The update was not applied; the Agent was not stopped.",
+      message: lines.has("BACKUP_FAILED")
+        ? "The live runtime could not be backed up on the node (for example, its disk is full). The Agent was not stopped and its runtime is unchanged."
+        : "The update could not be applied on the node. The Agent was not stopped by the update and its runtime is unchanged.",
+    };
+  }
+  return {
+    code: "REMOTE_AGENT_UPDATE_SWAP_INTERRUPTED",
+    status: "unknown",
+    stepMessage: "The swap ended after the Agent was stopped without confirming a restore.",
+    message: "The update stopped the Agent and then ended without confirming that the new or the previous runtime is running. Inspect the node over SSH.",
+  };
 }
 
 function buildRollbackScript({ runtimeRoot, backupDir, unitName = LINUX_AGENT_UNIT_NAME, includedPaths }) {
@@ -184,7 +298,7 @@ function buildRollbackScript({ runtimeRoot, backupDir, unitName = LINUX_AGENT_UN
     `UNIT=${shellQuote(unitName)}`,
     'test -d "$BACKUP" || { echo "BACKUP_MISSING"; exit 5; }',
     'systemctl --user stop "$UNIT" || true',
-    `for p in ${pathList}; do if [ -e "$BACKUP/$p" ]; then rm -rf "$ROOT/$p"; mkdir -p "$ROOT/$(dirname "$p")"; cp -a "$BACKUP/$p" "$ROOT/$p"; fi; done`,
+    `for p in ${pathList}; do if [ -e "$BACKUP/$p" ]; then rm -rf "$ROOT/$p"; mkdir -p "$ROOT/$(dirname "$p")"; cp -a "$BACKUP/$p" "$ROOT/$p"; else rm -rf "$ROOT/$p"; fi; done`,
     'echo "ROLLBACK_PUBLISHED"',
     'systemctl --user start "$UNIT" || { echo "ROLLBACK_START_FAILED"; exit 6; }',
     'echo "ROLLBACK_OK"',
@@ -203,9 +317,12 @@ async function defaultHealthProbe(nodeId) {
   } catch (error) {
     networkInventoryError = error?.code || error?.message || "network-inventory-failed";
   }
+  // checkNodeHealth returns the Agent's /health body under `health`.
+  const identity = health?.health?.identity || health?.identity || {};
   return {
     connected: health?.connected === true || health?.ok === true || health?.status === "connected",
-    agentVersion: health?.agentVersion || health?.version || null,
+    agentVersion: identity.agentVersion || health?.agentVersion || health?.version || null,
+    agentArtifactVersion: normalizeAgentArtifactVersion(identity.agentArtifactVersion),
     networkInventoryOk,
     networkInventoryError,
   };
@@ -239,6 +356,11 @@ async function updateRemoteAgent(nodeId, options = {}) {
   const run = options.runner || ((profileId, command, runOptions) => ssh.runCommand(profileId, command, runOptions));
   const healthProbe = options.healthProbe || ((id) => defaultHealthProbe(id));
   const bundledVersion = options.bundledVersion ?? getBundledLocalAgentVersion(null);
+  // The release build of the runtime this Desktop pushes. bundledVersion is
+  // agent/package.json's fixed placeholder and cannot order two builds.
+  const bundledBuild = options.bundledBuild !== undefined
+    ? normalizeAgentArtifactVersion(options.bundledBuild)
+    : readDesktopBundledAgentArtifactVersion();
   const updateDir = options.updateDir || getRemoteUpdateDirectory();
   const sleep = options.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
   const verifyAttempts = Number.isFinite(options.verifyAttempts) ? Math.max(1, Math.floor(options.verifyAttempts)) : DEFAULT_VERIFY_ATTEMPTS;
@@ -271,6 +393,7 @@ async function updateRemoteAgent(nodeId, options = {}) {
     unitName,
     stamp,
     bundledVersion,
+    bundledBuild,
     runtimeRoot: null,
     backupDir: null,
     stagedDir: null,
@@ -329,7 +452,21 @@ async function updateRemoteAgent(nodeId, options = {}) {
   // users to update Control Center instead of rolling a node's Agent back. If
   // the node already reports a newer Agent than the bundled runtime, refuse
   // before any file is staged. Unknown versions fail open so updates still work.
+  // The release build decides: every Agent reports the same placeholder
+  // package version, so that comparison alone never fires between two real
+  // builds. A node that reports no build predates build reporting, so it is
+  // older than any Desktop that has this check. A node that reports a build
+  // this Desktop cannot order against its own is refused: it may be newer.
   const nodeAgentVersion = healthBefore.agentVersion || null;
+  const nodeAgentBuild = normalizeAgentArtifactVersion(healthBefore.agentArtifactVersion);
+  record.nodeAgentBuild = nodeAgentBuild;
+  const buildComparison = compareAgentArtifactVersions(nodeAgentBuild, bundledBuild);
+  if (buildComparison !== null && buildComparison > 0) {
+    throw fail("AGENT_DOWNGRADE_REFUSED", `The node's Agent (${nodeAgentBuild}) is newer than the bundled Agent runtime (${bundledBuild}) in this Desktop. Update AnxOS Control Center to a newer release instead of downgrading the node's Agent.`, { nodeAgentVersion, nodeAgentBuild, bundledVersion, bundledBuild });
+  }
+  if (nodeAgentBuild && buildComparison === null) {
+    throw fail("AGENT_BUILD_UNVERIFIED", `The node's Agent reports build ${nodeAgentBuild}, but this Desktop cannot read the build of its own bundled Agent runtime, so it cannot rule out a downgrade. Reinstall AnxOS Control Center, then retry.`, { nodeAgentVersion, nodeAgentBuild, bundledVersion, bundledBuild: null });
+  }
   if (compareAgentVersions(nodeAgentVersion, bundledVersion) > 0) {
     throw fail("AGENT_DOWNGRADE_REFUSED", `The node's Agent (${nodeAgentVersion}) is newer than the bundled Agent runtime (${bundledVersion}) in this Desktop. Update AnxOS Control Center to a newer release instead of downgrading the node's Agent.`, { nodeAgentVersion, bundledVersion });
   }
@@ -384,11 +521,24 @@ async function updateRemoteAgent(nodeId, options = {}) {
   const backupDir = `${stageRoot}/backup`;
   record.stagedDir = stagedDir;
   record.backupDir = backupDir;
-  const archive = createTarGz(payload.files.map((file) => ({
+  const archiveEntries = payload.files.map((file) => ({
     relativePath: file.relativePath,
     content: fs.readFileSync(file.absolutePath),
     mode: file.mode,
-  })));
+  }));
+  // The pushed runtime has no release file of its own, so stamp its build at
+  // the runtime root. It is published, backed up and rolled back with the
+  // rest of the payload, and the updated Agent reports it.
+  const buildStamp = bundledBuild ? buildAgentBuildStamp(bundledBuild) : null;
+  const publishedPaths = buildStamp && !payload.includedPaths.includes(AGENT_BUILD_FILENAME)
+    ? [...payload.includedPaths, AGENT_BUILD_FILENAME]
+    : payload.includedPaths;
+  if (buildStamp) {
+    const stampIndex = archiveEntries.findIndex((entry) => entry.relativePath === AGENT_BUILD_FILENAME);
+    if (stampIndex >= 0) archiveEntries.splice(stampIndex, 1);
+    archiveEntries.push({ relativePath: AGENT_BUILD_FILENAME, content: Buffer.from(buildStamp, "utf8"), mode: 0o644 });
+  }
+  const archive = createTarGz(archiveEntries);
   const staged = await run(profile.id, buildStageCommand(stagedDir), { timeoutMs: DEFAULT_UPLOAD_TIMEOUT_MS, stdin: archive }).catch((error) => {
     throw fail(error.code || "REMOTE_AGENT_UPDATE_STAGE_FAILED", error.message, { sshOutput: error.sshOutput || null });
   });
@@ -403,13 +553,18 @@ async function updateRemoteAgent(nodeId, options = {}) {
     stagedDir,
     backupDir,
     unitName,
-    includedPaths: payload.includedPaths,
+    includedPaths: publishedPaths,
   }), { timeoutMs: DEFAULT_SWAP_TIMEOUT_MS }).catch((error) => {
     throw fail(error.code || "REMOTE_AGENT_UPDATE_SWAP_FAILED", error.message, { sshOutput: error.sshOutput || null });
   });
-  if (swap.stdout.includes("SWAP_ROLLED_BACK") || swap.code !== 0) {
-    mark("swap", "failed", "The Agent did not start after the swap; the previous runtime was restored.");
-    throw fail("REMOTE_AGENT_UPDATE_SWAP_FAILED", "The remote Agent did not restart with the staged runtime; the previous runtime was restored.", { stdout: swap.stdout, stderr: swap.stderr, code: swap.code, backupDir });
+  const swapOutcome = classifySwapOutput(swap);
+  if (swapOutcome) {
+    mark("swap", "failed", swapOutcome.stepMessage);
+    record.status = swapOutcome.status;
+    record.swap = { stdout: swap.stdout, stderr: swap.stderr, code: swap.code, backupDir };
+    record.steps = steps;
+    const recordPath = writeUpdateRecord(updateDir, record);
+    throw fail(swapOutcome.code, swapOutcome.message, { stdout: swap.stdout, stderr: swap.stderr, code: swap.code, backupDir, recordPath, outcome: swapOutcome.status });
   }
   if (!swap.stdout.includes("SWAP_OK")) {
     throw fail("REMOTE_AGENT_UPDATE_SWAP_UNCONFIRMED", "The swap script did not confirm a successful restart.", { stdout: swap.stdout, stderr: swap.stderr, code: swap.code, backupDir });
@@ -417,21 +572,25 @@ async function updateRemoteAgent(nodeId, options = {}) {
   mark("swap", "complete", `Runtime published; previous runtime preserved at ${backupDir}.`);
 
   mark("verify", "running");
+  // A node that reports a build must report the one just pushed; any other
+  // build means the previous runtime is still the one answering.
+  const isVerified = (probe) => Boolean(probe?.connected && probe?.networkInventoryOk)
+    && !(bundledBuild && probe.agentArtifactVersion && normalizeAgentArtifactVersion(probe.agentArtifactVersion) !== bundledBuild);
   let verification = null;
   for (let attempt = 0; attempt < verifyAttempts; attempt += 1) {
     verification = await healthProbe(nodeId).catch((error) => ({ connected: false, probeError: error?.code || "probe-failed" }));
     record.verification = verification;
-    if (verification.connected && verification.networkInventoryOk) break;
+    if (isVerified(verification)) break;
     if (attempt < verifyAttempts - 1) await sleep(verifyDelayMs);
   }
-  if (!verification?.connected || !verification?.networkInventoryOk) {
+  if (!isVerified(verification)) {
     mark("verify", "failed", "The updated Agent did not answer the expected routes.");
     mark("rollback", "running");
     const rollback = await run(profile.id, buildRollbackScript({
       runtimeRoot,
       backupDir,
       unitName,
-      includedPaths: payload.includedPaths,
+      includedPaths: publishedPaths,
     }), { timeoutMs: DEFAULT_SWAP_TIMEOUT_MS }).catch((error) => ({ code: null, stdout: "", stderr: error.message, sshError: error.code || "ROLLBACK_SSH_FAILED" }));
     record.status = "rolled-back";
     record.rollback = { ok: rollback.stdout.includes("ROLLBACK_OK"), stdout: rollback.stdout, stderr: rollback.stderr, backupDir };
@@ -472,6 +631,7 @@ async function updateRemoteAgent(nodeId, options = {}) {
     stagedDir,
     recordPath,
     bundledVersion,
+    bundledBuild,
     payloadFiles: record.payloadFiles,
     payloadBytes: record.payloadBytes,
     steps,
@@ -486,6 +646,7 @@ module.exports = {
     buildRollbackScript,
     buildStageCommand,
     buildSwapScript,
+    classifySwapOutput,
     parseDiscoverySections,
     parseExecStartValue,
     parsePsEntrypoint,

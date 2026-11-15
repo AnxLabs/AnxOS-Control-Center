@@ -30,12 +30,20 @@ const identityLib = require("../anxnet/identity");
 const roster = require("../anxnet/roster");
 const dnsIntegration = require("../anxnet/dnsIntegration");
 const { decryptPayload, encryptPayload, getDefaultConfigDirectory } = require("./secureSessionStore");
+const { preserveUnreadableFile } = require("../shared/preserveUnreadableFile");
 
 const DEFAULT_PORT = 47710;
+const REPUBLISH_RETRY_MIN_MS = 5000;
+const REPUBLISH_RETRY_MAX_MS = 5 * 60 * 1000;
 const events = new EventEmitter();
 let backend = null; // { mode, call(method, params), stop(), detach() }
 let starting = null;
 let settings = null;
+// Saved "Anyone can join" routes that couldn't be reopened yet, by service;
+// shown in status() and retried with backoff.
+const publicRouteErrors = new Map();
+let republishTimer = null;
+let republishAttempt = 0;
 
 function dataDir() {
   return path.join(getDefaultConfigDirectory(), "anxnet");
@@ -59,18 +67,100 @@ function writeSettings(next) {
   return settings;
 }
 
-// The device key, encrypted at rest; created on first use.
-function devicePrivateKeyPem() {
-  const file = path.join(dataDir(), "anxnet-device.key.json");
-  try {
-    const pem = decryptPayload(JSON.parse(fs.readFileSync(file, "utf8")), file);
-    if (pem) return pem;
-  } catch {}
+function isDevicePem(value) {
+  return typeof value === "string" && value.includes("-----BEGIN PRIVATE KEY-----");
+}
+
+function deviceKeyUnreadable(file, cause, kind) {
+  // Keep a copy of exactly what was on disk; the file itself is not touched.
+  if (kind) {
+    try { preserveUnreadableFile(file, { kind }); } catch {}
+  }
+  const error = roster.error(
+    "ANXNET_DEVICE_KEY_UNREADABLE",
+    "AnxNet is locked: this computer's AnxNet key couldn't be read (the system keyring may be locked or unavailable). The key file was kept, and AnxNet won't start with a new identity.",
+    409,
+  );
+  if (cause) Object.defineProperty(error, "cause", { value: cause, enumerable: false });
+  return error;
+}
+
+// A new key is written to a temporary file and linked into place, so a crash
+// never leaves a half-written key and an existing key is never replaced.
+function createDeviceKey(file) {
   const identity = identityLib.createIdentity();
   const pem = identity.privateKey.export({ format: "pem", type: "pkcs8" });
+  const record = encryptPayload(pem, file);
+  // The fallback cipher key includes the computer name; recording it lets the
+  // key be decrypted after the computer is renamed.
+  if (record.method === "aes-256-gcm") record.hostname = os.hostname();
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(encryptPayload(pem, file)), { mode: 0o600 });
+  const temporaryPath = `${file}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    fs.writeFileSync(temporaryPath, JSON.stringify(record), { mode: 0o600, flag: "wx" });
+    try {
+      fs.linkSync(temporaryPath, file);
+    } catch (error) {
+      // Another start created the key first: use that one.
+      if (error?.code === "EEXIST" || fs.existsSync(file)) return devicePrivateKeyPem();
+      // A file system without hard links.
+      fs.renameSync(temporaryPath, file);
+    }
+  } finally {
+    try { fs.rmSync(temporaryPath, { force: true }); } catch {}
+  }
   return pem;
+}
+
+// The device key, encrypted at rest; created only when there is none.
+//
+// The key is this computer's AnxNet identity (its deviceId, and ownership of
+// any network it created), and nothing can rebuild it. A key file that exists
+// but can't be read or decrypted (a locked or missing keyring, a damaged
+// file) is kept as it is, with a recovery copy, and AnxNet reports that it is
+// locked instead of joining with a new identity.
+function devicePrivateKeyPem() {
+  const file = path.join(dataDir(), "anxnet-device.key.json");
+  let text;
+  try {
+    text = fs.readFileSync(file, "utf8");
+  } catch (error) {
+    if (error?.code === "ENOENT") return createDeviceKey(file);
+    throw deviceKeyUnreadable(file, error, null);
+  }
+  let record;
+  try {
+    record = JSON.parse(text);
+  } catch (error) {
+    throw deviceKeyUnreadable(file, error, "corrupt");
+  }
+  const currentHostname = os.hostname();
+  const hostnames = record?.method === "aes-256-gcm" && typeof record.hostname === "string" && record.hostname && record.hostname !== currentHostname
+    ? [currentHostname, record.hostname]
+    : [currentHostname];
+  let failure = null;
+  for (const hostname of hostnames) {
+    let pem = null;
+    try {
+      pem = decryptPayload(record, file, { hostname });
+    } catch (error) {
+      failure = error;
+    }
+    if (!isDevicePem(pem)) continue;
+    // A fallback key written before the computer name was recorded: record
+    // it now (same ciphertext), so a later rename doesn't lock the key.
+    if (record.method === "aes-256-gcm" && !record.hostname) {
+      const temporaryPath = `${file}.${process.pid}.${Date.now()}.tmp`;
+      try {
+        fs.writeFileSync(temporaryPath, JSON.stringify({ ...record, hostname }), { mode: 0o600, flag: "wx" });
+        fs.renameSync(temporaryPath, file);
+      } catch {
+        try { fs.rmSync(temporaryPath, { force: true }); } catch {}
+      }
+    }
+    return pem;
+  }
+  throw deviceKeyUnreadable(file, failure, "undecryptable");
 }
 
 function hasNetwork() {
@@ -125,15 +215,29 @@ async function nodeOptions() {
   };
 }
 
+// Errors after this point mean a host process answered: AnxOS must not start
+// a second node on the same data folder next to it.
+function hostAnswered(error) {
+  if (error && error.code !== "ANXNET_HOST_DISCONNECTED") error.anxnetHostAlive = true;
+  return error;
+}
+
 async function startHostBackend() {
+  // Read the key first: a key that can't be read must not start a host.
+  const keyPem = devicePrivateKeyPem();
   const options = await nodeOptions();
   const client = new AnxNetHostClient({
     dataDir: dataDir(),
     hostArgs: ["--listen-host", options.listenHost, "--listen-port", String(options.listenPort), "--dns-port", String(options.dnsPort), "--blocked-ports", options.blockedPorts.map((entry) => entry.port).join(",") || "none"],
   });
   await client.connect();
-  await client.call("unlock", { keyPem: devicePrivateKeyPem() });
-  await client.call("subscribe");
+  try {
+    await client.call("unlock", { keyPem });
+    await client.call("subscribe");
+  } catch (error) {
+    client.disconnect();
+    throw hostAnswered(error);
+  }
   client.on("change", () => events.emit("change"));
   client.on("pending", (entry) => events.emit("pending", entry));
   client.on("disconnected", () => { if (backend?.client === client) backend = null; events.emit("change"); });
@@ -174,6 +278,10 @@ async function ensureBackend() {
         backend = await startHostBackend();
         return backend;
       } catch (error) {
+        // An unreadable device key, or a host that is running (perhaps with
+        // another key), is reported as it is: an in-process node would run
+        // beside that host on the same data folder, or with a new identity.
+        if (error?.code === "ANXNET_DEVICE_KEY_UNREADABLE" || error?.code === "ANXNET_HOST_KEY_MISMATCH" || error?.anxnetHostAlive) throw error;
         // Never leave the user without AnxNet because the helper couldn't
         // start: run it in this process and say so.
         events.emit("warning", { code: error.code || "ANXNET_HOST_START_FAILED", message: `AnxNet's background process couldn't start (${error.message}); running inside AnxOS instead.` });
@@ -202,6 +310,7 @@ async function resume() {
 // At app quit: the background process keeps running unless the user turned
 // that off; an in-app node always stops with the app.
 async function shutdown() {
+  stopRepublishRetry();
   if (!backend) return;
   const current = backend;
   backend = null;
@@ -225,7 +334,7 @@ async function status() {
     const nodeStatus = await backend.call("status");
     let usage = null;
     if (backend.mode === "background") usage = await backend.call("usage").catch(() => null);
-    return { running: true, mode: backend.mode, ...nodeStatus, host: usage ? { pid: usage.pid, uptimeSeconds: usage.uptimeSeconds, rssMb: Math.round(usage.rss / 1048576) } : null, settings: publicSettings() };
+    return { running: true, mode: backend.mode, ...nodeStatus, publicRouteErrors: [...publicRouteErrors.values()], host: usage ? { pid: usage.pid, uptimeSeconds: usage.uptimeSeconds, rssMb: Math.round(usage.rss / 1048576) } : null, settings: publicSettings() };
   } catch (error) {
     return { running: false, mode: backend?.mode || null, network: null, error: error.message, settings: publicSettings() };
   }
@@ -255,6 +364,8 @@ async function leaveNetwork() {
   const active = await ensureBackend();
   for (const routeId of Object.keys(readSettings().publicRoutes || {})) await active.call("unpublish", { routeId }).catch(() => {});
   writeSettings({ publicRoutes: {} });
+  stopRepublishRetry();
+  publicRouteErrors.clear();
   const result = await active.call("leaveNetwork");
   backend = null;
   await active.stop().catch(() => {});
@@ -300,7 +411,9 @@ async function unshareService(serviceId) {
   for (const [routeId, route] of Object.entries(routes)) {
     if (route.serviceId === serviceId) { await active.call("unpublish", { routeId }).catch(() => {}); delete routes[routeId]; }
   }
+  await unpublishLiveRoutes(active, serviceId);
   writeSettings({ publicRoutes: routes });
+  publicRouteErrors.delete(serviceId);
   await active.call("unshareService", { serviceId });
   return { removed: true, status: await status() };
 }
@@ -328,30 +441,80 @@ async function publishService(input = {}) {
   const stored = readSettings().publicRoutes || {};
   routes.forEach((route) => { stored[route.routeId] = { serviceId: route.serviceId, protocol: route.protocol, publicHost: route.publicHost, publicPort: route.publicPort }; });
   writeSettings({ publicRoutes: stored });
+  publicRouteErrors.delete(service.serviceId);
   const tcpRoute = routes.find((route) => route.protocol === "tcp");
   const test = await require("../anxnet/readiness").testPublicRoute(tcpRoute || routes[0], { game: input.game, minecraft: /minecraft/i.test(`${service.name} ${input.game || ""}`) });
   return { routes, test, status: await status() };
 }
 
 // After a restart, routes saved as on are opened again (with fresh grants).
+// A route that can't be reopened now (gateway down, no network yet) stays
+// saved and on: it is reported in status() and tried again with backoff.
+// Only the owner turning Anyone can join off (or unsharing) removes it.
 async function republishRoutes() {
   const stored = readSettings().publicRoutes || {};
   const serviceIds = [...new Set(Object.values(stored).map((route) => route.serviceId))];
-  if (!serviceIds.length) return;
+  if (!serviceIds.length) { publicRouteErrors.clear(); return; }
   const active = await ensureBackend();
   const nodeStatus = await active.call("status");
   const live = new Set((nodeStatus.publicRoutes || []).map((route) => route.serviceId));
+  const keep = (serviceId, into) => Object.entries(stored).filter(([, route]) => route.serviceId === serviceId).forEach(([id, route]) => { into[id] = route; });
   const next = {};
   for (const serviceId of serviceIds) {
-    if (live.has(serviceId)) { Object.entries(stored).filter(([, route]) => route.serviceId === serviceId).forEach(([id, route]) => { next[id] = route; }); continue; }
+    if (live.has(serviceId)) { keep(serviceId, next); publicRouteErrors.delete(serviceId); continue; }
     try {
       const { routes } = await publishRoutes(active, nodeStatus, serviceId);
       routes.forEach((route) => { next[route.routeId] = { serviceId, protocol: route.protocol, publicHost: route.publicHost, publicPort: route.publicPort }; });
+      publicRouteErrors.delete(serviceId);
     } catch (error) {
+      keep(serviceId, next);
+      publicRouteErrors.set(serviceId, { serviceId, code: error.code || "ANXNET_REPUBLISH_FAILED", message: error.message, at: new Date().toISOString() });
       events.emit("warning", { code: error.code || "ANXNET_REPUBLISH_FAILED", message: `A public route couldn't be reopened: ${error.message}` });
     }
   }
-  writeSettings({ publicRoutes: next });
+  // The owner may have turned a route on or off while this ran.
+  const latest = readSettings().publicRoutes || {};
+  const wanted = new Set(Object.values(latest).map((route) => route.serviceId));
+  const merged = Object.fromEntries(Object.entries(latest).filter(([, route]) => !serviceIds.includes(route.serviceId)));
+  Object.entries(next).forEach(([id, route]) => { if (wanted.has(route.serviceId)) merged[id] = route; });
+  writeSettings({ publicRoutes: merged });
+  for (const serviceId of publicRouteErrors.keys()) if (!wanted.has(serviceId)) publicRouteErrors.delete(serviceId);
+  if (publicRouteErrors.size) scheduleRepublish();
+  else republishAttempt = 0;
+}
+
+function scheduleRepublish() {
+  clearTimeout(republishTimer);
+  const delay = Math.min(REPUBLISH_RETRY_MAX_MS, REPUBLISH_RETRY_MIN_MS * 2 ** Math.min(republishAttempt, 6));
+  republishAttempt += 1;
+  republishTimer = setTimeout(() => {
+    republishTimer = null;
+    if (!backend) return; // AnxOS is closing or left the network
+    republishRoutes().catch((error) => { events.emit("warning", { code: error.code || "ANXNET_REPUBLISH_FAILED", message: error.message }); scheduleRepublish(); });
+  }, delay);
+  republishTimer.unref?.();
+}
+
+function stopRepublishRetry() {
+  clearTimeout(republishTimer);
+  republishTimer = null;
+  republishAttempt = 0;
+}
+
+// Routes the node holds for a service, by their current id (a reopened
+// route can have a new id), including ones that aren't live right now
+// (status() lists only live routes).
+async function unpublishLiveRoutes(active, serviceId) {
+  try {
+    await active.call("unpublishService", { serviceId });
+    return;
+  } catch {
+    // A background host from an older build has no unpublishService.
+  }
+  const nodeStatus = await active.call("status").catch(() => null);
+  for (const route of nodeStatus?.publicRoutes || []) {
+    if (route.serviceId === serviceId) await active.call("unpublish", { routeId: route.routeId }).catch(() => {});
+  }
 }
 
 async function unpublishService(serviceId) {
@@ -360,7 +523,9 @@ async function unpublishService(serviceId) {
   for (const [routeId, route] of Object.entries(stored)) {
     if (route.serviceId === serviceId) { await active.call("unpublish", { routeId }).catch(() => {}); delete stored[routeId]; }
   }
+  await unpublishLiveRoutes(active, serviceId);
   writeSettings({ publicRoutes: stored });
+  publicRouteErrors.delete(serviceId);
   return { removed: true, status: await status() };
 }
 
@@ -518,4 +683,5 @@ module.exports = {
   testPeer,
   unpublishService,
   unshareService,
+  _test: { devicePrivateKeyPem },
 };

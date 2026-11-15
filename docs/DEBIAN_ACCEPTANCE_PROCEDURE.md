@@ -344,9 +344,16 @@ Preconditions from `src/services/remoteAgentUpdateService.js`: a Linux node
 (not the application host) with an assigned SSH profile using **private key**
 auth (`REMOTE_AGENT_UPDATE_SSH_PROFILE_MISSING` /
 `REMOTE_AGENT_UPDATE_SSH_KEY_REQUIRED` otherwise); the node healthy before the
-update (`REMOTE_AGENT_UPDATE_NODE_UNHEALTHY`); the bundled Agent not older than
-the node's (`AGENT_DOWNGRADE_REFUSED`). This variant can carry a real version
-delta when the desktop's bundled Agent version differs from the node's.
+update (`REMOTE_AGENT_UPDATE_NODE_UNHEALTHY`); the bundled Agent's release
+build not older than the node's (`AGENT_DOWNGRADE_REFUSED`). Builds are
+compared, not `agent/package.json`'s version, which is a fixed placeholder: the
+node reports `identity.agentArtifactVersion` in `/health` (for example
+`2.0-build211`), and the bundled build is the Desktop's own `release.json`. A
+node that reports no build predates build reporting and is updated; a node that
+reports a build while the Desktop cannot read its own is refused
+(`AGENT_BUILD_UNVERIFIED`). The push stamps `<runtimeRoot>/agent-build.json`
+with the bundled build, and verification also fails (and rolls back) if the
+node still reports a different build after the swap.
 
 On the node, staging is `<runtimeRoot>/.anxos-agent-update/<stamp>/staged` with
 `backup/` beside it. The swap script emits `STAGE_OK`, `BACKUP_OK`, `STOP_OK`,

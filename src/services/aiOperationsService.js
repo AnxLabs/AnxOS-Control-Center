@@ -230,6 +230,20 @@ function createAiOperationsService(deps) {
     };
   }
 
+  // The server's own cached connectivity check (cache only, never a probe).
+  // No cached evaluation reads as "not measured", never as another server's.
+  async function readServerPublicReachability(nodeId, instanceId) {
+    if (typeof services.getCachedDiagnostics !== "function") return null;
+    try {
+      const cached = await withTimeout(services.getCachedDiagnostics({ nodeId, serviceId: instanceId }), 5000);
+      if (!cached || typeof cached !== "object" || cached.cached === false) return null;
+      const scopes = cached.reachability && typeof cached.reachability === "object" ? cached.reachability : cached.scopes;
+      return typeof scopes?.public === "string" && scopes.public ? scopes.public : null;
+    } catch {
+      return null;
+    }
+  }
+
   const READERS = {
     "computers.list": async () => readComputers(),
     "computer.status": async ({ nodeId }) => {
@@ -260,7 +274,10 @@ function createAiOperationsService(deps) {
       let computer = null;
       try { computer = (await readComputers()).data.computers.find((entry) => entry.id === nodeId) || null; } catch { computer = null; }
       const result = diagnoseServer({ logs, status: status.server, computer });
-      const join = diagnoseJoin({ server: status.server, computer, connectivity: computer?.connectivity || null });
+      // The computer's connectivity merges every server's checks (worst wins),
+      // so only this server's own cached check speaks for this server.
+      const publicReachability = await readServerPublicReachability(nodeId, instanceId);
+      const join = diagnoseJoin({ server: status.server, computer, connectivity: publicReachability ? { public: publicReachability } : null });
       return { data: { server: status.server, findings: result.findings, missing: [...missing, ...result.missing], linesExamined: result.linesExamined, join }, observations: status.observations };
     },
     "docker.containers": async ({ nodeId }) => {
@@ -573,6 +590,7 @@ function createDefaultDependencies() {
     configDir: () => path.dirname(preferences.getSettingsPath()),
     services: {
       listComputerSummaries: () => computerService.listComputerSummaries(),
+      getCachedDiagnostics: (filter) => require("./connectivityDiagnosticsService").getCachedDiagnostics(filter),
       getSystemSnapshot: (options) => systemService.getSystemSnapshot(options),
       listInstances: (options) => router.listInstances(options),
       getInstanceStatus: (id, options) => router.getInstanceStatus(id, options),

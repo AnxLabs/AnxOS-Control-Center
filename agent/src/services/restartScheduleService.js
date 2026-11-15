@@ -276,34 +276,33 @@ function parseWarnMinutes(value) {
 
 // Next occurrence of a local wall-clock time strictly after fromMs.
 function nextDailyRunMs(minutesOfDay, fromMs) {
+  const hours = Math.floor(minutesOfDay / 60);
+  const minutes = minutesOfDay % 60;
   const candidate = new Date(fromMs);
-  candidate.setHours(Math.floor(minutesOfDay / 60), minutesOfDay % 60, 0, 0);
-  let next = candidate.getTime();
-  while (next <= fromMs) {
-    next += 24 * 60 * 60 * 1000;
-    // Re-anchor to the wall clock after each day step: a raw +24h drifts
-    // ±1h across DST transitions even though cadence stays "daily".
-    candidate.setTime(next);
-    candidate.setHours(Math.floor(minutesOfDay / 60), minutesOfDay % 60, 0, 0);
-    next = candidate.getTime();
+  candidate.setHours(hours, minutes, 0, 0);
+  // Step by calendar day, never by 24 h: on a 25-hour fall-back day 00:30
+  // plus 24 h is 23:30 on the same date, and setHours would return the same
+  // candidate forever. Each step moves to a later local date, so the first
+  // step already lands after fromMs; the cap only bounds the loop.
+  for (let day = 0; candidate.getTime() <= fromMs && day < 7; day += 1) {
+    candidate.setDate(candidate.getDate() + 1);
+    candidate.setHours(hours, minutes, 0, 0);
   }
-  return next;
+  const next = candidate.getTime();
+  return next > fromMs || !Number.isFinite(next) ? next : fromMs + 24 * 60 * 60 * 1000;
 }
 
 // Advance a schedule's due time while preserving its cadence: restarts stay
 // anchored to the previous due time instead of drifting forward from "now",
-// so an agent that was offline still keeps its original rhythm.
+// so an agent that was offline still keeps its original rhythm. A daily
+// schedule is anchored to its wall-clock time instead: adding 24 h to the
+// previous due time would move it by an hour at every DST change.
 function nextDueAtMs(schedule, previousDueAtMs, fromMs) {
   if (schedule.type === "daily") {
-    const minutesOfDay = parseDailyTime(schedule.dailyTime);
-    let next = previousDueAtMs;
-    if (!Number.isFinite(next)) {
-      next = nextDailyRunMs(minutesOfDay, fromMs);
+    if (Number.isFinite(previousDueAtMs) && previousDueAtMs > fromMs) {
+      return previousDueAtMs;
     }
-    while (next <= fromMs) {
-      next += 24 * 60 * 60 * 1000;
-    }
-    return next;
+    return nextDailyRunMs(parseDailyTime(schedule.dailyTime), fromMs);
   }
   const intervalMs = (Number(schedule.intervalHours) || MIN_INTERVAL_HOURS) * 60 * 60 * 1000;
   let next = Number.isFinite(previousDueAtMs) ? previousDueAtMs + intervalMs : fromMs + intervalMs;
@@ -539,6 +538,20 @@ async function evaluateSchedule(schedule, changed) {
     return;
   }
 
+  // Builds before the DST fix advanced daily schedules by a flat 24 h, so a
+  // stored due time can sit an hour off its wall-clock time. Re-anchor it
+  // before using it: an early record would otherwise restart at the wrong
+  // hour and then again at the right one the same day.
+  if (schedule.type === "daily") {
+    const minutesOfDay = parseDailyTime(schedule.dailyTime);
+    if (minutesOfDay !== null && nextDailyRunMs(minutesOfDay, dueAtMs - 1) !== dueAtMs) {
+      schedule.nextRunAt = new Date(nextDailyRunMs(minutesOfDay, atMs)).toISOString();
+      schedule.warnState = freshWarnState(Date.parse(schedule.nextRunAt));
+      changed.value = true;
+      return;
+    }
+  }
+
   if (!schedule.warnState || schedule.warnState.dueAt !== schedule.nextRunAt) {
     schedule.warnState = freshWarnState(dueAtMs);
     changed.value = true;
@@ -720,8 +733,8 @@ async function waitForSteamUpdateRestarts() {
 //     in-memory copy. Those are the runtime facts the tick legitimately
 //     produced (when it ran/skipped and when it is next due).
 //
-// The backupService scheduler precedent does NOT implement this merge (single
-// writer assumed), so this path is intentionally stricter.
+// The backupService scheduler follows the same rule (a shared tick, a store
+// lock, and a merge of the run result into a fresh read).
 async function mergeEvaluatedSchedules(snapshot, evaluatedIds) {
   let latest;
   try {
@@ -828,6 +841,7 @@ module.exports = {
   deleteRestartSchedule,
   getRestartSchedule,
   listRestartSchedules,
+  nextDailyRunMs,
   runDueSchedules,
   startRestartScheduler,
   stopRestartScheduler,

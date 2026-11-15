@@ -26,7 +26,6 @@ const longOperations = require("../shared/longOperationService");
 const { runWithConcurrency } = require("./fleetService");
 const {
   MARKETPLACE_JOB_TYPES,
-  buildMarketplaceInstallKey,
   mintMarketplaceJob,
 } = require("./marketplaceInstallJobService");
 
@@ -49,6 +48,9 @@ const MAX_ARCHIVE_EXPANDED_BYTES = 32 * 1024 * 1024 * 1024;
 const MAX_ARCHIVE_COMPRESSION_RATIO = 1000;
 const MAX_ARCHIVE_PATH_LENGTH = 1024;
 const PROVIDER_INSTALL_MIN_FREE_BYTES = 8 * 1024 * 1024 * 1024;
+// Two-hour Agent SteamCMD update ceiling + up to twenty minutes of pre-update
+// backup + margin (the job engine allows up to three hours).
+const STEAMCMD_UPDATE_JOB_TIMEOUT_MS = 2 * 60 * 60 * 1000 + 40 * 60 * 1000;
 
 class MarketplaceInstallError extends Error {
   constructor(message, code = "MARKETPLACE_INSTALL_FAILED", details = {}) {
@@ -1691,6 +1693,47 @@ async function writeBuffer(instanceId, filePath, buffer, agentConfig) {
   );
 }
 
+// Publisher digests for a downloaded file, strongest first, as lowercase hex.
+// Accepts Modrinth's `{ sha512, sha1 }`, CurseForge's `[{ algo, value }]`
+// (algo 1 = SHA-1, 2 = MD5) and plain `{ sha256 }` / `{ sha1 }` objects.
+// A value that is not a digest of the right length is ignored.
+const FILE_HASH_LENGTHS = Object.freeze({ sha512: 128, sha256: 64, sha1: 40 });
+
+function getDeclaredFileHashes(hashes) {
+  const declared = {};
+  if (Array.isArray(hashes)) {
+    for (const entry of hashes) {
+      if (Number(entry?.algo) === 1 && entry?.value) declared.sha1 = entry.value;
+    }
+  } else if (hashes && typeof hashes === "object") {
+    for (const algorithm of Object.keys(FILE_HASH_LENGTHS)) {
+      if (hashes[algorithm]) declared[algorithm] = hashes[algorithm];
+    }
+  }
+  const result = [];
+  for (const [algorithm, length] of Object.entries(FILE_HASH_LENGTHS)) {
+    const value = String(declared[algorithm] ?? "").trim().toLowerCase();
+    if (value.length === length && /^[a-f0-9]+$/.test(value)) result.push({ algorithm, value });
+  }
+  return result;
+}
+
+// Refuses a downloaded file whose bytes do not match the strongest hash its
+// provider declared, before it is written to the instance.
+function verifyDownloadedFileHash(buffer, hashes, context = {}) {
+  const [expected] = getDeclaredFileHashes(hashes);
+  if (!expected) return null;
+  const actual = crypto.createHash(expected.algorithm).update(buffer).digest("hex");
+  if (actual !== expected.value) {
+    throw new MarketplaceInstallError(
+      `${context.fileName || "A downloaded file"} does not match the ${expected.algorithm.toUpperCase()} hash its provider publishes, so it was not installed.`,
+      "DOWNLOAD_CHECKSUM_MISMATCH",
+      { algorithm: expected.algorithm, expected: expected.value, actual, url: context.url || null, fileName: context.fileName || null }
+    );
+  }
+  return expected;
+}
+
 async function writeIfMissing(instanceId, filePath, buffer, agentConfig) {
   const exists = await withRetry(
     () => agentClient.instanceFileExists(instanceId, filePath, agentConfig),
@@ -2009,7 +2052,7 @@ async function resolveVanillaServerJar(minecraftVersion) {
   if (!metadata.downloads?.server?.url) {
     throw new MarketplaceInstallError("Selected Minecraft version has no server jar.", "MOJANG_SERVER_JAR_MISSING");
   }
-  return { url: metadata.downloads.server.url, fileName: "server.jar", serverJar: "server.jar", minecraftVersion: versionId };
+  return { url: metadata.downloads.server.url, fileName: "server.jar", serverJar: "server.jar", minecraftVersion: versionId, hashes: { sha1: metadata.downloads.server.sha1 || null } };
 }
 
 async function resolvePaperServerJar(minecraftVersion, project = "paper") {
@@ -2042,6 +2085,7 @@ async function resolvePaperServerJar(minecraftVersion, project = "paper") {
     serverJar: "server.jar",
     minecraftVersion: versionId,
     loaderVersion: String(build.id),
+    hashes: { sha256: serverDownload.checksums?.sha256 || null },
   };
 }
 
@@ -2336,6 +2380,7 @@ async function installModrinthPack(instanceId, payload, agentConfig, progressSta
   if (primary?.filename?.endsWith(".mrpack")) {
     emitProgress({ ...progressState, stage: "downloading", message: "Downloading Modrinth pack..." });
     const pack = await fetchBuffer(primary.url, primary.filename, { signal: progressState.signal });
+    verifyDownloadedFileHash(pack, primary.hashes, { fileName: primary.filename, url: primary.url });
     emitProgress({ ...progressState, stage: "extracting", message: "Extracting Modrinth overrides..." });
     await extractZipBuffer(pack, async (entryPath, content) => {
       if (entryPath === "modrinth.index.json") {
@@ -2395,6 +2440,7 @@ async function installModrinthPack(instanceId, payload, agentConfig, progressSta
           emitProgress({ ...progressState, stage: "downloading", message: `Downloading ${current}/${files.length} mods...`, current, total: files.length });
           try {
             const modBuffer = await fetchBuffer(fileUrl, path.posix.basename(filePath), { signal: progressState.signal });
+            verifyDownloadedFileHash(modBuffer, file.hashes, { fileName: path.posix.basename(filePath), url: fileUrl });
             await writeIfMissing(instanceId, filePath, modBuffer, agentConfig);
             mods.push({ file: filePath, sha1: file.hashes?.sha1 || null, provider: "modrinth" });
             downloads.push({ file: filePath, provider: "modrinth" });
@@ -2496,6 +2542,7 @@ async function installModrinthPack(instanceId, payload, agentConfig, progressSta
       emitProgress({ ...progressState, stage: "downloading", message: `Downloading ${current}/${fileEntries.length} mods...`, current, total: fileEntries.length });
       try {
         const buffer = await fetchBuffer(file.url, fileName, { signal: progressState.signal });
+        verifyDownloadedFileHash(buffer, file.hashes, { fileName, url: file.url });
         await writeIfMissing(instanceId, target, buffer, agentConfig);
         mods.push({ file: target, sha1: file.hashes?.sha1 || null, provider: "modrinth", versionId: resolvedVersion.id });
         downloads.push({ file: target, provider: "modrinth" });
@@ -2702,6 +2749,7 @@ async function installCurseForgePack(instanceId, payload, agentConfig, progressS
         }
         const modDownload = await curseforgeProvider.downloadFile(modFile, "", { config: curseForgeConfig, signal: progressState.signal });
         const target = `mods/${safeArchivePath(modDownload.fileName)}`;
+        verifyDownloadedFileHash(modDownload.buffer, modFile.raw?.hashes, { fileName: modDownload.fileName, url: modFile.downloadUrl || null });
         await writeIfMissing(instanceId, target, modDownload.buffer, agentConfig);
         mods.push({ file: target, provider: "curseforge", projectId: manifestProjectId, fileId: manifestFileId });
         downloads.push({ file: target, provider: "curseforge" });
@@ -2776,6 +2824,7 @@ async function installCurseForgePack(instanceId, payload, agentConfig, progressS
         }
         const modDownload = item.buffer ? item : await curseforgeProvider.downloadFile(item, "", { config: curseForgeConfig, signal: progressState.signal });
         emitProgress({ ...progressState, stage: "downloading", message: `Downloading ${current}/${fileEntries.length} mods...`, current, total: fileEntries.length });
+        verifyDownloadedFileHash(modDownload.buffer, item.raw?.hashes, { fileName: modDownload.fileName || item.fileName || null, url: item.downloadUrl || null });
         await writeIfMissing(instanceId, target, modDownload.buffer, agentConfig);
         mods.push({ file: target, provider: "curseforge", projectId: item.projectId, fileId: item.id });
         downloads.push({ file: target, provider: "curseforge" });
@@ -3124,7 +3173,10 @@ function buildPackInstallSubject(payload = {}) {
 //                 provider hash is ever compared against the bytes on disk. No
 //                 integrity match can be established and the verdict can never
 //                 be `verified` — an honest gap in the current code, not a
-//                 policy default.
+//                 policy default. (Each file the install then downloads is
+//                 refused when it does not match the hash its provider declares
+//                 for it — verifyDownloadedFileHash — which guards the bytes
+//                 but does not make this pack verdict `verified`.)
 function resolveProviderPackDeclaredHash(provider, options = {}) {
   if (provider !== "modrinth") {
     return null;
@@ -3156,13 +3208,10 @@ async function installPack(payload = {}) {
   const job = await mintMarketplaceJob({
     type: MARKETPLACE_JOB_TYPES.INSTALL,
     target: { nodeId: payload.nodeId || null, projectId: subject },
-    idempotencyKey: payload.idempotencyKey !== undefined && payload.idempotencyKey !== null
-      ? payload.idempotencyKey
-      : buildMarketplaceInstallKey({
-        nodeId: payload.nodeId,
-        subject,
-        version: payload.versionId || payload.minecraftVersion || payload.version || "unversioned",
-      }),
+    // Only a key the caller supplies dedupes: a key derived from the pack and
+    // version replayed the first install's success when the same pack was
+    // installed again later (for example after deleting the server).
+    idempotencyKey: payload.idempotencyKey ?? undefined,
     cancellationSupported: true,
     // Durable-job cancel forwards onto the same AbortController the provider
     // install uses, so one cancellation path serves both cancel surfaces.
@@ -3332,7 +3381,9 @@ async function executeInstallPack(payload = {}, context = {}) {
 
     if (!providerRuntimeDeferred) {
       emitProgress({ nodeId: installNodeId, instanceId, operationId, stage: "downloading", message: "Downloading server runtime...", current: 0, total: 1 });
-      await writeBuffer(instanceId, serverInfo.downloadDestination || serverInfo.serverJar, await fetchBuffer(serverInfo.url, serverInfo.fileName, { signal }), agentConfig);
+      const runtimeBuffer = await fetchBuffer(serverInfo.url, serverInfo.fileName, { signal });
+      verifyDownloadedFileHash(runtimeBuffer, serverInfo.hashes, { fileName: serverInfo.fileName, url: serverInfo.url });
+      await writeBuffer(instanceId, serverInfo.downloadDestination || serverInfo.serverJar, runtimeBuffer, agentConfig);
       throwIfInstallCancelled(signal);
       await runServerInstaller(instanceId, serverInfo, agentConfig, operationId, signal, instancePayload.memoryLimit);
     }
@@ -3563,9 +3614,14 @@ async function updateSteamCmdInstance(payload = {}) {
   const job = await mintMarketplaceJob({
     type: MARKETPLACE_JOB_TYPES.STEAMCMD_UPDATE,
     target: { instanceId, nodeId: payload.nodeId || null },
-    idempotencyKey: payload.idempotencyKey !== undefined && payload.idempotencyKey !== null
-      ? payload.idempotencyKey
-      : buildMarketplaceInstallKey({ nodeId: payload.nodeId, subject: instanceId, version: "current" }),
+    // Only a key the caller supplies dedupes. A key derived from the instance
+    // made the job engine replay the first successful update forever, so every
+    // later "Update server files" reported success without running SteamCMD.
+    // Concurrent updates are still refused by the long-operation lock below.
+    idempotencyKey: payload.idempotencyKey ?? undefined,
+    // The job's timeout cancels the SteamCMD session, so it must outlast the
+    // Agent's two-hour update ceiling plus an optional pre-update backup.
+    timeoutMs: STEAMCMD_UPDATE_JOB_TIMEOUT_MS,
     cancellationSupported: true,
     // Durable-job cancel forwards onto the same AbortController the SteamCMD
     // session uses, so one cancellation path serves both cancel surfaces.
@@ -4008,6 +4064,9 @@ module.exports = {
     createRestrictedCurseForgeFileError,
     createDeduper,
     evaluatePackPublisherTrust,
+    getDeclaredFileHashes,
+    installModrinthPack,
+    verifyDownloadedFileHash,
     resolveProviderPackDeclaredHash,
     ensureCurseForgeServerPackCandidate,
     ensureProviderPackDependencies,

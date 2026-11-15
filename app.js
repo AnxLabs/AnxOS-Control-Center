@@ -865,9 +865,20 @@ let systemRequestSerial = 0;
 let activeSystemRequestSerial = 0;
 let ampRequestInFlight = false;
 let playitRequestInFlight = false;
+// The Playit status/tunnel/account refresh started by refreshPlayitStatus;
+// polling waits for it so a newer poll cannot discard its results.
+let playitManagementPromise = null;
+// One refresh queued by calls made while a refresh is running (after a
+// Start/Stop, a new share, ...): { promise, resolve, management }.
+let playitTrailingRefresh = null;
+// The computer (node id and selection version) a refreshShareAccessState
+// finished for; see refreshShareAccessState.
+let shareAccessSettledNodeKey = null;
 let latestPublicAccessSnapshot = null;
 let latestPlayitServiceStatus = null;
 let latestPlayitTunnels = [];
+// True once a tunnel list (or its failure) was rendered for this computer.
+let latestPlayitTunnelsLoaded = false;
 let publicAccessUnavailableState = null;
 let selectedPublicAccessProviderId = "playit";
 let selectedPublicAccessServiceId = "playit-primary";
@@ -1110,11 +1121,13 @@ let lastStaleInstanceRemovedNoticeAt = 0;
 let activeInstanceTab = "overview";
 let latestMinecraftProperties = {};
 let instanceConfigSnapshot = "";
-let instanceMinecraftSnapshot = "";
 // Which instance configuration the settings form currently shows (see
 // shouldRepopulateInstanceConfigForm). Every population path records it.
 const populatedInstanceConfig = { instanceId: null, nodeId: null, key: "" };
 let gameConfigState = {
+  // The server these game settings were loaded for; they are never shown or
+  // saved under another one.
+  instanceId: null,
   loading: false,
   loaded: false,
   supported: false,
@@ -1130,7 +1143,15 @@ let gameConfigState = {
 };
 let instanceCurrentFilePath = ".";
 let selectedInstanceFilePath = null;
+// The server the Files tab's folder, selection and open file belong to.
+let instanceFilesInstanceId = null;
+// The server the Files tab last asked a listing for (cleared with the tab), so
+// a list poll does not list the same server again while that request runs.
+let instanceFilesRequestedInstanceId = null;
 let openedInstanceFilePath = null;
+// The server the open file was read from. It is not inferred from the folder
+// listing's owner, which any listing rewrites.
+let openedInstanceFileInstanceId = null;
 let openedInstanceFileSavedContent = "";
 let latestFilesListing = null;
 let latestFilesListingAt = 0;
@@ -2522,9 +2543,9 @@ function createDashboardAppCard(instance) {
 
   const footer = document.createElement("div");
   footer.className = "dashboard-app-card__footer";
-  const players = getMinecraftSummaryData(instance)?.players || {};
-  if (isInstanceRunning(instance) && Number.isFinite(Number(players.online)) && players.online !== null && players.online !== undefined) {
-    footer.append(createTextElement("span", `${players.online}${Number.isFinite(Number(players.max)) && players.max !== null ? ` / ${players.max}` : ""} players`, "dashboard-app-card__players"));
+  const players = getInstancePlayerCounts(instance);
+  if (isInstanceRunning(instance) && players.online !== null) {
+    footer.append(createTextElement("span", `${players.online}${players.max !== null ? ` / ${players.max}` : ""} players`, "dashboard-app-card__players"));
   }
   const quickAction = isInstanceRunning(instance) ? "stop" : /fail|stop|crash/i.test(String(instance?.state || "")) ? "start" : "";
   if (quickAction && instance?.id) {
@@ -2533,9 +2554,11 @@ function createDashboardAppCard(instance) {
     control.className = "inline-action dashboard-app-card__control";
     control.dataset.dashboardServerControl = quickAction;
     control.textContent = quickAction === "stop" ? "Stop" : "Start";
-    control.addEventListener("click", (event) => {
+    control.addEventListener("click", async (event) => {
       event.stopPropagation();
-      // The same path as the server page's buttons, on this server.
+      // The same path as the server page's buttons, on this server. The
+      // server view may still be open on another server with unsaved edits.
+      if (!(await confirmSwitchInstance(instance.id))) return;
       selectInstance(instance.id);
       runInstanceAction(quickAction);
     });
@@ -2570,8 +2593,9 @@ function createDashboardAppCard(instance) {
   return card;
 }
 
-function openDashboardInstanceDetails(instanceId) {
+async function openDashboardInstanceDetails(instanceId) {
   if (!instanceId) return;
+  if (!(await confirmSwitchInstance(instanceId))) return;
   // Reuse the existing instance detail flow: the same page the instance rows
   // navigate to, selected the same way.
   showPage("instances");
@@ -3170,7 +3194,7 @@ function hexToMonacoColor(hex, alpha = 1) {
   return `#${normalized}${alphaHex}`.toUpperCase();
 }
 
-function getSafePageName(pageName) {
+function getSafePageName(pageName, fallback = DEFAULT_SETTINGS["general.defaultPage"]) {
   if (pageName === "minecraft") {
     return "instances";
   }
@@ -3183,15 +3207,23 @@ function getSafePageName(pageName) {
     return "console";
   }
 
-  return Array.from(pages).some((page) => page.dataset.page === pageName) ? pageName : DEFAULT_SETTINGS["general.defaultPage"];
+  return Array.from(pages).some((page) => page.dataset.page === pageName) ? pageName : fallback;
 }
 
+// The page stored by the last session, or null when none (or an unknown one)
+// is stored, so the caller can fall back to the Default page setting.
 function readLastPageName() {
   try {
-    return getSafePageName(window.localStorage.getItem(LAST_PAGE_STORAGE_KEY));
+    return getSafePageName(window.localStorage.getItem(LAST_PAGE_STORAGE_KEY), null);
   } catch {
-    return DEFAULT_SETTINGS["general.defaultPage"];
+    return null;
   }
+}
+
+function resolveStartupPage(settings = {}) {
+  if (shouldRequireAccountBeforeOnboarding()) return "security";
+  const lastPage = settings["general.restorePreviousPage"] === false ? null : readLastPageName();
+  return lastPage || getSafePageName(settings["general.defaultPage"]);
 }
 
 function storeLastPageName(pageName) {
@@ -4329,9 +4361,7 @@ function applySettings(settings, options = {}) {
   }
 
   if (options.openDefaultPage) {
-    const startupPage = shouldRequireAccountBeforeOnboarding()
-      ? "security"
-      : readLastPageName() || getSafePageName(settings["general.defaultPage"]);
+    const startupPage = resolveStartupPage(settings);
     showPage(startupPage);
   } else {
     updateTitlebar();
@@ -4924,6 +4954,7 @@ function showPage(pageName) {
   }
 
   if (safePageName === "instances") {
+    reloadStaleServerViewTab();
     refreshInstances();
     if (!document.hidden) {
       startInstancesPagePolling();
@@ -9292,6 +9323,9 @@ function renderPlayitTunnels(result = {}) {
       matchedInstanceName: tunnel.matchedInstanceName || match?.displayName || match?.id || null,
     };
   });
+  // Only Playit's own answer settles the list; an unavailable computer or a
+  // failed request leaves it unknown (Share health then says "unknown").
+  latestPlayitTunnelsLoaded = result?.ok !== false || ["PLAYIT_NOT_INSTALLED", "PLAYIT_NOT_RUNNING"].includes(result?.code);
   if (playitTunnelMessage) {
     playitTunnelMessage.textContent = result?.ok === false
       ? result.message || "Tunnel listing unavailable for this Playit install."
@@ -10094,9 +10128,31 @@ function getPublicAccessPublicAddress() {
     return service?.privateAddress || provider?.DNSName || provider?.tailnetAddress || provider?.IPv4 || provider?.IPv6 || "";
   }
   if (provider?.id === "playit") {
-    return service?.publicAddress || provider?.publicAddress || latestPlayitSnapshot?.tunnelAddress || latestPlayitSnapshot?.tunnelDomain || getConfiguredPlayitAddress() || "";
+    return preferConfiguredPlayitAddress(service?.publicAddress || provider?.publicAddress || latestPlayitSnapshot?.tunnelAddress || latestPlayitSnapshot?.tunnelDomain || "");
   }
   return service?.publicAddress || provider?.publicAddress || provider?.tailnetAddress || "";
+}
+
+// The detected Playit address wins, except when it has no port and the
+// address typed under Settings has one: a *.ply.gg host without its public
+// port sends friends to the game's default port, where nothing answers.
+// The setting is one value for every computer and service, so it is used only
+// for the same host; joinmc.link addresses need no port (SRV record).
+function preferConfiguredPlayitAddress(detectedAddress, configuredAddress = getConfiguredPlayitAddress()) {
+  const portPattern = /:\d{1,5}$/;
+  const detected = String(detectedAddress || "").trim();
+  const configured = String(configuredAddress || "").trim();
+  if (
+    detected &&
+    configured &&
+    !portPattern.test(detected) &&
+    portPattern.test(configured) &&
+    !/\.joinmc\.link$/i.test(detected) &&
+    configured.replace(portPattern, "").toLowerCase() === detected.toLowerCase()
+  ) {
+    return configured;
+  }
+  return detectedAddress || configuredAddress || "";
 }
 
 function getPublicAccessLocalEndpoint() {
@@ -10195,10 +10251,40 @@ function normalizeShareAddress(value = "") {
   return String(value || "").trim().replace(/\.$/, "");
 }
 
+// A loopback host (This PC, the Local Agent, an SSH tunnel to a remote
+// computer) only reaches the computer that uses it, never a friend's.
+function isLoopbackShareHost(host = "") {
+  const text = String(host || "").trim().toLowerCase().replace(/^\[|\]$/g, "");
+  return text === "localhost" || text === "::1" || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(text);
+}
+
+// The LAN host for the Share dialog: the server's connection host, or, when
+// that is loopback, the computer's private IPv4 from the network inventory
+// read for the selected computer. Null when no LAN address is known.
+function getShareLanHost(instance) {
+  const host = getInstanceConnectionHost(instance);
+  if (!isLoopbackShareHost(host)) return host;
+  const inventory = networkInventoryState?.nodeId === getSelectedNodeId() && networkInventoryState?.status === "ready"
+    ? networkInventoryState.data
+    : null;
+  // Virtual adapters (Docker, WSL/Hyper-V, VM, VPN bridges) also hold private
+  // addresses but no friend on the network can reach them.
+  const candidates = (Array.isArray(inventory?.interfaces) ? inventory.interfaces : []).filter((entry) => (
+    entry?.internal !== true &&
+    (entry?.family === "IPv4" || entry?.family === 4) &&
+    !/docker|^br-|veth|vethernet|virbr|wsl|hyper-v|vmware|virtualbox|vbox|tailscale|zerotier|^zt|wireguard|^wg\d/i.test(String(entry?.name || "")) &&
+    /^(?:10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)/.test(String(entry?.address || ""))
+  ));
+  // Home routers hand out 192.168.x and 10.x; 172.16/12 is mostly virtual.
+  const lan = candidates.find((entry) => !/^172\./.test(String(entry.address))) || candidates[0];
+  return lan ? String(lan.address) : null;
+}
+
 function isUsableShareAddress(value = "") {
   const address = normalizeShareAddress(value);
   if (!address) return false;
   if (/^(?:checking|unknown|unavailable|none|null|undefined)$/i.test(address)) return false;
+  if (isLoopbackShareHost(address) || isLoopbackShareHost(address.replace(/:\d{1,5}$/, ""))) return false;
   if (/\b(?:example\.com|example\.invalid|example\.playit|placeholder)\b/i.test(address)) return false;
   return /[a-z0-9\]](?::\d{1,5})?$/i.test(address);
 }
@@ -10266,14 +10352,27 @@ function getShareServerAddresses(instance = findInstance()) {
   const addresses = [];
   const port = getInstancePrimaryPort(instance);
   const localAddress = formatInstanceAddress(instance);
-  if (localAddress && localAddress !== "No port configured") {
+  const lanHost = port ? getShareLanHost(instance) : null;
+  if (port && lanHost) {
     addresses.push({
       id: "lan",
       label: "LAN address",
-      address: localAddress,
+      address: `${lanHost}:${port}`,
       status: "Available",
       availability: "lan",
       detail: "Only people on your local network can use this address.",
+      recommended: false,
+    });
+  } else if (localAddress && localAddress !== "No port configured") {
+    // Loopback with no known LAN address: shown for reference, never copied,
+    // recommended or put in invite text (isUsableShareAddress refuses it).
+    addresses.push({
+      id: "this-computer",
+      label: "This computer only",
+      address: localAddress,
+      status: "This computer only",
+      availability: "local",
+      detail: "Only works on the computer running the server. Friends need a LAN, Tailscale or Playit address.",
       recommended: false,
     });
   }
@@ -10399,6 +10498,8 @@ function getShareServerAccessHealth(instance = findInstance()) {
   if (nodeUnavailable) tunnelMatch = "unknown";
   else if (playitMatches.length > 1) tunnelMatch = "multiple";
   else if (playitMatches.length === 1 || services.some((service) => service.providerId === "playit" && isUsableShareAddress(getInstanceAccessAddress(service)))) tunnelMatch = "matched";
+  // No tunnel list for this computer yet: not knowing is not "missing".
+  else if (!latestPlayitTunnelsLoaded) tunnelMatch = "unknown";
   else tunnelMatch = "not-matched";
 
   // The shared rules never report "Public access ready" for a tunnel whose
@@ -11007,7 +11108,7 @@ async function createAccessServiceForInstance(instance = findInstance(), preferr
     showToast("Public Access service creation is unavailable.", "warning");
     throw Object.assign(new Error("Public Access service creation is unavailable on the selected node."), { code: "PUBLIC_ACCESS_UNAVAILABLE" });
   }
-  if (!latestPublicAccessSnapshot) {
+  if (!latestPublicAccessSnapshot || latestPublicAccessSnapshot.unavailable === true) {
     await refreshPlayitStatus();
   }
   const requestContext = createNodeActionContext("instance-expose-share");
@@ -11294,7 +11395,7 @@ async function runShareConnectionTest(instance, button, container) {
   }
 }
 
-function openShareServerModal(instance = findInstance()) {
+function openShareServerModal(instance = findInstance(), options) {
   // Accept an instance id so the endpoint picker can hand the selection over
   // without re-resolving; every existing call site still passes an object.
   if (typeof instance === "string") instance = findInstance(instance);
@@ -11338,7 +11439,13 @@ function openShareServerModal(instance = findInstance()) {
   });
   const healthSection = document.createElement("section");
   healthSection.className = "share-server-health";
-  const described = AnxShareHealth.describeShareHealth(health.status);
+  // Until this computer's sharing state and tunnel list are in, say so
+  // instead of giving a verdict from empty (or another computer's) data.
+  const accessStateLoaded = isShareAccessStateLoaded();
+  const checking = !accessStateLoaded && options?.accessRefreshed !== true && health.nodeState !== "disconnected";
+  const described = checking
+    ? { status: health.status, tone: "planned", headline: "Checking whether friends can join...", nextStep: "AnxOS is reading this computer's sharing settings and Playit tunnels." }
+    : AnxShareHealth.describeShareHealth(health.status);
   healthSection.dataset.shareHealthStatus = health.status;
   healthSection.append(
     createTextElement("h3", "Can friends join?"),
@@ -11374,8 +11481,13 @@ function openShareServerModal(instance = findInstance()) {
   testResult.className = "share-server-test-result";
   testResult.dataset.shareServerTestResult = "";
   testResult.setAttribute("aria-live", "polite");
-  renderShareConnectionTest(testResult, getRecentShareConnectionTest(instance)?.result || null);
+  // A rebuild after a test in the previous dialog keeps what that test showed:
+  // only successful results are cached, so a failure would otherwise vanish.
+  if (Array.isArray(options?.testFeedback)) testResult.replaceChildren(...options.testFeedback);
+  else renderShareConnectionTest(testResult, getRecentShareConnectionTest(instance)?.result || null);
+  let testedHere = false;
   testButton.addEventListener("click", () => {
+    testedHere = true;
     runShareConnectionTest(instance, testButton, testResult).then((tested) => {
       if (!tested || !overlay.isConnected) return;
       // The test can settle the game's port, so reopen with fresh health.
@@ -11455,6 +11567,37 @@ function openShareServerModal(instance = findInstance()) {
   overlay.append(dialog);
   document.body.append(overlay);
   const deactivateModal = activateModal(overlay, { initialFocus: () => dialog.querySelector(".inline-action") || closeButton });
+
+  // Every open refreshes the selected computer's sharing state (it is only
+  // polled on Home and Sharing). The dialog is rebuilt once, if it was still
+  // checking or what it shows changed.
+  if (options?.accessRefreshed !== true && health.nodeState !== "disconnected") {
+    const shownState = JSON.stringify([health.status, addresses.map((entry) => entry.address)]);
+    const rebuildWhenIdle = () => {
+      if (!overlay.isConnected) return;
+      if (!isShareServerModalIdle(overlay)) {
+        setTimeout(rebuildWhenIdle, 500);
+        return;
+      }
+      const fresh = findInstance(instance.id) || instance;
+      const freshState = JSON.stringify([getShareServerAccessHealth(fresh).status, getShareServerAddresses(fresh).map((entry) => entry.address)]);
+      if (checking || freshState !== shownState) {
+        const testFeedback = testedHere ? Array.from(testResult.childNodes) : null;
+        close();
+        openShareServerModal(fresh, { accessRefreshed: true, testFeedback });
+      }
+    };
+    refreshShareAccessState().then(rebuildWhenIdle).catch(() => {});
+  }
+}
+
+// The Share dialog is never rebuilt over a confirmation or other dialog
+// opened from it (the new one would cover it and take the focus), or while a
+// share action or connection test in it is still running.
+function isShareServerModalIdle(overlay) {
+  const activeModals = document.querySelectorAll('[data-modal-active="true"]');
+  if (activeModals[activeModals.length - 1] !== overlay) return false;
+  return !overlay.querySelector("[data-share-server-start]:disabled, [data-share-server-stop]:disabled, [data-share-server-test]:disabled");
 }
 
 function openInstanceAccessManager(instance = findInstance()) {
@@ -11483,7 +11626,14 @@ async function deleteAccessServicesForInstance(instance = null) {
   for (const service of services) {
     if (!isNodeActionStillCurrent(requestContext)) return result;
     try {
-      await desktopApiState.api.publicAccess.deleteService({ serviceId: service.id, nodeId: requestContext.nodeId });
+      // The IPC resolves expected failures as { ok: false, error } instead of
+      // rejecting; counting those as removed toasted "Sharing stopped." while
+      // the record stayed.
+      const response = await desktopApiState.api.publicAccess.deleteService({ serviceId: service.id, nodeId: requestContext.nodeId });
+      // A record that is already gone counts as removed.
+      if (response?.ok === false && response.error?.code !== "PROVIDER_RESOURCE_NOT_FOUND") {
+        throw Object.assign(new Error(response.error?.message || "Access service could not be removed."), { code: response.error?.code || null });
+      }
       result.removed += 1;
     } catch (error) {
       result.failed += 1;
@@ -11710,7 +11860,7 @@ function renderPlayitSnapshot(snapshot) {
   latestPlayitSnapshot = snapshot;
   const configuredAddress = getConfiguredPlayitAddress();
   const playitState = getPlayitState(snapshot, configuredAddress);
-  const tunnelAddress = snapshot?.tunnelAddress || snapshot?.tunnelDomain || configuredAddress || "Unavailable";
+  const tunnelAddress = preferConfiguredPlayitAddress(snapshot?.tunnelAddress || snapshot?.tunnelDomain || "", configuredAddress) || "Unavailable";
   const localIp = snapshot?.localIp || "Unavailable";
   const localPort = snapshot?.localPort || "Unavailable";
   const protocol = snapshot?.protocol || "Unavailable";
@@ -11835,6 +11985,13 @@ function renderPublicAccessProviders(providers = []) {
   });
 }
 
+// The snapshot always carries a Playit service, even an "Unconfigured
+// service" placeholder when Playit is missing; only an entry with an address,
+// a port or a linked server is a service the user has.
+function isRealPublicAccessService(service) {
+  return Boolean(service && (service.publicAddress || service.privateAddress || service.publicHostname || service.localPort || service.linkedInstanceId));
+}
+
 function renderPublicAccessSnapshot(snapshot = {}) {
   document.querySelector("[data-public-access-loading]")?.setAttribute("hidden", "");
   latestPublicAccessSnapshot = snapshot;
@@ -11850,14 +12007,15 @@ function renderPublicAccessSnapshot(snapshot = {}) {
       readiness: snapshot.readiness || null,
     },
   }).catch(() => {});
-  const service = Array.isArray(snapshot.services) ? snapshot.services[0] : null;
+  const services = (Array.isArray(snapshot.services) ? snapshot.services : []).filter(isRealPublicAccessService);
+  const service = services[0] || null;
   setField("dashboardPublicAccess", Number(snapshot.activeTunnels || 0) > 0 ? "Connected" : "Ready");
-  setField("dashboardPublicAccessDetail", `${Array.isArray(snapshot.services) ? snapshot.services.length : 0} service${snapshot.services?.length === 1 ? "" : "s"} · ${Number(snapshot.activeTunnels || 0)} active`);
+  setField("dashboardPublicAccessDetail", `${services.length} service${services.length === 1 ? "" : "s"} · ${Number(snapshot.activeTunnels || 0)} active`);
   if (service) {
     selectedPublicAccessServiceId = service.id || selectedPublicAccessServiceId;
     setField("publicAccessServiceName", service.name || "Public service");
     setField("publicAccessProvider", service.providerName || snapshot.connectedProvider || "Playit.gg");
-    setField("publicAccessServices", `${snapshot.services.length} service${snapshot.services.length === 1 ? "" : "s"}`);
+    setField("publicAccessServices", `${services.length} service${services.length === 1 ? "" : "s"}`);
     const serviceActive = service.status === "Public" || service.status === "Provider running";
     setField("publicAccessActiveTunnels", serviceActive ? "1 active" : service.publicAddress ? "1 configured" : "None");
     setField("publicAccessActivity", snapshot.recentActivity?.[0]?.label || "Status checked");
@@ -11875,12 +12033,43 @@ function renderPublicAccessSnapshot(snapshot = {}) {
   renderFriendlyDashboard();
 }
 
+// A failed refresh keeps the providers and saved services AnxOS knows about,
+// but none of their live state: nothing renders or copies the last snapshot's
+// running state or detected address as if it were current.
+function markPublicAccessSnapshotUnavailable(snapshot, message) {
+  if (!snapshot || typeof snapshot !== "object" || snapshot.unavailable === true) return snapshot || null;
+  return {
+    ...snapshot,
+    unavailable: true,
+    activeTunnels: 0,
+    providers: (Array.isArray(snapshot.providers) ? snapshot.providers : []).map((provider) => ({
+      ...provider,
+      running: false,
+      connected: false,
+      health: "unavailable",
+      lifecycleState: "unavailable",
+      displayState: "Unavailable",
+      publicAddress: null,
+      recoveryAction: message,
+    })),
+    services: (Array.isArray(snapshot.services) ? snapshot.services : []).map((service) => ({
+      ...service,
+      status: "Unavailable",
+      publicAddress: service.providerId === "playit" ? null : service.publicAddress,
+    })),
+  };
+}
+
 function renderPlayitUnavailable(message = "Public Access status unavailable.") {
   document.querySelector("[data-public-access-loading]")?.setAttribute("hidden", "");
   const unavailable = getPublicAccessRequestUnavailableReason(null, message);
   latestPlayitAccount = { ok: false, message: unavailable.message || message };
   renderPlayitAccount();
   latestPlayitSnapshot = null;
+  // Known provider/service configuration is still rendered, but first, so the
+  // unavailable fields below are what stays on screen.
+  latestPublicAccessSnapshot = markPublicAccessSnapshotUnavailable(latestPublicAccessSnapshot, message);
+  renderPublicAccessProviderDetails(latestPublicAccessSnapshot);
   setField("dashboardPublicAccess", "Unavailable");
   setField("dashboardPublicAccessDetail", message);
   setPlayitVisualState("missing");
@@ -11905,7 +12094,6 @@ function renderPlayitUnavailable(message = "Public Access status unavailable.") 
   setField("publicAccessReachability", message);
   setField("publicAccessProviderCapabilities", "Unavailable");
   renderPublicAccessUnavailableState(getPublicAccessUnavailableReason() || unavailable, message);
-  renderPublicAccessProviderDetails(latestPublicAccessSnapshot);
   renderInstanceNetwork(findInstance());
   renderFriendlyDashboard();
   updateTitlebar();
@@ -13339,9 +13527,18 @@ function getInstanceRowMetrics(instance) {
   return hasDirectMetric ? directMetrics : null;
 }
 
+// A sample without CPU time or memory will never warm up: the computer does
+// not measure this server (serverViewModel.reportsUsage).
+function instanceUsageNotReported(metrics) {
+  return window.AnxServerViewModel?.reportsUsage(metrics) === false;
+}
+
 function formatInstanceCpuPercent(metrics) {
   if (!metrics) {
     return "Unavailable";
+  }
+  if (instanceUsageNotReported(metrics)) {
+    return "Not reported";
   }
 
   return Number.isFinite(metrics.cpuPercent) ? `${metrics.cpuPercent.toFixed(1)}%` : "CPU warming";
@@ -13350,6 +13547,9 @@ function formatInstanceCpuPercent(metrics) {
 function formatInstanceCpu(metrics) {
   if (!metrics) {
     return "Unavailable";
+  }
+  if (instanceUsageNotReported(metrics)) {
+    return "Not reported on this computer";
   }
 
   const percent = Number.isFinite(metrics.cpuPercent) ? `${metrics.cpuPercent.toFixed(1)}%` : "CPU warming";
@@ -14301,6 +14501,30 @@ function getMinecraftPlayitValue(instance) {
   );
 }
 
+// Numeric player counts for summaries (Home tile, dashboard cards). The
+// summary below formats players as display text, so counts are read here from
+// the same fields, falling back to the Players panel's live reading for games
+// that report players only through it. That reading is refreshed only while
+// the Players tab is open, so an older one is not shown as the current count.
+function getInstancePlayerCounts(instance) {
+  const LIVE_READING_MAX_AGE_MS = 30 * 1000;
+  const minecraft = instance?.minecraft || {};
+  const players = minecraft.players || instance?.players || instance?.status?.players || instance?.runtime?.players || {};
+  const count = (...values) => {
+    const value = values.find((entry) => entry !== undefined && entry !== null && entry !== "" && Number.isFinite(Number(entry)));
+    return value === undefined ? null : Number(value);
+  };
+  const online = count(players.online, minecraft.onlinePlayers, instance?.onlinePlayers, instance?.status?.onlinePlayers);
+  const max = count(players.max, minecraft.maxPlayers, instance?.maxPlayers);
+  if (online === null && instance?.id && window.AnxLivePlayers?.supports?.(instance)) {
+    const live = window.AnxLivePlayers.latest(instance.id, { maxAgeMs: LIVE_READING_MAX_AGE_MS });
+    if (live?.available && Number.isFinite(Number(live.online))) {
+      return { online: Number(live.online), max: Number.isFinite(Number(live.max)) && live.max !== null ? Number(live.max) : max };
+    }
+  }
+  return { online, max };
+}
+
 function getMinecraftSummaryData(instance) {
   const minecraft = instance?.minecraft || {};
   const players = minecraft.players || instance?.players || instance?.status?.players || instance?.runtime?.players || {};
@@ -14697,13 +14921,6 @@ function setMinecraftPropertyValue(name, value) {
   });
 }
 
-function collectMinecraftProperties() {
-  return Array.from(minecraftPropertyInputs).reduce((properties, input) => {
-    properties[input.dataset.minecraftProperty] = input.value.trim();
-    return properties;
-  }, {});
-}
-
 function getGameConfigField(key) {
   return (gameConfigState.model?.fields || []).find((field) => field.key === key) || null;
 }
@@ -14811,16 +15028,20 @@ function renderGameConfigPanel() {
   if (gameConfigAdvancedInput) {
     gameConfigAdvancedInput.checked = Boolean(gameConfigState.showAdvanced);
   }
+  // Cleared for another server and not loaded for this one yet: that reads as
+  // loading, never as "not supported".
+  const awaitingLoad = !gameConfigState.loading && !model && gameConfigState.instanceId !== selectedInstance.id;
   if (gameConfigMeta) {
-    gameConfigMeta.textContent = gameConfigState.loading
+    gameConfigMeta.textContent = gameConfigState.loading || awaitingLoad
       ? "Loading game configuration..."
       : model?.supported
       ? `${model.filePath || "configuration file"}${model.missing ? " · will be created on save" : ""}`
       : "No supported game adapter for this instance.";
   }
 
-  if (gameConfigState.loading) {
+  if (gameConfigState.loading || awaitingLoad) {
     setGameConfigStatus("Loading game settings...");
+    if (awaitingLoad) syncInstanceConfigDirtyState();
     return;
   }
 
@@ -14998,6 +15219,25 @@ function resetGameConfigToCurrent() {
   renderGameConfigPanel();
 }
 
+// Every section, not only the one shown: what Discard means.
+function resetAllGameConfigToCurrent() {
+  if (!gameConfigState.model?.supported) return;
+  gameConfigState.values = (gameConfigState.model.fields || []).reduce((values, field) => {
+    values[field.key] = gameConfigState.model.values?.[field.key] ?? field.currentValue ?? field.defaultValue;
+    return values;
+  }, { ...(gameConfigState.model.values || {}) });
+  gameConfigState.fieldErrors = {};
+  gameConfigState.touchedSecrets = new Set();
+  renderGameConfigPanel();
+}
+
+// The Discard button, and "Discard changes" when leaving Settings or the
+// server: every Settings field goes back to the saved values.
+function discardInstanceSettingsEdits() {
+  populateInstanceConfigForm(findInstance());
+  resetAllGameConfigToCurrent();
+}
+
 function resetGameConfigToDefaults() {
   if (!gameConfigState.model?.supported) return;
   gameConfigState.values = (gameConfigState.model.fields || []).reduce((values, field) => {
@@ -15102,9 +15342,8 @@ function syncInstanceConfigDirtyState() {
   } catch {
     configDirty = true;
   }
-  const minecraftDirty = JSON.stringify(collectMinecraftProperties()) !== instanceMinecraftSnapshot;
   const gameConfigDirty = isGameConfigDirty();
-  const dirty = configDirty || minecraftDirty || gameConfigDirty;
+  const dirty = configDirty || gameConfigDirty;
 
   if (instanceConfigSaveButton) {
     instanceConfigSaveButton.disabled = !dirty || !selectedInstanceId || instanceActionRequestInFlight;
@@ -15137,7 +15376,6 @@ function populateInstanceConfigForm(instance) {
   populatedInstanceConfig.key = getInstanceConfigFormKey(instance);
   if (!instance) {
     instanceConfigSnapshot = "";
-    instanceMinecraftSnapshot = "";
     syncInstanceConfigDirtyState();
     return;
   }
@@ -15212,7 +15450,6 @@ function populateMinecraftProperties(properties = {}) {
 
   latestMinecraftProperties = { ...defaults, ...properties };
   Object.entries(latestMinecraftProperties).forEach(([key, value]) => setMinecraftPropertyValue(key, value));
-  instanceMinecraftSnapshot = JSON.stringify(collectMinecraftProperties());
   renderMinecraftWorkspaceSummary(findInstance(), getInstanceMetrics());
   renderInstanceNetwork(findInstance());
   syncInstanceConfigDirtyState();
@@ -15371,8 +15608,18 @@ async function saveInstanceConfiguration(event) {
     return;
   }
   const configBefore = JSON.parse(instanceConfigSnapshot || "{}");
-  const configPayload = collectInstanceConfigPayload();
-  const gameConfigWasDirty = gameConfigState.model?.supported && isGameConfigDirty();
+  let configPayload;
+  try {
+    configPayload = collectInstanceConfigPayload();
+  } catch (error) {
+    // Validation above should already have caught this; never fail silently.
+    showInstanceSettingsErrors({ memoryLimit: error?.message || "Use a size such as 4G or 4096M." });
+    showToast("Check the highlighted settings.");
+    return;
+  }
+  // Game settings loaded for another server are never sent for this one.
+  const gameConfigOwned = gameConfigState.instanceId === selectedInstance.id;
+  const gameConfigWasDirty = gameConfigOwned && gameConfigState.model?.supported && isGameConfigDirty();
 
   instanceActionRequestInFlight = true;
   syncInstanceConfigDirtyState();
@@ -15383,7 +15630,7 @@ async function saveInstanceConfiguration(event) {
     const savedInstance = savedRecord?.instance || savedRecord;
     if (savedInstance?.id) populatedInstanceConfig.expected = pickInstanceConflictFields(savedInstance);
 
-    if (gameConfigState.model?.supported && isGameConfigDirty()) {
+    if (gameConfigOwned && gameConfigState.model?.supported && isGameConfigDirty()) {
       const changedValues = getChangedGameConfigValues();
       if (!isNodeActionStillCurrent(requestContext)) return;
       await desktopApiState.api.instances.saveGameServerConfig(selectedInstance.id, {
@@ -15391,9 +15638,6 @@ async function saveInstanceConfiguration(event) {
         sourceHash: gameConfigState.model.sourceHash,
         values: changedValues,
       }, getNodeScopedPayload(requestContext));
-    } else if (isMinecraftInstance(selectedInstance)) {
-      if (!isNodeActionStillCurrent(requestContext)) return;
-      await desktopApiState.api.instances.saveMinecraftProperties(selectedInstance.id, collectMinecraftProperties(), getNodeScopedPayload(requestContext));
     }
 
     showToast("Settings saved.");
@@ -15429,6 +15673,24 @@ async function saveInstanceConfiguration(event) {
   }
 }
 
+// Game settings of a server that is no longer selected are dropped; the
+// Settings tab loads the selected server's own when it is shown.
+function clearGameConfigState() {
+  gameConfigState = {
+    ...gameConfigState,
+    instanceId: null,
+    loading: false,
+    loaded: false,
+    supported: false,
+    error: "",
+    model: null,
+    values: {},
+    snapshot: "",
+    fieldErrors: {},
+    touchedSecrets: new Set(),
+  };
+}
+
 async function loadGameServerConfig() {
   const selectedInstance = findInstance();
   const desktopApiState = getDesktopApiState();
@@ -15436,6 +15698,7 @@ async function loadGameServerConfig() {
   if (!selectedInstance || !desktopApiState.hasInstances || isServiceManagedInstance(selectedInstance)) {
     gameConfigState = {
       ...gameConfigState,
+      instanceId: selectedInstance?.id || null,
       loading: false,
       loaded: false,
       supported: false,
@@ -15453,6 +15716,7 @@ async function loadGameServerConfig() {
 
   gameConfigState = {
     ...gameConfigState,
+    instanceId: selectedInstance.id,
     loading: true,
     loaded: false,
     supported: false,
@@ -15539,7 +15803,7 @@ async function saveGameConfigAndRestart() {
   const desktopApiState = getDesktopApiState();
   const requestContext = createNodeActionContext("instance-save-game-config-restart");
 
-  if (!selectedInstance || !desktopApiState.hasInstances || !gameConfigState.model?.supported || !isGameConfigDirty()) {
+  if (!selectedInstance || !desktopApiState.hasInstances || gameConfigState.instanceId !== selectedInstance.id || !gameConfigState.model?.supported || !isGameConfigDirty()) {
     return;
   }
   if (refuseServiceManagedAction(selectedInstance, "Saving server configuration")) return;
@@ -15867,7 +16131,7 @@ function isEditableInstanceFile(filePath) {
   return /\.(txt|properties|ya?ml|json|toml|cfg|conf)$/i.test(String(filePath || ""));
 }
 
-async function refreshInstanceFiles(pathValue = instanceCurrentFilePath) {
+async function refreshInstanceFiles(pathValue) {
   const selectedInstance = findInstance();
   const desktopApiState = getDesktopApiState();
 
@@ -15875,12 +16139,27 @@ async function refreshInstanceFiles(pathValue = instanceCurrentFilePath) {
     return;
   }
 
+  // A listing for one server never keeps another server's folder or open
+  // file, whichever path led here (a direct selectedInstanceId assignment
+  // followed by showPage, Refresh, Up, an upload). Its path belongs to that
+  // other server too, so the listing starts at the root.
+  if (
+    (instanceFilesInstanceId && instanceFilesInstanceId !== selectedInstance.id)
+    || (openedInstanceFilePath && openedInstanceFileInstanceId !== selectedInstance.id)
+  ) {
+    resetInstanceFileEditor();
+    pathValue = ".";
+  }
+  if (pathValue === undefined) pathValue = instanceCurrentFilePath;
+
+  instanceFilesRequestedInstanceId = selectedInstance.id;
   try {
     const requestContext = getNodeRequestContext("instance-files");
     const listing = await desktopApiState.api.instances.listFiles(selectedInstance.id, pathValue || ".", getNodeScopedPayload(requestContext));
     if (!isNodeRequestCurrent(requestContext) || selectedInstance.id !== selectedInstanceId) {
       return;
     }
+    instanceFilesInstanceId = selectedInstance.id;
     instanceCurrentFilePath = listing.currentPath || ".";
     if (instanceFilePathLabel) {
       instanceFilePathLabel.textContent = `data/${instanceCurrentFilePath === "." ? "" : instanceCurrentFilePath}`;
@@ -15971,6 +16250,8 @@ async function openInstanceTextFile(filePath) {
     if (!isNodeRequestCurrent(requestContext) || selectedInstance.id !== selectedInstanceId) {
       return;
     }
+    instanceFilesInstanceId = selectedInstance.id;
+    openedInstanceFileInstanceId = selectedInstance.id;
     openedInstanceFilePath = file.path || filePath;
     openedInstanceFileSavedContent = file.supported ? file.content || "" : "";
     if (instanceFileEditor) {
@@ -15999,6 +16280,33 @@ function hasDirtyInstanceFile() {
   return Boolean(openedInstanceFilePath && instanceFileEditor && instanceFileEditor.value !== openedInstanceFileSavedContent);
 }
 
+// The Files tab shows one server's folder and file. When another server (or
+// computer) is selected it starts empty; the tab reloads it when shown.
+function resetInstanceFileEditor() {
+  instanceFilesInstanceId = null;
+  instanceFilesRequestedInstanceId = null;
+  instanceCurrentFilePath = ".";
+  selectedInstanceFilePath = null;
+  openedInstanceFilePath = null;
+  openedInstanceFileInstanceId = null;
+  openedInstanceFileSavedContent = "";
+  instanceFilesList?.replaceChildren();
+  if (instanceFilePathLabel) {
+    instanceFilePathLabel.textContent = "data/";
+  }
+  if (instanceFileEditor) {
+    instanceFileEditor.value = "";
+    instanceFileEditor.disabled = true;
+  }
+  if (instanceFileEditorName) {
+    instanceFileEditorName.textContent = "No file opened";
+  }
+  if (instanceFileEditorMeta) {
+    instanceFileEditorMeta.textContent = "Select a text/config file to preview it.";
+  }
+  syncInstanceFileDirtyState();
+}
+
 async function confirmDiscardInstanceFile(actionLabel = "continue") {
   if (!hasDirtyInstanceFile()) return true;
   return createSecurityConfirmation({
@@ -16006,6 +16314,17 @@ async function confirmDiscardInstanceFile(actionLabel = "continue") {
     message: `Discard the open file changes and ${actionLabel}? Unsaved edits will be lost.`,
     confirmLabel: "Discard Changes",
   });
+}
+
+// Leaving the server (Back, another server) with unsaved file edits asks
+// first; "Discard Changes" puts the open file back to its saved text.
+async function confirmLeaveInstanceFile(actionLabel) {
+  if (!(await confirmDiscardInstanceFile(actionLabel))) return false;
+  if (hasDirtyInstanceFile()) {
+    instanceFileEditor.value = openedInstanceFileSavedContent;
+    syncInstanceFileDirtyState();
+  }
+  return true;
 }
 
 function syncInstanceFileDirtyState() {
@@ -16024,6 +16343,10 @@ async function saveInstanceTextFile() {
   const requestContext = createNodeActionContext("instance-save-file");
 
   if (!selectedInstance || !openedInstanceFilePath || !instanceFileEditor) {
+    return;
+  }
+  if (instanceFilesInstanceId !== selectedInstance.id || openedInstanceFileInstanceId !== selectedInstance.id) {
+    showToast("This file belongs to another server. Open it again from this server's Files tab.");
     return;
   }
 
@@ -17078,8 +17401,16 @@ function updateInstanceRow(row, instance) {
 }
 
 // Phase 5: a row opens that server on its own page (header and six tabs).
+// Switching to another server drops unsaved Settings edits and closes the open
+// file (both belong to the current server), so ask first.
+async function confirmSwitchInstance(instanceId) {
+  if (selectedInstanceId === instanceId) return true;
+  if (window.AnxServerView && !(await window.AnxServerView.confirmLeaveSettings("open another server"))) return false;
+  return confirmLeaveInstanceFile("open another server");
+}
+
 async function openInstanceServerView(instanceId) {
-  if (selectedInstanceId !== instanceId && window.AnxServerView && !(await window.AnxServerView.confirmLeaveSettings("open another server"))) return;
+  if (!(await confirmSwitchInstance(instanceId))) return;
   selectInstance(instanceId);
   window.AnxServerView?.open(instanceId);
 }
@@ -17524,9 +17855,10 @@ function hasUnsavedInstanceSettings() {
   try {
     if (JSON.stringify(collectInstanceConfigPayload()) !== instanceConfigSnapshot) return true;
   } catch {
-    return false;
+    // Saved values always collect cleanly, so a field that cannot be read
+    // (memory such as "6GB") holds an edit.
+    return true;
   }
-  if (JSON.stringify(collectMinecraftProperties()) !== instanceMinecraftSnapshot) return true;
   return isGameConfigDirty();
 }
 
@@ -17540,7 +17872,6 @@ function isInstanceConfigFormBusy() {
   } catch {
     return true;
   }
-  if (JSON.stringify(collectMinecraftProperties()) !== instanceMinecraftSnapshot) return true;
   return isGameConfigDirty();
 }
 
@@ -17554,6 +17885,23 @@ function shouldRepopulateInstanceConfigForm(instance) {
   return !isInstanceConfigFormBusy();
 }
 
+// The server view stays open while other pages are shown (showPage never
+// closes it), and a server can be picked or the computer switched from them,
+// which clears the open Files or Settings tab. Once the servers page shows
+// the view, the tab reloads when its data is not the selected server's,
+// decided by owner rather than by which call cleared it. Each load records
+// its server synchronously (Files when requested, Settings when started, and
+// both keep it after a failure), so list polls that call selectInstance again
+// never start a second load or retry a failed one.
+function reloadStaleServerViewTab() {
+  if (!selectedInstanceId || !window.AnxServerView?.isOpen?.() || getActivePageName() !== "instances") return;
+  if (activeInstanceTab === "files") {
+    if (instanceFilesInstanceId !== selectedInstanceId && instanceFilesRequestedInstanceId !== selectedInstanceId) refreshInstanceFiles();
+  } else if (activeInstanceTab === "settings") {
+    if (gameConfigState.instanceId !== selectedInstanceId) loadGameServerConfig();
+  }
+}
+
 function selectInstance(instanceId, options = {}) {
   const previousSelectedInstanceId = selectedInstanceId;
   const selectedInstance = findInstance(instanceId);
@@ -17562,7 +17910,15 @@ function selectInstance(instanceId, options = {}) {
   if (previousSelectedInstanceId !== selectedInstanceId) {
     clearInstanceLogs(selectedInstanceId ? "Refresh logs to load the selected instance." : "Select an instance and refresh logs.");
   }
+  // Files and game settings loaded for another server are dropped by owner,
+  // not by "selection changed": a list reload assigns selectedInstanceId
+  // before calling this.
+  const filesReset = Boolean(instanceFilesInstanceId && instanceFilesInstanceId !== selectedInstanceId);
+  const gameConfigReset = Boolean(gameConfigState.instanceId && gameConfigState.instanceId !== selectedInstanceId);
+  if (filesReset) resetInstanceFileEditor();
+  if (gameConfigReset) clearGameConfigState();
   setInstanceDetails(selectedInstance);
+  reloadStaleServerViewTab();
   if (previousSelectedInstanceId !== selectedInstanceId) {
     refreshRestartSchedules({ silent: true });
   }
@@ -19471,6 +19827,7 @@ async function runMarketplaceInstalledAction(template = {}, actionId = "open-ins
     return;
   }
 
+  if (!(await confirmSwitchInstance(instance.id))) return;
   selectedInstanceId = instance.id;
   selectInstance(instance.id, { refreshMetrics: false });
   if (actionId === "open-instance") {
@@ -19760,6 +20117,17 @@ function getMarketplaceTrustVerdictForTemplate(template) {
   return record?.trustVerdict || null;
 }
 
+// window.open is handed to the system browser by the main process; without a
+// URL it would silently do nothing, so say why instead.
+function openMarketplaceProjectDetails(template) {
+  const url = String(template?.projectUrl || template?.websiteUrl || "").trim();
+  if (!url) {
+    showToast("This pack has no project page to open.", "info");
+    return;
+  }
+  window.open(url, "_blank", "noopener");
+}
+
 function renderMarketplaceInstallSummary(template, { includeTrustNotice = true } = {}) {
   if (!marketplaceInstallSummary) return;
   renderMarketplaceReadiness();
@@ -19819,7 +20187,7 @@ function renderMarketplaceInstallSummary(template, { includeTrustNotice = true }
     [
       ["Choose Another Version", () => renderMarketplaceVersionPicker()],
       ["Browse Server-Compatible Packs", () => { marketplaceProviderMode = "server"; loadMarketplaceProviderPacks({ reset: true }); }],
-      ["Open Project Details", () => window.open(template.projectUrl || template.websiteUrl || "", "_blank", "noopener")],
+      ["Open Project Details", () => openMarketplaceProjectDetails(template)],
       ["Cancel", () => closeMarketplaceWizard()],
     ].forEach(([label, handler]) => {
       const button = document.createElement("button");
@@ -22769,11 +23137,20 @@ async function restoreSelectedBackup(backupOverride = null) {
     return;
   }
   try {
-    const restart = Boolean(await createSecurityConfirmation({
+    // The restart choice is a checkbox so Cancel, Esc and the close button
+    // can mean "don't restore" (this is the only dialog when destructive
+    // confirmations are turned off).
+    const choice = await createSecurityConfirmation({
       title: "Restart after restore?",
-      message: "Choose Restart to start the instance again after restore completes, or Cancel to leave it stopped.",
-      confirmLabel: "Restart",
-    }));
+      message: "Choose whether to start the instance again after restore completes. Cancel stops here and nothing is restored.",
+      confirmLabel: "Restore",
+      checkboxLabel: "Start the instance again after restore",
+    });
+    if (!choice?.confirmed) {
+      showToast("Restore canceled.");
+      return;
+    }
+    const restart = choice.checked === true;
     if (!isNodeActionStillCurrent(requestContext)) return;
     await desktopApiState.api.backups.restore({ nodeId: requestContext.nodeId, backupId: selected.id, restart, confirmOverwrite: true });
     showToast("Backup restored.");
@@ -23119,6 +23496,9 @@ async function refreshServerUpdates(options = {}) {
 
 async function openServerUpdateRow(row) {
   if (!row?.instanceId) return;
+  // A row on another computer always leaves the current server, even when
+  // the ids match, so it asks as a switch away from it (null).
+  if (!(await confirmSwitchInstance(getSelectedNodeId() === row.nodeId ? row.instanceId : null))) return;
   if (getSelectedNodeId() !== row.nodeId) await selectNode(row.nodeId);
   showPage("instances");
   await refreshInstances();
@@ -26930,7 +27310,8 @@ const NOTIFICATION_ACTIONS = {
   openMarketplace: { label: "Open Marketplace", run: () => showPage("marketplace") },
   openInstances: {
     label: "Open Instance",
-    run: (notification) => {
+    run: async (notification) => {
+      if (notification?.relatedInstanceId && !(await confirmSwitchInstance(notification.relatedInstanceId))) return;
       if (notification?.relatedInstanceId) selectedInstanceId = notification.relatedInstanceId;
       showPage("instances");
       return refreshInstances({ refreshMetrics: true });
@@ -26952,7 +27333,8 @@ const NOTIFICATION_ACTIONS = {
   "open-network": { label: "Open Network", run: () => showPage("network") },
   "open-instance": {
     label: "Open Instance",
-    run: (notification) => {
+    run: async (notification) => {
+      if (notification?.relatedInstanceId && !(await confirmSwitchInstance(notification.relatedInstanceId))) return;
       showPage("instances");
       if (notification?.relatedInstanceId) selectInstance(notification.relatedInstanceId);
       return refreshInstances({ refreshMetrics: false });
@@ -27738,6 +28120,26 @@ function mapOperationalNotificationCategory(category) {
   return OPERATIONAL_NOTIFICATION_CATEGORY_MAP[String(category || "").toLowerCase()] || "Application";
 }
 
+const RECOVERED_NOTIFICATION_SUFFIX = " — recovered";
+
+// The message without its recovery suffix. Older builds appended the suffix on
+// every sync until the length cap cut it off, so a trailing run of suffixes,
+// the last one possibly cut short, is removed too. Only the end is stripped:
+// a name in the message may itself contain the suffix text.
+function stripRecoveredSuffix(message) {
+  const suffix = RECOVERED_NOTIFICATION_SUFFIX;
+  let text = String(message || "");
+  for (let length = suffix.length - 1; length > 0; length -= 1) {
+    const part = suffix.slice(0, length).trimEnd();
+    if (part && text.endsWith(`${suffix}${part}`)) {
+      text = text.slice(0, -part.length);
+      break;
+    }
+  }
+  while (text.endsWith(suffix)) text = text.slice(0, -suffix.length);
+  return text;
+}
+
 function mergeOperationalNotificationEvents(events = []) {
   loadNotificationHistory();
   const list = Array.isArray(events) ? events : [];
@@ -27752,7 +28154,10 @@ function mergeOperationalNotificationEvents(events = []) {
       // notification is gone there is nothing to annotate, so the event is
       // skipped instead of re-created.
       if (!existing) return;
-      const recoveredMessage = sanitizeNotificationText(`${existing.message || ""} — recovered`, NOTIFICATION_MAX_MESSAGE_LENGTH);
+      // The journal keeps returning the resolved incident on every sync, so
+      // the suffix is applied to the message without it (which also repairs
+      // messages older builds suffixed once per sync).
+      const recoveredMessage = sanitizeNotificationText(`${stripRecoveredSuffix(existing.message)}${RECOVERED_NOTIFICATION_SUFFIX}`, NOTIFICATION_MAX_MESSAGE_LENGTH);
       if (existing.message !== recoveredMessage) {
         existing.message = recoveredMessage;
         changed = true;
@@ -28716,11 +29121,12 @@ function getGlobalSearchProviders() {
             id: instance.id,
             label: instance.displayName || instance.id,
             description: [instance.type, instance.state, Array.isArray(instance.tags) ? instance.tags.join(", ") : ""].filter(Boolean).join(" · "),
-            action: () => {
+            action: async () => {
               if (!findInstance(instance.id)) {
                 showToast("That instance is no longer available.", "warning");
                 return;
               }
+              if (!(await confirmSwitchInstance(instance.id))) return;
               showPage("instances");
               selectInstance(instance.id);
             },
@@ -31947,11 +32353,20 @@ async function refreshDashboard() {
   }
 }
 
-async function refreshPlayitStatus() {
+async function refreshPlayitStatus(options) {
   if (playitRequestInFlight) {
     document.querySelector("[data-public-access-loading]")?.setAttribute("hidden", "");
-    return;
+    // The running refresh (and its management) was asked for before this
+    // call, so it can show the state before a user action: run once more
+    // when it settles, and let the caller wait for that.
+    return queuePlayitTrailingRefresh(options);
   }
+  // Playit management (service, tunnels, account), firewall and reverse-proxy
+  // state are shown on the Sharing page, and each costs the Agent a Playit
+  // inspection; Dashboard ticks only need the snapshot. The Share dialog asks
+  // for management explicitly.
+  const includeManagement = options?.management === true || getActivePageName() === "playit";
+  let managementPending = null;
 
   const desktopApiState = getDesktopApiState();
 
@@ -31991,22 +32406,25 @@ async function refreshPlayitStatus() {
     }
     if (desktopApiState.hasPublicAccess) {
       renderPublicAccessSnapshot(snapshot);
-      refreshPublicAccessFirewall().catch((error) => {
-        console.warn("[Public Access] Firewall rule inventory refresh failed.", {
-          message: error?.message || String(error),
+      if (includeManagement) {
+        refreshPublicAccessFirewall().catch((error) => {
+          console.warn("[Public Access] Firewall rule inventory refresh failed.", {
+            message: error?.message || String(error),
+          });
         });
-      });
-      refreshPublicAccessReverseProxy().catch((error) => {
-        console.warn("[Public Access] Reverse-proxy state refresh failed.", {
-          message: error?.message || String(error),
+        refreshPublicAccessReverseProxy().catch((error) => {
+          console.warn("[Public Access] Reverse-proxy state refresh failed.", {
+            message: error?.message || String(error),
+          });
         });
-      });
-      refreshPlayitManagement(payload, requestContext).catch((error) => {
-        console.warn("[Public Access] Management status refresh failed.", {
-          message: error?.message || String(error),
-          stack: error?.stack || null,
+        managementPending = refreshPlayitManagement(payload, requestContext).catch((error) => {
+          console.warn("[Public Access] Management status refresh failed.", {
+            message: error?.message || String(error),
+            stack: error?.stack || null,
+          });
         });
-      });
+        playitManagementPromise = managementPending;
+      }
     } else {
       renderPlayitSnapshot(snapshot);
     }
@@ -32028,8 +32446,94 @@ async function refreshPlayitStatus() {
     renderPlayitUnavailable(message);
   } finally {
     document.querySelector("[data-public-access-loading]")?.setAttribute("hidden", "");
-    playitRequestInFlight = false;
+    // The management refresh shares this request context: a poll that started
+    // a newer one before it settled made it discard its status and tunnels
+    // (the Playit Service card stayed on "Loading"). Polls wait for it.
+    if (managementPending) {
+      managementPending.finally(() => {
+        if (playitManagementPromise === managementPending) {
+          playitManagementPromise = null;
+          playitRequestInFlight = false;
+        }
+        if (!playitRequestInFlight) runPlayitTrailingRefresh();
+      });
+    } else {
+      playitRequestInFlight = false;
+      runPlayitTrailingRefresh();
+    }
   }
+}
+
+function queuePlayitTrailingRefresh(options) {
+  if (!playitTrailingRefresh) {
+    let resolve;
+    const promise = new Promise((done) => { resolve = done; });
+    playitTrailingRefresh = { promise, resolve, management: false };
+  }
+  if (options?.management === true) playitTrailingRefresh.management = true;
+  return playitTrailingRefresh.promise;
+}
+
+function runPlayitTrailingRefresh() {
+  const trailing = playitTrailingRefresh;
+  if (!trailing) return;
+  playitTrailingRefresh = null;
+  refreshPlayitStatus(trailing.management ? { management: true } : undefined).then(trailing.resolve, trailing.resolve);
+}
+
+// The Share dialog and the server page judge sharing from the Public Access
+// snapshot plus the Playit tunnel list and service status. Those refresh only
+// on Home and Sharing, so this refreshes all three for the selected computer
+// and resolves once the tunnel list is in.
+async function refreshShareAccessState() {
+  const nodeKey = getShareAccessNodeKey();
+  try {
+    if (playitManagementPromise) await playitManagementPromise;
+    else if (playitRequestInFlight) await waitForPlayitRefreshToSettle();
+    await refreshPlayitStatus({ management: true });
+    if (playitManagementPromise) await playitManagementPromise;
+  } finally {
+    // One finished attempt settles "Checking..." for this computer, even when
+    // the tunnel list cannot load (an older Agent, a refused request): the
+    // verdict then says "unknown" and background retries stop until the
+    // computer changes. Opening the Share dialog still refreshes. The
+    // snapshot itself must have loaded, though: a failed or backed-off one
+    // leaves no services to judge, so "Checking..." stays and is retried.
+    const snapshotLoaded = Boolean(latestPublicAccessSnapshot) && latestPublicAccessSnapshot.unavailable !== true;
+    if (snapshotLoaded && getShareAccessNodeKey() === nodeKey) shareAccessSettledNodeKey = nodeKey;
+  }
+}
+
+function getShareAccessNodeKey() {
+  return `${getSelectedNodeId()}:${selectedNodeContextVersion}`;
+}
+
+async function waitForPlayitRefreshToSettle(timeoutMs = 15000) {
+  const startedAt = Date.now();
+  while (playitRequestInFlight && !playitManagementPromise && Date.now() - startedAt < timeoutMs) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  if (playitManagementPromise) await playitManagementPromise;
+}
+
+function isShareAccessStateLoaded() {
+  if (Boolean(latestPublicAccessSnapshot) && latestPublicAccessSnapshot.unavailable !== true && latestPlayitTunnelsLoaded) return true;
+  return shareAccessSettledNodeKey !== null && shareAccessSettledNodeKey === getShareAccessNodeKey();
+}
+
+// One background refresh at a time, at most every 15 s, for views that
+// render sharing health (server page Connect card); they re-render on their
+// own next update.
+let shareAccessRefreshPromise = null;
+let shareAccessRefreshStartedAt = 0;
+function ensureShareAccessState() {
+  if (isShareAccessStateLoaded() || shareAccessRefreshPromise) return shareAccessRefreshPromise;
+  if (Date.now() - shareAccessRefreshStartedAt < 15000) return null;
+  shareAccessRefreshStartedAt = Date.now();
+  shareAccessRefreshPromise = refreshShareAccessState()
+    .catch(() => {})
+    .finally(() => { shareAccessRefreshPromise = null; });
+  return shareAccessRefreshPromise;
 }
 
 function getDockerActionDefinition(actionName) {
@@ -32802,7 +33306,11 @@ async function handleDockerAction(actionName) {
       if (!command) return;
       const result = await runDockerOperationRecord("Docker container command", containerLabel, () => desktopApiState.api.docker.exec(containerTarget, { ...getNodeScopedPayload(requestContext), command }));
       setDockerTab("logs");
-      setDockerLogsText(result?.output || result?.errorOutput || "Command completed without output.");
+      // Show both streams and a non-zero exit code: a failing command is a
+      // result to read, not an error toast.
+      const commandOutput = [result?.output, result?.errorOutput].filter(Boolean).join("\n");
+      const exitNote = Number.isInteger(result?.exitCode) && result.exitCode !== 0 ? `[exit code ${result.exitCode}]` : "";
+      setDockerLogsText([commandOutput, exitNote].filter(Boolean).join("\n") || "Command completed without output.");
       return;
     }
 
@@ -34833,11 +35341,12 @@ async function runConsoleInstanceAction(actionName) {
   }
 }
 
-function openConsoleInstanceFiles() {
+async function openConsoleInstanceFiles() {
   const instance = getActiveConsoleInstance();
   if (!instance) {
     return;
   }
+  if (!(await confirmSwitchInstance(instance.id))) return;
 
   showPage("instances");
   selectInstance(instance.id, { refreshMetrics: false });
@@ -36183,8 +36692,30 @@ async function handleUnknownSshHostKey({ profileId, fingerprint }) {
     renderSshView();
     return;
   }
+  await approveSshHostKeyAndReconnect({ profileId, fingerprint });
+}
+
+// A changed host key is either a rebuilt server or someone intercepting the
+// connection, so replacing the saved identity takes a separate, typed
+// confirmation that shows both fingerprints.
+async function handleChangedSshHostKey({ profileId, expectedFingerprint, receivedFingerprint }) {
+  const approved = await createSecurityConfirmation({
+    title: "SSH host identity changed",
+    message: `The server's SSH host key is different from the one saved for it.\n\nSaved: ${expectedFingerprint || "unknown"}\nNow: ${receivedFingerprint}\n\nOnly replace it if you rebuilt or reinstalled this server and have checked the new fingerprint on the server itself (for example with ssh-keygen -lf on its host key). Otherwise someone may be intercepting the connection.`,
+    phrase: "REPLACE",
+    confirmLabel: "Replace host key",
+  });
+  if (!approved) {
+    sshTransientStatusMessage = "The saved host identity was kept. The connection stays blocked until the new key is confirmed.";
+    renderSshView();
+    return;
+  }
+  await approveSshHostKeyAndReconnect({ profileId, fingerprint: receivedFingerprint, replaceChangedKey: true });
+}
+
+async function approveSshHostKeyAndReconnect({ profileId, fingerprint, replaceChangedKey = false }) {
   try {
-    await getDesktopApiState().api.ssh.approveHostKey({ profileId, fingerprint });
+    await getDesktopApiState().api.ssh.approveHostKey({ profileId, fingerprint, ...(replaceChangedKey ? { replaceChangedKey: true } : {}) });
     const approvedProfile = sshProfilesState.profiles.find((profile) => profile.id === profileId);
     if (approvedProfile?.authType === "privateKey") {
       // Key profiles need no typed secret unless the key is encrypted, and the
@@ -36285,6 +36816,14 @@ function ensureSshEventSubscription() {
       if (failure.code === "SSH_HOST_KEY_UNKNOWN" && payload.profileId && payload.details?.fingerprint) {
         const fingerprint = String(payload.details.fingerprint);
         handleUnknownSshHostKey({ profileId: payload.profileId, fingerprint });
+      }
+
+      if (failure.code === "SSH_HOST_KEY_CHANGED" && payload.profileId && payload.details?.receivedFingerprint) {
+        handleChangedSshHostKey({
+          profileId: payload.profileId,
+          expectedFingerprint: String(payload.details.expectedFingerprint || ""),
+          receivedFingerprint: String(payload.details.receivedFingerprint),
+        });
       }
 
       if (failure.code !== "SSH_CANCELLED") showToast(failure.message);
@@ -38561,6 +39100,15 @@ function resetNodeScopedRendererState(message = "Loading selected node...") {
   latestSystemSnapshotNodeId = null;
   latestAmpSnapshot = null;
   latestPlayitSnapshot = null;
+  // Sharing state belongs to the computer being left: the Share dialog must
+  // never offer its addresses or tunnels for the newly selected one.
+  latestPublicAccessSnapshot = null;
+  latestPlayitTunnels = [];
+  latestPlayitTunnelsLoaded = false;
+  latestPlayitServiceStatus = null;
+  playitManagementPromise = null;
+  shareAccessRefreshStartedAt = 0;
+  shareAccessSettledNodeKey = null;
   latestDockerSnapshot = null;
   dockerWorkspaceState = null;
   latestDependencyResult = null;
@@ -38583,9 +39131,10 @@ function resetNodeScopedRendererState(message = "Loading selected node...") {
   setMarketplaceManualRecoveryState(null);
   selectedDockerContainerId = null;
   selectedInstanceId = null;
-  selectedInstanceFilePath = null;
-  openedInstanceFilePath = null;
-  openedInstanceFileSavedContent = "";
+  // Server ids can repeat across computers, so these are cleared here rather
+  // than by owner id.
+  resetInstanceFileEditor();
+  clearGameConfigState();
   latestFilesListing = null;
   latestFilesListingAt = 0;
   latestFileDocument = null;
@@ -38954,8 +39503,10 @@ function getSystemSnapshotForNode(node = getSelectedNode()) {
 function buildConnectivityHealth(node) {
   const visual = getNodeVisualState(node);
   const connectionState = getNodeConnectionState(node);
-  const target = getCurrentAgentHealthTarget();
-  const runtime = getHealthRuntime();
+  // Agent Control's target and runtime describe the selected computer only.
+  const isSelectedNode = (node?.id || "application-host") === (getSelectedNodeId() || "application-host");
+  const target = isSelectedNode ? getCurrentAgentHealthTarget() : null;
+  const runtime = isSelectedNode ? getHealthRuntime() : null;
   const latency = runtime?.latencyMs ?? target?.latencyMs;
   const lastHeartbeat = node?.connection?.lastSeen || node?.updatedAt || target?.lastHeartbeat || null;
   let state = visual === "online" ? "Healthy" : visual === "warning" ? "Warning" : ["offline", "error"].includes(visual) ? "Degraded" : "Unknown";
@@ -38978,11 +39529,15 @@ function buildConnectivityHealth(node) {
     workspace: "nodes",
     remediation: "Test connection",
     action: "test-node",
-    actions: [
-      { label: "Test connection", action: "test-node" },
-      { label: "Ping Agent", action: "ping-agent" },
-      { label: "Open Agent Control", action: "open-agent-control" },
-    ],
+    // Ping Agent and Agent Control act on the selected computer, so another
+    // computer's drawer offers only its own connection test.
+    actions: isSelectedNode
+      ? [
+        { label: "Test connection", action: "test-node" },
+        { label: "Ping Agent", action: "ping-agent" },
+        { label: "Open Agent Control", action: "open-agent-control" },
+      ]
+      : [{ label: "Test connection", action: "test-node" }],
   });
 }
 
@@ -39014,6 +39569,9 @@ function buildAgentHealth(node) {
   const portConflict = target ? /AGENT_PORT_IN_USE|port .*in use/i.test(String(target?.mostRecentError?.code || target?.mostRecentError?.message || agentControlMessage?.textContent || "")) : false;
   const state = authFailed || portConflict ? "Degraded" : running ? "Healthy" : unavailable ? "Unavailable" : target ? "Degraded" : "Unknown";
   const checkedAt = node?.connection?.lastSeen || target?.lastHeartbeat || agentControlLastRuntimeSnapshot?.timestamp || null;
+  // Agent Control, Reconnect and diagnostics act on the selected computer, so
+  // another Agent computer's drawer offers only its own connection test.
+  const ownsAgentControl = node?.kind !== "agent" || node.id === getSelectedNodeId();
   return buildNodeHealthCategory({
     id: "agent",
     label: "Agent",
@@ -39029,14 +39587,16 @@ function buildAgentHealth(node) {
     required: node?.kind === "agent",
     applicable: node?.kind === "agent" || Boolean(target),
     current: Boolean(checkedAt || state === "Healthy" || authFailed || unavailable),
-    workspace: "agent-control",
-    remediation: running ? "Open Agent Control" : "Reconnect Agent",
-    action: running ? "open-agent-control" : "reconnect-agent",
-    actions: [
-      { label: "Open Agent Control", action: "open-agent-control" },
-      { label: "Reconnect Agent", action: "reconnect-agent" },
-      { label: "Run diagnostics", action: "agent-diagnostics" },
-    ],
+    workspace: ownsAgentControl ? "agent-control" : "nodes",
+    remediation: !ownsAgentControl ? "Test connection" : running ? "Open Agent Control" : "Reconnect Agent",
+    action: !ownsAgentControl ? "test-node" : running ? "open-agent-control" : "reconnect-agent",
+    actions: ownsAgentControl
+      ? [
+        { label: "Open Agent Control", action: "open-agent-control" },
+        { label: "Reconnect Agent", action: "reconnect-agent" },
+        { label: "Run diagnostics", action: "agent-diagnostics" },
+      ]
+      : [{ label: "Test connection", action: "test-node" }],
   });
 }
 
@@ -39424,6 +39984,12 @@ function syncNodeHealthNotifications(health) {
   previousNodeHealthState = health;
 }
 
+// The node details drawer can be open for any computer, not only the selected
+// one; its health sections and health actions belong to that computer.
+function getOpenNodeDetailsId() {
+  return nodeDetailsId && nodeDetailsModal && !nodeDetailsModal.hidden ? nodeDetailsId : null;
+}
+
 function refreshNodeHealth({ notify = true } = {}) {
   const generation = ++nodeHealthGeneration;
   const health = buildNodeHealthModel();
@@ -39434,7 +40000,17 @@ function refreshNodeHealth({ notify = true } = {}) {
   }
   nodeHealthState = health;
   if (notify) syncNodeHealthNotifications(nodeHealthState);
-  renderNodeHealth(nodeHealthState);
+  const drawerNodeId = getOpenNodeDetailsId();
+  const drawerNode = drawerNodeId && drawerNodeId !== health.nodeId
+    ? getNodePickerNodes().find((candidate) => candidate.id === drawerNodeId)
+    : null;
+  if (drawerNode) {
+    const drawerHealth = buildNodeHealthModel(drawerNode);
+    nodeHealthSnapshotCache.set(drawerHealth.cacheKey, drawerHealth);
+    renderNodeHealth(drawerHealth);
+  } else {
+    renderNodeHealth(nodeHealthState);
+  }
   // The connectivity section reads a different data source (the computer
   // summary), so a health refresh of an open drawer must refresh it too. This
   // is the only refresh path besides opening the drawer — no new polling.
@@ -39552,7 +40128,10 @@ function exportDiagnosticsSupportBundleFromHealth() {
 
 function runNodeHealthAction(action) {
   if (action === "open-node-details") return openNodeDetails(getSelectedNodeId());
-  if (action === "test-node") return testSelectedNode();
+  if (action === "test-node") {
+    const drawerNodeId = getOpenNodeDetailsId();
+    return drawerNodeId && drawerNodeId !== getSelectedNodeId() ? testNodeById(drawerNodeId) : testSelectedNode();
+  }
   if (action === "ping-agent") return testAgentConnection({ silent: false });
   if (action === "reconnect-agent") { showPage("agent-control"); return refreshAgentControl({ includeConfig: true }); }
   if (action === "check-dependencies" || action === "recheck-dependencies") { showPage("agent-control"); return runDependencyAction("check"); }
@@ -40546,7 +41125,9 @@ function describeNodeRoute(node) {
   const tunnel = nodeTunnelStatusById.get(node.id);
   if (node.transport?.type === "ssh-tunnel") {
     const label = NODE_TUNNEL_STATE_LABELS[tunnel?.state] || "Starting";
-    const reason = tunnel?.state === "failed" && tunnel.lastError?.message ? ` · ${tunnel.lastError.message}` : "";
+    // A retried error such as a stopped ssh-agent service keeps the tunnel in
+    // "connecting"; the row must still say what the user has to do.
+    const reason = ["failed", "connecting", "reconnecting"].includes(tunnel?.state) && tunnel.lastError?.message ? ` · ${tunnel.lastError.message}` : "";
     return `SSH tunnel · ${label}${reason}`;
   }
   const tunnelHint = describeUnmanagedLocalPortRoute(node, getNodeVisualState(node));
@@ -40582,6 +41163,21 @@ function describeNodeAgentBuild(node) {
   const version = node?.connection?.agentVersion || node?.agentVersion || node?.agentIdentity?.agentVersion || "";
   const api = node?.connection?.apiVersion || node?.apiVersion || "";
   return [version && `Agent ${version}`, api && `API ${api}`].filter(Boolean).join(" · ") || "Unknown";
+}
+
+// One address row of the Routes modal. The route resolver only checks
+// computers with fallback routes, so for a computer without them the main
+// address's state is the computer's own connection state.
+function describeNodeRouteEntry(node, entry, routeStatus) {
+  const probe = routeStatus?.routes.find((route) => route.url === entry.url);
+  if (!probe && entry.primary && !routeStatus && !(node.fallbackUrls || []).length) {
+    const visual = getNodeVisualState(node);
+    if (visual === "online" || visual === "warning") return { text: "In use · Answering", tone: "ok" };
+    if (visual === "offline") return { text: "Not answering", tone: "warning" };
+  }
+  const inUse = routeStatus?.activeUrl === entry.url && probe?.verified;
+  const state = !probe ? "Not checked yet" : probe.verified ? `Answering${Number.isFinite(probe.latencyMs) ? ` · ${probe.latencyMs} ms` : ""}` : probe.error === "IDENTITY_MISMATCH" ? "A different Agent answered; not used" : "Not answering";
+  return { text: inUse ? `In use · ${state}` : state, tone: inUse ? "ok" : probe?.verified ? "planned" : "warning" };
 }
 
 function openNodeRoutesModal(nodeId) {
@@ -40654,10 +41250,8 @@ function openNodeRoutesModal(nodeId) {
     const entries = [{ url: node.baseUrl || node.agentUrl, label: "Main", primary: true }, ...(node.fallbackUrls || []).map((entry) => ({ ...entry, primary: false }))];
     entries.forEach((entry) => {
       const item = document.createElement("li");
-      const probe = routeStatus?.routes.find((route) => route.url === entry.url);
-      const inUse = routeStatus?.activeUrl === entry.url && probe?.verified;
-      const state = !probe ? "Not checked yet" : probe.verified ? `Answering${Number.isFinite(probe.latencyMs) ? ` · ${probe.latencyMs} ms` : ""}` : probe.error === "IDENTITY_MISMATCH" ? "A different Agent answered; not used" : "Not answering";
-      item.append(createTextElement("strong", entry.label), createTextElement("code", entry.url), createTextElement("span", inUse ? `In use · ${state}` : state, `status-pill ${inUse ? "status-pill--ok" : probe?.verified ? "status-pill--planned" : "status-pill--warning"}`));
+      const routeState = describeNodeRouteEntry(node, entry, routeStatus);
+      item.append(createTextElement("strong", entry.label), createTextElement("code", entry.url), createTextElement("span", routeState.text, `status-pill status-pill--${routeState.tone}`));
       if (!entry.primary) {
         item.append(button("Remove", async () => {
           const remaining = (node.fallbackUrls || []).filter((fallback) => fallback.url !== entry.url);
@@ -43938,7 +44532,7 @@ async function handleInstanceEndpointPickerAction(action) {
   if (action === "manage") {
     const instanceId = instanceEndpointPickerState.instanceId;
     closeInstanceEndpointPicker();
-    if (instanceId) {
+    if (instanceId && (await confirmSwitchInstance(instanceId))) {
       selectInstance(instanceId);
       if (activeInstanceTab !== "network") setActiveInstanceTab("network");
     }
@@ -46675,14 +47269,19 @@ async function loadSettings(options = {}) {
 
 async function saveSettings() {
   if (settingsSaveInFlight) return;
-  const settings = {
-    ...DEFAULT_SETTINGS,
-  };
-
+  // Only keys with a settings input are read from the page; every other key
+  // (onboarding progress, setup type, dismissed tips) keeps its current value
+  // and is not sent, so a settings change cannot reset it to its default.
+  const patch = {};
   settingsInputs.forEach((input) => {
     if (!isSettingKeyAuthorized(input.dataset.setting)) return;
-    settings[input.dataset.setting] = getSettingInputValue(input);
+    patch[input.dataset.setting] = getSettingInputValue(input);
   });
+  const settings = {
+    ...DEFAULT_SETTINGS,
+    ...getCurrentSettings(),
+    ...patch,
+  };
 
   writeStoredSettings(settings);
   applySettings(settings);
@@ -46696,9 +47295,7 @@ async function saveSettings() {
   settingsSaveInFlight = true;
   setSettingsStatus("Saving settings...");
   try {
-    const payload = await desktopApiState.api.settings.savePreferences(Object.fromEntries(
-      Object.entries(settings).filter(([key]) => isSettingKeyAuthorized(key)),
-    ));
+    const payload = await desktopApiState.api.settings.savePreferences(patch);
     writeStoredSettings({ ...DEFAULT_SETTINGS, ...(payload?.settings || settings) });
     setSettingsStatus("Settings saved.");
   } catch (error) {
@@ -48879,11 +49476,7 @@ instanceFormInputs.forEach((input) => {
   });
 });
 instanceConfigForm?.addEventListener("submit", saveInstanceConfiguration);
-instanceConfigCancelButton?.addEventListener("click", () => {
-  populateInstanceConfigForm(findInstance());
-  populateMinecraftProperties(latestMinecraftProperties);
-  resetGameConfigToCurrent();
-});
+instanceConfigCancelButton?.addEventListener("click", discardInstanceSettingsEdits);
 instanceConfigInputs.forEach((input) => {
   input.addEventListener("input", syncInstanceConfigDirtyState);
   input.addEventListener("change", syncInstanceConfigDirtyState);

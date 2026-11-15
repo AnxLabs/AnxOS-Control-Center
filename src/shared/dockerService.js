@@ -126,11 +126,18 @@ function classifyDockerFailure(result) {
   const output = `${result?.stdout || ""}\n${result?.stderr || ""}`;
   const errorCode = String(result?.errorCode || "");
 
-  if (/ENOENT/i.test(errorCode) || /not recognized|command not found|no such file/i.test(output)) {
+  // Only a missing docker binary is "not installed": the spawn fails with
+  // ENOENT, or a shell says docker itself was not found. Matching any "no such
+  // file" or "command not found" text also caught the container's own errors
+  // (a missing path in a terminal command, a missing entrypoint on Start).
+  if (/ENOENT/i.test(errorCode) || /\bdocker(?:\.exe)?: (?:command )?not found|'docker(?:\.exe)?' is not recognized/i.test(output)) {
     return new DockerServiceError("Docker is not installed or is not available on PATH for this node.", "DOCKER_NOT_INSTALLED", 503, output.trim() || null);
   }
 
-  if (/permission denied|got permission denied|access is denied|requires elevated privileges|connect: operation not permitted/i.test(output)) {
+  // A permission problem counts only when it is about Docker itself (its
+  // socket, pipe or daemon), not a container command that hit a protected file.
+  const dockerScoped = /docker|daemon|\/\/\.\/pipe\//i.test(output);
+  if (/got permission denied/i.test(output) || (dockerScoped && /permission denied|access is denied|requires elevated privileges|connect: operation not permitted/i.test(output))) {
     const socketRelated = /docker\.sock|\/\/\.\/pipe\/docker|docker_engine|daemon socket|var\/run\/docker/i.test(output);
     return new DockerServiceError(
       socketRelated
@@ -162,7 +169,16 @@ function classifyDockerFailure(result) {
     );
   }
 
-  return new DockerServiceError("Docker command failed.", "DOCKER_COMMAND_FAILED", 502, output.trim() || null);
+  return new DockerServiceError(describeDockerCommandFailure(output), "DOCKER_COMMAND_FAILED", 502, output.trim() || null);
+}
+
+// The daemon's own reason (a port already allocated, a name already in use) is
+// what the user needs; "Docker command failed." alone left them guessing.
+function describeDockerCommandFailure(output) {
+  const line = redactDockerText(output).split(/\r?\n/).map((entry) => entry.trim()).find(Boolean);
+  if (!line) return "Docker command failed.";
+  const reason = line.replace(/^Error response from daemon:\s*/i, "").replace(/^Error:\s*/i, "");
+  return `Docker command failed: ${reason.length > 300 ? `${reason.slice(0, 297)}...` : reason}`;
 }
 
 function inferState(status) {
@@ -848,7 +864,15 @@ async function createContainer(payload = {}) {
   args.push(image, ...normalizeStringArray(payload.command, 64));
   const result = await runDockerCommand(args);
   if (payload.start === true) {
-    await runDockerCommand(["start", name]);
+    try {
+      await runDockerCommand(["start", name]);
+    } catch (error) {
+      // This call just created the container under the name validated above,
+      // so removing it is safe. Left in Created state, it made every retry fail
+      // with a name conflict until the user found it on the Docker page.
+      await runDockerCommand(["rm", "-f", name]).catch(() => {});
+      throw error;
+    }
   }
   return { container: { id: result.stdout || name, name, image, started: payload.start === true } };
 }
@@ -964,11 +988,39 @@ async function pruneImages() {
 async function getContainerLogs(container, options = {}) {
   const target = validateContainerTarget(container);
   const tail = Number.parseInt(options.tail, 10);
+  // Always ask for timestamps: `docker logs` sends a container's stderr to its
+  // own stderr, and returning only stdout hid every error line (nginx logs
+  // its errors there). The timestamps put both streams back in order.
   const result = await runDockerCommand(
-    ["logs", ...(options.timestamps === true || options.timestamps === "true" ? ["--timestamps"] : []), "--tail", String(Number.isFinite(tail) ? Math.min(Math.max(tail, 1), 5000) : 300), target],
+    ["logs", "--timestamps", "--tail", String(Number.isFinite(tail) ? Math.min(Math.max(tail, 1), 5000) : 300), target],
     { timeout: LOG_TIMEOUT_MS, maxBuffer: 1024 * 1024 * 2 },
   );
-  return { container: target, logs: redactDockerText(result.stdout) };
+  const keepTimestamps = options.timestamps === true || options.timestamps === "true";
+  return { container: target, logs: redactDockerText(mergeDockerLogStreams(result.stdout, result.stderr, keepTimestamps)) };
+}
+
+const DOCKER_LOG_TIMESTAMP = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,9}))?(Z|[+-]\d{2}:\d{2}) ?/;
+
+// Merge `docker logs --timestamps` stdout and stderr into one time-ordered
+// text. Sort keys come from the parsed time (the local log driver can use a
+// zone offset) plus nanoseconds; a line without a timestamp keeps the key of
+// the line before it, and ties keep stdout first and the original order.
+function mergeDockerLogStreams(stdout = "", stderr = "", keepTimestamps = false) {
+  const entries = [];
+  [stdout, stderr].forEach((text, stream) => {
+    let key = "";
+    String(text || "").split(/\r?\n/).forEach((line, index) => {
+      if (!line) return;
+      const match = DOCKER_LOG_TIMESTAMP.exec(line);
+      if (match) {
+        const seconds = Date.parse(`${match[1]}${match[3]}`);
+        key = `${String(Number.isFinite(seconds) ? seconds : 0).padStart(15, "0")}.${(match[2] || "").padEnd(9, "0")}`;
+      }
+      entries.push({ key, stream, index, text: match && !keepTimestamps ? line.slice(match[0].length) : line });
+    });
+  });
+  entries.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : a.stream - b.stream || a.index - b.index));
+  return entries.map((entry) => entry.text).join("\n");
 }
 
 async function getContainerStats(container) {
@@ -1194,13 +1246,30 @@ async function runCleanup(payload = {}) {
 async function execContainer(container, payload = {}) {
   const target = validateContainerTarget(container);
   const shellCandidates = ["bash", "sh", "ash"];
-  const shell = shellCandidates.find((candidate) => !payload.shell || payload.shell === candidate) || "sh";
   const command = String(payload.command || "").trim();
   if (!command || command.length > 2000 || /[\0]/.test(command)) {
     throw new DockerServiceError("Invalid container command.", "INVALID_CONTAINER_COMMAND", 400);
   }
-  const result = await runDockerCommand(["exec", target, shell, "-lc", command], { timeout: LOG_TIMEOUT_MS, maxBuffer: 1024 * 1024 * 2 });
-  return { container: target, shell, output: redactDockerText(result.stdout), errorOutput: redactDockerText(result.stderr) };
+  // With no shell requested, try bash, then sh and ash: Alpine images (the
+  // Nginx template among them) have no bash, so every command used to fail.
+  const shells = payload.shell ? [shellCandidates.includes(payload.shell) ? payload.shell : "sh"] : shellCandidates;
+  const dockerPath = await getDockerExecutableOrThrow();
+  for (const [index, shell] of shells.entries()) {
+    const result = await exec(dockerPath, ["exec", target, shell, "-lc", command], { timeout: LOG_TIMEOUT_MS, maxBuffer: 1024 * 1024 * 2 });
+    if (!result.ok) {
+      const output = `${result.stdout}\n${result.stderr}`;
+      const shellMissing = /executable file not found|exec: "?(?:bash|sh|ash)"?: (?:no such file|not found)/i.test(output);
+      if (shellMissing && index < shells.length - 1) continue;
+      // Docker's own failures (no such container, daemon down, no shell at all)
+      // are errors. A command that ran and exited non-zero is a result: its
+      // output and exit code go back to the user instead of being classified,
+      // which turned "ls: no such file" into "Docker is not installed".
+      if (shellMissing || /ENOENT/i.test(String(result.errorCode || "")) || /Error response from daemon|OCI runtime exec failed|Cannot connect to the Docker daemon|error during connect|permission denied while trying to connect/i.test(output)) {
+        throw classifyDockerFailure(result);
+      }
+    }
+    return { container: target, shell, exitCode: result.ok ? 0 : result.exitCode, output: redactDockerText(result.stdout), errorOutput: redactDockerText(result.stderr) };
+  }
 }
 
 // V2-C create preflight (roadmap: preflight ports, capacity, mounts, limits).

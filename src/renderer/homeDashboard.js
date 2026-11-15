@@ -6,7 +6,9 @@
 //     selected computer's existing dashboard poll records into it
 //     (renderSnapshot in app.js); other connected computers are read here
 //     through the same system snapshot route, one at a time, every 10 s, only
-//     while Home or Computers is visible and the window is not hidden.
+//     while Home or Computers is visible and the window is not hidden. The
+//     fleet summary (which re-checks every computer's health) runs every 30 s
+//     on any page while the window is not hidden.
 //   * Rendering of the Home overview, Needs attention, Computers cards and
 //     section preferences, and the Computers page detail panel.
 // All decisions (freshness, sustained pressure, attention items) come from
@@ -119,11 +121,11 @@
     }));
   }
 
+  // getMinecraftSummaryData().players is a display string ("2 / 20"), so the
+  // count comes from app.js's numeric reader.
   function playersOf(instance) {
-    const data = safe(() => getMinecraftSummaryData(instance), null);
-    const players = (data && data.players) || instance.players || {};
-    const online = Number(players.online);
-    return Number.isFinite(online) && players.online !== null && players.online !== undefined ? online : null;
+    const counts = safe(() => getInstancePlayerCounts(instance), null);
+    return counts && Number.isFinite(counts.online) ? counts.online : null;
   }
 
   // ---------------------------------------------------------------------------
@@ -170,8 +172,12 @@
     }
   }
 
+  // The fleet summary is the only automatic node health check, and the
+  // title-bar chip and the alert engine read what it records, so it runs on
+  // every visible page (at the 30 s fleet interval), not only Home and
+  // Computers.
   function maybeRefreshFleet() {
-    if (!pollingPageActive() || Date.now() - lastFleetRefresh < FLEET_REFRESH_MS) return;
+    if (document.hidden || Date.now() - lastFleetRefresh < FLEET_REFRESH_MS) return;
     lastFleetRefresh = Date.now();
     safe(() => refreshFleetSummary(), null);
   }
@@ -278,6 +284,22 @@
     }];
   }
 
+  // Server counts across every listed computer, or null when the fleet
+  // summary does not cover them all (the application host is never in it, and
+  // a computer that is not connected has no inventory), so the tile falls back
+  // to the selected computer's own list instead of reading "0 of 0". The
+  // selected computer's live list replaces its fleet count, which can be 30 s
+  // old.
+  function fleetServerCounts(computers, selected, servers, serversKnown) {
+    if (!computers.length || computers.some((computer) => !Number.isFinite(computer.serverCount) || !Number.isFinite(computer.runningServerCount))) return null;
+    return computers.reduce((counts, computer) => {
+      const live = computer === selected && serversKnown;
+      counts.total += live ? servers.length : computer.serverCount;
+      counts.running += live ? servers.filter((server) => server.running).length : computer.runningServerCount;
+      return counts;
+    }, { total: 0, running: 0 });
+  }
+
   function buildState(now = Date.now()) {
     const computers = getComputers();
     const selected = computers.find((computer) => computer.selected);
@@ -286,7 +308,7 @@
     const selectedConnected = !selected || selected.connection === "online" || selected.connection === "warning";
     const servers = selectedConnected ? getServers() : [];
     const serversKnown = selectedConnected && safe(() => isInstancesSnapshotCurrentForSelectedNode(), false);
-    const totals = safe(() => (fleetState && fleetState.totals) || null, null);
+    const fleetCounts = fleetServerCounts(computers, selected, servers, serversKnown);
     const attention = Model.buildAttentionItems({
       computers,
       vitalsById: AnxComputerVitals.all(),
@@ -300,8 +322,8 @@
       computers,
       servers,
       serversKnown,
-      fleetRunning: totals && Number.isFinite(totals.runningInstanceCount) ? totals.runningInstanceCount : null,
-      fleetTotal: totals && Number.isFinite(totals.instanceCount) ? totals.instanceCount : null,
+      fleetRunning: fleetCounts ? fleetCounts.running : null,
+      fleetTotal: fleetCounts ? fleetCounts.total : null,
       players: reportedPlayers.length ? reportedPlayers.reduce((sum, server) => sum + server.players, 0) : null,
       attention: attention.filter((item) => item.severity !== "info"),
       unknownServersDetail: selectedConnected ? "Checking servers" : "Computer not connected",

@@ -389,6 +389,32 @@ function ensureLoaded() {
 // ---------------------------------------------------------------------------
 // Stateful engine
 // ---------------------------------------------------------------------------
+// Node-scoped conditions and the reads that must have succeeded for a node
+// before their absence means "recovered". NODE_OFFLINE, DISK_PRESSURE and
+// BACKUP_AGE are derived from node rows, so they need the node list; BACKUP_AGE
+// also needs the instance list, because backups of servers not in it are dropped.
+const OBSERVATION_SOURCES = {
+  [CONDITION.NODE_OFFLINE]: ["nodes"],
+  [CONDITION.DISK_PRESSURE]: ["nodes"],
+  [CONDITION.INSTANCE_DEGRADED]: ["instances"],
+  [CONDITION.BACKUP_AGE]: ["nodes", "instances", "backups"],
+};
+
+// `observed` (from the state collector) lists, per read, the node ids it read
+// successfully this pass; `observed.nodes` is the node list, or null when it
+// failed. A snapshot without it (older callers) recovers as before. A failed
+// node list observes nothing that comes from node rows. A node no longer in a
+// successful node list is gone, so its alerts recover.
+function isUnobservedThisPass(alert, observed) {
+  if (!observed || typeof observed !== "object") return false;
+  const sources = OBSERVATION_SOURCES[alert.condition];
+  if (!sources) return false;
+  const nodeId = String(alert.target || "").split("/")[0];
+  if (observed.nodes === null && sources.includes("nodes")) return true;
+  if (Array.isArray(observed.nodes) && !observed.nodes.includes(nodeId)) return false;
+  return sources.some((source) => Array.isArray(observed[source]) && !observed[source].includes(nodeId));
+}
+
 function evaluateAlerts(snapshot = {}, options = {}) {
   ensureLoaded();
   const nowDate = new Date(typeof overrides.now === "function" ? overrides.now() : Date.now());
@@ -429,9 +455,11 @@ function evaluateAlerts(snapshot = {}, options = {}) {
   }
 
   // Recovery: a condition absent for this one evaluation pass clears its alert
-  // and emits exactly one RECOVERED transition.
+  // and emits exactly one RECOVERED transition, unless the pass could not see
+  // that node's row, servers or backups (failed read, another computer selected).
   for (const [id, alert] of [...activeAlerts]) {
     if (present.has(id)) continue;
+    if (isUnobservedThisPass(alert, snapshot.observed)) continue;
     activeAlerts.delete(id);
     transitions.push({ type: "RECOVERED", alertId: id, alert: cloneAlert(alert), emitted: !suppressed, quietHours: suppressed });
   }
@@ -536,29 +564,85 @@ async function resolveInstanceSnapshot(nodeId, fetcher) {
   return fetcher();
 }
 
+// Node records keep disk usage in different places: a reading the collector
+// attached (`disk`), a local Agent's profile, or nothing. The application
+// host's `storage` placeholder ({ status: "metrics-required" }) has no
+// percent, so the first candidate that carries one wins.
+function pickNodeDisk(node) {
+  const candidates = [node?.disk, node?.storage, node?.profile?.storage, node?.localProfile?.storage];
+  return candidates.find((candidate) => candidate && typeof candidate === "object" && readDiskPercent({ disk: candidate }) !== null) || null;
+}
+
+const FAILED_BACKUP_STATUSES = new Set(["failed", "failure", "error"]);
+// Agent records keep status "complete" after a failed check; verifyBackup
+// stores the result in verification.state. "unknown" (not evaluable) is not
+// a failure.
+const FAILED_VERIFICATION_STATES = new Set(["failed", "failure", "corrupt"]);
+
+function backupFailedVerification(row) {
+  const verification = row.verification;
+  if (verification === false) return true;
+  if (!verification || typeof verification !== "object") return false;
+  return FAILED_VERIFICATION_STATES.has(String(verification.state ?? verification.status ?? "").toLowerCase());
+}
+
+// BACKUP_AGE is about the NEWEST usable backup of each server that still
+// exists: older archives kept by retention, failed attempts, archives that
+// failed verification and a deleted server's archives must never raise or hide
+// it. Rows are grouped by nodeId onto their node.
+function newestBackupsByNode(backups, instances) {
+  const existing = new Set(instances.map((instance) => `${instance.nodeId}\u0000${instance.instanceId}`));
+  const newest = new Map();
+  for (const row of backups) {
+    if (!row.nodeId || !row.instanceId || asNumber(row.backupAgeDays) === null) continue;
+    if (FAILED_BACKUP_STATUSES.has(String(row.status || "").toLowerCase())) continue;
+    if (backupFailedVerification(row)) continue;
+    const key = `${row.nodeId}\u0000${row.instanceId}`;
+    if (!existing.has(key)) continue;
+    const previous = newest.get(key);
+    if (!previous || asNumber(row.backupAgeDays) < asNumber(previous.backupAgeDays)) newest.set(key, row);
+  }
+  const byNode = new Map();
+  for (const row of newest.values()) {
+    if (!byNode.has(row.nodeId)) byNode.set(row.nodeId, []);
+    byNode.get(row.nodeId).push({ instanceId: row.instanceId, backupAgeDays: row.backupAgeDays, retentionPolicy: row.retentionPolicy });
+  }
+  return byNode;
+}
+
 // Pure mapper: desktop node/instance/backup state → the evaluator's snapshot.
-function buildAlertSnapshot({ nodes = [], instances = [], backups = [], now = Date.now() } = {}) {
+function buildAlertSnapshot({ nodes = [], instances = [], backups = [], observed = null, now = Date.now() } = {}) {
+  const mappedInstances = (Array.isArray(instances) ? instances : []).map((instance) => ({
+    nodeId: instance?.nodeId || instance?.node || null,
+    instanceId: instance?.id || instance?.instanceId || null,
+    processState: instance?.processState || instance?.state || null,
+    healthState: instance?.healthState || null,
+    readinessState: instance?.readinessState || null,
+  }));
+  const mappedBackups = (Array.isArray(backups) ? backups : []).map((row) => ({
+    nodeId: row?.nodeId || null,
+    instanceId: row?.instanceId || null,
+    status: row?.status || null,
+    backupAgeDays: row?.backupAgeDays ?? null,
+    retentionPolicy: row?.retentionPolicy || null,
+    verification: row?.verification ?? null,
+  }));
+  const backupsByNode = newestBackupsByNode(mappedBackups, mappedInstances);
   return {
     now,
-    nodes: (Array.isArray(nodes) ? nodes : []).map((node) => ({
-      nodeId: node?.id || node?.nodeId || node?.deviceId || null,
-      state: node?.state || node?.health || node?.connection?.status || null,
-      disk: node?.disk || node?.storage || null,
-      instances: Array.isArray(node?.instances) ? node.instances : undefined,
-    })),
-    instances: (Array.isArray(instances) ? instances : []).map((instance) => ({
-      nodeId: instance?.nodeId || instance?.node || null,
-      instanceId: instance?.id || instance?.instanceId || null,
-      processState: instance?.processState || instance?.state || null,
-      healthState: instance?.healthState || null,
-      readinessState: instance?.readinessState || null,
-    })),
-    backups: (Array.isArray(backups) ? backups : []).map((row) => ({
-      nodeId: row?.nodeId || null,
-      instanceId: row?.instanceId || null,
-      backupAgeDays: row?.backupAgeDays ?? null,
-      retentionPolicy: row?.retentionPolicy || null,
-    })),
+    nodes: (Array.isArray(nodes) ? nodes : []).map((node) => {
+      const nodeId = node?.id || node?.nodeId || node?.deviceId || null;
+      return {
+        nodeId,
+        state: node?.state || node?.health || node?.connection?.status || null,
+        disk: pickNodeDisk(node),
+        instances: Array.isArray(node?.instances) ? node.instances : undefined,
+        backups: backupsByNode.get(nodeId),
+      };
+    }),
+    instances: mappedInstances,
+    backups: mappedBackups,
+    observed: observed && typeof observed === "object" ? observed : null,
   };
 }
 
@@ -577,6 +661,7 @@ async function runAlertEvaluation(providers = {}, options = {}) {
     nodes: state?.nodes || [],
     instances: state?.instances || [],
     backups: state?.backups || [],
+    observed: state?.observed || null,
     now: typeof overrides.now === "function" ? overrides.now() : Date.now(),
   });
   const outcome = evaluateAlerts(snapshot, options);

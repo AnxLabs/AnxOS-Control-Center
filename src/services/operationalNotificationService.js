@@ -9,7 +9,9 @@
 // - Evaluation is transition-driven, never snapshot-driven: the first
 //   observation of a target only seeds its state, so a desktop start (or a
 //   fresh journal) can never spam. A later transition emits exactly one event
-//   per target; repeat changes within dedupeWindowMs are suppressed entirely.
+//   per target; a problem within dedupeWindowMs of the last notification is
+//   deferred, and announced only if it still holds once the window has passed
+//   (a flap that recovers inside the window stays silent).
 // - Recoveries resolve the newest unresolved event for the same target and emit
 //   one info event. A recovery is only announced when there is an unresolved
 //   event to resolve, so the journal never claims "back online" for a problem it
@@ -103,12 +105,24 @@ function isCrashLoopInstance(instance) {
     .some((value) => /crash[\s_-]?loop/.test(value));
 }
 
+// Starting, Stopping and Restarting are a lifecycle action in progress, not an
+// observation: a Restart passes through them and must not read as a stop.
+const INSTANCE_TRANSITIONAL_STATES = new Set(["starting", "stopping", "restarting"]);
+
+// Returns null when the record is mid-action or its state is unknown (no
+// observation): "Unknown" is what one failed systemd query or an inconclusive
+// PID probe reports, not a stop, so the last known state is kept. A "Stopped"
+// record is unexpected only when it reports a failure reason: a user's Stop
+// leaves failureReason null, while a lost process (STALE_PID, ...) sets one.
+// Any other non-running state is unexpected, as before.
 function normalizeInstanceState(instance) {
   const raw = textOf(instance?.state ?? instance?.processState ?? instance?.healthState ?? instance?.status).toLowerCase();
-  if (isCrashLoopInstance(instance)) return { observed: "failed", rawState: raw || "crash-loop", crashLoop: true };
-  if (raw === "running") return { observed: "running", rawState: raw, crashLoop: false };
-  if (raw === "failed" || raw === "crashed" || raw === "error") return { observed: "failed", rawState: raw, crashLoop: false };
-  return { observed: "stopped", rawState: raw || "unknown", crashLoop: false };
+  if (isCrashLoopInstance(instance)) return { observed: "failed", rawState: raw || "crash-loop", crashLoop: true, unexpected: true };
+  if (INSTANCE_TRANSITIONAL_STATES.has(raw) || raw === "unknown" || !raw) return null;
+  if (raw === "running") return { observed: "running", rawState: raw, crashLoop: false, unexpected: false };
+  if (raw === "failed" || raw === "crashed" || raw === "error") return { observed: "failed", rawState: raw, crashLoop: false, unexpected: true };
+  const unexpected = raw !== "stopped" || Boolean(textOf(instance?.failureReason));
+  return { observed: "stopped", rawState: raw, crashLoop: false, unexpected };
 }
 
 // Observed provider vocabulary: connected / degraded / stopped / not-installed /
@@ -265,30 +279,68 @@ function createOperationalNotificationService(options = {}) {
     }
   }
 
+  function windowOpen(entry, context) {
+    const lastMs = Date.parse(entry?.lastNotifiedAt || "");
+    return Number.isFinite(lastMs) && context.atMs - lastMs < dedupeWindowMs;
+  }
+
   // Seeds on first observation (no event); records every later state change.
-  function observeState(dedupKey, observedState, at) {
+  // A state change drops any deferred event: the problem it described is over.
+  // An unchanged state releases a deferred event once the window has passed.
+  function observeState(dedupKey, observedState, context) {
     const entry = store.state[dedupKey];
     if (!entry || typeof entry !== "object") {
-      store.state[dedupKey] = { state: observedState, since: at, lastNotifiedAt: null };
+      store.state[dedupKey] = { state: observedState, since: context.at, lastNotifiedAt: null };
       dirty = true;
       return { kind: "seed", previous: null };
     }
-    if (entry.state === observedState) return { kind: "same", previous: entry.state };
+    if (entry.state === observedState) {
+      releaseDeferredEvent(entry, context);
+      return { kind: "same", previous: entry.state };
+    }
     const previous = textOf(entry.state) || "unknown";
     entry.state = observedState;
-    entry.since = at;
+    entry.since = context.at;
+    if (entry.deferredEvent) delete entry.deferredEvent;
     dirty = true;
     return { kind: "transition", previous };
   }
 
-  // Emission is suppressed entirely when the same key notified within the
-  // dedupe window (anti-flap). Recoveries and once-per-backupId failures pass
-  // windowExempt: a resolution must not be lost to a just-sent warning.
+  function releaseDeferredEvent(entry, context) {
+    const deferred = entry.deferredEvent;
+    if (!deferred || typeof deferred !== "object") return;
+    if (deferred.state !== entry.state) {
+      delete entry.deferredEvent;
+      dirty = true;
+      return;
+    }
+    if (windowOpen(entry, context)) return;
+    delete entry.deferredEvent;
+    dirty = true;
+    emitEvent(context, deferred.fields);
+  }
+
+  // A problem event inside the dedupe window of the last notification for the
+  // same key is not emitted (anti-flap). It is deferred on the state entry
+  // instead of dropped, so a problem that is still current once the window has
+  // passed is announced then; dropping it left a lasting outage after a
+  // recovery unannounced, with the journal ending on "back online".
+  // Recoveries and once-per-backupId failures pass windowExempt: a resolution
+  // must not be lost to a just-sent warning.
   function emitEvent(context, fields) {
     const entry = store.state[fields.dedupKey];
-    if (fields.windowExempt !== true && entry && entry.lastNotifiedAt) {
-      const lastMs = Date.parse(entry.lastNotifiedAt);
-      if (Number.isFinite(lastMs) && context.atMs - lastMs < dedupeWindowMs) return null;
+    if (fields.windowExempt !== true && entry && windowOpen(entry, context)) {
+      entry.deferredEvent = {
+        state: entry.state,
+        fields: {
+          ...fields,
+          title: redactString(String(fields.title || "")),
+          message: redactString(String(fields.message || "")),
+          technicalDetails: fields.technicalDetails ? redactString(String(fields.technicalDetails)) : null,
+        },
+      };
+      dirty = true;
+      return null;
     }
     if (entry) {
       entry.lastNotifiedAt = context.at;
@@ -351,7 +403,7 @@ function createOperationalNotificationService(options = {}) {
         delete entry.transitionalSince;
         dirty = true;
       }
-      const result = observeState(dedupKey, observed, context.at);
+      const result = observeState(dedupKey, observed, context);
       if (result.kind === "transition" && store.state[dedupKey]?.transitionalSince) delete store.state[dedupKey].transitionalSince;
       if (result.kind !== "transition") return;
       if (observed === "offline") {
@@ -392,9 +444,11 @@ function createOperationalNotificationService(options = {}) {
       // persisted dedupKey/target (real ids stay byte-identical).
       const explicitInstanceId = textOf(instance?.instanceId ?? instance?.id);
       const instanceId = explicitInstanceId || redactString(textOf(instance?.name)) || `instance-${index}`;
-      const { observed, rawState, crashLoop } = normalizeInstanceState(instance);
+      const observation = normalizeInstanceState(instance);
+      if (!observation) return;
+      const { observed, rawState, crashLoop, unexpected } = observation;
       const dedupKey = `instance:${nodeId}:${instanceId}`;
-      const result = observeState(dedupKey, observed, context.at);
+      const result = observeState(dedupKey, observed, context);
       if (result.kind !== "transition") return;
       const previous = result.previous;
       const base = {
@@ -423,7 +477,7 @@ function createOperationalNotificationService(options = {}) {
         });
         return;
       }
-      if (observed === "stopped" && previous === "running") {
+      if (observed === "stopped" && previous === "running" && unexpected) {
         emitEvent(context, {
           ...base,
           severity: "warning",
@@ -455,7 +509,7 @@ function createOperationalNotificationService(options = {}) {
       const name = textOf(provider?.displayName ?? provider?.name) || providerId;
       const { observed, rawState } = normalizeProviderObservedState(provider);
       const dedupKey = `provider:${nodeLabel}:${providerId}`;
-      const result = observeState(dedupKey, observed, context.at);
+      const result = observeState(dedupKey, observed, context);
       if (result.kind !== "transition") return;
       const previous = result.previous;
       const base = {
@@ -506,7 +560,7 @@ function createOperationalNotificationService(options = {}) {
       const nodeId = textOf(endpoint?.nodeId ?? endpoint?.computerId);
       const label = textOf(endpoint?.label ?? endpoint?.name) || endpointId;
       const dedupKey = `endpoint:${endpointId}`;
-      const result = observeState(dedupKey, healthState, context.at);
+      const result = observeState(dedupKey, healthState, context);
       if (result.kind !== "transition") return;
       const previous = result.previous;
       const base = {
@@ -852,7 +906,13 @@ function createOperationalNotificationCollector({
           effectiveNodeId,
           () => serviceRouter.listInstances({}).catch(() => ({ instances: [] })),
         );
-        instances = listOf(payload?.instances);
+        // Instance records carry no nodeId: the list is read for the effective
+        // node, so bind each row to it (processInstances skips unbound rows).
+        instances = listOf(payload?.instances).map((instance) => (
+          instance && typeof instance === "object" && !textOf(instance.nodeId ?? instance.node) && effectiveNodeId
+            ? { ...instance, nodeId: effectiveNodeId }
+            : instance
+        ));
       } catch {
         instances = [];
       }

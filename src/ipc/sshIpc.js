@@ -8,6 +8,9 @@ const sshService = new SshService();
 let sshIpcRegistered = false;
 let lastSshWriteDiagnostic = null;
 const authorizedSshSenders = new Set();
+// Largest terminal chunk sent to the renderer in one ssh:data event. ssh2
+// delivers packets of up to 32 KB, so bigger chunks are split, never cut.
+const SSH_DATA_EVENT_MAX_CHARS = 16000;
 
 function authorizeSshRenderer(event) {
   const sender = event?.sender;
@@ -21,10 +24,26 @@ function sanitizeSshEventPayload(payload = {}) {
   if (sessionId !== undefined) safePayload.sessionId = String(sessionId).slice(0, 160);
   // Terminal chunks are the user's own live shell session, not a log or
   // diagnostic. Redacting them corrupts real output (paths, env vars, grep
-  // hits) and makes the terminal unusable; only cap the size to protect the
-  // renderer from pathological payloads.
-  if (chunk !== undefined) safePayload.chunk = String(chunk).slice(0, 16000);
+  // hits) and makes the terminal unusable. Size is bounded by
+  // splitTerminalChunk, which keeps every character.
+  if (chunk !== undefined) safePayload.chunk = String(chunk);
   return safePayload;
+}
+
+function splitTerminalChunk(text, maxChars = SSH_DATA_EVENT_MAX_CHARS) {
+  const value = String(text ?? "");
+  if (value.length <= maxChars) return value ? [value] : [];
+  const parts = [];
+  let start = 0;
+  while (start < value.length) {
+    let end = Math.min(start + maxChars, value.length);
+    // Never end a part on the first half of a surrogate pair.
+    const lastCode = value.charCodeAt(end - 1);
+    if (end < value.length && end - start > 1 && lastCode >= 0xd800 && lastCode <= 0xdbff) end -= 1;
+    parts.push(value.slice(start, end));
+    start = end;
+  }
+  return parts;
 }
 
 function registerSshHandler(channel, handler) {
@@ -55,6 +74,21 @@ function broadcastSshEvent(channel, payload) {
   }
 }
 
+// Node SSH tunnels treat a host-key problem as permanent and never retry it on
+// their own, so once the user approves (or replaces) the key, retry the
+// tunnels that use this profile. Best effort: approval already succeeded.
+function reconnectFailedNodeTunnels(profileId) {
+  if (!profileId) return;
+  try {
+    const tunnels = require("../services/nodeTunnelService").getNodeTunnelService();
+    for (const status of tunnels.listStatus()) {
+      if (status.sshProfileId === profileId && status.state === "failed") tunnels.reconnect(status.nodeId);
+    }
+  } catch (error) {
+    console.warn("[SSH] Node tunnels could not be retried after the host-key approval.", { code: error?.code || null });
+  }
+}
+
 function registerSshIpc() {
   if (sshIpcRegistered) {
     return sshService;
@@ -70,10 +104,14 @@ function registerSshIpc() {
   });
 
   sshService.on("session-output", ({ sessionId, chunk }) => {
-    broadcastSshEvent("ssh:data", {
-      sessionId,
-      chunk,
-    });
+    // Send oversized output as consecutive events, in order, so a large
+    // `cat` or `journalctl` burst is never silently truncated.
+    for (const part of splitTerminalChunk(chunk)) {
+      broadcastSshEvent("ssh:data", {
+        sessionId,
+        chunk: part,
+      });
+    }
   });
 
   sshService.on("session-error", (failure) => {
@@ -130,8 +168,11 @@ function registerSshIpc() {
   });
   registerSshHandler("ssh:approveHostKey", async (_, payload = {}) => {
     requirePermission("instance:write", payload.profileId || "ssh-host-key");
-    audit({ action: "ssh.host-key.approve", target: payload.profileId || "ssh-host-key" });
-    return sshService.approveHostKey(payload.profileId, payload.fingerprint);
+    const replaceChangedKey = payload.replaceChangedKey === true;
+    audit({ action: replaceChangedKey ? "ssh.host-key.replace" : "ssh.host-key.approve", target: payload.profileId || "ssh-host-key" });
+    const result = sshService.approveHostKey(payload.profileId, payload.fingerprint, { replaceChangedKey });
+    reconnectFailedNodeTunnels(result?.profileId);
+    return result;
   });
   registerSshHandler("ssh:disconnect", async (_, payload = {}) => {
     requirePermission("instance:write", payload.sessionId);
@@ -167,5 +208,5 @@ module.exports = {
   disposeSshIpc,
   registerSshIpc,
   getLastSshWriteDiagnostic: () => (lastSshWriteDiagnostic ? { ...lastSshWriteDiagnostic } : null),
-  _test: { sanitizeSshEventPayload },
+  _test: { sanitizeSshEventPayload, splitTerminalChunk },
 };

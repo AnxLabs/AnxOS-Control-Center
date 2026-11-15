@@ -4,6 +4,7 @@ const os = require("os");
 const path = require("path");
 const packageJson = require("../../package.json");
 const { decideMigrationRecovery, verifyRecoveryPoint } = require("../../../src/shared/migrationRecoveryPolicy");
+const { resolveAgentArtifactVersion } = require("../../../src/shared/agentBuildIdentity");
 // V2-A identity model (docs/v2/V2A_IDENTITY_MODEL.md §3.2): the agent mints
 // deviceId (stable per device lineage), agentInstallationId (stable per
 // installation) and agentIdentityGeneration (intentionally rotated on
@@ -134,6 +135,17 @@ function rotateAgentIdentityGeneration() {
   return record;
 }
 
+// agent/package.json's version is a fixed placeholder, so the release build is
+// reported beside it (agentArtifactVersion) for every runtime comparison. It is
+// resolved once per process: it describes the code this process loaded.
+let cachedArtifactVersion;
+function getAgentArtifactVersion() {
+  if (cachedArtifactVersion === undefined) {
+    cachedArtifactVersion = resolveAgentArtifactVersion({ runtimeRoot: path.resolve(__dirname, "..", "..", "..") })?.artifactVersion || null;
+  }
+  return cachedArtifactVersion;
+}
+
 function getDeviceIdentity() {
   const record = readOrCreateDeviceId();
   return {
@@ -145,11 +157,13 @@ function getDeviceIdentity() {
     platform: process.platform,
     architecture: process.arch,
     agentVersion: packageJson.version,
+    agentArtifactVersion: getAgentArtifactVersion(),
   };
 }
 
 module.exports = {
   DEVICE_IDENTITY_SCHEMA_VERSION,
+  getAgentArtifactVersion,
   getDeviceIdentity,
   getIdentityPath,
   rotateAgentIdentityGeneration,

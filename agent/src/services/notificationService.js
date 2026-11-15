@@ -163,20 +163,50 @@ function buildBody(url, event, details) {
   return { source: "anxos-agent", event, instanceId: details.instanceId || null, message, at };
 }
 
+// Settles exactly once. A connection reset after the response headers fires
+// neither the response's "end" nor the request's "error" (only "aborted" and
+// "close"), and the socket timeout cannot fire on a closed socket, so every
+// way out is handled and an overall deadline backs them up. An unsettled
+// delivery would hold the alert queue, and every later alert, forever.
 function postJson(url, body) {
   if (transport) return transport(url, body);
   return new Promise((resolve, reject) => {
     const payload = Buffer.from(JSON.stringify(body));
-    const request = https.request(url, {
+    let settled = false;
+    let request = null;
+    let responded = false;
+    const finish = (error, result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(deadline);
+      if (!error) {
+        resolve(result);
+        return;
+      }
+      if (request && !request.destroyed) request.destroy();
+      reject(error);
+    };
+    const failed = () => createNotificationError("NOTIFICATION_DELIVERY_FAILED", 502);
+    const deadline = setTimeout(() => finish(createNotificationError("NOTIFICATION_DELIVERY_TIMEOUT", 504)), DELIVERY_TIMEOUT_MS);
+    if (typeof deadline.unref === "function") deadline.unref();
+    request = https.request(url, {
       method: "POST",
       headers: { "content-type": "application/json", "content-length": payload.length, "user-agent": "AnxOS-Agent" },
       timeout: DELIVERY_TIMEOUT_MS,
     }, (response) => {
+      responded = true;
       response.resume();
-      response.once("end", () => resolve({ status: response.statusCode }));
+      response.once("end", () => finish(null, { status: response.statusCode }));
+      response.once("aborted", () => finish(failed()));
+      response.once("error", () => finish(failed()));
+      response.once("close", () => (response.complete ? finish(null, { status: response.statusCode }) : finish(failed())));
     });
     request.once("timeout", () => request.destroy(createNotificationError("NOTIFICATION_DELIVERY_TIMEOUT", 504)));
-    request.once("error", reject);
+    request.once("error", (error) => finish(error));
+    // Once a response exists its own events decide the outcome.
+    request.once("close", () => {
+      if (!responded) finish(failed());
+    });
     request.end(payload);
   });
 }

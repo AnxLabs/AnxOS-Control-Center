@@ -243,6 +243,24 @@ function setEdges(signed, ownerIdentity, { relays, gateways }) {
   });
 }
 
+// The coordinator (owner) addresses as members dial them.
+function normalizeCoordinator(list) {
+  return (Array.isArray(list) ? list : []).slice(0, 6)
+    .map((entry) => ({ host: String(entry?.host || ""), port: Number(entry?.port), udpPort: Number(entry?.udpPort) || null }))
+    .filter((entry) => /^[A-Za-z0-9.:-]{1,253}$/.test(entry.host) && Number.isInteger(entry.port) && entry.port > 0 && entry.port < 65536);
+}
+
+// Owner: publish its current coordinator addresses in the roster, so
+// members follow it when its address changes. Older builds ignore the field.
+function setCoordinator(signed, ownerIdentity, endpoints) {
+  const coordinator = normalizeCoordinator(endpoints);
+  if (!coordinator.length) throw error("ANXNET_COORDINATOR_INVALID", "This computer has no address other devices can use.");
+  return update(signed, ownerIdentity, (doc) => {
+    doc.coordinator = coordinator;
+    return coordinator;
+  });
+}
+
 // ---- invitations (owner side) -------------------------------------------------
 
 function hashSecret(secret) {
@@ -316,11 +334,13 @@ module.exports = {
   managementPortName,
   matchInvite,
   memberFor,
+  normalizeCoordinator,
   removeService,
   renameDevice,
   renameNetwork,
   revokeDevice,
   serviceAllows,
+  setCoordinator,
   setEdges,
   update,
   verify,

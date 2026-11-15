@@ -1,4 +1,5 @@
 const { correlationMetadata } = require("../../../src/shared/structuredLogger");
+const { logger } = require("../services/diagnosticsLogger");
 
 function redact(value) {
   return String(value || "")
@@ -19,8 +20,13 @@ function getActor(request) {
 // shared correlation primitive (the same field name the Agent's structured
 // logger writes). The key is only added when an operation scope is active, so
 // audit lines emitted outside a scope keep their previous shape exactly.
+//
+// The stdout line feeds journald on Linux. A Windows Agent run by the
+// scheduled task has no console, so the record is also written through the
+// Agent's structured logger (audit.log and live.log in its log folder), which
+// rotates and redacts it.
 function auditAction(request, event) {
-  console.info(JSON.stringify({
+  const record = {
     scope: "agent_action_audit",
     at: new Date().toISOString(),
     actor: getActor(request),
@@ -29,7 +35,15 @@ function auditAction(request, event) {
     outcome: event.outcome,
     reason: event.reason || null,
     ...correlationMetadata(event.correlationId),
-  }));
+  };
+  console.info(JSON.stringify(record));
+  const context = { ...record };
+  delete context.scope;
+  delete context.at;
+  logger.write("info", "agent-action-audit", `${record.actionId || "action"}: ${record.outcome || "unknown"}`, context, {
+    file: "audit",
+    ...(record.correlationId ? { correlationId: record.correlationId } : {}),
+  });
 }
 
 module.exports = {

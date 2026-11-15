@@ -3,6 +3,7 @@ const { getDeviceIdentity } = require("../services/deviceIdentityService");
 const { getConfiguredApiPermissions } = require("../permissions");
 const { createSystemdController } = require("../../../src/shared/instances/serviceManagedRuntime");
 const { getSelfRestartCapability } = require("./agentLifecycle");
+const { canReadCredentialDetails } = require("../auth");
 
 // Tokens that let a credential mutate state. API permissions are fail-closed
 // by default for standalone/remote agents (no implicit "*"); the desktop's
@@ -122,8 +123,14 @@ function buildAgentCapabilities(identity = {}) {
   };
 }
 
-async function handleHealth(config = {}) {
+// The route is public. The token fingerprint and config path go only to the
+// operator (auth.js canReadCredentialDetails); an anonymous network caller
+// sees whether a token is configured, never anything derived from it. The
+// HTTP route always passes the request; an in-process caller that passes none
+// is trusted code and gets the full reply.
+async function handleHealth(config = {}, request = null) {
   const identity = getDeviceIdentity();
+  const credentialDetails = request === null || canReadCredentialDetails(request, config);
   return {
     statusCode: 200,
     body: {
@@ -133,8 +140,8 @@ async function handleHealth(config = {}) {
       mode: computeHealthMode(getConfiguredApiPermissions()),
       capabilities: buildAgentCapabilities(identity),
       tokenConfigured: Boolean(config.token),
-      tokenFingerprint: config.tokenStatus?.fingerprint || null,
-      configPath: config.tokenStatus?.configPath || null,
+      tokenFingerprint: credentialDetails ? config.tokenStatus?.fingerprint || null : null,
+      configPath: credentialDetails ? config.tokenStatus?.configPath || null : null,
       apiVersion: "v1",
       protocolVersion: 1,
       process: {

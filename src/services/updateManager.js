@@ -480,6 +480,7 @@ class UpdateManager extends EventEmitter {
     this.logs = [];
     this.skippedVersions = new Set();
     this.pendingInstall = null;
+    this.installInFlight = false;
     this.notifiedVersions = new Set();
     this.interval = null;
     this.storePath = "";
@@ -1035,9 +1036,16 @@ class UpdateManager extends EventEmitter {
 
   async install() {
     if (!this.state.downloadedPath) return { installed: false, message: "No downloaded update is ready." };
-    if (this.pendingInstall && ["handoff-pending", "handed-off"].includes(this.pendingInstall.status)) {
+    // Only a launch that is still being verified or opened is refused (a
+    // double click). A handed-off installer may have been cancelled, blocked
+    // by Windows or closed while this session keeps running, so Install opens
+    // the verified installer again instead of silently doing nothing; the
+    // installer itself allows only one running copy.
+    if (this.installInFlight) {
       return { installed: false, alreadyRequested: true, pendingInstall: this.pendingInstall, state: this.getState() };
     }
+    this.installInFlight = true;
+    const reopening = this.pendingInstall?.status === "handed-off";
     try {
       await verifyUpdateArtifact(this.state.downloadedPath, this.state.latest?.asset);
       // Phase 9: a Windows installer must also carry a valid Authenticode
@@ -1059,7 +1067,7 @@ class UpdateManager extends EventEmitter {
         requestedAt: new Date().toISOString(),
       });
       this.saveStore();
-      this.log("Install requested.", { path: this.state.downloadedPath });
+      this.log(reopening ? "Install requested again after an earlier handoff." : "Install requested.", { path: this.state.downloadedPath });
       const launchError = await shell.openPath(this.state.downloadedPath);
       if (launchError) throw Object.assign(new Error(`The update installer could not be opened: ${launchError}`), { code: "UPDATE_INSTALLER_OPEN_FAILED" });
       this.pendingInstall = { ...this.pendingInstall, status: "handed-off", handedOffAt: new Date().toISOString() };
@@ -1079,6 +1087,8 @@ class UpdateManager extends EventEmitter {
       this.log("Install handoff failed.", { code: error?.code || "UPDATE_INSTALL_FAILED", message: this.state.error }, "error");
       this.emitStatus("install-error", { code: error?.code || "UPDATE_INSTALL_FAILED", message: this.state.error });
       return { installed: false, code: error?.code || "UPDATE_INSTALL_FAILED", error: this.state.error, state: this.getState() };
+    } finally {
+      this.installInFlight = false;
     }
   }
 

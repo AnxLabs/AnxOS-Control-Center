@@ -2,8 +2,9 @@
 // main-process operational notification journal).
 //
 // Covered contract:
-//   - running -> stopped emits exactly one warning; staying stopped is silent;
-//     recovery emits one info and resolves the original event
+//   - running -> stopped (with a failure reason) emits exactly one warning;
+//     staying stopped is silent; recovery emits one info and resolves the
+//     original event
 //   - first observation seeds state only (no initial spam), and a transition
 //     into a problem state emits exactly one event
 //   - restart persistence: a fresh instance over the same store never
@@ -73,6 +74,11 @@ function instanceRow(nodeId, instanceId, state, extra = {}) {
   return { nodeId, instanceId, state, ...extra };
 }
 
+// A service that stopped on its own: real records report a failure reason
+// (a user's Stop leaves failureReason null and is not an incident; covered by
+// scripts/alerts-ai-fixes-smoke.js).
+const LOST_PROCESS = Object.freeze({ failureReason: "STALE_PID" });
+
 // ---------------------------------------------------------------------------
 // Phase 1: transition lifecycle (warning, dedup, recovery + resolution).
 // ---------------------------------------------------------------------------
@@ -89,7 +95,7 @@ async function phaseTransitionLifecycle() {
 
   at("2026-02-01T12:01:00.000Z");
   const stopped = await service.evaluate({
-    collectState: async () => ({ instances: [instanceRow("node-a", "inst-1", "Stopped")] }),
+    collectState: async () => ({ instances: [instanceRow("node-a", "inst-1", "Stopped", LOST_PROCESS)] }),
   });
   assert.strictEqual(stopped.events.length, 1, "running -> stopped must emit exactly one event");
   const warning = stopped.events[0];
@@ -102,7 +108,7 @@ async function phaseTransitionLifecycle() {
   for (const minute of [2, 3, 4]) {
     at(`2026-02-01T12:0${minute}:00.000Z`);
     const repeat = await service.evaluate({
-      collectState: async () => ({ instances: [instanceRow("node-a", "inst-1", "Stopped")] }),
+      collectState: async () => ({ instances: [instanceRow("node-a", "inst-1", "Stopped", LOST_PROCESS)] }),
     });
     assert.strictEqual(repeat.events.length, 0, "staying stopped must not re-notify");
   }
@@ -208,7 +214,7 @@ async function phaseRestartPersistence() {
   await first.evaluate({ collectState: async () => ({ instances: [instanceRow("node-r", "inst-r", "Running")] }) });
   at("2026-02-01T14:01:00.000Z");
   const warning = await first.evaluate({
-    collectState: async () => ({ instances: [instanceRow("node-r", "inst-r", "Stopped")] }),
+    collectState: async () => ({ instances: [instanceRow("node-r", "inst-r", "Stopped", LOST_PROCESS)] }),
   });
   assert.strictEqual(warning.events.length, 1, "the first stop must notify");
 
@@ -216,7 +222,7 @@ async function phaseRestartPersistence() {
   const second = createService(file);
   at("2026-02-01T14:02:00.000Z");
   const afterRestart = await second.evaluate({
-    collectState: async () => ({ instances: [instanceRow("node-r", "inst-r", "Stopped")] }),
+    collectState: async () => ({ instances: [instanceRow("node-r", "inst-r", "Stopped", LOST_PROCESS)] }),
   });
   assert.strictEqual(afterRestart.events.length, 0, "a restart must not re-notify an unchanged state");
 
@@ -568,7 +574,7 @@ async function phaseIdentifierFallbacks() {
   // transition still emits exactly once.
   const file = storeFile("identifier-fallback");
   const service = createService(file);
-  const stateFor = (state) => ({ instances: [{ nodeId: "node-fb", name: "database password: hunter2", state }] });
+  const stateFor = (state) => ({ instances: [{ nodeId: "node-fb", name: "database password: hunter2", state, ...LOST_PROCESS }] });
 
   at("2026-02-01T20:00:00.000Z");
   const seeded = await service.evaluate({ collectState: async () => stateFor("Running") });
@@ -610,7 +616,7 @@ async function phaseIdentifierFallbacks() {
   const controlFile = storeFile("identifier-control");
   const controlService = createService(controlFile);
   const controlState = (state) => ({
-    instances: [{ nodeId: "node-control", instanceId: "svc-abc123", name: "whatever token=abc123", state }],
+    instances: [{ nodeId: "node-control", instanceId: "svc-abc123", name: "whatever token=abc123", state, ...LOST_PROCESS }],
   });
   at("2026-02-01T20:20:00.000Z");
   await controlService.evaluate({ collectState: async () => controlState("Running") });

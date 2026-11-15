@@ -7,7 +7,13 @@ const COMMAND_TIMEOUT_MS = 2200;
 const CONTROL_COMMAND_TIMEOUT_MS = 15000;
 const MAX_LOG_BYTES = 128 * 1024;
 const PLAYIT_SERVICE_CANDIDATES = ["playit", "playit-agent"];
-const PLAYIT_DOMAIN_PATTERN = /\b[a-z0-9][a-z0-9.-]*\.(?:playit\.(?:gg|cloud|fan)|ply\.gg)\b/gi;
+// The optional port matters: *.ply.gg TCP/UDP tunnels get a random public
+// port, and the host alone sends friends to the game's default port.
+// joinmc.link is Playit's Minecraft Java domain.
+const PLAYIT_DOMAIN_PATTERN = /\b[a-z0-9][a-z0-9.-]*\.(?:playit\.(?:gg|cloud|fan)|ply\.gg|joinmc\.link)(?::\d{1,5})?\b/gi;
+// One Playit inspection runs many child processes (where.exe, PowerShell,
+// the CLI). Requests of one refresh share a result for this long.
+const PLAYIT_INSPECTION_TTL_MS = 5000;
 const LOCAL_TARGET_PATTERN = /\b(?:127\.0\.0\.1|localhost|0\.0\.0\.0|\d{1,3}(?:\.\d{1,3}){3}):\d{2,5}\b/i;
 const SENSITIVE_KEY_PATTERN = /token|secret|password|credential|api[_-]?key/i;
 
@@ -26,6 +32,35 @@ function exec(command, args, options = {}) {
 
 function createPlayitError(code, message, details = {}) {
   return Object.assign(new Error(message), { code, statusCode: details.statusCode || 400, ...details });
+}
+
+const inspectionCache = new Map();
+
+// Single flight plus a short TTL: concurrent and back-to-back callers share
+// one inspection. A failed inspection is not kept.
+function cachedInspection(key, load) {
+  const entry = inspectionCache.get(key);
+  if (entry && (entry.pending || Date.now() - entry.settledAt < PLAYIT_INSPECTION_TTL_MS)) {
+    return entry.promise;
+  }
+  const next = { pending: true, settledAt: 0, promise: null };
+  next.promise = Promise.resolve()
+    .then(load)
+    .then((value) => {
+      next.pending = false;
+      next.settledAt = Date.now();
+      return value;
+    }, (error) => {
+      if (inspectionCache.get(key) === next) inspectionCache.delete(key);
+      throw error;
+    });
+  inspectionCache.set(key, next);
+  return next.promise;
+}
+
+// Called after a start/stop/restart so the result reflects the action.
+function invalidatePlayitCache() {
+  inspectionCache.clear();
 }
 
 function unique(values) {
@@ -282,7 +317,11 @@ async function readPlayitJournal() {
   };
 }
 
-async function findPlayitBinary() {
+function findPlayitBinary() {
+  return cachedInspection("binary", detectPlayitBinary);
+}
+
+async function detectPlayitBinary() {
   const explicitBinary = process.env.PLAYIT_BINARY;
 
   if (explicitBinary) {
@@ -725,7 +764,13 @@ async function isPlayitProcessRunning(cliOutput = "") {
   return getLinuxPlayitProcessState(cliOutput);
 }
 
-async function getWindowsPlayitProcesses() {
+// One snapshot asks for the process list up to three times (binary lookup,
+// command lines, running state); they share one query.
+function getWindowsPlayitProcesses() {
+  return cachedInspection("windows-processes", queryWindowsPlayitProcesses);
+}
+
+async function queryWindowsPlayitProcesses() {
   const cimResult = await exec("powershell.exe", [
     "-NoProfile",
     "-ExecutionPolicy",
@@ -883,7 +928,11 @@ async function getPlayitProcessCommandLines() {
   };
 }
 
-async function getPlayitSnapshot() {
+function getPlayitSnapshot() {
+  return cachedInspection("snapshot", collectPlayitSnapshot);
+}
+
+async function collectPlayitSnapshot() {
   const [binary, configResult, logResult] = await Promise.all([
     findPlayitBinary(),
     readFirstAvailable(getConfigCandidates()),
@@ -1081,7 +1130,11 @@ async function detectPlayitService() {
   return { selected: null, checks };
 }
 
-async function getPlayitStatus() {
+function getPlayitStatus() {
+  return cachedInspection("status", collectPlayitStatus);
+}
+
+async function collectPlayitStatus() {
   const snapshot = await getPlayitSnapshot();
   const service = await getPlayitServiceStatusFromSnapshot(snapshot);
   return {
@@ -1146,6 +1199,7 @@ async function runServiceControl(action) {
     const prefix = selected.manager === "systemd-user" ? ["--user"] : [];
     result = await exec("systemctl", [...prefix, action, selected.name], { timeout: CONTROL_COMMAND_TIMEOUT_MS });
   }
+  invalidatePlayitCache();
   if (!result.ok) {
     const code = action === "start" ? "PLAYIT_START_FAILED" : action === "stop" ? "PLAYIT_STOP_FAILED" : "PLAYIT_RESTART_FAILED";
     throw createPlayitError(code, `Playit ${action} failed.`, {
@@ -1242,8 +1296,12 @@ module.exports = {
   getPlayitStatus,
   getPlayitServiceStatus: getPlayitStatus,
   getPlayitLogs,
+  invalidatePlayitCache,
   listPlayitTunnels,
   restartPlayit,
   startPlayit,
   stopPlayit,
+  _test: {
+    extractPlayitAddress,
+  },
 };

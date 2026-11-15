@@ -61,7 +61,7 @@
   FunctionEnd
 
   ; "Set up AnxOS": the app is always installed; the Helper is recommended and
-  ; its one administrator prompt is explained before it can appear.
+  ; its administrator prompt is explained before it can appear.
   Function anxSetupPage
     !insertmacro MUI_HEADER_TEXT "Set up AnxOS" "Choose what to set up on this PC."
     nsDialogs::Create 1018
@@ -83,7 +83,7 @@
     ${EndIf}
     ${NSD_CreateLabel} 12u 43u -12u 28u "Runs in the background so Control Center can start, stop and watch servers on this PC, even after a restart. It includes AnxNet, the private network for playing with friends, which stays off until you join a network."
     Pop $0
-    ${NSD_CreateLabel} 12u 74u -12u 28u "Windows will ask once for administrator approval so the Helper can start when you sign in. Setup does not change your security settings, firewall or other apps. You can also set the Helper up later in Agent Control."
+    ${NSD_CreateLabel} 12u 74u -12u 28u "Windows will ask for administrator approval so the Helper can start when you sign in. Setup does not change your security settings, firewall or other apps. You can also set the Helper up later in Agent Control."
     Pop $0
     ${If} $anxIsUpgrade == 1
       ${NSD_CreateLabel} 0 110u 100% 10u "Your servers, settings, backups and paired computers are kept."
@@ -183,6 +183,16 @@
 !macro customUnInstall
   ReadEnvStr $1 "USERDOMAIN"
   ReadEnvStr $2 "USERNAME"
-  DetailPrint "Removing the AnxOS Helper startup task..."
-  nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\resources\install-agent-task.ps1" -ExecutablePath "$INSTDIR\${APP_EXECUTABLE_FILENAME}" -Mode Uninstall -UserId "$1\$2"'
+  ${if} ${isUpdated}
+    ; An update runs this (the installed) uninstaller before copying the new
+    ; files. The running Helper must stop so its files can be replaced, but
+    ; its startup task is kept: the new install starts it again, and a
+    ; declined prompt, an unticked Helper or /NOHELPER must not remove a
+    ; Helper that worked before the update.
+    DetailPrint "Stopping the AnxOS Helper for the update..."
+    nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\resources\install-agent-task.ps1" -ExecutablePath "$INSTDIR\${APP_EXECUTABLE_FILENAME}" -Mode Stop -UserId "$1\$2"'
+  ${else}
+    DetailPrint "Removing the AnxOS Helper startup task..."
+    nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\resources\install-agent-task.ps1" -ExecutablePath "$INSTDIR\${APP_EXECUTABLE_FILENAME}" -Mode Uninstall -UserId "$1\$2"'
+  ${endif}
 !macroend

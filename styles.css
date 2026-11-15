@@ -7109,8 +7109,11 @@ body.is-resizing-files * {
   padding: 16px;
 }
 
+/* The list gets the larger share so Name, Type, Size and Modified fit, and the
+   grid's minimum (330 px) fits every two-column window, so overflow: hidden
+   never cuts off the editor. */
 .page[data-page="instances"] .instance-files-grid {
-  grid-template-columns: minmax(320px, 0.75fr) minmax(480px, 1.25fr);
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.82fr);
   min-height: 360px;
   height: clamp(360px, calc(100vh - 300px), 620px);
   max-height: calc(100vh - 260px);
@@ -9216,6 +9219,12 @@ body.has-open-modal {
 
 .app-modal--share-server {
   width: min(680px, 100%);
+  /* Only the body scrolls: with the dialog scrolling too, tall windows got two
+     nested scrollbars and the Done / Sharing settings footer fell below the
+     visible part of the dialog. */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .share-server-body {
@@ -9224,6 +9233,30 @@ body.has-open-modal {
   max-height: min(62vh, 620px);
   overflow: auto;
   padding-right: 2px;
+}
+
+.app-modal--share-server .share-server-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+}
+
+.app-modal--share-server .app-modal__header,
+.app-modal--share-server .app-modal__actions {
+  flex: 0 0 auto;
+}
+
+/* Eyebrow, title and description stack (as in the Node routes dialog) and
+   stay clear of the absolutely positioned close button. */
+.app-modal--share-server .app-modal__header {
+  display: grid;
+  gap: 4px;
+  padding-right: 36px;
+}
+
+.app-modal--share-server .app-modal__header h2,
+.app-modal--share-server .app-modal__header p {
+  margin: 0;
 }
 
 .share-server-address-list {
@@ -10941,6 +10974,23 @@ body.has-open-modal {
 .docker-workspace {
   grid-template-columns: minmax(520px, 1.38fr) minmax(340px, 0.62fr);
   gap: 12px;
+}
+
+/* The Docker page sits beside the sidebar, so the 980px viewport breakpoint
+   comes too late: between about 981px and 1210px the two-column workspace
+   (520 + 12 + 340px) is wider than the content area. The shell's single track
+   no longer grows to its widest child (which stretched the summary cards and
+   toolbar past the visible edge), and the workspace stacks from the shell's
+   own width. */
+.docker-shell {
+  grid-template-columns: minmax(0, 1fr);
+  container-type: inline-size;
+}
+
+@container (max-width: 900px) {
+  .docker-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .docker-table-panel,
@@ -13514,6 +13564,19 @@ body.create-server-window .app-modal--first-server .app-modal__header {
   align-content: start;
 }
 
+/* Single column. The Settings page's positional .settings-section:nth-child(N)
+   rules (0,2,0) also matched these panels and pushed Connectivity Diagnostics
+   and the Connectivity Graph into a narrow second column, so this guard must
+   outrank them (same fix as the Nodes page). */
+.network-shell {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.network-shell > .settings-section:not([hidden]) {
+  grid-column: auto;
+  grid-row: auto;
+}
+
 .network-summary-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(120px, 1fr));
@@ -14714,6 +14777,7 @@ html[data-ui-generation="v1.9"] .sidebar-footer {
 
 html[data-ui-generation="v1.9"] .main-content {
   padding: 22px 24px 30px;
+  --main-content-padding-top: 22px;
   background:
     linear-gradient(rgba(182, 108, 255, 0.018) 1px, transparent 1px),
     linear-gradient(90deg, rgba(182, 108, 255, 0.018) 1px, transparent 1px),
@@ -17513,6 +17577,8 @@ html[data-ui-generation="v1.9"] .sidebar-footer.is-node-picker-open {
 
 html[data-ui-generation="v1.9"] .main-content {
   padding: 32px 36px 42px;
+  /* Read by the sticky server header (open server page). */
+  --main-content-padding-top: 32px;
   background:
     linear-gradient(rgba(105, 224, 202, 0.018) 1px, transparent 1px),
     linear-gradient(90deg, rgba(105, 224, 202, 0.018) 1px, transparent 1px),
@@ -17645,6 +17711,7 @@ html[data-ui-generation="v1.9"] .status-pill {
 
   html[data-ui-generation="v1.9"] .main-content {
     padding: 24px;
+    --main-content-padding-top: 24px;
   }
 }
 
@@ -20331,7 +20398,9 @@ body.create-server-window .page[data-page="marketplace"] .page-introduction {
 .page[data-page="instances"][data-server-view="open"] .instances-details-panel {
   order: 1;
   position: sticky;
-  top: 0;
+  /* A sticky top is measured inside the scroller's padding; offsetting by
+     that padding keeps scrolled content from showing above the header. */
+  top: calc(-1 * var(--main-content-padding-top, 0px));
   z-index: 6;
   display: grid;
   gap: 12px;
@@ -20339,7 +20408,8 @@ body.create-server-window .page[data-page="marketplace"] .page-introduction {
   overflow: visible;
   border: 1px solid rgba(190, 170, 220, 0.14);
   border-radius: 16px;
-  background: linear-gradient(160deg, rgba(36, 18, 58, 0.98), rgba(14, 9, 25, 0.99));
+  /* Opaque, so the scrolled form never ghosts through the header. */
+  background: linear-gradient(160deg, rgb(36, 18, 58), rgb(14, 9, 25));
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
 }
 
@@ -21606,11 +21676,20 @@ body.create-server-window .page[data-page="marketplace"] .page-introduction {
   border-radius: 10px;
 }
 
+/* The info block takes the free width and shrinks; the Remove button keeps
+   its size (it was squeezed until "Remove" broke mid-word). */
 .phone-device__info {
   display: flex;
+  flex: 1 1 auto;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px 10px;
+  min-width: 0;
+}
+
+.phone-device > .inline-action {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .phone-device__info small {

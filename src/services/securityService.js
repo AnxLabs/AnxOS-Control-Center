@@ -924,7 +924,8 @@ function getSessionRows(state, status) {
 
 function getNodeScopedAgentSettings(options = {}) {
   const target = getExecutionTarget(options?.nodeId);
-  return target.type === "agent" ? target.config : { backendMode: "local", agentUrl: "", agentToken: "" };
+  // No agentToken key, so the application host reports the configured Agent token.
+  return target.type === "agent" ? target.config : { backendMode: "local", agentUrl: "" };
 }
 
 function getAgentTokenSummary(state, options = {}) {

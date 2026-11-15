@@ -297,6 +297,21 @@ function getVersionCommand(definition = {}) {
   return definition.versionCommand || null;
 }
 
+// Commands such as `dotnet --list-runtimes` print one line per installed
+// version, oldest first. Taking the first match reported a machine with .NET 6
+// and 8 as "too old" for an 8.0 minimum. Entries that opt in rank every match;
+// the rest keep the first match, since their generic patterns could pick up
+// unrelated numbers (for example a Go version in tailscale's output).
+function selectDetectedVersion(definition, raw, pattern) {
+  if (definition.versionSelection !== "highest") return raw.match(pattern)?.[1] || null;
+  const globalPattern = new RegExp(pattern.source, pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`);
+  let highest = null;
+  for (const match of raw.matchAll(globalPattern)) {
+    if (match[1] && (!highest || compareVersions(match[1], highest) > 0)) highest = match[1];
+  }
+  return highest;
+}
+
 async function detectVersion(definition, commandPath) {
   const versionCommand = getVersionCommand(definition);
   if (!versionCommand) {
@@ -309,9 +324,8 @@ async function detectVersion(definition, commandPath) {
   const result = await commandRunner(command, versionCommand.args || [], { timeoutMs: versionCommand.timeoutMs || DEFAULT_TIMEOUT_MS });
   const raw = versionCommand.stream === "stderr" ? result.stderr || result.stdout : result.stdout || result.stderr;
   const pattern = process.platform === "win32" && definition.windowsVersionPattern ? definition.windowsVersionPattern : definition.versionPattern;
-  const match = pattern ? String(raw || "").match(pattern) : null;
   return {
-    version: match?.[1] || null,
+    version: pattern ? selectDetectedVersion(definition, String(raw || ""), pattern) : null,
     raw: trimOutput(raw),
     exitCode: result.exitCode,
   };

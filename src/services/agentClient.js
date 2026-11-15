@@ -38,17 +38,24 @@ const FILE_WRITE_RETRY_DELAY_MS = 250;
 const TRANSIENT_FILE_WRITE_ERROR_CODES = new Set(["UND_ERR_SOCKET", "ECONNRESET", "EPIPE"]);
 const DOCKER_REQUEST_TIMEOUT_MS = 12000;
 const PUBLIC_ACCESS_REQUEST_TIMEOUT_MS = 12000;
+// Backup and file downloads can be gigabytes over a tunnel or tailnet, so they
+// are bounded by inactivity (no byte for 60 s), never by total duration: a
+// fixed 30 s budget aborted every download that took longer than that.
+const DOWNLOAD_IDLE_TIMEOUT_MS = 60000;
 // SMOOTH-3008: interactive reads a user is waiting on (small, polled status
 // reads) should fail fast and be retried once rather than hold a spinner for
 // the 30 s default — the renderer's in-flight guard suppresses its own retry,
 // so a slow agent became a 30 s stuck spinner. Writes and the SteamCMD budgets
-// (610000/310000) are deliberately untouched. Worst case here is 2 x 8 s = 16 s.
+// (steamCmdUpdateTimeoutMs, 310000) are deliberately untouched. Worst case here is 2 x 8 s = 16 s.
 const INTERACTIVE_READ_TIMEOUT_MS = 8000;
 
-// The SteamCMD update itself is bounded at ten minutes on the Agent; a full
-// pre-update backup first can add up to twenty more (Agent allows 31 min).
+// The SteamCMD update itself is bounded at two hours on the Agent (the same
+// ceiling as a first SteamCMD install); a full pre-update backup first can add
+// up to twenty more minutes. An older Agent still ends its update at ten
+// minutes and answers well inside this budget.
+const STEAMCMD_UPDATE_REQUEST_TIMEOUT_MS = 2 * 60 * 60 * 1000 + 10000;
 function steamCmdUpdateTimeoutMs(payload = {}) {
-  return payload?.backupBeforeUpdate === true ? 1870000 : 610000;
+  return payload?.backupBeforeUpdate === true ? STEAMCMD_UPDATE_REQUEST_TIMEOUT_MS + 20 * 60 * 1000 : STEAMCMD_UPDATE_REQUEST_TIMEOUT_MS;
 }
 // A fresh SteamCMD build lookup is bounded at two minutes on the Agent.
 const STEAM_BUILD_CHECK_REQUEST_TIMEOUT_MS = 150000;
@@ -399,16 +406,19 @@ function getAgentConfig(configOverride = null) {
     const fallback = nodeScoped
       ? { backendMode: "agent", agentUrl: DEFAULT_AGENT_URL, agentToken: "" }
       : getEffectiveAgentSettings();
-    const overrideHasToken = hasOwn(configOverride, "agentToken") || hasOwn(configOverride, "token");
+    // Only an override without a token means "use the configured Agent
+    // token". An explicit empty token means no credential: node probes pass
+    // their own (possibly missing) credential, and substituting this PC's
+    // Local Agent token sent it to other machines' endpoints.
+    const explicitToken = firstDefined(configOverride, ["agentToken", "token"]);
+    const overrideHasToken = explicitToken !== undefined && explicitToken !== null;
     const normalizedOverride = normalizeAgentSettings({
       ...configOverride,
-      agentToken: overrideHasToken
-        ? firstDefined(configOverride, ["agentToken", "token"])
-        : fallback.agentToken,
+      agentToken: overrideHasToken ? explicitToken : fallback.agentToken,
     });
     return {
       ...normalizedOverride,
-      agentToken: normalizedOverride.agentToken || (nodeScoped ? "" : fallback.agentToken || ""),
+      agentToken: normalizedOverride.agentToken || (nodeScoped || overrideHasToken ? "" : fallback.agentToken || ""),
     };
   })();
 
@@ -1574,16 +1584,39 @@ function forNode(nodeId) {
   return new NodeAgentClient(resolveNodeAgentTarget(nodeId));
 }
 
+// Reads a response body, re-arming the idle timer on every chunk.
+async function readBodyWithIdleTimer(response, onActivity) {
+  const reader = response.body?.getReader?.();
+  if (!reader) return Buffer.from(await response.arrayBuffer());
+  const chunks = [];
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(Buffer.from(value));
+    onActivity();
+  }
+  return Buffer.concat(chunks);
+}
+
 async function requestBuffer(pathname, options = {}) {
   const {
     config: configOverride = null,
     method = "GET",
     body = null,
     timeoutMs = REQUEST_TIMEOUT_MS,
+    // When set, the request is aborted only after this long with no data
+    // (waiting for headers or between body chunks) and timeoutMs is ignored.
+    idleTimeoutMs = 0,
   } = options;
   const config = getAgentConfig(configOverride);
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), Math.max(1000, Number(timeoutMs) || REQUEST_TIMEOUT_MS));
+  const idleMs = Number(idleTimeoutMs) > 0 ? Math.max(1000, Number(idleTimeoutMs)) : 0;
+  let timeout = null;
+  const armTimeout = (ms) => {
+    clearTimeout(timeout);
+    timeout = setTimeout(() => controller.abort(), ms);
+  };
+  armTimeout(idleMs || Math.max(1000, Number(timeoutMs) || REQUEST_TIMEOUT_MS));
 
   try {
     const headers = {
@@ -1609,7 +1642,9 @@ async function requestBuffer(pathname, options = {}) {
     });
 
     const contentType = response.headers.get("content-type") || "";
-    const buffer = Buffer.from(await response.arrayBuffer());
+    const buffer = idleMs
+      ? await readBodyWithIdleTimer(response, () => armTimeout(idleMs))
+      : Buffer.from(await response.arrayBuffer());
 
     if (!response.ok) {
       const payload = parseAgentPayload(buffer, contentType);
@@ -2039,6 +2074,22 @@ async function runDockerCleanup(payload = {}, configOverride = null) {
   return dockerPost("/api/v1/docker/cleanup", payload, configOverride, 10 * 60 * 1000);
 }
 
+const PLAYIT_SNAPSHOT_TUNNEL_FIELDS = [
+  "id", "name", "status", "type", "protocol", "localHost", "localPort",
+  "publicHost", "publicPort", "publicAddress", "source", "updatedAt",
+];
+
+// Only the Agent's sanitized tunnel fields are kept, with a bounded count.
+function normalizePlayitSnapshotTunnels(tunnels) {
+  if (!Array.isArray(tunnels)) return [];
+  return tunnels
+    .filter((tunnel) => tunnel && typeof tunnel === "object" && !Array.isArray(tunnel))
+    .slice(0, 64)
+    .map((tunnel) => Object.fromEntries(PLAYIT_SNAPSHOT_TUNNEL_FIELDS
+      .filter((field) => tunnel[field] !== undefined)
+      .map((field) => [field, tunnel[field]])));
+}
+
 function normalizePlayitSnapshot(payload) {
   const snapshot = unwrapPayload(payload, "snapshot");
   const candidate =
@@ -2059,6 +2110,9 @@ function normalizePlayitSnapshot(payload) {
     localPort: candidate.localPort || null,
     protocol: candidate.protocol || null,
     tunnelId: candidate.tunnelId || null,
+    // Every tunnel the Agent found (Sync Providers and the saved-share
+    // reconcile read it); without it a remote computer synced 0 tunnels.
+    tunnels: normalizePlayitSnapshotTunnels(candidate.tunnels),
     lastCheckedAt: candidate.lastCheckedAt || new Date().toISOString(),
     lastSuccessfulRefreshAt: candidate.lastSuccessfulRefreshAt || null,
     diagnostics: candidate.diagnostics && typeof candidate.diagnostics === "object"
@@ -2965,7 +3019,7 @@ async function downloadFile(currentPath, configOverride = null) {
   const query = new URLSearchParams({
     path: currentPath || ".",
   });
-  const response = await requestBuffer(`/api/v1/files/download?${query.toString()}`, { config: configOverride });
+  const response = await requestBuffer(`/api/v1/files/download?${query.toString()}`, { config: configOverride, idleTimeoutMs: DOWNLOAD_IDLE_TIMEOUT_MS });
   const headers = response.headers || {};
 
   return {
@@ -3499,6 +3553,7 @@ async function deleteBackup(backupId, configOverride = null) {
 async function downloadBackup(backupId, configOverride = null) {
   return requestBuffer(`/api/v1/backups/${encodeURIComponent(String(backupId || ""))}/download`, {
     config: configOverride,
+    idleTimeoutMs: DOWNLOAD_IDLE_TIMEOUT_MS,
   });
 }
 
@@ -3669,6 +3724,7 @@ module.exports = {
     interactiveRead,
     isRetryableInteractiveReadFailure,
     buildAgentUrlFromConfig,
+    normalizePlayitSnapshot,
     INTERACTIVE_READ_TIMEOUT_MS,
   },
   AgentClientError,

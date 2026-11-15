@@ -216,7 +216,7 @@
 
   // Re-draw the rows when the selected computer connects or disconnects, so a
   // server on a computer that went away stops looking live.
-  // Node health is otherwise only re-checked on Home and Computers, so on My
+  // The fleet summary re-checks node health only every 30 s, so on My
   // Servers the selected computer is checked every 15 s (one health request)
   // and the node list reloaded when the answer differs from what is shown.
   let lastConnection = null;

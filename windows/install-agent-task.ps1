@@ -1,6 +1,6 @@
 param(
   [Parameter(Mandatory = $true)][string]$ExecutablePath,
-  [Parameter(Mandatory = $true)][ValidateSet("Install", "Uninstall")][string]$Mode,
+  [Parameter(Mandatory = $true)][ValidateSet("Install", "Uninstall", "Stop")][string]$Mode,
   [string]$UserId,
   [string]$ElevationResultPath
 )
@@ -93,6 +93,14 @@ if ($existing) {
 $legacyTaskNames | ForEach-Object { Stop-ScheduledTask -TaskName $_ -ErrorAction SilentlyContinue }
 Stop-OwnedAgentProcess -ExpectedExecutable $ExecutablePath
 
+# An update stops the Helper so its files can be replaced, but keeps the
+# task registered: the new install starts it again, and a declined prompt or
+# /NOHELPER during the update must not remove a Helper that worked before.
+if ($Mode -eq "Stop") {
+  Write-ElevationResult -ExitCode 0
+  exit 0
+}
+
 if ($Mode -eq "Uninstall") {
   if ($existing) { Unregister-ScheduledTask -TaskName $taskName -Confirm:$false }
   $legacyTaskNames | ForEach-Object { Unregister-ScheduledTask -TaskName $_ -Confirm:$false -ErrorAction SilentlyContinue }
@@ -111,7 +119,8 @@ $workingDirectory = Split-Path -Parent $ExecutablePath
 $action = New-ScheduledTaskAction -Execute $ExecutablePath -Argument "--agent" -WorkingDirectory $workingDirectory
 $principal = New-ScheduledTaskPrincipal -UserId $UserId -LogonType Interactive -RunLevel Highest
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $UserId
-$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew
+# No execution time limit: the default PT72H ends the Agent after 3 days.
+$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
 Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Trigger $trigger -Settings $settings -Force | Out-Null
 Start-ScheduledTask -TaskName $taskName
 

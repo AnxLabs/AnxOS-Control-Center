@@ -22,12 +22,21 @@ const { getReleaseInfo } = require("../shared/releaseConfig");
 const { getBundledLocalAgentVersion } = require("./localAgentRuntimeService");
 
 function isDevelopment() { return app?.isPackaged === false || process.env.NODE_ENV === "development"; }
-function getDirectory() {
+function resolveDirectory() {
   if (process.env.ANXOS_LOG_DIR) return process.env.ANXOS_LOG_DIR;
   if (process.env.ANXHUB_CONFIG_DIR) return path.join(path.dirname(process.env.ANXHUB_CONFIG_DIR), "logs");
   try { return isDevelopment() ? path.join(app.getAppPath(), ".dev-logs") : path.join(app.getPath("userData"), "logs"); }
   catch { return path.join(process.cwd(), ".dev-logs"); }
 }
+// Resolved once, when this module loads, and used by the logger and by every
+// helper. main.js loads this module (through accountAuthIpc) before
+// configureElectronPaths moves userData to %APPDATA%\AnxHub, whose logs folder
+// belongs to the Local Agent. Resolving again later split the desktop's
+// diagnostics across two folders: files stayed here while Open logs folder,
+// the reported directory and the enriched latest-error.json (which then
+// overwrote the Agent's) used the Agent's folder.
+const logDirectory = resolveDirectory();
+function getDirectory() { return logDirectory; }
 const releaseInfo = getReleaseInfo();
 const bundledAgentVersion = getBundledLocalAgentVersion("unavailable");
 // The packaged Agent runtime does not ship the desktop root package.json (it is
@@ -43,7 +52,7 @@ function readPackageVersion() {
   }
 }
 const packageVersion = readPackageVersion() || releaseInfo.version;
-const logger = new StructuredLogger({ directory: getDirectory(), source: "desktop", processName: "main", appVersion: releaseInfo.compactLabel, agentVersion: bundledAgentVersion });
+const logger = new StructuredLogger({ directory: logDirectory, source: "desktop", processName: "main", appVersion: releaseInfo.compactLabel, agentVersion: bundledAgentVersion });
 let runtimeState = { applicationRunning: true, appVersion: releaseInfo.compactLabel, release: releaseInfo, packageVersion, agentVersion: bundledAgentVersion, platform: process.platform, architecture: process.arch, currentWorkspace: "startup" };
 
 // SMOOTH-3006: minimum spacing between two synchronous persistence passes of
@@ -90,14 +99,34 @@ function logError(source, operation, error, context = {}, options = {}) {
 
 function parseLines(filePath, limit) {
   try {
-    return readLogTailText(filePath, limit).split(/\r?\n/).filter(Boolean).slice(-limit).map((line) => { try { return JSON.parse(line); } catch { return null; } }).filter(Boolean);
+    return readLogTailText(filePath, limit).split(/\r?\n/).filter(Boolean).slice(-limit).map((line) => { try { return { key: line.trim(), entry: JSON.parse(line) }; } catch { return null; } }).filter(Boolean);
   } catch { return []; }
+}
+
+// StructuredLogger writes every entry to its subsystem file and to live.log,
+// so reading both returned each entry twice. An entry is the same JSON line in
+// every file it is in: it is kept as many times as the file that holds it most
+// often, so two genuinely repeated entries still both show.
+function mergeLogSources(perSource) {
+  const counts = new Map();
+  for (const lines of perSource) {
+    const inSource = new Map();
+    for (const line of lines) {
+      const seen = (inSource.get(line.key) || 0) + 1;
+      inSource.set(line.key, seen);
+      const known = counts.get(line.key);
+      if (!known) counts.set(line.key, { entry: line.entry, count: seen });
+      else if (seen > known.count) known.count = seen;
+    }
+  }
+  return [...counts.values()].flatMap(({ entry, count }) => Array.from({ length: count }, () => entry));
 }
 
 function readLogs(options = {}) {
   const sources = Array.isArray(options.sources) && options.sources.length ? options.sources : ["desktop", "renderer", "agent", "auth", "ipc", "service-manager", "updater", "live"];
   const limit = Math.min(1000, Math.max(1, Number(options.limit || 200)));
-  const entries = sources.flatMap((source) => parseLines(logger.getPath(String(source).replace(/[^a-z0-9_-]/gi, "-")), limit))
+  const perSource = [...new Set(sources.map((source) => String(source).replace(/[^a-z0-9_-]/gi, "-")))].map((source) => parseLines(logger.getPath(source), limit));
+  const entries = mergeLogSources(perSource)
     .sort((a, b) => String(a.timestamp).localeCompare(String(b.timestamp))).slice(-limit);
   return { directory: getDirectory(), entries };
 }

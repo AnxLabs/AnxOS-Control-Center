@@ -46,8 +46,11 @@
     if (instanceId && typeof selectInstance === "function" && selectedInstanceId !== instanceId) selectInstance(instanceId);
     if (!selectedInstanceId) return;
     page.dataset.serverView = "open";
-    if (tab && typeof setActiveInstanceTab === "function") setActiveInstanceTab(tab);
-    else syncTabs(typeof activeInstanceTab === "string" ? activeInstanceTab : "overview");
+    // Always through setActiveInstanceTab, so the tab loads this server's
+    // data (game settings, files, add-ons) instead of the last one's.
+    const nextTab = tab || (typeof activeInstanceTab === "string" ? activeInstanceTab : "overview");
+    if (typeof setActiveInstanceTab === "function") setActiveInstanceTab(nextTab);
+    else syncTabs(nextTab);
     render(findInstance(selectedInstanceId));
     page.scrollTop = 0;
     page.querySelector(".server-view-back")?.focus({ preventScroll: true });
@@ -56,22 +59,27 @@
   async function close() {
     if (!isOpen()) return true;
     if (!(await confirmLeaveSettings("go back to all servers"))) return false;
+    if (typeof confirmLeaveInstanceFile === "function" && !(await confirmLeaveInstanceFile("go back to all servers"))) return false;
     page.dataset.serverView = "list";
     document.querySelector("[data-server-more-menu]")?.removeAttribute("open");
     if (typeof stopInstanceConsolePolling === "function") stopInstanceConsolePolling();
     return true;
   }
 
-  // Unsaved settings: leaving the Settings tab or the server asks first.
+  // Unsaved settings: leaving the Settings tab or the server asks first, and
+  // "Discard changes" puts every field back to its saved value.
   async function confirmLeaveSettings(actionLabel) {
     if (typeof activeInstanceTab !== "string" || activeInstanceTab !== "settings") return true;
     if (typeof hasUnsavedInstanceSettings !== "function" || !hasUnsavedInstanceSettings()) return true;
-    if (typeof createSecurityConfirmation !== "function") return window.confirm(`Discard unsaved settings and ${actionLabel}?`);
-    return createSecurityConfirmation({
-      title: "Discard unsaved settings?",
-      message: `You have settings that are not saved yet. Discard them and ${actionLabel}?`,
-      confirmLabel: "Discard changes",
-    });
+    const discard = typeof createSecurityConfirmation !== "function"
+      ? window.confirm(`Discard unsaved settings and ${actionLabel}?`)
+      : await createSecurityConfirmation({
+        title: "Discard unsaved settings?",
+        message: `You have settings that are not saved yet. Discard them and ${actionLabel}?`,
+        confirmLabel: "Discard changes",
+      });
+    if (discard && typeof discardInstanceSettingsEdits === "function") discardInstanceSettingsEdits();
+    return discard;
   }
 
   // ---- tabs -----------------------------------------------------------------
@@ -134,7 +142,15 @@
     const cpu = Number.isFinite(sample?.cpuPercent) ? `${sample.cpuPercent.toFixed(0)}%` : null;
     const ram = Number.isFinite(sample?.memoryRssBytes) ? formatBytes(sample.memoryRssBytes) : null;
     const limit = parseInstanceMemoryLimitBytes(instance);
-    return { running, freshness, cpu, ram, ramLimit: Number.isFinite(limit) ? formatBytes(limit) : null, uptimeSeconds: sample?.uptimeSeconds, status: entry?.status || "idle" };
+    return { running, freshness, cpu, ram, ramLimit: Number.isFinite(limit) ? formatBytes(limit) : null, uptimeSeconds: sample?.uptimeSeconds, reportsUsage: Model.reportsUsage(sample), status: entry?.status || "idle" };
+  }
+
+  // The Resources card's message when it has no readings to show, else null.
+  function resourcesMessage(readings) {
+    if (!readings.running) return "Usage is shown while the server runs.";
+    const unsupported = "This computer doesn't report usage for this server.";
+    if (readings.freshness === "none") return readings.status === "unavailable" ? unsupported : "Measuring…";
+    return readings.reportsUsage ? null : unsupported;
   }
 
   function computerInfo(instance) {
@@ -264,10 +280,9 @@
     }
 
     const resources = card("Resources");
-    if (!readings.running) {
-      resources.append(el("p", "server-card__muted", "Usage is shown while the server runs."));
-    } else if (readings.freshness === "none") {
-      resources.append(el("p", "server-card__muted", readings.status === "unavailable" ? "This computer doesn't report usage for this server." : "Measuring…"));
+    const resourcesNote = resourcesMessage(readings);
+    if (resourcesNote) {
+      resources.append(el("p", "server-card__muted", resourcesNote));
     } else {
       const label = readings.freshness === "live" ? "Live" : "Last reading";
       resources.append(
@@ -293,7 +308,13 @@
     try {
       const health = getShareServerAccessHealth(instance);
       const described = AnxShareHealth.describeShareHealth(health.status);
-      connect.append(fact("Friends outside your network", described.headline));
+      // Sharing state is polled only on Home and Sharing; until this
+      // computer's tunnel list is in, say Checking rather than a verdict.
+      // The refresh runs only while the server page is the page on screen.
+      const checking = health.nodeState !== "disconnected" && typeof isShareAccessStateLoaded === "function" && !isShareAccessStateLoaded();
+      const onScreen = typeof getActivePageName !== "function" || getActivePageName() === "instances";
+      if (checking && onScreen && typeof ensureShareAccessState === "function") ensureShareAccessState();
+      connect.append(fact("Friends outside your network", checking ? "Checking..." : described.headline));
     } catch {}
     connect.append(linkButton("Share with friends", { serverAction: "share-server" }));
     fragment.append(connect);

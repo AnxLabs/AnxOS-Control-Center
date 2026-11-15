@@ -14,6 +14,10 @@
   let lastInvite = null;
   let busy = false;
   let timer = null;
+  // Unsaved relay/gateway form values, kept across redraws until Save, and
+  // the form's inputs as last drawn (to put focus back after a redraw).
+  let edgeDraft = null;
+  let edgeInputs = null;
   // AnxNet status of each computer running the AnxOS Agent (Phase 7.1).
   const agentStates = new Map();
   let agentsCheckedAt = 0;
@@ -396,24 +400,45 @@
       form.append(el("p", "anxnet-note", "Run the AnxNet edge on a server you control (node src/anxnet/bin/anxnet-edge.js --config edge.json), then enter its address and the fingerprint it prints. AnxOS never sets this up on a computer by itself."));
       const field = (label, value) => { const wrap = el("label", "ssh-field"); const input = el("input"); input.value = value || ""; wrap.append(el("span", "", label), input); form.append(wrap); return input; };
       const current = status.network.relays?.[0] || status.network.gateways?.[0] || {};
-      const host = field("Edge host or IP", current.host);
-      const port = field("Edge port", current.port || 47700);
-      const fingerprint = field("Edge fingerprint (SHA256:…)", current.fingerprint);
-      const useRelay = el("label", "console-toggle"); const relayBox = el("input"); relayBox.type = "checkbox"; relayBox.checked = Boolean(status.network.relays?.length); useRelay.append(relayBox, el("span", "", "Use as relay"));
-      const useGateway = el("label", "console-toggle"); const gatewayBox = el("input"); gatewayBox.type = "checkbox"; gatewayBox.checked = Boolean(status.network.gateways?.length); useGateway.append(gatewayBox, el("span", "", "Use as public gateway"));
+      const values = edgeDraft || { host: current.host, port: current.port || 47700, fingerprint: current.fingerprint, relay: Boolean(status.network.relays?.length), gateway: Boolean(status.network.gateways?.length) };
+      const host = field("Edge host or IP", values.host);
+      const port = field("Edge port", values.port);
+      const fingerprint = field("Edge fingerprint (SHA256:…)", values.fingerprint);
+      const useRelay = el("label", "console-toggle"); const relayBox = el("input"); relayBox.type = "checkbox"; relayBox.checked = values.relay; useRelay.append(relayBox, el("span", "", "Use as relay"));
+      const useGateway = el("label", "console-toggle"); const gatewayBox = el("input"); gatewayBox.type = "checkbox"; gatewayBox.checked = values.gateway; useGateway.append(gatewayBox, el("span", "", "Use as public gateway"));
+      const keepDraft = () => { edgeDraft = { host: host.value, port: port.value, fingerprint: fingerprint.value, relay: relayBox.checked, gateway: gatewayBox.checked }; };
+      [host, port, fingerprint].forEach((input) => input.addEventListener("input", keepDraft));
+      [relayBox, gatewayBox].forEach((box) => box.addEventListener("change", keepDraft));
+      edgeInputs = { host, port, fingerprint, relayBox, gatewayBox };
       form.append(useRelay, useGateway, button("Save", () => form.requestSubmit()));
       form.addEventListener("submit", (event) => {
         event.preventDefault();
         const entry = { host: host.value.trim(), port: Number(port.value), fingerprint: fingerprint.value.trim() };
-        run("Save edge", () => api().setEdges({ relays: relayBox.checked ? [entry] : [], gateways: gatewayBox.checked ? [entry] : [] }), "Saved. Devices pick up the change automatically.");
+        run("Save edge", async () => {
+          const result = await api().setEdges({ relays: relayBox.checked ? [entry] : [], gateways: gatewayBox.checked ? [entry] : [] });
+          if (result?.ok !== false) edgeDraft = null; // saved: show the network's values again
+          return result;
+        }, "Saved. Devices pick up the change automatically.");
       });
       details.append(form);
     }
     container.append(details);
   }
 
+  // A focused field someone types into (not a checkbox or button).
+  function isTextEntry(node) {
+    if (!node || !panel.contains(node)) return false;
+    if (node.tagName === "TEXTAREA" || node.tagName === "SELECT") return true;
+    return node.tagName === "INPUT" && !["checkbox", "radio", "button", "submit", "reset"].includes(String(node.type || "").toLowerCase());
+  }
+
   function render() {
     if (!panel) return;
+    // Don't redraw under someone typing: the field would lose its text and focus.
+    const focused = document.activeElement;
+    if (isTextEntry(focused)) return;
+    const shownEdgeInputs = edgeInputs;
+    edgeInputs = null;
     const content = el("div", "anxnet-content");
     const head = el("div", "anxnet-title");
     head.append(el("h3", "", "AnxNet"), el("span", "anxnet-badge", "Private network"));
@@ -436,10 +461,11 @@
     }
     // Keep an open <details> open across redraws.
     const wasOpen = panel.querySelector(".anxnet-advanced")?.open;
-    const focusedPlaceholder = document.activeElement?.closest?.("[data-anxnet-panel]") ? document.activeElement.placeholder : null;
-    if (focusedPlaceholder) return; // don't redraw under someone typing
     panel.replaceChildren(content);
     if (wasOpen) panel.querySelector(".anxnet-advanced")?.setAttribute("open", "");
+    // A focused edge checkbox keeps focus in its redrawn copy.
+    const focusedField = shownEdgeInputs && Object.keys(shownEdgeInputs).find((key) => shownEdgeInputs[key] === focused);
+    if (focusedField) edgeInputs?.[focusedField]?.focus();
   }
 
   function promptText(title, label, initialValue) {
@@ -525,10 +551,15 @@
       section.append(el("p", "", `Invite only is on. Network members join at ${service.hostname}:${service.port}.`));
       section.append(el("p", "anxnet-note", `On their computers the game address is ${host.address}:${service.port} until private DNS is set up on them.`));
       const route = (status.publicRoutes || []).find((entry) => entry.serviceId === service.serviceId);
+      // Saved as on, but its public address couldn't be reopened yet.
+      const routeError = !route && (status.publicRouteErrors || []).find((entry) => entry.serviceId === service.serviceId);
       const actions = el("div", "anxnet-actions");
       if (route) {
         section.append(el("p", "", `Anyone can join is on: ${route.publicHost}:${route.publicPort}.`));
         actions.append(button("Turn off Anyone can join", () => run("Stop public access", () => api().unpublishService(service.serviceId), "The public address is closed.").then(() => reopen())));
+      } else if (routeError) {
+        section.append(el("p", "anxnet-error", `Anyone can join is on, but its public address isn't open right now (${String(routeError.message || "the gateway couldn't be reached").replace(/\.$/, "")}). AnxOS keeps trying.`));
+        actions.append(button("Turn off Anyone can join", () => run("Stop public access", () => api().unpublishService(service.serviceId), "Anyone can join is off.").then(() => reopen())));
       } else {
         const gateway = status.network.gateways?.[0];
         actions.append(button("Anyone can join", async () => {

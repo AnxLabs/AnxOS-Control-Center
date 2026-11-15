@@ -70,11 +70,22 @@ const IDEMPOTENCY_KEY_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_.:@-]{7,127}$/;
 const MAX_EVENTS_PER_JOB = 50;
 const DEFAULT_JOB_TIMEOUT_MS = 10 * 60 * 1000;
 const MIN_JOB_TIMEOUT_MS = 1000;
-const MAX_JOB_TIMEOUT_MS = 60 * 60 * 1000;
+// Three hours: a scheduled SteamCMD update (two-hour ceiling plus a pre-update
+// backup, the stop and the start) must fit inside its job's budget.
+const MAX_JOB_TIMEOUT_MS = 3 * 60 * 60 * 1000;
 const MAX_LIST_LIMIT = 200;
 const ATOMIC_RENAME_RETRY_CODES = new Set(["EPERM", "EACCES", "EBUSY"]);
 const ATOMIC_RENAME_RETRY_ATTEMPTS = 5;
 const ATOMIC_RENAME_RETRY_DELAY_MS = 25;
+// Retention: every lifecycle action and scheduled restart writes a record, and
+// the whole store is read at boot, so terminal records beyond the newest
+// MAX_TERMINAL_JOBS_PER_TARGET per server (the list limit) are deleted. A
+// record that is still enqueued or running is never pruned, nor is a keyed
+// record inside the replay window: its key must keep deduping or refusing a
+// replay (destructive operations are never replayed).
+const MAX_TERMINAL_JOBS_PER_TARGET = 200;
+const KEYED_JOB_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+const STORE_LOAD_CONCURRENCY = 16;
 
 // Destructive operations are NEVER silently replayed, even when they succeeded
 // (V2A_DECISIONS.md: "explicit non-replay stance for destructive ops"). These
@@ -344,33 +355,39 @@ async function loadStore() {
     }
     loadedRoot = root;
     await fs.mkdir(root, { recursive: true, mode: 0o700 });
-    const entries = await fs.readdir(root);
-    for (const entry of entries) {
-      if (!entry.endsWith(".json") || entry.endsWith(".tmp")) {
-        continue;
-      }
-      try {
-        const raw = await fs.readFile(path.join(root, entry), "utf8");
-        const record = JSON.parse(raw);
-        if (!record || typeof record.id !== "string" || !JOB_ID_PATTERN.test(record.id)) {
-          continue;
+    const entries = (await fs.readdir(root)).filter((entry) => entry.endsWith(".json") && !entry.endsWith(".tmp"));
+    // A few reads at a time: a large store read one file after another held
+    // up every job call for seconds at boot.
+    let nextEntry = 0;
+    const readNext = async () => {
+      while (nextEntry < entries.length) {
+        const entry = entries[nextEntry];
+        nextEntry += 1;
+        try {
+          const raw = await fs.readFile(path.join(root, entry), "utf8");
+          const record = JSON.parse(raw);
+          if (!record || typeof record.id !== "string" || !JOB_ID_PATTERN.test(record.id)) {
+            continue;
+          }
+          if (jobs.has(record.id)) {
+            continue;
+          }
+          record.events = Array.isArray(record.events) ? record.events : [];
+          jobs.set(record.id, {
+            record,
+            timer: null,
+            cancelHandler: null,
+          });
+          indexRecord(record);
+        } catch {
+          // Corrupt or partially written job files are skipped; they are
+          // untrusted data, never a reason to fail unrelated operations.
         }
-        if (jobs.has(record.id)) {
-          continue;
-        }
-        record.events = Array.isArray(record.events) ? record.events : [];
-        jobs.set(record.id, {
-          record,
-          timer: null,
-          cancelHandler: null,
-        });
-        indexRecord(record);
-      } catch {
-        // Corrupt or partially written job files are skipped; they are
-        // untrusted data, never a reason to fail unrelated operations.
       }
-    }
+    };
+    await Promise.all(Array.from({ length: Math.min(STORE_LOAD_CONCURRENCY, entries.length) }, readNext));
     storeLoaded = true;
+    await pruneTerminalJobs().catch(() => {});
   })();
   try {
     await storeLoadPromise;
@@ -380,6 +397,59 @@ async function loadStore() {
     throw error;
   } finally {
     storeLoadPromise = null;
+  }
+}
+
+function jobRetentionGroup(record) {
+  return record.target?.instanceId || record.target?.requestedId || "";
+}
+
+function isInsideKeyedRetention(record, nowMs) {
+  if (!record.idempotencyKey) {
+    return false;
+  }
+  const settledMs = Date.parse(record.completedAt || record.enqueuedAt || "");
+  return !Number.isFinite(settledMs) || nowMs - settledMs < KEYED_JOB_RETENTION_MS;
+}
+
+// Deletes terminal records beyond the newest MAX_TERMINAL_JOBS_PER_TARGET per
+// server, file and memory both. Best effort: a file that cannot be removed now
+// is skipped and tried again on a later prune.
+async function pruneTerminalJobs() {
+  const nowMs = Date.now();
+  const groups = new Map();
+  for (const entry of jobs.values()) {
+    const record = entry.record;
+    if (!TERMINAL_JOB_STATES.has(record.state) || entry.timer) {
+      continue;
+    }
+    const key = jobRetentionGroup(record);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(record);
+  }
+  const doomed = [];
+  for (const records of groups.values()) {
+    if (records.length <= MAX_TERMINAL_JOBS_PER_TARGET) {
+      continue;
+    }
+    // Newest first, the order listJobs shows.
+    records.sort((a, b) => String(b.enqueuedAt || "").localeCompare(String(a.enqueuedAt || "")));
+    for (const record of records.slice(MAX_TERMINAL_JOBS_PER_TARGET)) {
+      if (!isInsideKeyedRetention(record, nowMs)) {
+        doomed.push(record);
+      }
+    }
+  }
+  for (const record of doomed) {
+    try {
+      await fs.rm(jobFilePath(record.id), { force: true });
+    } catch {
+      continue;
+    }
+    jobs.delete(record.id);
+    if (record.idempotencyKey && idempotencyIndex.get(record.idempotencyKey) === record.id) {
+      idempotencyIndex.delete(record.idempotencyKey);
+    }
   }
 }
 
@@ -410,6 +480,8 @@ async function settleJob(entry, state, patch = {}, event = {}) {
   emitAudit(record, `job.${state}`, state === JOB_STATES.SUCCEEDED ? "ok" : state, {
     errorCode: record.error?.code || null,
   });
+  // Retention must never fail the job that just settled.
+  await pruneTerminalJobs().catch(() => {});
 }
 
 // V2-G: settles a pending job whose approval window lapsed before it ever
@@ -903,6 +975,7 @@ module.exports = {
   TERMINAL_JOB_STATES,
   DESTRUCTIVE_JOB_TYPES,
   DEFAULT_JOB_TIMEOUT_MS,
+  MAX_TERMINAL_JOBS_PER_TARGET,
   configureJobLifecycle,
   setAuditEventEmitter,
   createJob,

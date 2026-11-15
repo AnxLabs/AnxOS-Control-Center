@@ -68,7 +68,22 @@ function isAuthorized(request, config, pathname) {
   };
 }
 
+const LOOPBACK_ADDRESSES = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
+
+// Credential-derived details (the token fingerprint and the config path) are
+// for the operator only: a caller on the Agent machine (loopback, the same
+// trust the pairing gate gives), or one that presents the live token. The
+// public health and enrollment-status routes used to send the fingerprint to
+// anyone, which let a network caller search offline for a colliding string.
+function canReadCredentialDetails(request, config = {}) {
+  if (LOOPBACK_ADDRESSES.has(request?.socket?.remoteAddress)) return true;
+  if (!config.token) return false;
+  const token = request?.headers?.["x-agent-token"] || readBearerToken(request?.headers?.authorization);
+  return typeof token === "string" && safeEqual(token, config.token);
+}
+
 module.exports = {
+  canReadCredentialDetails,
   isAuthorized,
   resolveRequestPrincipal,
 };

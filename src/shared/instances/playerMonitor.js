@@ -283,9 +283,14 @@ function parsePalworldSettings(text) {
   return settings;
 }
 
-async function readPalworld(config, { getJson, readFile }) {
+async function readPalworld(config, { getJson, readFile, palworldSettingsPaths }) {
+  // The host knows where this server keeps its settings (a Marketplace install
+  // lives in data/server); the flat layout stays as a fallback.
+  const hostPaths = (() => {
+    try { return palworldSettingsPaths(config) || []; } catch { return []; }
+  })();
   let settings = null;
-  for (const relative of PALWORLD_SETTINGS_PATHS) {
+  for (const relative of [...new Set([...hostPaths, ...PALWORLD_SETTINGS_PATHS])]) {
     const content = await readFile(config, relative).catch(() => null);
     if (content) {
       settings = parsePalworldSettings(content);
@@ -342,6 +347,7 @@ function createPlayerMonitor({
   exchange = udpExchange,
   queryMinecraft = async () => null,
   readFile = async () => null,
+  palworldSettingsPaths = () => [],
 } = {}) {
   const state = new Map(); // instanceId -> { seen: Map(name -> firstSeenAt), events: [] }
   const cache = new Map(); // instanceId -> { at, value }
@@ -383,7 +389,7 @@ function createPlayerMonitor({
     let reading;
     if (family === "minecraft") reading = await readMinecraft(config, { queryMinecraft });
     else if (family === "fivem") reading = await readFiveM(config, { getJson });
-    else if (family === "palworld") reading = await readPalworld(config, { getJson, readFile });
+    else if (family === "palworld") reading = await readPalworld(config, { getJson, readFile, palworldSettingsPaths });
     else reading = await readA2s(config, family, { exchange });
 
     if (reading.error) return { ...base, supported: true, running: true, available: false, reason: reading.error, message: reading.message, online: null, max: null, players: [], events: state.get(config.id)?.events || [], ping: { supported: null } };

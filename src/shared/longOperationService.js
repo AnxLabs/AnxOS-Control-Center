@@ -56,6 +56,22 @@ const runtimeHandlers = new Map();
 let loaded = false;
 let persistTimer = null;
 let pendingPersist = false;
+// The desktop and the Local Agent can share one config folder, and each
+// rewrites its whole store, so each process keeps its own file. The desktop
+// keeps the original name; the Agent names itself at startup.
+let storeOwner = null;
+
+// Must run before the first operation is created or listed; returns whether
+// the owner was applied.
+function configureOperationStore(options = {}) {
+  const owner = options.owner == null ? null : String(options.owner);
+  if (owner !== null && !/^[a-z][a-z0-9-]{0,31}$/.test(owner)) {
+    throw new LongOperationError("Invalid long-operation store owner.", "OPERATION_STORE_OWNER_INVALID");
+  }
+  if (loaded) return owner === storeOwner;
+  storeOwner = owner;
+  return true;
+}
 
 function getElectronApp() {
   try {
@@ -79,7 +95,7 @@ function getConfigDirectory() {
 }
 
 function getOperationsStatePath() {
-  return path.join(getConfigDirectory(), "long-operations.json");
+  return path.join(getConfigDirectory(), storeOwner ? `long-operations.${storeOwner}.json` : "long-operations.json");
 }
 
 function isPlainObject(value) {
@@ -515,6 +531,7 @@ module.exports = {
   TERMINAL_STATUSES,
   cancelOperation,
   completeOperation,
+  configureOperationStore,
   createOperation,
   deleteOperation,
   failOperation,
