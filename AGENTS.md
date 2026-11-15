@@ -903,6 +903,29 @@ Use this section to accumulate verified project knowledge over time. Add entries
 - **Resolution:** Pairing writes the enrolled record right away (bindEnrollmentFromPairing). A revoked Agent pairs or enrolls again only from loopback, with its live credential, or through a session the operator opened on the host. Recovery gives the configured token only to This PC's Agent and never replaces a store whose keyring is only temporarily unavailable. A changed host key can be replaced after a typed confirmation that shows both fingerprints, and the affected tunnels are retried. Covered by `scripts/remote-nodes-hardening-smoke.js`.
 - **Lesson:** Every state an authorization gate does not name (no record, revoked, drifted) is a way in. List all of them, and close the bootstrap window in the same step that consumes it, not at the next restart. A credential must only go to the endpoint it was issued for. A recovery path must never destroy data that may become readable again.
 
+### 2026-11-15 — A crash-safe restore had a destructive rollback, and updates removed the Helper
+
+- **Problem:** A full restore swapped folders crash-safely, but its rollback
+  after a failure still deleted the server folder and then extracted the
+  safety snapshot in place, so an Agent stopped in between left no server.
+  Separately, Build 211's uninstaller removes the Helper's startup task on
+  every update, before the new installer runs.
+- **Cause:** The rollback was written as cleanup, not as a second restore.
+  The installer only re-registered the Helper when the box was ticked and
+  the prompt accepted, and nothing noticed when it was not.
+- **Resolution:** The restore and its rollback share `swapInStagedInstance`,
+  which startup recovery repairs at every step, and Agent shutdown waits for
+  running restores. Setup checks for the task before the old uninstaller
+  runs, never drops an existing Helper on an update, and leaves a marker
+  that makes the app offer Restore AnxOS Helper until the task exists.
+  `scripts/upgrade-migration-hardening-smoke.js` checks 5 and 6 and
+  `scripts/agent-control-foreign-task-stop-smoke.js` S5 failed before.
+- **Lesson:** A rollback is a destructive operation too and needs the same
+  crash-safety as the change it undoes; test a stop in the middle of it.
+  When an older build's uninstaller does the damage, the new installer has
+  to detect it first and the app has to offer the repair, because the old
+  code on disk cannot be changed.
+
 ## Future Improvements
 
 Keep optional ideas separate from active work. An item in this list is not authorization to implement it.

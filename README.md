@@ -95,7 +95,7 @@ Pairing codes expire and work once; they are not the permanent Agent credential.
 ## Availability
 
 > [!IMPORTANT]
-> **Current release: v2.0 Build 211 — Private Alpha.**
+> **Current release: v2.0 Build 212 — Private Alpha.**
 > AnxOS Control Center is being tested with a limited group of trusted users. This is **not yet a public beta or a generally available stable release**. Some features need specific host software, permissions, or additional validation.
 
 The desktop app targets **Windows and Linux**, with a companion Agent for supported machines. See [Known Limitations](docs/KNOWN_LIMITATIONS.md) for what is still being tested.
