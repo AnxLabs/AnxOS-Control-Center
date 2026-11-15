@@ -28,7 +28,7 @@ assert.strictEqual(hint(vps, "online"), null, "no hint while it answers");
 assert.strictEqual(hint({ ...vps, transport: { type: "ssh-tunnel", sshProfileId: "p", remoteHost: "127.0.0.1", remotePort: 47132 } }, "offline"), null, "no hint once AnxOS manages the tunnel");
 assert.strictEqual(hint({ ...vps, localAgent: true, baseUrl: "http://127.0.0.1:47131", agentUrl: "http://127.0.0.1:47131" }, "offline"), null, "this PC's own Agent is not a tunnel");
 assert.strictEqual(hint({ ...vps, connection: { localAgent: true } }, "offline"), null, "a node the health check marked local is not a tunnel");
-assert.strictEqual(hint({ ...vps, baseUrl: "http://192.168.1.134:47131", agentUrl: "http://192.168.1.134:47131" }, "offline"), null, "a LAN address is not a local port");
+assert.strictEqual(hint({ ...vps, baseUrl: "http://192.168.0.50:47131", agentUrl: "http://192.168.0.50:47131" }, "offline"), null, "a LAN address is not a local port");
 assert.strictEqual(hint({ id: "host", kind: "application-host" }, "offline"), null, "the application host has no route");
 assert.match(hint({ ...vps, baseUrl: "http://localhost:47140", agentUrl: "" }, "offline"), /Local port 47140/, "localhost counts as a local port");
 assert.strictEqual(hint({ ...vps, fallbackUrls: [{ url: "http://vps.tailnet.ts.net:47132", label: "Tailscale" }] }, "offline"), null, "a computer with fallback routes lets the route list explain itself");
