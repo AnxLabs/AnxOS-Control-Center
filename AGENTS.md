@@ -926,6 +926,33 @@ Use this section to accumulate verified project knowledge over time. Add entries
   to detect it first and the app has to offer the repair, because the old
   code on disk cannot be changed.
 
+### 2026-11-15 — Build 212 RC1 acceptance: six screens that showed the wrong thing
+
+- **Problem:** The signed RC1 upgraded cleanly, but acceptance in the real app found six screens showing something other than what they claimed:
+  - Agent Control said "Version 0.1.0" for a 2.0-build212 Agent.
+  - While locked, the app polled and logged LOGIN_REQUIRED errors.
+  - Home told the user to "Connect your local Agent" when an offline remote computer was selected.
+  - Docker's row actions sat behind a horizontal scroll.
+  - SSH's status line showed another session's message.
+  - Files read "Connected" for an offline computer's storage.
+- **Cause:** Each screen read the nearest available value instead of its own:
+  - the package placeholder instead of the reported build (the node identity allowlist dropped it);
+  - a polling gate that knew about node switches and hidden windows, but not the lock;
+  - the selected computer's Agent status, phrased as this PC's Agent;
+  - a fixed 1040px table minimum inside a narrower column;
+  - one global SSH status string for every session;
+  - the Files pill written twice, the second time from the selected computer's Agent status.
+- **Resolution:** `3097c7ec` fixed each value at its source:
+  - a build label from `identity.agentArtifactVersion`, cleared on a reply without one;
+  - `isAppLockedForBackgroundWork` in the shared gate and in each page poller;
+  - a `selected-computer` action;
+  - container-sized Docker columns;
+  - SSH status messages that record their session;
+  - `getFilesFolderStatus`.
+
+  `scripts/acceptance-fixes-ui-qa.js` (each case failed on the RC1 commit) now runs in `qa:release`.
+- **Lesson:** A value on screen must come from the thing it describes: the build the Agent reports, the storage Files selected, the session being shown. Hermetic suites passed all six. Only clicking through the installed app found them, so keep a real-app acceptance pass in every release, and turn what it finds into a real-app check in the release tier.
+
 ## Future Improvements
 
 Keep optional ideas separate from active work. An item in this list is not authorization to implement it.

@@ -52,9 +52,18 @@ Build 212 is a stability and security release. It fixes 143 defects found in a f
 - Alerts for crashed servers, low disk space and old backups now fire.
 - Console logs are written in order, and diagnostics live in one folder.
 
+### App screens
+
+- Agent Control and Computers show the Agent's real build (for example "2.0 Build 212") instead of "0.1.0". Agents older than Build 212 read "Build not reported".
+- While AnxOS waits for you to sign in, it no longer polls in the background and logs sign-in errors. A "System metrics are unavailable" notice now shows once and clears when readings come back.
+- When the selected computer is another machine that is offline, Home offers to reconnect that computer instead of "Connect your local Agent".
+- The Docker container list fits the window: Restart, Remove and Logs are visible without scrolling sideways.
+- The SSH status line only shows messages for the session you are looking at.
+- The Files "Folders" badge shows whether the storage you selected is reachable, not whether the selected computer is connected.
+
 ## Known limitations
 
-- **Updating from Build 211 can show two administrator prompts** (Build 211's uninstaller stops the Helper, then Setup sets it up again). Declining the second one is safe: the app offers **Restore AnxOS Helper**. Updates from Build 212 onwards keep the Helper's startup task.
+- **Updating from Build 211 may ask for administrator approval** to set the Helper up again if Build 211's uninstaller removed it. In our in-place upgrade test, Setup kept the existing Helper and asked for nothing. If a prompt appears, declining it is safe: the app offers **Restore AnxOS Helper**. Updates from Build 212 onwards keep the Helper's startup task.
 - **A server that crashes between 8 seconds and 10 minutes after starting** now stops being restarted after three tries (Crash Loop). Start it manually after fixing the cause.
 - **Servers that are running but not ready** now show a degraded alert.
 - **An interrupted world-only restore** can leave that world partly replaced; the safety backup taken before the restore is listed and can be restored.
@@ -66,4 +75,5 @@ Build 212 is a stability and security release. It fixes 143 defects found in a f
 - 21 new regression suites (144 checks); each check failed before its fix.
 - Repository validation: all 417 smoke suites and the release tier (119 checks, including the real-app UI tests) passed on the campaign tree. The restore and Helper fixes made after that run were checked with focused suites: backups and restore (22 suites), security, pairing and permissions (60), IPC exposure (7), and Agent Control and installer suites.
 - The changed installer script was compiled with NSIS (unsigned local build, discarded).
-- The signed release candidate, its in-place upgrade from Build 211 and acceptance testing follow before publication.
+- The first signed release candidate was installed in place over Build 211: the Helper, servers, containers, AnxNet and settings were kept. Its acceptance test found the six screen issues listed under App screens.
+- Those six are covered by a real-app check (scripts/acceptance-fixes-ui-qa.js, each case failed before its fix) and an Agent build smoke; the release tier then passed with 129 checks, and the installed Local Agent logged no authorization failures during the run.

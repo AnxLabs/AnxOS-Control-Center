@@ -2,9 +2,9 @@
 
 ## State
 
-- Branch `claude/anxos-control-center-simplify-8080f1`, local commits only. Nothing is pushed, tagged, merged or published.
+- Branch `claude/anxos-control-center-simplify-8080f1`. `dev` was pushed at `1c103483` for the first signed release candidate (RC1). The stabilization commits below are local until the RC2 push. Nothing is tagged or published, and Build 212 has no tag on the remote.
 - `release.json` is Build 212. Release notes: `RELEASE_NOTES_2.0-build212.md`. Build 211's notes moved to `docs/releases/`.
-- `origin/dev` has one commit this branch does not: `a72473f0` (website: promote Build 211 to public stable; `website/config.js`, `website/release-notes.json`). It merges cleanly.
+- `origin/dev`'s website commit `a72473f0` was merged as `217104ee`.
 
 ## Commits on top of `a919e41d`
 
@@ -17,6 +17,28 @@
 | `b6770673` | Runtime-state writes for one server run one at a time, so a status poll can no longer replace CRASH_LOOP with STALE_PID (caught by `qa:release`) |
 
 Earlier campaign commits already on this branch: `0e7e7904`, `a919e41d`.
+
+## Release candidate 1 (2026-11-15)
+
+- **Test-only CI fixes:** `499ada2d`, `619e1feb`, `e6eb572e` and `1c103483` made RC validation pass on Linux (no Windows environment variables, Node 22 timezone data, default executable roots).
+- **CI run:** Desktop Release run 43709008295 on `1c103483` passed all four jobs. Publishing was skipped.
+- **Installer:** SHA-256 `012740D4…49CCB`, signature Valid (Anjo ROSIMO). Superseded by RC2.
+- **In-place upgrade over Build 211, with Computer Use:**
+  - Setup kept the existing Helper and showed no administrator prompt.
+  - The Local Agent came back on its scheduled task, reporting `2.0-build212` with the same identity.
+  - Config, servers, containers and AnxNet were intact.
+  - Backup: `%APPDATA%\AnxHub\config-backup-pre-build212-20261115-130232`.
+- **Acceptance:** six screen issues found, none touching data. They are fixed in `3097c7ec`:
+  - Agent version showed the 0.1.0 placeholder
+  - polling while locked
+  - Home advice for an offline remote computer
+  - Docker row actions behind a horizontal scroll
+  - SSH status line showing another session's messages
+  - Files "Connected" badge for an offline computer's storage
+- **RC2 checks:**
+  - `scripts/acceptance-fixes-ui-qa.js` (real app, A1-A6, each fails on `1c103483`) is in `qa:release`.
+  - `scripts/agent-build-display-smoke.js` covers B1-B4.
+  - The release tier passed with 129 checks, and the installed Agent logged 0 authorization failures during the run.
 
 ## Evidence
 
@@ -48,10 +70,10 @@ Earlier campaign commits already on this branch: `0e7e7904`, `a919e41d`.
 
 Follow `AGENTS.md` › Release Candidate Acceptance Workflow. Each gate needs the owner's approval:
 
-1. Approve push: merge `origin/dev` into this branch (website-only, clean), push to `dev`.
-2. Run the Desktop Release workflow (`windows-release.yml`, manual dispatch on `dev`) for the signed release candidate. Confirm CI, Authenticode signature, SHA-256; download the installer.
+1. Done for RC1. For RC2: push the stabilization commits to `dev`.
+2. Run the Desktop Release workflow (`windows-release.yml`, manual dispatch on `dev`) for RC2. Confirm CI, the Authenticode signature and the SHA-256, then download the installer.
 3. Report build, commit, SHA-256, signature and CI status, then wait for `confirmed`.
-4. In-place upgrade over the installed Build 211 with Computer Use; keep all servers, containers, credentials, AnxNet identities and data. Check the Helper is kept or restored.
+4. In-place upgrade over the installed Build 212 RC1 with Computer Use. Keep all servers, containers, credentials, AnxNet identities and data, and check that the six fixes, the Helper and data are intact.
 5. Acceptance across major workflows; any issue restarts from validation.
 6. Final acceptance report; wait for `🚀 publish`.
 7. Tag `v2.0-build212` (the tag push builds the release), publish the GitHub release, update `website/release-notes.json`.
