@@ -30,18 +30,29 @@
 
 const childProcess = require("child_process");
 
-// The DST checks need America/Edmonton from process start. Assigning TZ at
-// runtime is not honoured everywhere (CI's Linux runner kept UTC rules), so
-// the smoke re-runs itself with TZ in its environment.
-if (process.env.TZ !== "America/Edmonton") {
+// The DST checks need America/Denver from process start, so the smoke re-runs
+// itself with TZ in its environment rather than relying on a runtime
+// assignment. (It used America/Edmonton, whose 2026 rules differ between the
+// time zone data bundled with different Node versions.)
+if (process.env.TZ !== "America/Denver") {
   const rerun = childProcess.spawnSync(process.execPath, [__filename, ...process.argv.slice(2)], {
-    env: { ...process.env, TZ: "America/Edmonton" },
+    env: { ...process.env, TZ: "America/Denver" },
     stdio: "inherit",
   });
   process.exit(rerun.status === null ? 1 : rerun.status);
 }
 
 const assert = require("assert");
+
+// The expected times assume US Mountain rules for 2026-2027 (summer time ends
+// 2026-11-01 and 2027-11-07, starts 2027-03-14). Each Node version bundles its
+// own time zone data, so check this one agrees before trusting the DST checks.
+{
+  const offset = (iso) => -new Date(iso).getTimezoneOffset() / 60;
+  const rules = [["2026-10-31T12:00:00Z", -6], ["2026-11-01T12:00:00Z", -7], ["2027-03-13T12:00:00Z", -7], ["2027-03-15T12:00:00Z", -6]];
+  const wrong = rules.filter(([iso, expected]) => offset(iso) !== expected);
+  assert.deepStrictEqual(wrong.map(([iso]) => `${iso} is UTC${offset(iso)}`), [], `this runtime's America/Denver rules differ from the ones the DST checks assume (tz ${process.versions.tz || "unknown"})`);
+}
 const { EventEmitter } = require("events");
 const fs = require("fs");
 const http = require("http");
@@ -533,7 +544,7 @@ function dailyScheduleWorkerMain() {
   }
 
   async function runIntegration() {
-    // America/Edmonton: DST ends 2026-11-01 and 2027-11-07 at 02:00 MDT, and
+    // America/Denver: DST ends 2026-11-01 and 2027-11-07 at 02:00 MDT, and
     // starts 2027-03-14 at 02:00 MST. Ticks every 5 minutes.
     const cases = [
       ["00:30, correct record due on the fall-back day", "00:30", "2026-11-01T06:30:00.000Z", "2026-11-01T06:00:00.000Z", "2026-11-02T07:45:00.000Z",
@@ -637,12 +648,12 @@ async function checkDailyMidnightSchedulesTerminate() {
   // repeats 00:xx when DST ends; Santiago and Beirut change at midnight;
   // Lord Howe moves by 30 minutes; Apia skipped 2011-12-30 entirely.
   const runs = [
-    { zone: "America/Edmonton", integration: true, sweepFromIso: "2026-01-01T00:00:00.000Z", sweepToIso: "2028-01-01T00:00:00.000Z", minimalityChecked: true },
+    { zone: "America/Denver", integration: true, requireTransition: true, sweepFromIso: "2026-01-01T00:00:00.000Z", sweepToIso: "2028-01-01T00:00:00.000Z", minimalityChecked: true },
     { zone: "America/Havana", sweepFromIso: "2026-01-01T00:00:00.000Z", sweepToIso: "2028-01-01T00:00:00.000Z", minimalityChecked: true },
     { zone: "America/Santiago", sweepFromIso: "2026-01-01T00:00:00.000Z", sweepToIso: "2028-01-01T00:00:00.000Z", minimalityChecked: true },
     { zone: "Asia/Beirut", sweepFromIso: "2026-01-01T00:00:00.000Z", sweepToIso: "2028-01-01T00:00:00.000Z", minimalityChecked: true },
     { zone: "Australia/Lord_Howe", sweepFromIso: "2026-01-01T00:00:00.000Z", sweepToIso: "2028-01-01T00:00:00.000Z", minimalityChecked: true },
-    { zone: "Europe/London", sweepFromIso: "2026-01-01T00:00:00.000Z", sweepToIso: "2027-01-01T00:00:00.000Z", minimalityChecked: true },
+    { zone: "Europe/London", requireTransition: true, sweepFromIso: "2026-01-01T00:00:00.000Z", sweepToIso: "2027-01-01T00:00:00.000Z", minimalityChecked: true },
     { zone: "Pacific/Apia", sweepFromIso: "2011-12-01T00:00:00.000Z", sweepToIso: "2012-02-01T00:00:00.000Z", minimalityChecked: false },
   ];
   for (const run of runs) {
@@ -661,9 +672,11 @@ async function checkDailyMidnightSchedulesTerminate() {
         : { ok: false, error: `no result (exit ${child.status}): ${String(child.stderr || "").slice(-600)}` };
     }
     assert.ok(result.ok, `${run.zone}: ${result.error}`);
-    assert.ok(result.transitions > 0 || run.zone === "Pacific/Apia", `${run.zone}: the sweep crossed a DST change`);
+    // Only zones whose rules are settled must cross a change; the others still
+    // have to terminate, whatever the runtime's time zone data says.
+    if (run.requireTransition) assert.ok(result.transitions > 0, `${run.zone}: the sweep crossed a DST change`);
   }
-  assert.strictEqual(new Date(Date.parse("2026-07-01T12:00:00.000Z")).getHours(), 6, "the smoke runs in America/Edmonton");
+  assert.strictEqual(new Date(Date.parse("2026-07-01T12:00:00.000Z")).getHours(), 6, "the smoke runs in America/Denver");
 }
 
 const checks = [
