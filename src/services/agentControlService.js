@@ -729,6 +729,76 @@ function backgroundServiceBelongsToThisInstallation(service = {}) {
   return !mismatches.includes("executable") && !mismatches.includes("arguments");
 }
 
+// Setup (windows/installer.nsh) leaves this file in the app's resources folder
+// when the AnxOS Helper should exist after an install or update (it was set up
+// before, or the user chose it) but Setup could not register its startup task,
+// for example because the administrator prompt was declined. Build 211's
+// uninstaller removes the task on every update, so this is how a Helper lost
+// that way is offered back.
+const HELPER_RESTORE_MARKER = "helper-restore-needed.json";
+let helperResourcesDirOverride = null;
+let helperExecutableOverride = null;
+
+function helperResourcesDir() {
+  return helperResourcesDirOverride || process.resourcesPath || null;
+}
+
+function helperRestoreMarkerPath() {
+  if (process.platform !== "win32") return null;
+  const dir = helperResourcesDir();
+  return dir ? path.join(dir, HELPER_RESTORE_MARKER) : null;
+}
+
+function clearHelperRestoreMarker() {
+  const markerPath = helperRestoreMarkerPath();
+  if (markerPath) {
+    try { fs.rmSync(markerPath, { force: true }); } catch {}
+  }
+}
+
+function resolveHelperRestore(service = {}) {
+  const markerPath = helperRestoreMarkerPath();
+  if (!markerPath || !fs.existsSync(markerPath)) return { needed: false };
+  if (service.type === "windows-scheduled-task" && service.installed && backgroundServiceBelongsToThisInstallation(service)) {
+    clearHelperRestoreMarker();
+    return { needed: false, restored: true };
+  }
+  return { needed: true };
+}
+
+// Registers the Helper's startup task the way Setup does: the task script
+// shipped with this installation, for this installation's executable. The
+// script raises its own administrator prompt, so this works when no elevated
+// Agent is running to repair the task (installService needs one).
+async function restoreHelperTask() {
+  if (process.platform !== "win32") {
+    throw Object.assign(new Error("The AnxOS Helper startup task exists only on Windows."), { code: "PLATFORM_UNSUPPORTED" });
+  }
+  // The task is machine-wide: only the installed app may register it for
+  // itself. A development checkout (node.exe, electron.exe) must never point
+  // the installed Helper's task at its own executable.
+  const executable = helperExecutableOverride || process.execPath;
+  if (!helperExecutableOverride && path.basename(executable).toLowerCase() !== "anxos control center.exe") {
+    throw Object.assign(new Error("Only the installed AnxOS Control Center can restore its Helper."), { code: "HELPER_RESTORE_UNAVAILABLE" });
+  }
+  const dir = helperResourcesDir();
+  const script = dir ? path.join(dir, "install-agent-task.ps1") : null;
+  if (!script || !fs.existsSync(script)) {
+    throw Object.assign(new Error("The Helper setup script is missing from this installation. Run the AnxOS installer again to set the Helper up."), { code: "HELPER_RESTORE_UNAVAILABLE" });
+  }
+  const userId = `${process.env.USERDOMAIN || os.hostname()}\\${process.env.USERNAME || os.userInfo().username}`;
+  const result = await command("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, "-ExecutablePath", executable, "-Mode", "Install", "-UserId", userId], { timeout: 180000 });
+  if (!result.ok) {
+    if (Number(result.code) === 1223) {
+      throw Object.assign(new Error("Administrator approval was not given, so the AnxOS Helper was not restored."), { code: "HELPER_RESTORE_DECLINED" });
+    }
+    throw Object.assign(new Error(`The AnxOS Helper could not be restored (code ${result.code ?? "unknown"}).`), { code: "HELPER_RESTORE_FAILED", details: { exitCode: result.code ?? null } });
+  }
+  clearHelperRestoreMarker();
+  diagnostics.log("info", "service-manager", "helper-restore", "AnxOS Helper startup task restored", { platform: process.platform }, { file: "service-manager" });
+  return getStatus();
+}
+
 async function stop({ force = false } = {}) {
   if (operationInFlight) throw Object.assign(new Error("Another Agent operation is already running."), { code: "AGENT_OPERATION_BUSY" });
   operationInFlight = "stop";
@@ -884,7 +954,7 @@ async function installService() {
   saveConfig({ ...config, autoStart: true }); diagnostics.log("info", "service-manager", "install", "Agent background startup installed", { platform: process.platform }, { file: "service-manager" }); return getStatus();
 }
 
-async function uninstallService() { if (process.platform === "linux") { await command("systemctl", ["--user", "disable", "--now", "anxos-agent.service"]); fs.rmSync(path.join(os.homedir(), ".config", "systemd", "user", "anxos-agent.service"), { force: true }); await command("systemctl", ["--user", "daemon-reload"]); } else if (process.platform === "win32") { try { await agentClient.uninstallWindowsAgentTask(getLocalAgentHealthConfig(readConfig())); } catch (error) { throw Object.assign(new Error("The elevated Local Agent could not remove Windows startup."), { code: "AGENT_PRIVILEGED_OPERATION_FAILED", cause: error }); } } else throw Object.assign(new Error("Agent service management is unsupported."), { code: "PLATFORM_UNSUPPORTED" }); saveConfig({ ...readConfig(), autoStart: false }); return getStatus(); }
+async function uninstallService() { clearHelperRestoreMarker(); if (process.platform === "linux") { await command("systemctl", ["--user", "disable", "--now", "anxos-agent.service"]); fs.rmSync(path.join(os.homedir(), ".config", "systemd", "user", "anxos-agent.service"), { force: true }); await command("systemctl", ["--user", "daemon-reload"]); } else if (process.platform === "win32") { try { await agentClient.uninstallWindowsAgentTask(getLocalAgentHealthConfig(readConfig())); } catch (error) { throw Object.assign(new Error("The elevated Local Agent could not remove Windows startup."), { code: "AGENT_PRIVILEGED_OPERATION_FAILED", cause: error }); } } else throw Object.assign(new Error("Agent service management is unsupported."), { code: "PLATFORM_UNSUPPORTED" }); saveConfig({ ...readConfig(), autoStart: false }); return getStatus(); }
 async function setAutoStart(enabled) { if (enabled) return installService(); return uninstallService(); }
 
 function installerStep(id, label, state = "pending", message = "") {
@@ -2166,6 +2236,7 @@ async function getStatus(_options = {}) {
     pid: health?.process?.pid || managedProcess?.pid || null,
     config,
     service,
+    helperRestore: resolveHelperRestore(service),
     startupSummary,
     identity: baseStatus.identity,
     agentVersion: baseStatus.agentVersion,
@@ -2587,6 +2658,8 @@ module.exports = {
     agentEnvironment,
     assertAgentSpawnContractEnvironment,
     backgroundServiceBelongsToThisInstallation,
+    setHelperResourcesDir(dir) { helperResourcesDirOverride = dir ? String(dir) : null; },
+    setHelperExecutable(executable) { helperExecutableOverride = executable ? String(executable) : null; },
     buildWindowsAgentTaskDefinition,
     buildWindowsTaskInspectionScript,
     buildWindowsTaskRegistrationScript,
@@ -2619,6 +2692,7 @@ module.exports = {
   getAgentDataDirectory,
   getRuntimeConfigPath,
   getStatus,
+  restoreHelperTask,
   installService,
   installLocalAgent,
   listAgents,

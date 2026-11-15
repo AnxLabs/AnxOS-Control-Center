@@ -5732,6 +5732,7 @@ function renderAgentControlState(payload = agentControlState) {
   const local = getAgentControlOverviewTarget(payload);
   if (!local) return;
   agentControlState = payload;
+  notifyHelperRestoreNeeded(payload?.local);
   // Hydrate the network opt-in from the persisted service state (the marker the
   // service writes when it widens the bind) before the pairing panel renders.
   activeAgentPairingNetworkPersisted = getAgentPairingNetworkPersistedState(local);
@@ -7225,6 +7226,33 @@ function startAgentControlPolling() {
       refreshAgentControl();
     }
   }, 3000);
+}
+
+// Setup could not set the AnxOS Helper up again (an update from Build 211 or
+// earlier removes its startup task first, and the administrator prompt may be
+// declined). Without it, servers on this PC do not come back after a restart.
+function notifyHelperRestoreNeeded(localStatus) {
+  if (!localStatus?.helperRestore?.needed) return;
+  createNotification({
+    category: "Agent",
+    severity: "warning",
+    title: "Restore the AnxOS Helper",
+    message: "Setup could not set the AnxOS Helper up again, so servers on this PC will not start after a restart until it is restored. Windows will ask for administrator approval.",
+    dedupKey: "agent:helper-restore",
+    actions: ["restoreHelper"],
+  });
+}
+
+async function restoreHelperFromNotification() {
+  const api = getDesktopApiState().api?.agentControl;
+  if (!api?.restoreHelper) return;
+  try {
+    await api.restoreHelper();
+    showToast("The AnxOS Helper is set up again and will start when you sign in.", "success");
+  } catch (error) {
+    showToast(normalizeIpcErrorMessage(error, "The AnxOS Helper could not be restored."), getAgentErrorCode(error) === "HELPER_RESTORE_DECLINED" ? "warning" : "error");
+  }
+  await refreshAgentControl({ includeConfig: true });
 }
 
 function stopAgentControlPolling() {
@@ -27323,6 +27351,7 @@ const NOTIFICATION_ACTIONS = {
   openAccount: { label: "Open Account", run: () => showPage("security") },
   openUpdates: { label: "Open Updates", run: () => { showPage("settings"); setActiveSettingsCategory("updates", '[data-settings-category="updates"]'); } },
   reconnectAgent: { label: "Reconnect Agent", run: () => refreshAgentControl({ includeConfig: true }) },
+  restoreHelper: { label: "Restore AnxOS Helper", run: () => restoreHelperFromNotification() },
   recheckDependencies: { label: "Recheck Dependencies", run: () => runDependencyAction("check") },
   checkUpdates: { label: "Check Updates", run: () => checkForUpdates({ silent: false }) },
   copyMessage: { label: "Copy Technical Details", run: (notification) => copyNotificationDetails(notification) },

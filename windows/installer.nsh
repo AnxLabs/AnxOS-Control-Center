@@ -26,6 +26,7 @@
   !define MUI_FINISHPAGE_RUN_TEXT "Open AnxOS Control Center now"
 
   Var anxSetupHelper
+  Var anxHelperWasInstalled
   Var anxHelperCheckbox
   Var anxIsUpgrade
   Var anxWelcomeText
@@ -38,11 +39,26 @@
     ; skips it (the same choice as unticking it on the Set up page).
     StrCpy $anxSetupHelper 1
     StrCpy $anxIsUpgrade 0
+    StrCpy $anxHelperWasInstalled 0
+    ; Build 211 and earlier uninstall the Helper's startup task when an update
+    ; runs them, and that happens before customInstall. Ask now whether the
+    ; task exists, so an update sets a Helper that was set up again.
+    nsExec::ExecToStack 'schtasks.exe /Query /TN AnxOSAgent'
+    Pop $R2
+    Pop $R3
+    ${If} $R2 == 0
+      StrCpy $anxHelperWasInstalled 1
+    ${EndIf}
     ${GetParameters} $R0
     ClearErrors
     ${GetOptions} $R0 "/NOHELPER" $R1
     ${IfNot} ${Errors}
       StrCpy $anxSetupHelper 0
+    ${EndIf}
+    ; An update never removes a Helper that was set up (uninstalling AnxOS, or
+    ; Agent Control, does that).
+    ${If} $anxHelperWasInstalled == 1
+      StrCpy $anxSetupHelper 1
     ${EndIf}
   !endif
 !macroend
@@ -81,12 +97,19 @@
     ${If} $anxSetupHelper != "0"
       ${NSD_Check} $anxHelperCheckbox
     ${EndIf}
+    ${If} $anxHelperWasInstalled == 1
+      EnableWindow $anxHelperCheckbox 0
+    ${EndIf}
     ${NSD_CreateLabel} 12u 43u -12u 28u "Runs in the background so Control Center can start, stop and watch servers on this PC, even after a restart. It includes AnxNet, the private network for playing with friends, which stays off until you join a network."
     Pop $0
     ${NSD_CreateLabel} 12u 74u -12u 28u "Windows will ask for administrator approval so the Helper can start when you sign in. Setup does not change your security settings, firewall or other apps. You can also set the Helper up later in Agent Control."
     Pop $0
     ${If} $anxIsUpgrade == 1
       ${NSD_CreateLabel} 0 110u 100% 10u "Your servers, settings, backups and paired computers are kept."
+      Pop $0
+    ${EndIf}
+    ${If} $anxHelperWasInstalled == 1
+      ${NSD_CreateLabel} 0 122u 100% 10u "The AnxOS Helper is already set up on this PC and is kept."
       Pop $0
     ${EndIf}
     nsDialogs::Show
@@ -98,6 +121,10 @@
       StrCpy $anxSetupHelper 1
     ${Else}
       StrCpy $anxSetupHelper 0
+    ${EndIf}
+    ; Already set up on this PC: kept (the box is shown ticked and disabled).
+    ${If} $anxHelperWasInstalled == 1
+      StrCpy $anxSetupHelper 1
     ${EndIf}
   FunctionEnd
   !define MUI_PAGE_CUSTOMFUNCTION_PRE anxWelcomePre
@@ -148,9 +175,17 @@
     ReadEnvStr $1 "USERDOMAIN"
     ReadEnvStr $2 "USERNAME"
     DetailPrint "Setting up the AnxOS Helper. Windows may ask for administrator approval..."
+    ; Until the Helper is registered, this file tells the app to offer
+    ; "Restore AnxOS Helper" (for example after a declined prompt).
+    FileOpen $6 "$INSTDIR\resources\helper-restore-needed.json" w
+    FileWrite $6 '{"reason":"setup"}'
+    FileClose $6
     nsExec::ExecToStack 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\resources\install-agent-task.ps1" -ExecutablePath "$INSTDIR\${APP_EXECUTABLE_FILENAME}" -Mode Install -UserId "$1\$2"'
     Pop $0
     Pop $3
+    ${If} $0 == 0
+      Delete "$INSTDIR\resources\helper-restore-needed.json"
+    ${EndIf}
     ${If} $0 != 0
       ; nsExec leaves a number (the script's exit code), "error" or "timeout".
       ; If the plugin itself could not load (for example Windows Smart App
@@ -167,7 +202,7 @@
       DetailPrint "$4"
       ; The app itself is installed and works; the Helper can be repaired
       ; from inside it. /SD IDOK: a silent install must not wait for a click.
-      MessageBox MB_ICONEXCLAMATION "AnxOS Control Center is installed. $4$\r$\n$\r$\nTo finish, open AnxOS Control Center, go to Agent Control and select Stop Old Local Agent and Repair in the Lifecycle section, or run this installer again." /SD IDOK
+      MessageBox MB_ICONEXCLAMATION "AnxOS Control Center is installed. $4$\r$\n$\r$\nTo finish, open AnxOS Control Center and select Restore AnxOS Helper in its notification, or run this installer again." /SD IDOK
       ; Automated installs still see that something needs attention.
       SetErrorLevel 3
     ${EndIf}

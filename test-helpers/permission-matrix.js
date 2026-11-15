@@ -211,7 +211,7 @@ const IPC_FAMILIES = [
       "agentControl:restart", "agentControl:forceRestart", "agentControl:installLocalAgent",
       "agentControl:stopOldLocalAgentAndRepair", "agentControl:pairLocalAgent",
       "agentControl:startPairingSession", "agentControl:updateLocalAgent", "agentControl:installService",
-      "agentControl:uninstallService", "agentControl:enableAutoStart", "agentControl:disableAutoStart",
+      "agentControl:restoreHelper", "agentControl:uninstallService", "agentControl:enableAutoStart", "agentControl:disableAutoStart",
       "agentControl:openLogs", "agentControl:openDataFolder",
     ],
   },

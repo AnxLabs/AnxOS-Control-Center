@@ -11,6 +11,10 @@
 //   S3 the decision helper: only executable or arguments mismatches mean
 //      "another installation"; settings drift on our own task does not
 //   S4 status counts only this installation's task as its running Agent
+//   S5 after an update that could not set the Helper up again (Setup's
+//      marker, no task), status asks for a restore, and Restore runs the
+//      shipped task script for this installation, keeping the marker when
+//      the administrator prompt is declined
 // Windows is faked and every child_process call is replaced before the module
 // loads, so nothing on this machine is inspected, started or stopped.
 // Run: node scripts/agent-control-foreign-task-stop-smoke.js
@@ -32,6 +36,8 @@ Object.defineProperty(process, "platform", { value: "win32" });
 
 const calls = [];
 let taskExecutable = null;
+let taskPresent = true;
+let helperScriptResult = { stdout: "" };
 
 function taskSnapshot() {
   return {
@@ -50,7 +56,8 @@ function taskSnapshot() {
 function fakeResult(command, args) {
   const name = path.basename(String(command)).toLowerCase();
   const joined = (args || []).join(" ");
-  if (name === "powershell.exe" && joined.includes("Get-ScheduledTask")) return { stdout: JSON.stringify(taskSnapshot()) };
+  if (name === "powershell.exe" && joined.includes("install-agent-task.ps1")) return helperScriptResult;
+  if (name === "powershell.exe" && joined.includes("Get-ScheduledTask")) return { stdout: JSON.stringify(taskPresent ? taskSnapshot() : { found: false }) };
   if (name === "schtasks.exe") return { stdout: "SUCCESS: The scheduled task was ended." };
   if (name === "netstat.exe") return { stdout: "" };
   if (name === "sc.exe") return { error: Object.assign(new Error("[SC] OpenService FAILED 1060"), { code: 1060 }), stdout: "[SC] OpenService FAILED 1060: The specified service does not exist as an installed service." };
@@ -117,7 +124,54 @@ const endCalls = () => calls.filter((call) => call[0] === "schtasks.exe" && call
     const ownStatus = await control.getStatus();
     assert.strictEqual(ownStatus.running, true, "this installation's running task still reads as running");
     console.log("PASS S4 status counts only this installation's task as its running Agent");
-    console.log("Agent Control foreign task stop smoke passed (4 checks).");
+
+    // S5
+    const resources = path.join(root, "resources");
+    fs.mkdirSync(resources, { recursive: true });
+    const script = path.join(resources, "install-agent-task.ps1");
+    fs.writeFileSync(script, "# stand-in, never run\n");
+    const marker = path.join(resources, "helper-restore-needed.json");
+    fs.writeFileSync(marker, "{}\n");
+    assert.strictEqual(typeof control._test.setHelperResourcesDir, "function", "the Helper restore reads Setup's marker from the app resources folder");
+    control._test.setHelperResourcesDir(resources);
+    taskPresent = false;
+    let status = await control.getStatus();
+    assert.strictEqual(status.helperRestore?.needed, true, "a marker with no startup task asks for a Helper restore");
+    // A development checkout (this node.exe) never registers the installed
+    // Helper's machine-wide task for itself.
+    calls.length = 0;
+    await assert.rejects(control.restoreHelperTask(), (error) => error.code === "HELPER_RESTORE_UNAVAILABLE", "only the installed app may restore its Helper");
+    assert(!calls.some((call) => call.some((part) => String(part).includes("install-agent-task.ps1"))), "a development checkout never runs the task script");
+    control._test.setHelperExecutable(process.execPath);
+    helperScriptResult = { error: Object.assign(new Error("The operation was canceled by the user."), { code: 1223 }), stdout: "" };
+    calls.length = 0;
+    await assert.rejects(control.restoreHelperTask(), (error) => error.code === "HELPER_RESTORE_DECLINED", "a declined administrator prompt is reported as declined");
+    const run = calls.find((call) => call[0] === "powershell.exe" && call.includes("-File"));
+    assert(run, "Restore runs the task script");
+    assert.strictEqual(run[run.indexOf("-File") + 1], script, "the script shipped with this installation is used");
+    assert.strictEqual(run[run.indexOf("-ExecutablePath") + 1], process.execPath, "the task runs this installation's executable");
+    assert.strictEqual(run[run.indexOf("-Mode") + 1], "Install");
+    assert(fs.existsSync(marker), "a declined prompt keeps the marker, so the restore is offered again");
+    helperScriptResult = { stdout: "" };
+    taskPresent = true;
+    taskExecutable = process.execPath;
+    await control.restoreHelperTask();
+    assert(!fs.existsSync(marker), "a successful restore clears the marker");
+    fs.writeFileSync(marker, "{}\n");
+    status = await control.getStatus();
+    assert.strictEqual(status.helperRestore?.needed, false, "with this installation's task present no restore is asked for");
+    assert(!fs.existsSync(marker), "a marker left once the task exists is cleared");
+    taskExecutable = "C:\\Program Files\\AnxOS Control Center\\AnxOS Control Center.exe";
+    fs.writeFileSync(marker, "{}\n");
+    status = await control.getStatus();
+    assert.strictEqual(status.helperRestore?.needed, true, "another installation's task does not stand in for this one's Helper");
+    const repoRoot = path.resolve(__dirname, "..");
+    const appSource = fs.readFileSync(path.join(repoRoot, "app.js"), "utf8");
+    assert(/restoreHelper: \{ label: "Restore AnxOS Helper"/.test(appSource), "the notification offers Restore AnxOS Helper");
+    assert(/agentControl:restoreHelper/.test(fs.readFileSync(path.join(repoRoot, "preload.js"), "utf8")), "the renderer can ask for the restore");
+    assert(/restoreHelper: \(\) => control\.restoreHelperTask\(\)/.test(fs.readFileSync(path.join(repoRoot, "src", "ipc", "agentControlIpc.js"), "utf8")), "the main process handles the restore as an authorized action");
+    console.log("PASS S5 a Helper Setup could not register is restored from the app");
+    console.log("Agent Control foreign task stop smoke passed (5 checks).");
   } finally {
     Object.defineProperty(process, "platform", platformDescriptor);
     fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });

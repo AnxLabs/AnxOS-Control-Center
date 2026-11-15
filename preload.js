@@ -143,6 +143,7 @@ const desktopApi = {
     restart: () => ipcRenderer.invoke("agentControl:restart"),
     forceRestart: () => ipcRenderer.invoke("agentControl:forceRestart"),
     installService: () => ipcRenderer.invoke("agentControl:installService"),
+    restoreHelper: () => ipcRenderer.invoke("agentControl:restoreHelper"),
     uninstallService: () => ipcRenderer.invoke("agentControl:uninstallService"),
     enableAutoStart: () => ipcRenderer.invoke("agentControl:enableAutoStart"),
     disableAutoStart: () => ipcRenderer.invoke("agentControl:disableAutoStart"),

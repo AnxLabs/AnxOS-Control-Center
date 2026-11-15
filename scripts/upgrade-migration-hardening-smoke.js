@@ -511,6 +511,35 @@ check(5, "Build 212: a restore's rollback is crash-safe and Agent shutdown waits
   assert(/waitForActiveRestores\(/.test(shutdownBody) && shutdownBody.indexOf("waitForActiveRestores(") < shutdownBody.lastIndexOf("process.exit(exitCode)"), "Agent shutdown waits for running restores before it exits.");
 });
 
+check(6, "Build 212: an update keeps or restores a Helper that was set up, even from Build 211", async () => {
+  const nsh = fs.readFileSync(path.join(rootDir, "windows", "installer.nsh"), "utf8").replace(/\r\n/g, "\n");
+  const code = (text) => text.split("\n").filter((line) => !line.trim().startsWith(";")).join("\n");
+  const macro = (name) => {
+    const found = nsh.match(new RegExp(`!macro ${name}\\n([\\s\\S]*?)!macroend`));
+    assert(found, `${name} must exist.`);
+    return code(found[1]);
+  };
+  // Before the installed (possibly Build 211) uninstaller runs, Setup records
+  // whether the Helper's startup task exists.
+  const init = macro("customInit");
+  assert(/schtasks\.exe \/Query \/TN AnxOSAgent/.test(init), "Setup checks for the Helper's startup task before the old uninstaller runs.");
+  const noHelper = init.indexOf("/NOHELPER");
+  const keep = init.search(/\$\{If\} \$anxHelperWasInstalled == 1\n\s+StrCpy \$anxSetupHelper 1/);
+  assert(keep > noHelper && noHelper >= 0, "A Helper that was set up is set up again, even with /NOHELPER.");
+  // Unticking the box on an update does not remove an existing Helper.
+  const leave = nsh.slice(nsh.indexOf("Function anxSetupPageLeave"), nsh.indexOf("FunctionEnd", nsh.indexOf("Function anxSetupPageLeave")));
+  assert(/\$anxHelperWasInstalled == 1/.test(code(leave)), "The Set up page keeps a Helper that was already set up.");
+  // If registering fails, a marker tells the app to offer a restore.
+  const install = macro("customInstall");
+  const write = install.search(/FileOpen \$\d+ "\$INSTDIR\\resources\\helper-restore-needed\.json" w/);
+  const run = install.indexOf("-Mode Install");
+  const clear = install.search(/Delete "\$INSTDIR\\resources\\helper-restore-needed\.json"/);
+  assert(write >= 0 && write < run, "Setup writes the restore marker before it registers the Helper.");
+  assert(clear > run, "Setup removes the marker once the Helper is registered.");
+  const success = install.slice(run, install.indexOf("${If} $0 != 0", run));
+  assert(/Delete "\$INSTDIR\\resources\\helper-restore-needed\.json"/.test(success), "Only a successful registration removes the marker.");
+});
+
 check(4, "upgrade-migration-4: Install reopens the verified installer after a handoff", async () => {
   const { UpdateManager } = require("../src/services/updateManager");
   const manager = new UpdateManager();
