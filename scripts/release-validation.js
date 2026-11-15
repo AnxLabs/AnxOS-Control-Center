@@ -288,6 +288,8 @@ const TIERS = {
     ["node", ["scripts/telemetry-service-smoke.js"]],
     ["node", ["scripts/operational-notifications-smoke.js"]],
     ["node", ["scripts/computer-service-smoke.js"]],
+    // The six Build 212 acceptance findings, in the real app.
+    ["node", ["scripts/acceptance-fixes-ui-qa.js"]],
     ["git", ["diff", "--check"]],
   ],
 };

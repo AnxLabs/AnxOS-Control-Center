@@ -590,6 +590,8 @@ function createPollerSandbox(source) {
         instanceConsolePauseInput: { checked: false },
         AMP_REFRESH_INTERVAL_MS: 60000,
         shouldSkipNodeScopedPolling: () => false,
+        // Unlocked: the page pollers also stand down while AnxOS is locked.
+        isAppLockedForBackgroundWork: () => false,
         getActivePageName: () => state.page,
       };
     },

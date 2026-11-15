@@ -14,6 +14,7 @@ const {
   setNodeToken: setStoredNodeToken,
 } = require("./nodeCredentialStore");
 const authRecovery = require("./authRecoveryState");
+const { normalizeAgentArtifactVersion } = require("../shared/agentBuildIdentity");
 const { parsePairingCode } = require("../shared/agentPairing");
 const { AGENT_STATUS, classifyAgentError, createAgentStatusSnapshot } = require("../shared/agentStatus");
 const { generateAgentToken, tokenFingerprint } = require("../shared/agentTokenStore");
@@ -453,6 +454,7 @@ function createLocalAgentConnectionStatus(patch = {}) {
     lastSeen: patch.lastSeen || null,
     latencyMs: Number.isFinite(Number(patch.latencyMs)) ? Number(patch.latencyMs) : null,
     agentVersion: patch.agentVersion || null,
+    agentArtifactVersion: normalizeAgentArtifactVersion(patch.agentArtifactVersion),
     platform: patch.platform || null,
     operatingSystem: patch.operatingSystem || null,
     architecture: patch.architecture || null,
@@ -612,6 +614,9 @@ function buildConnectionPatch({ state, message = "", latencyMs = null, checkedAt
   const identity = health?.identity || {};
   const compatibilityReport = compatibility || (health ? getAgentCompatibilityReport(health) : previous?.compatibility || null);
   const agentVersion = identity.agentVersion || health?.agentVersion || previous?.agentVersion || null;
+  // A fresh health reply is the only source of the build: an Agent that no
+  // longer reports one (a downgrade) must not keep the previous build.
+  const agentArtifactVersion = health ? normalizeAgentArtifactVersion(identity.agentArtifactVersion) : normalizeAgentArtifactVersion(previous?.agentArtifactVersion);
   const platform = identity.platform || health?.platform || previous?.platform || null;
   const operatingSystem = identity.operatingSystem || health?.operatingSystem || previous?.operatingSystem || null;
   const architecture = identity.architecture || health?.architecture || previous?.architecture || null;
@@ -634,6 +639,7 @@ function buildConnectionPatch({ state, message = "", latencyMs = null, checkedAt
     remoteAvailability: localAgent ? "not-remote" : null,
     versionCompatibility: normalized === "agent_incompatible" ? "update-required" : normalized === "online" ? "compatible" : previous?.versionCompatibility || "unknown",
     agentVersion,
+    agentArtifactVersion,
     apiVersion: health?.apiVersion || identity.apiVersion || previous?.apiVersion || null,
     protocolVersion: health?.protocolVersion ?? identity.protocolVersion ?? previous?.protocolVersion ?? null,
     compatibility: compatibilityReport,
@@ -754,6 +760,7 @@ function normalizeAgentNode(node = {}) {
     platform: identity.platform || "",
     architecture: identity.architecture || "",
     agentVersion: identity.agentVersion || "",
+    agentArtifactVersion: normalizeAgentArtifactVersion(identity.agentArtifactVersion) || "",
     apiVersion: identity.apiVersion || "",
     capabilities: normalizeAgentCapabilitiesMetadata(identity.capabilities || normalizedCapabilitiesMetadata, capabilityFallback),
   };
@@ -811,6 +818,7 @@ function normalizeAgentNode(node = {}) {
       remoteAvailability: node.connection.remoteAvailability || (localAgent ? "not-remote" : null),
       versionCompatibility: node.connection.versionCompatibility || "unknown",
       agentVersion: node.connection.agentVersion || identity.agentVersion || null,
+      agentArtifactVersion: normalizeAgentArtifactVersion(node.connection.agentArtifactVersion),
       apiVersion: node.connection.apiVersion || identity.apiVersion || null,
       protocolVersion: node.connection.protocolVersion ?? identity.protocolVersion ?? null,
       compatibility: node.connection.compatibility && typeof node.connection.compatibility === "object" ? node.connection.compatibility : null,
@@ -939,6 +947,7 @@ async function discoverLocalAgentNode(state) {
           lastSeen: new Date().toISOString(),
           latencyMs: Date.now() - startedAt,
           agentVersion: identity.agentVersion || health.agentVersion || null,
+          agentArtifactVersion: identity.agentArtifactVersion || null,
           platform: identity.platform || null,
           operatingSystem: identity.operatingSystem || null,
           architecture: identity.architecture || null,
@@ -1278,6 +1287,9 @@ function applyHealthPatchToNode(node, patch = {}) {
       ...node.agentIdentity,
       ...identity,
       deviceId: identity.deviceId || node.agentIdentity?.deviceId,
+      // Taken from this reply alone, so a build the Agent stopped reporting
+      // is not carried over from the saved identity.
+      ...(patch.health ? { agentArtifactVersion: patch.health.identity?.agentArtifactVersion || "" } : {}),
     },
     connection,
     profile: localAgent && state === "online"
@@ -2126,6 +2138,7 @@ async function testNodeConnectionPayload(payload = {}) {
     message: compatible ? `Agent connection verified. ${formatAgentCompatibilityMessage(compatibility)}` : formatAgentCompatibilityMessage(compatibility),
     latencyMs: Date.now() - startedAt,
     agentVersion: identity.agentVersion || health.agentVersion || null,
+    agentArtifactVersion: normalizeAgentArtifactVersion(identity.agentArtifactVersion),
     apiVersion: identity.apiVersion || health.apiVersion || null,
     protocolVersion: identity.protocolVersion ?? health.protocolVersion ?? null,
     compatibility,

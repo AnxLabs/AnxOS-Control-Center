@@ -211,7 +211,9 @@ check("S1", "the node drawer keeps showing and acting on the computer it was ope
     "testNodeById",
     "buildConnectivityHealth",
     "buildAgentHealth",
-  ].filter((name) => name !== "getOpenNodeDetailsId" || /function getOpenNodeDetailsId\(/.test(appSource)));
+    "getAgentBuildLabel",
+  ].filter((name) => (name !== "getOpenNodeDetailsId" || /function getOpenNodeDetailsId\(/.test(appSource))
+    && (name !== "getAgentBuildLabel" || /function getAgentBuildLabel\(/.test(appSource))));
   const log = { tested: [], toasts: [] };
   const nodes = {
     ovh: { id: "ovh", kind: "agent", displayName: "OVH", online: true },
@@ -223,6 +225,7 @@ check("S1", "the node drawer keeps showing and acting on the computer it was ope
     nodes,
     selectedId: "ovh",
     overviewRows: [],
+    AGENT_BUILD_NOT_REPORTED: "Build not reported",
     nodeHealthStatus: new FakeElement("span"),
     nodeHealthUpdated: new FakeElement("p"),
     nodeHealthOverview: new FakeElement("div"),

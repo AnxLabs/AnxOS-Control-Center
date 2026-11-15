@@ -205,7 +205,7 @@
   }
 
   function tick() {
-    if (tabOpen()) refresh();
+    if (tabOpen() && !safe(() => isAppLockedForBackgroundWork(), false)) refresh();
   }
 
   function start() {

@@ -1918,6 +1918,9 @@ function normalizeAgentRuntimeStatus({ base = {}, health = null, stats = null, s
     hostname: identity.hostname || stats?.hostname || base.hostname || null,
     url: base.agentUrl || null,
     version: identity.agentVersion || base.agentVersion || null,
+    // The release build the Agent reports ("2.0-build212"); null for an Agent
+    // built before build reporting. agentVersion is a fixed placeholder.
+    build: normalizeAgentArtifactVersion(identity.agentArtifactVersion),
     uptimeSeconds: finiteNumber(health?.process?.uptimeSeconds ?? base.uptime ?? (reachable ? stats?.uptimeSeconds : null)),
     latencyMs: finiteNumber(latencyMs),
     pid: finiteNumber(health?.process?.pid ?? base.pid),
@@ -2121,6 +2124,7 @@ async function getConfiguredAgentStatus(options = {}) {
       operatingSystem: health?.identity?.operatingSystem || null,
       architecture: health?.identity?.architecture || null,
       agentVersion: health?.identity?.agentVersion || health?.agentVersion || null,
+      agentArtifactVersion: normalizeAgentArtifactVersion(health?.identity?.agentArtifactVersion),
       appVersion,
       apiVersion: health?.apiVersion || "v1",
       protocolVersion: health?.protocolVersion || 1,
@@ -2240,6 +2244,7 @@ async function getStatus(_options = {}) {
     startupSummary,
     identity: baseStatus.identity,
     agentVersion: baseStatus.agentVersion,
+    agentArtifactVersion: normalizeAgentArtifactVersion(health?.identity?.agentArtifactVersion),
     appVersion,
     apiVersion: health?.apiVersion || "v1",
     protocolVersion: health?.protocolVersion || 1,
@@ -2305,6 +2310,7 @@ async function listAgents(options = {}) {
         agentUrl: node.agentUrl || node.baseUrl || null,
         identity: node.agentIdentity,
         agentVersion: node.agentIdentity?.agentVersion || null,
+        agentArtifactVersion: normalizeAgentArtifactVersion(node.agentIdentity?.agentArtifactVersion),
         latencyMs: null,
         mostRecentError: { code: "NOT_SELECTED", message: "Another registered node is selected; this node was not probed." },
         agentStatus: createAgentControlStatusSnapshot(node, {
@@ -2379,6 +2385,7 @@ async function listAgents(options = {}) {
         agentUrl: node.agentUrl,
         identity: health.identity,
         agentVersion: health.identity?.agentVersion,
+        agentArtifactVersion: normalizeAgentArtifactVersion(health.identity?.agentArtifactVersion),
         runtime,
         latencyMs: Date.now() - started,
         lastHeartbeat: statusCheckedAt,

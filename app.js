@@ -1174,6 +1174,16 @@ let sshPasswordPromptVisible = false;
 let sshPendingPasswordProfileId = null;
 let sshCredentialPromptKind = "password";
 let sshTransientStatusMessage = "";
+// The SSH session a transient status message is about, or null for a
+// page-level message (profile saved, password needed, connecting...). Every
+// session's events arrive on one channel; a message for one session must
+// never be shown while another is active (setSshTransientStatus).
+let sshTransientStatusSessionId = null;
+// Declared with the other early state: refreshDashboard can run while this
+// file is still being evaluated (showPage during startup).
+const SYSTEM_METRICS_UNAVAILABLE_TOAST = "System metrics are unavailable.";
+// The computer whose failed readings raised that toast, until they recover.
+let systemMetricsToastNodeId = null;
 let sshConnectWatchdogTimer = null;
 let sshConnectStartedAt = 0;
 let sshConnectPhase = "idle";
@@ -2256,15 +2266,28 @@ function getFriendlyDashboardState() {
     };
 
   const setupAttention = agentSummary.status === "Connected" || agentSummary.status === "Unable to check" ? false : true;
+  // agentSummary describes the SELECTED computer's Agent. When that is
+  // another computer, the advice and the action are about that computer,
+  // never this PC's Local Agent.
+  const remoteAgentSelected = activeTarget.targetType === "registered-node";
+  const agentStatusDetail = remoteAgentSelected
+    ? `${activeTarget.name}'s Agent: ${agentSummary.status}.`
+    : `Agent status: ${agentSummary.status}.`;
   const setup = onboardingComplete && !setupAttention
     ? { status: "Ready", detail: "Core setup is complete." }
     : setupAttention
-      ? { status: "Attention needed", detail: `Agent status: ${agentSummary.status}.` }
+      ? { status: "Attention needed", detail: agentStatusDetail }
       : { status: "Setup needed", detail: "Finish the setup guide to review local tools and optional features." };
 
   let next = { title: "Everything looks ready", detail: "Open a workspace or continue managing your systems.", action: "dashboard" };
   if (agentSummary.status !== "Connected" && agentSummary.status !== "Unable to check") {
-    next = { title: "Connect your local Agent", detail: "Open Agent Control to check service state and recovery actions.", action: "agent-control" };
+    next = remoteAgentSelected
+      ? {
+        title: `Reconnect ${activeTarget.name}`,
+        detail: `${activeTarget.name} is not connected (${agentSummary.status}). Open it to test the connection and see the recovery steps for that computer.`,
+        action: "selected-computer",
+      }
+      : { title: "Connect your local Agent", detail: "Open Agent Control to check service state and recovery actions.", action: "agent-control" };
   } else if (!dockerReady) {
     next = { title: "Install Docker", detail: "Docker is optional, but useful for container workloads.", action: "docker" };
   } else if (instancesLoaded && !instances.length) {
@@ -2275,7 +2298,7 @@ function getFriendlyDashboardState() {
     next = { title: "Configure public access", detail: "Public Access can make supported services reachable.", action: "playit" };
   }
 
-  return { computer, systems, services, setup, next, metrics, instances, instancesLoaded, remoteNodes };
+  return { computer, systems, services, setup, next, metrics, instances, instancesLoaded, remoteNodes, agentStatusDetail, remoteAgentSelected };
 }
 
 function setSetupHealthField(name, value) {
@@ -2374,10 +2397,10 @@ function getSetupHealthState() {
     },
     {
       title: "Agent connected",
-      detail: agentConnected ? "Agent features can use the selected connection." : `Agent status: ${agentSummary.status}.`,
+      detail: agentConnected ? "Agent features can use the selected connection." : friendly.agentStatusDetail,
       complete: agentConnected,
       ...getSetupHealthStatus(agentConnected, "Connected"),
-      action: "agent-control",
+      action: friendly.remoteAgentSelected ? "selected-computer" : "agent-control",
     },
   ];
   const recommended = [
@@ -5611,6 +5634,35 @@ const INCOMPATIBLE_AGENT_PROTECTED_ACTIONS = new Set([
   "forceRestart",
 ]);
 
+// What the UI calls an Agent's version. agent/package.json's version is a
+// placeholder that never changes ("0.1.0") and names no release, so only the
+// release build an Agent reports (identity.agentArtifactVersion, sent by
+// Build 212 and later Agents) is shown. An older Agent that reports no build
+// reads "Build not reported", never "0.1.0". Sources are tried in order:
+// status objects, runtime summaries, nodes and identities all carry it.
+const AGENT_BUILD_NOT_REPORTED = "Build not reported";
+function getAgentBuildLabel(...sources) {
+  for (const source of sources) {
+    if (!source || typeof source !== "object") continue;
+    const candidates = [
+      source.build,
+      source.agentArtifactVersion,
+      source.identity?.agentArtifactVersion,
+      source.agentIdentity?.agentArtifactVersion,
+      source.connection?.agentArtifactVersion,
+    ];
+    for (const value of candidates) {
+      const match = String(value ?? "").trim().match(/^v?(\d+)\.(\d+)-build(\d+)$/i);
+      if (match) return `${Number(match[1])}.${Number(match[2])} Build ${Number(match[3])}`;
+    }
+  }
+  return "";
+}
+
+function formatAgentVersionForDisplay(...sources) {
+  return getAgentBuildLabel(...sources) || AGENT_BUILD_NOT_REPORTED;
+}
+
 function getAgentCompatibilityView(target = getAgentControlOverviewTarget(agentControlState), runtime = getAgentRuntime(target || {})) {
   const selectedNode = getSelectedNode();
   const report = target?.compatibility || runtime?.compatibility || selectedNode?.connection?.compatibility || null;
@@ -5622,12 +5674,7 @@ function getAgentCompatibilityView(target = getAgentControlOverviewTarget(agentC
     || (!incompatible && /compatible/i.test(String(report?.status || "")))
     || (!incompatible && selectedNode?.connection?.versionCompatibility === "compatible");
   const nodeId = target?.nodeId || selectedNode?.id || "agent";
-  const agentVersion = report?.reportedAgentVersion
-    || runtime?.version
-    || target?.agentVersion
-    || target?.identity?.agentVersion
-    || selectedNode?.connection?.agentVersion
-    || "Not reported";
+  const agentVersion = formatAgentVersionForDisplay(runtime, target, selectedNode);
   const minimum = report?.minimumAgentVersion
     || (report?.minProtocolVersion
       ? `API ${report.supportedApi || "v1"} · Protocol ${report.minProtocolVersion}${report.maxProtocolVersion && report.maxProtocolVersion !== report.minProtocolVersion ? `-${report.maxProtocolVersion}` : ""}`
@@ -5683,7 +5730,7 @@ function renderAgentCompatibilityCard(target, runtime) {
   const values = {
     controlCenter: view.controlCenter,
     controlCenterDetail: view.controlCenter,
-    agent: view.agentVersion === "Not reported" ? view.agentVersion : `Version ${String(view.agentVersion).replace(/^Version\s+/i, "")}`,
+    agent: view.agentVersion,
     agentDetail: view.agentVersion,
     status: view.incompatible ? "Update Required" : view.compatible ? "Compatible" : "Unknown",
     minimum: view.minimum,
@@ -5761,9 +5808,8 @@ function renderAgentControlState(payload = agentControlState) {
   const serviceNeedsElevation = Boolean(service.requiresElevation && service.privilege?.elevated !== true);
   const agentStatus = getAgentStatusSnapshot(local);
   setField("dashboardAgentStatus", agentStatus.primary || state);
-  setField("dashboardAgentVersion", runtime?.version || local.agentVersion || local.identity?.agentVersion
-    ? `Agent ${runtime?.version || local.agentVersion || local.identity?.agentVersion}`
-    : "Version unavailable");
+  const dashboardAgentBuild = getAgentBuildLabel(runtime, local);
+  setField("dashboardAgentVersion", dashboardAgentBuild ? `Agent ${dashboardAgentBuild}` : `Agent: ${AGENT_BUILD_NOT_REPORTED.toLowerCase()}`);
   setAgentControlStatusPill(agentStatus.primary, getAgentStatusPillTone(agentStatus));
   if (agentStatusDot) {
     agentStatusDot.dataset.agentState = getNodeVisualState({ id: local.nodeId || local.targetType || "agent-control", agentStatus });
@@ -5776,7 +5822,7 @@ function renderAgentControlState(payload = agentControlState) {
     agentControlMessage.textContent = agentStatus.secondary || `${activeNodeName} · ${targetLabel} · ${serviceText}${urlText ? ` · ${urlText}` : ""}${stale ? " · metrics may be stale" : ""}. ${nodeAgentCopy}`;
   }
   setAgentControlField("hostname", local.name || runtime?.hostname || local.hostname || local.identity?.hostname);
-  setAgentControlField("agentVersion", runtime?.version || local.agentVersion || local.identity?.agentVersion);
+  setAgentControlField("agentVersion", formatAgentVersionForDisplay(runtime, local));
   setAgentControlField("pid", formatAgentProcess(runtime, state));
   const startupSummary = local.startupSummary || payload?.local?.startupSummary || null;
   setAgentControlField("service", !isLocalTarget
@@ -6446,7 +6492,7 @@ function renderAgentBeginnerSummary(payload = agentControlState) {
       status: localState.status,
       statusTone: localState.tone,
       details: [
-        localAgent.agentVersion ? `Version ${localAgent.agentVersion}` : "Version unavailable",
+        getAgentBuildLabel(localAgent) ? `Version ${getAgentBuildLabel(localAgent)}` : AGENT_BUILD_NOT_REPORTED,
         localAgent.agentUrl || "No local Agent URL confirmed",
         localAgent.service?.registrationStatus ? `Registration ${localAgent.service.registrationStatus}` : null,
         localAgent.startupSummary?.label || null,
@@ -6519,7 +6565,7 @@ function renderLocalAgentSystems(payload = agentControlState) {
       details: [
         localAgent.startupSummary?.label || (service.supported ? `${service.type} ${service.registrationStatus || service.state || "unknown"}` : "Service management unsupported"),
         localAgent.agentUrl || null,
-        localAgent.agentVersion ? `Agent ${localAgent.agentVersion}` : null,
+        getAgentBuildLabel(localAgent) ? `Agent ${getAgentBuildLabel(localAgent)}` : null,
       ],
     }));
   }
@@ -6535,7 +6581,7 @@ function renderLocalAgentSystems(payload = agentControlState) {
         activeTarget.nodeId ? `Node ${activeTarget.nodeId}` : null,
         identity.deviceId ? `Device ${identity.deviceId}` : "Device ID unavailable",
         activeTarget.agentUrl || "Endpoint unavailable",
-        activeTarget.agentVersion ? `Agent ${activeTarget.agentVersion}` : identity.agentVersion ? `Agent ${identity.agentVersion}` : "Agent version unavailable",
+        `Agent ${formatAgentVersionForDisplay(activeRemote, identity, getSelectedNode())}`,
         activeTarget.operatingSystem || identity.operatingSystem || identity.platform || "OS unavailable",
         activeTarget.architecture ? `Arch ${activeTarget.architecture}` : null,
         `API ${activeTarget.apiVersion || identity.apiVersion || "v1"}`,
@@ -6586,7 +6632,7 @@ function renderRemoteAgents(agents = []) {
     type.textContent = isActive ? "Active Node Agent" : "Registered Node Agent";
     nameCell.append(name, type);
     const versionCell = document.createElement("td");
-    versionCell.textContent = agent.agentVersion || agent.identity?.agentVersion || "Unavailable";
+    versionCell.textContent = formatAgentVersionForDisplay(agent, agent.runtime);
     const latencyCell = document.createElement("td");
     latencyCell.textContent = Number.isFinite(agent.latencyMs) ? `${agent.latencyMs} ms` : "Unavailable";
     const platformCell = document.createElement("td");
@@ -7222,7 +7268,7 @@ function applyCanonicalNodeStateSnapshot(snapshot = {}, context = null) {
 function startAgentControlPolling() {
   if (agentControlPollTimer) return;
   agentControlPollTimer = window.setInterval(() => {
-    if (getActivePageName() === "agent-control" && !document.hidden) {
+    if (getActivePageName() === "agent-control" && !document.hidden && !isAppLockedForBackgroundWork()) {
       refreshAgentControl();
     }
   }, 3000);
@@ -14288,7 +14334,7 @@ function pollServiceSafeRestart(instanceId) {
 // Keep the evidence fresh while a service-managed instance is selected (the Safe Restart poll covers a running one).
 window.setInterval(() => {
   const instance = findInstance();
-  if (instance && isServiceManagedInstance(instance) && !serviceOps.running && !document.hidden) syncServiceOps(instance);
+  if (instance && isServiceManagedInstance(instance) && !serviceOps.running && !document.hidden && !isAppLockedForBackgroundWork()) syncServiceOps(instance);
 }, 4000);
 
 document.addEventListener("click", (event) => {
@@ -25006,7 +25052,7 @@ function startInstancesPagePolling() {
       stopInstancesPagePolling();
       return;
     }
-    if (document.hidden || instanceActionRequestInFlight) {
+    if (document.hidden || instanceActionRequestInFlight || isAppLockedForBackgroundWork()) {
       return;
     }
     refreshInstances({ background: true });
@@ -25026,7 +25072,7 @@ function startInstanceConsolePolling() {
     return;
   }
   instanceConsolePollTimerId = window.setInterval(() => {
-    if (!shouldPollInstanceConsole()) {
+    if (!shouldPollInstanceConsole() || isAppLockedForBackgroundWork()) {
       return;
     }
     refreshInstanceLogs({ silent: true });
@@ -26959,6 +27005,33 @@ function renderFileBreadcrumbs(listing) {
   });
 }
 
+// The Folders pill describes the Files connection itself: the storage the
+// Files page has selected. It is not the selected computer's Agent status
+// (Files can browse another computer's storage) and not SSH. A state recorded
+// for another storage, or a connection to a computer that has since gone
+// offline, never reads as live.
+function getFilesFolderStatus() {
+  const target = getFilesConnectionTarget();
+  const ownState = Boolean(target?.key && filesConnectionState.targetKey === target.key);
+  if (!ownState) return { label: "Disconnected", connected: false };
+  if (filesConnectionState.status === "connecting") return { label: "Connecting", connected: false };
+  if (filesConnectionState.connected) {
+    const node = target.node || (target.nodeId ? (nodesState.nodes || []).find((entry) => entry?.id === target.nodeId) : null);
+    if (node?.kind === "agent" && getNodeVisualState(node) === "offline") return { label: "Last known", connected: false };
+    return { label: "Connected", connected: true };
+  }
+  if (filesConnectionFailure) return { label: "Unavailable", connected: false };
+  return { label: "Disconnected", connected: false };
+}
+
+function renderFilesFolderStatus() {
+  if (!filesFolderStatus) return;
+  const status = getFilesFolderStatus();
+  filesFolderStatus.textContent = status.label;
+  filesFolderStatus.classList.toggle("is-connected", status.connected);
+  filesFolderStatus.classList.toggle("is-disconnected", !status.connected);
+}
+
 function renderFolderRoots(listing) {
   if (!filesFolderPanel) {
     return;
@@ -26972,9 +27045,7 @@ function renderFolderRoots(listing) {
 
   const roots = normalizeFilesArray(listing?.roots);
 
-  if (filesFolderStatus) {
-    filesFolderStatus.textContent = listing?.connected ? "Connected" : "Disconnected";
-  }
+  renderFilesFolderStatus();
 
   if (filesFolderEmpty) {
     filesFolderEmpty.hidden = roots.length > 0;
@@ -31585,13 +31656,7 @@ function renderFilesView() {
     filesDivider.hidden = filesViewMode !== "edit";
   }
 
-  if (filesFolderStatus) {
-    const agentStatus = getActiveAgentStatusSnapshot();
-    const connected = isAgentStatusAuthenticated(agentStatus);
-    filesFolderStatus.textContent = agentStatus.primary;
-    filesFolderStatus.classList.toggle("is-connected", connected);
-    filesFolderStatus.classList.toggle("is-disconnected", !connected);
-  }
+  renderFilesFolderStatus();
 
   if (filesDetailsStatus) {
     filesDetailsStatus.classList.toggle("is-connected", Boolean(selectedFileEntryPath));
@@ -32357,6 +32422,10 @@ async function refreshDashboard() {
     }
     renderSnapshot(snapshot, requestContext.nodeId);
     clearAgentPollingBackoff("system", requestContext);
+    if (systemMetricsToastNodeId) {
+      systemMetricsToastNodeId = null;
+      dismissToastMessage(SYSTEM_METRICS_UNAVAILABLE_TOAST);
+    }
   } catch (error) {
     if (!isNodeRequestCurrent(requestContext)) {
       return;
@@ -32372,7 +32441,15 @@ async function refreshDashboard() {
     latestSystemSnapshotAt = 0;
     latestSystemSnapshotNodeId = null;
     renderFriendlyDashboard();
-    showToast("System metrics are unavailable.");
+    // Once per computer while its readings keep failing (this runs every 2 s),
+    // and never for the lock: signing in is the remedy, and the sign-in screen
+    // already says so.
+    const failingNodeId = requestContext.nodeId || "application-host";
+    if (!isAuthorizationLockError(error) && systemMetricsToastNodeId !== failingNodeId) {
+      if (systemMetricsToastNodeId) dismissToastMessage(SYSTEM_METRICS_UNAVAILABLE_TOAST);
+      systemMetricsToastNodeId = failingNodeId;
+      showToast(SYSTEM_METRICS_UNAVAILABLE_TOAST);
+    }
   } finally {
     if (activeSystemRequestSerial === requestSerial) {
       markStartupReady("system");
@@ -33242,7 +33319,7 @@ function startDockerPagePolling() {
       stopDockerPagePolling();
       return;
     }
-    if (document.hidden) {
+    if (document.hidden || isAppLockedForBackgroundWork()) {
       return;
     }
     // Retry even when the workspace is not ready. The previous gate skipped the
@@ -34408,6 +34485,14 @@ function scheduleToastHide(delay) {
   }, delay);
 }
 
+// Hides the toast only while it is still showing this message, so a newer
+// toast is never cut short by a stale condition clearing.
+function dismissToastMessage(message) {
+  if (!toast || !toast.classList.contains("is-visible") || toast.dataset.sourceMessage !== String(message || "")) return;
+  window.clearTimeout(showToast.timeoutId);
+  toast.classList.remove("is-visible", "is-actionable");
+}
+
 function bindToastInteractions() {
   if (!toast || bindToastInteractions.bound) return;
   bindToastInteractions.bound = true;
@@ -34445,6 +34530,7 @@ function showToast(message, tone = null) {
   if (getCurrentSettings()["notifications.enabled"] === false || !toast) return;
   bindToastInteractions();
   toast.textContent = displayMessage;
+  toast.dataset.sourceMessage = String(message || "");
   toast.dataset.tone = nextTone;
   toast.setAttribute("role", nextTone === "error" ? "alert" : "status");
   // A saved toast can be clicked to open its entry in the Notification Center.
@@ -35222,7 +35308,7 @@ function startMonitoringConsolePolling() {
     return;
   }
   monitoringConsolePollTimerId = window.setInterval(() => {
-    if (!shouldPollMonitoringConsole()) {
+    if (!shouldPollMonitoringConsole() || isAppLockedForBackgroundWork()) {
       return;
     }
     refreshConsoleLogs({ silent: true });
@@ -36211,7 +36297,7 @@ function updateSshConnectWatchdog() {
       .then((snapshot) => {
         if (!snapshot) return;
         const refreshed = mergeSshSessionSnapshot(snapshot);
-        sshTransientStatusMessage = refreshed.message || sshTransientStatusMessage;
+        if (refreshed.message) setSshTransientStatus(refreshed.message, refreshed.id);
         if (["connected", "failed", "cancelled", "disconnected"].includes(refreshed.status)) {
           if (refreshed.diagnostics?.failureCode) {
             refreshed.failureCode = refreshed.diagnostics.failureCode;
@@ -36235,14 +36321,14 @@ function updateSshConnectWatchdog() {
             ? "SSH connection cancelled after it stopped responding. You can retry immediately."
             : "SSH connection did not return a terminal result. You can retry immediately.";
           sshSessionFailures.set(activeSession.id, { code: activeSession.failureCode, message: activeSession.message });
-          sshTransientStatusMessage = activeSession.message;
+          setSshTransientStatus(activeSession.message, activeSession.id);
         }
       })
       .catch(() => {
         activeSession.status = "failed";
         activeSession.failureCode = "SSH_INTERNAL_ERROR";
         activeSession.message = "SSH cleanup did not respond. Close and reopen the SSH page before retrying.";
-        sshTransientStatusMessage = activeSession.message;
+        setSshTransientStatus(activeSession.message, activeSession.id);
       })
       .finally(() => renderSshView());
     return;
@@ -36263,6 +36349,11 @@ function clearSshConnectWatchdog() {
   sshConnectPhase = "idle";
 }
 
+function setSshTransientStatus(message, sessionId = null) {
+  sshTransientStatusMessage = message || "";
+  sshTransientStatusSessionId = sessionId || null;
+}
+
 function getSshSessionMessage(session) {
   if (["connecting", "verifying-host", "authenticating", "opening-shell"].includes(session?.status)) {
     if (
@@ -36278,7 +36369,7 @@ function getSshSessionMessage(session) {
     return getSshConnectingPhase().message;
   }
 
-  if (sshTransientStatusMessage) {
+  if (sshTransientStatusMessage && (!sshTransientStatusSessionId || sshTransientStatusSessionId === session?.id)) {
     return sshTransientStatusMessage;
   }
 
@@ -36481,13 +36572,13 @@ async function setActiveSshProfileAgent(enabled) {
   if (!profile || typeof api?.setProfileAgent !== "function") return;
   try {
     await api.setProfileAgent({ profileId: profile.id, enabled });
-    sshTransientStatusMessage = enabled
+    setSshTransientStatus(enabled
       ? `${profile.displayName || profile.id} now signs in through the SSH agent.`
-      : `${profile.displayName || profile.id} now reads its key file (passphrase prompts as needed).`;
+      : `${profile.displayName || profile.id} now reads its key file (passphrase prompts as needed).`);
     await loadSshProfiles({ profileId: profile.id });
   } catch (error) {
     const { message } = describeSshConnectError(error);
-    sshTransientStatusMessage = message;
+    setSshTransientStatus(message);
     showToast(message);
     renderSshView();
   }
@@ -36677,7 +36768,7 @@ async function saveSshProfile(event) {
   const desktopApiState = getDesktopApiState();
 
   if (!desktopApiState.hasSsh || typeof desktopApiState.api?.ssh?.saveProfile !== "function") {
-    sshTransientStatusMessage = "SSH profile saving is unavailable.";
+    setSshTransientStatus("SSH profile saving is unavailable.");
     renderSshView();
     showToast("SSH profile saving is unavailable.");
     return;
@@ -36694,12 +36785,12 @@ async function saveSshProfile(event) {
     await loadSshProfiles({
       profileId: result?.profile?.id || null,
     });
-    sshTransientStatusMessage = `Saved SSH profile ${result?.profile?.displayName || payload.name}.`;
+    setSshTransientStatus(`Saved SSH profile ${result?.profile?.displayName || payload.name}.`);
     setSshProfileFormVisible(false);
     renderSshView();
     showToast("SSH profile saved.");
   } catch (error) {
-    sshTransientStatusMessage = error?.message || "SSH profile could not be saved.";
+    setSshTransientStatus(error?.message || "SSH profile could not be saved.");
     console.error("[SSH] Profile save failed.", {
       message: error?.message || "Unknown error",
     });
@@ -36717,7 +36808,7 @@ async function handleUnknownSshHostKey({ profileId, fingerprint }) {
     confirmLabel: "Approve",
   });
   if (!approved) {
-    sshTransientStatusMessage = "Host key approval declined.";
+    setSshTransientStatus("Host key approval declined.");
     renderSshView();
     return;
   }
@@ -36735,7 +36826,7 @@ async function handleChangedSshHostKey({ profileId, expectedFingerprint, receive
     confirmLabel: "Replace host key",
   });
   if (!approved) {
-    sshTransientStatusMessage = "The saved host identity was kept. The connection stays blocked until the new key is confirmed.";
+    setSshTransientStatus("The saved host identity was kept. The connection stays blocked until the new key is confirmed.");
     renderSshView();
     return;
   }
@@ -36749,18 +36840,18 @@ async function approveSshHostKeyAndReconnect({ profileId, fingerprint, replaceCh
     if (approvedProfile?.authType === "privateKey") {
       // Key profiles need no typed secret unless the key is encrypted, and the
       // reconnect asks for its passphrase in that case.
-      sshTransientStatusMessage = "Host identity approved. Reconnecting...";
+      setSshTransientStatus("Host identity approved. Reconnecting...");
       renderSshView();
       if (sshSelectedProfileId === profileId) await connectSshSession();
       return;
     }
     sshPendingPasswordProfileId = profileId;
     setSshPasswordPromptState(true, "Host identity approved. Enter the password again to connect.");
-    sshTransientStatusMessage = "Host identity approved. Reconnect to continue.";
+    setSshTransientStatus("Host identity approved. Reconnect to continue.");
     renderSshView();
     focusSshPasswordPrompt();
   } catch (error) {
-    sshTransientStatusMessage = error?.message || "Host identity approval failed.";
+    setSshTransientStatus(error?.message || "Host identity approval failed.");
     showToast(sshTransientStatusMessage);
     renderSshView();
   }
@@ -36784,11 +36875,11 @@ async function deleteSelectedSshProfile() {
     sshSelectedProfileId = null;
     sshSelectedServerId = null;
     await loadSshProfiles();
-    sshTransientStatusMessage = `Deleted SSH profile ${profile.displayName}.`;
+    setSshTransientStatus(`Deleted SSH profile ${profile.displayName}.`);
     renderSshView();
     showToast("SSH profile deleted.");
   } catch (error) {
-    sshTransientStatusMessage = error?.message || "SSH profile could not be deleted.";
+    setSshTransientStatus(error?.message || "SSH profile could not be deleted.");
     renderSshView();
     showToast(sshTransientStatusMessage);
   }
@@ -36803,7 +36894,7 @@ function ensureSshEventSubscription() {
     if (payload?.type === "session-updated" && payload.session) {
       if (sshRemovedSessionIds.has(payload.session.id)) return;
       const session = mergeSshSessionSnapshot(payload.session);
-      sshTransientStatusMessage = session.message || "";
+      setSshTransientStatus(session.message || "", session.id);
 
       if (!activeSshSessionId && session.status === "connected") {
         activeSshSessionId = session.id;
@@ -36839,7 +36930,7 @@ function ensureSshEventSubscription() {
         session.message = failure.message;
       }
 
-      sshTransientStatusMessage = failure.message;
+      setSshTransientStatus(failure.message, payload.sessionId);
       clearSshConnectWatchdog();
 
       if (failure.code === "SSH_HOST_KEY_UNKNOWN" && payload.profileId && payload.details?.fingerprint) {
@@ -36876,11 +36967,11 @@ function ensureSshEventSubscription() {
         }
       }
 
-      sshTransientStatusMessage = retainedFailure
+      setSshTransientStatus(retainedFailure
         ? retainedFailure.message
         : session?.status === "error"
           ? session.message
-        : payload.message || "SSH session disconnected.";
+        : payload.message || "SSH session disconnected.", payload.sessionId);
       clearSshConnectWatchdog();
 
       renderSshView();
@@ -36909,7 +37000,7 @@ async function connectSshSession(options = {}) {
 
   if (!desktopApiState.hasSsh || !profile || sshConnectRequestInFlight) {
     if (!desktopApiState.hasSsh) {
-      sshTransientStatusMessage = desktopApiState.hasBridge ? "SSH bridge unavailable." : "Desktop preload bridge unavailable.";
+      setSshTransientStatus(desktopApiState.hasBridge ? "SSH bridge unavailable." : "Desktop preload bridge unavailable.");
       renderSshView();
     }
     return;
@@ -36918,7 +37009,7 @@ async function connectSshSession(options = {}) {
   if (profile.authType === "password" && sshPendingPasswordProfileId !== profile.id) {
     sshPendingPasswordProfileId = profile.id;
     setSshPasswordPromptState(true, `Enter the password for ${profile.username}@${profile.host}.`);
-    sshTransientStatusMessage = `Password required for ${profile.username}@${profile.host}.`;
+    setSshTransientStatus(`Password required for ${profile.username}@${profile.host}.`);
     renderSshView();
     focusSshPasswordPrompt();
     return;
@@ -36930,7 +37021,7 @@ async function connectSshSession(options = {}) {
   if (profile.authType === "password") {
     if (!password) {
       setSshPasswordPromptState(true, "Password required before connecting.");
-      sshTransientStatusMessage = "Password required before connecting.";
+      setSshTransientStatus("Password required before connecting.");
       renderSshView();
       focusSshPasswordPrompt();
       return;
@@ -36939,7 +37030,7 @@ async function connectSshSession(options = {}) {
 
   if (profile.authType === "privateKey" && sshPasswordPromptVisible && sshCredentialPromptKind === "passphrase" && !passphrase) {
     setSshPasswordPromptState(true, "Enter the key passphrase before connecting.", "passphrase");
-    sshTransientStatusMessage = "Key passphrase required before connecting.";
+    setSshTransientStatus("Key passphrase required before connecting.");
     renderSshView();
     focusSshPasswordPrompt();
     return;
@@ -36948,7 +37039,7 @@ async function connectSshSession(options = {}) {
   sshConnectRequestInFlight = true;
   sshConnectStartedAt = Date.now();
   sshConnectPhase = "connecting";
-  sshTransientStatusMessage = `Connecting to ${profile.username}@${profile.host}:${profile.port}...`;
+  setSshTransientStatus(`Connecting to ${profile.username}@${profile.host}:${profile.port}...`);
   renderSshView();
 
   try {
@@ -36964,7 +37055,7 @@ async function connectSshSession(options = {}) {
     mergeSshSessionSnapshot(session);
     collapseReconnectedSshSessions(profile.id, session.id);
     activeSshSessionId = session.id;
-    sshTransientStatusMessage = session.message || `Connected to ${session.label}.`;
+    setSshTransientStatus(session.message || `Connected to ${session.label}.`, session.id);
     renderSshView();
     window.requestAnimationFrame(focusSshTerminalInput);
   } catch (error) {
@@ -36982,7 +37073,7 @@ async function connectSshSession(options = {}) {
       // A key profile has no password to re-enter; only show the error.
       setSshPasswordPromptState(false);
     }
-    sshTransientStatusMessage = message;
+    setSshTransientStatus(message);
     showToast(message);
     renderSshView();
   } finally {
@@ -37007,11 +37098,11 @@ async function disconnectSshSession() {
     if (!session.failureCode) {
       session.status = "disconnected";
       session.message = "SSH session disconnected.";
-      sshTransientStatusMessage = "SSH session disconnected.";
+      setSshTransientStatus("SSH session disconnected.", session.id);
     }
     renderSshView();
   } catch (error) {
-    sshTransientStatusMessage = error?.message || "SSH disconnect failed.";
+    setSshTransientStatus(error?.message || "SSH disconnect failed.");
     showToast(error?.message || "SSH disconnect failed.");
   }
 }
@@ -39020,8 +39111,24 @@ function isNodeSwitching() {
   return nodeSwitchInProgress === true;
 }
 
+// While AnxOS is locked (the Owner has not signed in on this launch), the
+// main process refuses protected requests with LOGIN_REQUIRED, so a timer
+// that polls behind the sign-in screen only produces errors and stale
+// "unavailable" notices. Background polling waits for the unlock; the unlock
+// itself reloads protected state (refreshProtectedStateAfterLocalOwner-
+// Authentication) and the timers pick up on their next tick, so nothing new
+// is subscribed. Without a security service there is nothing to unlock.
+function isAppLockedForBackgroundWork() {
+  if (!getDesktopApiState().hasSecurity) return false;
+  return securityState?.localOwnerAuthenticated !== true;
+}
+
+function isAuthorizationLockError(error) {
+  return /LOGIN_REQUIRED|LOCAL_AUTHENTICATION_REQUIRED|AUTH_UNLOCK_REQUIRED|OWNER_REQUIRED/i.test(`${error?.code || ""} ${error?.message || error || ""}`);
+}
+
 function shouldSkipNodeScopedPolling() {
-  return isNodeSwitching() || document.hidden;
+  return isNodeSwitching() || document.hidden || isAppLockedForBackgroundWork();
 }
 
 function createNodeActionContext(label = "node-action") {
@@ -39607,7 +39714,7 @@ function buildAgentHealth(node) {
     state,
     evidence: [
       node?.kind === "agent" ? `${connectionState.primary}: ${connectionState.secondary}` : `Process ${formatAgentProcess(runtime, stateText)}`,
-      runtime?.version || target?.agentVersion || node?.connection?.agentVersion || node?.agentIdentity?.agentVersion ? `Version ${runtime?.version || target?.agentVersion || node?.connection?.agentVersion || node?.agentIdentity?.agentVersion}` : "Version unavailable",
+      getAgentBuildLabel(runtime, target, node) ? `Version ${getAgentBuildLabel(runtime, target, node)}` : AGENT_BUILD_NOT_REPORTED,
       Number.isFinite(runtime?.latencyMs ?? node?.connection?.latencyMs) ? `Last request ${runtime?.latencyMs ?? node?.connection?.latencyMs} ms` : "Last request unavailable",
       portConflict ? "Port conflict detected" : authFailed ? "Saved credential rejected" : target?.mostRecentError?.message || connectionState.secondary || "No recent Agent error reported",
     ].join(" · "),
@@ -40517,7 +40624,7 @@ function formatNodeAgentContext(node = {}) {
     return `${connectionState.label} · ${formatNodePlatform(node)} · ${node.modeLabel || "Local Application"}`;
   }
   const identity = getNodeIdentity(node);
-  const version = identity.agentVersion ? `Agent ${identity.agentVersion}` : "Agent version unknown";
+  const version = `Agent ${formatAgentVersionForDisplay(node, identity)}`;
   return `${connectionState.label} · ${formatNodePlatform(node)} · ${version}`;
 }
 
@@ -40879,7 +40986,7 @@ function openNodeDetails(nodeId) {
   const values = {
     hostname: identity.hostname || node.displayName || "Unavailable",
     os: formatNodePlatform(node),
-    version: identity.agentVersion || (node.kind === "application-host" ? runtimeInfoState?.releaseLabel || runtimeInfoState?.version : null) || "Unavailable",
+    version: node.kind === "application-host" ? runtimeInfoState?.releaseLabel || runtimeInfoState?.version || "Unavailable" : formatAgentVersionForDisplay(node, identity),
     cpu: formatNodeCpu(node),
     memory: formatNodeMemory(node),
     storage: formatNodeStorage(node),
@@ -41189,9 +41296,9 @@ function describeUnmanagedLocalPortRoute(node, visualState) {
 }
 
 function describeNodeAgentBuild(node) {
-  const version = node?.connection?.agentVersion || node?.agentVersion || node?.agentIdentity?.agentVersion || "";
+  const version = getAgentBuildLabel(node);
   const api = node?.connection?.apiVersion || node?.apiVersion || "";
-  return [version && `Agent ${version}`, api && `API ${api}`].filter(Boolean).join(" · ") || "Unknown";
+  return [`Agent ${version || AGENT_BUILD_NOT_REPORTED.toLowerCase()}`, api && `API ${api}`].filter(Boolean).join(" · ");
 }
 
 // One address row of the Routes modal. The route resolver only checks
@@ -41639,7 +41746,7 @@ async function refreshNodes(options = {}) {
 function startNodeRefreshPolling() {
   if (nodeRefreshTimer || document.hidden) return;
   nodeRefreshTimer = window.setInterval(() => {
-    if (getActivePageName() !== "nodes" || document.hidden) {
+    if (getActivePageName() !== "nodes" || document.hidden || isAppLockedForBackgroundWork()) {
       return;
     }
     refreshNodes();
@@ -48718,14 +48825,14 @@ sshAutoscrollInput?.addEventListener("change", syncSshScrollMode);
 sshServerSelect?.addEventListener("change", () => {
   sshSelectedServerId = sshServerSelect.value || null;
   setSshPasswordPromptState(false);
-  sshTransientStatusMessage = "";
+  setSshTransientStatus("");
   syncSshSelectionState();
   renderSshView();
 });
 sshProfileSelect?.addEventListener("change", () => {
   sshSelectedProfileId = sshProfileSelect.value || null;
   setSshPasswordPromptState(false);
-  sshTransientStatusMessage = "";
+  setSshTransientStatus("");
   renderSshView();
 });
 sshAgentToggle?.addEventListener("change", () => setActiveSshProfileAgent(sshAgentToggle.checked));
@@ -48754,7 +48861,7 @@ function submitSshCredentialPrompt() {
 sshPasswordSubmitButton?.addEventListener("click", () => submitSshCredentialPrompt());
 sshPasswordCancelButton?.addEventListener("click", () => {
   setSshPasswordPromptState(false);
-  sshTransientStatusMessage = "SSH connection canceled.";
+  setSshTransientStatus("SSH connection canceled.");
   renderSshView();
 });
 sshPasswordInput?.addEventListener("keydown", (event) => {
@@ -49863,6 +49970,13 @@ async function runDashboardFriendlyAction(action) {
   }
   if (action === "public-access" || action === "playit") return showPage("playit");
   if (action === "agent-control") return showPage("agent-control");
+  // Opens the selected computer's own page on Computers (its connection test
+  // and recovery steps), not Agent Control, which manages this PC's Agent.
+  if (action === "selected-computer") {
+    const nodeId = getSelectedNodeId();
+    if (window.AnxHomeDashboard?.openComputer && nodeId) return window.AnxHomeDashboard.openComputer(nodeId);
+    return showPage("nodes");
+  }
   return showPage("dashboard");
 }
 dashboardActionButtons.forEach((button) => {

@@ -243,6 +243,7 @@
   }
   root.setInterval(() => {
     if (document.hidden || safe(() => getActivePageName(), "") !== "instances") return;
+    if (safe(() => isAppLockedForBackgroundWork(), false)) return;
     const node = safe(() => getSelectedNode(), null);
     if (Date.now() - lastHealthCheck >= 15000) checkSelectedComputer(node);
     const connection = node ? `${node.id}:${safe(() => getNodeVisualState(node), "")}:${safe(() => isInstanceListStale(), false)}` : "";

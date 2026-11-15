@@ -476,6 +476,8 @@
   // Light polling only while the Computers page is visible.
   function tick() {
     if (document.hidden || typeof getActivePageName !== "function" || getActivePageName() !== "nodes") return;
+    // Nothing to read behind the sign-in screen (app.js isAppLockedForBackgroundWork).
+    if (typeof isAppLockedForBackgroundWork === "function" && isAppLockedForBackgroundWork()) return;
     refresh();
   }
 

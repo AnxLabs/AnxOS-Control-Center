@@ -45,7 +45,6 @@ function requireSource(needle, message) {
   ["Nodes", "function getNodeConnectionState", "getAgentStatusSnapshot(node)"],
   ["Agent Control", "function renderAgentControlState", "const agentStatus = getAgentStatusSnapshot(local)"],
   ["Marketplace", "function renderMarketplaceReadiness", "const agentStatus = getActiveAgentStatusSnapshot()"],
-  ["Files", "function renderFilesView", "filesFolderStatus.textContent = agentStatus.primary"],
   ["Docker", "function getDockerWorkspaceState", "const agentStatus = getActiveAgentStatusSnapshot()"],
   ["Console", "function renderConsoleWorkspace", "setConsoleStatus(\"agent\", getDesktopApiState().hasInstances ? agentStatus.primary : \"Unavailable\")"],
   ["Backups", "function getBackupsConnected", "isAgentStatusAuthenticated(getActiveAgentStatusSnapshot())"],
@@ -53,6 +52,18 @@ function requireSource(needle, message) {
   requireSource(functionNeedle, `${page} should keep its renderer entry point.`);
   requireSource(statusNeedle, `${page} must consume the shared AgentStatus snapshot directly.`);
 });
+
+// Files is the exception on purpose: its Folders pill describes the Files
+// connection (the storage it has selected, which can be another computer's),
+// so it must NOT show the selected computer's Agent status. Build 212
+// acceptance found it reading "Connected" for an offline computer's storage.
+requireSource("function getFilesFolderStatus", "Files should derive its Folders pill from its own connection.");
+requireSource("renderFilesFolderStatus();", "Files should render the pill through renderFilesFolderStatus.");
+{
+  const start = app.indexOf("function getFilesFolderStatus");
+  const body = app.slice(start, app.indexOf("function renderFilesFolderStatus", start));
+  assert(!/AgentStatus|agentStatus/.test(body), "The Files Folders pill must not read the selected computer's Agent status.");
+}
 
 assert(!app.includes("createNodeBadge(`Connection:"), "Node cards should not render a separate Connection badge.");
 assert(!app.includes("createNodeBadge(`Overall:"), "Node cards should not render a separate Overall badge.");

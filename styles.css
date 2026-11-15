@@ -10993,6 +10993,50 @@ body.has-open-modal {
   }
 }
 
+/* The container table fits its column. Its old 1040px minimum was wider than
+   the column beside the details panel at common window sizes, so Restart,
+   Remove and Logs sat past the visible edge behind a horizontal scroll. Now
+   the row actions wrap, and the lower-priority columns give way as the table
+   narrows (the selected container's details panel still shows them). */
+.docker-workspace .docker-table-panel {
+  container-type: inline-size;
+  container-name: docker-containers;
+  min-width: 0;
+}
+
+.docker-workspace .docker-table {
+  min-width: 0;
+}
+
+.docker-workspace .docker-row-actions {
+  min-width: 170px;
+  white-space: normal;
+}
+
+.docker-workspace .docker-row-actions .inline-action {
+  margin-block: 2px;
+}
+
+/* Ports and Uptime */
+@container docker-containers (max-width: 1080px) {
+  .docker-workspace .docker-table th:nth-child(4),
+  .docker-workspace .docker-table td:nth-child(4),
+  .docker-workspace .docker-table th:nth-child(7),
+  .docker-workspace .docker-table td:nth-child(7) {
+    display: none;
+  }
+}
+
+/* Image and CPU as well, so the actions keep room for at most two lines */
+@container docker-containers (max-width: 900px) {
+  .docker-workspace .docker-table th:nth-child(2),
+  .docker-workspace .docker-table td:nth-child(2),
+  .docker-workspace .docker-table th:nth-child(5),
+  .docker-workspace .docker-table td:nth-child(5) {
+    display: none;
+  }
+}
+
 .docker-table-panel,
 .docker-details-panel,
 .docker-table-wrap {

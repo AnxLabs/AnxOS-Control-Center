@@ -275,6 +275,9 @@
     const state = safe(() => getFriendlyDashboardState(), null);
     const next = state && state.next;
     if (!next || !next.title || !next.action || next.action === "dashboard") return [];
+    // The offline computer already has its own "is not connected" item with
+    // Open computer; a second item for the same computer would repeat it.
+    if (next.action === "selected-computer") return [];
     return [{
       id: `next-step:${next.action}`,
       severity: "info",
@@ -909,6 +912,8 @@
 
   function tick() {
     if (document.hidden) return;
+    // Nothing to read behind the sign-in screen (app.js isAppLockedForBackgroundWork).
+    if (safe(() => isAppLockedForBackgroundWork(), false)) return;
     const page = safe(() => getActivePageName(), "");
     if (page === "dashboard") renderHome();
     if (page === "nodes") renderComputerDetails();
@@ -922,7 +927,7 @@
     root.setInterval(tick, TICK_MS);
   }
 
-  root.AnxHomeDashboard = { render, renderHome, renderComputerDetails, applySectionPreferences, _state: () => lastState };
+  root.AnxHomeDashboard = { render, renderHome, renderComputerDetails, applySectionPreferences, openComputer, _state: () => lastState };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start, { once: true });
   else start();
 })(typeof window !== "undefined" ? window : globalThis);
