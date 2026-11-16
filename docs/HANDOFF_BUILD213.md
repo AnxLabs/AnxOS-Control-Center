@@ -140,10 +140,21 @@ These Build 213 completion requirements are open. None is claimed as done.
      saved settings. Cause: Agent Control loaded the panel only after its own
      check of every Agent, and the panel then checked every Agent again.
   2. Copy edge config took one of the edge fields' grid cells.
+  3. Found while re-running the release tier: the real Local Agent logged
+     138 refused, credential-less requests (`/stats`, `/instances`,
+     `/dependencies/check`) during the Build 213 UI tests, against 0 for
+     Build 212's tier. The fleet list, the Agent update overview and the move
+     checks called `listNodes()` without options, which runs Local Agent
+     discovery and probes this PC's Agent on every call; in the installed app
+     each fleet refresh (every 30 s) re-probed the owner's Local Agent.
 - **Fixes:** the panel gets the same overview request and shows the saved
   settings at once; its controls stay disabled until they load; the computer
   list says "Checking computers…" and Save keeps the saved computers until
   it has loaded. Copy edge config sits in its own row with the explanation.
+  The three readers pass `{ discoverLocalAgent: false }` (registered
+  computers are still health-checked); `build213-ui-qa` then sent 0 requests
+  to the real Agent (18 before), and `local-agent-discovery-scope-smoke`
+  L1-L3 fail on the RC1 wiring.
   `build213-ui-qa` C2 and `anxnet-ui-qa` U4 fail on RC1 and pass now.
 
 ## Release candidate (needs approval)

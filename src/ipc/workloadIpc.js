@@ -216,7 +216,8 @@ function registerWorkloadIpc() {
       instanceId: String(payload.instanceId || ""),
       targetInstanceId: payload.targetInstanceId ? String(payload.targetInstanceId) : null,
       deps: {
-        listNodes: async () => (await nodeService.listNodes())?.nodes || [],
+        // No Local Agent discovery: it would probe this PC's Agent per check.
+        listNodes: async () => (await nodeService.listNodes({ discoverLocalAgent: false }))?.nodes || [],
         listInstances: (options) => serviceRouter.listInstances(options),
         listBackups: (options) => serviceRouter.listBackups(options),
         getStats: async ({ nodeId }) => agentClient.getSystemStats(agentClient.forNode(nodeId).target.config),

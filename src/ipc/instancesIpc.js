@@ -55,8 +55,11 @@ const path = require("path");
 const { getNodesPath, listNodes: listRegisteredNodes } = require("../services/nodeService");
 const { listServersAcrossComputers, runServerFleetAction } = require("../services/serverFleetService");
 
+// Registered computers, each health-checked at its own address. Plain
+// listNodes() would also run Local Agent discovery, which probes this PC's Agent
+// (health, stats, instances and a dependency check) on every call.
 async function registeredComputers() {
-  return (await listRegisteredNodes())?.nodes || [];
+  return (await listRegisteredNodes({ discoverLocalAgent: false }))?.nodes || [];
 }
 const { setAuditEventEmitter } = require("../shared/instances/jobLifecycle");
 // V2-J bullet 2: the operation scope every instance action enters, so the

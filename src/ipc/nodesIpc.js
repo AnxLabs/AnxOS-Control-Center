@@ -182,7 +182,8 @@ function registerNodesIpc() {
   // attempt is recorded in the Agent update history.
   const agentUpdateConfigDir = () => path.dirname(getNodesPath());
   const agentUpdateOverview = () => getAgentUpdateOverview({
-    listNodes: async () => (await listNodes())?.nodes || [],
+    // No Local Agent discovery here (it probes this PC's Agent each time).
+    listNodes: async () => (await listNodes({ discoverLocalAgent: false }))?.nodes || [],
     desktopBuild: readDesktopBundledAgentArtifactVersion(),
     getProfileForNode: (nodeId) => getDefaultSshService().getProfileForNode(nodeId),
   });

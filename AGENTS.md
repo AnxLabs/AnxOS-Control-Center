@@ -1043,6 +1043,35 @@ Use this section to accumulate verified project knowledge over time. Add entries
   return, not only at entry. Test each wait window with a deferred fake,
   not only "cancel while running".
 
+### 2026-11-16 — Build 213 RC1 acceptance: a panel that showed placeholders, and readers that probed the real Agent
+
+- **Problem:** The signed RC1 upgraded cleanly, but:
+  - Automatic Agent updates showed placeholder values with Save enabled for
+    about 15 s; a Save then would have overwritten the saved settings.
+  - Copy edge config took one of the edge fields' grid cells.
+  - Re-running the release tier, the developer's real Local Agent logged 138
+    refused requests from the Build 213 UI tests (0 for Build 212's tier).
+- **Cause:**
+  - Agent Control loaded the panel only after its own check of every Agent,
+    and the panel then checked every Agent again; the form was live before
+    its data.
+  - Every child of the edge form's grid gets a cell.
+  - The fleet list, update overview and move checks called
+    `nodeService.listNodes()` without options. Its default runs Local Agent
+    discovery, which probes 127.0.0.1:47131 (health, stats, instances and a
+    dependency check) on every call, in the tests and in the installed app.
+- **Resolution:** One shared overview request, settings shown at once,
+  controls disabled until they load, and Save keeps the saved computers
+  while the list loads (`build213-ui-qa` C2). Copy edge config sits in its
+  own row (`anxnet-ui-qa` U4). The three readers pass
+  `{ discoverLocalAgent: false }` (`local-agent-discovery-scope-smoke`).
+  Each check fails on the RC1 code.
+- **Lesson:** A form must not be editable before the data it edits has
+  loaded. A new caller of a shared reader must pass the options every
+  existing background caller passes; read their call sites first. Count the
+  real service's log during every UI test run, not once per release: here it
+  caught a production-side probe loop as well as a test leak.
+
 ## Future Improvements
 
 Keep optional ideas separate from active work. An item in this list is not authorization to implement it.
