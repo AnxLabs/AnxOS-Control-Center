@@ -88,6 +88,28 @@ These Build 213 completion requirements are open. None is claimed as done.
   run (round 2: saved record keeps CRASH_LOOP) and passed 16 of 16 times
   on its own. Not investigated further.
 
+## Release candidate 1
+
+- Approved by the owner on 2026-11-16. `release.json` Build 213 (`cf9f98b0`), and
+  the release notes QA section that `versioning:smoke` requires (`7327f03c`).
+  `dev` pushed from `449fd1f5` to `7327f03c`. Nothing is tagged or published.
+- CI run 43954101201 on `cf9f98b0` stopped at `versioning:smoke` (rc-validation
+  372/410): the notes had no QA section. Nothing was built.
+- CI run 43956401194 on `7327f03c`: static validation, rc-validation (410
+  suites, Linux), Windows and Linux builds passed; publish skipped (no tag).
+- Setup `AnxOS-Control-Center-Setup-2.0-build213.exe`: Authenticode Valid,
+  Anjo ROSIMO, timestamped. SHA-256
+  `A8ED4383DDEB00F861C3230090A932357164BF2DC80C2DD20CD74B2C4C2B9FA6`;
+  `latest.yml` SHA-512 and size match.
+- Portable `AnxOS-Control-Center-2.0-build213-portable.exe`: Valid. SHA-256
+  `EDB7149A00B6608E9DE4E0CD9F73C93F615109427770FB5C1C8103DB454B73E5`.
+- Agent package `AnxOS-Agent-2.0-build213.deb`: SHA-256
+  `7189794139CEEBD8CEDE9005C4C02824F20BE6D60805CA241F0E4DB88589AE08`
+  (matches its `.sha256`).
+- Installed app before the upgrade: Build 212 (`daa548a`).
+- Next: install in place over Build 212 with Computer Use, after the owner
+  replies `confirmed`.
+
 ## Release candidate (needs approval)
 
 1. Bump to Build 213 (`release.json`, then `scripts/release-docs.js`).
