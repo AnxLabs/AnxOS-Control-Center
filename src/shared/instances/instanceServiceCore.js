@@ -1037,9 +1037,17 @@ async function executeSteamCmdUpdateUnobserved(instanceId, request = {}) {
   const args = ["+force_install_dir", installDirectory, "+login", "anonymous", "+app_update", String(config.steamAppId), ...betaArgs, "validate", "+quit"];
   const readBuildId = () => readSteamManifestBuildId(manifestPath);
   const buildIdBefore = await readBuildId();
+  // Before SteamCMD runs there is no child to kill, so Cancel (and Close, or
+  // the server being deleted) only marks this session closed and drops it.
+  // Every wait below re-checks that this exact session is still the live
+  // one, so an acknowledged cancel can never be followed by a spawn (#53).
+  let preUpdateBackup = null;
+  const cancelledBeforeStart = (where) => createInstanceError("STEAMCMD_UPDATE_CANCELLED", 409, {
+    operationId: session.operationId, cancelledDuring: where, buildIdBefore, buildIdAfter: buildIdBefore, preUpdateBackup,
+  });
+  const sessionStillLive = () => !session.closed && installationSessions.get(config.id) === session;
   // Optional rollback point: a full backup of the stopped instance. If it
   // fails, the update does not start; files are left exactly as they were.
-  let preUpdateBackup = null;
   if (request.backupBeforeUpdate === true) {
     if (typeof preUpdateBackupProvider !== "function") throw createInstanceError("STEAMCMD_PRE_UPDATE_BACKUP_UNAVAILABLE", 409);
     Object.assign(session.updateState, { stage: "backup", label: "Backing up the server before the update...", updatedAt: nowIso() });
@@ -1048,8 +1056,11 @@ async function executeSteamCmdUpdateUnobserved(instanceId, request = {}) {
       const backup = created?.backup || created;
       preUpdateBackup = backup?.id ? { id: backup.id, name: backup.name || backup.id, createdAt: backup.createdAt || nowIso(), buildIdBefore } : null;
     } catch (error) {
+      if (!sessionStillLive()) throw cancelledBeforeStart("backup");
       throw createInstanceError("STEAMCMD_PRE_UPDATE_BACKUP_FAILED", 422, { causeCode: error?.code || null, buildIdBefore });
     }
+    // The backup is kept: it is a valid copy of the untouched server.
+    if (!sessionStillLive()) throw cancelledBeforeStart("backup");
     if (!preUpdateBackup) throw createInstanceError("STEAMCMD_PRE_UPDATE_BACKUP_FAILED", 422, { causeCode: "BACKUP_NOT_RECORDED", buildIdBefore });
   }
   const timeoutMs = Math.min(STEAMCMD_UPDATE_TIMEOUT_MAX_MS, Math.max(INSTALLER_TIMEOUT_MIN_MS, Number(request.timeoutMs) || STEAMCMD_UPDATE_TIMEOUT_MAX_MS));
@@ -1058,6 +1069,9 @@ async function executeSteamCmdUpdateUnobserved(instanceId, request = {}) {
   assertNotServiceManaged(config, "steamcmd-spawn");
   Object.assign(session.updateState, { stage: "preparing", label: "Waiting for another SteamCMD task on this node...", updatedAt: nowIso() });
   const result = await withSteamCmdLock(() => new Promise((resolve, reject) => {
+    // Checked inside the lock, right before the spawn: a cancel while queued
+    // behind another SteamCMD task ends here, before anything runs.
+    if (!sessionStillLive()) { reject(cancelledBeforeStart("queue")); return; }
     let child;
     const steamCmdExecutable = resolveSteamCmdExecutable();
     try { child = childProcess.spawn(steamCmdExecutable, args, { cwd: workingDirectory, env: buildSpawnEnvironment(config), shell: false, detached: boundedChildDetached(), stdio: ["ignore", "pipe", "pipe"], windowsHide: true }); }

@@ -430,6 +430,7 @@
     "agent:tui-theme:smoke": "node scripts/agent-tui-theme-smoke.js",
     "modpack-update-check:smoke": "node scripts/modpack-update-check-smoke.js",
     "instance-file-download:smoke": "node scripts/instance-file-download-smoke.js",
+    "steamcmd-update-cancel:smoke": "node scripts/steamcmd-update-cancel-smoke.js",
     "anxnet-edge-deploy:smoke": "node scripts/anxnet-edge-deploy-smoke.js",
     "qa:build213-ui": "node scripts/build213-ui-qa.js",
     "website:smoke": "node scripts/website-production-smoke.js && node scripts/website-download-smoke.js && node scripts/website-accessibility-smoke.js && node scripts/website-setup-smoke.js",

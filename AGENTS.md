@@ -1017,6 +1017,27 @@ Use this section to accumulate verified project knowledge over time. Add entries
   content, check the other direction too. Never offer decoded text for
   editing unless the decode was lossless.
 
+### 2026-11-16 — Cancel during an update's backup or queue still ran SteamCMD (#53)
+
+- **Problem:** Cancelling a SteamCMD update while its pre-update backup ran,
+  or while it waited for another SteamCMD task, returned "cancelled", and
+  the update then started anyway and could report success. Reproduced on
+  the published Build 212 in an isolated harness.
+- **Cause:** `executeSteamCmdUpdateUnobserved` validated the session once,
+  before its waits. Before SteamCMD spawns there is no child to kill, so
+  `cancelInstallationSession` only marked the session closed and dropped
+  it, and nothing read that again before the spawn.
+- **Resolution:** The update re-checks that its exact session is still
+  live after the backup (also when the backup fails) and inside the
+  SteamCMD lock immediately before spawning, and ends as
+  STEAMCMD_UPDATE_CANCELLED with nothing changed.
+  `scripts/steamcmd-update-cancel-smoke.js` C1 and C3 fail without each
+  check; C0 and C4 are the success and after-spawn controls.
+- **Lesson:** A cancel that can be acknowledged before the work starts must
+  be re-checked after every await that comes before the point of no
+  return, not only at entry. Test each wait window with a deferred fake,
+  not only "cancel while running".
+
 ## Future Improvements
 
 Keep optional ideas separate from active work. An item in this list is not authorization to implement it.

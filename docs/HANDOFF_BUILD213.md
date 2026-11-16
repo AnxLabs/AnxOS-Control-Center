@@ -17,6 +17,7 @@ starts only with your approval.
 | 213-E Modpacks | Servers installed from a Modrinth or CurseForge modpack say when a newer pack version exists for the same Minecraft version and loader (check only) | `cfbe5d7e` |
 | 213-F Phone | Download any server file from the phone byte for byte; binary files are never opened as editable text | `87fe5343` |
 | 213-G AnxNet Anywhere | The edge checks its config before listening (never publishes SSH, Agent or other management ports); Copy edge config in the AnxNet panel; a hardened systemd service template and a step-by-step deployment guide | `34cb5dd5` |
+| Fix: update Cancel (issue 53) | A Cancel acknowledged while the pre-update backup runs or while the update waits for another SteamCMD task now stops it: SteamCMD never starts and nothing is recorded as updated | FIXHASH |
 | Test fixes | Renderer test waits past the deferred welcome; the website route check uses the final `/signin/` links; the release tier runs the Build 213 real-app checks | `28d1e17a`, `7529cd0e`, `b99a0233` |
 
 ## Evidence: what was tested, and how
@@ -46,6 +47,7 @@ the VPS.
 | AnxNet in the app | `anxnet-ui-qa` 8/8 (U4 uses Copy edge config) | Real app, loopback edge | Passed |
 | AnxNet regressions | `anxnet-smoke` 13/13, `anxnet-fixes-smoke` 14/14 | Local | Passed |
 | Edge service unit | `systemd-analyze verify` | WSL Ubuntu 24.04 | No problems reported |
+| Update Cancel before SteamCMD starts | `steamcmd-update-cancel-smoke` C0–C4 (C1 and C3 fail on the old code) plus 9 SteamCMD/update smokes | Local, real instance service, fake SteamCMD | Passed |
 | Full smoke tier | `npm run rc:validate` (as CI runs it, fail-fast off) | Mixed | 408/408 passed |
 | Release tier | `npm run qa:release` (now includes `build213-ui-qa`) | Mixed, real app | 130/130 passed |
 
@@ -74,6 +76,10 @@ These Build 213 completion requirements are open. None is claimed as done.
 - **Agents older than Build 213** can't serve file downloads; the phone
   says to update the Agent. The edge config check also needs a Build 213
   Agent package on the server.
+- **The Cancel fix (issue 53) lives in the Agent.** Computers still on a
+  Build 212 Agent (Anxlab and the VPS today) keep the bug until their Agent
+  is updated. Until then, don't rely on Cancel while an update is backing up
+  or waiting.
 - **A rare test flake:** `instance-engine-fixes` IE9 failed once in a full
   run (round 2: saved record keeps CRASH_LOOP) and passed 16 of 16 times
   on its own. Not investigated further.
