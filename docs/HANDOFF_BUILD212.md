@@ -88,7 +88,7 @@ Earlier campaign commits already on this branch: `0e7e7904`, `a919e41d`.
 - `v2.0-build212` tagged on `6ef7c403`. Release run 43850139683 passed all five jobs. The published Setup has SHA-256 `38A7CCDE…DCAFCB9F9`, signature Valid, and matches `SHA256SUMS` and `latest.yml`.
 - Promoted to GitHub Latest by run 43853876941. The website commit `99ec6518` is on `dev`, and Pages deploy 43853917545 succeeded. The live site serves Build 212.
 
-## Website and release documentation (2026-11-16, local, not deployed)
+## Website and release documentation (2026-11-16, published)
 
 - Static HTML, JSON-LD and both README release sections are now generated from `website/config.js` by `scripts/release-docs.js` and checked by `scripts/release-consistency-check.js`. See `docs/RELEASE_DOCUMENTATION.md`.
 - **Published 2026-11-16:** the generator, canonical/link fixes and the plain-language README are on `dev` and live (Pages deploy 43863040231); the Releases README carries the managed markers; release tags in both repositories and the Releases `main` are protected by safety-only rulesets (see `docs/RELEASE_DOCUMENTATION.md`).
