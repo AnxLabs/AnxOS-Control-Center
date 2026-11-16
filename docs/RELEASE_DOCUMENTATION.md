@@ -95,7 +95,19 @@ never publish, promote or deploy an application build.
 | Website deploys only consistent, stable metadata | `cloudflare-pages-deploy.yml` (manual) + `verify-website-config-vs-stable.js` + `release-docs.js --check` + consistency check |
 | Immutable releases | publish step refuses an existing release; no `--clobber` |
 | Audit trail | Workflow runs, signed tags and the bot's commits |
+| Branches and tags cannot be deleted or rewritten | GitHub rulesets (below) |
 
-**Gap:** `dev` in this repository and `main` in the Releases repository have no
-branch protection, and tags are not protected. Protecting them is a GitHub
-settings change for the owner; it was not made here.
+**Rulesets (safety-only, no bypass):**
+
+| Repository | Ruleset | Protects | Blocks |
+| --- | --- | --- | --- |
+| AnxOS-Control-Center | Protect dev (safety-only) | `refs/heads/dev` | deletion, force-push |
+| AnxOS-Control-Center | Protect release tags (safety-only), added 2026-11-16 | `refs/tags/v*` | deletion, force-push, moving a tag |
+| AnxOS-Control-Center-Releases | Protect main (safety-only), added 2026-11-16 | `refs/heads/main` | deletion, force-push |
+| AnxOS-Control-Center-Releases | Protect release tags (safety-only), added 2026-11-16 | `refs/tags/v*` | deletion, force-push, moving a tag |
+
+They deliberately do not require pull requests or status checks: the promotion
+bot commits straight to `dev`, and the README step commits to the Releases
+`main` through the contents API. Creating new tags and normal pushes are
+allowed. To delete or move a release tag, an owner must disable the ruleset
+first.
