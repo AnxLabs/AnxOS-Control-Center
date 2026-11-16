@@ -157,6 +157,27 @@ These Build 213 completion requirements are open. None is claimed as done.
   L1-L3 fail on the RC1 wiring.
   `build213-ui-qa` C2 and `anxnet-ui-qa` U4 fail on RC1 and pass now.
 
+## Release candidate 2
+
+- Fixes for the three RC1 findings: `567a5a85` and `986367a7`. Before the
+  build, `qa:release` passed 131 checks, and the developer's real Local
+  Agent logged 0 authorization failures during the run (`auth.log` count
+  4318 before and after).
+- `dev` pushed from `7327f03c` to `986367a7`. Nothing is tagged or
+  published.
+- CI run 43972250467 on `986367a7`: static validation, rc-validation,
+  Windows and Linux builds passed; publish skipped.
+- Setup: Authenticode Valid, Anjo ROSIMO, timestamped. SHA-256
+  `4CC5B376AAD2B680D5C4E582AC021033864F14FE71DF4A65BB12CFEEB6DEAF01`;
+  `latest.yml` SHA-512 and size match.
+- Portable: Valid. SHA-256
+  `3D47046087428DB88F872C7A7983A0E5C8476B4F053DA43FAF8DFCD0156ACCF9`.
+- Agent package: SHA-256
+  `76081D977BB04C469A2E87B6AED7B655EAE73F83F4E38510DE13D5F1A8BFB14A`
+  (matches its `.sha256`).
+- Next: install in place over RC1 after the owner replies `confirmed`, then
+  acceptance from the beginning.
+
 ## Release candidate (needs approval)
 
 1. Bump to Build 213 (`release.json`, then `scripts/release-docs.js`).
