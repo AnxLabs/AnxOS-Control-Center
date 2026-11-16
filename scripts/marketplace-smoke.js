@@ -1194,7 +1194,8 @@ function assertSingleDeviceModeExperience() {
   assert(accountSource.includes("redactSecret") && accountIpcSource.includes("redactSecret"), "Account service and IPC should redact secrets from errors/logs.");
   assert(secureStoreSource.includes("safeStorage") && secureStoreSource.includes("aes-256-gcm"), "Secure session store should use OS encryption with a local encrypted fallback.");
   assert(accountIpcSource.includes("account:startDeviceLogin") && accountIpcSource.includes("[Account][IPC]"), "Account IPC should expose logged account operations.");
-  assert(websiteIndexSource.includes('href="/signin"') && websiteIndexSource.includes('href="/signup"') && fs.existsSync(path.join(__dirname, "..", "website", "activate", "index.html")), "Website should include clean Sign In, Sign Up, Account, and Device Activation routes.");
+  // Final URLs (Cloudflare Pages serves signin/index.html at /signin/; /signin is a 308).
+  assert(websiteIndexSource.includes('href="/signin/"') && websiteIndexSource.includes('href="/signup/"') && fs.existsSync(path.join(__dirname, "..", "website", "signin", "index.html")) && fs.existsSync(path.join(__dirname, "..", "website", "activate", "index.html")), "Website should include clean Sign In, Sign Up, Account, and Device Activation routes.");
   assert(websiteSiteSource.includes("normalizeDeviceCode") && websiteSiteSource.includes("getRouteParams"), "Website should safely read and normalize device-code query parameters.");
   assert(backendDeviceSource.includes("hashCode") && backendDeviceSource.includes("createDeviceAuthorizationHandlers"), "Backend helper should hash device codes and expose device authorization handlers.");
   assert(authDocsSource.includes("Supabase Auth") && authDocsSource.includes("ANXOS_ACCOUNT_API_URL"), "Account auth setup documentation should cover provider and environment setup.");
