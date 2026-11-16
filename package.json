@@ -423,6 +423,8 @@
     "release:artifacts:smoke": "node scripts/validate-release-artifacts.js --fixture",
     "release-promotion:smoke": "node scripts/release-promotion-smoke.js",
     "release:consistency:smoke": "node scripts/release-consistency-smoke.js",
+    "agent:package-update:smoke": "node scripts/package-agent-update-smoke.js",
+    "agent:update-manager:smoke": "node scripts/agent-update-manager-smoke.js",
     "website:smoke": "node scripts/website-production-smoke.js && node scripts/website-download-smoke.js && node scripts/website-accessibility-smoke.js && node scripts/website-setup-smoke.js",
     "website:setup:smoke": "node scripts/website-setup-smoke.js",
     "website:a11y:smoke": "node scripts/website-accessibility-smoke.js",

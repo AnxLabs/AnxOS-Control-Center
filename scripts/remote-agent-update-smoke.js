@@ -569,7 +569,11 @@ async function assertPackageManagedRefusal(label, discoveryOutput, expectedSyste
   const calls = [];
   let failure = null;
   try {
+    // With package updates turned off, a package-managed node keeps the old
+    // refusal. The package path itself is covered by
+    // scripts/package-agent-update-smoke.js.
     await updateRemoteAgent("node-key", baseOptions({
+      packageUpdates: false,
       runner: async (profileId, command, options = {}) => {
         calls.push({ command, stdin: options.stdin || null });
         if (command.includes("ExecStart")) return { code: 0, stdout: discoveryOutput, stderr: "" };

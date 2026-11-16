@@ -9,6 +9,7 @@ const { getBundledLocalAgentRuntime, getBundledLocalAgentVersion } = require("./
 const { getNode } = require("./nodeService");
 const { APPLICATION_HOST_NODE_ID } = require("./applicationHostService");
 const diagnostics = require("./diagnosticsService");
+const { updatePackageManagedAgent } = require("./packageAgentUpdateService");
 const { _test: { buildScopeProbeCommand, getAgentProbePorts }, parseProbeTarget, verifySshTarget } = require("./remoteAgentLifecycleService");
 
 // Remote Agent push update: the Desktop is the runtime authority. It stages its
@@ -487,6 +488,41 @@ async function updateRemoteAgent(nodeId, options = {}) {
   const systemUnitFound = Boolean(systemUnit)
     || ["active", "activating", "reloading", "deactivating"].includes(systemActive)
     || ["enabled", "enabled-runtime", "static", "alias", "indirect", "masked", "generated", "linked"].includes(systemEnabled);
+  if (!userUnit && systemUnitFound && options.packageUpdates !== false) {
+    mark("discover", "complete", "The node's Agent is installed from the anxos-agent package (systemd system unit).");
+    // Same steps, package meanings: stage = download and verify the release
+    // package, swap = install it with apt.
+    const discoverIndex = steps.findIndex((entry) => entry.id === "discover");
+    steps.splice(discoverIndex + 1, 0, installerStep("workloads", "Check that no servers run under the Agent"));
+    steps.find((entry) => entry.id === "stage").label = "Download and verify the release package";
+    steps.find((entry) => entry.id === "swap").label = "Back up the Agent state and install the package";
+    steps.find((entry) => entry.id === "verify").label = "Verify the Agent reports the new build";
+    steps.find((entry) => entry.id === "rollback").label = "Reinstall the previous package";
+    return updatePackageManagedAgent({
+      nodeId,
+      profile,
+      run,
+      healthProbe,
+      sleep,
+      verifyAttempts,
+      verifyDelayMs,
+      targetBuild: bundledBuild,
+      installedBuild: nodeAgentBuild,
+      unitName,
+      stamp,
+      mark,
+      fail,
+      record,
+      fetchText: options.fetchText,
+      releaseBaseUrl: options.releaseBaseUrl,
+      allowWithoutRollback: options.allowWithoutRollback === true,
+      isVerified: (probe, build) => Boolean(probe?.connected) && normalizeAgentArtifactVersion(probe?.agentArtifactVersion) === build,
+      finishRecord: () => {
+        record.steps = steps;
+        return writeUpdateRecord(updateDir, record);
+      },
+    }).then((result) => ({ ...result, nodeName: record.nodeName, steps }));
+  }
   if (!userUnit && systemUnitFound) {
     mark("discover", "failed", "The node's Agent is package-managed (systemd system unit).");
     throw fail(
@@ -653,6 +689,7 @@ module.exports = {
     runtimeRootFromEntrypoint,
     shellQuote,
   },
+  getDefaultSshService,
   getRemoteUpdateDirectory,
   updateRemoteAgent,
 };

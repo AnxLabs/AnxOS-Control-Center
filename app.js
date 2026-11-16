@@ -5515,6 +5515,23 @@ function getRemoteAgentUpdateSupport(target = getAgentControlOverviewTarget()) {
   return { supported: true, reason: "ready", nodeId, node, profile, verification };
 }
 
+// Fleet Agent versions against this Desktop's build (nodes:agentUpdateOverview).
+// Text only; each entry's reason comes from the main process.
+async function renderAgentUpdateOverview() {
+  const target = document.querySelector("[data-agent-update-overview]");
+  const nodesApi = getDesktopApiState().api?.nodes;
+  if (!target || typeof nodesApi?.agentUpdateOverview !== "function") return;
+  try {
+    const overview = await nodesApi.agentUpdateOverview();
+    const remote = (overview?.nodes || []).filter((entry) => entry.state !== "local");
+    target.textContent = remote.length
+      ? `This app's Agent build: ${overview.desktopBuild || "unknown"}. ${remote.map((entry) => `${entry.name}: ${entry.installedBuild || "build not reported"} (${entry.reason})`).join(" · ")}`
+      : "No other computers are paired.";
+  } catch (error) {
+    target.textContent = error?.message || "Agent versions are unavailable.";
+  }
+}
+
 function getRemoteAgentUpdateBlockMessage(support = {}) {
   if (support.reason === "platform") return "Automatic Agent updates over SSH are available for Linux nodes only.";
   if (support.reason === "key") return "The node's SSH profile must use key authentication for an unattended Agent update.";
@@ -7326,7 +7343,7 @@ async function runAgentControlAction(action) {
       : "Instances the Agent runs on that node stop while it restarts. Services managed by systemd keep running.",
     confirmLabel: action === "stop" ? "Stop Agent" : "Restart Agent",
   }))) return;
-  const destructive = { stop: ["Stop local Agent?", "Active Agent operations will disconnect."], forceRestart: ["Force restart local Agent?", "The Agent process will be terminated immediately."], repairAgent: ["Repair local Agent?", "Background registration will be reinstalled and the Agent restarted."], stopOldLocalAgentAndRepair: ["Stop Old Local Agent and Repair?", "AnxOS will stop only a verified old AnxOS Local Agent process, recreate local credentials, and repair Windows startup registration."], updateAgent: remoteUpdateSupport.supported ? ["Update the Agent on this node?", "AnxOS will upload this Desktop's bundled Agent runtime to the node over SSH, back up the live runtime, restart the node's Agent, and verify it. Instances running on that node stop during the restart."] : ["Update Local Agent?", "AnxOS will back up Agent configuration, stop the Local Agent, repair the bundled runtime registration, restart it, and verify health."], pairMobileDevice: ["Pair a mobile device to this node?", "The node's Agent credential is replaced with a new one for the phone. This Desktop switches to the new credential automatically; any other device still using the old one loses access until it is re-paired."], uninstallService: ["Uninstall Agent background service?", "Automatic startup will be removed."], resetConfig: ["Reset Agent configuration?", "Current settings will be backed up before defaults are restored."] }[action];
+  const destructive = { stop: ["Stop local Agent?", "Active Agent operations will disconnect."], forceRestart: ["Force restart local Agent?", "The Agent process will be terminated immediately."], repairAgent: ["Repair local Agent?", "Background registration will be reinstalled and the Agent restarted."], stopOldLocalAgentAndRepair: ["Stop Old Local Agent and Repair?", "AnxOS will stop only a verified old AnxOS Local Agent process, recreate local credentials, and repair Windows startup registration."], updateAllAgents: ["Update all Agents?", "AnxOS updates each connected Linux computer's Agent to this Desktop's build over SSH, one at a time. Package installs use the verified release package and roll back if the new Agent doesn't come up. A computer with servers running under its Agent is skipped; Docker containers and separate system services keep running."], updateAgent: remoteUpdateSupport.supported ? ["Update the Agent on this node?", "AnxOS updates the node's Agent to this Desktop's build over SSH: from the verified release package when the Agent is installed as a package, otherwise from the bundled runtime. It backs up, restarts and verifies the Agent, and rolls back if it doesn't come up. Servers running under the Agent stop during the restart; a package install is refused while any run."] : ["Update Local Agent?", "AnxOS will back up Agent configuration, stop the Local Agent, repair the bundled runtime registration, restart it, and verify health."], pairMobileDevice: ["Pair a mobile device to this node?", "The node's Agent credential is replaced with a new one for the phone. This Desktop switches to the new credential automatically; any other device still using the old one loses access until it is re-paired."], uninstallService: ["Uninstall Agent background service?", "Automatic startup will be removed."], resetConfig: ["Reset Agent configuration?", "Current settings will be backed up before defaults are restored."] }[action];
   if (destructive && !remoteLifecycleAction && !(await createSecurityConfirmation({ title: destructive[0], message: destructive[1], confirmLabel: "Continue" }))) return;
   if (action === "startPairingSession" && getAgentPairingTargetPayload().local === true && agentPairingNetworkOptIn?.checked === true) {
     // When the Agent is already reachable, the service writes no opt-in marker
@@ -7485,8 +7502,16 @@ async function runAgentControlAction(action) {
         if (typeof nodesApi?.updateAgent !== "function") throw new Error("Remote Agent update is unavailable in this build.");
         const result = await nodesApi.updateAgent(remoteUpdateSupport.nodeId);
         const nodeName = result?.nodeName || remoteUpdateSupport.node?.displayName || "the node";
+        if (result?.upToDate) {
+          if (agentControlMessage) agentControlMessage.textContent = `${nodeName} already runs ${result.targetBuild}.`;
+          showToast(`${nodeName} is already up to date.`, "info");
+          await refreshNodes();
+          return;
+        }
         if (agentControlMessage) {
-          agentControlMessage.textContent = `Agent updated on ${nodeName}: ${result?.payloadFiles || 0} files published from the bundled runtime${result?.backupDir ? `; the previous runtime is backed up on the node at ${result.backupDir}` : ""}.`;
+          agentControlMessage.textContent = result?.method === "package"
+            ? `Agent on ${nodeName} updated to ${result.targetBuild} from the verified release package${result?.backupPath ? `; its state is backed up on the node at ${result.backupPath}` : ""}.`
+            : `Agent updated on ${nodeName}: ${result?.payloadFiles || 0} files published from the bundled runtime${result?.backupDir ? `; the previous runtime is backed up on the node at ${result.backupDir}` : ""}.`;
         }
         showToast(`Agent updated on ${nodeName}.`, "success");
         await refreshNodes();
@@ -7495,6 +7520,18 @@ async function runAgentControlAction(action) {
         if (result?.updated === false) showToast("Local Agent is already current.", "info");
         else showToast("Local Agent updated and reconnected.", "success");
       }
+    }
+    else if (action === "updateAllAgents") {
+      const nodesApi = getDesktopApiState().api?.nodes;
+      if (typeof nodesApi?.updateAllAgents !== "function") throw new Error("Update All is unavailable in this build.");
+      const summary = await nodesApi.updateAllAgents();
+      const lines = (summary?.results || []).map((entry) => (entry.ok
+        ? `${entry.name}: ${entry.updated ? `updated to ${entry.targetBuild}` : "already up to date"}`
+        : `${entry.name}: ${entry.message}`));
+      if (agentControlMessage) agentControlMessage.textContent = lines.length ? lines.join(" · ") : "Every connected Agent is already up to date or can't be updated from here.";
+      showToast(lines.length ? `Agents updated: ${summary.updated}, not updated: ${summary.failed}.` : "No Agents needed an update.", summary?.ok === false ? "warning" : "success");
+      await refreshNodes();
+      await renderAgentUpdateOverview();
     }
     else if (action === "rotateToken") { await api.pairLocalAgent({ rotate: true, reason: "manual-rotation" }); await api.restart(); }
     else if (action === "copyUrl") { await navigator.clipboard.writeText(getAgentControlOverviewTarget()?.agentUrl || ""); showToast("Agent URL copied.", "success"); }
@@ -46303,6 +46340,8 @@ function setActiveAgentControlSection(section = activeAgentControlSection || "st
       && panel.dataset.compatibilityVisible !== "true";
     panel.hidden = panel.dataset.agentControlSection !== normalized || compatibilityHidden;
   });
+  const updateOverviewPanel = document.querySelector("[data-agent-update-overview]")?.closest("[data-agent-control-section]");
+  if (updateOverviewPanel && !updateOverviewPanel.hidden) renderAgentUpdateOverview();
   agentControlSectionButtons.forEach((button) => {
     const target = button.dataset.agentControlSectionTarget || "status";
     const active = target === requested || (target !== normalized && AGENT_CONTROL_SECTION_ALIASES[target] === normalized && requested === target);

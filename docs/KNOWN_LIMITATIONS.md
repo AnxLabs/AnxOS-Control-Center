@@ -107,6 +107,33 @@ already performed.
   seams, but the flow has not been run on a real Linux host with a genuine
   version-delta swap. Until that live drill runs, the current staging step
   copies the same runtime root into place; a real version delta is unproven.
+- **Updating package-installed Agents from the app (added after Build 212) is
+  not yet proven end to end.**
+  - **What it does:** **Update** and **Update all Agents** in Agent Control now
+    handle Agents installed from the `anxos-agent` .deb:
+    - download the matching release package and the installed build's package
+      for rollback
+    - check both against the release's `SHA256SUMS` and the package's own
+      identity
+    - refuse while servers run under the Agent
+    - back up the Agent state, install with `sudo -n apt-get`, and confirm the
+      new build
+    - reinstall the previous package if the new Agent doesn't come up
+  - **Tested so far:** hermetic tests
+    (`package-agent-update-smoke`, `agent-update-manager-smoke`), plus the
+    preflight and download-and-verify steps against real nodes. A real version
+    change (212 → 213) and a real rollback have not run yet.
+  - **Limits:**
+    - It needs a key-based SSH profile.
+    - If the SSH user needs a password for sudo, it stops after verification
+      and shows the command to run.
+    - It needs a published package for the installed build to roll back to,
+      so pre-212 Agents must be updated once by hand.
+    - Packages are checksum-verified against the release, not signed with a
+      separate key.
+  - **Automatic updates:** off by default. They need an
+    `agent-auto-update.json` file in the config folder with `"enabled": true`;
+    there is no in-app switch yet.
 - **Docker image update has no controlled rollback** (`rollbackSupported:
   false`). Where image data compatibility allows, a rollback is not built or
   exposed; the deferral is a recorded roadmap decision, not a shipped feature.
