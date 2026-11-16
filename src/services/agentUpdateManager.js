@@ -15,7 +15,11 @@ const APPLICATION_HOST_NODE_ID = "application-host";
 const AUTO_UPDATE_FILENAME = "agent-auto-update.json";
 const DEFAULT_AUTO_UPDATE_POLICY = Object.freeze({
   enabled: false,
-  days: [0, 1, 2, 3, 4, 5, 6],
+  // "notify": list available updates and record them; "apply": install them.
+  mode: "notify",
+  // Only these computers may update automatically; none until chosen.
+  nodeIds: Object.freeze([]),
+  days: Object.freeze([0, 1, 2, 3, 4, 5, 6]),
   start: "03:00",
   durationMinutes: 120,
 });
@@ -71,28 +75,112 @@ const NON_STOPPING_CODES = new Set([
   "REMOTE_AGENT_UPDATE_NODE_UNHEALTHY",
 ]);
 
-async function updateAllAgents({ overview, updateAgent, onProgress = () => {} }) {
+// Hooks, all optional:
+//   before(entry)    -> null to go ahead, or { code, message } to skip this
+//                       computer (for example servers are running on it)
+//   shouldContinue() -> false stops before the next computer (automatic
+//                       updates switched off mid-run)
+//   record(entry, outcome) -> called with "running" and with the final outcome
+async function updateAllAgents({ overview, updateAgent, onProgress = () => {}, before = null, shouldContinue = null, record = null }) {
   const targets = overview.nodes.filter((entry) => entry.canUpdate);
   const results = [];
+  const note = async (entry, outcome) => {
+    if (record) await Promise.resolve(record(entry, outcome)).catch(() => {});
+  };
+  let stoppedBy = null;
   for (const entry of targets) {
+    if (shouldContinue && !(await shouldContinue())) {
+      stoppedBy = { code: "AGENT_UPDATE_DISABLED", message: "Not started: automatic updates were turned off." };
+      break;
+    }
+    const skip = before ? await before(entry) : null;
+    if (skip) {
+      const outcome = { nodeId: entry.nodeId, name: entry.name, ok: false, skipped: true, code: skip.code, message: skip.message };
+      results.push(outcome);
+      await note(entry, { status: "skipped", code: skip.code, message: skip.message });
+      onProgress({ nodeId: entry.nodeId, name: entry.name, state: "skipped", code: skip.code });
+      continue;
+    }
     onProgress({ nodeId: entry.nodeId, name: entry.name, state: "running" });
+    await note(entry, { status: "running" });
     try {
       const result = await updateAgent(entry.nodeId);
       results.push({ nodeId: entry.nodeId, name: entry.name, ok: true, updated: result?.updated === true, upToDate: result?.upToDate === true, targetBuild: entry.targetBuild });
+      await note(entry, { status: result?.upToDate ? "up-to-date" : "succeeded", result });
       onProgress({ nodeId: entry.nodeId, name: entry.name, state: "complete" });
     } catch (error) {
       const stops = !NON_STOPPING_CODES.has(error?.code);
       results.push({ nodeId: entry.nodeId, name: entry.name, ok: false, code: error?.code || "AGENT_UPDATE_FAILED", message: error?.message || String(error), manualCommand: error?.details?.manualCommand || null });
+      await note(entry, { status: error?.code === "REMOTE_AGENT_UPDATE_SUDO_REQUIRED" ? "needs-approval" : "failed", error });
       onProgress({ nodeId: entry.nodeId, name: entry.name, state: "failed", code: error?.code || null });
-      if (stops) break;
+      if (stops) {
+        stoppedBy = { code: "AGENT_UPDATE_NOT_STARTED", message: "Not started: an earlier update failed." };
+        break;
+      }
     }
   }
-  const skipped = targets.slice(results.length).map((entry) => ({ nodeId: entry.nodeId, name: entry.name, ok: false, code: "AGENT_UPDATE_NOT_STARTED", message: "Not started: an earlier update failed." }));
+  const skipped = targets.slice(results.length).map((entry) => ({ nodeId: entry.nodeId, name: entry.name, ok: false, code: stoppedBy?.code || "AGENT_UPDATE_NOT_STARTED", message: stoppedBy?.message || "Not started." }));
   return {
     ok: results.every((result) => result.ok) && skipped.length === 0,
     updated: results.filter((result) => result.updated).length,
-    failed: results.filter((result) => !result.ok).length,
+    failed: results.filter((result) => !result.ok && !result.skipped).length,
+    skippedCount: results.filter((result) => result.skipped).length + skipped.length,
     results: [...results, ...skipped],
+  };
+}
+
+// ---------------------------------------------------------------- history
+
+const HISTORY_FILENAME = "agent-update-history.json";
+const HISTORY_LIMIT = 200;
+
+function readUpdateHistory(configDir) {
+  try {
+    const raw = JSON.parse(fs.readFileSync(path.join(configDir, HISTORY_FILENAME), "utf8"));
+    return Array.isArray(raw?.entries) ? raw.entries : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeJsonAtomic(filePath, value) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const temp = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(temp, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
+  fs.renameSync(temp, filePath);
+}
+
+// One entry per attempt, updated in place from "running" to its result.
+function recordUpdateHistory(configDir, entry) {
+  const entries = readUpdateHistory(configDir);
+  const index = entries.findIndex((existing) => existing.id === entry.id);
+  if (index >= 0) entries[index] = { ...entries[index], ...entry };
+  else entries.unshift(entry);
+  writeJsonAtomic(path.join(configDir, HISTORY_FILENAME), { schemaVersion: 1, entries: entries.slice(0, HISTORY_LIMIT) });
+  return entry;
+}
+
+// Turns an update outcome into a history entry. Rollback is reported from
+// what the update itself did, never assumed.
+function historyEntryFor({ id, at, trigger, overviewEntry, outcome }) {
+  const error = outcome.error || null;
+  const rollbackStatus = error?.details?.rollback
+    ? (error.details.rollback.verified ? "rolled-back" : "rollback-failed")
+    : error?.code === "REMOTE_AGENT_UPDATE_ROLLBACK_UNAVAILABLE" ? "unavailable" : null;
+  return {
+    id,
+    at,
+    trigger,
+    nodeId: overviewEntry.nodeId,
+    name: overviewEntry.name,
+    fromBuild: overviewEntry.installedBuild || null,
+    toBuild: overviewEntry.targetBuild || null,
+    status: outcome.status,
+    code: error?.code || outcome.code || null,
+    message: error?.message || outcome.message || null,
+    manualCommand: error?.details?.manualCommand || null,
+    method: outcome.result?.method || null,
+    rollback: rollbackStatus,
   };
 }
 
@@ -107,9 +195,13 @@ function parseClock(value) {
 }
 
 function normalizeAutoUpdatePolicy(raw = {}) {
-  const policy = { ...DEFAULT_AUTO_UPDATE_POLICY };
+  const policy = { ...DEFAULT_AUTO_UPDATE_POLICY, nodeIds: [], days: [...DEFAULT_AUTO_UPDATE_POLICY.days] };
   if (!raw || typeof raw !== "object") return policy;
   policy.enabled = raw.enabled === true;
+  policy.mode = raw.mode === "apply" ? "apply" : "notify";
+  if (Array.isArray(raw.nodeIds)) {
+    policy.nodeIds = [...new Set(raw.nodeIds.map((value) => String(value || "").trim()).filter((value) => value && value !== APPLICATION_HOST_NODE_ID && value.length <= 128))].slice(0, 50);
+  }
   if (Array.isArray(raw.days)) {
     const days = [...new Set(raw.days.map(Number).filter((day) => Number.isInteger(day) && day >= 0 && day <= 6))].sort();
     if (days.length) policy.days = days;
@@ -126,6 +218,14 @@ function readAutoUpdatePolicy(configDir) {
   } catch {
     return normalizeAutoUpdatePolicy(null);
   }
+}
+
+// The only writer of agent-auto-update.json. What is saved is exactly what the
+// scheduler reads on its next tick, so turning it off takes effect at once.
+function writeAutoUpdatePolicy(configDir, raw) {
+  const policy = normalizeAutoUpdatePolicy(raw);
+  writeJsonAtomic(path.join(configDir, AUTO_UPDATE_FILENAME), policy);
+  return policy;
 }
 
 // Local wall-clock window. A window may cross midnight; it belongs to the day
@@ -149,25 +249,48 @@ function windowKey(policy, now) {
   return `${day.getFullYear()}-${day.getMonth() + 1}-${day.getDate()}`;
 }
 
-// One tick: run at most once per window, only when enabled and inside it.
-async function runAutoUpdateTick({ policy, now = new Date(), state, getOverview, updateAgent }) {
+// One tick: run at most once per window, only when enabled and inside it, and
+// only for the computers the owner allowed. "notify" records what is
+// available; "apply" installs it through updateAllAgents with the same
+// checks as Update All, plus a re-read of the policy before every computer.
+async function runAutoUpdateTick({ policy, now = new Date(), state, getOverview, updateAgent, before = null, shouldContinue = null, record = null, notify = null }) {
   if (!policy.enabled) return { ran: false, reason: "disabled" };
   if (!isWithinMaintenanceWindow(policy, now)) return { ran: false, reason: "outside-window" };
   const key = windowKey(policy, now);
   if (state.lastWindowKey === key) return { ran: false, reason: "already-ran" };
   state.lastWindowKey = key;
   const overview = await getOverview();
-  if (!overview.updatable) return { ran: true, reason: "nothing-to-update", result: null };
-  return { ran: true, reason: "updated", result: await updateAllAgents({ overview, updateAgent }) };
+  const allowed = new Set(policy.nodeIds);
+  const eligible = (Array.isArray(overview?.nodes) ? overview.nodes : []).filter((entry) => entry.canUpdate && allowed.has(entry.nodeId));
+  if (!eligible.length) return { ran: true, reason: "nothing-to-update", result: null };
+  if (policy.mode !== "apply") {
+    for (const entry of eligible) if (notify) await Promise.resolve(notify(entry)).catch(() => {});
+    return { ran: true, reason: "notified", notified: eligible.map((entry) => entry.nodeId) };
+  }
+  return { ran: true, reason: "updated", result: await updateAllAgents({ overview: { ...overview, nodes: eligible }, updateAgent, before, shouldContinue, record }) };
 }
 
-function startAgentAutoUpdateScheduler({ configDir, getOverview, updateAgent, log = () => {}, intervalMs = AUTO_UPDATE_TICK_MS }) {
+function startAgentAutoUpdateScheduler({ configDir, getOverview, updateAgent, before = null, record = null, notify = null, log = () => {}, intervalMs = AUTO_UPDATE_TICK_MS }) {
   const state = { lastWindowKey: null, running: false };
   const tick = async () => {
     if (state.running) return;
     state.running = true;
     try {
-      const outcome = await runAutoUpdateTick({ policy: readAutoUpdatePolicy(configDir), state, getOverview, updateAgent });
+      const policy = readAutoUpdatePolicy(configDir);
+      const outcome = await runAutoUpdateTick({
+        policy,
+        state,
+        getOverview,
+        updateAgent,
+        before,
+        record,
+        notify,
+        // Switching automatic updates off stops the run before the next computer.
+        shouldContinue: () => {
+          const current = readAutoUpdatePolicy(configDir);
+          return current.enabled && current.mode === "apply";
+        },
+      });
       if (outcome.ran) log(outcome);
     } catch (error) {
       log({ ran: false, reason: "error", message: error?.message || String(error) });
@@ -182,6 +305,11 @@ function startAgentAutoUpdateScheduler({ configDir, getOverview, updateAgent, lo
 
 module.exports = {
   AUTO_UPDATE_FILENAME,
+  HISTORY_FILENAME,
+  historyEntryFor,
+  readUpdateHistory,
+  recordUpdateHistory,
+  writeAutoUpdatePolicy,
   DEFAULT_AUTO_UPDATE_POLICY,
   classifyNodeAgentUpdate,
   getAgentUpdateOverview,

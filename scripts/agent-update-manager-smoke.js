@@ -10,6 +10,12 @@
 //   M6 tick: disabled / outside / once per window / next window again
 //   M7 a window on the DST fall-back day (America/Denver) behaves and ends
 //   M8 the scheduler with no policy file never updates anything
+//   M9 notify mode records available updates and installs nothing; only
+//      the computers the owner chose are considered
+//   M10 running servers skip a computer; switching off stops before the next
+//   M11 history: one entry per attempt, updated in place, rollback as reported
+//   M12 the saved policy is what the scheduler reads; turning it off mid-run
+//       stops at the next computer
 process.env.TZ = "America/Denver";
 const assert = require("assert");
 const fs = require("fs");
@@ -98,7 +104,8 @@ const keyProfile = { id: "k", authType: "privateKey" };
     assert.strictEqual(manager.readAutoUpdatePolicy(dir).enabled, false, "only literal true enables");
     fs.writeFileSync(path.join(dir, manager.AUTO_UPDATE_FILENAME), JSON.stringify({ enabled: true, days: [6, 9, 0], start: "25:00", durationMinutes: 5 }));
     const bounded = manager.readAutoUpdatePolicy(dir);
-    assert.deepStrictEqual(bounded, { enabled: true, days: [0, 6], start: "03:00", durationMinutes: 120 });
+    assert.deepStrictEqual(bounded, { enabled: true, mode: "notify", nodeIds: [], days: [0, 6], start: "03:00", durationMinutes: 120 });
+    assert.deepStrictEqual(manager.normalizeAutoUpdatePolicy({ mode: "apply", nodeIds: ["a", "a", "application-host", ""] }).nodeIds, ["a"], "computers deduplicated; This PC is never auto-updated here");
     fs.rmSync(dir, { recursive: true, force: true });
     assert.strictEqual(manager.DEFAULT_AUTO_UPDATE_POLICY.enabled, false);
     console.log("  ok M4 policy defaults");
@@ -118,7 +125,7 @@ const keyProfile = { id: "k", authType: "privateKey" };
 
   // M6
   {
-    const policy = manager.normalizeAutoUpdatePolicy({ enabled: true, start: "03:00", durationMinutes: 60 });
+    const policy = manager.normalizeAutoUpdatePolicy({ enabled: true, mode: "apply", nodeIds: ["a", "c"], start: "03:00", durationMinutes: 60 });
     const state = {};
     let runs = 0;
     const deps = (now) => ({ policy, now, state, getOverview: async () => overview, updateAgent: async () => { runs += 1; return { updated: true }; } });
@@ -159,7 +166,94 @@ const keyProfile = { id: "k", authType: "privateKey" };
     console.log("  ok M8 scheduler is off without a policy");
   }
 
-  console.log("Agent update manager smoke passed (8 cases).");
+  // M9
+  {
+    const notified = [];
+    let installs = 0;
+    const policy = manager.normalizeAutoUpdatePolicy({ enabled: true, mode: "notify", nodeIds: ["a"], start: "03:00", durationMinutes: 60 });
+    const outcome = await manager.runAutoUpdateTick({ policy, now: new Date(2026, 10, 16, 3, 10), state: {}, getOverview: async () => overview, updateAgent: async () => { installs += 1; }, notify: (entry) => notified.push(entry.nodeId) });
+    assert.strictEqual(outcome.reason, "notified");
+    assert.deepStrictEqual(notified, ["a"], "only the chosen computer, and c (not chosen) is left out");
+    assert.strictEqual(installs, 0, "notify-only installs nothing");
+    const none = await manager.runAutoUpdateTick({ policy: { ...policy, nodeIds: [] }, now: new Date(2026, 10, 16, 3, 10), state: {}, getOverview: async () => overview, updateAgent: async () => { installs += 1; } });
+    assert.strictEqual(none.reason, "nothing-to-update", "no chosen computers, nothing happens");
+    console.log("  ok M9 notify-only and chosen computers");
+  }
+
+  // M10
+  {
+    const tried = [];
+    const skipped = await manager.updateAllAgents({
+      overview,
+      updateAgent: async (nodeId) => { tried.push(nodeId); return { updated: true }; },
+      before: async (entry) => (entry.nodeId === "a" ? { code: "REMOTE_AGENT_UPDATE_SERVERS_RUNNING", message: "1 server is running on a" } : null),
+    });
+    assert.deepStrictEqual(tried, ["c"], "a computer with running servers is skipped, the next is updated");
+    assert.strictEqual(skipped.skippedCount, 1);
+    assert.strictEqual(skipped.failed, 0, "a skip is not a failure");
+    let allow = true;
+    const stopped = await manager.updateAllAgents({
+      overview,
+      updateAgent: async (nodeId) => { allow = false; return { updated: true, nodeId }; },
+      shouldContinue: () => allow,
+    });
+    assert.strictEqual(stopped.updated, 1);
+    assert.strictEqual(stopped.results[1].code, "AGENT_UPDATE_DISABLED", "turned off mid-run: the next computer is not started");
+    console.log("  ok M10 running servers and switching off");
+  }
+
+  // M11
+  {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "anxos-agent-update-history-"));
+    const entry = { nodeId: "a", name: "a", installedBuild: "2.0-build212", targetBuild: DESKTOP };
+    manager.recordUpdateHistory(dir, manager.historyEntryFor({ id: "1", at: "t", trigger: "manual", overviewEntry: entry, outcome: { status: "running" } }));
+    const rolledBack = Object.assign(new Error("did not come up"), { code: "REMOTE_AGENT_UPDATE_VERIFY_FAILED", details: { rollback: { verified: true } } });
+    manager.recordUpdateHistory(dir, manager.historyEntryFor({ id: "1", at: "t", trigger: "manual", overviewEntry: entry, outcome: { status: "failed", error: rolledBack } }));
+    let history = manager.readUpdateHistory(dir);
+    assert.strictEqual(history.length, 1, "the running entry is updated in place");
+    assert.deepStrictEqual([history[0].status, history[0].rollback, history[0].fromBuild, history[0].toBuild], ["failed", "rolled-back", "2.0-build212", DESKTOP]);
+    const sudo = Object.assign(new Error("needs sudo"), { code: "REMOTE_AGENT_UPDATE_SUDO_REQUIRED", details: { manualCommand: "sudo apt-get install /x.deb" } });
+    manager.recordUpdateHistory(dir, manager.historyEntryFor({ id: "2", at: "t", trigger: "automatic", overviewEntry: entry, outcome: { status: "needs-approval", error: sudo } }));
+    const noRollback = Object.assign(new Error("no package"), { code: "REMOTE_AGENT_UPDATE_ROLLBACK_UNAVAILABLE" });
+    manager.recordUpdateHistory(dir, manager.historyEntryFor({ id: "3", at: "t", trigger: "update-all", overviewEntry: entry, outcome: { status: "failed", error: noRollback } }));
+    history = manager.readUpdateHistory(dir);
+    assert.deepStrictEqual(history.map((item) => item.id), ["3", "2", "1"], "newest first");
+    assert.strictEqual(history[1].manualCommand, "sudo apt-get install /x.deb");
+    assert.strictEqual(history[0].rollback, "unavailable");
+    for (let index = 0; index < 210; index += 1) manager.recordUpdateHistory(dir, { id: `bulk-${index}`, status: "skipped" });
+    assert.strictEqual(manager.readUpdateHistory(dir).length, 200, "history is capped");
+    fs.rmSync(dir, { recursive: true, force: true });
+    console.log("  ok M11 history");
+  }
+
+  // M12
+  {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "anxos-agent-auto-update-live-"));
+    const startHour = `${String(new Date().getHours()).padStart(2, "0")}:00`;
+    const saved = manager.writeAutoUpdatePolicy(dir, { enabled: true, mode: "apply", nodeIds: ["a", "c"], days: [0, 1, 2, 3, 4, 5, 6], start: startHour, durationMinutes: 120 });
+    assert.deepStrictEqual(manager.readAutoUpdatePolicy(dir), saved, "what is saved is what is read");
+    const updated = [];
+    let scheduler = null;
+    scheduler = manager.startAgentAutoUpdateScheduler({
+      configDir: dir,
+      getOverview: async () => overview,
+      updateAgent: async (nodeId) => {
+        updated.push(nodeId);
+        // The owner turns automatic updates off while the first computer updates.
+        manager.writeAutoUpdatePolicy(dir, { ...saved, enabled: false });
+        return { updated: true };
+      },
+      intervalMs: 60000,
+    });
+    await scheduler.tick();
+    assert.deepStrictEqual(updated, ["a"], "switching off stopped the run before c");
+    console.log("  ok M12 saved policy controls the scheduler, and off stops at once");
+    scheduler.stop();
+    assert.strictEqual(manager.readAutoUpdatePolicy(dir).enabled, false);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+
+  console.log("Agent update manager smoke passed (12 cases).");
 })().catch((error) => {
   console.error(error);
   process.exitCode = 1;

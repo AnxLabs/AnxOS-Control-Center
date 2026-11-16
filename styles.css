@@ -22355,3 +22355,54 @@ body.create-server-window .page[data-page="marketplace"] .page-introduction {
 .instances-table-panel[data-server-fleet] .docker-actions {
   flex-wrap: wrap;
 }
+
+/* Agent Control › Updates › Automatic Agent updates (Build 213-C). */
+.agent-auto-update {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(182, 108, 255, 0.18);
+}
+
+.agent-auto-update h3 {
+  margin: 0;
+}
+
+.agent-auto-update fieldset {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.agent-auto-update fieldset legend {
+  width: 100%;
+  margin-bottom: 6px;
+}
+
+.agent-auto-update,
+.agent-auto-update > *,
+[data-agent-update-overview] {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.agent-auto-update .docker-check-option span {
+  white-space: normal;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+[data-agent-update-history] .docker-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+[data-agent-update-history] .docker-table {
+  min-width: 0;
+  width: 100%;
+  table-layout: auto;
+}

@@ -116,6 +116,52 @@ async function main() {
       console.log(`PASS B1 All computers lists ${labServers.length} Lab server(s) while the offline VPS is selected, and Open switches to Lab`);
     });
 
+    // C1
+    await check("C1", async () => {
+      const policyFile = path.join(qa.configDir, "agent-auto-update.json");
+      const historyFile = path.join(qa.configDir, "agent-update-history.json");
+      assert.ok(!fs.existsSync(policyFile), "a new profile has no automatic-update policy (off by default)");
+      await page.evaluate(async () => { await selectNode("lab"); window.showPage("agent-control"); setActiveAgentControlSection("updates"); });
+      await waitFor(page, () => /^Off\./.test(document.querySelector("[data-agent-auto-update-status]")?.textContent || ""), null, "the Off status", 30000);
+      await waitFor(page, () => document.querySelectorAll('[data-agent-auto-update-computers] input[value="lab"]').length === 1, null, "Lab in the computer list", 30000);
+      await page.evaluate(() => {
+        const set = (selector, value) => {
+          const input = document.querySelector(selector);
+          if (input.type === "checkbox") input.checked = value; else input.value = value;
+          input.dispatchEvent(new Event("change", { bubbles: true }));
+        };
+        set('[data-agent-auto-update-field="enabled"]', true);
+        set('[data-agent-auto-update-field="mode"]', "apply");
+        set('[data-agent-auto-update-field="start"]', "04:30");
+        set('[data-agent-auto-update-field="durationMinutes"]', "180");
+        set('[data-agent-auto-update-computers] input[value="lab"]', true);
+        set('[data-agent-auto-update-days] input[value="0"]', false);
+      });
+      await page.click('[data-agent-auto-update-action="save"]');
+      await waitFor(page, () => /^On: installs eligible updates/.test(document.querySelector("[data-agent-auto-update-status]")?.textContent || ""), null, "the On status", 15000);
+      const saved = JSON.parse(fs.readFileSync(policyFile, "utf8"));
+      assert.deepStrictEqual(saved, { enabled: true, mode: "apply", nodeIds: ["lab"], days: [1, 2, 3, 4, 5, 6], start: "04:30", durationMinutes: 180 }, `the file holds what was chosen (${JSON.stringify(saved)})`);
+      await shot(page, "c1-auto-update-on");
+
+      await page.click('[data-agent-auto-update-action="off"]');
+      await waitFor(page, () => /^Off\./.test(document.querySelector("[data-agent-auto-update-status]")?.textContent || ""), null, "Off after Turn off now", 15000);
+      const off = JSON.parse(fs.readFileSync(policyFile, "utf8"));
+      assert.strictEqual(off.enabled, false, "Turn off now switches it off in the file");
+      assert.deepStrictEqual(off.nodeIds, ["lab"], "other choices are kept");
+
+      // A manual update of Lab while its server runs is refused before any SSH
+      // work, and the attempt is in the history.
+      const refused = await page.evaluate(() => window.anx.nodes.updateAgent("lab").then(() => null, (error) => error?.message || "error"));
+      assert.ok(refused && /running/.test(refused), `the update is refused while a server runs (${refused})`);
+      const history = JSON.parse(fs.readFileSync(historyFile, "utf8")).entries;
+      assert.strictEqual(history[0].status, "skipped");
+      assert.strictEqual(history[0].code, "REMOTE_AGENT_UPDATE_SERVERS_RUNNING");
+      await page.evaluate(() => window.AnxAgentAutoUpdate.load());
+      await waitFor(page, () => [...document.querySelectorAll("[data-agent-update-history-row]")].some((row) => row.textContent.includes("Skipped")), null, "the Skipped history row", 15000);
+      await shot(page, "c1-auto-update-history");
+      console.log("PASS C1 the toggle saves agent-auto-update.json exactly, Turn off now switches it off, and a refused update is in the history");
+    });
+
     const unexpected = errors.filter((message) => !/ResizeObserver loop/.test(message));
     if (unexpected.length) failures.push(`renderer errors: ${unexpected.join(" | ")}`);
     if (failures.length) throw new Error(`${failures.length} check(s) failed:\n  ${failures.join("\n  ")}`);

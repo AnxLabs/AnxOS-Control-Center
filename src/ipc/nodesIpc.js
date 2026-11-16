@@ -19,7 +19,8 @@ const {
 } = require("../services/nodeService");
 const { restorePersistedActiveNode, setActiveNode } = require("../services/activeNodeSelectionService");
 const { getDefaultSshService, updateRemoteAgent } = require("../services/remoteAgentUpdateService");
-const { getAgentUpdateOverview, startAgentAutoUpdateScheduler, updateAllAgents } = require("../services/agentUpdateManager");
+const { getAgentUpdateOverview, historyEntryFor, readAutoUpdatePolicy, readUpdateHistory, recordUpdateHistory, startAgentAutoUpdateScheduler, updateAllAgents, writeAutoUpdatePolicy } = require("../services/agentUpdateManager");
+const { listInstances: listInstancesForNode } = require("../services/serviceRouter");
 const { readDesktopBundledAgentArtifactVersion } = require("../shared/agentBuildIdentity");
 const path = require("path");
 const { getRemoteAgentLifecycleService } = require("../services/remoteAgentLifecycleService");
@@ -174,18 +175,61 @@ function registerNodesIpc() {
     audit({ action: "node.pair-agent", target: paired.node?.id || paired.selectedNodeId || "paired-node" });
     return setActiveNode(paired.selectedNodeId, { reason: "agent-pairing", state: paired });
   }));
-  // Remote Agent push update: the Desktop stages its bundled Agent runtime on a
-  // Linux node over SSH, backs up and swaps the live runtime, restarts the
-  // managed systemd user unit, and verifies the new routes. Owner-only because
-  // it writes to the node and the Agent restart stops that node's instances.
+  // Remote Agent update (one computer). The Desktop updates a Linux computer's
+  // Agent to its own bundled build over SSH: from the verified release package
+  // when the Agent is package-installed, otherwise by pushing the bundled
+  // runtime. Owner-only because it restarts that computer's Agent. Every
+  // attempt is recorded in the Agent update history.
+  const agentUpdateConfigDir = () => path.dirname(getNodesPath());
+  const agentUpdateOverview = () => getAgentUpdateOverview({
+    listNodes: async () => (await listNodes())?.nodes || [],
+    desktopBuild: readDesktopBundledAgentArtifactVersion(),
+    getProfileForNode: (nodeId) => getDefaultSshService().getProfileForNode(nodeId),
+  });
+  // Servers the Agent runs stop when it restarts, whatever the update method,
+  // so every update path asks first and skips a computer with running servers.
+  const RUNNING_STATES = new Set(["running", "starting", "restarting", "reloading", "stopping"]);
+  const skipIfServersRunning = async (entry) => {
+    try {
+      const listed = await listInstancesForNode({ nodeId: entry.nodeId });
+      const instances = Array.isArray(listed) ? listed : Array.isArray(listed?.instances) ? listed.instances : [];
+      const running = instances.filter((instance) => RUNNING_STATES.has(String(instance?.state || "").toLowerCase()));
+      if (running.length) {
+        return { code: "REMOTE_AGENT_UPDATE_SERVERS_RUNNING", message: `${running.length} server${running.length === 1 ? " is" : "s are"} running on ${entry.name} (${running.map((instance) => instance.displayName || instance.id).slice(0, 3).join(", ")}). Stop ${running.length === 1 ? "it" : "them"} first; updating restarts the Agent.` };
+      }
+      return null;
+    } catch (error) {
+      return { code: "REMOTE_AGENT_UPDATE_WORKLOADS_UNKNOWN", message: `Could not check ${entry.name}'s servers (${error?.message || "unknown error"}), so it was not updated.` };
+    }
+  };
+  const historyRecorder = (trigger) => {
+    const ids = new Map();
+    return (entry, outcome) => {
+      if (!ids.has(entry.nodeId)) ids.set(entry.nodeId, { id: `${Date.now()}-${entry.nodeId}`, at: new Date().toISOString() });
+      const { id, at } = ids.get(entry.nodeId);
+      recordUpdateHistory(agentUpdateConfigDir(), historyEntryFor({ id, at, trigger, overviewEntry: entry, outcome }));
+    };
+  };
   ipcMain.handle("nodes:updateAgent", async (_, payload = {}) => invokeNodeOperation(async () => {
     const context = requireNodeContext(payload, "node agent update");
     requireLocalOwnerAuthenticated("nodes:update-agent", "Unlock AnxOS to update a node Agent.");
     requirePermission("settings:write", context.nodeId);
     audit({ action: "node.update-agent", target: context.nodeId });
+    const overview = await agentUpdateOverview().catch(() => null);
+    const entry = overview?.nodes?.find((candidate) => candidate.nodeId === context.nodeId) || { nodeId: context.nodeId, name: context.nodeId, installedBuild: null, targetBuild: readDesktopBundledAgentArtifactVersion() };
+    const record = historyRecorder("manual");
+    const skip = await skipIfServersRunning(entry);
+    if (skip) {
+      record(entry, { status: "skipped", code: skip.code, message: skip.message });
+      throw Object.assign(new Error(skip.message), { code: skip.code });
+    }
+    record(entry, { status: "running" });
     try {
-      return await updateRemoteAgent(context.nodeId);
+      const result = await updateRemoteAgent(context.nodeId);
+      record(entry, { status: result?.upToDate ? "up-to-date" : "succeeded", result });
+      return result;
     } catch (error) {
+      record(entry, { status: error?.code === "REMOTE_AGENT_UPDATE_SUDO_REQUIRED" ? "needs-approval" : "failed", error });
       // The node reports a newer Agent than this Desktop bundles; the service
       // refuses the downgrade, so point the user at the supported path.
       if (error?.code === "AGENT_DOWNGRADE_REFUSED") {
@@ -194,13 +238,8 @@ function registerNodesIpc() {
       throw error;
     }
   }));
-  // Fleet Agent versions against this Desktop's bundled build, and Update All.
-  // Update All runs nodes:updateAgent's service one node at a time.
-  const agentUpdateOverview = () => getAgentUpdateOverview({
-    listNodes: async () => (await listNodes())?.nodes || [],
-    desktopBuild: readDesktopBundledAgentArtifactVersion(),
-    getProfileForNode: (nodeId) => getDefaultSshService().getProfileForNode(nodeId),
-  });
+  // Fleet Agent versions against this Desktop's bundled build, and Update All
+  // (one computer at a time, same checks and history as a single update).
   ipcMain.handle("nodes:agentUpdateOverview", async () => invokeNodeOperation(async () => {
     requireLocalOwnerAuthenticated("nodes:agent-update-overview", "Unlock AnxOS to see Agent versions.");
     return agentUpdateOverview();
@@ -210,18 +249,33 @@ function registerNodesIpc() {
     requirePermission("settings:write", "agent-updates");
     audit({ action: "node.update-all-agents", target: "fleet" });
     const overview = await agentUpdateOverview();
-    return updateAllAgents({ overview, updateAgent: (nodeId) => updateRemoteAgent(nodeId) });
+    return updateAllAgents({ overview, updateAgent: (nodeId) => updateRemoteAgent(nodeId), before: skipIfServersRunning, record: historyRecorder("update-all") });
   }));
-  // Automatic Agent updates: off unless agent-auto-update.json in the config
-  // folder enables them; the scheduler then updates inside the maintenance
-  // window, and updateRemoteAgent still refuses nodes with running servers.
+  // Automatic Agent updates: settings and history. Off unless the owner turns
+  // them on; agent-auto-update.json is the one place the choice is stored and
+  // the scheduler reads it on every tick.
+  ipcMain.handle("nodes:getAgentAutoUpdate", async () => invokeNodeOperation(async () => {
+    requireLocalOwnerAuthenticated("nodes:agent-auto-update", "Unlock AnxOS to see automatic Agent updates.");
+    return { policy: readAutoUpdatePolicy(agentUpdateConfigDir()), history: readUpdateHistory(agentUpdateConfigDir()).slice(0, 50) };
+  }));
+  ipcMain.handle("nodes:setAgentAutoUpdate", async (_, payload = {}) => invokeNodeOperation(async () => {
+    requireLocalOwnerAuthenticated("nodes:agent-auto-update", "Unlock AnxOS to change automatic Agent updates.");
+    requirePermission("settings:write", "agent-updates");
+    const policy = writeAutoUpdatePolicy(agentUpdateConfigDir(), payload.policy || {});
+    audit({ action: "node.agent-auto-update.set", target: "fleet", enabled: policy.enabled, mode: policy.mode, computers: policy.nodeIds.length });
+    return { policy, history: readUpdateHistory(agentUpdateConfigDir()).slice(0, 50) };
+  }));
+  const autoRecord = historyRecorder("automatic");
   startAgentAutoUpdateScheduler({
-    configDir: path.dirname(getNodesPath()),
+    configDir: agentUpdateConfigDir(),
     getOverview: agentUpdateOverview,
     updateAgent: (nodeId) => {
       audit({ action: "node.auto-update-agent", target: nodeId });
       return updateRemoteAgent(nodeId);
     },
+    before: skipIfServersRunning,
+    record: autoRecord,
+    notify: (entry) => autoRecord(entry, { status: "available", message: `Update ${entry.installedBuild} → ${entry.targetBuild} is ready. Automatic updates are set to notify only.` }),
     log: (outcome) => audit({ action: "node.auto-update-agents", target: "fleet", outcome: outcome.reason }),
   });
 

@@ -4583,6 +4583,29 @@
                 <button class="inline-action" type="button" data-agent-control-action="updateAllAgents">Update all Agents</button>
               </div>
               <p class="platform-note" data-agent-update-overview aria-live="polite"></p>
+              <div class="agent-auto-update" data-agent-auto-update>
+                <div class="settings-section__header">
+                  <div>
+                    <h3>Automatic Agent updates</h3>
+                    <p class="platform-note" data-agent-auto-update-status aria-live="polite">Loading…</p>
+                  </div>
+                </div>
+                <div class="settings-grid">
+                  <label class="settings-check settings-check--toggle"><input type="checkbox" data-agent-auto-update-field="enabled"><span>Update Agents automatically</span></label>
+                  <label class="settings-field"><span>When an update is ready</span><select data-agent-auto-update-field="mode"><option value="notify">Tell me, don't install</option><option value="apply">Install it in the maintenance window</option></select></label>
+                  <label class="settings-field"><span>Window starts at</span><input type="time" step="900" data-agent-auto-update-field="start"></label>
+                  <label class="settings-field"><span>Window length</span><select data-agent-auto-update-field="durationMinutes"><option value="60">1 hour</option><option value="120">2 hours</option><option value="180">3 hours</option><option value="240">4 hours</option><option value="360">6 hours</option></select></label>
+                  <fieldset class="settings-field settings-field--wide agent-auto-update-days" data-agent-auto-update-days><legend>Days</legend></fieldset>
+                  <fieldset class="settings-field settings-field--wide agent-auto-update-computers" data-agent-auto-update-computers><legend>Computers that may update automatically</legend></fieldset>
+                </div>
+                <p class="platform-note">Updates never run while servers are running on that computer, and never when the computer's sudo needs a password; those are recorded below for you to finish.</p>
+                <div class="settings-actions">
+                  <button class="primary-button" type="button" data-agent-auto-update-action="save">Save</button>
+                  <button class="inline-action" type="button" data-agent-auto-update-action="off">Turn off now</button>
+                </div>
+                <h3>Update history</h3>
+                <div data-agent-update-history aria-live="polite"></div>
+              </div>
             </section>
             <section class="settings-section agent-connection-section" data-agent-control-section="connection">
               <div class="settings-section__header">
@@ -5977,6 +6000,7 @@
     <script src="src/renderer/playersPanel.js"></script>
     <script src="src/renderer/serversList.js"></script>
     <script src="src/renderer/serverFleet.js"></script>
+    <script src="src/renderer/agentAutoUpdate.js"></script>
     <script src="src/renderer/dockerWorkspace.js"></script>
     <script src="src/renderer/filesDrop.js"></script>
     <script src="src/renderer/dropNavigationGuard.js"></script>

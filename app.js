@@ -5530,6 +5530,7 @@ async function renderAgentUpdateOverview() {
   } catch (error) {
     target.textContent = error?.message || "Agent versions are unavailable.";
   }
+  window.AnxAgentAutoUpdate?.load();
 }
 
 function getRemoteAgentUpdateBlockMessage(support = {}) {
