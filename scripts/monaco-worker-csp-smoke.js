@@ -131,6 +131,10 @@ async function dismissFirstRunOverlays(window) {
       await useDevice.evaluate((element) => element.click());
       await window.locator("[data-local-setup-gate]").waitFor({ state: "hidden", timeout: ACTION_TIMEOUT_MS });
       dismissed.push("local-setup-gate");
+      // Leaving the setup gate schedules the welcome ~350 ms later
+      // (maybeOpenOnboardingWelcome); wait past that before the next pass, or
+      // the loop ends first and the late welcome intercepts the next click.
+      await window.waitForTimeout(800);
       continue;
     }
     const dismissUpdate = window.locator('[data-update-modal] [data-update-action="dismiss"]').first();
