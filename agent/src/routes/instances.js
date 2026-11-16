@@ -24,6 +24,7 @@ const {
   instanceFileExists,
   listInstanceFiles,
   listInstances,
+  openInstanceFileDownload,
   readInstanceFile,
   readLogs,
   readMinecraftProperties,
@@ -387,6 +388,21 @@ async function handleInstances(request, url) {
     const filesId = getInstanceIdFromPath(url.pathname, "/files");
     if (request.method === "GET" && filesId) {
       return result(200, await listInstanceFiles(filesId, url.searchParams.get("path") || "."));
+    }
+
+    // The exact bytes of one server file (Build 213). Older Agents answer this
+    // path with NOT_FOUND, which the desktop reports as "update the Agent".
+    const fileDownloadId = getInstanceIdFromPath(url.pathname, "/file/download");
+    if (request.method === "GET" && fileDownloadId) {
+      const download = await openInstanceFileDownload(fileDownloadId, url.searchParams.get("path") || ".");
+      return {
+        statusCode: 200,
+        stream: download.stream,
+        headers: {
+          "Content-Type": "application/octet-stream",
+          "Content-Length": String(download.size),
+        },
+      };
     }
 
     const fileId = getInstanceIdFromPath(url.pathname, "/file");

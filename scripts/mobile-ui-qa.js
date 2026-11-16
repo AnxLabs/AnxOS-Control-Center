@@ -18,7 +18,8 @@
 //   M5  Console: a command reaches the server and its answer streams in.
 //   M6  Settings: an invalid value is refused; a valid one is saved on the
 //       Agent; a stale save is refused and the newer value kept.
-//   M7  Files: a binary upload arrives byte for byte.
+//   M7  Files: a binary upload arrives byte for byte; Build 213: it is not
+//       offered as text and its download returns the same bytes.
 //   M8  Add-ons: search, plan with its dependency, approved install.
 //   M9  Backups: Back up now; Restore shows the preview and Cancel changes
 //       nothing.
@@ -329,7 +330,23 @@ async function main() {
     const uploaded = path.join(serverData, "phone-upload.jar");
     await until(() => fs.existsSync(uploaded) && fs.readFileSync(uploaded).equals(binary), "uploaded bytes on disk");
     await shot(phone, "08-phone-files");
-    pass("M7", `binary upload (${binary.length} bytes) is byte for byte identical on the server's disk`);
+    // Build 213: the same file is not offered as text, and its Download link
+    // brings back the exact bytes from the real Agent.
+    await phone.locator(".row__main", { hasText: "phone-upload.jar" }).click();
+    await waitFor(phone, () => /isn't text/.test(document.querySelector(".sheet")?.textContent || ""), null, "binary file sheet");
+    assert.strictEqual(await phone.locator(".sheet textarea").count(), 0, "a binary file never opens in the text editor");
+    const downloadHref = await phone.locator(".sheet a", { hasText: "Download" }).getAttribute("href");
+    const downloadedBase64 = await phone.evaluate(async (url) => {
+      const response = await fetch(url, { credentials: "same-origin" });
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      let text = "";
+      for (let index = 0; index < bytes.length; index += 0x8000) text += String.fromCharCode.apply(null, bytes.subarray(index, index + 0x8000));
+      return btoa(text);
+    }, downloadHref);
+    assert.ok(Buffer.from(downloadedBase64, "base64").equals(binary), "the phone downloads the exact bytes");
+    await shot(phone, "08b-phone-binary-file");
+    await phone.locator(".sheet").getByRole("button", { name: "Close" }).click();
+    pass("M7", `binary upload (${binary.length} bytes) is byte for byte identical on the server's disk; the phone shows it as not text and downloads the same bytes`);
 
     // M8
     await phone.evaluate((id) => { location.hash = `#/server/ovh/${id}/mods`; }, SERVER_ID);

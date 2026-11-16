@@ -193,6 +193,7 @@ function createMobileApi({ services, security, now = () => Date.now() } = {}) {
       console: can("instance:write"),
       settings: can("instance:write"),
       files: can("files:write"),
+      filesDownload: can("files:read"),
       addons: can("files:write"),
       backupsCreate: can("backups:write"),
       backupsVerify: can("backups:verify"),
@@ -453,7 +454,29 @@ function createMobileApi({ services, security, now = () => Date.now() } = {}) {
   });
   route("GET", `${serverPath}/file`, "instance:read", async (ctx) => {
     const result = await services.serviceRouter().readInstanceFile(ctx.params.instanceId, relativePath(ctx.query.get("path")), scoped(ctx));
-    return { path: text(result?.path, 512), supported: result?.supported !== false, reason: text(result?.reason, 60), content: result?.supported === false ? "" : String(result?.content ?? "") };
+    const content = result?.supported === false ? "" : String(result?.content ?? "");
+    // The read decodes UTF-8, so a jar or image arrives as NULs and U+FFFD
+    // replacement characters. Never show that as editable text: one Save
+    // would write the mangled characters back over the file.
+    if (/[\u0000�]/.test(content)) {
+      return { path: text(result?.path, 512), supported: false, reason: "binary", content: "" };
+    }
+    return { path: text(result?.path, 512), supported: result?.supported !== false, reason: text(result?.reason, 60), content };
+  });
+  route("GET", `${serverPath}/file/download`, "files:read", async (ctx) => {
+    const filePath = relativePath(ctx.query.get("path"));
+    security.checkRateLimit("instance-file-download", 30, 60 * 1000);
+    security.audit({ action: "instance.file.download", target: `${ctx.params.instanceId}:${filePath}`, reason: `mobile:${ctx.device.id}` });
+    let payload;
+    try {
+      payload = await services.serviceRouter().downloadInstanceFile(ctx.params.instanceId, filePath, scoped(ctx));
+    } catch (error) {
+      if (error?.code === "FILE_TOO_LARGE" || error?.payload?.error?.code === "FILE_TOO_LARGE") throw httpError(413, "DOWNLOAD_TOO_LARGE", "Files over 64 MB can only be downloaded on the computer.");
+      if (error?.code === "PATH_NOT_FILE" || error?.payload?.error?.code === "PATH_NOT_FILE") throw httpError(400, "PATH_NOT_FILE", "That is a folder, not a file.");
+      throw error;
+    }
+    const fileName = (filePath.split("/").pop() || "file").replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 120) || "file";
+    return { download: { buffer: payload.buffer, fileName, contentType: "application/octet-stream" } };
   });
   route("PUT", `${serverPath}/file`, "files:write", async (ctx) => {
     const filePath = relativePath(ctx.body.path);

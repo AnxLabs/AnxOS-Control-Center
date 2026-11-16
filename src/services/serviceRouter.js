@@ -721,6 +721,17 @@ async function readInstanceFile(instanceId, filePath, options = {}) {
   return getAgentNodeClient(options).readInstanceFile(instanceId, filePath);
 }
 
+// The exact bytes of one server file, for the phone's Download (Build 213).
+async function downloadInstanceFile(instanceId, filePath, options = {}) {
+  if (shouldUseLocalInstances(options)) {
+    const download = await localInstanceService.openInstanceFileDownload(instanceId, filePath);
+    const chunks = [];
+    for await (const chunk of download.stream) chunks.push(chunk);
+    return { buffer: Buffer.concat(chunks), fileName: download.fileName };
+  }
+  return agentClient.downloadInstanceFile(instanceId, filePath, getOptionalNodeConfig(options));
+}
+
 async function writeInstanceFile(instanceId, filePath, content, options = {}) {
   if (shouldUseLocalInstances(options)) {
     return localInstanceService.writeInstanceFile(instanceId, filePath, content, options);
@@ -1273,6 +1284,7 @@ module.exports = {
   listServiceHistory,
   planDependencyPreparation,
   pushBackupToDestination,
+  downloadInstanceFile,
   readInstanceFile,
   repairNeoForgeRuntime,
   renameInstanceFile,

@@ -3199,6 +3199,33 @@ async function readInstanceFile(instanceId, filePath, configOverride = null) {
   return requestJson(`/api/v1/instances/${encodeInstanceId(instanceId)}/file?${query.toString()}`, { config: configOverride });
 }
 
+// The exact bytes of one server file. An Agent older than Build 213 has no
+// such route and answers NOT_FOUND (a missing file is PATH_NOT_FOUND).
+async function downloadInstanceFile(instanceId, filePath, configOverride = null) {
+  if (shouldUseLocalInstanceService(configOverride)) {
+    const download = await getLocalInstanceService().openInstanceFileDownload(instanceId, filePath);
+    const chunks = [];
+    for await (const chunk of download.stream) chunks.push(chunk);
+    return { buffer: Buffer.concat(chunks), fileName: download.fileName };
+  }
+  const query = new URLSearchParams({ path: filePath || "." });
+  try {
+    const response = await requestBuffer(`/api/v1/instances/${encodeInstanceId(instanceId)}/file/download?${query.toString()}`, {
+      config: configOverride,
+      idleTimeoutMs: DOWNLOAD_IDLE_TIMEOUT_MS,
+    });
+    return { buffer: response.buffer, fileName: String(filePath || "").split("/").pop() || "file" };
+  } catch (error) {
+    if (error instanceof AgentClientError && error.code === "NOT_FOUND") {
+      throw new AgentClientError("This computer's Agent is too old to download files. Update the Agent, then try again.", {
+        status: 409,
+        code: "AGENT_UPDATE_REQUIRED",
+      });
+    }
+    throw error;
+  }
+}
+
 async function instanceFileExists(instanceId, filePath, configOverride = null) {
   if (shouldUseLocalInstanceService(configOverride)) {
     return getLocalInstanceService().instanceFileExists(instanceId, filePath);
@@ -3889,6 +3916,7 @@ module.exports = {
   unpauseDockerContainer,
   uninstallWindowsAgentTask,
   restartDockerContainer,
+  downloadInstanceFile,
   readInstanceFile,
   renameInstanceFile,
   updateInstance,

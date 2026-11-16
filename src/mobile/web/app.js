@@ -915,8 +915,20 @@
       const heading = el("h2", "", entry.name);
       heading.id = "sheet-title";
       container.append(heading);
+      // Download keeps the exact bytes; text files can also be read here.
+      const download = caps().filesDownload ? el("a", "button", "Download") : null;
+      if (download) {
+        download.href = `/api${apiBase}/file/download?path=${enc(entry.path)}`;
+        download.setAttribute("download", entry.name);
+      }
       if (!file.supported) {
-        container.append(el("p", "", file.reason === "file_too_large" ? "This file is over 1 MB. Open it on the computer." : "This file can't be shown here."), button("Close", closeSheet, { kind: "quiet" }));
+        const reason = file.reason === "file_too_large"
+          ? "This file is over 1 MB, too big to show here."
+          : file.reason === "binary" ? "This file isn't text, so it can't be shown or edited here." : "This file can't be shown here.";
+        const actions = el("div", "actions");
+        actions.append(button("Close", closeSheet, { kind: "quiet", wide: true }));
+        if (download) actions.append(download);
+        container.append(el("p", "", download ? `${reason} Download it to open it on this phone.` : reason), actions);
         return;
       }
       const area = el("textarea", "textarea");
@@ -927,6 +939,7 @@
       container.append(area);
       const actions = el("div", "actions");
       actions.append(button("Close", closeSheet, { kind: "quiet", wide: true }));
+      if (download) actions.append(download);
       if (canWrite) {
         actions.append(button("Save", async () => {
           if (area.value === file.content) { closeSheet(); return; }

@@ -7864,6 +7864,42 @@ async function readInstanceFile(instanceId, requestedPath) {
   };
 }
 
+// Phone and remote downloads: the exact bytes of one file inside the server's
+// folder, as a stream (readInstanceFile decodes UTF-8, which corrupts jars,
+// images and worlds). The path is checked like a read; links that leave the
+// folder are refused.
+const INSTANCE_FILE_DOWNLOAD_LIMIT_BYTES = 64 * 1024 * 1024;
+
+async function openInstanceFileDownload(instanceId, requestedPath, options = {}) {
+  const config = await loadInstanceConfig(instanceId);
+  const resolved = resolveInstanceDataPath(config.id, requestedPath);
+  await assertNoInstanceDataEscape(resolved);
+  const stats = await fs.stat(resolved.path).catch((error) => {
+    if (error?.code === "ENOENT") {
+      throw createInstanceError("PATH_NOT_FOUND", 404);
+    }
+
+    throw createInstanceError("PATH_UNAVAILABLE", 400);
+  });
+
+  if (!stats.isFile()) {
+    throw createInstanceError("PATH_NOT_FILE");
+  }
+
+  const limit = Number(options.maxBytes) > 0 ? Number(options.maxBytes) : INSTANCE_FILE_DOWNLOAD_LIMIT_BYTES;
+  if (stats.size > limit) {
+    throw createInstanceError("FILE_TOO_LARGE", 413);
+  }
+
+  return {
+    id: config.id,
+    path: resolved.relativePath,
+    fileName: path.basename(resolved.path),
+    size: stats.size,
+    stream: fsSync.createReadStream(resolved.path),
+  };
+}
+
 async function instanceFileExists(instanceId, requestedPath) {
   const config = await loadInstanceConfig(instanceId);
   const resolved = resolveInstanceDataPath(config.id, requestedPath);
@@ -8704,6 +8740,8 @@ module.exports = {
   instanceFileExists,
   listInstanceFiles,
   listInstances,
+  openInstanceFileDownload,
+  INSTANCE_FILE_DOWNLOAD_LIMIT_BYTES,
   readInstanceFile,
   readLogs,
   recoverIncompleteInstallations,
