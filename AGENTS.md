@@ -998,6 +998,25 @@ Use this section to accumulate verified project knowledge over time. Add entries
   surface that names "the current release" needs a generator and a check, or it
   will go stale on the next release.
 
+### 2026-11-16 — The phone opened binary files as editable text
+
+- **Problem:** Tapping a `.jar` or an image in the phone's Files tab opened
+  it in the text editor as mangled characters; one edit and Save would have
+  written them back over the file. Binary files could be uploaded from the
+  phone but not downloaded.
+- **Cause:** The only file read (`readInstanceFile`) decodes UTF-8, so
+  invalid bytes become U+FFFD and NULs stay in the text. The phone sheet
+  trusted `supported: true` and offered the decoded text for editing.
+  Uploads had been fixed to send base64 (2026-11-12), but reads never were.
+- **Resolution:** The Agent streams a file's exact bytes
+  (`/instances/:id/file/download`, same path checks, 64 MB cap); the phone
+  offers Download, and a text read that decodes to NULs or U+FFFD is
+  refused as "binary". An older Agent is reported as "update the Agent".
+  `instance-file-download-smoke`, gateway G26, `mobile-ui-qa` M7.
+- **Lesson:** When one direction of a data path is fixed for binary
+  content, check the other direction too. Never offer decoded text for
+  editing unless the decode was lossless.
+
 ## Future Improvements
 
 Keep optional ideas separate from active work. An item in this list is not authorization to implement it.
