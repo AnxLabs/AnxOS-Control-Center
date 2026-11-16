@@ -18,6 +18,13 @@
 //   A6 Files: the Folders pill reflects the selected storage, not the
 //      selected computer's Agent: an offline computer's storage never reads
 //      "Connected" while another computer is selected and online
+// Found by the RC2 acceptance in the installed app:
+//   A7 after switching from an online computer to an offline one, Home's
+//      setup checklist describes the offline one, not the earlier Agent
+//      Control reply
+//   A8 the metrics notice for an offline computer does not outlive the switch
+//      to an online one, and every error toast leaves the screen by itself
+//      (measured by computed opacity, not by class)
 // Set ACCEPTANCE_QA_SHOTS=<dir> to keep screenshots. ANX_QA_APP_ROOT runs
 // these checks against another checkout (used to show they fail before the
 // fixes).
@@ -295,10 +302,78 @@ async function main() {
       console.log(`PASS A6 Files: offline VPS storage reads "${vps.pill}" while Lab is selected; Lab storage reads "Connected"`);
     });
 
+    // A7 (Build 212 RC2 acceptance) Home's setup checklist read the Agent
+    // Control reply of the computer selected before: after switching from an
+    // online computer to an offline one it kept "Agent connected".
+    await check("A7", async () => {
+      await page.evaluate(async () => { await selectNode("lab"); window.showPage("agent-control"); await refreshAgentControl({ includeConfig: true }); });
+      await waitFor(page, () => agentControlState?.selectedNodeId === "lab", null, "an Agent Control reply for Lab", 30000);
+      await page.evaluate(() => { window.__qaLabAgentControlReply = agentControlState; });
+      await page.evaluate(async () => { await selectNode("vps"); window.showPage("dashboard"); });
+      await waitFor(page, () => getNodeVisualState(getSelectedNode()) === "offline", null, "VPS offline", 60000);
+      await page.waitForTimeout(1500);
+      const setup = await page.evaluate(() => {
+        // The installed app kept Lab's reply for minutes (Agent Control polls
+        // only while its page is open); a background refresh can replace it
+        // here first, so put Lab's reply back to test that state exactly.
+        if (agentControlState?.selectedNodeId !== "lab") agentControlState = window.__qaLabAgentControlReply;
+        const item = getSetupHealthState().core.find((entry) => entry.title === "Agent connected");
+        return { replyFor: agentControlState?.selectedNodeId || null, complete: item?.complete, detail: item?.detail, status: item?.status };
+      });
+      await shot(page, "a7-home-checklist-vps");
+      assert.strictEqual(setup.replyFor, "lab", "the last Agent Control reply is still Lab's (the case under test)");
+      assert.strictEqual(setup.complete, false, `the checklist does not mark the offline VPS's Agent connected (${setup.status}: ${setup.detail})`);
+      assert.ok(!/can use the selected connection/.test(setup.detail || ""), `the detail does not claim a working connection (${setup.detail})`);
+      console.log(`PASS A7 Home's checklist describes the offline VPS ("${setup.detail}"), not Lab's earlier reply`);
+    });
+
+    // A8 (Build 212 RC2 acceptance) "System metrics are unavailable." raised
+    // for an offline computer stayed on screen after switching to an online one.
+    await check("A8", async () => {
+      // Start from a healthy Lab dashboard (the notice is raised once per failing computer).
+      await page.evaluate(async () => { await selectNode("lab"); window.showPage("dashboard"); });
+      await waitFor(page, () => latestSystemSnapshotNodeId === "lab" && systemMetricsToastNodeId === null, null, "Lab's metrics loaded", 60000);
+      await page.evaluate(() => {
+        window.__qaToasts = [];
+        const original = window.showToast;
+        window.showToast = function qaShowToast(message, tone) {
+          window.__qaToasts.push({ at: Date.now(), message: String(message), node: getSelectedNodeId(), page: getActivePageName(), stack: String(new Error().stack || "").split("\n").slice(2, 5).join(" | ") });
+          return original.call(this, message, tone);
+        };
+      });
+      await page.evaluate(async () => { await selectNode("vps"); window.showPage("dashboard"); });
+      await waitFor(page, () => window.__qaToasts.some((entry) => entry.message === "System metrics are unavailable."), null, "the metrics notice for the offline VPS", 30000);
+      await page.evaluate(async () => { await selectNode("lab"); window.showPage("network"); });
+      await waitFor(page, () => getNodeVisualState(getSelectedNode()) === "online", null, "back on Lab", 60000);
+      const switchedAt = Date.now();
+      await page.waitForTimeout(10000);
+      // What is on screen, not the class: in RC2 the class was gone but a
+      // filled [data-tone="error"] animation kept the toast at opacity 1.
+      const onScreen = () => page.evaluate(() => {
+        const element = document.querySelector("#toast");
+        return { opacity: Number(getComputedStyle(element).opacity), text: element.textContent || "", tone: element.dataset.tone || "" };
+      });
+      const after = await page.evaluate((since) => window.__qaToasts.filter((entry) => entry.at >= since), switchedAt);
+      const shown = await onScreen();
+      await shot(page, "a8-toast-after-switch");
+      if (after.length) console.log("toasts after the switch:", JSON.stringify(after.slice(0, 6)));
+      assert.ok(!after.some((entry) => entry.message === "System metrics are unavailable."), "the notice is not raised again for Lab");
+      assert.ok(!(shown.opacity > 0.05 && shown.text === "System metrics are unavailable."), `the VPS's metrics notice is off screen 10 s after switching to the online Lab (opacity ${shown.opacity})`);
+      // Any error toast hides by itself.
+      await page.evaluate(() => window.showToast("QA probe failed.", "error"));
+      await page.waitForTimeout(500);
+      const raised = await onScreen();
+      assert.ok(raised.opacity > 0.9 && raised.tone === "error", `an error toast is shown (opacity ${raised.opacity})`);
+      await page.waitForTimeout(8000);
+      const later = await onScreen();
+      assert.ok(later.opacity < 0.05, `an error toast hides after its duration (opacity ${later.opacity} after 8.5 s)`);
+      console.log(`PASS A8 the metrics notice does not outlive the switch, and error toasts hide (opacity ${later.opacity})`);
+    });
+
     const unexpected = errors.filter((message) => !/ResizeObserver loop/.test(message));
     if (unexpected.length) failures.push(`renderer errors: ${unexpected.join(" | ")}`);
     if (failures.length) throw new Error(`${failures.length} check(s) failed:\n  ${failures.join("\n  ")}`);
-    console.log(`Acceptance fixes UI QA: ${only.size || 6} checks passed. Screenshots: ${shotsDir}`);
+    console.log(`Acceptance fixes UI QA: ${only.size || 8} checks passed. Screenshots: ${shotsDir}`);
   } finally {
     await Promise.race([app.close().catch(() => {}), new Promise((resolve) => setTimeout(resolve, 15000))]);
     await agent.stop().catch(() => {});

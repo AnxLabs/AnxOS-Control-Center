@@ -15,6 +15,9 @@
 //      marker, no task), status asks for a restore, and Restore runs the
 //      shipped task script for this installation, keeping the marker when
 //      the administrator prompt is declined
+//   S6 while another computer is selected, the Local Agent card's build is
+//      read from the Agent's public health reply with no credential, only
+//      for this installation's running Agent, and cached between polls
 // Windows is faked and every child_process call is replaced before the module
 // loads, so nothing on this machine is inspected, started or stopped.
 // Run: node scripts/agent-control-foreign-task-stop-smoke.js
@@ -22,6 +25,7 @@
 const assert = require("assert");
 const childProcess = require("child_process");
 const fs = require("fs");
+const http = require("http");
 const net = require("net");
 const os = require("os");
 const path = require("path");
@@ -175,7 +179,40 @@ const endCalls = () => calls.filter((call) => call[0] === "schtasks.exe" && call
     assert(/agentControl:restoreHelper/.test(fs.readFileSync(path.join(repoRoot, "preload.js"), "utf8")), "the renderer can ask for the restore");
     assert(/restoreHelper: \(\) => control\.restoreHelperTask\(\)/.test(fs.readFileSync(path.join(repoRoot, "src", "ipc", "agentControlIpc.js"), "utf8")), "the main process handles the restore as an authorized action");
     console.log("PASS S5 a Helper Setup could not register is restored from the app");
-    console.log("Agent Control foreign task stop smoke passed (5 checks).");
+
+    // S6 While another computer is selected, Agent Control skips the
+    // credentialed probe of this PC's Agent. The Local Agent card still shows
+    // the build that Agent reports (Build 212 RC2 acceptance showed "Build not
+    // reported" for a 2.0-build212 Local Agent), read from its public health
+    // reply with no credential, only when this installation's Agent should be
+    // running, and cached between Agent Control's polls.
+    const healthRequests = [];
+    const fakeAgent = http.createServer((request, response) => {
+      healthRequests.push({ url: request.url, authorization: request.headers.authorization || null });
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ ok: true, apiVersion: "v1", protocolVersion: 1, identity: { deviceId: "device-local", hostname: "local", agentVersion: "0.1.0", agentArtifactVersion: "2.0-build212" } }));
+    });
+    await new Promise((resolve) => fakeAgent.listen(0, "127.0.0.1", resolve));
+    try {
+      control.saveConfig({ ...control.readConfig(), host: "127.0.0.1", port: fakeAgent.address().port });
+      taskPresent = true;
+      taskExecutable = process.execPath;
+      let skipped = await control.getStatus({ skipProbe: true });
+      assert.strictEqual(skipped.agentArtifactVersion, "2.0-build212", "the Local Agent's reported build is shown while another computer is selected");
+      assert.strictEqual(skipped.runtime?.build, "2.0-build212", "the runtime summary carries the build too");
+      assert.deepStrictEqual(healthRequests.map((entry) => entry.url), ["/api/v1/health"], "only the health route was read");
+      assert.strictEqual(healthRequests[0].authorization, null, "the build is read without sending a credential");
+      await control.getStatus({ skipProbe: true });
+      assert.strictEqual(healthRequests.length, 1, "the build is cached between polls");
+      taskExecutable = "C:\\Program Files\\AnxOS Control Center\\AnxOS Control Center.exe";
+      skipped = await control.getStatus({ skipProbe: true });
+      assert.strictEqual(skipped.agentArtifactVersion, null, "another installation's Agent task is not read as this installation's build");
+      assert.strictEqual(healthRequests.length, 1, "nothing is read for another installation's task");
+    } finally {
+      await new Promise((resolve) => fakeAgent.close(resolve));
+    }
+    console.log("PASS S6 the Local Agent's build is shown while another computer is selected, read without a credential");
+    console.log("Agent Control foreign task stop smoke passed (6 checks).");
   } finally {
     Object.defineProperty(process, "platform", platformDescriptor);
     fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });

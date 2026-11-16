@@ -18242,7 +18242,9 @@ html[data-ui-generation="v1.9"] .backup-empty-state strong::before {
 html[data-ui-generation="v1.9"] .settings-field-error,
 html[data-ui-generation="v1.9"] .instance-game-config-error,
 html[data-ui-generation="v1.9"] .field-error,
-html[data-ui-generation="v1.9"] [data-tone="error"] {
+/* Not the toast: a filled animation holds opacity 1 over .toast's opacity 0,
+   so an error toast would never hide (Build 212 RC2 acceptance). */
+html[data-ui-generation="v1.9"] [data-tone="error"]:not(.toast) {
   animation: anxos-v2-feedback-in 220ms var(--anx-ease-standard) both;
 }
 
@@ -18293,7 +18295,7 @@ html[data-ui-generation="v1.9"] .sidebar[data-sidebar-state="collapsed"] [data-t
   html[data-ui-generation="v1.9"] .settings-field-error,
   html[data-ui-generation="v1.9"] .instance-game-config-error,
   html[data-ui-generation="v1.9"] .field-error,
-  html[data-ui-generation="v1.9"] [data-tone="error"] {
+  html[data-ui-generation="v1.9"] [data-tone="error"]:not(.toast) {
     animation: none;
   }
 }

@@ -1737,6 +1737,32 @@ function getLocalAgentHealthConfig(config) {
   };
 }
 
+// While another computer is selected, Agent Control does not probe this PC's
+// Agent with its credential (requests follow the selected computer). The build
+// the local Agent card shows is still read, from the public health reply with
+// no credential (as local-Agent discovery does), and only when this
+// installation's own Agent should be running. Cached briefly, because Agent
+// Control polls every few seconds.
+const LOCAL_AGENT_PUBLIC_BUILD_TTL_MS = 30000;
+let localAgentPublicBuildCache = null;
+
+async function readLocalAgentPublicBuild(config) {
+  const agentUrl = getLocalAgentUrl(config);
+  const now = Date.now();
+  if (localAgentPublicBuildCache?.agentUrl === agentUrl && now - localAgentPublicBuildCache.at < LOCAL_AGENT_PUBLIC_BUILD_TTL_MS) {
+    return localAgentPublicBuildCache.build;
+  }
+  let build = null;
+  try {
+    const health = await agentClient.getHealth({ ...getLocalAgentHealthConfig(config), agentToken: "", targetLabel: "local-agent-build" });
+    build = normalizeAgentArtifactVersion(health?.identity?.agentArtifactVersion);
+  } catch {
+    build = null;
+  }
+  localAgentPublicBuildCache = { agentUrl, at: now, build };
+  return build;
+}
+
 function getRemoteHealthConfig(node, selectedNodeId) {
   return {
     ...getNodeAgentConfig(node.id),
@@ -2191,9 +2217,12 @@ async function getStatus(_options = {}) {
   const listeningProcess = process.platform === "win32" ? await getWindowsListeningProcess(config.port).catch((error) => ({ port: config.port, verified: false, error: { code: error?.code || "LISTENER_INSPECTION_FAILED", message: error?.message || "Could not inspect listening process." } })) : null;
   // Another installation's running task (the task is machine-wide) is not
   // this installation's Agent; its own health check still counts.
-  const running = Boolean(managedProcess && !managedProcess.killed)
-    || (service.active && backgroundServiceBelongsToThisInstallation(service))
-    || Boolean(health?.ok);
+  const ownAgentExpected = Boolean(managedProcess && !managedProcess.killed)
+    || Boolean(service.active && backgroundServiceBelongsToThisInstallation(service));
+  const running = ownAgentExpected || Boolean(health?.ok);
+  const agentArtifactVersion = health
+    ? normalizeAgentArtifactVersion(health.identity?.agentArtifactVersion)
+    : _options.skipProbe === true && ownAgentExpected ? await readLocalAgentPublicBuild(config) : null;
   const pairing = readLocalAgentPairingStatus();
   const lifecycleOwnership = getLocalAgentLifecycleOwnership({ health, service, pairing, managed: managedProcess });
   const releaseInfo = getReleaseInfo();
@@ -2225,6 +2254,7 @@ async function getStatus(_options = {}) {
     reachable: Boolean(health?.ok),
     capabilities: { metrics: true, lifecycle: true, repair: true, reconnect: true },
   });
+  if (!runtime.build && agentArtifactVersion) runtime.build = agentArtifactVersion;
   const baseStatus = {
     agentVersion: health?.identity?.agentVersion || getBundledLocalAgentVersion("unavailable"),
     identity: health?.identity || null,
@@ -2244,7 +2274,7 @@ async function getStatus(_options = {}) {
     startupSummary,
     identity: baseStatus.identity,
     agentVersion: baseStatus.agentVersion,
-    agentArtifactVersion: normalizeAgentArtifactVersion(health?.identity?.agentArtifactVersion),
+    agentArtifactVersion,
     appVersion,
     apiVersion: health?.apiVersion || "v1",
     protocolVersion: health?.protocolVersion || 1,

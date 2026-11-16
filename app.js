@@ -45917,10 +45917,20 @@ function renderOnboardingPrepareThisPcStep(container) {
   ]);
 }
 
+// The Agent Control reply records the computer it was read for. After the user
+// selects another computer it describes the old one until Agent Control
+// refreshes, so Home must not read it (Build 212 RC2: Home's checklist showed
+// "Agent connected" for an offline VPS from Anxlab's reply).
+function isAgentControlStateForSelectedNode(payload = agentControlState) {
+  if (!payload) return false;
+  return !payload.selectedNodeId || payload.selectedNodeId === getSelectedNodeId();
+}
+
 function getOnboardingAgentSummary() {
-  const target = getAgentControlOverviewTarget(agentControlState);
+  const currentState = isAgentControlStateForSelectedNode(agentControlState) ? agentControlState : null;
+  const target = currentState ? getAgentControlOverviewTarget(currentState) : null;
   const agentStatus = target ? getAgentStatusSnapshot(target) : getActiveAgentStatusSnapshot();
-  if (!agentControlState) {
+  if (!currentState) {
     return {
       status: agentStatus.primary || "Unable to check",
       tone: getAgentStatusPillTone(agentStatus),
