@@ -10,6 +10,7 @@
 // assertable from scripts.
 
 const { renderScreen, sanitizeText } = require("./render");
+const { colorEnabled, colorizeScreen } = require("./theme");
 const { createAgentCliClient } = require("../services/agentCliClient");
 const { createServiceManager, detectPrimaryNonInternalIpv4 } = require("../services/agentServiceManager");
 const { checkForUpdate, getCurrentVersion } = require("../services/agentUpdateCheck");
@@ -78,6 +79,8 @@ async function runTui(options = {}) {
   const automationKeys = typeof env.ANXOS_TUI_KEYS === "string" ? env.ANXOS_TUI_KEYS : "";
   const automation = automationKeys.length > 0;
   const interactive = !automation && Boolean(input.isTTY && output.isTTY);
+  // Color only for a person at a terminal; automation and pipes get plain text.
+  const color = interactive && colorEnabled(env, output);
 
   const client = options.client || createAgentCliClient({ env, timeoutMs: CLIENT_TIMEOUT_MS });
   const serviceManager = options.serviceManager || createServiceManager({ env });
@@ -121,7 +124,7 @@ async function runTui(options = {}) {
       state.nowMs = Date.now();
       const screen = renderScreen(state, { width: state.width, height: state.height, unicode: state.unicode });
       if (interactive) {
-        output.write(`\u001b[2J\u001b[H${screen}\n`);
+        output.write(`\u001b[2J\u001b[H${color ? colorizeScreen(screen, { env }) : screen}\n`);
       } else {
         output.write(`${screen}\n`);
       }

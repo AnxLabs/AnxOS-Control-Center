@@ -426,6 +426,8 @@
     "agent:package-update:smoke": "node scripts/package-agent-update-smoke.js",
     "agent:update-manager:smoke": "node scripts/agent-update-manager-smoke.js",
     "server-fleet:smoke": "node scripts/server-fleet-smoke.js",
+    "migration-preflight:smoke": "node scripts/migration-preflight-smoke.js",
+    "agent:tui-theme:smoke": "node scripts/agent-tui-theme-smoke.js",
     "qa:build213-ui": "node scripts/build213-ui-qa.js",
     "website:smoke": "node scripts/website-production-smoke.js && node scripts/website-download-smoke.js && node scripts/website-accessibility-smoke.js && node scripts/website-setup-smoke.js",
     "website:setup:smoke": "node scripts/website-setup-smoke.js",
