@@ -5,18 +5,18 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   siteUrl: "https://anxoscontrolcenter.org",
   logoPath: "/assets/anxos-logo.png",
   latestVersion: "2.0",
-  build: "211",
-  buildNumber: "211",
+  build: "212",
+  buildNumber: "212",
   channel: "Private Alpha",
-  releaseLabel: "Version 2.0 Build 211 Private Alpha",
-  releaseDate: "November 14, 2026",
-  releaseTag: "v2.0-build211",
+  releaseLabel: "Version 2.0 Build 212 Private Alpha",
+  releaseDate: "November 16, 2026",
+  releaseTag: "v2.0-build212",
   releaseRepository: {
     owner: "AnxLabs",
     repo: "AnxOS-Control-Center-Releases",
   },
   repositoryUrl: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases",
-  releaseUrl: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v2.0-build211",
+  releaseUrl: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v2.0-build212",
   githubReleasesApiUrl: "https://api.github.com/repos/AnxLabs/AnxOS-Control-Center-Releases/releases?per_page=20",
   stableDownloadEndpoints: {
     windows: "/api/download/latest/windows",
@@ -26,23 +26,48 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   },
   releaseAssets: [
       {
-          fileName: "AnxOS-Control-Center-Setup-2.0-build211.exe",
-          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build211/AnxOS-Control-Center-Setup-2.0-build211.exe"
+          fileName: "AnxOS-Control-Center-Setup-2.0-build212.exe",
+          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build212/AnxOS-Control-Center-Setup-2.0-build212.exe"
       },
       {
-          fileName: "AnxOS-Control-Center-2.0-build211-portable.exe",
-          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build211/AnxOS-Control-Center-2.0-build211-portable.exe"
+          fileName: "AnxOS-Control-Center-2.0-build212-portable.exe",
+          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build212/AnxOS-Control-Center-2.0-build212-portable.exe"
       },
       {
-          fileName: "AnxOS-Control-Center-2.0-build211.AppImage",
-          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build211/AnxOS-Control-Center-2.0-build211.AppImage"
+          fileName: "AnxOS-Control-Center-2.0-build212.AppImage",
+          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build212/AnxOS-Control-Center-2.0-build212.AppImage"
       },
       {
-          fileName: "AnxOS-Control-Center-2.0-build211.deb",
-          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build211/AnxOS-Control-Center-2.0-build211.deb"
+          fileName: "AnxOS-Control-Center-2.0-build212.deb",
+          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build212/AnxOS-Control-Center-2.0-build212.deb"
       }
   ],
   releaseNotes: [
+      {
+          "version": "2.0",
+          "build": 212,
+          "channel": "Private Alpha",
+          "tag": "v2.0-build212",
+          "date": "November 16, 2026",
+          "datetime": "2026-11-16",
+          "title": "AnxOS Control Center v2.0 — Build 212",
+          "summary": "Build 212 is a stability and security release. It fixes 143 defects found in a full review of the app, the Agent, Sharing and AnxNet. The only additions are recovery controls for problems it now detects.",
+          "changes": [
+              "**Restore AnxOS Helper.** If an update could not set the Helper up again (for example, the administrator prompt was declined), the app says so and restores it with one click.",
+              "**Approve a changed SSH host key** from the app instead of the connection staying blocked.",
+              "**AnxNet shows when its identity is locked** (its key could not be read) instead of silently creating a new one.",
+              "**Crash-loop protection** stops restarting a server that keeps crashing within ten minutes of starting, after three tries.",
+              "**Servers that are running but not ready** now raise a degraded alert.",
+              "**Stop on Windows** asks the server to shut down and save before forcing it.",
+              "**Remote Agents can no longer be taken over from the network.** Pairing and enrollment accept only the full Agent credential, not a short fingerprint of it. A freshly paired computer is protected at once instead of after its next restart. A computer you removed can only be paired again from that computer itself.",
+              "**The Agent limits what an unauthenticated caller can make it do** (request sizes are capped).",
+              "**This PC's Agent credential is never sent to another computer**, and node-credential recovery can no longer save it as a remote computer's credential.",
+              "**A file dropped on the window can no longer replace the app.**",
+              "**An interrupted restore never leaves a server deleted.** A full restore, and the rollback after a failed one, build the restored copy beside the server and swap it in. If the Agent stops in the middle (an update, a restart, a crash), it puts the server back when it starts again. Agent shutdown also waits for a running restore.",
+              "**Updating AnxOS keeps the AnxOS Helper.** If Setup cannot set it up again (for example, the administrator prompt is declined), the app offers **Restore AnxOS Helper**."
+          ],
+          "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v2.0-build212"
+      },
       {
           "version": "2.0",
           "build": 211,
