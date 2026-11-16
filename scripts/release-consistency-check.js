@@ -141,6 +141,10 @@ function checkCanonicalUrls(root, origin) {
     for (const match of html.matchAll(/<link rel="canonical" href="([^"]+)"|<meta property="og:url" content="([^"]+)"/g)) {
       report(relative, match[1] || match[2]);
     }
+    // Internal navigation should not cost every visitor a redirect either.
+    for (const match of html.matchAll(/\shref="(\/[^"#?]*)/g)) {
+      if (!match[1].startsWith("//")) report(`${relative} link`, `${origin}${match[1]}`);
+    }
     for (const element of docs.scanElements(html).filter((item) => item.attributes.has("data-release-jsonld") && item.innerEnd !== undefined)) {
       try {
         const data = JSON.parse(html.slice(element.openEnd, element.innerEnd));

@@ -190,7 +190,8 @@ try {
     assert(notesHtml.includes(`<h3>${docs.escapeHtml(previous.title)}</h3>`), "the previous release must stay listed");
     assert(!stripHistory(notesHtml).includes(`Build ${previous.build}`), "the previous build must only appear as history");
     // Hand-written README text outside the markers is kept.
-    assert(read(futureRoot, "README.md").includes("Made with care by AnxLabs."));
+    assert(read(futureRoot, "README.md").includes("Made with care by AnxLabs"));
+    assert(read(futureRoot, "README.md").includes("## Where it's heading"));
     assert(read(futureRoot, "docs/releases-repository/README.md").includes("## Verify your download"));
   });
 

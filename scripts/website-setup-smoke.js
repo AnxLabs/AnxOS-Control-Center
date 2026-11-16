@@ -17,7 +17,7 @@ assert(setup.includes('rel="canonical" href="https://anxoscontrolcenter.org/setu
 assert(setup.includes('href="/download"') && setup.includes("Download AnxOS"), "Setup download CTAs must point to /download.");
 assert(!/data-download=(?:"|')[^"']+/.test(setup), "Setup CTAs must remain on the existing download route instead of starting a release download.");
 for (const html of [setup, index, download, gettingStarted, read("features/index.html"), read("system-requirements/index.html"), read("windows-installation/index.html"), read("security-privacy/index.html"), read("faq/index.html")]) {
-  assert(html.includes('href="/setup"'), "Primary public pages must include the Setup Guide navigation entry.");
+  assert(html.includes('href="/setup/"'), "Primary public pages must include the Setup Guide navigation entry.");
 }
 
 [

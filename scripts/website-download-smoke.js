@@ -182,8 +182,8 @@ async function main() {
   assert(download.includes("Download AnxOS for Windows") && download.includes("Windows installer"), "/download should make the Windows installer the primary normal-user path.");
   assert(download.includes("<dt>Version</dt>") && !download.includes("<dt>Stable</dt>") && downloadHtml.includes("<dt>Version</dt>"), "/download release metadata must not call private-alpha builds stable.");
   assert(download.includes("Portable Version") && download.includes("View Release Notes") && download.includes("Installation Help") && download.includes("System Requirements"), "/download should keep secondary download and help options visible.");
-  assert(download.includes('href="/windows-installation"') && downloadHtml.includes('href="/windows-installation"'), "/download should link installation help to the clean Windows installation route.");
-  assert(download.includes('href="/system-requirements"') && downloadHtml.includes('href="/system-requirements"'), "/download should link system requirements to the clean dedicated route.");
+  assert(download.includes('href="/windows-installation/"') && downloadHtml.includes('href="/windows-installation/"'), "/download should link installation help to the clean Windows installation route.");
+  assert(download.includes('href="/system-requirements/"') && downloadHtml.includes('href="/system-requirements/"'), "/download should link system requirements to the clean dedicated route.");
   assert(download.includes('id="system-requirements"') && download.includes('id="install-help"'), "/download should expose clean anchors for requirements and installation help.");
   assert(download.includes('rel="canonical" href="https://anxoscontrolcenter.org/download"'), "/download should expose canonical metadata.");
   assert(downloadHtml.includes('data-download-page') && downloadHtml.includes("Download AnxOS for Windows"), "/download.html should serve visible compatibility content, not a blank redirect shell.");

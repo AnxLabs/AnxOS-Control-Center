@@ -10,7 +10,7 @@
     <title>AnxOS Sign In</title>
     <script>
       const query = window.location.search || "";
-      window.location.replace("/signin" + query);
+      window.location.replace("/signin/" + query);
     </script>
   </head>
   <body>
@@ -22,7 +22,7 @@
             <h2>Continue to sign in</h2>
             <p>This page redirects to the current AnxOS sign-in route.</p>
           </div>
-          <a class="button button-primary" href="/signin">Continue to sign in</a>
+          <a class="button button-primary" href="/signin/">Continue to sign in</a>
         </section>
       </div>
     </main>

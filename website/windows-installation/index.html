@@ -46,7 +46,7 @@
       <symbol id="icon-refresh" viewBox="0 0 24 24"><path d="M20 6v5h-5M4 18v-5h5M18.5 9A7 7 0 0 0 6.7 6.7L4 9m16 6-2.7 2.3A7 7 0 0 1 5.5 15"/></symbol>
     </svg>
 
-    <header class="site-header"><div class="site-header__inner"><a class="brand" href="/" aria-label="AnxOS home"><span class="brand-mark"><img data-logo src="/assets/anxos-logo.png" alt=""></span><span class="brand-copy"><strong data-config="brandName">AnxOS</strong><span>Local-first server control</span></span></a><button class="site-menu-button" type="button" data-site-menu-toggle aria-expanded="false" aria-controls="site-nav">Menu</button><nav class="site-nav" id="site-nav" data-site-nav aria-label="Primary"><a href="/features">Features</a><a href="/getting-started">Getting Started</a><a href="/setup">Setup</a><a href="/download">Download</a><a href="/release-notes.html">Release Notes</a><a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a><a class="site-nav__cta" href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button></nav></div></header>
+    <header class="site-header"><div class="site-header__inner"><a class="brand" href="/" aria-label="AnxOS home"><span class="brand-mark"><img data-logo src="/assets/anxos-logo.png" alt=""></span><span class="brand-copy"><strong data-config="brandName">AnxOS</strong><span>Local-first server control</span></span></a><button class="site-menu-button" type="button" data-site-menu-toggle aria-expanded="false" aria-controls="site-nav">Menu</button><nav class="site-nav" id="site-nav" data-site-nav aria-label="Primary"><a href="/features/">Features</a><a href="/getting-started/">Getting Started</a><a href="/setup/">Setup</a><a href="/download">Download</a><a href="/release-notes">Release Notes</a><a href="/signin/" data-auth-nav="signed-out" hidden>Sign In</a><a class="site-nav__cta" href="/signup/" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button></nav></div></header>
 
     <main id="main">
       <section class="section-shell" aria-labelledby="windows-title">
@@ -58,7 +58,7 @@
           <p class="platform-note" data-release-meta>Version 2.0 · Build 212 · Private Alpha · Released November 16, 2026</p>
           <div class="hero-actions">
             <a class="button button-primary" href="/download"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#icon-download"></use></svg><span>Download AnxOS</span></a>
-            <a class="button button-secondary" href="/system-requirements">System requirements</a>
+            <a class="button button-secondary" href="/system-requirements/">System requirements</a>
           </div>
         </div>
         <aside class="callout callout--warn" data-reveal>
@@ -154,8 +154,8 @@
         </div>
         <div class="download-help install-links">
           <a href="/download">Download Windows installer</a>
-          <a href="/system-requirements">System requirements</a>
-          <a href="/setup">Setup guide</a>
+          <a href="/system-requirements/">System requirements</a>
+          <a href="/setup/">Setup guide</a>
         </div>
       </section>
 
@@ -166,13 +166,13 @@
           <p class="section-copy">This page stays Windows-focused. The setup guide covers the other two paths — and both of them are one-time pairing-code flows, with no manual tokens or file editing.</p>
         </div>
         <div class="path-cards">
-          <a class="path-card" href="/setup" data-reveal>
+          <a class="path-card" href="/setup/" data-reveal>
             <span class="path-card__head"><strong>Another desktop computer</strong><span class="badge badge--info">Desktop</span></span>
             <span class="path-card__body">
               <p>Install Control Center on that computer, then open <strong>Agent Control → Connect this computer</strong>, turn on <strong>Another computer will connect to this one</strong>, and generate a pairing code. Paste the full code under <strong>Add Computer</strong> in your main Control Center.</p>
             </span>
           </a>
-          <a class="path-card" href="/setup" data-reveal data-reveal-delay="1">
+          <a class="path-card" href="/setup/" data-reveal data-reveal-delay="1">
             <span class="path-card__head"><strong>Headless Linux server</strong><span class="badge badge--info">Debian / Ubuntu</span></span>
             <span class="path-card__body">
               <p>Install the official Agent package on Debian 11+ or Ubuntu 22.04+ x64, open the TUI, and pair it with a one-time code. The setup guide has the exact commands with copy buttons.</p>
@@ -233,14 +233,14 @@
           <p>Download the signed installer, then follow the eleven steps above. The setup guide covers adding another computer whenever you are ready.</p>
           <div class="cta-actions">
             <a class="button button-primary" href="/download"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#icon-download"></use></svg><span>Download AnxOS</span></a>
-            <a class="button button-ghost" href="/setup">Setup guide</a>
-            <a class="button button-ghost" href="/release-notes.html">Release Notes</a>
+            <a class="button button-ghost" href="/setup/">Setup guide</a>
+            <a class="button button-ghost" href="/release-notes">Release Notes</a>
           </div>
         </div>
       </section>
     </main>
 
-    <footer class="site-footer"><div class="site-footer__brand"><strong>AnxOS Control Center</strong><span>© 2026 AnxOS Control Center · anxoscontrolcenter.org</span><span class="site-footer__note">Private Alpha · <a href="/security-privacy">Security &amp; Privacy</a></span></div><nav class="site-footer__nav" aria-label="Footer"><a href="/">Home</a><a href="/features">Features</a><a href="/getting-started">Getting Started</a><a href="/setup">Setup</a><a href="/download">Download</a><a href="/release-notes.html">Release Notes</a><a href="/security-privacy">Security</a><a href="/faq">FAQ</a><a data-config-href="repositoryUrl" href="https://github.com/AnxLabs/AnxOS-Control-Center-Releases">GitHub</a><a href="/signin" data-auth-nav="signed-out" hidden>Sign In</a><a href="/signup" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button></nav></footer>
+    <footer class="site-footer"><div class="site-footer__brand"><strong>AnxOS Control Center</strong><span>© 2026 AnxOS Control Center · anxoscontrolcenter.org</span><span class="site-footer__note">Private Alpha · <a href="/security-privacy/">Security &amp; Privacy</a></span></div><nav class="site-footer__nav" aria-label="Footer"><a href="/">Home</a><a href="/features/">Features</a><a href="/getting-started/">Getting Started</a><a href="/setup/">Setup</a><a href="/download">Download</a><a href="/release-notes">Release Notes</a><a href="/security-privacy/">Security</a><a href="/faq/">FAQ</a><a data-config-href="repositoryUrl" href="https://github.com/AnxLabs/AnxOS-Control-Center-Releases">GitHub</a><a href="/signin/" data-auth-nav="signed-out" hidden>Sign In</a><a href="/signup/" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button></nav></footer>
     <div class="toast-region" data-toast-region aria-live="polite" aria-atomic="true"></div>
   </body>
 </html>

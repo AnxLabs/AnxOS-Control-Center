@@ -412,9 +412,9 @@ function renderDownloadPage(release) {
       actions.className = "download-primary__actions";
       actions.append(createDownloadButton(primaryAsset, release, true));
       if (windowsPortable) actions.append(createDownloadButton(windowsPortable, release, false));
-      actions.append(createDownloadSupportLink("View Release Notes", release.releaseNotesUrl || "/release-notes.html"));
-      actions.append(createDownloadSupportLink("Installation Help", "/windows-installation"));
-      actions.append(createDownloadSupportLink("System Requirements", "/system-requirements"));
+      actions.append(createDownloadSupportLink("View Release Notes", release.releaseNotesUrl || "/release-notes"));
+      actions.append(createDownloadSupportLink("Installation Help", "/windows-installation/"));
+      actions.append(createDownloadSupportLink("System Requirements", "/system-requirements/"));
       primaryTarget.append(copy, actions);
     } else {
       const heading = document.createElement("h3");
@@ -425,8 +425,8 @@ function renderDownloadPage(release) {
         : "No downloadable packages are attached to the latest release.";
       const actions = document.createElement("div");
       actions.className = "download-primary__actions";
-      actions.append(createDownloadSupportLink("View Release Notes", release.releaseNotesUrl || "/release-notes.html"));
-      actions.append(createDownloadSupportLink("Installation Help", "/windows-installation"));
+      actions.append(createDownloadSupportLink("View Release Notes", release.releaseNotesUrl || "/release-notes"));
+      actions.append(createDownloadSupportLink("Installation Help", "/windows-installation/"));
       primaryTarget.append(heading, meta, actions);
     }
   }
@@ -776,8 +776,8 @@ function normalizeReturnTarget(value, fallback = "/account") {
     account: "/account",
     profile: "/profile",
     activate: "/activate",
-    signin: "/signin",
-    signup: "/signup",
+    signin: "/signin/",
+    signup: "/signup/",
     "forgot-password": "/forgot-password",
     "reset-password": "/reset-password",
   };
@@ -795,7 +795,7 @@ function normalizeReturnTarget(value, fallback = "/account") {
 
 function buildSignInUrl(returnTarget) {
   const params = new URLSearchParams({ returnTo: normalizeReturnTarget(returnTarget) });
-  return `/signin?${params.toString()}`;
+  return `/signin/?${params.toString()}`;
 }
 
 function getReturnTargetFromParams(fallback = "/account") {
@@ -819,20 +819,20 @@ function redirectLegacyHashRoutes() {
   const hash = window.location.hash || "";
   const [route, hashQuery = ""] = hash.replace(/^#/, "").split("?");
   const routes = {
-    signin: "/signin",
-    signup: "/signup",
+    signin: "/signin/",
+    signup: "/signup/",
     account: "/account",
     profile: "/profile",
     "account-devices": "/account?section=devices",
     "account-security": "/account?section=security",
     download: "/download",
     downloads: "/download",
-    features: "/features",
-    "getting-started": "/getting-started",
-    install: "/getting-started",
-    changelog: "/release-notes.html",
-    release: "/release-notes.html",
-    "release-notes": "/release-notes.html",
+    features: "/features/",
+    "getting-started": "/getting-started/",
+    install: "/getting-started/",
+    changelog: "/release-notes",
+    release: "/release-notes",
+    "release-notes": "/release-notes",
     top: "/",
   };
   if (!routes[route]) return false;
@@ -1448,7 +1448,7 @@ async function handleSignUp(form) {
       return;
     }
     setMessage("signup", "Account created. Check your email to verify your address.", "ok");
-    window.location.assign("/signin?created=1");
+    window.location.assign("/signin/?created=1");
   } catch (error) {
     setMessage("signup", friendlyAuthError(error), "error");
   } finally {
@@ -2027,7 +2027,7 @@ function getSignInUrlForActivation() {
   const code = normalizeDeviceCode(document.querySelector("[data-device-code-input]")?.value || currentDeviceCode);
   const returnTo = `/activate${code ? `?code=${encodeURIComponent(code)}` : ""}`;
   const params = new URLSearchParams({ returnTo });
-  return `/signin?${params.toString()}`;
+  return `/signin/?${params.toString()}`;
 }
 
 function setDeviceCode(code) {
