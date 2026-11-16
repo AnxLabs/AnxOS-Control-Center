@@ -2333,6 +2333,29 @@ function getServerVersionCheckTarget(instance = {}) {
   const family = [instance.templateId, instance.game, instance.type, instance.displayName].map((value) => String(value || "")).join(" ").toLowerCase();
   const minecraftVersion = String(instance.minecraftVersion || "").trim();
   const serverVersion = String(instance.serverVersion || "").trim();
+  // Build 213: a server installed from a Modrinth or CurseForge modpack is
+  // checked against newer versions of that pack for the same Minecraft
+  // version and loader. Checked first, so a modpack server is never told to
+  // move to a new Minecraft release (which its mods may not support).
+  const provider = String(instance.provider || "").trim().toLowerCase();
+  const projectId = String(instance.providerProjectId || "").trim();
+  if ((provider === "modrinth" || provider === "curseforge") && /^[0-9A-Za-z._-]{1,64}$/.test(projectId)) {
+    const installedVersion = String(provider === "modrinth" ? instance.providerVersionId || "" : instance.providerFileId || "").trim();
+    const loader = String(instance.loader || "").trim().toLowerCase();
+    if (/^[0-9A-Za-z._-]{1,64}$/.test(installedVersion)) {
+      return {
+        kind: `${provider}-modpack`,
+        track: `${provider}-modpack:${projectId}:${minecraftVersion}:${loader}`,
+        provider,
+        projectId,
+        minecraftVersion,
+        loader,
+        installedVersion,
+        installedLabel: String(instance.modpackVersion || installedVersion),
+        link: provider === "modrinth" ? `https://modrinth.com/modpack/${encodeURIComponent(projectId)}` : `https://www.curseforge.com/projects/${encodeURIComponent(projectId)}`,
+      };
+    }
+  }
   if (software === "paper" && /^[0-9][0-9A-Za-z.-]{0,31}$/.test(minecraftVersion) && /^\d{1,9}$/.test(String(instance.paperBuild || ""))) {
     return { kind: "paper", track: `paper:${minecraftVersion}`, minecraftVersion, installedVersion: String(instance.paperBuild) };
   }
@@ -2363,6 +2386,23 @@ async function resolveLatestServerVersion(target) {
   if (target.kind === "fivem") {
     return (await resolveFiveMDownload({ resolver: target.windows ? "fivem-windows" : "fivem-linux" }, {}, context)).version;
   }
+  if (target.kind === "modrinth-modpack") {
+    const { getVersions } = require("./providers/modrinthProvider");
+    const versions = await getVersions(target.projectId, target.minecraftVersion, target.loader);
+    const latest = versions.find((version) => version.type === "release") || versions[0] || null;
+    if (latest) modpackVersionLabels.set(`modrinth:${latest.id}`, latest.versionNumber || latest.name || latest.id);
+    return latest ? String(latest.id) : null;
+  }
+  if (target.kind === "curseforge-modpack") {
+    // Through AnxOS's approved CurseForge route; no API key in the app.
+    const { getFiles } = require("./providers/curseforgeProvider");
+    const files = (await getFiles(target.projectId, target.minecraftVersion, target.loader))
+      .filter((file) => file.serverPackFileId)
+      .sort((a, b) => String(b.fileDate || b.raw?.fileDate || "").localeCompare(String(a.fileDate || a.raw?.fileDate || "")));
+    const latest = files.find((file) => Number(file.releaseType) === 1) || files[0] || null;
+    if (latest) modpackVersionLabels.set(`curseforge:${latest.id}`, latest.name || String(latest.id));
+    return latest ? String(latest.id) : null;
+  }
   if (target.kind === "hytale") {
     const { body } = await fetchTextWithDetails(`${HYTALE_MAVEN_BASE_URL}/release/com/hypixel/hytale/Server/maven-metadata.xml`, "Hytale server version lookup", context);
     return (body.match(/<release>([^<]+)<\/release>/)?.[1] || "").trim() || null;
@@ -2377,7 +2417,14 @@ function compareServerVersions(target, latest) {
   return latest !== target.installedVersion;
 }
 
+// Readable names for modpack versions found by the last lookup (the cache
+// keeps only the version id).
+const modpackVersionLabels = new Map();
+const modpackLabel = (provider, id) => modpackVersionLabels.get(`${provider}:${id}`) || id;
+
 const SERVER_VERSION_CHECK_NOTES = Object.freeze({
+  "modrinth-modpack": (target, latest) => `Modpack version ${modpackLabel("modrinth", latest)} is available for Minecraft ${target.minecraftVersion || "this version"} (installed ${target.installedLabel}). An update replaces the pack's mods and settings files, so back up first. AnxOS does not apply modpack updates yet.`,
+  "curseforge-modpack": (target, latest) => `Modpack version ${modpackLabel("curseforge", latest)} is available for Minecraft ${target.minecraftVersion || "this version"} (installed ${target.installedLabel}). An update replaces the pack's mods and settings files, so back up first. AnxOS does not apply modpack updates yet.`,
   paper: (target, latest) => `Paper build ${latest} is available for Minecraft ${target.minecraftVersion} (installed build ${target.installedVersion}).`,
   "minecraft-release": (target, latest) => `Minecraft ${latest} is available (installed ${target.installedVersion}). A new release upgrades the world, so back up first.`,
   fivem: (target, latest) => `FXServer artifact ${latest} is available (installed ${target.installedVersion}).`,
@@ -2430,7 +2477,7 @@ async function checkServerVersionUpdate(instance = {}, options = {}) {
     latestVersion: entry.latestVersion,
     updateAvailable,
     note: updateAvailable ? SERVER_VERSION_CHECK_NOTES[target.kind](target, entry.latestVersion) : null,
-    link: target.kind === "fivem" && target.windows
+    link: target.link ? target.link : target.kind === "fivem" && target.windows
       ? "https://runtime.fivem.net/artifacts/fivem/build_server_windows/master/"
       : SERVER_VERSION_CHECK_LINKS[target.kind],
     checkOnly: true,
