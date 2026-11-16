@@ -272,11 +272,14 @@ async function runAutoUpdateTick({ policy, now = new Date(), state, getOverview,
 
 function startAgentAutoUpdateScheduler({ configDir, getOverview, updateAgent, before = null, record = null, notify = null, log = () => {}, intervalMs = AUTO_UPDATE_TICK_MS }) {
   const state = { lastWindowKey: null, running: false };
+  // configDir may be a function, resolved at each tick, so registering the
+  // scheduler never reads configuration paths up front.
+  const dir = () => (typeof configDir === "function" ? configDir() : configDir);
   const tick = async () => {
     if (state.running) return;
     state.running = true;
     try {
-      const policy = readAutoUpdatePolicy(configDir);
+      const policy = readAutoUpdatePolicy(dir());
       const outcome = await runAutoUpdateTick({
         policy,
         state,
@@ -287,7 +290,7 @@ function startAgentAutoUpdateScheduler({ configDir, getOverview, updateAgent, be
         notify,
         // Switching automatic updates off stops the run before the next computer.
         shouldContinue: () => {
-          const current = readAutoUpdatePolicy(configDir);
+          const current = readAutoUpdatePolicy(dir());
           return current.enabled && current.mode === "apply";
         },
       });

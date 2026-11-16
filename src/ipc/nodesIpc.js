@@ -242,6 +242,7 @@ function registerNodesIpc() {
   // (one computer at a time, same checks and history as a single update).
   ipcMain.handle("nodes:agentUpdateOverview", async () => invokeNodeOperation(async () => {
     requireLocalOwnerAuthenticated("nodes:agent-update-overview", "Unlock AnxOS to see Agent versions.");
+    requirePermission("settings:write", "agent-updates");
     return agentUpdateOverview();
   }));
   ipcMain.handle("nodes:updateAllAgents", async () => invokeNodeOperation(async () => {
@@ -256,6 +257,7 @@ function registerNodesIpc() {
   // the scheduler reads it on every tick.
   ipcMain.handle("nodes:getAgentAutoUpdate", async () => invokeNodeOperation(async () => {
     requireLocalOwnerAuthenticated("nodes:agent-auto-update", "Unlock AnxOS to see automatic Agent updates.");
+    requirePermission("settings:write", "agent-updates");
     return { policy: readAutoUpdatePolicy(agentUpdateConfigDir()), history: readUpdateHistory(agentUpdateConfigDir()).slice(0, 50) };
   }));
   ipcMain.handle("nodes:setAgentAutoUpdate", async (_, payload = {}) => invokeNodeOperation(async () => {
@@ -267,7 +269,7 @@ function registerNodesIpc() {
   }));
   const autoRecord = historyRecorder("automatic");
   startAgentAutoUpdateScheduler({
-    configDir: agentUpdateConfigDir(),
+    configDir: agentUpdateConfigDir,
     getOverview: agentUpdateOverview,
     updateAgent: (nodeId) => {
       audit({ action: "node.auto-update-agent", target: nodeId });

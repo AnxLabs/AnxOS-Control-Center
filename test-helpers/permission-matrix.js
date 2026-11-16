@@ -294,6 +294,8 @@ const IPC_FAMILIES = [
       "instances:listFiles", "instances:readFile", "instances:listRestartSchedules",
       "instances:serviceOverview", "instances:serviceHistory", "instances:serviceOperation", "instances:safeRestartPreflight",
       "instances:getMinecraftProperties", "instances:getGameServerConfig", "instances:getFiveMReadiness", "instances:getPlayers",
+      // Build 213: servers on every computer (each computer filtered by its own read permission too).
+      "instances:listAcrossComputers",
       "instances:checkSteamUpdate", "instances:getSteamUpdateProgress", "instances:checkServerUpdate", "instances:mods:list", "instances:mods:search", "instances:mods:checkUpdates", "instances:mods:plan", "instances:jobs:list", "instances:jobs:get",
     ],
   },
@@ -313,7 +315,7 @@ const IPC_FAMILIES = [
     tier: "instance:lifecycle",
     guard: "permission",
     allow: ["owner-unlocked", "operator-unlocked"],
-    channels: ["instances:start", "instances:stop", "instances:restart", "instances:safeRestart", "instances:forceKill", "instances:repairNeoForgeRuntime", "instances:jobs:cancel"],
+    channels: ["instances:start", "instances:stop", "instances:restart", "instances:safeRestart", "instances:forceKill", "instances:repairNeoForgeRuntime", "instances:jobs:cancel", "instances:fleetAction"],
   },
   {
     id: "instances-delete",
@@ -488,6 +490,8 @@ const IPC_FAMILIES = [
       "nodes:save", "nodes:delete", "nodes:disconnect", "nodes:reconnect", "nodes:pair",
       "nodes:repairCredential", "nodes:generateToken", "nodes:fleetBatch", "nodes:testConnection",
       "nodes:updateAgent",
+      // Build 213: Agent versions, Update all, and automatic Agent update settings.
+      "nodes:agentUpdateOverview", "nodes:updateAllAgents", "nodes:getAgentAutoUpdate", "nodes:setAgentAutoUpdate",
       // Remote Agent Start / Stop / Restart (SSH, or the Agent's own restart).
       "nodes:controlAgent",
       "nodes:verifyAgentControl",

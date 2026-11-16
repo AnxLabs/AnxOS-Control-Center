@@ -208,7 +208,11 @@ function registerInstancesIpc() {
   // the caller may not read is left out, not merged in.
   // Not registerInstanceHandler: these two are cross-computer by design, so
   // there is no single selected computer; every target carries its own nodeId.
-  ipcMain.handle("instances:listAcrossComputers", async () => invokeInstanceOperation(() => listServersAcrossComputers({
+  ipcMain.handle("instances:listAcrossComputers", async () => invokeInstanceOperation(() => {
+    // Refuse outright when locked or without read access, then leave out any
+    // single computer this role may not read.
+    requirePermission("instance:read", "all-computers");
+    return listServersAcrossComputers({
     listNodes: async () => (await registeredComputers()).filter((node) => {
       try {
         requirePermission("instance:read", node.id);
@@ -219,10 +223,13 @@ function registerInstancesIpc() {
     }),
     listInstancesForNode: (nodeId) => listInstances({ nodeId }),
     configDir: path.dirname(getNodesPath()),
-  })));
+  });
+  }));
   // Start / Stop / Restart several servers across computers, one at a time,
   // each to the computer it belongs to; same permission and audit as one.
-  ipcMain.handle("instances:fleetAction", async (_, payload = {}) => invokeInstanceOperation(() => runServerFleetAction({
+  ipcMain.handle("instances:fleetAction", async (_, payload = {}) => invokeInstanceOperation(() => {
+    requirePermission("instance:lifecycle", "all-computers");
+    return runServerFleetAction({
     action: payload.action,
     targets: payload.targets,
     confirm: payload.confirm === true,
@@ -235,7 +242,8 @@ function registerInstancesIpc() {
       if (verb === "stop") return stopInstance(target.instanceId, options);
       return restartInstance(target.instanceId, options);
     },
-  })));
+  });
+  }));
   // Service-managed operations: evidence reads are instance:read; Safe Restart is lifecycle and audited.
   registerInstanceHandler("instances:serviceOverview", async (_, payload = {}) => wrapExpectedAgentRead("instances:serviceOverview", () => {
     requirePermission("instance:read", payload.instanceId);
