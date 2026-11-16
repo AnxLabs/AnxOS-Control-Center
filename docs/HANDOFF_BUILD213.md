@@ -17,7 +17,7 @@ starts only with your approval.
 | 213-E Modpacks | Servers installed from a Modrinth or CurseForge modpack say when a newer pack version exists for the same Minecraft version and loader (check only) | `cfbe5d7e` |
 | 213-F Phone | Download any server file from the phone byte for byte; binary files are never opened as editable text | `87fe5343` |
 | 213-G AnxNet Anywhere | The edge checks its config before listening (never publishes SSH, Agent or other management ports); Copy edge config in the AnxNet panel; a hardened systemd service template and a step-by-step deployment guide | `34cb5dd5` |
-| Fix: update Cancel (issue 53) | A Cancel acknowledged while the pre-update backup runs or while the update waits for another SteamCMD task now stops it: SteamCMD never starts and nothing is recorded as updated | FIXHASH |
+| Fix: update Cancel (issue 53) | A Cancel acknowledged while the pre-update backup runs or while the update waits for another SteamCMD task now stops it: SteamCMD never starts and nothing is recorded as updated | `2f09e404` |
 | Test fixes | Renderer test waits past the deferred welcome; the website route check uses the final `/signin/` links; the release tier runs the Build 213 real-app checks | `28d1e17a`, `7529cd0e`, `b99a0233` |
 
 ## Evidence: what was tested, and how
