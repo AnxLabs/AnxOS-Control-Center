@@ -1,0 +1,48 @@
+# AnxNet edge (relay and optional public game gateway) on an owner's server.
+# A template: nothing installs or enables it. See docs/ANXNET_EDGE_DEPLOYMENT.md.
+#
+#   sudo install -m 0644 anxnet-edge.service /etc/systemd/system/
+#   sudo install -d -m 0755 /etc/anxnet-edge
+#   sudo install -m 0644 edge.json /etc/anxnet-edge/edge.json   # "dataDir": "/var/lib/anxnet-edge"
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now anxnet-edge
+#
+# It uses the Node runtime and AnxNet code the AnxOS Agent package installs
+# under /usr/lib/anxos-agent (Build 213 or later, which has the config check).
+
+[Unit]
+Description=AnxNet edge (relay and public game gateway)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Refuse a bad edge.json before listening (management ports, missing public
+# address, unknown networks).
+ExecStartPre=/usr/lib/anxos-agent/node/bin/node /usr/lib/anxos-agent/src/anxnet/bin/anxnet-edge.js --config /etc/anxnet-edge/edge.json --check
+ExecStart=/usr/lib/anxos-agent/node/bin/node /usr/lib/anxos-agent/src/anxnet/bin/anxnet-edge.js --config /etc/anxnet-edge/edge.json
+Restart=on-failure
+RestartSec=5
+
+# Its own throwaway user; the key lives in /var/lib/anxnet-edge (0700).
+DynamicUser=yes
+StateDirectory=anxnet-edge
+StateDirectoryMode=0700
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=yes
+LockPersonality=yes
+# Ports 1024 and above only; the config check refuses lower gateway ports.
+CapabilityBoundingSet=
+AmbientCapabilities=
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

@@ -398,6 +398,14 @@
     if (status.network.role === "owner") {
       const form = el("form", "anxnet-edges");
       form.append(el("p", "anxnet-note", "Run the AnxNet edge on a server you control (node src/anxnet/bin/anxnet-edge.js --config edge.json), then enter its address and the fingerprint it prints. AnxOS never sets this up on a computer by itself."));
+      // edge.json for this network: its id and the owner's public key (both
+      // public; no secret leaves this computer). The gateway stays off until
+      // the owner fills in the server's public address and turns it on.
+      const copyConfig = button("Copy edge config", () => {
+        const text = JSON.stringify(edgeConfigTemplate(status.network), null, 2);
+        navigator.clipboard?.writeText(text).then(() => showToast("Edge config copied. Save it as edge.json on the server, then run --check.", "success"));
+      });
+      form.append(copyConfig);
       const field = (label, value) => { const wrap = el("label", "ssh-field"); const input = el("input"); input.value = value || ""; wrap.append(el("span", "", label), input); form.append(wrap); return input; };
       const current = status.network.relays?.[0] || status.network.gateways?.[0] || {};
       const values = edgeDraft || { host: current.host, port: current.port || 47700, fingerprint: current.fingerprint, relay: Boolean(status.network.relays?.length), gateway: Boolean(status.network.gateways?.length) };
@@ -423,6 +431,17 @@
       details.append(form);
     }
     container.append(details);
+  }
+
+  function edgeConfigTemplate(network) {
+    return {
+      dataDir: "/var/lib/anxnet-edge",
+      listenHost: "0.0.0.0",
+      port: 47700,
+      networks: [{ networkId: network.networkId, ownerPublicKey: network.ownerPublicKey }],
+      relay: { enabled: true },
+      gateway: { enabled: false, publicHost: "", portRange: [30000, 30099] },
+    };
   }
 
   // A focused field someone types into (not a checkbox or button).

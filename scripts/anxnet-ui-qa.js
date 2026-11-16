@@ -16,7 +16,8 @@
 //   U4 Anyone can join: the gateway is set in the UI, the exposure is
 //      approved, and a plain client (no AnxNet) reaches the server through
 //      the gateway; "Friends can join" appears only after the test passed;
-//      turning it off closes the public port
+//      turning it off closes the public port; Build 213: the edge is set up
+//      from the panel's "Copy edge config", which passes the edge's check
 //   U5 removing the device from the UI cuts its access
 //   U6 no renderer errors
 //   U8 Phase 7.1: Computers > AnxNet adds the Agent's computer to the
@@ -38,6 +39,7 @@ const { startServiceManagedAgent } = require("./test-helpers/service-managed-age
 const { fakeMinecraftInstance } = require("./test-helpers/fake-minecraft-instance");
 const { AnxNetNode, fileStore } = require("../src/anxnet/node");
 const { AnxNetEdge } = require("../src/anxnet/edge");
+const { validateEdgeConfig } = require("../src/anxnet/edgeConfig");
 const { AnxNetHostClient } = require("../src/anxnet/hostClient");
 
 const root = path.resolve(__dirname, "..");
@@ -155,12 +157,21 @@ async function main() {
 
     // U4
     const status = await page.evaluate(() => getDesktopApiState().api.anxnet.status());
-    edge = new AnxNetEdge({ keyStore: fileStore(path.join(temp, "edge.key")), listenHost: "127.0.0.1", port: 0, networks: [{ networkId: status.network.networkId, ownerPublicKey: status.network.ownerPublicKey }], gateway: { enabled: true, bindHost: "127.0.0.1", publicHost: "127.0.0.1", portRange: [45900, 45909] } });
-    const edgeInfo = await edge.start();
     await page.locator("[data-share-server-close]").last().click().catch(() => {});
     await page.evaluate(() => window.showPage("nodes"));
     await page.locator("[data-anxnet-panel] .anxnet-advanced summary").click();
     const form = page.locator("[data-anxnet-panel] .anxnet-edges");
+    // Build 213: the edge is configured from the panel's "Copy edge config"
+    // (captured here; the real clipboard is left alone).
+    await page.evaluate(() => { window.__copiedText = []; Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: (text) => { window.__copiedText.push(String(text)); return Promise.resolve(); } } }); });
+    await form.locator("button", { hasText: "Copy edge config" }).click();
+    await waitFor(page, () => (window.__copiedText || []).length === 1, null, "edge config copied");
+    const copiedConfig = JSON.parse(await page.evaluate(() => window.__copiedText[0]));
+    assert.deepStrictEqual(copiedConfig.networks, [{ networkId: status.network.networkId, ownerPublicKey: status.network.ownerPublicKey }], "the copied config names this network and its owner key");
+    assert.strictEqual(copiedConfig.gateway.enabled, false, "the gateway stays off until the owner turns it on");
+    assert.strictEqual(validateEdgeConfig(copiedConfig).ok, true, "the copied config passes the edge's own check as it is");
+    edge = new AnxNetEdge({ ...copiedConfig, keyStore: fileStore(path.join(temp, "edge.key")), listenHost: "127.0.0.1", port: 0, gateway: { ...copiedConfig.gateway, enabled: true, bindHost: "127.0.0.1", publicHost: "127.0.0.1", portRange: [45900, 45909] } });
+    const edgeInfo = await edge.start();
     await form.locator("input").nth(0).fill("127.0.0.1");
     await form.locator("input").nth(1).fill(String(edgeInfo.port));
     await form.locator("input").nth(2).fill(edgeInfo.fingerprint);
