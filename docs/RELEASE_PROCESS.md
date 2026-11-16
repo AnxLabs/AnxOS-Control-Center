@@ -10,6 +10,8 @@
 4. Trigger the Desktop Release workflow. Validation must pass before either platform packages.
 5. Confirm Windows signing and signtool verification pass for every executable. Confirm Linux packages upload successfully.
 6. For a tagged run, review the generated updater manifest, checksums, release notes, and artifact inventory before publication.
+7. After acceptance and the owner's approval, dispatch **Promote Release to Stable** with the tag. It regenerates the website metadata, static HTML, JSON-LD and both README release sections, checks they agree, makes the release Latest and deploys the website. See [Release documentation and metadata](RELEASE_DOCUMENTATION.md).
+8. For website or documentation-only changes, `npm run qa:website` (or `npm run qa:auto`) is the routine check; it never replaces the release tier for a build.
 
 Unsigned local builds are supported when no Azure variables are configured. Partial Azure configuration is rejected to prevent accidental unsigned releases. The workflow does not publish from manual runs; publication is tag-only.
 

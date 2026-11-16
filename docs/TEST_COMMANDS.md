@@ -30,6 +30,10 @@ Run relevant smoke suites:
 ```powershell
 npm run ui:polish:smoke
 npm run website:smoke
+npm run release:consistency:smoke   # current release named everywhere (fixtures, cases A-G)
+npm run release:docs:check          # static HTML / README release sections are current
+npm run qa:website                  # website + release-docs tier (docs-only changes)
+npm run qa:auto                     # picks the website tier for docs-only changes
 npm run account:smoke
 npm run marketplace:smoke
 npm run marketplace:error-bridge:smoke

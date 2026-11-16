@@ -83,6 +83,26 @@ Earlier campaign commits already on this branch: `0e7e7904`, `a919e41d`.
   - The desktop logged no server, container, AnxNet or Agent write during the run, and the installed Agent logged 0 authorization failures.
 - **Note:** Anxlab's servers are all stopped. Palworld was stopped from this desktop at 2026-11-15 20:22:36Z, during RC1 acceptance, while the acceptance session was only reading code (not by an acceptance click). Start it again from the app if it should be running.
 
+## Published (2026-11-16)
+
+- `v2.0-build212` tagged on `6ef7c403`. Release run 43850139683 passed all five jobs. The published Setup has SHA-256 `38A7CCDE…DCAFCB9F9`, signature Valid, and matches `SHA256SUMS` and `latest.yml`.
+- Promoted to GitHub Latest by run 43853876941. The website commit `99ec6518` is on `dev`, and Pages deploy 43853917545 succeeded. The live site serves Build 212.
+
+## Website and release documentation (2026-11-16, local, not deployed)
+
+- Static HTML, JSON-LD and both README release sections are now generated from `website/config.js` by `scripts/release-docs.js` and checked by `scripts/release-consistency-check.js`. See `docs/RELEASE_DOCUMENTATION.md`.
+- **Not yet public, each needs the owner's approval:**
+  - Push the commits to `dev`.
+  - Run the Pages deploy.
+  - Publish `docs/releases-repository/README.md` to `AnxLabs/AnxOS-Control-Center-Releases` once. Its markers are what let the next promotion update it. Until then, the README step of the next promotion fails visibly, by design.
+- **Shared systems:**
+  - SAUS: blocked (no release catalog).
+  - Release Fabric: opt-in `release-fabric.checks.yml` (validated, plan-only).
+  - ALSP: proposed.
+  - AMDP: untouched.
+  - Deployment policy component: missing.
+  - Sona ISTU: not reusable here.
+
 ## Evidence
 
 - Full run on the campaign tree (`bc9f0db3` content): 417 smoke suites and `qa:release` (119 checks, real-app UI tests) passed. The installed Local Agent logged no authorization failures and kept running.

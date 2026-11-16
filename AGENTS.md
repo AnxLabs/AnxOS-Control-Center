@@ -970,6 +970,34 @@ Use this section to accumulate verified project knowledge over time. Add entries
   - Each check failed on RC2.
 - **Lesson:** Check what the user sees, not the state meant to cause it: a class or flag can be right while the screen is wrong. A broad attribute selector with a filled animation overrides every component that reuses the attribute. A reply that records its target must be checked against the current selection by every reader, not only the page that requested it.
 
+### 2026-11-16 — The website's static HTML still said Build 205 after Build 212 shipped
+
+- **Problem:** With Build 212 published, the website's static HTML, its meta
+  descriptions and the Releases repository README still named Build 205 (or
+  Build 199) as current. Visitors with JavaScript saw Build 212, but crawlers,
+  link previews and AI tools reading the raw HTML were told an old build was
+  the latest.
+- **Cause:**
+  - Promotion regenerated `website/config.js` and `release-notes.json` only.
+  - `site.js` corrected the page at runtime, so a browser check always looked
+    right.
+  - Version badges and meta tags were hand-written, and the READMEs were
+    edited by hand.
+  - The sync also stamped "today" as the release date, so its output depended
+    on the day it ran.
+- **Resolution:**
+  - `scripts/release-docs.js` derives every static current-release surface from
+    `config.js`: the elements `site.js` already renders, `data-release-managed`
+    text, JSON-LD and the README sections between `anxos-release` markers.
+  - Promotion runs it, checks the result, and updates the Releases README
+    section with the release token.
+  - The Pages deploy refuses stale output.
+  - `release-consistency-smoke.js` covers cases A–G.
+- **Lesson:** A page that is right only after JavaScript runs is wrong for every
+  crawler. Check what the raw HTML says, not what the browser shows. Every
+  surface that names "the current release" needs a generator and a check, or it
+  will go stale on the next release.
+
 ## Future Improvements
 
 Keep optional ideas separate from active work. An item in this list is not authorization to implement it.
