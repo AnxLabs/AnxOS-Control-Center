@@ -56,6 +56,33 @@ Earlier campaign commits already on this branch: `0e7e7904`, `a919e41d`.
 - **Checks:** `acceptance-fixes-ui-qa.js` A7 and A8 (A8 measures computed opacity) and `agent-control-foreign-task-stop-smoke.js` S6 each fail on `b6f293a4`. The release tier passed with 129 checks; the installed Agent logged 0 authorization failures.
 - **Also seen:** DevTools opens in the packaged app (Ctrl+Shift+I). Not changed in this build.
 
+## Release candidate 3 (2026-11-16)
+
+- **CI run:** Desktop Release run 43819768503 on `daa548ad` passed all four jobs. Publishing was skipped.
+- **Installer:** SHA-256 `8A14A5D3…62765E3`, signature Valid (Anjo ROSIMO).
+- **In-place upgrade over RC2, with Computer Use:**
+  - Setup kept the Helper and showed no administrator prompt. It left no `helper-restore-needed.json`.
+  - The AnxOSAgent task runs the installed exe with `--agent`, with no time limit and 3 restarts, and the Local Agent reports `2.0-build212`.
+  - Agent, enrollment, credentials, endpoints and the AnxNet key and settings were byte-identical afterwards. In `nodes.json`, only health fields changed.
+  - Backup: `%APPDATA%\AnxHub\config-backup-pre-build212-rc3-20261116-002906`.
+- **Acceptance:** all nine fixes held in the installed app.
+  - The Local AnxOS Agent card reads "Version 2.0 Build 212" while Anxlab is selected.
+  - Home's checklist reads "vps-7360e3ad's Agent: Offline" with the VPS selected.
+  - An error toast left the screen by itself.
+  - Fixes 1-6 held again:
+    - Anxlab's own Agent truly reports no build, and the app shows no placeholder.
+    - No locked-state polling after startup.
+    - Home's advice names the VPS.
+    - Docker's row actions are visible.
+    - Two real SSH sessions keep their own status.
+    - Files reads "Unavailable" for the VPS storage.
+- **Also checked:**
+  - AnxNet `anx-delta35`: owned, and Anxlab is connected directly.
+  - Playit tunnel online.
+  - Anxlab's 7 servers and its containers are listed and were not touched.
+  - The desktop logged no server, container, AnxNet or Agent write during the run, and the installed Agent logged 0 authorization failures.
+- **Note:** Anxlab's servers are all stopped. Palworld was stopped from this desktop at 2026-11-15 20:22:36Z, during RC1 acceptance, while the acceptance session was only reading code (not by an acceptance click). Start it again from the app if it should be running.
+
 ## Evidence
 
 - Full run on the campaign tree (`bc9f0db3` content): 417 smoke suites and `qa:release` (119 checks, real-app UI tests) passed. The installed Local Agent logged no authorization failures and kept running.
@@ -86,10 +113,6 @@ Earlier campaign commits already on this branch: `0e7e7904`, `a919e41d`.
 
 Follow `AGENTS.md` › Release Candidate Acceptance Workflow. Each gate needs the owner's approval:
 
-1. Done for RC1 and RC2. For RC3: push the RC2 acceptance fixes to `dev`.
-2. Run the Desktop Release workflow (`windows-release.yml`, manual dispatch on `dev`) for RC3. Confirm CI, the Authenticode signature and the SHA-256, then download the installer.
-3. Report build, commit, SHA-256, signature and CI status, then wait for `confirmed`.
-4. In-place upgrade over the installed Build 212 RC2 with Computer Use. Keep all servers, containers, credentials, AnxNet identities and data, and check that the nine fixes, the Helper and data are intact.
-5. Acceptance across major workflows; any issue restarts from validation.
-6. Final acceptance report; wait for `🚀 publish`.
+1-5. Done for RC3 (`daa548ad`, run 43819768503): pushed, built, signed, installed in place and accepted with no findings.
+6. Final acceptance report given; waiting for `🚀 publish`.
 7. Tag `v2.0-build212` (the tag push builds the release), publish the GitHub release, update `website/release-notes.json`.
