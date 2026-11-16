@@ -51,6 +51,13 @@ const { audit, checkRateLimit, requirePermission } = require("../services/securi
 const { wrapExpectedAgentRead } = require("./expectedAgentError");
 const { requireNodeContext } = require("./nodeContext");
 const { createIpcError } = require("../shared/ipcError");
+const path = require("path");
+const { getNodesPath, listNodes: listRegisteredNodes } = require("../services/nodeService");
+const { listServersAcrossComputers, runServerFleetAction } = require("../services/serverFleetService");
+
+async function registeredComputers() {
+  return (await listRegisteredNodes())?.nodes || [];
+}
 const { setAuditEventEmitter } = require("../shared/instances/jobLifecycle");
 // V2-J bullet 2: the operation scope every instance action enters, so the
 // durable job it mints and the workload log lines it writes join on one id.
@@ -196,6 +203,39 @@ function registerInstancesIpc() {
     audit({ action: "instance.restart", target: payload.instanceId });
     return restartInstance(payload.instanceId, payload);
   }));
+  // Servers on every computer (Build 213-B): each computer's list is read with
+  // its own nodeId and the caller's per-computer read permission; a computer
+  // the caller may not read is left out, not merged in.
+  // Not registerInstanceHandler: these two are cross-computer by design, so
+  // there is no single selected computer; every target carries its own nodeId.
+  ipcMain.handle("instances:listAcrossComputers", async () => invokeInstanceOperation(() => listServersAcrossComputers({
+    listNodes: async () => (await registeredComputers()).filter((node) => {
+      try {
+        requirePermission("instance:read", node.id);
+        return true;
+      } catch {
+        return false;
+      }
+    }),
+    listInstancesForNode: (nodeId) => listInstances({ nodeId }),
+    configDir: path.dirname(getNodesPath()),
+  })));
+  // Start / Stop / Restart several servers across computers, one at a time,
+  // each to the computer it belongs to; same permission and audit as one.
+  ipcMain.handle("instances:fleetAction", async (_, payload = {}) => invokeInstanceOperation(() => runServerFleetAction({
+    action: payload.action,
+    targets: payload.targets,
+    confirm: payload.confirm === true,
+    listNodes: registeredComputers,
+    authorize: (target) => requirePermission("instance:lifecycle", target.instanceId),
+    runAction: (verb, target) => {
+      audit({ action: `instance.${verb}`, target: target.instanceId, nodeId: target.nodeId, via: "all-computers" });
+      const options = { nodeId: target.nodeId };
+      if (verb === "start") return startInstance(target.instanceId, options);
+      if (verb === "stop") return stopInstance(target.instanceId, options);
+      return restartInstance(target.instanceId, options);
+    },
+  })));
   // Service-managed operations: evidence reads are instance:read; Safe Restart is lifecycle and audited.
   registerInstanceHandler("instances:serviceOverview", async (_, payload = {}) => wrapExpectedAgentRead("instances:serviceOverview", () => {
     requirePermission("instance:read", payload.instanceId);

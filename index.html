@@ -1963,9 +1963,12 @@
               </label>
               <div class="docker-actions" aria-label="Instance actions">
                 <button class="inline-action" type="button" data-instance-action="refresh" disabled>Refresh</button>
+                <button class="inline-action" type="button" data-servers-all-computers aria-pressed="false" title="Show the servers on every paired computer in one list">All computers</button>
                 <button class="inline-action" type="button" data-instance-action="create">Create Server</button>
               </div>
             </div>
+
+            <section class="docker-table-panel instances-table-panel" data-server-fleet aria-label="Servers on all computers" hidden></section>
 
             <form class="instance-create-form instance-wizard" data-instance-create-form hidden>
               <div class="instance-wizard-header">
@@ -5973,6 +5976,7 @@
     <script src="src/renderer/serverView.js"></script>
     <script src="src/renderer/playersPanel.js"></script>
     <script src="src/renderer/serversList.js"></script>
+    <script src="src/renderer/serverFleet.js"></script>
     <script src="src/renderer/dockerWorkspace.js"></script>
     <script src="src/renderer/filesDrop.js"></script>
     <script src="src/renderer/dropNavigationGuard.js"></script>

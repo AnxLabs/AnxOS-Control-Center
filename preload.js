@@ -370,6 +370,8 @@ const desktopApi = {
   },
   instances: {
     list: (payload = {}) => invokeAgentFeature("instances:list", payload),
+    listAcrossComputers: () => ipcRenderer.invoke("instances:listAcrossComputers"),
+    fleetAction: (action, targets, options = {}) => ipcRenderer.invoke("instances:fleetAction", { action, targets, confirm: options.confirm === true }),
     create: (payload) => ipcRenderer.invoke("instances:create", payload),
     update: (instanceId, config, options = {}) => ipcRenderer.invoke("instances:update", { ...options, instanceId, config }),
     rename: (instanceId, displayName, options = {}) => ipcRenderer.invoke("instances:rename", { ...options, instanceId, displayName }),

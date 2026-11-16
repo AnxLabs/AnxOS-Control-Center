@@ -22333,3 +22333,25 @@ body.create-server-window .page[data-page="marketplace"] .page-introduction {
 [data-ai-provider-status][data-state="warning"] {
   color: #ffd08a;
 }
+
+/* My Servers › All computers (Build 213-B): same table styles as the
+   single-computer list, with room around the panel's own heading and
+   controls, and action buttons that never wrap mid-word. */
+.instances-table-panel[data-server-fleet] {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.instances-table-panel[data-server-fleet] > .platform-note,
+.instances-table-panel[data-server-fleet] .settings-section__header p {
+  margin: 0;
+}
+
+.instances-controlbar .docker-actions .inline-action {
+  white-space: nowrap;
+}
+
+.instances-table-panel[data-server-fleet] .docker-actions {
+  flex-wrap: wrap;
+}
