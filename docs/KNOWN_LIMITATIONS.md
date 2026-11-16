@@ -7,7 +7,7 @@ These limitations are acceptable for Private Alpha if they are clearly communica
 - AnxOS Control Center is Private Alpha.
 - Do not present it as public beta, stable, or v1.0-ready.
 - No version bump, tag, or GitHub Release should be created for readiness-only documentation changes.
-- Current source identity is Version 2.0 Build 212, Private Alpha, per
+- Current source identity is Version 2.0 Build 213, Private Alpha, per
   `release.json`. Historical build-numbered reports are evidence for their named
   artifacts only; see `DOCUMENTATION_INDEX.md`. Availability of matching
   candidate artifacts must be proven separately and is not inferred from source
@@ -107,8 +107,8 @@ already performed.
   seams, but the flow has not been run on a real Linux host with a genuine
   version-delta swap. Until that live drill runs, the current staging step
   copies the same runtime root into place; a real version delta is unproven.
-- **Updating package-installed Agents from the app (added after Build 212) is
-  not yet proven end to end.**
+- **Updating package-installed Agents from the app (Build 213) is not yet
+  proven end to end.**
   - **What it does:** **Update** and **Update all Agents** in Agent Control now
     handle Agents installed from the `anxos-agent` .deb:
     - download the matching release package and the installed build's package
@@ -131,9 +131,20 @@ already performed.
       so pre-212 Agents must be updated once by hand.
     - Packages are checksum-verified against the release, not signed with a
       separate key.
-  - **Automatic updates:** off by default. They need an
-    `agent-auto-update.json` file in the config folder with `"enabled": true`;
-    there is no in-app switch yet.
+  - **Automatic updates:** off by default. Settings > Updates > Automatic
+    Agent updates turns them on for chosen computers, days and a time window,
+    and keeps a history. They are skipped while a computer's servers run.
+- **Build 213 features that need a Build 213 Agent on the computer:** phone
+  file downloads, and cancelling a server update before SteamCMD starts
+  (issue #53). With an older Agent the app offers that Cancel only once
+  SteamCMD runs, and says why.
+- **Moving servers between computers** was verified between two Agents on
+  one PC, not between two machines.
+- **Modpack updates** are detected and shown; AnxOS does not apply them.
+- **The AnxNet edge** (relay and public gateway) was verified as its own
+  process on loopback only. It has not run on a public server; that opens
+  public ports and needs the owner's approval
+  (`docs/ANXNET_EDGE_DEPLOYMENT.md`).
 - **Docker image update has no controlled rollback** (`rollbackSupported:
   false`). Where image data compatibility allows, a rollback is not built or
   exposed; the deferral is a recorded roadmap decision, not a shipped feature.
