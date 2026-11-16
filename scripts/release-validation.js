@@ -9,7 +9,8 @@ const repoEnvPath = path.join(root, ".env");
 const repoEnvExamplePath = path.join(root, ".env.example");
 const args = new Set(process.argv.slice(2));
 const tierArg = process.argv.find((arg) => arg.startsWith("--tier="));
-const tier = tierArg ? tierArg.slice("--tier=".length) : "release";
+const requestedTier = tierArg ? tierArg.slice("--tier=".length) : "release";
+const sinceArg = process.argv.find((arg) => arg.startsWith("--since="));
 const dirtyCheckOnly = args.has("--dirty-check");
 
 const TIERS = {
@@ -158,6 +159,22 @@ const TIERS = {
     ["node", ["scripts/playit-process-detection-smoke.js"]],
     ["node", ["scripts/playit-account-service-smoke.js"]],
     ["node", ["scripts/playit-account-ipc-smoke.js"]],
+    ["git", ["diff", "--check"]],
+  ],
+  // Website, release-notes and README work. Not a release gate: the release tier,
+  // signing, RC validation and acceptance stay mandatory before any build ships.
+  website: [
+    ["node", ["--check", "website/site.js"]],
+    ["node", ["--check", "website/release-download-service.js"]],
+    ["node", ["scripts/release-docs.js", "--check"]],
+    ["node", ["scripts/release-consistency-check.js"]],
+    ["node", ["scripts/release-consistency-smoke.js"]],
+    ["node", ["scripts/website-production-smoke.js"]],
+    ["node", ["scripts/website-download-smoke.js"]],
+    ["node", ["scripts/website-accessibility-smoke.js"]],
+    ["node", ["scripts/website-setup-smoke.js"]],
+    ["node", ["scripts/website-download-functions-smoke.js"]],
+    ["node", ["scripts/release-promotion-smoke.js"]],
     ["git", ["diff", "--check"]],
   ],
   release: [
@@ -373,6 +390,47 @@ if (dirtyCheckOnly) {
   console.log("[qa] Working tree clean.");
   process.exit(0);
 }
+
+// --tier=auto picks the narrowest tier that covers the changed files (working
+// tree vs HEAD plus untracked files, or vs --since=<ref>). Only changes confined to
+// the website, documentation and the release-docs tooling select the website tier;
+// anything else selects fast and says that feature/release tiers are still owed.
+const WEBSITE_ONLY_PATHS = [
+  /^website\//,
+  /^docs\//,
+  /^[^/]+\.md$/,
+  /^scripts\/(release-docs|release-consistency-check|release-consistency-smoke|sync-website-release|website-[a-z-]+)\.js$/,
+];
+
+function changedPaths() {
+  const base = sinceArg ? sinceArg.slice("--since=".length) : "HEAD";
+  const diff = spawnSync("git", ["diff", "--name-only", base, "--"], { cwd: root, encoding: "utf8" });
+  const untracked = spawnSync("git", ["ls-files", "--others", "--exclude-standard"], { cwd: root, encoding: "utf8" });
+  if (diff.status !== 0 || untracked.status !== 0) return null;
+  const lines = `${diff.stdout}\n${untracked.stdout}`.split(/\r?\n/);
+  return [...new Set(lines.map((line) => line.trim()).filter(Boolean))];
+}
+
+function resolveAutoTier() {
+  const paths = changedPaths();
+  if (!paths) {
+    console.warn("[qa] auto: could not read changed files from Git; running the fast tier.");
+    return "fast";
+  }
+  if (!paths.length) {
+    console.log("[qa] auto: no changed files; running the fast tier.");
+    return "fast";
+  }
+  const outside = paths.filter((file) => !WEBSITE_ONLY_PATHS.some((pattern) => pattern.test(file)));
+  if (!outside.length) {
+    console.log(`[qa] auto: ${paths.length} changed file(s), all website/docs/release-docs; running the website tier.`);
+    return "website";
+  }
+  console.log(`[qa] auto: ${outside.length} changed file(s) outside website/docs (for example ${outside.slice(0, 3).join(", ")}); running the fast tier. Run the feature and release tiers before a release candidate.`);
+  return "fast";
+}
+
+const tier = requestedTier === "auto" ? resolveAutoTier() : requestedTier;
 
 if (!Object.prototype.hasOwnProperty.call(TIERS, tier)) {
   console.error(`[qa] Unknown tier "${tier}". Expected one of: ${Object.keys(TIERS).join(", ")}`);

@@ -1,0 +1,72 @@
+# Optional Release Fabric routine checks for AnxOS Control Center:
+#   rfab -c release-fabric.checks.yml check --plan     # what a change selects
+#   rfab -c release-fabric.checks.yml check            # run it
+# Release Fabric only selects and caches these existing scripts by their inputs.
+# The authoritative gates are unchanged: `npm run qa:release`, `npm run rc:validate`,
+# the signed Desktop Release workflow, RC install and acceptance, and the
+# approval-gated promotion. A passing routine check never authorizes a release.
+version: 1
+project: AnxOS-Control-Center-checks
+release:
+  version: {literal: development-check}
+settings:
+  max_parallel: 2
+  inherit_env: [USERNAME, APPDATA, LOCALAPPDATA, USERPROFILE, SystemRoot, TEMP, TMP]
+tasks:
+  # Website content, static fallbacks, JSON-LD and README release sections.
+  release-docs:
+    kind: test
+    tier: quick
+    isolated: true
+    run: node scripts/release-docs.js --check && node scripts/release-consistency-check.js && node scripts/release-consistency-smoke.js
+    inputs: [website/**, README.md, docs/releases-repository/**, scripts/release-docs.js, scripts/release-consistency-check.js, scripts/release-consistency-smoke.js, scripts/verify-website-config-vs-stable.js]
+    cache: true
+    cache_tools: [node]
+    timeout: 120
+
+  website-smoke:
+    kind: test
+    tier: quick
+    isolated: true
+    run: node scripts/website-production-smoke.js && node scripts/website-download-smoke.js && node scripts/website-accessibility-smoke.js && node scripts/website-setup-smoke.js && node scripts/website-download-functions-smoke.js
+    inputs: [website/**, scripts/website-*.js]
+    cache: true
+    cache_tools: [node]
+    timeout: 120
+
+  # Other documentation: only whitespace errors to check.
+  docs-whitespace:
+    kind: test
+    tier: quick
+    run: git diff --check
+    inputs: [docs/**, "*.md"]
+    cache: false
+    timeout: 60
+
+  # Release and deployment policy: tag-only publishing, pre-release first,
+  # promotion and deploy guards. Always run fresh when selected.
+  release-policy:
+    kind: test
+    tier: security
+    run: node scripts/release-promotion-smoke.js
+    inputs: [release-fabric.checks.yml, .github/workflows/**, scripts/release-promotion-smoke.js, scripts/validate-release-artifacts.js, scripts/verify-website-config-vs-stable.js, scripts/sync-website-release.js, scripts/write-update-manifest.js, src/shared/**, src/services/updateManager.js, website/release-download-service.js, website/functions/**, release.json, package.json]
+    cache: false
+    timeout: 120
+
+  # Application code: the existing fast tier, then the full release tier.
+  app-fast:
+    kind: test
+    tier: integration
+    run: node scripts/release-validation.js --tier=fast
+    inputs: [app.js, main.js, preload.js, index.html, styles.css, src/**, agent/**, scripts/versioning-smoke.js, scripts/release-validation.js, release.json, package.json]
+    cache: false
+    timeout: 300
+
+  app-release:
+    kind: test
+    tier: release
+    needs: [app-fast]
+    run: node scripts/release-validation.js --tier=release
+    inputs: [app.js, main.js, preload.js, index.html, styles.css, src/**, agent/**, scripts/**, assets/**, windows/**, build/**, vendor/**, release.json, release-build.json, package.json, package-lock.json, .github/**]
+    cache: false
+    timeout: 3600

@@ -98,6 +98,8 @@ async function main() {
   assert(!/workflow_run/.test(cf), "Cloudflare deploy must not auto-trigger from a release or RC tag run.");
   assert(cf.includes("workflow_dispatch"), "Cloudflare deploy must be an explicit manual dispatch.");
   assert(cf.includes("verify-website-config-vs-stable.js"), "Cloudflare deploy must run the stable metadata consistency guard before publishing.");
+  assert(cf.includes("release-docs.js --check") && cf.includes("release-consistency-check.js"), "Cloudflare deploy must refuse stale static HTML or README release sections.");
+  assert(!/npm run (dist|build)|electron-builder/.test(cf), "A website deploy must never build desktop or Agent artifacts.");
 
   // 5. Final promotion requires an explicit approvable action and refuses re-promotion.
   const promote = read(".github/workflows/promote-release.yml");
@@ -106,6 +108,10 @@ async function main() {
   assert(promote.includes("refusing to re-promote"), "Promotion must refuse an already-stable release.");
   assert(promote.includes("website:sync"), "Promotion must regenerate website metadata for the promoted build.");
   assert(promote.includes("gh workflow run cloudflare-pages-deploy.yml"), "Promotion must then trigger the guarded Cloudflare deploy.");
+  assert(promote.indexOf("release-consistency-check.js") !== -1 && promote.indexOf("release-consistency-check.js") < promote.indexOf("git push origin dev"), "Promotion must check release documentation consistency before pushing.");
+  assert(promote.includes("README.md docs/releases-repository/README.md"), "Promotion must commit the regenerated README sections with the website metadata.");
+  assert(promote.includes("--releases-readme=") && promote.includes("ANXOS_RELEASE_REPO_TOKEN"), "Promotion must update the Releases README managed section with the release-repository token.");
+  assert(!/on:\s*\n\s*push:/.test(promote), "Promotion must not run on push, so its own dev commit cannot re-trigger it.");
 
   // 6. Tag-flow immutability, fail-closed behavior, and Release-repo destination.
   const wr = read(".github/workflows/windows-release.yml");

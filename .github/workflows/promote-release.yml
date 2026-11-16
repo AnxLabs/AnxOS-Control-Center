@@ -71,7 +71,17 @@ jobs:
         env:
           ANXOS_RELEASE_TAG: ${{ github.event.inputs.tag }}
           ANXOS_UPDATE_BASE_URL: https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/${{ github.event.inputs.tag }}
+        # website:sync regenerates config.js and release-notes.json, then the static
+        # HTML fallbacks, JSON-LD and README managed sections from them.
         run: npm run website:sync
+
+      # Fail before anything is pushed or promoted if the generated outputs
+      # disagree about the current release.
+      - name: Check release documentation consistency
+        run: |
+          set -euo pipefail
+          node scripts/release-docs.js --check
+          node scripts/release-consistency-check.js
 
       - name: Commit and push promoted website metadata
         env:
@@ -81,7 +91,10 @@ jobs:
           set -euo pipefail
           git config user.name "AnxOS Release Bot"
           git config user.email "releases@anxos.invalid"
-          git add website/config.js website/release-notes.json release.json
+          # Only generated release outputs: config, notes, static HTML, managed README sections.
+          git add release.json website README.md docs/releases-repository/README.md
+          git status --short
+          # No workflow runs on pushes to dev, so this commit cannot trigger another run.
           git commit -m "chore(website): promote ${TAG} to public stable" || echo "No website metadata changes to commit."
           git push origin dev
 
@@ -120,3 +133,39 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh workflow run cloudflare-pages-deploy.yml --ref dev
+
+      # Rewrites only the managed "Latest release" section of the Releases
+      # repository README; everything outside the markers is kept. A missing token,
+      # missing markers or a refused write fails this run, so a promotion whose
+      # README was not updated never reports success. Promotion refuses to run twice,
+      # so after fixing the cause, regenerate the README locally with
+      # `node scripts/release-docs.js --releases-readme=<downloaded README>` and
+      # commit it to the Releases repository by hand. The step is a no-op when the
+      # section is already current.
+      - name: Update the Releases repository README
+        env:
+          GH_TOKEN: ${{ secrets.ANXOS_RELEASE_REPO_TOKEN }}
+          TAG: ${{ github.event.inputs.tag }}
+        run: |
+          set -euo pipefail
+          API="repos/AnxLabs/AnxOS-Control-Center-Releases/contents/README.md"
+          if ! gh api "${API}" > releases-readme.json; then
+            echo "::error::Could not read the Releases repository README with ANXOS_RELEASE_REPO_TOKEN." >&2
+            exit 1
+          fi
+          SHA="$(jq -r .sha releases-readme.json)"
+          jq -r .content releases-readme.json | base64 -d > releases-README.md
+          cp releases-README.md releases-README.before.md
+          node scripts/release-docs.js --releases-readme=releases-README.md
+          if cmp -s releases-README.md releases-README.before.md; then
+            echo "Releases README already names ${TAG}; nothing to update."
+            exit 0
+          fi
+          if ! gh api --method PUT "${API}" \
+              -f message="docs(readme): current release ${TAG}" \
+              -f content="$(base64 -w0 releases-README.md)" \
+              -f sha="${SHA}" -f branch=main > /dev/null; then
+            echo "::error::The Releases repository refused the README update (does the token have contents:write?). The release is promoted, but its README still names the previous build." >&2
+            exit 1
+          fi
+          echo "Releases README updated for ${TAG}."

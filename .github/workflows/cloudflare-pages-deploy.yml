@@ -45,7 +45,13 @@ jobs:
 
       - name: Refuse inconsistent or stale website metadata
         working-directory: website-source
-        run: node scripts/verify-website-config-vs-stable.js
+        run: |
+          set -euo pipefail
+          node scripts/verify-website-config-vs-stable.js
+          # Static HTML, JSON-LD and README sections must name the same release
+          # as config.js; a stale static fallback is refused, not deployed.
+          node scripts/release-docs.js --check
+          node scripts/release-consistency-check.js
 
       - name: Deploy website to Cloudflare Pages
         env:

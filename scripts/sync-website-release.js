@@ -149,6 +149,11 @@ function getReleaseNotes() {
 const releaseNotes = getReleaseNotes();
 fs.writeFileSync(releaseNotesPath, `${JSON.stringify(releaseNotes, null, 2)}\n`);
 
+// The release date belongs to the release, not to the day this script runs: reuse
+// the date recorded with the current build's notes so a re-run is a no-op.
+const currentReleaseEntry = releaseNotes.find((entry) => entry.tag === release.tag || (entry.version === release.version && Number(entry.build) === release.build));
+const currentReleaseDate = currentReleaseEntry?.date || formatReleaseDate();
+
 const config = `window.ANXOS_DOWNLOAD_CONFIG = {
   brandName: "AnxOS",
   appName: "AnxOS-Control-Center",
@@ -160,7 +165,7 @@ const config = `window.ANXOS_DOWNLOAD_CONFIG = {
   buildNumber: "${release.build}",
   channel: "${release.channel}",
   releaseLabel: "${release.compactLabel}",
-  releaseDate: "${formatReleaseDate()}",
+  releaseDate: "${currentReleaseDate}",
   releaseTag: "${release.tag}",
   releaseRepository: {
     owner: "${releaseRepository.owner}",
