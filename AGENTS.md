@@ -1030,7 +1030,12 @@ Use this section to accumulate verified project knowledge over time. Add entries
 - **Resolution:** The update re-checks that its exact session is still
   live after the backup (also when the backup fails) and inside the
   SteamCMD lock immediately before spawning, and ends as
-  STEAMCMD_UPDATE_CANCELLED with nothing changed.
+  STEAMCMD_UPDATE_CANCELLED with nothing changed; a queued cancel answers
+  at once. The desktop offers Cancel only when the Agent reports
+  `cancelBeforeStart` or SteamCMD is running, holds an earlier cancel, and
+  `cancelDownload` refuses an operation that can't be cancelled instead of
+  marking it cancelled. `steamcmd-update-cancel-desktop-smoke` and the
+  real-app `steamcmd-cancel-ui-qa` cover the desktop side.
   `scripts/steamcmd-update-cancel-smoke.js` C1 and C3 fail without each
   check; C0 and C4 are the success and after-spawn controls.
 - **Lesson:** A cancel that can be acknowledged before the work starts must

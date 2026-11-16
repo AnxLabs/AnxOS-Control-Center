@@ -168,7 +168,8 @@ async function startServiceManagedAgent(options = {}) {
   const port = await freePort();
   const agentJson = path.join(configDir, "agent.json");
   fs.writeFileSync(agentJson, `${JSON.stringify({ backendMode: "agent", agentUrl: `http://127.0.0.1:${port}`, agentToken: token }, null, 2)}\n`, { mode: 0o600 });
-  const child = spawn(process.execPath, ["--require", path.join(__dirname, "fake-systemd-preload.js"), path.join(root, "agent", "src", "server.js")], {
+  // options.extraPreload: a second --require for test seams inside this Agent.
+  const child = spawn(process.execPath, ["--require", path.join(__dirname, "fake-systemd-preload.js"), ...(options.extraPreload ? ["--require", options.extraPreload] : []), path.join(root, "agent", "src", "server.js")], {
     cwd: path.join(root, "agent"),
     env: {
       ...process.env,

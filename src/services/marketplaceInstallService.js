@@ -407,6 +407,8 @@ function emitProgress(payload = {}) {
       progress: event.percent,
       logs: event.logs,
       status: event.stage === "waiting" ? "waiting" : event.stage === "done" ? "complete" : "running",
+      // Otherwise every running update is cancellable again.
+      ...(payload.canCancel !== undefined ? { canCancel: Boolean(payload.canCancel) } : {}),
     });
   }
   return event;
@@ -3693,26 +3695,49 @@ async function executeUpdateSteamCmdInstance(payload = {}, context = {}) {
       await agentClient.cancelInstallationSession(instanceId, proof, agentConfig).catch(() => {});
       throw new MarketplaceInstallError("Server update cancelled.", "STEAMCMD_UPDATE_CANCELLED");
     }
+    // An Agent before Build 213 acknowledges a Cancel sent before SteamCMD
+    // starts (backup, queue) but runs the update anyway (#53). So Cancel is
+    // offered only once the Agent says it honours that (cancelBeforeStart)
+    // or SteamCMD is running, and a cancel that arrives sooner by another
+    // path (a durable-job cancel) is held and sent the moment it can work.
+    let agentCancelsBeforeStart = false;
+    let steamCmdRunning = false;
+    let cancelHeld = false;
+    const cancelHonoured = () => agentCancelsBeforeStart || steamCmdRunning;
+    const sendCancel = () => agentClient.cancelInstallationSession(instanceId, proof, agentConfig).catch(() => {});
     controller.signal.addEventListener("abort", () => {
-      agentClient.cancelInstallationSession(instanceId, proof, agentConfig).catch(() => {});
+      if (cancelHonoured()) sendCancel();
+      else cancelHeld = true;
     }, { once: true });
-    emitProgress({ nodeId: targetNodeId, instanceId, operationId, stage: "connecting", message: "Connecting to Steam...", percent: 1 });
+    const waitingNote = " Cancel is available once SteamCMD starts: this computer's Agent can't stop an update before that. Updating the Agent removes this wait.";
+    emitProgress({ nodeId: targetNodeId, instanceId, operationId, stage: "connecting", message: "Connecting to Steam...", percent: 1, canCancel: false });
     let executionFinished = false;
     const execution = agentClient.executeSteamCmdUpdate(instanceId, { ...proof, backupBeforeUpdate: payload.backupBeforeUpdate === true }, agentConfig)
       .finally(() => { executionFinished = true; });
+    // Handled here so a failure during a poll wait isn't an unhandled
+    // rejection; "await execution" below still receives it.
+    execution.catch(() => {});
     while (!executionFinished) {
       await new Promise((resolve) => setTimeout(resolve, 500));
       if (executionFinished) break;
       try {
         const status = await agentClient.getSteamCmdUpdateStatus(instanceId, proof, agentConfig);
+        agentCancelsBeforeStart = status.cancelBeforeStart === true;
+        steamCmdRunning = status.running === true;
+        if (cancelHeld && cancelHonoured()) {
+          cancelHeld = false;
+          sendCancel();
+        }
+        const label = status.label || "Updating server files with SteamCMD...";
         emitProgress({
           nodeId: targetNodeId,
           instanceId,
           operationId,
           stage: status.stage || "updating",
-          message: status.label || "Updating server files with SteamCMD...",
+          message: cancelHonoured() || cancelHeld ? label : `${label}${waitingNote}`,
           percent: status.percent,
           logs: status.logs,
+          canCancel: cancelHonoured() && !controller.signal.aborted,
         });
       } catch (statusError) {
         if (executionFinished) break;
@@ -3724,9 +3749,13 @@ async function executeUpdateSteamCmdInstance(payload = {}, context = {}) {
       }
     }
     const result = await execution;
-    const completionMessage = result.buildChanged === false
+    const finishedMessage = result.buildChanged === false
       ? "Server is already up to date."
       : "Server files updated successfully.";
+    // A held cancel the update outran: say what really happened.
+    const completionMessage = controller.signal.aborted
+      ? `${finishedMessage} The update finished before the cancel could stop it.`
+      : finishedMessage;
     emitProgress({ nodeId: targetNodeId, instanceId, operationId, stage: "done", message: completionMessage, current: 1, total: 1, percent: 100 });
     updateProviderInstallOperation(operationId, {
       status: "complete",

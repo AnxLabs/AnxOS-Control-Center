@@ -310,6 +310,8 @@ const TIERS = {
     // Build 213 in the real app: the server fleet, the Agent auto-update
     // toggle and history, and the migration dialog's checks.
     ["node", ["scripts/build213-ui-qa.js"]],
+    // Issue #53: Cancel during an update's backup, in the real app.
+    ["node", ["scripts/steamcmd-cancel-ui-qa.js"]],
     ["git", ["diff", "--check"]],
   ],
 };

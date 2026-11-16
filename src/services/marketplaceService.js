@@ -1484,6 +1484,11 @@ function cancelDownload(downloadId, options = {}) {
     throw createMarketplaceError("Download was not found.", "DOWNLOAD_NOT_FOUND");
   }
   assertDownloadNode(record, options.nodeId || null);
+  // Never mark as cancelled what can't be stopped right now (a stale button,
+  // or a SteamCMD update on an older Agent before SteamCMD starts, #53).
+  if (record.canCancel !== true) {
+    throw createMarketplaceError("This step can't be cancelled right now.", "DOWNLOAD_NOT_CANCELLABLE");
+  }
 
   if (record.controller) {
     record.controller.abort();

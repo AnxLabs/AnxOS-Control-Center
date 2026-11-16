@@ -431,6 +431,8 @@
     "modpack-update-check:smoke": "node scripts/modpack-update-check-smoke.js",
     "instance-file-download:smoke": "node scripts/instance-file-download-smoke.js",
     "steamcmd-update-cancel:smoke": "node scripts/steamcmd-update-cancel-smoke.js",
+    "steamcmd-update-cancel-desktop:smoke": "node scripts/steamcmd-update-cancel-desktop-smoke.js",
+    "qa:steamcmd-cancel-ui": "node scripts/steamcmd-cancel-ui-qa.js",
     "anxnet-edge-deploy:smoke": "node scripts/anxnet-edge-deploy-smoke.js",
     "qa:build213-ui": "node scripts/build213-ui-qa.js",
     "website:smoke": "node scripts/website-production-smoke.js && node scripts/website-download-smoke.js && node scripts/website-accessibility-smoke.js && node scripts/website-setup-smoke.js",

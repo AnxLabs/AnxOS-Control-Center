@@ -8,7 +8,9 @@
 //   C0 control: an uncancelled update spawns once and succeeds
 //   C1 cancel during the backup: cancelled, 0 spawns, build unchanged
 //   C2 cancel during a backup that then fails: still reported as cancelled
-//   C3 cancel while queued behind another SteamCMD task: cancelled, 0 spawns
+//   C3 cancel while queued behind another SteamCMD task: answered at once
+//      (not after the other task), 0 spawns when the lock frees; the status
+//      reports cancelBeforeStart for the desktop
 //   C4 control: cancel after spawn kills the child and reports cancelled
 const assert = require("assert");
 const childProcess = require("child_process");
@@ -163,16 +165,22 @@ async function main() {
   const run3 = instanceService.executeSteamCmdUpdate(ID, { operationId: "cancel-op3", token: s3.token });
   run3.catch(() => {});
   await waitFor(async () => /Waiting for another SteamCMD task/.test((await stage("cancel-op3", s3.token)).label || ""), "queued behind another SteamCMD task");
+  assert.strictEqual((await stage("cancel-op3", s3.token)).cancelBeforeStart, true, "the status tells the desktop a cancel before start is honoured");
   const ack3 = await instanceService.cancelInstallationSession(ID, { operationId: "cancel-op3", token: s3.token });
   assert.strictEqual(ack3.cancelled, true);
+  // Answered now, while the other SteamCMD task still holds the lock.
+  const early = await Promise.race([run3.then(() => "resolved", (error) => error.code), new Promise((resolve) => setTimeout(() => resolve("still waiting"), 1000))]);
+  assert.strictEqual(early, "STEAMCMD_UPDATE_CANCELLED", "a queued cancel is answered without waiting for the other task");
   lookup.resolve({ exitCode: 0, stdout: `"${APP_ID}"\n{\n"depots"\n{\n"branches"\n{\n"public"\n{\n"buildid" "42"\n}\n}\n}\n}\n` });
   await holder;
+  // Let the queued update take its turn at the lock: it must still not spawn.
+  await new Promise((resolve) => setTimeout(resolve, 200));
   await assert.rejects(run3, (error) => error.code === "STEAMCMD_UPDATE_CANCELLED", "an acknowledged cancel while queued ends the update as cancelled");
   assert.strictEqual(spawned.length, 0, "SteamCMD never starts after a cancel while queued");
   assert.strictEqual(await manifestBuild(), "41");
   assert.strictEqual(await savedBuild(), "41");
   core._test.setSteamAppInfoRunner(null);
-  console.log("  ok C3 cancel while queued: cancelled, 0 spawns, build 41 kept");
+  console.log("  ok C3 cancel while queued: answered at once, 0 spawns even after the lock frees, build 41 kept");
 
   // C4
   spawned.length = 0;

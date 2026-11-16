@@ -736,6 +736,9 @@ async function getSteamCmdUpdateStatus(instanceId, request = {}) {
     operationId: session.operationId,
     running: Boolean(session.child),
     closed: Boolean(session.closed),
+    // Build 213 (#53): Cancel is honoured before SteamCMD starts too. Older
+    // Agents omit this; the desktop then offers Cancel only once running.
+    cancelBeforeStart: true,
     ...(session.updateState || {}),
   };
 }
@@ -1046,6 +1049,11 @@ async function executeSteamCmdUpdateUnobserved(instanceId, request = {}) {
     operationId: session.operationId, cancelledDuring: where, buildIdBefore, buildIdAfter: buildIdBefore, preUpdateBackup,
   });
   const sessionStillLive = () => !session.closed && installationSessions.get(config.id) === session;
+  // Until SteamCMD spawns, Cancel only has to wake a queued wait (the spawn
+  // replaces this with a kill). A backup already running is left to finish.
+  let wakeQueuedWait = () => {};
+  const cancelledWhileQueued = new Promise((resolve) => { wakeQueuedWait = resolve; });
+  session.cancel = () => wakeQueuedWait();
   // Optional rollback point: a full backup of the stopped instance. If it
   // fails, the update does not start; files are left exactly as they were.
   if (request.backupBeforeUpdate === true) {
@@ -1068,7 +1076,7 @@ async function executeSteamCmdUpdateUnobserved(instanceId, request = {}) {
   const startedAt = Date.now(); let stdout = ""; let stderr = ""; let timedOut = false; let stalled = false; let cancelled = false;
   assertNotServiceManaged(config, "steamcmd-spawn");
   Object.assign(session.updateState, { stage: "preparing", label: "Waiting for another SteamCMD task on this node...", updatedAt: nowIso() });
-  const result = await withSteamCmdLock(() => new Promise((resolve, reject) => {
+  const locked = withSteamCmdLock(() => new Promise((resolve, reject) => {
     // Checked inside the lock, right before the spawn: a cancel while queued
     // behind another SteamCMD task ends here, before anything runs.
     if (!sessionStillLive()) { reject(cancelledBeforeStart("queue")); return; }
@@ -1091,6 +1099,13 @@ async function executeSteamCmdUpdateUnobserved(instanceId, request = {}) {
     child.once("error", (error) => { clearTimers(); reject(createInstanceError(error?.code === "ENOENT" ? "STEAMCMD_MISSING" : "STEAMCMD_PROCESS_ERROR", 500, { causeCode: error?.code || null })); });
     settleBoundedChild(child, (exitCode, signal) => { clearTimers(); resolve({ exitCode, signal }); });
   }), { deadlineMs: timeoutMs + STEAMCMD_LOCK_DEADLINE_MARGIN_MS }).finally(() => { session.child = null; session.cancel = null; });
+  locked.catch(() => {});
+  // A cancel while queued answers now instead of after the other SteamCMD
+  // task; when this update's turn comes, the check above refuses to spawn.
+  const result = await Promise.race([
+    locked,
+    cancelledWhileQueued.then(() => { throw cancelledBeforeStart("queue"); }),
+  ]);
   const buildIdAfter = await readBuildId();
   const stateFlagsAfter = await readSteamManifestStateFlags(manifestPath);
   const output = `${stdout}\n${stderr}`;
