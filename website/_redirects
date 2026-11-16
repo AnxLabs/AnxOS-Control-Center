@@ -1,8 +1,8 @@
-/sign-in /signin 301
-/sign-up /signup 301
+/sign-in /signin/ 301
+/sign-up /signup/ 301
 /downloads /download 301
-/install /getting-started 301
-/release /release-notes.html 301
-/changelog /release-notes.html 301
+/install /getting-started/ 301
+/release /release-notes 301
+/changelog /release-notes 301
 /device /activate 301
 /device-login /activate 301

@@ -102,7 +102,66 @@ function checkRelease({ root, plan: givenPlan } = {}) {
       problems.push(`${file}: managed release section does not name ${release.tag}, Build ${release.build} and ${release.date}`);
     }
   }
+  problems.push(...checkCanonicalUrls(plan.root, release.siteUrl));
   return { ok: problems.length === 0, problems, release };
+}
+
+// Cloudflare Pages serves `x.html` at `/x` and `x/index.html` at `/x/`, and answers
+// every other spelling with a 308 (verified on the live site 2026-11-16). A
+// canonical, og:url, sitemap or JSON-LD URL must be the final address, not a hop.
+function pagesRedirectReason(websiteRoot, url, origin) {
+  if (!url || !String(url).startsWith(`${origin}/`)) return null;
+  const pathname = new URL(url).pathname;
+  if (pathname === "/") return null;
+  const exists = (relative) => fs.existsSync(path.join(websiteRoot, relative));
+  if (/\.html$/.test(pathname)) return `${pathname} redirects to ${pathname.replace(/\.html$/, "")}`;
+  const bare = pathname.replace(/^\/|\/$/g, "");
+  if (/\.[a-z0-9]+$/i.test(bare)) return null; // assets such as /sitemap.xml
+  if (pathname.endsWith("/")) {
+    return exists(`${bare}/index.html`) || !exists(`${bare}.html`) ? null : `${pathname} redirects to /${bare}`;
+  }
+  return exists(`${bare}.html`) || !exists(`${bare}/index.html`) ? null : `${pathname} redirects to /${bare}/`;
+}
+
+function checkCanonicalUrls(root, origin) {
+  const websiteRoot = path.join(root, "website");
+  const problems = [];
+  const report = (where, url) => {
+    const reason = pagesRedirectReason(websiteRoot, url, origin);
+    if (reason) problems.push(`${where}: ${url} is not a final URL (${reason})`);
+  };
+  const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    if (entry.name === "functions" || entry.name === "node_modules") return [];
+    const full = path.join(dir, entry.name);
+    return entry.isDirectory() ? walk(full) : entry.name.endsWith(".html") ? [full] : [];
+  });
+  for (const file of walk(websiteRoot)) {
+    const relative = path.relative(root, file).replace(/\\/g, "/");
+    const html = fs.readFileSync(file, "utf8");
+    for (const match of html.matchAll(/<link rel="canonical" href="([^"]+)"|<meta property="og:url" content="([^"]+)"/g)) {
+      report(relative, match[1] || match[2]);
+    }
+    for (const element of docs.scanElements(html).filter((item) => item.attributes.has("data-release-jsonld") && item.innerEnd !== undefined)) {
+      try {
+        const data = JSON.parse(html.slice(element.openEnd, element.innerEnd));
+        for (const key of ["url", "releaseNotes", "downloadUrl"]) report(`${relative} JSON-LD ${key}`, data[key]);
+      } catch {
+        // invalid JSON-LD is reported by checkRelease
+      }
+    }
+  }
+  const sitemapFile = path.join(websiteRoot, "sitemap.xml");
+  if (fs.existsSync(sitemapFile)) {
+    for (const match of fs.readFileSync(sitemapFile, "utf8").matchAll(/<loc>([^<]+)<\/loc>/g)) report("website/sitemap.xml", match[1]);
+  }
+  const redirectsFile = path.join(websiteRoot, "_redirects");
+  if (fs.existsSync(redirectsFile)) {
+    for (const line of fs.readFileSync(redirectsFile, "utf8").split(/\r?\n/)) {
+      const [from, to] = line.trim().split(/\s+/);
+      if (from && to && to.startsWith("/")) report(`website/_redirects ${from}`, `${origin}${to}`);
+    }
+  }
+  return problems;
 }
 
 // Published asset names (from GitHub) must include every file the website links to.
@@ -136,7 +195,7 @@ async function main(argv = process.argv.slice(2)) {
   return 0;
 }
 
-module.exports = { checkRelease, missingPublishedAssets, stripHistory };
+module.exports = { checkRelease, checkCanonicalUrls, pagesRedirectReason, missingPublishedAssets, stripHistory };
 
 if (require.main === module) {
   main().then((code) => { process.exitCode = code; }, (error) => {

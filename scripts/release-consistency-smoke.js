@@ -236,6 +236,25 @@ try {
     assert(notes.indexOf("badge-current") < notes.indexOf(`>${docs.escapeHtml(config.releaseNotes[0].title)}<`), "the first card must be the current release");
   });
 
+  // ---- H: canonical/og:url/sitemap/redirect targets must be final URLs on Pages.
+  run("H canonical URLs are final, not redirects", () => {
+    const { pagesRedirectReason, checkCanonicalUrls } = require("./release-consistency-check");
+    const website = path.join(repoRoot, "website");
+    const origin = "https://anxoscontrolcenter.org";
+    assert.strictEqual(pagesRedirectReason(website, `${origin}/download`, origin), null, "/download is served by download.html");
+    assert.strictEqual(pagesRedirectReason(website, `${origin}/faq/`, origin), null, "/faq/ is served by faq/index.html");
+    assert(pagesRedirectReason(website, `${origin}/release-notes.html`, origin), ".html URLs redirect on Pages");
+    assert(pagesRedirectReason(website, `${origin}/faq`, origin), "/faq redirects to /faq/");
+    assert.deepStrictEqual(checkCanonicalUrls(repoRoot, origin), [], "the repository must use final URLs");
+    const root = makeFixture();
+    fixtures.push(root);
+    fs.mkdirSync(path.join(root, "website", "faq"), { recursive: true });
+    const faq = path.join(root, "website", "faq", "index.html");
+    fs.writeFileSync(faq, read(root, "website/faq/index.html").replace(`href="${origin}/faq/"`, `href="${origin}/faq"`));
+    const problems = checkCanonicalUrls(root, origin);
+    assert(problems.some((problem) => problem.includes("faq/index.html") && problem.includes("/faq redirects to /faq/")), "a redirecting canonical must fail");
+  });
+
   console.log(`Release consistency smoke passed (${results.length} cases).`);
 } finally {
   for (const root of fixtures) fs.rmSync(root, { recursive: true, force: true });

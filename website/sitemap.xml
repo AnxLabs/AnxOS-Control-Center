@@ -6,7 +6,7 @@
     <priority>1.0</priority>
   </url>
   <url>
-    <loc>https://anxoscontrolcenter.org/release-notes.html</loc>
+    <loc>https://anxoscontrolcenter.org/release-notes</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
@@ -16,37 +16,37 @@
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://anxoscontrolcenter.org/features</loc>
+    <loc>https://anxoscontrolcenter.org/features/</loc>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://anxoscontrolcenter.org/getting-started</loc>
+    <loc>https://anxoscontrolcenter.org/getting-started/</loc>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://anxoscontrolcenter.org/system-requirements</loc>
+    <loc>https://anxoscontrolcenter.org/system-requirements/</loc>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
-    <loc>https://anxoscontrolcenter.org/setup</loc>
+    <loc>https://anxoscontrolcenter.org/setup/</loc>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://anxoscontrolcenter.org/windows-installation</loc>
+    <loc>https://anxoscontrolcenter.org/windows-installation/</loc>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
-    <loc>https://anxoscontrolcenter.org/security-privacy</loc>
+    <loc>https://anxoscontrolcenter.org/security-privacy/</loc>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
-    <loc>https://anxoscontrolcenter.org/faq</loc>
+    <loc>https://anxoscontrolcenter.org/faq/</loc>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>

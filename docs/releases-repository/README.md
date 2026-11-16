@@ -24,7 +24,7 @@
 **AnxOS Control Center v2.0 Build 212 — Private Alpha**, published by AnxLabs on November 16, 2026.
 
 - **[Download from the latest release](https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/latest)** · [v2.0-build212 release page](https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v2.0-build212)
-- Website: [anxoscontrolcenter.org](https://anxoscontrolcenter.org) · [Download page](https://anxoscontrolcenter.org/download) · [Release notes](https://anxoscontrolcenter.org/release-notes.html)
+- Website: [anxoscontrolcenter.org](https://anxoscontrolcenter.org) · [Download page](https://anxoscontrolcenter.org/download) · [Release notes](https://anxoscontrolcenter.org/release-notes)
 
 | Platform | Package | File |
 | --- | --- | --- |
@@ -99,7 +99,7 @@ Open an issue in the [main repository](https://github.com/AnxLabs/AnxOS-Control-
 
 ## Release history
 
-Every release, with full notes, is on the [Releases page](https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases) and the [website release notes](https://anxoscontrolcenter.org/release-notes.html).
+Every release, with full notes, is on the [Releases page](https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases) and the [website release notes](https://anxoscontrolcenter.org/release-notes).
 
 ## Source code
 
