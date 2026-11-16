@@ -307,6 +307,9 @@ const TIERS = {
     ["node", ["scripts/computer-service-smoke.js"]],
     // The six Build 212 acceptance findings, in the real app.
     ["node", ["scripts/acceptance-fixes-ui-qa.js"]],
+    // Build 213 in the real app: the server fleet, the Agent auto-update
+    // toggle and history, and the migration dialog's checks.
+    ["node", ["scripts/build213-ui-qa.js"]],
     ["git", ["diff", "--check"]],
   ],
 };
