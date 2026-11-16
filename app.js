@@ -5521,8 +5521,12 @@ async function renderAgentUpdateOverview() {
   const target = document.querySelector("[data-agent-update-overview]");
   const nodesApi = getDesktopApiState().api?.nodes;
   if (!target || typeof nodesApi?.agentUpdateOverview !== "function") return;
+  // One check of every computer's Agent, shared with the automatic-update
+  // panel, which shows its saved settings at once instead of after it.
+  const overviewRequest = nodesApi.agentUpdateOverview();
+  window.AnxAgentAutoUpdate?.load({ overview: overviewRequest });
   try {
-    const overview = await nodesApi.agentUpdateOverview();
+    const overview = await overviewRequest;
     const remote = (overview?.nodes || []).filter((entry) => entry.state !== "local");
     target.textContent = remote.length
       ? `This app's Agent build: ${overview.desktopBuild || "unknown"}. ${remote.map((entry) => `${entry.name}: ${entry.installedBuild || "build not reported"} (${entry.reason})`).join(" · ")}`
@@ -5530,7 +5534,6 @@ async function renderAgentUpdateOverview() {
   } catch (error) {
     target.textContent = error?.message || "Agent versions are unavailable.";
   }
-  window.AnxAgentAutoUpdate?.load();
 }
 
 function getRemoteAgentUpdateBlockMessage(support = {}) {

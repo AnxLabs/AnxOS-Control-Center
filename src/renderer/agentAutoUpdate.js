@@ -56,7 +56,12 @@
   function readForm() {
     const base = state.policy || {};
     const days = [...root.document.querySelectorAll("[data-agent-auto-update-days] input:checked")].map((input) => Number(input.value));
-    const nodeIds = [...root.document.querySelectorAll("[data-agent-auto-update-computers] input:checked")].map((input) => input.value);
+    // Until the computer list has loaded there are no boxes to read: keep the
+    // saved choice instead of saving "no computers".
+    const boxes = [...root.document.querySelectorAll("[data-agent-auto-update-computers] input")];
+    const nodeIds = boxes.length
+      ? boxes.filter((input) => input.checked).map((input) => input.value)
+      : [...(base.nodeIds || [])];
     return {
       ...base,
       enabled: $('[data-agent-auto-update-field="enabled"]')?.checked === true,
@@ -66,6 +71,28 @@
       days: days.length ? days : base.days,
       nodeIds,
     };
+  }
+
+  function renderComputers() {
+    const policy = state.policy;
+    if (!policy) return;
+    const computers = $("[data-agent-auto-update-computers]");
+    if (computers) {
+      [...computers.querySelectorAll("label, p")].forEach((node) => node.remove());
+      const remote = (state.overview?.nodes || []).filter((entry) => entry.state !== "local");
+      if (!state.overview) computers.append(el("p", "platform-note", "Checking computers…"));
+      else if (!remote.length) computers.append(el("p", "platform-note", "No other computers are paired."));
+      remote.forEach((entry) => {
+        const label = el("label", "docker-check-option");
+        const input = el("input");
+        input.type = "checkbox";
+        input.value = entry.nodeId;
+        input.checked = policy.nodeIds.includes(entry.nodeId);
+        label.title = entry.reason || "";
+        label.append(input, el("span", "", `${entry.name} · ${entry.installedBuild || "build not reported"}${entry.canUpdate ? "" : " · can't update from here"}`));
+        computers.append(label);
+      });
+    }
   }
 
   function renderForm() {
@@ -102,22 +129,7 @@
         daysBox.append(label);
       });
     }
-    const computers = $("[data-agent-auto-update-computers]");
-    if (computers) {
-      [...computers.querySelectorAll("label, p")].forEach((node) => node.remove());
-      const remote = (state.overview?.nodes || []).filter((entry) => entry.state !== "local");
-      if (!remote.length) computers.append(el("p", "platform-note", "No other computers are paired."));
-      remote.forEach((entry) => {
-        const label = el("label", "docker-check-option");
-        const input = el("input");
-        input.type = "checkbox";
-        input.value = entry.nodeId;
-        input.checked = policy.nodeIds.includes(entry.nodeId);
-        label.title = entry.reason || "";
-        label.append(input, el("span", "", `${entry.name} · ${entry.installedBuild || "build not reported"}${entry.canUpdate ? "" : " · can't update from here"}`));
-        computers.append(label);
-      });
-    }
+    renderComputers();
   }
 
   function renderHistory() {
@@ -165,17 +177,44 @@
     host.append(wrap);
   }
 
-  async function load() {
+  // The form shows the saved settings only. Until they have loaded, every
+  // control is disabled, so nothing placeholder-shaped can be saved.
+  function setControlsReady(ready) {
+    const container = root.document.querySelector("[data-agent-auto-update]");
+    if (!container) return;
+    container.querySelectorAll("input, select, button").forEach((control) => { control.disabled = !ready; });
+    container.setAttribute("aria-busy", ready ? "false" : "true");
+  }
+
+  // options.overview: an overview request already running (Agent Control's
+  // Updates summary passes its own, so every Agent is checked once).
+  async function load(options = {}) {
     const api = nodesApi();
     if (!api?.getAgentAutoUpdate || busy) return;
+    // The settings are a local file and answer at once; the computer list
+    // checks every Agent and can take seconds. Show each when it arrives.
+    const overviewRequest = Promise.resolve(options.overview || (api.agentUpdateOverview ? api.agentUpdateOverview() : null)).catch(() => null);
     try {
-      const [settings, overview] = await Promise.all([api.getAgentAutoUpdate(), api.agentUpdateOverview?.().catch(() => null)]);
-      state = { policy: settings.policy, history: settings.history || [], overview: overview || state.overview };
+      const settings = await api.getAgentAutoUpdate();
+      state = { ...state, policy: settings.policy, history: settings.history || [] };
+      setControlsReady(true);
       renderForm();
       renderHistory();
     } catch (error) {
       const status = $("[data-agent-auto-update-status]");
       if (status) status.textContent = error?.message || "Automatic update settings are unavailable.";
+      return;
+    }
+    const overview = await overviewRequest;
+    if (overview) {
+      state = { ...state, overview };
+      // While the owner is editing, only replace the placeholder, never
+      // boxes they may have ticked.
+      const drawn = root.document.querySelectorAll("[data-agent-auto-update-computers] input").length > 0;
+      if (!dirty || !drawn) renderComputers();
+    } else if (!state.overview) {
+      const computers = $("[data-agent-auto-update-computers]");
+      computers?.querySelectorAll("p").forEach((node) => { node.textContent = "Computers could not be checked. Refresh to try again."; });
     }
   }
 
@@ -201,6 +240,7 @@
   function mount() {
     const container = root.document.querySelector("[data-agent-auto-update]");
     if (!container) return;
+    if (!state.policy) setControlsReady(false);
     container.addEventListener("change", (event) => {
       if (event.target.closest("[data-agent-auto-update-field], [data-agent-auto-update-days], [data-agent-auto-update-computers]")) {
         dirty = true;
@@ -218,7 +258,7 @@
     });
   }
 
-  root.AnxAgentAutoUpdate = { load, _test: { describe, getState: () => state } };
+  root.AnxAgentAutoUpdate = { load, _test: { describe, readForm, getState: () => state } };
   if (root.document.readyState === "loading") root.document.addEventListener("DOMContentLoaded", mount);
   else mount();
 })(window);

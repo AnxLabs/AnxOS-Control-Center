@@ -107,8 +107,44 @@ These Build 213 completion requirements are open. None is claimed as done.
   `7189794139CEEBD8CEDE9005C4C02824F20BE6D60805CA241F0E4DB88589AE08`
   (matches its `.sha256`).
 - Installed app before the upgrade: Build 212 (`daa548a`).
-- Next: install in place over Build 212 with Computer Use, after the owner
-  replies `confirmed`.
+- **In-place upgrade over Build 212, with Computer Use** (owner replied
+  `confirmed`): Setup found the per-user install, said the Helper "is already
+  set up on this PC and is kept", showed no administrator prompt, and closed
+  the running app with OK (no local server was running). Afterwards the
+  installed app is `v2.0-build213` (`7327f03`), the AnxOSAgent task runs the
+  installed exe with `--agent` (no time limit, 3 restarts), no
+  `helper-restore-needed.json` was left, and the Local Agent reports
+  `2.0-build213`. All 697 recorded config files are present; the AnxNet key
+  and settings, security, credentials, enrollment, endpoints, Agent identity,
+  `agent.json` and `nodes.json` are byte-identical. Only runtime state
+  changed (alerts, AnxNet session token and state, window position). Backup:
+  `%APPDATA%AnxHubconfig-backup-pre-build213-rc1-20261116-144723`.
+- **Acceptance (after the owner unlocked AnxOS and replied `done`):**
+  - All computers lists Windows Desktop 0, Anxlab 7 (stopped) and the VPS's
+    running AnxRP, each with its computer. Windows Desktop's 0 matches the
+    normal view: the Local Agent's own `minecraft-vanilla` is not listed by
+    either (unchanged behaviour).
+  - Older Agents: Anxlab reads "2.0 Build 212", Compatible with Control Center
+    "Version 2.0 Build 213"; Updates lists Anxlab (SSH profile needs a key)
+    and the VPS (212 → 213). Nothing was updated.
+  - Automatic Agent updates: Off, defaults shown, no computer chosen.
+  - Move dialog against the VPS: every check passed with 72 GB free; Run
+    Preview not pressed.
+  - AnxNet `anx-delta35` owned, Anxlab connected directly; relay and gateway
+    None; Copy edge config present (not clicked: it writes the clipboard).
+  - Home: Anxlab 0 of 7 running, VPS 1 of 1, "Build 213 Private Alpha".
+- **Findings (RC1 is superseded):**
+  1. The Automatic Agent updates panel showed placeholder values ("1 hour",
+     no time, no days or computers) with Save enabled for about 15 s. A Save
+     then would have written them, and an empty computer list, over the
+     saved settings. Cause: Agent Control loaded the panel only after its own
+     check of every Agent, and the panel then checked every Agent again.
+  2. Copy edge config took one of the edge fields' grid cells.
+- **Fixes:** the panel gets the same overview request and shows the saved
+  settings at once; its controls stay disabled until they load; the computer
+  list says "Checking computers…" and Save keeps the saved computers until
+  it has loaded. Copy edge config sits in its own row with the explanation.
+  `build213-ui-qa` C2 and `anxnet-ui-qa` U4 fail on RC1 and pass now.
 
 ## Release candidate (needs approval)
 

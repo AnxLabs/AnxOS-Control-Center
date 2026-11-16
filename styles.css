@@ -21578,6 +21578,17 @@ body.create-server-window .page[data-page="marketplace"] .page-introduction {
 
 .anxnet-edges > p { grid-column: 1 / -1; }
 
+.anxnet-edges > .anxnet-edges-intro {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
+.anxnet-edges-intro > .anxnet-note { flex: 1 1 320px; margin: 0; }
+
 .anxnet-share .anxnet-actions { margin-top: 6px; }
 
 .anxnet-dns {

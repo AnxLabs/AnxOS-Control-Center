@@ -164,6 +164,14 @@ async function main() {
     // Build 213: the edge is configured from the panel's "Copy edge config"
     // (captured here; the real clipboard is left alone).
     await page.evaluate(() => { window.__copiedText = []; Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: (text) => { window.__copiedText.push(String(text)); return Promise.resolve(); } } }); });
+    // RC1 acceptance: the button sits with the explanation, above the edge
+    // fields, not in one of their grid cells.
+    const placement = await form.evaluate((node) => {
+      const copy = [...node.querySelectorAll("button")].find((button) => button.textContent === "Copy edge config");
+      const firstField = node.querySelector("input");
+      return { inIntro: Boolean(copy.closest(".anxnet-edges-intro")), above: copy.getBoundingClientRect().bottom <= firstField.getBoundingClientRect().top };
+    });
+    assert.deepStrictEqual(placement, { inIntro: true, above: true }, `Copy edge config is in its own row (${JSON.stringify(placement)})`);
     await form.locator("button", { hasText: "Copy edge config" }).click();
     await waitFor(page, () => (window.__copiedText || []).length === 1, null, "edge config copied");
     const copiedConfig = JSON.parse(await page.evaluate(() => window.__copiedText[0]));

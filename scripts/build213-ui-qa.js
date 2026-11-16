@@ -7,6 +7,12 @@
 //   B1 My Servers › All computers lists the test Agent's servers with their
 //      computer, keeps the offline computer visible, and Open switches to the
 //      server's computer and opens its page
+//   C1 the automatic Agent update switch saves agent-auto-update.json, Turn
+//      off now switches it off, a refused update is in the history
+//   D1 the move dialog blocks with plain reasons
+//   C2 (RC1 acceptance) the saved settings show before the slow computer
+//      list, nothing can be saved before they load, and Save keeps the
+//      chosen computers while the list loads
 // Set BUILD213_QA_SHOTS=<dir> to keep screenshots; BUILD213_QA_ONLY=B1,...
 // runs a subset.
 // Run: node scripts/build213-ui-qa.js
@@ -188,6 +194,48 @@ async function main() {
       assert.strictEqual(dialog.previewDisabled, true, "Run Preview stays off while anything blocks");
       await page.click("[data-transfer-cancel]");
       console.log(`PASS D1 moving ${serverName} to the offline VPS is blocked with plain reasons (${blocked.join(", ")}), Run Preview disabled`);
+    });
+
+    // C2 (Build 213 RC1 acceptance): the computer list checks every Agent and
+    // can take seconds. The saved settings must show without waiting for it,
+    // nothing can be saved before they load, and Save keeps the chosen
+    // computers while the list is still loading. Runs last: it replaces the
+    // overview handler in this isolated app.
+    await check("C2", async () => {
+      const policyFile = path.join(qa.configDir, "agent-auto-update.json");
+      const before = JSON.parse(fs.readFileSync(policyFile, "utf8"));
+      assert.deepStrictEqual(before.nodeIds, ["lab"], "C1 left Lab chosen");
+      await app.evaluate(({ ipcMain }) => {
+        ipcMain.removeHandler("nodes:agentUpdateOverview");
+        ipcMain.handle("nodes:agentUpdateOverview", () => new Promise((resolve) => setTimeout(() => resolve(null), 8000)));
+      });
+      await page.reload();
+      await waitFor(page, () => typeof window.showPage === "function", null, "renderer after reload", 60000);
+      const early = await page.evaluate(() => ({
+        save: document.querySelector('[data-agent-auto-update-action="save"]').disabled,
+        off: document.querySelector('[data-agent-auto-update-action="off"]').disabled,
+        toggle: document.querySelector('[data-agent-auto-update-field="enabled"]').disabled,
+      }));
+      assert.deepStrictEqual(early, { save: true, off: true, toggle: true }, `nothing can be changed before the settings load (${JSON.stringify(early)})`);
+      const shownAt = Date.now();
+      await page.evaluate(async () => { await refreshSecurityState(); await selectNode("lab"); window.showPage("agent-control"); setActiveAgentControlSection("updates"); });
+      await waitFor(page, () => /^Off\./.test(document.querySelector("[data-agent-auto-update-status]")?.textContent || ""), null, "the saved settings before the computer list", 4000);
+      const mid = await page.evaluate(() => ({
+        computers: document.querySelector("[data-agent-auto-update-computers]").textContent,
+        save: document.querySelector('[data-agent-auto-update-action="save"]').disabled,
+      }));
+      assert.ok(/Checking computers/.test(mid.computers), `the list says it is still checking (${mid.computers})`);
+      assert.strictEqual(mid.save, false, "Save works once the settings are shown");
+      await shot(page, "c2-settings-before-computers");
+      const mtime = fs.statSync(policyFile).mtimeMs;
+      await page.click('[data-agent-auto-update-action="save"]');
+      const deadline = Date.now() + 10000;
+      while (fs.statSync(policyFile).mtimeMs === mtime && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 100));
+      const after = JSON.parse(fs.readFileSync(policyFile, "utf8"));
+      assert.notStrictEqual(fs.statSync(policyFile).mtimeMs, mtime, "Save wrote the file");
+      assert.deepStrictEqual(after.nodeIds, ["lab"], `Save keeps Lab while the list is loading (${JSON.stringify(after)})`);
+      assert.strictEqual(after.durationMinutes, before.durationMinutes, "and the saved window length, not a placeholder");
+      console.log(`PASS C2 settings shown ${Math.round((Date.now() - shownAt) / 100) / 10} s after opening, with the computer list still loading; controls locked before; Save kept Lab and the window`);
     });
 
     const unexpected = errors.filter((message) => !/ResizeObserver loop/.test(message));
