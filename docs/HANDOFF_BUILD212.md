@@ -2,7 +2,7 @@
 
 ## State
 
-- Branch `claude/anxos-control-center-simplify-8080f1`. `dev` was pushed at `1c103483` for the first signed release candidate (RC1). The stabilization commits below are local until the RC2 push. Nothing is tagged or published, and Build 212 has no tag on the remote.
+- Branch `claude/anxos-control-center-simplify-8080f1`. `dev` was pushed at `1c103483` for RC1 and at `b6f293a4` for RC2. The RC2 acceptance fixes are local until the RC3 push. Nothing is tagged or published, and Build 212 has no tag on the remote.
 - `release.json` is Build 212. Release notes: `RELEASE_NOTES_2.0-build212.md`. Build 211's notes moved to `docs/releases/`.
 - `origin/dev`'s website commit `a72473f0` was merged as `217104ee`.
 
@@ -40,6 +40,22 @@ Earlier campaign commits already on this branch: `0e7e7904`, `a919e41d`.
   - `scripts/agent-build-display-smoke.js` covers B1-B4.
   - The release tier passed with 129 checks, and the installed Agent logged 0 authorization failures during the run.
 
+## Release candidate 2 (2026-11-15)
+
+- **CI run:** Desktop Release run 43764970091 on `b6f293a4` passed all four jobs. Publishing was skipped.
+- **Installer:** SHA-256 `D058DA14…09AF89`, signature Valid (Anjo ROSIMO). Superseded by RC3.
+- **In-place upgrade over RC1, with Computer Use:**
+  - Setup kept the Helper and showed no administrator prompt; the Local Agent came back on its task reporting `2.0-build212`.
+  - nodes, enrollment, credentials and the AnxNet key were byte-identical afterwards.
+  - Backup: `%APPDATA%\AnxHub\config-backup-pre-build212-rc2-20261115-231107`.
+- **Acceptance:** fixes 2-6 held in the installed app (Docker on Anxlab's 19 containers; real SSH sessions to Anxlab and the VPS). Three new findings, none touching data:
+  - The Local AnxOS Agent card read "Build not reported" while Anxlab was selected: Agent Control skips the local probe when a remote computer is selected (since `0bd19488`).
+  - Home's setup checklist kept "Agent connected" after switching to the offline VPS: it read the last Agent Control reply, which records the computer it was read for.
+  - Error toasts never left the screen: the generic `[data-tone="error"]` animation (`e98446ba`) has fill mode `both`, which holds opacity 1 over `.toast`'s opacity 0.
+- **Fixes (RC3):** a credential-free public health read of this installation's own Local Agent (30 s cache); Home ignores an Agent Control reply for another computer; the animation excludes `.toast`.
+- **Checks:** `acceptance-fixes-ui-qa.js` A7 and A8 (A8 measures computed opacity) and `agent-control-foreign-task-stop-smoke.js` S6 each fail on `b6f293a4`. The release tier passed with 129 checks; the installed Agent logged 0 authorization failures.
+- **Also seen:** DevTools opens in the packaged app (Ctrl+Shift+I). Not changed in this build.
+
 ## Evidence
 
 - Full run on the campaign tree (`bc9f0db3` content): 417 smoke suites and `qa:release` (119 checks, real-app UI tests) passed. The installed Local Agent logged no authorization failures and kept running.
@@ -70,10 +86,10 @@ Earlier campaign commits already on this branch: `0e7e7904`, `a919e41d`.
 
 Follow `AGENTS.md` › Release Candidate Acceptance Workflow. Each gate needs the owner's approval:
 
-1. Done for RC1. For RC2: push the stabilization commits to `dev`.
-2. Run the Desktop Release workflow (`windows-release.yml`, manual dispatch on `dev`) for RC2. Confirm CI, the Authenticode signature and the SHA-256, then download the installer.
+1. Done for RC1 and RC2. For RC3: push the RC2 acceptance fixes to `dev`.
+2. Run the Desktop Release workflow (`windows-release.yml`, manual dispatch on `dev`) for RC3. Confirm CI, the Authenticode signature and the SHA-256, then download the installer.
 3. Report build, commit, SHA-256, signature and CI status, then wait for `confirmed`.
-4. In-place upgrade over the installed Build 212 RC1 with Computer Use. Keep all servers, containers, credentials, AnxNet identities and data, and check that the six fixes, the Helper and data are intact.
+4. In-place upgrade over the installed Build 212 RC2 with Computer Use. Keep all servers, containers, credentials, AnxNet identities and data, and check that the nine fixes, the Helper and data are intact.
 5. Acceptance across major workflows; any issue restarts from validation.
 6. Final acceptance report; wait for `🚀 publish`.
 7. Tag `v2.0-build212` (the tag push builds the release), publish the GitHub release, update `website/release-notes.json`.

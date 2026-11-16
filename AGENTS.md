@@ -953,6 +953,23 @@ Use this section to accumulate verified project knowledge over time. Add entries
   `scripts/acceptance-fixes-ui-qa.js` (each case failed on the RC1 commit) now runs in `qa:release`.
 - **Lesson:** A value on screen must come from the thing it describes: the build the Agent reports, the storage Files selected, the session being shown. Hermetic suites passed all six. Only clicking through the installed app found them, so keep a real-app acceptance pass in every release, and turn what it finds into a real-app check in the release tier.
 
+### 2026-11-15 — Build 212 RC2 acceptance: three more screens, one of them every error toast
+
+- **Problem:** The signed RC2 upgraded cleanly over RC1. Its acceptance found three more issues:
+  - The Local AnxOS Agent card read "Build not reported" for a 2.0-build212 Agent while Anxlab was selected.
+  - Home's setup checklist kept "Agent connected" for minutes after switching to the offline VPS.
+  - Error toasts never left the screen. RC2's checks passed because they tested the `is-visible` class.
+- **Cause:**
+  - Agent Control skips the local probe while a remote computer is selected (requests follow the selected computer), so the local card had no build.
+  - Home read the last Agent Control reply, and `getAgentControlOverviewTarget` prefers the computer that reply was read for over the current selection. Agent Control polls only while its page is open.
+  - A generic `[data-tone="error"]` fade-in animation (`e98446ba`) has fill mode `both`. A filled animation overrides normal declarations, so it held opacity 1 over `.toast`'s opacity 0 after the class was removed.
+- **Resolution:**
+  - The local build is read from the Agent's public health reply with no credential, only for this installation's running Agent, cached 30 s (smoke S6).
+  - Home ignores a reply for another computer (A7).
+  - The animation excludes `.toast`; A8 now measures computed opacity.
+  - Each check failed on RC2.
+- **Lesson:** Check what the user sees, not the state meant to cause it: a class or flag can be right while the screen is wrong. A broad attribute selector with a filled animation overrides every component that reuses the attribute. A reply that records its target must be checked against the current selection by every reader, not only the page that requested it.
+
 ## Future Improvements
 
 Keep optional ideas separate from active work. An item in this list is not authorization to implement it.

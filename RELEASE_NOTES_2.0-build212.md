@@ -54,9 +54,10 @@ Build 212 is a stability and security release. It fixes 143 defects found in a f
 
 ### App screens
 
-- Agent Control and Computers show the Agent's real build (for example "2.0 Build 212") instead of "0.1.0". Agents older than Build 212 read "Build not reported".
+- Agent Control and Computers show the Agent's real build (for example "2.0 Build 212") instead of "0.1.0", including the Local AnxOS Agent card while another computer is selected. Agents older than Build 212 read "Build not reported".
 - While AnxOS waits for you to sign in, it no longer polls in the background and logs sign-in errors. A "System metrics are unavailable" notice now shows once and clears when readings come back.
-- When the selected computer is another machine that is offline, Home offers to reconnect that computer instead of "Connect your local Agent".
+- Error notices leave the screen by themselves again. Before, an error notice stayed in the corner until a different notice replaced it.
+- When the selected computer is another machine that is offline, Home offers to reconnect that computer instead of "Connect your local Agent", and its setup checklist no longer shows "Agent connected" for it.
 - The Docker container list fits the window: Restart, Remove and Logs are visible without scrolling sideways.
 - The SSH status line only shows messages for the session you are looking at.
 - The Files "Folders" badge shows whether the storage you selected is reachable, not whether the selected computer is connected.
@@ -77,3 +78,4 @@ Build 212 is a stability and security release. It fixes 143 defects found in a f
 - The changed installer script was compiled with NSIS (unsigned local build, discarded).
 - The first signed release candidate was installed in place over Build 211: the Helper, servers, containers, AnxNet and settings were kept. Its acceptance test found the six screen issues listed under App screens.
 - Those six are covered by a real-app check (scripts/acceptance-fixes-ui-qa.js, each case failed before its fix) and an Agent build smoke; the release tier then passed with 129 checks, and the installed Local Agent logged no authorization failures during the run.
+- The second release candidate was installed in place over the first. Its acceptance found three more screen issues: the Local AnxOS Agent card read "Build not reported" while another computer was selected, Home's checklist kept "Agent connected" after switching to an offline computer, and error notices never left the screen. They are covered by real-app checks A7 and A8 and Agent Control smoke S6 (each failed on the second candidate); the release tier passed again with 129 checks, and the installed Local Agent logged no authorization failures.
