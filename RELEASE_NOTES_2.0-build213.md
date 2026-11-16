@@ -28,3 +28,11 @@ Build 213 is about running more than one computer. You can see every computer's 
 - **Modpack updates are detected, not applied.** Back up, then update from the pack's page.
 - **AnxNet over the internet** has not been tested on a public server yet. Running the edge opens public ports on your server; see the guide first.
 - **Phone Access** has been tested with phone emulation in a desktop browser, not on a real iPhone or Android phone.
+
+## QA
+
+- New regression suites for every Build 213 feature and fix, including real-app checks for the server fleet, the automatic Agent update switch, the move checks, Phone Access downloads, the AnxNet edge config and update Cancel. The Cancel fix for issue #53 is covered by tests that failed on the old code.
+- Repository validation: all 410 smoke suites and the release tier (130 checks, including the real-app UI tests) passed.
+- The AnxNet edge was run as its own process from the panel's config on one PC (relay, TCP and UDP through the gateway, ports closed on stop). It has not run on a public server.
+- Phone Access passed 19 checks in the real app with phone emulation; no physical phone was used.
+- The signed release candidate is tested by installing it over Build 212 and checking each new feature in the installed app.
