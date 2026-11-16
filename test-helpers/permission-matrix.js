@@ -751,7 +751,7 @@ const IPC_FAMILIES = [
     tier: "settings:write",
     guard: "local-owner+permission",
     allow: ["owner-unlocked"],
-    channels: ["workload:transfer", "workload:transferPreview"],
+    channels: ["workload:transfer", "workload:transferPreview", "workload:migrationPreflight"],
   },
   // ---------------------------------------------------------------------------
   // V2-K endpoint registry / connectivity / providers / telemetry /

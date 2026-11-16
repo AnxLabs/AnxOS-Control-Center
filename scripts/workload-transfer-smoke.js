@@ -253,7 +253,7 @@ async function main() {
     assert.strictEqual(previewResult.importedBackupCleanedUp, true, "the unconsumed imported archive must be cleaned up.");
     assertStepNames(
       previewResult,
-      ["resolve.nodes", "source.backup", "source.download", "target.import", "target.instance.ensure", "target.restore.preview", "target.import.cleanup", "target.instance.cleanup"],
+      ["resolve.nodes", "source.backup", "source.verify", "source.download", "target.import", "target.instance.ensure", "target.restore.preview", "target.import.cleanup", "target.instance.cleanup"],
       "the preview leg",
     );
     assert.strictEqual(previewResult.steps.find((step) => step.step === "target.instance.ensure").created, true, "the preview leg must register the placeholder target instance.");

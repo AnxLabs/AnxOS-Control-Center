@@ -162,6 +162,34 @@ async function main() {
       console.log("PASS C1 the toggle saves agent-auto-update.json exactly, Turn off now switches it off, and a refused update is in the history");
     });
 
+    // D1
+    await check("D1", async () => {
+      // The test signs in through the API; the renderer reads its own copy of the
+      // security state, so refresh it the way the app does after a sign-in.
+      await page.evaluate(async () => { await refreshSecurityState(); await selectNode("lab"); window.showPage("instances"); await refreshInstances({ refreshMetrics: false }); });
+      await waitFor(page, () => getInstances().length >= 1, null, "Lab's servers", 30000);
+      const serverName = await page.evaluate(() => {
+        const instance = getInstances()[0];
+        selectInstance(instance.id);
+        return instance.displayName || instance.id;
+      });
+      // The move dialog refuses to open while a list or action request runs.
+      await waitFor(page, () => !instancesRequestInFlight && !instanceActionRequestInFlight && !workloadTransferInFlight, null, "an idle server page", 30000);
+      await page.evaluate(() => { openWorkloadTransfer(findInstance()); });
+      await waitFor(page, () => document.querySelectorAll("[data-migration-check]").length >= 3, null, "the move checks", 30000);
+      const dialog = await page.evaluate(() => ({
+        checks: [...document.querySelectorAll("[data-migration-check]")].map((row) => ({ id: row.dataset.migrationCheck, level: row.className.replace(/.*migration-check--/, ""), text: row.textContent })),
+        previewDisabled: document.querySelector("[data-transfer-ok]").disabled,
+      }));
+      await shot(page, "d1-move-checks");
+      const blocked = dialog.checks.filter((item) => item.level === "block").map((item) => item.id);
+      assert.ok(blocked.includes("target"), `the offline VPS is named as not connected (${JSON.stringify(dialog.checks)})`);
+      assert.ok(blocked.includes("stopped"), `the running server must be stopped first (${JSON.stringify(dialog.checks)})`);
+      assert.strictEqual(dialog.previewDisabled, true, "Run Preview stays off while anything blocks");
+      await page.click("[data-transfer-cancel]");
+      console.log(`PASS D1 moving ${serverName} to the offline VPS is blocked with plain reasons (${blocked.join(", ")}), Run Preview disabled`);
+    });
+
     const unexpected = errors.filter((message) => !/ResizeObserver loop/.test(message));
     if (unexpected.length) failures.push(`renderer errors: ${unexpected.join(" | ")}`);
     if (failures.length) throw new Error(`${failures.length} check(s) failed:\n  ${failures.join("\n  ")}`);

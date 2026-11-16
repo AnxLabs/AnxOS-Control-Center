@@ -1,5 +1,6 @@
 const { ipcMain } = require("electron");
 const workloadTransferService = require("../services/workloadTransferService");
+const { checkMigration } = require("../services/migrationPreflightService");
 const { audit, requireLocalOwnerAuthenticated, requirePermission } = require("../services/securityService");
 const { createIpcError } = require("../shared/ipcError");
 // V2-I bullet 4: the workload trust vocabulary the read-only panel displays.
@@ -199,6 +200,29 @@ function evaluateTrustDeclaration(payload = {}) {
 }
 
 function registerWorkloadIpc() {
+  // Build 213: read-only checks before a server is moved to another computer
+  // (target online, server stopped, operating system, same ID, ports, memory,
+  // disk and size). Nothing is created or copied; the move itself is the
+  // transfer channels below.
+  ipcMain.handle("workload:migrationPreflight", async (_, payload = {}) => invokeWorkloadOperation(async () => {
+    requireLocalOwnerAuthenticated("workload:migration-preflight", "Unlock AnxOS to move servers between computers.");
+    requirePermission("settings:write", "nodes");
+    const nodeService = require("../services/nodeService");
+    const serviceRouter = require("../services/serviceRouter");
+    const agentClient = require("../services/agentClient");
+    return checkMigration({
+      sourceNodeId: String(payload.sourceNodeId || ""),
+      targetNodeId: String(payload.targetNodeId || ""),
+      instanceId: String(payload.instanceId || ""),
+      targetInstanceId: payload.targetInstanceId ? String(payload.targetInstanceId) : null,
+      deps: {
+        listNodes: async () => (await nodeService.listNodes())?.nodes || [],
+        listInstances: (options) => serviceRouter.listInstances(options),
+        listBackups: (options) => serviceRouter.listBackups(options),
+        getStats: async ({ nodeId }) => agentClient.getSystemStats(agentClient.forNode(nodeId).target.config),
+      },
+    });
+  }));
   // Preview channel: despite the name, this RUNS the transfer pipeline up to
   // the target restore preview — including a source backup, archive pull,
   // target-side import, and placeholder registration — so it is a WRITE-tier

@@ -1,3 +1,4 @@
+const crypto = require("crypto");
 // V2-G Wave 4: backup/restore-based workload transfer between compatible
 // nodes (docs/MASTER_ROADMAP.md drill-harness transfer leg). Desktop-side
 // orchestration only: the Agent already owns every primitive (createBackup,
@@ -253,6 +254,19 @@ async function transferWorkload(request = {}) {
     }));
     context.backupId = sourceBackup.backup.id;
     context.sourceInstanceId = sourceBackup.backup.instanceId;
+
+    // Build 213: the archive is re-read on the source and checked against the
+    // checksum recorded when it was made before anything is copied, and the
+    // copied bytes are checked against that checksum again below.
+    const sourceVerification = await recorder.guard("source.verify", async () => {
+      const outcome = await serviceRouter.verifyBackup(context.backupId, { nodeId: context.source.nodeId });
+      const record = outcome?.record || outcome?.backup || null;
+      const state = record?.verification?.state || outcome?.verification?.state || null;
+      if (state !== "verified") {
+        throw createTransferError("TRANSFER_BACKUP_NOT_VERIFIED", `The source backup could not be verified (${state || "no result"}), so nothing was copied.`, { backupId: context.backupId, nodeId: context.source.nodeId, state, statusCode: 409 });
+      }
+      return { state, sha256: String(record?.archiveSha256 || sourceBackup.backup.archiveSha256 || "").toLowerCase() || null };
+    }, (verification) => ({ state: verification.state, checksum: verification.sha256 ? "sha256" : "none" }));
     // Validate the requested target identity BEFORE bytes are downloaded and
     // imported: a malformed targetInstanceId should refuse up front, not
     // after the archive sits imported on the target (review P2).
@@ -278,6 +292,9 @@ async function transferWorkload(request = {}) {
       const buffer = download?.buffer || null;
       if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
         throw createTransferError("TRANSFER_DOWNLOAD_EMPTY", "The source node returned an empty backup archive.", { backupId: context.backupId, nodeId: context.source.nodeId, statusCode: 502 });
+      }
+      if (sourceVerification.sha256 && crypto.createHash("sha256").update(buffer).digest("hex") !== sourceVerification.sha256) {
+        throw createTransferError("TRANSFER_ARCHIVE_CHECKSUM_MISMATCH", "The copied backup does not match the checksum recorded on the source, so it was not imported.", { backupId: context.backupId, statusCode: 502 });
       }
       if (buffer.length > importCeilingBytes) {
         // Refuse before base64-encoding: the base64 JSON body must fit the

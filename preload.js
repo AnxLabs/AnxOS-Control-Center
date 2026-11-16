@@ -461,6 +461,7 @@ const desktopApi = {
   },
   workload: {
     transferPreview: (payload = {}) => ipcRenderer.invoke("workload:transferPreview", payload),
+    migrationPreflight: (payload = {}) => ipcRenderer.invoke("workload:migrationPreflight", payload),
     transfer: (payload = {}) => ipcRenderer.invoke("workload:transfer", payload),
     // V2-I workload trust levels (src/shared/workloadTrustPolicy.js). Both are
     // read-only projections evaluated in main: getTrustPolicy returns the tier

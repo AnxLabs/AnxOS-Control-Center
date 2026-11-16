@@ -1094,6 +1094,14 @@ async function deleteBackup(backupId, options = {}) {
   return withNodeContext(await agentClient.deleteBackup(backupId, getOptionalNodeConfig(options)), nodeId);
 }
 
+// Re-reads the archive on its own computer and checks it against the checksum
+// recorded when it was made. Returns the verification state; never throws for
+// a bad archive (that is a state, not an error).
+async function verifyBackup(backupId, options = {}) {
+  const nodeId = getRequestNodeId(options);
+  return withNodeContext(await agentClient.verifyBackup(backupId, getOptionalNodeConfig(options)), nodeId);
+}
+
 async function downloadBackup(backupId, options = {}) {
   return agentClient.downloadBackup(backupId, getOptionalNodeConfig(options));
 }
@@ -1184,6 +1192,7 @@ async function evaluateRestartSchedules(instanceId, options = {}) {
 }
 
 module.exports = {
+  verifyBackup,
   checkDependencies,
   clearInstanceLogs,
   createBackup,

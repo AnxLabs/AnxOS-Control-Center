@@ -22406,3 +22406,34 @@ body.create-server-window .page[data-page="marketplace"] .page-introduction {
   width: 100%;
   table-layout: auto;
 }
+
+/* Move to another computer: the pre-move checks (Build 213-D). */
+.migration-checks {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.migration-check {
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  gap: 2px 8px;
+  align-items: baseline;
+}
+
+.migration-check__mark {
+  font-weight: 700;
+  text-align: center;
+}
+
+.migration-check--ok .migration-check__mark { color: #8ff0bd; }
+.migration-check--warn .migration-check__mark { color: #ffd08a; }
+.migration-check--block .migration-check__mark { color: #ff8585; }
+
+.migration-check__detail {
+  grid-column: 2;
+  color: rgba(248, 245, 255, 0.7);
+  font-size: 0.85rem;
+}

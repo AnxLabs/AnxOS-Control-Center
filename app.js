@@ -25348,7 +25348,7 @@ function formatWorkloadTransferStepTrail(steps) {
   return list.map(formatWorkloadTransferStep).join(" | ");
 }
 
-function createWorkloadTransferTargetDialog({ sourceNode, targetNodes, instanceLabel, defaultTargetInstanceId } = {}) {
+function createWorkloadTransferTargetDialog({ sourceNode, targetNodes, instanceLabel, defaultTargetInstanceId, runChecks = null } = {}) {
   return new Promise((resolve) => {
     const overlay = document.createElement("div");
     overlay.className = "app-modal-backdrop";
@@ -25394,6 +25394,16 @@ function createWorkloadTransferTargetDialog({ sourceNode, targetNodes, instanceL
     const note = createTextElement("p", "The target instance id defaults to the source instance id. The confirmed restore replaces that instance's data on the target.", "settings-note");
     const error = createTextElement("span", "", "settings-field-error");
     error.hidden = true;
+    // Build 213: read-only checks for the chosen target, refreshed whenever the
+    // target or the ID changes. Run Preview stays off while anything blocks.
+    const checksBox = document.createElement("ul");
+    checksBox.className = "migration-checks";
+    checksBox.dataset.migrationChecks = "";
+    checksBox.setAttribute("aria-live", "polite");
+    checksBox.hidden = typeof runChecks !== "function";
+    let lastChecks = null;
+    let checkSerial = 0;
+    let checkTimer = null;
     const actions = document.createElement("div");
     actions.className = "settings-actions";
     const confirm = document.createElement("button");
@@ -25407,9 +25417,44 @@ function createWorkloadTransferTargetDialog({ sourceNode, targetNodes, instanceL
     cancel.dataset.transferCancel = "";
     cancel.textContent = "Cancel";
     actions.append(confirm, cancel);
-    dialog.append(closeButton, header, targetField, instanceField, note, error, actions);
+    const renderChecks = (result) => {
+      checksBox.replaceChildren();
+      (result?.items || []).forEach((item) => {
+        const row = document.createElement("li");
+        row.className = `migration-check migration-check--${item.level}`;
+        row.dataset.migrationCheck = item.id;
+        row.append(createTextElement("span", item.level === "ok" ? "✓" : item.level === "warn" ? "!" : "✕", "migration-check__mark"), createTextElement("strong", item.title));
+        if (item.detail) row.append(createTextElement("span", item.detail, "migration-check__detail"));
+        checksBox.append(row);
+      });
+    };
+    const refreshChecks = async () => {
+      if (typeof runChecks !== "function") return;
+      const serial = ++checkSerial;
+      confirm.disabled = true;
+      checksBox.replaceChildren(createTextElement("li", "Checking this move…", "migration-check"));
+      let result;
+      try {
+        result = await runChecks({ targetNodeId: targetSelect.value, targetInstanceId: instanceInput.value.trim() });
+      } catch (checkError) {
+        result = { ok: false, items: [{ id: "checks", level: "block", title: "The checks could not run", detail: normalizeIpcErrorMessage(checkError, "Try again.") }] };
+      }
+      if (serial !== checkSerial) return;
+      lastChecks = result;
+      renderChecks(result);
+      confirm.disabled = result?.ok !== true;
+      confirm.title = result?.ok === true ? "" : "Fix the items marked ✕ first.";
+    };
+    targetSelect.addEventListener("change", () => refreshChecks());
+    instanceInput.addEventListener("input", () => {
+      clearTimeout(checkTimer);
+      checkTimer = setTimeout(() => refreshChecks(), 400);
+    });
+    dialog.append(closeButton, header, targetField, instanceField, note, checksBox, error, actions);
     overlay.appendChild(dialog);
     const close = (value) => {
+      clearTimeout(checkTimer);
+      checkSerial += 1;
       document.removeEventListener("keydown", onKeyDown);
       deactivateModal();
       overlay.remove();
@@ -25431,6 +25476,11 @@ function createWorkloadTransferTargetDialog({ sourceNode, targetNodes, instanceL
         instanceInput.focus();
         return;
       }
+      if (typeof runChecks === "function" && lastChecks?.ok !== true) {
+        error.textContent = "Fix the items marked ✕ first.";
+        error.hidden = false;
+        return;
+      }
       close({ targetNodeId, targetInstanceId });
     };
     const onKeyDown = (event) => {
@@ -25443,7 +25493,39 @@ function createWorkloadTransferTargetDialog({ sourceNode, targetNodes, instanceL
     document.addEventListener("keydown", onKeyDown);
     document.body.appendChild(overlay);
     const deactivateModal = activateModal(overlay, { initialFocus: () => targetSelect });
+    refreshChecks();
   });
+}
+
+// Build 213: after a successful move, confirm the target reports the server,
+// then offer to start it there. The original is left exactly as it is
+// (stopped) until the owner removes it.
+async function offerMigrationCutover({ targetNodeId, targetInstanceId, label, targetLabel, sourceLabel }) {
+  const instancesApi = getDesktopApiState().api?.instances;
+  if (!instancesApi?.getStatus || !instancesApi?.start) return;
+  let status = null;
+  try {
+    status = await instancesApi.getStatus(targetInstanceId, { nodeId: targetNodeId });
+  } catch (error) {
+    showToast(`${label} was copied to ${targetLabel}, but ${targetLabel} did not report it yet (${normalizeIpcErrorMessage(error, "no answer")}). Check it there before starting it.`, "warning");
+    return;
+  }
+  const state = String(status?.state || status?.status || status?.instance?.state || "unknown");
+  const confirmed = await createSecurityConfirmation({
+    title: `Start ${label} on ${targetLabel}?`,
+    message: `The move finished and ${targetLabel} reports the server (${state}). Start it there now? The original on ${sourceLabel} stays stopped and untouched; remove it yourself once you are happy with the new one.`,
+    confirmLabel: `Start on ${targetLabel}`,
+  });
+  if (!confirmed) {
+    showToast(`${label} is ready on ${targetLabel}. Start it there whenever you like.`, "info");
+    return;
+  }
+  try {
+    await instancesApi.start(targetInstanceId, { nodeId: targetNodeId });
+    showToast(`Starting ${label} on ${targetLabel}.`, "success");
+  } catch (error) {
+    showToast(`${label} could not start on ${targetLabel}: ${normalizeIpcErrorMessage(error, "unknown error")}`, "error");
+  }
 }
 
 async function openWorkloadTransfer(selectedInstance = findInstance()) {
@@ -25480,6 +25562,9 @@ async function openWorkloadTransfer(selectedInstance = findInstance()) {
     targetNodes,
     instanceLabel: label,
     defaultTargetInstanceId: sourceInstanceId,
+    runChecks: typeof api.migrationPreflight === "function"
+      ? ({ targetNodeId, targetInstanceId }) => api.migrationPreflight({ sourceNodeId, targetNodeId, instanceId: sourceInstanceId, targetInstanceId })
+      : null,
   });
   if (!selection) {
     showToast("Transfer canceled.");
@@ -25578,6 +25663,15 @@ async function openWorkloadTransfer(selectedInstance = findInstance()) {
     // A failed refresh must not turn a completed destructive transfer into a
     // reported failure: the transfer already succeeded and is reported above.
     await refreshInstances({ refreshMetrics: false }).catch(() => {});
+    if (!failed.length && typeof offerMigrationCutover === "function") {
+      await offerMigrationCutover({
+        targetNodeId: selection.targetNodeId,
+        targetInstanceId: result?.targetInstanceId || resolvedTargetInstanceId,
+        label,
+        targetLabel,
+        sourceLabel: sourceNode.displayName || sourceNodeId,
+      }).catch(() => {});
+    }
   } catch (error) {
     // Same rule as the success path: a failed transfer is always reported. A
     // node switch mid-flight must not swallow a partial-failure trail.
