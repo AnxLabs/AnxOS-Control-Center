@@ -107,8 +107,8 @@ already performed.
   seams, but the flow has not been run on a real Linux host with a genuine
   version-delta swap. Until that live drill runs, the current staging step
   copies the same runtime root into place; a real version delta is unproven.
-- **Updating package-installed Agents from the app (Build 213) is not yet
-  proven end to end.**
+- **Updating package-installed Agents from the app (Build 213): the in-app
+  one-click Linux upgrade is not yet proven end to end.**
   - **What it does:** **Update** and **Update all Agents** in Agent Control now
     handle Agents installed from the `anxos-agent` .deb:
     - download the matching release package and the installed build's package
@@ -121,8 +121,19 @@ already performed.
     - reinstall the previous package if the new Agent doesn't come up
   - **Tested so far:** hermetic tests
     (`package-agent-update-smoke`, `agent-update-manager-smoke`), plus the
-    preflight and download-and-verify steps against real nodes. A real version
-    change (212 → 213) and a real rollback have not run yet.
+    preflight and download-and-verify steps against real nodes.
+  - **Real package upgrades, done outside the app (2026-11-17):** Anxlab and
+    the VPS were upgraded from the published 2.0-build212 package to
+    2.0-build213 with `apt-get install` (the VPS over SSH, Anxlab by the
+    owner with sudo). Both came up on 2.0-build213 with identity, enrollment,
+    configuration and server settings unchanged, and AnxRP kept running. So
+    the packages, maintainer scripts and upgrade path are proven; the app's
+    **Update** / **Update all Agents** buttons driving that same upgrade have
+    not yet run on a real Linux computer, and no real rollback has run.
+  - **Next build (on `dev`, not in Build 213):** running service-managed
+    servers (`systemd-service`, such as AnxRP) no longer block an update,
+    because an Agent restart does not stop them. In Build 213 the button
+    refuses while any server runs.
   - **Limits:**
     - It needs a key-based SSH profile.
     - If the SSH user needs a password for sudo, it stops after verification

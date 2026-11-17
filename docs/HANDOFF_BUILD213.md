@@ -1,10 +1,22 @@
 # Build 213 handoff
 
-Status on 2026-11-16: development milestones 213-A to 213-G are done as local
-commits on `claude/anxos-control-center-simplify-8080f1`. Nothing after
-`449fd1f5` is pushed. No version bump, tag, CI build, signature or release
-has been made. The next step is the release-candidate workflow (ADP), which
-starts only with your approval.
+**Final checkpoint (2026-11-17): Build 213 is closed.**
+
+- **Released:** AnxOS Control Center v2.0 Build 213 Private Alpha, tag
+  `v2.0-build213` on `986367a7` (the accepted RC2), published and promoted
+  as the latest stable release. The published release stays as it is: no
+  rebuild or republish.
+- **Fleet:** Anxlab and the VPS run the published 2.0-build213 Agent
+  package (see "Agent updates after publication").
+- **Issue #53:** fixed in Build 213, commented and closed (completed).
+- **On `dev` for Build 214, not released:** `cf319694` (record of the Agent
+  updates) and `5ca69374` (service-managed servers no longer block Agent
+  updates; honest labels in the automatic-update computer list).
+- **Agent updater:** the real 212 → 213 Linux package upgrades succeeded
+  (over SSH on the VPS, by the owner on Anxlab). The in-app one-click Linux
+  upgrade (**Update** / **Update all Agents**) still needs real end-to-end
+  acceptance, and no real rollback has run.
+- Git state, remaining limitations and next steps: the last two sections.
 
 ## What's new
 
@@ -57,13 +69,12 @@ the VPS.
 
 These Build 213 completion requirements are open. None is claimed as done.
 
-- **A version-changing Agent update on a test machine.** The package update
-  and rollback logic is tested with a mocked shell only. A real test needs a
-  disposable Debian machine (Docker Desktop is installed but not running;
-  starting it needs your OK) and two Agent packages with different builds.
-- **The fleet on your real computers.** Shown with disposable Agents. It
-  will be seen with Anxlab and the VPS during acceptance of the installed
-  release candidate.
+- **The in-app one-click Linux Agent upgrade.** The real 212 → 213 package
+  upgrades were done outside the app and succeeded. The app's Update / Update
+  all Agents path has only hermetic and preflight evidence; it needs a real
+  end-to-end run (and a real rollback test) on a Linux computer.
+- ~~The fleet on your real computers~~: done during RC1 and RC2 acceptance
+  (Anxlab and the VPS, read-only).
 - **A real move between two computers.** Done between two local Agent
   processes, not between two machines.
 - **A real modpack install.** Only the update check was run against
@@ -79,11 +90,10 @@ These Build 213 completion requirements are open. None is claimed as done.
   says to update the Agent. The edge config check also needs a Build 213
   Agent package on the server.
 - **Older Agents and update Cancel (issue 53).** The fix is in the Agent.
-  With a Build 212 Agent (Anxlab and the VPS today), the Build 213 app no
-  longer offers Cancel until SteamCMD has started, and says why; a cancel
-  that arrives sooner is held and sent once SteamCMD runs. Cancelling then
-  stops SteamCMD mid-run, as before. Updating those Agents removes the wait.
-  The Build 212 app on its own still has the bug.
+  With a Build 212 or older Agent, the Build 213 app offers Cancel only once
+  SteamCMD has started, and says why. Anxlab and the VPS now run Build 213
+  Agents, so they have the full fix. The Build 212 app on its own still has
+  the bug.
 - **A rare test flake:** `instance-engine-fixes` IE9 failed once in a full
   run (round 2: saved record keeps CRASH_LOOP) and passed 16 of 16 times
   on its own. Not investigated further.
@@ -252,13 +262,27 @@ These Build 213 completion requirements are open. None is claimed as done.
   update from here" for an up-to-date computer; it now says "up to date" or
   "not connected" (C1). Both checks fail on the published code.
 
-## Release candidate (needs approval)
+## Git state (2026-11-17)
 
-1. Bump to Build 213 (`release.json`, then `scripts/release-docs.js`).
-2. Commit, then push `dev` (approval to push).
-3. GitHub Actions builds and signs the installer and the Agent packages;
-   check the signature and record the SHA-256.
-4. Install it over the current app with Computer Use (reply `confirmed`).
-5. Acceptance in the installed app, including the fleet on Anxlab and the
-   VPS (read-only), Agent auto-update left off, and a phone download.
-6. Publish only after `🚀 publish`.
+- `dev` on GitHub: `5ca69374` plus this checkpoint's documentation commit,
+  all fast-forward pushes; nothing force-pushed.
+- `v2.0-build213` → `986367a7` (protected release tag). `dev` is ahead of
+  the tag by the publication records (`599fccd1`, `d13c9f6d`), the Agent
+  update record (`cf319694`) and the Build 214 fixes (`5ca69374`).
+- Working branch `claude/anxos-control-center-simplify-8080f1` matches
+  `dev`. No local-only commits.
+
+## Next steps
+
+- **Build 214** (planned separately before development starts): expand the
+  installable server and service catalog, and make the existing
+  Marketplace entries genuinely work. It starts from `dev`, which already
+  carries `cf319694` and `5ca69374`.
+- **Build 215** (planned separately): compete with AMP on usability,
+  reliability and hosting features.
+- Open evidence for a later build: an in-app one-click Linux Agent upgrade
+  and a real rollback, a move between two machines, a real modpack
+  install, a real phone, and AnxNet over the internet (the VPS edge needs
+  separate approval: it opens public ports).
+- Release notes for Build 214 should describe the new update rule:
+  service-managed servers no longer block an Agent update.
