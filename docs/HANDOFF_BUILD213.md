@@ -175,8 +175,27 @@ These Build 213 completion requirements are open. None is claimed as done.
 - Agent package: SHA-256
   `76081D977BB04C469A2E87B6AED7B655EAE73F83F4E38510DE13D5F1A8BFB14A`
   (matches its `.sha256`).
-- Next: install in place over RC1 after the owner replies `confirmed`, then
-  acceptance from the beginning.
+- **In-place upgrade over RC1** (owner replied `confirmed`; the owner clicked
+  through Setup and signed in): the installed app is `v2.0-build213`
+  (`986367a`), the AnxOSAgent task is unchanged (installed exe, `--agent`, no
+  time limit, 3 restarts), no Helper marker, and the Local Agent reports
+  `2.0-build213`. All 698 recorded config files are present. The AnxNet key
+  and settings, credentials, enrollment, endpoints, Agent identity and
+  `agent.json` are byte-identical; `nodes.json` changed only in health
+  timestamps and latency, and `security.json` only in the sign-in
+  timestamps (`lastLoginAt`, `updatedAt`, the trusted device's `lastSeen`).
+  Backup: `%APPDATA%AnxHubconfig-backup-pre-build213-rc2-20261116-224232`.
+- **Acceptance:** no findings.
+  - Finding 1 held: about a second after opening Updates the saved settings
+    showed (Off, notify, 03:00, 2 hours, every day) with both computers
+    listed at Build 212.
+  - Finding 2 held: Copy edge config sits at the end of the explanation row.
+  - Finding 3 is covered by the tests only: the installed app has a
+    credential, and the Agent logs refused requests only.
+  - All computers read both machines live; Open from the list opened Terraria
+    TShock; the move checks passed against the VPS (not run); AnxNet
+    unchanged with relay and gateway None; Home 1 of 8 running, 2 of 2
+    computers online.
 
 ## Release candidate (needs approval)
 
