@@ -5,18 +5,18 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   siteUrl: "https://anxoscontrolcenter.org",
   logoPath: "/assets/anxos-logo.png",
   latestVersion: "2.0",
-  build: "212",
-  buildNumber: "212",
+  build: "213",
+  buildNumber: "213",
   channel: "Private Alpha",
-  releaseLabel: "Version 2.0 Build 212 Private Alpha",
-  releaseDate: "November 16, 2026",
-  releaseTag: "v2.0-build212",
+  releaseLabel: "Version 2.0 Build 213 Private Alpha",
+  releaseDate: "November 17, 2026",
+  releaseTag: "v2.0-build213",
   releaseRepository: {
     owner: "AnxLabs",
     repo: "AnxOS-Control-Center-Releases",
   },
   repositoryUrl: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases",
-  releaseUrl: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v2.0-build212",
+  releaseUrl: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v2.0-build213",
   githubReleasesApiUrl: "https://api.github.com/repos/AnxLabs/AnxOS-Control-Center-Releases/releases?per_page=20",
   stableDownloadEndpoints: {
     windows: "/api/download/latest/windows",
@@ -26,23 +26,48 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   },
   releaseAssets: [
       {
-          fileName: "AnxOS-Control-Center-Setup-2.0-build212.exe",
-          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build212/AnxOS-Control-Center-Setup-2.0-build212.exe"
+          fileName: "AnxOS-Control-Center-Setup-2.0-build213.exe",
+          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build213/AnxOS-Control-Center-Setup-2.0-build213.exe"
       },
       {
-          fileName: "AnxOS-Control-Center-2.0-build212-portable.exe",
-          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build212/AnxOS-Control-Center-2.0-build212-portable.exe"
+          fileName: "AnxOS-Control-Center-2.0-build213-portable.exe",
+          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build213/AnxOS-Control-Center-2.0-build213-portable.exe"
       },
       {
-          fileName: "AnxOS-Control-Center-2.0-build212.AppImage",
-          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build212/AnxOS-Control-Center-2.0-build212.AppImage"
+          fileName: "AnxOS-Control-Center-2.0-build213.AppImage",
+          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build213/AnxOS-Control-Center-2.0-build213.AppImage"
       },
       {
-          fileName: "AnxOS-Control-Center-2.0-build212.deb",
-          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build212/AnxOS-Control-Center-2.0-build212.deb"
+          fileName: "AnxOS-Control-Center-2.0-build213.deb",
+          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build213/AnxOS-Control-Center-2.0-build213.deb"
       }
   ],
   releaseNotes: [
+      {
+          "version": "2.0",
+          "build": 213,
+          "channel": "Private Alpha",
+          "tag": "v2.0-build213",
+          "date": "November 17, 2026",
+          "datetime": "2026-11-17",
+          "title": "AnxOS Control Center v2.0 — Build 213",
+          "summary": "Build 213 is about running more than one computer. You can see every computer's servers in one list, keep Agents up to date from the app, move a server between computers, and run AnxNet's relay and gateway on a server you own.",
+          "changes": [
+              "**All computers in My Servers.** One list of every server on every computer, with the computer each one runs on. Start, stop or restart several at once; stop and restart ask first. A computer that is offline keeps its servers listed as \"last known\".",
+              "**Update Agents from the app.** Agent Control can update Linux computers whose Agent was installed from the `anxos-agent` package, one at a time or all together. Each package is checked against the release's checksums first, and if the new Agent doesn't come up, the previous one is put back. An update is refused while that computer's servers are running.",
+              "**Automatic Agent updates (off by default).** Settings > Updates > Automatic Agent updates: choose which computers, which days and what time window, and whether AnxOS only tells you or installs the update. Every update is listed in its history. It never restarts an Agent while its servers are running.",
+              "**Safer moves between computers.** Before a server moves, AnxOS checks that the target is online, the server is stopped, the platform matches and there is room (ports, memory, disk, size). It won't start while a check fails. The backup is verified before it is sent and checked again when it arrives. After a clean move, AnxOS offers to switch over to the new copy.",
+              "**Modpack updates.** Servers installed from a Modrinth or CurseForge modpack say when a newer version of the pack exists for the same Minecraft version and loader. AnxOS tells you; it doesn't apply the update yet.",
+              "**Download server files from your phone.** Phone Access can download any file in a server's folder, byte for byte.",
+              "**AnxNet edge on your own server.** The AnxNet panel has **Copy edge config**, the edge checks its settings before it starts, and a step-by-step guide covers running it as a service (`docs/ANXNET_EDGE_DEPLOYMENT.md`).",
+              "**A colourful Agent screen** on Linux computers without a desktop.",
+              "**Cancelling a server update before SteamCMD starts now stops it.** Before, a Cancel during the pre-update backup, or while the update waited for another SteamCMD task, was acknowledged but the update could still run afterwards. With an Agent older than Build 213, the app offers Cancel only once SteamCMD is running and says why.",
+              "**The phone no longer opens binary files as text.** Tapping a `.jar` or an image opened it in the editor, where saving could have damaged it.",
+              "**The AnxNet edge refuses unsafe settings**, such as a public port range that includes SSH or the Agent's port, or a gateway without a public address.",
+              "**The Download Manager no longer shows \"cancelled\"** for an operation it couldn't stop."
+          ],
+          "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v2.0-build213"
+      },
       {
           "version": "2.0",
           "build": 212,
