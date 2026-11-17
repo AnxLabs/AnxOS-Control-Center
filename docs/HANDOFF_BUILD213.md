@@ -225,6 +225,30 @@ These Build 213 completion requirements are open. None is claimed as done.
 - Not done, as instructed: no Agent update on Anxlab or the VPS (both run
   Build 212), no AnxNet edge deployment, no other production change.
 
+## Agent updates after publication (2026-11-17, owner approved both)
+
+- The first real 212 → 213 Agent package upgrades. On each computer the 213
+  package matched the release's `SHA256SUMS` (`11454df1…`), and its
+  maintainer scripts, unit, sudoers rule and `/etc/anxos-agent` defaults
+  were byte-identical to 212's, with no CR line endings.
+- **VPS** (over SSH, passwordless sudo): backup and 212 rollback package in
+  `/var/lib/anxos-agent-backup-pre213-20261117-075108`. After `apt-get
+  install`: package and health `2.0-build213`, clean start on
+  127.0.0.1:47132, reachable through the desktop tunnel. AnxRP
+  (`anxrp-fxserver`, a separate unit) kept PID 127515. `agent.env`,
+  identity, enrollment, all state files and the server config unchanged.
+- **Anxlab** (the owner ran the sudo install): backup and rollback in
+  `~anx/anxos-maint-20261117/`. Package and health `2.0-build213`, runs as
+  `anx` in `/srv/anxos`, drop-in unchanged, 19 state files unchanged; of
+  the 7 server configs only the two FiveM servers' readiness `checkedAt`
+  timestamps changed (re-checked at every start).
+- The app's Agent Control reads both as 2.0-build213, up to date; automatic
+  updates stay off.
+- Follow-ups found: the Update guard refuses while a service-managed server
+  (AnxRP) runs, although an Agent restart does not stop it; the
+  automatic-update computer list says "can't update from here" for a
+  computer that is up to date.
+
 ## Release candidate (needs approval)
 
 1. Bump to Build 213 (`release.json`, then `scripts/release-docs.js`).
