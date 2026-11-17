@@ -253,7 +253,24 @@ const keyProfile = { id: "k", authType: "privateKey" };
     fs.rmSync(dir, { recursive: true, force: true });
   }
 
-  console.log("Agent update manager smoke passed (12 cases).");
+  // M13 (after the Build 213 Agent updates): only servers an Agent restart
+  // would stop block an update. A service-managed server (systemd-service)
+  // keeps running through the restart, as AnxRP did on the VPS.
+  {
+    const stopped = manager.serversStoppedByAgentRestart([
+      { id: "anxrp", type: "systemd-service", state: "Running" },
+      { id: "palworld", type: "custom-command", state: "Running" },
+      { id: "terraria", type: "custom-command", state: "Stopped" },
+      { id: "paper", type: "minecraft-paper", state: "starting" },
+      { id: "staging", type: "systemd-service", state: "Starting" },
+    ]).map((instance) => instance.id);
+    assert.deepStrictEqual(stopped, ["palworld", "paper"], "running Agent-owned servers block; service-managed and stopped ones do not");
+    assert.deepStrictEqual(manager.serversStoppedByAgentRestart([{ id: "anxrp", type: "systemd-service", state: "Running" }]), [], "a VPS that only runs AnxRP can be updated");
+    assert.deepStrictEqual(manager.serversStoppedByAgentRestart(null), []);
+    console.log("  ok M13 only servers the Agent restart would stop block an update");
+  }
+
+  console.log("Agent update manager smoke passed (13 cases).");
 })().catch((error) => {
   console.error(error);
   process.exitCode = 1;

@@ -306,8 +306,22 @@ function startAgentAutoUpdateScheduler({ configDir, getOverview, updateAgent, be
   return { stop: () => clearInterval(timer), tick };
 }
 
+// The servers an Agent restart would stop: the running ones the Agent runs
+// itself. A service-managed server (type "systemd-service") belongs to its
+// own systemd unit; Agent shutdown never stops it (it only stops processes
+// it spawned), so it does not block an update. Verified on the VPS: AnxRP
+// kept its PID through the 212 and 213 Agent upgrades.
+const ACTIVE_SERVER_STATES = new Set(["running", "starting", "restarting", "reloading", "stopping"]);
+function serversStoppedByAgentRestart(instances = []) {
+  return (Array.isArray(instances) ? instances : []).filter((instance) => (
+    ACTIVE_SERVER_STATES.has(String(instance?.state || "").toLowerCase())
+    && instance?.type !== "systemd-service"
+  ));
+}
+
 module.exports = {
   AUTO_UPDATE_FILENAME,
+  serversStoppedByAgentRestart,
   HISTORY_FILENAME,
   historyEntryFor,
   readUpdateHistory,

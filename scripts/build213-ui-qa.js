@@ -8,7 +8,9 @@
 //      computer, keeps the offline computer visible, and Open switches to the
 //      server's computer and opens its page
 //   C1 the automatic Agent update switch saves agent-auto-update.json, Turn
-//      off now switches it off, a refused update is in the history
+//      off now switches it off; a running service-managed server does not
+//      block an update and the attempt is in the history; the computer list
+//      says "up to date" / "not connected" instead of "can't update from here"
 //   D1 the move dialog blocks with plain reasons
 //   C2 (RC1 acceptance) the saved settings show before the slow computer
 //      list, nothing can be saved before they load, and Save keeps the
@@ -155,17 +157,26 @@ async function main() {
       assert.strictEqual(off.enabled, false, "Turn off now switches it off in the file");
       assert.deepStrictEqual(off.nodeIds, ["lab"], "other choices are kept");
 
-      // A manual update of Lab while its server runs is refused before any SSH
-      // work, and the attempt is in the history.
-      const refused = await page.evaluate(() => window.anx.nodes.updateAgent("lab").then(() => null, (error) => error?.message || "error"));
-      assert.ok(refused && /running/.test(refused), `the update is refused while a server runs (${refused})`);
+      // Lab's only server is service-managed (systemd-service) and running. An
+      // Agent restart does not stop it, so it must not block an update (the
+      // update stops for its own reason: Lab has no SSH key profile). The
+      // attempt is in the history either way.
+      const outcome = await page.evaluate(() => window.anx.nodes.updateAgent("lab").then((result) => ({ ok: true, result }), (error) => ({ ok: false, message: error?.message || "error", code: error?.code || null })));
       const history = JSON.parse(fs.readFileSync(historyFile, "utf8")).entries;
-      assert.strictEqual(history[0].status, "skipped");
-      assert.strictEqual(history[0].code, "REMOTE_AGENT_UPDATE_SERVERS_RUNNING");
+      console.log(`  C1 update outcome: ${JSON.stringify(outcome).slice(0, 300)} | history: ${history[0]?.status} ${history[0]?.code}`);
+      assert.ok(!/running on/.test(outcome.message || ""), `a running service-managed server does not block the update (${JSON.stringify(outcome)})`);
+      assert.notStrictEqual(history[0].code, "REMOTE_AGENT_UPDATE_SERVERS_RUNNING", "the history does not say servers were running");
       await page.evaluate(() => window.AnxAgentAutoUpdate.load());
-      await waitFor(page, () => [...document.querySelectorAll("[data-agent-update-history-row]")].some((row) => row.textContent.includes("Skipped")), null, "the Skipped history row", 15000);
+      await waitFor(page, () => document.querySelectorAll("[data-agent-update-history-row]").length >= 1, null, "the history row", 15000);
+      // The computer list names an up-to-date or offline computer as such,
+      // not "can't update from here".
+      const notes = await page.evaluate(() => {
+        const note = window.AnxAgentAutoUpdate._test.computerNote;
+        return [note({ state: "up-to-date" }), note({ state: "offline" }), note({ state: "update-available", canUpdate: false }), note({ state: "update-available", canUpdate: true })];
+      });
+      assert.deepStrictEqual(notes, [" · up to date", " · not connected", " · can't update from here", ""]);
       await shot(page, "c1-auto-update-history");
-      console.log("PASS C1 the toggle saves agent-auto-update.json exactly, Turn off now switches it off, and a refused update is in the history");
+      console.log("PASS C1 the toggle saves agent-auto-update.json exactly, Turn off now switches it off, a service-managed server does not block an update (history recorded), and computer labels are exact");
     });
 
     // D1

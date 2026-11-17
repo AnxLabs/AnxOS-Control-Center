@@ -73,6 +73,14 @@
     };
   }
 
+  // What the list says next to a computer. "Can't update from here" only when
+  // an update is actually blocked, never for one that is already up to date.
+  function computerNote(entry) {
+    if (entry.state === "up-to-date") return " · up to date";
+    if (entry.state === "offline") return " · not connected";
+    return entry.canUpdate ? "" : " · can't update from here";
+  }
+
   function renderComputers() {
     const policy = state.policy;
     if (!policy) return;
@@ -89,7 +97,7 @@
         input.value = entry.nodeId;
         input.checked = policy.nodeIds.includes(entry.nodeId);
         label.title = entry.reason || "";
-        label.append(input, el("span", "", `${entry.name} · ${entry.installedBuild || "build not reported"}${entry.canUpdate ? "" : " · can't update from here"}`));
+        label.append(input, el("span", "", `${entry.name} · ${entry.installedBuild || "build not reported"}${computerNote(entry)}`));
         computers.append(label);
       });
     }
@@ -258,7 +266,7 @@
     });
   }
 
-  root.AnxAgentAutoUpdate = { load, _test: { describe, readForm, getState: () => state } };
+  root.AnxAgentAutoUpdate = { load, _test: { describe, readForm, computerNote, getState: () => state } };
   if (root.document.readyState === "loading") root.document.addEventListener("DOMContentLoaded", mount);
   else mount();
 })(window);

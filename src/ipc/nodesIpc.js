@@ -19,7 +19,7 @@ const {
 } = require("../services/nodeService");
 const { restorePersistedActiveNode, setActiveNode } = require("../services/activeNodeSelectionService");
 const { getDefaultSshService, updateRemoteAgent } = require("../services/remoteAgentUpdateService");
-const { getAgentUpdateOverview, historyEntryFor, readAutoUpdatePolicy, readUpdateHistory, recordUpdateHistory, startAgentAutoUpdateScheduler, updateAllAgents, writeAutoUpdatePolicy } = require("../services/agentUpdateManager");
+const { getAgentUpdateOverview, serversStoppedByAgentRestart, historyEntryFor, readAutoUpdatePolicy, readUpdateHistory, recordUpdateHistory, startAgentAutoUpdateScheduler, updateAllAgents, writeAutoUpdatePolicy } = require("../services/agentUpdateManager");
 const { listInstances: listInstancesForNode } = require("../services/serviceRouter");
 const { readDesktopBundledAgentArtifactVersion } = require("../shared/agentBuildIdentity");
 const path = require("path");
@@ -189,12 +189,12 @@ function registerNodesIpc() {
   });
   // Servers the Agent runs stop when it restarts, whatever the update method,
   // so every update path asks first and skips a computer with running servers.
-  const RUNNING_STATES = new Set(["running", "starting", "restarting", "reloading", "stopping"]);
   const skipIfServersRunning = async (entry) => {
     try {
       const listed = await listInstancesForNode({ nodeId: entry.nodeId });
       const instances = Array.isArray(listed) ? listed : Array.isArray(listed?.instances) ? listed.instances : [];
-      const running = instances.filter((instance) => RUNNING_STATES.has(String(instance?.state || "").toLowerCase()));
+      // Only servers the restart would stop; service-managed ones keep running.
+      const running = serversStoppedByAgentRestart(instances);
       if (running.length) {
         return { code: "REMOTE_AGENT_UPDATE_SERVERS_RUNNING", message: `${running.length} server${running.length === 1 ? " is" : "s are"} running on ${entry.name} (${running.map((instance) => instance.displayName || instance.id).slice(0, 3).join(", ")}). Stop ${running.length === 1 ? "it" : "them"} first; updating restarts the Agent.` };
       }

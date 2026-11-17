@@ -244,10 +244,13 @@ These Build 213 completion requirements are open. None is claimed as done.
   timestamps changed (re-checked at every start).
 - The app's Agent Control reads both as 2.0-build213, up to date; automatic
   updates stay off.
-- Follow-ups found: the Update guard refuses while a service-managed server
-  (AnxRP) runs, although an Agent restart does not stop it; the
-  automatic-update computer list says "can't update from here" for a
-  computer that is up to date.
+- Follow-ups found, fixed after the release (for the next build): the Update
+  guard refused while a service-managed server (AnxRP) ran, although an
+  Agent restart does not stop it; it now counts only servers the restart
+  would stop (`serversStoppedByAgentRestart`, `agent-update-manager-smoke`
+  M13, `build213-ui-qa` C1). The automatic-update computer list said "can't
+  update from here" for an up-to-date computer; it now says "up to date" or
+  "not connected" (C1). Both checks fail on the published code.
 
 ## Release candidate (needs approval)
 
