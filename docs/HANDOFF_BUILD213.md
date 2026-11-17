@@ -197,6 +197,34 @@ These Build 213 completion requirements are open. None is claimed as done.
     unchanged with relay and gateway None; Home 1 of 8 running, 2 of 2
     computers online.
 
+## Published (2026-11-17)
+
+- Owner approved with `🚀 publish` and named the accepted RC2 commit.
+  `v2.0-build213` (annotated, "AnxOS Control Center v2.0-build213") tagged
+  on `986367a7`.
+- Release run 44037043085 passed all five jobs (static validation,
+  rc-validation, Windows, Linux, publish) and published to
+  AnxOS-Control-Center-Releases with 12 assets.
+- Published files downloaded and checked: all 11 entries in `SHA256SUMS`
+  match; Setup and portable are Authenticode Valid (Anjo ROSIMO,
+  timestamped); `latest.yml` matches Setup; `update-manifest.json` reads
+  2.0 Build 213 Private Alpha.
+  - Setup SHA-256 `15512AC2B03A04FEE0CF7B74441B36330443B2CFD674758B07B65DBFEBF05FC1`
+  - Portable SHA-256 `17BCF6921EA34D8E282D62A9800BD97827E1A3B7F01C72D9061B3D68567EB6D0`
+  - Agent package SHA-256 `11454df17f3fe641bf71686ecb3e5bed9761d7ea390554916dab9bd54c5e28de`
+  - The tagged run signs again, so these differ from RC2's files (same
+    commit), as for Build 212.
+- Promote run 44040318337 passed every step: website metadata commit
+  `d13c9f6d` on `dev`, release promoted to stable (not a prerelease),
+  source-repository pointer updated, Releases README updated. Pages deploy
+  44040348869 succeeded.
+- Public checks: both repositories report latest `v2.0-build213`; the live
+  site's raw HTML names Build 213 on Home, Download and Release notes
+  (Build 212 only as an older release card); all five download links
+  return 200; both READMEs name Build 213 as current.
+- Not done, as instructed: no Agent update on Anxlab or the VPS (both run
+  Build 212), no AnxNet edge deployment, no other production change.
+
 ## Release candidate (needs approval)
 
 1. Bump to Build 213 (`release.json`, then `scripts/release-docs.js`).
