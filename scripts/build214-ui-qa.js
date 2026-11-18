@@ -106,6 +106,12 @@ async function main() {
   const qa = createIsolatedQaEnv("anx-build214-qa-config-");
   const write = (name, value) => fs.writeFileSync(path.join(qa.configDir, name), `${JSON.stringify(value, null, 2)}\n`);
   write("agent.json", { backendMode: "agent", agentUrl: "http://127.0.0.1:9", agentToken: "legacy-token-must-not-be-used" });
+  // Local Agent discovery probes this config folder's agent-runtime.json port
+  // (47131 without one): every run made the developer's real Local Agent log
+  // 6 refused requests. Point it at a loopback port nothing listens on (the
+  // runtime port must be 1024 or above, or discovery falls back to 47131).
+  const closedPort = await new Promise((resolve) => { const probe = http.createServer(); probe.listen(0, "127.0.0.1", () => { const chosen = probe.address().port; probe.close(() => resolve(chosen)); }); });
+  require("../src/shared/agentRuntimeConfigStore").saveAgentRuntimeConfig(path.join(qa.configDir, "agent-runtime.json"), { port: closedPort });
   write("nodes.json", { schemaVersion: 2, selectedNodeId: "lab", nodes: [
     { id: "lab", kind: "agent", name: "Lab", displayName: "Lab", baseUrl: agent.url, agentUrl: agent.url, enabled: true },
   ] });
