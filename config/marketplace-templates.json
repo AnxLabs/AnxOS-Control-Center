@@ -2428,6 +2428,106 @@
     "installerType": "steamcmd-native"
   },
   {
+    "id": "core-keeper",
+    "displayName": "Core Keeper Dedicated Server",
+    "description": "Core Keeper dedicated server with direct connections on the chosen port, installed with SteamCMD.",
+    "icon": "CK",
+    "screenshots": [],
+    "author": "AnxOS",
+    "version": "1.0.0",
+    "category": "Game Servers",
+    "instanceType": "custom-command",
+    "startupType": "steamcmd-native",
+    "hostDependencies": [
+      "steamcmd"
+    ],
+    "defaultRam": "4G",
+    "defaultPorts": [
+      27015
+    ],
+    "tags": [
+      "core-keeper",
+      "survival",
+      "mining",
+      "steamcmd",
+      "game-server"
+    ],
+    "downloadSource": {
+      "type": "steamcmd",
+      "appId": 1963720,
+      "login": "anonymous",
+      "required": true
+    },
+    "installer": {
+      "type": "steamcmd",
+      "appId": 1963720,
+      "installDir": "server",
+      "login": "anonymous",
+      "validate": true,
+      "verifyFiles": [
+        "server/CoreKeeperServer.exe"
+      ],
+      "timeoutMs": 1200000
+    },
+    "startup": {
+      "executable": "CoreKeeperServer.exe",
+      "args": [
+        "-batchmode",
+        "-logfile",
+        "CoreKeeperServerLog.txt",
+        "-datapath",
+        "saves",
+        "-world",
+        "0",
+        "-worldname",
+        "{name}",
+        "-port",
+        "{port}",
+        "-maxplayers",
+        "8"
+      ],
+      "workingDirectory": "data/server",
+      "restartPolicy": "on-failure"
+    },
+    "platforms": {
+      "linux": {
+        "disabled": true,
+        "comingSoonMessage": "Core Keeper on Linux computers has not been tested by AnxOS yet. Install it on a Windows computer."
+      }
+    },
+    "compatibility": {
+      "requires": [
+        "steamcmd"
+      ],
+      "platforms": [
+        "windows"
+      ]
+    },
+    "installMetadata": {
+      "method": "steamcmd",
+      "appId": 1963720,
+      "login": "anonymous",
+      "notes": "Windows computers only for now. Requires SteamCMD. The server uses the GPU for part of its world generation, so the computer needs working graphics drivers."
+    },
+    "configNotes": "The port is UDP and the server also uses the next port up: open both. Steam players can join with the Game ID; other players join by IP with the password the server generates. Both are in GameInfo.txt in the server folder (and the console): share them only with your players. Settings and saves are in the saves folder (ServerConfig.json). Stop ends the server without a final save; it saves as it runs.",
+    "installScript": [
+      "create-instance",
+      "verify-instance",
+      "create-folders",
+      "steamcmd-install",
+      "write-config",
+      "verify",
+      "start"
+    ],
+    "configurationSchema": [
+      "name",
+      "storageLocation",
+      "port",
+      "memory"
+    ],
+    "installerType": "steamcmd-native"
+  },
+  {
     "id": "factorio",
     "displayName": "Factorio Dedicated Server",
     "description": "Factorio headless server from factorio.com for Linux computers. Creates a new world on its first start.",

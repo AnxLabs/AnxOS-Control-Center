@@ -225,6 +225,17 @@ const GAMES = {
     },
     readyTimeoutMs: 1500000,
   },
+  "core-keeper": {
+    processName: /CoreKeeperServer/i,
+    async settings({ instancePath, name, ports }) {
+      const serverDir = path.join(instancePath, "data", "server");
+      const gameInfo = await waitFor("GameInfo.txt", () => fs.existsSync(path.join(serverDir, "GameInfo.txt")) && fs.readFileSync(path.join(serverDir, "GameInfo.txt"), "utf8"), { timeoutMs: 120000, intervalMs: 2000 });
+      assert.match(gameInfo, new RegExp(`^Port: ${ports[0]}$`, "m"), "the server reports the chosen port for direct connections");
+      const config = JSON.parse(fs.readFileSync(path.join(serverDir, "saves", "ServerConfig.json"), "utf8"));
+      assert.strictEqual(config.worldName, name, "the saves folder in the server folder holds the name AnxOS gave it");
+      assert.strictEqual(config.maxNumberPlayers, 8);
+    },
+  },
   "space-engineers": {
     processName: /SpaceEngineersDedicated/i,
     async settings({ instancePath, id, name, ports }) {
