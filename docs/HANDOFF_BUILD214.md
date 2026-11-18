@@ -1,7 +1,9 @@
 # Build 214 handoff
 
 **Status (2026-11-17): in development. Nothing is pushed, tagged, released or
-deployed. No real installation has been run yet.**
+deployed. The nine Docker services passed real installs on the development
+PC's Docker Desktop; nothing has been installed on Anxlab, the VPS or a Linux
+computer.**
 
 Build 214 turns the Add a Server catalog into a working installation
 marketplace. Work is on branch `claude/anxos-build-214-marketplace-1e6322`,
@@ -17,7 +19,7 @@ carries `cf319694` and `5ca69374`).
 | 214-C Applications, databases and media | 8 of 11 "coming soon" cards installable in code; Immich, Jellyfin, Java application still unavailable |
 | 214-D Game-server expansion | Not started |
 | 214-E Marketplace and lifecycle improvements | Not started (two small renderer changes made, see below) |
-| 214-F Real installation acceptance | Not started: blocked on a running Docker engine |
+| 214-F Real installation acceptance | Docker services: passed on Docker Desktop (Windows). Linux computer and the app's own screens: not done |
 | 214-G Stabilization and release preparation | Not started |
 
 ## 214-A audit: what the catalog really did
@@ -108,8 +110,7 @@ Findings:
 | Nginx | `nginx:stable-alpine` | 8080 | `<name>-site` (new) | none |
 
 Every image tag was confirmed to exist on Docker Hub on 2026-11-17 (public
-tag lookups only). The settings come from each image's published
-documentation as I know it; they are **not yet proven by a real install**.
+tag lookups only), and each service passed a real install (next section).
 
 Still unavailable, and the cards now say why: Immich (needs Compose),
 Jellyfin (needs a media folder), Java application (needs own-application
@@ -119,14 +120,72 @@ Renderer: the "Save this password" dialog; completion text and navigation
 point Docker services at the Docker page; the template details show "What
 this is" (service, not a game server) and "Kept data".
 
+## 214-F: real installs of the Docker services (2026-11-17)
+
+`node scripts/marketplace-docker-real-install.js` (new; not part of release
+validation, needs a Docker engine and internet). It starts a disposable Agent
+on a free loopback port with temp folders, installs through the real
+`installTemplate` path, and removes everything it made (`anx214-*` containers
+and volumes, and images that were not on the PC before). Docker Desktop
+4.99.0, engine 29.9.3 (linux/amd64) on Windows 11. The installed app, the real
+Local Agent, Anxlab and the VPS were not used.
+
+| Service | Install time | Proven |
+| --- | --- | --- |
+| PostgreSQL | 22 s | Generated password works through the published port from a second container; a wrong password is refused; a table written before a restart is read after it |
+| MariaDB | 20 s | User and administrator passwords work; a wrong password is refused; table kept after restart |
+| Redis | 14 s | Password works; no password is refused (`NOAUTH`); key kept after restart |
+| Grafana | 40 s | `admin` signs in with the generated password; the default `admin` password is refused; a folder created before a restart is there after it |
+| Prometheus | 19 s | Ready endpoint answers; the settings volume holds the default `prometheus.yml`; data volume kept after restart |
+| Uptime Kuma | 59 s | Web interface answers; data volume kept after restart |
+| Gitea | 19 s | Web interface answers on the chosen port; data volume kept after restart |
+| Nextcloud | 49 s | `status.php` answers and reports "not installed yet" (setup is finished in the browser); data volume kept after restart |
+| Nginx | 15 s | Serves its page; a file written to the site volume is served after a restart |
+| Refusals | | A second install on a busy port is refused before any container or volume is created; a same-name reinstall over earlier data is refused and the data is untouched |
+
+Install times include the image download on a home connection and are from
+one run each: indicative, not a benchmark. Eight services and the refusals
+passed in one full run; PostgreSQL passed in a run of its own after its
+check was corrected (the image trusts connections made inside its own
+container, so the password has to be tested from outside).
+
+**Bugs the real engine found (all fixed, none visible to the mocked tests):**
+
+1. **A busy port was never detected.** The Agent's pre-install check read
+   published ports only in the Engine API's object form; the Docker CLI
+   prints text ("0.0.0.0:8080->80/tcp"). The Docker page's own create check
+   had the same blind spot. Fixed in `readPublishedHostPorts`
+   (`src/shared/dockerService.js`); Agents older than Build 214 keep the
+   blind spot, so the install also turns Docker's "port is already
+   allocated" into the same clear message and removes the volume that failed
+   create left behind.
+2. **The volume list took longer than the app's 12-second limit** on a PC
+   with about ten containers, because it inspected every container and
+   volume with a separate command. This affects the Docker page's Volumes
+   list too. `listVolumes` now uses one inspect command for all containers
+   and one for all volumes, and the install looks up only its own volume
+   names.
+3. **A free volume name was reported as "Docker command failed: []"**,
+   because `docker inspect` prints `[]` before its error. The message now
+   skips that line; the install also accepts the old form from older Agents.
+4. The install's "is it still running?" check gave up on the first slow
+   answer; it now retries.
+
+Not covered by the real run: a container that exits right after starting,
+a failed image download, and cancelling (mocked only); Docker on a Linux
+computer; anything seen in the app's own windows; removal and updates from
+the Docker page; first-run setup of Nextcloud, Gitea and Uptime Kuma in a
+browser.
+
 ## Tests run
 
-All mocked: the Agent client is faked and the network blocked. None of this
-is real installation acceptance.
+These are mocked: the Agent client is faked and the network blocked. The real
+installs are in the section above.
 
 | Test | Result |
 | --- | --- |
-| `node scripts/marketplace-docker-service-smoke.js` (new, S1–S8) | Passed |
+| `node scripts/marketplace-docker-service-smoke.js` (new, S1–S9) | Passed |
+| `docker-smoke`, `docker-route-io`, `docker-job-lifecycle`, `docker-ipc-error-contract`, `agent-docker-actions`, `docker-capabilities`, `docker-hostile-input` smokes (after the Agent-side Docker fixes) | Passed |
 | `node scripts/docker-marketplace-engine-smoke.js` (M2 updated for the new steps) | Passed |
 | `node scripts/marketplace-smoke.js` (Docker fakes updated) | Passed |
 | `node scripts/marketplace-template-certification-smoke.js` | Passed |
@@ -147,21 +206,24 @@ The new smoke is registered in `package.json`
 
 ## Blockers
 
-- **Real installs need a Docker engine.** Docker Desktop is installed on the
-  development PC but was not running, and the Ubuntu WSL distribution has no
-  Docker. Starting Docker Desktop needs the owner's go-ahead. Anxlab and the
-  VPS were not touched.
+- **No Linux Docker host was tested.** The owner approved starting Docker
+  Desktop on the development PC (it updated itself to engine 29.9.3 during
+  the session and was left running). The templates still declare Linux
+  only; Docker Desktop on Windows worked here but is not yet offered.
+  Anxlab and the VPS were not touched.
+- The Agent-side fixes (busy port, volume list, error text) reach a computer
+  only with a Build 214 Agent. The install works with Build 213 Agents
+  through the fallbacks above, which are covered by mocked tests only.
 - This worktree has no `node_modules`. Tests ran with `NODE_PATH` pointing at
   the `anxos-control-center-simplify-8080f1` worktree (same `dev` commit).
 
 ## Next steps
 
-1. **214-F for the Docker services (first, before more cards).** With a
-   Docker engine and a disposable Agent: install each of the nine services
-   under a throwaway name, sign in or connect with the generated password,
-   restart the container and confirm the data is kept, then test a busy
-   port, a same-name reinstall and removal. Fix whatever the real images
-   disagree with.
+1. **See the Docker services in the app.** Run the real app against a
+   disposable Agent and check the wizard, the "Save this password" dialog,
+   the completion text and the Docker page for one database and one web
+   application; then decide whether Docker Desktop on Windows can be
+   declared supported.
 2. **214-B continued.** Compose adapter for Immich (write a validated Compose
    file to the instance folder, reuse `assertComposePolicy`); a media-folder
    field with a single-path grant for Jellyfin; importing a user's own
