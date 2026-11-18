@@ -106,7 +106,9 @@ assert(app.includes('loadOperationHistory({ recoverInterrupted: false })'), "Cro
 assert(app.includes("relatedInstanceId") && app.includes("relatedNodeId"), "Deployment notifications must preserve instance and node deep-link context.");
 assert(app.includes("Math.max(Number(operation.percent) || 0, incomingPercent)"), "Operation progress must remain monotonic.");
 assert(app.includes('Object.prototype.hasOwnProperty.call(context || {}, "template")'), "Manual Create Server entry must override a stale Marketplace query template in the singleton window.");
-assert(app.includes('title: "Deployment started"') && app.includes('title: "Server ready"') && app.includes('title: "Deployment failed"'), "Create Server milestones must synchronize with Notification Center.");
+// Build 214: a Docker service's completion says "Service ready" and a server's
+// still says "Server ready".
+assert(app.includes('title: "Deployment started"') && app.includes('title: dockerService ? "Service ready" : "Server ready"') && app.includes('title: "Deployment failed"'), "Create Server milestones must synchronize with Notification Center.");
 assert(app.includes('createServerWizardStep = "deployment"') && app.includes("startMarketplaceInstallProgressListener"), "Create Server deployment must transition into the shared Download Manager progress pipeline.");
 assert(!app.includes("Resolved server-pack metadata: file ${capability.serverPackFileId}"), "Create Server review must not expose raw provider file identifiers.");
 assert(app.includes('filter((item) => !/^(?:provider file|server pack)$/i.test'), "Create Server review must omit identifier-bearing provider metadata rows.");

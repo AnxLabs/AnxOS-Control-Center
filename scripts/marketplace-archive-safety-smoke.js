@@ -146,7 +146,12 @@ for (const template of shippedCatalog) {
   assert.doesNotThrow(() => marketplaceService.buildTemplateInstallerScript(template), `The installer of shipped template ${template.id} must still build.`);
   shippedInstallersBuilt += 1;
 }
-assert.strictEqual(shippedInstallersBuilt, 6, `The shipped catalog is expected to carry 6 installer templates, saw ${shippedInstallersBuilt}`);
+// Build 214 added 13 games with installers (V Rising, Enshrouded, Unturned,
+// Satisfactory, Don't Starve Together, 7 Days to Die, Garry's Mod, Project
+// Zomboid, Factorio, ARK: Survival Evolved and Ascended, Core Keeper, Space
+// Engineers) to the 6 before it. The count stays exact so a template that
+// silently stops declaring its installer is noticed.
+assert.strictEqual(shippedInstallersBuilt, 19, `The shipped catalog is expected to carry 19 installer templates, saw ${shippedInstallersBuilt}`);
 
 async function main() {
   let canceled = false;

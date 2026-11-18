@@ -462,7 +462,7 @@ const IPC_FAMILIES = [
     channels: [
       "marketplace:importCommunityTemplate", "marketplace:installTemplate", "marketplace:installPack",
       "marketplace:updateSteamServer", "marketplace:openManualDownloadPage", "marketplace:importManualDownloadFile",
-      "marketplace:resumeManualInstall", "marketplace:cancelDownload", "marketplace:retryDownload",
+      "marketplace:resumeManualInstall", "marketplace:cancelDownload", "marketplace:retryDownload", "marketplace:chooseApplicationFile",
     ],
   },
   {
