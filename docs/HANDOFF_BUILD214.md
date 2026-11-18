@@ -1,6 +1,6 @@
 # Build 214 handoff
 
-**Status (2026-11-17): in development. Nothing is pushed, tagged, released or
+**Status (2026-11-18): in development. Nothing is pushed, tagged, released or
 deployed. The nine Docker services passed real installs on the development
 PC's Docker Desktop; nothing has been installed on Anxlab, the VPS or a Linux
 computer.**
@@ -15,9 +15,9 @@ carries `cf319694` and `5ca69374`).
 | Milestone | State |
 | --- | --- |
 | 214-A Catalog and installer audit | Done (below) |
-| 214-B Shared installation foundation | Docker service adapter done; Compose, host folders and own-application import not started |
-| 214-C Applications, databases and media | 8 of 11 "coming soon" cards installable in code; Immich, Jellyfin, Java application still unavailable |
-| 214-D Game-server expansion | Batch 1 done: Minecraft Bedrock fixed; V Rising, Enshrouded, Unturned added. All four passed real installs on Windows |
+| 214-B Shared installation foundation | Docker service adapter and one read-only host folder done; Compose and own-application import not started |
+| 214-C Applications, databases and media | 9 of 11 "coming soon" cards installable and real-tested (Jellyfin added); Immich and Java application still unavailable |
+| 214-D Game-server expansion | Batches 1-2 done: Bedrock fixed; V Rising, Enshrouded, Unturned, Satisfactory, Don't Starve Together, 7 Days to Die added; all passed real installs on Windows. Project Zomboid deferred |
 | 214-E Marketplace and lifecycle improvements | Not started (two small renderer changes made, see below) |
 | 214-F Real installation acceptance | Docker services: passed on Docker Desktop (Windows). Linux computer and the app's own screens: not done |
 | 214-G Stabilization and release preparation | Not started |
@@ -250,6 +250,86 @@ current installer refuses), Garry's Mod 4020. Factorio and Terraria are
 distributed outside SteamCMD (Factorio's headless server from factorio.com;
 Terraria is already covered by TShock).
 
+## Build 214 round 2 (2026-11-18)
+
+**Jellyfin (214-C).** A Docker template may now ask for one folder from the
+computer (`docker.hostFolder`): the user names it in the wizard ("Media
+folder"), it is always mounted read-only, and it carries the single Docker
+policy grant (`hostMount`) it needs. Whole drives, system folders, whole
+user profiles or home folders, AnxOS's own data, and paths with `..`, commas
+or quotes are refused before anything is sent. Docker Desktop creates a
+missing folder instead of refusing it, so the install looks inside the
+container and warns when the media folder is empty.
+
+**Every Docker service passed Stop and Start** (added to the real run) as
+well as a restart: PostgreSQL, MariaDB, Redis, Grafana, Prometheus, Uptime
+Kuma, Gitea, Nextcloud, Minecraft Bedrock, Jellyfin, Nginx, plus the
+busy-port and earlier-data refusals. Uptime Kuma and Nextcloud passed in a
+second run after the timeout fixes below.
+
+**Games (214-D batch 2), real installs on Windows** through the Marketplace
+path and a disposable Agent: each bound its chosen port, AnxOS reported it
+Running / ready, it used the settings AnxOS wrote, and Stop freed the port.
+
+| Game | Install | Evidence for the settings |
+| --- | --- | --- |
+| Satisfactory (1690800) | 233 s | Direct run: `-Port` binds UDP and TCP (server API), `-ReliablePort` binds TCP |
+| Don't Starve Together (343050) | 112 s | Shipped launch script; the server's own log: LAN servers must use ports 10998-11018 |
+| 7 Days to Die (294420) | 415 s | Shipped `serverconfig.xml`; direct run with AnxOS's small settings file |
+| Valheim (existing) | 108 s | Confirms the Windows start and UDP readiness fixes |
+| Palworld (existing) | 469 s | Confirms the same fixes |
+
+New games are Windows only for now; their Linux variants say "not tested by
+AnxOS yet". Don't Starve Together runs as a LAN server; internet play needs
+a cluster token from the owner's Klei account (the card says how to add
+it). 7 Days to Die's remote console (telnet) is switched off because the
+shipped default has no password.
+
+**Not added:**
+- **Project Zomboid**: its first start asks for an administrator password
+  on the console. Passing it as `-adminpassword` would store it in the start
+  command and print it in the "Launch command" log line (arguments are
+  redacted one at a time). Needs a way to hand a generated password to a
+  SteamCMD server without putting it in the command.
+- **Immich**: several linked containers (server, machine learning, Redis,
+  PostgreSQL with vector search). Needs a Compose installer type: write a
+  validated Compose file and `.env` to the target computer, run it through
+  the Agent's existing Compose routes and `assertComposePolicy`, use named
+  volumes rather than the official file's host folders, and manage it as one
+  Compose project.
+- **Java application**: needs importing the user's own `.jar`.
+
+**Bugs found by the real runs (all fixed, with regression checks):**
+
+1. **Slow image downloads failed as "Agent unavailable".** The Agent cut
+   every request off at its default 2 minutes; image pulls and Compose
+   pull/up/recreate now get 11 minutes (build 21). Affects the Docker page
+   too.
+2. **Container create and start used the 8-second limit for quick Docker
+   commands**, and the desktop waited only 30 s, so a slow start was
+   abandoned while the Agent went on to create the container. Now a minute
+   each, and the desktop waits four.
+3. **Valheim never became ready**: it holds its port as an IPv6 socket,
+   invisible to an IPv4 bind test. The UDP check now tries IPv4,
+   dual-stack IPv6 and IPv6-only.
+4. **Settings values were not escaped.** A quote in a server name could add
+   settings to a game's XML (in 7 Days to Die, switch the password-less
+   remote console back on) or break Enshrouded's JSON. Values are escaped
+   for XML and JSON, and line breaks never pass.
+5. **SteamCMD "Success" without the files** got no second attempt; a
+   missing result now gets the same single retry as a failure.
+6. **A freshly downloaded executable was reported missing**
+   (`7DaysToDieServer.exe`) although it was on disk: reading it can fail
+   while Windows briefly holds it. A file now also counts when its folder
+   lists it.
+
+Agent-side changes (1, 2, 3) reach a computer only with a Build 214 Agent.
+
+**Note for the operator:** SteamCMD runs started outside AnxOS on the same
+computer at the same time made two AnxOS installs fail inside SteamCMD
+(exit codes 5 and 8); they passed when re-run alone. AnxOS already queues
+its own SteamCMD runs.
+
 ## Tests run
 
 These are mocked: the Agent client is faked and the network blocked. The real
@@ -263,7 +343,8 @@ installs are in the section above.
 | `node scripts/marketplace-smoke.js` (Docker fakes updated) | Passed |
 | `node scripts/marketplace-template-certification-smoke.js` | Passed |
 | `marketplace-template-metadata`, `marketplace-install-transaction`, `publisher-trust`, `docker-policy`, `marketplace-readiness`, `marketplace-server-capability-ux`, `game-adapter-contract`, `catalog-transfer`, `catalog-transfer-ipc-exposure`, `renderer-free-identifier`, `renderer-safety`, `versioning` smokes | Passed |
-| `node scripts/windows-spawn-executable-smoke.js` (new: W1-W5, U1) | Passed |
+| `node scripts/windows-spawn-executable-smoke.js` (new: W1-W5, U1 incl. IPv6 holders) | Passed |
+| Round 2: `marketplace-docker-service-smoke` (12 checks: Jellyfin S12, DST and escaping in S11, request limits in S9), `marketplace-smoke` (SteamCMD resume and locked-file cases), `docker-marketplace-engine`, `docker-smoke`, `docker-route-io`, `docker-job-lifecycle`, `docker-hostile-input`, `steamcmd-instance-update`, `instance-engine-fixes`, `marketplace-template-certification`, `renderer-free-identifier`, `renderer-safety` | Passed |
 | 32 game and instance-engine smokes (`steamcmd-*`, `palworld-*`, `hytale-*`, `fivem-*`, `instance-*`, `server-page-*`, `game-adapter-*`, `marketplace-template-*`, `startup-selection`) after the Agent changes | Passed |
 | `node --check` on every changed JavaScript file; `git diff --check` | Clean |
 
@@ -279,7 +360,13 @@ The new smoke is registered in `package.json`
 - `37f70869` feat(marketplace): install databases and apps as Docker services
 - `fcbdb58f` fix(docker): real-engine fixes found by installing the nine services
 - `2f21df86` fix(marketplace): Minecraft Bedrock installs and keeps its world
-- The 214-D batch 1 commit (games, Agent start and readiness fixes) and the handoff commits on this branch.
+- `0c5c4960` feat(marketplace): V Rising, Enshrouded and Unturned servers
+- `ec527517` feat(marketplace): Jellyfin with a read-only media folder
+- `746109f3` feat(marketplace): Satisfactory and Don't Starve Together servers
+- `84d72d78` fix(docker): slow image downloads and container starts no longer fail
+- `46d491e6` fix(marketplace): escape settings values and resume stalled SteamCMD downloads
+- `be95df57` feat(marketplace): 7 Days to Die server
+- Handoff commits on this branch.
 
 ## Blockers
 
@@ -296,21 +383,20 @@ The new smoke is registered in `package.json`
 
 ## Next steps
 
-1. **Run the new games on Linux and let a player join.** Unturned's Linux
-   start has not run; the readiness fix should also be checked against the
-   existing Valheim, Palworld and CS2 templates on a disposable Linux node
-   (not Anxlab's live servers).
-2. **Batch 2 of games**: Project Zomboid, 7 Days to Die, Satisfactory, then
-   Don't Starve Together (with its cluster token step) and the ARK servers.
+1. **Run the games on Linux and let a player join.** None of the new games'
+   Linux variants has run (they are labelled untested); the UDP readiness
+   check should also be confirmed on a disposable Linux node (not Anxlab's
+   live servers).
+2. **Immich through a Compose installer type** (design above), then Project
+   Zomboid once a SteamCMD server can be given a generated password safely,
+   then the ARK servers.
 3. **See the Docker services in the app.** Run the real app against a
    disposable Agent and check the wizard, the "Save this password" dialog,
    the completion text and the Docker page for one database and one web
    application; then decide whether Docker Desktop on Windows can be
    declared supported.
-4. **214-B continued.** Compose adapter for Immich (write a validated Compose
-   file to the instance folder, reuse `assertComposePolicy`); a media-folder
-   field with a single-path grant for Jellyfin; importing a user's own
-   Node.js, Python or Java application.
+4. **214-B continued.** Importing a user's own Node.js, Python or Java
+   application.
 5. **Games that need an owned Steam account** (DayZ, Arma 3) need a sign-in
    flow the current installer refuses (`login: "required"`); that is a
    separate design, through Steam's own sign-in, never a stored password.
