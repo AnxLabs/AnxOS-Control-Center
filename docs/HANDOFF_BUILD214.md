@@ -1,26 +1,29 @@
 # Build 214 handoff
 
-**Status (2026-11-18): in development. Nothing is pushed, tagged, released or
-deployed. The nine Docker services passed real installs on the development
-PC's Docker Desktop, and the games on Windows or in WSL Ubuntu on that PC;
-nothing has been installed on Anxlab or the VPS.**
+**Status (2026-11-18, round 5): implementation complete, at the release
+approval gate. Nothing is pushed, tagged, released or deployed. Every card
+that says it installs passed a real install on the development PC (Docker
+Desktop, Windows, or WSL Ubuntu); nothing has been installed on Anxlab or
+the VPS. Release validation results are in "Round 5: final gate" below.**
 
 Build 214 turns the Add a Server catalog into a working installation
-marketplace. Work is on branch `claude/anxos-build-214-marketplace-1e6322`,
-fast-forwarded from `dev` at `ae21937a` (the Build 213 close, which already
-carries `cf319694` and `5ca69374`).
+marketplace. Work is on branch `claude/exciting-chebyshev-a94fba` (this
+worktree), which contains `claude/anxos-build-214-marketplace-1e6322` and is
+based on `dev` at `ae21937a` (the Build 213 close). The website
+search-indexing fix went to `dev` separately (`623ad5ac`) and is not on this
+branch; merge or rebase onto `dev` before the RC keeps both.
 
 ## Milestones
 
 | Milestone | State |
 | --- | --- |
 | 214-A Catalog and installer audit | Done (below) |
-| 214-B Shared installation foundation | Docker service adapter, one read-only host folder, Compose projects (Immich) and own Java application import done |
-| 214-C Applications, databases and media | All 11 "coming soon" cards installable and real-tested; IT-Tools and Stirling PDF added. No card is left as coming soon |
-| 214-D Game-server expansion | Bedrock fixed; V Rising, Enshrouded, Unturned, Satisfactory, Don't Starve Together, 7 Days to Die Garry's Mod and Project Zomboid (with the new server secret store) added, all real-installed on Windows; Factorio on Linux; Unturned, Valheim and Palworld also on Linux. ARK: Survival Evolved installs and runs on Windows but is not yet certified (round 4) |
-| 214-E Marketplace and lifecycle improvements | Not started (two small renderer changes made, see below) |
-| 214-F Real installation acceptance | Docker services on Docker Desktop (Windows), games on Windows, the real app (`build214-ui-qa`), and Unturned, Valheim and Palworld on Linux (WSL Ubuntu 24.04) pass. Docker on a Linux host: not done |
-| 214-G Stabilization and release preparation | Not started |
+| 214-B Shared installation foundation | Docker service adapter, one read-only host folder, Compose projects (Immich), and deploying your own Java (.jar), Node.js and Python (.zip) applications done |
+| 214-C Applications, databases and media | All 11 "coming soon" cards installable and real-tested; IT-Tools and Stirling PDF added. The only unavailable card is the Python Discord bot, which was a fake (a sleep loop) and now says why (round 5) |
+| 214-D Game-server expansion | Bedrock fixed; V Rising, Enshrouded, Unturned, Satisfactory, Don't Starve Together, 7 Days to Die, Garry's Mod, Project Zomboid (server secret store), ARK: Survival Evolved, ARK: Survival Ascended, Space Engineers and Core Keeper added and real-installed on Windows; Factorio on Linux; Unturned, Valheim and Palworld also on Linux. Modrinth modpacks fixed and real-installed (round 5) |
+| 214-E Marketplace and lifecycle improvements | Search, category filters, favourites and the Modpacks browser already existed. Not done: Docker services listed with the other servers, one place for update and uninstall with keep-or-delete-data (Build 215 candidates) |
+| 214-F Real installation acceptance | Docker services on Docker Desktop (Windows), games and imported applications on Windows, a Modrinth modpack, the real app (`build214-ui-qa`), and Unturned, Valheim and Palworld on Linux (WSL Ubuntu 24.04) pass. Docker on a Linux host and a CurseForge modpack: not done |
+| 214-G Stabilization and release preparation | Release validation run (round 5, below); RC not started (needs approval) |
 
 ## 214-A audit: what the catalog really did
 
@@ -492,6 +495,140 @@ repo, see How to continue), run
 (about 20 minutes, 21 GB in the temp folder, removed afterwards), and add
 the catalog entry and a certification row only if it passes.
 
+## Build 214 round 5 (2026-11-18)
+
+**Games (214-D), real installs on Windows** through the Marketplace path and a
+disposable Agent (`marketplace-steamcmd-real-install`): each bound its chosen
+UDP port, AnxOS reported it Running / ready, it used the settings AnxOS
+wrote, and Stop freed the port. Everything was deleted afterwards.
+
+| Game | Steam app | Install, size | Evidence for the settings |
+| --- | --- | --- | --- |
+| ARK: Survival Evolved | 376030 | 1539 s, 21 GB | Its Steam query port advertised the session AnxOS named |
+| ARK: Survival Ascended | 2430930 | 243 s, 12 GB | Its log: `Server: "<id>" has successfully started!` (ASA answers no Steam query) |
+| Space Engineers | 298740 | 214 s, 8.4 GB | Its log binds the chosen port; the world is saved under the server id; a direct second start loaded the saved world |
+| Core Keeper | 1963720 | 47 s, 0.5 GB | GameInfo.txt reports the chosen port; ServerConfig.json holds the name AnxOS gave it |
+
+All four are Windows only (ASA and Space Engineers publish no Linux server;
+the others are labelled untested on Linux). None of them can be asked to save
+before Stop on Windows (no console), so Stop keeps the last autosave; each
+card says so. Core Keeper writes its generated join password to GameInfo.txt
+and its console (the card says to share it only with players). Space
+Engineers needs a settings file (without one it stops with "Premade world not
+found"), which is XML with a .cfg name: config files can now declare
+`format: "xml"` so a server name is escaped (a `<` could have switched its
+remote API on).
+
+**Modpacks.** A real Modrinth install (new
+`scripts/marketplace-modpack-real-install.js`, Cobblemon for Fabric 1.21.1)
+found two bugs that made every real Modrinth pack fail since Build 193:
+1. A .mrpack holds mods only, but provider packs waited for the pack to bring
+   its server runtime (`SERVER_PACK_RUNTIME_UNRESOLVED`). The runtime the pack
+   declares in modrinth.index.json is now installed through the same
+   resolvers and installer as the plain Minecraft servers (`ac61585a`).
+2. The start command still named `server.jar`, and the Agent's start-time
+   jar repair keeps the jar already in the arguments, so the server
+   crash-looped; activation now sets the arguments (`ac61585a`).
+A third bug was Windows-wide: the Java resolver sorted a JDK under
+`C:\Program Files` before AnxOS's bundled Java of the same version, and the
+Windows Agent refused it (`EXECUTABLE_NOT_ALLOWED`); the bundled runtime now
+wins (`fdd90408`). After the fixes: installed in 138 s, 34 server mods, Java
+on the chosen port, Running / ready, the server list answers 1.21.1, Stop
+frees the port, Start reuses the same world. CurseForge packs were not
+real-tested (they need CurseForge API access).
+
+**Your own Node.js and Python applications** (`0f2fdcec`). Two Development
+cards deploy a zipped project folder, checked in the main process before
+anything is created (.zip only, 100 MB, 5000 files, 300 MB unpacked; no
+absolute paths, `..`, backslashes, links or case-only duplicates) and copied
+file by file through the Agent's existing file route into `data/app`. AnxOS
+runs neither npm nor pip: Node.js projects with dependencies must include
+node_modules, and a requirements.txt that lists packages is refused with a
+message. The real install also found that Python was never detected on
+Windows (`python3` is the Store stub there), so every Python card stopped at
+the dependency check; it is now detected with `python` (detection only).
+Evidence: `app-project-import-smoke` P1-P6, `marketplace-app-project-real-install`
+N1-N3, `build214-ui-qa` A2.
+
+**Bots** (`b9181a42`). The two Bots cards were not bots ("Discord.js Bot"
+generated an HTTP server, "Python Discord Bot" a sleep loop). Discord.js Bot
+now deploys the user's zipped bot and takes the bot token in a password
+field: the token is removed from the install request before anything reads
+it, only names the card declares are accepted (`userSecrets`), and it goes
+to the Agent only as write-only `secretEnvironment` (DISCORD_TOKEN at start,
+scrubbed from the console, never returned; older Agents are refused). Python
+Discord Bot is unavailable and says why. Evidence: P6, N4 (the token is in no
+plain-text file under the Agent's or the app's folders), A3 and L1. No
+sign-in to Discord was tested (needs a real bot token).
+
+**Test isolation** (`4bf9f6d9`). The known leak from round 4 is fixed: every
+real-install harness run made the real Local Agent log 3 "authorization
+failed" lines (39 today). `nodeService.saveNode` runs Local Agent discovery,
+which probes port 47131 when the config folder has no agent-runtime.json.
+`pinAgentRoots(..., { isolateLocalAgent: true })` points it at a closed port;
+a full harness run then sent nothing to 47131 (traced with a request
+blocker) and the real Agent's count stayed at 4495.
+
+**Catalog at the end of Build 214:** 50 templates, 49 installable, 1
+unavailable with its reason (Python Discord Bot). By category: Game Servers
+21, Minecraft 6, Development 6, Applications 5, Networking 4, Databases 3,
+Bots 2, Utilities 2, Media 1, plus the Modrinth and CurseForge modpack
+browser. Certification matrix: 41 Supported, 8 Experimental (imports and
+starters, where the user's own code decides the rest), 1 Disabled.
+
+### Round 5: final gate (2026-11-18)
+
+Run on the development PC (Windows 11, Docker Desktop 29.9.3), with this
+worktree's own `node_modules` (`npm ci`; the junction to another worktree
+made `agent:package:smoke` fail correctly, because the Agent's dependencies
+resolved outside the repository).
+
+| Gate | Result |
+| --- | --- |
+| `npm run rc:validate` | **PASS, 416 of 416** (13:34-13:49) |
+| `npm run qa:release` | **PASS, 136 checks** (13:50-14:01), real-app tests included |
+| `node scripts/build214-ui-qa.js` with `BUILD214_QA_JAR` | **PASS, 9 of 9** (L1, J1, J2, P1, A1, A2, A3, F1, S1) |
+| Real installs this round | ARK SE, ASA, Space Engineers, Core Keeper (SteamCMD harness); Modrinth Cobblemon (modpack harness); N1-N4 (application harness); A1-A4 Java application re-run after the Java change |
+| Catalog checks | `marketplace-template-certification-smoke` (50 templates), metadata, game adapter contract, Docker service smoke S1-S14 |
+
+The first full `rc:validate` of Build 214 found checks the earlier rounds
+had left stale; each was fixed at its cause (`1db98759`, `2456e5eb`,
+`4e1bde5d`):
+- `marketplace:chooseApplicationFile` (round 3) had no row in the IPC
+  permission matrix; it is now checked to be refused while locked.
+- The archive-safety smoke pinned 6 shipped installers (now 19).
+- The UI polish smoke looked for a notification title round 1 reworded.
+- `marketplace-smoke`'s dependency-resume test never faked `updateInstance`,
+  so every run sent 5 real PATCH requests to its node address,
+  192.168.1.134:47131, which may be a real computer on the developer's
+  network (refused by its token). Pre-existing since 66b5f415.
+- IE8 (daily schedules on DST days) reported a hang that was the Windows file
+  I/O of its scheduler integration run (7-20 s measured, sometimes over its
+  30 s limit); that run now has 120 s, the sweep-only zones keep 30 s.
+
+**Real Local Agent during the gates** (the developer's installed Agent,
+`%APPDATA%\AnxHub\logs\live.log`, "authorization failed" lines):
+`qa:release` 0 new, `build214-ui-qa` 0 new after `30be6700` (6 before), the
+real-install harnesses 0 new after `4bf9f6d9`. `rc:validate` still adds
+about 50 per run: Local Agent discovery probes (health answered, then
+`stats`, `instances` and `dependencies/check` refused) from 8 smokes that
+Build 214 did not change (`node-lifecycle`, `device-architecture`,
+`workload-transfer`, `node-connection-workflow`, `multi-node-fleet`,
+`security-backup`, `local-agent-pairing`, `agent-control-canonical-credential`).
+They are read requests that the token refuses, so nothing changes; fixing
+them (a closed discovery port in each smoke's temporary config) is a
+follow-up.
+
+**Known, not fixed (round 5):**
+- About 4,980 leftover `anx*` folders (729 MB) in the user's Temp folder from
+  many builds of smokes that do not remove their temp folders; not deleted
+  (needs the owner's go-ahead).
+- Rust and CS2 (existing cards) were not re-run in Build 214; CurseForge
+  modpacks were not real-tested (they need CurseForge API access).
+- None of the new games ran on Linux; their Linux variants say "not tested".
+- Docker services are still managed on the Docker page, not with the other
+  servers (214-E).
+
 ## Tests run
 
 These are mocked: the Agent client is faked and the network blocked. The real
@@ -510,8 +647,8 @@ installs are in the section above.
 | 32 game and instance-engine smokes (`steamcmd-*`, `palworld-*`, `hytale-*`, `fivem-*`, `instance-*`, `server-page-*`, `game-adapter-*`, `marketplace-template-*`, `startup-selection`) after the Agent changes | Passed |
 | `node --check` on every changed JavaScript file; `git diff --check` | Clean |
 
-Not run: `npm run rc:validate`, `npm run qa:release`, any real-app UI test.
-The new dialog and completion text have not been seen in the running app.
+Rounds 1-4: `rc:validate` and `qa:release` were not run. Round 5 ran both
+(see "Round 5: final gate" above).
 
 The new smoke is registered in `package.json`
 (`marketplace:docker-service:smoke`) and in both lists of
@@ -539,6 +676,20 @@ The new smoke is registered in `package.json`
 - `80acf941` feat(agent): server secret store; Project Zomboid with a safe admin password
 - `cdb2fb61` feat(marketplace): Factorio server; archives need only their own tools
 - `1a706493` test(marketplace): real-install harness supports custom port layouts and slow starts
+- `24dd0fde` test(marketplace): ARK check by Steam query; record round 4
+- `24290bda` feat(marketplace): ARK: Survival Evolved server
+- `39e10e92` feat(marketplace): Space Engineers server
+- `fdd90408` fix(agent): prefer AnxOS's bundled Java over another of the same version
+- `ac61585a` fix(marketplace): Modrinth modpacks install the runtime they declare
+- `7c080056` feat(marketplace): ARK: Survival Ascended server
+- `0f2fdcec` feat(marketplace): deploy your own Node.js or Python project (.zip)
+- `548fd843` feat(marketplace): Core Keeper server
+- `b9181a42` fix(marketplace): real Discord.js bot deploys; no fake Python bot
+- `4bf9f6d9` test(marketplace): real-install harnesses no longer reach the real Local Agent
+- `1db98759` test: bring three release-validation checks up to date with Build 214
+- `2456e5eb` test(marketplace): dependency-resume smoke no longer sends requests to a LAN address
+- `4e1bde5d` test(instances): IE8 gives the scheduler integration run time for its file I/O
+- `30be6700` test(marketplace): build214-ui-qa keeps Local Agent discovery off the real Agent
 - Handoff commits on this branch.
 
 ## Blockers
@@ -564,12 +715,11 @@ The new smoke is registered in `package.json`
 2. **Project Zomboid on Linux and the secret store on a Build 214 Agent.**
    The Windows install passed; the Linux variant is labelled untested, and
    older Agents are refused by design.
-3. **More games**: finish ARK: Survival Evolved (above). Then Space
-   Engineers (298740, Windows only; needs its world/config file, to be
-   read from the shipped files) and ARK: Survival Ascended (2430930,
-   Windows only, heavy; ASA may not answer A2S queries, so its check needs
-   another signal). DayZ and Arma 3 need a Steam account that owns the
-   game: documented only, not added (see item 5).
+3. **More games**: ARK: Survival Evolved, ARK: Survival Ascended, Space
+   Engineers and Core Keeper are done (round 5). DayZ and Arma 3 need a
+   Steam account that owns the game: documented only, not added (see item
+   5). Rust and CS2 (existing cards) were not re-run in Build 214; the
+   shared SteamCMD path they use was exercised by every new game.
 
 **How to continue (for the next session or provider):**
 - Real-install harnesses: `scripts/marketplace-docker-real-install.js

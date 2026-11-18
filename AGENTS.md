@@ -1072,6 +1072,39 @@ Use this section to accumulate verified project knowledge over time. Add entries
   real service's log during every UI test run, not once per release: here it
   caught a production-side probe loop as well as a test leak.
 
+### 2026-11-18 — Build 214: real installs found what the mocked suites passed
+
+- **Problem:** Several cards that passed their mocked tests did not work on a
+  real computer:
+  - Every Modrinth modpack failed (since Build 193).
+  - On Windows, a Minecraft server failed to start when a Java of the
+    version it needs was also installed under Program Files.
+  - Every Python card stopped at the dependency check on Windows.
+  - "Discord.js Bot" installed an HTTP server and "Python Discord Bot" a
+    sleep loop.
+- **Cause:**
+  - The mocked Modrinth packs contained a `server.jar`; a real `.mrpack`
+    never does. Its start command also kept the default jar name, and the
+    Agent's jar repair keeps the jar already in the arguments.
+  - Two rules decided which Java may run: the resolver sorted runtimes of
+    one version by path, so `C:\Program Files\Java` beat the bundled one,
+    and the Agent's executable roots then refused it.
+  - The Python dependency was checked as `python3`, which is the Microsoft
+    Store stub on Windows.
+  - The bot cards were only tested for "an install completed".
+- **Resolution:** The pack's declared runtime is installed and the start
+  command names its jar (`ac61585a`). The bundled Java wins within a version
+  (`fdd90408`). Python is detected as `python` on Windows (`0f2fdcec`). The
+  Discord.js card deploys the user's bot with its token in the server secret
+  store, and the Python bot card says why it is unavailable (`b9181a42`).
+  Each fix has a check that fails on the old code, and each card has a real
+  install (`marketplace-*-real-install`).
+- **Lesson:** A provider integration needs one real install per provider
+  before it ships: a fake shaped like what the code expects hides that real
+  data lacks a field. When two components decide the same thing (which
+  executable may run), they must share one rule. A card's name is a claim:
+  test that what it installs is what it says, not only that it installs.
+
 ## Future Improvements
 
 Keep optional ideas separate from active work. An item in this list is not authorization to implement it.
