@@ -311,6 +311,18 @@ async function main() {
   const dockerSource = fs.readFileSync(path.join(repo, "src", "shared", "dockerService.js"), "utf8");
   assert.ok(dockerSource.includes("await runDockerCommand(args, { timeout: CONTAINER_CREATE_TIMEOUT_MS })") && dockerSource.includes('await runDockerCommand(["start", name], { timeout: CONTAINER_CREATE_TIMEOUT_MS })'), "create and start are not held to the 8-second limit for quick commands");
   assert.ok(agentServer.includes("isLongInstallerOperation || isDockerDownload"), "the download routes use the 11-minute limit");
+  // A port another (non-Docker) program holds is found by binding it.
+  const { findHostPortsHeldByOtherPrograms } = require(path.join(repo, "src/shared/dockerService"));
+  const net = require("net");
+  for (const holderHost of ["0.0.0.0", "127.0.0.1"]) {
+    const holder = net.createServer();
+    await new Promise((done) => holder.listen(0, holderHost, done));
+    const heldPort = holder.address().port;
+    const held = await findHostPortsHeldByOtherPrograms([`${heldPort}:80`, `127.0.0.1:${heldPort}:8080`]);
+    assert.strictEqual(held.length, 2, `a program on ${holderHost}:${heldPort} blocks both mappings`);
+    await new Promise((done) => holder.close(done));
+    assert.deepStrictEqual(await findHostPortsHeldByOtherPrograms([`${heldPort}:80`]), [], "a released port is free");
+  }
   console.log("PASS S9 busy ports are detected, and a refused create leaves nothing behind");
 
   // S10

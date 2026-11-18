@@ -2599,7 +2599,7 @@ async function assertSharedTemplateInstallFlowMatrix() {
       if (instance.executable === "steamcmd") {
         steamStartCounts.set(instanceId, (steamStartCounts.get(instanceId) || 0) + 1);
       }
-      if (instance.executable === "steamcmd" && !/steamcmd-(exit|missing|artifact-missing|permanent)-smoke/.test(instanceId) && !(/steamcmd-(transient|resume)-smoke/.test(instanceId) && steamStartCounts.get(instanceId) < 2)) {
+      if (instance.executable === "steamcmd" && !/steamcmd-(exit|missing|artifact-missing|permanent)-smoke/.test(instanceId) && !(/steamcmd-(transient|resume|missing-config)-smoke/.test(instanceId) && steamStartCounts.get(instanceId) < 2)) {
         const forceInstallDirIndex = Array.isArray(instance.args) ? instance.args.indexOf("+force_install_dir") : -1;
         assert(forceInstallDirIndex >= 0, "SteamCMD should receive +force_install_dir.");
         assert.match(instance.args[forceInstallDirIndex + 1] || "", new RegExp(`/srv/anxos/instances/${instanceId}/data/server$`), "SteamCMD install path should be absolute.");
@@ -2822,7 +2822,7 @@ async function assertSharedTemplateInstallFlowMatrix() {
     const originalLogsForRetry = agentClient.getInstanceLogs;
     agentClient.getInstanceStatus = async (instanceId) => {
       const instance = instances.get(instanceId) || {};
-      if (instanceId === "palworld-steamcmd-transient-smoke" && instance.executable === "steamcmd" && (steamStartCounts.get(instanceId) || 0) === 1) {
+      if (/palworld-steamcmd-(transient|missing-config)-smoke/.test(instanceId) && instance.executable === "steamcmd" && (steamStartCounts.get(instanceId) || 0) === 1) {
         return { instance: { ...instance, state: "Failed", exitCode: 8, failureReason: "PROCESS_EXITED" } };
       }
       if (instanceId === "palworld-steamcmd-permanent-smoke" && instance.executable === "steamcmd") {
@@ -2837,6 +2837,12 @@ async function assertSharedTemplateInstallFlowMatrix() {
           entries: [{ stream: options.stream || "stderr", message: options.stream === "stderr" ? "Steam content servers temporarily unavailable, try again." : "SteamCMD startup complete." }],
         };
       }
+      if (instanceId === "palworld-steamcmd-missing-config-smoke") {
+        return {
+          id: instanceId,
+          entries: [{ stream: options.stream || "stdout", message: options.stream === "stderr" ? "" : "ERROR! Failed to install app '2394010' (Missing configuration)" }],
+        };
+      }
       if (instanceId === "palworld-steamcmd-permanent-smoke") {
         return {
           id: instanceId,
@@ -2845,6 +2851,13 @@ async function assertSharedTemplateInstallFlowMatrix() {
       }
       return originalLogsForRetry(instanceId, options);
     };
+    // SteamCMD's "Missing configuration" (stale app information) succeeds on
+    // the second run; it is retried like other transient failures.
+    await marketplaceService.installTemplate({
+      templateId: "palworld",
+      options: { id: "palworld-steamcmd-missing-config-smoke", name: "Palworld Missing Config Smoke", port: 8211, memory: "8G", start: false },
+    });
+    assert.strictEqual(steamStartCounts.get("palworld-steamcmd-missing-config-smoke"), 2, "Missing configuration is retried once");
     const transientResult = await marketplaceService.installTemplate({
       templateId: "palworld",
       options: { id: "palworld-steamcmd-transient-smoke", name: "Palworld Transient Smoke", port: 8211, memory: "8G", start: false },

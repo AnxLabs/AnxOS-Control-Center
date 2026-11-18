@@ -1,4 +1,6 @@
 const { execFile } = require("child_process");
+const dgram = require("dgram");
+const net = require("net");
 const fs = require("fs/promises");
 const path = require("path");
 const longOperations = require("./longOperationService");
@@ -1325,8 +1327,55 @@ function readPublishedHostPorts(rawPorts) {
   return [...ports];
 }
 
+// Whether another program on this computer already holds a host port the
+// container would publish. Docker only refuses a port another container
+// holds, and Docker Desktop on Windows published a port a Windows program was
+// already listening on, so the install "succeeded" with the service
+// unreachable. A bind that fails with EADDRINUSE is the evidence; any other
+// error (no permission for a low port, no IPv6) is "cannot tell".
+function parsePublishedPort(entry) {
+  const match = /^(?:(\d{1,3}(?:\.\d{1,3}){3}):)?(\d{1,5}):\d{1,5}(?:\/(tcp|udp))?$/i.exec(String(entry || "").trim());
+  if (!match) return null;
+  return { address: match[1] || "0.0.0.0", port: Number(match[2]), protocol: (match[3] || "tcp").toLowerCase() };
+}
+
+function probeHostPortHeld({ address, port, protocol }) {
+  return new Promise((resolve) => {
+    if (protocol === "udp") {
+      const socket = dgram.createSocket("udp4");
+      socket.once("error", (error) => { try { socket.close(); } catch {} resolve(error?.code === "EADDRINUSE"); });
+      socket.bind({ port, address, exclusive: true }, () => socket.close(() => resolve(false)));
+      return;
+    }
+    const server = net.createServer();
+    server.once("error", (error) => resolve(error?.code === "EADDRINUSE"));
+    server.listen({ port, host: address, exclusive: true }, () => server.close(() => resolve(false)));
+  });
+}
+
+async function findHostPortsHeldByOtherPrograms(ports = []) {
+  const held = [];
+  for (const entry of Array.isArray(ports) ? ports : []) {
+    const published = parsePublishedPort(entry);
+    if (!published) continue;
+    // Windows lets a second program take the same port on a different
+    // address (all addresses vs 127.0.0.1), so both are tried.
+    const addresses = published.address === "0.0.0.0" ? ["0.0.0.0", "127.0.0.1"] : [published.address, "0.0.0.0"];
+    for (const address of addresses) {
+      if (await probeHostPortHeld({ ...published, address }).catch(() => false)) {
+        held.push(published);
+        break;
+      }
+    }
+  }
+  return held;
+}
+
 async function preflightContainerCreate(payload = {}) {
   const findings = [];
+  for (const held of await findHostPortsHeldByOtherPrograms(payload.ports)) {
+    findings.push({ severity: "error", code: "HOST_PORT_IN_USE", field: "ports", message: `Port ${held.port} (${held.protocol.toUpperCase()}) is already used by another program on this computer. Choose another port, or stop that program first.` });
+  }
   const policy = policeContainerRequest(payload);
   for (const denial of policy.denials) {
     findings.push({ severity: "error", code: "POLICY_DENIED", field: denial.key, message: `${denial.label} is denied by Docker policy unless explicitly granted.` });
@@ -1453,6 +1502,7 @@ module.exports = {
   parseJsonLines,
   pauseContainer,
   preflightContainerCreate,
+  findHostPortsHeldByOtherPrograms,
   readPublishedHostPorts,
   assertComposePolicy,
   pullImage,

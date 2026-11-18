@@ -718,7 +718,7 @@
       "executable": "bash",
       "args": [
         "-lc",
-        "chmod +x ./valheim_server.x86_64 2>/dev/null || true; export SteamAppId=892970; exec ./valheim_server.x86_64 -nographics -batchmode -name \"{name}\" -port {port} -world Dedicated -password changeme123 -public 1 -savedir saves"
+        "chmod +x ./valheim_server.x86_64 2>/dev/null || true; export LD_LIBRARY_PATH=./linux64:${LD_LIBRARY_PATH:-}; export SteamAppId=892970; exec ./valheim_server.x86_64 -nographics -batchmode -name \"{name}\" -port {port} -world Dedicated -password changeme123 -public 1 -savedir saves"
       ],
       "workingDirectory": "data/server",
       "restartPolicy": "on-failure"
