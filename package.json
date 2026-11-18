@@ -509,7 +509,8 @@
         "filter": [
           "agent.example.json",
           "marketplace-templates.json",
-          "marketplace-server-certifications.json"
+          "marketplace-server-certifications.json",
+          "compose/**/*"
         ]
       },
       "website/anxos-design-system.css",

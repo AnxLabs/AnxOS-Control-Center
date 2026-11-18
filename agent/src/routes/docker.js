@@ -48,6 +48,8 @@ const {
 } = require("../services/dockerService");
 const { mintDockerJob } = require("../services/dockerJobService");
 const { assertComposePolicy } = require("../services/dockerService");
+const { writeManagedComposeProject, removeManagedComposeProject } = require("../services/managedComposeProjects");
+const { getConfig } = require("../config");
 
 function parseJsonBody(request) {
   if (!request.body) {
@@ -131,6 +133,8 @@ const DOCKER_ROUTE_MANIFEST = Object.freeze([
   { method: "POST", path: "/api/v1/docker/compose/logs", operation: "docker.compose.logs" },
   { method: "POST", path: "/api/v1/docker/compose/status", operation: "docker.compose.status" },
   { method: "POST", path: "/api/v1/docker/compose/down", operation: "docker.compose.remove" },
+  { method: "POST", path: "/api/v1/docker/compose/managed", operation: "docker.compose.managed.write" },
+  { method: "POST", path: "/api/v1/docker/compose/managed/remove", operation: "docker.compose.managed.remove" },
   { method: "GET", path: "/api/v1/docker/cleanup/preview", operation: "docker.cleanup.preview" },
   { method: "POST", path: "/api/v1/docker/cleanup", operation: "docker.cleanup.run" },
 ]);
@@ -333,6 +337,14 @@ async function handleDocker(request, url) {
     }
     if (request.method === "POST" && url.pathname === "/api/v1/docker/compose/config") {
       return result(200, await validateComposeConfig(parseJsonBody(request)));
+    }
+    // Marketplace Compose installs: write (or remove) a project folder that
+    // the existing up/stop/down routes then run. Policy-checked before writing.
+    if (request.method === "POST" && url.pathname === "/api/v1/docker/compose/managed") {
+      return result(201, await writeManagedComposeProject(getConfig().instanceRoot, parseJsonBody(request)));
+    }
+    if (request.method === "POST" && url.pathname === "/api/v1/docker/compose/managed/remove") {
+      return result(200, await removeManagedComposeProject(getConfig().instanceRoot, parseJsonBody(request)));
     }
     if (request.method === "POST" && url.pathname === "/api/v1/docker/compose/up") {
       const body = parseJsonBody(request);

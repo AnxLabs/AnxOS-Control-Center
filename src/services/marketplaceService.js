@@ -11,6 +11,7 @@ const {
 const {
   getTemplateInstallerType,
   normalizeInstallerType,
+  shippedComposeFilePath,
   validateMarketplaceCatalog,
   validateMarketplaceTemplate,
 } = require("./marketplaceInstallerRegistry");
@@ -25,7 +26,7 @@ const {
 } = require("./marketplaceInstallJobService");
 const longOperations = require("../shared/longOperationService");
 const { resolveTemplateDependencyIds } = require("../shared/marketplaceDependencies");
-const { buildDockerInstallRequest, isDockerTemplate, readContainerRunState } = require("../shared/marketplaceDockerTemplate");
+const { buildDockerInstallRequest, generateSecret, isDockerTemplate, readContainerRunState } = require("../shared/marketplaceDockerTemplate");
 const { evaluatePublisherTrust } = require("../shared/publisherTrustPolicy");
 const { redactString, sanitize } = require("../shared/redaction");
 const { normalizeDiskEvidence } = require("../shared/diskSpace");
@@ -3669,7 +3670,10 @@ function isTransientSteamCmdFailure(error = {}) {
     return false;
   }
   const text = getSteamCmdFailureText(error);
-  return /timed?\s*out|timeout|connection|temporar|try again|rate limit|busy|network|failed to request app info|content servers unavailable/i.test(text);
+  // "Missing configuration" comes from stale app information in a fresh or
+  // long-idle SteamCMD; the same command succeeds when run again (seen on
+  // Linux for Valheim, Unturned and Palworld, and on Windows).
+  return /timed?\s*out|timeout|connection|temporar|try again|rate limit|busy|network|failed to request app info|content servers unavailable|missing configuration/i.test(text);
 }
 
 function sleep(ms) {
@@ -4571,6 +4575,139 @@ function assertInstallNotAborted(context) {
   }
 }
 
+// How long a Compose install waits for its main service to report healthy.
+// Overridable so tests do not wait.
+let composeReadySettings = { attempts: 60, delayMs: 5000 };
+
+function readShippedComposeFile(template) {
+  return fs.readFileSync(shippedComposeFilePath(template.compose.file), "utf8");
+}
+
+function composeServiceHealth(status = {}, serviceName) {
+  const rows = Array.isArray(status?.services) ? status.services : [];
+  const row = rows.find((entry) => entry?.Service === serviceName);
+  if (!row) return { found: false, running: false, health: null, state: null };
+  return { found: true, running: String(row.State || "").toLowerCase() === "running", health: row.Health ? String(row.Health).toLowerCase() : null, state: row.State || null };
+}
+
+// Multi-container services (Immich): a reviewed Compose file shipped with
+// AnxOS, run through the Agent's Compose routes. The install checks the port
+// and earlier data, writes the project (Compose file and .env with generated
+// passwords), downloads the images, starts it and waits until its main
+// service reports healthy. A failed install removes the project, its
+// containers and the volumes it created.
+async function installComposeTemplate({ template, options, ports, agentConfig, progress, parentRecord, trustVerdict, manifestValidation, installNodeId, context }) {
+  const projectName = slugify(options.id || options.name || template.id).replace(/_/g, "-");
+  const compose = template.compose;
+  const hostPort = ports[0];
+  let stage = "Check computer";
+  let project = null;
+  let started = false;
+  try {
+    pushStep(progress, stage, "running", "Checking Docker, the port and earlier data.");
+    updateDownload(parentRecord, { stage, progress: 10 });
+    const preflight = await agentClient.preflightDockerContainer({ name: `${projectName}-check`, image: compose.portCheckImage, ports: [`${hostPort}:${compose.containerPort}`] }, agentConfig);
+    const busy = (preflight?.findings || []).find((finding) => finding.code === "HOST_PORT_IN_USE");
+    if (busy) {
+      throw dockerInstallError(`${String(busy.message).split(". ")[0]}. Choose another port and try again.`, "PORT_IN_USE", { field: "ports" });
+    }
+    const kept = [];
+    for (const volume of compose.dataVolumes || []) {
+      const volumeName = `${projectName}_${volume}`;
+      try {
+        await agentClient.inspectDockerVolume(volumeName, agentConfig);
+        kept.push(volumeName);
+      } catch (error) {
+        if (!/no such volume|^Docker command failed: \[\]$/i.test(String(error?.message || "").trim())) throw error;
+      }
+    }
+    if (kept.length > 0) {
+      throw dockerInstallError(`Data from an earlier "${projectName}" is still on this computer (${kept.join(", ")}). Choose a different name, or remove that data on the Docker page first.`, "DOCKER_DATA_EXISTS", { volumes: kept, retryable: false });
+    }
+    pushStep(progress, stage, "complete", "This computer is ready.");
+
+    assertInstallNotAborted(context);
+    stage = "Prepare project";
+    // Internal passwords (the database's) are generated and written only to
+    // the project's .env on that computer; nobody needs to type them.
+    const env = { ...(compose.settings || {}), [compose.portSetting]: String(hostPort) };
+    for (const secret of compose.generatedSecrets || []) env[secret.setting] = generateSecret();
+    project = await agentClient.writeManagedComposeProject({ projectName, composeYaml: readShippedComposeFile(template), env }, agentConfig);
+    pushStep(progress, stage, "complete", "Project files written.");
+
+    assertInstallNotAborted(context);
+    stage = "Download images";
+    pushStep(progress, stage, "running", "Downloading the images. This can take several minutes.");
+    updateDownload(parentRecord, { stage, progress: 25 });
+    await agentClient.dockerComposeAction("pull", { projectName, projectDirectory: project.projectDirectory }, agentConfig);
+    pushStep(progress, stage, "complete", "Images downloaded.");
+
+    assertInstallNotAborted(context);
+    stage = "Start services";
+    pushStep(progress, stage, "running", `Starting ${template.displayName}.`);
+    updateDownload(parentRecord, { stage, progress: 70 });
+    await agentClient.dockerComposeAction("up", { projectName, projectDirectory: project.projectDirectory }, agentConfig);
+    started = true;
+    pushStep(progress, stage, "complete", "Services started.");
+
+    stage = "Verify installation";
+    pushStep(progress, stage, "running", `Waiting for ${template.displayName} to report healthy.`);
+    updateDownload(parentRecord, { stage, progress: 85 });
+    let health = { found: false };
+    for (let attempt = 0; attempt < composeReadySettings.attempts; attempt += 1) {
+      const status = await agentClient.dockerComposeAction("status", { projectName, projectDirectory: project.projectDirectory }, agentConfig).catch(() => null);
+      health = composeServiceHealth(status, compose.readyService);
+      if (health.running && health.health === "healthy") break;
+      if (health.found && !health.running) break;
+      await new Promise((resolve) => setTimeout(resolve, composeReadySettings.delayMs));
+    }
+    if (!(health.running && health.health === "healthy")) {
+      throw dockerInstallError(`${template.displayName} did not report healthy (${health.state || "not running"}${health.health ? `, ${health.health}` : ""}). Its logs are on the Docker page.`, "COMPOSE_NOT_HEALTHY", { retryable: true });
+    }
+    pushStep(progress, stage, "complete", `${template.displayName} is running and healthy.`);
+
+    assertInstallNotAborted(context);
+    pushStep(progress, "Complete", "complete", "Installation finished.");
+    finalizeInstallTaskRecord(parentRecord, "complete", "Compose project started.", { stage: "Completed" });
+    return {
+      template,
+      instance: { id: projectName, name: projectName },
+      project: { projectName, services: compose.services || [] },
+      runtimeType: "docker-compose",
+      volumes: (compose.dataVolumes || []).map((volume) => ({ name: `${projectName}_${volume}` })),
+      credentials: [],
+      progress,
+      trust: trustVerdict,
+      downloads: sanitizeDownloads(getDownloadsForNode(installNodeId)).downloads,
+    };
+  } catch (error) {
+    let cleanupNote = "";
+    if (project) {
+      // Every volume of this project was created by this install (an earlier
+      // one stops the install before anything is written), so removing them
+      // with the containers cannot touch older data.
+      const down = await agentClient.dockerComposeAction("down", { projectName, projectDirectory: project.projectDirectory, volumes: true }, agentConfig).then(() => true).catch(() => false);
+      const removed = await agentClient.removeManagedComposeProject({ projectName }, agentConfig).then(() => true).catch(() => false);
+      cleanupNote = down && removed ? " Nothing was left behind." : ` Some of "${projectName}" may be left; remove it on the Docker page before trying again.`;
+    }
+    const message = `${mapMarketplaceError(error, "Compose install failed.")}${cleanupNote}`;
+    pushStep(progress, "Failed", "failed", message);
+    finalizeInstallTaskRecord(parentRecord, "failed", message, { stage, code: getAgentErrorCode(error) || "MARKETPLACE_INSTALL_FAILED", retryable: error?.details?.retryable });
+    const installError = createMarketplaceError(message, getAgentErrorCode(error) || "MARKETPLACE_INSTALL_FAILED", {
+      ...(error?.details || {}),
+      templateId: template.id,
+      installerType: manifestValidation.installerType,
+      runtimeType: "docker-compose",
+      started,
+      trust: trustVerdict,
+      stage,
+      retryable: error?.details?.retryable ?? true,
+    });
+    installError.progress = progress;
+    throw installError;
+  }
+}
+
 // How long a freshly started container must stay up before the install is
 // reported as working. Overridable so tests do not wait.
 let dockerVerifySettings = { attempts: 3, delayMs: 2000 };
@@ -4860,6 +4997,9 @@ async function executeInstallTemplate(payload = {}, context = {}) {
   }
 
   assertInstallNotAborted(context);
+  if (manifestValidation.installerType === "docker-compose") {
+    return installComposeTemplate({ template, options, ports, agentConfig, progress, parentRecord, trustVerdict, manifestValidation, installNodeId, context });
+  }
   if (isDockerTemplate(template)) {
     return installDockerTemplate({ template, options, ports, agentConfig, progress, parentRecord, trustVerdict, manifestValidation, installNodeId, context });
   }
@@ -5224,6 +5364,9 @@ module.exports = {
     downloadOneToInstance,
     resolveTemplateForPlatform,
     buildDockerTemplatePortMappings,
+    setComposeReadySettings(settings = {}) {
+      composeReadySettings = { ...composeReadySettings, ...settings };
+    },
     setDockerVerifySettings(settings = {}) {
       dockerVerifySettings = { ...dockerVerifySettings, ...settings };
     },

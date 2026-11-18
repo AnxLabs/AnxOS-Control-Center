@@ -944,6 +944,13 @@ function assertDockerTemplates() {
   const dockerTemplates = templates.filter((template) => template.runtime === "docker");
   assert(dockerTemplates.length >= 2, "Expected Docker-backed templates.");
   for (const template of dockerTemplates) {
+    // Multi-container services (Build 214, Immich) run a shipped Compose file.
+    if (template.installerType === "docker-compose") {
+      assert.strictEqual(template.startupType, "docker-compose", `${template.id} must use Compose startup.`);
+      assert(template.compose?.file && template.compose?.readyService, `${template.id} must name its shipped Compose file and ready service.`);
+      assert(template.compatibility?.requires?.includes("docker-compose"), `${template.id} must declare Docker Compose compatibility.`);
+      continue;
+    }
     assert.strictEqual(template.startupType, "docker-image", `${template.id} must use Docker image startup.`);
     assert(template.docker?.image || template.downloadSource?.image, `${template.id} must define a Docker image.`);
     assert(Array.isArray(template.compatibility?.requires) && template.compatibility.requires.includes("docker"), `${template.id} must declare Docker compatibility.`);

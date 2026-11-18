@@ -4,6 +4,7 @@ const SUPPORTED_INSTALLER_TYPES = new Set([
   "archive-download",
   "curseforge",
   "direct-download",
+  "docker-compose",
   "docker-image",
   "java-runtime",
   "local-import",
@@ -150,6 +151,41 @@ function validateDockerTemplate(template = {}) {
   }
 }
 
+// A Compose template names one of the reviewed Compose files shipped in
+// config/compose/<name>/; it can never carry Compose text of its own. Its
+// settings are plain values and generated passwords, as for docker-image.
+const COMPOSE_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{1,40}$/;
+const COMPOSE_ENV_KEY_PATTERN = /^[A-Z_][A-Z0-9_]{0,63}$/;
+
+function shippedComposeFilePath(name) {
+  return require("path").join(__dirname, "..", "..", "config", "compose", name, "docker-compose.yml");
+}
+
+function validateComposeTemplate(template = {}) {
+  const compose = template.compose && typeof template.compose === "object" ? template.compose : {};
+  const problems = [];
+  if (!COMPOSE_NAME_PATTERN.test(String(compose.file || "")) || !require("fs").existsSync(shippedComposeFilePath(compose.file))) {
+    problems.push("A Compose template must name a Compose file shipped with AnxOS.");
+  }
+  if (!COMPOSE_ENV_KEY_PATTERN.test(String(compose.portSetting || ""))) {
+    problems.push("A Compose template must name the setting that holds its published port.");
+  }
+  for (const [key, value] of Object.entries(compose.settings || {})) {
+    if (!COMPOSE_ENV_KEY_PATTERN.test(key) || typeof value !== "string" || /[\0\r\n"'$`\\]/.test(value)) {
+      problems.push(`Compose setting ${key} is not allowed.`);
+    }
+  }
+  for (const secret of Array.isArray(compose.generatedSecrets) ? compose.generatedSecrets : []) {
+    if (!COMPOSE_ENV_KEY_PATTERN.test(String(secret?.setting || ""))) problems.push("Each generated Compose secret needs a setting name.");
+  }
+  if (!String(compose.readyService || "").trim()) {
+    problems.push("A Compose template must name the service whose health means ready.");
+  }
+  if (problems.length > 0) {
+    throw new MarketplaceManifestError(problems[0], "MARKETPLACE_MANIFEST_INVALID", { templateId: template.id || null, installerType: "docker-compose", problems });
+  }
+}
+
 function validateMarketplaceTemplate(template = {}) {
   if (!/^[a-z0-9][a-z0-9_-]{2,63}$/.test(String(template.id || ""))) {
     throw new MarketplaceManifestError("Marketplace template id is invalid.", "MARKETPLACE_MANIFEST_INVALID", { templateId: template.id || null });
@@ -178,6 +214,10 @@ function validateMarketplaceTemplate(template = {}) {
 
   if (installerType === "docker-image") {
     validateDockerTemplate(template);
+  }
+
+  if (installerType === "docker-compose") {
+    validateComposeTemplate(template);
   }
 
   if (installerType === "direct-download" || installerType === "archive-download" || installerType === "java-runtime") {
@@ -231,6 +271,7 @@ module.exports = {
   SUPPORTED_INSTALLER_TYPES,
   getTemplateInstallerType,
   normalizeInstallerType,
+  shippedComposeFilePath,
   validateMarketplaceCatalog,
   validateMarketplaceTemplate,
 };

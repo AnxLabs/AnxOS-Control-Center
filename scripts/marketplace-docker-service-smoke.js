@@ -149,7 +149,7 @@ async function main() {
   for (const id of ["postgresql", "mariadb", "redis", "grafana", "prometheus", "uptime-kuma", "gitea", "nextcloud"]) {
     assert.ok(template(id).docker.volumes.length > 0, `${id} keeps its data in a volume`);
   }
-  for (const id of ["immich", "java-app"]) {
+  for (const id of ["java-app"]) {
     assert.strictEqual(template(id).comingSoon, true, `${id} stays unavailable until its installer exists`);
     assert.ok(template(id).comingSoonMessage.length > 30 && !/not ready yet/.test(template(id).comingSoonMessage), `${id} says why it is unavailable`);
   }
@@ -415,8 +415,72 @@ async function main() {
   }
   console.log("PASS S13 IT-Tools and Stirling PDF are private by default; Stirling PDF has no default password");
 
+  // S14 Immich: a shipped Compose file run through the Agent's Compose routes
+  marketplaceService._test.setComposeReadySettings({ attempts: 3, delayMs: 1 });
+  const composeAgent = (overrides = {}) => {
+    const state = { calls: [], written: null, ...overrides };
+    agentClient.preflightDockerContainer = async (payload) => { state.calls.push("preflight"); state.preflightPorts = payload.ports; return { findings: state.findings || [] }; };
+    agentClient.inspectDockerVolume = async (name) => {
+      state.calls.push(`volume ${name}`);
+      if ((state.existingVolumes || []).includes(name)) return { volume: name };
+      throw new Error(`Docker command failed: get ${name}: no such volume`);
+    };
+    agentClient.writeManagedComposeProject = async (payload) => { state.calls.push("write"); state.written = payload; return { projectName: payload.projectName, projectDirectory: `/srv/anxos/anxos-compose-projects/${payload.projectName}` }; };
+    agentClient.dockerComposeAction = async (action, payload) => {
+      state.calls.push(`compose ${action}${payload.volumes ? " volumes" : ""}`);
+      if (action === "status") return { services: [{ Service: "immich-server", State: "running", Health: state.health || "healthy" }] };
+      return { output: "" };
+    };
+    agentClient.removeManagedComposeProject = async () => { state.calls.push("remove project"); return { removed: true }; };
+    return state;
+  };
+  assert.ok(!template("immich").comingSoon, "Immich is installable");
+  let compose = composeAgent();
+  const immich = await install("immich", "photos", { port: 2290, ports: [2290] });
+  assert.deepStrictEqual(compose.calls, ["preflight", "volume photos_library", "volume photos_postgres", "write", "compose pull", "compose up", "compose status"]);
+  assert.deepStrictEqual(compose.preflightPorts, ["2290:2283"], "the chosen port is checked against other programs");
+  assert.strictEqual(compose.written.composeYaml, fs.readFileSync(path.join(repo, "config/compose/immich/docker-compose.yml"), "utf8"), "the shipped Compose file is sent unchanged");
+  assert.strictEqual(compose.written.env.ANXOS_IMMICH_PORT, "2290");
+  assert.ok(!("IMMICH_PORT" in compose.written.env), "the host port setting is not IMMICH_PORT, which Immich reads as its own listening port");
+  assert.strictEqual(compose.written.env.IMMICH_VERSION, "v3.4.1");
+  assert.match(compose.written.env.DB_PASSWORD, /^[A-Za-z0-9]{24}$/, "the database password is generated");
+  assert.ok(!JSON.stringify(immich).includes(compose.written.env.DB_PASSWORD), "the database password is not in the result");
+  assert.strictEqual(immich.runtimeType, "docker-compose");
+  compose = composeAgent({ findings: [{ severity: "error", code: "HOST_PORT_IN_USE", message: "Port 2290 (TCP) is already used by another program on this computer. Choose another port, or stop that program first." }] });
+  await assert.rejects(install("immich", "photos", { port: 2290, ports: [2290] }), (error) => error.code === "PORT_IN_USE");
+  assert.deepStrictEqual(compose.calls, ["preflight"], "a busy port stops the install before anything is written");
+  compose = composeAgent({ existingVolumes: ["photos_postgres"] });
+  await assert.rejects(install("immich", "photos"), (error) => error.code === "DOCKER_DATA_EXISTS");
+  assert.ok(!compose.calls.includes("write"), "earlier data stops the install before anything is written");
+  compose = composeAgent({ health: "unhealthy" });
+  await assert.rejects(install("immich", "photos"), (error) => {
+    assert.strictEqual(error.code, "COMPOSE_NOT_HEALTHY");
+    assert.match(error.message, /Nothing was left behind/);
+    return true;
+  });
+  assert.deepStrictEqual(compose.calls.slice(-2), ["compose down volumes", "remove project"], "a failed start removes the project and the volumes it created");
+
+  // The Agent writes only docker-compose.yml and .env, in its own folder.
+  const managed = require(path.join(repo, "agent/src/services/managedComposeProjects"));
+  const composeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "anx-compose-root-"));
+  const instancesDir = path.join(composeRoot, "instances");
+  const yaml = fs.readFileSync(path.join(repo, "config/compose/immich/docker-compose.yml"), "utf8");
+  const written = await managed.writeManagedComposeProject(instancesDir, { projectName: "photos", composeYaml: yaml, env: { DB_PASSWORD: "abc123", IMMICH_PORT: "2290" } });
+  assert.strictEqual(written.projectDirectory, path.join(composeRoot, "anxos-compose-projects", "photos"));
+  assert.deepStrictEqual(fs.readdirSync(written.projectDirectory).sort(), [".env", "docker-compose.yml"]);
+  assert.strictEqual(fs.readFileSync(path.join(written.projectDirectory, ".env"), "utf8"), "DB_PASSWORD=abc123\nIMMICH_PORT=2290\n");
+  await assert.rejects(managed.writeManagedComposeProject(instancesDir, { projectName: "photos", composeYaml: yaml, env: {} }), (error) => error.code === "COMPOSE_PROJECT_EXISTS", "an existing project is never overwritten");
+  await assert.rejects(managed.writeManagedComposeProject(instancesDir, { projectName: "../etc", composeYaml: yaml, env: {} }), (error) => error.code === "COMPOSE_PROJECT_NAME_INVALID");
+  await assert.rejects(managed.writeManagedComposeProject(instancesDir, { projectName: "evil", composeYaml: yaml, env: { X: "a\nPRIVILEGED=true" } }), (error) => error.code === "COMPOSE_ENV_INVALID");
+  await assert.rejects(managed.writeManagedComposeProject(instancesDir, { projectName: "evil", composeYaml: "services:\n  x:\n    image: alpine:3\n    privileged: true\n", env: {} }), (error) => error.code === "DOCKER_POLICY_DENIED", "the Compose policy runs before anything is written");
+  assert.ok(!fs.existsSync(path.join(composeRoot, "anxos-compose-projects", "evil")), "a refused project leaves no folder");
+  await managed.removeManagedComposeProject(instancesDir, { projectName: "photos" });
+  assert.ok(!fs.existsSync(written.projectDirectory), "removal deletes the project folder");
+  fs.rmSync(composeRoot, { recursive: true, force: true });
+  console.log("PASS S14 Immich installs from the shipped Compose file; the Agent writes only that project");
+
   assert.deepStrictEqual(blocked, [], `no network or process escaped: ${blocked.join(", ")}`);
-  console.log("Marketplace Docker service smoke passed (13 checks).");
+  console.log("Marketplace Docker service smoke passed (14 checks).");
 }
 
 main()

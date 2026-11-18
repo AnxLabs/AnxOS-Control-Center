@@ -2358,34 +2358,92 @@
   {
     "id": "immich",
     "displayName": "Immich",
-    "description": "Photo and video backup service template.",
+    "description": "Immich photo and video backup with face and object search. Runs as four linked containers (web app, machine learning, database, cache).",
     "icon": "IM",
     "screenshots": [],
     "author": "AnxOS",
     "version": "1.0.0",
     "category": "Applications",
-    "instanceType": "custom-command",
+    "workloadKind": "service",
+    "runtime": "docker",
+    "instanceType": "docker-compose",
     "startupType": "docker-compose",
-    "defaultRam": "4G",
+    "defaultRam": "6G",
     "defaultPorts": [
       2283
     ],
-    "downloadSource": {
-      "type": "docker-compose"
+    "tags": [
+      "photos",
+      "videos",
+      "backup",
+      "immich",
+      "docker",
+      "service"
+    ],
+    "compose": {
+      "file": "immich",
+      "portSetting": "ANXOS_IMMICH_PORT",
+      "containerPort": 2283,
+      "portCheckImage": "ghcr.io/immich-app/immich-server:v3.4.1",
+      "settings": {
+        "IMMICH_VERSION": "v3.4.1",
+        "DB_USERNAME": "postgres",
+        "DB_DATABASE_NAME": "immich"
+      },
+      "generatedSecrets": [
+        {
+          "setting": "DB_PASSWORD"
+        }
+      ],
+      "readyService": "immich-server",
+      "dataVolumes": [
+        "library",
+        "postgres"
+      ],
+      "services": [
+        "immich-server",
+        "immich-machine-learning",
+        "redis",
+        "database"
+      ]
     },
-    "comingSoon": true,
-    "comingSoonMessage": "Immich needs several linked containers (database, cache, machine learning). AnxOS installs single-container services for now.",
+    "compatibility": {
+      "requires": [
+        "docker",
+        "docker-compose"
+      ],
+      "platforms": [
+        "linux",
+        "windows"
+      ],
+      "architectures": [
+        "amd64",
+        "arm64"
+      ]
+    },
+    "updateCheck": {
+      "type": "docker-tag",
+      "image": "ghcr.io/immich-app/immich-server",
+      "tag": "v3.4.1"
+    },
+    "installMetadata": {
+      "method": "docker-compose",
+      "source": "Immich's official docker-compose.yml for v3.4.1 (ghcr.io/immich-app images)",
+      "notes": "Requires Docker with Compose on the chosen computer. Immich recommends at least 6 GB of memory and 2 CPU cores; the first start downloads about 3 GB."
+    },
+    "configNotes": "This is a photo service, not a game server. Open http://<computer address>:<port> in a browser and create the administrator account on the first visit. Photos and the database are kept in Docker volumes; the database is reachable only inside the project. Back up both volumes before updating, and update one Immich version at a time following Immich's release notes.",
     "installScript": [
-      "create-instance",
-      "create-folders"
+      "check-computer",
+      "prepare-project",
+      "pull-images",
+      "start-services",
+      "verify"
     ],
     "configurationSchema": [
       "name",
-      "storageLocation",
-      "port",
-      "memory"
+      "port"
     ],
-    "installerType": "no-install"
+    "installerType": "docker-compose"
   },
   {
     "id": "nextcloud",

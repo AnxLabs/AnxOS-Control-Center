@@ -6,8 +6,8 @@
 // script. Installs really run: Docker containers need Docker, the SteamCMD
 // game needs SteamCMD and internet. Never touches the installed app, its
 // Local Agent, its data, or any other computer.
-//   L1 catalog labels: Jellyfin, IT-Tools and Stirling PDF are installable;
-//      Immich and Java application say why they are not; Windows-only games
+//   L1 catalog labels: Jellyfin, IT-Tools, Stirling PDF and Immich are
+//      installable; Java application says why it is not; Windows-only games
 //      name their operating system
 //   J1 Jellyfin: the Media folder field appears, an empty or system folder is
 //      refused, the install finishes, the folder is mounted read-only
@@ -215,13 +215,13 @@ async function main() {
         return [id, { unavailable: Boolean(template.comingSoon || template.disabled), message: template.comingSoonMessage || "", platforms: template.compatibility?.platforms || [] }];
       })));
       for (const id of ["jellyfin", "it-tools", "stirling-pdf", "postgresql", "v-rising"]) assert.strictEqual(labels[id].unavailable, false, `${id} is installable`);
-      assert.ok(labels.immich.unavailable && /Compose|several linked containers/i.test(labels.immich.message), `Immich says why (${labels.immich.message})`);
+      assert.strictEqual(labels.immich.unavailable, false, "Immich is installable (Compose)");
       assert.ok(labels["java-app"].unavailable && labels["java-app"].message.length > 20, "Java application says why");
       assert.deepStrictEqual(labels["v-rising"].platforms, ["windows"], "V Rising names Windows");
       await page.evaluate(() => window.showPage("marketplace"));
-      await page.evaluate(() => window.openMarketplaceWizard("immich", { source: "template" }));
+      await page.evaluate(() => window.openMarketplaceWizard("java-app", { source: "template" }));
       const notice = await page.evaluate(() => document.querySelector("[data-marketplace-message]")?.textContent || "");
-      assert.ok(/several linked containers/i.test(notice), `opening Immich explains why (${notice})`);
+      assert.ok(notice === labels["java-app"].message, `opening Java application explains why (${notice})`);
       console.log("PASS L1 installable and unavailable cards are labelled honestly");
     });
 

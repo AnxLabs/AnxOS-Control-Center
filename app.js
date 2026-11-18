@@ -24357,7 +24357,7 @@ async function completeMarketplaceInstallResult(result, template, providerInstal
   }
   // Docker services are containers: they are managed on the Docker page, not
   // under My Servers.
-  const dockerService = result?.runtimeType === "docker";
+  const dockerService = result?.runtimeType === "docker" || result?.runtimeType === "docker-compose";
   if (!dockerService) {
     selectedInstanceId = result?.instance?.id || selectedInstanceId;
     forgetStaleInstanceId(selectedInstanceId);

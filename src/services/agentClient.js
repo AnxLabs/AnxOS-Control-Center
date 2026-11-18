@@ -592,6 +592,7 @@ function getDockerApiExpectation(pathname, method = "GET") {
     ["DELETE", /^\/api\/v1\/docker\/volumes\/[^/]+$/, "volume delete"],
     ["GET", /^\/api\/v1\/docker\/compose\/projects$/, "Compose project discovery"],
     ["POST", /^\/api\/v1\/docker\/compose\/(?:config|up|stop|restart|pull|build|recreate|logs|status|down)$/, "Compose operation"],
+    ["POST", /^\/api\/v1\/docker\/compose\/managed(?:\/remove)?$/, "Marketplace Compose project (Build 214 Agent)"],
     ["GET", /^\/api\/v1\/docker\/cleanup\/preview$/, "Docker cleanup preview"],
     ["POST", /^\/api\/v1\/docker\/cleanup$/, "Docker cleanup execution"],
   ];
@@ -2069,6 +2070,16 @@ async function listDockerComposeProjects(configOverride = null) {
 
 async function dockerComposeAction(action, payload = {}, configOverride = null) {
   return dockerPost(`/api/v1/docker/compose/${action}`, payload, configOverride, 20 * 60 * 1000);
+}
+
+// Marketplace Compose installs (Build 214 Agents): write or remove the
+// project folder the Compose routes run.
+async function writeManagedComposeProject(payload = {}, configOverride = null) {
+  return dockerPost("/api/v1/docker/compose/managed", payload, configOverride);
+}
+
+async function removeManagedComposeProject(payload = {}, configOverride = null) {
+  return dockerPost("/api/v1/docker/compose/managed/remove", payload, configOverride);
 }
 
 async function getDockerCleanupPreview(configOverride = null) {
@@ -3910,6 +3921,8 @@ module.exports = {
   sendInstanceCommand,
   startDockerContainer,
   dockerComposeAction,
+  writeManagedComposeProject,
+  removeManagedComposeProject,
   restartInstance,
   restoreBackup,
   verifyBackup,

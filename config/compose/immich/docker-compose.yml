@@ -1,0 +1,67 @@
+# Immich v3.4.1 for AnxOS.
+#
+# Based on Immich's official docker-compose.yml for this release:
+# https://github.com/immich-app/immich/releases/download/v3.4.1/docker-compose.yml
+# Changes for an unattended, repeatable install (same images, same services):
+# - no fixed container names, so two installs cannot collide;
+# - the photo library and database are named volumes instead of folders next
+#   to this file, and the host clock file is not mounted (AnxOS's Docker
+#   policy refuses host paths; containers use UTC);
+# - only the web app is published, on the port chosen at install time; the
+#   database and Redis are reachable only inside this project's network.
+# Settings come from the .env file AnxOS writes next to this one.
+
+services:
+  immich-server:
+    image: ghcr.io/immich-app/immich-server:${IMMICH_VERSION}
+    volumes:
+      - library:/data
+    env_file:
+      - .env
+    ports:
+      # Not IMMICH_PORT: Immich reads that setting from .env as the port it
+      # listens on inside the container, which broke the published port.
+      - '${ANXOS_IMMICH_PORT}:2283'
+    depends_on:
+      - redis
+      - database
+    restart: always
+    healthcheck:
+      disable: false
+
+  immich-machine-learning:
+    image: ghcr.io/immich-app/immich-machine-learning:${IMMICH_VERSION}
+    volumes:
+      - model-cache:/cache
+    env_file:
+      - .env
+    environment:
+      MACHINE_LEARNING_MODEL_REVISION: v2
+    restart: always
+    healthcheck:
+      disable: false
+
+  redis:
+    image: docker.io/valkey/valkey:9@sha256:418652cfb58ef879d4978c33553735d7147016032d5aefaa14c828e611eb9dfd
+    healthcheck:
+      test: redis-cli ping | grep -q PONG || exit 1
+    restart: always
+
+  database:
+    image: ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_DB: ${DB_DATABASE_NAME}
+      POSTGRES_INITDB_ARGS: '--data-checksums'
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    shm_size: 128mb
+    restart: always
+    healthcheck:
+      disable: false
+
+volumes:
+  model-cache:
+  library:
+  postgres:

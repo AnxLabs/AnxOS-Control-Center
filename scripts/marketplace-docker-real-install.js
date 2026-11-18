@@ -20,6 +20,7 @@
 //      KEEP=1 keeps containers, volumes and images for inspection.
 
 const assert = require("assert");
+const crypto = require("crypto");
 const fs = require("fs");
 const http = require("http");
 const os = require("os");
@@ -38,6 +39,12 @@ const { generateAgentToken, writeAgentConfigToken } = require("../src/shared/age
 const PREFIX = "anx214-";
 const OPTIONS = { version: "", providerVersionId: "", serverType: "", storageLocation: "data", memory: "", playitTunnel: false, acceptEula: false, start: true };
 const results = [];
+const IMMICH_IMAGES = [
+  "ghcr.io/immich-app/immich-server:v3.4.1",
+  "ghcr.io/immich-app/immich-machine-learning:v3.4.1",
+  "valkey/valkey@sha256:418652cfb58ef879d4978c33553735d7147016032d5aefaa14c828e611eb9dfd",
+  "ghcr.io/immich-app/postgres@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23",
+];
 const mediaFolders = [];
 const createdNames = [];
 
@@ -356,6 +363,73 @@ async function runService(templateId, nodeId, agentConfig) {
   return record;
 }
 
+// Immich: a Compose project (four containers), installed through the same
+// Marketplace path. Checks the services, an administrator sign-up and
+// sign-in over Immich's API, and that the account survives a restart and a
+// Stop and Start of the whole project.
+async function runImmich(nodeId, agentConfig, agentRoot) {
+  const projectName = `${PREFIX}immich`;
+  const port = await getFreePort();
+  const record = { templateId: "immich", name: projectName, ports: [port], steps: [] };
+  results.push(record);
+  const projectDirectory = path.join(agentRoot, "anxos-compose-projects", projectName);
+  const compose = (action, extra = {}) => agentClient.dockerComposeAction(action, { projectName, projectDirectory, ...extra }, agentConfig);
+  const base = `http://127.0.0.1:${port}`;
+  const email = "admin@anx214.test";
+  const password = `Anx214-${crypto.randomBytes(9).toString("hex")}`;
+  const signIn = async () => {
+    const response = await fetch(`${base}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password }), signal: AbortSignal.timeout(15000) });
+    return response.status;
+  };
+  const started = Date.now();
+  try {
+    const result = await install("immich", nodeId, projectName, [port]);
+    record.installSeconds = Math.round((Date.now() - started) / 1000);
+    assert.strictEqual(result.runtimeType, "docker-compose");
+    assert.ok(result.progress.some((step) => step.label === "Verify installation" && step.status === "complete"), "the install waited for Immich to report healthy");
+    record.steps.push("installed and healthy");
+
+    const containers = JSON.parse(`[${(await docker(["ps", "--filter", `label=com.docker.compose.project=${projectName}`, "--format", "{{json .}}"])).stdout.split(/\r?\n/).filter(Boolean).join(",")}]`);
+    assert.strictEqual(containers.length, 4, `four containers run (${containers.map((entry) => entry.Names).join(", ")})`);
+    const published = containers.filter((entry) => /->/.test(entry.Ports || ""));
+    assert.strictEqual(published.length, 1, `only one container publishes a port (${published.map((entry) => `${entry.Names} ${entry.Ports}`).join("; ")})`);
+    assert.match(published[0].Names, /immich-server/, "the web app is the one published");
+    record.steps.push("four containers; only the web app is published");
+
+    const envFile = fs.readFileSync(path.join(projectDirectory, ".env"), "utf8");
+    const dbPassword = /^DB_PASSWORD=(.+)$/m.exec(envFile)?.[1] || "";
+    assert.match(dbPassword, /^[A-Za-z0-9]{24}$/, "the database password is generated (letters and digits)");
+    assert.ok(!JSON.stringify(result).includes(dbPassword), "the database password is not in the install result");
+
+    await waitFor("Immich", async () => /pong/.test((await httpGet(`${base}/api/server/ping`)).text), { timeoutMs: 300000 });
+    const signUp = await fetch(`${base}/api/auth/admin-sign-up`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password, name: "Anx214" }), signal: AbortSignal.timeout(30000) });
+    assert.strictEqual(signUp.status, 201, `the administrator account is created (status ${signUp.status})`);
+    assert.strictEqual(await signIn(), 201, "the administrator signs in");
+    record.steps.push("administrator created and signed in");
+
+    await compose("restart");
+    await waitFor("Immich after restart", async () => (await signIn().catch(() => 0)) === 201 ? true : null, { timeoutMs: 300000, intervalMs: 5000 });
+    record.steps.push("account kept after restart");
+
+    await compose("stop");
+    const running = (await docker(["ps", "-q", "--filter", `label=com.docker.compose.project=${projectName}`])).stdout;
+    assert.strictEqual(running, "", "Stop stops every container");
+    await compose("up");
+    await waitFor("Immich after Stop and Start", async () => (await signIn().catch(() => 0)) === 201 ? true : null, { timeoutMs: 300000, intervalMs: 5000 });
+    record.steps.push("account kept after Stop and Start");
+    record.ok = true;
+  } catch (error) {
+    record.ok = false;
+    record.error = String(error?.message || error).slice(0, 700);
+  } finally {
+    if (process.env.KEEP !== "1") {
+      await compose("down", { volumes: true }).catch(() => {});
+      await agentClient.removeManagedComposeProject({ projectName }, agentConfig).catch(() => {});
+    }
+  }
+  console.log(`${record.ok ? "PASS" : "FAIL"} immich (${record.installSeconds ?? "?"} s install): ${record.ok ? record.steps.join("; ") : record.error}`);
+}
+
 // Refusals that must hold on a real engine.
 async function runRefusals(nodeId) {
   const nginx = results.find((entry) => entry.templateId === "docker-nginx" && entry.ok);
@@ -389,7 +463,7 @@ async function runRefusals(nodeId) {
   console.log(`${record.ok ? "PASS" : "FAIL"} refusals: ${record.ok ? record.steps.join("; ") : record.error}`);
 }
 
-async function cleanup(imagesBefore, templates) {
+async function cleanup(imagesBefore, templates, extraImages = []) {
   if (process.env.KEEP === "1") { console.log("KEEP=1: containers, volumes and images left in place."); return; }
   for (const name of new Set(createdNames)) {
     await docker(["rm", "-f", name]);
@@ -398,7 +472,7 @@ async function cleanup(imagesBefore, templates) {
   const volumes = (await docker(["volume", "ls", "--format", "{{.Name}}"])).stdout.split(/\r?\n/).filter((volume) => [...new Set(createdNames)].some((name) => volume.startsWith(`${name}-`)));
   for (const volume of volumes) await docker(["volume", "rm", volume]);
   const removedImages = [];
-  for (const image of new Set(templates.map((entry) => entry.docker.image))) {
+  for (const image of new Set([...templates.map((entry) => entry.docker.image), ...extraImages])) {
     if (!imagesBefore.has(image) && (await docker(["rmi", image])).ok) removedImages.push(image);
   }
   for (const folder of mediaFolders) {
@@ -418,7 +492,8 @@ async function main() {
 
   const catalog = JSON.parse(fs.readFileSync(path.join(repoRoot, "config/marketplace-templates.json"), "utf8"));
   const wanted = process.argv.slice(2).length ? process.argv.slice(2) : Object.keys(SERVICES);
-  const templates = wanted.map((id) => { const entry = catalog.find((candidate) => candidate.id === id); assert.ok(entry && SERVICES[id], `unknown service ${id}`); return entry; });
+  const withImmich = wanted.includes("immich");
+  const templates = wanted.filter((id) => id !== "immich").map((id) => { const entry = catalog.find((candidate) => candidate.id === id); assert.ok(entry && SERVICES[id], `unknown service ${id}`); return entry; });
   const imagesBefore = new Set((await docker(["images", "--format", "{{.Repository}}:{{.Tag}}"])).stdout.split(/\r?\n/).filter(Boolean));
 
   const agentRoot = fs.mkdtempSync(path.join(os.tmpdir(), "anx-docker-real-install-agent-"));
@@ -428,9 +503,10 @@ async function main() {
     const agentConfig = nodeService.getNodeAgentConfig(agent.nodeId);
     console.log(`Disposable Agent at ${agent.url}`);
     for (const entry of templates) await runService(entry.id, agent.nodeId, agentConfig);
+    if (withImmich) await runImmich(agent.nodeId, agentConfig, agentRoot);
     if (wanted.includes("docker-nginx")) await runRefusals(agent.nodeId);
   } finally {
-    await cleanup(imagesBefore, templates).catch((error) => console.log(`Cleanup problem: ${error.message}`));
+    await cleanup(imagesBefore, templates, withImmich ? IMMICH_IMAGES : []).catch((error) => console.log(`Cleanup problem: ${error.message}`));
     if (agent?.child && agent.child.exitCode === null) agent.child.kill("SIGTERM");
     try { fs.rmSync(agentRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); } catch {}
   }
