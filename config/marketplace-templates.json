@@ -2131,6 +2131,99 @@
     ]
   },
   {
+    "id": "ark-survival-evolved",
+    "displayName": "ARK: Survival Evolved Dedicated Server",
+    "description": "ARK: Survival Evolved dedicated server on The Island, installed with SteamCMD.",
+    "icon": "ARK",
+    "screenshots": [],
+    "author": "AnxOS",
+    "version": "1.0.0",
+    "category": "Game Servers",
+    "instanceType": "custom-command",
+    "startupType": "steamcmd-native",
+    "hostDependencies": [
+      "steamcmd"
+    ],
+    "defaultRam": "8G",
+    "defaultPorts": [
+      7777,
+      27015
+    ],
+    "tags": [
+      "ark",
+      "survival",
+      "dinosaurs",
+      "steamcmd",
+      "game-server"
+    ],
+    "downloadSource": {
+      "type": "steamcmd",
+      "appId": 376030,
+      "login": "anonymous",
+      "required": true
+    },
+    "installer": {
+      "type": "steamcmd",
+      "appId": 376030,
+      "installDir": "server",
+      "login": "anonymous",
+      "validate": true,
+      "verifyFiles": [
+        "server/ShooterGame/Binaries/Win64/ShooterGameServer.exe"
+      ],
+      "timeoutMs": 3600000
+    },
+    "startup": {
+      "executable": "ShooterGameServer.exe",
+      "args": [
+        "TheIsland?listen?SessionName={id}?Port={port}?QueryPort={queryPort}?MaxPlayers=10",
+        "-server",
+        "-log",
+        "-NoBattlEye"
+      ],
+      "workingDirectory": "data/server/ShooterGame/Binaries/Win64",
+      "restartPolicy": "on-failure",
+      "startupTimeoutMs": 900000
+    },
+    "platforms": {
+      "linux": {
+        "disabled": true,
+        "comingSoonMessage": "ARK: Survival Evolved on Linux computers has not been tested by AnxOS yet. Install it on a Windows computer."
+      }
+    },
+    "compatibility": {
+      "requires": [
+        "steamcmd"
+      ],
+      "platforms": [
+        "windows"
+      ]
+    },
+    "installMetadata": {
+      "method": "steamcmd",
+      "appId": 376030,
+      "login": "anonymous",
+      "notes": "Windows computers only for now. Requires SteamCMD. The download is about 18 GB and the server needs 6-8 GB of memory."
+    },
+    "configNotes": "The game port is UDP and the server also uses the next port up; the query port is UDP. Open all three. Set an admin password and other options in ShooterGame/Saved/Config/WindowsServer/GameUserSettings.ini after the first start. BattlEye is off. Stop ends the server without a final save (ARK has no console to ask it to save); the world is kept as of its last autosave (AutoSavePeriodMinutes).",
+    "installScript": [
+      "create-instance",
+      "verify-instance",
+      "create-folders",
+      "steamcmd-install",
+      "write-config",
+      "verify",
+      "start"
+    ],
+    "configurationSchema": [
+      "name",
+      "storageLocation",
+      "port",
+      "memory"
+    ],
+    "installerType": "steamcmd-native"
+  },
+  {
     "id": "factorio",
     "displayName": "Factorio Dedicated Server",
     "description": "Factorio headless server from factorio.com for Linux computers. Creates a new world on its first start.",
