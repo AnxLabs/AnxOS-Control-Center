@@ -221,6 +221,7 @@
     "agent-control-foreign-task-stop:smoke": "node scripts/agent-control-foreign-task-stop-smoke.js",
     "docker-marketplace-engine:smoke": "node scripts/docker-marketplace-engine-smoke.js",
     "marketplace:docker-service:smoke": "node scripts/marketplace-docker-service-smoke.js",
+    "marketplace:modrinth-runtime:smoke": "node scripts/modrinth-pack-runtime-smoke.js",
     "windows-spawn-executable:smoke": "node scripts/windows-spawn-executable-smoke.js",
     "server-secret-store:smoke": "node scripts/server-secret-store-smoke.js",
     "sharing-fixes:smoke": "node scripts/sharing-fixes-smoke.js",

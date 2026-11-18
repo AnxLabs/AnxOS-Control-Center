@@ -2378,6 +2378,9 @@ async function installModrinthPack(instanceId, payload, agentConfig, progressSta
   const downloads = [];
   const dedupe = createDeduper();
   const manualFiles = progressState.manualFiles || {};
+  // What the pack declares it runs on (modrinth.index.json "dependencies").
+  // A .mrpack never contains the server runtime itself.
+  let packDependencies = null;
 
   if (primary?.filename?.endsWith(".mrpack")) {
     emitProgress({ ...progressState, stage: "downloading", message: "Downloading Modrinth pack..." });
@@ -2388,6 +2391,7 @@ async function installModrinthPack(instanceId, payload, agentConfig, progressSta
       if (entryPath === "modrinth.index.json") {
         const index = JSON.parse(content.toString("utf8"));
         const files = Array.isArray(index.files) ? index.files : [];
+        packDependencies = index.dependencies && typeof index.dependencies === "object" ? { ...index.dependencies } : null;
         ensureServerFiles(files, "Modrinth");
         let current = 0;
         for (const file of files) {
@@ -2596,8 +2600,75 @@ async function installModrinthPack(instanceId, payload, agentConfig, progressSta
       modpackVersion: resolvedMetadata.modpackVersion,
       releaseType: resolvedMetadata.releaseType,
       serverCompatibilityConfirmed: resolvedMetadata.serverCompatibilityConfirmed,
+      packDependencies,
     },
   };
+}
+
+// The loader runtime a Modrinth pack declares, as the options resolveServerJar
+// takes. Only the loaders AnxOS installs itself are accepted, and the
+// Minecraft version must be declared: a pack is never started on a guessed
+// runtime.
+const MODRINTH_RUNTIME_LOADERS = [
+  ["fabric-loader", "fabric"],
+  ["quilt-loader", "quilt"],
+  ["neoforge", "neoforge"],
+  ["forge", "forge"],
+];
+
+function resolveModrinthDeclaredRuntime(packDependencies = null) {
+  const declared = packDependencies && typeof packDependencies === "object" ? packDependencies : {};
+  const minecraftVersion = String(declared.minecraft || "").trim();
+  const match = MODRINTH_RUNTIME_LOADERS.find(([key]) => String(declared[key] || "").trim());
+  if (!minecraftVersion || !/^[\w.+-]{1,40}$/.test(minecraftVersion)) return null;
+  if (!match) return { loader: "vanilla", minecraftVersion, loaderVersion: "" };
+  const loaderVersion = String(declared[match[0]]).trim();
+  if (!/^[\w.+-]{1,64}$/.test(loaderVersion)) return null;
+  return { loader: match[1], minecraftVersion, loaderVersion };
+}
+
+// True when the installed pack brought its own way to start the server: a
+// launch script, or a server jar in the server folder (not an installer).
+async function providerPackShipsRuntime(instanceId, startupTarget = {}, agentConfig = {}) {
+  if (startupTarget.type === "script") return true;
+  const rootFiles = await findRootFileNames(instanceId, agentConfig);
+  return rootFiles.some((name) => /\.jar$/i.test(name) && !isInstallerJarName(name));
+}
+
+// Downloads, verifies and installs the runtime a Modrinth pack declares,
+// through the same resolver and installer the plain Minecraft servers use.
+async function installModrinthDeclaredRuntime(instanceId, packDependencies, options, agentConfig, progressState = {}) {
+  const runtime = resolveModrinthDeclaredRuntime(packDependencies);
+  if (!runtime) {
+    throw createServerPackRuntimeUnresolvedError("This Modrinth pack does not say which Minecraft version and loader it runs on, so AnxOS cannot install its server runtime.", {
+      instanceId,
+      packDependencies: packDependencies || null,
+      suggestion: "Choose another version of this pack, or a pack that declares its Minecraft version and loader.",
+    });
+  }
+  const requestedLoader = normalizeLoader(options.loader || options.serverType || "");
+  if (requestedLoader && requestedLoader !== "vanilla" && runtime.loader !== "vanilla" && requestedLoader !== runtime.loader) {
+    throw createServerPackRuntimeUnresolvedError(`This Modrinth pack runs on ${runtime.loader}, not the ${requestedLoader} loader that was selected.`, {
+      instanceId,
+      declaredLoader: runtime.loader,
+      requestedLoader,
+    });
+  }
+  emitProgress({ ...progressState, stage: "downloading", message: `Downloading the ${runtime.loader} ${runtime.minecraftVersion} server runtime...`, current: 0, total: 1 });
+  const serverInfo = await resolveServerJar(runtime);
+  const runtimeBuffer = await fetchBuffer(serverInfo.url, serverInfo.fileName, { signal: progressState.signal });
+  verifyDownloadedFileHash(runtimeBuffer, serverInfo.hashes, { fileName: serverInfo.fileName, url: serverInfo.url });
+  await writeBuffer(instanceId, serverInfo.downloadDestination || serverInfo.serverJar, runtimeBuffer, agentConfig);
+  throwIfInstallCancelled(progressState.signal);
+  await runServerInstaller(instanceId, serverInfo, agentConfig, progressState.operationId || null, progressState.signal || null, progressState.memory || "4G");
+  logMarketplaceInstallStep("Installed the server runtime the Modrinth pack declares.", {
+    step: "MODRINTH_DECLARED_RUNTIME",
+    instanceId,
+    loader: runtime.loader,
+    minecraftVersion: runtime.minecraftVersion,
+    loaderVersion: serverInfo.loaderVersion || runtime.loaderVersion || null,
+  });
+  return { ...runtime, loaderVersion: serverInfo.loaderVersion || runtime.loaderVersion || null, serverJar: serverInfo.serverJar || null };
 }
 
 async function installCurseForgePack(instanceId, payload, agentConfig, progressState) {
@@ -2924,6 +2995,19 @@ async function continueProviderPackInstall(context = {}) {
     name: instancePayload.displayName,
   }, instancePayload.primaryPort, agentConfig);
   let startupTarget = await resolveInstalledStartupTarget(instanceId, serverInfo, options, agentConfig);
+  // A .mrpack carries mods and settings only: install the runtime it declares
+  // when it did not bring a launch script or server jar of its own.
+  if (provider === "modrinth" && serverInfo.providerRuntimeDeferred && !(await providerPackShipsRuntime(instanceId, startupTarget, agentConfig))) {
+    throwIfInstallCancelled(signal);
+    await installModrinthDeclaredRuntime(instanceId, installRecords.source?.packDependencies, options, agentConfig, {
+      nodeId,
+      instanceId,
+      operationId,
+      signal,
+      memory: instancePayload.memoryLimit,
+    });
+    startupTarget = await resolveInstalledStartupTarget(instanceId, serverInfo, options, agentConfig);
+  }
   let serverPackRuntime = shouldResolveProviderServerPackRuntime(startupTarget, serverInfo, options)
     ? await resolveServerPackRuntime(instanceId, startupTarget, options, agentConfig)
     : null;
@@ -2972,9 +3056,17 @@ async function continueProviderPackInstall(context = {}) {
     metadata.displayVersionDetail = serverPackRuntime.versionInfo.displayVersionDetail || null;
   }
   await writeText(instanceId, "metadata.json", `${JSON.stringify(metadata, null, 2)}\n`, agentConfig);
+  // The start command was built before the pack's runtime was known, so it
+  // names "server.jar". Point it at the jar the pack really runs (the Agent's
+  // start-time jar repair keeps the jar already in the arguments, so a stale
+  // one there is never corrected).
+  const jarArgs = startupTarget.type !== "script" && runtimeServerInfo.serverJar
+    ? replaceJavaJarArgument(instancePayload.args, runtimeServerInfo.serverJar)
+    : null;
   const activationPatch = {
     ...metadata,
     ...(startupTarget.patch || {}),
+    ...(jarArgs ? { args: jarArgs } : {}),
     jar: runtimeServerInfo.serverJar,
     serverJar: runtimeServerInfo.serverJar,
     serverJarPath: runtimeServerInfo.serverJar,
@@ -3016,6 +3108,15 @@ async function continueProviderPackInstall(context = {}) {
     trust: trustVerdict,
     progress: [{ label: "Done", status: "complete", detail: "Marketplace pack installed." }],
   };
+}
+
+// The arguments with the jar after "-jar" replaced, or null when there is
+// nothing to change.
+function replaceJavaJarArgument(args = [], jar = "") {
+  const list = Array.isArray(args) ? args : [];
+  const index = list.indexOf("-jar");
+  if (index < 0 || index + 1 >= list.length || !jar || list[index + 1] === jar) return null;
+  return [...list.slice(0, index + 1), jar, ...list.slice(index + 2)];
 }
 
 function shouldResolveProviderServerPackRuntime(startupTarget = {}, serverInfo = {}, options = {}) {
@@ -4095,6 +4196,10 @@ module.exports = {
     evaluatePackPublisherTrust,
     getDeclaredFileHashes,
     installModrinthPack,
+    resolveModrinthDeclaredRuntime,
+    providerPackShipsRuntime,
+    installModrinthDeclaredRuntime,
+    replaceJavaJarArgument,
     verifyDownloadedFileHash,
     resolveProviderPackDeclaredHash,
     ensureCurseForgeServerPackCandidate,
