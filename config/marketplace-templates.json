@@ -1287,6 +1287,322 @@
     "installerType": "steamcmd-native"
   },
   {
+    "id": "v-rising",
+    "displayName": "V Rising Dedicated Server",
+    "description": "V Rising dedicated server for Windows computers, installed with SteamCMD.",
+    "icon": "VR",
+    "screenshots": [],
+    "author": "AnxOS",
+    "version": "1.0.0",
+    "category": "Game Servers",
+    "instanceType": "custom-command",
+    "startupType": "steamcmd-native",
+    "hostDependencies": [
+      "steamcmd"
+    ],
+    "defaultRam": "6G",
+    "defaultPorts": [
+      9876,
+      9877
+    ],
+    "tags": [
+      "v-rising",
+      "survival",
+      "steamcmd",
+      "game-server"
+    ],
+    "downloadSource": {
+      "type": "steamcmd",
+      "appId": 1829350,
+      "login": "anonymous",
+      "required": true
+    },
+    "installer": {
+      "type": "steamcmd",
+      "appId": 1829350,
+      "installDir": "server",
+      "login": "anonymous",
+      "validate": true,
+      "verifyFiles": [
+        "server/VRisingServer.exe"
+      ],
+      "timeoutMs": 1200000
+    },
+    "startup": {
+      "executable": "VRisingServer.exe",
+      "args": [
+        "-persistentDataPath",
+        "save-data",
+        "-serverName",
+        "{name}",
+        "-saveName",
+        "world1",
+        "-gamePort",
+        "{port}",
+        "-queryPort",
+        "{queryPort}",
+        "-logFile",
+        "logs\\VRisingServer.log"
+      ],
+      "workingDirectory": "data/server",
+      "restartPolicy": "on-failure",
+      "environment": {
+        "SteamAppId": "1604030"
+      }
+    },
+    "platforms": {
+      "linux": {
+        "disabled": true,
+        "comingSoonMessage": "V Rising only publishes a Windows dedicated server. Install it on a Windows computer."
+      }
+    },
+    "compatibility": {
+      "requires": [
+        "steamcmd"
+      ],
+      "platforms": [
+        "windows"
+      ]
+    },
+    "installMetadata": {
+      "method": "steamcmd",
+      "appId": 1829350,
+      "login": "anonymous",
+      "notes": "Windows computers only. Requires SteamCMD."
+    },
+    "configNotes": "Both ports are UDP. Saves and settings are in save-data. To set a password or list the server publicly, edit save-data/Settings/ServerHostSettings.json and restart. Add your Steam ID to save-data/Settings/adminlist.txt to become an administrator.",
+    "installScript": [
+      "create-instance",
+      "verify-instance",
+      "create-folders",
+      "steamcmd-install",
+      "write-config",
+      "verify",
+      "start"
+    ],
+    "configurationSchema": [
+      "name",
+      "storageLocation",
+      "port",
+      "memory"
+    ],
+    "installerType": "steamcmd-native"
+  },
+  {
+    "id": "enshrouded",
+    "displayName": "Enshrouded Dedicated Server",
+    "description": "Enshrouded dedicated server for Windows computers, installed with SteamCMD. Up to 16 players.",
+    "icon": "ENS",
+    "screenshots": [],
+    "author": "AnxOS",
+    "version": "1.0.0",
+    "category": "Game Servers",
+    "instanceType": "custom-command",
+    "startupType": "steamcmd-native",
+    "hostDependencies": [
+      "steamcmd"
+    ],
+    "defaultRam": "8G",
+    "defaultPorts": [
+      15637
+    ],
+    "tags": [
+      "enshrouded",
+      "survival",
+      "steamcmd",
+      "game-server"
+    ],
+    "downloadSource": {
+      "type": "steamcmd",
+      "appId": 2278520,
+      "login": "anonymous",
+      "required": true
+    },
+    "installer": {
+      "type": "steamcmd",
+      "appId": 2278520,
+      "installDir": "server",
+      "login": "anonymous",
+      "validate": true,
+      "verifyFiles": [
+        "server/enshrouded_server.exe"
+      ],
+      "timeoutMs": 2400000
+    },
+    "startup": {
+      "executable": "enshrouded_server.exe",
+      "args": [],
+      "workingDirectory": "data/server",
+      "restartPolicy": "on-failure"
+    },
+    "platforms": {
+      "linux": {
+        "disabled": true,
+        "comingSoonMessage": "Enshrouded only publishes a Windows dedicated server. Install it on a Windows computer."
+      }
+    },
+    "configFiles": [
+      {
+        "path": "server/enshrouded_server.json",
+        "lines": [
+          "{",
+          "  \"name\": \"{name}\",",
+          "  \"saveDirectory\": \"./savegame\",",
+          "  \"logDirectory\": \"./logs\",",
+          "  \"ip\": \"0.0.0.0\",",
+          "  \"queryPort\": {port},",
+          "  \"slotCount\": 16",
+          "}"
+        ]
+      }
+    ],
+    "compatibility": {
+      "requires": [
+        "steamcmd"
+      ],
+      "platforms": [
+        "windows"
+      ]
+    },
+    "installMetadata": {
+      "method": "steamcmd",
+      "appId": 2278520,
+      "login": "anonymous",
+      "notes": "Windows computers only. Requires SteamCMD. The download is about 8 GB."
+    },
+    "configNotes": "The port is UDP. The world is saved in savegame. To set passwords and game rules, edit enshrouded_server.json and restart; the server adds its other settings to that file on first start.",
+    "installScript": [
+      "create-instance",
+      "verify-instance",
+      "create-folders",
+      "steamcmd-install",
+      "write-config",
+      "verify",
+      "start"
+    ],
+    "configurationSchema": [
+      "name",
+      "storageLocation",
+      "port",
+      "memory"
+    ],
+    "installerType": "steamcmd-native"
+  },
+  {
+    "id": "unturned",
+    "displayName": "Unturned Dedicated Server",
+    "description": "Unturned dedicated server installed with SteamCMD. Starts as a LAN server for players on your network.",
+    "icon": "UNT",
+    "screenshots": [],
+    "author": "AnxOS",
+    "version": "1.0.0",
+    "category": "Game Servers",
+    "instanceType": "custom-command",
+    "startupType": "steamcmd-native",
+    "hostDependencies": [
+      "steamcmd"
+    ],
+    "defaultRam": "4G",
+    "defaultPorts": [
+      27015
+    ],
+    "tags": [
+      "unturned",
+      "survival",
+      "steamcmd",
+      "game-server"
+    ],
+    "downloadSource": {
+      "type": "steamcmd",
+      "appId": 1110390,
+      "login": "anonymous",
+      "required": true
+    },
+    "installer": {
+      "type": "steamcmd",
+      "appId": 1110390,
+      "installDir": "server",
+      "login": "anonymous",
+      "validate": true,
+      "verifyFiles": [
+        "server/ServerHelper.sh"
+      ],
+      "timeoutMs": 1200000
+    },
+    "startup": {
+      "executable": "bash",
+      "args": [
+        "-lc",
+        "chmod +x ./ServerHelper.sh ./Unturned_Headless.x86_64 2>/dev/null || true; exec ./ServerHelper.sh +LanServer/{id}"
+      ],
+      "workingDirectory": "data/server",
+      "restartPolicy": "on-failure"
+    },
+    "platforms": {
+      "windows": {
+        "installer": {
+          "verifyFiles": [
+            "server/Unturned.exe"
+          ]
+        },
+        "startup": {
+          "executable": "Unturned.exe",
+          "args": [
+            "-batchmode",
+            "-nographics",
+            "+LanServer/{id}"
+          ],
+          "workingDirectory": "data/server",
+          "restartPolicy": "on-failure"
+        },
+        "installMetadata": {
+          "notes": "Requires SteamCMD on This PC."
+        }
+      }
+    },
+    "configFiles": [
+      {
+        "path": "server/Servers/{id}/Server/Commands.dat",
+        "lines": [
+          "Name {name}",
+          "Port {port}"
+        ]
+      }
+    ],
+    "compatibility": {
+      "requires": [
+        "steamcmd"
+      ],
+      "platforms": [
+        "windows",
+        "linux"
+      ]
+    },
+    "installMetadata": {
+      "method": "steamcmd",
+      "appId": 1110390,
+      "login": "anonymous",
+      "notes": "Requires SteamCMD. The Linux start command has not been run on a real Linux computer yet."
+    },
+    "configNotes": "Starts as a LAN server. To list it for internet players, Unturned requires a Game Server Login Token from your Steam account; see the publisher's server hosting guide. Settings are in Servers/<name>/Server/Commands.dat.",
+    "installScript": [
+      "create-instance",
+      "verify-instance",
+      "create-folders",
+      "steamcmd-install",
+      "write-config",
+      "verify",
+      "start"
+    ],
+    "configurationSchema": [
+      "name",
+      "storageLocation",
+      "port",
+      "memory"
+    ],
+    "installerType": "steamcmd-native"
+  },
+  {
     "id": "hytale",
     "displayName": "Hytale Dedicated Server",
     "description": "Official Hytale dedicated server from Hypixel Studios (Java 25, QUIC over UDP). The first start signs in with your Hytale account and downloads the official server files.",

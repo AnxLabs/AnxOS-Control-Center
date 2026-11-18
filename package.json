@@ -221,6 +221,7 @@
     "agent-control-foreign-task-stop:smoke": "node scripts/agent-control-foreign-task-stop-smoke.js",
     "docker-marketplace-engine:smoke": "node scripts/docker-marketplace-engine-smoke.js",
     "marketplace:docker-service:smoke": "node scripts/marketplace-docker-service-smoke.js",
+    "windows-spawn-executable:smoke": "node scripts/windows-spawn-executable-smoke.js",
     "sharing-fixes:smoke": "node scripts/sharing-fixes-smoke.js",
     "server-page-fixes:smoke": "node scripts/server-page-fixes-smoke.js",
     "backup-file-fixes:smoke": "node scripts/backup-file-fixes-smoke.js",

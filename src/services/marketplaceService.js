@@ -3963,19 +3963,34 @@ function finishInstallerDownloadRecords(records = [], status, message, details =
   }
 }
 
+// A config file path may name the server's folder with {id}, which is a slug
+// (letters, digits, "-" and "_"), so it cannot add folders or leave the
+// instance. Any other placeholder in a path is refused: a server name such as
+// "../x" must never become part of a path. Unturned keeps its settings in
+// Servers/<id>/, and an unexpanded "{id}" folder left them unread.
+function resolveTemplateConfigFilePath(rawPath, template, options = {}, ports = []) {
+  const id = templateValue("id", template, options, ports);
+  const expanded = String(rawPath || "").replace(/\{id\}/g, id);
+  if (/[{}]/.test(expanded)) {
+    throw createMarketplaceError(`Config file path "${rawPath}" uses a placeholder that is not allowed in paths.`, "MARKETPLACE_MANIFEST_INVALID", { templateId: template.id || null });
+  }
+  return normalizeInstanceFilePath(expanded);
+}
+
 async function writeTemplateConfigFiles(template, options, ports, instanceId, agentConfig = null) {
   const files = Array.isArray(template.configFiles) ? template.configFiles : [];
   for (const configFile of files) {
     if (!configFile?.path) {
       continue;
     }
+    const filePath = resolveTemplateConfigFilePath(configFile.path, template, options, ports);
     await writeInstanceText(
       instanceId,
-      normalizeInstanceFilePath(configFile.path),
+      filePath,
       buildConfigFileContent(configFile, template, options, ports),
       agentConfig
     );
-    await agentClient.readInstanceFile(instanceId, normalizeInstanceFilePath(configFile.path), agentConfig);
+    await agentClient.readInstanceFile(instanceId, filePath, agentConfig);
   }
 }
 
@@ -4966,7 +4981,11 @@ async function executeInstallTemplate(payload = {}, context = {}) {
 
     if (startupPatch) {
       const refreshedIds = await verifyAgentInstanceExists(createdInstanceId, agentConfig);
-      if (!startupPatch.executable || !Array.isArray(startupPatch.args) || startupPatch.args.length === 0) {
+      // A native game server may start with no arguments at all (Enshrouded
+      // reads everything from its settings file). A launcher such as java or
+      // bash with nothing to run is still a broken command.
+      const launcherNeedsArgs = /^(?:java|bash|sh|cmd(?:\.exe)?|powershell(?:\.exe)?|pwsh(?:\.exe)?|node|python3?)$/i.test(String(startupPatch.executable || ""));
+      if (!startupPatch.executable || !Array.isArray(startupPatch.args) || (launcherNeedsArgs && startupPatch.args.length === 0)) {
         throw createMarketplaceError("Startup command was not configured.", "STARTUP_CONFIGURATION_FAILED");
       }
       pushStep(progress, "Verify installation", "complete", `Verified ${createdInstanceId}. Agent instances: ${refreshedIds.join(", ") || "none"}.`);
@@ -5106,6 +5125,7 @@ module.exports = {
     },
     buildInstancePayload,
     buildConfigFileContent,
+    resolveTemplateConfigFilePath,
     buildInstallContext,
     buildTemplateInstallSubject,
     buildMinecraftProperties,

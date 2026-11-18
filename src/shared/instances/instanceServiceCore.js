@@ -3,6 +3,7 @@ const crypto = require("crypto");
 const fs = require("fs/promises");
 const fsSync = require("fs");
 const net = require("net");
+const dgram = require("dgram");
 const os = require("os");
 const path = require("path");
 const { StringDecoder } = require("string_decoder");
@@ -6449,6 +6450,29 @@ function scheduleVersionRefresh(instanceId, delayMs = 2500) {
   versionRefreshTimers.set(instanceId, timer);
 }
 
+// Windows does not look in a new process's working directory for its program:
+// starting "PalServer.exe" with the server folder as the working directory
+// fails with "not found" even though the file is there (Linux templates avoid
+// this by running "./name" through bash). When the named program is a file
+// inside the working directory, start that file by its full path. Anything
+// else (java, cmd.exe, an absolute path) is left for the system to find.
+function resolveSpawnExecutable(executable, workingDirectory, platform = process.platform) {
+  const name = String(executable || "");
+  if (platform !== "win32" || !name || path.isAbsolute(name) || !workingDirectory) {
+    return executable;
+  }
+  const root = path.resolve(workingDirectory);
+  const candidate = path.resolve(root, name);
+  if (!candidate.startsWith(root + path.sep)) {
+    return executable;
+  }
+  try {
+    return fsSync.statSync(candidate).isFile() ? candidate : executable;
+  } catch {
+    return executable;
+  }
+}
+
 function buildSpawnEnvironment(config) {
   const runtimeEnvironment = bundledRuntimePaths.buildRuntimeEnvironment(process.env);
   return {
@@ -6625,7 +6649,7 @@ async function startInstanceImpl(instanceId, options = {}) {
   assertNotServiceManaged(config, "start-spawn");
 
   try {
-    child = runWithCorrelationScope({ correlationId: runCorrelationId }, () => childProcess.spawn(config.executable, config.args, {
+    child = runWithCorrelationScope({ correlationId: runCorrelationId }, () => childProcess.spawn(resolveSpawnExecutable(config.executable, workingDirectory), config.args, {
       cwd: workingDirectory,
       env: buildSpawnEnvironment(config),
       // POSIX: the server gets its own process group so Stop reaches the whole
@@ -6974,7 +6998,10 @@ async function startInstanceImpl(instanceId, options = {}) {
       clearInterval(readinessPortTimer);
       return;
     }
-    checkPort(readinessPort).then(async ({ open }) => {
+    // The UDP check only runs while this server's own process is alive, and
+    // the install refused a port another program already used, so a UDP port
+    // that became held after the start is this server's.
+    checkPort(readinessPort).then(async ({ open }) => open || (child.exitCode === null && (await checkUdpPortHeld(readinessPort)).held)).then(async (open) => {
       if (!open || entry.readinessState === "ready" || !isCurrentRunningProcess(config.id, child)) {
         return;
       }
@@ -8391,6 +8418,29 @@ async function getDirectorySizeBytes(rootPath) {
   return total;
 }
 
+// UDP has no connection to test, so a UDP port is "held" when it cannot be
+// bound. Only a busy port counts: any other bind error is "cannot tell", never
+// readiness. Game servers that speak only UDP (V Rising, Unturned, Enshrouded,
+// Valheim) never open the TCP port the check above looks for.
+function checkUdpPortHeld(port, bindSocket = () => dgram.createSocket("udp4")) {
+  return new Promise((resolve) => {
+    let socket;
+    try {
+      socket = bindSocket();
+    } catch {
+      resolve({ port, held: false });
+      return;
+    }
+    socket.once("error", (error) => {
+      try { socket.close(); } catch {}
+      resolve({ port, held: error?.code === "EADDRINUSE" });
+    });
+    socket.bind({ port, address: "0.0.0.0", exclusive: true }, () => {
+      socket.close(() => resolve({ port, held: false }));
+    });
+  });
+}
+
 function checkPort(port) {
   return new Promise((resolve) => {
     const socket = net.createConnection({ host: "127.0.0.1", port });
@@ -8640,6 +8690,8 @@ async function startAutoStartInstances(options = {}) {
 module.exports = {
   noteCommonServerFailure,
   _test: {
+    checkUdpPortHeld,
+    resolveSpawnExecutable,
     jobLifecycle,
     detectInstanceVersion,
     parseHytaleBootVersion,

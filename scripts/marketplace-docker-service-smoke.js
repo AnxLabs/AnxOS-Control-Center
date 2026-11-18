@@ -316,8 +316,21 @@ async function main() {
   assert.ok(appSource.includes('template?.requiresEula === "minecraft"') && appSource.includes('field === "acceptEula" && marketplaceTemplateNeedsEula(template)'), "the wizard shows and enforces the EULA box for this template");
   console.log("PASS S10 Minecraft Bedrock needs the EULA and keeps its world");
 
+  // S11 (game templates, Build 214-D)
+  const resolveConfigPath = marketplaceService._test.resolveTemplateConfigFilePath;
+  const unturned = template("unturned");
+  assert.strictEqual(resolveConfigPath(unturned.configFiles[0].path, unturned, { name: "My Server" }, [27015]), "server/Servers/my-server/Server/Commands.dat", "{id} names the server folder Unturned reads");
+  assert.strictEqual(resolveConfigPath("server/Servers/{id}/x", unturned, { name: "../../etc" }, []), "server/Servers/etc/x", "a hostile name becomes a plain slug");
+  assert.throws(() => resolveConfigPath("server/{name}/x", unturned, { name: "a" }, []), /not allowed in paths/);
+  for (const id of ["v-rising", "enshrouded"]) {
+    const resolveForPlatform = marketplaceService._test.resolveTemplateForPlatform;
+    assert.strictEqual(resolveForPlatform(template(id), "linux").disabled, true, `${id} is unavailable on Linux computers`);
+    assert.ok(!resolveForPlatform(template(id), "windows").disabled, `${id} installs on Windows computers`);
+  }
+  console.log("PASS S11 game config paths use the server folder safely; Windows-only games say so");
+
   assert.deepStrictEqual(blocked, [], `no network or process escaped: ${blocked.join(", ")}`);
-  console.log("Marketplace Docker service smoke passed (10 checks).");
+  console.log("Marketplace Docker service smoke passed (11 checks).");
 }
 
 main()
