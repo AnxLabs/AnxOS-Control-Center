@@ -2,8 +2,8 @@
 
 **Status (2026-11-18): in development. Nothing is pushed, tagged, released or
 deployed. The nine Docker services passed real installs on the development
-PC's Docker Desktop; nothing has been installed on Anxlab, the VPS or a Linux
-computer.**
+PC's Docker Desktop, and the games on Windows or in WSL Ubuntu on that PC;
+nothing has been installed on Anxlab or the VPS.**
 
 Build 214 turns the Add a Server catalog into a working installation
 marketplace. Work is on branch `claude/anxos-build-214-marketplace-1e6322`,
@@ -17,7 +17,7 @@ carries `cf319694` and `5ca69374`).
 | 214-A Catalog and installer audit | Done (below) |
 | 214-B Shared installation foundation | Docker service adapter, one read-only host folder, Compose projects (Immich) and own Java application import done |
 | 214-C Applications, databases and media | All 11 "coming soon" cards installable and real-tested; IT-Tools and Stirling PDF added. No card is left as coming soon |
-| 214-D Game-server expansion | Bedrock fixed; V Rising, Enshrouded, Unturned, Satisfactory, Don't Starve Together, 7 Days to Die and Garry's Mod added, all real-installed on Windows; Unturned, Valheim and Palworld also on Linux. Project Zomboid blocked (server password storage) |
+| 214-D Game-server expansion | Bedrock fixed; V Rising, Enshrouded, Unturned, Satisfactory, Don't Starve Together, 7 Days to Die Garry's Mod and Project Zomboid (with the new server secret store) added, all real-installed on Windows; Factorio on Linux; Unturned, Valheim and Palworld also on Linux. ARK: Survival Evolved installs and runs on Windows but is not yet certified (round 4) |
 | 214-E Marketplace and lifecycle improvements | Not started (two small renderer changes made, see below) |
 | 214-F Real installation acceptance | Docker services on Docker Desktop (Windows), games on Windows, the real app (`build214-ui-qa`), and Unturned, Valheim and Palworld on Linux (WSL Ubuntu 24.04) pass. Docker on a Linux host: not done |
 | 214-G Stabilization and release preparation | Not started |
@@ -414,7 +414,83 @@ test answers the native file dialog) passes.
   issue only; the install proceeds once loaded.
 - Valheim's template still starts with a fixed join password
   (`changeme123`, existing behaviour; the card says to change it).
-- Project Zomboid: see Next steps.
+
+## Build 214 round 4 (2026-11-18)
+
+**Server secret store and Project Zomboid** (`80acf941`). Design and threat
+model: `docs/SERVER_SECRET_STORE.md`. A write-only, per-server store for
+passwords a game server needs at start; the rule that a server's ordinary
+environment may not hold secrets (`SECRET_ENVIRONMENT_NOT_ALLOWED`) is
+unchanged.
+- AES-256-GCM with a per-computer random key in its own 0600 file (or the
+  operator's `AGENT_SERVER_SECRET_KEY_FILE`), recorded only by
+  fingerprint; each value is bound to its server and setting name as
+  authenticated data. Kept beside the instances folder
+  (`anxos-server-secrets/`), never inside a server's folder, so file
+  browsing, backups, moves and support bundles never contain it.
+- `secretEnvironment` on create and update is write-only; `config.json` and
+  the app see names only. Values are decrypted only when the server process
+  starts (never for an installer run), and scrubbed from its output and
+  crash tail. A missing or unreadable value refuses the start
+  (`SERVER_SECRET_UNAVAILABLE`); the key can be rotated; deleting a server
+  deletes its values.
+- Project Zomboid generates an administrator password, shows it once, and
+  names it in its start command as `%ANXOS_PZ_ADMIN_PASSWORD%`. An Agent
+  older than Build 214 would ignore the secret, so the install removes the
+  server it created and asks for an Agent update
+  (`AGENT_SECRET_STORE_REQUIRED`).
+- Evidence: `server-secret-store-smoke` K1-K8 (real store, real engine, a
+  real child process). Real install on Windows: 493 s, account created with
+  the generated password, Running/ready on the chosen UDP port, the
+  password in no plain-text file under the Agent's folders.
+
+**Factorio** (`cdb2fb61`). The Linux headless server from factorio.com (a
+public download, no sign-in) as an archive install; the first start creates
+a world, then runs it on the chosen UDP port with AnxOS's server settings
+(LAN-visible; public listing needs a factorio.com account). Real install on
+Linux (WSL Ubuntu 24.04): 12 s, world created, ready, Stop freed the port.
+The first run was refused because Linux archive installs always demanded
+unzip, tar and xz; Linux now requires what its archives use (tar always,
+unzip for .zip, xz for .tar.xz), as Windows already did.
+
+**Harness** (`1a706493`): `portsFor` (games whose second port is not the
+next one up) and `readyTimeoutMs` (slow first starts). Known leak, not
+fixed: each SteamCMD harness run sends 3 read requests (`stats`,
+`instances`, `dependencies/check`) to this computer's real Local Agent on
+127.0.0.1:47131 before the disposable Agent is selected; its token refuses
+them. Setting `AGENT_URL=http://127.0.0.1:9` changed the selected URL but
+not these requests (they come from a path with its own 47131 default), so
+that change was not kept.
+
+**ARK: Survival Evolved (not certified yet, not in the catalog).** Steam
+376030, anonymous, build 21241282, about 21 GB on disk. Template draft:
+executable `ShooterGameServer.exe` with working directory
+`data/server/ShooterGame/Binaries/Win64` (the Agent refuses a relative path
+with slashes, `INVALID_EXECUTABLE`; a bare name in the working directory is
+started by full path), one `?`-separated map argument with
+`SessionName={id}` (a `?` in a free-text name would add options),
+`-server -log -NoBattlEye`, `startupTimeoutMs` 900000, Linux labelled
+untested. Three real runs on Windows:
+1. Refused with `INVALID_EXECUTABLE` (relative executable path); fixed as
+   above.
+2. 1079 s: installed, Running/ready, `ShooterGameServer` bound both chosen
+   UDP ports (game and query). The harness check failed because ARK writes
+   `ShooterGame.log` and its session settings only on a clean exit (the log
+   was 0 bytes). A direct start of that install then answered a Steam
+   A2S_INFO query on the chosen query port with `anx214-probe - (v361.7)`
+   81 s after starting, so the session name argument works.
+3. 1220 s: installed, Running/ready on both chosen UDP ports again; the new
+   A2S check ran the moment the port opened and got no answer (ARK answers
+   about a minute later). The check now retries for up to 5 minutes; that
+   version has not run yet.
+Stop on Windows ends ARK without a final save: it has no stdin console
+(`getConsoleStopCommand` returns null), like the other Windows SteamCMD
+games, so the world is kept as of its last autosave; the draft card says
+so. To finish: regenerate the catalog with the generator (kept outside the
+repo, see How to continue), run
+`node scripts/marketplace-steamcmd-real-install.js ark-survival-evolved`
+(about 20 minutes, 21 GB in the temp folder, removed afterwards), and add
+the catalog entry and a certification row only if it passes.
 
 ## Tests run
 
@@ -459,6 +535,10 @@ The new smoke is registered in `package.json`
 - `1a3c7cd1` feat(marketplace): deploy your own Java application (.jar)
 - `58b06326`, `67ffe599` docs: Java import and the Project Zomboid blocker
 - `769b522c` feat(marketplace): Garry's Mod server (real install on Windows: 115 s, srcds on the chosen port and name, ready, stopped)
+- `47741e77` docs: Build 214 handoff with Garry's Mod and how to continue
+- `80acf941` feat(agent): server secret store; Project Zomboid with a safe admin password
+- `cdb2fb61` feat(marketplace): Factorio server; archives need only their own tools
+- `1a706493` test(marketplace): real-install harness supports custom port layouts and slow starts
 - Handoff commits on this branch.
 
 ## Blockers
@@ -471,8 +551,9 @@ The new smoke is registered in `package.json`
 - The Agent-side fixes (busy port, volume list, error text) reach a computer
   only with a Build 214 Agent. The install works with Build 213 Agents
   through the fallbacks above, which are covered by mocked tests only.
-- This worktree has no `node_modules`. Tests ran with `NODE_PATH` pointing at
-  the `anxos-control-center-simplify-8080f1` worktree (same `dev` commit).
+- Worktrees have no `node_modules` of their own; link the
+  `anxos-control-center-simplify-8080f1` worktree's (a junction, ignored by
+  git) before running tests.
 
 ## Next steps
 
@@ -480,29 +561,15 @@ The new smoke is registered in `package.json`
    Linux variants has run (they are labelled untested); the UDP readiness
    check should also be confirmed on a disposable Linux node (not Anxlab's
    live servers).
-2. **Project Zomboid: blocked on an approved design for server passwords.**
-   Its first start needs an administrator password, passed as
-   `-adminpassword`. Proven on Windows with a direct run: giving it through
-   an environment setting referenced as `%ANXOS_PZ_ADMIN_PASSWORD%` creates
-   the account, the server starts on the chosen UDP ports, and the password
-   appears in none of its files or logs (its database stores it hashed);
-   `-cachedir=Zomboid` keeps saves in the server folder. But the Agent
-   deliberately refuses server environment settings named like a token,
-   secret, password, credential or API key (`SECRET_ENVIRONMENT_NOT_ALLOWED`
-   in `normalizeEnvironment`), because a server's environment is stored as
-   plain settings. Renaming the setting to pass that check would defeat it,
-   so it was not done and no Project Zomboid card was added. Needed: an
-   Agent-side store for a server's secrets (written once, readable only by
-   the Agent's account, passed to the process at start, never returned or
-   logged), designed and approved as a security change. Then the template
-   is ready to write (command and checks above).
-3. **More games**: Factorio (Linux headless archive from factorio.com, no
-   sign-in; needs a first save, which the template's existing `postInstall`
-   step can create, then `--start-server`; test in the WSL environment),
-   ARK: Survival Evolved (376030, Windows and Linux, about 18 GB) and
-   Ascended (2430930, Windows only, heavy), Space Engineers (298740,
-   Windows only; needs its world/config file). DayZ and Arma 3 need a Steam
-   account that owns the game.
+2. **Project Zomboid on Linux and the secret store on a Build 214 Agent.**
+   The Windows install passed; the Linux variant is labelled untested, and
+   older Agents are refused by design.
+3. **More games**: finish ARK: Survival Evolved (above). Then Space
+   Engineers (298740, Windows only; needs its world/config file, to be
+   read from the shipped files) and ARK: Survival Ascended (2430930,
+   Windows only, heavy; ASA may not answer A2S queries, so its check needs
+   another signal). DayZ and Arma 3 need a Steam account that owns the
+   game: documented only, not added (see item 5).
 
 **How to continue (for the next session or provider):**
 - Real-install harnesses: `scripts/marketplace-docker-real-install.js
@@ -519,6 +586,13 @@ The new smoke is registered in `package.json`
   `anxos-control-center-simplify-8080f1` worktree's (ignored by git).
 - Read each game's shipped start script or settings before writing a
   template; add it to the catalog only after a real install passes.
+- The SteamCMD game generator that writes the game templates (including the
+  ARK draft) is kept outside the repo, in the Claude side-session notes
+  folder `%LOCALAPPDATA%Claude-Dataclaude_pzs8sxrjxfjjcside-session-noteslocal_14d1e496-c63e-4efc-85f7-10d5bb82f70a`, as
+  `build214-steamcmd-games-generator.js`; run
+  `node <generator> config/marketplace-templates.json` (it replaces games by
+  id and inserts new ones after the last SteamCMD game; check that the diff
+  only adds what you meant).
 3. **See the Docker services in the app.** Run the real app against a
    disposable Agent and check the wizard, the "Save this password" dialog,
    the completion text and the Docker page for one database and one web

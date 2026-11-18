@@ -84,6 +84,29 @@ async function udpOwner(port) {
   return match ? { pid: Number(match[2]), name: match[1] } : null;
 }
 
+// Steam server query (A2S_INFO) on 127.0.0.1: the name a server advertises.
+// A server may first answer with a challenge (0x41) that the query repeats.
+function a2sInfoName(port, { timeoutMs = 5000 } = {}) {
+  const request = Buffer.concat([Buffer.from([0xff, 0xff, 0xff, 0xff, 0x54]), Buffer.from("Source Engine Query\0", "latin1")]);
+  return new Promise((resolve, reject) => {
+    const socket = dgram.createSocket("udp4");
+    const timer = setTimeout(() => { socket.close(); reject(new Error(`no A2S_INFO answer on UDP ${port}`)); }, timeoutMs);
+    socket.on("message", (message) => {
+      if (message.readInt32LE(0) !== -1) return;
+      if (message[4] === 0x41) {
+        socket.send(Buffer.concat([request, message.subarray(5, 9)]), port, "127.0.0.1");
+        return;
+      }
+      if (message[4] !== 0x49) return;
+      clearTimeout(timer);
+      socket.close();
+      const end = message.indexOf(0, 6);
+      resolve(message.subarray(6, end).toString("utf8"));
+    });
+    socket.send(request, port, "127.0.0.1");
+  });
+}
+
 async function waitFor(label, check, { timeoutMs = 180000, intervalMs = 3000 } = {}) {
   const deadline = Date.now() + timeoutMs;
   let last = null;
@@ -178,11 +201,14 @@ const GAMES = {
     processName: /ShooterGameServer/i,
     // ARK also uses the game port + 1, so the query port is further away.
     portsFor: (pair) => [pair[0], pair[0] + 10],
-    async settings({ instancePath, id }) {
+    // ARK writes ShooterGame.log and its session settings only when it exits
+    // cleanly, so ask the running server for the name it advertises instead.
+    async settings({ instancePath, id, ports }) {
       const saved = path.join(instancePath, "data", "server", "ShooterGame", "Saved");
-      assert.ok(fs.existsSync(saved), "the server writes its saves in the server folder");
-      const log = fs.readFileSync(path.join(saved, "Logs", "ShooterGame.log"), "utf8");
-      assert.ok(log.includes(id), "the server log names the session AnxOS gave it");
+      assert.ok(fs.existsSync(path.join(saved, "Config", "WindowsServer")), "the server keeps its settings in the server folder");
+      // It answers queries about a minute after its ports open.
+      const advertised = await waitFor("an A2S_INFO answer", () => a2sInfoName(ports[1]), { timeoutMs: 300000, intervalMs: 5000 });
+      assert.ok(advertised.startsWith(id), `the query port advertises the session AnxOS gave it (got "${advertised}")`);
     },
     readyTimeoutMs: 1200000,
   },
