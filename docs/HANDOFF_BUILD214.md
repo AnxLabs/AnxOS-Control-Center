@@ -15,11 +15,11 @@ carries `cf319694` and `5ca69374`).
 | Milestone | State |
 | --- | --- |
 | 214-A Catalog and installer audit | Done (below) |
-| 214-B Shared installation foundation | Docker service adapter and one read-only host folder done; Compose and own-application import not started |
-| 214-C Applications, databases and media | 9 of 11 "coming soon" cards installable and real-tested (Jellyfin added); Immich and Java application still unavailable |
+| 214-B Shared installation foundation | Docker service adapter, one read-only host folder, and Compose projects (Immich) done; own-application import not started |
+| 214-C Applications, databases and media | 10 of 11 "coming soon" cards installable and real-tested (Jellyfin, Immich); IT-Tools and Stirling PDF added; Java application still unavailable |
 | 214-D Game-server expansion | Batches 1-2 done: Bedrock fixed; V Rising, Enshrouded, Unturned, Satisfactory, Don't Starve Together, 7 Days to Die added; all passed real installs on Windows. Project Zomboid deferred |
 | 214-E Marketplace and lifecycle improvements | Not started (two small renderer changes made, see below) |
-| 214-F Real installation acceptance | Docker services: passed on Docker Desktop (Windows). Linux computer and the app's own screens: not done |
+| 214-F Real installation acceptance | Docker services on Docker Desktop (Windows), games on Windows, the real app (`build214-ui-qa`), and Unturned, Valheim and Palworld on Linux (WSL Ubuntu 24.04) pass. Docker on a Linux host: not done |
 | 214-G Stabilization and release preparation | Not started |
 
 ## 214-A audit: what the catalog really did
@@ -330,6 +330,73 @@ computer at the same time made two AnxOS installs fail inside SteamCMD
 (exit codes 5 and 8); they passed when re-run alone. AnxOS already queues
 its own SteamCMD runs.
 
+## Build 214 round 3 (2026-11-18)
+
+**Utilities (owner request).** IT-Tools (`corentinth/it-tools:2024.10.22-7ca5933`)
+and Stirling PDF (`stirlingtools/stirling-pdf:3.3.0`), both published on
+127.0.0.1 only (private to the computer by default). Stirling PDF's first
+account is `admin` with a generated password set through its documented
+`SECURITY_INITIALLOGIN_*` settings. Real installs: IT-Tools served after
+restart and Stop/Start; Stirling PDF healthy, the generated password signs
+in, the well-known default and a wrong password are refused, the password is
+not in its logs, settings kept after restart and Stop/Start.
+
+**Real-app acceptance** (`node scripts/build214-ui-qa.js`, new: real
+Electron app, isolated profile, real disposable Agent, real Docker and
+SteamCMD). All six checks pass:
+L1 catalog labels; J1 Jellyfin media folder (empty and system folder
+refused, read-only mount); J2 empty-folder warning shown; P1 Stirling PDF
+password dialog shows the container's password and the app keeps no copy;
+F1 a port held by another program fails in the window and leaves nothing;
+S1 Unturned installed from the window, Running/ready in My Servers, stopped.
+Screenshots: `BUILD214_QA_SHOTS=<dir>`.
+
+**Linux certification** in WSL Ubuntu 24.04 (kernel 6.18 WSL2), with
+Node.js v24.22.3 and SteamCMD installed in the user's home folder (no sudo),
+running the same `marketplace-steamcmd-real-install.js`:
+Unturned 140 s, Valheim 140 s, Palworld 142 s: each installed, bound its UDP
+port, was reported Running/ready (UDP readiness via `ss`), used AnxOS's
+settings and stopped cleanly. Docker on a Linux host was **not** tested:
+WSL has no Docker engine of its own (the only engine is Docker Desktop).
+
+**Immich** (`installerType: "docker-compose"`). Immich's official v3.4.1
+Compose file is shipped in `config/compose/immich/` with documented changes
+(no fixed container names; named volumes for photos and database; no host
+clock mount; only the web app published). The Agent gains
+`POST /api/v1/docker/compose/managed` and `/managed/remove`
+(`agent/src/services/managedComposeProjects.js`): they write exactly
+`docker-compose.yml` and `.env` into `<instance root>/../anxos-compose-projects/<name>/`
+after the existing Compose policy check, never over an existing project.
+The existing Compose routes pull, start, report status and remove. Real
+install: healthy in 91 s, four containers with only the web app published,
+administrator sign-up and sign-in over Immich's API, account kept after a
+restart and after Stop/Start, everything removed afterwards.
+
+**Bugs found and fixed this round:**
+1. A Docker service installed "successfully" on a port another program
+   was listening on (Docker Desktop publishes over it; the wizard's port
+   list has no listener data on Windows). The Agent's container check now
+   binds each published port on both addresses (Agent change).
+2. Valheim's Linux start command lacked `LD_LIBRARY_PATH=./linux64` (its
+   bundled Steam library), so its network failed and it exited. Fixed as
+   Valheim's own `start_server.sh` does; existing servers keep their saved
+   command.
+3. SteamCMD's "Missing configuration" (stale app information) failed the
+   Linux installs; it is now retried once like other transient errors (in
+   `5a6497f1`).
+4. Immich reads `IMMICH_PORT` from `.env` as its own listening port; the
+   first Compose file used that name for the host port and the web app
+   became unreachable while reporting healthy. Renamed `ANXOS_IMMICH_PORT`,
+   with a comment and a smoke assertion.
+
+**Known, not fixed:**
+- The Create Server window says "No computer is connected yet" for its
+  first second while it is still reading the computer's status. Wording
+  issue only; the install proceeds once loaded.
+- Valheim's template still starts with a fixed join password
+  (`changeme123`, existing behaviour; the card says to change it).
+- Project Zomboid and Java application: see Next steps.
+
 ## Tests run
 
 These are mocked: the Agent client is faked and the network blocked. The real
@@ -366,6 +433,9 @@ The new smoke is registered in `package.json`
 - `84d72d78` fix(docker): slow image downloads and container starts no longer fail
 - `46d491e6` fix(marketplace): escape settings values and resume stalled SteamCMD downloads
 - `be95df57` feat(marketplace): 7 Days to Die server
+- `68f80973` feat(marketplace): IT-Tools and Stirling PDF utilities
+- `dede8396` fix(marketplace): real-app and Linux acceptance fixes
+- `5a6497f1` feat(marketplace): Immich through the existing Docker Compose routes
 - Handoff commits on this branch.
 
 ## Blockers
@@ -387,9 +457,20 @@ The new smoke is registered in `package.json`
    Linux variants has run (they are labelled untested); the UDP readiness
    check should also be confirmed on a disposable Linux node (not Anxlab's
    live servers).
-2. **Immich through a Compose installer type** (design above), then Project
-   Zomboid once a SteamCMD server can be given a generated password safely,
-   then the ARK servers.
+2. **Java application import** (in progress, design): a "Choose .jar" button
+   using the existing native file dialog (as the modpack manual import
+   does), the file kept in the main process (never a renderer path), checked
+   as a ZIP with a `META-INF/MANIFEST.MF` main class and at most 150 MB,
+   written to the instance as `app.jar` through the existing base64 file
+   write (the Agent accepts 256 MB requests), started as the existing
+   `java-app` instance type (`java -Xmx<memory> -jar app.jar <arguments>`),
+   with the `java` dependency check and a trust warning. Needs a
+   "ready once it stays running" readiness mode for apps without a port.
+3. **Project Zomboid**: its admin password must reach the first start
+   without being in the start command (the "Launch command" log line
+   redacts arguments one at a time). Options: send it on the console with a
+   no-echo, no-log stdin write (Agent feature), or seed the server's
+   database. Then Factorio (headless from factorio.com), Garry's Mod, ARK.
 3. **See the Docker services in the app.** Run the real app against a
    disposable Agent and check the wizard, the "Save this password" dialog,
    the completion text and the Docker page for one database and one web
