@@ -8422,23 +8422,41 @@ async function getDirectorySizeBytes(rootPath) {
 // bound. Only a busy port counts: any other bind error is "cannot tell", never
 // readiness. Game servers that speak only UDP (V Rising, Unturned, Enshrouded,
 // Valheim) never open the TCP port the check above looks for.
-function checkUdpPortHeld(port, bindSocket = () => dgram.createSocket("udp4")) {
+// A server may hold its port as IPv4, as dual-stack IPv6 or as IPv6 only, and
+// each is only seen by a bind of the same kind (Valheim's IPv6 socket was
+// invisible to an IPv4 bind), so all three are tried.
+const UDP_HOLD_PROBES = Object.freeze([
+  { type: "udp4", address: "0.0.0.0" },
+  { type: "udp6", address: "::", ipv6Only: false },
+  { type: "udp6", address: "::", ipv6Only: true },
+]);
+
+function probeUdpBind(port, probe, bindSocket) {
   return new Promise((resolve) => {
     let socket;
     try {
-      socket = bindSocket();
+      socket = bindSocket(probe);
     } catch {
-      resolve({ port, held: false });
+      resolve(false);
       return;
     }
     socket.once("error", (error) => {
       try { socket.close(); } catch {}
-      resolve({ port, held: error?.code === "EADDRINUSE" });
+      resolve(error?.code === "EADDRINUSE");
     });
-    socket.bind({ port, address: "0.0.0.0", exclusive: true }, () => {
-      socket.close(() => resolve({ port, held: false }));
+    socket.bind({ port, address: probe.address, exclusive: true }, () => {
+      socket.close(() => resolve(false));
     });
   });
+}
+
+async function checkUdpPortHeld(port, bindSocket = (probe) => dgram.createSocket(probe.type === "udp6" ? { type: "udp6", ipv6Only: probe.ipv6Only } : { type: "udp4" })) {
+  for (const probe of UDP_HOLD_PROBES) {
+    if (await probeUdpBind(port, probe, bindSocket)) {
+      return { port, held: true };
+    }
+  }
+  return { port, held: false };
 }
 
 function checkPort(port) {

@@ -328,6 +328,11 @@ async function main() {
     assert.strictEqual(resolveForPlatform(template(id), "linux").disabled, true, `${id} is unavailable on Linux computers`);
     assert.ok(!resolveForPlatform(template(id), "windows").disabled, `${id} installs on Windows computers`);
   }
+  const dst = template("dont-starve-together");
+  assert.deepStrictEqual(dst.defaultPorts, [10999], "DST defaults to a LAN port (10998-11018)");
+  assert.strictEqual(marketplaceService._test.resolveTemplateForPlatform(dst, "linux").disabled, true, "DST on Linux is labelled untested");
+  assert.deepStrictEqual(dst.configFiles.map((file) => resolveConfigPath(file.path, dst, { name: "Friends" }, [10999])), ["server/saves/Cluster/cluster.ini", "server/saves/Cluster/Master/server.ini"]);
+  assert.ok(/cluster token/.test(dst.configNotes), "DST says internet play needs a Klei cluster token");
   console.log("PASS S11 game config paths use the server folder safely; Windows-only games say so");
 
   // S12 Jellyfin: one media folder, read-only, with the single policy grant

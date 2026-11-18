@@ -26,6 +26,8 @@ No current template is classified Deprecated or Unsupported.
 | `v-rising` | Supported | Manifest validation; launch command from the server's shipped start script (Windows computers only) | Real install and start on Windows passed (`marketplace-steamcmd-real-install`) |
 | `enshrouded` | Supported | Manifest validation; settings from the server's shipped readme (Windows computers only) | Real install and start on Windows passed (`marketplace-steamcmd-real-install`) |
 | `unturned` | Supported | Manifest validation; launch command from the server's shipped helper script | Real install and start on Windows passed (`marketplace-steamcmd-real-install`); Linux start not yet run |
+| `satisfactory` | Supported | Manifest validation; ports and start options from a direct run of the shipped server (Windows computers only) | Real install and start on Windows passed (`marketplace-steamcmd-real-install`) |
+| `dont-starve-together` | Supported | Manifest validation; launch from the shipped script; LAN port range from the server's own log (Windows computers only) | Real install and start on Windows passed (`marketplace-steamcmd-real-install`); internet play needs the owner's Klei cluster token |
 | `hytale` | Experimental | Resolver, checksum, readiness and launcher fixtures (Linux nodes only) | Hytale account sign-in on first start, Java 25, UDP port forwarding |
 | `docker-minecraft-bedrock` | Supported | Docker service fixtures (`marketplace-docker-service-smoke`), Minecraft EULA gate | Real install on Docker Desktop passed (`marketplace-docker-real-install`) |
 | `docker-nginx` | Supported | Docker template fixtures | Registry and Docker daemon |

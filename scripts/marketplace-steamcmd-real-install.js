@@ -57,9 +57,9 @@ function freeTcpPort() {
 
 // A UDP port that is free now, and whose next port is free too (games that
 // take a game port and a query port get a pair).
-async function freeUdpPair() {
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    const port = 30000 + Math.floor(Math.random() * 20000);
+async function freeUdpPair(range = [30000, 49999]) {
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const port = range[0] + Math.floor(Math.random() * (range[1] - range[0]));
     const free = async (candidate) => new Promise((resolve) => {
       const socket = dgram.createSocket("udp4");
       socket.once("error", () => resolve(false));
@@ -118,6 +118,38 @@ const GAMES = {
       assert.strictEqual(config.queryPort, ports[0], "the server kept the port AnxOS wrote");
     },
   },
+  // Existing templates, run to check the Windows start and UDP readiness fixes.
+  valheim: {
+    processName: /valheim_server/i,
+    async settings({ instancePath }) {
+      assert.ok(fs.existsSync(path.join(instancePath, "data", "server", "saves")), "the world is saved under saves in the server folder");
+    },
+  },
+  palworld: {
+    // PalServer.exe starts PalServer-Win64-Shipping-Cmd.exe, which binds the port.
+    processName: /PalServer/i,
+    async settings({ instancePath }) {
+      assert.ok(fs.existsSync(path.join(instancePath, "data", "server", "Pal", "Saved")), "Palworld writes its saves under Pal/Saved");
+    },
+  },
+  satisfactory: {
+    // FactoryServer.exe starts FactoryServer-Win64-Shipping-Cmd.exe, which binds the ports.
+    processName: /FactoryServer/i,
+    async settings({ instancePath, ports }) {
+      const log = fs.readFileSync(path.join(instancePath, "data", "server", "FactoryGame", "Saved", "Logs", "FactoryGame.log"), "utf8");
+      assert.ok(log.includes(`-Port=${ports[0]} -ReliablePort=${ports[1]}`), "the server started with the ports AnxOS chose");
+    },
+  },
+  "dont-starve-together": {
+    processName: /dontstarve_dedicated_server/i,
+    // LAN servers must use 10998-11018; DST replaces any other port.
+    portRange: [10998, 11017],
+    async settings({ instancePath, ports }) {
+      const log = fs.readFileSync(path.join(instancePath, "data", "server", "saves", "Cluster", "Master", "server_log.txt"), "utf8");
+      assert.ok(log.includes(`Lan Server Started on port: ${ports[0]}`), "the server started on the port AnxOS wrote");
+      assert.ok(!/Invalid port selection/.test(log), "the server accepted the port");
+    },
+  },
   unturned: {
     processName: /Unturned/i,
     async settings({ instancePath, id }) {
@@ -160,7 +192,7 @@ async function runGame(templateId, agent, agentConfig) {
   const spec = GAMES[templateId];
   const name = `Anx214 ${templateId}`;
   const id = `anx214-${templateId}`;
-  const ports = await freeUdpPair();
+  const ports = await freeUdpPair(spec.portRange);
   const record = { templateId, ports, steps: [] };
   results.push(record);
   const started = Date.now();

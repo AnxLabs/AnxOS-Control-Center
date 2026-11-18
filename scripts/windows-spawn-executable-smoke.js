@@ -92,6 +92,14 @@ async function main() {
   await new Promise((done) => setTimeout(done, 100));
   assert.deepStrictEqual(await checkUdpPortHeld(heldPort), { port: heldPort, held: false }, "a released port is free");
   const failing = () => { const socket = new (require("events"))(); socket.bind = () => setImmediate(() => socket.emit("error", Object.assign(new Error("denied"), { code: "EACCES" }))); socket.close = () => {}; return socket; };
+  for (const ipv6Only of [false, true]) {
+    const holder6 = dgram.createSocket({ type: "udp6", ipv6Only });
+    const bound = await new Promise((done) => { holder6.once("error", () => done(false)); holder6.bind(0, "::", () => done(true)); });
+    if (!bound) { console.log("SKIP U1 IPv6 holder: no IPv6 on this computer"); continue; }
+    const port6 = holder6.address().port;
+    assert.strictEqual((await checkUdpPortHeld(port6)).held, true, `an IPv6 holder (ipv6Only=${ipv6Only}) is seen, as Valheim's is`);
+    holder6.close();
+  }
   assert.strictEqual((await checkUdpPortHeld(80, failing)).held, false, "a permission error is not readiness");
   assert.strictEqual((await checkUdpPortHeld(80, () => { throw new Error("no sockets"); })).held, false);
   const source = fs.readFileSync(path.join(__dirname, "..", "src", "shared", "instances", "instanceServiceCore.js"), "utf8");
