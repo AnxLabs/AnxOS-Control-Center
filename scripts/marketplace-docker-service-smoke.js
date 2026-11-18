@@ -16,6 +16,9 @@
 //   S7 a container that exits right after starting fails the install, shows
 //      its last output, and is removed together with the volume it created
 //   S8 an Agent that cannot report container state does not fail the install
+//   S9 the Agent's check reads published ports as the Docker CLI prints them,
+//      and a port Docker itself refuses (older Agents) is reported as a busy
+//      port, with the volume the failed create left behind removed
 // The Agent client is faked and the network is blocked, so no Docker engine,
 // registry or computer is touched. This is not real installation acceptance.
 // Run: node scripts/marketplace-docker-service-smoke.js
@@ -81,7 +84,14 @@ function fakeAgent(overrides = {}) {
     state.preflightPayload = payload;
     return { engineAvailable: true, name: payload.name, findings: state.findings || [], policy: { allowed: true, deniedKeys: [] } };
   };
-  agentClient.listDockerVolumes = async () => { calls.push("volumes"); return { volumes: (state.existingVolumes || []).map((name) => ({ name })) }; };
+  // Each planned volume is looked up by name; listing every volume is slow.
+  agentClient.listDockerVolumes = async () => { throw new Error("the install must not list every volume"); };
+  agentClient.inspectDockerVolume = async (name) => {
+    calls.push("volumes");
+    if ((state.existingVolumes || []).includes(name)) return { volume: name, inspect: [{ Name: name }] };
+    if (state.volumeError) throw new Error(state.volumeError);
+    throw Object.assign(new Error(`Docker command failed: Error response from daemon: get ${name}: no such volume`), { code: "DOCKER_COMMAND_FAILED" });
+  };
   agentClient.pullDockerImage = async (image) => {
     calls.push(`pull ${image}`);
     if (state.pullError) throw Object.assign(new Error(state.pullError), { code: "DOCKER_COMMAND_FAILED" });
@@ -89,6 +99,7 @@ function fakeAgent(overrides = {}) {
   };
   agentClient.createDockerContainer = async (payload) => {
     calls.push("create");
+    if (state.createError) throw Object.assign(new Error(state.createError), { code: "DOCKER_COMMAND_FAILED" });
     state.created.push(payload);
     return { container: { id: `cid-${state.created.length}`, name: payload.name, image: payload.image, started: payload.start === true } };
   };
@@ -98,7 +109,12 @@ function fakeAgent(overrides = {}) {
     return { inspect: [{ State: state.containerState || { Running: true, Restarting: false, Status: "running", ExitCode: 0 } }] };
   };
   agentClient.getDockerContainerLogs = async () => { calls.push("logs"); return { logs: state.logs || "" }; };
-  agentClient.deleteDockerContainer = async (name) => { calls.push("delete"); state.deletedContainers.push(name); return { deleted: true }; };
+  agentClient.deleteDockerContainer = async (name) => {
+    calls.push("delete");
+    if (state.createError) throw new Error("No such container");
+    state.deletedContainers.push(name);
+    return { deleted: true };
+  };
   agentClient.removeDockerVolume = async (name) => { calls.push("volume-rm"); state.removedVolumes.push(name); return { deleted: true }; };
   return { calls, state };
 }
@@ -213,6 +229,14 @@ async function main() {
     return true;
   });
   assert.deepStrictEqual(agent.calls, ["preflight", "volumes"], "nothing is downloaded or created over earlier data");
+  // An Agent older than Build 214 answers a free name with Docker's bare "[]".
+  agent = fakeAgent({ volumeError: "Docker command failed: []" });
+  await install("postgresql", "older-agent-db");
+  assert.ok(agent.calls.includes("create"), "a free volume name reported the older way does not block the install");
+  // An unreadable answer is not treated as "no earlier data".
+  agent = fakeAgent({ volumeError: "Agent request timed out" });
+  await assert.rejects(install("postgresql", "unsure-db"), /timed out/);
+  assert.ok(!agent.calls.includes("create"), "the install does not continue when it cannot tell whether earlier data exists");
   console.log("PASS S4 earlier data of the same name blocks the install");
 
   // S5
@@ -257,8 +281,24 @@ async function main() {
   assert.deepStrictEqual(agent.state.deletedContainers, []);
   console.log("PASS S8 an Agent that cannot report container state does not fail the install");
 
+  // S9
+  const { readPublishedHostPorts } = require(path.join(repo, "src/shared/dockerService"));
+  assert.deepStrictEqual(readPublishedHostPorts("0.0.0.0:3000->8080/tcp, [::]:3000->8080/tcp"), [3000], "the CLI's text form is read");
+  assert.deepStrictEqual(readPublishedHostPorts("0.0.0.0:7000-7002->7000-7002/udp, 9000/tcp"), [7000, 7001, 7002], "a published range is read; an unpublished port is not");
+  assert.deepStrictEqual(readPublishedHostPorts([{ PublicPort: 8080, PrivatePort: 80 }, { PrivatePort: 443 }]), [8080], "the Engine API form is still read");
+  assert.deepStrictEqual(readPublishedHostPorts(""), []);
+  agent = fakeAgent({ createError: "Docker command failed: Bind for 0.0.0.0:8080 failed: port is already allocated" });
+  await assert.rejects(install("docker-nginx", "busy-site"), (error) => {
+    assert.strictEqual(error.code, "PORT_IN_USE");
+    assert.match(error.message, /already in use on this computer\. Choose another port/);
+    assert.match(error.message, /Nothing was left behind/);
+    return true;
+  });
+  assert.deepStrictEqual(agent.state.removedVolumes, ["busy-site-site"], "the volume a failed create left is removed, so a retry is not blocked by it");
+  console.log("PASS S9 busy ports are detected, and a refused create leaves nothing behind");
+
   assert.deepStrictEqual(blocked, [], `no network or process escaped: ${blocked.join(", ")}`);
-  console.log("Marketplace Docker service smoke passed (8 checks).");
+  console.log("Marketplace Docker service smoke passed (9 checks).");
 }
 
 main()

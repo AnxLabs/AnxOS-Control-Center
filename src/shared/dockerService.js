@@ -175,7 +175,9 @@ function classifyDockerFailure(result) {
 // The daemon's own reason (a port already allocated, a name already in use) is
 // what the user needs; "Docker command failed." alone left them guessing.
 function describeDockerCommandFailure(output) {
-  const line = redactDockerText(output).split(/\r?\n/).map((entry) => entry.trim()).find(Boolean);
+  // `docker inspect` of something that does not exist prints "[]" before its
+  // error, so the first line alone read "Docker command failed: []".
+  const line = redactDockerText(output).split(/\r?\n/).map((entry) => entry.trim()).find((entry) => entry && entry !== "[]");
   if (!line) return "Docker command failed.";
   const reason = line.replace(/^Error response from daemon:\s*/i, "").replace(/^Error:\s*/i, "");
   return `Docker command failed: ${reason.length > 300 ? `${reason.slice(0, 297)}...` : reason}`;
@@ -1057,20 +1059,41 @@ async function listNetworks() {
   return { networks: detailed };
 }
 
+// One `docker inspect` for every listed item. Inspecting each container and
+// volume with its own command took longer than the desktop's 12-second limit
+// on a computer with about ten containers, so the volume list never loaded.
+// Returns null when the single command fails (for example an item removed
+// between the list and the inspect), and the caller inspects one by one.
+async function inspectMany(prefixArgs, targets) {
+  if (targets.length === 0) return [];
+  try {
+    const result = await runDockerCommand([...prefixArgs, ...targets], { timeout: 20000, maxBuffer: 1024 * 1024 * 16 });
+    const parsed = JSON.parse(result.stdout || "[]");
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 async function listVolumes() {
   const [volumes, containers] = await Promise.all([listVolumesRaw(), listContainersRaw().catch(() => [])]);
-  const inspectedContainers = await Promise.all(containers.map((container) => inspectContainer(container.id).catch(() => null)));
+  const containerIds = containers.map((container) => container.id).filter(Boolean);
+  const volumeNames = volumes.map((volume) => volume.name).filter(Boolean);
+  const containerData = await inspectMany(["inspect"], containerIds)
+    || (await Promise.all(containerIds.map((id) => inspectContainer(id).catch(() => null))))
+      .map((entry) => Array.isArray(entry?.inspect) ? entry.inspect[0] : null);
+  const volumeData = await inspectMany(["volume", "inspect"], volumeNames)
+    || (await Promise.all(volumeNames.map((name) => inspectVolume(name).catch(() => null))))
+      .map((entry) => Array.isArray(entry?.inspect) ? entry.inspect[0] : null);
+  const volumeByName = new Map(volumeData.filter(Boolean).map((entry) => [entry.Name, entry]));
   return {
-    volumes: await Promise.all(volumes.map(async (volume) => {
-      const inspect = await inspectVolume(volume.name).catch(() => null);
-      const data = Array.isArray(inspect?.inspect) ? inspect.inspect[0] : null;
-      const users = inspectedContainers
-        .map((entry) => Array.isArray(entry?.inspect) ? entry.inspect[0] : null)
+    volumes: volumes.map((volume) => {
+      const users = containerData
         .filter((entry) => (entry?.Mounts || []).some((mount) => mount.Type === "volume" && mount.Name === volume.name))
         .map((entry) => normalizeName(entry?.Name) || entry?.Id)
         .filter(Boolean);
-      return { ...volume, labels: data?.Labels || {}, containersUsing: users };
-    })),
+      return { ...volume, labels: volumeByName.get(volume.name)?.Labels || {}, containersUsing: users };
+    }),
   };
 }
 
@@ -1277,6 +1300,27 @@ async function execContainer(container, payload = {}) {
 // currently published host ports) are best-effort and reported as
 // engineUnavailable when the engine is not reachable. Never throws for
 // findings — the caller decides whether to proceed.
+// Host ports that listed containers publish. The Docker CLI reports them as
+// text ("0.0.0.0:8080->80/tcp, [::]:8080->80/tcp"); the Engine API reports
+// objects with PublicPort. Reading only the object form found no ports on a
+// real engine, so a busy port was never reported before the create failed.
+function readPublishedHostPorts(rawPorts) {
+  const ports = new Set();
+  if (Array.isArray(rawPorts)) {
+    for (const binding of rawPorts) {
+      const port = Number.parseInt(binding?.PublicPort, 10);
+      if (Number.isInteger(port) && port > 0) ports.add(port);
+    }
+  } else if (typeof rawPorts === "string") {
+    for (const match of rawPorts.matchAll(/:(\d{1,5})(?:-(\d{1,5}))?->/g)) {
+      const first = Number.parseInt(match[1], 10);
+      const last = match[2] ? Number.parseInt(match[2], 10) : first;
+      for (let port = first; port <= last && port <= 65535 && ports.size < 4096; port += 1) ports.add(port);
+    }
+  }
+  return [...ports];
+}
+
 async function preflightContainerCreate(payload = {}) {
   const findings = [];
   const policy = policeContainerRequest(payload);
@@ -1312,11 +1356,8 @@ async function preflightContainerCreate(payload = {}) {
     const containers = await listContainersRaw({ timeoutMs: SNAPSHOT_OPTIONAL_TIMEOUT_MS });
     const publishedHostPorts = [];
     for (const container of containers) {
-      const rawPorts = Array.isArray(container.rawPorts) ? container.rawPorts : [];
-      for (const binding of rawPorts) {
-        if (typeof binding === "object" && binding !== null && binding.PublicPort != null) {
-          publishedHostPorts.push({ hostPort: binding.PublicPort });
-        }
+      for (const hostPort of readPublishedHostPorts(container.rawPorts)) {
+        publishedHostPorts.push({ hostPort });
       }
     }
     for (const port of detectHostPortConflicts(normalizeHostPorts(payload), publishedHostPorts)) {
@@ -1408,6 +1449,7 @@ module.exports = {
   parseJsonLines,
   pauseContainer,
   preflightContainerCreate,
+  readPublishedHostPorts,
   assertComposePolicy,
   pullImage,
   pruneImages,

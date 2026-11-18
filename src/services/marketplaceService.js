@@ -4512,14 +4512,16 @@ function dockerInstallError(message, code, details = {}) {
 
 // Removes what a failed Docker install created: the container, then the
 // volumes this install made. The install refuses to start when one of its
-// volumes already exists, so earlier data is never in `createdVolumes`.
+// volumes already exists, so earlier data is never in `createdVolumes`, and
+// the Agent refuses to remove a volume a container still uses.
 async function cleanupFailedDockerInstall(containerName, createdVolumes, agentConfig) {
   const removed = { container: false, volumes: [] };
   try {
     await agentClient.deleteDockerContainer(containerName, agentConfig);
     removed.container = true;
   } catch {
-    return removed;
+    // Either it was never created or it could not be removed; the volume
+    // removal below only succeeds when no container holds the volume.
   }
   for (const volume of createdVolumes) {
     try {
@@ -4539,7 +4541,9 @@ async function verifyDockerContainerRunning(containerName, agentConfig) {
     try {
       state = readContainerRunState(await agentClient.inspectDockerContainer(containerName, agentConfig));
     } catch {
-      return { known: false, running: false };
+      // A slow or busy Docker engine can miss one check; try the next one.
+      state = { known: false, running: false };
+      continue;
     }
     if (!state.known || !state.running) return state;
   }
@@ -4553,6 +4557,7 @@ async function installDockerTemplate({ template, options, ports, agentConfig, pr
   const containerName = slugify(options.id || options.name || template.id);
   let stage = "Check computer";
   let created = false;
+  let createAttempted = false;
   let request = null;
   try {
     request = buildDockerInstallRequest(template, {
@@ -4581,9 +4586,20 @@ async function installDockerTemplate({ template, options, ports, agentConfig, pr
       );
     }
     if (volumes.length > 0) {
-      const listed = await agentClient.listDockerVolumes(agentConfig);
-      const existing = new Set((listed?.volumes || []).map((volume) => volume.name));
-      const kept = volumes.filter((volume) => existing.has(volume.name)).map((volume) => volume.name);
+      // Each planned volume is looked up by name: listing every volume on the
+      // computer is slow where there are many containers.
+      const kept = [];
+      for (const volume of volumes) {
+        try {
+          await agentClient.inspectDockerVolume(volume.name, agentConfig);
+          kept.push(volume.name);
+        } catch (error) {
+          // "no such volume" is Docker's answer for a name that is free. An
+          // Agent older than Build 214 reports the same case as the bare
+          // "[]" Docker prints first. Anything else is a real failure.
+          if (!/no such volume|^Docker command failed: \[\]$/i.test(String(error?.message || "").trim())) throw error;
+        }
+      }
       if (kept.length > 0) {
         throw dockerInstallError(
           `Data from an earlier "${containerName}" is still on this computer (${kept.join(", ")}). Choose a different name, or remove that data on the Docker page first.`,
@@ -4605,7 +4621,18 @@ async function installDockerTemplate({ template, options, ports, agentConfig, pr
     stage = "Create instance";
     pushStep(progress, stage, "running", `Creating ${template.displayName}.`);
     updateDownload(parentRecord, { stage, progress: 70 });
-    const result = await agentClient.createDockerContainer(payload, agentConfig);
+    createAttempted = true;
+    let result;
+    try {
+      result = await agentClient.createDockerContainer(payload, agentConfig);
+    } catch (error) {
+      // An Agent older than Build 214 does not report a busy port in its
+      // check, so Docker refuses it here instead.
+      if (/port is already allocated|address already in use/i.test(String(error?.message || ""))) {
+        throw dockerInstallError("That port is already in use on this computer. Choose another port and try again.", "PORT_IN_USE", { field: "ports" });
+      }
+      throw error;
+    }
     created = true;
     pushStep(progress, stage, "complete", volumes.length > 0
       ? `Container created. Its data is kept in ${volumes.map((volume) => volume.name).join(", ")}.`
@@ -4650,11 +4677,11 @@ async function installDockerTemplate({ template, options, ports, agentConfig, pr
     };
   } catch (error) {
     let cleanupNote = "";
-    if (created) {
+    if (createAttempted) {
       const planned = (request?.volumes || []).map((volume) => volume.name);
       const removed = await cleanupFailedDockerInstall(containerName, request?.volumes || [], agentConfig);
       const left = planned.filter((name) => !removed.volumes.includes(name));
-      if (!removed.container) {
+      if (created && !removed.container) {
         cleanupNote = ` The container "${containerName}" could not be removed; remove it on the Docker page before trying again.`;
       } else if (left.length > 0) {
         cleanupNote = ` The container was removed; its data (${left.join(", ")}) is still on the Docker page.`;
