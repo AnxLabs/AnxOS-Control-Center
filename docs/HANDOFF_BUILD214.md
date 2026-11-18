@@ -414,7 +414,7 @@ test answers the native file dialog) passes.
   issue only; the install proceeds once loaded.
 - Valheim's template still starts with a fixed join password
   (`changeme123`, existing behaviour; the card says to change it).
-- Project Zomboid and Java application: see Next steps.
+- Project Zomboid: see Next steps.
 
 ## Tests run
 
@@ -478,18 +478,26 @@ The new smoke is registered in `package.json`
    Linux variants has run (they are labelled untested); the UDP readiness
    check should also be confirmed on a disposable Linux node (not Anxlab's
    live servers).
-2. **Project Zomboid** (in progress): the Agent already shows instance
-   environment values to the app only as `[configured]`
-   (`instanceServiceCore.js`, public instance view). Plan: a template
-   `generatedSecrets` list for native servers puts a generated password in
-   the instance environment (also in the startup patch, which replaces the
-   environment) and returns it once as credentials; the start command
-   references it by name (`%ANXOS_PZ_ADMIN_PASSWORD%` through `cmd.exe /c`
-   on Windows, `"$ANXOS_PZ_ADMIN_PASSWORD"` through bash on Linux), so the
-   "Launch command" line shows only the name. Must be proven in a real run
-   that Project Zomboid does not print it. Saves must be kept in the server
-   folder (`-cachedir`). Then Factorio (headless from factorio.com),
-   Garry's Mod, ARK.
+2. **Project Zomboid: blocked on an approved design for server passwords.**
+   Its first start needs an administrator password, passed as
+   `-adminpassword`. Proven on Windows with a direct run: giving it through
+   an environment setting referenced as `%ANXOS_PZ_ADMIN_PASSWORD%` creates
+   the account, the server starts on the chosen UDP ports, and the password
+   appears in none of its files or logs (its database stores it hashed);
+   `-cachedir=Zomboid` keeps saves in the server folder. But the Agent
+   deliberately refuses server environment settings named like a token,
+   secret, password, credential or API key (`SECRET_ENVIRONMENT_NOT_ALLOWED`
+   in `normalizeEnvironment`), because a server's environment is stored as
+   plain settings. Renaming the setting to pass that check would defeat it,
+   so it was not done and no Project Zomboid card was added. Needed: an
+   Agent-side store for a server's secrets (written once, readable only by
+   the Agent's account, passed to the process at start, never returned or
+   logged), designed and approved as a security change. Then the template
+   is ready to write (command and checks above).
+3. **More games**: Factorio (headless server from factorio.com, not
+   SteamCMD), Garry's Mod (4020), ARK: Survival Evolved (376030, Windows and
+   Linux) and Ascended (2430930, Windows only), Space Engineers (298740,
+   Windows only). DayZ and Arma 3 need a Steam account that owns the game.
 3. **See the Docker services in the app.** Run the real app against a
    disposable Agent and check the wizard, the "Save this password" dialog,
    the completion text and the Docker page for one database and one web
