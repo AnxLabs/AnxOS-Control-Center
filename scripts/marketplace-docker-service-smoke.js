@@ -16,6 +16,8 @@
 //   S7 a container that exits right after starting fails the install, shows
 //      its last output, and is removed together with the volume it created
 //   S8 an Agent that cannot report container state does not fail the install
+//   S10 Minecraft Bedrock is not installed until the Minecraft EULA is
+//      accepted, and then gets the EULA setting and a volume for its world
 //   S9 the Agent's check reads published ports as the Docker CLI prints them,
 //      and a port Docker itself refuses (older Agents) is reported as a busy
 //      port, with the volume the failed create left behind removed
@@ -297,8 +299,25 @@ async function main() {
   assert.deepStrictEqual(agent.state.removedVolumes, ["busy-site-site"], "the volume a failed create left is removed, so a retry is not blocked by it");
   console.log("PASS S9 busy ports are detected, and a refused create leaves nothing behind");
 
+  // S10
+  agent = fakeAgent();
+  await assert.rejects(install("docker-minecraft-bedrock", "bedrock"), (error) => {
+    assert.strictEqual(error.code, "EULA_REQUIRED");
+    assert.strictEqual(error.details.retryable, false);
+    return true;
+  });
+  assert.deepStrictEqual(agent.calls, [], "nothing is checked, downloaded or created before the EULA is accepted");
+  await install("docker-minecraft-bedrock", "bedrock", { acceptEula: true, port: 19140, ports: [19140] });
+  const bedrock = agent.state.created[0];
+  assert.strictEqual(bedrock.environment.EULA, "TRUE");
+  assert.deepStrictEqual(bedrock.volumes, ["bedrock-data:/data"], "the world is kept in a volume");
+  assert.deepStrictEqual(bedrock.ports, ["19140:19132/udp"]);
+  const appSource = fs.readFileSync(path.join(repo, "app.js"), "utf8");
+  assert.ok(appSource.includes('template?.requiresEula === "minecraft"') && appSource.includes('field === "acceptEula" && marketplaceTemplateNeedsEula(template)'), "the wizard shows and enforces the EULA box for this template");
+  console.log("PASS S10 Minecraft Bedrock needs the EULA and keeps its world");
+
   assert.deepStrictEqual(blocked, [], `no network or process escaped: ${blocked.join(", ")}`);
-  console.log("Marketplace Docker service smoke passed (9 checks).");
+  console.log("Marketplace Docker service smoke passed (10 checks).");
 }
 
 main()

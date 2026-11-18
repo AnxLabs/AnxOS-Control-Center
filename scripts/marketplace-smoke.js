@@ -2443,6 +2443,7 @@ async function assertSharedTemplateInstallFlowMatrix() {
   const patchedAgentMethods = [
     "createDockerContainer",
     "preflightDockerContainer",
+    "inspectDockerVolume",
     "pullDockerImage",
     "createInstance",
     "createInstanceFolder",
@@ -2538,6 +2539,7 @@ async function assertSharedTemplateInstallFlowMatrix() {
     // create the container (Build 214).
     agentClient.preflightDockerContainer = async (payload) => ({ engineAvailable: true, name: payload.name, findings: [] });
     agentClient.pullDockerImage = async (image) => ({ image });
+    agentClient.inspectDockerVolume = async (name) => { throw new Error(`Docker command failed: get ${name}: no such volume`); };
     agentClient.createDockerContainer = async (payload) => ({
       container: { id: payload.name, name: payload.name, image: payload.image, state: payload.start === false ? "stopped" : "running" },
     });
@@ -2700,7 +2702,7 @@ async function assertSharedTemplateInstallFlowMatrix() {
 
     const dockerResult = await marketplaceService.installTemplate({
       templateId: "docker-minecraft-bedrock",
-      options: { id: "bedrock-docker-flow-smoke", name: "Bedrock Docker Flow Smoke", port: 19132, memory: "2G", start: false },
+      options: { id: "bedrock-docker-flow-smoke", name: "Bedrock Docker Flow Smoke", port: 19132, memory: "2G", start: false, acceptEula: true },
     });
     assert.strictEqual(dockerResult.container.name, "bedrock-docker-flow-smoke", "Docker-backed server should use Docker handler.");
 

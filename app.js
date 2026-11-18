@@ -19481,6 +19481,12 @@ function setMarketplaceInstallState(label, status = "ready") {
   }
 }
 
+// Java Minecraft servers and the Bedrock Docker server both run Mojang's
+// server software, which needs the Minecraft EULA accepted before it starts.
+function marketplaceTemplateNeedsEula(template) {
+  return isMinecraftMarketplaceTemplate(template) || template?.requiresEula === "minecraft";
+}
+
 function isMinecraftMarketplaceTemplate(template) {
   return template?.category === "Minecraft" || template?.game === "minecraft" || template?.type === "modpack";
 }
@@ -20150,7 +20156,7 @@ function getCreateServerReviewItems(template) {
     ...(memory ? [{ label: "Memory", value: memory, state: "ready" }] : []),
     ...(port ? [{ label: "Primary port", value: port, state: "ready" }] : []),
   ];
-  if (isMinecraft) {
+  if (marketplaceTemplateNeedsEula(template)) {
     items.push({
       label: "Minecraft EULA",
       value: getMarketplaceField("acceptEula")?.checked ? "Accepted" : "Not accepted",
@@ -21302,7 +21308,7 @@ function validateCreateServerStep(step, { report = true } = {}) {
       }
       return false;
     }
-    if (isMinecraftMarketplaceTemplate(template) && !getMarketplaceField("acceptEula")?.checked) {
+    if (marketplaceTemplateNeedsEula(template) && !getMarketplaceField("acceptEula")?.checked) {
       if (report) {
         setMarketplaceMessage("Tick \"I agree to the Minecraft EULA\" to continue.", "error");
         getMarketplaceField("acceptEula")?.focus();
@@ -21383,7 +21389,7 @@ function syncMarketplaceWizardFields(template) {
     const field = wrapper.dataset.marketplaceFieldWrap;
     const shouldShow = isMinecraft
       ? ["version", "serverType", "playitTunnel", "acceptEula"].includes(field)
-      : ["storageLocation"].includes(field);
+      : ["storageLocation"].includes(field) || (field === "acceptEula" && marketplaceTemplateNeedsEula(template));
     wrapper.hidden = !shouldShow;
   });
 }
@@ -24575,7 +24581,7 @@ async function installMarketplaceTemplate(event) {
 
   if (!validateCreateServerBeforeInstall()) return;
 
-  if (isMinecraftMarketplaceTemplate(template) && !options.acceptEula) {
+  if (marketplaceTemplateNeedsEula(template) && !options.acceptEula) {
     setMarketplaceMessage("Tick \"I agree to the Minecraft EULA\" to continue.", "error");
     return;
   }

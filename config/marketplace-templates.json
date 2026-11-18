@@ -1458,7 +1458,7 @@
   {
     "id": "docker-minecraft-bedrock",
     "displayName": "Minecraft Bedrock Docker",
-    "description": "Docker-backed Minecraft Bedrock dedicated server using itzg/minecraft-bedrock-server.",
+    "description": "Minecraft Bedrock dedicated server (for phones, consoles and Windows Bedrock players) using the itzg/minecraft-bedrock-server image.",
     "icon": "BDR",
     "screenshots": [],
     "author": "AnxOS",
@@ -1487,7 +1487,18 @@
       "ports": [
         "19132:19132/udp"
       ],
-      "restartPolicy": "unless-stopped"
+      "restartPolicy": "unless-stopped",
+      "volumes": [
+        {
+          "name": "data",
+          "target": "/data",
+          "label": "World and settings"
+        }
+      ],
+      "environment": {
+        "EULA": "TRUE",
+        "SERVER_NAME": "{name}"
+      }
     },
     "compatibility": {
       "requires": [
@@ -1522,7 +1533,9 @@
       "port",
       "memory"
     ],
-    "installerType": "docker-image"
+    "installerType": "docker-image",
+    "requiresEula": "minecraft",
+    "configNotes": "Players connect on the port you chose, over UDP. The world and server.properties are kept in the data volume."
   },
   {
     "id": "docker-nginx",

@@ -173,6 +173,22 @@ const SERVICES = {
       return { read: async () => (await docker(["exec", name, "cat", "/var/www/html/anx214"])).stdout, expected: "kept" };
     },
   },
+  "docker-minecraft-bedrock": {
+    options: { acceptEula: true },
+    async refusedWithout({ nodeId, name, ports }) {
+      await assert.rejects(install("docker-minecraft-bedrock", nodeId, name, ports), (error) => error.code === "EULA_REQUIRED");
+      assert.ok(!(await docker(["inspect", name])).ok, "nothing is created before the EULA is accepted");
+    },
+    async verify({ name }) {
+      // Bedrock speaks UDP only, so readiness comes from its own log line.
+      await waitFor("Bedrock", async () => /Server started\./.test((await docker(["logs", name])).stdout), { timeoutMs: 240000 });
+      const properties = await docker(["exec", name, "cat", "/data/server.properties"]);
+      assert.ok(properties.ok && /server-port=19132/.test(properties.stdout), "server.properties is in the data volume");
+      assert.ok((await docker(["exec", name, "sh", "-c", "ls /data/worlds"])).stdout.length > 0, "the world is in the data volume");
+      assert.ok((await docker(["exec", name, "sh", "-c", "echo kept > /data/anx214"])).ok);
+      return { read: async () => (await docker(["exec", name, "cat", "/data/anx214"])).stdout, expected: "kept" };
+    },
+  },
   "docker-nginx": {
     async verify({ name, port }) {
       await waitFor("Nginx", async () => /nginx/i.test((await httpGet(`http://127.0.0.1:${port}/`)).text));
@@ -210,8 +226,8 @@ async function startAgent(agentRoot) {
   return { child, nodeId: registered.node.id, url };
 }
 
-function install(templateId, nodeId, name, ports) {
-  return marketplaceService.installTemplate({ templateId, nodeId, requestId: `real-${name}-${Date.now()}`, options: { ...OPTIONS, name, port: ports[0], ports } });
+function install(templateId, nodeId, name, ports, extra = {}) {
+  return marketplaceService.installTemplate({ templateId, nodeId, requestId: `real-${name}-${Date.now()}`, options: { ...OPTIONS, name, port: ports[0], ports, ...extra } });
 }
 
 async function runService(templateId, nodeId, agentConfig) {
@@ -224,7 +240,11 @@ async function runService(templateId, nodeId, agentConfig) {
   results.push(record);
   createdNames.push(name);
   try {
-    const result = await install(templateId, nodeId, name, ports);
+    if (spec.refusedWithout) {
+      await spec.refusedWithout({ nodeId, name, ports });
+      record.steps.push("refused until the EULA is accepted");
+    }
+    const result = await install(templateId, nodeId, name, ports, spec.options || {});
     record.installSeconds = Math.round((Date.now() - started) / 1000);
     record.steps.push("installed");
     assert.strictEqual(result.runtimeType, "docker");

@@ -4560,6 +4560,11 @@ async function installDockerTemplate({ template, options, ports, agentConfig, pr
   let createAttempted = false;
   let request = null;
   try {
+    // Mojang's server software must not start until the user has accepted the
+    // Minecraft EULA; the wizard's tick box is presentation, this is the gate.
+    if (template.requiresEula === "minecraft" && options.acceptEula !== true) {
+      throw createMarketplaceError("Accept the Minecraft EULA to install this server.", "EULA_REQUIRED", { templateId: template.id, retryable: false });
+    }
     request = buildDockerInstallRequest(template, {
       containerName,
       hostPorts: ports,
