@@ -9,6 +9,7 @@ const path = require("path");
 const { StringDecoder } = require("string_decoder");
 const zlib = require("zlib");
 const javaRuntimeResolver = require("../minecraftJavaRuntime");
+const serverSecretStore = require("./instanceSecretStore");
 const bundledRuntimePaths = require("../bundledRuntimePaths");
 const jobLifecycle = require("./jobLifecycle");
 const { correlationMetadata, createCorrelationId, runWithCorrelationScope } = require("../structuredLogger");
@@ -2124,6 +2125,7 @@ function normalizeInstanceConfig(payload, existingConfig = null) {
     restartPolicy: validateRestartPolicy(payload.restartPolicy),
     startupTimeoutMs: validatePositiveInteger(payload.startupTimeoutMs, DEFAULT_STARTUP_TIMEOUT_MS, MAX_STARTUP_TIMEOUT_MS, "startupTimeoutMs"),
     readinessMode: normalizeReadinessMode(payload.readinessMode),
+    secretEnvironmentNames: normalizeSecretEnvironmentNames(existingConfig?.secretEnvironmentNames),
     shutdownTimeoutMs: validatePositiveInteger(payload.shutdownTimeoutMs, DEFAULT_SHUTDOWN_TIMEOUT_MS, MAX_SHUTDOWN_TIMEOUT_MS, "shutdownTimeoutMs"),
     memoryLimit: payload.memoryLimit ? validateMemoryValue(payload.memoryLimit) : null,
     serverJar: normalizeOptionalJarPath(payload.serverJar) || normalizeOptionalJarPath(payload.jar) || null,
@@ -2292,8 +2294,28 @@ function publicConfig(config) {
       redacted[key] = "[configured]";
       return redacted;
     }, {}),
+    // Server secrets (docs/SERVER_SECRET_STORE.md): names only, never values.
+    secretEnvironment: normalizeSecretEnvironmentNames(config.secretEnvironmentNames).map((name) => ({ name, configured: true })),
   };
 }
+
+function normalizeSecretEnvironmentNames(value) {
+  return Array.isArray(value) ? [...new Set(value.map(String).filter((name) => /^[A-Z_][A-Z0-9_]{0,63}$/.test(name)))].slice(0, 8) : [];
+}
+
+// Stores the secret values a create or update carries and returns the names
+// the server's settings should record. Values never reach config.json.
+function storeServerSecrets(instanceId, payload, currentNames = []) {
+  // The public view lists names as [{ name, configured }]; a caller that
+  // sends a server's record back as an update changes nothing by it.
+  if (payload?.secretEnvironment === undefined || payload?.secretEnvironment === null || Array.isArray(payload.secretEnvironment)) return normalizeSecretEnvironmentNames(currentNames);
+  const values = serverSecretStore.validateSecretEnvironment(payload.secretEnvironment);
+  const stored = serverSecretStore.setServerSecrets(getInstanceRoot(), instanceId, values);
+  return normalizeSecretEnvironmentNames([...currentNames, ...stored]);
+}
+
+// Secret values of running servers, to scrub them from their output.
+const runningSecretValues = new Map();
 
 function numericOrNull(value) {
   const number = Number(value);
@@ -5774,7 +5796,16 @@ async function createInstance(payload) {
     throw createInstanceError("INSTANCE_ALREADY_EXISTS", 409);
   }
 
-  await saveInstanceConfig(config);
+  if (payload?.secretEnvironment !== undefined && payload?.secretEnvironment !== null && !Array.isArray(payload.secretEnvironment)) {
+    serverSecretStore.validateSecretEnvironment(payload.secretEnvironment);
+  }
+  config.secretEnvironmentNames = storeServerSecrets(config.id, payload, []);
+  try {
+    await saveInstanceConfig(config);
+  } catch (error) {
+    if (config.secretEnvironmentNames.length > 0) serverSecretStore.deleteServerSecrets(getInstanceRoot(), config.id);
+    throw error;
+  }
 
   return publicConfig(config);
 }
@@ -5858,6 +5889,7 @@ async function updateInstance(instanceId, payload = {}) {
       ? validatePositiveInteger(payload.startupTimeoutMs, current.startupTimeoutMs, MAX_STARTUP_TIMEOUT_MS, "startupTimeoutMs")
       : current.startupTimeoutMs,
     readinessMode: payload.readinessMode !== undefined ? normalizeReadinessMode(payload.readinessMode) : (current.readinessMode || null),
+    secretEnvironmentNames: normalizeSecretEnvironmentNames(current.secretEnvironmentNames),
     shutdownTimeoutMs: payload.shutdownTimeoutMs !== undefined
       ? validatePositiveInteger(payload.shutdownTimeoutMs, current.shutdownTimeoutMs, MAX_SHUTDOWN_TIMEOUT_MS, "shutdownTimeoutMs")
       : current.shutdownTimeoutMs,
@@ -5949,6 +5981,7 @@ async function updateInstance(instanceId, payload = {}) {
   // the same allowlist that create uses, so a capability cannot be smuggled in
   // through PATCH after a clean create.
   assertInstanceWorkloadTrust(resolvedNext, payload);
+  resolvedNext.secretEnvironmentNames = storeServerSecrets(resolvedNext.id, payload, current.secretEnvironmentNames);
   await saveInstanceConfig(resolvedNext);
   return publicConfig(resolvedNext);
 }
@@ -6090,6 +6123,13 @@ async function deleteInstance(instanceId) {
     const pendingVersionTimer = versionRefreshTimers.get(config.id);
     if (pendingVersionTimer) clearTimeout(pendingVersionTimer);
     versionRefreshTimers.delete(config.id);
+    // A deleted server's secrets go with it.
+    runningSecretValues.delete(config.id);
+    try {
+      serverSecretStore.deleteServerSecrets(getInstanceRoot(), config.id);
+    } catch (error) {
+      result.errors.push({ code: error?.code || "SERVER_SECRET_DELETE_FAILED" });
+    }
 
     return {
       ...result,
@@ -6365,10 +6405,12 @@ function appendProcessTail(entry, streamName, chunk) {
   if (!Array.isArray(entry.outputTail)) {
     entry.outputTail = [];
   }
+  // The tail feeds crash messages; scrub every running server's secrets.
+  const secrets = [...runningSecretValues.values()].flat();
   for (const line of lines) {
     entry.outputTail.push({
       stream: streamName,
-      message: redactLogLine(line),
+      message: serverSecretStore.redactSecretValues(redactLogLine(line), secrets),
     });
   }
   if (entry.outputTail.length > PROCESS_TAIL_LINE_LIMIT) {
@@ -6432,7 +6474,7 @@ async function appendLog(instanceId, streamName, chunk, metadata = {}) {
     return JSON.stringify({
       at,
       stream: streamName,
-      message: redactLogLine(line),
+      message: serverSecretStore.redactSecretValues(redactLogLine(line), runningSecretValues.get(instanceId)),
       ...correlation,
     });
   }).join("\n");
@@ -6600,6 +6642,11 @@ async function startInstanceImpl(instanceId, options = {}) {
     });
     return publicConfig(failedConfig);
   }
+  const secretValues = options.role === "installer"
+    ? {}
+    : serverSecretStore.readServerSecretsForStart(getInstanceRoot(), config.id, normalizeSecretEnvironmentNames(config.secretEnvironmentNames));
+  if (Object.keys(secretValues).length > 0) runningSecretValues.set(config.id, Object.values(secretValues));
+  else runningSecretValues.delete(config.id);
   await appendLog(config.id, "stdout", `Starting ${config.displayName}`);
   const commandForLog = formatCommandForLog(config);
   const javaVersion = await getJavaVersionForLog(config.executable).catch((error) => `unavailable: ${error?.code || error?.message || "unknown"}`);
@@ -6657,7 +6704,7 @@ async function startInstanceImpl(instanceId, options = {}) {
   try {
     child = runWithCorrelationScope({ correlationId: runCorrelationId }, () => childProcess.spawn(resolveSpawnExecutable(config.executable, workingDirectory), config.args, {
       cwd: workingDirectory,
-      env: buildSpawnEnvironment(config),
+      env: { ...buildSpawnEnvironment(config), ...secretValues },
       // POSIX: the server gets its own process group so Stop reaches the whole
       // tree a launcher script starts (see signalInstanceProcesses).
       detached: spawnsOwnProcessGroup(),

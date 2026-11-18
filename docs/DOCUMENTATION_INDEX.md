@@ -4,6 +4,7 @@
 
 - [Architecture](ARCHITECTURE.md) — current Electron/Agent boundaries
 - [Security Boundaries](SECURITY_BOUNDARIES.md) — trust and authorization rules
+- [Server Secret Store](SERVER_SECRET_STORE.md) — encrypted, write-only passwords a game server needs at start (design and threat model)
 - [Known Limitations](KNOWN_LIMITATIONS.md) — current limitations and release caveats
 - [Test Commands](TEST_COMMANDS.md) — tiered QA and targeted verification
 - [V2 Campaign Log](v2/V2_CAMPAIGN_LOG.md) — engineering and review history

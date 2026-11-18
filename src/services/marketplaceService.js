@@ -5037,6 +5037,17 @@ async function executeInstallTemplate(payload = {}, context = {}) {
     ? [resolveMinecraftPort(options, template.defaultPorts)]
     : parsePorts(options.ports || options.port, template.defaultPorts);
   const instancePayload = buildInstancePayload(template, options, ports);
+  // Passwords a native server needs at start (Project Zomboid's
+  // administrator): generated here, sent once through the Agent's
+  // write-only server secret store (docs/SERVER_SECRET_STORE.md) and shown
+  // to the user once. They are never part of the server's settings.
+  const nativeSecretEnvironment = {};
+  const nativeCredentials = [];
+  for (const secret of Array.isArray(template.generatedSecrets) ? template.generatedSecrets : []) {
+    const value = generateSecret();
+    nativeSecretEnvironment[secret.setting] = value;
+    nativeCredentials.push({ id: secret.setting, label: secret.label, username: secret.username || null, secret: value });
+  }
   const importedApplication = template.importFile?.kind === "java-application"
     ? await loadSelectedApplicationFile(options.applicationFileToken)
     : null;
@@ -5098,8 +5109,25 @@ async function executeInstallTemplate(payload = {}, context = {}) {
       createResult = existingInstance;
       createdInstanceId = existingInstance.id;
     } else {
-      createResult = await agentClient.createInstance({ ...instancePayload, installStage: "instance-create" }, agentConfig);
+      createResult = await agentClient.createInstance({
+        ...instancePayload,
+        installStage: "instance-create",
+        ...(nativeCredentials.length > 0 ? { secretEnvironment: nativeSecretEnvironment } : {}),
+      }, agentConfig);
       createdInstanceId = resolveCreatedInstanceId(createResult, instancePayload.id);
+    }
+    if (nativeCredentials.length > 0) {
+      let secretRecord = createResult?.instance || createResult || {};
+      if (reuseExistingInstance) {
+        const updated = await agentClient.updateInstance(createdInstanceId, { secretEnvironment: nativeSecretEnvironment }, agentConfig);
+        secretRecord = updated?.instance || updated || {};
+      }
+      const reported = new Set((Array.isArray(secretRecord.secretEnvironment) ? secretRecord.secretEnvironment : []).map((entry) => entry?.name));
+      if (!Object.keys(nativeSecretEnvironment).every((name) => reported.has(name))) {
+        // An Agent older than Build 214 ignores the secret and would start
+        // the server with the setting's name as its password.
+        throw createMarketplaceError(`${template.displayName} needs this computer's AnxOS Agent to be Build 214 or newer, to keep its administrator password safe. Update the Agent, then install again.`, "AGENT_SECRET_STORE_REQUIRED", { retryable: false });
+      }
     }
     const createRecord = createResult?.instance || createResult?.data?.instance || createResult?.data || createResult || {};
     const instance = typeof createRecord === "object" ? { ...createRecord, id: createdInstanceId } : { id: createdInstanceId };
@@ -5342,6 +5370,8 @@ async function executeInstallTemplate(payload = {}, context = {}) {
     return {
       template,
       instance: startedInstance,
+      // Shown once; the "secret" key keeps them out of saved records.
+      credentials: nativeCredentials,
       progress,
       trust: trustVerdict,
       downloads: sanitizeDownloads(getDownloadsForNode(installNodeId)).downloads,
@@ -5351,7 +5381,12 @@ async function executeInstallTemplate(payload = {}, context = {}) {
     pushStep(progress, "Failed", "failed", mapMarketplaceError(error));
     const errorDetails = getErrorDetails(error);
     const failureStage = getErrorStage(error, createdInstanceId ? "Failed" : "Create instance");
-    if (createdInstanceId) {
+    if (createdInstanceId && error?.code === "AGENT_SECRET_STORE_REQUIRED") {
+      // Never keep a server an older Agent would start with the password
+      // setting's name as its password.
+      await agentClient.deleteInstance(createdInstanceId, agentConfig).catch(() => {});
+      pushStep(progress, "Remove instance", "complete", `Removed ${createdInstanceId}; this computer's Agent cannot keep its password safe.`);
+    } else if (createdInstanceId) {
       // Failed installs keep the instance so it stays visible on the Instances
       // page and can be retried without creating an orphaned duplicate.
       try {

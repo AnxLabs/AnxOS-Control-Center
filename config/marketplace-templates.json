@@ -2034,6 +2034,103 @@
     "installerType": "steamcmd-native"
   },
   {
+    "id": "project-zomboid",
+    "displayName": "Project Zomboid Dedicated Server",
+    "description": "Project Zomboid dedicated server installed with SteamCMD, with a generated administrator password.",
+    "icon": "PZ",
+    "screenshots": [],
+    "author": "AnxOS",
+    "version": "1.0.0",
+    "category": "Game Servers",
+    "instanceType": "custom-command",
+    "startupType": "steamcmd-native",
+    "hostDependencies": [
+      "steamcmd"
+    ],
+    "defaultRam": "4G",
+    "defaultPorts": [
+      16261,
+      16262
+    ],
+    "tags": [
+      "project-zomboid",
+      "survival",
+      "zombies",
+      "steamcmd",
+      "game-server"
+    ],
+    "downloadSource": {
+      "type": "steamcmd",
+      "appId": 380870,
+      "login": "anonymous",
+      "required": true
+    },
+    "installer": {
+      "type": "steamcmd",
+      "appId": 380870,
+      "installDir": "server",
+      "login": "anonymous",
+      "validate": true,
+      "verifyFiles": [
+        "server/ProjectZomboid64.json"
+      ],
+      "timeoutMs": 2400000
+    },
+    "startup": {
+      "executable": "cmd.exe",
+      "args": [
+        "/c",
+        ".\\jre64\\bin\\java.exe -Djava.awt.headless=true -Dzomboid.steam=1 -Dzomboid.znetlog=1 -XX:+UseZGC -XX:-CreateCoredumpOnCrash -XX:-OmitStackTraceInFastThrow -Xmx{memory} -Djava.library.path=natives/ -cp java/;java/projectzomboid.jar zombie.network.GameServer -statistic 0 -cachedir=Zomboid -servername {id} -port {port} -udpport {queryPort} -adminusername admin -adminpassword %ANXOS_PZ_ADMIN_PASSWORD%"
+      ],
+      "workingDirectory": "data/server",
+      "restartPolicy": "on-failure"
+    },
+    "platforms": {
+      "linux": {
+        "disabled": true,
+        "comingSoonMessage": "Project Zomboid on Linux computers has not been tested by AnxOS yet. Install it on a Windows computer."
+      }
+    },
+    "compatibility": {
+      "requires": [
+        "steamcmd"
+      ],
+      "platforms": [
+        "windows"
+      ]
+    },
+    "installMetadata": {
+      "method": "steamcmd",
+      "appId": 380870,
+      "login": "anonymous",
+      "notes": "Windows computers only for now. Requires SteamCMD and a Build 214 or newer AnxOS Agent. The download is about 7 GB."
+    },
+    "configNotes": "Both ports are UDP. Sign in to the server in the game as \"admin\" with the password shown after install. The password is stored encrypted by this computer's AnxOS Agent and never appears in the server's settings or logs. Saves and server settings are in the Zomboid folder (Server/<name>.ini).",
+    "installScript": [
+      "create-instance",
+      "verify-instance",
+      "create-folders",
+      "steamcmd-install",
+      "write-config",
+      "verify",
+      "start"
+    ],
+    "configurationSchema": [
+      "name",
+      "storageLocation",
+      "port",
+      "memory"
+    ],
+    "installerType": "steamcmd-native",
+    "generatedSecrets": [
+      {
+        "setting": "ANXOS_PZ_ADMIN_PASSWORD",
+        "label": "Project Zomboid administrator password",
+        "username": "admin"
+      }
+    ]
+  },
+  {
     "id": "hytale",
     "displayName": "Hytale Dedicated Server",
     "description": "Official Hytale dedicated server from Hypixel Studios (Java 25, QUIC over UDP). The first start signs in with your Hytale account and downloads the official server files.",

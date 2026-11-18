@@ -138,6 +138,32 @@ const GAMES = {
       assert.ok(fs.existsSync(path.join(instancePath, "data", "server", "garrysmod", "cfg")), "the game folder is in the server folder");
     },
   },
+  "project-zomboid": {
+    processName: /java/i,
+    async settings({ instancePath, id, result }) {
+      const password = result.credentials?.[0]?.secret || "";
+      assert.match(password, /^[A-Za-z0-9]{24}$/, "a generated administrator password is returned once");
+      const serverDir = path.join(instancePath, "data", "server");
+      const consoleLog = fs.readFileSync(path.join(serverDir, "Zomboid", "server-console.txt"), "utf8");
+      assert.match(consoleLog, /Administrator account 'admin' created/, "the administrator account was created with it");
+      assert.ok(fs.existsSync(path.join(serverDir, "Zomboid", "Server", `${id}.ini`)), "the server settings are in the server folder");
+      // Nowhere in plain text: not the server folder, its logs, the Agent's
+      // settings for it, or the Agent's secret store.
+      const agentRoot = path.dirname(path.dirname(instancePath));
+      const hits = [];
+      const walk = (folder) => {
+        for (const entry of fs.readdirSync(folder, { withFileTypes: true })) {
+          const full = path.join(folder, entry.name);
+          if (entry.isDirectory()) { if (!/^(java|jre64|media|natives|steamapps)$/.test(entry.name)) walk(full); }
+          else if (entry.isFile() && fs.statSync(full).size < 64 * 1024 * 1024 && fs.readFileSync(full).includes(password)) hits.push(path.relative(agentRoot, full));
+        }
+      };
+      walk(agentRoot);
+      assert.deepStrictEqual(hits, [], `the password is in no plain-text file (${JSON.stringify(hits)})`);
+      assert.ok(fs.existsSync(path.join(agentRoot, "anxos-server-secrets", "secrets.json")), "it is held, encrypted, in the Agent's secret store");
+      assert.ok(!JSON.stringify(result.progress).includes(password), "the password is not in the install steps");
+    },
+  },
   "seven-days-to-die": {
     processName: /7DaysToDieServer/i,
     async settings({ instancePath, ports }) {
@@ -244,7 +270,7 @@ async function runGame(templateId, agent, agentConfig) {
     assert.ok(ready, `AnxOS reports the server running and ready (${record.state})`);
     record.steps.push(`AnxOS state: ${record.state}`);
     const instancePath = path.join(agent.instanceRoot, id);
-    await spec.settings({ instancePath, name, id, ports });
+    await spec.settings({ instancePath, name, id, ports, result });
     record.steps.push("uses the settings AnxOS wrote");
 
     await agentClient.stopInstance(id, agentConfig);

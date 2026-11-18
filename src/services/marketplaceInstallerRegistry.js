@@ -220,6 +220,19 @@ function validateMarketplaceTemplate(template = {}) {
     validateComposeTemplate(template);
   }
 
+  // A native server's generated password goes to the Agent's server secret
+  // store and is reached only by its setting name; a start command can never
+  // contain a value.
+  if (template.generatedSecrets !== undefined) {
+    const secrets = Array.isArray(template.generatedSecrets) ? template.generatedSecrets : null;
+    if (!secrets || secrets.length > 4 || secrets.some((secret) => !/^ANXOS_[A-Z0-9_]{1,48}$/.test(String(secret?.setting || "")) || !String(secret?.label || "").trim())) {
+      throw new MarketplaceManifestError("Each generated password needs an ANXOS_ setting name and a label.", "MARKETPLACE_MANIFEST_INVALID", { templateId: template.id || null });
+    }
+  }
+  if (JSON.stringify(template.startup || {}).includes("{secret")) {
+    throw new MarketplaceManifestError("A start command cannot contain a password; name its setting instead.", "MARKETPLACE_MANIFEST_INVALID", { templateId: template.id || null });
+  }
+
   if (installerType === "direct-download" || installerType === "archive-download" || installerType === "java-runtime") {
     const hasDownloads = Boolean(template.downloadSource?.type) || (Array.isArray(template.downloads) && template.downloads.length > 0);
     if (!hasDownloads) {
