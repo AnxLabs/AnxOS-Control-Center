@@ -522,9 +522,16 @@ async function handleRequest(request, response) {
   // pre-update backup, so it gets that ceiling on top of the earlier 31-minute
   // backup-plus-update budget; other installer steps keep 11 min.
   const isSteamCmdUpdate = request.method === "POST" && /\/steamcmd\/update$/.test(request.url || "");
+  // Docker downloads run up to their own 10-minute limit (20 for a Compose
+  // build). Under the default 2-minute request limit a slow image download
+  // was cut off mid-way and the app reported "Agent unavailable".
+  const isDockerBuild = request.method === "POST" && /\/docker\/compose\/build$/.test(request.url || "");
+  const isDockerDownload = request.method === "POST" && /\/docker\/(?:images?\/pull|compose\/(?:pull|up|recreate)|containers)$/.test(request.url || "");
   const requestTimeoutMs = isSteamCmdUpdate
     ? Math.max(config.requestTimeoutMs, 2 * 60 * 60 * 1000 + 31 * 60 * 1000)
-    : isLongInstallerOperation
+    : isDockerBuild
+    ? Math.max(config.requestTimeoutMs, 21 * 60 * 1000)
+    : isLongInstallerOperation || isDockerDownload
     ? Math.max(config.requestTimeoutMs, 11 * 60 * 1000)
     : isSteamBuildCheck ? Math.max(config.requestTimeoutMs, 3 * 60 * 1000)
       : isFileWrite ? config.fileWriteTimeoutMs : config.requestTimeoutMs;

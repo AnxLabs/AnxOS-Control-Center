@@ -298,6 +298,19 @@ async function main() {
     return true;
   });
   assert.deepStrictEqual(agent.state.removedVolumes, ["busy-site-site"], "the volume a failed create left is removed, so a retry is not blocked by it");
+  const agentServer = fs.readFileSync(path.join(repo, "agent", "src", "server.js"), "utf8");
+  // Image downloads get the long request limit, not the default 2 minutes:
+  // they were cut off mid-way and reported as "Agent unavailable".
+  const downloadRoute = agentServer.match(/const isDockerDownload = [^;]+;/)?.[0] || "";
+  const downloadPattern = new RegExp(downloadRoute.match(/\/(\\\/docker.+)\$\//)?.[1] + "$");
+  for (const route of ["/api/v1/docker/images/pull", "/api/v1/docker/image/pull", "/api/v1/docker/compose/up", "/api/v1/docker/compose/pull"]) {
+    assert.ok(downloadPattern.test(route), `${route} gets the long request limit`);
+  }
+  assert.ok(downloadPattern.test("/api/v1/docker/containers"), "container create (create, start, cleanup) gets the long limit");
+  assert.ok(!downloadPattern.test("/api/v1/docker/containers/web/stop") && !downloadPattern.test("/api/v1/docker/preflight/container"), "ordinary requests keep the default limit");
+  const dockerSource = fs.readFileSync(path.join(repo, "src", "shared", "dockerService.js"), "utf8");
+  assert.ok(dockerSource.includes("await runDockerCommand(args, { timeout: CONTAINER_CREATE_TIMEOUT_MS })") && dockerSource.includes('await runDockerCommand(["start", name], { timeout: CONTAINER_CREATE_TIMEOUT_MS })'), "create and start are not held to the 8-second limit for quick commands");
+  assert.ok(agentServer.includes("isLongInstallerOperation || isDockerDownload"), "the download routes use the 11-minute limit");
   console.log("PASS S9 busy ports are detected, and a refused create leaves nothing behind");
 
   // S10

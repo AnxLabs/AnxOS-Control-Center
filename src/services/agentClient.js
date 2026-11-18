@@ -1900,6 +1900,9 @@ async function createDockerContainer(payload = {}, configOverride = null) {
     config: configOverride,
     method: "POST",
     body: payload,
+    // The Agent allows a minute each for create, start and (after a failed
+    // start) removal. Giving up sooner left a container the app never reported.
+    timeoutMs: 4 * 60 * 1000,
   });
 }
 
@@ -1935,7 +1938,9 @@ async function pullDockerImage(image, configOverride = null) {
     config: configOverride,
     method: "POST",
     body: { image },
-    timeoutMs: 10 * 60 * 1000,
+    // One minute past the Agent's own 10-minute pull limit, so the Agent's
+    // answer (success or its reason) arrives before this side gives up.
+    timeoutMs: 11 * 60 * 1000,
   });
 }
 

@@ -14,6 +14,7 @@ const {
 const COMPOSE_FILE_CANDIDATES = ["docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"];
 
 const COMMAND_TIMEOUT_MS = 8000;
+const CONTAINER_CREATE_TIMEOUT_MS = 60000;
 const LOG_TIMEOUT_MS = 12000;
 const SNAPSHOT_OPTIONAL_TIMEOUT_MS = 2500;
 const CONTAINER_TARGET_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$/;
@@ -864,15 +865,18 @@ async function createContainer(payload = {}) {
   if (payload.privileged === true) args.push("--privileged");
   if (payload.autoRemove === true) args.push("--rm");
   args.push(image, ...normalizeStringArray(payload.command, 64));
-  const result = await runDockerCommand(args);
+  // Creating and starting a container can take far longer than the 8-second
+  // limit for quick commands on a busy computer (volumes are created, the
+  // image is unpacked); timing out here left a container nobody reported.
+  const result = await runDockerCommand(args, { timeout: CONTAINER_CREATE_TIMEOUT_MS });
   if (payload.start === true) {
     try {
-      await runDockerCommand(["start", name]);
+      await runDockerCommand(["start", name], { timeout: CONTAINER_CREATE_TIMEOUT_MS });
     } catch (error) {
       // This call just created the container under the name validated above,
       // so removing it is safe. Left in Created state, it made every retry fail
       // with a name conflict until the user found it on the Docker page.
-      await runDockerCommand(["rm", "-f", name]).catch(() => {});
+      await runDockerCommand(["rm", "-f", name], { timeout: CONTAINER_CREATE_TIMEOUT_MS }).catch(() => {});
       throw error;
     }
   }
