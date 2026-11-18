@@ -369,19 +369,22 @@ function registerMarketplaceIpc() {
     audit({ action: "marketplace.communityTemplate.import", target: payload?.template?.id || payload?.id || "community-template" });
     return importCommunityTemplate(payload);
   }));
-  // Java application import: the native dialog picks the .jar; only its name,
-  // size and a short-lived token go back to the renderer.
-  ipcMain.handle("marketplace:chooseApplicationFile", async () => invokeMarketplaceOperation(async () => {
-    requirePermission("marketplace:install", "java-application");
-    const dialogOptions = {
-      title: "Choose the Java application to deploy",
-      properties: ["openFile"],
-      filters: [{ name: "Java applications", extensions: ["jar"] }],
-    };
+  // Application import: the native dialog picks the .jar (Java) or the
+  // project .zip (Node.js, Python); only its name, size and a short-lived
+  // token go back to the renderer. The kind comes from a fixed list.
+  const applicationDialogs = {
+    "java-application": { title: "Choose the Java application to deploy", filters: [{ name: "Java applications", extensions: ["jar"] }] },
+    "node-application": { title: "Choose the Node.js project (.zip) to deploy", filters: [{ name: "Zipped project folder", extensions: ["zip"] }] },
+    "python-application": { title: "Choose the Python project (.zip) to deploy", filters: [{ name: "Zipped project folder", extensions: ["zip"] }] },
+  };
+  ipcMain.handle("marketplace:chooseApplicationFile", async (_, payload = {}) => invokeMarketplaceOperation(async () => {
+    const kind = Object.prototype.hasOwnProperty.call(applicationDialogs, payload?.kind) ? payload.kind : "java-application";
+    requirePermission("marketplace:install", kind);
+    const dialogOptions = { ...applicationDialogs[kind], properties: ["openFile"] };
     const window = BrowserWindow.getFocusedWindow();
     const selection = window ? await dialog.showOpenDialog(window, dialogOptions) : await dialog.showOpenDialog(dialogOptions);
     if (selection.canceled || !selection.filePaths?.[0]) return { canceled: true };
-    return rememberApplicationFile(selection.filePaths[0]);
+    return rememberApplicationFile(selection.filePaths[0], kind);
   }));
   ipcMain.handle("marketplace:installTemplate", async (_, payload = {}) => invokeMarketplaceOperation((requestId) => {
     requireNodeContext(payload, "Marketplace template installation");

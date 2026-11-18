@@ -55,6 +55,8 @@ No current template is classified Deprecated or Unsupported.
 | `node-app` | Experimental | Local-import fixtures | User project and Node runtime |
 | `python-app` | Experimental | Local-import fixtures | User project and Python runtime |
 | `java-app` | Experimental | Import checks (runnable .jar with a Main-Class, at most 150 MB; runtime options refused as program arguments) and the real check `marketplace-java-app-real-install` | Real install passed: ready without a port, arguments and memory applied, data kept across Stop/Start and Restart, crash reported with its exit code; the user's own application decides the rest |
+| `node-app-import` | Experimental | Archive checks in `app-project-import-smoke` (.zip only, at most 100 MB, 5000 files and 300 MB unpacked; no absolute paths, `..`, backslashes, links or case-only duplicates; dependencies need a bundled node_modules) and the real check `marketplace-app-project-real-install` | Real install passed on Windows: ready on its port, a bundled package loads, arguments reach it, data kept across Stop/Start, unbundled dependencies and an escaping path refused before anything is created; the user's own project decides the rest |
+| `python-app-import` | Experimental | Same archive checks; a requirements.txt that lists packages is refused (AnxOS does not install Python packages); real check `marketplace-app-project-real-install` | Real install passed on Windows: ready without a port (started with `python`), arguments reach it, data kept across Stop/Start; the user's own project decides the rest |
 
 All enabled templates still require at least one exact-candidate real-machine
 installation before broad claims are made. Provider outages, changed upstream

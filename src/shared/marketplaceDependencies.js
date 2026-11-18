@@ -174,6 +174,11 @@ const DEPENDENCY_REGISTRY = Object.freeze({
     displayName: "Python",
     commands: ["python3"],
     versionCommand: { command: "python3", args: ["--version"], stream: "stdout" },
+    // On Windows "python3" is usually the Microsoft Store stub, which prints
+    // an install prompt instead of a version; the python.org installer puts
+    // "python" on PATH. Detection only: AnxOS does not install it there.
+    windowsCommands: ["python"],
+    windowsVersionCommand: { command: "python", args: ["--version"], stream: "stdout" },
     versionPattern: /Python\s+(\d+(?:\.\d+){0,2})/,
     minVersion: "3.10",
     groups: ["application-runtimes"],

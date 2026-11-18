@@ -3937,6 +3937,107 @@
     "installerType": "local-import"
   },
   {
+    "id": "python-app-import",
+    "displayName": "Your Python Application",
+    "description": "Deploy your own Python project (a zipped project folder) as a managed app with start, stop, logs and resource monitoring.",
+    "icon": "PY",
+    "screenshots": [],
+    "author": "AnxOS",
+    "version": "1.0.0",
+    "category": "Development",
+    "workloadKind": "service",
+    "instanceType": "python-app",
+    "startupType": "python",
+    "defaultRam": "512M",
+    "defaultPorts": [
+      8000
+    ],
+    "tags": [
+      "python",
+      "application",
+      "import"
+    ],
+    "downloadSource": {
+      "type": "manual",
+      "fileName": "project.zip"
+    },
+    "importFile": {
+      "kind": "python-application",
+      "target": "app"
+    },
+    "installMetadata": {
+      "method": "local-import",
+      "source": "A .zip of a project folder you choose on this PC",
+      "notes": "Requires Python 3 on the chosen computer. AnxOS does not install Python packages yet, so a project whose requirements.txt lists packages is refused; projects that use only the standard library can be deployed. At most 100 MB zipped, 5000 files and 300 MB unpacked."
+    },
+    "configNotes": "This deploys your own application. Deploy only code you trust: it runs with the AnxOS Agent's permissions on that computer (never as administrator) and can read and change that account's files. It starts main.py, app.py, bot.py, server.py or __main__.py from the project folder; the chosen port is passed as the PORT environment value. Leave the port empty for an app that does not listen on one; it is then ready once it keeps running.",
+    "installScript": [
+      "create-instance",
+      "create-folders",
+      "copy-application",
+      "start"
+    ],
+    "configurationSchema": [
+      "name",
+      "port",
+      "memory",
+      "applicationFile",
+      "programArguments"
+    ],
+    "installerType": "local-import"
+  },
+  {
+    "id": "node-app-import",
+    "displayName": "Your Node.js Application",
+    "description": "Deploy your own Node.js project (a zipped project folder) as a managed app with start, stop, logs and resource monitoring.",
+    "icon": "JS",
+    "screenshots": [],
+    "author": "AnxOS",
+    "version": "1.0.0",
+    "category": "Development",
+    "workloadKind": "service",
+    "instanceType": "node-app",
+    "startupType": "node",
+    "defaultRam": "512M",
+    "defaultPorts": [
+      3000
+    ],
+    "tags": [
+      "node",
+      "javascript",
+      "application",
+      "import"
+    ],
+    "downloadSource": {
+      "type": "manual",
+      "fileName": "project.zip"
+    },
+    "importFile": {
+      "kind": "node-application",
+      "target": "app"
+    },
+    "installMetadata": {
+      "method": "local-import",
+      "source": "A .zip of a project folder you choose on this PC",
+      "notes": "Requires Node.js on the chosen computer. AnxOS does not run npm yet: a project with dependencies must include its node_modules folder (run \"npm install --omit=dev\" before zipping). At most 100 MB zipped, 5000 files and 300 MB unpacked."
+    },
+    "configNotes": "This deploys your own application. Deploy only code you trust: it runs with the AnxOS Agent's permissions on that computer (never as administrator) and can read and change that account's files. It starts the file package.json names as \"main\" (or index.js, server.js, app.js, main.js or bot.js) with node, in the project folder; the chosen port is passed as the PORT environment value. Leave the port empty for an app that does not listen on one; it is then ready once it keeps running.",
+    "installScript": [
+      "create-instance",
+      "create-folders",
+      "copy-application",
+      "start"
+    ],
+    "configurationSchema": [
+      "name",
+      "port",
+      "memory",
+      "applicationFile",
+      "programArguments"
+    ],
+    "installerType": "local-import"
+  },
+  {
     "screenshots": [],
     "author": "AnxOS",
     "version": "1.0.0",

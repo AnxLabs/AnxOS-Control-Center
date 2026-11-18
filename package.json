@@ -222,6 +222,7 @@
     "docker-marketplace-engine:smoke": "node scripts/docker-marketplace-engine-smoke.js",
     "marketplace:docker-service:smoke": "node scripts/marketplace-docker-service-smoke.js",
     "marketplace:modrinth-runtime:smoke": "node scripts/modrinth-pack-runtime-smoke.js",
+    "marketplace:app-project-import:smoke": "node scripts/app-project-import-smoke.js",
     "windows-spawn-executable:smoke": "node scripts/windows-spawn-executable-smoke.js",
     "server-secret-store:smoke": "node scripts/server-secret-store-smoke.js",
     "sharing-fixes:smoke": "node scripts/sharing-fixes-smoke.js",

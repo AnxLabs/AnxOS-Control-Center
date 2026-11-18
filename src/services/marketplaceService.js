@@ -28,6 +28,7 @@ const longOperations = require("../shared/longOperationService");
 const { resolveTemplateDependencyIds } = require("../shared/marketplaceDependencies");
 const { buildDockerInstallRequest, generateSecret, isDockerTemplate, readContainerRunState } = require("../shared/marketplaceDockerTemplate");
 const { MAX_JAR_BYTES, inspectJavaApplication, parseProgramArguments } = require("../shared/javaApplicationImport");
+const projectArchiveImport = require("../shared/projectArchiveImport");
 const { evaluatePublisherTrust } = require("../shared/publisherTrustPolicy");
 const { redactString, sanitize } = require("../shared/redaction");
 const { normalizeDiskEvidence } = require("../shared/diskSpace");
@@ -2980,6 +2981,8 @@ function buildTemplateInstallerScript(template) {
 }
 
 function generatedFileForTemplate(template, options, ports) {
+  // An imported project brings its own files; no starter is written into it.
+  if (template.importFile) return null;
   const port = ports[0] || 3000;
   const appName = normalizeName(options.name, template.displayName || "AnxOS App");
 
@@ -3151,6 +3154,40 @@ function buildInstancePayload(template, options, ports) {
 
   if (ports[0]) {
     environment.PORT = String(ports[0]);
+  }
+
+  // An imported Node.js or Python project runs from its own folder (data/app)
+  // with the file the archive check chose; the user's arguments follow it.
+  if (projectArchiveImport.KINDS[template.importFile?.kind]) {
+    const programArgs = parseProgramArguments(options.programArguments || "");
+    const isNode = template.importFile.kind === "node-application";
+    const entry = String(options.applicationEntry || "").trim();
+    if (!entry) {
+      throw createMarketplaceError("Choose the project's .zip file again.", "APP_IMPORT_FILE_REQUIRED", { retryable: false, field: "applicationFile" });
+    }
+    return {
+      id,
+      displayName: name,
+      type: isNode ? "node-app" : "python-app",
+      workingDirectory: `data/${template.importFile.target}`,
+      // On Windows "python3" is usually the Microsoft Store stub; "python" is
+      // the interpreter the installer puts on PATH.
+      executable: isNode ? "node" : (template.targetPlatform === "windows" ? "python" : "python3"),
+      // Like the starter cards: the file to start is the first argument (the
+      // Agent puts an explicit "entrypoint" in front of the arguments).
+      args: [entry, ...programArgs],
+      environment,
+      autoStart: Boolean(options.autoStart),
+      restartPolicy: "on-failure",
+      startupTimeoutMs: 20000,
+      shutdownTimeoutMs: 10000,
+      readinessMode: ports.length > 0 ? null : "process",
+      memoryLimit: memory,
+      ports,
+      ...metadata,
+      tags,
+      game: isNode ? "node-application" : "python-application",
+    };
   }
 
   if (template.instanceType === "node-app") {
@@ -3356,8 +3393,8 @@ function getPrimaryArtifactName(template, options = {}) {
 }
 
 function templateNeedsDownloadedArtifact(template, generated) {
-  // An imported Java application is copied from the user's file, not downloaded.
-  if (template.importFile?.kind === "java-application") return false;
+  // An imported application is copied from the user's file, not downloaded.
+  if (template.importFile) return false;
   return !generated && (template.startupType === "java-jar" || template.instanceType === "minecraft-paper" || template.instanceType === "java-app");
 }
 
@@ -3380,9 +3417,9 @@ function buildStartupPatch(template, options, ports) {
     };
   }
 
-  // An imported Java application keeps the command its instance was created
+  // An imported application keeps the command its instance was created
   // with (the user's arguments, no Minecraft "nogui").
-  if (template.importFile?.kind === "java-application") {
+  if (template.importFile) {
     return null;
   }
 
@@ -4616,25 +4653,33 @@ function assertInstallNotAborted(context) {
 const selectedApplicationFiles = new Map();
 const APPLICATION_FILE_TOKEN_TTL_MS = 30 * 60 * 1000;
 
-function rememberApplicationFile(filePath) {
+function rememberApplicationFile(filePath, kind = "java-application") {
   const stats = fs.statSync(filePath);
-  if (!stats.isFile()) throw createMarketplaceError("Choose a file.", "JAVA_APP_IMPORT_INVALID", { retryable: false });
-  if (stats.size > MAX_JAR_BYTES) throw createMarketplaceError("The chosen file is larger than 150 MB.", "JAVA_APP_TOO_LARGE", { retryable: false });
+  const archive = Boolean(projectArchiveImport.KINDS[kind]);
+  if (!stats.isFile()) throw createMarketplaceError("Choose a file.", archive ? "APP_IMPORT_INVALID" : "JAVA_APP_IMPORT_INVALID", { retryable: false });
+  if (archive && stats.size > projectArchiveImport.MAX_ARCHIVE_BYTES) throw createMarketplaceError("The chosen archive is larger than 100 MB.", "APP_IMPORT_TOO_LARGE", { retryable: false });
+  if (!archive && stats.size > MAX_JAR_BYTES) throw createMarketplaceError("The chosen file is larger than 150 MB.", "JAVA_APP_TOO_LARGE", { retryable: false });
   const now = Date.now();
   for (const [token, entry] of selectedApplicationFiles) {
     if (now - entry.at > APPLICATION_FILE_TOKEN_TTL_MS) selectedApplicationFiles.delete(token);
   }
   const token = require("crypto").randomBytes(16).toString("hex");
-  selectedApplicationFiles.set(token, { filePath, fileName: path.basename(filePath), size: stats.size, at: now });
+  selectedApplicationFiles.set(token, { filePath, fileName: path.basename(filePath), size: stats.size, kind, at: now });
   return { token, fileName: path.basename(filePath), size: stats.size };
 }
 
-async function loadSelectedApplicationFile(token) {
+async function loadSelectedApplicationFile(token, kind = "java-application") {
   const entry = selectedApplicationFiles.get(String(token || ""));
-  if (!entry || Date.now() - entry.at > APPLICATION_FILE_TOKEN_TTL_MS) {
-    throw createMarketplaceError("Choose the application's .jar file again.", "JAVA_APP_FILE_REQUIRED", { retryable: false, field: "applicationFile" });
+  const archive = Boolean(projectArchiveImport.KINDS[kind]);
+  // A token chosen for one card is never used by another.
+  if (!entry || Date.now() - entry.at > APPLICATION_FILE_TOKEN_TTL_MS || (entry.kind || "java-application") !== kind) {
+    throw createMarketplaceError(archive ? "Choose the project's .zip file again." : "Choose the application's .jar file again.", archive ? "APP_IMPORT_FILE_REQUIRED" : "JAVA_APP_FILE_REQUIRED", { retryable: false, field: "applicationFile" });
   }
   const buffer = fs.readFileSync(entry.filePath);
+  if (archive) {
+    const inspected = await projectArchiveImport.inspectProjectArchive(buffer, entry.fileName, kind);
+    return { ...entry, buffer, ...inspected, bytes: buffer.length };
+  }
   const inspected = await inspectJavaApplication(buffer, entry.fileName);
   return { ...entry, buffer, ...inspected };
 }
@@ -5039,6 +5084,12 @@ async function executeInstallTemplate(payload = {}, context = {}) {
   const ports = template.category === "Minecraft"
     ? [resolveMinecraftPort(options, template.defaultPorts)]
     : parsePorts(options.ports || options.port, template.defaultPorts);
+  // An imported application is read and checked before anything is created
+  // on the computer; a project archive also decides the file to start.
+  const importedApplication = template.importFile
+    ? await loadSelectedApplicationFile(options.applicationFileToken, template.importFile.kind)
+    : null;
+  if (importedApplication?.entry) options.applicationEntry = importedApplication.entry;
   const instancePayload = buildInstancePayload(template, options, ports);
   // Passwords a native server needs at start (Project Zomboid's
   // administrator): generated here, sent once through the Agent's
@@ -5051,9 +5102,6 @@ async function executeInstallTemplate(payload = {}, context = {}) {
     nativeSecretEnvironment[secret.setting] = value;
     nativeCredentials.push({ id: secret.setting, label: secret.label, username: secret.username || null, secret: value });
   }
-  const importedApplication = template.importFile?.kind === "java-application"
-    ? await loadSelectedApplicationFile(options.applicationFileToken)
-    : null;
   const installContext = validateInstallContext(buildInstallContext(payload, template, options, instancePayload));
 
   let installDependencyCheck = null;
@@ -5157,7 +5205,19 @@ async function executeInstallTemplate(payload = {}, context = {}) {
     await agentClient.createInstanceFolder(createdInstanceId, "runtime", agentConfig);
     pushStep(progress, "Create folders", "complete", `Prepared folders for ${createdInstanceId}.`);
 
-    if (importedApplication) {
+    if (importedApplication?.files) {
+      // A project archive: each checked file is written through the Agent's
+      // file route under the project folder; nothing is extracted remotely.
+      pushStep(progress, "Download files", "running", `Copying ${importedApplication.fileName}: ${importedApplication.summary}.`);
+      let copied = 0;
+      for (const file of importedApplication.files) {
+        assertInstallNotAborted(context);
+        await agentClient.writeInstanceFile(createdInstanceId, `${template.importFile.target}/${file.path}`, file.buffer.toString("base64"), { encoding: "base64", config: agentConfig });
+        copied += 1;
+        if (copied % 100 === 0) updateDownload(parentRecord, { stage: `Copying files (${copied}/${importedApplication.files.length})`, progress: 30 });
+      }
+      pushStep(progress, "Download files", "complete", `${importedApplication.fileName} copied (${importedApplication.summary}).`);
+    } else if (importedApplication) {
       pushStep(progress, "Download files", "running", `Copying ${importedApplication.fileName} (${Math.round(importedApplication.bytes / 1024)} KB).`);
       await agentClient.writeInstanceFile(createdInstanceId, template.importFile.target, importedApplication.buffer.toString("base64"), { encoding: "base64", config: agentConfig });
       pushStep(progress, "Download files", "complete", `${importedApplication.fileName} copied; it starts ${importedApplication.mainClass}.`);
@@ -5443,6 +5503,8 @@ module.exports = {
     buildInstancePayload,
     buildConfigFileContent,
     resolveTemplateConfigFilePath,
+    generatedFileForTemplate,
+    loadSelectedApplicationFile,
     buildInstallContext,
     buildTemplateInstallSubject,
     buildMinecraftProperties,

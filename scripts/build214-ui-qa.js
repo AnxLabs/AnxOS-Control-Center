@@ -14,6 +14,9 @@
 //   J2 Jellyfin with an empty folder finishes with a visible warning
 //   P1 Stirling PDF: the "Save this password" dialog shows the password the
 //      container was given, and the completion text points to the Docker page
+//   A1 the Java application card installs a chosen .jar (BUILD214_QA_JAR)
+//   A2 the Node.js project card asks for a .zip (label, button, dialog
+//      filter), installs a generated project, and it answers on its port
 //   F1 a busy port fails in the window with a plain message; nothing created
 //   S1 a SteamCMD game (Unturned) installs from the window, reports ready,
 //      and stops from My Servers
@@ -335,6 +338,59 @@ async function main() {
         await window.anx.instances.stop(server.id, { nodeId: "lab" });
       });
       console.log("PASS A1 the Java application card takes a chosen .jar and arguments, installs it and reports it ready");
+    });
+
+    // A2: the "Your Node.js Application" card with a zipped project (built
+    // here; the native dialog is answered by the test as in A1). The chooser
+    // asks for a .zip, the dialog filters .zip, and the project runs.
+    await check("A2", async () => {
+      const { zipBuffer } = require("../test-helpers/zip-writer");
+      const project = path.join(qa.root, "qa-node-project.zip");
+      fs.writeFileSync(project, zipBuffer([
+        { name: "qa-app/package.json", data: JSON.stringify({ name: "qa-app", main: "server.js" }) },
+        { name: "qa-app/server.js", data: "require('http').createServer((_, r) => r.end('qa node app')).listen(Number(process.env.PORT));" },
+      ]));
+      await openTemplate("node-app-import");
+      const shown = await wizard.evaluate(() => ({
+        file: !document.querySelector('[data-marketplace-field-wrap="applicationFile"]').hidden,
+        label: document.querySelector("[data-marketplace-application-label]")?.textContent || "",
+        button: document.querySelector("[data-marketplace-choose-application]")?.textContent || "",
+      }));
+      assert.ok(shown.file, "the project file field is shown");
+      assert.strictEqual(shown.label, "Project folder (.zip)");
+      assert.strictEqual(shown.button, "Choose .zip…");
+      const port = await new Promise((resolve) => { const server = http.createServer(); server.listen(0, "127.0.0.1", () => { const chosen = server.address().port; server.close(() => resolve(chosen)); }); });
+      await fill("name", `${PREFIX}nodeapp`);
+      await wizard.locator('[data-marketplace-field="port"]').fill(String(port));
+      await clickInstall();
+      await wizard.waitForTimeout(500);
+      assert.match(await wizard.evaluate(() => document.querySelector("[data-marketplace-message]")?.textContent || ""), /Choose the project's \.zip file/);
+      const seenFilters = await app.evaluate(({ dialog }, chosen) => {
+        globalThis.__anxQaDialogFilters = [];
+        dialog.showOpenDialog = async (...args) => { const options = args.find((arg) => arg && typeof arg === "object" && arg.filters) || {}; globalThis.__anxQaDialogFilters.push(options.filters); return { canceled: false, filePaths: [chosen] }; };
+        return true;
+      }, project);
+      assert.ok(seenFilters);
+      await wizard.locator("[data-marketplace-choose-application]").click();
+      await waitFor(wizard, () => /\.zip \(\d+ KB\)/.test(document.querySelector("[data-marketplace-application-name]")?.textContent || ""), null, "the chosen project's name");
+      const filters = await app.evaluate(() => globalThis.__anxQaDialogFilters);
+      assert.deepStrictEqual(filters?.[0]?.[0]?.extensions, ["zip"], "the dialog asks for a .zip");
+      const result = await install(300000);
+      await shot(wizard, "a2-node-project-complete");
+      assert.strictEqual(result.state, "Complete", `the Node.js project installs (${JSON.stringify(result).slice(0, 400)})`);
+      await waitFor(page, async () => {
+        const listed = await window.anx.instances.list({ nodeId: "lab" });
+        const server = (listed?.instances || listed || []).find((entry) => /anx214qa-nodeapp/.test(entry.id || ""));
+        return server?.state === "Running" && server?.readinessState === "ready";
+      }, null, "the Node.js project Running and ready", 120000);
+      const body = await (await fetch(`http://127.0.0.1:${port}/`)).text();
+      assert.strictEqual(body, "qa node app", "the project answers on its port");
+      await page.evaluate(async () => {
+        const listed = await window.anx.instances.list({ nodeId: "lab" });
+        const server = (listed?.instances || listed || []).find((entry) => /anx214qa-nodeapp/.test(entry.id || ""));
+        await window.anx.instances.stop(server.id, { nodeId: "lab" });
+      });
+      console.log("PASS A2 the Node.js project card asks for a .zip, installs the chosen project and it answers on its port");
     });
 
     // F1

@@ -1028,6 +1028,12 @@ const CREATE_SERVER_STEP_LABELS = Object.freeze({
 const CREATE_SERVER_PRE_INSTALL_CHECKS = Object.freeze(["summary", "node", "runtime", "configuration"]);
 let createServerWizardStep = "configuration";
 let marketplaceApplicationFile = null;
+// What the application file chooser asks for, per import kind.
+const MARKETPLACE_APPLICATION_IMPORTS = {
+  "java-application": { label: "Application (.jar)", button: "Choose .jar…", missing: "Choose the application's .jar file to continue." },
+  "node-application": { label: "Project folder (.zip)", button: "Choose .zip…", missing: "Choose the project's .zip file to continue." },
+  "python-application": { label: "Project folder (.zip)", button: "Choose .zip…", missing: "Choose the project's .zip file to continue." },
+};
 // Notes about settings AnxOS chose for the user (a moved port, lowered
 // memory), and the up-front software check for the selected template.
 let createServerRecommendationNotes = [];
@@ -21309,9 +21315,9 @@ function validateCreateServerStep(step, { report = true } = {}) {
       }
       return false;
     }
-    if (template?.importFile?.kind === "java-application" && !marketplaceApplicationFile?.token) {
+    if (MARKETPLACE_APPLICATION_IMPORTS[template?.importFile?.kind] && !marketplaceApplicationFile?.token) {
       if (report) {
-        setMarketplaceMessage("Choose the application's .jar file to continue.", "error");
+        setMarketplaceMessage(MARKETPLACE_APPLICATION_IMPORTS[template.importFile.kind].missing, "error");
         document.querySelector("[data-marketplace-choose-application]")?.focus();
       }
       return false;
@@ -21407,7 +21413,7 @@ function syncMarketplaceWizardFields(template) {
       : ["storageLocation"].includes(field)
         || (field === "acceptEula" && marketplaceTemplateNeedsEula(template))
         || (field === "hostFolder" && Boolean(template?.docker?.hostFolder))
-        || ((field === "applicationFile" || field === "programArguments") && template?.importFile?.kind === "java-application");
+        || ((field === "applicationFile" || field === "programArguments") && Boolean(MARKETPLACE_APPLICATION_IMPORTS[template?.importFile?.kind]));
     wrapper.hidden = !shouldShow;
   });
 }
@@ -21497,11 +21503,17 @@ function openMarketplaceWizard(templateId, { source = "" } = {}) {
   if (acceptEulaField) {
     acceptEulaField.checked = false;
   }
-  // An imported Java application: the chosen file is held in the main
-  // process; the window only keeps its token, name and size.
+  // An imported application (.jar, or a zipped Node.js or Python project):
+  // the chosen file is held in the main process; the window only keeps its
+  // token, name and size.
   marketplaceApplicationFile = null;
   const applicationName = document.querySelector("[data-marketplace-application-name]");
   if (applicationName) applicationName.textContent = "No file chosen.";
+  const applicationImport = MARKETPLACE_APPLICATION_IMPORTS[template?.importFile?.kind] || MARKETPLACE_APPLICATION_IMPORTS["java-application"];
+  const applicationLabel = document.querySelector("[data-marketplace-application-label]");
+  if (applicationLabel) applicationLabel.textContent = applicationImport.label;
+  const applicationButton = document.querySelector("[data-marketplace-choose-application]");
+  if (applicationButton) applicationButton.textContent = applicationImport.button;
   const programArgumentsField = getMarketplaceField("programArguments");
   if (programArgumentsField) programArgumentsField.value = "";
   // A service that reads a folder from the computer (Jellyfin's media) names
@@ -49697,7 +49709,8 @@ document.querySelector("[data-marketplace-choose-application]")?.addEventListene
   const api = getDesktopApiState().api?.marketplace;
   if (typeof api?.chooseApplicationFile !== "function") return;
   try {
-    const chosen = await api.chooseApplicationFile();
+    const kind = findMarketplaceTemplate()?.importFile?.kind || "java-application";
+    const chosen = await api.chooseApplicationFile({ kind });
     if (!chosen || chosen.canceled) return;
     marketplaceApplicationFile = chosen;
     const label = document.querySelector("[data-marketplace-application-name]");
