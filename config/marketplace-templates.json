@@ -1933,35 +1933,96 @@
   {
     "id": "jellyfin",
     "displayName": "Jellyfin",
-    "description": "Self-hosted media server template.",
+    "description": "Jellyfin media server for your films, shows and music. It reads the media folder you choose, read-only.",
     "icon": "JF",
     "screenshots": [],
     "author": "AnxOS",
     "version": "1.0.0",
     "category": "Media",
-    "instanceType": "custom-command",
+    "workloadKind": "service",
+    "runtime": "docker",
+    "instanceType": "docker-container",
     "startupType": "docker-image",
     "defaultRam": "2G",
     "defaultPorts": [
       8096
     ],
+    "tags": [
+      "media",
+      "jellyfin",
+      "streaming",
+      "docker",
+      "service"
+    ],
     "downloadSource": {
       "type": "docker",
-      "image": "jellyfin/jellyfin:latest"
+      "image": "jellyfin/jellyfin:latest",
+      "required": true
     },
-    "comingSoon": true,
-    "comingSoonMessage": "Jellyfin needs access to a media folder on the computer. Choosing that folder during install is not built yet.",
+    "docker": {
+      "image": "jellyfin/jellyfin:latest",
+      "ports": [
+        "8096:8096"
+      ],
+      "volumes": [
+        {
+          "name": "config",
+          "target": "/config",
+          "label": "Library and settings"
+        },
+        {
+          "name": "cache",
+          "target": "/cache",
+          "label": "Cache"
+        }
+      ],
+      "hostFolder": {
+        "label": "Media folder",
+        "target": "/media",
+        "readOnly": true,
+        "required": true,
+        "help": "The full path of your media folder on the chosen computer, for example D:\\Media or /srv/media. Jellyfin can read it but never change it."
+      },
+      "restartPolicy": "unless-stopped"
+    },
+    "compatibility": {
+      "requires": [
+        "docker"
+      ],
+      "platforms": [
+        "linux"
+      ],
+      "architectures": [
+        "amd64",
+        "arm64"
+      ]
+    },
+    "updateCheck": {
+      "type": "docker-tag",
+      "image": "jellyfin/jellyfin",
+      "tag": "latest"
+    },
+    "installMetadata": {
+      "method": "docker",
+      "source": "Docker Hub jellyfin/jellyfin (official image)",
+      "notes": "Requires Docker on the chosen computer."
+    },
+    "configNotes": "This is a media service, not a game server. Open http://<computer address>:<port> in a browser, create your account, then add a library from /media (your media folder). Hardware video encoding is not set up.",
     "installScript": [
-      "create-instance",
-      "create-folders"
+      "check-computer",
+      "pull-image",
+      "create-container",
+      "verify",
+      "start"
     ],
     "configurationSchema": [
       "name",
       "storageLocation",
       "port",
-      "memory"
+      "memory",
+      "hostFolder"
     ],
-    "installerType": "no-install"
+    "installerType": "docker-image"
   },
   {
     "id": "immich",

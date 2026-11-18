@@ -29,7 +29,7 @@ No current template is classified Deprecated or Unsupported.
 | `hytale` | Experimental | Resolver, checksum, readiness and launcher fixtures (Linux nodes only) | Hytale account sign-in on first start, Java 25, UDP port forwarding |
 | `docker-minecraft-bedrock` | Supported | Docker service fixtures (`marketplace-docker-service-smoke`), Minecraft EULA gate | Real install on Docker Desktop passed (`marketplace-docker-real-install`) |
 | `docker-nginx` | Supported | Docker template fixtures | Registry and Docker daemon |
-| `jellyfin` | Disabled | Disabled-template validation | Not applicable while disabled |
+| `jellyfin` | Supported | Docker service fixtures (`marketplace-docker-service-smoke` S12): one chosen media folder, read-only | Real install on Docker Desktop passed (`marketplace-docker-real-install`): health, read-only media, data kept after restart and Stop/Start |
 | `immich` | Disabled | Disabled-template validation | Not applicable while disabled |
 | `nextcloud` | Supported | Docker service fixtures (`marketplace-docker-service-smoke`) | Registry and Docker daemon. Nextcloud (SQLite) reachable in a browser; data kept after restart |
 | `gitea` | Supported | Docker service fixtures (`marketplace-docker-service-smoke`) | Registry and Docker daemon. First-run setup in a browser; Git over SSH on the second port |

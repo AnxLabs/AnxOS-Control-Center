@@ -38,6 +38,7 @@ const { generateAgentToken, writeAgentConfigToken } = require("../src/shared/age
 const PREFIX = "anx214-";
 const OPTIONS = { version: "", providerVersionId: "", serverType: "", storageLocation: "data", memory: "", playitTunnel: false, acceptEula: false, start: true };
 const results = [];
+const mediaFolders = [];
 const createdNames = [];
 
 function docker(args, { timeout = 60000, env = {} } = {}) {
@@ -189,6 +190,34 @@ const SERVICES = {
       return { read: async () => (await docker(["exec", name, "cat", "/data/anx214"])).stdout, expected: "kept" };
     },
   },
+  jellyfin: {
+    // A disposable media folder with one file, made fresh for each run.
+    options() {
+      const folder = fs.mkdtempSync(path.join(os.tmpdir(), "anx214-media-"));
+      fs.writeFileSync(path.join(folder, "anx214-sample.txt"), "media");
+      mediaFolders.push(folder);
+      return { hostFolder: folder };
+    },
+    async refusedWithout({ nodeId, name, ports }) {
+      await assert.rejects(install("jellyfin", nodeId, name, ports), (error) => error.code === "HOST_FOLDER_INVALID", "no media folder is refused");
+      await assert.rejects(install("jellyfin", nodeId, name, ports, { hostFolder: "C:\\Windows" }), (error) => error.code === "HOST_FOLDER_INVALID", "a system folder is refused");
+      assert.ok(!(await docker(["inspect", name])).ok, "nothing is left after a refused folder");
+      const leftVolumes = (await docker(["volume", "ls", "--filter", `name=${name}-`, "--format", "{{.Name}}"])).stdout;
+      assert.strictEqual(leftVolumes, "", `no volume is left after a refused folder (${leftVolumes})`);
+    },
+    refusalLabel: "refused without a media folder and with a system folder",
+    async verify({ name, port, install: result }) {
+      assert.ok(result.progress.some((step) => step.label === "Check media folder" && step.status === "complete"), "the install confirmed the media folder has files");
+      await waitFor("Jellyfin", async () => (await httpGet(`http://127.0.0.1:${port}/health`)).text.trim() === "Healthy", { timeoutMs: 240000 });
+      assert.strictEqual((await docker(["exec", name, "cat", "/media/anx214-sample.txt"])).stdout, "media", "the chosen media folder is visible at /media");
+      const write = await docker(["exec", name, "sh", "-c", "echo x > /media/anx214-write-test"]);
+      assert.ok(!write.ok && /read-only/i.test(write.stderr), `the media folder is read-only (${write.stderr.slice(0, 80)})`);
+      const info = JSON.parse((await httpGet(`http://127.0.0.1:${port}/System/Info/Public`)).text);
+      assert.strictEqual(info.StartupWizardCompleted, false, "Jellyfin waits for the user to create an account");
+      assert.ok((await docker(["exec", name, "sh", "-c", "echo kept > /config/anx214"])).ok);
+      return { read: async () => (await docker(["exec", name, "cat", "/config/anx214"])).stdout, expected: "kept" };
+    },
+  },
   "docker-nginx": {
     async verify({ name, port }) {
       await waitFor("Nginx", async () => /nginx/i.test((await httpGet(`http://127.0.0.1:${port}/`)).text));
@@ -242,9 +271,10 @@ async function runService(templateId, nodeId, agentConfig) {
   try {
     if (spec.refusedWithout) {
       await spec.refusedWithout({ nodeId, name, ports });
-      record.steps.push("refused until the EULA is accepted");
+      record.steps.push(spec.refusalLabel || "refused until the EULA is accepted");
     }
-    const result = await install(templateId, nodeId, name, ports, spec.options || {});
+    const options = typeof spec.options === "function" ? spec.options() : spec.options || {};
+    const result = await install(templateId, nodeId, name, ports, options);
     record.installSeconds = Math.round((Date.now() - started) / 1000);
     record.steps.push("installed");
     assert.strictEqual(result.runtimeType, "docker");
@@ -265,6 +295,15 @@ async function runService(templateId, nodeId, agentConfig) {
     const after = await waitFor(`${templateId} after restart`, async () => { const value = await kept.read(); return value === kept.expected ? value : null; }, { timeoutMs: 180000 });
     assert.strictEqual(after, kept.expected);
     record.steps.push("data kept after restart");
+
+    // Stop and Start as the Docker page does them.
+    await agentClient.stopDockerContainer(name, agentConfig);
+    const stopped = JSON.parse((await docker(["inspect", name])).stdout)[0].State;
+    assert.strictEqual(stopped.Running, false, "Stop stops the container");
+    await agentClient.startDockerContainer(name, agentConfig);
+    const back = await waitFor(`${templateId} after Stop and Start`, async () => { const value = await kept.read(); return value === kept.expected ? value : null; }, { timeoutMs: 180000 });
+    assert.strictEqual(back, kept.expected);
+    record.steps.push("Stop and Start keep the data");
     record.ok = true;
   } catch (error) {
     record.ok = false;
@@ -321,6 +360,9 @@ async function cleanup(imagesBefore, templates) {
   const removedImages = [];
   for (const image of new Set(templates.map((entry) => entry.docker.image))) {
     if (!imagesBefore.has(image) && (await docker(["rmi", image])).ok) removedImages.push(image);
+  }
+  for (const folder of mediaFolders) {
+    try { fs.rmSync(folder, { recursive: true, force: true }); } catch {}
   }
   const left = (await docker(["ps", "-a", "--filter", `name=${PREFIX}`, "--format", "{{.Names}}"])).stdout;
   const leftVolumes = (await docker(["volume", "ls", "--filter", `name=${PREFIX}`, "--format", "{{.Name}}"])).stdout;

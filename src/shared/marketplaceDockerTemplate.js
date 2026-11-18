@@ -28,8 +28,14 @@ const FORBIDDEN_DOCKER_KEYS = Object.freeze([
   "pid", "ipc", "securityOpt", "security_opt", "entrypoint", "user", "policyGrant",
 ]);
 const ALLOWED_DOCKER_KEYS = Object.freeze([
-  "image", "ports", "volumes", "environment", "secrets", "restartPolicy", "command",
+  "image", "ports", "volumes", "environment", "secrets", "restartPolicy", "command", "hostFolder",
 ]);
+
+// Folders a user may never hand to a container, even read-only: the system
+// itself, the Docker engine, AnxOS's own data, whole home folders and the top
+// of a drive (which contains all of them).
+const BLOCKED_HOST_FOLDERS_POSIX = ["/bin", "/boot", "/dev", "/etc", "/lib", "/lib32", "/lib64", "/proc", "/root", "/run", "/sbin", "/sys", "/usr", "/var", "/srv/anxos"];
+const BLOCKED_HOST_FOLDERS_WINDOWS = ["windows", "program files", "program files (x86)", "programdata"];
 
 function isDockerTemplate(template = {}) {
   return template.runtime === "docker" || template.startupType === "docker-image";
@@ -124,6 +130,28 @@ function findDockerTemplateProblems(template = {}) {
     problems.push("docker.command must be a list of strings.");
   }
 
+  // One folder from the computer, chosen by the user at install time, always
+  // mounted read-only. The template names where it appears in the container;
+  // it can never name the folder itself.
+  if (docker.hostFolder !== undefined) {
+    const folder = docker.hostFolder;
+    if (!folder || typeof folder !== "object" || Array.isArray(folder) || !String(folder.label || "").trim()) {
+      problems.push("docker.hostFolder needs a label.");
+    } else {
+      if (!VOLUME_TARGET_PATTERN.test(String(folder.target || "")) || hasPathTraversal(folder.target)) {
+        problems.push("docker.hostFolder needs an absolute path inside the container.");
+      }
+      if (folder.readOnly !== true) {
+        problems.push("docker.hostFolder must be read-only.");
+      }
+      for (const key of Object.keys(folder)) {
+        if (!["label", "target", "readOnly", "required", "help"].includes(key)) {
+          problems.push(`docker.hostFolder.${key} is not supported.`);
+        }
+      }
+    }
+  }
+
   return problems;
 }
 
@@ -139,6 +167,40 @@ function generateSecret(length = DEFAULT_SECRET_LENGTH, randomBytes = crypto.ran
     }
   }
   return secret;
+}
+
+// Checks the folder the user typed for a hostFolder template. Returns the
+// cleaned path, or throws a plain-language error. The Agent's Docker policy is
+// still the boundary; this keeps obvious mistakes (a whole drive, the system
+// folders, a relative path) from ever being sent.
+function validateHostFolderPath(value) {
+  const raw = String(value ?? "").trim();
+  const fail = (message) => {
+    const error = new Error(message);
+    error.code = "HOST_FOLDER_INVALID";
+    error.details = { field: "hostFolder", retryable: false };
+    throw error;
+  };
+  if (!raw) fail("Choose the folder that holds your media.");
+  if (raw.length > 400 || /[\0\r\n,"]/.test(raw)) fail("That folder path contains characters AnxOS cannot pass to Docker (commas, quotes or line breaks).");
+  const windows = /^[a-zA-Z]:[\\/]/.test(raw);
+  if (!windows && !raw.startsWith("/")) fail("Enter the full path of the folder, for example /srv/media or D:\\Media.");
+  const segments = raw.split(/[\\/]+/).filter(Boolean);
+  if (segments.some((segment) => segment === ".." || segment === ".")) fail("The folder path cannot contain . or .. parts.");
+  if (windows) {
+    const rest = segments.slice(1).map((segment) => segment.toLowerCase());
+    if (rest.length === 0) fail("Choose a folder, not a whole drive.");
+    if (BLOCKED_HOST_FOLDERS_WINDOWS.includes(rest[0]) || (rest[0] === "users" && rest.length <= 2)) {
+      fail("Choose a folder of your own, not a Windows system folder or a whole user profile.");
+    }
+    return `${raw[0].toUpperCase()}:\\${segments.slice(1).join("\\")}`;
+  }
+  const cleaned = `/${segments.join("/")}`;
+  const blocked = BLOCKED_HOST_FOLDERS_POSIX.some((entry) => cleaned === entry || cleaned.startsWith(`${entry}/`));
+  if (blocked || segments.length === 0 || (segments[0] === "home" && segments.length < 3) || (segments[0] === "Users" && segments.length < 3)) {
+    fail("Choose a folder of your own, not a system folder, a whole home folder or the top of a drive.");
+  }
+  return cleaned;
 }
 
 function volumeNameFor(containerName, volumeName) {
@@ -203,10 +265,22 @@ function buildDockerInstallRequest(template = {}, context = {}) {
     },
   };
   if (context.memory) payload.memory = context.memory;
+  let hostFolder = null;
+  if (docker.hostFolder) {
+    const supplied = String(context.hostFolder ?? "").trim();
+    if (supplied || docker.hostFolder.required === true) {
+      const source = validateHostFolderPath(supplied);
+      hostFolder = { source, target: docker.hostFolder.target, label: docker.hostFolder.label };
+      payload.binds = [`type=bind,source=${source},target=${docker.hostFolder.target},readonly`];
+      // The one explicit grant the Agent's Docker policy needs, and only for
+      // this read-only folder the user chose.
+      payload.policyGrant = { hostMount: true };
+    }
+  }
   if (Object.keys(environment).length > 0) payload.environment = environment;
   if (volumes.length > 0) payload.volumes = volumes.map((volume) => `${volume.name}:${volume.target}`);
 
-  return { payload, credentials, volumes };
+  return { payload, credentials, volumes, hostFolder };
 }
 
 // Reads `docker inspect` output for the one fact the install needs: did the
@@ -235,5 +309,6 @@ module.exports = {
   getDockerImage,
   isDockerTemplate,
   readContainerRunState,
+  validateHostFolderPath,
   volumeNameFor,
 };

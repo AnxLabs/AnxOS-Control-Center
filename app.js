@@ -21308,6 +21308,13 @@ function validateCreateServerStep(step, { report = true } = {}) {
       }
       return false;
     }
+    if (template?.docker?.hostFolder?.required && !(getMarketplaceField("hostFolder")?.value || "").trim()) {
+      if (report) {
+        setMarketplaceMessage(`Enter the ${String(template.docker.hostFolder.label || "folder").toLowerCase()} to continue.`, "error");
+        getMarketplaceField("hostFolder")?.focus();
+      }
+      return false;
+    }
     if (marketplaceTemplateNeedsEula(template) && !getMarketplaceField("acceptEula")?.checked) {
       if (report) {
         setMarketplaceMessage("Tick \"I agree to the Minecraft EULA\" to continue.", "error");
@@ -21389,7 +21396,9 @@ function syncMarketplaceWizardFields(template) {
     const field = wrapper.dataset.marketplaceFieldWrap;
     const shouldShow = isMinecraft
       ? ["version", "serverType", "playitTunnel", "acceptEula"].includes(field)
-      : ["storageLocation"].includes(field) || (field === "acceptEula" && marketplaceTemplateNeedsEula(template));
+      : ["storageLocation"].includes(field)
+        || (field === "acceptEula" && marketplaceTemplateNeedsEula(template))
+        || (field === "hostFolder" && Boolean(template?.docker?.hostFolder));
     wrapper.hidden = !shouldShow;
   });
 }
@@ -21478,6 +21487,17 @@ function openMarketplaceWizard(templateId, { source = "" } = {}) {
   }
   if (acceptEulaField) {
     acceptEulaField.checked = false;
+  }
+  // A service that reads a folder from the computer (Jellyfin's media) names
+  // it here; the folder is mounted read-only.
+  const hostFolderField = getMarketplaceField("hostFolder");
+  if (hostFolderField) {
+    hostFolderField.value = "";
+    const hostFolder = template?.docker?.hostFolder || null;
+    const hostFolderLabel = document.querySelector("[data-marketplace-host-folder-label]");
+    const hostFolderHelp = document.querySelector("[data-marketplace-host-folder-help]");
+    if (hostFolderLabel) hostFolderLabel.textContent = hostFolder?.label || "Folder";
+    if (hostFolderHelp) hostFolderHelp.textContent = hostFolder?.help || "The full path of the folder on the chosen computer. It is shared read-only.";
   }
   if (startField) {
     startField.checked = !template.manualStartRequired;
@@ -21686,6 +21706,7 @@ function collectMarketplaceInstallOptions() {
     ports,
     playitTunnel: Boolean(getMarketplaceField("playitTunnel")?.checked),
     acceptEula: Boolean(getMarketplaceField("acceptEula")?.checked),
+    hostFolder: template?.docker?.hostFolder ? (getMarketplaceField("hostFolder")?.value || "").trim() : "",
     start: Boolean(getMarketplaceField("start")?.checked),
   };
 }

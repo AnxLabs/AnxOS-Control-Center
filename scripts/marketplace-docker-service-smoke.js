@@ -75,7 +75,7 @@ const { sanitizeForDiagnostics } = require(path.join(repo, "src/shared/redaction
 const templates = JSON.parse(fs.readFileSync(path.join(repo, "config/marketplace-templates.json"), "utf8"));
 const template = (id) => templates.find((entry) => entry.id === id);
 const OPTIONS = { version: "", providerVersionId: "", serverType: "", storageLocation: "data", memory: "", ports: [], playitTunnel: false, acceptEula: false, start: true };
-const SERVICE_IDS = ["postgresql", "mariadb", "redis", "grafana", "prometheus", "uptime-kuma", "gitea", "nextcloud", "docker-nginx"];
+const SERVICE_IDS = ["postgresql", "mariadb", "redis", "grafana", "prometheus", "uptime-kuma", "gitea", "nextcloud", "docker-nginx", "jellyfin"];
 
 // A scriptable fake of the Agent's Docker API. `calls` records the order.
 function fakeAgent(overrides = {}) {
@@ -111,6 +111,7 @@ function fakeAgent(overrides = {}) {
     return { inspect: [{ State: state.containerState || { Running: true, Restarting: false, Status: "running", ExitCode: 0 } }] };
   };
   agentClient.getDockerContainerLogs = async () => { calls.push("logs"); return { logs: state.logs || "" }; };
+  agentClient.execDockerContainer = async (_name, payload) => { calls.push(`exec ${payload.command}`); return { exitCode: 0, output: state.folderListing ?? "film.mkv" }; };
   agentClient.deleteDockerContainer = async (name) => {
     calls.push("delete");
     if (state.createError) throw new Error("No such container");
@@ -148,7 +149,7 @@ async function main() {
   for (const id of ["postgresql", "mariadb", "redis", "grafana", "prometheus", "uptime-kuma", "gitea", "nextcloud"]) {
     assert.ok(template(id).docker.volumes.length > 0, `${id} keeps its data in a volume`);
   }
-  for (const id of ["immich", "jellyfin", "java-app"]) {
+  for (const id of ["immich", "java-app"]) {
     assert.strictEqual(template(id).comingSoon, true, `${id} stays unavailable until its installer exists`);
     assert.ok(template(id).comingSoonMessage.length > 30 && !/not ready yet/.test(template(id).comingSoonMessage), `${id} says why it is unavailable`);
   }
@@ -329,8 +330,30 @@ async function main() {
   }
   console.log("PASS S11 game config paths use the server folder safely; Windows-only games say so");
 
+  // S12 Jellyfin: one media folder, read-only, with the single policy grant
+  assert.ok(!template("jellyfin").comingSoon, "Jellyfin is installable");
+  agent = fakeAgent();
+  await assert.rejects(install("jellyfin", "films"), (error) => error.code === "HOST_FOLDER_INVALID");
+  await assert.rejects(install("jellyfin", "films", { hostFolder: "/etc" }), (error) => error.code === "HOST_FOLDER_INVALID");
+  assert.deepStrictEqual(agent.calls, [], "a missing or system folder is refused before anything is checked or downloaded");
+  const jf = await install("jellyfin", "films", { hostFolder: "/srv/media" });
+  const jfSent = agent.state.created[0];
+  assert.deepStrictEqual(jfSent.binds, ["type=bind,source=/srv/media,target=/media,readonly"], "the media folder is mounted read-only");
+  assert.deepStrictEqual(jfSent.policyGrant, { hostMount: true }, "only the host-folder grant is requested");
+  assert.deepStrictEqual(jfSent.volumes.sort(), ["films-cache:/cache", "films-config:/config"]);
+  assert.ok(policeContainerRequest(jfSent).allowed, "the Agent's Docker policy allows exactly this request");
+  assert.ok(!policeContainerRequest({ ...jfSent, policyGrant: {} }).allowed, "without the grant the policy refuses the mount");
+  assert.deepStrictEqual(jf.hostFolder, { source: "/srv/media", target: "/media", label: "Media folder" });
+  assert.ok(jf.progress.some((step) => step.label === "Check media folder" && step.status === "complete"));
+  agent = fakeAgent({ folderListing: "" });
+  const empty = await install("jellyfin", "films-empty", { hostFolder: "D:\\Media" });
+  assert.deepStrictEqual(agent.state.created[0].binds, ["type=bind,source=D:\\Media,target=/media,readonly"]);
+  assert.ok(empty.progress.some((step) => step.label === "Check media folder" && step.status === "warning" && /is empty/.test(step.detail)), "an empty media folder is reported, not hidden");
+  assert.throws(() => validateMarketplaceTemplate({ ...template("jellyfin"), docker: { ...template("jellyfin").docker, hostFolder: { ...template("jellyfin").docker.hostFolder, readOnly: false } } }), /read-only/);
+  console.log("PASS S12 Jellyfin mounts one chosen folder read-only and reports an empty one");
+
   assert.deepStrictEqual(blocked, [], `no network or process escaped: ${blocked.join(", ")}`);
-  console.log("Marketplace Docker service smoke passed (11 checks).");
+  console.log("Marketplace Docker service smoke passed (12 checks).");
 }
 
 main()

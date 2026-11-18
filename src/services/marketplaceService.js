@@ -4588,6 +4588,7 @@ async function installDockerTemplate({ template, options, ports, agentConfig, pr
         : ports.map((port) => `${port}:${port}`),
       memory: normalizeName(options.memory, template.defaultRam || ""),
       start: options.start !== false,
+      hostFolder: options.hostFolder,
     });
     const { payload, volumes, credentials } = request;
 
@@ -4651,6 +4652,9 @@ async function installDockerTemplate({ template, options, ports, agentConfig, pr
       if (/port is already allocated|address already in use/i.test(String(error?.message || ""))) {
         throw dockerInstallError("That port is already in use on this computer. Choose another port and try again.", "PORT_IN_USE", { field: "ports" });
       }
+      if (request.hostFolder && /bind source path does not exist|invalid mount config|no such file or directory/i.test(String(error?.message || ""))) {
+        throw dockerInstallError(`The folder ${request.hostFolder.source} was not found on that computer. Check the path and try again.`, "HOST_FOLDER_NOT_FOUND", { field: "hostFolder", retryable: false });
+      }
       throw error;
     }
     created = true;
@@ -4676,6 +4680,16 @@ async function installDockerTemplate({ template, options, ports, agentConfig, pr
       pushStep(progress, stage, state.known ? "complete" : "skipped", state.known
         ? `${template.displayName} is running.`
         : "This computer's Agent could not report the container state. Check it on the Docker page.");
+      // Docker Desktop creates a missing folder instead of refusing it, so a
+      // mistyped path installs "fine" with nothing in it. Say so plainly.
+      if (request.hostFolder && state.running) {
+        const listing = await agentClient.execDockerContainer(containerName, { command: `ls -A ${request.hostFolder.target} | head -n 1` }, agentConfig).catch(() => null);
+        if (listing && listing.exitCode === 0 && !String(listing.output || "").trim()) {
+          pushStep(progress, "Check media folder", "warning", `${request.hostFolder.source} is empty. If that is not the folder you meant, remove this service on the Docker page and install it again with the right path.`);
+        } else if (listing && listing.exitCode === 0) {
+          pushStep(progress, "Check media folder", "complete", `${request.hostFolder.label} is shared read-only.`);
+        }
+      }
     }
 
     // A cancel that arrives this late must not be reported as success.
@@ -4688,6 +4702,7 @@ async function installDockerTemplate({ template, options, ports, agentConfig, pr
       container: result.container,
       runtimeType: "docker",
       volumes: volumes.map((volume) => ({ name: volume.name, target: volume.target })),
+      hostFolder: request.hostFolder,
       // Shown to the user once. The "secret" key keeps the values out of
       // persisted job records and diagnostics (sanitizeForDiagnostics).
       credentials,
