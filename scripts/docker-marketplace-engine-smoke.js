@@ -129,7 +129,13 @@ async function main() {
   const fivemWindows = resolveTemplateDependencyIds(resolve(template("fivem"), "windows"));
   assert.ok(fivemWindows.includes("tar") && !fivemWindows.includes("unzip") && !fivemWindows.includes("xz"), `Windows FiveM needs tar for the resource pack only (${fivemWindows})`);
   const fivemLinux = resolveTemplateDependencyIds(resolve(template("fivem"), "linux"));
-  assert.ok(["unzip", "tar", "xz"].every((id) => fivemLinux.includes(id)), `Linux keeps the archive tools (${fivemLinux})`);
+  // Linux needs exactly the tools its archives use (Build 214): FiveM's two
+  // archives are tar.xz and tar.gz, so tar and xz but not unzip.
+  assert.ok(["tar", "xz"].every((id) => fivemLinux.includes(id)) && !fivemLinux.includes("unzip"), `Linux FiveM needs tar and xz (${fivemLinux})`);
+  const linuxFactorio = resolveTemplateDependencyIds(template("factorio"));
+  assert.ok(linuxFactorio.includes("tar") && linuxFactorio.includes("xz") && !linuxFactorio.includes("unzip"), `Factorio's .tar.xz does not need unzip (${linuxFactorio})`);
+  const linuxTshock = resolveTemplateDependencyIds(template("terraria-tshock"));
+  assert.ok(linuxTshock.includes("unzip") && linuxTshock.includes("tar"), `a .zip with a tar payload needs unzip and tar (${linuxTshock})`);
   assert.ok(resolveTemplateDependencyIds(template("terraria-tshock")).includes("unzip"), "a template without a resolved platform keeps the Linux tool set");
   const routerSource = fs.readFileSync(path.join(repo, "src/services/serviceRouter.js"), "utf8");
   assert.ok(/resolveTemplateForNode\(rawTemplate, getRequestNodeId\(options\)\)/.test(routerSource), "the start gate resolves the node's template variant");

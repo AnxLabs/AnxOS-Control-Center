@@ -164,6 +164,16 @@ const GAMES = {
       assert.ok(!JSON.stringify(result.progress).includes(password), "the password is not in the install steps");
     },
   },
+  factorio: {
+    processName: /factorio/i,
+    async settings({ instancePath, name, ports }) {
+      const factorioDir = path.join(instancePath, "data", "server", "factorio");
+      assert.ok(fs.existsSync(path.join(factorioDir, "saves", "anxos.zip")), "a world was created on the first start");
+      const log = fs.readFileSync(path.join(factorioDir, "factorio-current.log"), "utf8");
+      assert.ok(log.includes(`Hosting game at IP ADDR:({0.0.0.0:${ports[0]}})`) || log.includes(`:${ports[0]}`), "the server hosts on the chosen port");
+      assert.strictEqual(JSON.parse(fs.readFileSync(path.join(factorioDir, "anxos-server-settings.json"), "utf8")).name, name, "the server uses the settings AnxOS wrote");
+    },
+  },
   "seven-days-to-die": {
     processName: /7DaysToDieServer/i,
     async settings({ instancePath, ports }) {

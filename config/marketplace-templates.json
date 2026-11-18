@@ -2131,6 +2131,115 @@
     ]
   },
   {
+    "id": "factorio",
+    "displayName": "Factorio Dedicated Server",
+    "description": "Factorio headless server from factorio.com for Linux computers. Creates a new world on its first start.",
+    "icon": "FAC",
+    "screenshots": [],
+    "author": "AnxOS",
+    "version": "1.0.0",
+    "category": "Game Servers",
+    "instanceType": "custom-command",
+    "startupType": "archive",
+    "defaultRam": "2G",
+    "defaultPorts": [
+      34197
+    ],
+    "tags": [
+      "factorio",
+      "factory",
+      "game-server"
+    ],
+    "downloadSource": {
+      "type": "url",
+      "url": "https://factorio.com/get-download/stable/headless/linux64",
+      "fileName": "factorio.tar.xz",
+      "required": true
+    },
+    "downloads": [
+      {
+        "type": "url",
+        "url": "https://factorio.com/get-download/stable/headless/linux64",
+        "destination": "data/factorio.tar.xz",
+        "fileName": "factorio.tar.xz",
+        "required": true,
+        "overwrite": true
+      }
+    ],
+    "installer": {
+      "type": "archive",
+      "archive": "factorio.tar.xz",
+      "extractDir": "server",
+      "verifyFiles": [
+        "server/factorio/bin/x64/factorio"
+      ],
+      "timeoutMs": 600000
+    },
+    "startup": {
+      "executable": "bash",
+      "args": [
+        "-lc",
+        "cd factorio && chmod +x ./bin/x64/factorio && { [ -f saves/anxos.zip ] || ./bin/x64/factorio --create saves/anxos.zip; } && exec ./bin/x64/factorio --start-server saves/anxos.zip --port {port} --server-settings anxos-server-settings.json"
+      ],
+      "workingDirectory": "data/server",
+      "restartPolicy": "on-failure"
+    },
+    "configFiles": [
+      {
+        "path": "server/factorio/anxos-server-settings.json",
+        "lines": [
+          "{",
+          "  \"name\": \"{name}\",",
+          "  \"description\": \"Managed by AnxOS\",",
+          "  \"visibility\": { \"public\": false, \"lan\": true },",
+          "  \"max_players\": 0,",
+          "  \"require_user_verification\": true,",
+          "  \"autosave_interval\": 10,",
+          "  \"autosave_slots\": 5,",
+          "  \"auto_pause\": true",
+          "}"
+        ]
+      }
+    ],
+    "platforms": {
+      "windows": {
+        "disabled": true,
+        "comingSoonMessage": "Factorio publishes its headless server for Linux only. Install it on a Linux computer."
+      }
+    },
+    "compatibility": {
+      "requires": [
+        "tar",
+        "xz"
+      ],
+      "platforms": [
+        "linux"
+      ]
+    },
+    "installMetadata": {
+      "method": "archive",
+      "source": "factorio.com headless server (stable, linux64)",
+      "notes": "Linux computers only."
+    },
+    "configNotes": "The port is UDP. Players on your network can join; listing the server publicly needs a factorio.com account (set username and token in anxos-server-settings.json). The world is saved in factorio/saves/anxos.zip.",
+    "installScript": [
+      "create-instance",
+      "create-folders",
+      "download",
+      "extract",
+      "write-config",
+      "verify",
+      "start"
+    ],
+    "configurationSchema": [
+      "name",
+      "storageLocation",
+      "port",
+      "memory"
+    ],
+    "installerType": "archive-download"
+  },
+  {
     "id": "hytale",
     "displayName": "Hytale Dedicated Server",
     "description": "Official Hytale dedicated server from Hypixel Studios (Java 25, QUIC over UDP). The first start signs in with your Hytale account and downloads the official server files.",

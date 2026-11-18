@@ -594,7 +594,23 @@ function archiveToolDependencyIds(template = {}) {
     ];
     return archives.some((name) => /\.(?:tar|tar\.gz|tgz)$/.test(name)) ? ["tar"] : [];
   }
-  return primaryArchive.endsWith(".xz") ? ["unzip", "tar", "xz"] : ["unzip", "tar"];
+  // Linux: exactly the tools its archives need. Asking every archive for
+  // unzip, tar and xz blocked Factorio's .tar.xz on a computer without unzip.
+  // An archive whose kind is not known keeps the full set.
+  const archives = [
+    primaryArchive,
+    ...(Array.isArray(template.installer?.additionalArchives) ? template.installer.additionalArchives.map((entry) => String(entry?.archive || "").toLowerCase()) : []),
+  ].filter(Boolean);
+  const known = archives.length > 0 && archives.every((name) => /\.(?:zip|tar|tar\.gz|tgz|tar\.xz|txz)$/.test(name));
+  if (!known) return primaryArchive.endsWith(".xz") ? ["unzip", "tar", "xz"] : ["unzip", "tar"];
+  const tools = new Set();
+  for (const name of archives) {
+    // A .zip may carry a tar payload, which the installer script extracts too.
+    if (name.endsWith(".zip")) tools.add("unzip");
+    tools.add("tar");
+    if (/\.(?:tar\.xz|txz)$/.test(name)) tools.add("xz");
+  }
+  return ["unzip", "tar", "xz"].filter((tool) => tools.has(tool));
 }
 
 function resolveTemplateDependencyIds(template = {}) {
