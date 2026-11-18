@@ -1527,7 +1527,7 @@
   {
     "id": "docker-nginx",
     "displayName": "Nginx Docker",
-    "description": "Docker-backed Nginx app server for quick static hosting tests.",
+    "description": "Nginx web server for static websites. Its site files are kept in a Docker volume.",
     "icon": "NGX",
     "screenshots": [],
     "author": "AnxOS",
@@ -1555,7 +1555,14 @@
       "ports": [
         "8080:80"
       ],
-      "restartPolicy": "unless-stopped"
+      "restartPolicy": "unless-stopped",
+      "volumes": [
+        {
+          "name": "site",
+          "target": "/usr/share/nginx/html",
+          "label": "Website files"
+        }
+      ]
     },
     "compatibility": {
       "requires": [
@@ -1590,7 +1597,9 @@
       "port",
       "memory"
     ],
-    "installerType": "docker-image"
+    "installerType": "docker-image",
+    "workloadKind": "service",
+    "configNotes": "This is an application, not a game server. Open http://<computer address>:<port> in a browser."
   },
   {
     "id": "jellyfin",
@@ -1612,7 +1621,7 @@
       "image": "jellyfin/jellyfin:latest"
     },
     "comingSoon": true,
-    "comingSoonMessage": "This template is not ready yet.",
+    "comingSoonMessage": "Jellyfin needs access to a media folder on the computer. Choosing that folder during install is not built yet.",
     "installScript": [
       "create-instance",
       "create-folders"
@@ -1644,7 +1653,7 @@
       "type": "docker-compose"
     },
     "comingSoon": true,
-    "comingSoonMessage": "This template is not ready yet.",
+    "comingSoonMessage": "Immich needs several linked containers (database, cache, machine learning). AnxOS installs single-container services for now.",
     "installScript": [
       "create-instance",
       "create-folders"
@@ -1660,27 +1669,75 @@
   {
     "id": "nextcloud",
     "displayName": "Nextcloud",
-    "description": "Private file sync and collaboration platform template.",
+    "description": "Nextcloud file sync and sharing. You finish setup in the browser, where you create the administrator account.",
     "icon": "NC",
     "screenshots": [],
     "author": "AnxOS",
     "version": "1.0.0",
     "category": "Applications",
-    "instanceType": "custom-command",
+    "workloadKind": "service",
+    "runtime": "docker",
+    "instanceType": "docker-container",
     "startupType": "docker-image",
     "defaultRam": "2G",
     "defaultPorts": [
       8080
     ],
+    "tags": [
+      "files",
+      "cloud",
+      "nextcloud",
+      "docker",
+      "service"
+    ],
     "downloadSource": {
       "type": "docker",
-      "image": "nextcloud:latest"
+      "image": "nextcloud:stable-apache",
+      "required": true
     },
-    "comingSoon": true,
-    "comingSoonMessage": "This template is not ready yet.",
+    "docker": {
+      "image": "nextcloud:stable-apache",
+      "ports": [
+        "8080:80"
+      ],
+      "volumes": [
+        {
+          "name": "data",
+          "target": "/var/www/html",
+          "label": "Nextcloud files and settings"
+        }
+      ],
+      "restartPolicy": "unless-stopped"
+    },
+    "compatibility": {
+      "requires": [
+        "docker"
+      ],
+      "platforms": [
+        "linux"
+      ],
+      "architectures": [
+        "amd64",
+        "arm64"
+      ]
+    },
+    "updateCheck": {
+      "type": "docker-tag",
+      "image": "nextcloud",
+      "tag": "stable-apache"
+    },
+    "installMetadata": {
+      "method": "docker",
+      "source": "Docker Hub nextcloud (official image)",
+      "notes": "Requires Docker on the chosen computer."
+    },
+    "configNotes": "This is an application, not a game server. Open http://<computer address>:<port> in a browser and choose SQLite when asked for a database: it suits a household. Nextcloud recommends MariaDB or PostgreSQL for many users.",
     "installScript": [
-      "create-instance",
-      "create-folders"
+      "check-computer",
+      "pull-image",
+      "create-container",
+      "verify",
+      "start"
     ],
     "configurationSchema": [
       "name",
@@ -1688,32 +1745,82 @@
       "port",
       "memory"
     ],
-    "installerType": "no-install"
+    "installerType": "docker-image"
   },
   {
     "id": "gitea",
     "displayName": "Gitea",
-    "description": "Lightweight Git server and code hosting template.",
+    "description": "Gitea, a self-hosted Git service with a web interface, using its built-in SQLite database.",
     "icon": "GT",
     "screenshots": [],
     "author": "AnxOS",
     "version": "1.0.0",
     "category": "Development",
-    "instanceType": "custom-command",
+    "workloadKind": "service",
+    "runtime": "docker",
+    "instanceType": "docker-container",
     "startupType": "docker-image",
     "defaultRam": "1G",
     "defaultPorts": [
-      3000
+      3000,
+      2222
+    ],
+    "tags": [
+      "git",
+      "development",
+      "gitea",
+      "docker",
+      "service"
     ],
     "downloadSource": {
       "type": "docker",
-      "image": "gitea/gitea:latest"
+      "image": "gitea/gitea:1",
+      "required": true
     },
-    "comingSoon": true,
-    "comingSoonMessage": "This template is not ready yet.",
+    "docker": {
+      "image": "gitea/gitea:1",
+      "ports": [
+        "3000:3000",
+        "2222:22"
+      ],
+      "volumes": [
+        {
+          "name": "data",
+          "target": "/data",
+          "label": "Repositories and settings"
+        }
+      ],
+      "restartPolicy": "unless-stopped"
+    },
+    "compatibility": {
+      "requires": [
+        "docker"
+      ],
+      "platforms": [
+        "linux"
+      ],
+      "architectures": [
+        "amd64",
+        "arm64"
+      ]
+    },
+    "updateCheck": {
+      "type": "docker-tag",
+      "image": "gitea/gitea",
+      "tag": "1"
+    },
+    "installMetadata": {
+      "method": "docker",
+      "source": "Docker Hub gitea/gitea (official image)",
+      "notes": "Requires Docker on the chosen computer."
+    },
+    "configNotes": "This is an application, not a game server. Open http://<computer address>:<first port> in a browser to finish setup; the first account you register becomes the administrator. The second port is for Git over SSH.",
     "installScript": [
-      "create-instance",
-      "create-folders"
+      "check-computer",
+      "pull-image",
+      "create-container",
+      "verify",
+      "start"
     ],
     "configurationSchema": [
       "name",
@@ -1721,32 +1828,80 @@
       "port",
       "memory"
     ],
-    "installerType": "no-install"
+    "installerType": "docker-image"
   },
   {
     "id": "uptime-kuma",
     "displayName": "Uptime Kuma",
-    "description": "Friendly uptime monitoring dashboard template.",
+    "description": "Uptime Kuma checks that your websites and servers are reachable and alerts you when they are not.",
     "icon": "UK",
     "screenshots": [],
     "author": "AnxOS",
     "version": "1.0.0",
     "category": "Networking",
-    "instanceType": "custom-command",
+    "workloadKind": "service",
+    "runtime": "docker",
+    "instanceType": "docker-container",
     "startupType": "docker-image",
     "defaultRam": "512M",
     "defaultPorts": [
       3001
     ],
+    "tags": [
+      "monitoring",
+      "uptime",
+      "alerts",
+      "docker",
+      "service"
+    ],
     "downloadSource": {
       "type": "docker",
-      "image": "louislam/uptime-kuma:latest"
+      "image": "louislam/uptime-kuma:2",
+      "required": true
     },
-    "comingSoon": true,
-    "comingSoonMessage": "This template is not ready yet.",
+    "docker": {
+      "image": "louislam/uptime-kuma:2",
+      "ports": [
+        "3001:3001"
+      ],
+      "volumes": [
+        {
+          "name": "data",
+          "target": "/app/data",
+          "label": "Monitors and history"
+        }
+      ],
+      "restartPolicy": "unless-stopped"
+    },
+    "compatibility": {
+      "requires": [
+        "docker"
+      ],
+      "platforms": [
+        "linux"
+      ],
+      "architectures": [
+        "amd64",
+        "arm64"
+      ]
+    },
+    "updateCheck": {
+      "type": "docker-tag",
+      "image": "louislam/uptime-kuma",
+      "tag": "2"
+    },
+    "installMetadata": {
+      "method": "docker",
+      "source": "Docker Hub louislam/uptime-kuma (official image)",
+      "notes": "Requires Docker on the chosen computer."
+    },
+    "configNotes": "This is an application, not a game server. Open http://<computer address>:<port> in a browser; the first visit asks you to create the administrator account.",
     "installScript": [
-      "create-instance",
-      "create-folders"
+      "check-computer",
+      "pull-image",
+      "create-container",
+      "verify",
+      "start"
     ],
     "configurationSchema": [
       "name",
@@ -1754,32 +1909,91 @@
       "port",
       "memory"
     ],
-    "installerType": "no-install"
+    "installerType": "docker-image"
   },
   {
     "id": "grafana",
     "displayName": "Grafana",
-    "description": "Metrics dashboards and observability UI template.",
+    "description": "Grafana dashboards for metrics and logs. Sign in as \"admin\" with a generated password.",
     "icon": "GF",
     "screenshots": [],
     "author": "AnxOS",
     "version": "1.0.0",
     "category": "Applications",
-    "instanceType": "custom-command",
+    "workloadKind": "service",
+    "runtime": "docker",
+    "instanceType": "docker-container",
     "startupType": "docker-image",
-    "defaultRam": "1G",
+    "defaultRam": "512M",
     "defaultPorts": [
       3000
     ],
+    "tags": [
+      "monitoring",
+      "dashboards",
+      "grafana",
+      "docker",
+      "service"
+    ],
     "downloadSource": {
       "type": "docker",
-      "image": "grafana/grafana:latest"
+      "image": "grafana/grafana:latest",
+      "required": true
     },
-    "comingSoon": true,
-    "comingSoonMessage": "This template is not ready yet.",
+    "docker": {
+      "image": "grafana/grafana:latest",
+      "ports": [
+        "3000:3000"
+      ],
+      "volumes": [
+        {
+          "name": "data",
+          "target": "/var/lib/grafana",
+          "label": "Dashboards and settings"
+        }
+      ],
+      "environment": {
+        "GF_SECURITY_ADMIN_USER": "admin",
+        "GF_SECURITY_ADMIN_PASSWORD": "{secret:admin-password}"
+      },
+      "secrets": [
+        {
+          "id": "admin-password",
+          "label": "Grafana sign-in password",
+          "username": "admin"
+        }
+      ],
+      "restartPolicy": "unless-stopped"
+    },
+    "compatibility": {
+      "requires": [
+        "docker"
+      ],
+      "platforms": [
+        "linux"
+      ],
+      "architectures": [
+        "amd64",
+        "arm64"
+      ]
+    },
+    "updateCheck": {
+      "type": "docker-tag",
+      "image": "grafana/grafana",
+      "tag": "latest"
+    },
+    "installMetadata": {
+      "method": "docker",
+      "source": "Docker Hub grafana/grafana (official image)",
+      "notes": "Requires Docker on the chosen computer."
+    },
+    "configNotes": "This is an application, not a game server. Open http://<computer address>:<port> in a browser and sign in as \"admin\" with the password shown after install.",
     "installScript": [
-      "create-instance",
-      "create-folders"
+      "check-computer",
+      "pull-image",
+      "create-container",
+      "verify",
+      "start"
     ],
     "configurationSchema": [
       "name",
@@ -1787,32 +2001,85 @@
       "port",
       "memory"
     ],
-    "installerType": "no-install"
+    "installerType": "docker-image"
   },
   {
     "id": "prometheus",
     "displayName": "Prometheus",
-    "description": "Metrics collection and time-series storage template.",
+    "description": "Prometheus metrics collection and storage. Starts with its default settings, which only watch Prometheus itself.",
     "icon": "PM",
     "screenshots": [],
     "author": "AnxOS",
     "version": "1.0.0",
     "category": "Applications",
-    "instanceType": "custom-command",
+    "workloadKind": "service",
+    "runtime": "docker",
+    "instanceType": "docker-container",
     "startupType": "docker-image",
     "defaultRam": "1G",
     "defaultPorts": [
       9090
     ],
+    "tags": [
+      "monitoring",
+      "metrics",
+      "prometheus",
+      "docker",
+      "service"
+    ],
     "downloadSource": {
       "type": "docker",
-      "image": "prom/prometheus:latest"
+      "image": "prom/prometheus:latest",
+      "required": true
     },
-    "comingSoon": true,
-    "comingSoonMessage": "This template is not ready yet.",
+    "docker": {
+      "image": "prom/prometheus:latest",
+      "ports": [
+        "9090:9090"
+      ],
+      "volumes": [
+        {
+          "name": "data",
+          "target": "/prometheus",
+          "label": "Collected metrics"
+        },
+        {
+          "name": "config",
+          "target": "/etc/prometheus",
+          "label": "Settings (prometheus.yml)"
+        }
+      ],
+      "restartPolicy": "unless-stopped"
+    },
+    "compatibility": {
+      "requires": [
+        "docker"
+      ],
+      "platforms": [
+        "linux"
+      ],
+      "architectures": [
+        "amd64",
+        "arm64"
+      ]
+    },
+    "updateCheck": {
+      "type": "docker-tag",
+      "image": "prom/prometheus",
+      "tag": "latest"
+    },
+    "installMetadata": {
+      "method": "docker",
+      "source": "Docker Hub prom/prometheus (official image)",
+      "notes": "Requires Docker on the chosen computer."
+    },
+    "configNotes": "This is an application, not a game server. Prometheus has no sign-in of its own, so keep the port on your network and do not forward it to the internet. Add what to watch in prometheus.yml, then restart it.",
     "installScript": [
-      "create-instance",
-      "create-folders"
+      "check-computer",
+      "pull-image",
+      "create-container",
+      "verify",
+      "start"
     ],
     "configurationSchema": [
       "name",
@@ -1820,32 +2087,91 @@
       "port",
       "memory"
     ],
-    "installerType": "no-install"
+    "installerType": "docker-image"
   },
   {
     "id": "postgresql",
     "displayName": "PostgreSQL",
-    "description": "Relational database server template.",
+    "description": "PostgreSQL 17 database. AnxOS creates a database and user named \"anxos\" with a generated password.",
     "icon": "PG",
     "screenshots": [],
     "author": "AnxOS",
     "version": "1.0.0",
     "category": "Databases",
-    "instanceType": "custom-command",
+    "workloadKind": "service",
+    "runtime": "docker",
+    "instanceType": "docker-container",
     "startupType": "docker-image",
     "defaultRam": "1G",
     "defaultPorts": [
       5432
     ],
+    "tags": [
+      "database",
+      "postgresql",
+      "docker",
+      "service"
+    ],
     "downloadSource": {
       "type": "docker",
-      "image": "postgres:latest"
+      "image": "postgres:17-alpine",
+      "required": true
     },
-    "comingSoon": true,
-    "comingSoonMessage": "This template is not ready yet.",
+    "docker": {
+      "image": "postgres:17-alpine",
+      "ports": [
+        "5432:5432"
+      ],
+      "volumes": [
+        {
+          "name": "data",
+          "target": "/var/lib/postgresql/data",
+          "label": "Database files"
+        }
+      ],
+      "environment": {
+        "POSTGRES_USER": "anxos",
+        "POSTGRES_DB": "anxos",
+        "POSTGRES_PASSWORD": "{secret:password}"
+      },
+      "secrets": [
+        {
+          "id": "password",
+          "label": "Database password",
+          "username": "anxos"
+        }
+      ],
+      "restartPolicy": "unless-stopped"
+    },
+    "compatibility": {
+      "requires": [
+        "docker"
+      ],
+      "platforms": [
+        "linux"
+      ],
+      "architectures": [
+        "amd64",
+        "arm64"
+      ]
+    },
+    "updateCheck": {
+      "type": "docker-tag",
+      "image": "postgres",
+      "tag": "17-alpine"
+    },
+    "installMetadata": {
+      "method": "docker",
+      "source": "Docker Hub postgres (official image)",
+      "notes": "Requires Docker on the chosen computer."
+    },
+    "configNotes": "This is a database service, not a game server. Connect with user \"anxos\", database \"anxos\" and the password shown after install. The port is reachable from other computers on your network; do not forward it to the internet.",
     "installScript": [
-      "create-instance",
-      "create-folders"
+      "check-computer",
+      "pull-image",
+      "create-container",
+      "verify",
+      "start"
     ],
     "configurationSchema": [
       "name",
@@ -1853,32 +2179,98 @@
       "port",
       "memory"
     ],
-    "installerType": "no-install"
+    "installerType": "docker-image"
   },
   {
     "id": "mariadb",
     "displayName": "MariaDB",
-    "description": "MySQL-compatible relational database template.",
+    "description": "MariaDB 11.4 (MySQL-compatible) database. AnxOS creates a database and user named \"anxos\" with generated passwords.",
     "icon": "MDB",
     "screenshots": [],
     "author": "AnxOS",
     "version": "1.0.0",
     "category": "Databases",
-    "instanceType": "custom-command",
+    "workloadKind": "service",
+    "runtime": "docker",
+    "instanceType": "docker-container",
     "startupType": "docker-image",
     "defaultRam": "1G",
     "defaultPorts": [
       3306
     ],
+    "tags": [
+      "database",
+      "mariadb",
+      "mysql",
+      "docker",
+      "service"
+    ],
     "downloadSource": {
       "type": "docker",
-      "image": "mariadb:latest"
+      "image": "mariadb:11.4",
+      "required": true
     },
-    "comingSoon": true,
-    "comingSoonMessage": "This template is not ready yet.",
+    "docker": {
+      "image": "mariadb:11.4",
+      "ports": [
+        "3306:3306"
+      ],
+      "volumes": [
+        {
+          "name": "data",
+          "target": "/var/lib/mysql",
+          "label": "Database files"
+        }
+      ],
+      "environment": {
+        "MARIADB_DATABASE": "anxos",
+        "MARIADB_USER": "anxos",
+        "MARIADB_PASSWORD": "{secret:password}",
+        "MARIADB_ROOT_PASSWORD": "{secret:root-password}"
+      },
+      "secrets": [
+        {
+          "id": "password",
+          "label": "Database password",
+          "username": "anxos"
+        },
+        {
+          "id": "root-password",
+          "label": "Administrator password",
+          "username": "root"
+        }
+      ],
+      "restartPolicy": "unless-stopped"
+    },
+    "compatibility": {
+      "requires": [
+        "docker"
+      ],
+      "platforms": [
+        "linux"
+      ],
+      "architectures": [
+        "amd64",
+        "arm64"
+      ]
+    },
+    "updateCheck": {
+      "type": "docker-tag",
+      "image": "mariadb",
+      "tag": "11.4"
+    },
+    "installMetadata": {
+      "method": "docker",
+      "source": "Docker Hub mariadb (official image)",
+      "notes": "Requires Docker on the chosen computer."
+    },
+    "configNotes": "This is a database service, not a game server. Connect with user \"anxos\", database \"anxos\" and the password shown after install. The port is reachable from other computers on your network; do not forward it to the internet.",
     "installScript": [
-      "create-instance",
-      "create-folders"
+      "check-computer",
+      "pull-image",
+      "create-container",
+      "verify",
+      "start"
     ],
     "configurationSchema": [
       "name",
@@ -1886,32 +2278,94 @@
       "port",
       "memory"
     ],
-    "installerType": "no-install"
+    "installerType": "docker-image"
   },
   {
     "id": "redis",
     "displayName": "Redis",
-    "description": "In-memory cache and queue server template.",
+    "description": "Redis 7 in-memory data store with a generated password and data saved to disk.",
     "icon": "RDS",
     "screenshots": [],
     "author": "AnxOS",
     "version": "1.0.0",
     "category": "Databases",
-    "instanceType": "custom-command",
+    "workloadKind": "service",
+    "runtime": "docker",
+    "instanceType": "docker-container",
     "startupType": "docker-image",
     "defaultRam": "512M",
     "defaultPorts": [
       6379
     ],
+    "tags": [
+      "database",
+      "redis",
+      "cache",
+      "docker",
+      "service"
+    ],
     "downloadSource": {
       "type": "docker",
-      "image": "redis:latest"
+      "image": "redis:7-alpine",
+      "required": true
     },
-    "comingSoon": true,
-    "comingSoonMessage": "This template is not ready yet.",
+    "docker": {
+      "image": "redis:7-alpine",
+      "ports": [
+        "6379:6379"
+      ],
+      "volumes": [
+        {
+          "name": "data",
+          "target": "/data",
+          "label": "Saved data"
+        }
+      ],
+      "environment": {
+        "REDIS_PASSWORD": "{secret:password}"
+      },
+      "secrets": [
+        {
+          "id": "password",
+          "label": "Redis password"
+        }
+      ],
+      "command": [
+        "sh",
+        "-c",
+        "exec redis-server --appendonly yes --requirepass \"$REDIS_PASSWORD\""
+      ],
+      "restartPolicy": "unless-stopped"
+    },
+    "compatibility": {
+      "requires": [
+        "docker"
+      ],
+      "platforms": [
+        "linux"
+      ],
+      "architectures": [
+        "amd64",
+        "arm64"
+      ]
+    },
+    "updateCheck": {
+      "type": "docker-tag",
+      "image": "redis",
+      "tag": "7-alpine"
+    },
+    "installMetadata": {
+      "method": "docker",
+      "source": "Docker Hub redis (official image)",
+      "notes": "Requires Docker on the chosen computer."
+    },
+    "configNotes": "This is a data store service, not a game server. Connect with the password shown after install. The port is reachable from other computers on your network; do not forward it to the internet.",
     "installScript": [
-      "create-instance",
-      "create-folders"
+      "check-computer",
+      "pull-image",
+      "create-container",
+      "verify",
+      "start"
     ],
     "configurationSchema": [
       "name",
@@ -1919,7 +2373,7 @@
       "port",
       "memory"
     ],
-    "installerType": "no-install"
+    "installerType": "docker-image"
   },
   {
     "id": "discord-js",
@@ -2069,7 +2523,7 @@
       "fileName": "app.jar"
     },
     "comingSoon": true,
-    "comingSoonMessage": "This template is not ready yet.",
+    "comingSoonMessage": "Importing your own Java application is not built yet.",
     "installScript": [
       "create-instance",
       "create-folders"

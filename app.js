@@ -20062,6 +20062,13 @@ function getMarketplaceCompatibilityItems(template = {}) {
   if (template.installMetadata?.notes) {
     items.push({ label: "Known limitation", value: template.installMetadata.notes, state: "warning" });
   }
+  // Databases and applications are services: say so, and say how to reach them.
+  if (template.workloadKind === "service" && template.configNotes) {
+    items.unshift({ label: "What this is", value: template.configNotes, state: "ready" });
+  }
+  if (Array.isArray(template.docker?.volumes) && template.docker.volumes.length) {
+    items.push({ label: "Kept data", value: template.docker.volumes.map((volume) => volume.label || volume.name).join(", "), state: "ready" });
+  }
   if (template.verified === true) items.push({ label: "Verification", value: "Verified AnxOS template metadata", state: "ready" });
   if (template.experimental === true) items.push({ label: "Release channel", value: "Experimental", state: "warning" });
   return items;
@@ -24243,6 +24250,73 @@ async function refreshIntegratedDeploymentSurfaces() {
   return results;
 }
 
+// Docker services (databases, dashboards) get generated passwords. They are
+// shown here once: AnxOS keeps no copy, so the user must save them now.
+function showMarketplaceServiceCredentials(template, credentials = []) {
+  const entries = (Array.isArray(credentials) ? credentials : []).filter((entry) => entry && entry.secret);
+  if (entries.length === 0) return Promise.resolve();
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "app-modal-backdrop";
+    const dialog = document.createElement("section");
+    dialog.className = "app-modal";
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-modal", "true");
+    dialog.setAttribute("aria-label", "Save your passwords");
+    dialog.tabIndex = -1;
+    const header = document.createElement("div");
+    header.className = "app-modal__header";
+    header.append(
+      createTextElement("p", template?.displayName || "Service", "eyebrow"),
+      createTextElement("h2", entries.length === 1 ? "Save this password" : "Save these passwords"),
+      createTextElement("p", "AnxOS created them for this install and does not keep a copy. Save them somewhere safe before you close this window."),
+    );
+    dialog.append(header);
+    for (const entry of entries) {
+      const field = document.createElement("label");
+      field.className = "settings-field";
+      const input = document.createElement("input");
+      input.type = "text";
+      input.readOnly = true;
+      input.autocomplete = "off";
+      input.spellcheck = false;
+      input.value = entry.secret;
+      const copy = document.createElement("button");
+      copy.className = "inline-action";
+      copy.type = "button";
+      copy.textContent = "Copy";
+      copy.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(entry.secret);
+          showToast(`${entry.label || "Password"} copied.`, "success");
+        } catch {
+          input.select();
+          showToast("Copy failed. Select the password and copy it yourself.", "warning");
+        }
+      });
+      field.append(createTextElement("span", entry.username ? `${entry.label} (user: ${entry.username})` : entry.label || "Password"), input, copy);
+      dialog.append(field);
+    }
+    const actions = document.createElement("div");
+    actions.className = "settings-actions";
+    const done = document.createElement("button");
+    done.className = "inline-action inline-action--primary";
+    done.type = "button";
+    done.textContent = "I saved them";
+    actions.append(done);
+    dialog.append(actions);
+    overlay.appendChild(dialog);
+    let deactivateModal = () => {};
+    done.addEventListener("click", () => {
+      deactivateModal();
+      overlay.remove();
+      resolve();
+    });
+    document.body.appendChild(overlay);
+    deactivateModal = activateModal(overlay, { initialFocus: () => done });
+  });
+}
+
 async function completeMarketplaceInstallResult(result, template, providerInstall) {
   setMarketplaceManualRecoveryState(null);
   renderMarketplaceProgress(result?.progress || []);
@@ -24254,36 +24328,44 @@ async function completeMarketplaceInstallResult(result, template, providerInstal
   if (providerInstall) {
     await refreshMarketplaceDownloads();
   }
-  selectedInstanceId = result?.instance?.id || selectedInstanceId;
-  forgetStaleInstanceId(selectedInstanceId);
+  // Docker services are containers: they are managed on the Docker page, not
+  // under My Servers.
+  const dockerService = result?.runtimeType === "docker";
+  if (!dockerService) {
+    selectedInstanceId = result?.instance?.id || selectedInstanceId;
+    forgetStaleInstanceId(selectedInstanceId);
+  }
   setMarketplaceInstallState("Complete", "complete");
-  setMarketplaceMessage("Done! Your server is set up and passed its checks.");
+  setMarketplaceMessage(dockerService ? "Done! It is installed and running. Manage it on the Docker page." : "Done! Your server is set up and passed its checks.");
   renderMarketplaceRecoveryActions(template);
   finishOperation(activeMarketplaceOperationId, true, `Installed ${template.displayName || template.id || "template"}.`);
   createNotification({
     category: "Instances",
     severity: "success",
-    title: "Server ready",
+    title: dockerService ? "Service ready" : "Server ready",
     message: `${template.displayName || template.id || "Server"} completed deployment successfully.`,
     dedupKey: `create-server:ready:${result?.instance?.id || template.id || "server"}`,
     relatedOperationId: activeMarketplaceOperationId,
-    relatedInstanceId: result?.instance?.id || "",
+    relatedInstanceId: dockerService ? "" : result?.instance?.id || "",
     relatedNodeId: activeMarketplaceInstallNodeId || getSelectedNodeId() || "",
-    relatedWorkspace: "instances",
-    actions: ["openInstances"],
+    relatedWorkspace: dockerService ? "docker" : "instances",
+    actions: dockerService ? [] : ["openInstances"],
   });
-  showToast("Your server is ready.");
+  showToast(dockerService ? `${template.displayName || "Your service"} is ready.` : "Your server is ready.");
+  await showMarketplaceServiceCredentials(template, result?.credentials);
   if (workspaceSurface === "create-server") {
     createServerWizardStep = "deployment";
     if (createServerDeploymentState) {
       createServerDeploymentState.replaceChildren(
-        createTextElement("strong", "Your server is ready"),
-        createTextElement("span", "It is set up and passed its checks. Find it under My Servers."),
+        createTextElement("strong", dockerService ? `${template.displayName || "Your service"} is ready` : "Your server is ready"),
+        createTextElement("span", dockerService
+          ? "It is installed and running in Docker. Start, stop, view logs and remove it on the Docker page."
+          : "It is set up and passed its checks. Find it under My Servers."),
       );
     }
     renderCreateServerWizard(template);
   } else {
-    showPage("instances");
+    showPage(dockerService ? "docker" : "instances");
   }
   publishDeploymentLifecycle({
     status: "completed",

@@ -2442,6 +2442,8 @@ async function assertSharedTemplateInstallFlowMatrix() {
   const originalAgent = {};
   const patchedAgentMethods = [
     "createDockerContainer",
+    "preflightDockerContainer",
+    "pullDockerImage",
     "createInstance",
     "createInstanceFolder",
     "writeInstanceFile",
@@ -2532,6 +2534,10 @@ async function assertSharedTemplateInstallFlowMatrix() {
       throw new Error(`Unexpected template smoke URL: ${href}`);
     };
 
+    // Docker templates check the computer and download the image before they
+    // create the container (Build 214).
+    agentClient.preflightDockerContainer = async (payload) => ({ engineAvailable: true, name: payload.name, findings: [] });
+    agentClient.pullDockerImage = async (image) => ({ image });
     agentClient.createDockerContainer = async (payload) => ({
       container: { id: payload.name, name: payload.name, image: payload.image, state: payload.start === false ? "stopped" : "running" },
     });

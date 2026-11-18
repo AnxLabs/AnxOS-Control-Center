@@ -104,6 +104,14 @@ async function main() {
 
   // M2
   const created = [];
+  // Build 214: a Docker template checks the computer, looks for earlier data,
+  // downloads the image and confirms the container runs. The second install
+  // reuses the name, so the first one's volume is gone (as after a removal).
+  marketplaceService._test.setDockerVerifySettings({ attempts: 1, delayMs: 1 });
+  agentClient.preflightDockerContainer = async (payload) => ({ engineAvailable: true, name: payload.name, findings: [] });
+  agentClient.listDockerVolumes = async () => ({ volumes: [] });
+  agentClient.pullDockerImage = async (image) => ({ image });
+  agentClient.inspectDockerContainer = async () => ({ inspect: [{ State: { Running: true, Restarting: false, Status: "running", ExitCode: 0 } }] });
   agentClient.createDockerContainer = async (payload) => { created.push(payload); return { container: { id: `cid-${created.length}`, name: payload.name } }; };
   await marketplaceService.installTemplate({ templateId: "docker-nginx", nodeId: "application-host", requestId: "r1", options: { ...RENDERER_OPTIONS, name: "web" } });
   await marketplaceService.installTemplate({ templateId: "docker-nginx", nodeId: "application-host", requestId: "r2", options: { ...RENDERER_OPTIONS, name: "web", port: 8081, ports: [8081] } });

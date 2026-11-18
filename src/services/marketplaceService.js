@@ -25,6 +25,7 @@ const {
 } = require("./marketplaceInstallJobService");
 const longOperations = require("../shared/longOperationService");
 const { resolveTemplateDependencyIds } = require("../shared/marketplaceDependencies");
+const { buildDockerInstallRequest, isDockerTemplate, readContainerRunState } = require("../shared/marketplaceDockerTemplate");
 const { evaluatePublisherTrust } = require("../shared/publisherTrustPolicy");
 const { redactString, sanitize } = require("../shared/redaction");
 const { normalizeDiskEvidence } = require("../shared/diskSpace");
@@ -4501,6 +4502,187 @@ function assertInstallNotAborted(context) {
   }
 }
 
+// How long a freshly started container must stay up before the install is
+// reported as working. Overridable so tests do not wait.
+let dockerVerifySettings = { attempts: 3, delayMs: 2000 };
+
+function dockerInstallError(message, code, details = {}) {
+  return createMarketplaceError(message, code, { retryable: true, ...details });
+}
+
+// Removes what a failed Docker install created: the container, then the
+// volumes this install made. The install refuses to start when one of its
+// volumes already exists, so earlier data is never in `createdVolumes`.
+async function cleanupFailedDockerInstall(containerName, createdVolumes, agentConfig) {
+  const removed = { container: false, volumes: [] };
+  try {
+    await agentClient.deleteDockerContainer(containerName, agentConfig);
+    removed.container = true;
+  } catch {
+    return removed;
+  }
+  for (const volume of createdVolumes) {
+    try {
+      await agentClient.removeDockerVolume(volume.name, agentConfig);
+      removed.volumes.push(volume.name);
+    } catch {
+      // Left in place and reported by name; the Docker page can remove it.
+    }
+  }
+  return removed;
+}
+
+async function verifyDockerContainerRunning(containerName, agentConfig) {
+  let state = { known: false, running: false };
+  for (let attempt = 0; attempt < dockerVerifySettings.attempts; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, dockerVerifySettings.delayMs));
+    try {
+      state = readContainerRunState(await agentClient.inspectDockerContainer(containerName, agentConfig));
+    } catch {
+      return { known: false, running: false };
+    }
+    if (!state.known || !state.running) return state;
+  }
+  return state;
+}
+
+// Docker-backed templates: check the name, ports and earlier data, download
+// the image, create the container with its volumes, settings and generated
+// passwords, then confirm it stays running.
+async function installDockerTemplate({ template, options, ports, agentConfig, progress, parentRecord, trustVerdict, manifestValidation, installNodeId, context }) {
+  const containerName = slugify(options.id || options.name || template.id);
+  let stage = "Check computer";
+  let created = false;
+  let request = null;
+  try {
+    request = buildDockerInstallRequest(template, {
+      containerName,
+      hostPorts: ports,
+      portMappings: Array.isArray(template.docker?.ports)
+        ? buildDockerTemplatePortMappings(template.docker.ports, ports)
+        : ports.map((port) => `${port}:${port}`),
+      memory: normalizeName(options.memory, template.defaultRam || ""),
+      start: options.start !== false,
+    });
+    const { payload, volumes, credentials } = request;
+
+    pushStep(progress, stage, "running", "Checking Docker, the name and the ports.");
+    updateDownload(parentRecord, { stage, progress: 15 });
+    // The check needs the name, image and ports only; passwords stay here.
+    const { environment: _environment, ...preflightPayload } = payload;
+    const preflight = await agentClient.preflightDockerContainer(preflightPayload, agentConfig);
+    const blocking = (preflight?.findings || []).find((finding) => finding.severity === "error" || finding.code === "HOST_PORT_IN_USE");
+    if (blocking) {
+      const portBusy = blocking.code === "HOST_PORT_IN_USE";
+      throw dockerInstallError(
+        portBusy ? `${String(blocking.message).split(". ")[0]}. Choose another port and try again.` : blocking.message,
+        portBusy ? "PORT_IN_USE" : "DOCKER_PREFLIGHT_FAILED",
+        { field: blocking.field || null },
+      );
+    }
+    if (volumes.length > 0) {
+      const listed = await agentClient.listDockerVolumes(agentConfig);
+      const existing = new Set((listed?.volumes || []).map((volume) => volume.name));
+      const kept = volumes.filter((volume) => existing.has(volume.name)).map((volume) => volume.name);
+      if (kept.length > 0) {
+        throw dockerInstallError(
+          `Data from an earlier "${containerName}" is still on this computer (${kept.join(", ")}). Choose a different name, or remove that data on the Docker page first.`,
+          "DOCKER_DATA_EXISTS",
+          { volumes: kept, retryable: false },
+        );
+      }
+    }
+    pushStep(progress, stage, "complete", "This computer is ready.");
+
+    assertInstallNotAborted(context);
+    stage = "Download image";
+    pushStep(progress, stage, "running", `Downloading ${payload.image}. Large images can take several minutes.`);
+    updateDownload(parentRecord, { stage, progress: 30 });
+    await agentClient.pullDockerImage(payload.image, agentConfig);
+    pushStep(progress, stage, "complete", `${payload.image} is downloaded.`);
+
+    assertInstallNotAborted(context);
+    stage = "Create instance";
+    pushStep(progress, stage, "running", `Creating ${template.displayName}.`);
+    updateDownload(parentRecord, { stage, progress: 70 });
+    const result = await agentClient.createDockerContainer(payload, agentConfig);
+    created = true;
+    pushStep(progress, stage, "complete", volumes.length > 0
+      ? `Container created. Its data is kept in ${volumes.map((volume) => volume.name).join(", ")}.`
+      : "Docker container created.");
+
+    if (payload.start) {
+      stage = "Verify installation";
+      pushStep(progress, stage, "running", "Checking that it stays running.");
+      updateDownload(parentRecord, { stage, progress: 90 });
+      const state = await verifyDockerContainerRunning(containerName, agentConfig);
+      if (state.known && !state.running) {
+        const logs = await agentClient.getDockerContainerLogs(containerName, { tail: 20 }, agentConfig).catch(() => null);
+        const lastLines = redactString(String(logs?.logs || "").trim().split(/\r?\n/).slice(-6).join("\n"));
+        const exit = Number.isInteger(state.exitCode) ? ` (exit code ${state.exitCode})` : "";
+        throw dockerInstallError(
+          `${template.displayName} stopped right after starting${exit}.${lastLines ? ` Last output:\n${lastLines}` : ""}`,
+          "DOCKER_CONTAINER_EXITED",
+          { exitCode: state.exitCode, status: state.status },
+        );
+      }
+      pushStep(progress, stage, state.known ? "complete" : "skipped", state.known
+        ? `${template.displayName} is running.`
+        : "This computer's Agent could not report the container state. Check it on the Docker page.");
+    }
+
+    // A cancel that arrives this late must not be reported as success.
+    assertInstallNotAborted(context);
+    pushStep(progress, "Complete", "complete", "Installation finished.");
+    finalizeInstallTaskRecord(parentRecord, "complete", "Docker container created.", { stage: "Completed" });
+    return {
+      template,
+      instance: result.container,
+      container: result.container,
+      runtimeType: "docker",
+      volumes: volumes.map((volume) => ({ name: volume.name, target: volume.target })),
+      // Shown to the user once. The "secret" key keeps the values out of
+      // persisted job records and diagnostics (sanitizeForDiagnostics).
+      credentials,
+      progress,
+      trust: trustVerdict,
+      downloads: sanitizeDownloads(getDownloadsForNode(installNodeId)).downloads,
+    };
+  } catch (error) {
+    let cleanupNote = "";
+    if (created) {
+      const planned = (request?.volumes || []).map((volume) => volume.name);
+      const removed = await cleanupFailedDockerInstall(containerName, request?.volumes || [], agentConfig);
+      const left = planned.filter((name) => !removed.volumes.includes(name));
+      if (!removed.container) {
+        cleanupNote = ` The container "${containerName}" could not be removed; remove it on the Docker page before trying again.`;
+      } else if (left.length > 0) {
+        cleanupNote = ` The container was removed; its data (${left.join(", ")}) is still on the Docker page.`;
+      } else {
+        cleanupNote = " Nothing was left behind.";
+      }
+    }
+    const message = `${mapMarketplaceError(error, "Docker template install failed.")}${cleanupNote}`;
+    pushStep(progress, "Failed", "failed", message);
+    finalizeInstallTaskRecord(parentRecord, "failed", message, {
+      stage: error?.details?.stage || stage,
+      code: getAgentErrorCode(error) || "MARKETPLACE_INSTALL_FAILED",
+      retryable: error?.details?.retryable,
+    });
+    const installError = createMarketplaceError(message, getAgentErrorCode(error) || "MARKETPLACE_INSTALL_FAILED", {
+      ...(error?.details || {}),
+      templateId: template.id,
+      installerType: manifestValidation.installerType,
+      runtimeType: "docker",
+      trust: trustVerdict,
+      stage: error?.details?.stage || stage,
+      retryable: error?.details?.retryable ?? true,
+    });
+    installError.progress = progress;
+    throw installError;
+  }
+}
+
 async function executeInstallTemplate(payload = {}, context = {}) {
   assertInstallNotAborted(context);
   const requestId = payload.requestId || require("crypto").randomUUID();
@@ -4562,50 +4744,8 @@ async function executeInstallTemplate(payload = {}, context = {}) {
   }
 
   assertInstallNotAborted(context);
-  if (template.runtime === "docker" || template.startupType === "docker-image") {
-    try {
-      pushStep(progress, "Create instance", "running", `Creating ${template.displayName}.`);
-      updateDownload(parentRecord, { stage: "Create instance", progress: 20 });
-      const portMappings = ports.map((port) => `${port}:${port}`);
-      const result = await agentClient.createDockerContainer({
-        name: slugify(options.id || options.name || template.id),
-        image: template.docker?.image || template.downloadSource?.image,
-        ports: Array.isArray(template.docker?.ports) ? buildDockerTemplatePortMappings(template.docker.ports, ports) : portMappings,
-        memory: normalizeName(options.memory, template.defaultRam || ""),
-        restartPolicy: template.docker?.restartPolicy || "unless-stopped",
-        start: options.start !== false,
-        command: template.docker?.command || [],
-      }, agentConfig);
-      pushStep(progress, "Create instance", "complete", "Docker container created.");
-      pushStep(progress, "Complete", "complete", "Installation finished.");
-      finalizeInstallTaskRecord(parentRecord, "complete", "Docker container created.", { stage: "Completed" });
-      return {
-        template,
-        instance: result.container,
-        container: result.container,
-        progress,
-        trust: trustVerdict,
-        downloads: sanitizeDownloads(getDownloadsForNode(installNodeId)).downloads,
-      };
-    } catch (error) {
-      pushStep(progress, "Failed", "failed", mapMarketplaceError(error, "Docker template install failed."));
-      finalizeInstallTaskRecord(parentRecord, "failed", mapMarketplaceError(error, "Docker template install failed."), {
-        stage: error?.details?.stage || "Failed",
-        code: getAgentErrorCode(error) || "MARKETPLACE_INSTALL_FAILED",
-        retryable: error?.details?.retryable,
-      });
-      const installError = createMarketplaceError(mapMarketplaceError(error, "Docker template install failed."), getAgentErrorCode(error) || "MARKETPLACE_INSTALL_FAILED", {
-        ...(error?.details || {}),
-        templateId: template.id,
-        installerType: manifestValidation.installerType,
-        runtimeType: "docker",
-        trust: trustVerdict,
-        stage: error?.details?.stage || "Create instance",
-        retryable: error?.details?.retryable ?? true,
-      });
-      installError.progress = progress;
-      throw installError;
-    }
+  if (isDockerTemplate(template)) {
+    return installDockerTemplate({ template, options, ports, agentConfig, progress, parentRecord, trustVerdict, manifestValidation, installNodeId, context });
   }
 
   const isMinecraft = template.category === "Minecraft";
@@ -4963,6 +5103,9 @@ module.exports = {
     downloadOneToInstance,
     resolveTemplateForPlatform,
     buildDockerTemplatePortMappings,
+    setDockerVerifySettings(settings = {}) {
+      dockerVerifySettings = { ...dockerVerifySettings, ...settings };
+    },
     parsePorts,
     resolveMarketplaceAgentConfig,
     uniqueVersionEntries,

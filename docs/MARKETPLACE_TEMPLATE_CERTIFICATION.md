@@ -28,14 +28,14 @@ No current template is classified Deprecated or Unsupported.
 | `docker-nginx` | Supported | Docker template fixtures | Registry and Docker daemon |
 | `jellyfin` | Disabled | Disabled-template validation | Not applicable while disabled |
 | `immich` | Disabled | Disabled-template validation | Not applicable while disabled |
-| `nextcloud` | Disabled | Disabled-template validation | Not applicable while disabled |
-| `gitea` | Disabled | Disabled-template validation | Not applicable while disabled |
-| `uptime-kuma` | Disabled | Disabled-template validation | Not applicable while disabled |
-| `grafana` | Disabled | Disabled-template validation | Not applicable while disabled |
-| `prometheus` | Disabled | Disabled-template validation | Not applicable while disabled |
-| `postgresql` | Disabled | Disabled-template validation | Not applicable while disabled |
-| `mariadb` | Disabled | Disabled-template validation | Not applicable while disabled |
-| `redis` | Disabled | Disabled-template validation | Not applicable while disabled |
+| `nextcloud` | Supported | Docker service fixtures (`marketplace-docker-service-smoke`) | Registry and Docker daemon. Nextcloud (SQLite) reachable in a browser; data kept after restart |
+| `gitea` | Supported | Docker service fixtures (`marketplace-docker-service-smoke`) | Registry and Docker daemon. First-run setup in a browser; Git over SSH on the second port |
+| `uptime-kuma` | Supported | Docker service fixtures (`marketplace-docker-service-smoke`) | Registry and Docker daemon. First-run account creation in a browser |
+| `grafana` | Supported | Docker service fixtures (`marketplace-docker-service-smoke`) | Registry and Docker daemon. Sign-in with the generated admin password |
+| `prometheus` | Supported | Docker service fixtures (`marketplace-docker-service-smoke`) | Registry and Docker daemon. Web interface reachable; metrics kept after restart |
+| `postgresql` | Supported | Docker service fixtures (`marketplace-docker-service-smoke`) | Registry and Docker daemon. Client connection with the generated password; data kept after restart |
+| `mariadb` | Supported | Docker service fixtures (`marketplace-docker-service-smoke`) | Registry and Docker daemon. Client connection with the generated passwords; data kept after restart |
+| `redis` | Supported | Docker service fixtures (`marketplace-docker-service-smoke`) | Registry and Docker daemon. Client connection with the generated password; data kept after restart |
 | `discord-js` | Experimental | Local-import fixtures | User project and Node runtime |
 | `python-discord-bot` | Experimental | Local-import fixtures | User project and Python runtime |
 | `node-app` | Experimental | Local-import fixtures | User project and Node runtime |

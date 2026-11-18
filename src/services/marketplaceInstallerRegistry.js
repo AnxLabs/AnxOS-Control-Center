@@ -1,3 +1,5 @@
+const { findDockerTemplateProblems } = require("../shared/marketplaceDockerTemplate");
+
 const SUPPORTED_INSTALLER_TYPES = new Set([
   "archive-download",
   "curseforge",
@@ -133,6 +135,21 @@ function validateSteamCmdTemplate(template = {}) {
   }
 }
 
+// A Docker template may only declare an image, ports, named volumes,
+// environment values and generated secrets. Anything else (privileged mode,
+// host mounts, host networking) makes the manifest invalid, so the card is
+// shown as unavailable instead of installable.
+function validateDockerTemplate(template = {}) {
+  const problems = findDockerTemplateProblems(template);
+  if (problems.length > 0) {
+    throw new MarketplaceManifestError(problems[0], "MARKETPLACE_MANIFEST_INVALID", {
+      templateId: template.id || null,
+      installerType: "docker-image",
+      problems,
+    });
+  }
+}
+
 function validateMarketplaceTemplate(template = {}) {
   if (!/^[a-z0-9][a-z0-9_-]{2,63}$/.test(String(template.id || ""))) {
     throw new MarketplaceManifestError("Marketplace template id is invalid.", "MARKETPLACE_MANIFEST_INVALID", { templateId: template.id || null });
@@ -157,6 +174,10 @@ function validateMarketplaceTemplate(template = {}) {
 
   if (installerType === "steamcmd-native") {
     validateSteamCmdTemplate(template);
+  }
+
+  if (installerType === "docker-image") {
+    validateDockerTemplate(template);
   }
 
   if (installerType === "direct-download" || installerType === "archive-download" || installerType === "java-runtime") {
