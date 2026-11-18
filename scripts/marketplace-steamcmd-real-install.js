@@ -174,6 +174,18 @@ const GAMES = {
       assert.strictEqual(JSON.parse(fs.readFileSync(path.join(factorioDir, "anxos-server-settings.json"), "utf8")).name, name, "the server uses the settings AnxOS wrote");
     },
   },
+  "ark-survival-evolved": {
+    processName: /ShooterGameServer/i,
+    // ARK also uses the game port + 1, so the query port is further away.
+    portsFor: (pair) => [pair[0], pair[0] + 10],
+    async settings({ instancePath, id }) {
+      const saved = path.join(instancePath, "data", "server", "ShooterGame", "Saved");
+      assert.ok(fs.existsSync(saved), "the server writes its saves in the server folder");
+      const log = fs.readFileSync(path.join(saved, "Logs", "ShooterGame.log"), "utf8");
+      assert.ok(log.includes(id), "the server log names the session AnxOS gave it");
+    },
+    readyTimeoutMs: 1200000,
+  },
   "seven-days-to-die": {
     processName: /7DaysToDieServer/i,
     async settings({ instancePath, ports }) {
@@ -244,7 +256,8 @@ async function runGame(templateId, agent, agentConfig) {
   const spec = GAMES[templateId];
   const name = `Anx214 ${templateId}`;
   const id = `anx214-${templateId}`;
-  const ports = await freeUdpPair(spec.portRange);
+  const pair = await freeUdpPair(spec.portRange);
+  const ports = spec.portsFor ? spec.portsFor(pair) : pair;
   const record = { templateId, ports, steps: [] };
   results.push(record);
   const started = Date.now();
@@ -265,7 +278,7 @@ async function runGame(templateId, agent, agentConfig) {
     const owner = await waitFor("the server binding its port", async () => {
       const found = await udpOwner(ports[0]);
       return found && spec.processName.test(found.name) ? found : null;
-    }, { timeoutMs: 420000 });
+    }, { timeoutMs: spec.readyTimeoutMs || 420000 });
     record.steps.push(`${owner.name} bound UDP ${ports[0]}`);
 
     const status = await agentClient.getInstanceStatus(id, agentConfig);
