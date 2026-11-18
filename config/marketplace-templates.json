@@ -1821,6 +1821,119 @@
     "installerType": "steamcmd-native"
   },
   {
+    "id": "seven-days-to-die",
+    "displayName": "7 Days to Die Dedicated Server",
+    "description": "7 Days to Die dedicated server on the Navezgane map, installed with SteamCMD.",
+    "icon": "7D",
+    "screenshots": [],
+    "author": "AnxOS",
+    "version": "1.0.0",
+    "category": "Game Servers",
+    "instanceType": "custom-command",
+    "startupType": "steamcmd-native",
+    "hostDependencies": [
+      "steamcmd"
+    ],
+    "defaultRam": "8G",
+    "defaultPorts": [
+      26900
+    ],
+    "tags": [
+      "7-days-to-die",
+      "survival",
+      "zombies",
+      "steamcmd",
+      "game-server"
+    ],
+    "downloadSource": {
+      "type": "steamcmd",
+      "appId": 294420,
+      "login": "anonymous",
+      "required": true
+    },
+    "installer": {
+      "type": "steamcmd",
+      "appId": 294420,
+      "installDir": "server",
+      "login": "anonymous",
+      "validate": true,
+      "verifyFiles": [
+        "server/7DaysToDieServer.exe"
+      ],
+      "timeoutMs": 3600000
+    },
+    "startup": {
+      "executable": "7DaysToDieServer.exe",
+      "args": [
+        "-logfile",
+        "logs\\output_log.txt",
+        "-quit",
+        "-batchmode",
+        "-nographics",
+        "-configfile=anxos-serverconfig.xml",
+        "-dedicated"
+      ],
+      "workingDirectory": "data/server",
+      "restartPolicy": "on-failure"
+    },
+    "platforms": {
+      "linux": {
+        "disabled": true,
+        "comingSoonMessage": "7 Days to Die on Linux computers has not been tested by AnxOS yet. Install it on a Windows computer."
+      }
+    },
+    "configFiles": [
+      {
+        "path": "server/anxos-serverconfig.xml",
+        "lines": [
+          "<?xml version=\"1.0\"?>",
+          "<ServerSettings>",
+          "\t<property name=\"ServerName\" value=\"{name}\"/>",
+          "\t<property name=\"ServerPort\" value=\"{port}\"/>",
+          "\t<property name=\"ServerVisibility\" value=\"2\"/>",
+          "\t<property name=\"ServerMaxPlayerCount\" value=\"8\"/>",
+          "\t<property name=\"UserDataFolder\" value=\"UserData\"/>",
+          "\t<property name=\"GameWorld\" value=\"Navezgane\"/>",
+          "\t<property name=\"GameName\" value=\"AnxOS\"/>",
+          "\t<property name=\"TelnetEnabled\" value=\"false\"/>",
+          "\t<property name=\"WebDashboardEnabled\" value=\"false\"/>",
+          "</ServerSettings>"
+        ]
+      }
+    ],
+    "compatibility": {
+      "requires": [
+        "steamcmd"
+      ],
+      "platforms": [
+        "windows"
+      ]
+    },
+    "installMetadata": {
+      "method": "steamcmd",
+      "appId": 294420,
+      "login": "anonymous",
+      "notes": "Windows computers only for now. Requires SteamCMD. The download is about 17 GB."
+    },
+    "configNotes": "The port is used for TCP and UDP, and the game also uses the next two UDP ports: open all three. Settings are in anxos-serverconfig.xml (properties not listed there keep the game's defaults); saves are in UserData. The remote console (telnet) is off.",
+    "installScript": [
+      "create-instance",
+      "verify-instance",
+      "create-folders",
+      "steamcmd-install",
+      "write-config",
+      "verify",
+      "start"
+    ],
+    "configurationSchema": [
+      "name",
+      "storageLocation",
+      "port",
+      "memory"
+    ],
+    "installerType": "steamcmd-native"
+  },
+  {
     "id": "hytale",
     "displayName": "Hytale Dedicated Server",
     "description": "Official Hytale dedicated server from Hypixel Studios (Java 25, QUIC over UDP). The first start signs in with your Hytale account and downloads the official server files.",

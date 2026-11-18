@@ -3534,14 +3534,41 @@ function getSteamCmdInstallArtifactPaths(template) {
   ].filter(Boolean);
 }
 
+// Whether an installed file is there. Reading it is the quick check, but a
+// read can fail while something else briefly holds the file: on Windows a
+// freshly downloaded executable is often locked by an antivirus scan, and
+// 7 Days to Die's 7DaysToDieServer.exe was reported missing right after
+// SteamCMD's "Success" although it was on disk. A listing of its folder is
+// then the evidence, and only a file of that exact name counts.
+async function instanceArtifactExists(instanceId, artifactPath, agentConfig = null) {
+  try {
+    await agentClient.readInstanceFile(instanceId, artifactPath, agentConfig);
+    return true;
+  } catch {
+    const normalized = normalizeInstanceFilePath(artifactPath);
+    const separator = normalized.lastIndexOf("/");
+    const folder = separator >= 0 ? normalized.slice(0, separator) : ".";
+    const name = normalized.slice(separator + 1);
+    const entries = await listInstanceDirectoryEntriesForArtifacts(instanceId, folder, agentConfig);
+    return entries.some((entry) => entry?.name === name && (entry.type === "file" || entry.isFile === true || entry.kind === "file"));
+  }
+}
+
+async function listInstanceDirectoryEntriesForArtifacts(instanceId, folder, agentConfig = null) {
+  try {
+    const result = await agentClient.listInstanceFiles(instanceId, folder, agentConfig);
+    return Array.isArray(result?.entries) ? result.entries : [];
+  } catch {
+    return [];
+  }
+}
+
 async function hasInstalledArtifacts(instanceId, artifactPaths = [], agentConfig = null) {
   if (!artifactPaths.length) {
     return false;
   }
   for (const artifactPath of artifactPaths) {
-    try {
-      await agentClient.readInstanceFile(instanceId, artifactPath, agentConfig);
-    } catch {
+    if (!(await instanceArtifactExists(instanceId, artifactPath, agentConfig))) {
       return false;
     }
   }
@@ -3551,9 +3578,7 @@ async function hasInstalledArtifacts(instanceId, artifactPaths = [], agentConfig
 async function verifyInstalledArtifacts(instanceId, artifactPaths = [], agentConfig = null, context = {}) {
   const missing = [];
   for (const artifactPath of artifactPaths) {
-    try {
-      await agentClient.readInstanceFile(instanceId, artifactPath, agentConfig);
-    } catch {
+    if (!(await instanceArtifactExists(instanceId, artifactPath, agentConfig))) {
       missing.push(artifactPath);
     }
   }

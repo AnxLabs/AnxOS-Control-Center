@@ -2449,6 +2449,7 @@ async function assertSharedTemplateInstallFlowMatrix() {
     "createInstanceFolder",
     "writeInstanceFile",
     "readInstanceFile",
+    "listInstanceFiles",
     "saveMinecraftProperties",
     "updateInstance",
     "startInstance",
@@ -2557,7 +2558,22 @@ async function assertSharedTemplateInstallFlowMatrix() {
       files.set(`${instanceId}:${filePath}`, content);
       return { path: filePath, size: Buffer.byteLength(Buffer.isBuffer(content) ? content : String(content || "")) };
     };
+    agentClient.listInstanceFiles = async (instanceId, directoryPath = ".") => {
+      const prefix = directoryPath === "." ? "" : `${String(directoryPath).replace(/\/$/, "")}/`;
+      const names = new Map();
+      for (const key of files.keys()) {
+        if (!key.startsWith(`${instanceId}:${prefix}`)) continue;
+        const [name, ...tail] = key.slice(`${instanceId}:${prefix}`.length).split("/");
+        if (name) names.set(name, tail.length > 0 ? "directory" : "file");
+      }
+      return { entries: [...names.entries()].map(([name, type]) => ({ name, type })) };
+    };
     agentClient.readInstanceFile = async (instanceId, filePath) => {
+      // A file another process holds (Windows antivirus scanning a fresh
+      // executable) is on disk but cannot be read for a moment.
+      if (/steamcmd-locked-smoke/.test(instanceId) && filePath === "server/PalServer.sh") {
+        throw Object.assign(new Error("EBUSY: resource busy or locked"), { code: "PATH_UNAVAILABLE" });
+      }
       if (!files.has(`${instanceId}:${filePath}`) && !["server/TShock.Server", "server/PalServer.sh"].includes(filePath)) {
         const error = Object.assign(new Error(`Missing file: ${filePath}`), { code: "PATH_NOT_FOUND" });
         throw error;
@@ -2752,6 +2768,14 @@ async function assertSharedTemplateInstallFlowMatrix() {
     });
     assert.strictEqual(steamStartCounts.get("palworld-steamcmd-resume-smoke"), 2, "an incomplete SteamCMD run is resumed once");
     assert(resumed.progress.some((step) => /stopped before the download finished; resuming/.test(step.detail || "")), "the user is told the download is being resumed");
+
+    // A downloaded file that is briefly locked still counts as installed when
+    // its folder lists it (7DaysToDieServer.exe on a real run).
+    await marketplaceService.installTemplate({
+      templateId: "palworld",
+      options: { id: "palworld-steamcmd-locked-smoke", name: "Palworld Locked Smoke", port: 8211, memory: "8G", start: false },
+    });
+    assert.strictEqual(steamStartCounts.get("palworld-steamcmd-locked-smoke"), 1, "a locked but listed file needs no second SteamCMD run");
 
     const originalSystemStats = agentClient.getSystemStats;
     const startsBeforeLowDisk = started.length;

@@ -132,6 +132,16 @@ const GAMES = {
       assert.ok(fs.existsSync(path.join(instancePath, "data", "server", "Pal", "Saved")), "Palworld writes its saves under Pal/Saved");
     },
   },
+  "seven-days-to-die": {
+    processName: /7DaysToDieServer/i,
+    async settings({ instancePath, ports }) {
+      const serverDir = path.join(instancePath, "data", "server");
+      const log = fs.readFileSync(path.join(serverDir, "logs", "output_log.txt"), "utf8");
+      assert.ok(/GamePref\.ServerPort = (\d+)/.exec(log)?.[1] === String(ports[0]), "the server uses the port AnxOS wrote");
+      assert.ok(/GamePref\.TelnetEnabled = False/.test(log), "the remote console is off");
+      assert.ok(fs.existsSync(path.join(serverDir, "UserData", "Saves")), "saves are kept in the server folder");
+    },
+  },
   satisfactory: {
     // FactoryServer.exe starts FactoryServer-Win64-Shipping-Cmd.exe, which binds the ports.
     processName: /FactoryServer/i,
@@ -238,6 +248,7 @@ async function runGame(templateId, agent, agentConfig) {
   } catch (error) {
     record.ok = false;
     record.error = String(error?.message || error).slice(0, 700);
+    if (error?.details?.missingArtifacts) record.error += ` | missing: ${error.details.missingArtifacts.join(", ")}`;
     const failedStatus = await agentClient.getInstanceStatus(id, agentConfig).catch(() => null);
     const failed = failedStatus?.instance || failedStatus || {};
     record.state = `${failed.state} / readiness ${failed.readinessState ?? "none"} / ${failed.failureReason || "no failure reason"}`;

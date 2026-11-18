@@ -346,6 +346,19 @@ async function main() {
   assert.strictEqual(marketplaceService._test.resolveTemplateForPlatform(dst, "linux").disabled, true, "DST on Linux is labelled untested");
   assert.deepStrictEqual(dst.configFiles.map((file) => resolveConfigPath(file.path, dst, { name: "Friends" }, [10999])), ["server/saves/Cluster/cluster.ini", "server/saves/Cluster/Master/server.ini"]);
   assert.ok(/cluster token/.test(dst.configNotes), "DST says internet play needs a Klei cluster token");
+  // A hostile server name cannot add settings to a config file.
+  const buildConfig = marketplaceService._test.buildConfigFileContent;
+  const sdtd = template("seven-days-to-die");
+  const evil = 'x"/><property name="TelnetEnabled" value="true"/><x a="';
+  const xml = buildConfig(sdtd.configFiles[0], sdtd, { name: evil }, [26900]);
+  assert.strictEqual((xml.match(/name="TelnetEnabled"/g) || []).length, 1, "the name cannot add a second TelnetEnabled");
+  assert.ok(xml.includes('value="x&quot;/&gt;&lt;property'), "the name is escaped inside its XML value");
+  const enshrouded = template("enshrouded");
+  const json = JSON.parse(buildConfig(enshrouded.configFiles[0], enshrouded, { name: 'My "best"\nserver' }, [15637]));
+  assert.strictEqual(json.name, 'My "best" server', "a quote stays inside the JSON name and a line break becomes a space");
+  assert.strictEqual(json.queryPort, 15637);
+  const ini = buildConfig(dst.configFiles[0], dst, { name: "Friends\n[NETWORK]\noffline_cluster = false" }, [10999]);
+  assert.ok(!/^offline_cluster = false$/m.test(ini), "a line break in the name cannot add an INI setting");
   console.log("PASS S11 game config paths use the server folder safely; Windows-only games say so");
 
   // S12 Jellyfin: one media folder, read-only, with the single policy grant
