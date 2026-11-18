@@ -132,6 +132,12 @@ const GAMES = {
       assert.ok(fs.existsSync(path.join(instancePath, "data", "server", "Pal", "Saved")), "Palworld writes its saves under Pal/Saved");
     },
   },
+  "garrys-mod": {
+    processName: /srcds/i,
+    async settings({ instancePath }) {
+      assert.ok(fs.existsSync(path.join(instancePath, "data", "server", "garrysmod", "cfg")), "the game folder is in the server folder");
+    },
+  },
   "seven-days-to-die": {
     processName: /7DaysToDieServer/i,
     async settings({ instancePath, ports }) {

@@ -1934,6 +1934,106 @@
     "installerType": "steamcmd-native"
   },
   {
+    "id": "garrys-mod",
+    "displayName": "Garry's Mod Dedicated Server",
+    "description": "Garry's Mod dedicated server (Sandbox on gm_construct) installed with SteamCMD.",
+    "icon": "GM",
+    "screenshots": [],
+    "author": "AnxOS",
+    "version": "1.0.0",
+    "category": "Game Servers",
+    "instanceType": "custom-command",
+    "startupType": "steamcmd-native",
+    "hostDependencies": [
+      "steamcmd"
+    ],
+    "defaultRam": "2G",
+    "defaultPorts": [
+      27015
+    ],
+    "tags": [
+      "garrys-mod",
+      "sandbox",
+      "source",
+      "steamcmd",
+      "game-server"
+    ],
+    "downloadSource": {
+      "type": "steamcmd",
+      "appId": 4020,
+      "login": "anonymous",
+      "required": true
+    },
+    "installer": {
+      "type": "steamcmd",
+      "appId": 4020,
+      "installDir": "server",
+      "login": "anonymous",
+      "validate": true,
+      "verifyFiles": [
+        "server/srcds.exe"
+      ],
+      "timeoutMs": 2400000
+    },
+    "startup": {
+      "executable": "srcds.exe",
+      "args": [
+        "-console",
+        "-game",
+        "garrysmod",
+        "-port",
+        "{port}",
+        "+gamemode",
+        "sandbox",
+        "+map",
+        "gm_construct",
+        "+maxplayers",
+        "16",
+        "+hostname",
+        "{name}"
+      ],
+      "workingDirectory": "data/server",
+      "restartPolicy": "on-failure"
+    },
+    "platforms": {
+      "linux": {
+        "disabled": true,
+        "comingSoonMessage": "Garry's Mod on Linux computers has not been tested by AnxOS yet. Install it on a Windows computer."
+      }
+    },
+    "compatibility": {
+      "requires": [
+        "steamcmd"
+      ],
+      "platforms": [
+        "windows"
+      ]
+    },
+    "installMetadata": {
+      "method": "steamcmd",
+      "appId": 4020,
+      "login": "anonymous",
+      "notes": "Windows computers only for now. Requires SteamCMD."
+    },
+    "configNotes": "The port is used for UDP game traffic and TCP remote console. Server settings go in garrysmod/cfg/server.cfg. To list the server for internet players, Valve requires a Game Server Login Token from your Steam account (+sv_setsteamaccount).",
+    "installScript": [
+      "create-instance",
+      "verify-instance",
+      "create-folders",
+      "steamcmd-install",
+      "write-config",
+      "verify",
+      "start"
+    ],
+    "configurationSchema": [
+      "name",
+      "storageLocation",
+      "port",
+      "memory"
+    ],
+    "installerType": "steamcmd-native"
+  },
+  {
     "id": "hytale",
     "displayName": "Hytale Dedicated Server",
     "description": "Official Hytale dedicated server from Hypixel Studios (Java 25, QUIC over UDP). The first start signs in with your Hytale account and downloads the official server files.",
