@@ -363,6 +363,13 @@ async function main() {
   const xml = buildConfig(sdtd.configFiles[0], sdtd, { name: evil }, [26900]);
   assert.strictEqual((xml.match(/name="TelnetEnabled"/g) || []).length, 1, "the name cannot add a second TelnetEnabled");
   assert.ok(xml.includes('value="x&quot;/&gt;&lt;property'), "the name is escaped inside its XML value");
+  // Space Engineers' settings file is XML named .cfg: it declares its format.
+  const spaceEngineers = template("space-engineers");
+  const seConfig = buildConfig(spaceEngineers.configFiles[0], spaceEngineers, { name: "a</ServerName><RemoteApiEnabled>true</RemoteApiEnabled><x>" }, [27016]);
+  assert.strictEqual((seConfig.match(/<RemoteApiEnabled>/g) || []).length, 1, "a name cannot switch the remote API on in a .cfg XML file");
+  assert.ok(seConfig.includes("<ServerName>a&lt;/ServerName&gt;&lt;RemoteApiEnabled&gt;"), "the name is escaped as XML in the .cfg file");
+  assert.ok(/<WorldName>a-servername-remoteapienabled-true-remoteapienabled-x<\/WorldName>|<WorldName>[a-z0-9-]+<\/WorldName>/.test(seConfig), "the world (save folder) is named by the id slug");
+  assert.strictEqual(marketplaceService._test.resolveTemplateForPlatform(spaceEngineers, "linux").disabled, true, "Space Engineers is Windows only");
   const enshrouded = template("enshrouded");
   const json = JSON.parse(buildConfig(enshrouded.configFiles[0], enshrouded, { name: 'My "best"\nserver' }, [15637]));
   assert.strictEqual(json.name, 'My "best" server', "a quote stays inside the JSON name and a line break becomes a space");

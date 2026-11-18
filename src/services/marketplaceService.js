@@ -2685,10 +2685,13 @@ function expandTemplateArray(values = [], template, options = {}, ports = []) {
 // A value such as the server name is written into a settings file, so it is
 // escaped for that file's format: a quote in a name must not end the value and
 // add settings of its own (in 7 Days to Die's XML that could switch the
-// password-less remote console back on). Line breaks never pass.
-function escapeConfigValue(value, configPath = "") {
+// password-less remote console back on). Line breaks never pass. A file
+// whose extension does not say its format (Space Engineers' XML .cfg) names
+// it with "format".
+function escapeConfigValue(value, configPath = "", format = "") {
   const text = String(value ?? "").replace(/[\r\n\u0000]+/g, " ");
-  const extension = String(configPath).toLowerCase().split(".").pop();
+  const declared = String(format || "").toLowerCase();
+  const extension = ["xml", "json"].includes(declared) ? declared : String(configPath).toLowerCase().split(".").pop();
   if (extension === "xml") {
     return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
   }
@@ -2699,7 +2702,7 @@ function escapeConfigValue(value, configPath = "") {
 }
 
 function expandConfigFileString(value, configFile, template, options = {}, ports = []) {
-  return String(value ?? "").replace(/\{([a-zA-Z0-9_-]+)\}/g, (_, key) => escapeConfigValue(templateValue(key, template, options, ports), configFile.path));
+  return String(value ?? "").replace(/\{([a-zA-Z0-9_-]+)\}/g, (_, key) => escapeConfigValue(templateValue(key, template, options, ports), configFile.path, configFile.format));
 }
 
 function buildConfigFileContent(configFile, template, options, ports) {

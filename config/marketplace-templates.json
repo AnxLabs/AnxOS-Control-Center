@@ -2224,6 +2224,116 @@
     "installerType": "steamcmd-native"
   },
   {
+    "id": "space-engineers",
+    "displayName": "Space Engineers Dedicated Server",
+    "description": "Space Engineers dedicated server on the Star System scenario, installed with SteamCMD.",
+    "icon": "SE",
+    "screenshots": [],
+    "author": "AnxOS",
+    "version": "1.0.0",
+    "category": "Game Servers",
+    "instanceType": "custom-command",
+    "startupType": "steamcmd-native",
+    "hostDependencies": [
+      "steamcmd"
+    ],
+    "defaultRam": "6G",
+    "defaultPorts": [
+      27016
+    ],
+    "tags": [
+      "space-engineers",
+      "space",
+      "sandbox",
+      "steamcmd",
+      "game-server"
+    ],
+    "downloadSource": {
+      "type": "steamcmd",
+      "appId": 298740,
+      "login": "anonymous",
+      "required": true
+    },
+    "installer": {
+      "type": "steamcmd",
+      "appId": 298740,
+      "installDir": "server",
+      "login": "anonymous",
+      "validate": true,
+      "verifyFiles": [
+        "server/DedicatedServer64/SpaceEngineersDedicated.exe"
+      ],
+      "timeoutMs": 2400000
+    },
+    "startup": {
+      "executable": "SpaceEngineersDedicated.exe",
+      "args": [
+        "-console",
+        "-path",
+        "..\\world"
+      ],
+      "workingDirectory": "data/server/DedicatedServer64",
+      "restartPolicy": "on-failure",
+      "startupTimeoutMs": 600000
+    },
+    "platforms": {
+      "linux": {
+        "disabled": true,
+        "comingSoonMessage": "Space Engineers only publishes a Windows dedicated server. Install it on a Windows computer."
+      }
+    },
+    "configFiles": [
+      {
+        "path": "server/world/SpaceEngineers-Dedicated.cfg",
+        "format": "xml",
+        "lines": [
+          "<?xml version=\"1.0\"?>",
+          "<MyConfigDedicated xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">",
+          "  <LoadWorld />",
+          "  <IP>0.0.0.0</IP>",
+          "  <ServerPort>{port}</ServerPort>",
+          "  <ServerName>{name}</ServerName>",
+          "  <WorldName>{id}</WorldName>",
+          "  <PremadeCheckpointPath>..\\Content\\CustomWorlds\\Star System</PremadeCheckpointPath>",
+          "  <RemoteApiEnabled>false</RemoteApiEnabled>",
+          "  <PauseGameWhenEmpty>false</PauseGameWhenEmpty>",
+          "</MyConfigDedicated>"
+        ]
+      }
+    ],
+    "compatibility": {
+      "requires": [
+        "steamcmd"
+      ],
+      "platforms": [
+        "windows"
+      ]
+    },
+    "installMetadata": {
+      "method": "steamcmd",
+      "appId": 298740,
+      "login": "anonymous",
+      "notes": "Windows computers only (Keen publishes a Windows dedicated server only). Requires SteamCMD. The download is about 8.5 GB."
+    },
+    "configNotes": "The game port is UDP. The world is the shipped Star System scenario with its own settings (Creative, 4 players); change them in world/Saves/<server id>/Sandbox_config.sbc while the server is stopped. The remote API is off. Stop ends the server without a final save (it has no console to ask it to save); it autosaves every 5 minutes.",
+    "installScript": [
+      "create-instance",
+      "verify-instance",
+      "create-folders",
+      "steamcmd-install",
+      "write-config",
+      "verify",
+      "start"
+    ],
+    "configurationSchema": [
+      "name",
+      "storageLocation",
+      "port",
+      "memory"
+    ],
+    "installerType": "steamcmd-native"
+  },
+  {
     "id": "factorio",
     "displayName": "Factorio Dedicated Server",
     "description": "Factorio headless server from factorio.com for Linux computers. Creates a new world on its first start.",

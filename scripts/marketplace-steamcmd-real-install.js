@@ -212,6 +212,19 @@ const GAMES = {
     },
     readyTimeoutMs: 1200000,
   },
+  "space-engineers": {
+    processName: /SpaceEngineersDedicated/i,
+    async settings({ instancePath, id, name, ports }) {
+      const world = path.join(instancePath, "data", "server", "world");
+      const config = fs.readFileSync(path.join(world, "SpaceEngineers-Dedicated.cfg"), "utf8");
+      assert.ok(config.includes(`<ServerPort>${ports[0]}</ServerPort>`) && config.includes(`<ServerName>${name}</ServerName>`), "the settings file AnxOS wrote names the port and server");
+      const log = fs.readdirSync(world).filter((file) => /^SpaceEngineersDedicated_.*\.log$/.test(file)).map((file) => fs.readFileSync(path.join(world, file), "utf8")).join("\n");
+      assert.ok(log.includes(`0.0.0.0:${ports[0]}`), "the server's own log binds the chosen port");
+      // The world is saved under its id shortly after "Game ready".
+      await waitFor("the world save", () => fs.existsSync(path.join(world, "Saves", id, "Sandbox.sbc")), { timeoutMs: 180000, intervalMs: 5000 });
+    },
+    readyTimeoutMs: 600000,
+  },
   "seven-days-to-die": {
     processName: /7DaysToDieServer/i,
     async settings({ instancePath, ports }) {
