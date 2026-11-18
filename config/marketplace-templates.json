@@ -3285,35 +3285,53 @@
   {
     "id": "java-app",
     "displayName": "Java Application",
-    "description": "Generic Java jar service template.",
+    "description": "Deploy your own Java application (.jar) as a managed app with start, stop, logs and resource monitoring.",
     "icon": "JAR",
     "screenshots": [],
     "author": "AnxOS",
     "version": "1.0.0",
     "category": "Development",
+    "workloadKind": "service",
     "instanceType": "java-app",
     "startupType": "java-jar",
+    "hostDependencies": [
+      "java"
+    ],
     "defaultRam": "1G",
-    "defaultPorts": [
-      8080
+    "defaultPorts": [],
+    "tags": [
+      "java",
+      "application",
+      "import"
     ],
     "downloadSource": {
       "type": "manual",
       "fileName": "app.jar"
     },
-    "comingSoon": true,
-    "comingSoonMessage": "Importing your own Java application is not built yet.",
+    "importFile": {
+      "kind": "java-application",
+      "target": "app.jar"
+    },
+    "installMetadata": {
+      "method": "local-import",
+      "source": "A .jar file you choose on this PC",
+      "notes": "Requires Java on the chosen computer. AnxOS checks that the file is a runnable .jar (at most 150 MB) but cannot check what it does."
+    },
+    "configNotes": "This deploys your own application, not a game server. Deploy only applications you trust: it runs with the AnxOS Agent's permissions on that computer (never as administrator). Files it writes are kept in its server folder. Leave the port empty for an application that does not listen on one; it is then ready once it keeps running.",
     "installScript": [
       "create-instance",
-      "create-folders"
+      "create-folders",
+      "copy-application",
+      "start"
     ],
     "configurationSchema": [
       "name",
-      "storageLocation",
       "port",
-      "memory"
+      "memory",
+      "applicationFile",
+      "programArguments"
     ],
-    "installerType": "no-install"
+    "installerType": "local-import"
   },
   {
     "screenshots": [],

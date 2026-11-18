@@ -6,6 +6,7 @@ const {
   getMinecraftVersionCatalog,
   importCommunityTemplate,
   installTemplate,
+  rememberApplicationFile,
   getTemplateInstallPlanPreview,
   listTemplates,
   retryDownload,
@@ -367,6 +368,20 @@ function registerMarketplaceIpc() {
     requirePermission("marketplace:install", payload?.template?.id || payload?.id || "community-template");
     audit({ action: "marketplace.communityTemplate.import", target: payload?.template?.id || payload?.id || "community-template" });
     return importCommunityTemplate(payload);
+  }));
+  // Java application import: the native dialog picks the .jar; only its name,
+  // size and a short-lived token go back to the renderer.
+  ipcMain.handle("marketplace:chooseApplicationFile", async () => invokeMarketplaceOperation(async () => {
+    requirePermission("marketplace:install", "java-application");
+    const dialogOptions = {
+      title: "Choose the Java application to deploy",
+      properties: ["openFile"],
+      filters: [{ name: "Java applications", extensions: ["jar"] }],
+    };
+    const window = BrowserWindow.getFocusedWindow();
+    const selection = window ? await dialog.showOpenDialog(window, dialogOptions) : await dialog.showOpenDialog(dialogOptions);
+    if (selection.canceled || !selection.filePaths?.[0]) return { canceled: true };
+    return rememberApplicationFile(selection.filePaths[0]);
   }));
   ipcMain.handle("marketplace:installTemplate", async (_, payload = {}) => invokeMarketplaceOperation((requestId) => {
     requireNodeContext(payload, "Marketplace template installation");

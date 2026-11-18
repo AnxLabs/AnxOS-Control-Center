@@ -2123,6 +2123,7 @@ function normalizeInstanceConfig(payload, existingConfig = null) {
     autoStart: validateBoolean(payload.autoStart, false),
     restartPolicy: validateRestartPolicy(payload.restartPolicy),
     startupTimeoutMs: validatePositiveInteger(payload.startupTimeoutMs, DEFAULT_STARTUP_TIMEOUT_MS, MAX_STARTUP_TIMEOUT_MS, "startupTimeoutMs"),
+    readinessMode: normalizeReadinessMode(payload.readinessMode),
     shutdownTimeoutMs: validatePositiveInteger(payload.shutdownTimeoutMs, DEFAULT_SHUTDOWN_TIMEOUT_MS, MAX_SHUTDOWN_TIMEOUT_MS, "shutdownTimeoutMs"),
     memoryLimit: payload.memoryLimit ? validateMemoryValue(payload.memoryLimit) : null,
     serverJar: normalizeOptionalJarPath(payload.serverJar) || normalizeOptionalJarPath(payload.jar) || null,
@@ -2579,6 +2580,10 @@ function inferGameFamily(config = {}) {
     ...(Array.isArray(config.args) ? config.args : []),
   ].join(" ").toLowerCase();
 
+  // An imported Java application (Build 214) is not a game: without its own
+  // family, version detection treated it as "unrecognised", parsed it as
+  // Minecraft and the Minecraft Java rules then demanded Java 8.
+  if (config.game === "java-application" || config.templateId === "java-app") return "java-application";
   if (searchable.includes("hytale")) return "hytale";
   if (isMinecraftSoftwareName(searchable)) return "minecraft";
   if (searchable.includes("terraria") || searchable.includes("tshock")) return "terraria";
@@ -5852,6 +5857,7 @@ async function updateInstance(instanceId, payload = {}) {
     startupTimeoutMs: payload.startupTimeoutMs !== undefined
       ? validatePositiveInteger(payload.startupTimeoutMs, current.startupTimeoutMs, MAX_STARTUP_TIMEOUT_MS, "startupTimeoutMs")
       : current.startupTimeoutMs,
+    readinessMode: payload.readinessMode !== undefined ? normalizeReadinessMode(payload.readinessMode) : (current.readinessMode || null),
     shutdownTimeoutMs: payload.shutdownTimeoutMs !== undefined
       ? validatePositiveInteger(payload.shutdownTimeoutMs, current.shutdownTimeoutMs, MAX_SHUTDOWN_TIMEOUT_MS, "shutdownTimeoutMs")
       : current.shutdownTimeoutMs,
@@ -6970,6 +6976,20 @@ async function startInstanceImpl(instanceId, options = {}) {
   const startupTimer = setTimeout(() => {
     const entry = runningProcesses.get(config.id);
 
+    // An application with no port to check (a bot, a worker, an imported
+    // Java app) is ready when it is still running at the end of its startup
+    // window; for everything else that is a readiness timeout.
+    if (config.readinessMode === "process" && entry?.child === child && child.exitCode === null && entry.readinessState !== "ready" && isProcessAlive(child.pid)) {
+      entry.readinessState = "ready";
+      updateRuntimeState(config.id, {
+        state: INSTANCE_STATES.RUNNING,
+        pid: child.pid,
+        readinessState: "ready",
+        healthState: "healthy",
+        ...readinessTimeoutClearPatch(entry),
+      }).catch(() => {});
+      return;
+    }
     if (!isPalworldRuntimeCandidate(config) && entry?.child === child && child.exitCode === null && entry.readinessState !== "ready" && isProcessAlive(child.pid)) {
       entry.readinessTimedOut = true;
       updateRuntimeState(config.id, {
@@ -8457,6 +8477,12 @@ async function checkUdpPortHeld(port, bindSocket = (probe) => dgram.createSocket
     }
   }
   return { port, held: false };
+}
+
+// "process": ready once the process is still running at the end of its
+// startup window. Anything else keeps the default (port, log line or timeout).
+function normalizeReadinessMode(value) {
+  return value === "process" ? "process" : null;
 }
 
 function checkPort(port) {

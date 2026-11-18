@@ -1027,6 +1027,7 @@ const CREATE_SERVER_STEP_LABELS = Object.freeze({
 });
 const CREATE_SERVER_PRE_INSTALL_CHECKS = Object.freeze(["summary", "node", "runtime", "configuration"]);
 let createServerWizardStep = "configuration";
+let marketplaceApplicationFile = null;
 // Notes about settings AnxOS chose for the user (a moved port, lowered
 // memory), and the up-front software check for the selected template.
 let createServerRecommendationNotes = [];
@@ -21308,6 +21309,13 @@ function validateCreateServerStep(step, { report = true } = {}) {
       }
       return false;
     }
+    if (template?.importFile?.kind === "java-application" && !marketplaceApplicationFile?.token) {
+      if (report) {
+        setMarketplaceMessage("Choose the application's .jar file to continue.", "error");
+        document.querySelector("[data-marketplace-choose-application]")?.focus();
+      }
+      return false;
+    }
     if (template?.docker?.hostFolder?.required && !(getMarketplaceField("hostFolder")?.value || "").trim()) {
       if (report) {
         setMarketplaceMessage(`Enter the ${String(template.docker.hostFolder.label || "folder").toLowerCase()} to continue.`, "error");
@@ -21398,7 +21406,8 @@ function syncMarketplaceWizardFields(template) {
       ? ["version", "serverType", "playitTunnel", "acceptEula"].includes(field)
       : ["storageLocation"].includes(field)
         || (field === "acceptEula" && marketplaceTemplateNeedsEula(template))
-        || (field === "hostFolder" && Boolean(template?.docker?.hostFolder));
+        || (field === "hostFolder" && Boolean(template?.docker?.hostFolder))
+        || ((field === "applicationFile" || field === "programArguments") && template?.importFile?.kind === "java-application");
     wrapper.hidden = !shouldShow;
   });
 }
@@ -21488,6 +21497,13 @@ function openMarketplaceWizard(templateId, { source = "" } = {}) {
   if (acceptEulaField) {
     acceptEulaField.checked = false;
   }
+  // An imported Java application: the chosen file is held in the main
+  // process; the window only keeps its token, name and size.
+  marketplaceApplicationFile = null;
+  const applicationName = document.querySelector("[data-marketplace-application-name]");
+  if (applicationName) applicationName.textContent = "No file chosen.";
+  const programArgumentsField = getMarketplaceField("programArguments");
+  if (programArgumentsField) programArgumentsField.value = "";
   // A service that reads a folder from the computer (Jellyfin's media) names
   // it here; the folder is mounted read-only.
   const hostFolderField = getMarketplaceField("hostFolder");
@@ -21707,6 +21723,8 @@ function collectMarketplaceInstallOptions() {
     playitTunnel: Boolean(getMarketplaceField("playitTunnel")?.checked),
     acceptEula: Boolean(getMarketplaceField("acceptEula")?.checked),
     hostFolder: template?.docker?.hostFolder ? (getMarketplaceField("hostFolder")?.value || "").trim() : "",
+    applicationFileToken: template?.importFile ? marketplaceApplicationFile?.token || "" : "",
+    programArguments: template?.importFile ? (getMarketplaceField("programArguments")?.value || "").trim() : "",
     start: Boolean(getMarketplaceField("start")?.checked),
   };
 }
@@ -49675,6 +49693,21 @@ downloadRefreshButton?.addEventListener("click", refreshMarketplaceDownloads);
 marketplaceWizard?.addEventListener("submit", installMarketplaceTemplate);
 createServerBackButton?.addEventListener("click", () => moveCreateServerWizard(-1));
 createServerNextButton?.addEventListener("click", () => moveCreateServerWizard(1));
+document.querySelector("[data-marketplace-choose-application]")?.addEventListener("click", async () => {
+  const api = getDesktopApiState().api?.marketplace;
+  if (typeof api?.chooseApplicationFile !== "function") return;
+  try {
+    const chosen = await api.chooseApplicationFile();
+    if (!chosen || chosen.canceled) return;
+    marketplaceApplicationFile = chosen;
+    const label = document.querySelector("[data-marketplace-application-name]");
+    if (label) label.textContent = `${chosen.fileName} (${Math.max(1, Math.round(Number(chosen.size || 0) / 1024))} KB)`;
+    setMarketplaceMessage(`${chosen.fileName} will be copied to the chosen computer when you install.`);
+  } catch (error) {
+    setMarketplaceMessage(error?.message || "That file cannot be used.", "error");
+  }
+});
+
 marketplaceCancelButton?.addEventListener("click", () => {
   if (workspaceSurface === "create-server" && !marketplaceInstallInFlight) {
     getDesktopWindowApi()?.close?.();

@@ -27,6 +27,7 @@ const {
 const longOperations = require("../shared/longOperationService");
 const { resolveTemplateDependencyIds } = require("../shared/marketplaceDependencies");
 const { buildDockerInstallRequest, generateSecret, isDockerTemplate, readContainerRunState } = require("../shared/marketplaceDockerTemplate");
+const { MAX_JAR_BYTES, inspectJavaApplication, parseProgramArguments } = require("../shared/javaApplicationImport");
 const { evaluatePublisherTrust } = require("../shared/publisherTrustPolicy");
 const { redactString, sanitize } = require("../shared/redaction");
 const { normalizeDiskEvidence } = require("../shared/diskSpace");
@@ -3189,6 +3190,29 @@ function buildInstancePayload(template, options, ports) {
     };
   }
 
+  if (template.importFile?.kind === "java-application") {
+    const programArgs = parseProgramArguments(options.programArguments || "");
+    return {
+      id,
+      displayName: name,
+      type: "java-app",
+      workingDirectory: "data",
+      executable: "java",
+      args: [...(memory ? [`-Xmx${memory}`] : []), "-jar", template.importFile.target, ...programArgs],
+      environment,
+      autoStart: Boolean(options.autoStart),
+      restartPolicy: "on-failure",
+      startupTimeoutMs: 20000,
+      shutdownTimeoutMs: 15000,
+      readinessMode: ports.length > 0 ? null : "process",
+      memoryLimit: memory,
+      ports,
+      ...metadata,
+      tags,
+      game: "java-application",
+    };
+  }
+
   if (template.startupType === "java-jar" || template.instanceType === "minecraft-paper" || template.instanceType === "java-app") {
     const jarName = getPrimaryArtifactName(template, options);
     const args = [];
@@ -3329,6 +3353,8 @@ function getPrimaryArtifactName(template, options = {}) {
 }
 
 function templateNeedsDownloadedArtifact(template, generated) {
+  // An imported Java application is copied from the user's file, not downloaded.
+  if (template.importFile?.kind === "java-application") return false;
   return !generated && (template.startupType === "java-jar" || template.instanceType === "minecraft-paper" || template.instanceType === "java-app");
 }
 
@@ -3349,6 +3375,12 @@ function buildStartupPatch(template, options, ports) {
       ports,
       restartPolicy: template.startup.restartPolicy || "on-failure",
     };
+  }
+
+  // An imported Java application keeps the command its instance was created
+  // with (the user's arguments, no Minecraft "nogui").
+  if (template.importFile?.kind === "java-application") {
+    return null;
   }
 
   if (!(template.startupType === "java-jar" || template.instanceType === "minecraft-paper" || template.instanceType === "java-app")) {
@@ -4575,6 +4607,35 @@ function assertInstallNotAborted(context) {
   }
 }
 
+// Java application import (Build 214). The file the user picks stays in the
+// main process under a short-lived token: the renderer only ever sees its name
+// and size, never sends a path, and the token expires after 30 minutes.
+const selectedApplicationFiles = new Map();
+const APPLICATION_FILE_TOKEN_TTL_MS = 30 * 60 * 1000;
+
+function rememberApplicationFile(filePath) {
+  const stats = fs.statSync(filePath);
+  if (!stats.isFile()) throw createMarketplaceError("Choose a file.", "JAVA_APP_IMPORT_INVALID", { retryable: false });
+  if (stats.size > MAX_JAR_BYTES) throw createMarketplaceError("The chosen file is larger than 150 MB.", "JAVA_APP_TOO_LARGE", { retryable: false });
+  const now = Date.now();
+  for (const [token, entry] of selectedApplicationFiles) {
+    if (now - entry.at > APPLICATION_FILE_TOKEN_TTL_MS) selectedApplicationFiles.delete(token);
+  }
+  const token = require("crypto").randomBytes(16).toString("hex");
+  selectedApplicationFiles.set(token, { filePath, fileName: path.basename(filePath), size: stats.size, at: now });
+  return { token, fileName: path.basename(filePath), size: stats.size };
+}
+
+async function loadSelectedApplicationFile(token) {
+  const entry = selectedApplicationFiles.get(String(token || ""));
+  if (!entry || Date.now() - entry.at > APPLICATION_FILE_TOKEN_TTL_MS) {
+    throw createMarketplaceError("Choose the application's .jar file again.", "JAVA_APP_FILE_REQUIRED", { retryable: false, field: "applicationFile" });
+  }
+  const buffer = fs.readFileSync(entry.filePath);
+  const inspected = await inspectJavaApplication(buffer, entry.fileName);
+  return { ...entry, buffer, ...inspected };
+}
+
 // How long a Compose install waits for its main service to report healthy.
 // Overridable so tests do not wait.
 let composeReadySettings = { attempts: 60, delayMs: 5000 };
@@ -4976,6 +5037,9 @@ async function executeInstallTemplate(payload = {}, context = {}) {
     ? [resolveMinecraftPort(options, template.defaultPorts)]
     : parsePorts(options.ports || options.port, template.defaultPorts);
   const instancePayload = buildInstancePayload(template, options, ports);
+  const importedApplication = template.importFile?.kind === "java-application"
+    ? await loadSelectedApplicationFile(options.applicationFileToken)
+    : null;
   const installContext = validateInstallContext(buildInstallContext(payload, template, options, instancePayload));
 
   let installDependencyCheck = null;
@@ -5061,6 +5125,12 @@ async function executeInstallTemplate(payload = {}, context = {}) {
     updateDownload(parentRecord, { stage: "Create folders", progress: 25 });
     await agentClient.createInstanceFolder(createdInstanceId, "runtime", agentConfig);
     pushStep(progress, "Create folders", "complete", `Prepared folders for ${createdInstanceId}.`);
+
+    if (importedApplication) {
+      pushStep(progress, "Download files", "running", `Copying ${importedApplication.fileName} (${Math.round(importedApplication.bytes / 1024)} KB).`);
+      await agentClient.writeInstanceFile(createdInstanceId, template.importFile.target, importedApplication.buffer.toString("base64"), { encoding: "base64", config: agentConfig });
+      pushStep(progress, "Download files", "complete", `${importedApplication.fileName} copied; it starts ${importedApplication.mainClass}.`);
+    }
 
     const generated = generatedFileForTemplate(template, options, ports);
     if (generated) {
@@ -5387,6 +5457,7 @@ module.exports = {
   getMinecraftVersionCatalog,
   importCommunityTemplate,
   installTemplate,
+  rememberApplicationFile,
   getTemplateInstallPlanPreview,
   listTemplates,
   resolveTemplateForNode,

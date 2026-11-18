@@ -149,10 +149,8 @@ async function main() {
   for (const id of ["postgresql", "mariadb", "redis", "grafana", "prometheus", "uptime-kuma", "gitea", "nextcloud"]) {
     assert.ok(template(id).docker.volumes.length > 0, `${id} keeps its data in a volume`);
   }
-  for (const id of ["java-app"]) {
-    assert.strictEqual(template(id).comingSoon, true, `${id} stays unavailable until its installer exists`);
-    assert.ok(template(id).comingSoonMessage.length > 30 && !/not ready yet/.test(template(id).comingSoonMessage), `${id} says why it is unavailable`);
-  }
+  // Every "coming soon" card from the start of Build 214 is now installable.
+  assert.deepStrictEqual(templates.filter((entry) => entry.comingSoon).map((entry) => entry.id), [], "no card is left as coming soon");
   const base = template("postgresql");
   const unsafe = [
     { docker: { ...base.docker, privileged: true } },

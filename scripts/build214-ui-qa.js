@@ -216,12 +216,10 @@ async function main() {
       })));
       for (const id of ["jellyfin", "it-tools", "stirling-pdf", "postgresql", "v-rising"]) assert.strictEqual(labels[id].unavailable, false, `${id} is installable`);
       assert.strictEqual(labels.immich.unavailable, false, "Immich is installable (Compose)");
-      assert.ok(labels["java-app"].unavailable && labels["java-app"].message.length > 20, "Java application says why");
+      assert.strictEqual(labels["java-app"].unavailable, false, "Java application is installable");
       assert.deepStrictEqual(labels["v-rising"].platforms, ["windows"], "V Rising names Windows");
-      await page.evaluate(() => window.showPage("marketplace"));
-      await page.evaluate(() => window.openMarketplaceWizard("java-app", { source: "template" }));
-      const notice = await page.evaluate(() => document.querySelector("[data-marketplace-message]")?.textContent || "");
-      assert.ok(notice === labels["java-app"].message, `opening Java application explains why (${notice})`);
+      const hytale = await page.evaluate(() => marketplaceCatalog.templates.find((entry) => entry.id === "hytale")?.platforms?.windows?.disabled === true);
+      assert.ok(hytale, "a Linux-only game is marked unavailable for Windows computers");
       console.log("PASS L1 installable and unavailable cards are labelled honestly");
     });
 
@@ -298,6 +296,45 @@ async function main() {
       const configLeak = fs.readdirSync(qa.configDir, { recursive: true }).some((name) => { try { return fs.readFileSync(path.join(qa.configDir, name), "latin1").includes(shown.value); } catch { return false; } });
       assert.ok(!leaked && !configLeak, "the password is not saved in the app's profile or settings");
       console.log("PASS P1 Stirling PDF shows its generated password once and the app keeps no copy");
+    });
+
+    // A1: the Java application card, with the native file dialog answered
+    // by the test (a test cannot click an OS dialog; everything after it is
+    // the app's own path).
+    await check("A1", async () => {
+      const jar = process.env.BUILD214_QA_JAR;
+      if (!jar || !fs.existsSync(jar)) { console.log("SKIP A1 set BUILD214_QA_JAR to a runnable test .jar"); return; }
+      await openTemplate("java-app");
+      const shown = await wizard.evaluate(() => ({
+        file: !document.querySelector('[data-marketplace-field-wrap="applicationFile"]').hidden,
+        args: !document.querySelector('[data-marketplace-field-wrap="programArguments"]').hidden,
+        warning: document.querySelector('[data-marketplace-field-wrap="applicationFile"]').textContent,
+      }));
+      assert.ok(shown.file && shown.args, "the .jar and Program arguments fields are shown");
+      assert.match(shown.warning, /Deploy only applications you trust/);
+      await fill("name", `${PREFIX}javaapp`);
+      await wizard.locator('[data-marketplace-field="port"]').fill("");
+      await clickInstall();
+      await wizard.waitForTimeout(500);
+      assert.match(await wizard.evaluate(() => document.querySelector("[data-marketplace-message]")?.textContent || ""), /Choose the application's \.jar file/);
+      await app.evaluate(({ dialog }, chosen) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [chosen] }); }, jar);
+      await wizard.locator("[data-marketplace-choose-application]").click();
+      await waitFor(wizard, () => /\.jar \(\d+ KB\)/.test(document.querySelector("[data-marketplace-application-name]")?.textContent || ""), null, "the chosen file's name");
+      await fill("programArguments", '--name "QA App"');
+      const result = await install(300000);
+      await shot(wizard, "a1-java-app-complete");
+      assert.strictEqual(result.state, "Complete", `the Java application installs (${JSON.stringify(result).slice(0, 400)})`);
+      await waitFor(page, async () => {
+        const listed = await window.anx.instances.list({ nodeId: "lab" });
+        const server = (listed?.instances || listed || []).find((entry) => /anx214qa-javaapp/.test(entry.id || ""));
+        return server?.state === "Running" && server?.readinessState === "ready";
+      }, null, "the Java application Running and ready", 120000);
+      await page.evaluate(async () => {
+        const listed = await window.anx.instances.list({ nodeId: "lab" });
+        const server = (listed?.instances || listed || []).find((entry) => /anx214qa-javaapp/.test(entry.id || ""));
+        await window.anx.instances.stop(server.id, { nodeId: "lab" });
+      });
+      console.log("PASS A1 the Java application card takes a chosen .jar and arguments, installs it and reports it ready");
     });
 
     // F1

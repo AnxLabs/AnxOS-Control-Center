@@ -193,6 +193,7 @@ const SUPPORTED_INSTALLER_TYPES = Object.freeze([
   "archive-download",
   "curseforge",
   "direct-download",
+  "docker-compose",
   "docker-image",
   "java-runtime",
   "local-import",

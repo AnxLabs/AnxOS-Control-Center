@@ -48,7 +48,7 @@ No current template is classified Deprecated or Unsupported.
 | `python-discord-bot` | Experimental | Local-import fixtures | User project and Python runtime |
 | `node-app` | Experimental | Local-import fixtures | User project and Node runtime |
 | `python-app` | Experimental | Local-import fixtures | User project and Python runtime |
-| `java-app` | Disabled | Disabled-template validation | Not applicable while disabled |
+| `java-app` | Experimental | Import checks (runnable .jar with a Main-Class, at most 150 MB; runtime options refused as program arguments) and the real check `marketplace-java-app-real-install` | Real install passed: ready without a port, arguments and memory applied, data kept across Stop/Start and Restart, crash reported with its exit code; the user's own application decides the rest |
 
 All enabled templates still require at least one exact-candidate real-machine
 installation before broad claims are made. Provider outages, changed upstream
