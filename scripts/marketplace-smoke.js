@@ -568,6 +568,9 @@ async function assertMarketplaceDependencyPreflightBlocksAndResumes() {
     "writeInstanceFile",
     "deleteInstance",
     "getInstanceStatus",
+    // Install-stage tracking: unfaked, it sent real requests to the smoke
+    // node's LAN address (192.168.1.134:47131) on every run.
+    "updateInstance",
   ];
   patchedAgentMethods.forEach((name) => {
     originalAgent[name] = agentClient[name];
@@ -635,6 +638,11 @@ async function assertMarketplaceDependencyPreflightBlocksAndResumes() {
     agentClient.deleteInstance = async (instanceId) => {
       instances.delete(instanceId);
       return { deleted: true };
+    };
+    agentClient.updateInstance = async (instanceId, patch) => {
+      const instance = instances.get(instanceId);
+      if (instance) instances.set(instanceId, { ...instance, ...patch });
+      return { instance: instances.get(instanceId) || null };
     };
     agentClient.getInstanceStatus = async (instanceId) => {
       const instance = instances.get(instanceId);
