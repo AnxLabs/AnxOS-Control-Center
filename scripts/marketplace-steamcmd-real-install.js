@@ -212,6 +212,19 @@ const GAMES = {
     },
     readyTimeoutMs: 1200000,
   },
+  "ark-survival-ascended": {
+    processName: /ArkAscendedServer/i,
+    async settings({ instancePath, id }) {
+      const saved = path.join(instancePath, "data", "server", "ShooterGame", "Saved");
+      assert.ok(fs.existsSync(path.join(saved, "Config", "WindowsServer")), "the server keeps its settings in the server folder");
+      // ASA writes its log while it runs; the session it hosts is named there.
+      const logs = path.join(saved, "Logs");
+      await waitFor("the session name in the server log", () => fs.existsSync(logs) && fs.readdirSync(logs)
+        .filter((file) => /\.log$/i.test(file))
+        .some((file) => fs.readFileSync(path.join(logs, file), "utf8").includes(id)), { timeoutMs: 300000, intervalMs: 5000 });
+    },
+    readyTimeoutMs: 1500000,
+  },
   "space-engineers": {
     processName: /SpaceEngineersDedicated/i,
     async settings({ instancePath, id, name, ports }) {

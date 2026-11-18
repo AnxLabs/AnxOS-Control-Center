@@ -2334,6 +2334,100 @@
     "installerType": "steamcmd-native"
   },
   {
+    "id": "ark-survival-ascended",
+    "displayName": "ARK: Survival Ascended Dedicated Server",
+    "description": "ARK: Survival Ascended dedicated server on The Island, installed with SteamCMD.",
+    "icon": "ASA",
+    "screenshots": [],
+    "author": "AnxOS",
+    "version": "1.0.0",
+    "category": "Game Servers",
+    "instanceType": "custom-command",
+    "startupType": "steamcmd-native",
+    "hostDependencies": [
+      "steamcmd"
+    ],
+    "defaultRam": "16G",
+    "defaultPorts": [
+      7777
+    ],
+    "tags": [
+      "ark",
+      "ark-survival-ascended",
+      "survival",
+      "dinosaurs",
+      "steamcmd",
+      "game-server"
+    ],
+    "downloadSource": {
+      "type": "steamcmd",
+      "appId": 2430930,
+      "login": "anonymous",
+      "required": true
+    },
+    "installer": {
+      "type": "steamcmd",
+      "appId": 2430930,
+      "installDir": "server",
+      "login": "anonymous",
+      "validate": true,
+      "verifyFiles": [
+        "server/ShooterGame/Binaries/Win64/ArkAscendedServer.exe"
+      ],
+      "timeoutMs": 3600000
+    },
+    "startup": {
+      "executable": "ArkAscendedServer.exe",
+      "args": [
+        "TheIsland_WP?listen?SessionName={id}?Port={port}",
+        "-WinLiveMaxPlayers=10",
+        "-server",
+        "-log",
+        "-NoBattlEye"
+      ],
+      "workingDirectory": "data/server/ShooterGame/Binaries/Win64",
+      "restartPolicy": "on-failure",
+      "startupTimeoutMs": 1200000
+    },
+    "platforms": {
+      "linux": {
+        "disabled": true,
+        "comingSoonMessage": "ARK: Survival Ascended only publishes a Windows dedicated server. Install it on a Windows computer."
+      }
+    },
+    "compatibility": {
+      "requires": [
+        "steamcmd"
+      ],
+      "platforms": [
+        "windows"
+      ]
+    },
+    "installMetadata": {
+      "method": "steamcmd",
+      "appId": 2430930,
+      "login": "anonymous",
+      "notes": "Windows computers only (Studio Wildcard publishes a Windows dedicated server only). Requires SteamCMD. The download is large and the server needs 12-16 GB of memory."
+    },
+    "configNotes": "The game port is UDP; open it. Players find the server through the game's unofficial server list. Set an admin password and other options in ShooterGame/Saved/Config/WindowsServer/GameUserSettings.ini after the first start. BattlEye is off. Stop ends the server without a final save (it has no console to ask it to save); the world is kept as of its last autosave.",
+    "installScript": [
+      "create-instance",
+      "verify-instance",
+      "create-folders",
+      "steamcmd-install",
+      "write-config",
+      "verify",
+      "start"
+    ],
+    "configurationSchema": [
+      "name",
+      "storageLocation",
+      "port",
+      "memory"
+    ],
+    "installerType": "steamcmd-native"
+  },
+  {
     "id": "factorio",
     "displayName": "Factorio Dedicated Server",
     "description": "Factorio headless server from factorio.com for Linux computers. Creates a new world on its first start.",
