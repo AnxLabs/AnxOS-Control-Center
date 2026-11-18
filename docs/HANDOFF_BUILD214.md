@@ -17,7 +17,7 @@ carries `cf319694` and `5ca69374`).
 | 214-A Catalog and installer audit | Done (below) |
 | 214-B Shared installation foundation | Docker service adapter done; Compose, host folders and own-application import not started |
 | 214-C Applications, databases and media | 8 of 11 "coming soon" cards installable in code; Immich, Jellyfin, Java application still unavailable |
-| 214-D Game-server expansion | Not started |
+| 214-D Game-server expansion | Batch 1 done: Minecraft Bedrock fixed; V Rising, Enshrouded, Unturned added. All four passed real installs on Windows |
 | 214-E Marketplace and lifecycle improvements | Not started (two small renderer changes made, see below) |
 | 214-F Real installation acceptance | Docker services: passed on Docker Desktop (Windows). Linux computer and the app's own screens: not done |
 | 214-G Stabilization and release preparation | Not started |
@@ -46,12 +46,9 @@ Findings:
    limit, so any image not already on the computer timed out. It also sent no
    volumes, environment or labels, so a database had no password and lost its
    data when the container was removed. Fixed in 214-B.
-2. **Minecraft Bedrock (Docker) is broken as shipped.** The
+2. **Minecraft Bedrock (Docker) was broken as shipped.** The
    `itzg/minecraft-bedrock-server` image exits unless `EULA=TRUE` is set, and
-   the template sets no environment and no volume. The wizard only shows the
-   EULA tick box for Java Minecraft. Not fixed yet: the install now fails
-   honestly ("stopped right after starting") instead of reporting success.
-   Fix in 214-D: EULA acceptance for this template, plus a `/data` volume.
+   the template set no environment and no volume. Fixed in 214-D (below).
 3. **Docker Compose exists in the Agent but not in the Marketplace.** The
    Agent can run, stop, pull and remove Compose projects and checks them
    against the Docker policy (`src/shared/dockerService.js`,
@@ -177,6 +174,82 @@ computer; anything seen in the app's own windows; removal and updates from
 the Docker page; first-run setup of Nextcloud, Gitea and Uptime Kuma in a
 browser.
 
+## 214-D batch 1: game servers (2026-11-17)
+
+**Minecraft Bedrock (Docker).** The wizard now shows the Minecraft EULA tick
+box for it (`requiresEula: "minecraft"`), and the main process refuses the
+install without it (`EULA_REQUIRED`) before anything is checked or
+downloaded. The container gets `EULA=TRUE` and keeps `/data` (world and
+`server.properties`) in a volume. Real install: refused without the EULA,
+installed in 27 s, logged "Server started.", world and settings in the
+volume, data kept after a restart.
+
+**New SteamCMD games.** How each was verified before it was added:
+
+| Game | Steam app | Source of the start command and ports | Computers |
+| --- | --- | --- | --- |
+| V Rising | 1829350 (anonymous) | Stunlock's official instructions (GitHub `StunlockStudios/vrising-dedicated-server-instructions`, 1.1.x PC) and the `start_server_example.bat` and default `ServerHostSettings.json` the server ships | Windows only (Steam lists Windows only; no Linux build) |
+| Enshrouded | 2278520 (anonymous) | The `enshrouded_server_readme.txt` the server ships, and the settings file it writes on first start | Windows only (Steam lists Windows only) |
+| Unturned | 1110390 (anonymous) | The `ServerHelper.bat`/`.sh` and `ExampleServer.bat` the server ships | Windows and Linux (Linux start not yet run) |
+
+Real installs on this PC (Windows 11), through the real Marketplace install
+path with a disposable Agent and ports chosen at run time
+(`node scripts/marketplace-steamcmd-real-install.js <game>`). Each game was
+downloaded by SteamCMD, verified, started, then checked: the game's own
+process holds the chosen UDP port, AnxOS reports it **Running / ready**, the
+server uses the settings AnxOS wrote, and Stop ends it and frees the port.
+Everything was deleted afterwards.
+
+| Game | Install and start | Settings check |
+| --- | --- | --- |
+| Enshrouded | 123 s | `enshrouded_server.json` kept the name and port AnxOS wrote |
+| V Rising | 57 s | Saves under `save-data`; the log shows the chosen name |
+| Unturned | 125 s | Server files created next to the `Commands.dat` AnxOS wrote |
+
+Times are from the last run, partly from SteamCMD's cache; first downloads
+took 2-8 minutes (Enshrouded is about 8 GB).
+
+**Bugs the real runs found (all fixed):**
+
+1. **Windows could not start any server named without a folder.** Windows
+   does not search a new process's working directory, so `VRisingServer.exe`
+   (and the existing Windows variants of Valheim, Rust and Palworld) failed
+   with "not found". The Agent now starts a program that is a file inside
+   the server folder by its full path (`resolveSpawnExecutable`); anything
+   else is left to the system. `windows-spawn-executable-smoke` W5 shows the
+   real spawn failing before and working after. Agent change: reaches a
+   computer with a Build 214 Agent.
+2. **UDP-only game servers never became "ready".** Readiness was a TCP
+   port check or a known log line, so V Rising, Enshrouded and Unturned (and
+   very likely Valheim, Palworld and CS2 today) stayed "Starting" until the
+   startup timeout marked them degraded. The Agent now also treats the
+   server's port as ready once it cannot be bound over UDP while the
+   server's process runs (`checkUdpPortHeld`). Agent change.
+3. **Config file paths were not filled in.** Unturned's settings were
+   written to a literal `Servers/{id}/` folder that the server never reads.
+   `{id}` (a slug) is now filled in for paths; any other placeholder in a
+   path is refused, so a server name can never become part of a path.
+4. **A native server with no start arguments was refused** as "startup
+   command could not be configured". Only launchers (java, bash, cmd, node,
+   python and similar) now need arguments.
+
+**Not done in this batch:** a Linux run of Unturned; players actually
+joining; updates and the SteamCMD update path for the new games; the rest of
+the candidate list.
+
+**Candidates checked against Steam's own app data (anonymous download is
+possible for all of these; not yet added):** Project Zomboid 380870
+(Windows, Linux), 7 Days to Die 294420 (Windows, Linux), Satisfactory
+1690800 (Windows, Linux), Don't Starve Together 343050 (Windows, Linux; needs
+a Klei cluster token for players to join), Core Keeper 1963720 (anonymous
+install failed here with "Missing configuration"; needs investigation),
+ARK: Survival Evolved 376030 (Windows, Linux), ARK: Survival Ascended
+2430930 (Windows only), Space Engineers 298740 (Windows only), DayZ 223350
+and Arma 3 233780 (both need a Steam account that owns the game, which the
+current installer refuses), Garry's Mod 4020. Factorio and Terraria are
+distributed outside SteamCMD (Factorio's headless server from factorio.com;
+Terraria is already covered by TShock).
+
 ## Tests run
 
 These are mocked: the Agent client is faked and the network blocked. The real
@@ -190,6 +263,8 @@ installs are in the section above.
 | `node scripts/marketplace-smoke.js` (Docker fakes updated) | Passed |
 | `node scripts/marketplace-template-certification-smoke.js` | Passed |
 | `marketplace-template-metadata`, `marketplace-install-transaction`, `publisher-trust`, `docker-policy`, `marketplace-readiness`, `marketplace-server-capability-ux`, `game-adapter-contract`, `catalog-transfer`, `catalog-transfer-ipc-exposure`, `renderer-free-identifier`, `renderer-safety`, `versioning` smokes | Passed |
+| `node scripts/windows-spawn-executable-smoke.js` (new: W1-W5, U1) | Passed |
+| 32 game and instance-engine smokes (`steamcmd-*`, `palworld-*`, `hytale-*`, `fivem-*`, `instance-*`, `server-page-*`, `game-adapter-*`, `marketplace-template-*`, `startup-selection`) after the Agent changes | Passed |
 | `node --check` on every changed JavaScript file; `git diff --check` | Clean |
 
 Not run: `npm run rc:validate`, `npm run qa:release`, any real-app UI test.
@@ -202,7 +277,9 @@ The new smoke is registered in `package.json`
 ## Commits (local only, not pushed)
 
 - `37f70869` feat(marketplace): install databases and apps as Docker services
-- The handoff commits that follow it on this branch.
+- `fcbdb58f` fix(docker): real-engine fixes found by installing the nine services
+- `2f21df86` fix(marketplace): Minecraft Bedrock installs and keeps its world
+- The 214-D batch 1 commit (games, Agent start and readiness fixes) and the handoff commits on this branch.
 
 ## Blockers
 
@@ -219,25 +296,25 @@ The new smoke is registered in `package.json`
 
 ## Next steps
 
-1. **See the Docker services in the app.** Run the real app against a
+1. **Run the new games on Linux and let a player join.** Unturned's Linux
+   start has not run; the readiness fix should also be checked against the
+   existing Valheim, Palworld and CS2 templates on a disposable Linux node
+   (not Anxlab's live servers).
+2. **Batch 2 of games**: Project Zomboid, 7 Days to Die, Satisfactory, then
+   Don't Starve Together (with its cluster token step) and the ARK servers.
+3. **See the Docker services in the app.** Run the real app against a
    disposable Agent and check the wizard, the "Save this password" dialog,
    the completion text and the Docker page for one database and one web
    application; then decide whether Docker Desktop on Windows can be
    declared supported.
-2. **214-B continued.** Compose adapter for Immich (write a validated Compose
+4. **214-B continued.** Compose adapter for Immich (write a validated Compose
    file to the instance folder, reuse `assertComposePolicy`); a media-folder
    field with a single-path grant for Jellyfin; importing a user's own
    Node.js, Python or Java application.
-3. **214-D.** Fix Minecraft Bedrock (EULA, `/data` volume). Then SteamCMD
-   games in batches. For each candidate (Project Zomboid, 7 Days to Die,
-   Satisfactory, Enshrouded, V Rising, Don't Starve Together, Garry's Mod,
-   Unturned, ARK: Survival Evolved and Ascended, Core Keeper, Space
-   Engineers, DayZ, Arma 3, Factorio, Terraria, tModLoader) confirm from the
-   publisher's own documentation: the dedicated-server app ID, whether
-   anonymous SteamCMD login is allowed, supported operating systems, the
-   executable and its ports. Games that need a Steam account that owns the
-   game cannot use the current adapter, which refuses `login: "required"`.
-4. **214-E.** Show Docker services with the other workloads; update,
+5. **Games that need an owned Steam account** (DayZ, Arma 3) need a sign-in
+   flow the current installer refuses (`login: "required"`); that is a
+   separate design, through Steam's own sign-in, never a stored password.
+6. **214-E.** Show Docker services with the other workloads; update,
    uninstall and keep-or-delete-data choices from one place; search, filters
    and favourites; measured resource estimates (none are shown today because
    none were measured).
