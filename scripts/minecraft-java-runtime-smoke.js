@@ -86,6 +86,30 @@ async function main() {
     if (previousExecutableRoots === undefined) delete process.env.AGENT_INSTANCE_EXECUTABLE_ROOTS; else process.env.AGENT_INSTANCE_EXECUTABLE_ROOTS = previousExecutableRoots;
     await fs.rm(root, { recursive: true, force: true });
   }
+
+  // Build 214: on Windows the bundled runtime of the required version wins over
+  // one under Program Files, which sorts first by path but which the Agent's
+  // executable rule refuses (EXECUTABLE_NOT_ALLOWED on a real Modrinth install).
+  const bundleRoot = await fs.mkdtemp(path.join(os.tmpdir(), "anxos-java-bundle-"));
+  try {
+    await fs.writeFile(path.join(bundleRoot, "bundle-manifest.json"), "{}");
+    const bundled21 = path.win32.join(bundleRoot, "java", "21", "bin", "java.exe");
+    const programFiles21 = "C:\\Program Files\\Java\\jdk-21.0.11\\bin\\java.exe";
+    const options = {
+      platform: "win32",
+      environment: { ANXOS_BUNDLED_RUNTIME_ROOT: bundleRoot },
+      candidates: [programFiles21, bundled21, bundled21.replace("\\java\\21\\", "\\Java\\21\\")],
+      inspectExecutable: (candidate) => ({ executable: candidate, major: 21, versionOutput: "java 21" }),
+    };
+    const runtimes = runtimeResolver.discoverJavaRuntimes(options);
+    assert.strictEqual(runtimes[0].executable, bundled21, "the bundled Java 21 is preferred over Program Files");
+    assert.strictEqual(runtimes.length, 2, "the same file in another letter case is listed once on Windows");
+    assert.strictEqual(runtimeResolver.resolveJavaRuntime({ game: "minecraft", minecraftVersion: "1.21.1" }, options).executable, bundled21);
+    const withoutBundle = runtimeResolver.discoverJavaRuntimes({ ...options, environment: {}, candidates: [bundled21, programFiles21] });
+    assert.strictEqual(withoutBundle[0].executable, programFiles21, "without a bundle the order is unchanged");
+  } finally {
+    await fs.rm(bundleRoot, { recursive: true, force: true });
+  }
   console.log("Minecraft Java runtime smoke tests passed.");
 }
 

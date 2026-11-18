@@ -119,8 +119,24 @@ function discoverJavaRuntimes(options = {}) {
   const candidates = options.candidates || collectJavaCandidates(platform, environment);
   const inspect = typeof options.inspectExecutable === "function" ? options.inspectExecutable : inspectJavaExecutable;
   const runtimes = candidates.map((candidate) => inspect(candidate, { ...options, platform, environment })).filter(Boolean);
-  return [...new Map(runtimes.map((runtime) => [`${runtime.major}:${runtime.executable}`, runtime])).values()]
-    .sort((left, right) => left.major - right.major || left.executable.localeCompare(right.executable));
+  // AnxOS's own bundled runtime wins within a Java version: it is checksummed
+  // at build time and sits inside the Agent's allowed executable roots. An
+  // alphabetical sort put "C:\Program Files\Java\..." first, which the Windows
+  // Agent then refused to start (EXECUTABLE_NOT_ALLOWED).
+  const bundledRoot = bundledRuntimePaths.resolveRoot({ platform, environment });
+  const pathApi = platform === "win32" ? path.win32 : path.posix;
+  const isBundled = (runtime) => {
+    if (!bundledRoot) return false;
+    const relative = pathApi.relative(bundledRoot, runtime.executable);
+    return Boolean(relative) && !relative.startsWith("..") && !pathApi.isAbsolute(relative);
+  };
+  const key = (runtime) => `${runtime.major}:${platform === "win32" ? runtime.executable.toLowerCase() : runtime.executable}`;
+  const unique = new Map();
+  for (const runtime of runtimes) if (!unique.has(key(runtime))) unique.set(key(runtime), runtime);
+  return [...unique.values()]
+    .sort((left, right) => left.major - right.major
+      || Number(isBundled(right)) - Number(isBundled(left))
+      || left.executable.localeCompare(right.executable));
 }
 
 function createJavaRuntimeRequired(requirement, runtimes) {
