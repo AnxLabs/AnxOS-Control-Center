@@ -17,7 +17,7 @@ carries `cf319694` and `5ca69374`).
 | 214-A Catalog and installer audit | Done (below) |
 | 214-B Shared installation foundation | Docker service adapter, one read-only host folder, Compose projects (Immich) and own Java application import done |
 | 214-C Applications, databases and media | All 11 "coming soon" cards installable and real-tested; IT-Tools and Stirling PDF added. No card is left as coming soon |
-| 214-D Game-server expansion | Batches 1-2 done: Bedrock fixed; V Rising, Enshrouded, Unturned, Satisfactory, Don't Starve Together, 7 Days to Die added; all passed real installs on Windows. Project Zomboid deferred |
+| 214-D Game-server expansion | Bedrock fixed; V Rising, Enshrouded, Unturned, Satisfactory, Don't Starve Together, 7 Days to Die and Garry's Mod added, all real-installed on Windows; Unturned, Valheim and Palworld also on Linux. Project Zomboid blocked (server password storage) |
 | 214-E Marketplace and lifecycle improvements | Not started (two small renderer changes made, see below) |
 | 214-F Real installation acceptance | Docker services on Docker Desktop (Windows), games on Windows, the real app (`build214-ui-qa`), and Unturned, Valheim and Palworld on Linux (WSL Ubuntu 24.04) pass. Docker on a Linux host: not done |
 | 214-G Stabilization and release preparation | Not started |
@@ -457,6 +457,8 @@ The new smoke is registered in `package.json`
 - `5a6497f1` feat(marketplace): Immich through the existing Docker Compose routes
 - `af1d8b81` docs: record Build 214 round 3
 - `1a3c7cd1` feat(marketplace): deploy your own Java application (.jar)
+- `58b06326`, `67ffe599` docs: Java import and the Project Zomboid blocker
+- `769b522c` feat(marketplace): Garry's Mod server (real install on Windows: 115 s, srcds on the chosen port and name, ready, stopped)
 - Handoff commits on this branch.
 
 ## Blockers
@@ -494,10 +496,29 @@ The new smoke is registered in `package.json`
    the Agent's account, passed to the process at start, never returned or
    logged), designed and approved as a security change. Then the template
    is ready to write (command and checks above).
-3. **More games**: Factorio (headless server from factorio.com, not
-   SteamCMD), Garry's Mod (4020), ARK: Survival Evolved (376030, Windows and
-   Linux) and Ascended (2430930, Windows only), Space Engineers (298740,
-   Windows only). DayZ and Arma 3 need a Steam account that owns the game.
+3. **More games**: Factorio (Linux headless archive from factorio.com, no
+   sign-in; needs a first save, which the template's existing `postInstall`
+   step can create, then `--start-server`; test in the WSL environment),
+   ARK: Survival Evolved (376030, Windows and Linux, about 18 GB) and
+   Ascended (2430930, Windows only, heavy), Space Engineers (298740,
+   Windows only; needs its world/config file). DayZ and Arma 3 need a Steam
+   account that owns the game.
+
+**How to continue (for the next session or provider):**
+- Real-install harnesses: `scripts/marketplace-docker-real-install.js
+  [ids]` (Docker services and Immich), `scripts/marketplace-steamcmd-real-install.js
+  <games>` (SteamCMD games; add a `GAMES` entry per game),
+  `scripts/marketplace-java-app-real-install.js <jar> <not-a-jar>`, and the
+  real app: `node scripts/build214-ui-qa.js` (set `BUILD214_QA_JAR` for A1).
+  `KEEP=1` keeps files for inspection; delete them afterwards.
+- Linux runs: WSL `Ubuntu-24.04` has Node and SteamCMD in `~/anx214`
+  (no sudo). Run a harness there through a script file with
+  `MSYS_NO_PATHCONV=1 wsl.exe -d Ubuntu-24.04 -- bash <script>`
+  (inline commands get rewritten by Git Bash). No Linux Docker engine.
+- This worktree's `node_modules` is a junction to the
+  `anxos-control-center-simplify-8080f1` worktree's (ignored by git).
+- Read each game's shipped start script or settings before writing a
+  template; add it to the catalog only after a real install passes.
 3. **See the Docker services in the app.** Run the real app against a
    disposable Agent and check the wizard, the "Save this password" dialog,
    the completion text and the Docker page for one database and one web
