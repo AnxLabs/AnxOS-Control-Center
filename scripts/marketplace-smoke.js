@@ -2583,7 +2583,7 @@ async function assertSharedTemplateInstallFlowMatrix() {
       if (instance.executable === "steamcmd") {
         steamStartCounts.set(instanceId, (steamStartCounts.get(instanceId) || 0) + 1);
       }
-      if (instance.executable === "steamcmd" && !/steamcmd-(exit|missing|artifact-missing|permanent)-smoke/.test(instanceId) && !(/steamcmd-transient-smoke/.test(instanceId) && steamStartCounts.get(instanceId) < 2)) {
+      if (instance.executable === "steamcmd" && !/steamcmd-(exit|missing|artifact-missing|permanent)-smoke/.test(instanceId) && !(/steamcmd-(transient|resume)-smoke/.test(instanceId) && steamStartCounts.get(instanceId) < 2)) {
         const forceInstallDirIndex = Array.isArray(instance.args) ? instance.args.indexOf("+force_install_dir") : -1;
         assert(forceInstallDirIndex >= 0, "SteamCMD should receive +force_install_dir.");
         assert.match(instance.args[forceInstallDirIndex + 1] || "", new RegExp(`/srv/anxos/instances/${instanceId}/data/server$`), "SteamCMD install path should be absolute.");
@@ -2742,6 +2742,16 @@ async function assertSharedTemplateInstallFlowMatrix() {
       "SteamCMD installs must verify appmanifest and runtime artifacts before success."
     );
     assert(!updatePatches.some(({ instanceId, patch }) => instanceId === "palworld-steamcmd-artifact-missing-smoke" && patch.executable === "bash" && patch.workingDirectory === "data/server"), "Runtime command must not be restored when SteamCMD artifacts are missing.");
+    assert.strictEqual(steamStartCounts.get("palworld-steamcmd-artifact-missing-smoke"), 2, "SteamCMD is run a second time before missing files are reported.");
+
+    // SteamCMD exits successfully part-way through a large download; the second
+    // run resumes it (7 Days to Die, 17 GB, on a real run).
+    const resumed = await marketplaceService.installTemplate({
+      templateId: "palworld",
+      options: { id: "palworld-steamcmd-resume-smoke", name: "Palworld Resume Smoke", port: 8211, memory: "8G", start: false },
+    });
+    assert.strictEqual(steamStartCounts.get("palworld-steamcmd-resume-smoke"), 2, "an incomplete SteamCMD run is resumed once");
+    assert(resumed.progress.some((step) => /stopped before the download finished; resuming/.test(step.detail || "")), "the user is told the download is being resumed");
 
     const originalSystemStats = agentClient.getSystemStats;
     const startsBeforeLowDisk = started.length;

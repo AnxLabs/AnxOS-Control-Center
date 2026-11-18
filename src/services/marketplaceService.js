@@ -2680,13 +2680,33 @@ function expandTemplateArray(values = [], template, options = {}, ports = []) {
     : [];
 }
 
+// A value such as the server name is written into a settings file, so it is
+// escaped for that file's format: a quote in a name must not end the value and
+// add settings of its own (in 7 Days to Die's XML that could switch the
+// password-less remote console back on). Line breaks never pass.
+function escapeConfigValue(value, configPath = "") {
+  const text = String(value ?? "").replace(/[\r\n\u0000]+/g, " ");
+  const extension = String(configPath).toLowerCase().split(".").pop();
+  if (extension === "xml") {
+    return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+  }
+  if (extension === "json") {
+    return JSON.stringify(text).slice(1, -1);
+  }
+  return text;
+}
+
+function expandConfigFileString(value, configFile, template, options = {}, ports = []) {
+  return String(value ?? "").replace(/\{([a-zA-Z0-9_-]+)\}/g, (_, key) => escapeConfigValue(templateValue(key, template, options, ports), configFile.path));
+}
+
 function buildConfigFileContent(configFile, template, options, ports) {
   if (Array.isArray(configFile.lines)) {
-    return `${configFile.lines.map((line) => expandTemplateString(line, template, options, ports)).join("\n")}\n`;
+    return `${configFile.lines.map((line) => expandConfigFileString(line, configFile, template, options, ports)).join("\n")}\n`;
   }
 
   if (configFile.content !== undefined) {
-    return expandTemplateString(configFile.content, template, options, ports);
+    return expandConfigFileString(configFile.content, configFile, template, options, ports);
   }
 
   return "";
@@ -3842,6 +3862,15 @@ async function runTemplateInstaller(template, options, instanceId, progress, age
             attempt: attempt + 1,
           });
           lastInstallerError = null;
+          // SteamCMD can stop part-way through a large download ("state is
+          // 0x402") and still exit successfully. Running it again resumes the
+          // download, so a missing result gets the same second attempt as a
+          // failure; the check after this loop still reports what is missing.
+          const hasRetry = attempt < STEAMCMD_RETRY_DELAYS_MS.length - 1;
+          if (hasRetry && !(await hasInstalledArtifacts(instanceId, artifactPaths, agentConfig))) {
+            pushStep(progress, "Install SteamCMD app", "running", "SteamCMD stopped before the download finished; resuming it.");
+            continue;
+          }
           break;
         } catch (error) {
           lastInstallerError = error;
