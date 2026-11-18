@@ -3860,12 +3860,13 @@
   {
     "id": "discord-js",
     "displayName": "Discord.js Bot",
-    "description": "Node.js Discord bot project template.",
+    "description": "Deploy your own discord.js bot (a zipped project folder) with its bot token kept encrypted by the AnxOS Agent.",
     "icon": "DJS",
     "screenshots": [],
     "author": "AnxOS",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "category": "Bots",
+    "workloadKind": "service",
     "instanceType": "node-app",
     "startupType": "node",
     "hostDependencies": [
@@ -3873,26 +3874,53 @@
     ],
     "defaultRam": "512M",
     "defaultPorts": [],
+    "tags": [
+      "discord",
+      "bot",
+      "node",
+      "import"
+    ],
     "downloadSource": {
-      "type": "generated",
-      "fileName": "index.js"
+      "type": "manual",
+      "fileName": "bot.zip"
     },
+    "importFile": {
+      "kind": "node-application",
+      "target": "app"
+    },
+    "userSecrets": [
+      {
+        "setting": "DISCORD_TOKEN",
+        "label": "bot token",
+        "field": "botToken",
+        "required": true
+      }
+    ],
+    "installMetadata": {
+      "method": "local-import",
+      "source": "A .zip of your bot's project folder, chosen on this PC",
+      "notes": "Requires Node.js on the chosen computer and a Build 214 or newer AnxOS Agent (it stores the token). AnxOS does not run npm yet: zip the project with its node_modules folder (run \"npm install --omit=dev\" first)."
+    },
+    "configNotes": "This deploys your own bot. Deploy only code you trust: it runs with the AnxOS Agent's permissions on that computer (never as administrator). Read the token from process.env.DISCORD_TOKEN in your code; the token is stored encrypted by the Agent, given to the bot only when it starts and removed from its console output, and never written into the bot's files or settings. The bot is ready once it keeps running.",
     "installScript": [
       "create-instance",
       "create-folders",
-      "generate-project"
+      "copy-application",
+      "start"
     ],
     "configurationSchema": [
       "name",
-      "storageLocation",
-      "memory"
+      "memory",
+      "applicationFile",
+      "botToken",
+      "programArguments"
     ],
     "installerType": "local-import"
   },
   {
     "id": "python-discord-bot",
     "displayName": "Python Discord Bot",
-    "description": "Python Discord bot project template.",
+    "description": "Python Discord bot. Not available yet: a discord.py bot needs Python packages, which AnxOS does not install yet.",
     "icon": "PYD",
     "screenshots": [],
     "author": "AnxOS",
@@ -3919,7 +3947,10 @@
       "storageLocation",
       "memory"
     ],
-    "installerType": "local-import"
+    "installerType": "local-import",
+    "disabled": true,
+    "comingSoon": true,
+    "comingSoonMessage": "A Python Discord bot needs the discord.py package, and AnxOS does not install Python packages yet. Use the Discord.js Bot card, or deploy a Python project that uses only the standard library with Your Python Application."
   },
   {
     "id": "node-app",

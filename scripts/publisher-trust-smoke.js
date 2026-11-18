@@ -316,7 +316,7 @@ async function assertVerdictReachesInstallPath() {
     agentClient.installDependencies = async () => ({ ok: true, results: [], dependencies: [], missingDependencyIds: [] });
 
     const result = await marketplaceService.installTemplate({
-      templateId: "discord-js",
+      templateId: "node-app",
       options: { id: instanceId, name: "Publisher Trust Smoke", memory: "512M", start: false },
     });
 
@@ -335,11 +335,11 @@ async function assertVerdictReachesInstallPath() {
 
     // The verdict is persisted on the install record and readable through the
     // EXISTING Marketplace downloads surface (no new IPC channel).
-    const downloads = marketplaceService.getDownloads().downloads.filter((record) => record.templateId === "discord-js");
+    const downloads = marketplaceService.getDownloads().downloads.filter((record) => record.templateId === "node-app");
     assert(downloads.length >= 1, "The install must be visible through the existing downloads read path.");
     const trustRecords = downloads.filter((record) => record.trustVerdict);
     assert.strictEqual(trustRecords.length, 1, "Exactly the install task record must carry the trust verdict.");
-    assert.strictEqual(trustRecords[0].templateId, "discord-js");
+    assert.strictEqual(trustRecords[0].templateId, "node-app");
     assert.strictEqual(trustRecords[0].stage, "Completed", "The trust verdict must ride the real install task record.");
     assert.strictEqual(trustRecords[0].trustVerdict.verdict, TRUST_VERDICTS.UNSIGNED_EXECUTABLE, "The persisted verdict must match the returned one.");
     assert.strictEqual(trustRecords[0].trustVerdict.code, TRUST_CODES.UNSIGNED_EXECUTABLE);

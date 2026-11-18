@@ -5045,10 +5045,44 @@ async function installDockerTemplate({ template, options, ports, agentConfig, pr
   }
 }
 
+// Secrets the user types for a server (a Discord bot token) are taken out of
+// the install request first, so no later log line, download record or install
+// context can carry them. Only names the template declares are accepted; the
+// values reach the Agent only as write-only secretEnvironment (the server
+// secret store, docs/SERVER_SECRET_STORE.md) and are never returned.
+const USER_SECRET_MAX_LENGTH = 512;
+
+function takeUserSecrets(template = {}, payload = {}) {
+  const options = payload.options && typeof payload.options === "object" ? { ...payload.options } : {};
+  const supplied = options.userSecrets && typeof options.userSecrets === "object" && !Array.isArray(options.userSecrets) ? options.userSecrets : {};
+  delete options.userSecrets;
+  const declared = Array.isArray(template.userSecrets) ? template.userSecrets : [];
+  const values = {};
+  for (const name of Object.keys(supplied)) {
+    if (!declared.some((secret) => secret.setting === name)) {
+      throw createMarketplaceError("This server does not take that secret.", "USER_SECRET_NOT_DECLARED", { retryable: false });
+    }
+  }
+  for (const secret of declared) {
+    const value = typeof supplied[secret.setting] === "string" ? supplied[secret.setting].trim() : "";
+    if (!value) {
+      if (secret.required) throw createMarketplaceError(`Enter the ${secret.label} to install ${template.displayName || "this server"}.`, "USER_SECRET_REQUIRED", { retryable: false, field: secret.field || null });
+      continue;
+    }
+    if (value.length > USER_SECRET_MAX_LENGTH || /[\0\r\n]/.test(value)) {
+      throw createMarketplaceError(`The ${secret.label} is not valid.`, "USER_SECRET_INVALID", { retryable: false, field: secret.field || null });
+    }
+    values[secret.setting] = value;
+  }
+  return { payload: { ...payload, options }, values };
+}
+
 async function executeInstallTemplate(payload = {}, context = {}) {
   assertInstallNotAborted(context);
   const requestId = payload.requestId || require("crypto").randomUUID();
   const baseTemplate = findTemplate(payload.templateId, payload.template);
+  const userSecrets = takeUserSecrets(baseTemplate, payload);
+  payload = userSecrets.payload;
   const agentConfig = resolveMarketplaceAgentConfig(payload.nodeId);
   const targetPlatform = getInstallTargetPlatform(payload, agentConfig);
   const template = resolveTemplateForPlatform(baseTemplate, targetPlatform);
@@ -5102,6 +5136,9 @@ async function executeInstallTemplate(payload = {}, context = {}) {
     nativeSecretEnvironment[secret.setting] = value;
     nativeCredentials.push({ id: secret.setting, label: secret.label, username: secret.username || null, secret: value });
   }
+  // The user already knows a secret they typed: it is stored, never shown back.
+  Object.assign(nativeSecretEnvironment, userSecrets.values);
+  const hasServerSecrets = Object.keys(nativeSecretEnvironment).length > 0;
   const installContext = validateInstallContext(buildInstallContext(payload, template, options, instancePayload));
 
   let installDependencyCheck = null;
@@ -5163,11 +5200,11 @@ async function executeInstallTemplate(payload = {}, context = {}) {
       createResult = await agentClient.createInstance({
         ...instancePayload,
         installStage: "instance-create",
-        ...(nativeCredentials.length > 0 ? { secretEnvironment: nativeSecretEnvironment } : {}),
+        ...(hasServerSecrets ? { secretEnvironment: nativeSecretEnvironment } : {}),
       }, agentConfig);
       createdInstanceId = resolveCreatedInstanceId(createResult, instancePayload.id);
     }
-    if (nativeCredentials.length > 0) {
+    if (hasServerSecrets) {
       let secretRecord = createResult?.instance || createResult || {};
       if (reuseExistingInstance) {
         const updated = await agentClient.updateInstance(createdInstanceId, { secretEnvironment: nativeSecretEnvironment }, agentConfig);
@@ -5177,7 +5214,7 @@ async function executeInstallTemplate(payload = {}, context = {}) {
       if (!Object.keys(nativeSecretEnvironment).every((name) => reported.has(name))) {
         // An Agent older than Build 214 ignores the secret and would start
         // the server with the setting's name as its password.
-        throw createMarketplaceError(`${template.displayName} needs this computer's AnxOS Agent to be Build 214 or newer, to keep its administrator password safe. Update the Agent, then install again.`, "AGENT_SECRET_STORE_REQUIRED", { retryable: false });
+        throw createMarketplaceError(`${template.displayName} needs this computer's AnxOS Agent to be Build 214 or newer, to keep its ${(template.userSecrets?.[0]?.label) || "administrator password"} safe. Update the Agent, then install again.`, "AGENT_SECRET_STORE_REQUIRED", { retryable: false });
       }
     }
     const createRecord = createResult?.instance || createResult?.data?.instance || createResult?.data || createResult || {};
@@ -5505,6 +5542,7 @@ module.exports = {
     resolveTemplateConfigFilePath,
     generatedFileForTemplate,
     loadSelectedApplicationFile,
+    takeUserSecrets,
     buildInstallContext,
     buildTemplateInstallSubject,
     buildMinecraftProperties,

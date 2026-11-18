@@ -649,7 +649,7 @@ async function assertMarketplaceDependencyPreflightBlocksAndResumes() {
 
     await assert.rejects(
       () => marketplaceService.installTemplate({
-        templateId: "discord-js",
+        templateId: "node-app",
         nodeId: "marketplace-smoke-node",
         options: { id: "dependency-block-smoke", name: "Dependency Block Smoke", start: false },
       }),
@@ -659,7 +659,7 @@ async function assertMarketplaceDependencyPreflightBlocksAndResumes() {
     assert.strictEqual(createCalls, 0, "Dependency preflight must run before instance creation.");
 
     const result = await marketplaceService.installTemplate({
-      templateId: "discord-js",
+      templateId: "node-app",
       nodeId: "marketplace-smoke-node",
       options: { id: "dependency-resume-smoke", name: "Dependency Resume Smoke", start: false, autoInstallDependencies: true },
     });
@@ -668,7 +668,7 @@ async function assertMarketplaceDependencyPreflightBlocksAndResumes() {
     assert.strictEqual(result.instance.id, "dependency-resume-smoke", "Resumed install should return the created instance.");
     const dependencyResumeDownloads = marketplaceService.getDownloads().downloads;
     const dependencyResumeParent = dependencyResumeDownloads.find((download) => (
-      download.templateId === "discord-js" &&
+      download.templateId === "node-app" &&
       Array.isArray(download.childTaskIds) &&
       download.childTaskIds.some((id) => dependencyResumeDownloads.some((child) => child.id === id && child.type === "Dependency"))
     ));
@@ -2670,8 +2670,8 @@ async function assertSharedTemplateInstallFlowMatrix() {
       ["FiveM FXServer archive game server", "fivem", { id: "fivem-flow-smoke", name: "FiveM Flow Smoke", port: 30120, memory: "2G", start: false }, "server/run.sh"],
       ["Java Minecraft server", "minecraft-vanilla", { id: "minecraft-flow-smoke", name: "Minecraft Flow Smoke", version: "1.21.1", port: 25565, memory: "2G", acceptEula: true, start: false }, "server.jar"],
       ["direct-download server", "velocity", { id: "velocity-flow-smoke", name: "Velocity Flow Smoke", port: 25577, memory: "1G", start: false }, "velocity.jar"],
-      ["local-import server", "discord-js", { id: "discord-flow-smoke", name: "Discord Flow Smoke", port: 3000, memory: "512M", start: false }, "index.js"],
-      ["Python bot template", "python-discord-bot", { id: "python-bot-flow-smoke", name: "Python Bot Flow Smoke", memory: "512M", start: false }, "bot.py"],
+      ["local-import server", "node-app", { id: "node-flow-smoke", name: "Node Flow Smoke", port: 3000, memory: "512M", start: false }, "index.js"],
+      ["Python app template", "python-app", { id: "python-app-flow-smoke", name: "Python App Flow Smoke", memory: "512M", start: false }, "app.py"],
     ];
 
     for (const [label, templateId, options, expectedFile] of cases) {

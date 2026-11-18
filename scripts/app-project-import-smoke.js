@@ -15,6 +15,10 @@
 //      card never gets a starter file written into it
 //      (the Python dependency is detected with "python" on Windows)
 //   P5 a file chosen for one card is never used by another
+//   P6 a secret the user types (the Discord bot token) is taken out of the
+//      install request before anything else reads it; only declared names are
+//      accepted, a required one must be given, and the Python bot card is
+//      unavailable with its reason
 // Run: node scripts/app-project-import-smoke.js
 
 const assert = require("assert");
@@ -111,7 +115,27 @@ async function main() {
     fs.rmSync(root, { recursive: true, force: true });
   }
   console.log("PASS P5 a file chosen for one card is never used by another");
-  console.log("App project import smoke passed (5 checks).");
+
+  // P6
+  const take = marketplaceService._test.takeUserSecrets;
+  const bot = template("discord-js");
+  const request = { templateId: "discord-js", options: { name: "Bot", userSecrets: { DISCORD_TOKEN: "  abc.def  " } } };
+  const taken = take(bot, request);
+  assert.deepStrictEqual(taken.values, { DISCORD_TOKEN: "abc.def" });
+  assert.ok(!JSON.stringify(taken.payload).includes("abc.def"), "the request passed on carries no secret");
+  assert.ok(request.options.userSecrets, "the caller's object is not modified");
+  assert.throws(() => take(bot, { options: { userSecrets: {} } }), (error) => error.code === "USER_SECRET_REQUIRED" && /bot token/.test(error.message));
+  assert.throws(() => take(bot, { options: { userSecrets: { DISCORD_TOKEN: "a", OTHER: "b" } } }), (error) => error.code === "USER_SECRET_NOT_DECLARED");
+  assert.throws(() => take(bot, { options: { userSecrets: { DISCORD_TOKEN: "a\nb" } } }), (error) => error.code === "USER_SECRET_INVALID");
+  assert.throws(() => take(template("node-app-import"), { options: { userSecrets: { DISCORD_TOKEN: "a" } } }), (error) => error.code === "USER_SECRET_NOT_DECLARED", "a card that declares none accepts none");
+  assert.deepStrictEqual(take(template("node-app-import"), { options: { name: "x" } }).values, {});
+  const source = fs.readFileSync(path.join(__dirname, "..", "src", "services", "marketplaceService.js"), "utf8");
+  const executor = source.slice(source.indexOf("async function executeInstallTemplate"));
+  assert.ok(executor.indexOf("takeUserSecrets(") < executor.indexOf("console.info("), "secrets are taken out before the first log line");
+  assert.strictEqual(template("python-discord-bot").disabled, true, "the Python bot card is unavailable");
+  assert.match(template("python-discord-bot").comingSoonMessage, /does not install Python packages/);
+  console.log("PASS P6 a typed bot token is taken out of the request first; only declared secrets are accepted");
+  console.log("App project import smoke passed (6 checks).");
 }
 
 main().catch((error) => { console.error(error?.stack || error); process.exitCode = 1; });

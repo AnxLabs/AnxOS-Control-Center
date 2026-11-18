@@ -14,6 +14,10 @@
 //   N3 a project with unbundled npm dependencies, one with Python packages and
 //      one with a path that leaves its folder are refused before anything is
 //      created on the computer
+//   N4 the Discord.js Bot card: the bot receives the token as DISCORD_TOKEN
+//      from the Agent's server secret store; a token the bot prints is removed
+//      from its console; the token is in no plain-text file under the Agent's
+//      or the app's folders (a fake token: no Discord sign-in is attempted)
 // Run: node scripts/marketplace-app-project-real-install.js
 
 const assert = require("assert");
@@ -25,7 +29,7 @@ const { spawn } = require("child_process");
 
 const repoRoot = path.resolve(__dirname, "..");
 const { pinAgentRoots } = require("../test-helpers/pin-agent-roots");
-pinAgentRoots("anx-app-project-real-install-desktop-");
+const desktopRoot = pinAgentRoots("anx-app-project-real-install-desktop-");
 
 const nodeService = require("../src/services/nodeService");
 const agentClient = require("../src/services/agentClient");
@@ -47,6 +51,26 @@ http.createServer((_, response) => {
   response.end(JSON.stringify({ dep: dep.value, runs, args: process.argv.slice(2) }));
 }).listen(Number(process.env.PORT), "0.0.0.0");
 `;
+
+const BOT_MAIN = `const token = process.env.DISCORD_TOKEN || "";
+console.log("AnxOS bot test token " + (token ? "present length " + token.length : "missing"));
+console.log("AnxOS bot test echo " + token);
+setInterval(() => {}, 1000);
+`;
+
+// Every file under a folder whose bytes contain the text.
+function filesContaining(root, text) {
+  const found = [];
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else { try { if (fs.readFileSync(full).includes(text)) found.push(full); } catch {} }
+    }
+  };
+  if (fs.existsSync(root)) walk(root);
+  return found;
+}
 
 const PYTHON_MAIN = `import json, os, sys, time
 runs = int(open("runs.txt").read()) + 1 if os.path.exists("runs.txt") else 1
@@ -200,6 +224,25 @@ async function main() {
       assert.strictEqual(fs.readdirSync(agent.instanceRoot).filter((name) => name !== "jobs").length, before, "nothing was created");
       assert.ok(!fs.existsSync(path.join(agent.instanceRoot, "outside.js")) && !fs.existsSync(path.join(agentRoot, "outside.js")), "no file was written outside");
       record.steps.push("unbundled npm dependencies, Python packages and an escaping path are refused before anything is created");
+    });
+
+    await check("N4", async (record) => {
+      const id = "anx214-discord-bot";
+      const token = `anx214-fake-token-${require("crypto").randomBytes(12).toString("hex")}`;
+      const botZip = write("bot.zip", [{ name: "bot/package.json", data: JSON.stringify({ name: "bot", main: "index.js" }) }, { name: "bot/index.js", data: BOT_MAIN }]);
+      await assert.rejects(install("discord-js", `${id}-none`, "node-application", botZip, { ports: [] }), /Enter the bot token/, "the token is required");
+      const result = await install("discord-js", id, "node-application", botZip, { ports: [], userSecrets: { DISCORD_TOKEN: token } });
+      assert.ok(!JSON.stringify(result).includes(token), "the install result does not return the token");
+      await ready(id, agentConfig);
+      const log = await waitFor("the bot's first lines", async () => { const text = await logText(id, agentConfig); return /AnxOS bot test echo/.test(text) ? text : null; });
+      assert.match(log, new RegExp(`AnxOS bot test token present length ${token.length}`), "the bot received DISCORD_TOKEN");
+      assert.ok(!log.includes(token), "a token the bot prints is removed from its console");
+      record.steps.push("the bot received DISCORD_TOKEN; a printed token is scrubbed from its console");
+      await agentClient.stopInstance(id, agentConfig);
+      await waitFor("Stopped", async () => (await status(id, agentConfig)).state === "Stopped");
+      const leaks = [...filesContaining(agentRoot, token), ...filesContaining(desktopRoot, token)];
+      assert.deepStrictEqual(leaks, [], "the token is in no plain-text file under the Agent's or the app's folders");
+      record.steps.push("the token is in no plain-text file (Agent and app folders)");
     });
   } finally {
     if (agent?.child && agent.child.exitCode === null) agent.child.kill("SIGTERM");

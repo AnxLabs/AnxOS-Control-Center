@@ -150,7 +150,10 @@ async function main() {
     assert.ok(template(id).docker.volumes.length > 0, `${id} keeps its data in a volume`);
   }
   // Every "coming soon" card from the start of Build 214 is now installable.
-  assert.deepStrictEqual(templates.filter((entry) => entry.comingSoon).map((entry) => entry.id), [], "no card is left as coming soon");
+  // The one card that is not is the Python Discord bot, which was a fake (a
+  // sleep loop) and now says why it cannot work yet.
+  assert.deepStrictEqual(templates.filter((entry) => entry.comingSoon).map((entry) => entry.id), ["python-discord-bot"], "only the Python Discord bot is unavailable");
+  assert.match(template("python-discord-bot").comingSoonMessage, /does not install Python packages/);
   const base = template("postgresql");
   const unsafe = [
     { docker: { ...base.docker, privileged: true } },

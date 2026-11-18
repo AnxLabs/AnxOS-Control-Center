@@ -51,8 +51,8 @@ No current template is classified Deprecated or Unsupported.
 | `postgresql` | Supported | Docker service fixtures (`marketplace-docker-service-smoke`) | Registry and Docker daemon. Client connection with the generated password; data kept after restart |
 | `mariadb` | Supported | Docker service fixtures (`marketplace-docker-service-smoke`) | Registry and Docker daemon. Client connection with the generated passwords; data kept after restart |
 | `redis` | Supported | Docker service fixtures (`marketplace-docker-service-smoke`) | Registry and Docker daemon. Client connection with the generated password; data kept after restart |
-| `discord-js` | Experimental | Local-import fixtures | User project and Node runtime |
-| `python-discord-bot` | Experimental | Local-import fixtures | User project and Python runtime |
+| `discord-js` | Experimental | Same archive checks as `node-app-import`; the bot token is taken out of the install request first and sent only as write-only `secretEnvironment` (`app-project-import-smoke` P6); real check `marketplace-app-project-real-install` N4 | Real install passed on Windows: the bot process received DISCORD_TOKEN from the Agent's server secret store, the token is in no plain-text file under the Agent's or the app's folders and not in the logs; a sign-in to Discord was not tested (needs a real bot token) |
+| `python-discord-bot` | Disabled | Unavailable with its reason: a discord.py bot needs Python packages, which AnxOS does not install yet | Not offered |
 | `node-app` | Experimental | Local-import fixtures | User project and Node runtime |
 | `python-app` | Experimental | Local-import fixtures | User project and Python runtime |
 | `java-app` | Experimental | Import checks (runnable .jar with a Main-Class, at most 150 MB; runtime options refused as program arguments) and the real check `marketplace-java-app-real-install` | Real install passed: ready without a port, arguments and memory applied, data kept across Stop/Start and Restart, crash reported with its exit code; the user's own application decides the rest |

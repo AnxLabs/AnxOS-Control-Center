@@ -21315,6 +21315,14 @@ function validateCreateServerStep(step, { report = true } = {}) {
       }
       return false;
     }
+    const missingSecret = (template?.userSecrets || []).find((secret) => secret.required && !(getMarketplaceField(secret.field)?.value || "").trim());
+    if (missingSecret) {
+      if (report) {
+        setMarketplaceMessage(`Enter the ${missingSecret.label} to continue.`, "error");
+        getMarketplaceField(missingSecret.field)?.focus();
+      }
+      return false;
+    }
     if (MARKETPLACE_APPLICATION_IMPORTS[template?.importFile?.kind] && !marketplaceApplicationFile?.token) {
       if (report) {
         setMarketplaceMessage(MARKETPLACE_APPLICATION_IMPORTS[template.importFile.kind].missing, "error");
@@ -21413,7 +21421,8 @@ function syncMarketplaceWizardFields(template) {
       : ["storageLocation"].includes(field)
         || (field === "acceptEula" && marketplaceTemplateNeedsEula(template))
         || (field === "hostFolder" && Boolean(template?.docker?.hostFolder))
-        || ((field === "applicationFile" || field === "programArguments") && Boolean(MARKETPLACE_APPLICATION_IMPORTS[template?.importFile?.kind]));
+        || ((field === "applicationFile" || field === "programArguments") && Boolean(MARKETPLACE_APPLICATION_IMPORTS[template?.importFile?.kind]))
+        || (field === "botToken" && Boolean(template?.userSecrets?.some((secret) => secret.field === "botToken")));
     wrapper.hidden = !shouldShow;
   });
 }
@@ -21516,6 +21525,9 @@ function openMarketplaceWizard(templateId, { source = "" } = {}) {
   if (applicationButton) applicationButton.textContent = applicationImport.button;
   const programArgumentsField = getMarketplaceField("programArguments");
   if (programArgumentsField) programArgumentsField.value = "";
+  // A typed secret never outlives the wizard it was typed into.
+  const botTokenField = getMarketplaceField("botToken");
+  if (botTokenField) botTokenField.value = "";
   // A service that reads a folder from the computer (Jellyfin's media) names
   // it here; the folder is mounted read-only.
   const hostFolderField = getMarketplaceField("hostFolder");
@@ -21714,6 +21726,20 @@ function openFirstServerGuide() {
   document.body.append(overlay);
   deactivateModal = activateModal(overlay, { initialFocus: () => overlay.querySelector("[data-first-server-template]") || marketplace });
   firstServerGuideCleanup = closeModal;
+}
+
+// A secret the template asks the user for (a Discord bot token) is read from
+// its password field only for the install request itself: it is never part of
+// the options other calls (plan previews) receive.
+function withMarketplaceUserSecrets(template, options) {
+  const declared = Array.isArray(template?.userSecrets) ? template.userSecrets : [];
+  if (declared.length === 0) return options;
+  const userSecrets = {};
+  for (const secret of declared) {
+    const value = (getMarketplaceField(secret.field)?.value || "").trim();
+    if (value) userSecrets[secret.setting] = value;
+  }
+  return { ...options, userSecrets };
 }
 
 function collectMarketplaceInstallOptions() {
@@ -24580,10 +24606,10 @@ async function maybePrepareMarketplaceDependencies(normalizedError, template, op
     : await desktopApiState.api.marketplace.installTemplate({
       templateId: template.id,
       nodeId: requestContext.nodeId,
-      options: {
+      options: withMarketplaceUserSecrets(template, {
         ...options,
         autoInstallDependencies: true,
-      },
+      }),
     });
   await completeMarketplaceInstallResult(retryResult, template, providerInstall);
   return true;
@@ -24703,7 +24729,7 @@ async function installMarketplaceTemplate(event) {
       : await desktopApiState.api.marketplace.installTemplate({
         templateId: template.id,
         nodeId: requestContext.nodeId,
-        options,
+        options: withMarketplaceUserSecrets(template, options),
       });
     if (result?.status === "waiting-manual-download") {
       rememberWaitingMarketplaceDownload(template, result.manualDownload || {}, { code: "PROVIDER_MANUAL_DOWNLOAD_REQUIRED" });

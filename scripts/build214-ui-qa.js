@@ -15,6 +15,7 @@
 //   P1 Stirling PDF: the "Save this password" dialog shows the password the
 //      container was given, and the completion text points to the Docker page
 //   A1 the Java application card installs a chosen .jar (BUILD214_QA_JAR)
+//   A3 the Discord.js Bot card asks for its token in a password field
 //   A2 the Node.js project card asks for a .zip (label, button, dialog
 //      filter), installs a generated project, and it answers on its port
 //   F1 a busy port fails in the window with a plain message; nothing created
@@ -213,7 +214,7 @@ async function main() {
 
     // L1
     await check("L1", async () => {
-      const labels = await page.evaluate(() => Object.fromEntries(["jellyfin", "it-tools", "stirling-pdf", "immich", "java-app", "v-rising", "postgresql"].map((id) => {
+      const labels = await page.evaluate(() => Object.fromEntries(["jellyfin", "it-tools", "stirling-pdf", "immich", "java-app", "v-rising", "postgresql", "node-app-import", "python-app-import", "discord-js", "python-discord-bot", "space-engineers", "ark-survival-ascended"].map((id) => {
         const template = marketplaceCatalog.templates.find((entry) => entry.id === id);
         return [id, { unavailable: Boolean(template.comingSoon || template.disabled), message: template.comingSoonMessage || "", platforms: template.compatibility?.platforms || [] }];
       })));
@@ -221,6 +222,10 @@ async function main() {
       assert.strictEqual(labels.immich.unavailable, false, "Immich is installable (Compose)");
       assert.strictEqual(labels["java-app"].unavailable, false, "Java application is installable");
       assert.deepStrictEqual(labels["v-rising"].platforms, ["windows"], "V Rising names Windows");
+      for (const id of ["node-app-import", "python-app-import", "discord-js"]) assert.strictEqual(labels[id].unavailable, false, `${id} is installable`);
+      assert.strictEqual(labels["python-discord-bot"].unavailable, true, "the Python Discord bot is unavailable");
+      assert.match(labels["python-discord-bot"].message, /does not install Python packages/, "and says why");
+      for (const id of ["space-engineers", "ark-survival-ascended"]) assert.deepStrictEqual(labels[id].platforms, ["windows"], `${id} names Windows`);
       const hytale = await page.evaluate(() => marketplaceCatalog.templates.find((entry) => entry.id === "hytale")?.platforms?.windows?.disabled === true);
       assert.ok(hytale, "a Linux-only game is marked unavailable for Windows computers");
       console.log("PASS L1 installable and unavailable cards are labelled honestly");
@@ -391,6 +396,23 @@ async function main() {
         await window.anx.instances.stop(server.id, { nodeId: "lab" });
       });
       console.log("PASS A2 the Node.js project card asks for a .zip, installs the chosen project and it answers on its port");
+    });
+
+    // A3: the Discord.js Bot card asks for its token in a password field and
+    // will not install without it (L1 checks the Python bot card's label).
+    await check("A3", async () => {
+      await openTemplate("discord-js");
+      const field = await wizard.evaluate(() => {
+        const wrap = document.querySelector('[data-marketplace-field-wrap="botToken"]');
+        const input = document.querySelector('[data-marketplace-field="botToken"]');
+        return { shown: Boolean(wrap && !wrap.hidden), type: input?.type, value: input?.value, file: !document.querySelector('[data-marketplace-field-wrap="applicationFile"]').hidden };
+      });
+      assert.deepStrictEqual(field, { shown: true, type: "password", value: "", file: true }, "the token field is a password field, empty, next to the project file");
+      await fill("name", `${PREFIX}discordbot`);
+      await clickInstall();
+      await wizard.waitForTimeout(500);
+      assert.match(await wizard.evaluate(() => document.querySelector("[data-marketplace-message]")?.textContent || ""), /Enter the bot token/);
+      console.log("PASS A3 the Discord.js Bot card asks for its token in a password field and refuses to install without it");
     });
 
     // F1
