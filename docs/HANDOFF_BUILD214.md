@@ -140,6 +140,11 @@ The new smoke is registered in `package.json`
 (`marketplace:docker-service:smoke`) and in both lists of
 `scripts/release-validation.js`.
 
+## Commits (local only, not pushed)
+
+- `37f70869` feat(marketplace): install databases and apps as Docker services
+- The handoff commits that follow it on this branch.
+
 ## Blockers
 
 - **Real installs need a Docker engine.** Docker Desktop is installed on the
