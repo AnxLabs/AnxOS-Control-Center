@@ -3256,5 +3256,177 @@
       "memory"
     ],
     "installerType": "no-install"
+  },
+  {
+    "screenshots": [],
+    "author": "AnxOS",
+    "version": "1.0.0",
+    "category": "Utilities",
+    "workloadKind": "service",
+    "runtime": "docker",
+    "instanceType": "docker-container",
+    "startupType": "docker-image",
+    "compatibility": {
+      "requires": [
+        "docker"
+      ],
+      "platforms": [
+        "linux",
+        "windows"
+      ],
+      "architectures": [
+        "amd64",
+        "arm64"
+      ]
+    },
+    "installScript": [
+      "check-computer",
+      "pull-image",
+      "create-container",
+      "verify",
+      "start"
+    ],
+    "configurationSchema": [
+      "name",
+      "port",
+      "memory"
+    ],
+    "installerType": "docker-image",
+    "id": "it-tools",
+    "displayName": "IT-Tools",
+    "description": "A collection of handy developer tools in your browser: converters, encoders, generators, formatters and more.",
+    "icon": "IT",
+    "defaultRam": "256M",
+    "defaultPorts": [
+      8380
+    ],
+    "tags": [
+      "utilities",
+      "developer",
+      "tools",
+      "docker",
+      "service"
+    ],
+    "downloadSource": {
+      "type": "docker",
+      "image": "corentinth/it-tools:2024.10.22-7ca5933",
+      "required": true
+    },
+    "docker": {
+      "image": "corentinth/it-tools:2024.10.22-7ca5933",
+      "ports": [
+        "127.0.0.1:8380:80"
+      ],
+      "restartPolicy": "unless-stopped"
+    },
+    "updateCheck": {
+      "type": "docker-tag",
+      "image": "corentinth/it-tools",
+      "tag": "2024.10.22-7ca5933"
+    },
+    "installMetadata": {
+      "method": "docker",
+      "source": "Docker Hub corentinth/it-tools (official image)",
+      "notes": "Requires Docker on the chosen computer."
+    },
+    "configNotes": "This is a utility, not a game server. Open http://127.0.0.1:<port> in a browser on the computer it runs on: it is private to that computer. Everything runs in your browser and nothing is stored, so there is no data to keep."
+  },
+  {
+    "screenshots": [],
+    "author": "AnxOS",
+    "version": "1.0.0",
+    "category": "Utilities",
+    "workloadKind": "service",
+    "runtime": "docker",
+    "instanceType": "docker-container",
+    "startupType": "docker-image",
+    "compatibility": {
+      "requires": [
+        "docker"
+      ],
+      "platforms": [
+        "linux",
+        "windows"
+      ],
+      "architectures": [
+        "amd64",
+        "arm64"
+      ]
+    },
+    "installScript": [
+      "check-computer",
+      "pull-image",
+      "create-container",
+      "verify",
+      "start"
+    ],
+    "configurationSchema": [
+      "name",
+      "port",
+      "memory"
+    ],
+    "installerType": "docker-image",
+    "id": "stirling-pdf",
+    "displayName": "Stirling PDF",
+    "description": "A PDF toolbox in your browser: merge, split, convert, compress, sign, OCR and more. Your files stay on your computer.",
+    "icon": "PDF",
+    "defaultRam": "2G",
+    "defaultPorts": [
+      8381
+    ],
+    "tags": [
+      "utilities",
+      "pdf",
+      "documents",
+      "docker",
+      "service"
+    ],
+    "downloadSource": {
+      "type": "docker",
+      "image": "stirlingtools/stirling-pdf:3.3.0",
+      "required": true
+    },
+    "docker": {
+      "image": "stirlingtools/stirling-pdf:3.3.0",
+      "ports": [
+        "127.0.0.1:8381:8080"
+      ],
+      "volumes": [
+        {
+          "name": "configs",
+          "target": "/configs",
+          "label": "Settings and accounts"
+        },
+        {
+          "name": "files",
+          "target": "/customFiles",
+          "label": "Custom files"
+        }
+      ],
+      "environment": {
+        "SECURITY_ENABLELOGIN": "true",
+        "SECURITY_INITIALLOGIN_USERNAME": "admin",
+        "SECURITY_INITIALLOGIN_PASSWORD": "{secret:admin-password}"
+      },
+      "secrets": [
+        {
+          "id": "admin-password",
+          "label": "Stirling PDF sign-in password",
+          "username": "admin"
+        }
+      ],
+      "restartPolicy": "unless-stopped"
+    },
+    "updateCheck": {
+      "type": "docker-tag",
+      "image": "stirlingtools/stirling-pdf",
+      "tag": "3.3.0"
+    },
+    "installMetadata": {
+      "method": "docker",
+      "source": "Docker Hub stirlingtools/stirling-pdf (official image)",
+      "notes": "Requires Docker on the chosen computer. The first start takes a minute or two."
+    },
+    "configNotes": "This is a utility, not a game server. Open http://127.0.0.1:<port> in a browser on the computer it runs on (it is private to that computer) and sign in as \"admin\" with the password shown after install. Accounts and settings are kept in a volume."
   }
 ]

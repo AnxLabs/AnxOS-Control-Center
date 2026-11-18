@@ -218,6 +218,41 @@ const SERVICES = {
       return { read: async () => (await docker(["exec", name, "cat", "/config/anx214"])).stdout, expected: "kept" };
     },
   },
+  "it-tools": {
+    privateOnly: true,
+    async verify({ port }) {
+      await waitFor("IT-Tools", async () => /IT Tools/i.test((await httpGet(`http://127.0.0.1:${port}/`)).text));
+      // Nothing is stored, so "kept" means the app is served again.
+      return { read: async () => (/IT Tools/i.test((await httpGet(`http://127.0.0.1:${port}/`)).text) ? "served" : "not served"), expected: "served" };
+    },
+  },
+  "stirling-pdf": {
+    privateOnly: true,
+    async verify({ name, port, install: result }) {
+      const base = `http://127.0.0.1:${port}`;
+      await waitFor("Stirling PDF", async () => /UP/.test((await httpGet(`${base}/api/v1/info/status`)).text), { timeoutMs: 300000 });
+      const password = secretOf(result, "admin-password");
+      const login = async (username, secret) => {
+        const response = await fetch(`${base}/api/v1/auth/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, password: secret }),
+          signal: AbortSignal.timeout(15000),
+        });
+        return response.status;
+      };
+      const good = await login("admin", password);
+      assert.strictEqual(good, 200, `admin signs in with the generated password (status ${good})`);
+      const fallback = await login("admin", "stirling");
+      assert.notStrictEqual(fallback, 200, "the well-known default password is refused");
+      const wrong = await login("admin", "wrong-password");
+      assert.notStrictEqual(wrong, 200, "a wrong password is refused");
+      const envDump = (await docker(["exec", name, "sh", "-c", "ls /configs"])).stdout;
+      assert.ok(envDump.length > 0, "settings are written to the configs volume");
+      assert.ok((await docker(["exec", name, "sh", "-c", "echo kept > /configs/anx214"])).ok);
+      return { read: async () => (await docker(["exec", name, "cat", "/configs/anx214"])).stdout, expected: "kept" };
+    },
+  },
   "docker-nginx": {
     async verify({ name, port }) {
       await waitFor("Nginx", async () => /nginx/i.test((await httpGet(`http://127.0.0.1:${port}/`)).text));
@@ -283,6 +318,11 @@ async function runService(templateId, nodeId, agentConfig) {
     const inspect = JSON.parse((await docker(["inspect", name])).stdout)[0];
     assert.strictEqual(inspect.State.Running, true, "the container is running");
     assert.strictEqual(inspect.Config.Labels["anxos.template"], templateId, "the container is labelled with its template");
+    if (spec.privateOnly) {
+      const bindings = Object.values(inspect.HostConfig.PortBindings || {}).flat();
+      assert.ok(bindings.length > 0 && bindings.every((binding) => binding.HostIp === "127.0.0.1"), `published on 127.0.0.1 only (${JSON.stringify(bindings)})`);
+      record.steps.push("private to this computer");
+    }
     const mounted = inspect.Mounts.filter((mount) => mount.Type === "volume").map((mount) => mount.Name).sort();
     assert.deepStrictEqual(mounted, result.volumes.map((volume) => volume.name).sort(), "every declared volume is mounted");
     record.steps.push("running with its volumes");

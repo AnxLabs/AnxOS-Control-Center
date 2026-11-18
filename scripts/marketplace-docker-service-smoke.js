@@ -383,8 +383,28 @@ async function main() {
   assert.throws(() => validateMarketplaceTemplate({ ...template("jellyfin"), docker: { ...template("jellyfin").docker, hostFolder: { ...template("jellyfin").docker.hostFolder, readOnly: false } } }), /read-only/);
   console.log("PASS S12 Jellyfin mounts one chosen folder read-only and reports an empty one");
 
+  // S13 Utilities: IT-Tools and Stirling PDF stay private to the computer,
+  // and Stirling PDF's first account gets a generated password
+  agent = fakeAgent();
+  await install("it-tools", "tools", { port: 9100, ports: [9100] });
+  assert.deepStrictEqual(agent.state.created[0].ports, ["127.0.0.1:9100:80"], "IT-Tools is published on 127.0.0.1 only, on the chosen port");
+  agent = fakeAgent();
+  const pdf = await install("stirling-pdf", "pdf", { port: 9101, ports: [9101] });
+  const pdfSent = agent.state.created[0];
+  assert.deepStrictEqual(pdfSent.ports, ["127.0.0.1:9101:8080"], "Stirling PDF is published on 127.0.0.1 only");
+  assert.strictEqual(pdfSent.environment.SECURITY_ENABLELOGIN, "true");
+  assert.strictEqual(pdfSent.environment.SECURITY_INITIALLOGIN_USERNAME, "admin");
+  assert.strictEqual(pdfSent.environment.SECURITY_INITIALLOGIN_PASSWORD, pdf.credentials[0].secret, "the first account uses the generated password, not a default");
+  assert.match(pdf.credentials[0].secret, /^[A-Za-z0-9]{24}$/);
+  for (const id of ["it-tools", "stirling-pdf"]) {
+    assert.strictEqual(template(id).category, "Utilities");
+    const tag = template(id).docker.image.split(":").pop();
+    assert.ok(/\d/.test(tag) && !/latest|nightly/.test(tag), `${id} pins a released version (${tag})`);
+  }
+  console.log("PASS S13 IT-Tools and Stirling PDF are private by default; Stirling PDF has no default password");
+
   assert.deepStrictEqual(blocked, [], `no network or process escaped: ${blocked.join(", ")}`);
-  console.log("Marketplace Docker service smoke passed (12 checks).");
+  console.log("Marketplace Docker service smoke passed (13 checks).");
 }
 
 main()
