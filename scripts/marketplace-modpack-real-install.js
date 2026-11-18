@@ -31,7 +31,7 @@ const { spawn, execFile } = require("child_process");
 
 const repoRoot = path.resolve(__dirname, "..");
 const { pinAgentRoots } = require("../test-helpers/pin-agent-roots");
-pinAgentRoots("anx-modpack-real-install-desktop-");
+pinAgentRoots("anx-modpack-real-install-desktop-", { isolateLocalAgent: true });
 
 const nodeService = require("../src/services/nodeService");
 const agentClient = require("../src/services/agentClient");
