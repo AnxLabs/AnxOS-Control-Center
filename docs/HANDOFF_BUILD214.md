@@ -15,8 +15,8 @@ carries `cf319694` and `5ca69374`).
 | Milestone | State |
 | --- | --- |
 | 214-A Catalog and installer audit | Done (below) |
-| 214-B Shared installation foundation | Docker service adapter, one read-only host folder, and Compose projects (Immich) done; own-application import not started |
-| 214-C Applications, databases and media | 10 of 11 "coming soon" cards installable and real-tested (Jellyfin, Immich); IT-Tools and Stirling PDF added; Java application still unavailable |
+| 214-B Shared installation foundation | Docker service adapter, one read-only host folder, Compose projects (Immich) and own Java application import done |
+| 214-C Applications, databases and media | All 11 "coming soon" cards installable and real-tested; IT-Tools and Stirling PDF added. No card is left as coming soon |
 | 214-D Game-server expansion | Batches 1-2 done: Bedrock fixed; V Rising, Enshrouded, Unturned, Satisfactory, Don't Starve Together, 7 Days to Die added; all passed real installs on Windows. Project Zomboid deferred |
 | 214-E Marketplace and lifecycle improvements | Not started (two small renderer changes made, see below) |
 | 214-F Real installation acceptance | Docker services on Docker Desktop (Windows), games on Windows, the real app (`build214-ui-qa`), and Unturned, Valheim and Palworld on Linux (WSL Ubuntu 24.04) pass. Docker on a Linux host: not done |
@@ -389,6 +389,25 @@ restart and after Stop/Start, everything removed afterwards.
    became unreachable while reporting healthy. Renamed `ANXOS_IMMICH_PORT`,
    with a comment and a smoke assertion.
 
+**Java application import** (`1a3c7cd1`). "Choose .jar…" uses the native
+dialog; the file stays in the main process under a 30-minute token. It must
+be a ZIP with a manifest Main-Class, at most 150 MB, and is copied as
+`app.jar` (existing base64 file write). It runs as the existing `java-app`
+instance: `java -Xmx<memory> -jar app.jar <arguments>`, no shell; Java
+runtime options typed as program arguments are refused. New instance
+`readinessMode: "process"`: an app without a port is ready once it keeps
+running through its startup window. Real runs found and fixed three ways
+a generic Java app was treated as Minecraft ("nogui" appended over the
+user's arguments, start skipped waiting for a download, version detection
+parsing it as Minecraft so the Java rules demanded Java 8); imported apps
+now have their own family `java-application`.
+Evidence: `node scripts/marketplace-java-app-real-install.js <test.jar>
+<not-a-jar>` A1-A4 pass (ready without a port; quoted arguments and the
+256 MB limit reach the app; data kept across Stop/Start and Restart; ready
+on its port; a crash fails the install with exit code 3 and its output in
+the logs; refusals create nothing). `build214-ui-qa` A1 (real app, the
+test answers the native file dialog) passes.
+
 **Known, not fixed:**
 - The Create Server window says "No computer is connected yet" for its
   first second while it is still reading the computer's status. Wording
@@ -436,6 +455,8 @@ The new smoke is registered in `package.json`
 - `68f80973` feat(marketplace): IT-Tools and Stirling PDF utilities
 - `dede8396` fix(marketplace): real-app and Linux acceptance fixes
 - `5a6497f1` feat(marketplace): Immich through the existing Docker Compose routes
+- `af1d8b81` docs: record Build 214 round 3
+- `1a3c7cd1` feat(marketplace): deploy your own Java application (.jar)
 - Handoff commits on this branch.
 
 ## Blockers
@@ -457,20 +478,18 @@ The new smoke is registered in `package.json`
    Linux variants has run (they are labelled untested); the UDP readiness
    check should also be confirmed on a disposable Linux node (not Anxlab's
    live servers).
-2. **Java application import** (in progress, design): a "Choose .jar" button
-   using the existing native file dialog (as the modpack manual import
-   does), the file kept in the main process (never a renderer path), checked
-   as a ZIP with a `META-INF/MANIFEST.MF` main class and at most 150 MB,
-   written to the instance as `app.jar` through the existing base64 file
-   write (the Agent accepts 256 MB requests), started as the existing
-   `java-app` instance type (`java -Xmx<memory> -jar app.jar <arguments>`),
-   with the `java` dependency check and a trust warning. Needs a
-   "ready once it stays running" readiness mode for apps without a port.
-3. **Project Zomboid**: its admin password must reach the first start
-   without being in the start command (the "Launch command" log line
-   redacts arguments one at a time). Options: send it on the console with a
-   no-echo, no-log stdin write (Agent feature), or seed the server's
-   database. Then Factorio (headless from factorio.com), Garry's Mod, ARK.
+2. **Project Zomboid** (in progress): the Agent already shows instance
+   environment values to the app only as `[configured]`
+   (`instanceServiceCore.js`, public instance view). Plan: a template
+   `generatedSecrets` list for native servers puts a generated password in
+   the instance environment (also in the startup patch, which replaces the
+   environment) and returns it once as credentials; the start command
+   references it by name (`%ANXOS_PZ_ADMIN_PASSWORD%` through `cmd.exe /c`
+   on Windows, `"$ANXOS_PZ_ADMIN_PASSWORD"` through bash on Linux), so the
+   "Launch command" line shows only the name. Must be proven in a real run
+   that Project Zomboid does not print it. Saves must be kept in the server
+   folder (`-cachedir`). Then Factorio (headless from factorio.com),
+   Garry's Mod, ARK.
 3. **See the Docker services in the app.** Run the real app against a
    disposable Agent and check the wizard, the "Save this password" dialog,
    the completion text and the Docker page for one database and one web
