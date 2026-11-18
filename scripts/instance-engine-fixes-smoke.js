@@ -644,7 +644,7 @@ async function checkDailyMidnightSchedulesTerminate() {
   const root = path.join(tempRoot, "midnight-schedules");
   fs.mkdirSync(root, { recursive: true });
   // The time zone is read when a process starts, so each zone runs in its own
-  // child process with TZ in its environment, killed after 30 s. Havana
+  // child process with TZ in its environment, killed after a time limit. Havana
   // repeats 00:xx when DST ends; Santiago and Beirut change at midnight;
   // Lord Howe moves by 30 minutes; Apia skipped 2011-12-30 entirely.
   const runs = [
@@ -657,10 +657,17 @@ async function checkDailyMidnightSchedulesTerminate() {
     { zone: "Pacific/Apia", sweepFromIso: "2011-12-01T00:00:00.000Z", sweepToIso: "2012-02-01T00:00:00.000Z", minimalityChecked: false },
   ];
   for (const run of runs) {
+    // The integration run (Denver) drives the real scheduler, which reads and
+    // writes schedules.json on every 5-minute tick across seven cases; on
+    // Windows that file I/O alone took 7-20 s (measured 2026-11-18) and
+    // sometimes passed 30 s under load, so it reported a hang that was not
+    // one. It gets 120 s; the sweep-only zones (1-2 s) keep 30 s. A real
+    // infinite loop still fails either limit.
+    const limitMs = run.integration ? 120000 : 30000;
     const child = realSpawnSync(process.execPath, ["-e", `(${dailyScheduleWorkerMain.toString()})();`], {
       env: { ...process.env, TZ: run.zone, ANX_DAILY_SCHEDULE_RUN: JSON.stringify({ repoRoot, root, ...run }) },
       encoding: "utf8",
-      timeout: 30000,
+      timeout: limitMs,
       maxBuffer: 16 * 1024 * 1024,
     });
     const line = String(child.stdout || "").trim().split(/\r?\n/).filter(Boolean).pop() || "";
@@ -668,7 +675,7 @@ async function checkDailyMidnightSchedulesTerminate() {
     try { result = JSON.parse(line); } catch { result = null; }
     if (!result) {
       result = child.error?.code === "ETIMEDOUT" || child.signal
-        ? { ok: false, error: "the scheduler did not return within 30 s (it loops forever)" }
+        ? { ok: false, error: `the scheduler did not return within ${limitMs / 1000} s (it loops forever)` }
         : { ok: false, error: `no result (exit ${child.status}): ${String(child.stderr || "").slice(-600)}` };
     }
     assert.ok(result.ok, `${run.zone}: ${result.error}`);
