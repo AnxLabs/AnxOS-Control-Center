@@ -35,11 +35,27 @@ async function latestDownload(request, env, platform) {
   return new Response(null, { status: 302, headers: { location: asset.browser_download_url, "cache-control": "no-store" } });
 }
 
+// The one address search engines should index. www answered with the whole
+// site (200) and every Cloudflare Pages address (the project's pages.dev name
+// and each deployment's own <id>.<project>.pages.dev, frozen at that build)
+// is a full copy; old copies are how outdated releases stay in search results.
+const CANONICAL_HOST = "anxoscontrolcenter.org";
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    if (url.hostname === `www.${CANONICAL_HOST}`) {
+      return new Response(null, { status: 301, headers: { location: `https://${CANONICAL_HOST}${url.pathname}${url.search}`, "cache-control": "public, max-age=3600" } });
+    }
     const match = url.pathname.match(/^\/api\/download\/latest\/([^/]+)\/?$/);
     if (request.method === "GET" && match) return latestDownload(request, env, match[1].toLowerCase());
-    return env.ASSETS.fetch(request);
+    const response = await env.ASSETS.fetch(request);
+    if (url.hostname.endsWith(".pages.dev")) {
+      // Previews and the pages.dev name stay usable but are never indexed.
+      const marked = new Response(response.body, response);
+      marked.headers.set("x-robots-tag", "noindex, nofollow");
+      return marked;
+    }
+    return response;
   },
 };

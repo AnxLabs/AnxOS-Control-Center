@@ -103,7 +103,40 @@ function checkRelease({ root, plan: givenPlan } = {}) {
     }
   }
   problems.push(...checkCanonicalUrls(plan.root, release.siteUrl));
+  problems.push(...checkSearchDiscovery(plan.root, release));
   return { ok: problems.length === 0, problems, release };
+}
+
+// What search engines and AI crawlers read: one versioned SoftwareApplication
+// record per page (a second, version-less one competed with it on the
+// homepage), and sitemap <lastmod> dates that match the pages' content.
+function checkSearchDiscovery(root, release) {
+  const problems = [];
+  const websiteRoot = path.join(root, "website");
+  for (const file of ["index.html", "download.html", "download/index.html", "release-notes.html"]) {
+    const full = path.join(websiteRoot, file);
+    if (!fs.existsSync(full)) continue;
+    const html = fs.readFileSync(full, "utf8");
+    const records = [...html.matchAll(/<script type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/g)]
+      .map((match) => { try { return JSON.parse(match[1]); } catch { return null; } })
+      .filter((record) => record && record["@type"] === "SoftwareApplication");
+    if (records.length !== 1) problems.push(`website/${file}: ${records.length} SoftwareApplication records (expected exactly 1)`);
+    else if (records[0].softwareVersion !== `${release.version} Build ${release.build}`) problems.push(`website/${file}: structured data names ${records[0].softwareVersion || "no version"}, not ${release.version} Build ${release.build}`);
+  }
+  if (root === path.resolve(__dirname, "..")) {
+    const { planSitemap } = require("./website-sitemap");
+    const plan = planSitemap({ date: "1970-01-01" });
+    problems.push(...plan.problems.map((problem) => `sitemap: ${problem}`));
+    if (plan.changed.length) problems.push(`website/sitemap.xml: lastmod is stale for ${plan.changed.join(", ")} (run npm run website:sync)`);
+    const robots = fs.readFileSync(path.join(websiteRoot, "robots.txt"), "utf8");
+    if (!robots.includes(`Sitemap: ${release.siteUrl}/sitemap.xml`)) problems.push("website/robots.txt does not name the sitemap");
+    const disallowed = [...robots.matchAll(/^Disallow:\s*(\S+)/gm)].map((match) => match[1]);
+    for (const loc of [...fs.readFileSync(path.join(websiteRoot, "sitemap.xml"), "utf8").matchAll(/<loc>([^<]+)<\/loc>/g)].map((match) => match[1])) {
+      const urlPath = loc.slice(release.siteUrl.length) || "/";
+      if (disallowed.some((rule) => rule !== "/" && urlPath.startsWith(rule))) problems.push(`website/sitemap.xml lists ${loc}, which robots.txt disallows`);
+    }
+  }
+  return problems;
 }
 
 // Cloudflare Pages serves `x.html` at `/x` and `x/index.html` at `/x/`, and answers

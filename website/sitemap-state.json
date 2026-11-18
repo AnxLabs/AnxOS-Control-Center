@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "pages": {
+    "/": {
+      "source": "website/index.html",
+      "sha256": "6e748386dd3fedaffd0a086e9f22a1c0c3d0e27a9418f980bd6e694c05d11dc2",
+      "lastmod": "2026-11-18"
+    },
+    "/release-notes": {
+      "source": "website/release-notes.html",
+      "sha256": "5f30bdc26cc80eb034c6ae19608b1027ee446af3d70eb887bce79f5b62c9cc83",
+      "lastmod": "2026-11-17"
+    },
+    "/download": {
+      "source": "website/download.html",
+      "sha256": "9915b2070570ff093c78ac108f738ab11336848a5eca16f44bdc0dcd498f739f",
+      "lastmod": "2026-11-17"
+    },
+    "/features/": {
+      "source": "website/features/index.html",
+      "sha256": "1847d58950b64c50de1532e8ca7c97149341ecc0acce906f5d9664f43a46216e",
+      "lastmod": "2026-11-17"
+    },
+    "/getting-started/": {
+      "source": "website/getting-started/index.html",
+      "sha256": "f2fb7039016642068782c2235397e504c5637c3fc579aa46153cf0e9356372a8",
+      "lastmod": "2026-11-17"
+    },
+    "/system-requirements/": {
+      "source": "website/system-requirements/index.html",
+      "sha256": "014344f35f9ff944018d496e47e8ae6a64bdce7cf97d1b99eb85f5c333314f9f",
+      "lastmod": "2026-11-17"
+    },
+    "/setup/": {
+      "source": "website/setup/index.html",
+      "sha256": "fe60628bf4b4f118d4d6b8615f936f9862db09fcfda1ceccf47ad1b4b3ee0e12",
+      "lastmod": "2026-11-16"
+    },
+    "/windows-installation/": {
+      "source": "website/windows-installation/index.html",
+      "sha256": "c76a886ab29c5f5fbdbafeae5553233ca9e19a51cca2c05c9b7d1574ac08562f",
+      "lastmod": "2026-11-17"
+    },
+    "/security-privacy/": {
+      "source": "website/security-privacy/index.html",
+      "sha256": "c4bbccceb22bfac917bb6f2c1c1338c97eca510f5fbc6dacfef705dbad89a410",
+      "lastmod": "2026-11-17"
+    },
+    "/faq/": {
+      "source": "website/faq/index.html",
+      "sha256": "001f0b6eef3f769e2a9fdcd57242b51db913194544406128a6ce83d08abfa411",
+      "lastmod": "2026-11-17"
+    }
+  }
+}
