@@ -651,6 +651,36 @@ follow-up.
   for the signed RC build, then verify CI, the Authenticode signature and
   SHA-256 before asking to install.
 
+## Release candidate 1 (2026-11-19)
+
+- Approved by the owner (push to `dev` and the signed RC1 build). `dev`
+  pushed from `623ad5ac` to `7955b872`, then to `996067f8` (fast-forwards).
+  Nothing is tagged or published.
+- CI run 44453172690 on `7955b872` stopped at rc-validation 86/417 (Linux):
+  `minecraft-java-runtime-smoke`'s new no-bundle case built a Windows path
+  from `/tmp`, which sorts differently on Linux. Nothing was built. Fixed in
+  the test (`996067f8`); the resolver is unchanged.
+- `996067f8` also makes `acceptance-fixes-ui-qa` wait until its test Agent
+  has answered `/stats` once before the app starts (the first sample took
+  2.5-7.3 s on this PC and fell inside A2's 7 s post-unlock window); the A2
+  threshold is unchanged. A2 passed 3 of 3 alone and the script 8 of 8.
+- CI run 44454087333 on `996067f8`: static validation, rc-validation (417
+  suites, Linux), Windows and Linux builds passed; publish skipped (no tag).
+- Downloaded to `artifacts/build214-rc1/` in the main checkout (git-ignored):
+  - Setup `AnxOS-Control-Center-Setup-2.0-build214.exe` (440,219,856 bytes):
+    Authenticode Valid, Anjo ROSIMO, Microsoft timestamp. SHA-256
+    `C5B50AE6B5C748F38F8477296C3E48A9537FEF639D3D3FC6003789D2093F6511`;
+    `latest.yml` SHA-512 and size match.
+  - Portable `AnxOS-Control-Center-2.0-build214-portable.exe`: Valid. SHA-256
+    `61639FAF7CBC39F72B6FA16D22982F61400FADF8A724B61EEA0F52EECBDE3923`.
+  - Agent package `AnxOS-Agent-2.0-build214.deb`: SHA-256
+    `D8018B94AADAE56D53A403A0BE807A5DE7DBFA911AEA946C1C8508D4D73E8ED2`
+    (matches its `.sha256`).
+  - Linux app: `.deb` `84EC338C56BE40D0BF01E9EC180D99160EF5A8C6CEBBC8D0F6CCE28B2C99E6DC`,
+    AppImage `CA3080CE2E7C27E0C3DB25FCB20BBB1A53E9E7E0422F790C280E5A8D4659C1EF`.
+- Installed app before the upgrade: Build 213 (the Local Agent reports
+  `2.0-build213`). Waiting for the owner's `confirmed` before installing.
+
 ## Tests run
 
 These are mocked: the Agent client is faked and the network blocked. The real
