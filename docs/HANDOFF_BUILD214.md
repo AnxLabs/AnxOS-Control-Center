@@ -681,6 +681,35 @@ follow-up.
 - Installed app before the upgrade: Build 213 (the Local Agent reports
   `2.0-build213`). Waiting for the owner's `confirmed` before installing.
 
+- **In-place upgrade over Build 213** (owner replied `confirmed`). Backup
+  first: `%APPDATA%\AnxHub\config-backup-pre-build214-rc1-20261118-220551`
+  (`config`, `agent`, `instances`: 713 files) and a SHA-256 manifest of
+  every file. No server ran under This PC's Agent, so nothing was stopped.
+  The verified Setup was started by the assistant (hash and signature checked
+  again first); Computer Use could not see the screen (every screenshot was
+  solid gray, apparently masked by the screen-control driver's own window),
+  so the owner clicked through Setup.
+- **After the upgrade:** the installed exe is signed (Valid), the Local Agent
+  reports `2.0-build214`, the AnxOSAgent task runs the installed exe with
+  `--agent` (no time limit, 3 restarts), and no `helper-restore-needed.json`
+  was left. 708 of 713 files are byte-identical, none missing or new; the 5
+  that changed are runtime state (alerts, AnxNet session token, state and
+  log, window recovery), as in Build 213's upgrade. The AnxNet device key and
+  settings, `agent.json`, `nodes.json`, enrollment, endpoints, security,
+  Local Agent and node credentials are unchanged.
+- **Installed package checked:** `app.asar` holds the 50-card catalog (only
+  Python Discord Bot unavailable), the Immich Compose file, the new shared
+  modules, release.json Build 214 and the bundled-Java, Modrinth and bot-token
+  code; the Local Agent runtime holds the secret store, managed Compose
+  projects and the Python detection change.
+- **Real app since the upgrade:** started locked; 18 sign-in-required errors
+  in its first two seconds (one-time start-up reads), then none. The VPS
+  (`127.0.0.1:47132`, the manual SSH tunnel) reads "Agent unavailable" while
+  the tunnel is down. Anxlab answers on its unchanged `2.0-build213` Agent.
+- **Remaining for acceptance:** the owner unlocks the app (a sign-in only the
+  owner can do), then the Marketplace, existing servers, Docker and Agent
+  pages are checked in the installed app.
+
 ## Tests run
 
 These are mocked: the Agent client is faked and the network blocked. The real
