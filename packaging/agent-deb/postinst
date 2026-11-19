@@ -13,6 +13,7 @@ DATA_ROOT="/var/lib/anxos-agent"
 LOG_ROOT="/var/log/anxos-agent"
 CONFIG_ROOT="/etc/anxos-agent"
 CONTROL_GROUP="anxos-control"
+UPDATE_GROUP="anxos-update"
 SUDOERS_FILE="/etc/sudoers.d/anxos-agent"
 
 create_agent_account() {
@@ -49,6 +50,11 @@ prepare_control_group() {
   # instead of being left in place.
   if ! getent group "$CONTROL_GROUP" >/dev/null 2>&1; then
     groupadd --system "$CONTROL_GROUP"
+  fi
+  # Members may run only the update helper without a password (the same
+  # drop-in); nobody is added automatically.
+  if ! getent group "$UPDATE_GROUP" >/dev/null 2>&1; then
+    groupadd --system "$UPDATE_GROUP"
   fi
   if [ -f "$SUDOERS_FILE" ]; then
     chown root:root "$SUDOERS_FILE"
@@ -96,6 +102,7 @@ case "${1:-configure}" in
     echo "Connect it from AnxOS Control Center, or run 'sudo anxos-agent' on this host."
     echo "Service status: systemctl status anxos-agent"
     echo "Control it from AnxOS Control Center over SSH: sudo usermod -aG $CONTROL_GROUP <ssh-user>"
+    echo "Let AnxOS Control Center install Agent updates without a password: sudo usermod -aG $UPDATE_GROUP <ssh-user>"
     echo "Optional overrides: copy /etc/anxos-agent/agent.env.example to /etc/anxos-agent/agent.env"
     ;;
   *)

@@ -1,0 +1,394 @@
+#!/bin/bash
+# AnxOS Agent update helper, installed root:root 0755 as
+# /usr/lib/anxos-agent/update-helper by the anxos-agent package.
+#
+# The one privileged operation AnxOS Control Center may run without a sudo
+# password, and only for members of the anxos-update group (nobody is added
+# automatically; see /etc/sudoers.d/anxos-agent):
+#
+#   update-helper status              what is installed and what can be rolled back
+#   update-helper install <build>     install the official anxos-agent <build>
+#   update-helper rollback <build>    reinstall the build this helper replaced last
+#
+# What the caller controls is a build string such as 2.0-build215, nothing
+# else: no path, no URL, no package name, no apt option. The helper itself
+# downloads the release's SHA256SUMS and package over HTTPS from the official
+# release repository, into a root-only folder, and installs it only when:
+#   - its SHA-256 matches the release's SHA256SUMS entry,
+#   - it names itself anxos-agent, version <build>, for this architecture,
+#   - <build> is newer than the installed build (install), or is exactly the
+#     build this helper replaced last while its replacement is still the
+#     installed one (rollback),
+#   - apt would change no package other than anxos-agent,
+#   - no server runs inside the Agent's service cgroup (a restart stops them).
+# The package is installed with needrestart suspended, so no other service is
+# restarted; services that still use replaced libraries are listed, not
+# restarted. Every call is appended to /var/log/anxos-agent-update.log.
+#
+# Output is KEY=value lines for AnxOS Control Center. Exit 0 on success, 2 on
+# a refusal or failure (ERROR= and MESSAGE= say why).
+
+set -euo pipefail
+umask 077
+IFS=$' \t\n'
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export LC_ALL=C
+# sudo resets the environment; these are cleared anyway, so nothing the caller
+# sets can redirect apt, curl or the shell.
+unset BASH_ENV ENV CDPATH GLOBIGNORE APT_CONFIG CURL_HOME SSL_CERT_FILE SSL_CERT_DIR \
+  http_proxy https_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY all_proxy NO_PROXY no_proxy \
+  DEBIAN_FRONTEND DPKG_ADMINDIR LD_PRELOAD LD_LIBRARY_PATH TMPDIR 2>/dev/null || true
+
+HELPER_VERSION=1
+PACKAGE=anxos-agent
+SERVICE=anxos-agent
+STATE_DIR=/var/lib/anxos-agent-update
+PACKAGES_DIR=$STATE_DIR/packages
+BACKUPS_DIR=$STATE_DIR/backups
+STATE_FILE=$STATE_DIR/state
+LOG_FILE=/var/log/anxos-agent-update.log
+LOCK_FILE=/run/lock/anxos-agent-update.lock
+CONF_FILE=/etc/anxos-agent/update-helper.conf
+DEFAULT_RELEASE_BASE_URL=https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download
+BUILD_PATTERN='^[0-9]{1,4}\.[0-9]{1,4}-build[0-9]{1,6}$'
+MAX_DOWNLOAD_BYTES=$((400 * 1024 * 1024))
+KEEP_BACKUPS=5
+
+ACTION=${1:-}
+FROM_BUILD=""
+TO_BUILD=""
+PACKAGE_SHA256=""
+WORK_DIR=""
+
+# Only characters that cannot break a JSON string or a KEY=value line.
+safe() {
+  printf '%s' "${1:-}" | tr -cd 'A-Za-z0-9._:+@/ ,=()-' | cut -c1-300
+}
+
+log_event() {
+  local result=$1 code=${2:-} message=${3:-}
+  local line
+  line=$(printf '{"at":"%s","caller":"%s","action":"%s","from":"%s","to":"%s","result":"%s","code":"%s","sha256":"%s","message":"%s"}' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(safe "${SUDO_USER:-root}")" "$(safe "$ACTION")" "$(safe "$FROM_BUILD")" \
+    "$(safe "$TO_BUILD")" "$(safe "$result")" "$(safe "$code")" "$(safe "$PACKAGE_SHA256")" "$(safe "$message")")
+  { printf '%s\n' "$line" >>"$LOG_FILE"; } 2>/dev/null || true
+  chmod 0640 "$LOG_FILE" 2>/dev/null || true
+}
+
+cleanup() {
+  if [ -n "$WORK_DIR" ] && [ -d "$WORK_DIR" ]; then
+    case "$WORK_DIR" in
+      "$STATE_DIR"/work.*) rm -rf -- "$WORK_DIR" ;;
+    esac
+  fi
+}
+trap cleanup EXIT
+
+fail() {
+  local code=$1
+  shift
+  local message="$*"
+  echo "ERROR=$code"
+  echo "MESSAGE=$(safe "$message")"
+  log_event "refused" "$code" "$message"
+  exit 2
+}
+
+usage() {
+  fail USAGE "usage: update-helper status | install <build> | rollback <build>"
+}
+
+validate_build() {
+  [[ "${1:-}" =~ $BUILD_PATTERN ]] || fail INVALID_BUILD "The build must look like 2.0-build215."
+}
+
+installed_build() {
+  dpkg-query -W -f='${Status} ${Version}\n' "$PACKAGE" 2>/dev/null | awk '$1=="install" && $3=="installed" {print $4}'
+}
+
+read_state() {
+  # KEY=value lines written only by this helper, in a root-only folder.
+  STATE_PREVIOUS=""
+  STATE_CURRENT=""
+  if [ -f "$STATE_FILE" ] && [ ! -L "$STATE_FILE" ]; then
+    STATE_PREVIOUS=$(sed -n 's/^PREVIOUS=//p' "$STATE_FILE" | tail -n1)
+    STATE_CURRENT=$(sed -n 's/^CURRENT=//p' "$STATE_FILE" | tail -n1)
+    [[ "$STATE_PREVIOUS" =~ $BUILD_PATTERN ]] || STATE_PREVIOUS=""
+    [[ "$STATE_CURRENT" =~ $BUILD_PATTERN ]] || STATE_CURRENT=""
+  fi
+}
+
+write_state() {
+  local temp
+  temp=$(mktemp "$STATE_DIR/state.XXXXXX")
+  printf 'PREVIOUS=%s\nCURRENT=%s\n' "$1" "$2" >"$temp"
+  mv -f -- "$temp" "$STATE_FILE"
+}
+
+prepare_dirs() {
+  install -d -m 0700 -o root -g root "$STATE_DIR" "$PACKAGES_DIR" "$BACKUPS_DIR"
+  # A folder that is not root's own (or a symlink to one) is refused rather
+  # than repaired: something else wrote it.
+  local dir
+  for dir in "$STATE_DIR" "$PACKAGES_DIR" "$BACKUPS_DIR"; do
+    if [ -L "$dir" ] || [ "$(stat -c %u "$dir")" != "0" ]; then
+      fail STATE_UNSAFE "$dir is not a root-owned folder."
+    fi
+  done
+}
+
+# The release repository is fixed. A root-owned configuration file nobody
+# else can write may point to another HTTPS mirror (or a loopback HTTP server
+# for testing); anything else is refused. Sets RELEASE_BASE_URL (not printed:
+# a refusal must reach the caller, which it would not from inside $(...)).
+resolve_release_base_url() {
+  local url=$DEFAULT_RELEASE_BASE_URL
+  if [ -e "$CONF_FILE" ]; then
+    if [ -L "$CONF_FILE" ] || [ "$(stat -c %u "$CONF_FILE")" != "0" ] || (( 8#$(stat -c %a "$CONF_FILE") & 8#022 )); then
+      fail CONFIG_UNSAFE "$CONF_FILE must be owned by root and not writable by others."
+    fi
+    local configured
+    configured=$(sed -n 's/^RELEASE_BASE_URL=//p' "$CONF_FILE" | tail -n1)
+    if [ -n "$configured" ]; then
+      [[ "$configured" =~ ^[A-Za-z0-9:/._-]+$ ]] || fail CONFIG_UNSAFE "RELEASE_BASE_URL has unexpected characters."
+      case "$configured" in
+        https://*|http://127.0.0.1:*|http://127.0.0.1/*) url=$configured ;;
+        *) fail CONFIG_UNSAFE "RELEASE_BASE_URL must use https." ;;
+      esac
+    fi
+  fi
+  RELEASE_BASE_URL=${url%/}
+}
+
+fetch() {
+  local url=$1 target=$2 proto='=https'
+  case "$url" in http://127.0.0.1*) proto='=http' ;; esac
+  curl --proto "$proto" --proto-redir "$proto" -fsSL --retry 2 --connect-timeout 20 --max-time 900 \
+    --max-filesize "$MAX_DOWNLOAD_BYTES" -o "$target" "$url"
+}
+
+# Downloads (or reuses a cached, re-verified copy of) the official package for
+# a build and sets DEB_PATH and PACKAGE_SHA256.
+acquire_package() {
+  local build=$1
+  local file="AnxOS-Agent-$build.deb"
+  local base expected actual
+  resolve_release_base_url
+  base=$RELEASE_BASE_URL
+  fetch "$base/v$build/SHA256SUMS" "$WORK_DIR/SHA256SUMS" || fail RELEASE_UNAVAILABLE "The v$build release or its SHA256SUMS could not be downloaded."
+  expected=$(awk -v name="$file" '$2 == name || $2 == "*" name {print tolower($1); exit}' "$WORK_DIR/SHA256SUMS")
+  [[ "$expected" =~ ^[0-9a-f]{64}$ ]] || fail NOT_IN_RELEASE "The v$build release does not list $file."
+  local cached="$PACKAGES_DIR/$file"
+  if [ -f "$cached" ] && [ ! -L "$cached" ] && [ "$(sha256sum "$cached" | cut -d' ' -f1)" = "$expected" ]; then
+    cp -- "$cached" "$WORK_DIR/$file"
+  else
+    fetch "$base/v$build/$file" "$WORK_DIR/$file" || fail DOWNLOAD_FAILED "$file could not be downloaded."
+  fi
+  actual=$(sha256sum "$WORK_DIR/$file" | cut -d' ' -f1)
+  [ "$actual" = "$expected" ] || fail CHECKSUM_MISMATCH "$file does not match the release's SHA256SUMS."
+  local name version arch
+  name=$(dpkg-deb -f "$WORK_DIR/$file" Package 2>/dev/null || true)
+  version=$(dpkg-deb -f "$WORK_DIR/$file" Version 2>/dev/null || true)
+  arch=$(dpkg-deb -f "$WORK_DIR/$file" Architecture 2>/dev/null || true)
+  [ "$name" = "$PACKAGE" ] || fail PACKAGE_MISMATCH "$file is package '$(safe "$name")', not $PACKAGE."
+  [ "$version" = "$build" ] || fail PACKAGE_MISMATCH "$file is version '$(safe "$version")', not $build."
+  [ "$arch" = "$(dpkg --print-architecture)" ] || fail PACKAGE_MISMATCH "$file is for '$(safe "$arch")', this computer is $(dpkg --print-architecture)."
+  install -m 0600 -o root -g root -- "$WORK_DIR/$file" "$cached"
+  DEB_PATH=$cached
+  PACKAGE_SHA256=$actual
+}
+
+# apt must change anxos-agent and nothing else (no dependency upgrades, no
+# removals), so the update cannot touch another service's packages.
+check_only_agent_changes() {
+  local deb=$1 extra=${2:-}
+  local simulation others
+  # shellcheck disable=SC2086
+  if ! simulation=$(apt-get -s -o Debug::NoLocking=1 install --no-install-recommends $extra -- "$deb" 2>&1); then
+    fail APT_SIMULATION_FAILED "apt cannot install the package: $(printf '%s' "$simulation" | tail -n 3 | tr '\n' ' ')"
+  fi
+  others=$(printf '%s\n' "$simulation" | awk '/^(Inst|Remv|Purg|Conf) / {print $2}' | grep -vx "$PACKAGE" | sort -u | tr '\n' ' ' || true)
+  [ -z "${others// /}" ] || fail OTHER_PACKAGES_WOULD_CHANGE "Installing would also change: ${others}. Update those packages yourself first."
+}
+
+# Every process in the Agent's cgroup except the Agent itself is a server it
+# started; installing the package restarts the Agent, which stops them.
+check_no_servers_running() {
+  local main cgroup children
+  main=$(systemctl show "$SERVICE" -p MainPID --value 2>/dev/null || true)
+  cgroup=$(systemctl show "$SERVICE" -p ControlGroup --value 2>/dev/null || true)
+  if [ -n "$cgroup" ] && [ -r "/sys/fs/cgroup$cgroup/cgroup.procs" ]; then
+    children=$(grep -vxc -- "${main:-0}" "/sys/fs/cgroup$cgroup/cgroup.procs" || true)
+    if [ "${children:-0}" -gt 0 ]; then
+      fail SERVERS_RUNNING "$children server process(es) run under the Agent; stop them before updating."
+    fi
+  fi
+}
+
+backup_agent_state() {
+  local stamp=$1
+  local sources=() value
+  for value in /var/lib/anxos-agent/config /etc/anxos-agent; do
+    [ -e "$value" ] && sources+=("$value")
+  done
+  # Custom state locations come from the unit's Environment (root-owned unit
+  # files and drop-ins), never from the caller.
+  local env_line token
+  env_line=$(systemctl show "$SERVICE" -p Environment --value 2>/dev/null || true)
+  for token in $env_line; do
+    case "$token" in
+      ANXHUB_CONFIG_DIR=/*|AGENT_IDENTITY_PATH=/*)
+        value=${token#*=}
+        if [[ "$value" =~ ^/[A-Za-z0-9._/-]+$ ]] && [ -e "$value" ]; then sources+=("$value"); fi
+        ;;
+    esac
+  done
+  BACKUP_PATH="$BACKUPS_DIR/$stamp-${FROM_BUILD:-unknown}.tgz"
+  if [ "${#sources[@]}" -gt 0 ]; then
+    tar czf "$BACKUP_PATH" --ignore-failed-read -- "${sources[@]}" 2>/dev/null || fail BACKUP_FAILED "The Agent state could not be backed up."
+  else
+    BACKUP_PATH=""
+  fi
+  # Keep the newest few backups.
+  local old
+  find "$BACKUPS_DIR" -maxdepth 1 -type f -name '*.tgz' -printf '%T@ %p\n' 2>/dev/null \
+    | sort -rn | tail -n +$((KEEP_BACKUPS + 1)) | cut -d' ' -f2- \
+    | while IFS= read -r old; do
+        case "$old" in "$BACKUPS_DIR"/*.tgz) rm -f -- "$old" ;; esac
+      done || true
+}
+
+# Services still using replaced libraries, listed and never restarted.
+deferred_restarts() {
+  if command -v needrestart >/dev/null 2>&1; then
+    needrestart -b -r l 2>/dev/null | sed -n 's/^NEEDRESTART-SVC: *//p' | grep -vx "$SERVICE.service" | tr '\n' ',' | sed 's/,$//' || true
+  fi
+}
+
+run_install() {
+  local deb=$1 extra=${2:-}
+  # shellcheck disable=SC2086
+  env DEBIAN_FRONTEND=noninteractive NEEDRESTART_SUSPEND=1 NEEDRESTART_MODE=l \
+    apt-get install -y --no-install-recommends $extra \
+    -o DPkg::Lock::Timeout=120 -o Dpkg::Options::=--force-confold -- "$deb" >"$WORK_DIR/apt.log" 2>&1
+}
+
+do_status() {
+  read_state
+  echo "HELPER_VERSION=$HELPER_VERSION"
+  echo "INSTALLED=$(installed_build)"
+  echo "PREVIOUS=$STATE_PREVIOUS"
+  echo "CURRENT=$STATE_CURRENT"
+  if [ -n "$STATE_PREVIOUS" ] && [ -f "$PACKAGES_DIR/AnxOS-Agent-$STATE_PREVIOUS.deb" ]; then
+    echo "ROLLBACK_CACHED=yes"
+  else
+    echo "ROLLBACK_CACHED=no"
+  fi
+}
+
+lock() {
+  exec 9>"$LOCK_FILE"
+  flock -n 9 || fail BUSY "Another Agent update is running."
+}
+
+do_install() {
+  local build=$1
+  TO_BUILD=$build
+  FROM_BUILD=$(installed_build)
+  [ -n "$FROM_BUILD" ] || fail NOT_INSTALLED "$PACKAGE is not installed; install it once by hand."
+  if [ "$FROM_BUILD" = "$build" ]; then
+    echo "RESULT=up-to-date"
+    echo "INSTALLED=$FROM_BUILD"
+    log_event "up-to-date"
+    exit 0
+  fi
+  dpkg --compare-versions "$build" gt "$FROM_BUILD" || fail DOWNGRADE_REFUSED "$build is not newer than the installed $FROM_BUILD; use rollback for the build this helper replaced."
+  lock
+  prepare_dirs
+  check_no_servers_running
+  WORK_DIR=$(mktemp -d "$STATE_DIR/work.XXXXXX")
+  acquire_package "$build"
+  check_only_agent_changes "$DEB_PATH"
+  backup_agent_state "$(date -u +%Y%m%dT%H%M%SZ)"
+  local status=0
+  run_install "$DEB_PATH" || status=$?
+  local now
+  now=$(installed_build)
+  echo "SHA256=$PACKAGE_SHA256"
+  echo "BACKUP_PATH=$BACKUP_PATH"
+  echo "INSTALL_EXIT=$status"
+  echo "INSTALLED=$now"
+  if [ "$status" -ne 0 ] || [ "$now" != "$build" ]; then
+    tail -n 5 "$WORK_DIR/apt.log" | sed 's/^/LOG: /'
+    if grep -qiE 'could not get lock|is locked by|dpkg was interrupted' "$WORK_DIR/apt.log"; then
+      fail APT_BUSY "apt is busy (another install or automatic update is running). Nothing changed if INSTALLED is still $FROM_BUILD."
+    fi
+    fail INSTALL_FAILED "apt-get exited $status; the installed build is ${now:-unknown}."
+  fi
+  write_state "$FROM_BUILD" "$build"
+  echo "PREVIOUS=$FROM_BUILD"
+  echo "DEFERRED_RESTARTS=$(deferred_restarts)"
+  echo "ACTIVE=$(systemctl is-active "$SERVICE" 2>/dev/null || true)"
+  echo "RESULT=installed"
+  log_event "installed"
+}
+
+do_rollback() {
+  local build=$1
+  TO_BUILD=$build
+  FROM_BUILD=$(installed_build)
+  read_state
+  [ -n "$STATE_PREVIOUS" ] || fail ROLLBACK_UNAVAILABLE "This helper has not replaced a build it could return to."
+  [ "$build" = "$STATE_PREVIOUS" ] || fail ROLLBACK_REFUSED "Only $STATE_PREVIOUS, the build this helper replaced, can be restored."
+  [ "$FROM_BUILD" = "$STATE_CURRENT" ] || fail ROLLBACK_REFUSED "The installed build ($FROM_BUILD) is not the one this helper installed ($STATE_CURRENT)."
+  lock
+  prepare_dirs
+  WORK_DIR=$(mktemp -d "$STATE_DIR/work.XXXXXX")
+  acquire_package "$build"
+  check_only_agent_changes "$DEB_PATH" --allow-downgrades
+  backup_agent_state "$(date -u +%Y%m%dT%H%M%SZ)"
+  local status=0
+  run_install "$DEB_PATH" --allow-downgrades || status=$?
+  local now
+  now=$(installed_build)
+  echo "SHA256=$PACKAGE_SHA256"
+  echo "BACKUP_PATH=$BACKUP_PATH"
+  echo "INSTALL_EXIT=$status"
+  echo "INSTALLED=$now"
+  if [ "$status" -ne 0 ] || [ "$now" != "$build" ]; then
+    tail -n 5 "$WORK_DIR/apt.log" | sed 's/^/LOG: /'
+    fail INSTALL_FAILED "apt-get exited $status during rollback; the installed build is ${now:-unknown}."
+  fi
+  # A rollback cannot be repeated: the next step back would need its own
+  # record, and moving forward again is an ordinary install.
+  write_state "" "$build"
+  echo "ACTIVE=$(systemctl is-active "$SERVICE" 2>/dev/null || true)"
+  echo "RESULT=rolled-back"
+  log_event "rolled-back"
+}
+
+if [ "$(id -u)" -ne 0 ]; then
+  echo "ERROR=NOT_ROOT"
+  echo "MESSAGE=Run through sudo as a member of the anxos-update group."
+  exit 2
+fi
+
+case "$ACTION" in
+  status)
+    [ "$#" -eq 1 ] || usage
+    do_status
+    ;;
+  install)
+    [ "$#" -eq 2 ] || usage
+    validate_build "$2"
+    do_install "$2"
+    ;;
+  rollback)
+    [ "$#" -eq 2 ] || usage
+    validate_build "$2"
+    do_rollback "$2"
+    ;;
+  *)
+    usage
+    ;;
+esac

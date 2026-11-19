@@ -11,6 +11,15 @@
 //   P8  already on the target build: no download, no install
 //   P9  cannot tell whether servers run: refused
 //   P10 generated shell commands parse in bash (bash -n)
+//   P11 apt would change other packages: refused before install
+//   P12 needrestart is suspended and list-only; deferred restarts reported
+//   P13 apt busy and nothing changed: reported, no rollback attempted
+//   P14 update helper: no user-folder download, helper installs, digest checked
+//   P15 helper reports a digest that differs from SHA256SUMS: rolled back
+//   P16 helper refuses (servers running): mapped code, nothing to roll back
+//   P17 helper install verifies badly: helper rollback to the replaced build
+//   P18 password sudo with the helper not permitted: anxos-update hint
+//   P19 helper command refuses anything but a build string
 const assert = require("assert");
 const fs = require("fs");
 const os = require("os");
@@ -57,6 +66,12 @@ function simulatedNode(overrides = {}) {
     versions: { [TARGET]: TARGET, [INSTALLED]: INSTALLED },
     installSucceeds: true,
     reportsTargetAfterInstall: true,
+    helper: "missing",
+    simulateChanges: "anxos-agent",
+    aptBusy: false,
+    deferred: "",
+    helperDigest: null,
+    helperRefusal: null,
     calls: [],
     ...overrides,
   };
@@ -67,7 +82,7 @@ function simulatedNode(overrides = {}) {
     }
     if (command.includes("ExecStart")) return { code: 0, stdout: systemDiscovery, stderr: "" };
     if (command.includes("ARCH=$(dpkg --print-architecture")) {
-      return { code: 0, stdout: `ARCH=${node.arch}\nINSTALLED=${node.installed}\nSUDO=${node.sudo}\nCURL=yes\nCHILDREN=${node.children}\nENV=ANXHUB_CONFIG_DIR=/var/lib/anxos-agent/config AGENT_HOST=127.0.0.1\nHOME=/home/debian\nHOMEFREE_KB=900000\n`, stderr: "" };
+      return { code: 0, stdout: `ARCH=${node.arch}\nINSTALLED=${node.installed}\nSUDO=${node.sudo}\nHELPER=${node.helper}\nNEEDRESTART=yes\nCURL=yes\nCHILDREN=${node.children}\nENV=ANXHUB_CONFIG_DIR=/var/lib/anxos-agent/config AGENT_HOST=127.0.0.1\nHOME=/home/debian\nHOMEFREE_KB=900000\n`, stderr: "" };
     }
     for (const prefix of ["NEW", "OLD"]) {
       if (command.includes(`${prefix}_SHA256=`)) {
@@ -76,12 +91,27 @@ function simulatedNode(overrides = {}) {
         return { code: 0, stdout: `${prefix}_SHA256=${node.digest[build]}\n${prefix}_PACKAGE=anxos-agent\n${prefix}_VERSION=${version}\n${prefix}_ARCH=amd64\n${prefix}_RELEASE=${version}\n${prefix}_PATH=/home/debian/.anxos-agent-package-update/x/AnxOS-Agent-${build}.deb\n`, stderr: "" };
       }
     }
+    if (command.includes("apt-get -s ")) {
+      return { code: 0, stdout: `SIMULATE_EXIT=0\nCHANGES=${node.simulateChanges} \n`, stderr: "" };
+    }
+    if (command.includes("update-helper install ")) {
+      if (node.helperRefusal) return { code: 0, stdout: `ERROR=${node.helperRefusal}\nMESSAGE=refused for the test\nHELPER_EXIT=2\n`, stderr: "" };
+      node.installed = TARGET;
+      return { code: 0, stdout: `SHA256=${node.helperDigest || DIGEST[TARGET]}\nBACKUP_PATH=/var/lib/anxos-agent-update/backups/x.tgz\nINSTALL_EXIT=0\nINSTALLED=${TARGET}\nPREVIOUS=${INSTALLED}\nDEFERRED_RESTARTS=${node.deferred}\nACTIVE=active\nRESULT=installed\nHELPER_EXIT=0\n`, stderr: "" };
+    }
+    if (command.includes("update-helper rollback ")) {
+      node.installed = INSTALLED;
+      return { code: 0, stdout: `SHA256=${DIGEST[INSTALLED]}\nINSTALL_EXIT=0\nINSTALLED=${INSTALLED}\nACTIVE=active\nRESULT=rolled-back\nHELPER_EXIT=0\n`, stderr: "" };
+    }
     if (command.includes("agent-state-backup.tgz")) return { code: 0, stdout: "BACKUP_PATH=/home/debian/.anxos-agent-package-update/x/agent-state-backup.tgz\n", stderr: "" };
     if (command.includes("apt-get install")) {
       const rollingBack = command.includes("--allow-downgrades");
+      if (node.aptBusy && !rollingBack) {
+        return { code: 0, stdout: `INSTALL_EXIT=100\nINSTALLED=${node.installed}\nACTIVE=active\nAPT_BUSY=yes\nLOG: E: Could not get lock /var/lib/dpkg/lock-frontend\n`, stderr: "" };
+      }
       if (rollingBack) node.installed = INSTALLED;
       else if (node.installSucceeds) node.installed = TARGET;
-      return { code: 0, stdout: `INSTALL_EXIT=${rollingBack || node.installSucceeds ? 0 : 100}\nINSTALLED=${node.installed}\nACTIVE=active\n`, stderr: "" };
+      return { code: 0, stdout: `INSTALL_EXIT=${rollingBack || node.installSucceeds ? 0 : 100}\nINSTALLED=${node.installed}\nACTIVE=active\nDEFERRED_RESTARTS=${node.deferred}\n`, stderr: "" };
     }
     throw new Error(`unexpected command: ${command.slice(0, 80)}`);
   };
@@ -129,6 +159,7 @@ async function expectFailure(promise) {
 
 const pushCommands = (calls) => calls.filter((command) => /tar -xzf -|SWAP_OK|systemctl --user stop/.test(command));
 const installs = (calls) => calls.filter((command) => command.includes("apt-get install"));
+const helperCalls = (calls, action) => calls.filter((command) => command.includes(`update-helper ${action} `));
 
 (async () => {
   // P1
@@ -250,6 +281,9 @@ const installs = (calls) => calls.filter((command) => command.includes("apt-get 
         pkg.buildDownloadCommand({ dir: "/home/u/.anxos-agent-package-update/s", url: "https://example.invalid/AnxOS-Agent-2.0-build213.deb", fileName: "AnxOS-Agent-2.0-build213.deb", prefix: "NEW" }),
         pkg.buildBackupCommand({ dir: "/home/u/.anxos-agent-package-update/s", env: { ANXHUB_CONFIG_DIR: "/srv/anxos/agent-config", AGENT_IDENTITY_PATH: "/srv/anxos/agent-device-identity.json" } }),
         pkg.buildInstallCommand("/home/u/x.deb", { allowDowngrade: true }),
+        pkg.buildSimulateCommand("/home/u/x.deb"),
+        pkg.buildHelperCommand("install", "2.0-build215"),
+        pkg.buildHelperCommand("rollback", "2.0-build214"),
       ];
       for (const script of scripts) {
         const parsed = spawnSync("bash", ["-n"], { input: script, encoding: "utf8" });
@@ -264,8 +298,107 @@ const installs = (calls) => calls.filter((command) => command.includes("apt-get 
     }
   }
 
+  // P11
+  {
+    const node = simulatedNode({ simulateChanges: "anxos-agent libc6 openssl" });
+    const error = await expectFailure(updateRemoteAgent("node-key", options(node)));
+    assert.strictEqual(error.code, "AGENT_PACKAGE_OTHER_CHANGES");
+    assert(/libc6, openssl/.test(error.message), error.message);
+    assert.deepStrictEqual(installs(node.calls), []);
+    assert.strictEqual(node.installed, INSTALLED);
+    console.log("  ok P11 other package changes refused before install");
+  }
+
+  // P12
+  {
+    const node = simulatedNode({ deferred: "docker.service,cron.service" });
+    const result = await updateRemoteAgent("node-key", options(node));
+    const install = installs(node.calls)[0];
+    assert(/NEEDRESTART_SUSPEND=1/.test(install) && /NEEDRESTART_MODE=l/.test(install), "needrestart suspended and list-only");
+    assert(/--no-install-recommends/.test(install), "no recommended packages pulled in");
+    assert(/needrestart -b -r l/.test(install), "restarts are listed, never performed");
+    assert.deepStrictEqual(result.deferredRestarts, ["docker.service", "cron.service"]);
+    assert(/Not restarted .*docker\.service, cron\.service/.test(result.steps.find((step) => step.id === "swap").message));
+    console.log("  ok P12 needrestart suspended; deferred restarts reported");
+  }
+
+  // P13
+  {
+    const node = simulatedNode({ aptBusy: true });
+    const error = await expectFailure(updateRemoteAgent("node-key", options(node)));
+    assert.strictEqual(error.code, "AGENT_PACKAGE_APT_BUSY");
+    assert(/still installed and running/.test(error.message));
+    assert(!installs(node.calls).some((command) => command.includes("--allow-downgrades")), "no rollback when nothing changed");
+    const record = JSON.parse(fs.readFileSync(error.details.recordPath, "utf8"));
+    assert.strictEqual(record.status, "not-applied");
+    console.log("  ok P13 apt busy reported without a rollback");
+  }
+
+  // P14
+  {
+    const node = simulatedNode({ helper: "ok", sudo: "password" });
+    const result = await updateRemoteAgent("node-key", options(node));
+    assert.strictEqual(result.updated, true);
+    assert.strictEqual(result.privilege, "update-helper");
+    assert.strictEqual(result.verifiedBuild, TARGET);
+    assert.deepStrictEqual(installs(node.calls), [], "no apt-get through the SSH user's sudo");
+    assert(!node.calls.some((command) => command.includes("_SHA256=")), "the helper downloads; nothing in the user's folder");
+    assert.strictEqual(helperCalls(node.calls, "install").length, 1);
+    assert(helperCalls(node.calls, "install")[0].includes(`sudo -n /usr/lib/anxos-agent/update-helper install '${TARGET}'`));
+    console.log("  ok P14 update helper installs without a sudo password");
+  }
+
+  // P15
+  {
+    const node = simulatedNode({ helper: "ok", helperDigest: "f".repeat(64) });
+    const error = await expectFailure(updateRemoteAgent("node-key", options(node)));
+    assert.strictEqual(error.code, "REMOTE_AGENT_UPDATE_VERIFY_FAILED");
+    assert(/did not match this Desktop's SHA256SUMS/.test(error.message), error.message);
+    assert.strictEqual(helperCalls(node.calls, "rollback").length, 1);
+    assert(helperCalls(node.calls, "rollback")[0].includes(`'${INSTALLED}'`));
+    assert.strictEqual(node.installed, INSTALLED);
+    console.log("  ok P15 helper digest mismatch rolled back");
+  }
+
+  // P16
+  {
+    const node = simulatedNode({ helper: "ok", helperRefusal: "SERVERS_RUNNING" });
+    const error = await expectFailure(updateRemoteAgent("node-key", options(node)));
+    assert.strictEqual(error.code, "REMOTE_AGENT_UPDATE_SERVERS_RUNNING");
+    assert.strictEqual(helperCalls(node.calls, "rollback").length, 0, "nothing to roll back");
+    console.log("  ok P16 helper refusal mapped, no rollback");
+  }
+
+  // P17
+  {
+    const node = simulatedNode({ helper: "ok", reportsTargetAfterInstall: false });
+    const error = await expectFailure(updateRemoteAgent("node-key", options(node)));
+    assert.strictEqual(error.code, "REMOTE_AGENT_UPDATE_VERIFY_FAILED");
+    assert(/reinstalled 2\.0-build212 through the update helper and it is healthy again/.test(error.message), error.message);
+    assert.strictEqual(helperCalls(node.calls, "rollback").length, 1);
+    console.log("  ok P17 helper rollback after failed verification");
+  }
+
+  // P18
+  {
+    const node = simulatedNode({ sudo: "password", helper: "not-permitted" });
+    const error = await expectFailure(updateRemoteAgent("node-key", options(node)));
+    assert.strictEqual(error.code, "REMOTE_AGENT_UPDATE_SUDO_REQUIRED");
+    assert(/usermod -aG anxos-update debian/.test(error.message), error.message);
+    console.log("  ok P18 password sudo explains the update helper");
+  }
+
+  // P19
+  {
+    for (const bad of ["2.0-build215; rm -rf /", "../../etc/passwd", "2.0-build215 --allow-downgrades", "", "latest"]) {
+      assert.throws(() => pkg.buildHelperCommand("install", bad), /invalid build/);
+    }
+    assert.throws(() => pkg.buildHelperCommand("purge", "2.0-build215"), /invalid build/);
+    console.log("  ok P19 helper command takes a build string only");
+  }
+
   fs.rmSync(smokeRoot, { recursive: true, force: true });
-  console.log("Package Agent update smoke passed (10 cases).");
+  console.log("Package Agent update smoke passed (19 cases).");
 })().catch((error) => {
   console.error(error);
   process.exitCode = 1;

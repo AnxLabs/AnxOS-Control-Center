@@ -38,6 +38,9 @@ const RUNTIME_ROOT_RELATIVE = path.join("usr", "lib", "anxos-agent");
 const WRAPPER_RELATIVE = path.join("usr", "bin", "anxos-agent");
 // Lets the anxos-control group start, stop and restart the Agent (packaging/agent-deb/anxos-agent.sudoers).
 const SUDOERS_RELATIVE = path.join("etc", "sudoers.d", "anxos-agent");
+// Root-only update helper the anxos-update group may run through sudo
+// (packaging/agent-deb/update-helper); it takes only a build string.
+const UPDATE_HELPER_RELATIVE = path.join("usr", "lib", "anxos-agent", "update-helper");
 const AGENT_RELEASE_FILENAME = "agent-release.json";
 const CONTROL_CONFIG_FILES = ["agent.example.json", "local-agent-runtime.json", "marketplace-templates.json"];
 
@@ -177,7 +180,7 @@ function normalizeStageModes(stageDir) {
     }
   }
   chmodSafe(stageDir, 0o755);
-  for (const relative of ["DEBIAN/postinst", "DEBIAN/prerm", "DEBIAN/postrm", "usr/bin/anxos-agent", "usr/lib/anxos-agent/node/bin/node"]) {
+  for (const relative of ["DEBIAN/postinst", "DEBIAN/prerm", "DEBIAN/postrm", "usr/bin/anxos-agent", "usr/lib/anxos-agent/node/bin/node", "usr/lib/anxos-agent/update-helper"]) {
     const target = path.join(stageDir, ...relative.split("/"));
     if (fs.existsSync(target)) chmodSafe(target, 0o755);
   }
@@ -504,6 +507,10 @@ async function stagePayload(stageDir, options, arch, releaseInfo, provenance) {
   copyFileInto(path.join(packagingDir, "anxos-agent.service"), path.join(stageDir, "lib", "systemd", "system", "anxos-agent.service"));
   copyFileInto(path.join(packagingDir, "anxos-agent.env.example"), path.join(stageDir, "etc", "anxos-agent", "agent.env.example"));
   copyFileInto(path.join(packagingDir, "anxos-agent.sudoers"), path.join(stageDir, SUDOERS_RELATIVE));
+  // A Windows checkout may have CRLF line endings; a bash script must not.
+  const helperTarget = path.join(stageDir, UPDATE_HELPER_RELATIVE);
+  fs.mkdirSync(path.dirname(helperTarget), { recursive: true });
+  fs.writeFileSync(helperTarget, fs.readFileSync(path.join(packagingDir, "update-helper"), "utf8").replace(/\r\n/g, "\n"));
   const wrapperPath = path.join(stageDir, WRAPPER_RELATIVE);
   fs.mkdirSync(path.dirname(wrapperPath), { recursive: true });
   fs.writeFileSync(wrapperPath, WRAPPER_CONTENT);

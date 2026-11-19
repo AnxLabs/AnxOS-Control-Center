@@ -4,3 +4,13 @@
 # Agents. Grant it to the SSH user Control Center connects as:
 #   sudo usermod -aG anxos-control <user>
 %anxos-control ALL=(root) NOPASSWD: /usr/bin/systemctl start anxos-agent, /usr/bin/systemctl stop anxos-agent, /usr/bin/systemctl restart anxos-agent
+#
+# Members of the anxos-update group may install official anxos-agent release
+# packages through the update helper without a password, and nothing else.
+# The helper takes only a build string; it downloads the package itself from
+# the official release, checks it against the release's SHA256SUMS, refuses
+# downgrades (except back to the build it replaced) and any package other than
+# anxos-agent, and never restarts other services. Nobody is added
+# automatically; to let AnxOS Control Center update this Agent unattended:
+#   sudo usermod -aG anxos-update <user>
+%anxos-update ALL=(root) NOPASSWD: /usr/lib/anxos-agent/update-helper status, /usr/lib/anxos-agent/update-helper install *, /usr/lib/anxos-agent/update-helper rollback *
