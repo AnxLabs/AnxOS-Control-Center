@@ -1,6 +1,31 @@
 [
   {
     "version": "2.0",
+    "build": 214,
+    "channel": "Private Alpha",
+    "tag": "v2.0-build214",
+    "date": "November 19, 2026",
+    "datetime": "2026-11-19",
+    "title": "AnxOS Control Center v2.0 — Build 214",
+    "summary": "Build 214 makes Add a Server a real installation marketplace. Every card that says it installs was installed for real on a test PC before it shipped, and the ones that can't work yet say why instead of pretending.",
+    "changes": [
+      "**13 more game servers**, each installed and started for real on Windows: ARK: Survival Evolved, ARK: Survival Ascended, Space Engineers, Core Keeper, V Rising, Enshrouded, Unturned, Satisfactory, Don't Starve Together, 7 Days to Die, Garry's Mod, Project Zomboid and Factorio (Factorio on Linux). Cards name the operating systems they were tested on; untested ones say so.",
+      "**Databases, apps and media as Docker services:** PostgreSQL, MariaDB, Redis, Grafana, Prometheus, Uptime Kuma, Gitea, Nextcloud, Nginx, Jellyfin (with a read-only media folder), Immich (as one Compose project), IT-Tools and Stirling PDF. Passwords are generated per install and shown once; AnxOS keeps no copy. Utilities are published on this computer only by default.",
+      "**Deploy your own application:** a Java .jar, or a zipped Node.js or Python project, runs as a managed app with start, stop, logs and resource use. The archive is checked before anything is created. AnxOS does not install npm or pip packages yet: bring node_modules with a Node.js project; a Python project that lists packages is refused with a message.",
+      "**Discord.js Bot** deploys your own zipped bot. Its bot token is stored encrypted by the AnxOS Agent and given to the bot as DISCORD_TOKEN when it starts; it is never saved in the bot's files or shown again.",
+      "**Server secret store.** Passwords a server needs at start (Project Zomboid's administrator, a bot token) are stored encrypted by the Agent, separately from the server's settings, files and backups, and removed from its console output.",
+      "**Modrinth modpacks install and run.** Every Modrinth pack failed with \"server-pack runtime could not be resolved\" since Build 193; AnxOS now installs the Minecraft and loader version the pack declares.",
+      "**Minecraft servers on Windows PCs that have their own Java installed** could fail to start (\"executable is outside approved paths\"); AnxOS's bundled Java is now chosen.",
+      "**Python apps on Windows** were never detected (the \"python3\" command there is the Microsoft Store shortcut).",
+      "**Windows game servers started by name** (\"not found\") and **UDP-only servers stuck on Starting**, including Valheim, Palworld and V Rising, now start and report ready.",
+      "**Minecraft Bedrock (Docker)** installs again; it needs the Minecraft EULA, which the wizard now asks for, and keeps its world.",
+      "**Settings files are escaped:** a quote or angle bracket in a server name can no longer add settings to a game's settings file.",
+      "**Docker:** busy ports are detected before anything is created, slow image downloads and container starts no longer fail as \"Agent unavailable\", and the volume list loads on computers with many containers."
+    ],
+    "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v2.0-build214"
+  },
+  {
+    "version": "2.0",
     "build": 213,
     "channel": "Private Alpha",
     "tag": "v2.0-build213",
