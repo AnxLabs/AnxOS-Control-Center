@@ -25,6 +25,10 @@
 //   A8 the metrics notice for an offline computer does not outlive the switch
 //      to an online one, and every error toast leaves the screen by itself
 //      (measured by computed opacity, not by class)
+// Found by the Build 214 RC1 acceptance in the installed app:
+//   A9 a required input in Advanced options (bot token, project .zip, media
+//      folder) opens it when the template is chosen, and a missing one is
+//      shown and focused instead of hidden inside the closed section
 // Set ACCEPTANCE_QA_SHOTS=<dir> to keep screenshots. ANX_QA_APP_ROOT runs
 // these checks against another checkout (used to show they fail before the
 // fixes).
@@ -391,10 +395,53 @@ async function main() {
       console.log(`PASS A8 the metrics notice does not outlive the switch, and error toasts hide (opacity ${later.opacity})`);
     });
 
+    // A9 (Build 214 RC1 acceptance) the bot token, project .zip and media
+    // folder are required but live in Advanced options. With it closed, Create
+    // server said "Enter the bot token to continue." and focused a field the
+    // user could not see.
+    await check("A9", async () => {
+      await page.evaluate(async () => { await selectNode("lab"); window.showPage("marketplace"); });
+      await waitFor(page, () => (marketplaceCatalog?.templates?.length || 0) > 0, null, "the Marketplace catalog", 60000);
+      const cases = [
+        ["discord-js", '[data-marketplace-field="botToken"]', /Enter the bot token/],
+        ["node-app-import", "[data-marketplace-choose-application]", /\.zip/],
+        ["jellyfin", '[data-marketplace-field="hostFolder"]', /Enter the media folder/],
+        ["it-tools", null, null],
+      ];
+      for (const [templateId, selector, message] of cases) {
+        const next = app.waitForEvent("window", { timeout: 30000 });
+        await page.evaluate((id) => openCreateServerWorkspace(findMarketplaceTemplate(id)), templateId);
+        const wizard = await next;
+        wizard.on("pageerror", (error) => errors.push(`create-server: ${error.message}`));
+        await wizard.waitForLoadState("domcontentloaded");
+        await waitFor(wizard, (id) => typeof marketplaceSelectedTemplateId !== "undefined" && marketplaceSelectedTemplateId === id && !document.querySelector("[data-marketplace-wizard]")?.hidden, templateId, `the ${templateId} setup`, 60000);
+        const openedByApp = await wizard.evaluate(() => document.querySelector("[data-create-server-advanced]").open);
+        if (!selector) {
+          assert.strictEqual(openedByApp, false, `${templateId} has nothing to enter, so Advanced options stays closed`);
+          await wizard.close().catch(() => {});
+          continue;
+        }
+        assert.strictEqual(openedByApp, true, `${templateId} opens Advanced options, where its required input is`);
+        const state = await wizard.evaluate((sel) => {
+          document.querySelector("[data-create-server-advanced]").open = false;
+          document.querySelector('[data-marketplace-field="name"]').value = "Acceptance A9";
+          const ok = window.validateCreateServerStep("configuration");
+          const target = document.querySelector(sel);
+          return { ok, message: document.querySelector("[data-marketplace-message]")?.textContent || "", visible: Boolean(target?.checkVisibility()), focused: document.activeElement === target };
+        }, selector);
+        await shot(wizard, `a9-${templateId}-missing-input`);
+        await wizard.close().catch(() => {});
+        assert.strictEqual(state.ok, false, `${templateId} refuses to continue`);
+        assert.match(state.message, message, `${templateId} says what is missing`);
+        assert.ok(state.visible && state.focused, `${templateId}: the missing input is shown and focused (${JSON.stringify(state)})`);
+      }
+      console.log("PASS A9 a missing required input is shown and focused, never left inside closed Advanced options");
+    });
+
     const unexpected = errors.filter((message) => !/ResizeObserver loop/.test(message));
     if (unexpected.length) failures.push(`renderer errors: ${unexpected.join(" | ")}`);
     if (failures.length) throw new Error(`${failures.length} check(s) failed:\n  ${failures.join("\n  ")}`);
-    console.log(`Acceptance fixes UI QA: ${only.size || 8} checks passed. Screenshots: ${shotsDir}`);
+    console.log(`Acceptance fixes UI QA: ${only.size || 9} checks passed. Screenshots: ${shotsDir}`);
   } finally {
     await Promise.race([app.close().catch(() => {}), new Promise((resolve) => setTimeout(resolve, 15000))]);
     await agent.stop().catch(() => {});

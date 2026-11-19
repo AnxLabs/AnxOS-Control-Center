@@ -16,6 +16,8 @@
 //      container was given, and the completion text points to the Docker page
 //   A1 the Java application card installs a chosen .jar (BUILD214_QA_JAR)
 //   A3 the Discord.js Bot card asks for its token in a password field
+//   A4 a missing required input (bot token, project .zip, media folder) is
+//      shown and focused, never left inside closed Advanced options
 //   A2 the Node.js project card asks for a .zip (label, button, dialog
 //      filter), installs a generated project, and it answers on its port
 //   F1 a busy port fails in the window with a plain message; nothing created
@@ -159,6 +161,7 @@ async function main() {
     await page.evaluate(() => window.showPage("marketplace"));
     await waitFor(page, () => (marketplaceCatalog?.templates?.length || 0) > 0, null, "the Marketplace catalog", 60000);
     let wizard = null;
+    let advancedOpenedByApp = null;
 
     // The way a user reaches a service: its Marketplace card on the main
     // window opens Create Server with that template already chosen.
@@ -177,6 +180,8 @@ async function main() {
       }
       const picker = await wizard.evaluate(() => Boolean(document.querySelector("[data-first-server-modal]")));
       assert.strictEqual(picker, false, `the game picker does not cover the ${templateId} setup`);
+      // Recorded before the harness opens Advanced options (A4 checks it).
+      advancedOpenedByApp = await wizard.evaluate(() => document.querySelector("[data-create-server-advanced]").open);
       await wizard.evaluate(() => { document.querySelector("[data-create-server-advanced]").open = true; });
     };
     const fill = async (field, value) => {
@@ -419,6 +424,35 @@ async function main() {
       await wizard.waitForTimeout(500);
       assert.match(await wizard.evaluate(() => document.querySelector("[data-marketplace-message]")?.textContent || ""), /Enter the bot token/);
       console.log("PASS A3 the Discord.js Bot card asks for its token in a password field and refuses to install without it");
+    });
+
+    // A4: a required input lives in Advanced options. Found in RC1 acceptance:
+    // with the section closed, Create server said "Enter the bot token" and
+    // focused a field the user could not see. The section opens for templates
+    // that need such an input, and a missing one opens it and gets focus.
+    await check("A4", async () => {
+      const cases = [
+        ["discord-js", '[data-marketplace-field="botToken"]', /Enter the bot token/],
+        ["node-app-import", "[data-marketplace-choose-application]", /\.zip/],
+        ["jellyfin", '[data-marketplace-field="hostFolder"]', /Enter the media folder/],
+      ];
+      for (const [templateId, selector, message] of cases) {
+        await openTemplate(templateId);
+        assert.strictEqual(advancedOpenedByApp, true, `${templateId} opens Advanced options, where its required input is`);
+        await wizard.evaluate(() => { document.querySelector("[data-create-server-advanced]").open = false; });
+        await fill("name", `${PREFIX}a4`);
+        await clickInstall();
+        await wizard.waitForTimeout(500);
+        const state = await wizard.evaluate((sel) => {
+          const target = document.querySelector(sel);
+          return { message: document.querySelector("[data-marketplace-message]")?.textContent || "", visible: Boolean(target?.checkVisibility()), focused: document.activeElement === target };
+        }, selector);
+        assert.match(state.message, message, `${templateId} says what is missing`);
+        assert.ok(state.visible && state.focused, `${templateId}: the missing input is shown and focused (${JSON.stringify(state)})`);
+      }
+      await openTemplate("it-tools");
+      assert.strictEqual(advancedOpenedByApp, false, "a template with nothing to enter keeps Advanced options closed");
+      console.log("PASS A4 a missing required input is shown and focused, not left inside closed Advanced options");
     });
 
     // F1

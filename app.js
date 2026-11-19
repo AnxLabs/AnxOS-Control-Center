@@ -21316,9 +21316,12 @@ function validateCreateServerStep(step, { report = true } = {}) {
       return false;
     }
     const missingSecret = (template?.userSecrets || []).find((secret) => secret.required && !(getMarketplaceField(secret.field)?.value || "").trim());
+    // These fields live in Advanced options: open it before focusing, or the
+    // message names a field the user cannot see.
     if (missingSecret) {
       if (report) {
         setMarketplaceMessage(`Enter the ${missingSecret.label} to continue.`, "error");
+        openCreateServerAdvancedOptions();
         getMarketplaceField(missingSecret.field)?.focus();
       }
       return false;
@@ -21326,6 +21329,7 @@ function validateCreateServerStep(step, { report = true } = {}) {
     if (MARKETPLACE_APPLICATION_IMPORTS[template?.importFile?.kind] && !marketplaceApplicationFile?.token) {
       if (report) {
         setMarketplaceMessage(MARKETPLACE_APPLICATION_IMPORTS[template.importFile.kind].missing, "error");
+        openCreateServerAdvancedOptions();
         document.querySelector("[data-marketplace-choose-application]")?.focus();
       }
       return false;
@@ -21333,6 +21337,7 @@ function validateCreateServerStep(step, { report = true } = {}) {
     if (template?.docker?.hostFolder?.required && !(getMarketplaceField("hostFolder")?.value || "").trim()) {
       if (report) {
         setMarketplaceMessage(`Enter the ${String(template.docker.hostFolder.label || "folder").toLowerCase()} to continue.`, "error");
+        openCreateServerAdvancedOptions();
         getMarketplaceField("hostFolder")?.focus();
       }
       return false;
@@ -21346,6 +21351,14 @@ function validateCreateServerStep(step, { report = true } = {}) {
     }
   }
   return true;
+}
+
+function createServerTemplateNeedsUserInput(template) {
+  return Boolean(
+    (template?.userSecrets || []).some((secret) => secret.required)
+    || MARKETPLACE_APPLICATION_IMPORTS[template?.importFile?.kind]
+    || template?.docker?.hostFolder?.required
+  );
 }
 
 function openCreateServerAdvancedOptions() {
@@ -21448,7 +21461,9 @@ function openMarketplaceWizard(templateId, { source = "" } = {}) {
   marketplaceSelectedTemplateId = template.id;
   createServerDraft = normalizeCreateServerDraft(template, { source });
   createServerWizardStep = "configuration";
-  if (createServerAdvancedOptions) createServerAdvancedOptions.open = false;
+  // A template that needs an input from the user (a bot token, a project file,
+  // a media folder) shows Advanced options, where those fields live.
+  if (createServerAdvancedOptions) createServerAdvancedOptions.open = createServerTemplateNeedsUserInput(template);
   refreshCreateServerDependencyState(template).catch(() => {});
   refreshCreateServerPortCheck(template).catch(() => {});
   if (marketplaceWizard) {
