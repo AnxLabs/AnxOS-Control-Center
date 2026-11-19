@@ -2730,6 +2730,7 @@
                 <div class="ssh-connection-actions">
                   <button class="inline-action" type="button" data-ssh-connect disabled>Connect</button>
                   <button class="inline-action" type="button" data-ssh-disconnect disabled>Disconnect</button>
+                  <button class="inline-action" type="button" data-ssh-key-setup hidden title="Create a new SSH key on this PC, add it to this account on the server, prove it works, and save a key profile. This password profile stays as a fallback and the server's password sign-in is not changed.">Set up key sign-in</button>
                   <button class="inline-action danger" type="button" data-ssh-profile-delete disabled>Delete Profile</button>
                 </div>
               </div>
@@ -4573,7 +4574,7 @@
             </section>
             <section class="settings-section settings-section--wide" data-agent-control-section="updates">
               <div class="settings-section__header">
-                <div><h2>Updates</h2><p>Check the installed Local Agent version and apply supported updates.</p></div>
+                <div><h2>Updates</h2><p>See which Agent build each computer runs and update it to this app's build. Progress for a running update appears below the buttons.</p></div>
               </div>
               <div class="agent-section-grid">
                 <div><span>Installed version</span><strong data-agent-control-field="agentVersion">Unavailable</strong></div>
@@ -4587,6 +4588,7 @@
                 <button class="inline-action" type="button" data-agent-control-action="updateAllAgents">Update all Agents</button>
               </div>
               <p class="platform-note" data-agent-update-overview aria-live="polite"></p>
+              <div class="download-list agent-update-progress" data-agent-update-progress role="status" aria-live="polite" hidden></div>
               <div class="agent-auto-update" data-agent-auto-update>
                 <div class="settings-section__header">
                   <div>

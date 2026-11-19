@@ -23,6 +23,9 @@
   let state = { policy: null, history: [], overview: null };
   let dirty = false;
   let busy = false;
+  // Each load is numbered; a slower, older response never replaces what a
+  // newer one already drew (an update can finish while a check is running).
+  let loadSequence = 0;
 
   function nodesApi() {
     return root.anx?.nodes || null;
@@ -81,6 +84,26 @@
     return entry.canUpdate ? "" : " · can't update from here";
   }
 
+  function computerLabelText(entry) {
+    return `${entry.name} · ${entry.installedBuild || "build not reported"}${computerNote(entry)}`;
+  }
+
+  // While the owner is editing, only the text next to each box is refreshed
+  // (build, connected or not); the boxes they may have ticked stay as they are.
+  function refreshComputerNotes() {
+    const computers = $("[data-agent-auto-update-computers]");
+    if (!computers) return;
+    const entries = new Map((state.overview?.nodes || []).map((entry) => [entry.nodeId, entry]));
+    computers.querySelectorAll("label").forEach((label) => {
+      const input = label.querySelector("input");
+      const entry = input ? entries.get(input.value) : null;
+      if (!entry) return;
+      label.title = entry.reason || "";
+      const text = label.querySelector("span");
+      if (text) text.textContent = computerLabelText(entry);
+    });
+  }
+
   function renderComputers() {
     const policy = state.policy;
     if (!policy) return;
@@ -97,7 +120,7 @@
         input.value = entry.nodeId;
         input.checked = policy.nodeIds.includes(entry.nodeId);
         label.title = entry.reason || "";
-        label.append(input, el("span", "", `${entry.name} · ${entry.installedBuild || "build not reported"}${computerNote(entry)}`));
+        label.append(input, el("span", "", computerLabelText(entry)));
         computers.append(label);
       });
     }
@@ -140,10 +163,20 @@
     renderComputers();
   }
 
+  // "213 → 214", plus what the Agent reported afterwards when it differs or
+  // is missing. Builds only: the Agent's package version is a placeholder.
+  function buildCell(entry) {
+    const planned = `${entry.fromBuild || "?"} → ${entry.toBuild || "?"}`;
+    if (entry.status !== "succeeded") return planned;
+    if (!entry.verifiedBuild) return planned;
+    return entry.verifiedBuild === entry.toBuild ? `${planned} (verified)` : `${planned} (reports ${entry.verifiedBuild})`;
+  }
+
   function renderHistory() {
     const host = root.document.querySelector("[data-agent-update-history]");
     if (!host) return;
     host.replaceChildren();
+    // Only from a current overview: never a pending line from before an update.
     const pending = (state.overview?.nodes || []).filter((entry) => entry.state === "update-available");
     if (pending.length) {
       host.append(el("p", "platform-note", `Pending: ${pending.map((entry) => `${entry.name} ${entry.installedBuild} → ${entry.targetBuild}${entry.canUpdate ? "" : ` (${entry.reason})`}`).join(" · ")}`));
@@ -169,10 +202,13 @@
       const result = el("td", "", STATUS_LABELS[entry.status] || entry.status || "");
       if (entry.message) result.title = entry.message;
       if (entry.manualCommand) result.title = `${entry.message || ""} Run on the computer: ${entry.manualCommand}`.trim();
+      if (Array.isArray(entry.deferredRestarts) && entry.deferredRestarts.length) {
+        result.title = `${result.title ? `${result.title} ` : ""}Not restarted by the update: ${entry.deferredRestarts.join(", ")}.`;
+      }
       row.append(
         el("td", "", Number.isFinite(when) ? new Date(when).toLocaleString() : ""),
         el("td", "", entry.name || entry.nodeId || ""),
-        el("td", "", `${entry.fromBuild || "?"} → ${entry.toBuild || "?"}`),
+        el("td", "", buildCell(entry)),
         el("td", "", TRIGGER_LABELS[entry.trigger] || entry.trigger || ""),
         result,
         el("td", "", ROLLBACK_LABELS[entry.rollback] || (entry.status === "succeeded" ? "Previous package kept" : "")),
@@ -199,12 +235,16 @@
   async function load(options = {}) {
     const api = nodesApi();
     if (!api?.getAgentAutoUpdate || busy) return;
+    const sequence = ++loadSequence;
     // The settings are a local file and answer at once; the computer list
     // checks every Agent and can take seconds. Show each when it arrives.
     const overviewRequest = Promise.resolve(options.overview || (api.agentUpdateOverview ? api.agentUpdateOverview() : null)).catch(() => null);
     try {
       const settings = await api.getAgentAutoUpdate();
-      state = { ...state, policy: settings.policy, history: settings.history || [] };
+      if (sequence !== loadSequence) return;
+      // Saved settings replace the form only when it has no unsaved edits
+      // (renderForm checks); history always comes from the file.
+      state = { ...state, policy: dirty ? state.policy || settings.policy : settings.policy, history: settings.history || [] };
       setControlsReady(true);
       renderForm();
       renderHistory();
@@ -214,12 +254,16 @@
       return;
     }
     const overview = await overviewRequest;
+    if (sequence !== loadSequence) return;
     if (overview) {
       state = { ...state, overview };
       // While the owner is editing, only replace the placeholder, never
-      // boxes they may have ticked.
+      // boxes they may have ticked; their notes are still brought up to date.
       const drawn = root.document.querySelectorAll("[data-agent-auto-update-computers] input").length > 0;
       if (!dirty || !drawn) renderComputers();
+      else refreshComputerNotes();
+      // The pending line belongs to this overview, not the one before it.
+      renderHistory();
     } else if (!state.overview) {
       const computers = $("[data-agent-auto-update-computers]");
       computers?.querySelectorAll("p").forEach((node) => { node.textContent = "Computers could not be checked. Refresh to try again."; });
@@ -266,7 +310,7 @@
     });
   }
 
-  root.AnxAgentAutoUpdate = { load, _test: { describe, readForm, computerNote, getState: () => state } };
+  root.AnxAgentAutoUpdate = { load, _test: { describe, readForm, computerNote, buildCell, getState: () => state } };
   if (root.document.readyState === "loading") root.document.addEventListener("DOMContentLoaded", mount);
   else mount();
 })(window);

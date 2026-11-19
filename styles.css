@@ -9616,6 +9616,43 @@ body.has-open-modal {
   justify-content: space-between;
 }
 
+/* Confirmation dialogs: eyebrow, title and description stacked, with room
+   for the absolutely positioned close button. */
+.app-modal__header--stacked {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 6px;
+  padding-right: 44px;
+}
+
+.app-modal__header--stacked p:not(.eyebrow) {
+  color: rgba(237, 230, 247, 0.86);
+  line-height: 1.5;
+}
+
+.app-modal__details {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 6px 14px;
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(190, 170, 220, 0.14);
+  border-radius: var(--radius);
+  background: rgba(7, 9, 14, 0.42);
+}
+
+.app-modal__details dt {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.app-modal__details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 .app-modal__eyebrow {
   margin: 0 0 4px;
   color: var(--muted);

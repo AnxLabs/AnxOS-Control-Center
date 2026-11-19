@@ -492,6 +492,11 @@ const desktopApi = {
     updateAgent: (nodeId) => ipcRenderer.invoke("nodes:updateAgent", { nodeId }),
     agentUpdateOverview: () => ipcRenderer.invoke("nodes:agentUpdateOverview"),
     updateAllAgents: () => ipcRenderer.invoke("nodes:updateAllAgents"),
+    onAgentUpdateProgress: (callback) => {
+      const handler = (_, payload) => callback(payload);
+      ipcRenderer.on("nodes:agent-update-progress", handler);
+      return () => ipcRenderer.removeListener("nodes:agent-update-progress", handler);
+    },
     getAgentAutoUpdate: () => ipcRenderer.invoke("nodes:getAgentAutoUpdate"),
     setAgentAutoUpdate: (policy) => ipcRenderer.invoke("nodes:setAgentAutoUpdate", { policy }),
     controlAgent: (nodeId, action) => ipcRenderer.invoke("nodes:controlAgent", { nodeId, action }),
@@ -596,6 +601,7 @@ const desktopApi = {
   },
   ssh: {
     listProfiles: () => ipcRenderer.invoke("ssh:listProfiles"),
+    setUpKeyAuthentication: (profileId, payload = {}) => ipcRenderer.invoke("ssh:setUpKeyAuthentication", { profileId, password: payload.password, passphrase: payload.passphrase }),
     saveProfile: (payload) => ipcRenderer.invoke("ssh:saveProfile", payload),
     deleteProfile: (profileId) => ipcRenderer.invoke("ssh:deleteProfile", { profileId }),
     assignProfileToNode: (payload) => ipcRenderer.invoke("ssh:assignProfileToNode", payload),

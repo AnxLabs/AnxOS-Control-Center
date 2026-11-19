@@ -53,7 +53,7 @@ function classifyNodeAgentUpdate(node, { desktopBuild, profile } = {}) {
   if (comparison === 0) return { ...base, state: "up-to-date", reason: "Up to date." };
   if (comparison > 0) return { ...base, state: "newer-than-desktop", reason: "This Agent is newer than AnxOS Control Center. Update the app instead." };
   if (!profile) return { ...base, state: "update-available", reason: "Assign an SSH key profile to this computer to update it from here." };
-  if (profile.authType !== "privateKey") return { ...base, state: "update-available", reason: "The computer's SSH profile must use a key to update it from here." };
+  if (profile.authType !== "privateKey") return { ...base, state: "update-available", reason: "The computer's SSH profile signs in with a password. Set up key sign-in for it on the SSH page to update it from here." };
   return { ...base, state: "update-available", canUpdate: true, reason: `Update ${base.installedBuild} → ${desktopBuild}.` };
 }
 
@@ -167,21 +167,30 @@ function historyEntryFor({ id, at, trigger, overviewEntry, outcome }) {
   const rollbackStatus = error?.details?.rollback
     ? (error.details.rollback.verified ? "rolled-back" : "rollback-failed")
     : error?.code === "REMOTE_AGENT_UPDATE_ROLLBACK_UNAVAILABLE" ? "unavailable" : null;
-  return {
+  const result = outcome.result || null;
+  // Builds only: the Agent's package.json version is a fixed placeholder
+  // (0.1.0) and never describes what is installed. The verified build is what
+  // the updated Agent itself reported after the update.
+  const verifiedBuild = normalizeAgentArtifactVersion(result?.verifiedBuild || result?.verification?.agentArtifactVersion || "") || null;
+  const entry = {
     id,
     at,
     trigger,
     nodeId: overviewEntry.nodeId,
     name: overviewEntry.name,
-    fromBuild: overviewEntry.installedBuild || null,
-    toBuild: overviewEntry.targetBuild || null,
+    fromBuild: overviewEntry.installedBuild || normalizeAgentArtifactVersion(result?.installedBuild || "") || null,
+    toBuild: overviewEntry.targetBuild || normalizeAgentArtifactVersion(result?.targetBuild || "") || null,
+    verifiedBuild,
     status: outcome.status,
     code: error?.code || outcome.code || null,
     message: error?.message || outcome.message || null,
     manualCommand: error?.details?.manualCommand || null,
-    method: outcome.result?.method || null,
+    method: result?.method || error?.details?.method || null,
     rollback: rollbackStatus,
   };
+  const deferred = Array.isArray(result?.deferredRestarts) ? result.deferredRestarts.filter((name) => typeof name === "string").slice(0, 20) : [];
+  if (deferred.length) entry.deferredRestarts = deferred;
+  return entry;
 }
 
 // ---------------------------------------------------------------- automatic

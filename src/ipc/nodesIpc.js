@@ -1,4 +1,4 @@
-const { ipcMain } = require("electron");
+const { BrowserWindow, ipcMain } = require("electron");
 const {
   checkAllNodeHealth,
   checkNodeHealth,
@@ -203,6 +203,21 @@ function registerNodesIpc() {
       return { code: "REMOTE_AGENT_UPDATE_WORKLOADS_UNKNOWN", message: `Could not check ${entry.name}'s servers (${error?.message || "unknown error"}), so it was not updated.` };
     }
   };
+  // Live Agent update progress for every open window (steps as they change).
+  // Step text carries node names, builds and paths on the node, never secrets.
+  const broadcastAgentUpdateProgress = (payload) => {
+    BrowserWindow.getAllWindows().forEach((window) => {
+      if (window.isDestroyed()) return;
+      try {
+        window.webContents.send("nodes:agent-update-progress", payload);
+      } catch {
+        // A window closing mid-update is not a reason to fail the update.
+      }
+    });
+  };
+  const runAgentUpdate = (nodeId, trigger) => updateRemoteAgent(nodeId, {
+    onProgress: ({ steps }) => broadcastAgentUpdateProgress({ nodeId, trigger, state: "running", steps }),
+  });
   const historyRecorder = (trigger) => {
     const ids = new Map();
     return (entry, outcome) => {
@@ -226,11 +241,13 @@ function registerNodesIpc() {
     }
     record(entry, { status: "running" });
     try {
-      const result = await updateRemoteAgent(context.nodeId);
+      const result = await runAgentUpdate(context.nodeId, "manual");
       record(entry, { status: result?.upToDate ? "up-to-date" : "succeeded", result });
+      broadcastAgentUpdateProgress({ nodeId: context.nodeId, trigger: "manual", state: "complete", steps: result?.steps || [] });
       return result;
     } catch (error) {
       record(entry, { status: error?.code === "REMOTE_AGENT_UPDATE_SUDO_REQUIRED" ? "needs-approval" : "failed", error });
+      broadcastAgentUpdateProgress({ nodeId: context.nodeId, trigger: "manual", state: "failed", steps: Array.isArray(error?.steps) ? error.steps : [], message: error?.message || null });
       // The node reports a newer Agent than this Desktop bundles; the service
       // refuses the downgrade, so point the user at the supported path.
       if (error?.code === "AGENT_DOWNGRADE_REFUSED") {
@@ -251,7 +268,13 @@ function registerNodesIpc() {
     requirePermission("settings:write", "agent-updates");
     audit({ action: "node.update-all-agents", target: "fleet" });
     const overview = await agentUpdateOverview();
-    return updateAllAgents({ overview, updateAgent: (nodeId) => updateRemoteAgent(nodeId), before: skipIfServersRunning, record: historyRecorder("update-all") });
+    return updateAllAgents({
+      overview,
+      updateAgent: (nodeId) => runAgentUpdate(nodeId, "update-all"),
+      before: skipIfServersRunning,
+      record: historyRecorder("update-all"),
+      onProgress: (progress) => broadcastAgentUpdateProgress({ ...progress, trigger: "update-all", fleet: true }),
+    });
   }));
   // Automatic Agent updates: settings and history. Off unless the owner turns
   // them on; agent-auto-update.json is the one place the choice is stored and
@@ -274,7 +297,7 @@ function registerNodesIpc() {
     getOverview: agentUpdateOverview,
     updateAgent: (nodeId) => {
       audit({ action: "node.auto-update-agent", target: nodeId });
-      return updateRemoteAgent(nodeId);
+      return runAgentUpdate(nodeId, "automatic");
     },
     before: skipIfServersRunning,
     record: autoRecord,

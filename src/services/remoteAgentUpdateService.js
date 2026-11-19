@@ -378,6 +378,17 @@ async function updateRemoteAgent(nodeId, options = {}) {
     installerStep("verify", "Verify the updated Agent on the node"),
     installerStep("rollback", "Restore the previous runtime"),
   ];
+  // Live progress: every step change is reported to options.onProgress (the
+  // IPC layer forwards it to the window). A failing listener never affects
+  // the update itself.
+  const reportProgress = () => {
+    if (typeof options.onProgress !== "function") return;
+    try {
+      options.onProgress({ nodeId, steps: steps.map((entry) => ({ ...entry })) });
+    } catch {
+      // Progress is informational only.
+    }
+  };
   const mark = (id, state, message) => {
     const step = steps.find((entry) => entry.id === id);
     if (step) {
@@ -385,6 +396,7 @@ async function updateRemoteAgent(nodeId, options = {}) {
       step.message = message || step.message;
       step.at = new Date().toISOString();
     }
+    reportProgress();
     return step;
   };
   const fail = (code, message, details = {}) => Object.assign(new Error(message), { code, steps, details });
@@ -447,7 +459,10 @@ async function updateRemoteAgent(nodeId, options = {}) {
     mark("health", "failed", "The node's Agent is not healthy before the update.");
     throw fail("REMOTE_AGENT_UPDATE_NODE_UNHEALTHY", "The node's Agent is not healthy right now. Fix or re-pair the node before updating it: replacing the runtime of a broken Agent can leave the node unable to start.", { healthBefore });
   }
-  mark("health", "complete", healthBefore.agentVersion ? `Agent ${healthBefore.agentVersion} healthy before the update.` : "Agent healthy before the update.");
+  // The release build names the Agent; agentVersion is agent/package.json's
+  // fixed placeholder (0.1.0) and is never shown as a version.
+  const buildBefore = normalizeAgentArtifactVersion(healthBefore.agentArtifactVersion);
+  mark("health", "complete", buildBefore ? `Agent ${buildBefore} healthy before the update.` : "Agent healthy before the update (it does not report its build).");
 
   // Downgrade guard: this Desktop is the runtime authority, but the docs tell
   // users to update Control Center instead of rolling a node's Agent back. If
@@ -644,7 +659,8 @@ async function updateRemoteAgent(nodeId, options = {}) {
       ? "The updated Agent did not verify; the previous runtime was restored and is healthy again."
       : "The updated Agent did not verify and the rollback did not restore a healthy Agent. Inspect the node.", { verification, rollback: record.rollback, backupDir, recordPath });
   }
-  mark("verify", "complete", verification.agentVersion ? `Agent ${verification.agentVersion} answered health and network inventory.` : "Agent answered health and network inventory.");
+  const verifiedBuild = normalizeAgentArtifactVersion(verification.agentArtifactVersion);
+  mark("verify", "complete", verifiedBuild ? `Agent ${verifiedBuild} answered health and network inventory.` : "Agent answered health and network inventory.");
   record.status = "updated";
   record.steps = steps;
   const recordPath = writeUpdateRecord(updateDir, record);
@@ -668,6 +684,9 @@ async function updateRemoteAgent(nodeId, options = {}) {
     recordPath,
     bundledVersion,
     bundledBuild,
+    installedBuild: nodeAgentBuild,
+    targetBuild: bundledBuild,
+    verifiedBuild,
     payloadFiles: record.payloadFiles,
     payloadBytes: record.payloadBytes,
     steps,

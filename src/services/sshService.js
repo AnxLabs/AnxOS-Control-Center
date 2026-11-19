@@ -4,7 +4,9 @@ const { app } = require("electron");
 const fs = require("fs");
 const path = require("path");
 const { StringDecoder } = require("string_decoder");
-const { BaseAgent, Client, OpenSSHAgent, utils: { parseKey } } = require("ssh2");
+const { BaseAgent, Client, OpenSSHAgent, utils: { parseKey, generateKeyPairSync } } = require("ssh2");
+const os = require("os");
+const { execFileSync } = require("child_process");
 const { getAllNodesSync, getSelectedNodeId } = require("./nodeService");
 const { redactString } = require("../shared/redaction");
 const { decideMigrationRecovery, verifyRecoveryPoint } = require("../shared/migrationRecoveryPolicy");
@@ -562,6 +564,76 @@ function writeKnownHosts(value) {
 
 function fingerprintHostKey(key) {
   return `SHA256:${createHash("sha256").update(key).digest("base64").replace(/=+$/, "")}`;
+}
+
+function shellQuote(value) {
+  return `'${String(value).replace(/'/g, `'\\''`)}'`;
+}
+
+// "SHA256:..." for an OpenSSH public key line, as ssh-keygen -l prints it.
+function publicKeyFingerprint(publicKeyLine) {
+  const blob = String(publicKeyLine || "").trim().split(/\s+/)[1] || "";
+  return `SHA256:${createHash("sha256").update(Buffer.from(blob, "base64")).digest("base64").replace(/=+$/, "")}`;
+}
+
+// Appends one public key to the signed-in user's authorized_keys (never
+// another file), creating it with OpenSSH's required permissions. A key that
+// is already there is not added twice.
+function buildAuthorizeKeyScript(publicKeyLine) {
+  return [
+    "set -e",
+    "umask 077",
+    `KEY=${shellQuote(publicKeyLine)}`,
+    'F="$HOME/.ssh/authorized_keys"',
+    'mkdir -p "$HOME/.ssh"',
+    'chmod 700 "$HOME/.ssh"',
+    'touch "$F"',
+    'chmod 600 "$F"',
+    'if grep -qxF -- "$KEY" "$F"; then echo "AUTHORIZED_KEY=present"; exit 0; fi',
+    // A last line without a newline must not get the key glued onto it.
+    'if [ -s "$F" ] && [ -n "$(tail -c1 "$F")" ]; then printf \'\\n\' >> "$F"; fi',
+    'printf \'%s\\n\' "$KEY" >> "$F"',
+    'echo "AUTHORIZED_KEY=added"',
+  ].join("\n");
+}
+
+// Removes exactly that line again (used when the new key failed its test).
+function buildRemoveKeyScript(publicKeyLine) {
+  return [
+    "set -e",
+    "umask 077",
+    `KEY=${shellQuote(publicKeyLine)}`,
+    'F="$HOME/.ssh/authorized_keys"',
+    '[ -f "$F" ] || exit 0',
+    'grep -vxF -- "$KEY" "$F" > "$F.anxos-tmp" || true',
+    'cat "$F.anxos-tmp" > "$F"',
+    'rm -f "$F.anxos-tmp"',
+    'echo "AUTHORIZED_KEY=removed"',
+  ].join("\n");
+}
+
+// Writes a new private key that only this account can read: mode 0600, and
+// on Windows an ACL without inherited entries granting only the current user
+// (Windows OpenSSH refuses keys others can read). An existing file is never
+// overwritten. If the ACL cannot be set, the key is deleted again.
+function writePrivateKeyFile(directory, baseName, privateKey, publicKeyLine, { platform = process.platform, runIcacls = (args) => execFileSync("icacls", args, { windowsHide: true, stdio: "ignore" }) } = {}) {
+  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  let keyPath = path.join(directory, baseName);
+  for (let index = 2; fs.existsSync(keyPath) || fs.existsSync(`${keyPath}.pub`); index += 1) {
+    keyPath = path.join(directory, `${baseName}_${index}`);
+  }
+  fs.writeFileSync(keyPath, privateKey.endsWith("\n") ? privateKey : `${privateKey}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
+  if (platform === "win32") {
+    try {
+      const account = process.env.USERDOMAIN && process.env.USERNAME ? `${process.env.USERDOMAIN}\\${process.env.USERNAME}` : os.userInfo().username;
+      runIcacls([keyPath, "/inheritance:r", "/grant:r", `${account}:F`]);
+    } catch (error) {
+      fs.rmSync(keyPath, { force: true });
+      throw new SshServiceError("The new key's file permissions could not be restricted to your Windows account, so it was deleted.", { code: "SSH_KEY_PROTECT_FAILED", technicalMessage: error?.message });
+    }
+  }
+  fs.writeFileSync(`${keyPath}.pub`, `${publicKeyLine}\n`, { encoding: "utf8", mode: 0o644, flag: "wx" });
+  return keyPath;
 }
 
 function knownHostId(profile) {
@@ -1434,7 +1506,13 @@ class SshService extends EventEmitter {
       throw new SshServiceError("A command is required.", { code: "SSH_COMMAND_REQUIRED" });
     }
     const { connectConfig, hostKeyState } = this.createUnattendedConnectConfig(profile.id);
+    return this.execWithConnectConfig(profile, connectConfig, hostKeyState, script, options);
+  }
 
+  // Runs one command over a connection built by the caller. Every caller sets
+  // connectConfig.hostVerifier to the approved fingerprint; hostKeyState
+  // records a mismatch so it is reported as such.
+  execWithConnectConfig(profile, connectConfig, hostKeyState, script, options = {}) {
     const timeoutMs = Number.isFinite(options.timeoutMs) ? Math.max(1000, Math.floor(options.timeoutMs)) : SSH_TIMEOUTS.command;
     const maxOutputBytes = Number.isFinite(options.maxOutputBytes) ? Math.max(4096, Math.floor(options.maxOutputBytes)) : SSH_TIMEOUTS.commandOutput;
     const stdin = options.stdin === undefined ? null : options.stdin;
@@ -1525,6 +1603,131 @@ class SshService extends EventEmitter {
     });
   }
 
+  // ---------------------------------------------------------- key sign-in
+  // Moves a password profile to key sign-in without weakening the server:
+  //   1. the host must already be approved (its fingerprint is enforced on
+  //      every connection below),
+  //   2. a new Ed25519 key is generated on this PC, in ~/.ssh, readable only
+  //      by this Windows account (optionally passphrase-protected; AnxOS never
+  //      stores the passphrase),
+  //   3. its public key is appended to ~/.ssh/authorized_keys over a one-time
+  //      password connection (the password is used once, never saved),
+  //   4. a fresh connection with the new key must succeed,
+  //   5. only then is a key profile saved and assigned to the same node.
+  // The password profile is kept as the recovery path, and nothing on the
+  // server other than that user's authorized_keys is changed: password sign-in
+  // stays enabled until the owner decides otherwise. If the key does not
+  // work, the line is removed again and the local files are deleted.
+  async setUpKeyAuthentication(profileId, options = {}) {
+    const profile = this.getProfile(profileId);
+    if (profile.authType !== "password") {
+      throw new SshServiceError("This profile already signs in with a key.", { code: "SSH_KEY_SETUP_NOT_PASSWORD" });
+    }
+    const password = typeof options.password === "string" ? options.password : "";
+    if (!password) {
+      throw new SshServiceError("Enter the SSH password once so AnxOS can add the new key to this account.", { code: "SSH_PASSWORD_REQUIRED" });
+    }
+    const passphrase = typeof options.passphrase === "string" ? options.passphrase : "";
+    if (passphrase && passphrase.length < 8) {
+      throw new SshServiceError("Use a key passphrase of at least 8 characters, or leave it empty.", { code: "SSH_KEY_PASSPHRASE_TOO_SHORT" });
+    }
+    const expectedFingerprint = trimValue(readKnownHosts()[knownHostId(profile)]?.fingerprint);
+    if (!expectedFingerprint) {
+      throw new SshServiceError("Approve this server's host key first: connect once from the SSH page and check its fingerprint.", { code: "SSH_HOST_KEY_NOT_APPROVED" });
+    }
+    const pinned = () => {
+      const state = { mismatch: false };
+      return {
+        state,
+        verifier: (key) => {
+          const matches = fingerprintHostKey(key) === expectedFingerprint;
+          if (!matches) state.mismatch = true;
+          return matches;
+        },
+      };
+    };
+
+    const keyDirectory = options.keyDirectory || path.join(os.homedir(), ".ssh");
+    const comment = `anxos-${slugify(profile.username, "user")}@${slugify(profile.host, "host")}`;
+    const generated = generateKeyPairSync("ed25519", passphrase ? { comment, passphrase, cipher: "aes256-ctr", rounds: 16 } : { comment });
+    const publicKeyLine = String(generated.public || "").trim();
+    if (!/^ssh-ed25519 [A-Za-z0-9+/]+={0,2} [A-Za-z0-9@._-]+$/.test(publicKeyLine)) {
+      throw new SshServiceError("The new key could not be generated.", { code: "SSH_KEY_GENERATION_FAILED" });
+    }
+    const keyPath = writePrivateKeyFile(keyDirectory, `anxos_${slugify(profile.host, "host")}_${slugify(profile.username, "user")}_ed25519`, generated.private, publicKeyLine);
+    const removeLocalKey = () => {
+      for (const file of [keyPath, `${keyPath}.pub`]) {
+        try { fs.rmSync(file, { force: true }); } catch {}
+      }
+    };
+
+    const passwordConnection = () => {
+      const pin = pinned();
+      const connectConfig = { ...this.buildConnectConfig(profile, { password }), hostVerifier: pin.verifier };
+      return { connectConfig, hostKeyState: pin.state };
+    };
+    const runWithPassword = (script) => {
+      const { connectConfig, hostKeyState } = passwordConnection();
+      return this.execWithConnectConfig(profile, connectConfig, hostKeyState, script, { timeoutMs: SSH_TIMEOUTS.command });
+    };
+
+    let authorized = false;
+    try {
+      const added = await runWithPassword(buildAuthorizeKeyScript(publicKeyLine));
+      if (!/AUTHORIZED_KEY=(added|present)/.test(added.stdout || "")) {
+        throw new SshServiceError(`The key could not be added to ${profile.username}'s authorized_keys.${added.stderr ? ` ${redactString(added.stderr).slice(0, 200)}` : ""}`, { code: "SSH_KEY_AUTHORIZE_FAILED" });
+      }
+      authorized = /AUTHORIZED_KEY=added/.test(added.stdout);
+
+      // Proof: a new connection that offers only the new key.
+      const pin = pinned();
+      const keyConfig = {
+        host: profile.host,
+        port: normalizePort(profile.port),
+        username: profile.username,
+        readyTimeout: this.connectTimeoutMs,
+        tryKeyboard: false,
+        privateKey: generated.private,
+        ...(passphrase ? { passphrase } : {}),
+        hostVerifier: pin.verifier,
+      };
+      const proof = await this.execWithConnectConfig(profile, keyConfig, pin.state, "echo ANXOS_KEY_SIGN_IN_OK", { timeoutMs: SSH_TIMEOUTS.command });
+      if (!/ANXOS_KEY_SIGN_IN_OK/.test(proof.stdout || "")) {
+        throw new SshServiceError("The server did not accept the new key.", { code: "SSH_KEY_SIGN_IN_FAILED" });
+      }
+    } catch (error) {
+      // Undo: the line this setup added, and the local key files.
+      if (authorized) {
+        await runWithPassword(buildRemoveKeyScript(publicKeyLine)).catch(() => null);
+      }
+      removeLocalKey();
+      if (error instanceof SshServiceError) throw error;
+      throw new SshServiceError(`Key sign-in could not be set up: ${error?.message || "unknown error"}.`, { code: error?.code || "SSH_KEY_SETUP_FAILED" });
+    }
+
+    const keyProfile = this.saveProfile({
+      displayName: `${profile.displayName} (key)`,
+      host: profile.host,
+      port: profile.port,
+      username: profile.username,
+      authType: "privateKey",
+      privateKeyPath: keyPath,
+      // A passphrase-protected key is used unattended through the OS SSH agent.
+      useSshAgent: Boolean(passphrase),
+      nodeId: profile.nodeId || undefined,
+    }).profile;
+    logSafeSshDebug("Key sign-in set up.", { profileId: profile.id, keyProfileId: keyProfile.id, passphrase: Boolean(passphrase) });
+    return {
+      profile: keyProfile,
+      passwordProfileId: profile.id,
+      privateKeyPath: keyPath,
+      publicKeyFingerprint: publicKeyFingerprint(publicKeyLine),
+      passphraseProtected: Boolean(passphrase),
+      nextStep: passphrase ? `Load the key into the Windows SSH agent once (it asks for the passphrase there): ssh-add "${keyPath}"` : null,
+      profiles: this.listProfiles(),
+    };
+  }
+
   dispose() {
     [...this.sessions.keys()].forEach((sessionId) => {
       this.destroySession(sessionId);
@@ -1542,6 +1745,10 @@ module.exports = {
   SshService,
   SshServiceError,
   _test: {
+    buildAuthorizeKeyScript,
+    buildRemoveKeyScript,
+    publicKeyFingerprint,
+    writePrivateKeyFile,
     buildProfileNodeMismatchDetails,
     sshAgentPathExists,
     SSH_STATES,

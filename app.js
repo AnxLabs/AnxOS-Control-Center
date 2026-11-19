@@ -466,6 +466,7 @@ const sshServerSelect = document.querySelector("[data-ssh-server]");
 const sshProfileSelect = document.querySelector("[data-ssh-profile]");
 const sshAgentField = document.querySelector("[data-ssh-agent-field]");
 const sshAgentToggle = document.querySelector("[data-ssh-profile-agent]");
+const sshKeySetupButton = document.querySelector("[data-ssh-key-setup]");
 const sshConnectButton = document.querySelector("[data-ssh-connect]");
 const sshDisconnectButton = document.querySelector("[data-ssh-disconnect]");
 const sshProfileDeleteButton = document.querySelector("[data-ssh-profile-delete]");
@@ -5543,9 +5544,161 @@ async function renderAgentUpdateOverview() {
   }
 }
 
+// Live Agent update progress (nodes:agent-update-progress). One subscription
+// for the window; each event redraws the step list of the computer being
+// updated. When an update ends (here, in Update all or in the automatic
+// window), the overview and history are read again so nothing shows the
+// pre-update build or "not connected" afterwards.
+const agentUpdateProgressState = { nodeId: null, steps: [], fleet: new Map(), unsubscribe: null, refreshTimer: null };
+
+function agentUpdateStepTone(state) {
+  if (state === "complete") return "ok";
+  if (state === "failed") return "critical";
+  if (state === "blocked" || state === "warning") return "warning";
+  return "planned";
+}
+
+function renderAgentUpdateProgress() {
+  const host = document.querySelector("[data-agent-update-progress]");
+  if (!host) return;
+  const { steps, fleet } = agentUpdateProgressState;
+  host.replaceChildren();
+  if (!steps.length && !fleet.size) {
+    host.hidden = true;
+    return;
+  }
+  host.hidden = false;
+  if (fleet.size) {
+    const summary = [...fleet.values()].map((entry) => `${entry.name || entry.nodeId}: ${{ running: "updating", complete: "done", failed: "failed", skipped: "skipped" }[entry.state] || entry.state}`).join(" · ");
+    host.append(createTextElement("p", `Update all: ${summary}`, "platform-note"));
+  }
+  steps.forEach((step) => {
+    const row = document.createElement("article");
+    row.className = "dependency-item";
+    row.dataset.agentUpdateStep = step.id || "";
+    row.append(
+      createTextElement("strong", step.label || "Update step"),
+      createTextElement("span", step.state === "running" ? "in progress" : step.state || "pending", `status-pill status-pill--${agentUpdateStepTone(step.state)}`),
+      createTextElement("p", step.message || (step.state === "pending" ? "Waiting." : "")),
+    );
+    host.append(row);
+  });
+}
+
+function scheduleAgentUpdateStateRefresh() {
+  clearTimeout(agentUpdateProgressState.refreshTimer);
+  agentUpdateProgressState.refreshTimer = setTimeout(async () => {
+    try {
+      await refreshNodes({ forceHealthRefresh: true });
+    } catch {
+      // The overview below still reads the saved node list.
+    }
+    const panel = document.querySelector("[data-agent-update-overview]")?.closest("[data-agent-control-section]");
+    if (panel && !panel.hidden) await renderAgentUpdateOverview();
+    refreshAgentControlEligibility();
+  }, 400);
+}
+
+function handleAgentUpdateProgress(payload = {}) {
+  if (!payload || typeof payload !== "object") return;
+  if (payload.fleet) {
+    if (payload.nodeId) agentUpdateProgressState.fleet.set(payload.nodeId, { nodeId: payload.nodeId, name: payload.name, state: payload.state });
+    if (["complete", "failed", "skipped"].includes(payload.state)) scheduleAgentUpdateStateRefresh();
+  } else if (Array.isArray(payload.steps)) {
+    agentUpdateProgressState.nodeId = payload.nodeId || null;
+    agentUpdateProgressState.steps = payload.steps.map((step) => ({ id: step.id, label: step.label, state: step.state, message: step.message }));
+    if (payload.state === "complete" || payload.state === "failed") scheduleAgentUpdateStateRefresh();
+  }
+  renderAgentUpdateProgress();
+}
+
+function ensureAgentUpdateProgressSubscription() {
+  if (agentUpdateProgressState.unsubscribe) return;
+  const subscribe = getDesktopApiState().api?.nodes?.onAgentUpdateProgress;
+  if (typeof subscribe !== "function") return;
+  agentUpdateProgressState.unsubscribe = subscribe(handleAgentUpdateProgress);
+}
+
+function resetAgentUpdateProgress({ fleet = false } = {}) {
+  agentUpdateProgressState.nodeId = null;
+  agentUpdateProgressState.steps = [];
+  if (fleet) agentUpdateProgressState.fleet.clear();
+  renderAgentUpdateProgress();
+}
+
+// Re-applies Agent Control's button eligibility after something it depends on
+// changed outside it (SSH profiles loaded after an unlock, for example). It
+// redraws from the state Agent Control already holds; nothing is fetched.
+function refreshAgentControlEligibility() {
+  if (!agentControlState) return;
+  try {
+    renderAgentControlState(agentControlState);
+  } catch (error) {
+    console.warn("[Agent Control] Eligibility refresh failed.", { message: error?.message || String(error) });
+  }
+}
+
+// How the selected node's Agent would be updated, from the last Verify Access
+// (the scope of the unit it found). Package-managed Agents run the systemd
+// system unit from the anxos-agent .deb; a user unit runs a pushed runtime.
+function getRemoteAgentUpdateMethod(support = {}) {
+  const scope = support.verification?.scope || null;
+  if (scope === "system") return "package";
+  if (scope === "user") return "runtime";
+  return null;
+}
+
+function describeRemoteAgentUpdateMethod(support = {}) {
+  const method = getRemoteAgentUpdateMethod(support);
+  if (method === "package") {
+    return "Installs the verified anxos-agent release package for this app's build over SSH (checked against the release's SHA-256 list), then confirms the Agent reports the new build. If it doesn't, the previous package is reinstalled. Refused while servers run under the Agent; Docker containers and separate system services keep running.";
+  }
+  if (method === "runtime") {
+    return "Uploads this app's Agent runtime to the node over SSH, restarts its Agent and verifies it; the previous runtime is restored if it doesn't come up. Servers running under the Agent stop during the restart.";
+  }
+  return "Updates the node's Agent to this app's build over SSH: from the verified release package when the Agent is package-installed, otherwise from this app's Agent runtime. Run Verify Access to see which applies.";
+}
+
+// The Update confirmation for one remote computer: names the computer, the
+// build it runs and the build it gets, how it is updated, and what keeps
+// running. The builds come from the main process's overview (one read of the
+// saved node list, no probe); when it can't be read the rows say so.
+async function confirmRemoteAgentUpdate(support = {}, fallbackName = "this node") {
+  const nodeName = support.node?.displayName || support.node?.name || fallbackName;
+  let entry = null;
+  let desktopBuild = null;
+  try {
+    const overview = await getDesktopApiState().api?.nodes?.agentUpdateOverview?.();
+    desktopBuild = overview?.desktopBuild || null;
+    entry = (overview?.nodes || []).find((candidate) => candidate.nodeId === support.nodeId) || null;
+  } catch {
+    entry = null;
+  }
+  const method = getRemoteAgentUpdateMethod(support);
+  const host = support.verification?.hostname || null;
+  const restartNote = method === "package"
+    ? "The Agent restarts. AnxOS refuses the update while servers run under the Agent. Docker containers and services with their own system unit keep running, and other system services are not restarted (needrestart is told to list only)."
+    : "The Agent restarts, so servers it runs on this computer stop. Docker containers and services with their own system unit keep running.";
+  return createSecurityConfirmation({
+    eyebrow: "Agent update",
+    title: `Update the Agent on ${nodeName}?`,
+    message: describeRemoteAgentUpdateMethod(support),
+    details: [
+      ["Computer", host && host !== nodeName ? `${nodeName} (${host})` : nodeName],
+      ["SSH profile", support.profile?.displayName || support.profile?.id || null],
+      ["Current build", entry?.installedBuild || "Not reported"],
+      ["New build", entry?.targetBuild || desktopBuild || "This app's build"],
+      ["Method", method === "package" ? "Verified release package (apt)" : method === "runtime" ? "This app's Agent runtime" : "Chosen when the update starts"],
+      ["Services", restartNote],
+      ["If it fails", method === "package" ? "The previous verified package is reinstalled and checked." : "The previous runtime is restored and checked."],
+    ],
+    confirmLabel: "Update Agent",
+  });
+}
+
 function getRemoteAgentUpdateBlockMessage(support = {}) {
   if (support.reason === "platform") return "Automatic Agent updates over SSH are available for Linux nodes only.";
-  if (support.reason === "key") return "The node's SSH profile must use key authentication for an unattended Agent update.";
+  if (support.reason === "key") return "The node's SSH profile signs in with a password. On the SSH page, choose Set up key sign-in for it (the password profile stays as a fallback), then Verify Access.";
   if (support.reason === "unverified") return support.verification?.message || "Select Verify Access first: AnxOS confirms this SSH profile reaches this node.";
   return "Assign an SSH profile to this node before updating its Agent from this Desktop.";
 }
@@ -5920,7 +6073,7 @@ function renderAgentControlState(payload = agentControlState) {
       button.setAttribute("aria-description", "Requires an updated Agent.");
     } else if (action === "updateAgent" && !isLocalTarget) {
       button.title = remoteUpdate.supported
-        ? "Upload this Desktop's bundled Agent runtime to the node over SSH, restart its Agent, and verify it. Instances on that node stop during the restart."
+        ? describeRemoteAgentUpdateMethod(remoteUpdate)
         : getRemoteAgentUpdateBlockMessage(remoteUpdate);
       button.setAttribute("aria-description", button.title);
     } else if (!isLocalTarget && ["start", "stop", "restart"].includes(action) && !remoteLifecycle.actions?.[action]) {
@@ -7355,7 +7508,9 @@ async function runAgentControlAction(action) {
     confirmLabel: action === "stop" ? "Stop Agent" : "Restart Agent",
   }))) return;
   const destructive = { stop: ["Stop local Agent?", "Active Agent operations will disconnect."], forceRestart: ["Force restart local Agent?", "The Agent process will be terminated immediately."], repairAgent: ["Repair local Agent?", "Background registration will be reinstalled and the Agent restarted."], stopOldLocalAgentAndRepair: ["Stop Old Local Agent and Repair?", "AnxOS will stop only a verified old AnxOS Local Agent process, recreate local credentials, and repair Windows startup registration."], updateAllAgents: ["Update all Agents?", "AnxOS updates each connected Linux computer's Agent to this Desktop's build over SSH, one at a time. Package installs use the verified release package and roll back if the new Agent doesn't come up. A computer with servers running under its Agent is skipped; Docker containers and separate system services keep running."], updateAgent: remoteUpdateSupport.supported ? ["Update the Agent on this node?", "AnxOS updates the node's Agent to this Desktop's build over SSH: from the verified release package when the Agent is installed as a package, otherwise from the bundled runtime. It backs up, restarts and verifies the Agent, and rolls back if it doesn't come up. Servers running under the Agent stop during the restart; a package install is refused while any run."] : ["Update Local Agent?", "AnxOS will back up Agent configuration, stop the Local Agent, repair the bundled runtime registration, restart it, and verify health."], pairMobileDevice: ["Pair a mobile device to this node?", "The node's Agent credential is replaced with a new one for the phone. This Desktop switches to the new credential automatically; any other device still using the old one loses access until it is re-paired."], uninstallService: ["Uninstall Agent background service?", "Automatic startup will be removed."], resetConfig: ["Reset Agent configuration?", "Current settings will be backed up before defaults are restored."] }[action];
-  if (destructive && !remoteLifecycleAction && !(await createSecurityConfirmation({ title: destructive[0], message: destructive[1], confirmLabel: "Continue" }))) return;
+  if (action === "updateAgent" && remoteUpdateSupport.supported) {
+    if (!(await confirmRemoteAgentUpdate(remoteUpdateSupport, remoteNodeName))) return;
+  } else if (destructive && !remoteLifecycleAction && !(await createSecurityConfirmation({ title: destructive[0], message: destructive[1], confirmLabel: "Continue" }))) return;
   if (action === "startPairingSession" && getAgentPairingTargetPayload().local === true && agentPairingNetworkOptIn?.checked === true) {
     // When the Agent is already reachable, the service writes no opt-in marker
     // and the bind is not touched: the confirmation must not promise a restore
@@ -7511,21 +7666,32 @@ async function runAgentControlAction(action) {
         if (!remoteUpdateSupport.supported) throw new Error(getRemoteAgentUpdateBlockMessage(remoteUpdateSupport));
         const nodesApi = getDesktopApiState().api?.nodes;
         if (typeof nodesApi?.updateAgent !== "function") throw new Error("Remote Agent update is unavailable in this build.");
-        const result = await nodesApi.updateAgent(remoteUpdateSupport.nodeId);
+        ensureAgentUpdateProgressSubscription();
+        resetAgentUpdateProgress();
+        if (agentControlMessage) agentControlMessage.textContent = `Updating the Agent on ${remoteUpdateSupport.node?.displayName || "the node"}. Steps appear below as they run.`;
+        let result;
+        try {
+          result = await nodesApi.updateAgent(remoteUpdateSupport.nodeId);
+        } finally {
+          // Success or failure, the overview, history and connection state
+          // are read again (the Agent restarted and may report a new build).
+          scheduleAgentUpdateStateRefresh();
+        }
         const nodeName = result?.nodeName || remoteUpdateSupport.node?.displayName || "the node";
         if (result?.upToDate) {
           if (agentControlMessage) agentControlMessage.textContent = `${nodeName} already runs ${result.targetBuild}.`;
           showToast(`${nodeName} is already up to date.`, "info");
-          await refreshNodes();
           return;
         }
         if (agentControlMessage) {
+          const deferred = Array.isArray(result?.deferredRestarts) && result.deferredRestarts.length
+            ? ` Not restarted (restart them when convenient): ${result.deferredRestarts.join(", ")}.`
+            : "";
           agentControlMessage.textContent = result?.method === "package"
-            ? `Agent on ${nodeName} updated to ${result.targetBuild} from the verified release package${result?.backupPath ? `; its state is backed up on the node at ${result.backupPath}` : ""}.`
-            : `Agent updated on ${nodeName}: ${result?.payloadFiles || 0} files published from the bundled runtime${result?.backupDir ? `; the previous runtime is backed up on the node at ${result.backupDir}` : ""}.`;
+            ? `Agent on ${nodeName} updated to ${result.verifiedBuild || result.targetBuild} from the verified release package${result?.backupPath ? `; its state is backed up on the node at ${result.backupPath}` : ""}.${deferred}`
+            : `Agent on ${nodeName} updated to ${result?.verifiedBuild || result?.targetBuild || "this app's build"}: ${result?.payloadFiles || 0} files published from this app's Agent runtime${result?.backupDir ? `; the previous runtime is backed up on the node at ${result.backupDir}` : ""}.`;
         }
         showToast(`Agent updated on ${nodeName}.`, "success");
-        await refreshNodes();
       } else {
         const result = await api.updateLocalAgent({ force: false });
         if (result?.updated === false) showToast("Local Agent is already current.", "info");
@@ -7535,13 +7701,15 @@ async function runAgentControlAction(action) {
     else if (action === "updateAllAgents") {
       const nodesApi = getDesktopApiState().api?.nodes;
       if (typeof nodesApi?.updateAllAgents !== "function") throw new Error("Update All is unavailable in this build.");
+      ensureAgentUpdateProgressSubscription();
+      resetAgentUpdateProgress({ fleet: true });
       const summary = await nodesApi.updateAllAgents();
       const lines = (summary?.results || []).map((entry) => (entry.ok
         ? `${entry.name}: ${entry.updated ? `updated to ${entry.targetBuild}` : "already up to date"}`
         : `${entry.name}: ${entry.message}`));
       if (agentControlMessage) agentControlMessage.textContent = lines.length ? lines.join(" · ") : "Every connected Agent is already up to date or can't be updated from here.";
       showToast(lines.length ? `Agents updated: ${summary.updated}, not updated: ${summary.failed}.` : "No Agents needed an update.", summary?.ok === false ? "warning" : "success");
-      await refreshNodes();
+      await refreshNodes({ forceHealthRefresh: true });
       await renderAgentUpdateOverview();
     }
     else if (action === "rotateToken") { await api.pairLocalAgent({ rotate: true, reason: "manual-rotation" }); await api.restart(); }
@@ -36879,6 +37047,125 @@ function renderSshAgentToggle() {
     sshAgentToggle.checked = isKeyProfile && profile.useSshAgent === true;
     sshAgentToggle.disabled = !isKeyProfile || sshConnectRequestInFlight;
   }
+  // Password profiles can move to key sign-in (the password profile stays).
+  if (sshKeySetupButton) {
+    const canSetUp = profile?.authType === "password" && typeof getDesktopApiState().api?.ssh?.setUpKeyAuthentication === "function";
+    sshKeySetupButton.hidden = !canSetUp;
+    sshKeySetupButton.disabled = !canSetUp || sshConnectRequestInFlight;
+  }
+}
+
+// Key sign-in setup for a password profile. The password is sent once to the
+// main process for this call and the fields are cleared afterwards; nothing
+// here logs or stores it.
+function openSshKeySetupDialog(profile) {
+  if (!profile) return;
+  const overlay = document.createElement("div");
+  overlay.className = "app-modal-backdrop";
+  const dialog = document.createElement("section");
+  dialog.className = "app-modal";
+  dialog.setAttribute("role", "dialog");
+  dialog.setAttribute("aria-modal", "true");
+  dialog.setAttribute("aria-label", "Set up key sign-in");
+  const closeButton = document.createElement("button");
+  closeButton.className = "app-modal__close";
+  closeButton.type = "button";
+  closeButton.setAttribute("aria-label", "Close");
+  closeButton.textContent = "×";
+  const header = document.createElement("div");
+  header.className = "app-modal__header app-modal__header--stacked";
+  header.append(
+    createTextElement("p", "SSH", "eyebrow"),
+    createTextElement("h2", `Set up key sign-in for ${profile.displayName || profile.id}`),
+    createTextElement("p", `AnxOS creates a new Ed25519 key on this PC (readable only by your Windows account), adds it to ${profile.username || "this account"}'s authorized_keys on ${profile.host}, and signs in with it to prove it works. Then it saves a key profile for this computer, which Agent Control and updates can use.`),
+  );
+  const details = document.createElement("dl");
+  details.className = "app-modal__details";
+  details.append(
+    createTextElement("dt", "Server"), createTextElement("dd", `${profile.username}@${profile.host}:${profile.port || 22}`),
+    createTextElement("dt", "Stays the same"), createTextElement("dd", "This password profile (your fallback) and the server's SSH settings. Password sign-in is not turned off."),
+    createTextElement("dt", "Host identity"), createTextElement("dd", "Only the server fingerprint you approved is accepted."),
+  );
+  const form = document.createElement("form");
+  form.className = "settings-grid";
+  const field = (label, name, hint) => {
+    const wrapper = document.createElement("label");
+    wrapper.className = "settings-field settings-field--wide";
+    const input = Object.assign(document.createElement("input"), { type: "password", autocomplete: "off", spellcheck: false });
+    input.dataset.keySetupField = name;
+    wrapper.append(createTextElement("span", label), input);
+    if (hint) wrapper.append(createTextElement("small", hint, "platform-note"));
+    return wrapper;
+  };
+  form.append(
+    field("SSH password (used once, not saved)", "password"),
+    field("Key passphrase (optional, recommended)", "passphrase", "With a passphrase, load the key once with ssh-add; Windows keeps it in the OpenSSH agent. AnxOS never stores it. Leave empty for a key protected only by your Windows account."),
+    field("Repeat the passphrase", "passphraseConfirm"),
+  );
+  const status = createTextElement("p", "", "platform-note");
+  status.setAttribute("role", "status");
+  const actions = document.createElement("div");
+  actions.className = "settings-actions";
+  const submit = Object.assign(document.createElement("button"), { type: "submit", className: "inline-action inline-action--primary", textContent: "Set up key sign-in" });
+  const cancel = Object.assign(document.createElement("button"), { type: "button", className: "inline-action", textContent: "Cancel" });
+  actions.append(submit, cancel);
+  form.append(status, actions);
+  dialog.append(closeButton, header, details, form);
+  overlay.append(dialog);
+  let busy = false;
+  const clearSecrets = () => form.querySelectorAll("input").forEach((input) => { input.value = ""; });
+  const close = () => {
+    if (busy) return;
+    clearSecrets();
+    document.removeEventListener("keydown", onKeyDown);
+    deactivate();
+    overlay.remove();
+  };
+  const onKeyDown = (event) => { if (event.key === "Escape") close(); };
+  closeButton.addEventListener("click", close);
+  cancel.addEventListener("click", close);
+  overlay.addEventListener("click", (event) => { if (event.target === overlay) close(); });
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (busy) return;
+    const value = (name) => form.querySelector(`[data-key-setup-field="${name}"]`)?.value || "";
+    if (!value("password")) {
+      status.textContent = "Enter the SSH password for this account.";
+      return;
+    }
+    if (value("passphrase") !== value("passphraseConfirm")) {
+      status.textContent = "The two passphrases do not match.";
+      return;
+    }
+    busy = true;
+    submit.disabled = true;
+    cancel.disabled = true;
+    status.textContent = "Creating the key, adding it on the server and testing it…";
+    try {
+      const result = await getDesktopApiState().api.ssh.setUpKeyAuthentication(profile.id, { password: value("password"), passphrase: value("passphrase") });
+      clearSecrets();
+      busy = false;
+      form.replaceChildren(
+        createTextElement("p", `Key sign-in works. Saved profile "${result?.profile?.displayName || "key profile"}" (key ${result?.publicKeyFingerprint || ""}) for this computer; the password profile is still there as a fallback.`),
+        createTextElement("p", result?.nextStep || "No passphrase: the key file is readable only by your Windows account.", "platform-note"),
+        createTextElement("p", "In Agent Control, choose Verify Access to use it for Start, Stop, Restart and Update.", "platform-note"),
+      );
+      const done = Object.assign(document.createElement("button"), { type: "button", className: "inline-action inline-action--primary", textContent: "Done" });
+      done.addEventListener("click", close);
+      form.append(done);
+      await loadSshProfiles({ profileId: result?.profile?.id });
+      showToast("Key sign-in is set up.", "success");
+    } catch (error) {
+      busy = false;
+      submit.disabled = false;
+      cancel.disabled = false;
+      form.querySelector('[data-key-setup-field="password"]').value = "";
+      status.textContent = normalizeIpcErrorMessage(error, "Key sign-in could not be set up.").replace(/^[A-Z][A-Z0-9_]{2,}:\s*/, "");
+    }
+  });
+  document.addEventListener("keydown", onKeyDown);
+  document.body.append(overlay);
+  const deactivate = activateModal(overlay, { initialFocus: () => form.querySelector('[data-key-setup-field="password"]') });
 }
 
 async function setActiveSshProfileAgent(enabled) {
@@ -37053,6 +37340,7 @@ async function loadSshProfiles(options = {}) {
     syncFilesSelectionState();
     renderSshView();
     renderFilesView();
+    refreshAgentControlEligibility();
   } catch (error) {
     const authorizationUnavailable = /LOGIN_REQUIRED|UNAUTHORIZED|AUTHENTICATION_FAILED|FORBIDDEN|sign in to continue|owner access/i.test(`${error?.code || ""} ${error?.message || ""}`);
     if (authorizationUnavailable) {
@@ -38863,6 +39151,9 @@ async function refreshProtectedStateAfterLocalOwnerAuthentication(authResult = {
       throw error;
     }
 
+    // SSH profiles and storage connections are owner-protected too: a locked
+    // start leaves them empty (LOGIN_REQUIRED), so they are reloaded here.
+    // Agent Control's Verify Access and Update depend on the node's profile.
     await Promise.allSettled([
       refreshNodes({ forceHealthRefresh: true }),
       loadAgentSettings(),
@@ -38870,8 +39161,11 @@ async function refreshProtectedStateAfterLocalOwnerAuthentication(authResult = {
       refreshInstances({ refreshMetrics: false }),
       refreshDockerStatus(),
       refreshBackups(),
+      loadSshProfiles(),
+      loadStorageConnections(),
     ]);
     syncAgentConnectionDisplayWithSelectedNode();
+    refreshAgentControlEligibility();
   })();
   try {
     await localOwnerProtectedRefreshPromise;
@@ -38880,7 +39174,7 @@ async function refreshProtectedStateAfterLocalOwnerAuthentication(authResult = {
   }
 }
 
-function createSecurityConfirmation({ title, message, phrase = "", confirmLabel = "Confirm", note = "", checkboxLabel = "", checkboxChecked = false } = {}) {
+function createSecurityConfirmation({ title, message, phrase = "", confirmLabel = "Confirm", note = "", checkboxLabel = "", checkboxChecked = false, details = [], eyebrow = "Security Confirmation" } = {}) {
   return new Promise((resolve) => {
     const overlay = document.createElement("div");
     overlay.className = "app-modal-backdrop";
@@ -38896,16 +39190,27 @@ function createSecurityConfirmation({ title, message, phrase = "", confirmLabel 
     closeButton.dataset.confirmCancel = "";
     closeButton.setAttribute("aria-label", "Close");
     closeButton.textContent = "×";
+    // Stacked, not the shared row header: eyebrow, title and description read
+    // top to bottom and stay clear of the close button.
     const header = document.createElement("div");
-    header.className = "app-modal__header";
+    header.className = "app-modal__header app-modal__header--stacked";
     header.append(
-      createTextElement("p", "Security Confirmation", "eyebrow"),
+      createTextElement("p", eyebrow || "Security Confirmation", "eyebrow"),
       createTextElement("h2", title || "Confirm action"),
       createTextElement("p", message || "Confirm this security action."),
     );
     dialog.append(closeButton, header);
     if (note) {
       header.appendChild(createTextElement("p", note));
+    }
+    const detailRows = (Array.isArray(details) ? details : []).filter((row) => Array.isArray(row) && row[0] && row[1] !== undefined && row[1] !== null && row[1] !== "");
+    if (detailRows.length) {
+      const list = document.createElement("dl");
+      list.className = "app-modal__details";
+      detailRows.forEach(([label, value]) => {
+        list.append(createTextElement("dt", String(label)), createTextElement("dd", String(value)));
+      });
+      dialog.appendChild(list);
     }
     let checkbox = null;
     if (checkboxLabel) {
@@ -49163,6 +49468,7 @@ sshProfileSelect?.addEventListener("change", () => {
   renderSshView();
 });
 sshAgentToggle?.addEventListener("change", () => setActiveSshProfileAgent(sshAgentToggle.checked));
+sshKeySetupButton?.addEventListener("click", () => openSshKeySetupDialog(getActiveSshProfile()));
 sshConnectButton?.addEventListener("click", connectSshSession);
 sshDisconnectButton?.addEventListener("click", disconnectSshSession);
 sshProfileDeleteButton?.addEventListener("click", deleteSelectedSshProfile);
@@ -49254,6 +49560,7 @@ ensureSshXterm();
 setupSshTerminalResizeObserver();
 loadSshProfiles();
 loadStorageConnections();
+ensureAgentUpdateProgressSubscription();
 setupFileTransferEvents();
 setFilesStorageWidth(readFilesPanelWidth(FILES_STORAGE_WIDTH_STORAGE_KEY, DEFAULT_FILES_STORAGE_WIDTH, MIN_FILES_STORAGE_WIDTH, MAX_FILES_STORAGE_WIDTH), { persist: false });
 setFilesDetailsWidth(readFilesPanelWidth(FILES_DETAILS_WIDTH_STORAGE_KEY, DEFAULT_FILES_DETAILS_WIDTH, MIN_FILES_DETAILS_WIDTH, MAX_FILES_DETAILS_WIDTH), { persist: false });

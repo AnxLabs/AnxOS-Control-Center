@@ -1,6 +1,6 @@
 const { ipcMain } = require("electron");
 const { SshService } = require("../services/sshService");
-const { audit, checkRateLimit, requirePermission } = require("../services/securityService");
+const { audit, checkRateLimit, requireLocalOwnerAuthenticated, requirePermission } = require("../services/securityService");
 const { createIpcError } = require("../shared/ipcError");
 const { sanitize } = require("../shared/redaction");
 
@@ -153,6 +153,19 @@ function registerSshIpc() {
     requirePermission("settings:write", payload.profileId || "ssh-profile");
     audit({ action: payload.enabled === true ? "ssh.profile.agent-enable" : "ssh.profile.agent-disable", target: payload.profileId || "ssh-profile" });
     return sshService.setProfileSshAgent(payload.profileId, payload.enabled === true);
+  });
+  // Key sign-in for a password profile (Build 215). Owner-only: it adds a key
+  // to the server account. The password arrives once for this call and is
+  // never stored or logged; the audit entry names the profile only.
+  registerSshHandler("ssh:setUpKeyAuthentication", async (_, payload = {}) => {
+    requireLocalOwnerAuthenticated("ssh:key-setup", "Unlock AnxOS to set up key sign-in.");
+    requirePermission("settings:write", payload.profileId || "ssh-profile");
+    checkRateLimit("ssh-key-setup", 5, 60 * 1000);
+    audit({ action: "ssh.profile.key-setup", target: payload.profileId || "ssh-profile", passphrase: Boolean(payload.passphrase) });
+    return sshService.setUpKeyAuthentication(payload.profileId, {
+      password: typeof payload.password === "string" ? payload.password : "",
+      passphrase: typeof payload.passphrase === "string" ? payload.passphrase : "",
+    });
   });
   registerSshHandler("ssh:connect", async (event, payload = {}) => {
     requirePermission("instance:write", payload.profileId || payload.host || "ssh-session");
