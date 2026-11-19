@@ -287,3 +287,36 @@ checked from the RC artifacts (step 4 below).
    update, Create Server fit check.
 8. **Final status** READY FOR PUBLICATION or RELEASE BLOCKED; publication
    only after the owner's exact `🚀 publish`.
+
+## Release candidate 1 (2026-11-19)
+
+- Approved by the owner ("Push and build RC1"). `origin/dev` fast-forwarded
+  `2c45c729..d3183249`. No tag, nothing published.
+- CI run 44603113617 (`windows-release.yml`, workflow_dispatch on `dev`,
+  commit `d3183249`): static-validation, rc-validation (420/420 on Linux),
+  windows and linux passed; publish skipped (no tag).
+- Downloaded to `artifacts/build215-rc1/` in this worktree (git-ignored):
+  - Setup `AnxOS-Control-Center-Setup-2.0-build215.exe` (440,253,992 bytes):
+    Authenticode Valid, Anjo ROSIMO, Microsoft timestamp. SHA-256
+    `BD55FB35CC1BC6599E14A9069ABA600059176A644EED617349B751932698072F`;
+    `latest.yml` SHA-512 and size match (its `version: 2.0.0` is the app's
+    package version).
+  - Portable `AnxOS-Control-Center-2.0-build215-portable.exe`: Valid.
+    SHA-256 `5ED5BFD887EB4A98FC0067A37E5CF2B9F89EA10BFDD8DC59ADBB2312C9FCB252`.
+  - Agent package `AnxOS-Agent-2.0-build215.deb`: SHA-256
+    `862EEAF823981092FAD5134F46FC46FCCA1E5A42315ECBE727DB37EC5F923CC8`
+    (matches its `.sha256`).
+  - Linux app: `.deb` `FFA93A1C47A71834475D71F9661398F400EDE7C478A83FBE18EB378F9D5AB27F`,
+    AppImage `95C010E55ACA843E6FCEB8389874B78DD8E4B00FA2650790FB82367EB8F549A9`.
+- Agent package checked on a fresh disposable node (removed afterwards):
+  `anxos-agent 2.0-build215`, embedded artifactVersion 2.0-build215; lists
+  `./usr/lib/anxos-agent/update-helper` root 0755 (byte-identical to the
+  hardened helper, `curl -q`) and `./etc/sudoers.d/anxos-agent` root 0440;
+  installs cleanly (no CR in postinst, sudoers or helper); creates
+  `anxos-update` with no members; `visudo -c` parses; before joining the
+  group the helper needs a password, after joining `status` answers and
+  general sudo still needs a password; the Agent runs and reports
+  2.0-build215.
+- Installed app before the upgrade: signed AnxOS Control Center (Valid),
+  AnxOSAgent task running; the Build 214 RC2 install per Build 214's record.
+  Waiting for the owner's `confirmed` before installing.
