@@ -1105,6 +1105,24 @@ Use this section to accumulate verified project knowledge over time. Add entries
   executable may run), they must share one rule. A card's name is a claim:
   test that what it installs is what it says, not only that it installs.
 
+### 2026-11-19 — Build 214 RC1 acceptance: a required field the user could not see
+
+- **Problem:** In the installed RC1, Create server for the Discord.js Bot,
+  the Node.js/Python/Java project cards and Jellyfin said "Enter the bot
+  token to continue." (or the file or folder) and nothing visible changed.
+- **Cause:** Those required inputs live in Advanced options, which is closed
+  by default. The new checks focused the field without opening the section,
+  unlike the port checks. The UI test helper opened the section before every
+  check, so A3 and J1 passed.
+- **Resolution:** The section opens for a template that needs such an input,
+  and each missing-input check opens it before focusing.
+  `acceptance-fixes-ui-qa` A9 and `build214-ui-qa` A4 close the section first
+  and assert the field is visible and focused; both fail on RC1.
+- **Lesson:** A test helper that prepares the screen (opens a section,
+  dismisses a dialog) must not do what a user would have to discover. Test a
+  validation message by what the user can then see and reach, from the
+  default state.
+
 ## Future Improvements
 
 Keep optional ideas separate from active work. An item in this list is not authorization to implement it.

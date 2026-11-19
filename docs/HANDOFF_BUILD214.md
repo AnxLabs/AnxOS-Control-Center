@@ -706,9 +706,44 @@ follow-up.
   in its first two seconds (one-time start-up reads), then none. The VPS
   (`127.0.0.1:47132`, the manual SSH tunnel) reads "Agent unavailable" while
   the tunnel is down. Anxlab answers on its unchanged `2.0-build213` Agent.
-- **Remaining for acceptance:** the owner unlocks the app (a sign-in only the
-  owner can do), then the Marketplace, existing servers, Docker and Agent
-  pages are checked in the installed app.
+- **Acceptance in the installed RC1** (owner chose a test profile because
+  Computer Use could not see the screen). The installed signed exe ran under
+  Playwright with an isolated profile and config (`--qa-mode`), against a
+  disposable Agent started from the installed `local-agent-runtime`
+  (`electron-run-as-node`). Agent Control's start, stop, restart, install,
+  repair, service and pairing IPC were replaced with a refusal in that app,
+  because Agent Control treats the machine-wide `AnxOSAgent` task as its own.
+  The script is kept outside the repo (session scratchpad,
+  `rc1-acceptance.js`).
+  - Passed: Home for the selected computer; Marketplace 50 templates, only
+    Python Discord Bot unavailable, Windows-only games labelled; Discord.js
+    token is an empty password field; the Node.js project card asks for a
+    `.zip`; a Node.js application installed from the Create Server window,
+    then Stop, Start (row buttons), its port, server page and Console, Stop;
+    IT-Tools installed through Docker, bound to 127.0.0.1, answering, listed
+    on the Docker page with no horizontal overflow; Agent Control shows
+    "Version 2.0 Build 214" for the app and "Build not reported" for the
+    unstamped test Agent; no renderer errors.
+  - The real Local Agent logged 0 lines during every run; the `AnxOSAgent`
+    task kept its last run time; no `anx214rc-*` container, volume or the
+    IT-Tools image was left.
+  - **Found:** a required input in Advanced options (Discord.js bot token,
+    Node.js/Python/Java project file, Jellyfin media folder) was hidden. With
+    the section closed (its default), Create server said "Enter the bot token
+    to continue." and focused a field the user could not see. Reproduced in
+    the installed RC1 for all three. `build214-ui-qa`'s helper opened the
+    section before every check, which hid it.
+  - **Fixed** on the branch (not committed): the section opens when the
+    chosen template needs such an input, and each missing-input check opens
+    it before focusing, as the port checks already did. Regression:
+    `acceptance-fixes-ui-qa` A9 (release tier) and `build214-ui-qa` A4; both
+    fail on the RC1 `app.js` and pass with the fix. `ui-polish-smoke`,
+    `marketplace-smoke`, the full `acceptance-fixes-ui-qa` (9 of 9) and
+    `git diff --check` passed.
+  - Not covered: the Marketplace filter panel leaves an empty area beside the
+    category chips at 1440 px (cosmetic; the layout is unchanged since Build
+    213, which had one chip fewer). The Python and Java import cards share
+    the fixed path with the Node.js card but were not opened separately.
 
 ## Tests run
 
