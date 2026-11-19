@@ -236,10 +236,12 @@ async function handleDockerSummary() {
   };
 }
 
-async function handleDockerContainers() {
+// ?stats=0 skips live per-container stats (the All computers list does not
+// show them and they cost seconds on some engines).
+async function handleDockerContainers(url = null) {
   return {
     statusCode: 200,
-    body: await getDockerContainers(),
+    body: await getDockerContainers({ stats: url?.searchParams?.get("stats") !== "0" }),
   };
 }
 
@@ -289,7 +291,7 @@ async function handleDocker(request, url) {
       return handleDockerSummary();
     }
     if (request.method === "GET" && url.pathname === "/api/v1/docker/containers") {
-      return handleDockerContainers();
+      return handleDockerContainers(url);
     }
     if (request.method === "POST" && url.pathname === "/api/v1/docker/containers") {
       const payload = parseJsonBody(request);

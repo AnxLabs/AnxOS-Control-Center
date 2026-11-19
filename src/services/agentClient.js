@@ -1871,8 +1871,11 @@ async function getDockerCapabilities(configOverride = null) {
   return requestJson("/api/v1/docker/capabilities", { config: configOverride, timeoutMs: DOCKER_REQUEST_TIMEOUT_MS });
 }
 
-async function getDockerContainers(configOverride = null) {
-  return requestJson("/api/v1/docker/containers", { config: configOverride, timeoutMs: DOCKER_REQUEST_TIMEOUT_MS });
+// options.stats === false asks for the list without live stats; an Agent
+// older than Build 215 ignores the parameter and includes them.
+async function getDockerContainers(configOverride = null, options = {}) {
+  const route = options.stats === false ? "/api/v1/docker/containers?stats=0" : "/api/v1/docker/containers";
+  return requestJson(route, { config: configOverride, timeoutMs: DOCKER_REQUEST_TIMEOUT_MS });
 }
 
 // V2-A browser surface (A2.6): mint the one-time bootstrap code the operator

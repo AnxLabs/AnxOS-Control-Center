@@ -233,7 +233,8 @@ function registerInstancesIpc() {
     // per-computer Docker read permission; a refusal reads as "no Docker".
     listContainersForNode: (nodeId) => {
       requirePermission("docker:read", nodeId);
-      return listDockerContainers({ nodeId });
+      // No live stats: this list does not show them and they cost seconds.
+      return listDockerContainers({ nodeId, stats: false });
     },
     configDir: path.dirname(getNodesPath()),
   });

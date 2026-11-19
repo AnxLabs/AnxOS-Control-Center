@@ -203,6 +203,12 @@ let clock = "2026-11-16T12:00:00.000Z";
     assert.deepStrictEqual(listed.labels, { "anxos.managed": "true", "com.docker.compose.project": "site" }, "only AnxOS and Compose labels are kept");
     assert(!JSON.stringify(listed).includes("abc123"), "other label values never leave the computer");
     assert.deepStrictEqual(listed.mounts, ["site-data", "/srv/www"]);
+    // Build 215-E: this list never pays for live container stats (measured
+    // 2.07 s -> 0.21 s median on Docker Desktop).
+    const ipcSource = fs.readFileSync(path.join(__dirname, "..", "src", "ipc", "instancesIpc.js"), "utf8");
+    assert(ipcSource.includes("listDockerContainers({ nodeId, stats: false })"), "All computers asks for containers without stats");
+    const routeSource = fs.readFileSync(path.join(__dirname, "..", "agent", "src", "routes", "docker.js"), "utf8");
+    assert(/getDockerContainers\(\{ stats: url\?\.searchParams\?\.get\("stats"\) !== "0" \}\)/.test(routeSource), "the Agent honours ?stats=0");
     console.log("  ok F9 Docker services listed with servers");
   }
 

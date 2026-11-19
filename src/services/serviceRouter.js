@@ -312,9 +312,9 @@ async function listDockerContainers(options = {}) {
   const nodeId = getRequestNodeId(options);
   assertDockerEnabledForNode(options);
   if (shouldUseLocalDocker(options)) {
-    return withNodeContext(await localDockerService.getDockerContainers(), nodeId);
+    return withNodeContext(await localDockerService.getDockerContainers({ stats: options.stats }), nodeId);
   }
-  return withNodeContext(await agentClient.getDockerContainers(getOptionalNodeConfig(options)), nodeId);
+  return withNodeContext(await agentClient.getDockerContainers(getOptionalNodeConfig(options), { stats: options.stats }), nodeId);
 }
 
 async function inspectDockerContainer(container, options = {}) {

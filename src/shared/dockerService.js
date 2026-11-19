@@ -861,14 +861,29 @@ async function getDockerSummary() {
   };
 }
 
-async function getDockerContainers() {
-  const snapshot = await getDockerSnapshot();
+// The container list (Docker page, All computers). It used to build the
+// whole snapshot and keep only the containers, starting images, volumes,
+// networks and `system df` for nothing. Live stats (`docker stats
+// --no-stream`, about 2.7 s on Docker Desktop because it samples) are kept
+// for the Docker page and skipped with { stats: false } by callers that do
+// not show them. Build 215-E, measured on the development PC: median 2.07 s
+// -> see docs/HANDOFF_BUILD215.md for the after numbers.
+async function getDockerContainers(options = {}) {
+  const status = await probeDocker();
+  if (!status.installed || !status.daemonRunning) {
+    return { installed: status.installed, daemonRunning: status.daemonRunning, dockerVersion: status.dockerVersion, message: status.message, containers: [] };
+  }
+  const dockerPath = status.executable?.executablePath || await getDockerExecutableOrThrow();
+  const [containers, stats] = await Promise.all([
+    listContainersRaw({ dockerPath }),
+    options.stats === false ? Promise.resolve([]) : listStatsRaw(null, { dockerPath, timeoutMs: SNAPSHOT_OPTIONAL_TIMEOUT_MS }).catch(() => []),
+  ]);
   return {
-    installed: snapshot.installed,
-    daemonRunning: snapshot.daemonRunning,
-    dockerVersion: snapshot.dockerVersion,
-    message: snapshot.message,
-    containers: snapshot.containers,
+    installed: status.installed,
+    daemonRunning: status.daemonRunning,
+    dockerVersion: status.dockerVersion,
+    message: status.message,
+    containers: attachStats(containers, stats),
   };
 }
 
