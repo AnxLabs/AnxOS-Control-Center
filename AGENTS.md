@@ -1123,6 +1123,25 @@ Use this section to accumulate verified project knowledge over time. Add entries
   validation message by what the user can then see and reach, from the
   default state.
 
+### 2026-11-19 — Agent package update restarted unrelated services
+
+- **Problem:** Installing the Agent .deb with `DEBIAN_FRONTEND=noninteractive`
+  restarted an unrelated service on Ubuntu (Build 214 report, bug B).
+- **Cause:** Ubuntu's `needrestart` apt hook restarts every service that maps
+  a replaced library and, without a terminal, does it without asking.
+  Reproduced on a disposable Ubuntu 24.04 container: a test service went from
+  PID 460 to 615.
+- **Resolution:** The install runs with `NEEDRESTART_SUSPEND=1
+  NEEDRESTART_MODE=l`, apt's dry run must show only `anxos-agent` changing,
+  and services needing a restart are reported as deferred (PID unchanged in
+  the same test).
+- **Lesson:** Package installs on a shared host need their side effects
+  bounded and reported: suspend restart hooks, refuse transactions that touch
+  other packages, and test with a disposable service before and after. Also,
+  files a package owns (such as a sudoers drop-in) are replaced by every
+  version of that package, so test rules for a new feature must not live in
+  an older package's file.
+
 ## Future Improvements
 
 Keep optional ideas separate from active work. An item in this list is not authorization to implement it.

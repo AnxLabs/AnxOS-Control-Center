@@ -7,7 +7,7 @@ These limitations are acceptable for Private Alpha if they are clearly communica
 - AnxOS Control Center is Private Alpha.
 - Do not present it as public beta, stable, or v1.0-ready.
 - No version bump, tag, or GitHub Release should be created for readiness-only documentation changes.
-- Current source identity is Version 2.0 Build 214, Private Alpha, per
+- Current source identity is Version 2.0 Build 215, Private Alpha, per
   `release.json`. Historical build-numbered reports are evidence for their named
   artifacts only; see `DOCUMENTATION_INDEX.md`. Availability of matching
   candidate artifacts must be proven separately and is not inferred from source
@@ -27,6 +27,29 @@ These limitations are acceptable for Private Alpha if they are clearly communica
 - Linux package availability depends on distribution repositories and host permissions.
 - Do not run the Agent as root just to bypass file, Docker, or provider permissions.
 - Local Agent automatic pairing is separate from remote Agent token workflows. Do not ask normal users to copy Local Agent tokens.
+
+## Build 215
+
+- **Passwordless Agent updates need a Build 215 Agent on the node** (it ships
+  the update helper) and the SSH user in the `anxos-update` group. Getting a
+  node from Build 214 to 215 still needs `sudo apt-get install` by hand once,
+  or passwordless sudo. Rolling back through the helper to a build older than
+  215 removes the helper again.
+- **Real update acceptance ran on disposable Ubuntu 24.04 containers** with
+  the official Build 213 and 214 packages, not on Anxlab or the VPS. The
+  update helper was copied in as a Build 215 package installs it; a packaged
+  215 to 215+ upgrade cannot be run until Build 215 is published.
+- **Docker image update** works only for services AnxOS installed from the
+  catalog. Compose projects and containers created elsewhere are refused. It
+  rolls the image back if the new one does not stay up; it cannot undo data
+  changes the new version made (for example a database migration).
+- **"Will it run on this computer?"** uses the server's memory setting, not a
+  measured requirement; game file sizes are not measured, so disk only warns
+  on a nearly full computer.
+- **Docker services in All computers** show no CPU or memory per container
+  (live stats are skipped to keep the list fast; the Docker page has them).
+- **No AMP comparison was run.** `docs/BUILD215_AMP_COMPARISON.md` has the
+  plan and AnxOS's own measurements; the AMP baseline is unverified.
 
 ## Marketplace
 
