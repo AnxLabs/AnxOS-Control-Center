@@ -629,6 +629,28 @@ follow-up.
 - Docker services are still managed on the Docker page, not with the other
   servers (214-E).
 
+## Release candidate preparation (2026-11-18)
+
+- Approved by the owner ("Start RC prep"). `origin/dev` (`623ad5ac`, website
+  search indexing) merged into this branch (`983c222a`); `release.json` Build
+  214, `RELEASE_NOTES_2.0-build214.md` and Known Limitations (`b9e96aec`).
+  Nothing pushed, tagged or built yet.
+- After the merge and bump: `rc:validate` **PASS, 417 of 417** (the website
+  smoke came with the merge). `qa:release` **135 of 136**: `acceptance-fixes-ui-qa`
+  A2 ("the dashboard polls again after the unlock", at least 2 snapshots in
+  7 s) failed with 0, also when run alone, and also on `4e1bde5d`, where it
+  had passed in the 13:50 release tier. Diagnosis: on this PC at that time a
+  freshly started Agent took 7.3 s to answer its first `/stats` (later ones
+  20-170 ms) and a Docker snapshot 5.4 s (Docker Desktop was answering CLI
+  calls in 1-2.3 s with other workloads running). With a 20 s window the
+  dashboard did poll (4 snapshots). Environment timing, not a Build 214
+  change; re-run the release tier on a quieter machine (or in CI) before
+  publication.
+- Next (needs the owner's approval): push this branch to `dev` (a
+  fast-forward from `623ad5ac`) and dispatch `windows-release.yml` on `dev`
+  for the signed RC build, then verify CI, the Authenticode signature and
+  SHA-256 before asking to install.
+
 ## Tests run
 
 These are mocked: the Agent client is faked and the network blocked. The real
