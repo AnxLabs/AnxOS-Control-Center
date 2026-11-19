@@ -789,6 +789,37 @@ follow-up.
   seconds while locked (one-time start-up reads, as in RC1 and Build 213),
   none after.
 
+## Published (2026-11-19)
+
+- Owner approved with `🚀 publish`. `v2.0-build214` (annotated, "AnxOS
+  Control Center v2.0-build214") tagged on the accepted RC2 commit
+  `9368c621`.
+- Release run 44481764858 passed all five jobs (static validation,
+  rc-validation, Windows, Linux, publish) and published to
+  AnxOS-Control-Center-Releases with 12 assets.
+- Published files downloaded and checked: all 11 entries in `SHA256SUMS`
+  match; Setup and portable are Authenticode Valid (Anjo ROSIMO,
+  timestamped); `latest.yml` matches Setup; `update-manifest.json` reads 2.0
+  Build 214 Private Alpha; the Linux `.deb`'s `app.asar` has the RC1 fix.
+  - Setup SHA-256 `6F92A2E5438287819282786D841EA0DD2293A199D09B2A3DE41C2D2B2985E7BE`
+  - Portable SHA-256 `8A6A2ED53FA92793F885C5E6924762F159198EC9BE899C19650BC9F605A0B6D7`
+  - Agent package SHA-256 `33FC97A76247E14F1605A41C2C80BD331A43E3A38CFEDC15E9C41C21694C23C2`
+  - Linux `.deb` `A2298B0F1A16FB09B32895002BF1F9015280680EBE81F9EF5CF9C8A3DA001A5D`,
+    AppImage `15BF8158887E25BFBB86DA344A9F35E59067517432EA7D389F32E856D4FA30AC`
+  - The tagged run signs again, so these differ from RC2's files (same
+    commit), as for Builds 212 and 213.
+- Promote run 44485552904 passed every step: website metadata commit
+  `10ed89fd` on `dev`, release promoted to stable (not a prerelease),
+  source-repository pointer updated, Releases README updated. Pages deploy
+  44485619945 succeeded.
+- Public checks: both repositories report latest `v2.0-build214`; the live
+  site's raw HTML names Build 214 on Home and Download, and Release notes
+  reads "Current release: Version 2.0 Build 214" (Build 213 only as an older
+  release); all five download links return 200; both READMEs name Build 214.
+- Not done, as instructed: no Agent update on Anxlab (Build 213 Agent) or the
+  VPS (tunnel down), no AnxNet edge deployment, no other production change.
+  The developer PC runs the RC2 install (same commit as the release).
+
 ## Tests run
 
 These are mocked: the Agent client is faked and the network blocked. The real
