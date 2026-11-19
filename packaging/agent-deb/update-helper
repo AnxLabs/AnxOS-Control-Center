@@ -34,10 +34,14 @@ IFS=$' \t\n'
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export LC_ALL=C
 # sudo resets the environment; these are cleared anyway, so nothing the caller
-# sets can redirect apt, curl or the shell.
-unset BASH_ENV ENV CDPATH GLOBIGNORE APT_CONFIG CURL_HOME SSL_CERT_FILE SSL_CERT_DIR \
+# sets can redirect apt, curl, tar or the shell. HOME is root's own even where
+# a sudoers file keeps the caller's HOME, so no caller dotfile (.curlrc, for
+# example) is read; curl also runs with -q, which ignores any .curlrc.
+unset BASH_ENV ENV CDPATH GLOBIGNORE APT_CONFIG CURL_HOME CURL_CA_BUNDLE SSL_CERT_FILE SSL_CERT_DIR \
   http_proxy https_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY all_proxy NO_PROXY no_proxy \
+  XDG_CONFIG_HOME TAR_OPTIONS GZIP \
   DEBIAN_FRONTEND DPKG_ADMINDIR LD_PRELOAD LD_LIBRARY_PATH TMPDIR 2>/dev/null || true
+export HOME=/root
 
 HELPER_VERSION=1
 PACKAGE=anxos-agent
@@ -47,7 +51,9 @@ PACKAGES_DIR=$STATE_DIR/packages
 BACKUPS_DIR=$STATE_DIR/backups
 STATE_FILE=$STATE_DIR/state
 LOG_FILE=/var/log/anxos-agent-update.log
-LOCK_FILE=/run/lock/anxos-agent-update.lock
+# Inside the root-only state folder, never a world-writable one (/run/lock),
+# so no other user can pre-create or redirect it.
+LOCK_FILE=$STATE_DIR/lock
 CONF_FILE=/etc/anxos-agent/update-helper.conf
 DEFAULT_RELEASE_BASE_URL=https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download
 BUILD_PATTERN='^[0-9]{1,4}\.[0-9]{1,4}-build[0-9]{1,6}$'
@@ -163,7 +169,7 @@ resolve_release_base_url() {
 fetch() {
   local url=$1 target=$2 proto='=https'
   case "$url" in http://127.0.0.1*) proto='=http' ;; esac
-  curl --proto "$proto" --proto-redir "$proto" -fsSL --retry 2 --connect-timeout 20 --max-time 900 \
+  curl -q --proto "$proto" --proto-redir "$proto" -fsSL --retry 2 --connect-timeout 20 --max-time 900 \
     --max-filesize "$MAX_DOWNLOAD_BYTES" -o "$target" "$url"
 }
 
@@ -303,8 +309,8 @@ do_install() {
     exit 0
   fi
   dpkg --compare-versions "$build" gt "$FROM_BUILD" || fail DOWNGRADE_REFUSED "$build is not newer than the installed $FROM_BUILD; use rollback for the build this helper replaced."
-  lock
   prepare_dirs
+  lock
   check_no_servers_running
   WORK_DIR=$(mktemp -d "$STATE_DIR/work.XXXXXX")
   acquire_package "$build"
@@ -341,8 +347,8 @@ do_rollback() {
   [ -n "$STATE_PREVIOUS" ] || fail ROLLBACK_UNAVAILABLE "This helper has not replaced a build it could return to."
   [ "$build" = "$STATE_PREVIOUS" ] || fail ROLLBACK_REFUSED "Only $STATE_PREVIOUS, the build this helper replaced, can be restored."
   [ "$FROM_BUILD" = "$STATE_CURRENT" ] || fail ROLLBACK_REFUSED "The installed build ($FROM_BUILD) is not the one this helper installed ($STATE_CURRENT)."
-  lock
   prepare_dirs
+  lock
   WORK_DIR=$(mktemp -d "$STATE_DIR/work.XXXXXX")
   acquire_package "$build"
   check_only_agent_changes "$DEB_PATH" --allow-downgrades

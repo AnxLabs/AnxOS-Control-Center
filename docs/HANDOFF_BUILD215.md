@@ -152,3 +152,138 @@ still running (`docker rm -f anx215-a anx215-b` removes them; the image is
 2. To make Anxlab updates one-click after 215 is installed there:
    `sudo usermod -aG anxos-update anx` on Anxlab (owner action), then Set up
    key sign-in for its profile. Password SSH stays enabled.
+
+## RC1 preparation (2026-11-19)
+
+Requested by the owner: resolve A2, clean up, review the helper's privilege
+boundaries, prepare RC1. No new features, no Anxlab or production change.
+
+### A2 diagnosis (conclusive: environment timing, no code change)
+
+A temporary copy of `acceptance-fixes-ui-qa.js` (deleted afterwards) logged
+every IPC request in A2's window. After the unlock the dashboard's first
+`system:getSnapshot` starts about 0.9 s after Home is shown and repeats every
+2 s; while a read is in flight the next tick is skipped
+(`systemRequestInFlight`). A2 needs 2 completed reads in 7 s.
+
+| Runs | Test Agent's first `/stats` | A2 |
+| --- | --- | --- |
+| Failing: Build 215 x3, Build 214 baseline x1 (machine loaded) | 6.9-8.3 s | 0-1 reads |
+| Passing now: Build 215 x4 | 2.3-2.7 s | 2-3 reads (first 1.6-2.1 s, then about 0.1 s) |
+
+The Agent's first hardware sample is what takes seconds on a loaded PC (the
+same finding as Build 214's RC prep, which added the warm-up in
+`996067f8`). Polling resumes after the unlock in every run; the threshold and
+timeouts were not changed. The full `acceptance-fixes-ui-qa` then passed
+**9/9**, so with `rc:validate` 420/420 and the rest of the release tier
+(136 + `build213-ui-qa` 4/4 + `steamcmd-cancel-ui-qa` 2/2 + `git diff
+--check`), every release-tier step has passed.
+
+### Cleanup
+
+- Removed: containers `anx215-a`, `anx215-b`; images `anx215-node:test`,
+  `nginx:stable-alpine` and the untagged newer nginx the update tests pulled;
+  47 temp folders and a report this session's harnesses created; this
+  worktree's `dist/` and `resources/agent-runtime-node-modules` (rebuilt by
+  every build); the scratchpad's Linux Node copy, stage and deb output.
+- Not touched: the owner's `anx-forge*`/`anx-cortex*` containers and volumes,
+  `~/.ssh/anxos_ovh` (no test key was ever written to `~/.ssh`), and 247
+  older QA temp folders (2026-11-15 to 11-18, from earlier sessions'
+  harnesses that do not clean up; test configs and screenshots only).
+- Kept: `artifacts/qa/` (release-tier reports, git-ignored) and the
+  git-ignored `node_modules` copy needed for validation. No stray worktree or
+  process.
+- The disposable node's Dockerfile is in the repo
+  (`test-helpers/disposable-node/Dockerfile`) so RC acceptance can rebuild
+  it: `docker build -t anx215-node:test test-helpers/disposable-node`, then
+  run with `--privileged --cgroupns=private --tmpfs /run --tmpfs /run/lock`
+  and ports `127.0.0.1:2221:22`, `127.0.0.1:47191:47131` (node A) and
+  2222/47192 (node B); from Git Bash set `MSYS_NO_PATHCONV=1`.
+
+### Update helper security review
+
+No automatic privilege: the package creates the `anxos-update` group with no
+members, and no code path in the Desktop, the Agent or the package adds
+anyone to it (only messages tell the owner the command). Its sudoers rule
+allows exactly `update-helper status|install *|rollback *`; the helper
+accepts one build string matching `^[0-9]{1,4}\.[0-9]{1,4}-build[0-9]{1,6}$`.
+Automatic Agent updates stay off unless the owner turns them on and chooses
+computers. A group member can at most install a newer official build, or
+return to the build the helper replaced, while no server runs under the
+Agent.
+
+Two hardening gaps were found and fixed in this review:
+
+1. **curl configuration injection.** curl reads `~/.curlrc` (and
+   `$XDG_CONFIG_HOME/.curlrc`). The helper relied on sudo resetting `HOME`;
+   on a host whose sudoers keeps `HOME`, a group member's `.curlrc` could
+   route the release download through a proxy or turn off TLS checks.
+   Proven on this PC (a `.curlrc` proxy redirected curl; `-q` ignored it).
+   Fix: `curl -q`, `HOME=/root`, and `XDG_CONFIG_HOME`, `TAR_OPTIONS`,
+   `GZIP`, `CURL_CA_BUNDLE` cleared.
+2. **Lock in a world-writable folder.** `/run/lock` let another user
+   pre-create the lock (blocking updates), with symlink safety resting on
+   kernel defaults. Fix: the lock is `/var/lib/anxos-agent-update/lock`
+   (root, 0700 folder), taken after the folder is checked.
+
+Re-tested on a fresh disposable node (official 2.0-build213 package, the
+changed helper, `Defaults env_keep += "HOME"`, and an attacker `.curlrc` with
+a dead proxy and `insecure`): injected build, extra argument, downgrade,
+other command and a concurrent run refused; the real install of 2.0-build214
+downloaded straight from GitHub (SHA-256 `33fc97a7...`, the published Build
+214 Agent package) despite the `.curlrc`; real rollback to 213; a second
+rollback refused; all logged. `agent-package-closure` and
+`package-agent-update` smokes pass. Node and image removed afterwards.
+
+Residual (documented, unchanged): the trust anchor is the HTTPS release's
+`SHA256SUMS` on GitHub, as for every package update so far; a compromised
+release repository is out of scope. sudo's default `env_delete` removes
+`BASH_ENV` and exported functions; a host that explicitly keeps them is
+misconfigured for any sudo rule.
+
+### RC limitation to know before acceptance
+
+The RC app's Desktop build is 2.0-build215. Its in-app Agent update
+downloads `v2.0-build215`'s `SHA256SUMS`, which exists only once Build 215 is
+published, so an in-app 214 -> 215 Agent update cannot be accepted on the RC
+(it stops with "release unavailable"; nothing is installed). The package path
+was accepted with real 213 -> 214 packages; the 215 Agent package itself is
+checked from the RC artifacts (step 4 below).
+
+### RC1 promotion steps
+
+1. **Approval: push.** Fast-forward `origin/dev` from `2c45c729` to this
+   branch's head: `git push origin HEAD:dev` (never the `anxlab` remote,
+   never a tag).
+2. **Signed build.** `gh workflow run windows-release.yml --ref dev` (no tag,
+   so publish is skipped); static validation, rc-validation (Linux), Windows
+   and Linux builds must pass. A failure stops here: fix, validate, push
+   again with approval.
+3. **Download** the run's artifacts to `artifacts/build215-rc1/`
+   (git-ignored): Setup and portable exe, `latest.yml`, Agent `.deb` and
+   `.sha256`, Linux `.deb` and AppImage.
+4. **Verify:** Authenticode Valid (signer and timestamp) for Setup and
+   portable; SHA-256 recorded; `latest.yml` SHA-512 and size match Setup; the
+   Agent `.deb` matches its `.sha256`, is version 2.0-build215, and
+   `dpkg-deb -c` lists `./usr/lib/anxos-agent/update-helper` (root, 0755)
+   and `./etc/sudoers.d/anxos-agent` with the `%anxos-update` rule; installed
+   on a fresh disposable node it creates an empty `anxos-update` group and
+   passes `visudo -c`.
+5. **Report** build, commit, SHA-256, signature and CI status, then ask
+   exactly: "Please confirm that I may install the signed Release Candidate
+   over the current installation for acceptance testing." Wait for
+   `confirmed`.
+6. **Upgrade** (after `confirmed`): back up `%APPDATA%\AnxHub` (config,
+   agent, instances) with a SHA-256 manifest; check no server runs under This
+   PC's Agent; start the verified Setup; the owner clicks through (Computer
+   Use screenshots are blank on this PC). Verify the installed exe's
+   signature, Local Agent `2.0-build215`, the AnxOSAgent task, and that
+   unchanged files are byte-identical.
+7. **Acceptance in the installed RC:** the installed exe under Playwright
+   with an isolated profile (the Build 214 method), plus the Build 215 checks
+   from `scripts/build215-ui-qa.js` against a rebuilt disposable node: locked
+   start, key sign-in, Verify Access, update confirmation and progress
+   (213 -> 214 package), All computers with Docker services, Docker service
+   update, Create Server fit check.
+8. **Final status** READY FOR PUBLICATION or RELEASE BLOCKED; publication
+   only after the owner's exact `🚀 publish`.
