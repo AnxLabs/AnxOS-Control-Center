@@ -111,7 +111,98 @@
     return truncated ? null : true;
   }
 
+  const GIB = 1024 * MIB;
+  const VERDICT_ORDER = { good: 0, unknown: 1, tight: 2, no: 3 };
+  const PLATFORM_NAMES = { windows: "Windows", linux: "Linux", macos: "macOS" };
+
+  function normalizePlatform(value) {
+    const text = String(value || "").trim().toLowerCase();
+    if (!text) return null;
+    if (text === "win32" || text.startsWith("windows")) return "windows";
+    if (text === "linux" || /ubuntu|debian|fedora|centos|rhel|arch/.test(text)) return "linux";
+    if (text === "darwin" || text.startsWith("mac")) return "macos";
+    return text;
+  }
+
+  function formatGiB(bytes) {
+    if (!Number.isFinite(bytes)) return "unknown";
+    const gib = bytes / GIB;
+    return gib >= 10 ? `${Math.round(gib)} GB` : `${Math.round(gib * 10) / 10} GB`;
+  }
+
+  // "Will it run on this computer?" for the Create Server window (Build
+  // 215-D). Plain-language reasons from what is actually known: the
+  // template's platforms and memory setting, and the computer's connection,
+  // operating system, memory and free disk. Game file sizes are not measured
+  // in the catalog, so disk only flags a computer that is nearly full; it
+  // never claims a server fits. verdict: good | tight | no | unknown.
+  function assessComputerFit({
+    computerName = "This computer",
+    online = true,
+    nodePlatform = null,
+    templatePlatforms = [],
+    isService = false,
+    memory = null,
+    templateMemory = null,
+    disk = null,
+  } = {}) {
+    const reasons = [];
+    const add = (verdict, text) => reasons.push({ verdict, text });
+    if (!online) {
+      add("no", `${computerName} is not connected.`);
+    }
+    const platforms = (Array.isArray(templatePlatforms) ? templatePlatforms : []).map(normalizePlatform).filter(Boolean);
+    const platform = normalizePlatform(nodePlatform);
+    if (platforms.length && platform) {
+      if (platforms.includes(platform)) {
+        add("good", `Runs on ${PLATFORM_NAMES[platform] || platform}.`);
+      } else {
+        const wanted = platforms.map((entry) => PLATFORM_NAMES[entry] || entry).join(" or ");
+        add("no", isService
+          ? `This service is offered for ${wanted} computers; ${computerName} runs ${PLATFORM_NAMES[platform] || platform}.`
+          : `This server runs on ${wanted}; ${computerName} runs ${PLATFORM_NAMES[platform] || platform}.`);
+      }
+    }
+
+    const wantMiB = parseMemoryMiB(templateMemory);
+    const totalBytes = Number(memory?.total);
+    const freeBytes = Number.isFinite(Number(memory?.available)) ? Number(memory.available)
+      : Number.isFinite(Number(memory?.free)) ? Number(memory.free)
+        : Number.isFinite(totalBytes) && Number.isFinite(Number(memory?.used)) ? totalBytes - Number(memory.used) : NaN;
+    if (wantMiB && Number.isFinite(totalBytes) && totalBytes > 0) {
+      const want = wantMiB * MIB;
+      if (want > totalBytes) {
+        add("no", `The server is set to use ${formatMemoryMiB(wantMiB)}, but ${computerName} has ${formatGiB(totalBytes)} in total. Lower its memory or choose a bigger computer.`);
+      } else if (Number.isFinite(freeBytes) && want > freeBytes) {
+        add("tight", `It is set to use ${formatMemoryMiB(wantMiB)} and ${formatGiB(freeBytes)} is free right now (of ${formatGiB(totalBytes)}). It can start, but may be slow while other programs or servers use the rest.`);
+      } else {
+        add("good", `Memory: ${formatMemoryMiB(wantMiB)} of ${Number.isFinite(freeBytes) ? `${formatGiB(freeBytes)} free` : `${formatGiB(totalBytes)} in total`}.`);
+      }
+    } else if (wantMiB) {
+      add("unknown", `${computerName} has not reported its memory yet, so AnxOS cannot check the ${formatMemoryMiB(wantMiB)} this server is set to use.`);
+    }
+
+    const diskFree = Number(disk?.free);
+    if (Number.isFinite(diskFree)) {
+      if (diskFree < 2 * GIB) add("no", `Only ${formatGiB(diskFree)} of disk is free. Free some space first.`);
+      else if (diskFree < 10 * GIB) add("tight", `${formatGiB(diskFree)} of disk is free. Game files and saves can need several GB (the size is not measured for this game).`);
+      else add("good", `Disk: ${formatGiB(diskFree)} free.`);
+    } else {
+      add("unknown", "Free disk space is not reported yet for this computer.");
+    }
+
+    const verdict = reasons.reduce((worst, reason) => (VERDICT_ORDER[reason.verdict] > VERDICT_ORDER[worst] ? reason.verdict : worst), "good");
+    const headline = {
+      good: `${computerName} looks like a good fit.`,
+      tight: `${computerName} can run it, with limits.`,
+      no: `${computerName} is not a good fit.`,
+      unknown: `${computerName} has not reported everything AnxOS checks.`,
+    }[verdict];
+    return { verdict, headline, reasons };
+  }
+
   return Object.freeze({
+    assessComputerFit,
     recommendPort,
     listenerPortOwners,
     isPortFree,

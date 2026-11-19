@@ -19,11 +19,14 @@
 //      runs through the update helper
 //   C1 afterwards: no stale "Pending" line or "not connected", history shows
 //      the verified build, nowhere "0.1.0" (Bugs C, D)
+//   D1 Create Server shows "Will it run on this computer?" above Advanced
+//      options, and it follows the memory field
 //   W1 My Servers > All computers lists Docker services with type, ports and
 //      kept data next to the computers' servers
 //   W2 Update on an AnxOS Docker service (older nginx under the template tag)
 //      replaces it from the window and keeps its data
-// Screenshots: BUILD215_QA_SHOTS=<dir>. Run: node scripts/build215-ui-qa.js
+// Screenshots: BUILD215_QA_SHOTS=<dir>. BUILD215_QA_ONLY=D1,W1 runs a subset
+// (checks after K1 need K1). Run: node scripts/build215-ui-qa.js
 
 const assert = require("assert");
 const crypto = require("crypto");
@@ -170,7 +173,9 @@ async function main() {
   const errors = [];
   const results = [];
   const shot = (page, name) => page.screenshot({ path: path.join(shotsDir, `${name}.png`) }).catch(() => {});
+  const only = new Set(String(process.env.BUILD215_QA_ONLY || "").split(",").map((value) => value.trim()).filter(Boolean));
   const check = async (id, title, fn) => {
+    if (only.size && !only.has(id)) return;
     try {
       const note = await fn();
       results.push({ id, title, passed: true, note: note || "" });
@@ -292,6 +297,28 @@ async function main() {
       assert(/2\.0-build214/.test(nodeLine) && /up to date/.test(nodeLine) && !/not connected/.test(nodeLine), `Test node A: ${nodeLine}`);
       assert(!/0\.1\.0/.test(text.section), "no placeholder version in the Updates section");
       return text.computers.replace(/\s+/g, " ").trim().slice(0, 120);
+    });
+
+    await check("D1", "Create Server shows whether the computer fits, outside Advanced options", async () => {
+      await page.evaluate(async () => { await selectNode("lab"); window.showPage("marketplace"); });
+      await waitFor(page, () => (marketplaceCatalog?.templates?.length || 0) > 0, null, "the catalog", 60000);
+      const next = app.waitForEvent("window", { timeout: 30000 });
+      await page.evaluate(() => openCreateServerWorkspace(findMarketplaceTemplate("valheim")));
+      const wizard = await next;
+      await wizard.waitForLoadState("domcontentloaded");
+      await waitFor(wizard, () => !document.querySelector("[data-create-server-fit]")?.hidden, null, "the fit check", 60000);
+      // The window asks the computer for its memory and disk once; wait for it.
+      await wizard.waitForFunction(() => document.querySelector("[data-create-server-fit]").dataset.verdict !== "unknown", null, { timeout: 20000, polling: 400 }).catch(() => {});
+      const first = await wizard.evaluate(() => ({ verdict: document.querySelector("[data-create-server-fit]").dataset.verdict, text: document.querySelector("[data-create-server-fit]").textContent, insideAdvanced: Boolean(document.querySelector("[data-create-server-fit]").closest("details")) }));
+      assert.strictEqual(first.insideAdvanced, false, "visible without opening anything");
+      await wizard.screenshot({ path: path.join(shotsDir, "D1-create-server-fit.png") }).catch(() => {});
+      await wizard.evaluate(() => { document.querySelector("[data-create-server-advanced]").open = true; });
+      await wizard.locator('[data-marketplace-field="memory"]').fill("4096G");
+      await wizard.locator('[data-marketplace-field="memory"]').dispatchEvent("input");
+      await waitFor(wizard, () => document.querySelector("[data-create-server-fit]").dataset.verdict === "no", null, "the fit to follow the memory field", 10000);
+      const after = await wizard.evaluate(() => document.querySelector("[data-create-server-fit] li[data-verdict='no']")?.textContent || "");
+      await wizard.close();
+      return `${first.verdict}: ${first.text.replace(/\s+/g, " ").slice(0, 120)} | 4096G -> ${after.slice(0, 80)}`;
     });
 
     await check("W1", "All computers lists Docker services with type, ports and data", async () => {

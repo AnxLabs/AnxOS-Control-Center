@@ -13477,6 +13477,31 @@ body.create-server-window .marketplace-side-panel {
   min-width: 0;
 }
 
+/* Build 215-D: "Will it run on this computer?" in Create Server. */
+.create-server-fit {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid rgba(190, 170, 220, 0.18);
+  border-radius: var(--radius);
+  background: rgba(7, 9, 14, 0.38);
+}
+
+.create-server-fit[data-verdict="good"] { border-color: rgba(69, 224, 143, 0.32); }
+.create-server-fit[data-verdict="tight"] { border-color: rgba(255, 190, 92, 0.4); }
+.create-server-fit[data-verdict="no"] { border-color: rgba(255, 107, 138, 0.45); }
+
+.create-server-fit ul {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.create-server-fit li[data-verdict="good"]::marker { color: var(--success); }
+.create-server-fit li[data-verdict="tight"]::marker { color: rgba(255, 190, 92, 0.96); }
+.create-server-fit li[data-verdict="no"]::marker { color: rgba(255, 107, 138, 0.96); }
+
 .create-server-fact {
   display: grid;
   gap: 4px;

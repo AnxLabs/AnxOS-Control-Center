@@ -290,6 +290,7 @@ const createServerStepNav = document.querySelector("[data-create-server-step-nav
 const createServerStepPanels = document.querySelectorAll("[data-create-server-step-panel]");
 const createServerPackageSummary = document.querySelector("[data-create-server-package-summary]");
 const createServerNodeSummary = document.querySelector("[data-create-server-node-summary]");
+const createServerFit = document.querySelector("[data-create-server-fit]");
 const createServerRuntimeSummary = document.querySelector("[data-create-server-runtime-summary]");
 const createServerDeploymentState = document.querySelector("[data-create-server-deployment-state]");
 const createServerBackButton = document.querySelector("[data-create-server-back]");
@@ -21364,6 +21365,69 @@ function renderCreateServerNodeSummary() {
   appendCreateServerFact(createServerNodeSummary, "Storage", storage);
 }
 
+// "Will it run on this computer?" (Build 215-D), shown above Advanced options
+// so a beginner sees it without opening anything. It uses the memory the form
+// is set to and the computer's reported memory, disk and operating system.
+// The Create Server window does not run the Dashboard's metrics polling, so
+// the fit check asks the chosen computer once for its memory and disk (one
+// request per computer per minute; a reply for a computer that is no longer
+// chosen is kept for later but not drawn).
+const createServerFitSnapshots = new Map();
+function requestCreateServerFitSnapshot(nodeId, template) {
+  const api = getDesktopApiState().api?.system;
+  if (!nodeId || typeof api?.getSnapshot !== "function") return;
+  const cached = createServerFitSnapshots.get(nodeId);
+  if (cached && (cached.pending || Date.now() - cached.at < 60000)) return;
+  createServerFitSnapshots.set(nodeId, { pending: true, at: Date.now() });
+  api.getSnapshot(getNodeScopedPayload(getNodeRequestContext("create-server-fit")))
+    .then((snapshot) => {
+      createServerFitSnapshots.set(nodeId, { at: Date.now(), memory: snapshot?.memory || null, disk: snapshot?.disk || null });
+      if (getSelectedNodeId() === nodeId) renderCreateServerFit(template);
+    })
+    .catch(() => createServerFitSnapshots.set(nodeId, { at: Date.now(), memory: null, disk: null }));
+}
+
+function renderCreateServerFit(template) {
+  if (!createServerFit) return;
+  if (!template || typeof AnxCreateServerDefaults?.assessComputerFit !== "function") {
+    createServerFit.hidden = true;
+    return;
+  }
+  const node = getSelectedNode();
+  const target = resolveActiveManagementTarget();
+  const nodeId = node?.id || getSelectedNodeId();
+  const fetched = createServerFitSnapshots.get(nodeId);
+  const snapshot = getSystemSnapshotForNode(node) || (fetched && !fetched.pending ? fetched : null);
+  if (!getSystemSnapshotForNode(node)) requestCreateServerFitSnapshot(nodeId, template);
+  const identity = getNodeIdentity(node || {});
+  const compatibility = template.compatibility && typeof template.compatibility === "object" ? template.compatibility : {};
+  const memoryField = document.querySelector('[data-marketplace-field="memory"]');
+  const fit = AnxCreateServerDefaults.assessComputerFit({
+    computerName: target?.name || node?.displayName || "This computer",
+    online: isCreateServerAgentNodeReady(target),
+    nodePlatform: target?.platform || target?.operatingSystem || node?.platform || identity.platform || null,
+    templatePlatforms: Array.isArray(compatibility.platforms) ? compatibility.platforms : [],
+    isService: template.workloadKind === "service" || Boolean(template.docker),
+    memory: snapshot?.memory || identity.memory || null,
+    templateMemory: memoryField?.value || template.defaultRam || "",
+    disk: snapshot?.disk || null,
+  });
+  createServerFit.replaceChildren();
+  createServerFit.dataset.verdict = fit.verdict;
+  createServerFit.append(createTextElement("strong", fit.headline));
+  const list = document.createElement("ul");
+  fit.reasons.forEach((reason) => {
+    const item = createTextElement("li", reason.text);
+    item.dataset.verdict = reason.verdict;
+    list.append(item);
+  });
+  createServerFit.append(list);
+  if (fit.verdict === "no" || fit.verdict === "tight") {
+    createServerFit.append(createTextElement("small", "You can still create it. To use another computer, pick it in the computer menu at the top first.", "platform-note"));
+  }
+  createServerFit.hidden = false;
+}
+
 function renderCreateServerRuntimeSummary(template) {
   if (!createServerRuntimeSummary) return;
   createServerRuntimeSummary.replaceChildren();
@@ -21587,6 +21651,7 @@ function renderCreateServerWizard(template = findMarketplaceTemplate()) {
   renderCreateServerPackageSummary(template);
   renderCreateServerTrustNotice(template);
   renderCreateServerNodeSummary();
+  renderCreateServerFit(template);
   renderCreateServerRuntimeSummary(template);
   if (createServerWizardStep === "configuration") renderMarketplaceInstallSummary(template, { includeTrustNotice: false });
   const terminal = createServerWizardStep === "deployment";
@@ -50324,6 +50389,8 @@ document.querySelectorAll('[data-instance-form="memoryLimit"], [data-instance-co
   });
 });
 getMarketplaceField("memory")?.addEventListener("input", () => {
+  // The fit check follows the memory the owner types.
+  try { renderCreateServerFit(findMarketplaceTemplate()); } catch {}
   const memoryField = getMarketplaceField("memory");
   memoryField?.setCustomValidity("");
   if (marketplaceSelectedTemplateId) {

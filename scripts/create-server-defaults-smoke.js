@@ -7,6 +7,10 @@
 //   C3 the renderer prefills the wizard from these recommendations and
 //      checks the template's software before the user clicks Create server;
 //   C4 ports held by other programs are avoided and explained.
+//   C5 "Will it run on this computer?" (Build 215-D): offline, wrong
+//      operating system, too little memory in total or free right now, a
+//      nearly full disk and missing metrics each give a plain reason; the
+//      block is shown outside Advanced options and follows the memory field.
 // Run: node scripts/create-server-defaults-smoke.js
 
 const assert = require("assert");
@@ -73,4 +77,44 @@ assert.ok(app.includes("refreshCreateServerPortCheck(template).catch(() => {});"
 assert.ok(app.includes("const busyHolder = getCreateServerPortHolder("), "Create server refuses a port another program holds");
 console.log("PASS C4 ports held by other programs are avoided and explained");
 
-console.log("Create Server defaults smoke passed (4 checks).");
+{
+  const fit = (overrides = {}) => defaults.assessComputerFit({
+    computerName: "Anxlab",
+    online: true,
+    nodePlatform: "linux",
+    templatePlatforms: [],
+    memory: { total: 16 * GIB, used: 6 * GIB },
+    templateMemory: "8G",
+    disk: { free: 200 * GIB },
+    ...overrides,
+  });
+  const good = fit();
+  assert.strictEqual(good.verdict, "good");
+  assert.ok(good.reasons.some((reason) => /Memory: 8G of 10 GB free/.test(reason.text)), JSON.stringify(good.reasons));
+  assert.strictEqual(fit({ online: false }).verdict, "no");
+  const wrongOs = fit({ templatePlatforms: ["windows"] });
+  assert.strictEqual(wrongOs.verdict, "no");
+  assert.ok(/runs on Windows; Anxlab runs Linux/.test(wrongOs.reasons[0].text), wrongOs.reasons[0].text);
+  assert.strictEqual(fit({ nodePlatform: "win32", templatePlatforms: ["windows"] }).verdict, "good", "win32 is Windows");
+  const service = fit({ nodePlatform: "win32", templatePlatforms: ["linux"], isService: true });
+  assert.ok(/offered for Linux computers/.test(service.reasons[0].text));
+  const tooBig = fit({ templateMemory: "32G" });
+  assert.strictEqual(tooBig.verdict, "no");
+  assert.ok(/set to use 32G, but Anxlab has 16 GB in total/.test(tooBig.reasons.find((reason) => reason.verdict === "no").text));
+  const busy = fit({ memory: { total: 16 * GIB, used: 12 * GIB } });
+  assert.strictEqual(busy.verdict, "tight");
+  assert.ok(/4 GB is free right now/.test(busy.reasons.find((reason) => reason.verdict === "tight").text));
+  assert.strictEqual(fit({ disk: { free: 1 * GIB } }).verdict, "no");
+  const smallDisk = fit({ disk: { free: 6 * GIB } });
+  assert.strictEqual(smallDisk.verdict, "tight");
+  assert.ok(/size is not measured/.test(smallDisk.reasons.find((reason) => reason.verdict === "tight").text), "never claims a measured size");
+  const unknown = fit({ memory: null, disk: null });
+  assert.strictEqual(unknown.verdict, "unknown");
+  assert.ok(unknown.reasons.every((reason) => reason.verdict === "unknown"));
+  const fitBlock = index.indexOf("data-create-server-fit");
+  assert.ok(fitBlock > 0 && fitBlock < index.indexOf("data-create-server-advanced"), "the fit check is above Advanced options, not inside it");
+  assert.ok(app.includes("renderCreateServerFit(findMarketplaceTemplate())"), "the fit check follows the memory field");
+  console.log("PASS C5 computer fit check explains good, tight, no and unknown");
+}
+
+console.log("Create Server defaults smoke passed (5 checks).");
