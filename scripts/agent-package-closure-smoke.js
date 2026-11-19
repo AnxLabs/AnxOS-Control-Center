@@ -353,6 +353,29 @@ function assertWrapper(stageDir) {
   assertMode(wrapperPath, 0o755, "wrapper");
 }
 
+// Build 215: the root-only update helper and the sudoers rule that lets the
+// anxos-update group (and nobody else) run it without a password.
+function assertUpdateHelper(stageDir) {
+  const helperPath = path.join(stageDir, "usr", "lib", "anxos-agent", "update-helper");
+  assert(fs.existsSync(helperPath), "staged package must contain /usr/lib/anxos-agent/update-helper.");
+  const content = fs.readFileSync(helperPath, "utf8");
+  assert.strictEqual(content.split("\n")[0], "#!/bin/bash", "update helper must start with #!/bin/bash.");
+  assert(!content.includes("\r"), "update helper must have LF line endings.");
+  assert(content.includes("set -euo pipefail"), "update helper must use set -euo pipefail.");
+  assertMode(helperPath, 0o755, "update helper");
+  const sudoers = fs.readFileSync(path.join(stageDir, "etc", "sudoers.d", "anxos-agent"), "utf8");
+  const helperRule = sudoers.split(/\r?\n/).find((line) => line.startsWith("%anxos-update "));
+  assert.strictEqual(
+    helperRule,
+    "%anxos-update ALL=(root) NOPASSWD: /usr/lib/anxos-agent/update-helper status, /usr/lib/anxos-agent/update-helper install *, /usr/lib/anxos-agent/update-helper rollback *",
+    "the anxos-update rule must allow only the update helper's three actions."
+  );
+  assert(!/NOPASSWD:\s*ALL|apt-get|dpkg /.test(sudoers), "sudoers must not grant ALL, apt-get or dpkg.");
+  const postinst = fs.readFileSync(path.join(stageDir, "DEBIAN", "postinst"), "utf8");
+  assert(/groupadd --system "\$UPDATE_GROUP"/.test(postinst), "postinst must create the anxos-update group.");
+  assert(!/usermod[^\n]*\$UPDATE_GROUP/.test(postinst.replace(/echo "[^"]*"/g, "")), "postinst must never add anyone to anxos-update.");
+}
+
 function assertMaintainerScripts(stageDir, sh) {
   for (const script of ["postinst", "prerm", "postrm"]) {
     const sourcePath = path.join(packagingDir, script);
@@ -422,6 +445,10 @@ function assertDpkgDebBuild(stageDir, outputDir, tempRoot, wrapperPath) {
   for (const relative of ["usr/lib/anxos-agent/node/bin/node", "usr/lib/anxos-agent/agent/src/server.js"]) {
     assert(fs.existsSync(path.join(extractDir, ...relative.split("/"))), `extracted deb must contain ${relative}.`);
   }
+  assert(
+    listingLines.some((line) => /^-rwxr-xr-x\s+root\/root\s+\d+\s+.*\.\/usr\/lib\/anxos-agent\/update-helper$/.test(line)),
+    "deb listing must install ./usr/lib/anxos-agent/update-helper mode 0755 owned by root."
+  );
 
   const extractedDebris = findBuildDebris(extractDir);
   assert.deepStrictEqual(extractedDebris, [], `the built .deb contains build debris or build-machine paths:\n${extractedDebris.join("\n")}`);
@@ -486,7 +513,8 @@ function main() {
     assertControl(stageDir);
     assertUnitAndTargets(stageDir);
     assertWrapper(stageDir);
-    console.log("control, unit and wrapper checks ok.");
+    assertUpdateHelper(stageDir);
+    console.log("control, unit, wrapper and update-helper checks ok.");
 
     const sh = findSh();
     if (!sh) {

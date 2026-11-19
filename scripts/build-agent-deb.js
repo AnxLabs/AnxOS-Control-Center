@@ -580,7 +580,7 @@ function printStagedOnly(reason, stageDir, artifactPath) {
   console.log(`  cp -a "${stageSource}" /tmp/anxos-agent-stage`);
   console.log("  find /tmp/anxos-agent-stage -type d -exec chmod 755 {} +");
   console.log("  find /tmp/anxos-agent-stage -type f -exec chmod 644 {} +");
-  console.log("  chmod 755 /tmp/anxos-agent-stage/DEBIAN/postinst /tmp/anxos-agent-stage/DEBIAN/prerm /tmp/anxos-agent-stage/DEBIAN/postrm /tmp/anxos-agent-stage/usr/bin/anxos-agent /tmp/anxos-agent-stage/usr/lib/anxos-agent/node/bin/node");
+  console.log("  chmod 755 /tmp/anxos-agent-stage/DEBIAN/postinst /tmp/anxos-agent-stage/DEBIAN/prerm /tmp/anxos-agent-stage/DEBIAN/postrm /tmp/anxos-agent-stage/usr/bin/anxos-agent /tmp/anxos-agent-stage/usr/lib/anxos-agent/node/bin/node /tmp/anxos-agent-stage/usr/lib/anxos-agent/update-helper");
   console.log("  chmod 440 /tmp/anxos-agent-stage/etc/sudoers.d/anxos-agent");
   console.log(`  dpkg-deb --build --root-owner-group /tmp/anxos-agent-stage "/tmp/${artifactName}"`);
   console.log(`  (cd /tmp && sha256sum "${artifactName}" > "${artifactName}.sha256")`);
