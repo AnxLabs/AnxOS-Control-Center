@@ -8,6 +8,12 @@
 //   F6 stop/restart need confirmation; offline computers are skipped, not re-routed
 //   F7 duplicates collapse, limits hold, one failure does not stop the rest
 //   F8 the renderer module searches, filters and sorts across computers
+//   F9 Docker services are listed with the servers (Build 215-C): type,
+//      ports, kept data, health, managed/compose/existing, crash on exit 1
+//   F10 a computer without Docker shows servers only; a Docker failure
+//      never hides that computer's servers; offline keeps last-known services
+//   F11 container actions go to the container's own computer, ids checked
+//   F12 the renderer filters by type and searches images
 const assert = require("assert");
 const fs = require("fs");
 const os = require("os");
@@ -142,14 +148,119 @@ let clock = "2026-11-16T12:00:00.000Z";
     vm.runInNewContext(fs.readFileSync(path.join(__dirname, "..", "src", "renderer", "serverFleet.js"), "utf8"), sandbox);
     const module = sandbox.window.AnxServerFleet;
     module._test.setData(first);
-    const names = () => module._test.visibleServers().map((server) => `${server.nodeName}/${server.name}`);
+    // Array.from: the sandbox builds its own Array, which deepStrictEqual
+    // would compare by prototype.
+    const names = () => Array.from(module._test.visibleServers(), (server) => `${server.nodeName}/${server.name}`);
     assert.deepStrictEqual(names(), ["Anxlab/AnxRP", "Anxlab/Palworld", "VPS/FiveM"], "default sort groups by computer");
     void elements;
     console.log("  ok F8 renderer ordering");
   }
 
+  const containers = {
+    "node-anxlab": [
+      { id: "abc123", name: "grafana", image: "grafana/grafana:latest", state: "running", status: "Up 3 hours (healthy)", health: "healthy", ports: ["3000->3000/tcp"], mounts: ["grafana-data"], labels: { "anxos.managed": "true", "anxos.template": "grafana" } },
+      { id: "def456", name: "immich-server", image: "ghcr.io/immich-app/immich-server:release", state: "exited", status: "Exited (1) 2 minutes ago", ports: [], mounts: ["immich-upload"], labels: { "com.docker.compose.project": "immich" } },
+      { id: "ghi789", name: "scratch", image: "alpine", state: "exited", status: "Exited (0) 1 day ago", ports: [], mounts: [], labels: {} },
+    ],
+  };
+  const readAll = (nodes, overrides = {}) => fleet.listServersAcrossComputers({
+    listNodes: async () => nodes,
+    listInstancesForNode: async (nodeId) => ({ instances: lists[nodeId] || [] }),
+    listContainersForNode: async (nodeId) => {
+      if (overrides[nodeId]) return overrides[nodeId]();
+      if (!containers[nodeId]) throw Object.assign(new Error("Docker is not installed."), { code: "DOCKER_NOT_INSTALLED" });
+      return containers[nodeId];
+    },
+    configDir,
+    now: () => clock,
+  });
+
+  // F9
+  let withDocker;
+  {
+    withDocker = await readAll([anxlab, vps]);
+    const services = withDocker.services;
+    assert.strictEqual(services.length, 3);
+    const grafana = services.find((service) => service.name === "grafana");
+    assert.strictEqual(grafana.kind, "docker");
+    assert.strictEqual(grafana.state, "running");
+    assert.strictEqual(grafana.health, "healthy");
+    assert.strictEqual(grafana.managed, true);
+    assert.strictEqual(grafana.template, "grafana");
+    assert.deepStrictEqual(grafana.ports, ["3000->3000/tcp"]);
+    assert.deepStrictEqual(grafana.storage, ["grafana-data"]);
+    assert.strictEqual(grafana.key, "node-anxlab::docker::abc123");
+    const immich = services.find((service) => service.name === "immich-server");
+    assert.strictEqual(immich.state, "crashed", "exit code 1 is a crash");
+    assert.strictEqual(immich.composeProject, "immich");
+    assert.strictEqual(services.find((service) => service.name === "scratch").state, "stopped", "exit code 0 is a clean stop");
+    assert(withDocker.servers.every((server) => server.kind === "server"));
+    const anxlabSummary = withDocker.computers.find((computer) => computer.nodeId === "node-anxlab");
+    assert.strictEqual(anxlabSummary.serviceCount, 3);
+    assert.strictEqual(anxlabSummary.docker, "ok");
+    const { normalizeContainer } = require("../src/shared/dockerService");
+    const listed = normalizeContainer({ ID: "x1", Names: "web", Image: "nginx", State: "running", Status: "Up 1 minute", Labels: "anxos.managed=true,com.docker.compose.project=site,secret.token=abc123,maintainer=someone", Mounts: "site-data,/srv/www", Networks: "bridge" });
+    assert.deepStrictEqual(listed.labels, { "anxos.managed": "true", "com.docker.compose.project": "site" }, "only AnxOS and Compose labels are kept");
+    assert(!JSON.stringify(listed).includes("abc123"), "other label values never leave the computer");
+    assert.deepStrictEqual(listed.mounts, ["site-data", "/srv/www"]);
+    console.log("  ok F9 Docker services listed with servers");
+  }
+
+  // F10
+  {
+    const vpsSummary = withDocker.computers.find((computer) => computer.nodeId === "node-vps");
+    assert.strictEqual(vpsSummary.docker, "off", "no Docker on that computer");
+    assert.strictEqual(vpsSummary.serverCount, 1, "its servers are still listed");
+    const broken = await readAll([anxlab], { "node-anxlab": async () => { throw Object.assign(new Error("Cannot connect to the Docker daemon"), { code: "DOCKER_REQUEST_FAILED" }); } });
+    assert.strictEqual(broken.servers.length, 2, "a Docker failure never hides servers");
+    assert.strictEqual(broken.computers[0].docker, "unavailable");
+    assert(/Docker daemon/.test(broken.computers[0].dockerMessage));
+    const offline = await readAll([{ ...anxlab, connection: { status: "offline" } }]);
+    assert.strictEqual(offline.services.length, 3, "last-known services kept for an offline computer");
+    assert(offline.services.every((service) => service.state === "last-known" && service.lastKnown));
+    const cache = JSON.parse(fs.readFileSync(path.join(configDir, fleet.CACHE_FILENAME), "utf8"));
+    assert(!JSON.stringify(cache).includes("3000->3000"), "ports are not cached");
+    console.log("  ok F10 Docker absence and failure never hide servers; offline keeps services");
+  }
+
+  // F11
+  {
+    const calls = [];
+    const result = await fleet.runServerFleetAction({
+      action: "restart",
+      confirm: true,
+      targets: [{ nodeId: "node-anxlab", containerId: "abc123" }, { nodeId: "node-anxlab", containerId: "abc123" }, { nodeId: "node-anxlab", containerId: "bad;id" }, { nodeId: "node-vps", instanceId: "fivem" }],
+      listNodes: async () => [anxlab, vps],
+      authorize: () => {},
+      runAction: async (verb, target) => calls.push(`${verb}:${target.nodeId}:${target.containerId || target.instanceId}:${target.kind}`),
+    });
+    assert.deepStrictEqual(calls, ["restart:node-anxlab:abc123:docker", "restart:node-vps:fivem:server"], "duplicates merged, unsafe id dropped, each to its own computer");
+    assert.strictEqual(result.succeeded, 2);
+    console.log("  ok F11 container actions routed to their computer");
+  }
+
+  // F12
+  {
+    const fakeDocument = { readyState: "complete", hidden: false, querySelector: () => null, addEventListener: () => {}, createElement: () => ({ append() {}, addEventListener() {}, setAttribute() {}, classList: { toggle() {} }, dataset: {} }) };
+    const sandbox = { window: { document: fakeDocument, localStorage: { getItem: () => "0", setItem: () => {} }, setInterval: () => 0, clearInterval: () => {} } };
+    vm.runInNewContext(fs.readFileSync(path.join(__dirname, "..", "src", "renderer", "serverFleet.js"), "utf8"), sandbox);
+    const module = sandbox.window.AnxServerFleet;
+    module._test.setData(withDocker);
+    const names = () => Array.from(module._test.visibleServers(), (item) => `${item.kind}:${item.name}`);
+    assert.strictEqual(names().length, 6, "three servers and three services");
+    module._test.setView({ type: "docker" });
+    assert.deepStrictEqual(names().sort(), ["docker:grafana", "docker:immich-server", "docker:scratch"]);
+    module._test.setView({ type: "server" });
+    assert(names().every((name) => name.startsWith("server:")));
+    module._test.setView({ type: "all", search: "immich-app" });
+    assert.deepStrictEqual(names(), ["docker:immich-server"], "search matches images");
+    module._test.setView({ search: "", state: "crashed" });
+    assert.deepStrictEqual(names().sort(), ["docker:immich-server", "server:AnxRP"], "crashed servers and services together");
+    console.log("  ok F12 renderer type filter and image search");
+  }
+
   fs.rmSync(configDir, { recursive: true, force: true });
-  console.log("Server fleet smoke passed (8 cases).");
+  console.log("Server fleet smoke passed (12 cases).");
 })().catch((error) => {
   console.error(error);
   process.exitCode = 1;

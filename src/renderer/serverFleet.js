@@ -9,6 +9,12 @@
 // through instances:fleetAction, which sends each server's action to its own
 // computer, one at a time, after a confirmation that names every server and
 // its computer. All text goes in with textContent.
+//
+// Build 215-C: Docker services on the same computers are listed with the
+// servers (type, ports, kept data, health), filterable by type. Start / Stop
+// / Restart go through the same fleet action, which sends each container's
+// action to its own computer; Open and Logs switch to that computer and open
+// the Docker page on the container. The Docker page itself is unchanged.
 (function initializeServerFleet(root) {
   "use strict";
 
@@ -31,7 +37,8 @@
   let loading = false;
   let timer = null;
   const selected = new Set();
-  const view = { search: "", state: "all", sort: "computer" };
+  const view = { search: "", state: "all", sort: "computer", type: "all" };
+  const TYPE_LABELS = { server: "Game server", docker: "Docker service" };
 
   function api() {
     return root.anx?.instances || null;
@@ -72,12 +79,18 @@
   function toggleButton() { return root.document.querySelector("[data-servers-all-computers]"); }
   function singleComputerShell() { return root.document.querySelector(".instances-main-shell"); }
 
+  function allWorkloads() {
+    const servers = (data.servers || []).map((server) => (server.kind ? server : { ...server, kind: "server" }));
+    return [...servers, ...(data.services || [])];
+  }
+
   function visibleServers() {
     const query = view.search.trim().toLowerCase();
-    const list = data.servers.filter((server) => {
+    const list = allWorkloads().filter((server) => {
+      if (view.type !== "all" && server.kind !== view.type) return false;
       if (view.state !== "all" && server.state !== view.state) return false;
       if (!query) return true;
-      return [server.name, server.nodeName, server.game, server.instanceId].some((value) => String(value || "").toLowerCase().includes(query));
+      return [server.name, server.nodeName, server.game, server.instanceId, server.image, server.template, server.composeProject, server.containerId].some((value) => String(value || "").toLowerCase().includes(query));
     });
     const byName = (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true });
     const sorters = {
@@ -92,7 +105,12 @@
   function renderSummary(container) {
     const line = el("p", "platform-note");
     const parts = data.computers.map((computer) => {
-      if (computer.status === "online") return `${computer.name}: ${computer.serverCount} server${computer.serverCount === 1 ? "" : "s"}`;
+      if (computer.status === "online") {
+        const docker = computer.docker === "ok"
+          ? `, ${computer.serviceCount || 0} Docker service${computer.serviceCount === 1 ? "" : "s"}`
+          : computer.docker === "unavailable" ? ", Docker unavailable" : "";
+        return `${computer.name}: ${computer.serverCount} server${computer.serverCount === 1 ? "" : "s"}${docker}`;
+      }
       const when = computer.fetchedAt ? `, last known ${formatAgo(computer.fetchedAt)}` : "";
       return `${computer.name}: not connected${computer.lastKnown ? when : ", no saved list"}`;
     });
@@ -106,7 +124,7 @@
     search.append(el("span", "", "Search all computers"));
     const input = el("input");
     input.type = "search";
-    input.placeholder = "Server, computer or game";
+    input.placeholder = "Name, computer, game or image";
     input.value = view.search;
     input.addEventListener("input", () => { view.search = input.value; renderTable(); });
     search.append(input);
@@ -121,6 +139,17 @@
     });
     state.addEventListener("change", () => { view.state = state.value; renderTable(); });
     stateLabel.append(state);
+    const typeLabel = el("label", "docker-filter");
+    typeLabel.append(el("span", "", "Type"));
+    const type = el("select");
+    [["all", "Servers and services"], ["server", "Game servers"], ["docker", "Docker services"]].forEach(([value, label]) => {
+      const option = el("option", "", label);
+      option.value = value;
+      option.selected = view.type === value;
+      type.append(option);
+    });
+    type.addEventListener("change", () => { view.type = type.value; renderTable(); });
+    typeLabel.append(type);
     const sortLabel = el("label", "docker-filter");
     sortLabel.append(el("span", "", "Sort"));
     const sort = el("select");
@@ -146,7 +175,7 @@
       button.addEventListener("click", () => runBulk(verb));
       actions.append(button);
     });
-    bar.append(search, stateLabel, sortLabel, actions);
+    bar.append(search, typeLabel, stateLabel, sortLabel, actions);
     container.append(bar);
   }
 
@@ -156,14 +185,14 @@
     host.replaceChildren();
     const servers = visibleServers();
     if (!servers.length) {
-      host.append(el("p", "platform-note", loading ? "Reading servers from every computer…" : "No servers match."));
+      host.append(el("p", "platform-note", loading ? "Reading servers and services from every computer…" : "Nothing matches."));
       updateBulkButtons();
       return;
     }
     const table = el("table", "docker-table instances-table");
     const head = el("thead");
     const headRow = el("tr");
-    ["", "Server", "Computer", "Status", "CPU", "RAM", "Actions"].forEach((label) => {
+    ["", "Name", "Type", "Computer", "Status", "CPU", "RAM", "Ports", "Kept data", "Actions"].forEach((label) => {
       const th = el("th", "", label);
       th.scope = "col";
       headRow.append(th);
@@ -187,22 +216,49 @@
       const name = el("td");
       name.append(el("strong", "", server.name));
       if (server.game) name.append(el("span", "platform-note", ` ${server.game}`));
+      if (server.kind === "docker" && (server.template || server.image)) name.append(el("span", "platform-note", ` ${server.template || server.image}`));
+      const type = el("td", "", TYPE_LABELS[server.kind] || "Server");
+      if (server.kind === "docker") {
+        type.title = server.managed
+          ? "Installed by AnxOS from the catalog."
+          : server.composeProject ? `Part of the Compose project ${server.composeProject}${server.dependsOn?.length ? `; starts after ${server.dependsOn.join(", ")}` : ""}.` : "An existing container AnxOS found on this computer.";
+        type.append(el("span", "platform-note", server.managed ? " · AnxOS" : server.composeProject ? ` · ${server.composeProject}` : " · existing"));
+      }
       const computer = el("td", "", server.nodeName);
       const status = el("td");
       const pill = el("span", `status-pill ${safe(() => root.getInstanceStateClass(server.reportedState), "")}`.trim(), STATE_LABELS[server.state] || "Unknown");
       if (server.lastKnown) pill.title = `Last seen ${STATE_LABELS[server.reportedState] || "unknown"}, ${formatAgo(server.fetchedAt)}.`;
       if (server.failureReason) pill.title = String(server.failureReason);
+      if (server.kind === "docker" && server.status && !server.lastKnown) pill.title = `${server.status}${server.restartPolicy ? ` · restart policy ${server.restartPolicy}` : ""}`;
       status.append(pill);
+      if (server.kind === "docker" && server.health && !server.lastKnown) status.append(el("span", "platform-note", ` ${server.health}`));
       const cpu = el("td", "", Number.isFinite(server.cpuPercent) ? `${server.cpuPercent.toFixed(1)}%` : "—");
       const ram = el("td", "", formatMemory(server.memoryBytes));
+      const ports = el("td", "", server.kind === "docker" ? (server.ports?.length ? server.ports.join(", ") : "none published") : "—");
+      const storage = el("td", "", server.kind === "docker"
+        ? (server.storage?.length ? server.storage.join(", ") : "none (data is lost when removed)")
+        : "Server folder");
+      if (server.kind === "docker") {
+        storage.title = server.storage?.length
+          ? "Volumes and folders this container keeps its data in. Removing the container from the Docker page keeps them unless you choose to delete them."
+          : "This container has no volume: anything it saved inside itself is lost when it is removed.";
+      }
       const actions = el("td");
       const open = el("button", "inline-action", "Open");
       open.type = "button";
       open.disabled = server.lastKnown;
       open.title = server.lastKnown ? `${server.nodeName} is not connected.` : `Open ${server.name} on ${server.nodeName}`;
-      open.addEventListener("click", () => openServer(server));
+      open.addEventListener("click", () => (server.kind === "docker" ? openService(server, "overview") : openServer(server)));
       actions.append(open);
-      row.append(pick, name, computer, status, cpu, ram, actions);
+      if (server.kind === "docker") {
+        const logs = el("button", "inline-action", "Logs");
+        logs.type = "button";
+        logs.disabled = server.lastKnown;
+        logs.title = `Logs of ${server.name} on ${server.nodeName}`;
+        logs.addEventListener("click", () => openService(server, "logs"));
+        actions.append(logs);
+      }
+      row.append(pick, name, type, computer, status, cpu, ram, ports, storage, actions);
       body.append(row);
     });
     table.append(head, body);
@@ -222,7 +278,7 @@
     container.replaceChildren();
     const header = el("div", "settings-section__header");
     const titles = el("div");
-    titles.append(el("h2", "", "Servers on all computers"), el("p", "platform-note", "Every server on every paired computer. Open switches to that server's computer first."));
+    titles.append(el("h2", "", "Servers and services on all computers"), el("p", "platform-note", "Every game server and Docker service on every paired computer. Open switches to that computer first. The Docker page keeps every container tool."));
     header.append(titles);
     container.append(header);
     renderSummary(container);
@@ -240,7 +296,7 @@
     render();
     try {
       data = await instancesApi.listAcrossComputers();
-      const keys = new Set(data.servers.filter((server) => !server.lastKnown).map((server) => server.key));
+      const keys = new Set(allWorkloads().filter((server) => !server.lastKnown).map((server) => server.key));
       [...selected].forEach((key) => { if (!keys.has(key)) selected.delete(key); });
     } catch (error) {
       safe(() => root.showToast(error?.message || "Servers could not be read from every computer.", "warning"));
@@ -258,26 +314,44 @@
     await safe(() => root.openDashboardInstanceDetails(server.instanceId), null);
   }
 
+  // Docker: switch to the container's computer, open the Docker page and
+  // select the container on the requested tab.
+  async function openService(service, tab) {
+    if (service.lastKnown) return;
+    setEnabled(false);
+    const switched = await safe(() => root.selectNode(service.nodeId), null);
+    if (switched && switched.error) return;
+    safe(() => root.showPage("docker"));
+    await safe(() => root.refreshDockerStatus(), null);
+    safe(() => root.setDockerTab(tab || "overview"));
+    safe(() => root.selectDockerContainer(service.containerId));
+  }
+
   async function runBulk(verb) {
     const instancesApi = api();
-    const targets = data.servers.filter((server) => selected.has(server.key) && !server.lastKnown);
+    const targets = allWorkloads().filter((server) => selected.has(server.key) && !server.lastKnown);
     if (!instancesApi?.fleetAction || !targets.length) return;
     const names = targets.map((server) => `${server.name} (${server.nodeName})`).join(", ");
     const needsConfirm = verb !== "start";
+    const games = targets.filter((target) => target.kind !== "docker").length;
+    const services = targets.length - games;
+    const what = [games ? `${games} server${games === 1 ? "" : "s"}` : null, services ? `${services} service${services === 1 ? "" : "s"}` : null].filter(Boolean).join(" and ");
     if (needsConfirm) {
       const confirmed = await safe(() => root.createSecurityConfirmation({
-        title: `${verb === "stop" ? "Stop" : "Restart"} ${targets.length} server${targets.length === 1 ? "" : "s"}?`,
-        message: `Players on these servers are disconnected: ${names}.`,
-        confirmLabel: verb === "stop" ? "Stop servers" : "Restart servers",
+        title: `${verb === "stop" ? "Stop" : "Restart"} ${what}?`,
+        message: `${games ? "Players on these servers are disconnected. " : ""}${services ? "These services stop answering until they are started again. " : ""}${names}.`,
+        confirmLabel: verb === "stop" ? "Stop" : "Restart",
       }), false);
       if (!confirmed) return;
     }
     try {
-      const result = await instancesApi.fleetAction(verb, targets.map((server) => ({ nodeId: server.nodeId, instanceId: server.instanceId })), { confirm: needsConfirm });
+      const result = await instancesApi.fleetAction(verb, targets.map((server) => (server.kind === "docker"
+        ? { nodeId: server.nodeId, containerId: server.containerId }
+        : { nodeId: server.nodeId, instanceId: server.instanceId })), { confirm: needsConfirm });
       const failures = (result?.results || []).filter((entry) => !entry.ok);
       safe(() => root.showToast(failures.length
         ? `${result.succeeded} done, ${failures.length} not: ${failures.map((entry) => `${entry.nodeName || entry.nodeId}: ${entry.message}`).join("; ")}`
-        : `${verb[0].toUpperCase()}${verb.slice(1)} sent to ${result.succeeded} server${result.succeeded === 1 ? "" : "s"}.`, failures.length ? "warning" : "success"));
+        : `${verb[0].toUpperCase()}${verb.slice(1)} sent to ${result.succeeded} item${result.succeeded === 1 ? "" : "s"}.`, failures.length ? "warning" : "success"));
       selected.clear();
     } catch (error) {
       safe(() => root.showToast(error?.message || "The action failed.", "warning"));
@@ -315,7 +389,7 @@
     if (safe(() => root.localStorage.getItem(MODE_KEY), "0") === "1") setEnabled(true);
   }
 
-  root.AnxServerFleet = { setEnabled, load, _test: { visibleServers: () => visibleServers(), setData: (next) => { data = next; } } };
+  root.AnxServerFleet = { setEnabled, load, _test: { visibleServers: () => visibleServers(), setData: (next) => { data = next; }, setView: (next) => Object.assign(view, next) } };
   if (root.document.readyState === "loading") root.document.addEventListener("DOMContentLoaded", mount);
   else mount();
 })(window);

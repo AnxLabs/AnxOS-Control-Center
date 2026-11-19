@@ -277,11 +277,49 @@ function parseJsonLines(output, normalizer) {
     .filter(Boolean);
 }
 
+// Labels a container list may carry to the Desktop. Label values can hold
+// anything a compose file or image author put there (including secrets), so
+// only AnxOS's own labels and Compose's project/service names are kept.
+const LISTED_LABEL_KEYS = new Set([
+  "anxos.managed",
+  "anxos.template",
+  "anxos.instance",
+  "com.docker.compose.project",
+  "com.docker.compose.service",
+  "com.docker.compose.depends_on",
+]);
+
+// `docker ps --format json` gives labels as "k=v,k2=v2" (an object from the
+// Engine API); values containing commas are cut, which is acceptable for the
+// short names kept here.
+function normalizeListedLabels(value) {
+  const labels = {};
+  const entries = value && typeof value === "object" && !Array.isArray(value)
+    ? Object.entries(value)
+    : String(value || "").split(",").map((pair) => {
+      const index = pair.indexOf("=");
+      return index > 0 ? [pair.slice(0, index).trim(), pair.slice(index + 1).trim()] : null;
+    }).filter(Boolean);
+  for (const [key, raw] of entries) {
+    if (!LISTED_LABEL_KEYS.has(key)) continue;
+    labels[key] = String(raw ?? "").slice(0, 200);
+  }
+  return labels;
+}
+
+// Names only (volume names or host paths as docker ps shortens them).
+function normalizeNameList(value) {
+  return unique(String(value || "").split(",").map((entry) => entry.trim()).filter(Boolean)).slice(0, 20);
+}
+
 function normalizeContainer(container) {
   const status = container.Status || container.State || null;
   const rawPorts = container.Ports || null;
   const health = String(status || "").match(/\((healthy|unhealthy|starting)\)/i)?.[1] || container.Health || null;
   return {
+    labels: normalizeListedLabels(container.Labels),
+    mounts: normalizeNameList(container.Mounts),
+    networks: normalizeNameList(container.Networks),
     id: container.ID || container.Id || null,
     name: normalizeName(container.Names || container.Name) || null,
     image: container.Image || null,

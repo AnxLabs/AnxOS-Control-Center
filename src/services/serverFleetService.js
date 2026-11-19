@@ -47,6 +47,7 @@ function summarizeServer(instance, node, { lastKnown, fetchedAt }) {
   const cpu = Number(metrics?.cpuPercent);
   const memory = Number(metrics?.memoryRssBytes);
   return {
+    kind: "server",
     key: `${node.id}::${instance.id}`,
     nodeId: node.id,
     nodeName: nodeLabel(node),
@@ -58,6 +59,55 @@ function summarizeServer(instance, node, { lastKnown, fetchedAt }) {
     failureReason: instance.failureReason || null,
     cpuPercent: !lastKnown && Number.isFinite(cpu) ? cpu : null,
     memoryBytes: !lastKnown && Number.isFinite(memory) ? memory : null,
+    lastKnown,
+    fetchedAt,
+  };
+}
+
+// Docker container states, grouped like server states. An exited container
+// with a non-zero exit code (or a dead one) is "crashed"; a clean exit is
+// "stopped". Paused is reported as stopped (it serves nobody) with the raw
+// state kept for the label.
+function normalizeContainerState(container) {
+  const state = String(container?.state || "").trim().toLowerCase();
+  const status = String(container?.status || "");
+  if (state === "running" || /^up\b/i.test(status)) return /\(unhealthy\)/i.test(status) || String(container?.health || "").toLowerCase() === "unhealthy" ? "crashed" : "running";
+  if (state === "restarting" || /^restarting/i.test(status)) return "starting";
+  if (state === "dead") return "crashed";
+  if (state === "exited" || /^exited/i.test(status)) {
+    const code = Number(status.match(/^exited \((-?\d+)\)/i)?.[1]);
+    return Number.isFinite(code) && code !== 0 ? "crashed" : "stopped";
+  }
+  if (state === "paused" || state === "created") return "stopped";
+  return "unknown";
+}
+
+function summarizeService(container, node, { lastKnown, fetchedAt }) {
+  const labels = container?.labels && typeof container.labels === "object" ? container.labels : {};
+  const id = String(container.id || container.name || "");
+  const reportedState = normalizeContainerState(container);
+  return {
+    kind: "docker",
+    key: `${node.id}::docker::${id}`,
+    nodeId: node.id,
+    nodeName: nodeLabel(node),
+    containerId: id,
+    name: String(container.name || id).replace(/^\//, ""),
+    image: container.image ? String(container.image) : null,
+    template: labels["anxos.template"] || null,
+    managed: labels["anxos.managed"] === "true",
+    composeProject: labels["com.docker.compose.project"] || null,
+    composeService: labels["com.docker.compose.service"] || null,
+    // Compose writes "service:condition:restart,..." for depends_on.
+    dependsOn: String(labels["com.docker.compose.depends_on"] || "").split(",").map((entry) => entry.split(":")[0].trim()).filter(Boolean).slice(0, 10),
+    state: lastKnown ? "last-known" : reportedState,
+    reportedState,
+    rawState: container.state || null,
+    health: container.health ? String(container.health).toLowerCase() : null,
+    status: container.status ? String(container.status) : null,
+    ports: Array.isArray(container.ports) ? container.ports.slice(0, 12) : [],
+    storage: Array.isArray(container.mounts) ? container.mounts.slice(0, 12) : [],
+    restartPolicy: container.restartPolicy || null,
     lastKnown,
     fetchedAt,
   };
@@ -104,7 +154,29 @@ function isComputerOnline(node) {
   return status === "online" || status === "degraded";
 }
 
-async function listServersAcrossComputers({ listNodes, listInstancesForNode, configDir, now = () => new Date().toISOString() }) {
+// Docker on a computer: "ok" with its containers, "off" when Docker is not
+// installed, not running or not enabled for that computer (nothing to show),
+// or "unavailable" with the reason. Never fails the whole list.
+async function readContainers(listContainersForNode, nodeId) {
+  if (typeof listContainersForNode !== "function") return { docker: "not-requested", containers: [] };
+  try {
+    const response = await listContainersForNode(nodeId);
+    const containers = Array.isArray(response) ? response : Array.isArray(response?.containers) ? response.containers : [];
+    return { docker: "ok", containers: containers.filter((container) => container && (container.id || container.name)) };
+  } catch (error) {
+    const code = String(error?.code || "");
+    if (/DOCKER_(DISABLED|NOT_INSTALLED|UNAVAILABLE|DAEMON|NOT_RUNNING)|FEATURE_DISABLED|PERMISSION_DENIED|FORBIDDEN/i.test(code)) {
+      return { docker: "off", containers: [], code };
+    }
+    return { docker: "unavailable", containers: [], code: code || null, message: error?.message || "Docker could not be read." };
+  }
+}
+
+// Game servers and, when listContainersForNode is given, Docker services on
+// every computer (Build 215-C: one list of everything AnxOS runs). Docker is
+// read in the same per-computer lane as the servers, so a slow computer slows
+// only its own row.
+async function listServersAcrossComputers({ listNodes, listInstancesForNode, listContainersForNode = null, configDir, now = () => new Date().toISOString() }) {
   const nodes = (await listNodes()).filter((node) => node && node.id);
   const cache = readCache(configDir);
   const computers = await runWithConcurrency(nodes, CONCURRENCY, async (node) => {
@@ -115,36 +187,56 @@ async function listServersAcrossComputers({ listNodes, listInstancesForNode, con
     try {
       const response = await listInstancesForNode(node.id);
       const instances = Array.isArray(response) ? response : Array.isArray(response?.instances) ? response.instances : [];
-      return { node, status: "online", instances, fetchedAt: now() };
+      const docker = await readContainers(listContainersForNode, node.id);
+      return { node, status: "online", instances, docker, fetchedAt: now(), cached };
     } catch (error) {
       return { node, status: "unavailable", message: error?.message || "The server list could not be read.", code: error?.code || null, cached };
     }
   });
 
   const servers = [];
+  const services = [];
   const summary = [];
   for (const entry of computers) {
     const { node } = entry;
     if (entry.status === "online") {
       const list = entry.instances.filter((instance) => instance && instance.id);
+      const containers = entry.docker?.containers || [];
       cache.computers[node.id] = {
         name: nodeLabel(node),
         fetchedAt: entry.fetchedAt,
         servers: list.map((instance) => ({ id: String(instance.id), displayName: instance.displayName || instance.name || null, gameAdapter: instance.gameAdapter || instance.game || instance.templateId || instance.type || null, state: instance.state || instance.status || null })),
+        // Names, images and states only; ports and storage are re-read live.
+        services: entry.docker?.docker === "ok"
+          ? containers.map((container) => ({ id: String(container.id || container.name), name: container.name || null, image: container.image || null, state: container.state || null, status: container.status || null, labels: container.labels || {} }))
+          : (entry.cached?.services || []),
       };
       list.forEach((instance) => servers.push(summarizeServer(instance, node, { lastKnown: false, fetchedAt: entry.fetchedAt })));
-      summary.push({ nodeId: node.id, name: nodeLabel(node), status: "online", serverCount: list.length, fetchedAt: entry.fetchedAt });
+      containers.forEach((container) => services.push(summarizeService(container, node, { lastKnown: false, fetchedAt: entry.fetchedAt })));
+      summary.push({
+        nodeId: node.id,
+        name: nodeLabel(node),
+        status: "online",
+        serverCount: list.length,
+        serviceCount: containers.length,
+        docker: entry.docker?.docker || "not-requested",
+        dockerMessage: entry.docker?.message || null,
+        fetchedAt: entry.fetchedAt,
+      });
     } else {
       const cached = entry.cached;
       (cached?.servers || []).forEach((instance) => servers.push(summarizeServer(instance, node, { lastKnown: true, fetchedAt: cached.fetchedAt || null })));
-      summary.push({ nodeId: node.id, name: nodeLabel(node), status: entry.status, message: entry.message, serverCount: cached?.servers?.length || 0, fetchedAt: cached?.fetchedAt || null, lastKnown: Boolean(cached) });
+      if (typeof listContainersForNode === "function") {
+        (cached?.services || []).forEach((container) => services.push(summarizeService(container, node, { lastKnown: true, fetchedAt: cached.fetchedAt || null })));
+      }
+      summary.push({ nodeId: node.id, name: nodeLabel(node), status: entry.status, message: entry.message, serverCount: cached?.servers?.length || 0, serviceCount: cached?.services?.length || 0, fetchedAt: cached?.fetchedAt || null, lastKnown: Boolean(cached) });
     }
   }
   // Forget cached computers that are no longer registered.
   const registered = new Set(nodes.map((node) => node.id));
   for (const nodeId of Object.keys(cache.computers)) if (!registered.has(nodeId)) delete cache.computers[nodeId];
   writeCache(configDir, cache);
-  return { computers: summary, servers };
+  return { computers: summary, servers, services };
 }
 
 // Start / Stop / Restart several servers, possibly on several computers.
@@ -156,10 +248,18 @@ async function runServerFleetAction({ action, targets, confirm, listNodes, autho
   if ((verb === "stop" || verb === "restart") && confirm !== true) {
     throw Object.assign(new Error("Confirm before stopping or restarting servers: players on them are disconnected."), { code: "SERVER_FLEET_CONFIRMATION_REQUIRED" });
   }
+  // A target is a game server (instanceId) or a Docker service (containerId),
+  // never both; an id with characters Docker and AnxOS never use is dropped.
+  const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9_.:@-]{0,127}$/;
   const list = (Array.isArray(targets) ? targets : [])
-    .map((target) => ({ nodeId: String(target?.nodeId || "").trim(), instanceId: String(target?.instanceId || "").trim() }))
-    .filter((target) => target.nodeId && target.instanceId);
-  const unique = [...new Map(list.map((target) => [`${target.nodeId}::${target.instanceId}`, target])).values()];
+    .map((target) => {
+      const nodeId = String(target?.nodeId || "").trim();
+      const containerId = String(target?.containerId || "").trim();
+      if (containerId) return SAFE_ID.test(containerId) ? { nodeId, containerId, kind: "docker" } : null;
+      return { nodeId, instanceId: String(target?.instanceId || "").trim(), kind: "server" };
+    })
+    .filter((target) => target && target.nodeId && (target.instanceId || target.containerId));
+  const unique = [...new Map(list.map((target) => [`${target.nodeId}::${target.kind}::${target.containerId || target.instanceId}`, target])).values()];
   if (!unique.length) throw Object.assign(new Error("Select at least one server."), { code: "SERVER_FLEET_TARGETS_REQUIRED" });
   if (unique.length > MAX_ACTION_TARGETS) throw Object.assign(new Error(`Up to ${MAX_ACTION_TARGETS} servers per action.`), { code: "SERVER_FLEET_TOO_MANY" });
   const nodes = new Map((await listNodes()).map((node) => [node.id, node]));
@@ -188,6 +288,7 @@ async function runServerFleetAction({ action, targets, confirm, listNodes, autho
 module.exports = {
   CACHE_FILENAME,
   listServersAcrossComputers,
+  normalizeContainerState,
   normalizeServerState,
   runServerFleetAction,
 };

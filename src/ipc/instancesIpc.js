@@ -44,6 +44,10 @@ const {
   updateInstance,
   updateRestartSchedule,
   writeInstanceFile,
+  listDockerContainers,
+  restartDockerContainer,
+  startDockerContainer,
+  stopDockerContainer,
 } = require("../services/serviceRouter");
 const { checkServerVersionUpdate } = require("../services/marketplaceService");
 const { openInstanceSignIn, selectInstanceSignInProfile } = require("../services/instanceSignInService");
@@ -225,6 +229,12 @@ function registerInstancesIpc() {
       }
     }),
     listInstancesForNode: (nodeId) => listInstances({ nodeId }),
+    // Docker services on the same computers (Build 215-C), with the caller's
+    // per-computer Docker read permission; a refusal reads as "no Docker".
+    listContainersForNode: (nodeId) => {
+      requirePermission("docker:read", nodeId);
+      return listDockerContainers({ nodeId });
+    },
     configDir: path.dirname(getNodesPath()),
   });
   }));
@@ -237,8 +247,17 @@ function registerInstancesIpc() {
     targets: payload.targets,
     confirm: payload.confirm === true,
     listNodes: registeredComputers,
-    authorize: (target) => requirePermission("instance:lifecycle", target.instanceId),
+    authorize: (target) => requirePermission("instance:lifecycle", target.containerId || target.instanceId),
     runAction: (verb, target) => {
+      if (target.containerId) {
+        // Same permission and routes as the Docker page, sent to the
+        // container's own computer.
+        audit({ action: `docker.container.${verb}`, target: target.containerId, nodeId: target.nodeId, via: "all-computers" });
+        const dockerOptions = { nodeId: target.nodeId };
+        if (verb === "start") return startDockerContainer(target.containerId, dockerOptions);
+        if (verb === "stop") return stopDockerContainer(target.containerId, dockerOptions);
+        return restartDockerContainer(target.containerId, dockerOptions);
+      }
       audit({ action: `instance.${verb}`, target: target.instanceId, nodeId: target.nodeId, via: "all-computers" });
       const options = { nodeId: target.nodeId };
       if (verb === "start") return startInstance(target.instanceId, options);
