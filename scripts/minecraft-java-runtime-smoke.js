@@ -105,8 +105,11 @@ async function main() {
     assert.strictEqual(runtimes[0].executable, bundled21, "the bundled Java 21 is preferred over Program Files");
     assert.strictEqual(runtimes.length, 2, "the same file in another letter case is listed once on Windows");
     assert.strictEqual(runtimeResolver.resolveJavaRuntime({ game: "minecraft", minecraftVersion: "1.21.1" }, options).executable, bundled21);
-    const withoutBundle = runtimeResolver.discoverJavaRuntimes({ ...options, environment: {}, candidates: [bundled21, programFiles21] });
-    assert.strictEqual(withoutBundle[0].executable, programFiles21, "without a bundle the order is unchanged");
+    // Fixed Windows-style paths: the temp folder is /tmp on Linux CI, which
+    // would sort differently from a Windows "C:\Users\..." temp path.
+    const installedApp21 = "C:\\Users\\qa\\AppData\\Local\\Programs\\AnxOS Control Center\\resources\\bundled-runtimes\\win-x64\\java\\21\\bin\\java.exe";
+    const withoutBundle = runtimeResolver.discoverJavaRuntimes({ ...options, environment: {}, candidates: [installedApp21, programFiles21] });
+    assert.strictEqual(withoutBundle[0].executable, programFiles21, "without a bundle the order is unchanged (by path)");
   } finally {
     await fs.rm(bundleRoot, { recursive: true, force: true });
   }

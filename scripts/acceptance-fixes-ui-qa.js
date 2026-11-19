@@ -64,8 +64,29 @@ function buildLabel(artifactVersion) {
   return match ? `${Number(match[1])}.${Number(match[2])} Build ${Number(match[3])}` : "Build not reported";
 }
 
+// Agent readiness before anything is timed: an Agent's first /stats samples
+// the hardware, which took 7.3 s on a loaded Windows PC (later samples
+// 20-170 ms). A2 starts locked, so without this that first sample fell inside
+// the 7 s it allows the dashboard to poll after the unlock, and A2 failed on
+// Agent start-up rather than on the polling it checks.
+async function waitForAgentStatsReady(agent, timeoutMs = 60000) {
+  const started = Date.now();
+  let last = null;
+  while (Date.now() - started < timeoutMs) {
+    try {
+      const response = await fetch(`${agent.url}/api/v1/stats`, { headers: { authorization: `Bearer ${agent.token}` } });
+      if (response.ok) return Date.now() - started;
+      last = `HTTP ${response.status}`;
+    } catch (error) { last = error.message; }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error(`the test Agent did not answer /stats within ${timeoutMs / 1000} s (${last})`);
+}
+
 async function main() {
   const agent = await startServiceManagedAgent({ initial: "running" });
+  const agentReadyMs = await waitForAgentStatsReady(agent);
+  console.log(`Test Agent ready: first /stats answered in ${agentReadyMs} ms`);
   const qa = createIsolatedQaEnv("anx-acceptance-qa-config-");
   const write = (name, value) => fs.writeFileSync(path.join(qa.configDir, name), `${JSON.stringify(value, null, 2)}\n`);
   write("agent.json", { backendMode: "agent", agentUrl: "http://127.0.0.1:9", agentToken: "legacy-token-must-not-be-used" });
