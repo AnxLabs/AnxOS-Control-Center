@@ -5587,6 +5587,8 @@ module.exports = {
     waitForStartedInstanceReadiness,
   },
   cancelDownload,
+  // Catalog lookup for the Docker service image update (dockerIpc).
+  findTemplate,
   createDependencyInstallRecord,
   finalizeDependencyInstallRecord,
   getDownloads: (nodeId = null) => sanitizeDownloads(getDownloadsForNode(nodeId)),

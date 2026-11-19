@@ -296,6 +296,7 @@ const desktopApi = {
     stopContainer: (container, payload = {}) => ipcRenderer.invoke("docker:stop", { ...payload, container }),
     restart: (container, payload = {}) => ipcRenderer.invoke("docker:restart", { ...payload, container }),
     restartContainer: (container, payload = {}) => ipcRenderer.invoke("docker:restart", { ...payload, container }),
+    updateService: (container, payload = {}) => ipcRenderer.invoke("docker:updateService", { ...payload, container }),
     pause: (container, payload = {}) => ipcRenderer.invoke("docker:pause", { ...payload, container }),
     unpause: (container, payload = {}) => ipcRenderer.invoke("docker:unpause", { ...payload, container }),
     kill: (container, payload = {}) => ipcRenderer.invoke("docker:kill", { ...payload, container }),

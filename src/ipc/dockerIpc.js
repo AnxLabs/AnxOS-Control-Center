@@ -41,6 +41,7 @@ const { audit, requirePermission } = require("../services/securityService");
 const { wrapExpectedAgentRead } = require("./expectedAgentError");
 const { requireNodeContext } = require("./nodeContext");
 const { createIpcError } = require("../shared/ipcError");
+const { updateDockerService } = require("../services/dockerServiceUpdateService");
 // V2-J bullet 2: the operation scope every Docker action enters, so the durable
 // job it mints and the Agent actions it triggers join on one id.
 const { runWithCorrelationScope } = require("../shared/structuredLogger");
@@ -118,6 +119,35 @@ function registerDockerIpc() {
     requireDockerNodeContext(payload, "container restart");
     requirePermission("instance:lifecycle", payload.container);
     return restartDockerContainer(payload.container, payload);
+  }));
+  // Safe image update for a Docker service AnxOS installed (Build 215-C):
+  // newest image of the same tag, same name, ports and volumes; the previous
+  // container comes back if the new one does not stay up. Every step goes to
+  // this computer by explicit nodeId.
+  ipcMain.handle("docker:updateService", async (_, payload = {}) => invokeDockerOperation(() => {
+    const context = requireDockerNodeContext(payload, "service update");
+    requirePermission("instance:write", payload.container);
+    audit({ action: "docker.service.update", target: payload.container, nodeId: context?.nodeId || payload.nodeId || null });
+    const options = { nodeId: payload.nodeId };
+    return updateDockerService(payload.container, {
+      inspectContainer: (name) => inspectDockerContainer(name, options),
+      inspectImage: (image) => inspectDockerImage(image, options),
+      pullImage: (image) => pullDockerImage(image, options),
+      stopContainer: (name) => stopDockerContainer(name, options),
+      startContainer: (name) => startDockerContainer(name, options),
+      renameContainer: (name, next) => renameDockerContainer(name, next, options),
+      createContainer: (spec) => createDockerContainer({ ...spec, nodeId: payload.nodeId }),
+      deleteContainer: (name) => deleteDockerContainer(name, options),
+      getLogs: (name) => getDockerContainerLogs(name, { ...options, tail: 30 }),
+      findTemplate: (templateId) => {
+        try {
+          return require("../services/marketplaceService").findTemplate(templateId);
+        } catch {
+          return null;
+        }
+      },
+      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    });
   }));
   ipcMain.handle("docker:pause", async (_, payload = {}) => invokeDockerOperation(() => {
     requireDockerNodeContext(payload, "container pause");

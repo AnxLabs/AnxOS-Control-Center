@@ -257,6 +257,14 @@
         logs.title = `Logs of ${server.name} on ${server.nodeName}`;
         logs.addEventListener("click", () => openService(server, "logs"));
         actions.append(logs);
+        if (server.managed && !server.composeProject) {
+          const update = el("button", "inline-action", updating.has(server.key) ? "Updating…" : "Update");
+          update.type = "button";
+          update.disabled = server.lastKnown || updating.has(server.key);
+          update.title = `Look for a newer ${server.image || "image"} and, if there is one, replace the container with the same ports and data. The previous container comes back if the new one does not start.`;
+          update.addEventListener("click", () => updateService(server));
+          actions.append(update);
+        }
       }
       row.append(pick, name, type, computer, status, cpu, ram, ports, storage, actions);
       body.append(row);
@@ -312,6 +320,43 @@
     const switched = await safe(() => root.selectNode(server.nodeId), null);
     if (switched && switched.error) return;
     await safe(() => root.openDashboardInstanceDetails(server.instanceId), null);
+  }
+
+  // Image update for a service AnxOS installed (docker:updateService). The
+  // confirmation says what is and is not undone: the image can go back, the
+  // data a newer version changed cannot.
+  const updating = new Set();
+  async function updateService(service) {
+    const dockerApi = root.anx?.docker;
+    if (!dockerApi?.updateService || service.lastKnown) return;
+    const confirmed = await safe(() => root.createSecurityConfirmation({
+      eyebrow: "Docker service update",
+      title: `Update ${service.name} on ${service.nodeName}?`,
+      message: "AnxOS downloads the newest image for the same tag. If it is newer, the service restarts on it with the same ports, settings and data.",
+      details: [
+        ["Service", `${service.name} (${service.template || service.image || "Docker"})`],
+        ["Computer", service.nodeName],
+        ["Image", service.image || "Unknown"],
+        ["Data", service.storage?.length ? `${service.storage.join(", ")} (kept and reattached)` : "No volume"],
+        ["If it does not start", "The previous container (old image) is started again."],
+        ["Not undone", "Changes the new version makes to its data, such as a database upgrade. Back up the data first if it matters."],
+      ],
+      confirmLabel: "Update",
+    }), false);
+    if (!confirmed) return;
+    updating.add(service.key);
+    renderTable();
+    safe(() => root.showToast(`Updating ${service.name}. Downloading the image can take a few minutes.`, "info"));
+    try {
+      const result = await dockerApi.updateService(service.name, { nodeId: service.nodeId });
+      safe(() => root.showToast(result?.upToDate ? `${service.name} already runs the newest ${result.image}.` : `${service.name} now runs the newest ${result?.image || "image"}; its data was kept.`, "success"));
+    } catch (error) {
+      const rolledBack = error?.details?.rolledBack === true || /previous container/i.test(String(error?.message || ""));
+      safe(() => root.showToast(`${service.name} was not updated: ${String(error?.message || "the update failed").replace(/^[A-Z][A-Z0-9_]{2,}:\s*/, "")}${rolledBack ? " The previous container is running again." : ""}`, "warning"));
+    } finally {
+      updating.delete(service.key);
+    }
+    await load();
   }
 
   // Docker: switch to the container's computer, open the Docker page and

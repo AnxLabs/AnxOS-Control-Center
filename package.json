@@ -432,6 +432,7 @@
     "agent:update-manager:smoke": "node scripts/agent-update-manager-smoke.js",
     "agent:update-ux:smoke": "node scripts/agent-update-ux-smoke.js",
     "ssh:key-setup:smoke": "node scripts/ssh-key-setup-smoke.js",
+    "docker:service-update:smoke": "node scripts/docker-service-update-smoke.js",
     "server-fleet:smoke": "node scripts/server-fleet-smoke.js",
     "migration-preflight:smoke": "node scripts/migration-preflight-smoke.js",
     "agent:tui-theme:smoke": "node scripts/agent-tui-theme-smoke.js",
