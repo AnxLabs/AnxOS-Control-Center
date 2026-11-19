@@ -114,10 +114,12 @@ async function main() {
       await shot(page, "b1-all-computers");
       assert.strictEqual(view.pressed, "true");
       assert.strictEqual(view.selected, "vps", "the offline VPS is still the selected computer");
-      assert.ok(view.rows.some((cells) => cells[2] === "Lab"), `Lab's servers appear while the VPS is selected (${JSON.stringify(view.rows)})`);
+      // Build 215 added a Type column (index 2), so Computer is index 3, and
+      // the list also holds the computers' Docker services.
+      assert.ok(view.rows.some((cells) => cells[3] === "Lab" && cells[2] === "Game server"), `Lab's servers appear while the VPS is selected (${JSON.stringify(view.rows)})`);
       assert.ok(/VPS: not connected/.test(view.summary), `the VPS stays listed as not connected (${view.summary})`);
 
-      await page.evaluate(() => [...document.querySelectorAll("[data-server-fleet-row]")].find((row) => row.children[2].textContent.trim() === "Lab").querySelector("button").click());
+      await page.evaluate(() => [...document.querySelectorAll("[data-server-fleet-row]")].find((row) => row.children[3].textContent.trim() === "Lab" && row.children[2].textContent.trim() === "Game server").querySelector("button").click());
       await waitFor(page, () => getSelectedNodeId() === "lab" && document.querySelector("[data-server-fleet]").hidden, null, "switch to Lab", 30000);
       await page.waitForTimeout(1500);
       await shot(page, "b1-opened-on-lab");

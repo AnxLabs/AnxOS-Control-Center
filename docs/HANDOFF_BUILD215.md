@@ -111,6 +111,26 @@ still running (`docker rm -f anx215-a anx215-b` removes them; the image is
 - `node --check` on every changed JavaScript file; `git diff --check` clean.
 - Release validation: see "Final gate" below.
 
+## Final gate (2026-11-19)
+
+- `npm run rc:validate`: first run stopped at 95/420 on
+  `permission-matrix:smoke` (the two new IPC channels had no matrix rows);
+  rows and a probe were added (`ssh-key-setup` family, `docker:updateService`
+  in `docker-write`). Second run: **420/420 PASS**.
+- `npm run qa:release`: **136 passed, 1 failed**, the last started:
+  `acceptance-fixes-ui-qa` A2 ("the dashboard polls again after the unlock",
+  0-1 snapshot reads in 7 s; its other 8 checks passed, A1 shows "2.0 Build
+  215"). A2 fails the same way on the Build 214 baseline (`2c45c729`, two
+  runs in a temporary worktree: 0 snapshots, and once a 30 s reload
+  timeout), so it is not a Build 215 regression; the PC was loaded (1.5 GB
+  of 48 GB free, the test Agent took 7-8 s to answer its first request).
+  It needs a rerun on a quieter machine or in CI before the RC.
+- The tier stops at its first failure, so the three steps after A2 were run
+  directly: `build213-ui-qa` failed B1 first because it read the Computer
+  column by position and Build 215 added the Type column; the check was
+  updated (column index, and Open on a game-server row) and passed **4/4**;
+  `steamcmd-cancel-ui-qa` **2/2**; `git diff --check` clean.
+
 ## Not done
 
 - No AMP comparison run (no AMP environment); plan and AnxOS numbers in
