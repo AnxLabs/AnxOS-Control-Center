@@ -277,6 +277,11 @@ function parseJsonLines(output, normalizer) {
     .filter(Boolean);
 }
 
+function shortContainerId(value) {
+  const id = value ? String(value) : null;
+  return id && /^[0-9a-f]{64}$/i.test(id) ? id.slice(0, 12) : id;
+}
+
 // Labels a container list may carry to the Desktop. Label values can hold
 // anything a compose file or image author put there (including secrets), so
 // only AnxOS's own labels and Compose's project/service names are kept.
@@ -320,7 +325,7 @@ function normalizeContainer(container) {
     labels: normalizeListedLabels(container.Labels),
     mounts: normalizeNameList(container.Mounts),
     networks: normalizeNameList(container.Networks),
-    id: container.ID || container.Id || null,
+    id: shortContainerId(container.ID || container.Id || null),
     name: normalizeName(container.Names || container.Name) || null,
     image: container.Image || null,
     command: container.Command || null,
@@ -715,7 +720,10 @@ async function ensureDockerAvailable() {
 
 async function listContainersRaw(options = {}) {
   const dockerPath = options.dockerPath || await getDockerExecutableOrThrow();
-  const result = await runDockerCommandWithExecutable(dockerPath, ["ps", "-a", "--format", "json"], {
+  // --no-trunc: docker ps otherwise cuts volume names ("app-dat…"), which the
+  // workload list shows as kept data. Ids are shortened back to Docker's
+  // usual 12 characters in normalizeContainer, so nothing else changes.
+  const result = await runDockerCommandWithExecutable(dockerPath, ["ps", "-a", "--no-trunc", "--format", "json"], {
     timeout: options.timeoutMs || COMMAND_TIMEOUT_MS,
   });
   return parseJsonLines(result.stdout, normalizeContainer);

@@ -373,10 +373,12 @@ async function updateRemoteAgent(nodeId, options = {}) {
     installerStep("check", "Check the node and its SSH access"),
     installerStep("health", "Confirm the node's Agent is healthy before updating"),
     installerStep("discover", "Locate the Agent unit and runtime root"),
-    installerStep("stage", "Upload the bundled Agent runtime"),
-    installerStep("swap", "Back up the live runtime and publish the update"),
-    installerStep("verify", "Verify the updated Agent on the node"),
-    installerStep("rollback", "Restore the previous runtime"),
+    // Method-neutral until discovery knows whether the Agent is a package
+    // or a pushed runtime; each path then names its own steps.
+    installerStep("stage", "Prepare the new Agent"),
+    installerStep("swap", "Back up and install the update"),
+    installerStep("verify", "Verify the updated Agent"),
+    installerStep("rollback", "Roll back if it does not come up"),
   ];
   // Live progress: every step change is reported to options.onProgress (the
   // IPC layer forwards it to the window). A failing listener never affects
@@ -558,6 +560,10 @@ async function updateRemoteAgent(nodeId, options = {}) {
     throw fail("REMOTE_AGENT_UPDATE_UNIT_NOT_FOUND", "The Agent systemd user unit or runtime root could not be located on the node.", { discovery: discovery.stdout.slice(0, 2000) });
   }
   record.runtimeRoot = runtimeRoot;
+  steps.find((entry) => entry.id === "stage").label = "Upload this app's Agent runtime";
+  steps.find((entry) => entry.id === "swap").label = "Back up the live runtime and publish the update";
+  steps.find((entry) => entry.id === "verify").label = "Verify the updated Agent on the node";
+  steps.find((entry) => entry.id === "rollback").label = "Restore the previous runtime";
   mark("discover", "complete", `Runtime root ${runtimeRoot} (unit ${unitName}).`);
 
   mark("stage", "running");

@@ -5958,7 +5958,15 @@ function blockIncompatibleAgentAction(action) {
 
 function renderAgentControlState(payload = agentControlState) {
   const local = getAgentControlOverviewTarget(payload);
-  if (!local) return;
+  if (!local) {
+    // Nothing loaded for this computer yet: the action buttons must not look
+    // usable (their HTML default) when they have no target to act on.
+    agentControlButtons.forEach((button) => {
+      button.disabled = true;
+      button.title = "Agent Control is still loading this computer.";
+    });
+    return;
+  }
   agentControlState = payload;
   notifyHelperRestoreNeeded(payload?.local);
   // Hydrate the network opt-in from the persisted service state (the marker the
@@ -7496,6 +7504,11 @@ async function runAgentControlAction(action) {
     ? "Unlock AnxOS to start the Local Agent."
     : "Unlock AnxOS to manage Agent connections.")) return;
   const actionTarget = getAgentControlOverviewTarget();
+  if (!actionTarget) {
+    if (agentControlMessage) agentControlMessage.textContent = "Agent Control is still loading this computer. Try again in a moment.";
+    refreshAgentControl({ includeConfig: true });
+    return;
+  }
   const isLocalActionTarget = isAgentTargetLocal(actionTarget);
   const remoteUpdateSupport = isLocalActionTarget ? { supported: false, reason: "local" } : getRemoteAgentUpdateSupport(actionTarget);
   const remoteLifecycleAction = !isLocalActionTarget && ["start", "stop", "restart"].includes(action);
@@ -39165,6 +39178,9 @@ async function refreshProtectedStateAfterLocalOwnerAuthentication(authResult = {
       loadStorageConnections(),
     ]);
     syncAgentConnectionDisplayWithSelectedNode();
+    // Agent Control's own state (targets, Verify Access, Update) is
+    // owner-protected as well; reload it when its page is open.
+    if (getActivePageName() === "agent-control") await refreshAgentControl({ includeConfig: true }).catch(() => {});
     refreshAgentControlEligibility();
   })();
   try {

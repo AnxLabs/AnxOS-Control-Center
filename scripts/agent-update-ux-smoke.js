@@ -211,11 +211,14 @@ const HISTORY_AFTER = [{ id: "h1", at: "2026-11-19T09:01:31.000Z", trigger: "man
       loadStorageConnections: step("storage"),
       syncAgentConnectionDisplayWithSelectedNode: () => calls.push("sync"),
       refreshAgentControlEligibility: () => calls.push("eligibility"),
+      getActivePageName: () => "agent-control",
+      refreshAgentControl: async () => { calls.push("agent-control"); },
     }, "var localOwnerProtectedRefreshPromise = null;");
     await context.refreshProtectedStateAfterLocalOwnerAuthentication({ localOwnerAuthenticated: true, localCredentialContextAvailable: true });
     assert(calls.includes("ssh-profiles"), "SSH profiles reload after unlock");
     assert(calls.includes("storage"), "storage connections reload after unlock");
     assert(calls.indexOf("eligibility") > calls.indexOf("ssh-profiles"), "Agent Control eligibility is redrawn after the profiles load");
+    assert(calls.includes("agent-control"), "an open Agent Control page reloads its own state at unlock");
     console.log("  ok U1 unlock reloads SSH profiles and redraws Agent Control");
   }
 
