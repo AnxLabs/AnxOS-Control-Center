@@ -7,7 +7,7 @@ These limitations are acceptable for Private Alpha if they are clearly communica
 - AnxOS Control Center is Private Alpha.
 - Do not present it as public beta, stable, or v1.0-ready.
 - No version bump, tag, or GitHub Release should be created for readiness-only documentation changes.
-- Current source identity is Version 2.0 Build 213, Private Alpha, per
+- Current source identity is Version 2.0 Build 214, Private Alpha, per
   `release.json`. Historical build-numbered reports are evidence for their named
   artifacts only; see `DOCUMENTATION_INDEX.md`. Availability of matching
   candidate artifacts must be proven separately and is not inferred from source
@@ -34,6 +34,24 @@ These limitations are acceptable for Private Alpha if they are clearly communica
 - SteamCMD installs can be large and slow.
 - Some templates may be smoke-tested but not fully live-validated on every supported node type.
 - A failed install may leave partial files for diagnostics and retry; do not assume partial data is safe to delete manually without reviewing it.
+- **Build 214 catalog (evidence per card: `docs/MARKETPLACE_TEMPLATE_CERTIFICATION.md`):**
+  - Game servers added in Build 214 were installed for real on Windows; their
+    Linux variants say "not tested by AnxOS yet" (Factorio was tested on
+    Linux only; Unturned, Valheim and Palworld on both). ARK: Survival
+    Ascended and Space Engineers have no Linux server.
+  - On Windows, Stop cannot ask ARK, ARK: Survival Ascended, Space Engineers
+    or Core Keeper to save first (no console); the last autosave is kept.
+  - Docker services were installed for real on Docker Desktop for Windows
+    only; the cards still declare Linux computers, and services are managed
+    on the Docker page, not in My Servers.
+  - Deploying your own application: AnxOS runs no npm or pip. A Node.js
+    project with dependencies must include node_modules; a Python project
+    whose requirements.txt lists packages is refused. Python Discord Bot is
+    unavailable for the same reason.
+  - The server secret store (Project Zomboid's administrator password, the
+    Discord bot token) needs a Build 214 Agent; older Agents are refused.
+  - CurseForge modpacks were not installed for real in Build 214 (they need
+    CurseForge API access); Rust and CS2 were not re-run.
 
 ## Game Server Updates, Mods, Alerts and Sign-in (Builds 208–209)
 
@@ -130,10 +148,10 @@ already performed.
     the packages, maintainer scripts and upgrade path are proven; the app's
     **Update** / **Update all Agents** buttons driving that same upgrade have
     not yet run on a real Linux computer, and no real rollback has run.
-  - **Next build (on `dev`, not in Build 213):** running service-managed
-    servers (`systemd-service`, such as AnxRP) no longer block an update,
-    because an Agent restart does not stop them. In Build 213 the button
-    refuses while any server runs.
+  - **Since Build 214:** running service-managed servers
+    (`systemd-service`, such as AnxRP) no longer block an update, because an
+    Agent restart does not stop them. In Build 213 the button refuses while
+    any server runs.
   - **Limits:**
     - It needs a key-based SSH profile.
     - If the SSH user needs a password for sudo, it stops after verification
