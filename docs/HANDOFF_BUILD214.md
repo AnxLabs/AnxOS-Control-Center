@@ -745,6 +745,50 @@ follow-up.
     213, which had one chip fewer). The Python and Java import cards share
     the fixed path with the Node.js card but were not opened separately.
 
+## Release candidate 2 (2026-11-19)
+
+- Approved by the owner. Committed `4827ddfb` (the fix with A9 and A4) and
+  `9368c621` (acceptance record); `dev` pushed `996067f8..9368c621`
+  (fast-forward, also carrying the RC1 records `f54228c1`, `12cdb4c3`).
+- CI run 44470431471 on `9368c621`: static validation, rc-validation (0
+  failed), Windows and Linux builds passed; publish skipped (no tag).
+- Downloaded to `artifacts/build214-rc2/` in the main checkout:
+  - Setup `AnxOS-Control-Center-Setup-2.0-build214.exe` (440,221,208 bytes):
+    Authenticode Valid, Anjo ROSIMO, Microsoft timestamp. SHA-256
+    `9B7C75CBFFA9D5D70E438F048B3110465AA67AD5B3269130777636B6C4F89A40`;
+    `latest.yml` SHA-512 and size match.
+  - Portable: Valid. SHA-256
+    `32D7662E22BEF5D4D45DDDE56451DDAAD923B24EC849C26C6D2D3D93C2D6997F`.
+  - Agent `.deb`: SHA-256
+    `51611657E5585785CC9C259FE8E7349D65598CD82CDBF3DF42762180C19CC34B`
+    (matches its `.sha256`).
+  - Linux app: `.deb` `9870D45158CD292D82878C00DAC515E24F8D99AB909CAC30919B8558A18137EF`,
+    AppImage `8AE7C705B37CA7001AD5129965B4ACCC23AD6465B44C4EEA8718D4C4D7821B42`.
+- The fix is in the package: the Linux `.deb`'s `app.asar` (same commit) has
+  `createServerTemplateNeedsUserInput` and 8 calls that open Advanced options
+  (RC1: 5); release.json is Build 214. The NSIS installer was not unpacked (no
+  7-Zip on this PC).
+- **In-place upgrade over RC1** (owner replied `confirmed`). Backup first:
+  `%APPDATA%\AnxHub\config-backup-pre-build214-rc2-20261119-003005` (713
+  files) and a SHA-256 manifest. The only server on This PC
+  (`minecraft-vanilla`) was already stopped. Setup was re-verified (hash,
+  signature) and started by the assistant; the owner clicked through it.
+- **After the upgrade:** the installed exe is Valid; the installed `app.asar`
+  has the fix (8 calls, RC1: 5) and release.json Build 214; the Local Agent
+  reports `2.0-build214`; the AnxOSAgent task restarted at 00:31 with no time
+  limit and 3 restarts; no `helper-restore-needed.json`. 705 of 713 files are
+  byte-identical, none missing or new; the 8 that changed are runtime state
+  (alerts, audit log, telemetry, AnxNet session token, state and log, window
+  recovery, and node health times and latency in `nodes.json`). Credentials,
+  identities, AnxNet keys and settings are unchanged.
+- **Acceptance (same test-profile method as RC1):** 10 of 10 passed,
+  including M4 (the RC1 finding: the bot token, project `.zip` and media
+  folder are shown and focused). The real Local Agent logged 0 lines and the
+  task kept its last run time; nothing was left in Docker.
+- The real app after the upgrade: 34 sign-in-required errors in its first 2
+  seconds while locked (one-time start-up reads, as in RC1 and Build 213),
+  none after.
+
 ## Tests run
 
 These are mocked: the Agent client is faked and the network blocked. The real
