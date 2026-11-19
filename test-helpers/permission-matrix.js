@@ -269,7 +269,7 @@ const IPC_FAMILIES = [
     guard: "permission",
     allow: ["owner-unlocked"],
     channels: [
-      "docker:create", "docker:pullImage", "docker:rename", "docker:exec",
+      "docker:create", "docker:pullImage", "docker:rename", "docker:exec", "docker:updateService",
       "docker:createNetwork", "docker:connectNetwork", "docker:disconnectNetwork",
     ],
   },
@@ -619,6 +619,14 @@ const IPC_FAMILIES = [
     guard: "permission",
     allow: ["owner-unlocked"],
     channels: ["ssh:saveProfile", "ssh:deleteProfile", "ssh:assignProfileToNode", "ssh:setProfileAgent"],
+  },
+  {
+    // Build 215: adds a key to the server account; owner-only, after unlock.
+    id: "ssh-key-setup",
+    tier: "settings:write",
+    guard: "local-owner+permission",
+    allow: ["owner-unlocked"],
+    channels: ["ssh:setUpKeyAuthentication"],
   },
   {
     id: "system-read",

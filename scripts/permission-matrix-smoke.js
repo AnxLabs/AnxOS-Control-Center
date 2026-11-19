@@ -75,7 +75,7 @@ for (const method of ["list", "identity", "readText", "writeText", "upload", "do
   MockFileService.prototype[method] = makeRecordingFunction(`fileService.${method}`);
 }
 class MockSshService extends EventEmitter {}
-for (const method of ["listProfiles", "saveProfile", "deleteProfile", "assignProfileToNode", "connect", "getSession", "write", "resize", "approveHostKey", "disconnect"]) {
+for (const method of ["listProfiles", "saveProfile", "deleteProfile", "assignProfileToNode", "connect", "getSession", "write", "resize", "approveHostKey", "disconnect", "setUpKeyAuthentication"]) {
   MockSshService.prototype[method] = makeRecordingFunction(`sshService.${method}`);
 }
 
@@ -412,6 +412,8 @@ const DESKTOP_PROBES = {
   "ssh-read": { channel: "ssh:listProfiles" },
   "ssh-write": { channel: "ssh:connect", payload: { instanceId: "matrix-instance" } },
   "ssh-manage": { channel: "ssh:saveProfile", payload: { profileId: "matrix-profile" } },
+  // An unknown profile and no password: the allow path stops before any connection.
+  "ssh-key-setup": { channel: "ssh:setUpKeyAuthentication", payload: { profileId: "matrix-profile" } },
   "system-read": { channel: "system:getSnapshot" },
   "public-access-read": { channel: "publicAccess:getSnapshot" },
   "public-access-write": { channel: "publicAccess:createService", payload: { nodeId: "matrix-node", instanceId: "matrix-instance" } },
