@@ -1,0 +1,380 @@
+[
+  {
+    "theme": "dark",
+    "fg": "--ahx-text-primary",
+    "bg": "--ahx-bg-content",
+    "min": 4.5,
+    "note": "body text on page",
+    "ratio": 18.38,
+    "pass": true
+  },
+  {
+    "theme": "dark",
+    "fg": "--ahx-text-primary",
+    "bg": "--ahx-surface-1",
+    "min": 4.5,
+    "note": "body text on card",
+    "ratio": 17.08,
+    "pass": true
+  },
+  {
+    "theme": "dark",
+    "fg": "--ahx-text-primary",
+    "bg": "--ahx-surface-3",
+    "min": 4.5,
+    "note": "body text in dialog",
+    "ratio": 13.92,
+    "pass": true
+  },
+  {
+    "theme": "dark",
+    "fg": "--ahx-text-secondary",
+    "bg": "--ahx-bg-content",
+    "min": 4.5,
+    "note": "secondary text on page",
+    "ratio": 11.07,
+    "pass": true
+  },
+  {
+    "theme": "dark",
+    "fg": "--ahx-text-secondary",
+    "bg": "--ahx-surface-1",
+    "min": 4.5,
+    "note": "secondary text on card",
+    "ratio": 10.29,
+    "pass": true
+  },
+  {
+    "theme": "dark",
+    "fg": "--ahx-text-muted",
+    "bg": "--ahx-surface-1",
+    "min": 4.5,
+    "note": "muted text on card",
+    "ratio": 6.56,
+    "pass": true
+  },
+  {
+    "theme": "dark",
+    "fg": "--ahx-text-muted",
+    "bg": "--ahx-bg-sidebar",
+    "min": 4.5,
+    "note": "group labels in sidebar",
+    "ratio": 6.93,
+    "pass": true
+  },
+  {
+    "theme": "dark",
+    "fg": "--ahx-text-secondary",
+    "bg": "--ahx-bg-sidebar",
+    "min": 4.5,
+    "note": "sidebar items",
+    "ratio": 10.88,
+    "pass": true
+  },
+  {
+    "theme": "dark",
+    "fg": "--ahx-text-link",
+    "bg": "--ahx-bg-content",
+    "min": 4.5,
+    "note": "links",
+    "ratio": 8.49,
+    "pass": true
+  },
+  {
+    "theme": "dark",
+    "fg": "--ahx-accent-text",
+    "bg": "--ahx-surface-1",
+    "min": 4.5,
+    "note": "accent text on card",
+    "ratio": 7.89,
+    "pass": true
+  },
+  {
+    "theme": "dark",
+    "fg": "--ahx-text-on-accent",
+    "bg": "--ahx-accent",
+    "min": 4.5,
+    "note": "primary button label",
+    "ratio": 7.81,
+    "pass": true
+  },
+  {
+    "theme": "dark",
+    "fg": "--ahx-danger",
+    "bg": "--ahx-surface-1",
+    "min": 4.5,
+    "note": "error text on card",
+    "ratio": 5.95,
+    "pass": true
+  },
+  {
+    "theme": "dark",
+    "fg": "--ahx-status-running",
+    "bg": "--ahx-surface-1",
+    "min": 3,
+    "note": "status pill",
+    "ratio": 10.4,
+    "pass": true
+  },
+  {
+    "theme": "dark",
+    "fg": "--ahx-status-starting",
+    "bg": "--ahx-surface-1",
+    "min": 3,
+    "note": "status pill",
+    "ratio": 9.23,
+    "pass": true
+  },
+  {
+    "theme": "dark",
+    "fg": "--ahx-status-stopping",
+    "bg": "--ahx-surface-1",
+    "min": 3,
+    "note": "status pill",
+    "ratio": 10.41,
+    "pass": true
+  },
+  {
+    "theme": "dark",
+    "fg": "--ahx-status-updating",
+    "bg": "--ahx-surface-1",
+    "min": 3,
+    "note": "status pill",
+    "ratio": 7.89,
+    "pass": true
+  },
+  {
+    "theme": "dark",
+    "fg": "--ahx-status-degraded",
+    "bg": "--ahx-surface-1",
+    "min": 3,
+    "note": "status pill",
+    "ratio": 8.13,
+    "pass": true
+  },
+  {
+    "theme": "dark",
+    "fg": "--ahx-status-error",
+    "bg": "--ahx-surface-1",
+    "min": 3,
+    "note": "status pill",
+    "ratio": 5.95,
+    "pass": true
+  },
+  {
+    "theme": "dark",
+    "fg": "--ahx-status-offline",
+    "bg": "--ahx-surface-1",
+    "min": 3,
+    "note": "status pill",
+    "ratio": 6.56,
+    "pass": true
+  },
+  {
+    "theme": "dark",
+    "fg": "--ahx-status-stopped",
+    "bg": "--ahx-surface-1",
+    "min": 3,
+    "note": "status pill",
+    "ratio": 10.29,
+    "pass": true
+  },
+  {
+    "theme": "dark",
+    "fg": "--ahx-text-disabled",
+    "bg": "--ahx-surface-1",
+    "min": 0,
+    "note": "disabled text (exempt from WCAG; reported only)",
+    "ratio": 2.5,
+    "pass": true
+  },
+  {
+    "theme": "light",
+    "fg": "--ahx-text-primary",
+    "bg": "--ahx-bg-content",
+    "min": 4.5,
+    "note": "body text on page",
+    "ratio": 16.5,
+    "pass": true
+  },
+  {
+    "theme": "light",
+    "fg": "--ahx-text-primary",
+    "bg": "--ahx-surface-1",
+    "min": 4.5,
+    "note": "body text on card",
+    "ratio": 18.38,
+    "pass": true
+  },
+  {
+    "theme": "light",
+    "fg": "--ahx-text-primary",
+    "bg": "--ahx-surface-3",
+    "min": 4.5,
+    "note": "body text in dialog",
+    "ratio": 18.38,
+    "pass": true
+  },
+  {
+    "theme": "light",
+    "fg": "--ahx-text-secondary",
+    "bg": "--ahx-bg-content",
+    "min": 4.5,
+    "note": "secondary text on page",
+    "ratio": 10.3,
+    "pass": true
+  },
+  {
+    "theme": "light",
+    "fg": "--ahx-text-secondary",
+    "bg": "--ahx-surface-1",
+    "min": 4.5,
+    "note": "secondary text on card",
+    "ratio": 11.47,
+    "pass": true
+  },
+  {
+    "theme": "light",
+    "fg": "--ahx-text-muted",
+    "bg": "--ahx-surface-1",
+    "min": 4.5,
+    "note": "muted text on card",
+    "ratio": 7.36,
+    "pass": true
+  },
+  {
+    "theme": "light",
+    "fg": "--ahx-text-muted",
+    "bg": "--ahx-bg-sidebar",
+    "min": 4.5,
+    "note": "group labels in sidebar",
+    "ratio": 6.84,
+    "pass": true
+  },
+  {
+    "theme": "light",
+    "fg": "--ahx-text-secondary",
+    "bg": "--ahx-bg-sidebar",
+    "min": 4.5,
+    "note": "sidebar items",
+    "ratio": 10.66,
+    "pass": true
+  },
+  {
+    "theme": "light",
+    "fg": "--ahx-text-link",
+    "bg": "--ahx-bg-content",
+    "min": 4.5,
+    "note": "links",
+    "ratio": 9.07,
+    "pass": true
+  },
+  {
+    "theme": "light",
+    "fg": "--ahx-accent-text",
+    "bg": "--ahx-surface-1",
+    "min": 4.5,
+    "note": "accent text on card",
+    "ratio": 10.1,
+    "pass": true
+  },
+  {
+    "theme": "light",
+    "fg": "--ahx-text-on-accent",
+    "bg": "--ahx-accent",
+    "min": 4.5,
+    "note": "primary button label",
+    "ratio": 7.81,
+    "pass": true
+  },
+  {
+    "theme": "light",
+    "fg": "--ahx-danger",
+    "bg": "--ahx-surface-1",
+    "min": 4.5,
+    "note": "error text on card",
+    "ratio": 6.46,
+    "pass": true
+  },
+  {
+    "theme": "light",
+    "fg": "--ahx-status-running",
+    "bg": "--ahx-surface-1",
+    "min": 3,
+    "note": "status pill",
+    "ratio": 5.36,
+    "pass": true
+  },
+  {
+    "theme": "light",
+    "fg": "--ahx-status-starting",
+    "bg": "--ahx-surface-1",
+    "min": 3,
+    "note": "status pill",
+    "ratio": 5.94,
+    "pass": true
+  },
+  {
+    "theme": "light",
+    "fg": "--ahx-status-stopping",
+    "bg": "--ahx-surface-1",
+    "min": 3,
+    "note": "status pill",
+    "ratio": 5.93,
+    "pass": true
+  },
+  {
+    "theme": "light",
+    "fg": "--ahx-status-updating",
+    "bg": "--ahx-surface-1",
+    "min": 3,
+    "note": "status pill",
+    "ratio": 10.1,
+    "pass": true
+  },
+  {
+    "theme": "light",
+    "fg": "--ahx-status-degraded",
+    "bg": "--ahx-surface-1",
+    "min": 3,
+    "note": "status pill",
+    "ratio": 6.11,
+    "pass": true
+  },
+  {
+    "theme": "light",
+    "fg": "--ahx-status-error",
+    "bg": "--ahx-surface-1",
+    "min": 3,
+    "note": "status pill",
+    "ratio": 6.46,
+    "pass": true
+  },
+  {
+    "theme": "light",
+    "fg": "--ahx-status-offline",
+    "bg": "--ahx-surface-1",
+    "min": 3,
+    "note": "status pill",
+    "ratio": 7.36,
+    "pass": true
+  },
+  {
+    "theme": "light",
+    "fg": "--ahx-status-stopped",
+    "bg": "--ahx-surface-1",
+    "min": 3,
+    "note": "status pill",
+    "ratio": 11.47,
+    "pass": true
+  },
+  {
+    "theme": "light",
+    "fg": "--ahx-text-disabled",
+    "bg": "--ahx-surface-1",
+    "min": 0,
+    "note": "disabled text (exempt from WCAG; reported only)",
+    "ratio": 2.8,
+    "pass": true
+  }
+]

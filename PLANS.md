@@ -521,3 +521,5 @@ Every `/goal` records:
 | 2026-11-20 | Docker: keep automatic rollback on failure; no manual rollback in 216. Production Agent updates stay separate. |
 | 2026-11-20 | Version v2.0 Build 216 (v2.1 is Build 220). Development branch `claude/anxhost-build-216` from `origin/dev`. |
 | 2026-11-20 | Logo SVGs drafted in 216-0 and approved before any asset replacement. |
+| 2026-11-20 | 216-0 owner approvals: navigation (Run / Infrastructure / Tools, footer, icon rail below 1100 px; every existing capability must stay reachable); UI foundation (dark-first violet and charcoal, optional light theme, **eight** status states adding Error and Stopped, WCAG AA contrast and keyboard navigation); **system fonts by default**, superseding "fonts bundled under an open licence" in section 5. |
+| 2026-11-20 | Logo: split strategy approved. Option A for large branding (splash, About, website hero, installer welcome), Option B for the title bar, icons from 48 px, phone icons and social previews, the simplified mark (hexagon and rack) for taskbar, tray and favicon at 16-32 px. Icon-size marks carry a contrast rim. See `docs/anxhost/brand/LOGO_STANDARD.md`. |

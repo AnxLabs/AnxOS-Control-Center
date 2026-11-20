@@ -1,0 +1,218 @@
+<!doctype html>
+<!--
+  AnxHost CC UI pattern gallery (Build 216-0 proposal, awaiting owner approval).
+  Static review page: not loaded by the app, not packaged, no scripts except the
+  theme switch. Open with ?theme=light for the light theme.
+  Uses only src/renderer/anxhost/tokens.css and patterns.css.
+-->
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AnxHost CC UI patterns</title>
+<link rel="stylesheet" href="../../../src/renderer/anxhost/tokens.css">
+<link rel="stylesheet" href="../../../src/renderer/anxhost/patterns.css">
+<style>
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--ahx-bg-app); }
+  .gallery-frame { height: 900px; border-bottom: var(--ahx-border-width) solid var(--ahx-border); }
+  .gallery-section { padding: var(--ahx-space-8); display: flex; flex-direction: column; gap: var(--ahx-space-5); background: var(--ahx-bg-content); }
+  .gallery-section h2 { margin: 0; font-size: var(--ahx-text-xl); font-family: var(--ahx-font-display); }
+  .gallery-label { margin: 0; font-size: var(--ahx-text-sm); color: var(--ahx-text-muted); text-transform: uppercase; letter-spacing: var(--ahx-tracking-caps); }
+  .gallery-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: var(--ahx-space-5); align-items: start; }
+</style>
+<script>
+  try { const theme = new URLSearchParams(location.search).get("theme"); if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme; } catch {}
+</script>
+</head>
+<body class="ahx-root">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/></symbol>
+    <symbol id="i-servers" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="M12 8v8M8 12h8"/></symbol>
+    <symbol id="i-computer" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></symbol>
+    <symbol id="i-docker" viewBox="0 0 24 24"><path d="M3 12h18c0 4-3 8-9 8s-9-4-9-8z"/><path d="M6 9h3v3H6zM9 9h3v3H9zM12 9h3v3h-3zM9 6h3v3H9z"/></symbol>
+    <symbol id="i-network" viewBox="0 0 24 24"><circle cx="12" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><path d="M12 7v5M12 12l-6 5.5M12 12l6 5.5"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></symbol>
+    <symbol id="i-terminal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M12 15h5"/></symbol>
+    <symbol id="i-backup" viewBox="0 0 24 24"><path d="M4 12a8 8 0 108-8 8 8 0 00-6 2.7"/><path d="M4 4v4h4"/><path d="M12 8v4l3 2"/></symbol>
+    <symbol id="i-activity" viewBox="0 0 24 24"><path d="M6 8a6 6 0 1112 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10 21h4"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.6 1.6 0 00-1.8-.3 1.6 1.6 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.6 1.6 0 00-1-1.5 1.6 1.6 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.6 1.6 0 00.3-1.8 1.6 1.6 0 00-1.5-1H3a2 2 0 110-4h.1a1.6 1.6 0 001.5-1 1.6 1.6 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.6 1.6 0 001.8.3H9a1.6 1.6 0 001-1.5V3a2 2 0 114 0v.1a1.6 1.6 0 001 1.5 1.6 1.6 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.6 1.6 0 00-.3 1.8V9a1.6 1.6 0 001.5 1H21a2 2 0 110 4h-.1a1.6 1.6 0 00-1.5 1z"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 5l12 7-12 7z"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></symbol>
+    <symbol id="i-restart" viewBox="0 0 24 24"><path d="M20 12a8 8 0 11-2.3-5.7"/><path d="M20 4v5h-5"/></symbol>
+    <symbol id="i-min" viewBox="0 0 24 24"><path d="M6 12h12"/></symbol>
+    <symbol id="i-max" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17h.01"/></symbol>
+    <symbol id="i-box" viewBox="0 0 24 24"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M3 7l9 4 9-4M12 11v10"/></symbol>
+  </defs>
+</svg>
+
+<!-- 1. Proposed shell, navigation and My Servers page -->
+<div class="gallery-frame" data-testid="gallery-shell">
+<div class="ahx-shell" data-testid="shell">
+  <header class="ahx-titlebar" data-testid="shell-titlebar">
+    <div class="ahx-titlebar__brand"><img src="../brand/svg/anxhost-icon-small.svg" alt=""> AnxHost CC <small>· My Servers</small></div>
+    <button class="ahx-titlebar__search" type="button" data-testid="shell-search"><svg class="ahx-icon ahx-icon--sm"><use href="#i-search"/></svg> Search servers, computers, settings <kbd>Ctrl K</kbd></button>
+    <div class="ahx-titlebar__spacer"></div>
+    <div class="ahx-titlebar__status"><span class="ahx-status" data-status="running">Anxlab online</span></div>
+    <div class="ahx-window-controls">
+      <button type="button" data-window-action="minimize" aria-label="Minimize"><svg class="ahx-icon ahx-icon--sm"><use href="#i-min"/></svg></button>
+      <button type="button" data-window-action="maximize" aria-label="Maximize"><svg class="ahx-icon ahx-icon--sm"><use href="#i-max"/></svg></button>
+      <button type="button" data-window-action="close" aria-label="Close"><svg class="ahx-icon ahx-icon--sm"><use href="#i-close"/></svg></button>
+    </div>
+  </header>
+  <nav class="ahx-sidebar" aria-label="AnxHost CC navigation" data-testid="shell-sidebar">
+    <div class="ahx-nav-group">
+      <div class="ahx-nav-group__label">Run</div>
+      <button class="ahx-nav-item" type="button" data-page-target="dashboard" data-testid="nav-home"><svg class="ahx-icon"><use href="#i-home"/></svg>Home</button>
+      <button class="ahx-nav-item" type="button" data-page-target="instances" aria-current="page" data-testid="nav-my-servers"><svg class="ahx-icon"><use href="#i-servers"/></svg>My Servers<span class="ahx-nav-item__badge">6</span></button>
+      <button class="ahx-nav-item" type="button" data-page-target="marketplace" data-testid="nav-add-server"><svg class="ahx-icon"><use href="#i-plus"/></svg>Add Server</button>
+    </div>
+    <div class="ahx-nav-group">
+      <div class="ahx-nav-group__label">Infrastructure</div>
+      <button class="ahx-nav-item" type="button" data-page-target="nodes" data-testid="nav-computers"><svg class="ahx-icon"><use href="#i-computer"/></svg>Computers</button>
+      <button class="ahx-nav-item" type="button" data-page-target="docker" data-testid="nav-docker"><svg class="ahx-icon"><use href="#i-docker"/></svg>Docker</button>
+      <button class="ahx-nav-item" type="button" data-page-target="network" data-testid="nav-network"><svg class="ahx-icon"><use href="#i-network"/></svg>Network</button>
+    </div>
+    <div class="ahx-nav-group">
+      <div class="ahx-nav-group__label">Tools</div>
+      <button class="ahx-nav-item" type="button" data-page-target="files" data-testid="nav-files"><svg class="ahx-icon"><use href="#i-folder"/></svg>Files</button>
+      <button class="ahx-nav-item" type="button" data-page-target="ssh" data-testid="nav-terminal"><svg class="ahx-icon"><use href="#i-terminal"/></svg>Terminal</button>
+      <button class="ahx-nav-item" type="button" data-page-target="backups" data-testid="nav-backups"><svg class="ahx-icon"><use href="#i-backup"/></svg>Backups</button>
+    </div>
+    <div class="ahx-sidebar__footer">
+      <button class="ahx-nav-item" type="button" data-page-target="notifications" data-testid="nav-activity"><svg class="ahx-icon"><use href="#i-activity"/></svg>Activity<span class="ahx-nav-item__badge">2</span></button>
+      <button class="ahx-nav-item" type="button" data-page-target="security" data-testid="nav-security"><svg class="ahx-icon"><use href="#i-shield"/></svg>Security</button>
+      <button class="ahx-nav-item" type="button" data-page-target="settings" data-testid="nav-settings"><svg class="ahx-icon"><use href="#i-gear"/></svg>Settings</button>
+      <button class="ahx-computer-switcher" type="button" data-testid="shell-computer-switcher"><span class="ahx-status" data-status="running" aria-label="Online"></span><span>Anxlab<small>3 computers · switch</small></span></button>
+    </div>
+  </nav>
+  <main class="ahx-main">
+    <div class="ahx-page" data-testid="my-servers-page">
+      <div class="ahx-page-header">
+        <div>
+          <div class="ahx-page-header__eyebrow">Servers</div>
+          <h1 class="ahx-page-header__title">My Servers</h1>
+          <p class="ahx-page-header__description">Game servers and Docker services on every computer, in one list.</p>
+        </div>
+        <div class="ahx-page-header__actions">
+          <button class="ahx-button" type="button">All computers</button>
+          <button class="ahx-button ahx-button--primary" type="button" data-testid="my-servers-add"><svg class="ahx-icon ahx-icon--sm"><use href="#i-plus"/></svg>Add Server</button>
+        </div>
+      </div>
+      <div class="ahx-grid" style="grid-template-columns: repeat(4, minmax(0, 1fr));">
+        <div class="ahx-stat"><span class="ahx-stat__label">Running</span><span class="ahx-stat__value">4</span><span class="ahx-stat__hint">of 6 servers</span></div>
+        <div class="ahx-stat"><span class="ahx-stat__label">Players online</span><span class="ahx-stat__value">17</span><span class="ahx-stat__hint">across 3 games</span></div>
+        <div class="ahx-stat"><span class="ahx-stat__label">CPU · Anxlab</span><span class="ahx-stat__value">38%</span><div class="ahx-meter"><span style="width:38%"></span></div></div>
+        <div class="ahx-stat"><span class="ahx-stat__label">Needs attention</span><span class="ahx-stat__value">1</span><span class="ahx-stat__hint">Palworld update ready</span></div>
+      </div>
+      <div class="ahx-tabs" role="tablist">
+        <button class="ahx-tab" role="tab" aria-selected="true" type="button">All</button>
+        <button class="ahx-tab" role="tab" aria-selected="false" type="button">Game servers</button>
+        <button class="ahx-tab" role="tab" aria-selected="false" type="button">Docker services</button>
+      </div>
+      <div class="ahx-table-wrap">
+        <table class="ahx-table" data-testid="my-servers-table">
+          <thead><tr><th>Server</th><th>Status</th><th>Computer</th><th>Players</th><th class="ahx-num">Memory</th><th>Actions</th></tr></thead>
+          <tbody>
+            <tr data-testid="server-row" data-instance-id="anxrp"><td><div class="ahx-row"><span class="ahx-art">FM</span><div><strong>AnxRP</strong><div class="ahx-card__meta">FiveM · fivem-fxserver</div></div></div></td><td><span class="ahx-status" data-status="running">Running</span></td><td>Anxlab</td><td>12 / 64</td><td class="ahx-num">3.1 GB</td><td><div class="ahx-row"><button class="ahx-button ahx-button--sm" type="button" disabled>Start</button><button class="ahx-button ahx-button--sm" type="button">Stop</button><button class="ahx-button ahx-button--sm ahx-button--ghost" type="button">Restart</button></div></td></tr>
+            <tr><td><div class="ahx-row"><span class="ahx-art">PAL</span><div><strong>Palworld</strong><div class="ahx-card__meta">Palworld Dedicated Server</div></div></div></td><td><span class="ahx-status" data-status="updating">Updating</span></td><td>Anxlab</td><td>—</td><td class="ahx-num">6.4 GB</td><td><div class="ahx-row"><button class="ahx-button ahx-button--sm" type="button" disabled>Start</button><button class="ahx-button ahx-button--sm" type="button" disabled>Stop</button></div></td></tr>
+            <tr><td><div class="ahx-row"><span class="ahx-art">PPR</span><div><strong>Survival</strong><div class="ahx-card__meta">Minecraft · Paper 1.21</div></div></div></td><td><span class="ahx-status" data-status="starting">Starting</span></td><td>VPS</td><td>0 / 20</td><td class="ahx-num">2.0 GB</td><td><div class="ahx-row"><button class="ahx-button ahx-button--sm" type="button" disabled>Start</button><button class="ahx-button ahx-button--sm" type="button">Stop</button></div></td></tr>
+            <tr><td><div class="ahx-row"><span class="ahx-art">HYT</span><div><strong>Hytale</strong><div class="ahx-card__meta">Hytale 0.7.5</div></div></div></td><td><span class="ahx-status" data-status="degraded">Sign-in needed</span></td><td>Anxlab</td><td>—</td><td class="ahx-num">1.2 GB</td><td><div class="ahx-row"><button class="ahx-button ahx-button--sm" type="button">Open console</button></div></td></tr>
+            <tr><td><div class="ahx-row"><span class="ahx-art">JF</span><div><strong>Jellyfin</strong><div class="ahx-card__meta">Docker service</div></div></div></td><td><span class="ahx-status" data-status="stopping">Stopping</span></td><td>VPS</td><td>—</td><td class="ahx-num">410 MB</td><td><div class="ahx-row"><button class="ahx-button ahx-button--sm" type="button" disabled>Start</button></div></td></tr>
+            <tr><td><div class="ahx-row"><span class="ahx-art">VAL</span><div><strong>Valheim</strong><div class="ahx-card__meta">Valheim Dedicated Server</div></div></div></td><td><span class="ahx-status" data-status="offline">Computer offline</span></td><td>Garage PC</td><td>—</td><td class="ahx-num">—</td><td><div class="ahx-row"><button class="ahx-button ahx-button--sm" type="button" aria-disabled="true" title="Garage PC is offline">Start</button></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+</div>
+</div>
+
+<!-- 2. Patterns -->
+<section class="gallery-section">
+  <h2>Status system</h2>
+  <div class="ahx-row">
+    <span class="ahx-status" data-status="running">Running</span>
+    <span class="ahx-status" data-status="starting">Starting</span>
+    <span class="ahx-status" data-status="stopping">Stopping</span>
+    <span class="ahx-status" data-status="updating">Updating</span>
+    <span class="ahx-status" data-status="degraded">Degraded</span>
+    <span class="ahx-status" data-status="error">Error</span>
+    <span class="ahx-status" data-status="offline">Offline</span>
+    <span class="ahx-status" data-status="stopped">Stopped</span>
+  </div>
+
+  <h2>Buttons, inputs and disabled states</h2>
+  <div class="ahx-row">
+    <button class="ahx-button ahx-button--primary" type="button">Create server</button>
+    <button class="ahx-button" type="button">Secondary</button>
+    <button class="ahx-button ahx-button--ghost" type="button">Ghost</button>
+    <button class="ahx-button ahx-button--danger" type="button">Delete server</button>
+    <button class="ahx-button ahx-button--primary" type="button" disabled>Disabled primary</button>
+    <button class="ahx-button" type="button" disabled>Disabled</button>
+    <button class="ahx-button ahx-button--sm" type="button">Small</button>
+    <button class="ahx-button ahx-button--icon" type="button" aria-label="Restart"><svg class="ahx-icon"><use href="#i-restart"/></svg></button>
+  </div>
+  <div class="gallery-cols">
+    <label class="ahx-field"><span class="ahx-field__label">Server name</span><input class="ahx-input" value="Survival" data-testid="create-server-name"><span class="ahx-field__hint">Shown on My Servers and on your phone.</span></label>
+    <label class="ahx-field"><span class="ahx-field__label">Memory</span><select class="ahx-select"><option>4 GB (recommended)</option></select></label>
+    <label class="ahx-field"><span class="ahx-field__label">Port</span><input class="ahx-input" value="25565x" aria-invalid="true"><span class="ahx-field__error">Use a number between 1024 and 65535.</span></label>
+    <label class="ahx-field"><span class="ahx-field__label">Locked field</span><input class="ahx-input" value="Unlock to change" disabled></label>
+    <label class="ahx-row"><input class="ahx-switch" type="checkbox" checked> <span>Start automatically</span></label>
+    <label class="ahx-row"><input class="ahx-switch" type="checkbox"> <span>Trust this device</span></label>
+  </div>
+
+  <h2>Cards (Marketplace)</h2>
+  <div class="ahx-grid">
+    <article class="ahx-card ahx-card--interactive" data-testid="template-card" data-template-id="minecraft-paper"><div class="ahx-card__header"><span class="ahx-art">PPR</span><div><h3 class="ahx-card__title">Minecraft Paper</h3><div class="ahx-card__meta">Minecraft · Java runtime</div></div></div><p class="ahx-card__meta" style="margin:0">High-performance Minecraft server with plugin support.</p><div class="ahx-row"><span class="ahx-badge" data-tone="accent">Popular</span><span class="ahx-badge">Plugins</span></div></article>
+    <article class="ahx-card ahx-card--interactive"><div class="ahx-card__header"><span class="ahx-art">PAL</span><div><h3 class="ahx-card__title">Palworld</h3><div class="ahx-card__meta">Game Servers · SteamCMD</div></div></div><p class="ahx-card__meta" style="margin:0">Dedicated server for Palworld.</p><div class="ahx-row"><span class="ahx-badge">Steam</span></div></article>
+    <article class="ahx-card ahx-card--interactive"><div class="ahx-card__header"><span class="ahx-art">JF</span><div><h3 class="ahx-card__title">Jellyfin</h3><div class="ahx-card__meta">Media · Docker image</div></div></div><p class="ahx-card__meta" style="margin:0">Your own media server.</p><div class="ahx-row"><span class="ahx-badge">Docker</span></div></article>
+  </div>
+
+  <h2>Progress, steps and the operation tray</h2>
+  <div class="gallery-cols">
+    <div class="ahx-progress-tray ahx-progress-tray--inline" data-testid="operation-tray">
+      <div class="ahx-operation"><div class="ahx-operation__title">Updating Jellyfin image <span class="ahx-status" data-status="updating">Updating</span></div><div class="ahx-progress"><span style="width:62%"></span></div>
+        <ol class="ahx-steps"><li class="ahx-step" data-state="complete">Pull jellyfin/jellyfin:latest</li><li class="ahx-step" data-state="complete">Stop the old container</li><li class="ahx-step" data-state="running">Start the new container</li><li class="ahx-step" data-state="pending">Remove the old container</li></ol></div>
+      <div class="ahx-operation"><div class="ahx-operation__title">Update failed, rolled back <span class="ahx-status" data-status="error">Failed</span></div>
+        <ol class="ahx-steps"><li class="ahx-step" data-state="complete">Pull image</li><li class="ahx-step" data-state="failed">New container did not start</li><li class="ahx-step" data-state="complete">Brought back the previous container</li></ol></div>
+      <div class="ahx-operation"><div class="ahx-operation__title">Installing Hytale <span class="ahx-badge">2 min left</span></div><div class="ahx-progress" data-indeterminate="true"><span></span></div></div>
+    </div>
+    <div class="ahx-stack">
+      <h3 class="gallery-label">Wizard steps</h3>
+      <ol class="ahx-wizard-steps"><li data-state="done">Choose</li><li aria-current="step">Configure</li><li>Computer</li><li>Create</li></ol>
+      <h3 class="gallery-label">Banners</h3>
+      <div class="ahx-banner" data-tone="info"><svg class="ahx-icon"><use href="#i-alert"/></svg><div><strong>Agent update available</strong>Anxlab can move to Build 216 when you're ready.</div></div>
+      <div class="ahx-banner" data-tone="warning"><svg class="ahx-icon"><use href="#i-alert"/></svg><div><strong>Hytale needs a sign-in</strong>Open the console to finish the device sign-in.</div></div>
+      <div class="ahx-banner" data-tone="danger"><svg class="ahx-icon"><use href="#i-alert"/></svg><div><strong>Backup failed</strong>Not enough free space on Anxlab (2.1 GB needed).</div></div>
+      <div class="ahx-banner" data-tone="success"><svg class="ahx-icon"><use href="#i-alert"/></svg><div><strong>Restore complete</strong>Survival is back to 20 Nov, 04:00.</div></div>
+      <h3 class="gallery-label">Toast</h3>
+      <div class="ahx-toast" data-tone="danger"><svg class="ahx-icon"><use href="#i-alert"/></svg><span>Could not stop AnxRP: the Agent did not answer in time.</span><button class="ahx-button ahx-button--sm ahx-button--ghost" type="button">Details</button></div>
+    </div>
+  </div>
+
+  <h2>Empty, loading and error states</h2>
+  <div class="gallery-cols">
+    <div class="ahx-state" data-kind="empty"><div class="ahx-state__icon"><svg class="ahx-icon"><use href="#i-box"/></svg></div><h3 class="ahx-state__title">No servers yet</h3><span>Pick a game or app from Add Server. It takes about a minute.</span><button class="ahx-button ahx-button--primary" type="button">Add Server</button></div>
+    <div class="ahx-card" aria-busy="true"><span class="ahx-skeleton" style="width:40%"></span><span class="ahx-skeleton" style="width:85%"></span><span class="ahx-skeleton" style="width:65%"></span><span class="ahx-skeleton" style="width:75%"></span></div>
+    <div class="ahx-state" data-kind="error"><div class="ahx-state__icon"><svg class="ahx-icon"><use href="#i-alert"/></svg></div><h3 class="ahx-state__title">Can't reach Anxlab</h3><span>The Agent stopped answering 2 minutes ago. Your servers keep running.</span><button class="ahx-button" type="button">Try again</button></div>
+  </div>
+
+  <h2>Dialog</h2>
+  <div class="ahx-scrim ahx-scrim--inline">
+    <div class="ahx-dialog" role="dialog" aria-modal="true" aria-labelledby="g-dialog-title" data-testid="dialog-stop-server">
+      <div class="ahx-dialog__header"><h2 class="ahx-dialog__title" id="g-dialog-title">Stop AnxRP?</h2></div>
+      <div class="ahx-dialog__body"><span>12 players are connected. They will be disconnected and the world is saved first.</span>
+        <details class="ahx-disclosure"><summary>Advanced</summary><label class="ahx-row"><input class="ahx-switch" type="checkbox"> <span>Force stop if it does not exit in 60 seconds</span></label></details></div>
+      <div class="ahx-dialog__footer"><button class="ahx-button" type="button">Cancel</button><button class="ahx-button ahx-button--danger" type="button" data-testid="dialog-stop-server-confirm">Stop server</button></div>
+    </div>
+  </div>
+</section>
+</body>
+</html>

@@ -1,0 +1,290 @@
+/*
+ * AnxHost CC design tokens (Build 216-0 proposal, awaiting owner approval).
+ *
+ * Dark is the primary identity and the default. Light is one override block
+ * that only redefines semantic tokens; components never branch on the theme.
+ * The app resolves its Theme setting (Dark, Light, System) to
+ * <html data-theme="dark|light">, so System is decided in one place in code
+ * instead of duplicating the light block inside a media query.
+ *
+ * Rules (enforced in review and by the token-use check in 216-A):
+ *   - New AnxHost CSS uses only var(--ahx-*) for colour, type, space, radius,
+ *     elevation, motion and z-index. No raw hex, rgb() or px colours in components.
+ *   - Primitives (--ahx-violet-*, --ahx-ink-*, --ahx-signal-*) are referenced only
+ *     by the semantic tokens in this file, never by components.
+ *   - System fonts by default (owner decision, 2026-11-20); no remote fonts.
+ *
+ * Brand source: the approved-direction AnxHost logo concept
+ * (purples #7818c0, #6010a0, #4a0d80, deep #300058; ink #1e1e26).
+ */
+
+:root {
+  /* ---------------------------------------------------------------- primitives */
+  --ahx-violet-50: #f6f0ff;
+  --ahx-violet-100: #ebdeff;
+  --ahx-violet-200: #d8c0ff;
+  --ahx-violet-300: #bf96ff;
+  --ahx-violet-400: #a46af5;
+  --ahx-violet-500: #8c3ee6;
+  --ahx-violet-600: #7818c0;
+  --ahx-violet-700: #6010a0;
+  --ahx-violet-800: #4a0d80;
+  --ahx-violet-900: #300058;
+  --ahx-violet-950: #1b0033;
+
+  --ahx-ink-0: #ffffff;
+  --ahx-ink-50: #f7f6fa;
+  --ahx-ink-100: #eeedf3;
+  --ahx-ink-200: #dddbe6;
+  --ahx-ink-300: #c3c0cf;
+  --ahx-ink-400: #9c98ab;
+  --ahx-ink-500: #767289;
+  --ahx-ink-600: #57536b;
+  --ahx-ink-700: #3a374c;
+  --ahx-ink-800: #272535;
+  --ahx-ink-850: #1d1b28;
+  --ahx-ink-900: #15131d;
+  --ahx-ink-950: #0e0c14;
+  --ahx-ink-1000: #08060d;
+
+  --ahx-signal-green-400: #3ddc97;
+  --ahx-signal-green-700: #0f7a4f;
+  --ahx-signal-amber-400: #f5b942;
+  --ahx-signal-amber-700: #8a5a00;
+  --ahx-signal-orange-400: #ff8f4d;
+  --ahx-signal-orange-700: #a3460c;
+  --ahx-signal-red-400: #f4607a;
+  --ahx-signal-red-700: #b4233f;
+  --ahx-signal-blue-400: #59c3f5;
+  --ahx-signal-blue-700: #0b6a99;
+  --ahx-signal-slate-400: #9c98ab;
+  --ahx-signal-slate-700: #57536b;
+
+  /* ---------------------------------------------------------------- typography */
+  --ahx-font-sans: "Segoe UI Variable Text", "Segoe UI", Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --ahx-font-display: "Segoe UI Variable Display", "Segoe UI", Inter, ui-sans-serif, system-ui, sans-serif;
+  --ahx-font-mono: "Cascadia Mono", "Cascadia Code", Consolas, "SFMono-Regular", Menlo, monospace;
+
+  --ahx-text-2xs: 11px;
+  --ahx-text-xs: 12px;
+  --ahx-text-sm: 13px;
+  --ahx-text-md: 14px;
+  --ahx-text-lg: 16px;
+  --ahx-text-xl: 18px;
+  --ahx-text-2xl: 22px;
+  --ahx-text-3xl: 28px;
+  --ahx-text-4xl: 36px;
+
+  --ahx-weight-regular: 400;
+  --ahx-weight-medium: 500;
+  --ahx-weight-semibold: 600;
+  --ahx-weight-bold: 700;
+
+  --ahx-leading-tight: 1.2;
+  --ahx-leading-snug: 1.35;
+  --ahx-leading-normal: 1.5;
+  --ahx-tracking-caps: 0.08em;
+
+  /* ---------------------------------------------------------------- space, radius, layout */
+  --ahx-space-0: 0;
+  --ahx-space-px: 1px;
+  --ahx-space-0-5: 2px;
+  --ahx-space-1: 4px;
+  --ahx-space-1-5: 6px;
+  --ahx-space-2: 8px;
+  --ahx-space-2-5: 10px;
+  --ahx-space-3: 12px;
+  --ahx-space-4: 16px;
+  --ahx-space-5: 20px;
+  --ahx-space-6: 24px;
+  --ahx-space-8: 32px;
+  --ahx-space-10: 40px;
+  --ahx-space-12: 48px;
+  --ahx-space-16: 64px;
+
+  --ahx-radius-xs: 4px;
+  --ahx-radius-sm: 6px;
+  --ahx-radius-md: 8px;
+  --ahx-radius-lg: 12px;
+  --ahx-radius-xl: 16px;
+  --ahx-radius-pill: 999px;
+
+  --ahx-titlebar-height: 40px;
+  --ahx-sidebar-width: 240px;
+  --ahx-sidebar-width-collapsed: 64px;
+  --ahx-content-max: 1440px;
+  --ahx-control-height-sm: 28px;
+  --ahx-control-height-md: 34px;
+  --ahx-control-height-lg: 40px;
+  --ahx-icon-sm: 16px;
+  --ahx-icon-md: 20px;
+  --ahx-icon-lg: 24px;
+  --ahx-border-width: 1px;
+
+  /* ---------------------------------------------------------------- motion and layers */
+  --ahx-duration-instant: 80ms;
+  --ahx-duration-fast: 140ms;
+  --ahx-duration-base: 200ms;
+  --ahx-duration-slow: 320ms;
+  --ahx-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ahx-ease-emphasis: cubic-bezier(0.16, 1, 0.3, 1);
+  --ahx-ease-exit: cubic-bezier(0.3, 0, 1, 1);
+
+  --ahx-z-base: 0;
+  --ahx-z-sticky: 10;
+  --ahx-z-sidebar: 20;
+  --ahx-z-titlebar: 30;
+  --ahx-z-popover: 40;
+  --ahx-z-tray: 50;
+  --ahx-z-dialog: 60;
+  --ahx-z-toast: 70;
+  --ahx-z-tooltip: 80;
+}
+
+/* ---------------------------------------------------------------- dark (primary, default) */
+:root,
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --ahx-bg-app: var(--ahx-ink-1000);
+  --ahx-bg-titlebar: var(--ahx-ink-1000);
+  --ahx-bg-sidebar: var(--ahx-ink-950);
+  --ahx-bg-content: #0b0912;
+  --ahx-surface-1: var(--ahx-ink-900);
+  --ahx-surface-2: var(--ahx-ink-850);
+  --ahx-surface-3: var(--ahx-ink-800);
+  --ahx-surface-inset: var(--ahx-ink-1000);
+  --ahx-surface-hover: rgba(191, 150, 255, 0.07);
+  --ahx-surface-selected: rgba(140, 62, 230, 0.16);
+  --ahx-overlay-scrim: rgba(4, 2, 8, 0.72);
+
+  --ahx-border-subtle: rgba(221, 219, 230, 0.07);
+  --ahx-border: rgba(221, 219, 230, 0.12);
+  --ahx-border-strong: rgba(221, 219, 230, 0.22);
+  --ahx-border-accent: rgba(164, 106, 245, 0.55);
+
+  --ahx-text-primary: var(--ahx-ink-50);
+  --ahx-text-secondary: var(--ahx-ink-300);
+  --ahx-text-muted: var(--ahx-ink-400);
+  --ahx-text-disabled: var(--ahx-ink-600);
+  --ahx-text-on-accent: var(--ahx-ink-0);
+  --ahx-text-link: var(--ahx-violet-300);
+
+  --ahx-accent: var(--ahx-violet-600);
+  --ahx-accent-hover: var(--ahx-violet-500);
+  --ahx-accent-pressed: var(--ahx-violet-700);
+  --ahx-accent-soft: rgba(140, 62, 230, 0.16);
+  --ahx-accent-text: var(--ahx-violet-300);
+  --ahx-accent-gradient: linear-gradient(135deg, var(--ahx-violet-500) 0%, var(--ahx-violet-700) 55%, var(--ahx-violet-900) 100%);
+  --ahx-brand-ink: var(--ahx-ink-50);
+
+  --ahx-focus-ring: 0 0 0 2px var(--ahx-bg-app), 0 0 0 4px var(--ahx-violet-400);
+
+  --ahx-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --ahx-shadow-2: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --ahx-shadow-3: 0 24px 64px rgba(0, 0, 0, 0.55);
+  --ahx-glow-accent: 0 0 0 1px rgba(164, 106, 245, 0.35), 0 8px 28px rgba(120, 24, 192, 0.28);
+
+  /* Status: one colour, one shape, one label per state (see UI_PATTERNS.md). */
+  --ahx-status-running: var(--ahx-signal-green-400);
+  --ahx-status-starting: var(--ahx-signal-blue-400);
+  --ahx-status-stopping: var(--ahx-signal-amber-400);
+  --ahx-status-updating: var(--ahx-violet-300);
+  --ahx-status-degraded: var(--ahx-signal-orange-400);
+  --ahx-status-error: var(--ahx-signal-red-400);
+  --ahx-status-offline: var(--ahx-signal-slate-400);
+  --ahx-status-stopped: var(--ahx-ink-300);
+  --ahx-status-tint: 0.14;
+
+  --ahx-success: var(--ahx-signal-green-400);
+  --ahx-warning: var(--ahx-signal-amber-400);
+  --ahx-danger: var(--ahx-signal-red-400);
+  --ahx-info: var(--ahx-signal-blue-400);
+  --ahx-danger-solid: #c42c4a;
+  --ahx-success-soft: rgba(61, 220, 151, 0.12);
+  --ahx-warning-soft: rgba(245, 185, 66, 0.12);
+  --ahx-danger-soft: rgba(244, 96, 122, 0.12);
+  --ahx-info-soft: rgba(89, 195, 245, 0.12);
+
+  --ahx-art-bg: var(--ahx-ink-800);
+  --ahx-skeleton-base: var(--ahx-ink-850);
+  --ahx-skeleton-shine: var(--ahx-ink-800);
+  --ahx-scrollbar: rgba(221, 219, 230, 0.16);
+}
+
+/* ---------------------------------------------------------------- light (optional) */
+[data-theme="light"] {
+  color-scheme: light;
+
+  --ahx-bg-app: var(--ahx-ink-100);
+  --ahx-bg-titlebar: var(--ahx-ink-100);
+  --ahx-bg-sidebar: var(--ahx-ink-50);
+  --ahx-bg-content: #f3f2f7;
+  --ahx-surface-1: var(--ahx-ink-0);
+  --ahx-surface-2: var(--ahx-ink-50);
+  --ahx-surface-3: var(--ahx-ink-0);
+  --ahx-surface-inset: var(--ahx-ink-50);
+  --ahx-surface-hover: rgba(96, 16, 160, 0.06);
+  --ahx-surface-selected: rgba(120, 24, 192, 0.1);
+  --ahx-overlay-scrim: rgba(21, 19, 29, 0.42);
+
+  --ahx-border-subtle: rgba(21, 19, 29, 0.07);
+  --ahx-border: rgba(21, 19, 29, 0.13);
+  --ahx-border-strong: rgba(21, 19, 29, 0.24);
+  --ahx-border-accent: rgba(120, 24, 192, 0.5);
+
+  --ahx-text-primary: var(--ahx-ink-900);
+  --ahx-text-secondary: var(--ahx-ink-700);
+  --ahx-text-muted: var(--ahx-ink-600);
+  --ahx-text-disabled: var(--ahx-ink-400);
+  --ahx-text-on-accent: var(--ahx-ink-0);
+  --ahx-text-link: var(--ahx-violet-700);
+
+  --ahx-accent: var(--ahx-violet-600);
+  --ahx-accent-hover: var(--ahx-violet-700);
+  --ahx-accent-pressed: var(--ahx-violet-800);
+  --ahx-accent-soft: rgba(120, 24, 192, 0.1);
+  --ahx-accent-text: var(--ahx-violet-700);
+  --ahx-brand-ink: var(--ahx-ink-900);
+
+  --ahx-focus-ring: 0 0 0 2px var(--ahx-bg-app), 0 0 0 4px var(--ahx-violet-600);
+
+  --ahx-shadow-1: 0 1px 2px rgba(21, 19, 29, 0.08);
+  --ahx-shadow-2: 0 8px 24px rgba(21, 19, 29, 0.1);
+  --ahx-shadow-3: 0 24px 64px rgba(21, 19, 29, 0.16);
+  --ahx-glow-accent: 0 0 0 1px rgba(120, 24, 192, 0.3), 0 8px 24px rgba(120, 24, 192, 0.14);
+
+  --ahx-status-running: var(--ahx-signal-green-700);
+  --ahx-status-starting: var(--ahx-signal-blue-700);
+  --ahx-status-stopping: var(--ahx-signal-amber-700);
+  --ahx-status-updating: var(--ahx-violet-700);
+  --ahx-status-degraded: var(--ahx-signal-orange-700);
+  --ahx-status-error: var(--ahx-signal-red-700);
+  --ahx-status-offline: var(--ahx-signal-slate-700);
+  --ahx-status-stopped: var(--ahx-ink-700);
+  --ahx-status-tint: 0.1;
+
+  --ahx-success: var(--ahx-signal-green-700);
+  --ahx-warning: var(--ahx-signal-amber-700);
+  --ahx-danger: var(--ahx-signal-red-700);
+  --ahx-info: var(--ahx-signal-blue-700);
+  --ahx-danger-solid: #b4233f;
+  --ahx-success-soft: rgba(15, 122, 79, 0.1);
+  --ahx-warning-soft: rgba(138, 90, 0, 0.1);
+  --ahx-danger-soft: rgba(180, 35, 63, 0.09);
+  --ahx-info-soft: rgba(11, 106, 153, 0.09);
+
+  --ahx-art-bg: var(--ahx-violet-50);
+  --ahx-skeleton-base: var(--ahx-ink-100);
+  --ahx-skeleton-shine: var(--ahx-ink-50);
+  --ahx-scrollbar: rgba(21, 19, 29, 0.2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --ahx-duration-instant: 1ms;
+    --ahx-duration-fast: 1ms;
+    --ahx-duration-base: 1ms;
+    --ahx-duration-slow: 1ms;
+  }
+}
