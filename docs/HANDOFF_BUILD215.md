@@ -369,3 +369,30 @@ checked from the RC artifacts (step 4 below).
   commit, with the same gates (push approval, signed build and checks,
   `confirmed`, acceptance from the beginning). The disposable node
   `anx215-a` is kept running for RC2 acceptance.
+
+## Release candidate 2 (2026-11-19)
+
+- Approved by the owner ("Push and build RC2"). `origin/dev` fast-forwarded
+  `d3183249..9bb648dc`. No tag, nothing published.
+- CI run 44672491869 (`windows-release.yml` on `dev`, commit `9bb648dc`):
+  static-validation, rc-validation (420/420 on Linux), windows and linux
+  passed; publish skipped.
+- Downloaded to `artifacts/build215-rc2/` (git-ignored):
+  - Setup `AnxOS-Control-Center-Setup-2.0-build215.exe` (440,250,152 bytes):
+    Authenticode Valid, Anjo ROSIMO, Microsoft timestamp. SHA-256
+    `16767E3E1902B920D98433F8BDA9CBBF7B2C1EA2EDFE5562FB6CA02F5BB73A5B`;
+    `latest.yml` SHA-512 and size match.
+  - Portable: Valid. SHA-256
+    `A0A8CCDE93EABF14C44110739C664239378268C48C6F338C97CAC2F03DD6A102`.
+  - Agent package `AnxOS-Agent-2.0-build215.deb`: SHA-256
+    `5F4D711173762984319FB27A0037F0B9EAE6B581A0F8DD413C1CD75720E95C3C`
+    (matches its `.sha256`).
+  - Linux app: `.deb` `52DCB26578896D7DF7F3C035FCDBFFCB29B74C34333A88AD1DE5A29FCA531CA8`,
+    AppImage `DFB902560D0AD3C109DE3973E2DD69EFB920E142D5C70ABE2DCE09C500062FC2`.
+- Agent package on a fresh disposable node (removed afterwards): version and
+  embedded identity 2.0-build215; helper byte-identical to the hardened one;
+  clean install (no CR); empty `anxos-update` group; `visudo -c` parses;
+  helper only after joining the group, general sudo still needs a password;
+  Agent active, reports 2.0-build215.
+- Installed app before the upgrade: RC1 (`d3183249`). Waiting for the owner's
+  `confirmed` before installing RC2.
