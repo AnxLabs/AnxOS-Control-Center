@@ -5,18 +5,18 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   siteUrl: "https://anxoscontrolcenter.org",
   logoPath: "/assets/anxos-logo.png",
   latestVersion: "2.0",
-  build: "214",
-  buildNumber: "214",
+  build: "215",
+  buildNumber: "215",
   channel: "Private Alpha",
-  releaseLabel: "Version 2.0 Build 214 Private Alpha",
-  releaseDate: "November 19, 2026",
-  releaseTag: "v2.0-build214",
+  releaseLabel: "Version 2.0 Build 215 Private Alpha",
+  releaseDate: "November 20, 2026",
+  releaseTag: "v2.0-build215",
   releaseRepository: {
     owner: "AnxLabs",
     repo: "AnxOS-Control-Center-Releases",
   },
   repositoryUrl: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases",
-  releaseUrl: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v2.0-build214",
+  releaseUrl: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v2.0-build215",
   githubReleasesApiUrl: "https://api.github.com/repos/AnxLabs/AnxOS-Control-Center-Releases/releases?per_page=20",
   stableDownloadEndpoints: {
     windows: "/api/download/latest/windows",
@@ -26,23 +26,48 @@ window.ANXOS_DOWNLOAD_CONFIG = {
   },
   releaseAssets: [
       {
-          fileName: "AnxOS-Control-Center-Setup-2.0-build214.exe",
-          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build214/AnxOS-Control-Center-Setup-2.0-build214.exe"
+          fileName: "AnxOS-Control-Center-Setup-2.0-build215.exe",
+          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build215/AnxOS-Control-Center-Setup-2.0-build215.exe"
       },
       {
-          fileName: "AnxOS-Control-Center-2.0-build214-portable.exe",
-          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build214/AnxOS-Control-Center-2.0-build214-portable.exe"
+          fileName: "AnxOS-Control-Center-2.0-build215-portable.exe",
+          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build215/AnxOS-Control-Center-2.0-build215-portable.exe"
       },
       {
-          fileName: "AnxOS-Control-Center-2.0-build214.AppImage",
-          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build214/AnxOS-Control-Center-2.0-build214.AppImage"
+          fileName: "AnxOS-Control-Center-2.0-build215.AppImage",
+          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build215/AnxOS-Control-Center-2.0-build215.AppImage"
       },
       {
-          fileName: "AnxOS-Control-Center-2.0-build214.deb",
-          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build214/AnxOS-Control-Center-2.0-build214.deb"
+          fileName: "AnxOS-Control-Center-2.0-build215.deb",
+          url: "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build215/AnxOS-Control-Center-2.0-build215.deb"
       }
   ],
   releaseNotes: [
+      {
+          "version": "2.0",
+          "build": 215,
+          "channel": "Private Alpha",
+          "tag": "v2.0-build215",
+          "date": "November 20, 2026",
+          "datetime": "2026-11-20",
+          "title": "AnxOS Control Center v2.0 — Build 215",
+          "summary": "Build 215 makes the servers and services you already run easier and safer to look after: one list for everything on every computer, Docker updates that keep your data, Agent updates without typing a password, and a clear answer to \"will it run on this computer?\".",
+          "changes": [
+              "**One list for everything.** My Servers › All computers now shows Docker services next to game servers on every paired computer: type (installed by AnxOS, Compose project or existing container), computer, status and health, ports, kept data and Compose dependencies. Start, stop and restart work across both; Open and Logs go to the Docker page on the right computer. The Docker page keeps every container tool. When this PC and a Local Agent on this PC read the same Docker, each container is listed once and names the other computer.",
+              "**Docker service updates that keep your data.** Update on a service AnxOS installed downloads the newest image for the same tag and recreates the container with the same ports, settings and volumes. The old container is kept until the new one stays up, and comes back if it doesn't. AnxOS says plainly that this rolls back the image, not data changes the new version made.",
+              "**Key sign-in for SSH.** On the SSH page, Set up key sign-in turns a password profile into an Ed25519 key profile: the key is created on this PC (readable only by your Windows account, optional passphrase through the Windows SSH agent), added to that account on the server over a one-time password connection to the server you already approved, and tested before it is saved. Your password profile stays as a fallback and the server's SSH settings are not changed.",
+              "**Agent updates without a sudo password.** Build 215 Agents ship a small update helper that members of the new `anxos-update` group may run without a password, and nothing else: it accepts only a build number, downloads the official package itself, checks it against the release's checksums, refuses downgrades and other packages, and logs every call. Nobody is added to the group automatically.",
+              "**Live update progress.** Agent updates (one computer, Update all and automatic) show each step as it runs.",
+              "**\"Will it run on this computer?\"** Create Server tells you, without opening anything, whether the chosen computer is connected, runs a supported operating system, and has the memory and disk the server needs, in plain words.",
+              "**SSH profiles after a locked start.** Unlocking AnxOS now reloads SSH profiles and Agent Control, so Verify Access and Update work without visiting Files first.",
+              "**Agent updates no longer restart unrelated services.** On Ubuntu, `needrestart` restarted other services after the Agent package was installed; it is now suspended for the Agent install, and services that still use replaced libraries are listed for you instead. An update that would change any package other than the Agent is refused.",
+              "**Stale update panel.** After an update, Agent Control no longer shows the old \"Pending\" line or \"Not connected\"; the history shows the build the Agent reports. Unsaved changes in the automatic-update settings are kept.",
+              "**\"Agent 0.1.0\"** no longer appears in update steps or history; builds are shown.",
+              "**The Update button** describes the update method the computer really uses (release package or runtime push).",
+              "**The update confirmation** has a proper title layout and lists the computer, current and new build, method, what keeps running and what happens if it fails."
+          ],
+          "url": "https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v2.0-build215"
+      },
       {
           "version": "2.0",
           "build": 214,
