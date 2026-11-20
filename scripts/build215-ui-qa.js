@@ -25,6 +25,14 @@
 //      kept data next to the computers' servers
 //   W2 Update on an AnxOS Docker service (older nginx under the template tag)
 //      replaces it from the window and keeps its data
+// RC mode (installed release candidate): BUILD215_QA_EXE=<installed exe>
+// and BUILD215_QA_AGENT_RUNTIME=<its resources/local-agent-runtime>. The
+// installed app runs with the same isolated profile; the disposable local
+// Agent runs from the installed runtime (electron as node); the app's local
+// Agent lifecycle IPC is replaced with a refusal, because Agent Control
+// treats the machine-wide AnxOSAgent task as its own. Before Build 215 is
+// published its release has no SHA256SUMS, so P1 and C1 then expect the
+// update to be refused at the download check with the node unchanged.
 // Screenshots: BUILD215_QA_SHOTS=<dir>. BUILD215_QA_ONLY=D1,W1 runs a subset
 // (checks after K1 need K1). Run: node scripts/build215-ui-qa.js
 
@@ -46,10 +54,18 @@ const CONTAINER = "anx215-a";
 const SSH_PORT = 2221;
 const AGENT_PORT = 47191;
 const FROM = "2.0-build213";
-const TO = "2.0-build214";
 const PASSWORD = process.env.ANX215_PASSWORD || "anx215-disposable-pw";
 const NGINX = "anx215qa-web";
 const NGINX_PORT = 18081;
+const EXE = process.env.BUILD215_QA_EXE || "";
+const RUNTIME = process.env.BUILD215_QA_AGENT_RUNTIME || "";
+const RC = Boolean(EXE);
+// The build the app updates to: its own (release.json; 2.0-build215 for the
+// Build 215 RC). Before that build is published its release has no
+// SHA256SUMS, and the update must be refused at the download check.
+const TARGET = RC ? "2.0-build215" : require("../src/shared/agentBuildIdentity").readDesktopBundledAgentArtifactVersion();
+let UNPUBLISHED = false;
+const LIFECYCLE_CHANNELS = ["start", "stop", "restart", "forceRestart", "installService", "uninstallService", "enableAutoStart", "disableAutoStart", "installLocalAgent", "stopOldLocalAgentAndRepair", "pairLocalAgent", "restoreHelper", "updateLocalAgent", "saveConfig", "resetConfig", "restoreConfig", "startPairingSession"].map((name) => `agentControl:${name}`);
 // The open confirmation (static modals elsewhere in the page are hidden).
 const OPEN_DIALOG = ".app-modal-backdrop:last-of-type .app-modal";
 
@@ -94,9 +110,10 @@ async function startLocalAgent(root) {
   for (const dir of [configDir, path.join(root, "instances"), path.join(root, "logs")]) fs.mkdirSync(dir, { recursive: true });
   const port = await freePort();
   fs.writeFileSync(path.join(configDir, "agent.json"), `${JSON.stringify({ backendMode: "agent", agentUrl: `http://127.0.0.1:${port}`, agentToken: token }, null, 2)}\n`);
-  const child = spawn(process.execPath, [path.join(appRoot, "agent", "src", "server.js")], {
-    cwd: path.join(appRoot, "agent"),
-    env: { ...process.env, ANXHUB_CONFIG_DIR: configDir, ANXHUB_AGENT_CONFIG_PATH: path.join(configDir, "agent.json"), AGENT_HOST: "127.0.0.1", AGENT_PORT: String(port), AGENT_TOKEN: token, AGENT_IDENTITY_PATH: path.join(configDir, "identity.json"), AGENT_INSTANCE_ROOT: path.join(root, "instances"), ANXOS_LOG_DIR: path.join(root, "logs") },
+  const agentDir = RUNTIME ? path.join(RUNTIME, "agent") : path.join(appRoot, "agent");
+  const child = spawn(RUNTIME ? EXE : process.execPath, [path.join(agentDir, "src", "server.js")], {
+    cwd: agentDir,
+    env: { ...process.env, ...(RUNTIME ? { ELECTRON_RUN_AS_NODE: "1" } : {}), ANXHUB_CONFIG_DIR: configDir, ANXHUB_AGENT_CONFIG_PATH: path.join(configDir, "agent.json"), AGENT_HOST: "127.0.0.1", AGENT_PORT: String(port), AGENT_TOKEN: token, AGENT_IDENTITY_PATH: path.join(configDir, "identity.json"), AGENT_INSTANCE_ROOT: path.join(root, "instances"), ANXOS_LOG_DIR: path.join(root, "logs") },
     stdio: "ignore",
   });
   const url = `http://127.0.0.1:${port}`;
@@ -110,6 +127,9 @@ async function startLocalAgent(root) {
 }
 
 async function main() {
+  const sums = await fetch(`https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v${TARGET}/SHA256SUMS`, { redirect: "follow" }).catch(() => null);
+  UNPUBLISHED = !sums?.ok;
+  console.log(`Target build ${TARGET}: ${UNPUBLISHED ? "not published (update must be refused)" : "published"}`);
   // Disposable node A back on the older build, key sign-in not yet set up.
   if (dockerExec("dpkg-query -W -f='${Version}' anxos-agent").trim() !== FROM) {
     const back = dockerExec(`/usr/lib/anxos-agent/update-helper rollback ${FROM} || true`);
@@ -154,7 +174,20 @@ async function main() {
   const env = { ...process.env, ...qa.env, ANXOS_QA_MODE: "1", USERPROFILE: home, HOME: home };
   delete env.ELECTRON_RUN_AS_NODE;
   for (const key of Object.keys(env)) if (key.startsWith("VSCODE_")) delete env[key];
-  const launch = () => electron.launch({ args: [`--user-data-dir=${userData}`, "--no-sandbox", appRoot, "--qa-mode"], env });
+  const launch = async () => {
+    const launched = RC
+      ? await electron.launch({ executablePath: EXE, args: [`--user-data-dir=${userData}`, "--no-sandbox", "--qa-mode"], env })
+      : await electron.launch({ args: [`--user-data-dir=${userData}`, "--no-sandbox", appRoot, "--qa-mode"], env });
+    if (RC) {
+      await launched.evaluate(({ ipcMain }, channels) => {
+        for (const channel of channels) {
+          ipcMain.removeHandler(channel);
+          ipcMain.handle(channel, () => { throw new Error("Refused during RC acceptance: this would act on the PC's real AnxOSAgent task."); });
+        }
+      }, LIFECYCLE_CHANNELS);
+    }
+    return launched;
+  };
   // First launch only creates the owner, so the second one starts locked.
   const ownerPassword = `Qa-${crypto.randomBytes(12).toString("hex")}-Zz9!`;
   {
@@ -263,28 +296,64 @@ async function main() {
       }, OPEN_DIALOG);
       assert.strictEqual(dialog.direction, "column", "title stacked");
       assert.strictEqual(dialog.rows["Current build"], FROM);
-      assert.strictEqual(dialog.rows["New build"], TO);
+      assert.strictEqual(dialog.rows["New build"], TARGET);
       assert(/release package/i.test(dialog.rows.Method));
       assert(/Docker containers/.test(dialog.rows.Services));
       assert.strictEqual(dialog.confirm, "Update Agent");
-      return `${dialog.title} ${FROM} -> ${TO}`;
+      return `${dialog.title} ${FROM} -> ${TARGET}`;
     });
 
-    await check("P1", "Live progress while the real update runs", async () => {
+    await check("P1", UNPUBLISHED ? `Unpublished ${TARGET} release: refused at the download check, node unchanged` : "Live progress while the real update runs", async () => {
       await page.evaluate((selector) => document.querySelector(`${selector} [data-confirm-ok]`).click(), OPEN_DIALOG);
+      if (UNPUBLISHED) {
+        await waitFor(page, () => /could not be read|SHA256SUMS|release/i.test(document.querySelector("[data-agent-control-message]")?.textContent || "") && document.querySelectorAll("[data-agent-update-step]").length > 0, null, "the refusal", 120000);
+        await shot(page, "P1-rc-refused");
+        await waitFor(page, () => ![...document.querySelectorAll("[data-agent-update-step] .status-pill")].some((pill) => pill.textContent === "in progress"), null, "no step left in progress", 15000).catch(() => {});
+        const view = await page.evaluate(() => ({
+          message: document.querySelector("[data-agent-control-message]").textContent,
+          steps: [...document.querySelectorAll("[data-agent-update-step]")].map((row) => `${row.dataset.agentUpdateStep}:${row.querySelector(".status-pill").textContent}`),
+          toasts: [...document.querySelectorAll(".toast")].map((toast) => toast.textContent.trim()).filter(Boolean),
+        }));
+        const installed = dockerExec("dpkg-query -W -f='${Version}' anxos-agent").trim();
+        assert.strictEqual(installed, FROM, "nothing installed");
+        assert(view.message.includes(`v${TARGET}`), view.message);
+        // Build 215 RC1 findings: a stopped update leaves no step running, and
+        // the toast does not blame the Agent for an unpublished release.
+        assert(!view.steps.some((step) => step.endsWith(":in progress")), `a step is still in progress: ${view.steps.join(", ")}`);
+        assert(view.steps.includes("stage:failed"), `the download step shows failed: ${view.steps.join(", ")}`);
+        assert(!view.toasts.some((text) => /Agent is not responding/.test(text)), `misleading toast: ${view.toasts.join(" | ")}`);
+        return `${view.message.slice(0, 140)} | ${view.steps.join(", ")} | node still ${installed}`;
+      }
       await waitFor(page, () => !document.querySelector("[data-agent-update-progress]").hidden && document.querySelectorAll("[data-agent-update-step]").length > 0, null, "progress steps", 60000);
       await waitFor(page, () => /in progress/.test(document.querySelector("[data-agent-update-progress]").textContent), null, "a running step", 60000).catch(() => {});
       await shot(page, "P1-update-progress");
-      await waitFor(page, (to) => new RegExp(`updated to ${to.replace(/\./g, "\\.")}`).test(document.querySelector("[data-agent-control-message]")?.textContent || ""), TO, "the update to finish", 240000);
+      await waitFor(page, (to) => (document.querySelector("[data-agent-control-message]")?.textContent || "").includes(`updated to ${to}`), TARGET, "the update to finish", 240000);
       await shot(page, "P1-update-done");
       const steps = await page.evaluate(() => [...document.querySelectorAll("[data-agent-update-step]")].map((row) => `${row.dataset.agentUpdateStep}:${row.querySelector(".status-pill").textContent}`));
       const installed = dockerExec("dpkg-query -W -f='${Version}' anxos-agent").trim();
-      assert.strictEqual(installed, TO);
+      assert.strictEqual(installed, TARGET);
       return `${steps.join(", ")}; node now ${installed}`;
     });
 
-    await check("C1", "No stale pending/not connected; verified build in history; no 0.1.0", async () => {
-      await waitFor(page, () => /2\.0-build213 → 2\.0-build214/.test(document.querySelector("[data-agent-update-history]")?.textContent || ""), null, "the history row", 60000);
+    if (UNPUBLISHED) await check("C1", "History records the refused update with builds, never 0.1.0; node A still connected", async () => {
+      // A history table row, not the "Pending" line (it names the same builds).
+      const shown = await page.waitForFunction((target) => [...document.querySelectorAll("[data-agent-update-history-row]")].some((row) => row.textContent.includes(`2.0-build213 → ${target}`) && /Failed/.test(row.textContent)), TARGET, { timeout: 60000, polling: 400 }).then(() => true).catch(() => false);
+      if (!shown) {
+        const file = path.join(qa.configDir, "agent-update-history.json");
+        const saved = fs.existsSync(file) ? fs.readFileSync(file, "utf8").slice(0, 600) : "(no history file)";
+        const panel = await page.evaluate(async () => ({ section: getActivePageName(), hidden: document.querySelector("[data-agent-update-overview]")?.closest("[data-agent-control-section]")?.hidden, state: window.AnxAgentAutoUpdate?._test?.getState?.()?.history?.length ?? null, direct: (await window.anx.nodes.getAgentAutoUpdate().catch((error) => ({ error: error.message })))?.history?.length ?? "error" }));
+        throw new Error(`history row missing; saved: ${saved}; panel: ${JSON.stringify(panel)}`);
+      }
+      await shot(page, "C1-rc-history");
+      const text = await page.evaluate(() => ({ history: document.querySelector("[data-agent-update-history]").textContent, computers: document.querySelector("[data-agent-auto-update-computers]").textContent, section: document.querySelector('[data-agent-control-section="updates"]').textContent }));
+      assert(/Failed/.test(text.history), text.history);
+      const nodeLine = text.computers.split("Test node A")[1]?.split(/Lab PC|Owner Machine/)[0] || "";
+      assert(!/not connected/.test(nodeLine), `Test node A: ${nodeLine}`);
+      assert(!/0\.1\.0/.test(text.section), "no placeholder version");
+      return text.history.replace(/\s+/g, " ").slice(0, 160);
+    });
+    if (!UNPUBLISHED) await check("C1", "No stale pending/not connected; verified build in history; no 0.1.0", async () => {
+      await waitFor(page, (target) => (document.querySelector("[data-agent-update-history]")?.textContent || "").includes(`2.0-build213 → ${target}`), TARGET, "the history row", 60000);
       await waitFor(page, () => !/Pending:/.test(document.querySelector("[data-agent-update-history]")?.textContent || ""), null, "the pending line to go", 60000);
       await shot(page, "C1-after-update");
       const text = await page.evaluate(() => ({
@@ -294,7 +363,7 @@ async function main() {
       }));
       assert(/\(verified\)/.test(text.history), text.history);
       const nodeLine = text.computers.split("Test node A")[1]?.split(/Lab PC|Owner Machine/)[0] || "";
-      assert(/2\.0-build214/.test(nodeLine) && /up to date/.test(nodeLine) && !/not connected/.test(nodeLine), `Test node A: ${nodeLine}`);
+      assert(nodeLine.includes(TARGET) && /up to date/.test(nodeLine) && !/not connected/.test(nodeLine), `Test node A: ${nodeLine}`);
       assert(!/0\.1\.0/.test(text.section), "no placeholder version in the Updates section");
       return text.computers.replace(/\s+/g, " ").trim().slice(0, 120);
     });

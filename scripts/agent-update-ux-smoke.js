@@ -16,6 +16,9 @@
 //   U7  an older, slower overview never replaces a newer one (Bug C)
 //   U8  update history records builds, never the 0.1.0 placeholder (Bug D)
 //   U9  live progress events redraw the step list and refresh state at the end
+//   U10 a specific error code is never relabelled "The Agent is not
+//       responding" (Build 215 RC1: an unpublished release did); generic
+//       connection failures still are
 const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
@@ -37,6 +40,25 @@ function extractFunction(name) {
     }
   }
   throw new Error(`Could not extract ${name}.`);
+}
+
+function extractConst(name) {
+  const start = appSource.indexOf(`const ${name} = `);
+  assert(start >= 0, `Could not find const ${name} in app.js.`);
+  // A one-line declaration ends at its line end (app.js may use CRLF).
+  const end = appSource.indexOf("\n", start);
+  const open = appSource.indexOf("[", start);
+  if (open >= 0 && open < appSource.indexOf("\n", start)) {
+    let depth = 0;
+    for (let index = open; index < appSource.length; index += 1) {
+      if (appSource[index] === "[") depth += 1;
+      if (appSource[index] === "]") {
+        depth -= 1;
+        if (depth === 0) return `${appSource.slice(start, index + 1)};`;
+      }
+    }
+  }
+  return appSource.slice(start, end).trim();
 }
 
 function sandbox(names, globals = {}, prelude = "") {
@@ -394,7 +416,22 @@ const HISTORY_AFTER = [{ id: "h1", at: "2026-11-19T09:01:31.000Z", trigger: "man
     console.log("  ok U9 live progress and end-of-update refresh");
   }
 
-  console.log("Agent update UX smoke passed (9 cases).");
+  // U10
+  {
+    const context = sandbox(["normalizeIpcErrorMessage", "getFriendlyErrorCode", "isSpecificErrorCode", "findFriendlyErrorDefinition"], {}, `${extractConst("FRIENDLY_ERROR_DEFINITIONS")}\n${extractConst("GENERIC_ERROR_CODE_PATTERN")}`);
+    const find = (error) => context.findFriendlyErrorDefinition(error)?.id || null;
+    const rc1 = "AGENT_PACKAGE_RELEASE_UNAVAILABLE: The v2.0-build215 release or its SHA256SUMS could not be read (HTTP 404 for https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/download/v2.0-build215/SHA256SUMS).";
+    assert.strictEqual(find({ code: "AGENT_PACKAGE_RELEASE_UNAVAILABLE", message: rc1 }), null, "the RC1 refusal keeps its own message");
+    assert.strictEqual(find(rc1), null, "also when only the message string is passed (toasts)");
+    assert.strictEqual(find({ code: "AGENT_PACKAGE_RELEASE_UNAVAILABLE", message: "AGENT_PACKAGE_RELEASE_UNAVAILABLE: The release could not be read (fetch failed)." }), null, "offline GitHub is not a dead Agent");
+    assert.strictEqual(find({ code: "AGENT_UNAVAILABLE", message: "x" }), "agent-unreachable", "listed codes still map");
+    assert.strictEqual(find({ message: "connect ECONNREFUSED 127.0.0.1:47131" }), "agent-unreachable", "plain connection failures still map");
+    assert.strictEqual(find({ code: "AGENT_REQUEST_FAILED", message: "AGENT_REQUEST_FAILED: fetch failed" }), "agent-unreachable", "generic request failures still map");
+    assert.strictEqual(find({ message: "The Agent is unavailable right now." }), "agent-unreachable");
+    console.log("  ok U10 specific error codes keep their own message");
+  }
+
+  console.log("Agent update UX smoke passed (10 cases).");
 })().catch((error) => {
   console.error(error);
   process.exitCode = 1;

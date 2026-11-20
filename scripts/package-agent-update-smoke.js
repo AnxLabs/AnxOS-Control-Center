@@ -20,6 +20,8 @@
 //   P17 helper install verifies badly: helper rollback to the replaced build
 //   P18 password sudo with the helper not permitted: anxos-update hint
 //   P19 helper command refuses anything but a build string
+//   P20 the target release is unpublished: refused at the download check, and
+//       no step is left "running" (Build 215 RC1 finding)
 const assert = require("assert");
 const fs = require("fs");
 const os = require("os");
@@ -397,8 +399,28 @@ const helperCalls = (calls, action) => calls.filter((command) => command.include
     console.log("  ok P19 helper command takes a build string only");
   }
 
+  // P20
+  {
+    const node = simulatedNode({ helper: "ok" });
+    const progress = [];
+    const unpublished = async (url) => {
+      if (url.includes(`/v${TARGET}/`)) throw Object.assign(new Error("HTTP 404"), { status: 404 });
+      return fetchText(url);
+    };
+    const error = await expectFailure(updateRemoteAgent("node-key", options(node, { fetchText: unpublished, onProgress: (event) => progress.push(event.steps) })));
+    assert.strictEqual(error.code, "AGENT_PACKAGE_RELEASE_UNAVAILABLE");
+    assert(!error.steps.some((step) => step.state === "running"), `no step left running: ${JSON.stringify(error.steps.map((step) => `${step.id}:${step.state}`))}`);
+    assert.strictEqual(error.steps.find((step) => step.id === "stage").state, "failed");
+    assert(/could not be read/.test(error.steps.find((step) => step.id === "stage").message));
+    const last = progress[progress.length - 1] || [];
+    assert.strictEqual(last.find((step) => step.id === "stage")?.state, "failed", "the last progress event shows the failure");
+    assert.deepStrictEqual(installs(node.calls), []);
+    assert.strictEqual(helperCalls(node.calls, "install").length, 0);
+    console.log("  ok P20 unpublished release refused; no step left running");
+  }
+
   fs.rmSync(smokeRoot, { recursive: true, force: true });
-  console.log("Package Agent update smoke passed (19 cases).");
+  console.log("Package Agent update smoke passed (20 cases).");
 })().catch((error) => {
   console.error(error);
   process.exitCode = 1;

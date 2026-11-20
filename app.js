@@ -2964,7 +2964,8 @@ const FRIENDLY_ERROR_DEFINITIONS = [
   {
     id: "agent-unreachable",
     codes: ["AGENT_UNAVAILABLE", "ECONNREFUSED", "ETIMEDOUT", "ENOTFOUND"],
-    pattern: /agent.*(unavailable|unreachable|not responding)|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|fetch failed/i,
+    // Word boundaries: "AGENT_PACKAGE_RELEASE_UNAVAILABLE" is not "agent unavailable".
+    pattern: /\bagent\b.{0,40}?\b(unavailable|unreachable|not responding)\b|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|fetch failed/i,
     message: "The Agent is not responding.",
     suggestion: "Check that the Agent is running, then try again.",
     actions: ["Retry", "Open Agent Control", "View Diagnostics"],
@@ -3093,11 +3094,22 @@ function getFriendlyErrorCode(error = {}, message = "") {
   ).trim();
 }
 
+// A specific error code (AGENT_PACKAGE_RELEASE_UNAVAILABLE, DOCKER_UPDATE_UNSTABLE,
+// SSH_HOST_KEY_MISMATCH...) already says what went wrong, with its own message.
+// The broad text patterns are for generic failures only, so they never relabel
+// it: Build 215 RC1 showed "The Agent is not responding" for an unpublished
+// release because the code read as "agent ... unavailable".
+const GENERIC_ERROR_CODE_PATTERN = /(?:^|_)(?:REQUEST|OPERATION)_FAILED$|^UNKNOWN_ERROR$/;
+function isSpecificErrorCode(code = "") {
+  return /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/.test(code) && !GENERIC_ERROR_CODE_PATTERN.test(code);
+}
+
 function findFriendlyErrorDefinition(error = {}, fallback = "") {
   const message = normalizeIpcErrorMessage(error, fallback);
   const code = getFriendlyErrorCode(error, message).toUpperCase();
+  const specific = isSpecificErrorCode(code);
   return FRIENDLY_ERROR_DEFINITIONS.find((definition) => {
-    return definition.codes?.includes(code) || definition.pattern?.test(`${code} ${message}`);
+    return definition.codes?.includes(code) || (!specific && definition.pattern?.test(`${code} ${message}`));
   }) || null;
 }
 

@@ -319,4 +319,53 @@ checked from the RC artifacts (step 4 below).
   2.0-build215.
 - Installed app before the upgrade: signed AnxOS Control Center (Valid),
   AnxOSAgent task running; the Build 214 RC2 install per Build 214's record.
-  Waiting for the owner's `confirmed` before installing.
+
+- **In-place upgrade over Build 214** (owner replied `confirmed`). Backup:
+  `%APPDATA%\AnxHub\config-backup-pre-build215-rc1-20261119-203247`
+  (`config`, `agent`, `instances`: 715 files) with a SHA-256 manifest. This
+  PC's Agent ran no server (Minecraft Vanilla stopped). Setup re-verified
+  (hash, signature) and started by the assistant; the owner clicked through
+  and replied `done`.
+- **After the upgrade:** installed exe Authenticode Valid; AnxOSAgent task
+  runs it with `--agent` (no time limit, 3 restarts); no
+  `helper-restore-needed.json`; Local Agent reports `2.0-build215`; installed
+  `app.asar` has release.json Build 215 and the Build 215 code (fleet Docker
+  services, Docker service update, needrestart safeguard, `--no-trunc`, key
+  sign-in, fit check). Data: 706 of 715 files byte-identical, none missing;
+  9 changed are runtime state (health-check timestamps in `nodes.json`,
+  last-seen in `security.json`, telemetry samples, alerts, AnxNet token/state
+  /log, audit log, window recovery); new: `agent-auto-update.json`
+  (`enabled: true`, notify only, no computers chosen), saved by an explicit
+  `node.agent-auto-update.set` at 03:49:58 UTC while Agent Control was open
+  in the installed app; no harness touched that profile. Inert (no computers
+  chosen); left as saved.
+- **Acceptance in the installed RC1** (installed exe under Playwright with an
+  isolated profile, disposable Agent from the installed
+  `local-agent-runtime`, local Agent lifecycle IPC refused, rebuilt
+  disposable node `anx215-a` on 2.0-build213): `build215-ui-qa` 9/9 passed
+  (U1, K1, E1, F1, P1 refused at the download check for the unpublished
+  2.0-build215 release with the node unchanged, C1, D1, W1, W2).
+- **Two defects found in the screenshots** (acceptance stopped):
+  1. After the refusal, "Download and verify the release package" stayed
+     *in progress*: `updatePackageManagedAgent` threw from a running step
+     without marking it, and the failure event carried that state.
+  2. The error toast said "The Agent is not responding. Check that the Agent
+     is running": the friendly-error matcher's "agent unreachable" pattern
+     `/agent.*(unavailable|...)/i` matched the code
+     `AGENT_PACKAGE_RELEASE_UNAVAILABLE`.
+- **Fixes:** `fail()` in `remoteAgentUpdateService` marks any running step
+  failed with the reason and reports it (every update path); specific error
+  codes are no longer relabelled by the broad text patterns (only generic
+  `*_REQUEST_FAILED`/`*_OPERATION_FAILED`/no code; listed codes still map),
+  and the agent pattern uses word boundaries. Regression: package smoke P20,
+  UX smoke U10 (fails on RC1's `app.js`), `build215-ui-qa` P1 now asserts no
+  step in progress, the download step failed and no "Agent is not
+  responding" toast. On the fixed code: P1 and C1 pass in the real app (dev),
+  smokes for notifications, onboarding, renderer safety, update services and
+  local-owner auth pass. `build215-ui-qa` also learned to read its target
+  build from `release.json` and to wait for a history row, not the pending
+  line.
+- **RC1 status: RELEASE BLOCKED** (the two defects). Next: RC2 from the fix
+  commit, with the same gates (push approval, signed build and checks,
+  `confirmed`, acceptance from the beginning). The disposable node
+  `anx215-a` is kept running for RC2 acceptance.

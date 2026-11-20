@@ -401,7 +401,22 @@ async function updateRemoteAgent(nodeId, options = {}) {
     reportProgress();
     return step;
   };
-  const fail = (code, message, details = {}) => Object.assign(new Error(message), { code, steps, details });
+  // An update that stops leaves no step "running": the step it stopped in is
+  // marked failed with the reason, so the progress list never shows a dead
+  // step as in progress (Build 215 RC1: a refused download stayed "in
+  // progress" after the error).
+  const fail = (code, message, details = {}) => {
+    let changed = false;
+    for (const step of steps) {
+      if (step.state !== "running") continue;
+      step.state = "failed";
+      step.message = message || step.message;
+      step.at = new Date().toISOString();
+      changed = true;
+    }
+    if (changed) reportProgress();
+    return Object.assign(new Error(message), { code, steps, details });
+  };
   const record = {
     action: "remote-agent-update",
     nodeId,
