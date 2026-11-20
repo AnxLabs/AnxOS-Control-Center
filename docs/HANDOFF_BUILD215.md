@@ -432,3 +432,30 @@ checked from the RC artifacts (step 4 below).
   confirmation) were reviewed with no further finding.
 - **RC2 status: RELEASE BLOCKED** (the two layout defects). Next: RC3 with
   the same gates.
+
+## Release candidate 3 (2026-11-19)
+
+- Approved by the owner ("Push and build RC3"). `origin/dev` fast-forwarded
+  `9bb648dc..5bd60b1e`. No tag, nothing published.
+- CI run 44678616114 (`windows-release.yml` on `dev`, commit `5bd60b1e`):
+  static-validation, rc-validation (420/420 on Linux), linux and windows
+  passed; publish skipped.
+- Downloaded to `artifacts/build215-rc3/` (git-ignored):
+  - Setup `AnxOS-Control-Center-Setup-2.0-build215.exe` (440,254,288 bytes):
+    Authenticode Valid, Anjo ROSIMO, Microsoft timestamp. SHA-256
+    `4633E5981BD97A5A0A63979B3E19641734638C7A77DF0BF9294FF6E183E67C19`;
+    `latest.yml` SHA-512 and size match.
+  - Portable: Valid. SHA-256
+    `9F10BC9571D54D352A1037A1625349A7B29B67C5E6DE1EDCFC2241AA6261B1AD`.
+  - Agent package `AnxOS-Agent-2.0-build215.deb`: SHA-256
+    `F0F3C14B90E64A7F8E3DD892A234BF650E2BC122A26BD140C2582076CF6EAFFC`
+    (matches its `.sha256`).
+  - Linux app: `.deb` `788C780D90EF2106C49EBF0496A67C1D3F4409399F1E30366F6DB7741A8F1D95`,
+    AppImage `5C6EAF9B9B1EC338151950F8A4BCA74C504AC401995BB31FCAE1C1FCD73D78F2`.
+- Agent package on a fresh disposable node (removed afterwards): version and
+  identity 2.0-build215; helper byte-identical to the hardened one; clean
+  install (no CR); empty `anxos-update` group; `visudo -c` parses; helper
+  only after joining the group, general sudo still needs a password; Agent
+  active, reports 2.0-build215.
+- Installed app before the upgrade: RC2 (`9bb648dc`). Waiting for the owner's
+  `confirmed` before installing RC3.
