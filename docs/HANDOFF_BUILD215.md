@@ -457,5 +457,42 @@ checked from the RC artifacts (step 4 below).
   install (no CR); empty `anxos-update` group; `visudo -c` parses; helper
   only after joining the group, general sudo still needs a password; Agent
   active, reports 2.0-build215.
-- Installed app before the upgrade: RC2 (`9bb648dc`). Waiting for the owner's
-  `confirmed` before installing RC3.
+- Installed app before the upgrade: RC2 (`9bb648dc`).
+
+- **In-place upgrade over RC2** (owner replied `CONFIRMED`, then `done` after
+  clicking through Setup). Backup
+  `%APPDATA%\AnxHub\config-backup-pre-build215-rc3-20261120-015341` (716
+  files) with a SHA-256 manifest; This PC's Agent ran no server. After: exe
+  Valid, AnxOSAgent task running the installed exe with `--agent` (no time
+  limit, 3 restarts), no Helper restore marker, Local Agent `2.0-build215`,
+  installed `app.asar` contains both RC1 and both RC2 fixes; data 707 of 716
+  byte-identical, none missing or new, the 9 changed are runtime fields only
+  (in `nodes.json` and `security.json` only health-check, latency and
+  last-seen times).
+- **Acceptance in the installed RC3:** first run 8/9. P1 failed on its last
+  read of `[data-agent-control-message]`: "An authenticated Agent endpoint
+  responded successfully." The screenshot showed the correct result (download
+  step failed with the HTTP 404 reason, specific toast, node still 213).
+  Cause: that line lives in the Status section, hidden while Updates is open,
+  and the refresh every Agent Control action ends with (unchanged since
+  Build 214) rewrites it with the connection status; RC1 and RC2 read it
+  before that refresh landed. Not an app regression: P1 now reads the visible
+  failed step's own message and checks it is visible. Rerun: 9/9.
+- **Defect found in the screenshots:** My Servers > All computers listed every
+  Docker container twice ("Windows Desktop: 8 Docker services · Lab PC: 8
+  Docker services", 34 action buttons for 8 containers + 1 server). Cause:
+  the application host and a Local Agent on the same PC saved as a computer
+  (which the app does, `localAgent: true`) read the same Docker daemon, and
+  the fleet listed each computer's containers separately. It affects anyone
+  with a Local Agent saved as a computer (the owner's profile has none).
+- **Fix:** `mergeSharedDockerServices` lists a container once when the same
+  Docker ID (12-64 hex) and name come from two computers, under the first
+  computer that reads it live, with "also <computer>" in the Computer cell;
+  the other computer's summary says "same Docker as <computer>, listed
+  there". A container known only by its name is never merged. Regression:
+  `server-fleet-smoke` F13 (real `docker ps --no-trunc` rows through the
+  production normalizer; fails on the RC3 code) and `build215-ui-qa` W1
+  (each container listed once: on the installed RC3 "listed 2 times", on
+  the fix 17 buttons and "Windows Desktop also Lab PC").
+- **RC3 status: RELEASE BLOCKED** (duplicate Docker rows). Next: RC4 with the
+  same gates.
