@@ -527,5 +527,31 @@ checked from the RC artifacts (step 4 below).
   0755); no packaged file with a CR; empty `anxos-update` group; `visudo -c`
   parses; helper refused before joining the group and allowed after; general
   sudo still needs a password; Agent active, reports 2.0-build215.
-- Installed app before the upgrade: RC3 (`5bd60b1e`). Waiting for the owner's
-  `confirmed` before installing RC4.
+- Installed app before the upgrade: RC3 (`5bd60b1e`).
+
+- **In-place upgrade over RC3** (owner replied `confirmed`, then `done` after
+  clicking through Setup). Backup
+  `%APPDATA%\AnxHub\config-backup-pre-build215-rc4-20261120-040108` (716
+  files, every copy checked) with a SHA-256 manifest; This PC's Agent's only
+  server (Minecraft Vanilla) was stopped. After: exe Valid, AnxOSAgent task
+  running the installed exe with `--agent` (no time limit, 3 restarts; it was
+  still starting at the first check), no Helper restore marker, Local Agent
+  `2.0-build215`, installed `app.asar` contains the RC1, RC2 and RC3 fixes;
+  data 707 of 716 byte-identical, none missing or new, the 9 changed are
+  runtime fields only (health-check, latency and last-seen times, Anxlab's
+  connection message wording).
+- **Acceptance in the installed RC4:** first full run 8/9: W1 found one row
+  per container, but the Lab PC test Agent reported "Docker unavailable", so
+  there was nothing to merge and no "same Docker" note. The run started right
+  after Setup finished; the reason was not captured and is unknown. W1 now
+  reports each computer's Docker reading when that note is missing. W1 alone
+  passed twice, then a full run passed 9/9: one row per container, "Windows
+  Desktop also Lab PC", "Lab PC: 9 Docker services (same Docker as Windows
+  Desktop, listed there)", no button past the edge at 1100/1440/1920 px.
+  `docker ps` takes about 0.5 s here against the Agent's 12 s limit.
+- All RC4 screenshots reviewed (key sign-in, update confirmation, refusal and
+  history, fit check, All computers, Docker update): no defect found.
+- Cleanup: disposable node `anx215-a`, `anx215-node:test` and
+  `nginx:stable-alpine` removed (no other container used them).
+- **RC4 status: READY FOR PUBLICATION.** Publication waits for the owner's
+  exact `🚀 publish`.
