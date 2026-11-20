@@ -10,7 +10,7 @@ Captured 2026-11-20 13:28:27 from Build 215 code (`13825d70`; the 216 branch add
 - **Switch time** = `showPage(name)` until two animation frames later (synchronous render work). It does not include later data loads.
 - **Startup** = launch until the renderer bridge is ready, and until the sidebar is laid out (after "Use this device").
 
-Full-resolution PNGs (60) and `baseline-metrics.json`: `A:\AnxLabs -Assets\AnxHost-CCuild216-0-baselineuild215-ui\` (kept out of Git for size). Contact sheets in this folder: `build215-baseline-900x640.jpg`, `build215-baseline-1280x800.jpg`, `build215-baseline-1920x1080.jpg`.
+Full-resolution PNGs (60) and `baseline-metrics.json`: `A:\AnxLabs\40-Assets\AnxHost-CC\build216-0-baseline\build215-ui\` (kept out of Git for size). Contact sheets in this folder: `build215-baseline-900x640.jpg`, `build215-baseline-1280x800.jpg`, `build215-baseline-1920x1080.jpg`.
 
 ## Results
 
