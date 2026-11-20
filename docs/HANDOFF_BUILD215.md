@@ -555,3 +555,38 @@ checked from the RC artifacts (step 4 below).
   `nginx:stable-alpine` removed (no other container used them).
 - **RC4 status: READY FOR PUBLICATION.** Publication waits for the owner's
   exact `🚀 publish`.
+
+## Published (2026-11-20)
+
+- Owner approved with `🚀 publish`. RC4 records committed (`9cfcaaaf`,
+  `21f714ef`) and `dev` pushed `0f975cd1..21f714ef`. `v2.0-build215`
+  (annotated, "AnxOS Control Center v2.0-build215") tagged on the accepted
+  RC4 commit `0f975cd1`.
+- Release run 44726313441 passed all five jobs (static validation,
+  rc-validation, Windows, Linux, publish) and published to
+  AnxOS-Control-Center-Releases with 12 assets.
+- Published files downloaded and checked: all 11 entries in `SHA256SUMS`
+  match; Setup and portable are Authenticode Valid (Anjo ROSIMO,
+  timestamped); `latest.yml` matches Setup; `update-manifest.json` reads 2.0
+  Build 215 Private Alpha; the Linux `.deb`'s `app.asar` is build 215 and
+  has the RC3 fix (Docker listed once).
+  - Setup SHA-256 `29DD8ABE40CCA034DA65C64EAFA04DCA60B10D7D66ECFE29D5839946B3B4A300`
+  - Portable SHA-256 `9B06D33F23174E58FFE6F5606B7CBBE4E0CE23272FDE930D1B85D88D1F8D7DED`
+  - Agent package SHA-256 `B83A2D91946E14372934DD29E830DA8A971B6770C4E981847D3E8890C2A7BDE5`
+  - Linux `.deb` `D8A0DC6A97EB01912CB59C51CDEB9334B2FD4350D8C939516A2BF4E3B0BC46BC`,
+    AppImage `03E12D72797AD9863FB5AFFB70D78BE75167D27B46518BB5653C1586588F3AD9`
+  - The tagged run signs again, so these differ from RC4's files (same
+    commit), as for Builds 212-214.
+- Promote run 44730175899 passed every step: website metadata commit
+  `78a9a386` on `dev`, release promoted to stable (not a prerelease),
+  source-repository pointer updated, Releases README updated. Pages deploy
+  44730212539 succeeded.
+- Public checks: both repositories report latest `v2.0-build215`; the live
+  site's raw HTML names Build 215 on Home and Download, and Release notes
+  reads "Current release: Version 2.0 Build 215" (Build 214 only as an older
+  release); all five download links answer (206 to a 1-byte range request);
+  both READMEs name Build 215.
+- Not done, as instructed: no Agent update on Anxlab or the VPS, no privileged
+  helper enabled anywhere, production automatic updating left as configured,
+  no change to Anxlab's SSH settings. The developer PC runs the RC4 install
+  (same commit as the release).
