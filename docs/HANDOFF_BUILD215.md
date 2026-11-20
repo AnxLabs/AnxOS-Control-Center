@@ -421,5 +421,14 @@ checked from the RC artifacts (step 4 below).
   share one column. On the fixed code W1 passes at all three widths;
   `server-fleet`, renderer and UI-polish smokes and `build213-ui-qa` (4/4)
   pass.
-- **RC2 status: RELEASE BLOCKED** (the clipping). Next: RC3 with the same
-  gates.
+- **Second defect, from the remaining RC2 screenshots:** the key sign-in
+  result was laid out in the form's two-column grid, and the key fingerprint
+  ran into the other column over its text. Fix: the result has its own
+  one-column layout, long text wraps, and the fingerprint is on its own line.
+  K1 now checks one column and no paragraph wider than its box: it fails on
+  the installed RC2 (2 columns, 1 overflowing) and passes on the fix.
+  Renderer, SSH key setup and modal smokes pass. All other RC2 screenshots
+  (Update confirmation, refusal and history, fit check, Docker update
+  confirmation) were reviewed with no further finding.
+- **RC2 status: RELEASE BLOCKED** (the two layout defects). Next: RC3 with
+  the same gates.

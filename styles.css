@@ -13477,6 +13477,22 @@ body.create-server-window .marketplace-side-panel {
   min-width: 0;
 }
 
+/* SSH > Set up key sign-in: the result reads top to bottom. */
+.ssh-key-setup-result {
+  display: grid;
+  gap: 10px;
+}
+
+.ssh-key-setup-result p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.ssh-key-setup-fingerprint {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.85rem;
+}
+
 /* My Servers > All computers (Build 215): fits its panel. Long volume and
    image names wrap instead of widening the table; the action buttons never
    break inside a word. */

@@ -37235,8 +37235,13 @@ function openSshKeySetupDialog(profile) {
       const result = await getDesktopApiState().api.ssh.setUpKeyAuthentication(profile.id, { password: value("password"), passphrase: value("passphrase") });
       clearSecrets();
       busy = false;
+      // One column, not the form's two-column grid: the result is read top to
+      // bottom and the key fingerprint wraps instead of running into the next
+      // column (Build 215 RC2 acceptance).
+      form.className = "ssh-key-setup-result";
       form.replaceChildren(
-        createTextElement("p", `Key sign-in works. Saved profile "${result?.profile?.displayName || "key profile"}" (key ${result?.publicKeyFingerprint || ""}) for this computer; the password profile is still there as a fallback.`),
+        createTextElement("p", `Key sign-in works. Saved profile "${result?.profile?.displayName || "key profile"}" for this computer; the password profile is still there as a fallback.`),
+        createTextElement("p", `Key fingerprint: ${result?.publicKeyFingerprint || "unknown"}`, "ssh-key-setup-fingerprint"),
         createTextElement("p", result?.nextStep || "No passphrase: the key file is readable only by your Windows account.", "platform-note"),
         createTextElement("p", "In Agent Control, choose Verify Access to use it for Start, Stop, Restart and Update.", "platform-note"),
       );

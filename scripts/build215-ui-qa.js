@@ -250,6 +250,17 @@ async function main() {
       await shot(page, "K1-key-setup-dialog");
       await page.getByRole("button", { name: "Set up key sign-in" }).last().click();
       await waitFor(page, () => /Key sign-in works/.test(document.querySelector('[aria-label="Set up key sign-in"]')?.textContent || ""), null, "key sign-in to finish", 60000);
+      // Build 215 RC2 finding: the result sat in the form's two-column grid and
+      // the fingerprint ran into the other column. One column, nothing wider
+      // than its box.
+      const layout = await page.evaluate(() => {
+        const dialog = document.querySelector('[aria-label="Set up key sign-in"]');
+        const paragraphs = [...dialog.querySelectorAll("form p")];
+        const form = dialog.querySelector("form");
+        const columns = getComputedStyle(form).display === "grid" ? getComputedStyle(form).gridTemplateColumns.split(" ").filter(Boolean).length : 1;
+        return { columns, overflowing: paragraphs.filter((p) => p.scrollWidth > p.clientWidth + 1).length };
+      });
+      assert(layout.columns === 1 && layout.overflowing === 0, `result layout: ${JSON.stringify(layout)}`);
       await shot(page, "K1-key-setup-done");
       const keyProfile = await page.evaluate(() => sshProfilesState.profiles.find((profile) => profile.authType === "privateKey" && profile.nodeId === "anx215a"));
       assert(keyProfile, "a key profile for the node");
