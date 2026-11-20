@@ -496,3 +496,36 @@ checked from the RC artifacts (step 4 below).
   the fix 17 buttons and "Windows Desktop also Lab PC").
 - **RC3 status: RELEASE BLOCKED** (duplicate Docker rows). Next: RC4 with the
   same gates.
+
+## Release candidate 4 (2026-11-20)
+
+- Approved by the owner ("approved": commit the fix, push `dev`, build RC4).
+  Fix `9f1cac8c` and RC3 record `0f975cd1` committed; `origin/dev`
+  fast-forwarded `5bd60b1e..0f975cd1`. No tag, nothing published.
+- Local validation before the push: `rc:validate` 420/420
+  (`RC_FAIL_FAST=0`, default limits; two earlier runs stopped on load
+  timing in `agent-control:smoke` and `resource-leaks-hardening` check 3,
+  which pass alone: 82 s, and 5 of 5), `server-fleet-smoke` 13/13,
+  `build215-ui-qa` W1/W2, `build213-ui-qa` 4/4, release consistency.
+- CI run 44720106371 (`windows-release.yml` on `dev`, commit `0f975cd1`):
+  static-validation, rc-validation (420/420 on Linux), linux and windows
+  passed; publish skipped.
+- Downloaded to `artifacts/build215-rc4/` (git-ignored):
+  - Setup `AnxOS-Control-Center-Setup-2.0-build215.exe` (440,255,784 bytes):
+    Authenticode Valid, Anjo ROSIMO, Microsoft timestamp. SHA-256
+    `4071DCFA677F905F5B03D8B7C137DE3B80DB3B2EF0C3E37ED21CC6ECF2295317`;
+    `latest.yml` SHA-512 and size match.
+  - Portable: Valid. SHA-256
+    `714F4D36F9B272074C1A90E021F14FFD008EC4E3EC4C4351981318042310BDF0`.
+  - Agent package `AnxOS-Agent-2.0-build215.deb`: SHA-256
+    `B14601AEF575EE28A4A7D3C27F7F10BFC8C9F064596B0DFF9D39E40395B96BA6`
+    (matches its `.sha256`).
+  - Linux app: `.deb` `6AF577E72568A591D5F107BA5030420AB40D3AD1BBDE8699824DE7C358806747`,
+    AppImage `CBCD3C3A9D99D224E5038BE0286B219F6D6A4E2B53B4EB90C8A57BFED78510D6`.
+- Agent package on a fresh disposable node (removed afterwards): version and
+  identity 2.0-build215; helper byte-identical to the repository's (root,
+  0755); no packaged file with a CR; empty `anxos-update` group; `visudo -c`
+  parses; helper refused before joining the group and allowed after; general
+  sudo still needs a password; Agent active, reports 2.0-build215.
+- Installed app before the upgrade: RC3 (`5bd60b1e`). Waiting for the owner's
+  `confirmed` before installing RC4.
