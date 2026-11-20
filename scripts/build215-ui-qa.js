@@ -320,13 +320,22 @@ async function main() {
         await waitFor(page, () => /could not be read|SHA256SUMS|release/i.test(document.querySelector("[data-agent-control-message]")?.textContent || "") && document.querySelectorAll("[data-agent-update-step]").length > 0, null, "the refusal", 120000);
         await shot(page, "P1-rc-refused");
         await waitFor(page, () => ![...document.querySelectorAll("[data-agent-update-step] .status-pill")].some((pill) => pill.textContent === "in progress"), null, "no step left in progress", 15000).catch(() => {});
-        const view = await page.evaluate(() => ({
-          message: document.querySelector("[data-agent-control-message]").textContent,
-          steps: [...document.querySelectorAll("[data-agent-update-step]")].map((row) => `${row.dataset.agentUpdateStep}:${row.querySelector(".status-pill").textContent}`),
-          toasts: [...document.querySelectorAll(".toast")].map((toast) => toast.textContent.trim()).filter(Boolean),
-        }));
+        // The refusal is read from the failed step the user sees on the Updates
+        // section. [data-agent-control-message] lives in the hidden Status
+        // section and the post-action refresh rewrites it with the connection
+        // status (Build 215 RC3: P1 read it after that refresh).
+        const view = await page.evaluate(() => {
+          const stage = document.querySelector('[data-agent-update-step="stage"]');
+          return {
+            message: stage?.textContent || "",
+            stageVisible: Boolean(stage && stage.offsetParent !== null && stage.getClientRects().length),
+            steps: [...document.querySelectorAll("[data-agent-update-step]")].map((row) => `${row.dataset.agentUpdateStep}:${row.querySelector(".status-pill").textContent}`),
+            toasts: [...document.querySelectorAll(".toast")].map((toast) => toast.textContent.trim()).filter(Boolean),
+          };
+        });
         const installed = dockerExec("dpkg-query -W -f='${Version}' anxos-agent").trim();
         assert.strictEqual(installed, FROM, "nothing installed");
+        assert(view.stageVisible, "the failed download step is visible");
         assert(view.message.includes(`v${TARGET}`), view.message);
         // Build 215 RC1 findings: a stopped update leaves no step running, and
         // the toast does not blame the Agent for an unpublished release.
@@ -412,6 +421,14 @@ async function main() {
       assert(row.some((cell) => /Docker service.*AnxOS/.test(cell)), row.join(" | "));
       assert(row.some((cell) => cell.includes(String(NGINX_PORT))), "ports shown");
       assert(row.some((cell) => cell.includes(`${NGINX}-site`)), "kept data shown");
+      // Build 215 RC3 finding: this profile's application host and its Lab PC
+      // Agent read the same Docker, and every container was listed twice.
+      const listing = await page.evaluate((name) => ({
+        rows: [...document.querySelectorAll("[data-server-fleet-row]")].filter((entry) => entry.querySelector("td:nth-child(2)")?.textContent.includes(name)).length,
+        summary: document.querySelector("[data-server-fleet]")?.textContent || document.body.textContent,
+      }), NGINX);
+      assert.strictEqual(listing.rows, 1, `${NGINX} is listed ${listing.rows} times`);
+      assert(/same Docker as/.test(listing.summary), "the summary says which computer lists the shared Docker");
       // Build 215 RC2 finding: the table ran past its panel (Actions cut off,
       // "Open" broken over two lines). It must fit at common window widths.
       const fits = [];

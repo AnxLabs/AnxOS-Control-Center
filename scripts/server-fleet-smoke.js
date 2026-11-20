@@ -14,6 +14,7 @@
 //      never hides that computer's servers; offline keeps last-known services
 //   F11 container actions go to the container's own computer, ids checked
 //   F12 the renderer filters by type and searches images
+//   F13 one Docker read through two computers (host + Local Agent) is listed once
 const assert = require("assert");
 const fs = require("fs");
 const os = require("os");
@@ -265,8 +266,48 @@ let clock = "2026-11-16T12:00:00.000Z";
     console.log("  ok F12 renderer type filter and image search");
   }
 
+  // F13 (Build 215 RC3 acceptance): this PC as the application host and a
+  // Local Agent on this PC read the same Docker; each container is listed
+  // once. Rows come from `docker ps --no-trunc --format json` through the
+  // production normalizer, so the IDs have their real shape.
+  {
+    const { normalizeContainer } = require("../src/shared/dockerService");
+    const raw = (id, name) => normalizeContainer({ ID: id.repeat(64 / id.length), Names: name, Image: "nginx:stable-alpine", State: "running", Status: "Up 2 minutes", Labels: "anxos.managed=true", Mounts: `${name}-data` });
+    const daemon = [raw("1eadbb07", "web"), raw("caf4e1e0", "db")];
+    const otherDaemon = [raw("99887766", "web")];
+    const lab = { id: "agent-lab", displayName: "Lab PC", localAgent: true, connection: { status: "online" } };
+    const remote = { id: "node-remote", displayName: "Remote", connection: { status: "online" } };
+    const named = (name) => ({ id: name, name, image: "busybox", state: "running", labels: {} });
+    const sources = { "application-host": daemon, "agent-lab": daemon, "node-remote": otherDaemon };
+    const readShared = (nodes, overrides = {}) => fleet.listServersAcrossComputers({
+      listNodes: async () => nodes,
+      listInstancesForNode: async () => ({ instances: [] }),
+      listContainersForNode: async (nodeId) => (overrides[nodeId] || sources[nodeId]),
+      configDir,
+      now: () => clock,
+    });
+    assert.strictEqual(daemon[0].id.length, 12, "real rows carry the 12-character ID");
+    const result = await readShared([host, lab, remote]);
+    const rows = result.services.map((service) => `${service.nodeName}/${service.name}`).sort();
+    assert.deepStrictEqual(rows, ["Remote/web", "This PC/db", "This PC/web"], "one row per container; another daemon's container of the same name stays");
+    assert.deepStrictEqual(result.services.find((service) => service.nodeName === "This PC" && service.name === "web").alsoOn, ["Lab PC"]);
+    assert.deepStrictEqual(result.services.find((service) => service.nodeName === "Remote").alsoOn, []);
+    assert.deepStrictEqual(result.computers.find((computer) => computer.nodeId === "agent-lab").dockerListedUnder, ["This PC"]);
+    assert.strictEqual(result.computers.find((computer) => computer.nodeId === "agent-lab").serviceCount, 2, "the computer still reports what it reads");
+    assert.strictEqual(result.computers.find((computer) => computer.nodeId === "application-host").dockerListedUnder, undefined);
+    // A container without a Docker ID is known only by its name: never merged.
+    const byName = await readShared([host, remote], { "application-host": [named("web")], "node-remote": [named("web")] });
+    assert.strictEqual(byName.services.length, 2, "same name on two computers without an ID: two containers");
+    // A live reading wins over a computer's saved list.
+    await readShared([lab]);
+    const live = await readShared([{ ...lab, connection: { status: "offline" } }, host]);
+    assert.deepStrictEqual(live.services.map((service) => `${service.nodeName}/${service.name}/${service.lastKnown}`).sort(), ["This PC/db/false", "This PC/web/false"]);
+    assert.deepStrictEqual(live.services[0].alsoOn, ["Lab PC"]);
+    console.log("  ok F13 one Docker read through two computers is listed once");
+  }
+
   fs.rmSync(configDir, { recursive: true, force: true });
-  console.log("Server fleet smoke passed (12 cases).");
+  console.log("Server fleet smoke passed (13 cases).");
 })().catch((error) => {
   console.error(error);
   process.exitCode = 1;

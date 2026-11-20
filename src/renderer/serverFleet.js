@@ -106,8 +106,11 @@
     const line = el("p", "platform-note");
     const parts = data.computers.map((computer) => {
       if (computer.status === "online") {
+        const under = Array.isArray(computer.dockerListedUnder) && computer.dockerListedUnder.length
+          ? ` (same Docker as ${computer.dockerListedUnder.join(", ")}, listed there)`
+          : "";
         const docker = computer.docker === "ok"
-          ? `, ${computer.serviceCount || 0} Docker service${computer.serviceCount === 1 ? "" : "s"}`
+          ? `, ${computer.serviceCount || 0} Docker service${computer.serviceCount === 1 ? "" : "s"}${under}`
           : computer.docker === "unavailable" ? ", Docker unavailable" : "";
         return `${computer.name}: ${computer.serverCount} server${computer.serverCount === 1 ? "" : "s"}${docker}`;
       }
@@ -225,6 +228,10 @@
         type.append(el("span", "platform-note", server.managed ? " · AnxOS" : server.composeProject ? ` · ${server.composeProject}` : " · existing"));
       }
       const computer = el("td", "", server.nodeName);
+      if (server.kind === "docker" && server.alsoOn?.length) {
+        computer.append(el("span", "platform-note", ` also ${server.alsoOn.join(", ")}`));
+        computer.title = `${server.alsoOn.join(", ")} reads the same Docker on the same machine, so this container is listed once.`;
+      }
       const status = el("td");
       const pill = el("span", `status-pill ${safe(() => root.getInstanceStateClass(server.reportedState), "")}`.trim(), STATE_LABELS[server.state] || "Unknown");
       if (server.lastKnown) pill.title = `Last seen ${STATE_LABELS[server.reportedState] || "unknown"}, ${formatAgo(server.fetchedAt)}.`;

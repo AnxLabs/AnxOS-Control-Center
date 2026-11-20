@@ -236,7 +236,57 @@ async function listServersAcrossComputers({ listNodes, listInstancesForNode, lis
   const registered = new Set(nodes.map((node) => node.id));
   for (const nodeId of Object.keys(cache.computers)) if (!registered.has(nodeId)) delete cache.computers[nodeId];
   writeCache(configDir, cache);
-  return { computers: summary, servers, services };
+  const shared = mergeSharedDockerServices(services);
+  summary.forEach((computer) => {
+    const under = shared.listedUnder.get(computer.nodeId);
+    if (under?.size) computer.dockerListedUnder = [...under];
+  });
+  return { computers: summary, servers, services: shared.services };
+}
+
+// A Docker container ID is 64 hex characters, shown as 12; a container
+// without one is identified by its name, which is not unique across
+// computers and is never merged.
+const DOCKER_CONTAINER_ID = /^[0-9a-f]{12,64}$/;
+
+// One Docker daemon can be read through two computers: this PC as the
+// application host and a Local Agent on this PC saved as a computer. The
+// same container (same ID and name) is listed once, under the first
+// computer that reads it live, and names the others (Build 215 RC3
+// acceptance: 8 containers were listed 16 times).
+function mergeSharedDockerServices(services) {
+  const kept = new Map();
+  const listed = [];
+  const listedUnder = new Map();
+  const note = (nodeId, name) => {
+    if (!listedUnder.has(nodeId)) listedUnder.set(nodeId, new Set());
+    listedUnder.get(nodeId).add(name);
+  };
+  for (const service of services) {
+    service.alsoOn = [];
+    if (!DOCKER_CONTAINER_ID.test(service.containerId)) {
+      listed.push(service);
+      continue;
+    }
+    const identity = `${service.containerId}\u0000${service.name}`;
+    const first = kept.get(identity);
+    if (!first) {
+      kept.set(identity, service);
+      listed.push(service);
+    } else if (first.nodeId === service.nodeId) {
+      listed.push(service);
+    } else if (first.lastKnown && !service.lastKnown) {
+      // A live reading wins over a computer's saved list.
+      service.alsoOn = [...first.alsoOn, first.nodeName];
+      listed[listed.indexOf(first)] = service;
+      kept.set(identity, service);
+      note(first.nodeId, service.nodeName);
+    } else {
+      first.alsoOn.push(service.nodeName);
+      note(service.nodeId, first.nodeName);
+    }
+  }
+  return { services: listed, listedUnder };
 }
 
 // Start / Stop / Restart several servers, possibly on several computers.

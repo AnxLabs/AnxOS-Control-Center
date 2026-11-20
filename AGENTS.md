@@ -1142,6 +1142,23 @@ Use this section to accumulate verified project knowledge over time. Add entries
   version of that package, so test rules for a new feature must not live in
   an older package's file.
 
+### 2026-11-20 — Build 215 RC3 acceptance: one Docker listed under two computers
+
+- **Problem:** My Servers > All computers listed every Docker container
+  twice, once under the application host and once under the Local Agent on
+  the same PC. Separately, P1 read a result line after the post-action
+  refresh had replaced it and failed, although the screen was right.
+- **Cause:** Both computers read the same machine-wide Docker daemon, and the
+  fleet summed per-computer lists. Agent Control's status line sits in the
+  hidden Status section and every action's closing refresh rewrites it.
+- **Resolution:** A container with the same Docker ID and name from two
+  computers is listed once ("also <computer>"); P1 reads the visible failed
+  step. `server-fleet-smoke` F13 and `build215-ui-qa` W1 fail on RC3.
+- **Lesson:** Two "computers" can be one machine. When a list merges
+  per-computer reads of a machine-wide resource (Docker, ports, services),
+  test with the application host and a Local Agent on the same PC. Assert
+  on what the user can see; a hidden element's text is not the screen.
+
 ## Future Improvements
 
 Keep optional ideas separate from active work. An item in this list is not authorization to implement it.
