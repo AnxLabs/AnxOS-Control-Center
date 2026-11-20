@@ -428,7 +428,12 @@ async function main() {
         summary: document.querySelector("[data-server-fleet]")?.textContent || document.body.textContent,
       }), NGINX);
       assert.strictEqual(listing.rows, 1, `${NGINX} is listed ${listing.rows} times`);
-      assert(/same Docker as/.test(listing.summary), "the summary says which computer lists the shared Docker");
+      if (!/same Docker as/.test(listing.summary)) {
+        // Say what each computer's Docker reading was, so a computer that
+        // could not read Docker is told apart from a merge that did not run.
+        const readings = await page.evaluate(async () => (await window.anx.instances.listAcrossComputers()).computers.map((computer) => `${computer.name}: ${computer.status}/${computer.docker || "-"} ${computer.serviceCount ?? ""} ${computer.dockerMessage || ""}`.trim()));
+        assert.fail(`the summary does not say which computer lists the shared Docker; readings: ${readings.join(" | ")}`);
+      }
       // Build 215 RC2 finding: the table ran past its panel (Actions cut off,
       // "Open" broken over two lines). It must fit at common window widths.
       const fits = [];
