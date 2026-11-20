@@ -189,10 +189,10 @@
       updateBulkButtons();
       return;
     }
-    const table = el("table", "docker-table instances-table");
+    const table = el("table", "docker-table instances-table server-fleet-table");
     const head = el("thead");
     const headRow = el("tr");
-    ["", "Name", "Type", "Computer", "Status", "CPU", "RAM", "Ports", "Kept data", "Actions"].forEach((label) => {
+    ["", "Name", "Type", "Computer", "Status", "CPU / RAM", "Ports", "Kept data", "Actions"].forEach((label) => {
       const th = el("th", "", label);
       th.scope = "col";
       headRow.append(th);
@@ -232,8 +232,12 @@
       if (server.kind === "docker" && server.status && !server.lastKnown) pill.title = `${server.status}${server.restartPolicy ? ` · restart policy ${server.restartPolicy}` : ""}`;
       status.append(pill);
       if (server.kind === "docker" && server.health && !server.lastKnown) status.append(el("span", "platform-note", ` ${server.health}`));
-      const cpu = el("td", "", Number.isFinite(server.cpuPercent) ? `${server.cpuPercent.toFixed(1)}%` : "—");
-      const ram = el("td", "", formatMemory(server.memoryBytes));
+      // One column for both, so the table fits its panel (Build 215 RC2
+      // acceptance: ten columns pushed Actions past the right edge).
+      const usage = Number.isFinite(server.cpuPercent) || Number.isFinite(server.memoryBytes)
+        ? `${Number.isFinite(server.cpuPercent) ? `${server.cpuPercent.toFixed(1)}%` : "—"} · ${formatMemory(server.memoryBytes)}`
+        : "—";
+      const cpu = el("td", "", usage);
       const ports = el("td", "", server.kind === "docker" ? (server.ports?.length ? server.ports.join(", ") : "none published") : "—");
       const storage = el("td", "", server.kind === "docker"
         ? (server.storage?.length ? server.storage.join(", ") : "none (data is lost when removed)")
@@ -266,7 +270,8 @@
           actions.append(update);
         }
       }
-      row.append(pick, name, type, computer, status, cpu, ram, ports, storage, actions);
+      actions.className = "server-fleet-actions";
+      row.append(pick, name, type, computer, status, cpu, ports, storage, actions);
       body.append(row);
     });
     table.append(head, body);

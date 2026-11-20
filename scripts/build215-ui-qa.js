@@ -401,7 +401,43 @@ async function main() {
       assert(row.some((cell) => /Docker service.*AnxOS/.test(cell)), row.join(" | "));
       assert(row.some((cell) => cell.includes(String(NGINX_PORT))), "ports shown");
       assert(row.some((cell) => cell.includes(`${NGINX}-site`)), "kept data shown");
-      return row.slice(1, 9).join(" | ");
+      // Build 215 RC2 finding: the table ran past its panel (Actions cut off,
+      // "Open" broken over two lines). It must fit at common window widths.
+      const fits = [];
+      for (const width of [1100, 1440, 1920]) {
+        await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0]?.setSize(size, 960), width);
+        await page.waitForTimeout(500);
+        // What the user sees: every Actions button and the Actions header must
+        // end inside the panel's visible edge, and no button's label may wrap
+        // onto a second line. Measured by element, not by a class name, so the
+        // same check runs on builds without this fix.
+        const measured = await page.evaluate(() => {
+          const panel = document.querySelector("[data-server-fleet]").getBoundingClientRect();
+          const edge = Math.min(panel.right, window.innerWidth);
+          const buttons = [...document.querySelectorAll("[data-server-fleet-row] td:last-child button")];
+          const header = [...document.querySelectorAll("[data-server-fleet-table] th")].pop();
+          // A label broken over lines has more than one line box ("Ope" / "n").
+          const wrapped = buttons.filter((button) => {
+            const range = document.createRange();
+            range.selectNodeContents(button);
+            const lines = new Set([...range.getClientRects()].filter((rect) => rect.width > 0).map((rect) => Math.round(rect.top)));
+            return lines.size > 1;
+          });
+          return {
+            buttons: buttons.length,
+            outside: buttons.filter((button) => button.getBoundingClientRect().right > edge + 1).length,
+            headerOutside: header ? header.getBoundingClientRect().right > edge + 1 : true,
+            wrapped: wrapped.length,
+          };
+        });
+        fits.push(`${width}px: ${measured.buttons} buttons, ${measured.outside} past the edge, header ${measured.headerOutside ? "cut" : "visible"}, ${measured.wrapped} wrapped`);
+        assert(measured.buttons > 0 && measured.outside === 0 && !measured.headerOutside && measured.wrapped === 0, fits[fits.length - 1]);
+      }
+      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1440, 960));
+      await page.waitForTimeout(300);
+      await shot(page, "W1-all-computers-fit");
+      row.push(fits.join("; "));
+      return `${row.slice(1, 8).join(" | ")} | ${row[row.length - 1]}`;
     });
 
     await check("W2", "Update an AnxOS Docker service from the window; data kept", async () => {

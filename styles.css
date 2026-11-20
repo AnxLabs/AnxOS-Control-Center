@@ -13477,6 +13477,28 @@ body.create-server-window .marketplace-side-panel {
   min-width: 0;
 }
 
+/* My Servers > All computers (Build 215): fits its panel. Long volume and
+   image names wrap instead of widening the table; the action buttons never
+   break inside a word. */
+.docker-table.server-fleet-table {
+  min-width: 0;
+}
+
+.server-fleet-table td {
+  overflow-wrap: anywhere;
+}
+
+.server-fleet-table td.server-fleet-actions {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.server-fleet-table td.server-fleet-actions .inline-action {
+  display: block;
+  width: 100%;
+  margin-bottom: 4px;
+}
+
 /* Build 215-D: "Will it run on this computer?" in Create Server. */
 .create-server-fit {
   display: grid;

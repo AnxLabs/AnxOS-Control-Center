@@ -394,5 +394,32 @@ checked from the RC artifacts (step 4 below).
   clean install (no CR); empty `anxos-update` group; `visudo -c` parses;
   helper only after joining the group, general sudo still needs a password;
   Agent active, reports 2.0-build215.
-- Installed app before the upgrade: RC1 (`d3183249`). Waiting for the owner's
-  `confirmed` before installing RC2.
+- Installed app before the upgrade: RC1 (`d3183249`).
+
+- **In-place upgrade over RC1** (owner replied `confirmed`, then `done` after
+  clicking through Setup). Backup
+  `%APPDATA%\AnxHub\config-backup-pre-build215-rc2-20261119-214033` (716
+  files) with a SHA-256 manifest; This PC's Agent ran no server. After: exe
+  Valid, AnxOSAgent task running the installed exe with `--agent`, Local
+  Agent `2.0-build215`, installed `app.asar` contains both RC1 fixes; data
+  707 of 716 byte-identical, none missing or new, the 9 changed are runtime
+  fields only (health-check times, latency, last-seen, telemetry, AnxNet
+  token/state/log, audit, alerts, window recovery).
+- **Acceptance in the installed RC2:** `build215-ui-qa` 9/9 passed, including
+  P1's new assertions (no step left in progress, download step failed, no
+  "Agent is not responding" toast).
+- **Defect found in the screenshots:** My Servers > All computers at 1440 px:
+  the Actions header was cut off and the Open/Logs labels broke over two lines
+  ("Ope" / "n"). Cause: the fleet table inherits `.docker-table`'s
+  `min-width: 1040px`, and ten columns with long unbreakable volume and image
+  names pushed it past its panel. W1 now measures what the user sees (every
+  Actions button and the header inside the panel's visible edge, no label
+  with more than one line box) at 1100, 1440 and 1920 px: on the installed
+  RC2 it fails (1440 px: header cut, 18 labels wrapped).
+- **Fix:** the fleet table has its own class (no minimum width, long names
+  wrap, Actions cell never wraps a label, buttons stacked) and CPU and RAM
+  share one column. On the fixed code W1 passes at all three widths;
+  `server-fleet`, renderer and UI-polish smokes and `build213-ui-qa` (4/4)
+  pass.
+- **RC2 status: RELEASE BLOCKED** (the clipping). Next: RC3 with the same
+  gates.
