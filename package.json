@@ -72,6 +72,8 @@
     "anxhost:brand": "node scripts/anxhost-brand-build.js",
     "anxhost-brand-assets:smoke": "node scripts/anxhost-brand-assets-smoke.js",
     "anxhost:gallery": "node scripts/anxhost-gallery-render.js",
+    "anxhost-brand-allowlist:smoke": "node scripts/anxhost-brand-allowlist-smoke.js",
+    "anxhost-shell:ui-qa": "node scripts/anxhost-shell-ui-qa.js",
     "inventory:smoke": "node scripts/infra-inventory-smoke.js",
     "inventory:agent:smoke": "node scripts/infra-inventory-agent-smoke.js",
     "inventory:ui:qa": "node scripts/infra-inventory-ui-qa.js",

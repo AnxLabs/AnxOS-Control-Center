@@ -1,5 +1,6 @@
 /*
- * AnxHost CC design tokens (Build 216-0 proposal, awaiting owner approval).
+ * AnxHost CC design tokens (Build 216-0, approved by the owner 2026-11-20;
+ * loaded by the app from wave 216-A1, see index.html and shell.css).
  *
  * Dark is the primary identity and the default. Light is one override block
  * that only redefines semantic tokens; components never branch on the theme.

@@ -55,7 +55,7 @@ async function main() {
     const useDevice = page.getByRole("button", { name: "Use this device" }).first();
     if (await useDevice.isVisible().catch(() => false)) await useDevice.click();
     // Wait until startup finished and the app shell is laid out.
-    for (let i = 0; i < 200 && !(await page.evaluate(() => (document.querySelector(".nav-menu")?.getBoundingClientRect().width || 0) > 0)); i += 1) await page.waitForTimeout(150);
+    for (let i = 0; i < 200 && !(await page.evaluate(() => (document.querySelector('[data-testid="shell-sidebar"]')?.getBoundingClientRect().width || 0) > 0)); i += 1) await page.waitForTimeout(150);
     await page.evaluate(() => window.showPage("instances"));
     for (let i = 0; i < 120 && !(await page.evaluate((id) => Boolean(document.querySelector(`[data-instances-list] tr[data-instance-id="${id}"] [data-instance-row-action="stop"]`)), INSTANCE_ID)); i += 1) await page.waitForTimeout(250);
 

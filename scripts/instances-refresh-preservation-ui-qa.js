@@ -32,6 +32,7 @@ const path = require("path");
 const { _electron: electron } = require("playwright-core");
 const { createIsolatedQaEnv } = require("./test-helpers/isolated-qa-env");
 const { startServiceManagedAgent, INSTANCE_ID } = require("./test-helpers/service-managed-agent-fixture");
+const { signInQaOwner } = require("./test-helpers/qa-owner");
 
 const root = path.resolve(__dirname, "..");
 const artifactDir = process.env.INSTANCES_REFRESH_UI_QA_ARTIFACTS || fs.mkdtempSync(path.join(os.tmpdir(), "anx-refresh-ui-qa-"));
@@ -92,6 +93,10 @@ async function launch(agent) {
   const useDevice = page.getByRole("button", { name: "Use this device" }).first();
   await waitFor(page, "app shell ready", async () => (await page.evaluate(() => typeof window.showPage === "function")), 30000);
   if (await useDevice.isVisible().catch(() => false)) await useDevice.click();
+  // Since Build 212 the app does no background polling while locked
+  // (isAppLockedForBackgroundWork), and this suite relies on polling: run as
+  // a disposable signed-in owner, as phasex-ui-qa does.
+  await signInQaOwner(page);
   await page.evaluate(() => window.showPage("instances"));
   return {
     app,

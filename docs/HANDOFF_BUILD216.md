@@ -7,7 +7,7 @@ Plan: `PLANS.md` (approved, commit `9aadaead`). Protocol: `AGENTS.md` (ADP).
 | Phase | State |
 | --- | --- |
 | **216-0 Foundation and capability inventory** | **Complete and approved by the owner (2026-11-20)**: logo (split strategy), navigation and UI foundation approved; committed on `claude/anxhost-build-216` with owner approval as `docs(anxhost): Build 216-0 foundation, inventory and proposals` (hash in the owner report; not pushed). |
-| 216-A1 Desktop Shell Rebirth | Finish line proposed for owner review; **not started** (its `/goal` needs separate approval) |
+| **216-A1 Desktop Shell Rebirth** | **Implemented and validated; stopped at the A1 acceptance gate.** Nothing committed (commit needs owner approval). See "216-A1 Desktop Shell Rebirth" below. |
 | 216-A2 … 216-G | Not started |
 
 ## 216-0 timing
@@ -262,13 +262,341 @@ results above still apply to the application code.
 - Baseline timings come from one PC under normal load (3 launches).
 - The icon contrast check uses typical Windows taskbar colours (`#202020`,
   `#f3f3f3`); a custom accent-coloured taskbar is not covered.
-- `LOGO_STANDARD.md` sets a 40 px minimum for Option B, while the approved
-  title bar mark is Option B. The A1 finish line must settle the title-bar
-  mark size (see the proposed A1 finish line).
+- (Settled 2026-11-20: the title bar uses the simplified small mark at 20 to
+  28 px; `LOGO_STANDARD.md` aligned in A1.)
 
 ## Next step
 
-Owner reviews the proposed 216-A1 Desktop Shell Rebirth finish line
-(`docs/anxhost/A1_FINISH_LINE.md`). 216-A1 starts only with the owner's
-separate approval of its `/goal`. Pushing the 216-0 commit also needs
-explicit approval.
+216-A1 is at its acceptance gate (below). The owner reviews the shell and
+the evidence; committing the A1 work needs explicit approval (proposed
+message: `feat(anxhost): Build 216-A1 desktop shell rebirth`). No push,
+merge, tag or deployment. Wave A2 (Home) starts only with its own `/goal`.
+
+## 216-A1 Desktop Shell Rebirth
+
+Contract: `docs/anxhost/A1_FINISH_LINE.md` (owner-approved, `7fa88cab`).
+Started from `claude/anxhost-build-216` at `7fa88cab`, clean. No other process
+or Claude session was using this worktree (checked at the start: only this
+session's shells; the AnxOS sessions were idle in other worktrees).
+
+### A1 timing
+
+| Field | Value |
+| --- | --- |
+| Start | 2026-11-20T11:49:41-07:00 (system clock, start of the goal) |
+| Finish | 2026-11-20T17:54:00-07:00 (system clock, after the last check; the first stop at 14:35:48 was followed by fixing two stale suites, re-measuring performance and, with the owner's approval, rebuilding the Build 215 test node) |
+| Elapsed | 6 h 4 min 19 s, including about 1 h 10 min waiting at the acceptance gate for the owner's decision on rebuilding the Build 215 test node (15:25 to 16:35) and the owner's review afterwards; the 900x640 page-switch cost was found and fixed during that review. About 2 h of it was test runs (two full `rc:validate` sweeps, two UI batches, the A/B timing runs, `qa:feature`) |
+| Commits | None. The A1 work is uncommitted on `claude/anxhost-build-216`, awaiting the owner's commit approval |
+
+### What changed
+
+| Area | Change |
+| --- | --- |
+| Shell styling | `src/renderer/anxhost/shell.css` (new, 216 rules, no `:is()` selector lists, see "Performance"): title bar, sidebar, icon rail and overlay, page host, destination tabs, focus rings, startup, gates, search, command palette, operation tray, shared dialog pattern, toasts, Assistant and computer picker, from the approved tokens only. No raw colours; every rule is scoped under `:root[data-shell="ahx"]`, which outranks the v1.9 shell layer (that layer is removed in A10). Loaded after `styles.css`, with `tokens.css` and `patterns.css`. |
+| Title bar | Simplified mark at 22 px, "AnxHost CC", current page, a wide search box, command palette and Assistant buttons, operation tray pill, developer badge, selected computer status (status system shapes and colours), window controls. The QA badge (test builds only) sits in the title bar's flow instead of covering the window controls. |
+| Sidebar | Run (Home, My Servers, Add Server), Infrastructure (Computers, Docker, Network), Tools (Files, Terminal, Backups), footer (Activity, Security, Settings, Anx Workspace for the owner, badge "Owner") and the computer switcher, whose dot now follows the computer's state. Headings are labels; nothing is collapsed away. Tab pages (Agent Control, Network addresses, Server consoles, Task details, Maintenance) keep their own pages and elements in a hidden members container, so search and the command palette still list them, and their destination is highlighted. |
+| Responsive | 64 px icon rail with tooltips below 1100 px; there Ctrl+B or the toggle opens the full sidebar over the page (Esc, a click outside or choosing a page closes it, focus returns). At full width the toggle collapses to the rail and the choice is remembered with the existing `anxos.sidebar.v1` key. Short windows use a compact density so everything fits at 640 px. Below 600 px (phone widths used by the responsive suite) the rail steps aside and a title-bar menu opens the sidebar. app.js sets `data-sidebar-mode`; no inline sizes. |
+| Tabs | Terminal (SSH, Server consoles) and Activity (Activity, Task details, Maintenance) gained tab strips in the existing `page-tabs` pattern, like Computers and Network. |
+| Operation tray | Title-bar "N running" pill (only while something runs) and a tray listing running operations with progress; an item opens Activity › Task details; Esc and a click outside close it. It reads the same running list as Activity's "In progress" section. |
+| Theme | `<html data-theme>` from the existing Theme setting, in one function (`resolveShellTheme`); dark only until A10. |
+| Rename | Shell surfaces read AnxHost Control Center / AnxHost CC. The window title follows the display name; a saved old default ("AnxOS Control Center", which the settings service still returns) shows as the new name. "Unlock AnxOS …" action messages and the "AnxOS website" note are unchanged: they also come from main-process services and the website, which A1 does not touch. |
+| Assets | `src/assets/anxhost/` (new): copies of the approved small mark, Option A mark and Option A dark lockup. No production icon changed. |
+| Branding docs | `LOGO_STANDARD.md` aligned with the owner's title-bar decision (small mark at 20 to 28 px). `tokens.css` header marked approved. |
+| Inventory | Generator regions for the operation tray and the page host; inventory regenerated twice and every difference reviewed (see "Capabilities"). |
+| Tests and tooling | New: `scripts/anxhost-shell-ui-qa.js` (A1 acceptance, 78 checks, real app), `scripts/anxhost-brand-allowlist-smoke.js` (31 checks), `scripts/test-helpers/anxhost-real-app.js` (off-screen real-app launcher). Extended: `anxhost-design-tokens-smoke.js` (shell.css: tokens only, no raw colours, scoped). Registered: `anxhost-brand-allowlist:smoke` (runs in `rc:validate`), `anxhost-shell:ui-qa`; the release tier now runs `anxhost-shell-ui-qa` and `sidebar-navigation-groups-ui-qa`. |
+
+No change to `preload.js`, `main.js`, `src/ipc`, `src/services`, `src/shared`,
+`agent`, `release.json`, `assets/`, `windows/`, `website/` or
+`src/assets/anxos-logo.png` (`git diff HEAD` on those paths is empty).
+
+### Files
+
+Modified: `app.js`, `index.html`, `package.json`,
+`docs/anxhost/CAPABILITY_INVENTORY.md`, `docs/anxhost/capability-inventory.json`,
+`docs/anxhost/brand/LOGO_STANDARD.md`, `docs/HANDOFF_BUILD216.md`,
+`src/renderer/anxhost/tokens.css`, `scripts/anxhost-capability-inventory.js`,
+`scripts/anxhost-design-tokens-smoke.js`, `scripts/release-validation.js`, and
+the ported tests listed below. New: `src/renderer/anxhost/shell.css`,
+`src/assets/anxhost/` (3 SVGs), `scripts/anxhost-shell-ui-qa.js`,
+`scripts/anxhost-brand-allowlist-smoke.js`,
+`scripts/test-helpers/anxhost-real-app.js`, `scripts/test-helpers/qa-owner.js`
+(signs a disposable owner in for suites that need background polling),
+`docs/anxhost/a1-shell/` (contact sheets). `AGENTS.md`: one Lessons Learned
+entry.
+
+### Capabilities
+
+- The 159 A1 capabilities of the contract are all present: 157 with the same
+  inventory id, and 2 (the search and command palette inputs) re-identified by
+  their `data-testid`, which the generator prefers; their behaviour hooks are
+  unchanged. A1 added 4 rows (operation tray toggle, tray, its Open Activity
+  button, the phone-width menu), so wave A1 now has **163 rows, 163 ticked**.
+- How each row was verified: every A1 `data-*` hook is present in the running
+  shell (`anxhost-shell-ui-qa` S11) and its surface works there (S1-S9, S12);
+  the 7 shell dialogs are labelled dialogs (S11); the 56 IPC rows are
+  unchanged (no preload or IPC diff), still called (inventory check), and
+  the 16 without a direct call were exercised (S12: maximize/restore through
+  `isMaximized`/`onMaximizedChanged`; Add Server's workspace window through
+  `openWorkspace`, `getWorkspaceContext`/`onWorkspaceInit`, and back through
+  `focusMain`/`onNavigate`; `account.getStatus`; `account.listDevices` and
+  `revokeCurrentDevice` stay backend-only). The AI rows are exercised by
+  `phasex-ui-qa`, the update rows by the update smokes in `rc:validate`.
+  Not clicked in a test because they would quit the app or install: window
+  Close, Update Now / Download & Install, Restart Now; their handlers are
+  unchanged and the controls are present and uncovered (S1).
+- Regeneration differences, all reviewed: added the 4 A1 rows above and 9
+  page-tab rows (Terminal and Activity tabs, waves A8 and A9); removed only
+  the 2 re-identified input ids; no row changed wave, destination or hook.
+  1,606 rows, 0 unmapped.
+- All 20 pages reachable (S3): 12 from the sidebar, 5 from destination tabs,
+  Anx Workspace from the footer for the owner (and still owner-gated when
+  signed out), `amp` and `coolpals` keep their redirect to Home; every
+  reachable page is in global search.
+
+### Finish lines (A1_FINISH_LINE.md)
+
+| # | Finish line | Result | Evidence |
+| --- | --- | --- | --- |
+| 1 | 159/159 A1 rows checked working and ticked; the 16 IPC rows without a direct call checked by behaviour | **Met**: 159 preserved, 163/163 A1 rows ticked; the 16 exercised | S11, S12; inventory smoke |
+| 2 | All 20 pages reachable, checked automatically; legacy pages keep their behaviour | **Met** | S3; `sidebar-navigation-groups-ui-qa` N1, N4, N7 |
+| 3 | 0 backend, IPC, preload, Agent or `src/services` changes; owner items enforced in the main process | **Met** | `git diff HEAD` empty on those paths |
+| 4 | `frozen-identifiers:smoke` passes | **Met** (75 checks) | `rc:validate`; brand smoke BA4 |
+| 5 | Shell rename via allowlist; title bar uses the small mark at 20-28 px; 0 production icons changed; new `brand-allowlist` smoke | **Met** | `anxhost-brand-allowlist:smoke` (31 checks; 3 mutations caught); S1, S8 |
+| 6 | Shell CSS uses only tokens and patterns; 0 raw colours | **Met** (216 scoped, token-only rules) | `anxhost-design-tokens:smoke` (3 mutations caught) |
+| 7 | Run / Infrastructure / Tools + footer; icon rail below 1100 px with tooltips and accessible names | **Met** | S2, S4 |
+| 8 | 900x640: content visible above the fold on all 20 pages | **Met** (page heading at 80 px; content 836 px wide) | S4; screenshots |
+| 9 | Keyboard: Tab, visible focus, Ctrl+K and Ctrl+Shift+P everywhere, dialogs trap and return focus, Esc closes; 10/10 shortcuts | **Met** | S5 (Tab with a 5.5:1 focus ring, Ctrl+K on 3 pages, palette, search + Enter, Esc everywhere it opens, 10/10 shortcut handlers), S4/S6 focus return |
+| 10 | Contrast: WCAG AA text, 3:1 icons and focus ring | **Met** (lowest text 6.1:1, icons 7.4:1, focus 5.5:1) | S7 (15 measurements) |
+| 11 | Screenshots at 900x640, 1280x800, 1920x1080 for all 20 pages and the shell surfaces; no clipping, overflow or overlap | **Met** (60/60, 0 horizontal overflow, 0 renderer errors) | `docs/anxhost/a1-shell/`; full PNGs below |
+| 12 | 23 shell-driving UI suites ported to `data-testid`; nothing weakened, skipped or loosened; replacements listed | **Met: 23/23 ported and passing** (`build215-ui-qa` on its rebuilt test node, with the owner's approval) | final UI batch and reruns |
+| 13 | Cold start and page switch within Build 215 +10% | **Met**: every approved budget; same-day startup medians within +10% at all sizes (900x640 and 1920x1080: 14 rounds, 1280x800: 5); page switching within +10% (direct measurement at 900x640: +5.1% median, +8.2% total, after removing a real shell CSS cost) | "Performance" |
+| 14 | `node --check`, 216 smokes, `qa:fast`, `git diff --check`, `qa:feature` in full | **Met**: `node --check` 20/20, `rc:validate` 424/426 (2 known environmental), `qa:fast` within `qa:feature`, `git diff --check` clean, **`qa:feature` 147/147** | "Validation performed" |
+| 15 | Handoff with checklist, timings, commands, screenshots; commit only with approval; no push | **Met** (this section); nothing committed or pushed | — |
+
+### Tests ported (the 23 shell-driving suites)
+
+| Suite | What changed | Final run |
+| --- | --- | --- |
+| `sidebar-navigation-groups-ui-qa` | Rewritten for the approved IA; same 7-check coverage restated (N2 headings are labels instead of toggles; N3 the remembered rail instead of remembered groups; N5 Advanced Mode leaves the sidebar alone instead of opening Tools) | PASS (7 checks) |
+| `qa-acceptance` | Nav by `[data-testid="nav-item"][data-page-target]`; Agent Control reached through Computers › Agent & connection (the approved path); launch check now requires the AnxHost window title | PASS |
+| `stabilization-ui-qa` | `.main-content` → `shell-page-host` testid; welcome title is the new name | PASS |
+| `responsive-mobile-ui-qa` | Shell controls by `shell-sidebar` / `shell-titlebar` testids | PASS (failed before the phone-width fix; passes on Build 215) |
+| `acceptance-fixes-ui-qa`, `phase8-ui-qa`, `anxnet-ui-qa`, `instances-layout-ui-qa`, `files-layout-ui-qa` | Shell readiness wait on the `shell-sidebar` testid instead of `.nav-menu` | PASS |
+| `server-view-ui-qa`, `instances-refresh-preservation-ui-qa` | Shell readiness wait on the `shell-sidebar` testid (server-view); both sign a disposable owner in first (stale since Build 212's locked-polling rule; see below) | PASS (9/9, 4/4) |
+| `phasex-ui-qa`, `build213-ui-qa`, `build214-ui-qa`, `build215-ui-qa`, `phase9-ui-qa`, `mobile-ui-qa`, `steamcmd-cancel-ui-qa`, `infra-inventory-ui-qa`, `node-routes-ui-qa`, `playit-account-ui-qa`, `service-managed-ui-qa`, `second-machine-acceptance` | No shell selectors (they drive pages through `window.showPage`, unchanged); run unmodified | PASS (`build215` on its rebuilt test node, 9/9) | PASS except `build215` and `instances-refresh-preservation` (below); `build214`: **PASS 10/10** rerun alone (476 s; clean-up left 0 containers) |
+
+Smokes ported because the approved design changed what they asserted (not
+loosened): `onboarding-smoke` and `onboarding-fresh-install-smoke` (welcome
+title), `ui-network-page-smoke` (Network addresses is a tab of the Network
+destination, still listed through `NAV_PARENT_PAGES`). `ui-polish-smoke` was
+satisfied by restoring the developer badge's attribute order, not changed. No
+time limit was raised and no check was removed.
+
+**Two stale suites, fixed.** `server-view-ui-qa` (V2 "Overview to show
+Running") and `instances-refresh-preservation-ui-qa` ("poll applies the
+stopped state") failed identically on unchanged Build 215 code. Root cause
+(probed in the running app, not guessed): both rely on My Servers' background
+poll, and since Build 212 the app does no background work while locked
+(`isAppLockedForBackgroundWork`: `securityState.localOwnerAuthenticated !==
+true`). Neither suite signed an owner in, so the poll never ran. The Agent
+itself brought the stand-in server to Running in 1 s (direct API probe), and
+the window was not hidden (`visibilityState: "visible"`). Ported: both now
+sign a disposable owner in first, through the new
+`scripts/test-helpers/qa-owner.js` (the same steps as `phasex-ui-qa`; a
+password generated per run, only inside the temporary profile). No assertion
+changed. Results: `instances-refresh-preservation-ui-qa` 4/4 (R1-R4),
+`server-view-ui-qa` 9/9 (V1-V9).
+
+**`build215-ui-qa`: test node rebuilt with the owner's approval, 9/9.** Its
+code has no shell selector (it drives pages through `window.showPage`), so
+nothing needed porting; it needs the Build 215 acceptance node `anx215-a`,
+which no longer existed. With the owner's go-ahead ("Yes, rebuild it") it was
+rebuilt from the repo and the Build 215 notes:
+
+1. `docker build -t anx215-node:test test-helpers/disposable-node`.
+2. `docker run -d --name anx215-a --hostname anx215-a --privileged
+   --cgroupns=private --tmpfs /run --tmpfs /run/lock -p 127.0.0.1:2221:22
+   -p 127.0.0.1:47191:47131 anx215-node:test` (Git Bash: `MSYS_NO_PATHCONV=1`).
+3. Inside it: the official `AnxOS-Agent-2.0-build213.deb` downloaded from the
+   v2.0-build213 release and checked against its `SHA256SUMS` (OK), installed
+   with `NEEDRESTART_SUSPEND=1`.
+4. The Build 215 update helper copied from Git's index
+   (`git show HEAD:packaging/agent-deb/update-helper`; the Windows working
+   copy has CRLF, the container copy has 0 CR bytes), root 0755; the
+   `%anxos-update` line of `packaging/agent-deb/anxos-agent.sudoers` as
+   `/etc/sudoers.d/anxos-agent-update-test` (0440, `visudo -c` OK, the
+   location the Build 215 notes require); group `anxos-update` created and
+   `anx` added to it and to `anxos-control`; `/etc/anxos-agent/agent.env`
+   `AGENT_HOST=0.0.0.0` so the published port reaches the Agent.
+5. Checks before the run: `sudo -n update-helper status` as `anx` reported
+   `INSTALLED=2.0-build213`; `http://127.0.0.1:47191/api/v1/health` HTTP 200;
+   the Agent token file present.
+
+Result (167 s): U1, K1, E1, F1, P1 (the real 2.0-build213 → 2.0-build215
+update through the helper, every step complete, node verified on
+2.0-build215), C1, D1, W1, W2: **9/9**. The suite removed its own nginx
+container and volume. Left in place for later RC acceptance, as Build 215 did:
+container `anx215-a` (now on 2.0-build215) and image `anx215-node:test`
+(`docker rm -f anx215-a` and `docker rmi anx215-node:test` remove them), and
+the `nginx:stable-alpine` image W2 pulled.
+
+### Performance
+
+Same tool as the 216-0 baseline (`anxhost-ui-baseline-capture.js`, one launch
+per size, off-screen). Budgets are the A1 finish line's (Build 215 baseline
++10%).
+
+**Against the approved budgets** (3 rounds, all three sizes, A1 means):
+
+| Size | Renderer ready (budget) | Sidebar ready (budget) |
+| --- | --- | --- |
+| 900x640 | 1334 ms (2582) | 2025 ms (3938) |
+| 1280x800 | 1417 ms (2393) | 2181 ms (3887) |
+| 1920x1080 | 1849 ms (1964) | 2480 ms (3045) |
+
+Page switch (60 switches per run): median 30.75 ms (budget 35.5), max
+142.3 ms (budget 176.7). **All met.**
+
+**Against Build 215 measured the same day** (Build 215 at `13825d70`, same
+tool and harness). A first 3-round comparison by mean looked bad (A1 +14 to
++62% at 1280 and 1920), but single launches vary widely on this PC (Build
+215 alone: 1521 to 2466 ms for the same measurement), so means of 3 were
+dominated by outliers. Repeated with 5 alternating rounds and compared by
+median:
+
+| Size | Renderer ready, 215 / A1 | Sidebar ready, 215 / A1 | Page switch median, 215 / A1 |
+| --- | --- | --- | --- |
+| 1280x800 | 1486 / 1483 ms (-0.2%) | 2270 / 2184 ms (-3.8%) | 32.5 / 33.9 ms (+4.3%) |
+| 1920x1080, 5 rounds | 1428 / 1494 ms (+4.6%) | 2108 / 2358 ms (+11.9%) | 32.2 / 32.0 ms (-0.6%) |
+| **1920x1080, 14 rounds** | **1150.5 / 1168.5 ms (+1.6%)** | **1646.5 / 1696 ms (+3.0%)** | **30.35 / 29.15 ms (-4.0%, 280 switches each)** |
+
+Five rounds left 1920x1080 sidebar-ready at +11.9%, which could not be told
+apart from noise, so 9 more alternating rounds were run (all 14 reported, none
+dropped).
+
+**900x640 found a real cost, now fixed.** 14 alternating rounds at 900x640
+put page switching at +15.8% (23.8 → 27.6 ms median), slower on almost every
+page. A stylesheet on/off experiment (5 rounds) traced it to `shell.css`
+(+19.6%): its `:is(…)` lists in ancestor position (for example
+`:is(.security-gate, .app-modal, …) :is(.inline-action, …)`, and
+`:is(.global-search-result, …) span`) are matched by every page button,
+`span`, `p` and heading during a switch, without the browser's ancestor
+filter. Fix: every `:is()` in `shell.css` expanded into a plain selector list
+(33 rules), with a check that the before and after files contain exactly the
+same 377 selector/declaration pairs and the same 36 comments (identical), so
+nothing can look different. After it the stylesheets cost nothing measurable
+(32.35 ms with, 33.90 ms without, 5 rounds). Re-validated: token smoke (216
+scoped, token-only rules), brand smoke, `anxhost-shell-ui-qa` 78/78.
+
+After the fix, 14 alternating rounds at 900x640 (medians):
+
+| Measure | Build 215 | A1 | Difference |
+| --- | --- | --- | --- |
+| Renderer ready | 1418 ms | 1214 ms | -14.4% |
+| Sidebar ready | 2088.5 ms | 2037.5 ms | -2.4% |
+| Page switch (tool: switch + 2 animation frames) | 26.70 ms | 29.60 ms | +10.9% |
+
+The tool's switch time includes two animation frames (about 16.7 ms each), so
+a sub-millisecond change can move a sample by a whole frame. Measured
+directly (each page's `showPage()` and the style and layout it triggers,
+forced with `offsetHeight`, no frame waits; 3 alternating rounds, 5 passes
+over 17 pages each):
+
+| Measure | Build 215 | A1 | Difference |
+| --- | --- | --- | --- |
+| Median per switch | 7.9 ms | 8.3 ms | +5.1% |
+| Sum over all switches | 2954 ms | 3196 ms | +8.2% |
+
+**Finish line 13 is met**: every approved budget, and every same-day
+comparison within +10% (startup at all three sizes; page switching by direct
+measurement at 900x640, and by the tool at 1280x800 and 1920x1080). The
+largest single-page difference is Computers' rendering at 900x640 (9.9 →
+17.4 ms), worth a look when wave A5 rebuilds that page.
+Cause check: at 1920x1080, A1 with and without its three new stylesheets
+(5 alternating rounds) gave renderer-ready medians of 1544 and 1631 ms,
+sidebar-ready 2452 and 2383 ms (+2.9%), page switch 34.65 and 34.70 ms; the
+new CSS costs at most about 3%. The raw runs were scratch files; the medians above are the record.
+
+### Validation performed (development PC, 2026-11-20)
+
+Final runs on the finished code:
+
+| Command | Result |
+| --- | --- |
+| `npm run rc:validate` (`RC_FAIL_FAST=0`, off-screen harness), 13:23–13:55 | **424/426 PASS**. The 2 failures are the environmental ones from 216-0 (`agent:package:smoke`, `local-agent:runtime:smoke`: junctioned `node_modules`). Includes `frozen-identifiers` (75), `anxhost-capability-inventory` (1,606 rows, 0 unmapped), `anxhost-design-tokens` (shell.css scoped and token-only), `anxhost-testid-convention`, `anxhost-brand-assets`, `anxhost-brand-allowlist` (new) |
+| `npm run qa:feature` (off-screen harness), 14:17–14:27 | **PASS, 147 checks** in 572 s; the dirty-tree guard found no change made by a check |
+| `node scripts/anxhost-shell-ui-qa.js` (A1 acceptance, real app) | **PASS 78/78** (final batch, 48 s) |
+| The 23 shell-driving UI suites, final code (off-screen, one at a time) | 18 PASS in the batch; `acceptance-fixes`, `phase8` and `mobile` failed only while `rc:validate` ran beside them and **PASS** rerun alone (85 s, 42 s, 124 s); `build214-ui-qa` **PASS 10/10** rerun alone (476 s; clean-up left 0 containers); `server-view` 9/9 and `instances-refresh-preservation` 4/4 after their owner sign-in port; `build215-ui-qa` **9/9** on its rebuilt test node. **23/23 pass** |
+| `node scripts/second-machine-acceptance.js --out …` | **PASS**: `qa-acceptance`, onboarding fresh install, responsive |
+| `node --check` on the 20 changed or new JS files | all pass |
+| `git diff --check` (new files marked intent-to-add) | clean |
+| Mutation tests (scratch copy of the repo files; working tree untouched) | brand allowlist: old name in the title bar, old name in the welcome, appId changed: each FAIL; token smoke: raw colour, unscoped selector, undefined token in shell.css: each FAIL |
+| Same-day A/B timings, Build 215 vs A1, 3 alternating rounds | see "Performance" |
+| `git diff HEAD` on `preload.js`, `main.js`, `src/ipc`, `src/services`, `src/shared`, `agent`, `release.json`, `assets`, `windows`, `website` | empty |
+
+Earlier in the goal (discovery runs, superseded by the final runs above): a
+first `rc:validate` sweep (found the 3 smokes to port and the inventory to
+regenerate) and a first UI batch (found the `qa-acceptance` Agent Control
+path, the phone-width rail and the `second-machine-acceptance` `--out`
+argument).
+
+`build214-ui-qa` note: two runs were killed by my runner's 15-minute cap
+mid-install, which skipped the suite's own clean-up and left 3 `anx214qa-*`
+test containers and 6 volumes; the next run then refused to install over
+them (correct behaviour). I removed exactly those test resources (the suite's
+own clean-up step, by its `anx214qa-` prefix; 0 left, no stray processes) and
+ran it again alone without the cap. Docker images it pulled were left in
+place.
+
+**Not run**
+
+- `qa:release` as a whole (release tier; its UI suites were run individually
+  above, the remaining release-tier smokes are covered by `rc:validate`).
+- Nothing else from the A1 contract.
+
+**Problems found and fixed while working**
+
+- The QA badge covered the maximize and close buttons; it now sits in the
+  title bar's flow.
+- The computer switcher dot was green for an offline computer (my first
+  shell.css coloured it statically); it now follows `data-agent-state` with the
+  status system's shapes.
+- The rail was 4 px too tall at 900x640 and the overlay and 1280x640 sidebar
+  scrolled; compact densities fixed both (S4 checks them).
+- "OWNER ONLY" squeezed "Anx Workspace" to "Anx …"; the badge reads "Owner"
+  (with a tooltip).
+- Phone widths (390 px): the rail cost Home 14 px and the responsive suite
+  failed (it passes on Build 215); the rail now steps aside below 600 px and a
+  title-bar menu opens the sidebar.
+- The first `rc:validate` sweep found 3 smokes asserting text or structure the
+  approved design changed; ported as listed above.
+
+### Screenshots
+
+- Contact sheets (in Git): `docs/anxhost/a1-shell/a1-shell-900x640.jpg`,
+  `a1-shell-1280x800.jpg`, `a1-shell-1920x1080.jpg` (all 20 pages each) and
+  `a1-shell-surfaces.jpg` (rail, overlay, phone overlay, search, palette,
+  operation tray, Assistant, update dialog, onboarding, owner workspace,
+  local setup and security gates).
+- Full-resolution PNGs and `baseline-metrics.json` (kept out of Git):
+  `A:\AnxLabs\40-Assets\AnxHost-CC\build216-a1-shell\` (60 page screenshots,
+  `surfaces\` 15 shell surfaces).
+
+### A1 remaining risks
+
+- Startup timing on this PC is noisy (one measurement varies by up to 60%
+  between launches); judge it by medians of many alternating rounds. Re-measure
+  after A10 removes the v1.9 shell layer.
+- Pages keep their Build 215 styles inside the new shell until their wave;
+  page-level "AnxOS" text (for example the Home eyebrow, Settings' saved app
+  name) is renamed by those waves. "Unlock AnxOS …" messages come from
+  main-process services as well, so they need one coordinated change.
+- The window, tray and exe icons still show the AnxOS logo until 216-D (owner
+  decision); the title bar shows the new mark meanwhile.
+- The rebuilt Build 215 test node `anx215-a` (privileged container) is still
+  running for later RC acceptance; remove it with `docker rm -f anx215-a` when
+  it is no longer needed.
+- Add Server still opens its own window (A4).
+- The 216-0 environment limitation remains: `agent:package:smoke` and
+  `local-agent:runtime:smoke` fail with this worktree's junctioned
+  `node_modules` (pass with a real copy).

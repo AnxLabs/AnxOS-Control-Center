@@ -44,7 +44,7 @@ async function main() {
     for (let i = 0; i < 200 && !(await page.evaluate(() => typeof window.showPage === "function")); i += 1) await page.waitForTimeout(150);
     const useDevice = page.getByRole("button", { name: "Use this device" }).first();
     if (await useDevice.isVisible().catch(() => false)) await useDevice.click();
-    for (let i = 0; i < 200 && !(await page.evaluate(() => (document.querySelector(".nav-menu")?.getBoundingClientRect().width || 0) > 0)); i += 1) await page.waitForTimeout(150);
+    for (let i = 0; i < 200 && !(await page.evaluate(() => (document.querySelector('[data-testid="shell-sidebar"]')?.getBoundingClientRect().width || 0) > 0)); i += 1) await page.waitForTimeout(150);
     await page.evaluate(() => window.showPage("files"));
     await page.waitForTimeout(1500);
 

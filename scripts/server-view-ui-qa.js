@@ -34,6 +34,7 @@ const { _electron: electron } = require("playwright-core");
 const { createIsolatedQaEnv } = require("./test-helpers/isolated-qa-env");
 const { startServiceManagedAgent } = require("./test-helpers/service-managed-agent-fixture");
 const { fakeMinecraftInstance } = require("./test-helpers/fake-minecraft-instance");
+const { signInQaOwner } = require("./test-helpers/qa-owner");
 
 const root = path.resolve(__dirname, "..");
 const SERVER_ID = "survival-test";
@@ -115,7 +116,11 @@ async function main() {
     await waitFor(page, () => typeof window.showPage === "function", null, "app start", 60000);
     const useDevice = page.getByRole("button", { name: "Use this device" }).first();
     if (await useDevice.isVisible().catch(() => false)) await useDevice.click();
-    await waitFor(page, () => (document.querySelector(".nav-menu")?.getBoundingClientRect().width || 0) > 0, null, "app shell", 60000);
+    await waitFor(page, () => (document.querySelector('[data-testid="shell-sidebar"]')?.getBoundingClientRect().width || 0) > 0, null, "app shell", 60000);
+    // Since Build 212 the app does no background polling while locked
+    // (isAppLockedForBackgroundWork), and this suite relies on polling: run as
+    // a disposable signed-in owner, as phasex-ui-qa does.
+    await signInQaOwner(page);
     const jars = await installFakeModrinth({ app });
     // Record toasts so a failure can say what the app told the user.
     await page.evaluate(() => {

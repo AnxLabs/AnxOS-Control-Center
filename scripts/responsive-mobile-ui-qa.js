@@ -182,7 +182,7 @@ async function inspectViewport(page, viewport) {
       rect: rect(node),
     }));
     const activeRect = active ? rect(active) : null;
-    const controls = visibleNodes(".page.is-active button, .page.is-active input, .page.is-active select, .page.is-active textarea, .sidebar button, .app-titlebar button");
+    const controls = visibleNodes(".page.is-active button, .page.is-active input, .page.is-active select, .page.is-active textarea, [data-testid='shell-sidebar'] button, [data-testid='shell-titlebar'] button");
     const smallControls = controls.filter((node) => {
       const box = node.getBoundingClientRect();
       return box.width < minControlSize - 1 || box.height < minControlSize - 1;

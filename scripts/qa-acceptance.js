@@ -201,7 +201,7 @@ async function main() {
       await window.locator("[data-update-modal]").waitFor({ state: "hidden", timeout: 5000 }).catch(() => {});
     }
   };
-  record("launch", "main window", "AnxOS Control Center window appears", title, Boolean(title));
+  record("launch", "main window", "AnxHost Control Center window appears", title, title === "AnxHost Control Center");
   record("qa-indicator", "[data-testid=qa-mode-indicator]", "QA MODE is visible", await window.locator("[data-testid=qa-mode-indicator]").textContent().catch(() => "missing"), await window.locator("[data-testid=qa-mode-indicator]").isVisible().catch(() => false), await shot("launch"));
   const navInventory = await navigationInventory(window).catch(() => []);
   fs.writeFileSync(path.join(artifactDir, "navigation-inventory.json"), JSON.stringify(navInventory, null, 2));
@@ -213,9 +213,17 @@ async function main() {
     stage(`navigation-${page}-start`);
     await dismissSetupOverlays();
     const navigationTarget = page === "public-access" ? "playit" : page === "diagnostics" ? "agent-control" : page;
-    const link = page === "public-access"
-      ? window.locator('[data-page-target="playit"], [data-testid="nav-public-access"], button[aria-label="Public Access"], a[aria-label="Public Access"]').first()
-      : window.locator(`[data-page-target="${navigationTarget}"], [data-testid="nav-${navigationTarget}"]`).first();
+    // Build 216-A1: Agent Control is a tab of Computers (approved navigation).
+    // Open the destination from the sidebar, then use its tab, as a user does.
+    const tabParent = { "agent-control": "nodes" }[navigationTarget] || null;
+    if (tabParent) {
+      const parentLink = window.locator(`[data-testid="nav-item"][data-page-target="${tabParent}"]`).first();
+      if (await parentLink.count()) await clickWithSafeModalRecovery(window, parentLink, { allowDomFallback: true });
+      await window.waitForTimeout(300);
+    }
+    const link = tabParent
+      ? window.locator(`.page[data-page="${tabParent}"] [data-page-tab="${navigationTarget}"]`).first()
+      : window.locator(`[data-testid="nav-item"][data-page-target="${navigationTarget}"]`).first();
     const dismissed = await dismissSafeBlockingModals(window);
     if (dismissed) record(`dismiss-update-before-${page}`, "startup updater", "Update prompt is safely deferred", dismissed, true);
     if (await link.count()) {

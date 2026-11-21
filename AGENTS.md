@@ -1159,6 +1159,44 @@ Use this section to accumulate verified project knowledge over time. Add entries
   test with the application host and a Local Agent on the same PC. Assert
   on what the user can see; a hidden element's text is not the screen.
 
+### 2026-11-20 — Build 216-A1: a new shell judged against the old one
+
+- **Problem:** The first full test pass of the new AnxHost shell had 3 smoke
+  failures and 7 real-app suite failures. Startup met the approved budgets, but
+  a 3-round same-day comparison by mean put it 14 to 62% behind Build 215 at
+  1280 and 1920 px.
+- **Cause:** Three smokes asserted text or structure the approved design had
+  changed (welcome title, Network as its own sidebar entry). Four suites failed
+  only while a full `rc:validate` sweep ran beside them and passed alone.
+  `server-view-ui-qa` and `instances-refresh-preservation-ui-qa` failed
+  identically on unchanged Build 215 code: they wait for My Servers' poll,
+  which has not run while the app is locked since Build 212
+  (`isAppLockedForBackgroundWork`), and neither signed an owner in. A first
+  guess ("the off-screen window reports hidden") was wrong; a probe of the
+  running app showed it visible and the lock gate closed.
+  `responsive-mobile-ui-qa` failed only on A1: the new 64 px icon rail took
+  width the Build 215 shell gave back at phone widths. The timing gap was
+  noise: one launch measurement varies by up to 60% on this PC, so a mean of
+  3 is dominated by outliers; 5 alternating rounds compared by median put A1
+  within +10% (one value +11.9%), and removing the new stylesheets changed
+  startup by about 3%.
+- **Resolution:** Ported the assertions to the approved requirement and listed
+  each one; reran contended suites alone; recorded the base-identical failures
+  as environment exceptions until probed, then made both sign a disposable
+  owner in first (`test-helpers/qa-owner.js`), after which they passed with
+  no assertion changed; at phone widths the rail steps aside and a
+  title-bar menu opens the sidebar; re-measured with 5 alternating rounds by
+  median and isolated the CSS cost with an on/off experiment.
+- **Lesson:** Before blaming a redesign for a failing test, run the same test
+  on the base build the same day with the same harness, and rerun anything that
+  failed under load on a quiet machine. Port a test only when the approved
+  requirement changed, and say so. Judge performance with an alternating
+  same-day A/B against the base, with enough rounds to compare medians, not
+  means of 3 and not numbers from another day.
+  Before writing down a cause for a failure, probe the running app for it;
+  "identical on the base build" proves the change did not cause it, not why it
+  happens.
+
 ## Future Improvements
 
 Keep optional ideas separate from active work. An item in this list is not authorization to implement it.

@@ -194,6 +194,9 @@ const TIERS = {
     ["node", ["scripts/stabilization-ui-qa.js"]],
     ["node", ["scripts/qa-acceptance.js"]],
     ["node", ["scripts/service-managed-ui-qa.js"]],
+    // Build 216-A1 desktop shell: acceptance checks and the sidebar's information architecture.
+    ["node", ["scripts/anxhost-shell-ui-qa.js"]],
+    ["node", ["scripts/sidebar-navigation-groups-ui-qa.js"]],
     ["node", ["scripts/agent-game-config-route-smoke.js"]],
     ["node", ["scripts/agent-game-config-compat-smoke.js"]],
     ["node", ["scripts/curseforge-server-pack-resolution-smoke.js"]],

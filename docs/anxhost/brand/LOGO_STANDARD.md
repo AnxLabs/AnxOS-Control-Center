@@ -21,8 +21,15 @@ The split strategy is approved:
 | Mark | Approved for |
 | --- | --- |
 | **Option A** (concept) | Large branding: splash screen, About, website hero, installer welcome page |
-| **Option B** (badge) | App title bar, app icons from 48 px, phone touch icons, social previews |
-| **Small icon** (simplified) | Taskbar, tray and favicon at 16 to 32 px |
+| **Option B** (badge) | App icons from 48 px, phone touch icons, social previews |
+| **Small icon** (simplified) | App title bar at 20 to 28 px; taskbar, tray and favicon at 16 to 32 px |
+
+**Title bar (owner decision, 2026-11-20, before wave A1):** the title bar uses
+the simplified small mark at 20 to 28 px, because Option B's minimum size is
+40 px. Option B stays for larger icons, Option A for major branding surfaces.
+This replaces the first draft's "Option B in the title bar". Wave A1 ships it
+at 22 px (`src/assets/anxhost/anxhost-icon-small.svg`, checked by
+`scripts/anxhost-shell-ui-qa.js` S1).
 
 Conditions from the owner: keep the original AnxHost concept recognizable,
 fix small-size readability and dark/light contrast, and preserve the concept
@@ -44,8 +51,8 @@ folder. The contrast fix is described under "Icon silhouette rim".
 | Option | Files | Character | Approved use |
 | --- | --- | --- | --- |
 | **A: Concept** | `svg/anxhost-mark-option-a-dark.svg`, `-light.svg`, `svg/anxhost-lockup-option-a-*.svg` | Open hexagon, orbit with two nodes, AH breaking the frame, rack and connector node; closest to the concept | Website hero, installer welcome page, About, splash (large sizes only) |
-| **B: Badge** | `svg/anxhost-mark-option-b.svg`, `svg/anxhost-lockup-option-b-*.svg` | Filled violet hexagon with a lighter rim, white AH and rack, connector node; works on dark and light without variants | App icon 48 px and up, title bar, phone touch icon, social preview |
-| **Small icon** | `svg/anxhost-icon-small.svg` | Filled hexagon with a lighter rim and three rack units only; letters and orbit dropped | 16 to 32 px: tray, favicon, small app-icon sizes, taskbar at 100% scaling |
+| **B: Badge** | `svg/anxhost-mark-option-b.svg`, `svg/anxhost-lockup-option-b-*.svg` | Filled violet hexagon with a lighter rim, white AH and rack, connector node; works on dark and light without variants | App icon 48 px and up, phone touch icon, social preview |
+| **Small icon** | `svg/anxhost-icon-small.svg` | Filled hexagon with a lighter rim and three rack units only; letters and orbit dropped | Title bar (20 to 28 px); 16 to 32 px: tray, favicon, small app-icon sizes, taskbar at 100% scaling |
 | Wordmark | `svg/anxhost-wordmark-{dark,light}.svg`, `svg/anxhost-wordmark-tagline-{dark,light}.svg` | "Anx" in ink, "Host" in the violet gradient; tagline with side rules | With either mark, or alone where the mark is already shown |
 
 Dark variants use off-white ink (`#f7f6fa`), light variants the logo ink
@@ -104,7 +111,7 @@ it only at 16 to 32 px, as approved.
 
 | Surface | Mark | Wave |
 | --- | --- | --- |
-| Title bar | Option B (with the wordmark where there is room) | A1 |
+| Title bar | Small icon at 20 to 28 px, with the "AnxHost CC" name (owner decision) | A1 (shipped at 22 px) |
 | Startup splash, About | Option A lockup, `-dark` variant (`-light` once the light theme ships) | A1 (splash), A9 (About) |
 | Windows app icon (`.ico`), taskbar | Small icon at 16 to 32 px, Option B from 48 px (`png/app-icon/anxhost-app-icon.ico`) | 216-D (packaging) |
 | Tray | Small icon, 16 to 32 px | A1 or 216-D |

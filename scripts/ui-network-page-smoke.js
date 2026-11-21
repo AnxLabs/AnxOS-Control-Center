@@ -171,7 +171,9 @@ assert(app.includes("let networkState = {"), "app.js must declare networkState."
 ].forEach((name) => assert(app.includes(`function ${name}(`), `app.js must define ${name}().`));
 
 assert(app.includes("PAGE_INTRODUCTIONS") && app.includes("network: [\"Endpoints and connectivity\""), "PAGE_INTRODUCTIONS must include the network entry.");
-assert(/pages: \[[^\]]*"network"[^\]]*\]/.test(app) && app.includes('network: "playit"'), "Network must keep a sidebar entry (Advanced tools) and be joined to Sharing.");
+// Build 216-A1 (approved navigation): Network addresses is a tab of the Network
+// destination (Sharing), listed through NAV_PARENT_PAGES and still in search.
+assert(app.includes('network: "playit"') && app.includes("...Object.keys(NAV_PARENT_PAGES)"), "Network must stay reachable as a tab of the Network destination (Sharing).");
 assert(index.includes('data-page-tab="network"'), "The Sharing page tabs must link to Network.");
 
 // ---------------------------------------------------------------------------

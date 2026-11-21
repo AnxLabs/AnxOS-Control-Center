@@ -138,10 +138,10 @@
    "destination": "Shell › Command palette"
   },
   {
-   "id": "CAP-PALETTE-IN-command-palette-input",
+   "id": "CAP-PALETTE-IN-testid-shell-command-palette-input",
    "kind": "input",
    "area": "region:command-palette",
-   "hook": "data-command-palette-input",
+   "hook": "data-testid=shell-command-palette-input",
    "wave": "A1",
    "destination": "Shell › Command palette"
   },
@@ -282,10 +282,10 @@
    "destination": "Shell › Global search"
   },
   {
-   "id": "CAP-SEARCH-IN-global-search-input",
+   "id": "CAP-SEARCH-IN-testid-shell-global-search-input",
    "kind": "input",
    "area": "region:global-search",
-   "hook": "data-global-search-input",
+   "hook": "data-testid=shell-global-search-input",
    "wave": "A1",
    "destination": "Shell › Global search"
   },
@@ -408,6 +408,22 @@
    "hook": "#x",
    "wave": "A1",
    "destination": "Shell › Onboarding"
+  },
+  {
+   "id": "CAP-TRAY-CTL-operation-tray-open-activity",
+   "kind": "control",
+   "area": "region:operation-tray",
+   "hook": "data-operation-tray-open-activity",
+   "wave": "A1",
+   "destination": "Shell › Operation tray"
+  },
+  {
+   "id": "CAP-TRAY-DLG-operation-tray",
+   "kind": "dialog",
+   "area": "region:operation-tray",
+   "hook": "data-operation-tray",
+   "wave": "A1",
+   "destination": "Shell › Operation tray"
   },
   {
    "id": "CAP-GATE-ACT-account-action-cancel",
@@ -862,6 +878,22 @@
    "kind": "control",
    "area": "region:titlebar",
    "hook": "data-global-search-open",
+   "wave": "A1",
+   "destination": "Shell › Title bar"
+  },
+  {
+   "id": "CAP-TITLE-CTL-operation-tray-toggle",
+   "kind": "control",
+   "area": "region:titlebar",
+   "hook": "data-operation-tray-toggle",
+   "wave": "A1",
+   "destination": "Shell › Title bar"
+  },
+  {
+   "id": "CAP-TITLE-CTL-sidebar-menu",
+   "kind": "control",
+   "area": "region:titlebar",
+   "hook": "data-sidebar-menu",
    "wave": "A1",
    "destination": "Shell › Title bar"
   },
@@ -8282,6 +8314,22 @@
    "destination": "Terminal › Server consoles"
   },
   {
+   "id": "CAP-CONSOLE-TAB-page-tab-console",
+   "kind": "tab",
+   "area": "page:console",
+   "hook": "data-page-tab=console",
+   "wave": "A8",
+   "destination": "Terminal › Server consoles"
+  },
+  {
+   "id": "CAP-CONSOLE-TAB-page-tab-ssh",
+   "kind": "tab",
+   "area": "page:console",
+   "hook": "data-page-tab=ssh",
+   "wave": "A8",
+   "destination": "Terminal › Server consoles"
+  },
+  {
    "id": "CAP-FILES-ACT-file-action-copy",
    "kind": "action",
    "area": "page:files",
@@ -9074,6 +9122,22 @@
    "destination": "Terminal › SSH"
   },
   {
+   "id": "CAP-SSH-TAB-page-tab-console",
+   "kind": "tab",
+   "area": "page:ssh",
+   "hook": "data-page-tab=console",
+   "wave": "A8",
+   "destination": "Terminal › SSH"
+  },
+  {
+   "id": "CAP-SSH-TAB-page-tab-ssh",
+   "kind": "tab",
+   "area": "page:ssh",
+   "hook": "data-page-tab=ssh",
+   "wave": "A8",
+   "destination": "Terminal › SSH"
+  },
+  {
    "id": "CAP-WIN-IPC-storagewindow-close",
    "kind": "ipc",
    "area": "window:add-storage",
@@ -9174,6 +9238,30 @@
    "kind": "page",
    "area": "page:maintenance",
    "hook": "data-page=maintenance",
+   "wave": "A9",
+   "destination": "Activity › Maintenance"
+  },
+  {
+   "id": "CAP-MAINT-TAB-page-tab-maintenance",
+   "kind": "tab",
+   "area": "page:maintenance",
+   "hook": "data-page-tab=maintenance",
+   "wave": "A9",
+   "destination": "Activity › Maintenance"
+  },
+  {
+   "id": "CAP-MAINT-TAB-page-tab-notifications",
+   "kind": "tab",
+   "area": "page:maintenance",
+   "hook": "data-page-tab=notifications",
+   "wave": "A9",
+   "destination": "Activity › Maintenance"
+  },
+  {
+   "id": "CAP-MAINT-TAB-page-tab-operations",
+   "kind": "tab",
+   "area": "page:maintenance",
+   "hook": "data-page-tab=operations",
    "wave": "A9",
    "destination": "Activity › Maintenance"
   },
@@ -9298,6 +9386,14 @@
    "destination": "Activity › Notifications"
   },
   {
+   "id": "CAP-ACTIVITY-TAB-page-tab-maintenance",
+   "kind": "tab",
+   "area": "page:notifications",
+   "hook": "data-page-tab=maintenance",
+   "wave": "A9",
+   "destination": "Activity › Notifications"
+  },
+  {
    "id": "CAP-ACTIVITY-TAB-page-tab-notifications",
    "kind": "tab",
    "area": "page:notifications",
@@ -9374,6 +9470,14 @@
    "kind": "page",
    "area": "page:operations",
    "hook": "data-page=operations",
+   "wave": "A9",
+   "destination": "Activity › Tasks"
+  },
+  {
+   "id": "CAP-TASKS-TAB-page-tab-maintenance",
+   "kind": "tab",
+   "area": "page:operations",
+   "hook": "data-page-tab=maintenance",
    "wave": "A9",
    "destination": "Activity › Tasks"
   },

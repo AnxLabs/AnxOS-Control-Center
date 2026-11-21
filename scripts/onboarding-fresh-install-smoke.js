@@ -35,7 +35,7 @@ const PREFERENCES_POLL_MS = 3_000;
 const GLOBAL_TIMEOUT_MS = 240_000;
 const CLEANUP_TIMEOUT_MS = 12_000;
 
-const WELCOME_TITLE = "Welcome to AnxOS Control Center";
+const WELCOME_TITLE = "Welcome to AnxHost Control Center"; // Build 216-A1 rename
 const STEP_EXPECTATIONS = [
   { index: 1, id: "sign-in", title: "Sign In" },
   { index: 2, id: "local-owner", title: "Local Owner" },

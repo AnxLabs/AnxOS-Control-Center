@@ -1,31 +1,37 @@
 <!doctype html>
-<html lang="en" data-ui-generation="v1.9">
+<html lang="en" data-ui-generation="v1.9" data-shell="ahx" data-theme="dark">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="robots" content="noindex,nofollow">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; worker-src 'self' blob: data:; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://media.forgecdn.net https://cdn.modrinth.com; media-src 'self'; font-src 'self' data:; connect-src *; object-src 'none'; base-uri 'self'; frame-src 'none';">
-    <title>AnxOS Control Center</title>
+    <title>AnxHost Control Center</title>
     <link rel="stylesheet" href="node_modules/@xterm/xterm/css/xterm.css">
     <link rel="stylesheet" href="styles.css">
+    <!-- Build 216-A1: AnxHost CC design tokens, patterns and the desktop shell.
+         Loaded after styles.css so the shell layer wins over the v1.9 shell rules
+         (removed in wave A10). Page content keeps its own styles until its wave. -->
+    <link rel="stylesheet" href="src/renderer/anxhost/tokens.css">
+    <link rel="stylesheet" href="src/renderer/anxhost/patterns.css">
+    <link rel="stylesheet" href="src/renderer/anxhost/shell.css">
   </head>
   <body>
-    <section class="startup-screen" data-startup-screen aria-label="AnxOS Control Center startup">
+    <section class="startup-screen" data-startup-screen data-testid="shell-startup" aria-label="AnxHost Control Center startup">
       <div class="startup-card">
-        <span class="startup-logo"><img src="src/assets/anxos-logo.png" alt="" aria-hidden="true"></span>
-        <div>
-          <p class="eyebrow">Local Control Center</p>
-          <h1 data-app-name>AnxOS Control Center</h1>
+        <span class="startup-lockup"><img src="src/assets/anxhost/anxhost-lockup-option-a-dark.svg" alt="AnxHost Control Center" width="320" height="88"></span>
+        <div class="startup-title">
+          <p class="eyebrow">Home server control</p>
+          <h1 data-app-name>AnxHost Control Center</h1>
         </div>
         <div class="startup-status" role="status" aria-live="polite">
           <span class="startup-spinner" aria-hidden="true"></span>
           <div>
-            <strong data-startup-message>Starting AnxOS...</strong>
+            <strong data-startup-message>Starting AnxHost CC...</strong>
             <span data-startup-detail>Loading local infrastructure...</span>
           </div>
         </div>
         <ul class="startup-steps" aria-label="Startup checks">
-          <li data-startup-step="app">Starting AnxOS...</li>
+          <li data-startup-step="app">Starting AnxHost CC...</li>
           <li data-startup-step="services">Loading local services...</li>
           <li data-startup-step="metrics">Checking system metrics...</li>
           <li data-startup-step="control">Preparing control center...</li>
@@ -34,10 +40,11 @@
       <audio data-startup-audio src="src/assets/startup.wav" preload="auto"></audio>
     </section>
 
-    <section class="security-gate" data-security-gate hidden aria-label="Security sign in">
+    <section class="security-gate" data-security-gate data-testid="shell-security-gate" hidden aria-label="Security sign in">
       <form class="security-gate-card" data-security-form>
+        <span class="gate-mark" aria-hidden="true"><img src="src/assets/anxhost/anxhost-mark-option-a-dark.svg" alt="" width="56" height="56"></span>
         <p class="eyebrow" data-security-mode>Security</p>
-        <h1 data-security-title>Unlock AnxOS</h1>
+        <h1 data-security-title>Unlock AnxHost CC</h1>
         <p class="lede" data-security-description>Use the local owner account created on this device. This is not an online Anx account.</p>
         <label class="settings-field">
           <span>Username</span>
@@ -57,7 +64,7 @@
         </label>
         <div class="settings-actions">
           <button class="inline-action" type="submit" data-security-submit>Continue</button>
-          <button class="inline-action inline-action--primary" type="button" data-account-action="start">Sign in with AnxOS</button>
+          <button class="inline-action inline-action--primary" type="button" data-account-action="start">Sign in with AnxHost</button>
           <button class="inline-action" type="button" data-account-action="copy-code" hidden>Copy Code</button>
           <button class="inline-action" type="button" data-account-action="open">Continue in Browser</button>
           <button class="inline-action" type="button" data-account-action="cancel">Cancel</button>
@@ -67,15 +74,15 @@
       </form>
     </section>
 
-    <section class="local-setup-gate" data-local-setup-gate hidden aria-label="AnxOS local setup">
+    <section class="local-setup-gate" data-local-setup-gate data-testid="shell-local-setup-gate" hidden aria-label="AnxHost CC local setup">
       <div class="local-setup-card">
-        <span class="startup-logo"><img src="src/assets/anxos-logo.png" alt="" aria-hidden="true"></span>
+        <span class="gate-mark" aria-hidden="true"><img src="src/assets/anxhost/anxhost-mark-option-a-dark.svg" alt="" width="56" height="56"></span>
         <p class="eyebrow">Single-Device Mode</p>
         <h1>Use this device</h1>
         <p class="lede">Manage this computer now. Accounts, agent tokens, and remote nodes are only needed if you want to control another PC or server.</p>
         <div class="settings-actions">
           <button class="inline-action inline-action--primary" type="button" data-local-setup-action="use-device">Use this device</button>
-          <button class="inline-action" type="button" data-account-action="start">Sign in with AnxOS</button>
+          <button class="inline-action" type="button" data-account-action="start">Sign in with AnxHost</button>
           <button class="inline-action" type="button" data-account-action="copy-code" hidden>Copy Code</button>
           <button class="inline-action" type="button" data-account-action="open">Continue in Browser</button>
           <button class="inline-action" type="button" data-account-action="cancel">Cancel</button>
@@ -85,30 +92,35 @@
       </div>
     </section>
 
-    <div class="app-shell" data-app-shell hidden>
-      <header class="app-titlebar" data-titlebar>
+    <div class="app-shell" data-app-shell data-testid="shell-app" hidden>
+      <header class="app-titlebar" data-titlebar data-testid="shell-titlebar">
         <div class="app-titlebar__drag" data-titlebar-drag>
-          <div class="app-titlebar__brand">
-            <span class="app-titlebar__brand-mark"><img src="src/assets/anxos-logo.png" alt="" aria-hidden="true"></span>
+          <!-- Phone-width windows only (below 600 px): opens the sidebar over the page. -->
+          <button class="app-titlebar__menu" type="button" data-sidebar-menu data-testid="shell-sidebar-menu" aria-label="Open navigation" aria-controls="app-sidebar-nav" title="Navigation (Ctrl+B)">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"></path></svg>
+          </button>
+          <div class="app-titlebar__brand" data-testid="shell-titlebar-brand">
+            <!-- Approved simplified mark at title-bar size (LOGO_STANDARD.md, owner decision 2026-11-20). -->
+            <span class="app-titlebar__brand-mark"><img src="src/assets/anxhost/anxhost-icon-small.svg" alt="" aria-hidden="true" width="22" height="22"></span>
             <div class="app-titlebar__brand-copy">
-              <strong data-app-name>AnxOS Control Center</strong>
-              <span>Home Server Control</span>
+              <strong class="app-titlebar__brand-short">AnxHost CC</strong>
+              <span class="app-titlebar__brand-full" data-app-name>AnxHost Control Center</span>
             </div>
           </div>
 
           <div class="app-titlebar__context" aria-live="polite">
             <span class="app-titlebar__label">Page</span>
-            <strong data-titlebar-page>Dashboard</strong>
+            <strong class="app-titlebar__page" data-titlebar-page data-testid="shell-titlebar-page">Home</strong>
             <span class="app-titlebar__divider" aria-hidden="true"></span>
-            <button class="app-titlebar__search" type="button" data-global-search-open aria-label="Open global search" title="Global Search (Ctrl+K)">
+            <button class="app-titlebar__search" type="button" data-global-search-open data-testid="shell-search-open" aria-label="Open global search" title="Global Search (Ctrl+K)">
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <circle cx="11" cy="11" r="6"></circle>
                 <path d="m16 16 4 4"></path>
               </svg>
-              <span>Search</span>
+              <span>Search servers, computers, settings</span>
               <kbd>Ctrl K</kbd>
             </button>
-            <button class="app-titlebar__search app-titlebar__search--command" type="button" data-command-palette-open aria-label="Open command palette" title="Command Palette (Ctrl+Shift+P)">
+            <button class="app-titlebar__search app-titlebar__search--command" type="button" data-command-palette-open data-testid="shell-command-palette-open" aria-label="Open command palette" title="Command Palette (Ctrl+Shift+P)">
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path d="m8 7 5 5-5 5"></path>
                 <path d="M14 17h4"></path>
@@ -116,7 +128,7 @@
               <span>Commands</span>
               <kbd>Ctrl Shift P</kbd>
             </button>
-            <button class="app-titlebar__search app-titlebar__search--assistant" type="button" data-assistant-open aria-label="Open the assistant" aria-expanded="false" aria-controls="assistant-panel" title="Assistant (optional AI help)" hidden>
+            <button class="app-titlebar__search app-titlebar__search--assistant" type="button" data-assistant-open data-testid="shell-assistant-open" aria-label="Open the assistant" aria-expanded="false" aria-controls="assistant-panel" title="Assistant (optional AI help)" hidden>
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M12 3l1.8 4.6L18.5 9.4 13.8 11.2 12 16l-1.8-4.8L5.5 9.4l4.7-1.8z"></path>
                 <path d="M18 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"></path>
@@ -124,24 +136,27 @@
               <span>Assistant</span>
             </button>
             <span class="app-titlebar__divider" aria-hidden="true"></span>
-            <button class="app-titlebar__dev-badge" type="button" data-development-badge aria-label="Open Developer Update status" title="Open Developer Update status" hidden>
+            <button class="app-titlebar__tray-toggle" type="button" data-operation-tray-toggle data-testid="operation-tray-toggle" aria-haspopup="dialog" aria-expanded="false" aria-controls="operation-tray" title="Running tasks" hidden>
+              <span class="ahx-status" data-status="updating"><span data-operation-tray-count>0</span>&nbsp;running</span>
+            </button>
+            <button class="app-titlebar__dev-badge" type="button" data-development-badge aria-label="Open Developer Update status" title="Open Developer Update status" data-testid="shell-developer-badge" hidden>
               <span class="app-titlebar__dev-icon" aria-hidden="true">&gt;_</span>
               <span data-development-badge-label>Developer Mode</span>
             </button>
-            <span class="app-titlebar__connection" data-titlebar-connection>
+            <span class="app-titlebar__connection" data-titlebar-connection data-testid="shell-connection">
               <span class="app-titlebar__connection-dot" data-titlebar-connection-dot aria-hidden="true"></span>
               <span data-titlebar-connection-label>Connected</span>
             </span>
           </div>
         </div>
 
-        <div class="app-titlebar__controls" role="group" aria-label="Window controls">
-          <button class="app-titlebar__control" type="button" data-window-action="minimize" aria-label="Minimize window" title="Minimize">
+        <div class="app-titlebar__controls" role="group" aria-label="Window controls" data-testid="shell-window-controls">
+          <button class="app-titlebar__control" type="button" data-window-action="minimize" data-testid="shell-window-minimize" aria-label="Minimize window" title="Minimize">
             <svg viewBox="0 0 10 10" aria-hidden="true">
               <path d="M1 5h8"></path>
             </svg>
           </button>
-          <button class="app-titlebar__control app-titlebar__control--maximize" type="button" data-window-action="maximize" aria-label="Maximize window" title="Maximize">
+          <button class="app-titlebar__control app-titlebar__control--maximize" type="button" data-window-action="maximize" data-testid="shell-window-maximize" aria-label="Maximize window" title="Maximize">
             <svg class="app-titlebar__control-icon app-titlebar__control-icon--maximize" viewBox="0 0 10 10" aria-hidden="true">
               <path d="M1.5 1.5h7v7h-7z"></path>
             </svg>
@@ -150,7 +165,7 @@
               <path d="M1.5 3h5.5v5.5H1.5z"></path>
             </svg>
           </button>
-          <button class="app-titlebar__control app-titlebar__control--close" type="button" data-window-action="close" aria-label="Close window" title="Close">
+          <button class="app-titlebar__control app-titlebar__control--close" type="button" data-window-action="close" data-testid="shell-window-close" aria-label="Close window" title="Close">
             <svg viewBox="0 0 10 10" aria-hidden="true">
               <path d="M2 2l6 6"></path>
               <path d="M8 2L2 8"></path>
@@ -159,7 +174,15 @@
         </div>
       </header>
 
-      <div class="global-search-backdrop" data-global-search hidden>
+      <section class="operation-tray" id="operation-tray" data-operation-tray data-testid="operation-tray" role="dialog" aria-label="Running tasks" hidden>
+        <header class="operation-tray__header">
+          <strong>Running tasks</strong>
+          <button class="inline-action" type="button" data-operation-tray-open-activity data-testid="operation-tray-open-activity">Open Activity</button>
+        </header>
+        <div class="operation-tray__list" data-operation-tray-list role="list"></div>
+      </section>
+
+      <div class="global-search-backdrop" data-global-search data-testid="shell-global-search" hidden>
         <section class="global-search-dialog" role="dialog" aria-modal="true" aria-labelledby="global-search-title" aria-describedby="global-search-description" tabindex="-1">
           <header class="global-search-header">
             <div>
@@ -175,8 +198,8 @@
             </button>
           </header>
           <label class="global-search-input">
-            <span>Search AnxOS</span>
-            <input type="search" data-global-search-input placeholder="Search workspaces, nodes, files, Marketplace..." autocomplete="off" spellcheck="false">
+            <span>Search AnxHost CC</span>
+            <input type="search" data-global-search-input data-testid="shell-global-search-input" placeholder="Search workspaces, nodes, files, Marketplace..." autocomplete="off" spellcheck="false">
           </label>
           <div class="global-search-meta">
             <span data-global-search-status role="status" aria-live="polite">Type to search.</span>
@@ -193,13 +216,13 @@
         </section>
       </div>
 
-      <div class="command-palette-backdrop" data-command-palette hidden>
+      <div class="command-palette-backdrop" data-command-palette data-testid="shell-command-palette" hidden>
         <section class="command-palette-dialog" role="dialog" aria-modal="true" aria-labelledby="command-palette-title" aria-describedby="command-palette-description" tabindex="-1">
           <header class="command-palette-header">
             <div>
               <p class="eyebrow">Actions</p>
               <h2 id="command-palette-title">Command Palette</h2>
-              <p id="command-palette-description">Run existing AnxOS actions without leaving your current workspace.</p>
+              <p id="command-palette-description">Run AnxHost CC actions without leaving your current page.</p>
             </div>
             <button class="app-titlebar__control" type="button" data-command-palette-close aria-label="Close command palette" title="Close">
               <svg viewBox="0 0 10 10" aria-hidden="true">
@@ -210,7 +233,7 @@
           </header>
           <label class="command-palette-input">
             <span>Run Command</span>
-            <input type="search" data-command-palette-input placeholder="Type a command..." autocomplete="off" spellcheck="false">
+            <input type="search" data-command-palette-input data-testid="shell-command-palette-input" placeholder="Type a command..." autocomplete="off" spellcheck="false">
           </label>
           <div class="command-palette-meta">
             <span data-command-palette-status role="status" aria-live="polite">Type to filter commands.</span>
@@ -228,12 +251,12 @@
       </div>
 
       <div class="app-workspace" data-app-workspace>
-        <aside class="sidebar" data-sidebar aria-label="AnxOS Control Center navigation">
+        <aside class="sidebar" data-sidebar data-testid="shell-sidebar" aria-label="AnxHost Control Center navigation">
         <div class="sidebar-header">
           <div class="brand">
-            <span class="brand-mark"><img src="src/assets/anxos-logo.png" alt="" aria-hidden="true"></span>
+            <span class="brand-mark"><img src="src/assets/anxhost/anxhost-icon-small.svg" alt="" aria-hidden="true" width="22" height="22"></span>
             <div class="brand-copy">
-              <strong data-sidebar-title>AnxOS</strong>
+              <strong data-sidebar-title>AnxHost CC</strong>
               <span>Control Center</span>
             </div>
           </div>
@@ -242,6 +265,7 @@
             class="sidebar-toggle"
             type="button"
             data-sidebar-toggle
+            data-testid="shell-sidebar-toggle"
             aria-label="Collapse sidebar"
             aria-controls="app-sidebar-nav"
             aria-pressed="false"
@@ -288,16 +312,21 @@
             </span>
             <span class="nav-item__label" data-nav-label>AMP</span>
           </button>
-          <button class="nav-item" type="button" data-page-target="playit" data-page-label="Sharing" data-nav-description="Let friends join your servers" data-tooltip="Sharing" aria-label="Sharing">
+          <button class="nav-item" type="button" data-page-target="playit" data-page-label="Sharing" data-nav-description="Share servers and manage addresses" data-tooltip="Network" aria-label="Network">
             <span class="nav-item__icon" aria-hidden="true">
               <svg viewBox="0 0 24 24">
-                <path d="M4 12h12"></path>
-                <path d="M12 8l4 4-4 4"></path>
-                <path d="M6 7h4"></path>
-                <path d="M6 17h4"></path>
+                <circle cx="12" cy="12" r="2.6"></circle>
+                <circle cx="5" cy="5" r="1.9"></circle>
+                <circle cx="19" cy="5" r="1.9"></circle>
+                <circle cx="5" cy="19" r="1.9"></circle>
+                <circle cx="19" cy="19" r="1.9"></circle>
+                <path d="M6.5 6.5 10.2 10.2"></path>
+                <path d="M17.5 6.5 13.8 10.2"></path>
+                <path d="M6.5 17.5 10.2 13.8"></path>
+                <path d="M17.5 17.5 13.8 13.8"></path>
               </svg>
             </span>
-            <span class="nav-item__label" data-nav-label>Sharing</span>
+            <span class="nav-item__label" data-nav-label>Network</span>
           </button>
           <button class="nav-item" type="button" data-page-target="docker" data-page-label="Docker" data-nav-description="Manage containers" data-tooltip="Docker" aria-label="Docker">
             <span class="nav-item__icon" aria-hidden="true">
@@ -331,7 +360,7 @@
             </span>
             <span class="nav-item__label" data-nav-label>Add Server</span>
           </button>
-          <button class="nav-item" type="button" data-page-target="ssh" data-page-label="SSH" data-nav-description="Connect to remote systems" data-tooltip="SSH" aria-label="SSH">
+          <button class="nav-item" type="button" data-page-target="ssh" data-page-label="SSH" data-nav-description="SSH sessions and server consoles" data-tooltip="Terminal" aria-label="Terminal">
             <span class="nav-item__icon" aria-hidden="true">
               <svg viewBox="0 0 24 24">
                 <rect x="4" y="5" width="16" height="14" rx="2"></rect>
@@ -339,7 +368,7 @@
                 <path d="M13 15h3"></path>
               </svg>
             </span>
-            <span class="nav-item__label" data-nav-label>SSH</span>
+            <span class="nav-item__label" data-nav-label>Terminal</span>
           </button>
           <button class="nav-item" type="button" data-page-target="files" data-page-label="Files" data-nav-description="Browse and edit files" data-tooltip="Files" aria-label="Files">
             <span class="nav-item__icon" aria-hidden="true">
@@ -381,7 +410,7 @@
             </span>
             <span class="nav-item__label" data-nav-label>Task details</span>
           </button>
-          <button class="nav-item" type="button" data-page-target="notifications" data-page-label="Activity" data-nav-description="What AnxOS is doing and what happened" data-tooltip="Activity" aria-label="Activity">
+          <button class="nav-item" type="button" data-page-target="notifications" data-page-label="Activity" data-nav-description="Notifications, tasks and maintenance" data-tooltip="Activity" aria-label="Activity">
             <span class="nav-item__icon" aria-hidden="true">
               <svg viewBox="0 0 24 24">
                 <path d="M18 8a6 6 0 1 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"></path>
@@ -421,7 +450,7 @@
                 </svg>
               </span>
               <span class="nav-item__label" data-nav-label>Anx Workspace</span>
-              <span class="nav-item__badge">Owner Only</span>
+              <span class="nav-item__badge" title="Only the Owner can open this">Owner</span>
               <span class="owner-workspace-chevron" aria-hidden="true">›</span>
             </button>
             <div class="owner-nav-pages" data-owner-workspace-nav-pages hidden>
@@ -460,7 +489,7 @@
             </span>
             <span class="nav-item__label" data-nav-label>Network</span>
           </button>
-          <button class="nav-item" type="button" data-page-target="agent-control" data-page-label="Agent Control" data-nav-description="Manage AnxOS connections" data-tooltip="Agent Control" aria-label="Agent Control">
+          <button class="nav-item" type="button" data-page-target="agent-control" data-page-label="Agent Control" data-nav-description="Manage Agent connections" data-tooltip="Agent Control" aria-label="Agent Control">
             <span class="nav-item__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="M8 9h8M8 13h5M17 15.5v3M15.5 17h3"></path></svg></span>
             <span class="nav-item__label" data-nav-label>Agent Control</span>
           </button>
@@ -475,7 +504,7 @@
             </span>
             <span class="nav-item__label" data-nav-label>CoolPals</span>
           </button>
-          <button class="nav-item" type="button" data-page-target="settings" data-page-label="Settings" data-nav-description="Customize AnxOS" data-tooltip="Settings" aria-label="Settings">
+          <button class="nav-item" type="button" data-page-target="settings" data-page-label="Settings" data-nav-description="Customize AnxHost CC" data-tooltip="Settings" aria-label="Settings">
             <span class="nav-item__icon" aria-hidden="true">
               <svg viewBox="0 0 24 24">
                 <path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z"></path>
@@ -494,7 +523,7 @@
           </button>
         </nav>
 
-        <button class="sidebar-footer" type="button" data-sidebar-footer data-node-picker-trigger data-tooltip="Local network only" aria-haspopup="listbox" aria-expanded="false">
+        <button class="sidebar-footer" type="button" data-sidebar-footer data-testid="shell-computer-switcher" data-node-picker-trigger data-tooltip="Local network only" aria-haspopup="listbox" aria-expanded="false">
           <span class="pulse" aria-hidden="true"></span>
           <div class="sidebar-footer__copy">
             <strong data-node-picker-label>This PC</strong>
@@ -503,7 +532,7 @@
         </button>
         </aside>
 
-        <div class="node-picker-popover" data-node-picker hidden role="dialog" aria-label="Select AnxOS node">
+        <div class="node-picker-popover" data-node-picker data-testid="shell-computer-picker" hidden role="dialog" aria-label="Select a computer">
           <div class="node-picker-popover__header">
             <strong>Switch System / Node</strong>
             <span data-node-picker-status>Choose a system to manage.</span>
@@ -511,7 +540,7 @@
           <div class="node-picker-popover__list" data-node-picker-list role="listbox" aria-label="Available nodes"></div>
         </div>
 
-        <main class="main-content">
+        <main class="main-content" data-page-host data-testid="shell-page-host">
         <section class="page is-active" data-page="dashboard">
           <header class="page-header">
             <div>
@@ -2703,6 +2732,10 @@
               <p class="lede">Terminal workspace for configured SSH connection profiles.</p>
             </div>
           </header>
+          <nav class="page-tabs" aria-label="Terminal sections">
+            <button class="page-tabs__tab" type="button" data-page-tab="ssh">SSH</button>
+            <button class="page-tabs__tab" type="button" data-page-tab="console">Server consoles</button>
+          </nav>
 
           <section class="ssh-shell ssh-workspace-shell" aria-label="SSH terminal workspace">
             <aside class="ssh-sidebar-panel" aria-label="SSH sessions and profiles">
@@ -3099,6 +3132,10 @@
               <p class="lede">Terminal-style console workspace for connected log streams.</p>
             </div>
           </header>
+          <nav class="page-tabs" aria-label="Terminal sections">
+            <button class="page-tabs__tab" type="button" data-page-tab="ssh">SSH</button>
+            <button class="page-tabs__tab" type="button" data-page-tab="console">Server consoles</button>
+          </nav>
 
           <section class="console-shell console-ops-shell" aria-label="Multi-instance console workspace">
             <aside class="console-source-panel" aria-label="Console sources">
@@ -3376,6 +3413,7 @@
           <nav class="page-tabs" aria-label="Activity sections">
             <button class="page-tabs__tab" type="button" data-page-tab="notifications">Activity</button>
             <button class="page-tabs__tab" type="button" data-page-tab="operations">Task details</button>
+            <button class="page-tabs__tab" type="button" data-page-tab="maintenance">Maintenance</button>
           </nav>
 
           <section class="operations-shell" aria-label="Operations center">
@@ -3469,6 +3507,7 @@
           <nav class="page-tabs" aria-label="Activity sections">
             <button class="page-tabs__tab" type="button" data-page-tab="notifications">Activity</button>
             <button class="page-tabs__tab" type="button" data-page-tab="operations">Task details</button>
+            <button class="page-tabs__tab" type="button" data-page-tab="maintenance">Maintenance</button>
           </nav>
 
           <section class="activity-in-progress" data-activity-in-progress aria-label="In progress" hidden>
@@ -3538,6 +3577,11 @@
               <p class="lede">Measure and clear AnxOS-owned desktop caches, logs, diagnostics state, and temporary files without touching server data, backups, saved credentials, or Marketplace instances.</p>
             </div>
           </header>
+          <nav class="page-tabs" aria-label="Activity sections">
+            <button class="page-tabs__tab" type="button" data-page-tab="notifications">Activity</button>
+            <button class="page-tabs__tab" type="button" data-page-tab="operations">Task details</button>
+            <button class="page-tabs__tab" type="button" data-page-tab="maintenance">Maintenance</button>
+          </nav>
 
           <section class="maintenance-shell" aria-label="Cache and maintenance center">
             <div class="maintenance-summary-grid">
@@ -5791,7 +5835,7 @@
       </aside>
     </div>
 
-    <div class="update-ready-banner" data-update-ready-banner hidden>
+    <div class="update-ready-banner" data-update-ready-banner data-testid="shell-update-banner" hidden>
       <div>
         <strong>Update ready</strong>
         <span>Restart now to finish installing.</span>
@@ -5800,12 +5844,12 @@
       <button class="inline-action" type="button" data-update-action="banner-later">Later</button>
     </div>
 
-    <div class="app-modal-backdrop" data-update-modal hidden>
+    <div class="app-modal-backdrop" data-update-modal data-testid="dialog-update" hidden>
       <section class="app-modal app-modal--update" role="dialog" aria-modal="true" aria-labelledby="update-modal-title" tabindex="-1">
         <header class="app-modal__header">
           <div>
             <p class="app-modal__eyebrow">Rocket update</p>
-            <h2 id="update-modal-title" data-update-title>AnxOS Control Center update</h2>
+            <h2 id="update-modal-title" data-update-title>AnxHost Control Center update</h2>
           </div>
           <button class="icon-action" type="button" aria-label="Close update prompt" data-update-action="dismiss">&times;</button>
         </header>
@@ -5842,7 +5886,7 @@
         </footer>
       </section>
     </div>
-    <div class="app-modal-backdrop" data-dev-update-modal hidden>
+    <div class="app-modal-backdrop" data-dev-update-modal data-testid="dialog-developer-update" hidden>
       <section class="app-modal app-modal--developer-update" role="dialog" aria-modal="true" aria-labelledby="dev-update-modal-title" tabindex="-1">
         <header class="app-modal__header">
           <div>
@@ -5871,17 +5915,17 @@
         </footer>
       </section>
     </div>
-    <div class="app-modal-backdrop" data-onboarding-welcome hidden>
+    <div class="app-modal-backdrop" data-onboarding-welcome data-testid="shell-onboarding-welcome" hidden>
       <section class="app-modal app-modal--welcome" role="dialog" aria-modal="true" aria-labelledby="onboarding-welcome-title" aria-describedby="onboarding-welcome-description" tabindex="-1">
         <header class="app-modal__header onboarding-welcome__header">
           <div>
             <p class="app-modal__eyebrow">First launch</p>
-            <h2 id="onboarding-welcome-title">Welcome to AnxOS Control Center</h2>
+            <h2 id="onboarding-welcome-title">Welcome to AnxHost Control Center</h2>
           </div>
         </header>
         <div class="app-modal__body onboarding-welcome__body">
           <p id="onboarding-welcome-description">Manage your servers, applications, files, containers, remote systems, and public access from one place.</p>
-          <div class="onboarding-feature-grid" aria-label="AnxOS feature highlights">
+          <div class="onboarding-feature-grid" aria-label="AnxHost CC feature highlights">
             <article>
               <strong>Manage local and remote systems</strong>
               <span>Work with this computer or connected Windows and Linux systems.</span>
@@ -5897,18 +5941,18 @@
           </div>
         </div>
         <footer class="app-modal__actions onboarding-welcome__actions">
-          <button class="primary-button" type="button" data-onboarding-action="start">Set Up AnxOS</button>
+          <button class="primary-button" type="button" data-onboarding-action="start">Set Up AnxHost CC</button>
           <button class="inline-action" type="button" data-onboarding-action="skip">Explore on My Own</button>
         </footer>
       </section>
     </div>
-    <div class="app-modal-backdrop" data-onboarding-wizard hidden>
+    <div class="app-modal-backdrop" data-onboarding-wizard data-testid="shell-onboarding-wizard" hidden>
       <section class="app-modal app-modal--onboarding-wizard" role="dialog" aria-modal="true" aria-labelledby="onboarding-wizard-title" aria-describedby="onboarding-wizard-description" tabindex="-1">
         <header class="app-modal__header onboarding-wizard__header">
           <div>
             <p class="app-modal__eyebrow" data-onboarding-wizard-progress>Step 1 of 7</p>
             <h2 id="onboarding-wizard-title" data-onboarding-wizard-title>Welcome</h2>
-            <p id="onboarding-wizard-description" data-onboarding-wizard-description>AnxOS helps you install, manage, monitor, and access services running on this computer or another system.</p>
+            <p id="onboarding-wizard-description" data-onboarding-wizard-description>AnxHost CC helps you install, manage, monitor, and access services running on this computer or another system.</p>
           </div>
           <button class="app-modal__close" type="button" aria-label="Skip setup guide" data-onboarding-wizard-action="skip">&times;</button>
         </header>
@@ -5922,12 +5966,12 @@
         </footer>
       </section>
     </div>
-    <div class="app-modal-backdrop" data-contextual-help-modal hidden>
+    <div class="app-modal-backdrop" data-contextual-help-modal data-testid="dialog-contextual-help" hidden>
       <section class="app-modal app-modal--contextual-help" role="dialog" aria-modal="true" aria-labelledby="contextual-help-title" tabindex="-1">
         <header class="app-modal__header">
           <div>
             <p class="app-modal__eyebrow">Help</p>
-            <h2 id="contextual-help-title" data-contextual-help-title>AnxOS help</h2>
+            <h2 id="contextual-help-title" data-contextual-help-title>AnxHost CC help</h2>
           </div>
           <button class="app-modal__close" type="button" aria-label="Close help" data-contextual-help-action="close">&times;</button>
         </header>
@@ -5966,8 +6010,8 @@
         </footer>
       </section>
     </div>
-    <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
-    <aside class="assistant-panel" id="assistant-panel" data-assistant-panel role="dialog" aria-label="Assistant" hidden>
+    <div class="toast" id="toast" data-testid="shell-toast" role="status" aria-live="polite" aria-atomic="true"></div>
+    <aside class="assistant-panel" id="assistant-panel" data-assistant-panel data-testid="shell-assistant-panel" role="dialog" aria-label="Assistant" hidden>
       <header class="assistant-panel__header">
         <div>
           <h2>Assistant</h2>

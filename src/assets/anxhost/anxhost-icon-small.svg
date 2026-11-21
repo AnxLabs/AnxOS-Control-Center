@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+<defs>
+    <linearGradient id="s-hex" x1="40" y1="20" x2="210" y2="240" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#8c3ee6"/><stop offset="0.55" stop-color="#6010a0"/><stop offset="1" stop-color="#300058"/></linearGradient>
+    <linearGradient id="s-accent" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#a46af5"/><stop offset="1" stop-color="#6010a0"/></linearGradient>
+    <linearGradient id="s-word" x1="0" y1="0" x2="0" y2="100" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#8c3ee6"/><stop offset="1" stop-color="#4a0d80"/></linearGradient>
+  </defs>
+  <path d="M128 14 L226 70 L226 186 L128 242 L30 186 L30 70 Z" fill="url(#s-hex)"/>
+  <path d="M128 14 L226 70 L226 186 L128 242 L30 186 L30 70 Z" fill="none" stroke="#9854ee" stroke-width="24" stroke-linejoin="round"/>
+  <rect x="70" y="74" width="116" height="28" rx="8" fill="#ffffff"/>
+  <rect x="70" y="114" width="116" height="28" rx="8" fill="#ffffff"/>
+  <rect x="70" y="154" width="116" height="28" rx="8" fill="#ffffff"/>
+  <circle cx="160" cy="88" r="6" fill="#6010a0"/><circle cx="160" cy="128" r="6" fill="#6010a0"/><circle cx="160" cy="168" r="6" fill="#6010a0"/>
+</svg>

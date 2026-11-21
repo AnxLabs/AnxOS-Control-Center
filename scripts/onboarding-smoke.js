@@ -62,7 +62,7 @@ try {
 
   [
     "data-onboarding-welcome",
-    "Welcome to AnxOS Control Center",
+    "Welcome to AnxHost Control Center",
     "Manage your servers, applications, files, containers, remote systems, and public access from one place.",
     "Manage local and remote systems",
     "Install and control servers",

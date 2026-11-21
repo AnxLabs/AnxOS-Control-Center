@@ -177,7 +177,7 @@ async function main() {
       await waitFor(page, () => securityState?.localOwnerAuthenticated === true, null, "unlocked", 60000);
       if (await useDevice.isVisible().catch(() => false)) await useDevice.click();
     }
-    await waitFor(page, () => (document.querySelector(".nav-menu")?.getBoundingClientRect().width || 0) > 0, null, "app shell", 60000);
+    await waitFor(page, () => (document.querySelector('[data-testid="shell-sidebar"]')?.getBoundingClientRect().width || 0) > 0, null, "app shell", 60000);
     await page.evaluate(async () => { await selectNode("lab"); });
     await waitFor(page, () => getNodeVisualState(getSelectedNode()) === "online", null, "the test Agent online", 60000);
 

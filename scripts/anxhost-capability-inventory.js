@@ -73,6 +73,8 @@ const DEST = {
   "region:fivem-setup-modal": ["SRV", "FiveM setup dialog", "My Servers › FiveM setup", "A3"],
   "region:toast": ["SHELL", "Toasts", "Shell › Toasts", "A1"],
   "region:assistant-panel": ["ASSIST", "Assistant panel", "Shell › Assistant panel", "A1"],
+  // Build 216-A1 shell additions.
+  "region:operation-tray": ["TRAY", "Operation tray", "Shell › Operation tray", "A1"],
   // Other surfaces
   "shared-dialogs": ["DIALOG", "Dialogs built in app.js", "Shell › Shared dialog pattern", "A1"],
   "shortcuts": ["KEYS", "Keyboard shortcuts", "Shell › Keyboard shortcuts", "A1"],
@@ -140,6 +142,8 @@ const REGION_MARKERS = [
   "sidebar", "node-picker", "node-modal", "endpoint-modal", "instance-endpoint-picker", "node-details-modal",
   "update-ready-banner", "update-modal", "dev-update-modal", "onboarding-welcome", "onboarding-wizard",
   "contextual-help-modal", "fivem-setup-modal", "assistant-panel",
+  // Build 216-A1: the operation tray and the page host (the <main> that holds every page).
+  "operation-tray", "page-host:shell",
 ];
 
 // ---------------------------------------------------------------- helpers

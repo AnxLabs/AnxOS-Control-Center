@@ -276,7 +276,7 @@ async function gameConfigObservation(page) {
 async function pageLayoutObservation(page, pageName) {
   const state = await page.evaluate((name) => {
     const section = document.querySelector(`[data-page="${name}"]`);
-    const main = document.querySelector(".main-content");
+    const main = document.querySelector('[data-testid="shell-page-host"]');
     const box = section ? section.getBoundingClientRect() : null;
     return {
       sectionPresent: Boolean(section),
@@ -446,7 +446,7 @@ async function main() {
       // (as qa-acceptance.js does) so the device-choice screen can be checked.
       // The full welcome-to-wizard flow is covered by onboarding-fresh-install-smoke.js.
       const welcomeTitle = (await page.locator("#onboarding-welcome-title").textContent().catch(() => "")) || "";
-      assert.strictEqual(welcomeTitle.trim(), "Welcome to AnxOS Control Center", "The launch welcome must be the onboarding welcome.");
+      assert.strictEqual(welcomeTitle.trim(), "Welcome to AnxHost Control Center", "The launch welcome must be the onboarding welcome.");
       const skip = page.locator('[data-onboarding-welcome] [data-onboarding-action="skip"]');
       assert(await skip.isEnabled().catch(() => false), "The launch welcome must offer an enabled Skip action.");
       await skip.click();
@@ -723,7 +723,7 @@ async function main() {
       probe: () => dashboardObservation(page),
     });
     await page.evaluate(() => {
-      const main = document.querySelector(".main-content");
+      const main = document.querySelector('[data-testid="shell-page-host"]');
       if (main) main.scrollTop = 0;
       window.scrollTo(0, 0);
     });
@@ -737,7 +737,7 @@ async function main() {
     for (const workspace of ["instances", "playit", "marketplace", "nodes"]) {
       await page.evaluate((pageName) => {
         window.showPage?.(pageName);
-        const main = document.querySelector(".main-content");
+        const main = document.querySelector('[data-testid="shell-page-host"]');
         if (main) main.scrollTop = 0;
       }, workspace);
       // A workspace that has not been activated is display:none, so it measures
@@ -749,7 +749,7 @@ async function main() {
         probe: () => pageLayoutObservation(page, workspace),
       });
       const horizontalLayout = await page.evaluate(() => {
-        const main = document.querySelector(".main-content");
+        const main = document.querySelector('[data-testid="shell-page-host"]');
         if (!main) return { overflow: 0, offenders: [] };
         const right = main.getBoundingClientRect().right;
         const offenders = Array.from(main.querySelectorAll("*"))

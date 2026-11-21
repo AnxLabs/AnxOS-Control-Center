@@ -11,8 +11,16 @@ if (qaMode) {
   const indicator = document.createElement("div");
   indicator.dataset.testid = "qa-mode-indicator";
   indicator.textContent = "QA MODE";
-  Object.assign(indicator.style, { position: "fixed", top: "8px", right: "12px", zIndex: "99999", padding: "4px 8px", borderRadius: "4px", background: "#eab308", color: "#111827", font: "600 11px system-ui" });
-  (document.body || document.documentElement).appendChild(indicator);
+  Object.assign(indicator.style, { padding: "4px 8px", borderRadius: "4px", background: "#eab308", color: "#111827", font: "600 11px system-ui", flex: "none" });
+  // In the title bar's flow, so it never covers the window controls; a window
+  // without the title bar (startup diagnostics) shows it in the corner.
+  const indicatorHost = document.querySelector(".app-titlebar__context");
+  if (indicatorHost) {
+    indicatorHost.appendChild(indicator);
+  } else {
+    Object.assign(indicator.style, { position: "fixed", top: "8px", right: "12px", zIndex: "99999" });
+    (document.body || document.documentElement).appendChild(indicator);
+  }
 }
 const timeTarget = document.querySelector("#local-time");
 const toast = document.querySelector("#toast");
@@ -422,14 +430,8 @@ if (workspaceSurface) {
 }
 const appWorkspace = document.querySelector("[data-app-workspace]");
 const sidebar = document.querySelector("[data-sidebar]");
-const sidebarHeader = document.querySelector(".sidebar-header");
-const sidebarBrand = document.querySelector(".brand");
-const sidebarBrandCopy = document.querySelector(".brand-copy");
 const sidebarToggleButton = document.querySelector("[data-sidebar-toggle]");
-const sidebarToggleIcon = sidebarToggleButton?.querySelector("svg") || null;
 const sidebarFooter = document.querySelector("[data-sidebar-footer]");
-const sidebarFooterCopy = document.querySelector(".sidebar-footer__copy");
-const sidebarNavLabels = document.querySelectorAll(".nav-item__label");
 const appNameTargets = document.querySelectorAll("[data-app-name]");
 const sidebarTitleTarget = document.querySelector("[data-sidebar-title]");
 const startupMessage = document.querySelector("[data-startup-message]");
@@ -1250,8 +1252,6 @@ let latestAgentSettingsPayload = null;
 let titlebarWindowIsMaximized = false;
 let windowMaximizedUnsubscribe = null;
 let sidebarCollapsed = false;
-let sidebarHoverExpanded = false;
-let sidebarHoverExpansionLocked = false;
 let monacoLoadPromise = null;
 let monacoApi = null;
 let monacoEditorInstance = null;
@@ -1460,33 +1460,36 @@ const COMMAND_PALETTE_DEBOUNCE_MS = 80;
 const COMMAND_PALETTE_RECENT_LIMIT = 8;
 const staleInstanceIds = new Set();
 const instanceRemovalAllowedIds = new Set();
-// Sidebar layout, top to bottom: the everyday pages (no group header), then
-// the groups, then Settings pinned at the bottom. Every primary page has
-// exactly one entry.
-const PRIMARY_NAVIGATION_TOP = ["dashboard", "instances", "marketplace", "nodes", "playit"];
-// Phase 8: the technical pages sit in one "Tools" group that is always in
-// the sidebar but starts collapsed, so beginners see one header instead of
-// eight entries and nothing is hidden behind a setting. (advancedOnly is
-// still honoured for any group that sets it.)
+// Build 216-A1 sidebar (approved information architecture,
+// docs/anxhost/NAVIGATION_PROPOSAL.md): Run, Infrastructure and Tools, then
+// the footer (Activity, Security, Settings, Anx Workspace for the owner) and
+// the computer switcher. Group headings are labels, not toggles: nothing is
+// hidden behind a collapsed group.
 const PRIMARY_NAVIGATION_GROUPS = [
-  { id: "more", label: "More", pages: ["notifications", "backups", "security"] },
-  { id: "advanced", label: "Tools", pages: ["console", "operations", "docker", "files", "network", "ssh", "agent-control", "maintenance"] },
+  { id: "run", label: "Run", pages: ["dashboard", "instances", "marketplace"] },
+  { id: "infrastructure", label: "Infrastructure", pages: ["nodes", "docker", "playit"] },
+  { id: "tools", label: "Tools", pages: ["files", "ssh", "backups"] },
+  { id: "footer", label: "Activity and settings", pages: ["notifications", "security", "settings"], footer: true },
 ];
-const PRIMARY_NAVIGATION_UNGROUPED = ["settings"];
-// Groups collapsed until the user opens them (the active page's group always opens).
-const NAV_GROUPS_COLLAPSED_BY_DEFAULT = ["advanced"];
-// v2: the groups were reorganised, so collapse state saved for the old group
-// ids is not carried over.
-const NAV_GROUPS_STORAGE_KEY = "anxos.sidebar.collapsedGroups.v2";
-// Pages joined to another page by its tab strip. When the page has no visible
-// sidebar entry of its own (Advanced Mode off), its parent's entry is
-// highlighted instead.
-const NAV_PARENT_PAGES = Object.freeze({ "agent-control": "nodes", network: "playit", operations: "notifications" });
+// Pages that are a tab of another destination. They keep their own page and
+// their sidebar element (search and the command palette list them), but the
+// element lives in a members container the sidebar does not show, and the
+// destination's entry is highlighted while they are open. Each one is reached
+// by its destination's tab strip ([data-page-tab]).
+const NAV_PARENT_PAGES = Object.freeze({
+  "agent-control": "nodes",
+  network: "playit",
+  operations: "notifications",
+  maintenance: "notifications",
+  console: "ssh",
+});
 const PRIMARY_NAVIGATION_ORDER = [
-  ...PRIMARY_NAVIGATION_TOP,
   ...PRIMARY_NAVIGATION_GROUPS.flatMap((group) => group.pages),
-  ...PRIMARY_NAVIGATION_UNGROUPED,
+  ...Object.keys(NAV_PARENT_PAGES),
 ];
+// Below this window width the sidebar is an icon rail (labels in tooltips),
+// so page content keeps the width it needs down to the 900x640 minimum.
+const SIDEBAR_RAIL_BREAKPOINT = 1100;
 const LEGACY_PRIMARY_PAGES = new Set(["minecraft", "amp", "coolpals"]);
 // Instance health states that the Instances summary tiles do not already show.
 const INSTANCE_HEALTH_EXTRA_BUCKETS = ["unavailable", "unhealthy", "failed", "unknown"];
@@ -1547,7 +1550,26 @@ const INSTANCE_WORKSPACE_PROFILES = [
     matches: (instance) => [instance?.id, instance?.displayName, ...(Array.isArray(instance?.tags) ? instance.tags : [])].join(" ").toLowerCase().match(/\b(jellyfin|immich|gitea|grafana|prometheus|nextcloud|uptime-kuma)\b/),
   },
 ];
-const DEFAULT_APP_NAME = "AnxOS Control Center";
+const DEFAULT_APP_NAME = "AnxHost Control Center";
+// Build 216 rename: a saved display name equal to the old default (the
+// settings service still returns it as its default, and older saves stored
+// it) shows as the new product name. A name the user typed is kept as is.
+const LEGACY_DEFAULT_APP_NAMES = new Set(["AnxOS Control Center"]);
+
+// Build 216 theme mechanism: the Theme setting is resolved to <html
+// data-theme> in this one place; components never branch on the theme
+// (src/renderer/anxhost/tokens.css). Dark is the identity; until the light
+// theme ships in wave A10, "System" also resolves to dark.
+// A10 adds "light" and resolves "system" with prefers-color-scheme here.
+function resolveShellTheme() {
+  return "dark";
+}
+
+function resolveDisplayAppName(value) {
+  const name = String(value || "").trim();
+  if (!name || LEGACY_DEFAULT_APP_NAMES.has(name)) return DEFAULT_APP_NAME;
+  return name;
+}
 const DEFAULT_ACCENT_COLOR = "#b66cff";
 const DEFAULT_AGENT_URL = "http://127.0.0.1:47131";
 const DEFAULT_FILES_EXPLORER_WIDTH = 320;
@@ -1559,8 +1581,6 @@ const MAX_FILES_STORAGE_WIDTH = 420;
 const DEFAULT_FILES_DETAILS_WIDTH = 260;
 const MIN_FILES_DETAILS_WIDTH = 220;
 const MAX_FILES_DETAILS_WIDTH = 420;
-const SIDEBAR_EXPANDED_WIDTH = 248;
-const SIDEBAR_COLLAPSED_WIDTH = 72;
 const DEFAULT_SETTINGS = {
   "app.displayName": DEFAULT_APP_NAME,
   "appearance.accentColor": DEFAULT_ACCENT_COLOR,
@@ -2802,85 +2822,52 @@ function configurePrimaryNavigation() {
   syncNavigationGroupVisibility();
 }
 
-function readCollapsedNavGroups() {
-  try {
-    const stored = window.localStorage.getItem(NAV_GROUPS_STORAGE_KEY);
-    if (stored === null) return new Set(NAV_GROUPS_COLLAPSED_BY_DEFAULT);
-    const parsed = JSON.parse(stored);
-    return new Set(Array.isArray(parsed) ? parsed.filter((id) => typeof id === "string") : NAV_GROUPS_COLLAPSED_BY_DEFAULT);
-  } catch {
-    return new Set(NAV_GROUPS_COLLAPSED_BY_DEFAULT);
-  }
-}
-
-function storeCollapsedNavGroups() {
-  const collapsed = [...document.querySelectorAll(".nav-group.is-collapsed")].map((group) => group.dataset.navGroup);
-  try {
-    window.localStorage.setItem(NAV_GROUPS_STORAGE_KEY, JSON.stringify(collapsed));
-  } catch {
-    // Storage can be unavailable; the groups still work for this session.
-  }
-}
-
-function setNavGroupCollapsed(group, collapsed) {
-  group.classList.toggle("is-collapsed", collapsed);
-  group.querySelector(".nav-group__toggle")?.setAttribute("aria-expanded", collapsed ? "false" : "true");
-}
-
-// Moves the primary items into collapsible groups (once). The items keep their
+// Moves the primary items into the labelled groups (once). The items keep their
 // elements, attributes and listeners; only their parent changes.
 function buildNavigationGroups(navMenu) {
   if (navMenu.querySelector(".nav-group")) return;
-  const collapsed = readCollapsedNavGroups();
-  PRIMARY_NAVIGATION_TOP.forEach((pageName) => {
-    const item = navMenu.querySelector(`[data-page-target="${pageName}"]`);
-    if (item) {
-      item.classList.add("nav-item--pinned", "nav-item--primary");
-      navMenu.appendChild(item);
-    }
-  });
+  const ownerSection = navMenu.querySelector("[data-owner-workspace-nav]");
   PRIMARY_NAVIGATION_GROUPS.forEach((definition) => {
     const group = document.createElement("div");
-    group.className = "nav-group";
+    group.className = definition.footer ? "nav-group nav-group--footer" : "nav-group";
     group.dataset.navGroup = definition.id;
-    if (definition.advancedOnly) group.dataset.navAdvanced = "true";
-    const toggle = document.createElement("button");
-    toggle.type = "button";
-    toggle.className = "nav-group__toggle";
-    toggle.setAttribute("aria-controls", `nav-group-${definition.id}`);
+    group.dataset.testid = "nav-group";
+    const heading = document.createElement("div");
+    heading.className = "nav-group__heading";
+    heading.id = `nav-group-${definition.id}-label`;
     const label = document.createElement("span");
     label.className = "nav-group__label";
     label.textContent = definition.label;
-    const chevron = document.createElement("span");
-    chevron.className = "nav-group__chevron";
-    chevron.setAttribute("aria-hidden", "true");
-    toggle.append(label, chevron);
-    toggle.addEventListener("click", () => {
-      setNavGroupCollapsed(group, !group.classList.contains("is-collapsed"));
-      storeCollapsedNavGroups();
-    });
+    heading.append(label);
     const items = document.createElement("div");
     items.className = "nav-group__items";
     items.id = `nav-group-${definition.id}`;
     items.setAttribute("role", "group");
-    items.setAttribute("aria-label", definition.label);
+    items.setAttribute("aria-labelledby", heading.id);
     definition.pages.forEach((pageName) => {
       const item = navMenu.querySelector(`[data-page-target="${pageName}"]`);
-      if (item) items.appendChild(item);
+      if (item) {
+        item.dataset.testid = "nav-item";
+        items.appendChild(item);
+      }
     });
-    group.append(toggle, items);
+    if (definition.footer && ownerSection) items.appendChild(ownerSection);
+    group.append(heading, items);
     navMenu.appendChild(group);
-    setNavGroupCollapsed(group, collapsed.has(definition.id));
   });
-  PRIMARY_NAVIGATION_UNGROUPED.forEach((pageName) => {
-    const item = navMenu.querySelector(`[data-page-target="${pageName}"]`);
-    if (item) {
-      item.classList.add("nav-item--pinned");
-      navMenu.appendChild(item);
-    }
+  // Tab pages (see NAV_PARENT_PAGES) and the hidden legacy pages stay in the
+  // DOM, unseen in the sidebar.
+  const members = document.createElement("div");
+  members.className = "nav-members";
+  members.dataset.navMembers = "true";
+  members.setAttribute("aria-hidden", "true");
+  navMenu.querySelectorAll(":scope > [data-page-target]").forEach((item) => {
+    item.tabIndex = -1;
+    members.appendChild(item);
   });
+  navMenu.appendChild(members);
   // Permissions and feature checks hide items after startup; a group with no
-  // visible item hides its header too.
+  // visible item hides its heading too.
   if (typeof MutationObserver === "function") {
     new MutationObserver(syncNavigationGroupVisibility).observe(navMenu, { subtree: true, attributes: true, attributeFilter: ["hidden"] });
   }
@@ -2888,22 +2875,9 @@ function buildNavigationGroups(navMenu) {
 
 function syncNavigationGroupVisibility() {
   document.querySelectorAll(".nav-group").forEach((group) => {
-    const hasVisibleItem = [...group.querySelectorAll("[data-page-target]")].some((item) => !item.hidden);
+    const hasVisibleItem = [...group.querySelectorAll("[data-page-target], [data-owner-workspace-nav]")].some((item) => !item.hidden);
     if (group.hidden === hasVisibleItem) group.hidden = !hasVisibleItem;
   });
-}
-
-// The active page's group always opens, so the current page is never hidden.
-function revealNavigationGroupFor(pageName) {
-  const item = document.querySelector(`.nav-group [data-page-target="${pageName}"]`);
-  const group = item?.closest(".nav-group");
-  // A joined page shown through its parent's tabs keeps the group closed;
-  // its parent entry is the one highlighted (isNavItemShown).
-  if (NAV_PARENT_PAGES[pageName] && group?.classList.contains("is-collapsed")) return;
-  if (group?.classList.contains("is-collapsed")) {
-    setNavGroupCollapsed(group, false);
-    storeCollapsedNavGroups();
-  }
 }
 
 function setStartupStep(name, status) {
@@ -3477,12 +3451,26 @@ function getSidebarTitle(displayName) {
   return displayName;
 }
 
-function isDesktopSidebarCollapsible() {
-  return window.matchMedia("(min-width: 981px)").matches;
+// Build 216-A1 sidebar modes:
+//   expanded  labels and group headings (window >= 1100 px, not collapsed by hand)
+//   rail      64 px icon rail with tooltips (below 1100 px, or collapsed by hand)
+//   overlay   below 1100 px, the toggle (or Ctrl+B) opens the full sidebar
+//             over the page; Esc, navigating or clicking outside closes it.
+// The hand-collapsed choice is remembered with the existing storage key.
+let sidebarOverlayOpen = false;
+
+function isSidebarAutoRail() {
+  return window.innerWidth < SIDEBAR_RAIL_BREAKPOINT;
 }
 
-function canHoverExpandSidebar() {
-  return isDesktopSidebarCollapsible() && window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+// Kept for callers that ask whether the sidebar can collapse: it always can.
+function isDesktopSidebarCollapsible() {
+  return true;
+}
+
+function getSidebarMode() {
+  if (isSidebarAutoRail()) return sidebarOverlayOpen ? "overlay" : "rail";
+  return sidebarCollapsed ? "rail" : "expanded";
 }
 
 function readSidebarCollapsed() {
@@ -3520,29 +3508,30 @@ function updateSidebarFooterTooltip() {
   }
 
   const nodeName = sidebarFooter.querySelector("[data-node-picker-label]")?.textContent?.trim() || "This PC";
-  const nodeDetail = sidebarFooter.querySelector("[data-node-picker-detail]")?.textContent?.trim() || "Click to switch nodes";
+  const nodeDetail = sidebarFooter.querySelector("[data-node-picker-detail]")?.textContent?.trim() || "Click to switch computers";
   const tooltip = `${nodeName} | ${nodeDetail}`;
 
   sidebarFooter.dataset.tooltip = tooltip;
-  if (sidebarCollapsed && !sidebarHoverExpanded && isDesktopSidebarCollapsible()) {
-    sidebarFooter.title = tooltip;
-  }
+  sidebarFooter.title = getSidebarMode() === "rail" ? tooltip : "";
 }
 
 function syncSidebarTooltips() {
-  const showCollapsedTooltips = sidebarCollapsed && !sidebarHoverExpanded && isDesktopSidebarCollapsible();
+  const showRailTooltips = getSidebarMode() === "rail";
 
   navItems.forEach((item) => {
-    const label = item.dataset.pageLabel || item.querySelector("[data-nav-label]")?.textContent?.trim() || "";
-    item.title = showCollapsedTooltips ? label : "";
+    const label = item.dataset.tooltip || item.querySelector("[data-nav-label]")?.textContent?.trim() || item.dataset.pageLabel || "";
+    item.title = showRailTooltips ? label : "";
   });
-
-  if (sidebarFooter) {
-    sidebarFooter.title = showCollapsedTooltips ? sidebarFooter.dataset.tooltip || "" : "";
+  if (ownerWorkspaceToggle) {
+    ownerWorkspaceToggle.title = showRailTooltips ? ownerWorkspaceToggle.dataset.tooltip || "Anx Workspace" : "";
   }
 
+  updateSidebarFooterTooltip();
+
   if (sidebarToggleButton) {
-    sidebarToggleButton.title = `${sidebarCollapsed ? "Expand" : "Collapse"} sidebar (Ctrl+B)`;
+    const mode = getSidebarMode();
+    const willExpand = mode === "rail";
+    sidebarToggleButton.title = `${willExpand ? "Expand" : "Collapse"} sidebar (Ctrl+B)`;
   }
 }
 
@@ -3551,83 +3540,24 @@ function syncSidebarState() {
     return;
   }
 
-  const collapsedOnDesktop = sidebarCollapsed && isDesktopSidebarCollapsible();
-  const hoverExpanded = collapsedOnDesktop && sidebarHoverExpanded;
-  const sidebarIsCollapsed = collapsedOnDesktop && !hoverExpanded;
-  const sidebarWidth = sidebarIsCollapsed ? `${SIDEBAR_COLLAPSED_WIDTH}px` : `${SIDEBAR_EXPANDED_WIDTH}px`;
-  const hiddenLabelTargets = [sidebarBrandCopy, sidebarFooterCopy, ...Array.from(sidebarNavLabels)].filter(Boolean);
-
-  appWorkspace.classList.toggle("is-sidebar-collapsed", collapsedOnDesktop);
-  appWorkspace.classList.toggle("is-sidebar-hover-expanded", hoverExpanded);
-  sidebar.dataset.sidebarState = sidebarIsCollapsed ? "collapsed" : "expanded";
-  sidebar.setAttribute("aria-expanded", sidebarIsCollapsed ? "false" : "true");
-  sidebar.style.width = isDesktopSidebarCollapsible() ? sidebarWidth : "";
-  sidebar.style.flexBasis = isDesktopSidebarCollapsible() ? sidebarWidth : "";
-  sidebar.style.minWidth = isDesktopSidebarCollapsible() ? (sidebarIsCollapsed ? sidebarWidth : "0px") : "";
-  sidebar.style.maxWidth = isDesktopSidebarCollapsible() ? sidebarWidth : "";
-  sidebar.style.paddingLeft = sidebarIsCollapsed ? "10px" : "";
-  sidebar.style.paddingRight = sidebarIsCollapsed ? "10px" : "";
-
-  if (sidebarHeader) {
-    sidebarHeader.style.flexDirection = sidebarIsCollapsed ? "column" : "";
-    sidebarHeader.style.alignItems = sidebarIsCollapsed ? "center" : "";
-    sidebarHeader.style.gap = sidebarIsCollapsed ? "10px" : "";
-  }
-
-  if (sidebarBrand) {
-    sidebarBrand.style.justifyContent = sidebarIsCollapsed ? "center" : "";
-    sidebarBrand.style.gap = sidebarIsCollapsed ? "0px" : "";
-  }
-
-  if (sidebarFooter) {
-    sidebarFooter.style.justifyContent = sidebarIsCollapsed ? "center" : "";
-    sidebarFooter.style.gap = sidebarIsCollapsed ? "0px" : "";
-    sidebarFooter.style.paddingLeft = sidebarIsCollapsed ? "0px" : "";
-    sidebarFooter.style.paddingRight = sidebarIsCollapsed ? "0px" : "";
-  }
-
-  hiddenLabelTargets.forEach((target) => {
-    target.style.maxWidth = sidebarIsCollapsed ? "0px" : "";
-    target.style.margin = sidebarIsCollapsed ? "0" : "";
-    target.style.opacity = sidebarIsCollapsed ? "0" : "";
-    target.style.pointerEvents = sidebarIsCollapsed ? "none" : "";
-    target.style.transform = sidebarIsCollapsed ? "translateX(-8px)" : "";
-  });
-
-  sidebarNavLabels.forEach((label) => {
-    label.style.display = sidebarIsCollapsed ? "block" : "";
-  });
-
-  navItems.forEach((item) => {
-    item.style.justifyContent = sidebarIsCollapsed ? "center" : "";
-    item.style.gap = sidebarIsCollapsed ? "0px" : "";
-    item.style.paddingLeft = sidebarIsCollapsed ? "0px" : "";
-    item.style.paddingRight = sidebarIsCollapsed ? "0px" : "";
-    item.style.textAlign = sidebarIsCollapsed ? "center" : "";
-  });
-
-  if (sidebarToggleIcon) {
-    sidebarToggleIcon.style.transform = sidebarIsCollapsed ? "rotate(180deg)" : "";
-  }
+  const mode = getSidebarMode();
+  const isRail = mode === "rail";
+  // Classes and attributes only: the AnxHost shell styles the three modes
+  // (src/renderer/anxhost/shell.css). No inline sizes.
+  appWorkspace.dataset.sidebarMode = mode;
+  appWorkspace.classList.toggle("is-sidebar-collapsed", isRail);
+  appWorkspace.classList.toggle("is-sidebar-overlay-open", mode === "overlay");
+  appWorkspace.classList.remove("is-sidebar-hover-expanded");
+  sidebar.dataset.sidebarState = isRail ? "collapsed" : "expanded";
+  sidebar.dataset.sidebarCollapsed = isRail ? "true" : "false";
+  sidebar.setAttribute("aria-expanded", isRail ? "false" : "true");
 
   if (sidebarToggleButton) {
-    sidebarToggleButton.setAttribute("aria-label", collapsedOnDesktop ? "Expand sidebar" : "Collapse sidebar");
-    sidebarToggleButton.setAttribute("aria-pressed", collapsedOnDesktop ? "true" : "false");
+    sidebarToggleButton.setAttribute("aria-label", isRail ? "Expand sidebar" : "Collapse sidebar");
+    sidebarToggleButton.setAttribute("aria-pressed", isRail ? "true" : "false");
   }
 
   syncSidebarTooltips();
-  updateSidebarFooterTooltip();
-}
-
-function setSidebarHoverExpanded(nextValue) {
-  const normalizedValue = Boolean(nextValue);
-
-  if (!sidebarCollapsed || sidebarHoverExpansionLocked || !canHoverExpandSidebar() || sidebarHoverExpanded === normalizedValue) {
-    return;
-  }
-
-  sidebarHoverExpanded = normalizedValue;
-  syncSidebarState();
 }
 
 function setSidebarCollapsed(nextValue, options = {}) {
@@ -3638,8 +3568,6 @@ function setSidebarCollapsed(nextValue, options = {}) {
   }
 
   sidebarCollapsed = normalizedValue;
-  sidebarHoverExpanded = false;
-  sidebarHoverExpansionLocked = normalizedValue ? options.lockHoverExpand === true : false;
   syncSidebarState();
 
   if (options.persist !== false) {
@@ -3647,13 +3575,39 @@ function setSidebarCollapsed(nextValue, options = {}) {
   }
 }
 
+function openSidebarOverlay() {
+  if (!isSidebarAutoRail() || sidebarOverlayOpen) return;
+  sidebarOverlayOpen = true;
+  syncSidebarState();
+  // Move focus into the opened sidebar so keyboard users land in it.
+  (sidebar?.querySelector(".nav-item.is-active") || sidebar?.querySelector(".nav-item:not([hidden])"))?.focus?.();
+}
+
+function closeSidebarOverlay({ restoreFocus = false } = {}) {
+  if (!sidebarOverlayOpen) return;
+  sidebarOverlayOpen = false;
+  syncSidebarState();
+  if (!restoreFocus) return;
+  // At phone widths the closed sidebar is hidden; the title-bar menu opened it.
+  const menuButton = document.querySelector("[data-sidebar-menu]");
+  const menuShown = Boolean(menuButton && menuButton.getBoundingClientRect().width > 0);
+  (menuShown ? menuButton : sidebarToggleButton)?.focus?.();
+}
+
+// Ctrl+B and the sidebar toggle: below 1100 px they open or close the overlay;
+// at full width they collapse or expand the sidebar and remember the choice.
 function toggleSidebarCollapsed(options = {}) {
+  if (isSidebarAutoRail()) {
+    if (sidebarOverlayOpen) closeSidebarOverlay({ restoreFocus: true });
+    else openSidebarOverlay();
+    return;
+  }
   setSidebarCollapsed(!sidebarCollapsed, options);
 }
 
 function syncSidebarViewportState() {
-  if (!isDesktopSidebarCollapsible() && sidebarHoverExpanded) {
-    sidebarHoverExpanded = false;
+  if (!isSidebarAutoRail() && sidebarOverlayOpen) {
+    sidebarOverlayOpen = false;
   }
 
   syncSidebarState();
@@ -4368,7 +4322,8 @@ function updateTitlebar(pageName = getActivePageName()) {
 
 function applySettings(settings, options = {}) {
   currentSettings = { ...DEFAULT_SETTINGS, ...(settings || {}) };
-  const displayName = String(settings["app.displayName"] || DEFAULT_APP_NAME).trim() || DEFAULT_APP_NAME;
+  const displayName = resolveDisplayAppName(settings["app.displayName"]);
+  document.documentElement.dataset.theme = resolveShellTheme(settings["appearance.theme"]);
   const accentColor = /^#[0-9a-f]{6}$/i.test(settings["appearance.accentColor"])
     ? settings["appearance.accentColor"]
     : DEFAULT_ACCENT_COLOR;
@@ -4578,7 +4533,7 @@ function revealAppShell() {
   setStartupStep("services", "complete");
   setStartupStep("metrics", "complete");
   setStartupStep("control", "complete");
-  updateStartupMessage("AnxOS Control Center ready.", "Opening dashboard...");
+  updateStartupMessage("AnxHost Control Center ready.", "Opening Home...");
   const musicFadeMs = stopStartupMusic();
 
   window.setTimeout(() => {
@@ -4647,7 +4602,7 @@ function advanceStartupStep(stepName, message, detail) {
 
 function runStartupSequence() {
   setStartupStep("app", "active");
-  updateStartupMessage("Starting AnxOS...", "Loading local infrastructure...");
+  updateStartupMessage("Starting AnxHost CC...", "Loading local infrastructure...");
 
   window.setTimeout(() => {
     setStartupStep("app", "complete");
@@ -4887,18 +4842,12 @@ async function handleWebhookAlertsAction(action) {
   }
 }
 
-// Advanced-only groups are hidden by CSS (not the hidden attribute), so their
-// items stay in search and the command palette; this is the visible check.
+// Tab pages sit in the sidebar's hidden members container (not the hidden
+// attribute), so they stay in search and the command palette; this is the
+// visible check.
 function isNavItemShown(item) {
   if (!item || item.hidden) return false;
-  // A page joined to another by tabs (Agent Control, Network, Task details)
-  // keeps highlighting its parent while the collapsed Tools group holds its
-  // own entry, so switching tabs does not pop the group open.
-  const group = item.closest(".nav-group");
-  if (group?.classList.contains("is-collapsed") && NAV_PARENT_PAGES[item.dataset.pageTarget]) return false;
-  // Read the applied flag (set in applySettings) rather than the settings
-  // store, so this agrees with the CSS that hides the group.
-  return !item.closest("[data-nav-advanced]") || document.documentElement.dataset.advancedMode === "true";
+  return !item.closest("[data-nav-members]");
 }
 
 function getNavigationOwnerPage(pageName) {
@@ -4934,7 +4883,7 @@ function showPage(pageName) {
     return showPage(getDesktopApiState().hasSecurity ? "security" : "dashboard");
   }
   syncNavigationActiveState(safePageName);
-  revealNavigationGroupFor(safePageName);
+  closeSidebarOverlay();
   ownerWorkspaceToggle?.classList.toggle("is-active", safePageName === "owner-workspace");
   if (safePageName === "owner-workspace") {
     ownerWorkspaceToggle?.setAttribute("aria-current", "page");
@@ -29342,17 +29291,83 @@ async function cancelDurableJob(jobId) {
   }
 }
 
+function getRunningOperations() {
+  loadOperationHistory();
+  return [...operationsState.items.values()]
+    .filter((operation) => ["queued", "running", "waiting"].includes(operation.status))
+    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+}
+
+function openOperationInActivity(operationId) {
+  operationsState.selectedId = operationId || operationsState.selectedId;
+  closeOperationTray();
+  showPage("operations");
+  renderOperationsCenter();
+}
+
+// Build 216-A1 operation tray: the title bar shows "N running" while work is
+// running, and the tray lists it with progress. It reads the same running
+// list as Activity's "In progress" section (one source of truth).
+function renderOperationTray(running) {
+  const toggle = document.querySelector("[data-operation-tray-toggle]");
+  const tray = document.querySelector("[data-operation-tray]");
+  const list = tray?.querySelector("[data-operation-tray-list]");
+  if (!toggle || !tray || !list) return;
+  const count = running.length;
+  toggle.hidden = count === 0;
+  const countTarget = toggle.querySelector("[data-operation-tray-count]");
+  if (countTarget) countTarget.textContent = String(count);
+  toggle.setAttribute("aria-label", count === 1 ? "1 task running. Open running tasks" : `${count} tasks running. Open running tasks`);
+  if (count === 0 && !tray.hidden) closeOperationTray();
+  list.replaceChildren(...running.map((operation) => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "operation-tray__item";
+    row.setAttribute("role", "listitem");
+    row.dataset.operationId = operation.id;
+    row.dataset.testid = "operation-tray-item";
+    const text = document.createElement("div");
+    text.className = "operation-tray__text";
+    text.append(
+      createTextElement("strong", getFriendlyOperationText(operation.title)),
+      createTextElement("span", [operation.target, getFriendlyOperationText(operation.step)].filter(Boolean).join(" · ")),
+    );
+    const status = createTextElement("span", operationStatusLabel(operation.status));
+    status.className = "ahx-status";
+    status.dataset.status = operation.status === "running" ? "updating" : "starting";
+    row.append(text, status, createProgressBar(operation.percent, operation.status));
+    row.addEventListener("click", () => openOperationInActivity(operation.id));
+    return row;
+  }));
+}
+
+function openOperationTray() {
+  const toggle = document.querySelector("[data-operation-tray-toggle]");
+  const tray = document.querySelector("[data-operation-tray]");
+  if (!toggle || !tray || toggle.hidden) return;
+  tray.hidden = false;
+  toggle.setAttribute("aria-expanded", "true");
+  (tray.querySelector(".operation-tray__item") || tray.querySelector("button"))?.focus?.();
+}
+
+function closeOperationTray({ restoreFocus = false } = {}) {
+  const toggle = document.querySelector("[data-operation-tray-toggle]");
+  const tray = document.querySelector("[data-operation-tray]");
+  if (!tray || tray.hidden) return;
+  tray.hidden = true;
+  toggle?.setAttribute("aria-expanded", "false");
+  if (restoreFocus) toggle?.focus?.();
+}
+
 // Activity's "In progress" list. It reads the same operationsState as Task
 // details (Operations) and is redrawn by renderOperationsCenter, so running
 // work has one source of truth however many places show it.
 function renderActivityInProgress() {
+  const running = getRunningOperations();
+  renderOperationTray(running);
   const section = document.querySelector("[data-activity-in-progress]");
   const list = section?.querySelector("[data-activity-in-progress-list]");
   if (!section || !list) return;
-  loadOperationHistory();
-  const running = [...operationsState.items.values()]
-    .filter((operation) => ["queued", "running", "waiting"].includes(operation.status))
-    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
   section.hidden = running.length === 0;
   list.replaceChildren(...running.map((operation) => {
     const row = document.createElement("button");
@@ -29705,7 +29720,7 @@ function getGlobalSearchProviders() {
       label: "Commands",
       type: "Action",
       search(query) {
-        return [{ id: "command-palette", label: "Open Command Palette", description: "Run existing AnxOS actions. Shortcut: Ctrl+Shift+P" }]
+        return [{ id: "command-palette", label: "Open Command Palette", description: "Run AnxHost CC actions. Shortcut: Ctrl+Shift+P" }]
           .filter((entry) => matchesSearchQuery(query, entry.label, entry.description, "commands actions palette"))
           .map((entry) => createGlobalSearchResult(this, {
             id: entry.id,
@@ -38052,7 +38067,7 @@ function renderAccountState() {
     button.toggleAttribute("hidden", !pending);
   });
   document.querySelectorAll('[data-account-action="start"]').forEach((button) => {
-    button.textContent = accountStartInFlight ? "Opening..." : restoring ? "Restoring..." : pending ? "Waiting for Browser..." : signedIn ? "Switch AnxOS Account" : "Sign in with AnxOS";
+    button.textContent = accountStartInFlight ? "Opening..." : restoring ? "Restoring..." : pending ? "Waiting for Browser..." : signedIn ? "Switch Account" : "Sign in with AnxHost";
     button.disabled = restoring || accountStartInFlight || (pending && !signedIn) || (!signedIn && Date.now() < accountStartRetryAfter);
   });
   if (pending?.userCode) {
@@ -38536,7 +38551,7 @@ function renderSecurityState() {
     securityMode.textContent = setup ? "Remote Control Setup" : "Security";
   }
   if (securityTitle) {
-    securityTitle.textContent = setup ? "Enable Remote Control" : "Unlock AnxOS";
+    securityTitle.textContent = setup ? "Enable Remote Control" : "Unlock AnxHost CC";
   }
   if (securityDescription) {
     securityDescription.textContent = setup
@@ -49505,12 +49520,40 @@ ownerWorkspacePage?.addEventListener("click", async (event) => {
   }
 });
 sidebarToggleButton?.addEventListener("click", () => {
-  toggleSidebarCollapsed({ lockHoverExpand: true });
+  toggleSidebarCollapsed();
 });
-sidebar?.addEventListener("mouseenter", () => setSidebarHoverExpanded(true));
-sidebar?.addEventListener("mouseleave", () => {
-  sidebarHoverExpansionLocked = false;
-  setSidebarHoverExpanded(false);
+document.querySelector("[data-operation-tray-toggle]")?.addEventListener("click", () => {
+  const tray = document.querySelector("[data-operation-tray]");
+  if (tray && !tray.hidden) closeOperationTray({ restoreFocus: true });
+  else openOperationTray();
+});
+document.querySelector("[data-operation-tray-open-activity]")?.addEventListener("click", () => openOperationInActivity(null));
+document.querySelector("[data-operation-tray]")?.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeOperationTray({ restoreFocus: true });
+  }
+});
+document.addEventListener("pointerdown", (event) => {
+  const tray = document.querySelector("[data-operation-tray]");
+  const toggle = document.querySelector("[data-operation-tray-toggle]");
+  if (tray && !tray.hidden && !tray.contains(event.target) && !toggle?.contains(event.target)) closeOperationTray();
+});
+// The overlay sidebar (below 1100 px) closes on Esc or a click outside it.
+document.addEventListener("pointerdown", (event) => {
+  if (!sidebarOverlayOpen || !sidebar || sidebar.contains(event.target)) return;
+  // The title-bar menu button toggles the overlay itself.
+  if (event.target?.closest?.("[data-sidebar-menu]")) return;
+  closeSidebarOverlay();
+});
+document.querySelector("[data-sidebar-menu]")?.addEventListener("click", () => {
+  toggleSidebarCollapsed();
+});
+sidebar?.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && sidebarOverlayOpen) {
+    event.preventDefault();
+    closeSidebarOverlay({ restoreFocus: true });
+  }
 });
 // Window resize fires per pixel of a window drag and this re-evaluates the
 // sidebar's media queries and classes, so it is rAF-coalesced.
@@ -49907,7 +49950,7 @@ window.addEventListener("keydown", (event) => {
 
   if (!event.defaultPrevented && !event.altKey && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "b") {
     event.preventDefault();
-    toggleSidebarCollapsed({ lockHoverExpand: Boolean(sidebar?.matches(":hover")) });
+    toggleSidebarCollapsed();
     return;
   }
 

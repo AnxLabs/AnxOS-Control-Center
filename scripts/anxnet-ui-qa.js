@@ -105,7 +105,7 @@ async function main() {
     await waitFor(page, () => typeof window.showPage === "function", null, "app start", 60000);
     const useDevice = page.getByRole("button", { name: "Use this device" }).first();
     if (await useDevice.isVisible().catch(() => false)) await useDevice.click();
-    await waitFor(page, () => (document.querySelector(".nav-menu")?.getBoundingClientRect().width || 0) > 0, null, "app shell", 60000);
+    await waitFor(page, () => (document.querySelector('[data-testid="shell-sidebar"]')?.getBoundingClientRect().width || 0) > 0, null, "app shell", 60000);
 
     // U1
     await page.evaluate(() => window.showPage("nodes"));
