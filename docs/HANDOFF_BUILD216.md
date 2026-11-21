@@ -7,7 +7,7 @@ Plan: `PLANS.md` (approved, commit `9aadaead`). Protocol: `AGENTS.md` (ADP).
 | Phase | State |
 | --- | --- |
 | **216-0 Foundation and capability inventory** | **Complete and approved by the owner (2026-11-20)**: logo (split strategy), navigation and UI foundation approved; committed on `claude/anxhost-build-216` with owner approval as `docs(anxhost): Build 216-0 foundation, inventory and proposals` (hash in the owner report; not pushed). |
-| **216-A1 Desktop Shell Rebirth** | **Implemented and validated; stopped at the A1 acceptance gate.** Nothing committed (commit needs owner approval). See "216-A1 Desktop Shell Rebirth" below. |
+| **216-A1 Desktop Shell Rebirth** | **Complete; committed with the owner's approval** as `fc2b47ec` `feat(anxhost): Build 216-A1 desktop shell rebirth` (not pushed). See "216-A1 Desktop Shell Rebirth" below. |
 | 216-A2 … 216-G | Not started |
 
 ## 216-0 timing
@@ -267,10 +267,9 @@ results above still apply to the application code.
 
 ## Next step
 
-216-A1 is at its acceptance gate (below). The owner reviews the shell and
-the evidence; committing the A1 work needs explicit approval (proposed
-message: `feat(anxhost): Build 216-A1 desktop shell rebirth`). No push,
-merge, tag or deployment. Wave A2 (Home) starts only with its own `/goal`.
+216-A1 is complete and committed (`fc2b47ec`, owner-approved after review).
+Pushing it needs separate approval; no merge, tag or deployment. Wave A2
+(Home) starts only with its own `/goal`.
 
 ## 216-A1 Desktop Shell Rebirth
 
@@ -286,7 +285,7 @@ session's shells; the AnxOS sessions were idle in other worktrees).
 | Start | 2026-11-20T11:49:41-07:00 (system clock, start of the goal) |
 | Finish | 2026-11-20T17:54:00-07:00 (system clock, after the last check; the first stop at 14:35:48 was followed by fixing two stale suites, re-measuring performance and, with the owner's approval, rebuilding the Build 215 test node) |
 | Elapsed | 6 h 4 min 19 s, including about 1 h 10 min waiting at the acceptance gate for the owner's decision on rebuilding the Build 215 test node (15:25 to 16:35) and the owner's review afterwards; the 900x640 page-switch cost was found and fixed during that review. About 2 h of it was test runs (two full `rc:validate` sweeps, two UI batches, the A/B timing runs, `qa:feature`) |
-| Commits | None. The A1 work is uncommitted on `claude/anxhost-build-216`, awaiting the owner's commit approval |
+| Commits | `fc2b47ec` `feat(anxhost): Build 216-A1 desktop shell rebirth`, approved by the owner after review; not pushed |
 
 ### What changed
 
