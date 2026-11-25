@@ -34,6 +34,10 @@ const BCRYPT_ROUNDS = 12;
 const SECURITY_SCHEMA_VERSION = 1;
 const PERSISTENT_SESSION_SCHEMA_VERSION = 1;
 const DEVELOPMENT_FALLBACK_OWNER_PASSWORD = "1245";
+// 216-E (docs/anxhost/SECURITY_REVIEW_216E.md): idle lock, owner-approved
+// default 15 minutes; 0 means Never.
+const IDLE_LOCK_MINUTE_OPTIONS = new Set([0, 5, 15, 30, 60]);
+const DEFAULT_IDLE_LOCK_MINUTES = 15;
 const SESSION_TIMEOUT_OPTIONS_MS = new Set([
   0,
   24 * 60 * 60 * 1000,
@@ -168,6 +172,8 @@ const SECURITY_EVENT_DEFINITIONS = {
   "security.logout": { category: "authentication", severity: "info", message: "A local security session signed out." },
   "security.session.restore": { category: "authentication", severity: "info", message: "A remembered local session was restored." },
   "security.session.revoke": { category: "sessions", severity: "warning", message: "A remembered local session was revoked." },
+  "security.session.lock": { category: "authentication", severity: "info", message: "The local session was locked." },
+  "security.session.refused": { category: "sessions", severity: "warning", message: "A remembered local session was refused and removed." },
   "security.sessions.revokeOther": { category: "sessions", severity: "warning", message: "Other remembered local sessions were revoked." },
   "security.sessions.logoutAll": { category: "sessions", severity: "warning", message: "All remembered local sessions were revoked." },
   "security.trustedDevice.remove": { category: "sessions", severity: "warning", message: "Trusted-device access was removed." },
@@ -186,6 +192,12 @@ const SECURITY_EVENT_DEFINITIONS = {
 
 let currentSession = null;
 const rateBuckets = new Map();
+// After a manual or idle lock, the remembered session is kept for the next
+// launch but never used to come back from the lock in this process (D4).
+let restoreBlockedUntilPassword = false;
+let lastUnlockAt = 0;
+let lastActivityAt = 0;
+const localSessionLockListeners = new Set();
 
 function getConfigDirectory() {
   if (process.env.ANXHUB_CONFIG_DIR) {
@@ -274,6 +286,11 @@ function ensureConfigDirectory() {
   fs.mkdirSync(getConfigDirectory(), { recursive: true });
 }
 
+function normalizeIdleLockMinutes(value) {
+  const minutes = Number.parseInt(value, 10);
+  return IDLE_LOCK_MINUTE_OPTIONS.has(minutes) ? minutes : DEFAULT_IDLE_LOCK_MINUTES;
+}
+
 function normalizeSecurityState(parsed = {}) {
   return {
     schemaVersion: SECURITY_SCHEMA_VERSION,
@@ -286,6 +303,8 @@ function normalizeSecurityState(parsed = {}) {
       persistentSessionTtlMs: Number.parseInt(parsed.settings?.persistentSessionTtlMs, 10) || PERSISTENT_SESSION_TTL_MS,
       inactiveSessionExpirationMs: Number.parseInt(parsed.settings?.inactiveSessionExpirationMs, 10) || 0,
       lockOwnerWorkspaceAfterInactivity: parsed.settings?.lockOwnerWorkspaceAfterInactivity !== false,
+      idleLockMinutes: normalizeIdleLockMinutes(parsed.settings?.idleLockMinutes),
+      trustThisDevice: parsed.settings?.trustThisDevice !== false,
       requireReauthForSensitiveActions: parsed.settings?.requireReauthForSensitiveActions !== false,
       requireAuthenticatedAccountForRemoteAccess: parsed.settings?.requireAuthenticatedAccountForRemoteAccess === true,
       requireTrustedDeviceForRemoteAccess: parsed.settings?.requireTrustedDeviceForRemoteAccess === true,
@@ -545,6 +564,46 @@ function readPersistentSessionFile() {
   }
 }
 
+function isSecureStorageAvailable() {
+  try {
+    return safeStorage?.isEncryptionAvailable?.() === true;
+  } catch {
+    return false;
+  }
+}
+
+function readPersistentSessionMethod() {
+  try {
+    return JSON.parse(fs.readFileSync(getPersistentSessionPath(), "utf8"))?.method || null;
+  } catch {
+    return null;
+  }
+}
+
+// The remembered token is 48 random bytes, so a fast hash is enough; bcrypt
+// hashes written by Build 215 are still accepted once and then rotated.
+function hashRememberedToken(rawToken) {
+  return `sha256:${crypto.createHash("sha256").update(String(rawToken)).digest("base64url")}`;
+}
+
+function verifyRememberedToken(rawToken, storedHash) {
+  const stored = String(storedHash || "");
+  if (stored.startsWith("sha256:")) {
+    const expected = Buffer.from(stored);
+    const actual = Buffer.from(hashRememberedToken(rawToken));
+    return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
+  }
+  try {
+    return bcrypt.compareSync(String(rawToken), stored);
+  } catch {
+    return false;
+  }
+}
+
+function canRememberOnThisDevice(state) {
+  return isSecureStorageAvailable() && state.settings.trustThisDevice !== false;
+}
+
 function getPasswordHashDigest(user) {
   return crypto.createHash("sha256").update(String(user?.passwordHash || "")).digest("base64url");
 }
@@ -647,12 +706,21 @@ function getCurrentUser() {
 }
 
 async function createPersistentSession(state, user) {
+  // 216-E policy item 1: remembered only with OS-backed secure storage and
+  // while this device is trusted; never with the fallback key.
+  if (!canRememberOnThisDevice(state)) {
+    return null;
+  }
+  const previousSessionId = readPersistentSessionFile()?.sessionId || null;
+  if (previousSessionId) {
+    state.persistentSessions = state.persistentSessions.filter((entry) => entry.id !== previousSessionId);
+  }
   const rawToken = crypto.randomBytes(48).toString("base64url");
   const device = getCurrentDeviceInfo();
   const session = {
     id: crypto.randomUUID(),
     userId: user.id,
-    tokenHash: await bcrypt.hash(rawToken, BCRYPT_ROUNDS),
+    tokenHash: hashRememberedToken(rawToken),
     passwordHashDigest: getPasswordHashDigest(user),
     deviceId: device.id,
     deviceName: device.name,
@@ -681,9 +749,33 @@ function createRuntimeSession(user, expiresAt, persistent = false, persistentSes
   };
 }
 
+function refusePersistentSession(state, session, reason) {
+  removePersistentSessionFile();
+  if (session) {
+    state.persistentSessions = state.persistentSessions.filter((entry) => entry.id !== session.id);
+  }
+  try { writeSecurityState(state); } catch {}
+  try { audit({ action: "security.session.refused", outcome: "ok", actor: null, reason }); } catch {}
+  return null;
+}
+
 function restorePersistentSession() {
-  if (currentSession) {
+  if (currentSession || restoreBlockedUntilPassword) {
     return null;
+  }
+  if (!fs.existsSync(getPersistentSessionPath())) {
+    return null;
+  }
+  // Secure storage unavailable right now (for example a locked keyring): keep
+  // the file for later, but never restore without it.
+  if (!isSecureStorageAvailable()) {
+    return null;
+  }
+  const state = readSecurityState();
+  const method = readPersistentSessionMethod();
+  if (method !== "safeStorage") {
+    // Written with the fallback key by an older build (policy item 1, D5).
+    return refusePersistentSession(state, null, method ? "INSECURE_STORAGE" : "UNREADABLE");
   }
 
   const localSession = readPersistentSessionFile();
@@ -691,7 +783,6 @@ function restorePersistentSession() {
     return null;
   }
 
-  const state = readSecurityState();
   const now = Date.now();
   let changed = pruneExpiredPersistentSessions(state, now);
   const session = state.persistentSessions.find((entry) => entry.id === localSession.sessionId);
@@ -709,25 +800,89 @@ function restorePersistentSession() {
     return null;
   }
 
-  let ok = false;
+  const deviceId = getCurrentDeviceId();
+  if (session.deviceId !== deviceId) {
+    return refusePersistentSession(state, session, "DEVICE_MISMATCH");
+  }
+  if (state.trustedDevices.some((device) => device.id === deviceId && device.trusted === false)) {
+    return refusePersistentSession(state, session, "DEVICE_REMOVED");
+  }
+  if (state.settings.trustThisDevice === false) {
+    return refusePersistentSession(state, session, "DEVICE_NOT_TRUSTED");
+  }
+  const inactiveLimitMs = state.settings.inactiveSessionExpirationMs || 0;
+  const lastUsedAt = Date.parse(session.lastUsedAt || session.createdAt || "");
+  if (inactiveLimitMs > 0 && (!Number.isFinite(lastUsedAt) || now - lastUsedAt > inactiveLimitMs)) {
+    return refusePersistentSession(state, session, "INACTIVE_EXPIRED");
+  }
+
+  if (!verifyRememberedToken(localSession.token, session.tokenHash)) {
+    return refusePersistentSession(state, session, "TOKEN_MISMATCH");
+  }
+
+  // Policy item 4: a new token on every restore. Both writes must succeed, or
+  // the restore fails closed.
+  const rotatedToken = crypto.randomBytes(48).toString("base64url");
+  session.tokenHash = hashRememberedToken(rotatedToken);
+  session.lastUsedAt = new Date(now).toISOString();
   try {
-    ok = bcrypt.compareSync(String(localSession.token), session.tokenHash);
-  } catch {
-    ok = false;
-  }
-
-  if (!ok) {
-    removePersistentSessionFile();
-    state.persistentSessions = state.persistentSessions.filter((entry) => entry.id !== session.id);
     writeSecurityState(state);
-    return null;
+    writePersistentSessionFile({ sessionId: session.id, token: rotatedToken, expiresAt: session.expiresAt });
+  } catch {
+    return refusePersistentSession(state, session, "ROTATION_FAILED");
   }
-
-  session.lastUsedAt = new Date().toISOString();
-  writeSecurityState(state);
   createRuntimeSession(user, Date.parse(session.expiresAt), true, session.id);
+  lastUnlockAt = Date.now();
   audit({ action: "security.session.restore", outcome: "ok", actor: publicUser(user) });
   return publicUser(user);
+}
+
+function lockLocalSession(reason = "manual") {
+  if (!currentSession) {
+    return { ok: true, locked: true, alreadyLocked: true };
+  }
+  const actor = getCurrentUser();
+  currentSession = null;
+  restoreBlockedUntilPassword = true;
+  audit({ action: "security.session.lock", outcome: "ok", actor, reason: String(reason || "manual").slice(0, 40) });
+  for (const listener of localSessionLockListeners) {
+    try { listener({ reason }); } catch {}
+  }
+  return { ok: true, locked: true };
+}
+
+function onLocalSessionLocked(listener) {
+  if (typeof listener !== "function") return () => {};
+  localSessionLockListeners.add(listener);
+  return () => localSessionLockListeners.delete(listener);
+}
+
+function getIdleLockMs(state = readSecurityState()) {
+  if (state.settings.lockOwnerWorkspaceAfterInactivity === false) return 0;
+  return (state.settings.idleLockMinutes || 0) * 60 * 1000;
+}
+
+function noteUserActivity(at = Date.now()) {
+  lastActivityAt = Math.max(lastActivityAt, Number(at) || 0);
+}
+
+// Policy item 6. Idle time is the shortest of the system idle time, the time
+// since the last unlock and the time since the last input to this app.
+function checkIdleLock({ systemIdleSeconds = 0, now = Date.now() } = {}) {
+  if (!currentSession) {
+    return { locked: false, reason: "signed-out" };
+  }
+  const limitMs = getIdleLockMs();
+  if (!limitMs) {
+    return { locked: false, reason: "disabled" };
+  }
+  const systemIdleMs = Math.max(0, Number(systemIdleSeconds) || 0) * 1000;
+  const idleMs = Math.min(systemIdleMs, Math.max(0, now - Math.max(lastUnlockAt, lastActivityAt)));
+  if (idleMs >= limitMs) {
+    lockLocalSession("idle");
+    return { locked: true, reason: "idle" };
+  }
+  return { locked: false, remainingMs: limitMs - idleMs };
 }
 
 function audit(event) {
@@ -1227,6 +1382,9 @@ function getSecurityDashboard(options = {}) {
       recentFailedSignIns: events.filter((event) => /login/i.test(event.type) && event.result === "failed").length,
       sessionTimeoutMs: state.settings.inactiveSessionExpirationMs || 0,
       lockOwnerWorkspaceAfterInactivity: Boolean(state.settings.lockOwnerWorkspaceAfterInactivity),
+      idleLockMinutes: state.settings.idleLockMinutes,
+      trustThisDevice: state.settings.trustThisDevice !== false,
+      secureStorageAvailable: isSecureStorageAvailable(),
       requireReauthForSensitiveActions: Boolean(state.settings.requireReauthForSensitiveActions),
     },
     events,
@@ -1469,6 +1627,10 @@ function getStatus() {
     agentTokenConfigured: Boolean(readAgentSettings().agentToken || getAgentConfig().token),
     persistentSession: Boolean(currentSession?.persistent),
     persistentSessionCount: state.persistentSessions.length,
+    secureStorageAvailable: isSecureStorageAvailable(),
+    trustThisDevice: state.settings.trustThisDevice !== false,
+    trustThisDeviceAvailable: canRememberOnThisDevice(state),
+    idleLockMinutes: getIdleLockMs(state) / 60000,
     securityPath: getSecurityPath(),
     auditPath: getAuditPath(),
     authState: authRecovery.getState().state,
@@ -1685,7 +1847,8 @@ async function login(payload = {}) {
   let persistentSession = null;
   if (payload.staySignedIn === true && user) {
     persistentSession = await createPersistentSession(state, user);
-  } else {
+  }
+  if (!persistentSession) {
     removePersistentSessionFile();
   }
   if (user) {
@@ -1700,6 +1863,8 @@ async function login(payload = {}) {
     persistentSession,
     developmentOwner: devFallbackOk,
   });
+  restoreBlockedUntilPassword = false;
+  lastUnlockAt = Date.now();
   audit({ action: "security.login", outcome: "ok", actor: publicUser(authenticatedUser), reason: devFallbackOk ? "DEVELOPMENT_OWNER_FALLBACK" : null });
 
   return {
@@ -1873,12 +2038,14 @@ function revokePersistentSession(sessionId) {
     throw error;
   }
   writeSecurityState(state);
-  if (currentSession?.persistentSessionId === resolvedTarget) {
+  const revokedCurrent = currentSession?.persistentSessionId === resolvedTarget;
+  if (revokedCurrent) {
     currentSession = null;
     removePersistentSessionFile();
   }
   audit({ action: "security.session.revoke", outcome: "ok", actor, target: publicTargetId("session", resolvedTarget) });
-  return getSecurityDashboard();
+  // Revoking this session signs it out, so there is no dashboard to return.
+  return revokedCurrent ? { ok: true, signedOut: true } : getSecurityDashboard();
 }
 
 function revokeOtherSessions() {
@@ -1918,7 +2085,12 @@ function removeTrustedDevice(deviceId) {
   state.trustedDevices = state.trustedDevices.map((device) => (
     device.id === resolvedTarget ? { ...device, trusted: false, removedAt: new Date().toISOString() } : device
   ));
+  // 216-E policy item 5: a removed device keeps no remembered sessions.
+  state.persistentSessions = state.persistentSessions.filter((entry) => entry.deviceId !== resolvedTarget);
   writeSecurityState(state);
+  if (resolvedTarget === getCurrentDeviceId()) {
+    forgetThisDevicesRememberedSession();
+  }
   audit({ action: "security.trustedDevice.remove", outcome: "ok", actor, target: publicTargetId("device", resolvedTarget) });
   return getSecurityDashboard();
 }
@@ -1948,6 +2120,15 @@ function renameTrustedDevice(deviceId, name) {
   return getSecurityDashboard();
 }
 
+// The signed-in session stays open; only the copy kept for later launches goes.
+function forgetThisDevicesRememberedSession() {
+  removePersistentSessionFile();
+  if (currentSession?.persistent) {
+    currentSession.persistent = false;
+    currentSession.persistentSessionId = null;
+  }
+}
+
 function updateSessionSecuritySettings(payload = {}) {
   const actor = requirePermission("settings:write", "security-settings");
   const state = readSecurityState();
@@ -1957,10 +2138,31 @@ function updateSessionSecuritySettings(payload = {}) {
     error.code = "INVALID_SESSION_TIMEOUT";
     throw error;
   }
+  if (payload.idleLockMinutes !== undefined) {
+    const idleLockMinutes = Number.parseInt(payload.idleLockMinutes, 10);
+    if (!IDLE_LOCK_MINUTE_OPTIONS.has(idleLockMinutes)) {
+      const error = new Error("Unsupported idle lock setting.");
+      error.code = "INVALID_IDLE_LOCK";
+      throw error;
+    }
+    state.settings.idleLockMinutes = idleLockMinutes;
+  }
   state.settings.inactiveSessionExpirationMs = inactiveSessionExpirationMs;
   state.settings.lockOwnerWorkspaceAfterInactivity = payload.lockOwnerWorkspaceAfterInactivity !== false;
   state.settings.requireReauthForSensitiveActions = payload.requireReauthForSensitiveActions !== false;
+  let forgetThisDevice = false;
+  if (payload.trustThisDevice !== undefined) {
+    state.settings.trustThisDevice = payload.trustThisDevice !== false;
+    if (state.settings.trustThisDevice === false) {
+      const deviceId = getCurrentDeviceId();
+      state.persistentSessions = state.persistentSessions.filter((entry) => entry.deviceId !== deviceId);
+      forgetThisDevice = true;
+    }
+  }
   writeSecurityState(state);
+  if (forgetThisDevice) {
+    forgetThisDevicesRememberedSession();
+  }
   audit({ action: "security.settings.update", outcome: "ok", actor, target: "session-expiration" });
   return getSecurityDashboard();
 }
@@ -2011,6 +2213,9 @@ function generateReplacementAgentToken() {
 function lockOwnerWorkspace() {
   const actor = requireOwner("owner-workspace-lock");
   audit({ action: "security.ownerWorkspace.lock", outcome: "ok", actor });
+  // 216-E policy item 8: locking requires the password again, in the main
+  // process, not only by hiding the workspace in the renderer.
+  lockLocalSession("manual");
   return { ok: true, locked: true };
 }
 
@@ -2060,6 +2265,8 @@ module.exports = {
   SECURITY_SCHEMA_VERSION,
   _test: {
     encryptLocalSession,
+    getCurrentDeviceId,
+    getIdleLockMs,
     finalizeLocalOwnerAuthentication,
     getPasswordHashFormat,
     migrateLegacyOwnerUsers,
@@ -2070,7 +2277,12 @@ module.exports = {
     writePersistentSessionFile,
   },
   audit,
+  checkIdleLock,
   checkRateLimit,
+  getIdleLockMs,
+  lockLocalSession,
+  noteUserActivity,
+  onLocalSessionLocked,
   disableRemoteAccess,
   emergencySecurityAction,
   exportAuditWindow,

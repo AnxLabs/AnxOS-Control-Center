@@ -38717,6 +38717,25 @@ async function openWorkspaceTemplateWhenReady(templateId) {
   setMarketplaceMessage("The selected template is no longer available. Return to Marketplace and choose another template.", "warning");
 }
 
+// 216-E: "Trust this device" is offered only with OS secure storage and
+// while the owner has not turned remembering off for this device.
+function renderTrustThisDeviceOption() {
+  const note = document.querySelector("[data-security-trust-note]");
+  const available = securityState?.trustThisDeviceAvailable !== false;
+  if (securityStaySignedIn) {
+    securityStaySignedIn.disabled = !available;
+    if (!available) securityStaySignedIn.checked = false;
+  }
+  if (note) {
+    note.hidden = available;
+    note.textContent = available
+      ? ""
+      : securityState?.secureStorageAvailable === false
+        ? "This device can't store a sign-in securely, so you'll sign in each time the app starts."
+        : "Remembering sign-ins is turned off for this device in Security settings.";
+  }
+}
+
 function renderSecurityState() {
   const setup = Boolean(securityState.setupRequired);
   const accountAuthenticated = Boolean(securityState.accountAuthenticated);
@@ -38752,6 +38771,7 @@ function renderSecurityState() {
   if (securityStaySignedInRow) {
     securityStaySignedInRow.hidden = false;
   }
+  renderTrustThisDeviceOption();
   if (securityConfirmRow) {
     securityConfirmRow.hidden = !setup;
   }
@@ -39208,6 +39228,19 @@ function renderSecurityAuthentication(auth) {
   const reauth = document.querySelector('[data-security-session-toggle="reauth"]');
   if (timeout) timeout.value = String(auth?.sessionTimeoutMs || 0);
   if (ownerLock) ownerLock.checked = auth?.lockOwnerWorkspaceAfterInactivity !== false;
+  const idleLock = document.querySelector("[data-security-idle-lock]");
+  if (idleLock) idleLock.value = String(auth?.idleLockMinutes ?? 15);
+  const trustDevice = document.querySelector('[data-security-session-toggle="trustDevice"]');
+  const trustHelp = document.querySelector("[data-security-trust-help]");
+  const secureStorage = auth?.secureStorageAvailable !== false;
+  if (trustDevice) {
+    trustDevice.checked = auth?.trustThisDevice !== false && secureStorage;
+    trustDevice.disabled = !secureStorage;
+  }
+  if (trustHelp) {
+    trustHelp.hidden = secureStorage;
+    trustHelp.textContent = secureStorage ? "" : "Windows secure storage is unavailable, so sign-ins are not remembered on this device.";
+  }
   if (reauth) reauth.checked = auth?.requireReauthForSensitiveActions !== false;
 }
 
@@ -51414,6 +51447,10 @@ document.querySelector('[data-page="security"]')?.addEventListener("click", asyn
       inactiveSessionExpirationMs: Number.parseInt(document.querySelector("[data-security-session-timeout]")?.value || "0", 10),
       lockOwnerWorkspaceAfterInactivity: document.querySelector('[data-security-session-toggle="ownerLock"]')?.checked !== false,
       requireReauthForSensitiveActions: document.querySelector('[data-security-session-toggle="reauth"]')?.checked !== false,
+      idleLockMinutes: Number.parseInt(document.querySelector("[data-security-idle-lock]")?.value || "15", 10),
+      ...(document.querySelector('[data-security-session-toggle="trustDevice"]')?.disabled
+        ? {}
+        : { trustThisDevice: document.querySelector('[data-security-session-toggle="trustDevice"]')?.checked !== false }),
     });
   } else if (action === "refresh-events") {
     securityEventsCleared = false;
@@ -51898,6 +51935,13 @@ backupActionButtons.forEach((button) => {
 windowMaximizedUnsubscribe = getDesktopWindowApi()?.onMaximizedChanged?.((isMaximized) => {
   setTitlebarWindowState(isMaximized);
 }) || null;
+// 216-E: the main process locked the session (idle, Windows lock or a lock
+// action in another window); show the lock screen now.
+window.anxos?.security?.onLocked?.(() => {
+  ownerWorkspaceState = { authorized: false, pages: [], contents: {}, selectedPageId: "overview", apiHistory: [] };
+  setOwnerWorkspaceNavVisible(false);
+  refreshSecurityState().catch(() => {});
+});
 getDesktopWindowApi()?.onWorkspaceInit?.((payload = {}) => {
   if (payload.surface && payload.surface !== workspaceSurface) return;
   applyWorkspaceWindowContext(payload.context || {}).catch((error) => {

@@ -19,6 +19,14 @@ async function signInQaOwner(page) {
   if (outcome.setupError || outcome.loginError) {
     throw new Error(`QA owner sign-in failed: ${outcome.setupError || outcome.loginError}`);
   }
+  // 216-E locks the app after 15 idle minutes and when Windows locks. An
+  // unattended run has no input and the PC may lock its own screen, so the
+  // disposable owner turns idle lock off (secure-session-ui-qa covers it).
+  await page.evaluate(() => window.anxos.security.updateSessionSettings({
+    inactiveSessionExpirationMs: 0,
+    lockOwnerWorkspaceAfterInactivity: false,
+    requireReauthForSensitiveActions: true,
+  }));
   await page.reload();
   await page.waitForFunction(() => typeof window.showPage === "function", null, { timeout: 60000 });
   const useDevice = page.getByRole("button", { name: "Use this device" }).first();

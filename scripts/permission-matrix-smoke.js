@@ -364,7 +364,8 @@ const DESKTOP_PROBES = {
   account: { channel: "account:getStatus" },
   "security-public": { channel: "security:getStatus", serviceRecorded: false },
   "security-session": { channel: "security:updateSessionSettings", payload: { inactiveSessionExpirationMs: 86400000 }, serviceRecorded: false },
-  "security-owner": { channel: "security:lockOwnerWorkspace", serviceRecorded: false },
+  // Since 216-E, locking ends the Local Owner session in the main process.
+  "security-owner": { channel: "security:lockOwnerWorkspace", serviceRecorded: false, endsSession: true },
   "owner-workspace": { channel: "ownerWorkspace:getWorkspace", serviceRecorded: false },
   "phone-access-owner": { channel: "mobile:cancelPairings" },
   "owner-workspace-public": { channel: "ownerWorkspace:getStatus", serviceRecorded: false },
@@ -713,6 +714,10 @@ async function runActorProbes(actor) {
     const expected = matrix.expectedDesktopOutcome(family, actor);
     if (expected.allow) {
       await expectIpcAllow(probe.channel, payload, { serviceRecorded: probe.serviceRecorded !== false });
+      if (probe.endsSession === true) {
+        assert.strictEqual(security.getStatus().localOwnerAuthenticated, false, `${probe.channel}: an allowed lock must end the Local Owner session.`);
+        await switchActor(actor);
+      }
     } else {
       const auditBefore = readAuditEntries();
       await expectIpcDenial(probe.channel, payload, expected, auditBefore, { serviceRecorded: probe.serviceRecorded !== false });

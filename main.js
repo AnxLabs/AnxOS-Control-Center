@@ -27,6 +27,7 @@ const anxnetService = require("./src/services/anxnetService");
 const { registerMobileGatewayIpc } = require("./src/ipc/mobileGatewayIpc");
 const mobileGatewayService = require("./src/services/mobileGatewayService");
 const { registerSecurityIpc } = require("./src/ipc/securityIpc");
+const { startIdleLockMonitor } = require("./src/services/idleLockMonitor");
 const { registerSettingsIpc } = require("./src/ipc/settingsIpc");
 const { registerAiOperationsIpc } = require("./src/ipc/aiOperationsIpc");
 const { disposeSshIpc, registerSshIpc } = require("./src/ipc/sshIpc");
@@ -1024,6 +1025,7 @@ app.whenReady().then(async () => {
   registerDiagnosticsIpc();
   registerAccountAuthIpc();
   registerSecurityIpc();
+  startIdleLockMonitor();
   registerAgentControlIpc();
   registerDependenciesIpc();
   diagnostics.captureSnapshot({ applicationRunning: true, providerMode: "initializing" });

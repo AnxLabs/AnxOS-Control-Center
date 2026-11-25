@@ -10,6 +10,8 @@ process.env.ANXHUB_CONFIG_DIR = path.join(root, "config");
 process.env.AGENT_INSTANCE_ROOT = path.join(root, "instances");
 process.env.AGENT_BACKUP_ROOT = path.join(root, "backups");
 
+// 216-E: sessions are remembered only with OS secure storage (fake here).
+require("./test-helpers/fake-safe-storage").install();
 const securityPath = require.resolve("../src/services/securityService");
 let security = require(securityPath);
 const nodeService = require("../src/services/nodeService");

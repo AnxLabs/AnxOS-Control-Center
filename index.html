@@ -70,8 +70,9 @@
         </label>
         <label class="security-option" data-security-stay-row>
           <input type="checkbox" data-security-field="staySignedIn">
-          <span>Stay signed in for 30 days on this device</span>
+          <span>Trust this device <small>(stay signed in for 30 days)</small></span>
         </label>
+        <p class="security-option-note" data-security-trust-note hidden></p>
         <div class="settings-actions">
           <button class="inline-action" type="submit" data-security-submit>Continue</button>
           <button class="inline-action inline-action--primary" type="button" data-account-action="start">Sign in with AnxHost</button>
@@ -4111,10 +4112,25 @@
                     <option value="7776000000">90 days</option>
                   </select>
                 </label>
+                <label class="settings-field">
+                  <span>Lock the app when idle for</span>
+                  <select data-security-idle-lock>
+                    <option value="5">5 minutes</option>
+                    <option value="15">15 minutes</option>
+                    <option value="30">30 minutes</option>
+                    <option value="60">1 hour</option>
+                    <option value="0">Never</option>
+                  </select>
+                </label>
                 <label class="settings-check settings-check--toggle">
                   <input type="checkbox" data-security-session-toggle="ownerLock">
-                  <span>Lock Owner Workspace after inactivity</span>
+                  <span>Lock after inactivity, and when Windows locks</span>
                 </label>
+                <label class="settings-check settings-check--toggle">
+                  <input type="checkbox" data-security-session-toggle="trustDevice">
+                  <span>Remember me on this device</span>
+                </label>
+                <p class="settings-help" data-security-trust-help hidden></p>
                 <label class="settings-check settings-check--toggle">
                   <input type="checkbox" data-security-session-toggle="reauth">
                   <span>Require reauthentication for sensitive actions</span>

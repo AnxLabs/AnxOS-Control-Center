@@ -15,7 +15,7 @@ Plan: `PLANS.md` (approved, commit `9aadaead`). Protocol: `AGENTS.md` (ADP).
 | **216-A6 Docker, A7 Network, A8 Files and Terminal** | **Complete; one local checkpoint commit** (not pushed). Two Build 215 defects fixed (Add Storage window, Windows Agent folders). See "216-A6, 216-A7, 216-A8" below. |
 | **216-A9 Activity, Security, Settings, Workspace** | **Complete; local checkpoint commit** (not pushed); the accent setting works again on redesigned pages. See "216-A9" below. |
 | **216-A10 Consistency and light theme** | **Complete; local checkpoint commit** (not pushed). Light theme (Dark, Light, System) on tokens only; legacy styles bridged to AnxHost tokens; two controls-cut-off defects and unreadable placeholders fixed; full validation sweep and performance re-check. Legacy deletions wait for named approvals. See "216-A10" below. |
-| 216-E Secure Session Persistence | Security review approved by the owner 2026-11-25 (`docs/anxhost/SECURITY_REVIEW_216E.md`); implementation next |
+| **216-E Secure Session Persistence** | **Complete; local checkpoint commit** (not pushed). Approved policy implemented: secure storage only, token rotation on every restore, device binding, enforced idle lock (15 min default) and a real manual lock. See "216-E" below. |
 | 216-D Custom Installer | Design approved by the owner 2026-11-25 (`docs/anxhost/d-installer/`); implementation next |
 | 216-C, 216-B, 216-F, 216-G | Not started |
 
@@ -285,7 +285,7 @@ domain and production changes need their own approvals.
 A1 to A10 are complete and committed locally. On 2026-11-25 the owner
 wrote "i approved anything", recorded as approval of the 216-E security
 review (with the recommended answers D1–D6) and of the 216-D installer
-design. **216-E and 216-D are next**, then C, B, F and G. The exact-reply
+design. 216-E is done; **216-D is next**, then C, B, F and G. The exact-reply
 gates (`confirmed`, `done`, `🚀 publish`), pushes, signing or CI workflow
 changes, and deletions still need their own approvals naming the target.
 
@@ -1306,3 +1306,81 @@ light and dark at 1280x800.
   not measured.
 - Before the settings load, the startup screen and the window background are
   dark, so a Light user sees a dark frame for a moment at launch.
+
+## 216-E Secure Session Persistence
+
+Security review: `docs/anxhost/SECURITY_REVIEW_216E.md`, approved by the
+owner on 2026-11-25 ("i approved anything", after the review was prepared),
+with the recommended answers D1–D6 (30-day absolute lifetime, 15-minute idle
+lock, idle lock needs the password even on a trusted device, fallback-key
+sessions deleted, "Trust this device").
+
+### What changed
+
+| Area | Change |
+| --- | --- |
+| Remembering (policy 1, 2) | A Local Owner session is remembered only when Windows secure storage (`safeStorage`) is available and "Remember me on this device" is on. The fallback key is never used for it; a remembered session written with it by an older build is refused and deleted (audited `security.session.refused`). The lock screen's option reads "Trust this device (stay signed in for 30 days)" and is disabled, with the reason, when it cannot be used. |
+| Rotation (policy 4) | Every restore writes a new token (state first, then `session.dat`, both atomic) and fails closed if either write fails. Rotated tokens are SHA-256 hashed (48 random bytes; bcrypt cost about 0.3 s per launch for nothing); Build 215 bcrypt hashes are accepted once and replaced. |
+| Device binding (policy 5) | Restore requires the session's device ID to match and the device not to be removed. Removing a device revokes its remembered sessions. |
+| Idle lock (policy 6) | New `src/services/idleLockMonitor.js` (main process): every 30 s, idle time is the shortest of system idle time, time since unlock and time since the last input to an app window; past the limit the session locks. Windows locking or suspending also locks when idle lock is on. Options 5, 15 (default), 30, 60 minutes or Never, in Security › Automatic Session Expiration. |
+| Inactivity expiry (policy 7) | The existing "Expire inactive sessions after" setting is now enforced at restore. |
+| Manual lock (policy 8) | "Lock Owner Workspace" ends the main-process session (it only hid the workspace before). A lock never restores from the remembered session in the same run; the next launch does (D4). The renderer shows the lock screen at once through the new `security:locked` event. |
+| Fix | Revoking your own current session reported "Sign in to continue." after succeeding; it now returns `{ ok, signedOut }`. |
+| Unchanged | Account sign-in never unlocks Local Owner credentials; all 61 `requireLocalOwnerAuthenticated(` sites unchanged; password change still invalidates remembered sessions; schema versions unchanged. |
+
+### Tests
+
+- New `scripts/secure-session-persistence-smoke.js` (P1–P15, real
+  `securityService`, fake `safeStorage`, restarts simulated by reloading
+  `src/`): restore after restart and after an upgrade from Build 215-format
+  stores; token changes on every restore and the old one is refused; failed
+  rotation fails closed; logout, manual lock, revoke, expiry, idle timeout,
+  inactivity expiry, device ID mismatch, removed device, opt-out and missing
+  secure storage all require the password. **11 of 15 failed on the A10
+  code**; 15/15 now.
+- New `scripts/secure-session-ui-qa.js` (E1–E5, real app, real DPAPI,
+  restart on the same profile): settings shown, lock screen within about
+  130–300 ms of a main-process lock, restore without a prompt after a
+  restart, password after logout and restart, no renderer errors. Added to
+  the release tier.
+- Ported (requirement changed by the approved policy, listed here):
+  - `security-backup-smoke` expected "Stay signed in" to persist in plain
+    Node, which has no secure storage; it now installs
+    `scripts/test-helpers/fake-safe-storage.js` first. Its assertions are
+    unchanged.
+  - `permission-matrix-smoke`: the Owner's allowed `security:lockOwnerWorkspace`
+    probe now ends the session, so the matrix asserts that it did and signs
+    the actor in again (`endsSession`).
+- Test setup: `test-helpers/qa-owner.js` turns idle lock off for its
+  disposable owner, so an unattended run is not locked by the PC's own
+  screen lock; `anxhost-real-app.js` gained `relaunch()` (same profile).
+
+### Validation performed (development PC, 2026-11-25)
+
+| Check | Result |
+| --- | --- |
+| `secure-session-persistence-smoke` | **15/15 PASS** (11 of 15 failed on the A10 code) |
+| `secure-session-ui-qa` | **5/5 PASS** in 4 of 5 runs (17–40 s). The first run stalled after E3 until a 600 s timeout and never reported E4/E5; not explained (risk below). |
+| Every smoke that loads `securityService`, `securityIpc`, `preload.js`, `app.js` or `index.html`, plus the auth smokes named in PLANS.md (217) | **216/217 PASS**. `agent-connectivity-fixes-smoke` check 6 failed once with a Node/libuv crash in a child (`UV_HANDLE_CLOSING`, `src\winsync.c`) and passed on 3 reruns; it does not touch session code. |
+| Real-app suites affected (15, one at a time): shell, account (Security and Settings), theme (69 views, new fields included), home, servers, add-server, computers, docker, tools, instances-refresh-preservation, server-view, phasex, phase9, stabilization | **14/15 PASS**. `anxhost-network-ui-qa` failed N2/N3 here and alone, and **fails the same way on the committed A10 tree** (no 216-E; one A10 run also timed out at sign-in), so 216-E did not cause it; it passed alone earlier the same day (risk below). |
+| `node --check` of every changed file, `git diff --check` | PASS |
+
+### Capabilities
+
+Three new rows (`CAP-SEC-IN-security-idle-lock`,
+`CAP-SEC-IN-security-session-toggle-trustdevice`,
+`CAP-SEC-IPC-security-onlocked`), verified by `secure-session-ui-qa` E1 and
+E2. **1,555 of 1,624 verified**; the 69 left are A10's 11 legacy rows (AMP and
+Coolpals, retirement needs approval) and 216-C's 58 phone rows.
+`anxhost-capability-inventory --check` PASS.
+
+### 216-E remaining risks
+
+- `secure-session-ui-qa` stalled once in five runs; rerun it alone if it
+  hangs in the release tier.
+- `anxhost-network-ui-qa` N2/N3 now fail on both A10 and 216-E on this PC
+  (the route refusal and diagnostics stages never arrive). Investigate the
+  Agent fixture's response time before the release tier.
+- A lock does not survive quitting: after a manual or idle lock, the next
+  launch restores the remembered session (approved D4 behaviour).
+- Same-user malware can read DPAPI data (review T7, out of scope).

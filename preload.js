@@ -671,6 +671,11 @@ const desktopApi = {
     revokeAgentToken: () => ipcRenderer.invoke("security:revokeAgentToken"),
     generateReplacementAgentToken: () => ipcRenderer.invoke("security:generateReplacementAgentToken"),
     lockOwnerWorkspace: () => ipcRenderer.invoke("security:lockOwnerWorkspace"),
+    onLocked: (callback) => {
+      const handler = (_event, details) => callback(details);
+      ipcRenderer.on("security:locked", handler);
+      return () => ipcRenderer.removeListener("security:locked", handler);
+    },
     emergencyAction: (payload = {}) => ipcRenderer.invoke("security:emergencyAction", payload),
     openAuditFolder: () => ipcRenderer.invoke("security:openAuditFolder"),
     // V2-I audit retention / access review / export (src/ipc/securityIpc.js).

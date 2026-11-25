@@ -10514,6 +10514,14 @@
    "destination": "Security"
   },
   {
+   "id": "CAP-SEC-IN-security-idle-lock",
+   "kind": "input",
+   "area": "page:security",
+   "hook": "data-security-idle-lock",
+   "wave": "A9",
+   "destination": "Security"
+  },
+  {
    "id": "CAP-SEC-IN-security-remote-field-address",
    "kind": "input",
    "area": "page:security",
@@ -10566,6 +10574,14 @@
    "kind": "input",
    "area": "page:security",
    "hook": "data-security-session-toggle=reauth",
+   "wave": "A9",
+   "destination": "Security"
+  },
+  {
+   "id": "CAP-SEC-IN-security-session-toggle-trustdevice",
+   "kind": "input",
+   "area": "page:security",
+   "hook": "data-security-session-toggle=trustDevice",
    "wave": "A9",
    "destination": "Security"
   },
@@ -10774,6 +10790,14 @@
    "kind": "ipc",
    "area": "page:security",
    "hook": "api.security.logoutAllSessions",
+   "wave": "A9",
+   "destination": "Security"
+  },
+  {
+   "id": "CAP-SEC-IPC-security-onlocked",
+   "kind": "ipc",
+   "area": "page:security",
+   "hook": "api.security.onLocked",
    "wave": "A9",
    "destination": "Security"
   },

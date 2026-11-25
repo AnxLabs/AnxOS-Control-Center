@@ -101,7 +101,7 @@ async function launchRealApp({ prefix = "anx-216-a1-", stopAtGate = false, agent
   for (const key of Object.keys(env)) if (key.startsWith("VSCODE_")) delete env[key];
 
   const launchedAt = Date.now();
-  const app = await electron.launch({ args: [`--user-data-dir=${userData}`, "--no-sandbox", root, "--qa-mode"], env });
+  let app = await electron.launch({ args: [`--user-data-dir=${userData}`, "--no-sandbox", root, "--qa-mode"], env });
   const rendererErrors = [];
   const timings = {};
   await evaluateMain(app, hideWindowsFromDesktop, OFFSCREEN);
@@ -130,7 +130,20 @@ async function launchRealApp({ prefix = "anx-216-a1-", stopAtGate = false, agent
     }
   }
 
-  return { app, page, agent, rendererErrors, timings, close, setViewport: (w, h) => setViewport(app, page, w, h) };
+  // Closes the app and starts it again on the same profile and config folder,
+  // as a user restarting it would (216-E restore checks).
+  async function relaunch() {
+    await app.close().catch(() => {});
+    app = await electron.launch({ args: [`--user-data-dir=${userData}`, "--no-sandbox", root, "--qa-mode"], env });
+    await evaluateMain(app, hideWindowsFromDesktop, OFFSCREEN);
+    const nextPage = await app.firstWindow();
+    await evaluateMain(app, hideWindowsFromDesktop, OFFSCREEN);
+    nextPage.on("pageerror", (error) => rendererErrors.push(String(error.message).slice(0, 300)));
+    await waitFor(nextPage, () => typeof window.showPage === "function", null, "renderer after relaunch");
+    return { app, page: nextPage };
+  }
+
+  return { app, page, agent, rendererErrors, timings, close, relaunch, setViewport: (w, h) => setViewport(app, page, w, h) };
 }
 
 async function passLocalSetupGate(page) {
