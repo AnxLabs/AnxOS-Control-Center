@@ -217,6 +217,8 @@
   --ahx-terminal-bg: var(--ahx-ink-1000);
   --ahx-terminal-text: var(--ahx-ink-50);
   --ahx-terminal-muted: var(--ahx-ink-300);
+  --ahx-terminal-danger: var(--ahx-signal-red-400);
+  --ahx-terminal-accent: var(--ahx-violet-300);
 }
 
 /* ---------------------------------------------------------------- light (optional) */

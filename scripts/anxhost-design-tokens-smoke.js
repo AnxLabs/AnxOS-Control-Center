@@ -115,7 +115,7 @@ else {
   const declarations = rootBlock ? rootBlock[1].replace(/\/\*[\s\S]*?\*\//g, "").split(";").map((d) => d.trim()).filter(Boolean) : [];
   if (declarations.length < 20 || declarations.some((d) => !/^--[a-z0-9-]+\s*:\s*var\(--ahx-[a-z0-9-]+\)$/.test(d))) failures.push("legacy-bridge.css root block must map legacy variables to --ahx tokens only");
 }
-for (const token of ["--ahx-terminal-bg", "--ahx-terminal-text", "--ahx-terminal-muted"]) {
+for (const token of ["--ahx-terminal-bg", "--ahx-terminal-text", "--ahx-terminal-muted", "--ahx-terminal-danger", "--ahx-terminal-accent"]) {
   if (!dark.has(token)) failures.push(`dark theme is missing ${token}`);
   if (light.has(token)) failures.push(`${token} must stay dark in the light theme`);
 }

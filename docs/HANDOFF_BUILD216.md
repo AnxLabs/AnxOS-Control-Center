@@ -17,7 +17,8 @@ Plan: `PLANS.md` (approved, commit `9aadaead`). Protocol: `AGENTS.md` (ADP).
 | **216-A10 Consistency and light theme** | **Complete; local checkpoint commit** (not pushed). Light theme (Dark, Light, System) on tokens only; legacy styles bridged to AnxHost tokens; two controls-cut-off defects and unreadable placeholders fixed; full validation sweep and performance re-check. Legacy deletions wait for named approvals. See "216-A10" below. |
 | **216-E Secure Session Persistence** | **Complete; local checkpoint commit** (not pushed). Approved policy implemented: secure storage only, token rotation on every restore, device binding, enforced idle lock (15 min default) and a real manual lock. See "216-E" below. |
 | **216-D Custom Installer** | **Implemented; local checkpoint commit** (not pushed). New art from the brand SVGs, AnxHost names on every page, shortcut and uninstall entry, "AnxHost Helper". Not compiled on this PC (junctioned `node_modules`); Sandbox install, upgrade, repair and uninstall need the signed CI build (216-G). See "216-D" below. |
-| 216-C, 216-B, 216-F, 216-G | Not started |
+| **216-C Phone Access Rebirth** | **Complete; local checkpoint commit** (not pushed). The phone uses the desktop's tokens, follows the phone's light or dark scheme, says AnxHost, uses the Option B icons and the `anxos-shell-v3` cache; a Build 215 pairing still works. See "216-C" below. |
+| 216-B, 216-F, 216-G | Not started |
 
 ## 216-0 timing
 
@@ -285,7 +286,7 @@ domain and production changes need their own approvals.
 A1 to A10 are complete and committed locally. On 2026-11-25 the owner
 wrote "i approved anything", recorded as approval of the 216-E security
 review (with the recommended answers D1–D6) and of the 216-D installer
-design. 216-E and 216-D are done; **216-C is next**, then B, F and G. The exact-reply
+design. 216-E, 216-D and 216-C are done; **216-B is next**, then F and G. The exact-reply
 gates (`confirmed`, `done`, `🚀 publish`), pushes, signing or CI workflow
 changes, and deletions still need their own approvals naming the target.
 
@@ -1434,3 +1435,67 @@ approved by the owner on 2026-11-25.
   renamed by electron-builder on the update.
 - The uninstall entry in Windows Settings changes its display name; its
   registry key (from `appId`) is unchanged, so the update is still in place.
+
+## 216-C Phone Access Rebirth
+
+### What changed
+
+| Area | Change |
+| --- | --- |
+| Shared design language | The gateway serves the desktop's own `src/renderer/anxhost/tokens.css` as `/tokens.css` (one file, no copy). The phone's `app.css` maps its local names onto the AnxHost tokens and has **no raw colours** left; status pills, banners, buttons, toasts and the skeleton use the status and surface tokens. |
+| Light theme | The phone follows its own colour scheme: `app.js` sets `<html data-theme>` from `prefers-color-scheme` and follows changes live, so light and dark come from `tokens.css`, like the desktop. The console stays dark in both, on two new dark-only tokens, `--ahx-terminal-danger` and `--ahx-terminal-accent` (stderr and typed commands; the token smoke keeps them out of the light block). |
+| Fonts (measured) | The phone keeps the system font stack instead of `--ahx-font-sans`. With the token stack, `mobile-ui-qa` failed 5 of 7 runs (server start and the landscape settings form timed out); with only the font lines restored, 3 of 3 passed. Bisected file by file (stylesheet reverted: 3/3 past those checks; fonts restored: 3/3 full pass). The mechanism (font matching or layout cost in the phone browser) was not proven. |
+| Brand | Title, home-screen name and manifest say AnxHost; the home-screen icon, favicon and pairing screens use the AnxHost Option B touch icons (`src/mobile/icons/`, from `docs/anxhost/brand/png/touch`); the tab bar's text glyphs are SVG line icons. Every visible "AnxOS" in the phone app says AnxHost (22 occurrences in `app.js`, plus `index.html`, the manifest and the service worker's comments); the frozen `X-AnxOS-CSRF` header, cookie, CA files and subject are unchanged. |
+| Service worker | Cache `anxos-shell-v2` → `anxos-shell-v3` (frozen-identifier plan), with `/tokens.css` in the shell, so phones replace the old shell on their next visit. |
+
+### Tests
+
+- `mobile-ui-qa` **M20** (new): light and dark, each at 360, 390 and 430 px
+  and in landscape, on all 5 sections and all 6 server tabs (88 views):
+  0 sideways scrolling, 0 controls cut off by a box that hides overflow,
+  0 text under 4.5:1 against what is painted behind it (1,720 checks), the
+  console dark in light. The run also records every phone API route it
+  calls (`phone-api-routes.json`, 23 routes) for the inventory.
+- New `mobile-upgrade-from-215-smoke` (U1–U4): a pairing written by Build
+  215's own `sessions.js` (fixture `scripts/fixtures/mobile-devices-build215.json`,
+  generated from `13825d70`, test values only) is still listed, its token
+  authenticates, its CSRF value passes and the stored record keeps its shape.
+- Ported: `mobile-ui-qa` M13 and M16 follow the AnxHost name (banner text,
+  manifest name).
+
+### Validation performed (development PC, 2026-11-25)
+
+| Check | Result |
+| --- | --- |
+| `mobile-ui-qa` (with M20) on the final tree | **PASS** (184 s): M20 88 views, 1,797 text checks, 0 under 4.5:1, 0 cut off; 23 API routes recorded |
+| Bisect of the earlier failures | Current tree with the token fonts: 2 of 7 passed. A10 tree: 3/3. 216-E + 216-D tree (`c4fc8ce5`): 3/3. Phone stylesheet reverted: 3/3 past the failing checks. Token fonts replaced by the system stack: 3/3 full passes. |
+| `responsive-mobile-ui-qa`, `anxhost-theme-ui-qa` (tokens gained two terminal tokens) | PASS |
+| `mobile-gateway-smoke`, `mobile-pairing-smoke`, `mobile-claim-page-smoke`, `mobile-upgrade-from-215-smoke` (4/4) | PASS |
+| Design tokens (165 tokens; terminal tokens dark-only), frozen identifiers, brand allowlist, inventory `--check` | PASS |
+| `node --check` of every changed script, `git diff --check` | PASS |
+
+### Capabilities
+
+39 phone rows ticked from evidence: the 20 API routes in the run's
+`phone-api-routes.json`, the 8 screens the run asserts (Pairing, Unpaired,
+Home, Servers, Computers list, Sharing, More, Server) and the 11 section and
+server tabs M3/M20 visit. **1,594 of 1,624 verified.** Not ticked, because
+no real-app run calls them yet (216-F must cover them): add-on updates,
+enable, import, remove, rollback, update and update-all; backup verify,
+restore and download; file save, delete, rename and new folder; restart;
+`GET /computers/:nodeId` and its Computer screen; the loading skeleton and
+message states. A10's 11 legacy rows (AMP, Coolpals) are unchanged.
+
+### Screenshots
+
+`docs/anxhost/c-phone/`: Home and a server page in light and dark, the
+console and Computers, from the final `mobile-ui-qa` run (412 px Pixel).
+
+### 216-C remaining risks
+
+- The font finding is measured, not explained. The desktop still uses
+  `--ahx-font-sans`; the A1 performance budgets were met with it.
+- The light theme on a real phone (Safari's handling of `color-mix()`, older
+  Android WebViews without it: tinted pills fall back to no tint) was only
+  tested in Edge's phone emulation.
+- 30 inventory rows remain unverified (above).

@@ -1219,6 +1219,26 @@ Use this section to accumulate verified project knowledge over time. Add entries
   wave's own suite; a full real-app sweep before the last wave of a phase
   catches what the per-wave lists missed.
 
+### 2026-11-25 — Build 216-C: the desktop's font stack made the phone suite time out
+
+- **Problem:** After the phone app moved onto the AnxHost tokens,
+  `mobile-ui-qa` failed 5 of 7 runs: a server started from the phone showed
+  Running only after the 30 s wait, and the landscape settings form was not
+  drawn in time. Each failure looked like a different flake.
+- **Cause:** Bisected by tree and then by file: the A10 tree and the 216-E
+  plus 216-D tree passed 3/3 each; the 216-C tree with its old stylesheet
+  passed 3/3; the new stylesheet with only its two font lines restored passed
+  3/3. The phone's text in `--ahx-font-sans` (a Windows-first stack led by
+  "Segoe UI Variable Text") was the trigger. Why it slows the phone browser
+  was not proven.
+- **Resolution:** The phone keeps the system font stack; colours and radii
+  stay on the tokens. Comment in `src/mobile/web/app.css`.
+- **Lesson:** When a suite starts failing "at random" after a wave, count
+  runs on the base and on the change before calling it flaky (here 6/6
+  against 2/7), then bisect the change by file and by rule. A shared token
+  is not automatically right for every surface: a font stack tuned for
+  Windows desktops does not belong on phones.
+
 ## Future Improvements
 
 Keep optional ideas separate from active work. An item in this list is not authorization to implement it.

@@ -1,25 +1,28 @@
-/* AnxOS phone app. Same palette as the desktop (v1.9 purple identity). */
+/* AnxHost phone app (Build 216-C). Colours and radii come from the
+   desktop's own design tokens (/tokens.css, served by the gateway from
+   src/renderer/anxhost/tokens.css). The names below are local aliases only;
+   the theme follows the phone's colour scheme (<html data-theme>, set in
+   app.js), so light and dark are decided once, in tokens.css. */
 :root {
-  --canvas: #08070d;
-  --panel: rgba(22, 19, 29, 0.94);
-  --panel-raised: rgba(29, 24, 39, 0.96);
-  --line: rgba(224, 212, 239, 0.12);
-  --line-strong: rgba(190, 125, 255, 0.3);
-  --text: #f8f5ff;
-  --muted: #b9abc8;
-  --dim: #80748f;
-  --accent: #b66cff;
-  --accent-strong: #cf96ff;
-  --accent-soft: rgba(182, 108, 255, 0.16);
-  --ok: #57d999;
-  --warn: #f2c35b;
-  --critical: #ff6b81;
-  --busy: #70cbe8;
-  --radius: 14px;
+  --canvas: var(--ahx-bg-app);
+  --panel: var(--ahx-surface-1);
+  --panel-raised: var(--ahx-surface-2);
+  --line: var(--ahx-border);
+  --line-strong: var(--ahx-border-accent);
+  --text: var(--ahx-text-primary);
+  --muted: var(--ahx-text-secondary);
+  --dim: var(--ahx-text-muted);
+  --accent: var(--ahx-accent);
+  --accent-strong: var(--ahx-accent-text);
+  --accent-soft: var(--ahx-accent-soft);
+  --ok: var(--ahx-status-running);
+  --warn: var(--ahx-warning);
+  --critical: var(--ahx-danger);
+  --busy: var(--ahx-status-starting);
+  --radius: var(--ahx-radius-lg);
   --tabbar-h: 62px;
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-top: env(safe-area-inset-top, 0px);
-  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -28,6 +31,10 @@ html, body {
   margin: 0;
   background: var(--canvas);
   color: var(--text);
+  /* Phones use their own system font, not the desktop's Windows-first token
+     stack: with --ahx-font-sans here, mobile-ui-qa timed out on server start
+     and the landscape settings form in 5 of 7 runs (3 of 3 passed with this
+     stack). The colours still come from the tokens. */
   font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   -webkit-text-size-adjust: 100%;
   overflow-x: hidden;
@@ -56,7 +63,7 @@ a { color: var(--accent-strong); }
   gap: 8px;
   min-height: 52px;
   padding: calc(8px + var(--safe-top)) 16px 8px;
-  background: rgba(8, 7, 13, 0.94);
+  background: color-mix(in srgb, var(--ahx-bg-app) 94%, transparent);
   border-bottom: 1px solid var(--line);
   backdrop-filter: blur(10px);
 }
@@ -91,17 +98,17 @@ a { color: var(--accent-strong); }
 .banner {
   margin: 10px 16px 0;
   padding: 10px 12px;
-  border: 1px solid rgba(242, 195, 91, 0.4);
+  border: 1px solid color-mix(in srgb, var(--ahx-warning) 40%, transparent);
   border-radius: 12px;
-  background: rgba(242, 195, 91, 0.1);
-  color: #ffe2a6;
+  background: color-mix(in srgb, var(--ahx-warning) 12%, transparent);
+  color: var(--text);
   font-size: 0.9rem;
 }
 
 .banner.is-critical {
-  border-color: rgba(255, 107, 129, 0.45);
-  background: rgba(255, 107, 129, 0.1);
-  color: #ffc2cc;
+  border-color: color-mix(in srgb, var(--ahx-danger) 45%, transparent);
+  background: var(--ahx-danger-soft);
+  color: var(--text);
 }
 
 .view {
@@ -123,7 +130,7 @@ a { color: var(--accent-strong); }
   grid-template-columns: repeat(5, 1fr);
   height: calc(var(--tabbar-h) + var(--safe-bottom));
   padding-bottom: var(--safe-bottom);
-  background: #0d0b13;
+  background: var(--ahx-bg-sidebar);
   border-top: 1px solid var(--line);
 }
 
@@ -138,7 +145,7 @@ a { color: var(--accent-strong); }
   text-decoration: none;
 }
 
-.tabbar__icon { font-size: 1.25rem; line-height: 1; }
+.tabbar__icon { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
 .tabbar__item.is-active { color: var(--accent-strong); }
 
@@ -252,10 +259,10 @@ a { color: var(--accent-strong); }
   white-space: nowrap;
 }
 
-.pill.tone-ok { border-color: rgba(87, 217, 153, 0.4); color: #9ff0c4; }
-.pill.tone-busy { border-color: rgba(112, 203, 232, 0.4); color: #b6e8f7; }
-.pill.tone-critical { border-color: rgba(255, 107, 129, 0.45); color: #ffc2cc; }
-.pill.tone-warning { border-color: rgba(242, 195, 91, 0.45); color: #ffe2a6; }
+.pill.tone-ok { border-color: color-mix(in srgb, var(--ok) 45%, transparent); background: color-mix(in srgb, var(--ok) calc(var(--ahx-status-tint) * 100%), transparent); color: var(--ok); }
+.pill.tone-busy { border-color: color-mix(in srgb, var(--busy) 45%, transparent); background: color-mix(in srgb, var(--busy) calc(var(--ahx-status-tint) * 100%), transparent); color: var(--busy); }
+.pill.tone-critical { border-color: color-mix(in srgb, var(--critical) 45%, transparent); background: color-mix(in srgb, var(--critical) calc(var(--ahx-status-tint) * 100%), transparent); color: var(--critical); }
+.pill.tone-warning { border-color: color-mix(in srgb, var(--warn) 45%, transparent); background: color-mix(in srgb, var(--warn) calc(var(--ahx-status-tint) * 100%), transparent); color: var(--warn); }
 
 .attention {
   display: grid;
@@ -272,7 +279,7 @@ a { color: var(--accent-strong); }
 .meter { display: grid; gap: 4px; }
 .meter__head { display: flex; justify-content: space-between; font-size: 0.84rem; }
 .meter__head span { color: var(--muted); }
-.meter__bar { height: 6px; overflow: hidden; border-radius: 999px; background: rgba(255, 255, 255, 0.08); }
+.meter__bar { height: 6px; overflow: hidden; border-radius: 999px; background: var(--ahx-surface-3); }
 .meter__bar span { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
 .meter[data-level="medium"] .meter__bar span { background: var(--warn); }
 .meter[data-level="high"] .meter__bar span { background: var(--critical); }
@@ -311,8 +318,8 @@ a { color: var(--accent-strong); }
   cursor: pointer;
 }
 
-.button.is-primary { border-color: var(--accent); background: var(--accent); color: #12061f; }
-.button.is-danger { border-color: rgba(255, 107, 129, 0.5); background: rgba(255, 107, 129, 0.12); color: #ffc2cc; }
+.button.is-primary { border-color: var(--accent); background: var(--accent); color: var(--ahx-text-on-accent); }
+.button.is-danger { border-color: color-mix(in srgb, var(--critical) 50%, transparent); background: var(--ahx-danger-soft); color: var(--critical); }
 .button.is-quiet { border-color: var(--line); background: transparent; }
 .button.is-small { min-height: 36px; padding: 0 12px; font-size: 0.86rem; }
 .button:disabled { opacity: 0.45; cursor: default; }
@@ -339,7 +346,7 @@ a { color: var(--accent-strong); }
 .check { display: flex; align-items: center; gap: 10px; min-height: 44px; }
 .check input { width: 22px; height: 22px; accent-color: var(--accent); }
 
-.field-error { color: #ffc2cc; font-size: 0.84rem; }
+.field-error { color: var(--critical); font-size: 0.84rem; }
 
 /* ---- Server page ---------------------------------------------------------------- */
 
@@ -374,14 +381,16 @@ a { color: var(--accent-strong); }
   overflow-y: auto;
   border: 1px solid var(--line);
   border-radius: 12px;
-  background: #050409;
+  /* Consoles stay dark in both themes, as on the desktop. */
+  background: var(--ahx-terminal-bg);
+  color: var(--ahx-terminal-text);
   font: 0.76rem/1.4 ui-monospace, "Cascadia Mono", Menlo, monospace;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
-.console .is-stderr { color: #ffc2cc; }
-.console .is-stdin { color: var(--accent-strong); }
+.console .is-stderr { color: var(--ahx-terminal-danger); }
+.console .is-stdin { color: var(--ahx-terminal-accent); }
 
 .command {
   display: flex;
@@ -425,7 +434,7 @@ a { color: var(--accent-strong); }
 .skeleton {
   height: 64px;
   border-radius: 12px;
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.04));
+  background: linear-gradient(90deg, var(--ahx-surface-2), var(--ahx-surface-3), var(--ahx-surface-2));
   background-size: 200% 100%;
   animation: shimmer 1.4s infinite;
 }
@@ -442,7 +451,7 @@ a { color: var(--accent-strong); }
   position: fixed;
   inset: 0;
   z-index: 20;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--ahx-overlay-scrim);
 }
 
 .sheet {
@@ -475,11 +484,11 @@ a { color: var(--accent-strong); }
   padding: 12px 14px;
   border: 1px solid var(--line-strong);
   border-radius: 12px;
-  background: #1d1628;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  background: var(--ahx-surface-3);
+  box-shadow: var(--ahx-shadow-2);
 }
 
-.toast.is-warning { border-color: rgba(242, 195, 91, 0.5); }
+.toast.is-warning { border-color: color-mix(in srgb, var(--warn) 50%, transparent); }
 
 /* ---- Pairing ----------------------------------------------------------------------- */
 

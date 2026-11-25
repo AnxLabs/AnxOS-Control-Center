@@ -1,0 +1,10 @@
+{
+  "note": "Written by Build 215 (13825d70) src/mobile/sessions.js for scripts/mobile-upgrade-from-215-smoke.js. Test-only values for a throwaway pairing; not a real device.",
+  "pairedAt": 1795176000000,
+  "token": "JGBbULVR2NtINGmzVUcTIBiZ3us3J7TXAONr9miOPKQ",
+  "csrf": "d46TwQstsa2ew7xBf6C0E8UwZLvZs6wQyVbTxxmVCo4",
+  "deviceId": "dev_iEZuszMtna01",
+  "role": "Operator",
+  "devicesJson": "{\n  \"version\": 1,\n  \"devices\": [\n    {\n      \"id\": \"dev_iEZuszMtna01\",\n      \"name\": \"QA phone (Build 215)\",\n      \"role\": \"Operator\",\n      \"tokenHash\": \"6931177826e080f667883df374d4dc050e566d240e8fb78038c6d396c0ab1a9b\",\n      \"createdAt\": \"2026-11-20T12:00:00.000Z\",\n      \"lastSeenAt\": \"2026-11-20T12:00:00.000Z\",\n      \"lastAddress\": \"192.168.50.20\"\n    }\n  ]\n}",
+  "sessionSecret": "GwEpsBmJbetXhdkeinBDxS+mWeLKLoTDZWtK6TbPlHU="
+}

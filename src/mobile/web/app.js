@@ -1,4 +1,4 @@
-// AnxOS phone app (Phase 7). No framework: a hash router, small views, and
+// AnxHost phone app (Phase 7). No framework: a hash router, small views, and
 // fetch calls to the gateway's API on the computer. Data is never stored on
 // the phone; when the computer can't be reached the app says so, and old
 // numbers are shown as old (with their age) or not at all.
@@ -17,6 +17,19 @@
   const sheet = $("[data-sheet]");
   const backdrop = $("[data-sheet-backdrop]");
   const toastEl = $("[data-toast]");
+
+  // 216-C: the phone follows its own colour scheme. The theme is applied as
+  // <html data-theme>, the same switch the desktop uses for tokens.css, so
+  // light and dark are defined once there.
+  const darkScheme = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
+  const applyTheme = () => {
+    const theme = darkScheme && !darkScheme.matches ? "light" : "dark";
+    document.documentElement.dataset.theme = theme;
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.content = getComputedStyle(document.documentElement).getPropertyValue("--ahx-bg-app").trim() || meta.content;
+  };
+  applyTheme();
+  darkScheme?.addEventListener?.("change", applyTheme);
 
   // Data older than this is shown as stale; older than UNAVAILABLE_MS it is
   // not shown at all.
@@ -128,7 +141,7 @@
         body: body === undefined ? undefined : JSON.stringify(body),
       });
     } catch {
-      throw new ApiError(0, "OFFLINE", "Can't reach AnxOS on your computer. Check that the phone is on the same network and that AnxOS is running.");
+      throw new ApiError(0, "OFFLINE", "Can't reach AnxHost on your computer. Check that the phone is on the same network and that AnxHost is running.");
     }
     let payload = null;
     try { payload = await response.json(); } catch { payload = null; }
@@ -230,7 +243,7 @@
     const logo = el("img", "pairing__logo");
     logo.src = "/icons/192.png";
     logo.alt = "";
-    box.append(logo, el("p", "muted", "This connects the phone to AnxOS on your computer. It gets the access chosen on the computer, and the computer can remove it at any time."));
+    box.append(logo, el("p", "muted", "This connects the phone to AnxHost on your computer. It gets the access chosen on the computer, and the computer can remove it at any time."));
     const field = el("label", "field");
     field.append(el("span", "", "Name this phone"));
     const input = el("input", "input");
@@ -259,7 +272,7 @@
     stopPolling();
     tabbar.hidden = true;
     backButton.hidden = true;
-    titleEl.textContent = "AnxOS";
+    titleEl.textContent = "AnxHost";
     statusEl.textContent = "";
     bannerEl.hidden = true;
     const box = el("div", "pairing");
@@ -269,7 +282,7 @@
     box.append(
       logo,
       el("h2", "", "This phone isn't paired"),
-      el("p", "muted", "On your computer, open AnxOS > Security > Phone Access, choose what this phone may do, and scan the code with the phone's camera."),
+      el("p", "muted", "On your computer, open AnxHost > Security > Phone Access, choose what this phone may do, and scan the code with the phone's camera."),
       el("p", "dim", "If this phone was paired before, its access ended or was removed on the computer."),
     );
     view.replaceChildren(box);
@@ -352,12 +365,12 @@
     let message = "";
     let critical = false;
     if (state.locked) {
-      message = "AnxOS is locked on the computer. Unlock it there; until then nothing can be read or changed from this phone.";
+      message = "AnxHost is locked on the computer. Unlock it there; until then nothing can be read or changed from this phone.";
     } else if (state.lastError && state.lastError.code === "OFFLINE") {
       const fresh = freshness();
       message = fresh === "unavailable" || !state.lastOk
-        ? "Can't reach AnxOS on your computer. Nothing is shown until it's back."
-        : `Can't reach AnxOS on your computer. Showing what it last reported, ${ageText(Date.now() - state.lastOk)}.`;
+        ? "Can't reach AnxHost on your computer. Nothing is shown until it's back."
+        : `Can't reach AnxHost on your computer. Showing what it last reported, ${ageText(Date.now() - state.lastOk)}.`;
       critical = fresh === "unavailable" || !state.lastOk;
     } else if (state.lastError && state.lastError.status >= 500) {
       message = state.lastError.message;
@@ -432,7 +445,7 @@
   }
 
   // In-app alerts: a new "needs attention" item shows once while the app is
-  // open. AnxOS doesn't send push notifications.
+  // open. AnxHost doesn't send push notifications.
   function notifyAttention(data) {
     if (!data || !Array.isArray(data.attention)) return;
     const fresh = data.attention.filter((item) => item.severity === "critical" && !state.seenAttention.has(item.id));
@@ -470,8 +483,8 @@
     const views = { home: renderHome, servers: renderServers, computers: renderComputers, computer: renderComputer, server: renderServer, sharing: renderSharing, more: renderMore };
     const fn = views[route.name] || renderHome;
     if (route.name !== "more" && !hasData()) {
-      setChrome({ home: "Home", servers: "Servers", computers: "Computers", sharing: "Sharing" }[route.name] || "AnxOS", { back: route.name === "server" || route.name === "computer" });
-      view.replaceChildren(el("p", "empty", state.locked ? "AnxOS is locked on the computer." : "Nothing to show until AnxOS on your computer can be reached."));
+      setChrome({ home: "Home", servers: "Servers", computers: "Computers", sharing: "Sharing" }[route.name] || "AnxHost", { back: route.name === "server" || route.name === "computer" });
+      view.replaceChildren(el("p", "empty", state.locked ? "AnxHost is locked on the computer." : "Nothing to show until AnxHost on your computer can be reached."));
       return;
     }
     const scroll = view.querySelector(".console");
@@ -591,7 +604,7 @@
       running.forEach((server) => list.append(serverRow(server)));
       draft.append(list);
     } else {
-      draft.append(el("p", "notice", (data.servers || []).length ? "No servers are running." : "No servers yet. Create one in AnxOS on your computer."));
+      draft.append(el("p", "notice", (data.servers || []).length ? "No servers are running." : "No servers yet. Create one in AnxHost on your computer."));
     }
     (data.unknownComputers || []).forEach((entry) => draft.append(el("p", "notice", `${entry.name}: servers unknown. ${entry.reason || ""}`)));
     view.replaceChildren(draft);
@@ -1016,7 +1029,7 @@
           if (mod.canRollBack) actions.append(button("Roll back", async () => { closeSheet(); await act("Roll back", () => api(`${apiBase}/addons/rollback`, { method: "POST", body: { fileName: mod.fileName } }), `${mod.title} rolled back.`); }));
           actions.append(button("Remove", async () => {
             closeSheet();
-            if (!(await confirmSheet({ title: `Remove ${mod.title}?`, message: "AnxOS keeps a copy, so it can be put back on the computer.", confirmLabel: "Remove", danger: true }))) return;
+            if (!(await confirmSheet({ title: `Remove ${mod.title}?`, message: "AnxHost keeps a copy, so it can be put back on the computer.", confirmLabel: "Remove", danger: true }))) return;
             await act("Remove add-on", () => api(`${apiBase}/addons/remove`, { method: "POST", body: { fileName: mod.fileName, confirm: mod.fileName, enabled: mod.enabled } }), `${mod.title} removed.`);
           }, { kind: "danger" }), button("Cancel", closeSheet, { kind: "quiet" }));
           container.append(actions);
@@ -1123,7 +1136,7 @@
       handleApiError(error);
       return;
     }
-    const lines = preview.available ? preview.lines : ["This replaces the server's files with the backup. Files changed since the backup are overwritten. AnxOS keeps a safety copy first."];
+    const lines = preview.available ? preview.lines : ["This replaces the server's files with the backup. Files changed since the backup are overwritten. AnxHost keeps a safety copy first."];
     if (!(await confirmSheet({ title: `Restore ${backup.name}?`, lines, warnings: preview.warnings || [], confirmLabel: "Restore", danger: true, phrase: "RESTORE" }))) return;
     await act("Restore", () => api(`${backupPath}/restore`, { method: "POST", body: { confirm: "RESTORE" } }), "Restore started. The server may be stopped while files are replaced.");
   }
@@ -1205,7 +1218,7 @@
     const card = el("div", "card");
     card.append(el("h2", "", "AnxNet"));
     if (!anxnet.network) {
-      card.append(el("p", "muted", anxnet.error || "This computer isn't in an AnxNet network. Set it up in AnxOS on the computer (Computers > AnxNet)."));
+      card.append(el("p", "muted", anxnet.error || "This computer isn't in an AnxNet network. Set it up in AnxHost on the computer (Computers > AnxNet)."));
     } else {
       const facts = el("dl", "facts");
       const add = (label, value) => facts.append(el("dt", "", label), el("dd", "wrap", value));
@@ -1277,8 +1290,8 @@
     const about = el("div", "card");
     about.append(
       el("h2", "", "About"),
-      el("p", "muted", "This app talks only to AnxOS on your computer, over your home network. It works while AnxOS is running and unlocked there."),
-      el("p", "muted", "Alerts appear while the app is open. AnxOS doesn't send push notifications to phones."),
+      el("p", "muted", "This app talks only to AnxHost on your computer, over your home network. It works while AnxHost is running and unlocked there."),
+      el("p", "muted", "Alerts appear while the app is open. AnxHost doesn't send push notifications to phones."),
       el("p", "muted", "Server data isn't saved on the phone. When the computer can't be reached, old readings are marked with their age and hidden after five minutes."),
       el("p", "muted", "Install it: on iPhone, Share > Add to Home Screen. On Android, the browser menu > Install app."),
     );
@@ -1286,7 +1299,7 @@
     const check = el("div", "card");
     check.append(
       el("h2", "", "Check this phone"),
-      el("p", "muted", "Tests this phone's browser with AnxOS (certificate trust, installed app, screen, connection speed) and sends the result to Phone Access on the computer. It sends no server data."),
+      el("p", "muted", "Tests this phone's browser with AnxHost (certificate trust, installed app, screen, connection speed) and sends the result to Phone Access on the computer. It sends no server data."),
       button("Run the check", () => runPhoneCheck(check), { kind: "primary" }),
     );
     draft.append(check);
@@ -1311,7 +1324,7 @@
       }
     }
     // Browsers refuse service workers on certificates they don't trust, so
-    // this also shows whether the AnxOS certificate is really trusted.
+    // this also shows whether the AnxHost certificate is really trusted.
     add("service-worker", serviceWorker === "active", `Offline app shell: ${serviceWorker}`);
     const standalone = window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
     // Not installed isn't a fault, just a fact worth recording.

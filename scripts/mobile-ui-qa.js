@@ -32,6 +32,9 @@
 //   M15 Closing the phone's browser doesn't touch the running server.
 //   M16 PWA: manifest, service worker registered, installability errors.
 //   M17 No page errors or CSP violations in the phone app; none on desktop.
+//   M20 216-C: light and dark (phone colour scheme) at 360/390/430 px and
+//       landscape: no overflow, no cut-off controls, text >= 4.5:1, console
+//       dark in light.
 //   M18 Phase 7.1: landscape (844×390) without sideways scrolling; text
 //       fields at 16px so iPhone doesn't zoom; the desktop Home agrees with
 //       the phone by itself.
@@ -150,6 +153,7 @@ async function main() {
   const app = await electron.launch({ args: [`--user-data-dir=${userData}`, "--no-sandbox", root, "--qa-mode"], env });
   const desktopErrors = [];
   const phoneErrors = [];
+  const apiRoutes = new Set();
   let browser = null;
   const shot = (page, name) => page.screenshot({ path: path.join(artifacts, `${name}.png`) });
   const passed = [];
@@ -211,6 +215,17 @@ async function main() {
     // M2
     const ownerCtx = await phoneContext("pixel");
     const phone = await ownerCtx.newPage();
+    // Records every phone API route this run calls (IDs replaced by their
+    // parameter names), so the capability inventory is ticked from evidence.
+    phone.on("request", (request) => {
+      const url = new URL(request.url());
+      if (!url.pathname.startsWith("/api/")) return;
+      const route = url.pathname.slice(4)
+        .replace(/^\/(servers|computers)\/ovh(?=\/|$)/, "/$1/:nodeId")
+        .replace(new RegExp(`/${SERVER_ID}(?=/|$)`), "/:instanceId")
+        .replace(/^\/backups\/ovh\/[^/]+/, "/backups/:nodeId/:backupId");
+      apiRoutes.add(`${request.method()} ${route}`);
+    });
     watch(phone, "owner");
     await phone.goto(toLocal(ownerLink));
     await phone.getByRole("button", { name: "Pair" }).waitFor();
@@ -426,7 +441,7 @@ async function main() {
     await phone.evaluate(() => { location.hash = "#/home"; });
     await waitFor(phone, () => document.querySelector("[data-status]")?.textContent === "Live", null, "live");
     await ownerCtx.setOffline(true);
-    await waitFor(phone, () => !document.querySelector("[data-banner]").hidden && /Can't reach AnxOS/.test(document.querySelector("[data-banner]").textContent), null, "offline banner", 40000);
+    await waitFor(phone, () => !document.querySelector("[data-banner]").hidden && /Can't reach AnxHost/.test(document.querySelector("[data-banner]").textContent), null, "offline banner", 40000);
     await shot(phone, "13-phone-offline");
     await ownerCtx.setOffline(false);
     await phone.evaluate(() => window.dispatchEvent(new Event("online")));
@@ -445,6 +460,113 @@ async function main() {
     assert.ok(fieldSize >= 16, `text fields are ${fieldSize}px`);
     await phone.setViewportSize(PHONES.pixel.viewport);
     pass("M18", `landscape 844×390 without sideways scrolling on 5 views; text fields ${fieldSize}px`);
+
+    // M20 (216-C): the phone follows its colour scheme through the shared
+    // tokens. In light and dark, at 360/390/430 px and in landscape: no
+    // sideways scrolling, no control cut off by a box that hides overflow,
+    // all text at least 4.5:1 against what is painted behind it, and the
+    // console stays dark in light.
+    const themeIssues = [];
+    let themeViews = 0;
+    let themeTexts = 0;
+    const audit = async (label) => {
+      const result = await phone.evaluate(() => {
+        const parse = (value) => {
+          const m = String(value).match(/rgba?\(([^)]+)\)/);
+          if (!m) return null;
+          const p = m[1].split(/[ ,/]+/).filter(Boolean).map(Number);
+          return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 };
+        };
+        const over = (top, bottom) => ({ r: top.r * top.a + bottom.r * (1 - top.a), g: top.g * top.a + bottom.g * (1 - top.a), b: top.b * top.a + bottom.b * (1 - top.a), a: 1 });
+        const painted = (element) => {
+          const layers = [];
+          for (let node = element; node && node.nodeType === 1; node = node.parentElement) {
+            const c = parse(getComputedStyle(node).backgroundColor);
+            if (c && c.a > 0) { layers.push(c); if (c.a >= 1) break; }
+          }
+          let base = parse(getComputedStyle(document.documentElement).backgroundColor) || { r: 0, g: 0, b: 0, a: 1 };
+          if (base.a < 1) base = over(base, { r: 255, g: 255, b: 255, a: 1 });
+          for (let i = layers.length - 1; i >= 0; i -= 1) base = over(layers[i], base);
+          return base;
+        };
+        const channel = (c) => { const v = c / 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+        const lum = (c) => 0.2126 * channel(c.r) + 0.7152 * channel(c.g) + 0.0722 * channel(c.b);
+        const ratio = (a, b) => { const x = lum(a); const y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+        const visible = (el) => { const r = el.getBoundingClientRect(); const s = getComputedStyle(el); return r.width > 0 && r.height > 0 && s.visibility !== "hidden" && Number(s.opacity) > 0.05; };
+        const low = [];
+        let texts = 0;
+        for (const el of document.querySelectorAll("body *")) {
+          if (!visible(el) || el.closest("[hidden]")) continue;
+          const own = [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim());
+          const field = el.matches("input:not([type=checkbox]):not([type=radio]), textarea, select") && (el.value || el.placeholder);
+          if (!own && !field) continue;
+          const style = getComputedStyle(el);
+          if (el.matches(":disabled") || el.closest(":disabled")) continue;
+          let fg = parse(style.color);
+          if (!fg) continue;
+          const bg = painted(el);
+          if (fg.a < 1) fg = over(fg, bg);
+          texts += 1;
+          const r = ratio(fg, bg);
+          if (r < 4.5) low.push(`${el.tagName.toLowerCase()}.${String(el.className).split(" ")[0]} "${(el.textContent || el.value || el.placeholder).trim().slice(0, 24)}" ${r.toFixed(2)}`);
+        }
+        const cut = [];
+        for (const el of document.querySelectorAll("button, a[href], input, select, textarea")) {
+          if (!visible(el)) continue;
+          const box = el.getBoundingClientRect();
+          for (let node = el.parentElement; node && node !== document.body; node = node.parentElement) {
+            const s = getComputedStyle(node);
+            const clips = /hidden|clip/.test(s.overflowX + s.overflowY) && !/auto|scroll/.test(s.overflowX + s.overflowY);
+            if (!clips) continue;
+            const frame = node.getBoundingClientRect();
+            if (box.left < frame.left - 1 || box.right > frame.right + 1 || box.top < frame.top - 1 || box.bottom > frame.bottom + 1) cut.push(`${el.tagName.toLowerCase()} "${(el.textContent || el.getAttribute("aria-label") || "").trim().slice(0, 20)}"`);
+            break;
+          }
+        }
+        const consoleEl = document.querySelector(".console");
+        const consoleBg = consoleEl ? painted(consoleEl) : null;
+        return {
+          theme: document.documentElement.dataset.theme,
+          scroll: document.documentElement.scrollWidth,
+          width: window.innerWidth,
+          texts,
+          low,
+          cut,
+          consoleLum: consoleBg ? lum(consoleBg) : null,
+        };
+      });
+      themeViews += 1;
+      themeTexts += result.texts;
+      if (result.scroll > result.width + 1) themeIssues.push(`${label}: ${result.scroll}px wide in ${result.width}px`);
+      if (result.low.length) themeIssues.push(`${label}: under 4.5:1 ${result.low.slice(0, 3).join("; ")}`);
+      if (result.cut.length) themeIssues.push(`${label}: cut off ${result.cut.slice(0, 3).join("; ")}`);
+      if (result.consoleLum !== null && result.consoleLum > 0.05) themeIssues.push(`${label}: console is not dark (${result.consoleLum.toFixed(3)})`);
+      return result.theme;
+    };
+    for (const scheme of ["light", "dark"]) {
+      await phone.emulateMedia({ colorScheme: scheme });
+      await phone.waitForTimeout(300);
+      const applied = await phone.evaluate(() => document.documentElement.dataset.theme);
+      if (applied !== scheme) themeIssues.push(`${scheme}: <html data-theme> is "${applied}"`);
+      for (const size of [{ width: 360, height: 780 }, { width: 390, height: 844 }, { width: 430, height: 932 }, { width: 844, height: 390 }]) {
+        await phone.setViewportSize(size);
+        for (const target of ["#/home", "#/servers", "#/computers", "#/sharing", "#/more", ...tabs.map((tab) => `#/server/ovh/${SERVER_ID}/${tab.toLowerCase().replace("-", "")}`)]) {
+          await phone.evaluate((hash) => { location.hash = hash; }, target);
+          await phone.waitForTimeout(700);
+          await audit(`${scheme} ${size.width}x${size.height} ${target}`);
+        }
+      }
+      await phone.setViewportSize(PHONES.pixel.viewport);
+      await phone.evaluate((id) => { location.hash = `#/server/ovh/${id}/overview`; }, SERVER_ID);
+      await phone.waitForTimeout(900);
+      await shot(phone, `20-phone-${scheme}-server`);
+      await phone.evaluate(() => { location.hash = "#/home"; });
+      await phone.waitForTimeout(900);
+      await shot(phone, `20-phone-${scheme}-home`);
+    }
+    await phone.emulateMedia({ colorScheme: "dark" });
+    assert.deepStrictEqual(themeIssues, [], themeIssues.slice(0, 8).join("\n"));
+    pass("M20", `light and dark follow the phone: ${themeViews} views at 360/390/430 px and landscape, ${themeTexts} text checks, 0 under 4.5:1, 0 cut-off controls, console dark in light`);
 
     // M19
     await phone.evaluate(() => { location.hash = "#/more"; });
@@ -497,7 +619,7 @@ async function main() {
     } catch (error) {
       installability = [`unavailable: ${error.message}`];
     }
-    assert.strictEqual(pwa.manifestName, "AnxOS");
+    assert.strictEqual(pwa.manifestName, "AnxHost"); // 216-C rename
     assert.strictEqual(pwa.display, "standalone");
     pass("M16", `manifest ok (standalone, ${pwa.icons} icons); service worker ${pwa.serviceWorker ? "registered" : "NOT registered"}; installability errors: ${installability.length ? installability.join(", ") : "none"}`);
 
@@ -517,6 +639,8 @@ async function main() {
     pass("M17", "no page errors or CSP violations in the phone app; no renderer errors on desktop");
 
     await desk.evaluate(() => getDesktopApiState().api.mobile.disable());
+    fs.writeFileSync(path.join(artifacts, "phone-api-routes.json"), `${JSON.stringify([...apiRoutes].sort(), null, 2)}\n`);
+    console.log(`phone API routes called: ${apiRoutes.size} (${path.join(artifacts, "phone-api-routes.json")})`);
     console.log(`\nMobile UI QA passed: ${passed.length} checks. Screenshots: ${artifacts}`);
   } finally {
     if (browser) await browser.close().catch(() => {});

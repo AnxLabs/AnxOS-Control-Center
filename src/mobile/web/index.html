@@ -3,34 +3,35 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
-  <meta name="theme-color" content="#08070d">
-  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#08060d">
+  <meta name="color-scheme" content="dark light">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="AnxOS">
+  <meta name="apple-mobile-web-app-title" content="AnxHost">
   <meta name="referrer" content="no-referrer">
-  <title>AnxOS</title>
+  <title>AnxHost</title>
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icons/128.png" type="image/png">
   <link rel="apple-touch-icon" href="/icons/180.png">
+  <link rel="stylesheet" href="/tokens.css">
   <link rel="stylesheet" href="/app.css">
 </head>
 <body>
   <div class="app" data-app>
     <header class="topbar">
       <button class="topbar__back" type="button" data-back hidden aria-label="Back">‹</button>
-      <h1 class="topbar__title" data-title>AnxOS</h1>
+      <h1 class="topbar__title" data-title>AnxHost</h1>
       <span class="topbar__status" data-status role="status" aria-live="polite"></span>
     </header>
     <div class="banner" data-banner role="alert" hidden></div>
     <main class="view" data-view tabindex="-1"></main>
     <nav class="tabbar" data-tabbar aria-label="Sections" hidden>
-      <a class="tabbar__item" href="#/home" data-tab="home"><span class="tabbar__icon" aria-hidden="true">⌂</span><span>Home</span></a>
-      <a class="tabbar__item" href="#/servers" data-tab="servers"><span class="tabbar__icon" aria-hidden="true">▤</span><span>Servers</span></a>
-      <a class="tabbar__item" href="#/computers" data-tab="computers"><span class="tabbar__icon" aria-hidden="true">▣</span><span>Computers</span></a>
-      <a class="tabbar__item" href="#/sharing" data-tab="sharing"><span class="tabbar__icon" aria-hidden="true">⇄</span><span>Sharing</span></a>
-      <a class="tabbar__item" href="#/more" data-tab="more"><span class="tabbar__icon" aria-hidden="true">⋯</span><span>More</span></a>
+      <a class="tabbar__item" href="#/home" data-tab="home"><svg class="tabbar__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 11.5 12 4l9 7.5M5.5 9.5V20h13V9.5M10 20v-5.5h4V20"/></svg><span>Home</span></a>
+      <a class="tabbar__item" href="#/servers" data-tab="servers"><svg class="tabbar__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 4.5h16v4H4zM4 10h16v4H4zM4 15.5h16v4H4zM7 6.5h.01M7 12h.01M7 17.5h.01"/></svg><span>Servers</span></a>
+      <a class="tabbar__item" href="#/computers" data-tab="computers"><svg class="tabbar__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3.5 5h17v11h-17zM9 20h6M12 16v4"/></svg><span>Computers</span></a>
+      <a class="tabbar__item" href="#/sharing" data-tab="sharing"><svg class="tabbar__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 7h11l-3-3M17 17H6l3 3"/></svg><span>Sharing</span></a>
+      <a class="tabbar__item" href="#/more" data-tab="more"><svg class="tabbar__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 12h.01M12 12h.01M18 12h.01"/></svg><span>More</span></a>
     </nav>
   </div>
   <div class="sheet-backdrop" data-sheet-backdrop hidden></div>

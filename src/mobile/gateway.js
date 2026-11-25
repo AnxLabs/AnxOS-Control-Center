@@ -127,6 +127,8 @@ function loadStatic(webRoot, sharedRoot, iconsRoot) {
   };
   walk(webRoot, "");
   SHARED_MODULES.forEach((name) => add(`/shared/${name}`, path.join(sharedRoot, name)));
+  // 216-C: the phone uses the desktop's own design tokens, not a copy.
+  add("/tokens.css", path.join(sharedRoot, "..", "renderer", "anxhost", "tokens.css"));
   [512, 256, 192, 180, 128].forEach((size) => {
     const file = path.join(iconsRoot, `${size}x${size}.png`);
     if (fs.existsSync(file)) add(`/icons/${size}.png`, file);

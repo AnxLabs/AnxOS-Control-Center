@@ -1,14 +1,16 @@
-// AnxOS phone app service worker.
+// AnxHost phone app service worker.
 //
 // Caches only the app shell (HTML, CSS, JS, icons) so the app opens and can
-// say "can't reach AnxOS" when the computer is off or out of range. API
+// say "can't reach AnxHost" when the computer is off or out of range. API
 // responses are never cached: server data, consoles and files always come
 // live from the computer, or not at all.
 
-const CACHE = "anxos-shell-v2";
+// v3: the Build 216 AnxHost shell, so phones replace the cached v2 shell.
+const CACHE = "anxos-shell-v3";
 const SHELL = [
   "/",
   "/index.html",
+  "/tokens.css",
   "/app.css",
   "/app.js",
   "/manifest.webmanifest",
@@ -35,7 +37,7 @@ self.addEventListener("fetch", (event) => {
   if (url.pathname.startsWith("/api/") || url.pathname === "/anxos-local-ca.crt") return;
   const path = url.pathname === "/" ? "/index.html" : url.pathname;
   if (!SHELL.includes(path) && !SHELL.includes(url.pathname)) return;
-  // Network first, so an updated AnxOS serves its updated app; the cached
+  // Network first, so an updated AnxHost serves its updated app; the cached
   // copy is only for when the computer can't be reached.
   event.respondWith(fetch(event.request)
     .then((response) => {

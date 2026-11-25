@@ -151,7 +151,8 @@ async function start({ services = defaultServices(), security = defaultSecurity(
       api,
       webRoot,
       sharedRoot: path.join(__dirname, "..", "shared"),
-      iconsRoot: path.join(__dirname, "..", "..", "assets", "icons", "png"),
+      // 216-C: AnxHost Option B touch icons (docs/anxhost/brand/png/touch).
+      iconsRoot: path.join(__dirname, "..", "mobile", "icons"),
       port: settings.port,
       host,
       onDevicesChanged: () => events.emit("changed"),
