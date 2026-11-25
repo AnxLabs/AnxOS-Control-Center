@@ -11,7 +11,8 @@ Plan: `PLANS.md` (approved, commit `9aadaead`). Protocol: `AGENTS.md` (ADP).
 | **216-A2 Home and Customize Home** | **Complete; local checkpoint commit** under the owner's campaign instruction of 2026-11-24 (not pushed). See "216-A2 Home and Customize Home" below. |
 | **216-A3 My Servers and server page** | **Complete; local checkpoint commit** (not pushed). See "216-A3 My Servers and the server page" below. |
 | **216-A4 Add Server** | **Complete; local checkpoint commit** (not pushed). Marketplace and Create Server in the main window; original art for all 50 templates. See "216-A4 Add Server" below. |
-| 216-A5 Computers and Agent Control | In progress (see "Next step") |
+| **216-A5 Computers and Agent Control** | **Complete; local checkpoint commit** (not pushed). See "216-A5" below. |
+| 216-A6 Docker, A7 Network, A8 Files and Terminal | In progress (see "Next step") |
 | 216-A4 … 216-G | Not started |
 
 ## 216-0 timing
@@ -277,12 +278,12 @@ release-candidate approval gate. No push, merge, tag, release or deployment
 without separate approval; deletions, the 216-E security policy, signing/CI,
 domain and production changes need their own approvals.
 
-A1 to A4 are complete and committed locally. **A5 (Computers, fleet, AnxNet,
-Agent Control) is next.** Drafted, not linked or committed:
-`src/renderer/anxhost/computers.css`, `docker.css` (A6), `network.css` (A7),
-`tools.css` (A8), and the suites `anxhost-computers-ui-qa.js`,
-`anxhost-docker-ui-qa.js`, `anxhost-network-ui-qa.js` (each wave links its
-stylesheet, runs its suite, ticks its rows and commits).
+A1 to A5 are complete and committed locally. **A6, A7 and A8 are next.** Drafted, not linked or committed: `docker.css` (A6),
+`network.css` (A7), `tools.css` (A8), their suites, and A8's in-window Add
+Storage dialog (`src/renderer/addStorageDialog.js`, markup in `index.html`,
+`openStorageModal` in `app.js`), which also fixes Build 215's Add Storage
+window: its script used `window.desktopApi`, a name the preload never
+exposed, so it could not save, test or cancel (history: since `dbf02c14`).
 
 Owner decisions waiting (nothing blocks the next waves):
 
@@ -947,3 +948,102 @@ Not measured before this commit: A2 to A4 are timed together on the committed A4
   opens them; they are kept only until the A10 deletion decision.
 - The art is original and generic by design; official game artwork would
   need documented permission (PLANS.md section 5) and owner approval.
+
+## A2 to A4 performance (measured on the committed A4 tree)
+
+Same day (2026-11-24, from 23:20), alternating with Build 215
+(`anxnet-orbit-relay-f3a366` at `13825d70`), the A4 commit `81a68cca` run
+from a copy outside the worktree so later work could not change it.
+
+| Measure | Build 215 | A4 | Difference |
+| --- | --- | --- | --- |
+| Startup: renderer ready (7 rounds, median) | 1148 ms | 1225 ms | +6.7% |
+| Startup: sidebar ready (7 rounds, median) | 1732 ms | 1806 ms | +4.3% |
+| Page switch, 900x640, median (5 rounds, 425 switches each) | 8.5 ms | 8.8 ms | +3.5% |
+| Page switch, sum | 5071 ms | 5265 ms | +3.8% |
+| Home | 11.0 ms | 10.4 ms | -5.5% |
+| My Servers | 13.5 ms | 14.0 ms | +3.7% |
+| Add Server | 39.4 ms | 41.7 ms | +5.8% |
+
+Every measure is within Build 215 +10%, which also settles A3's single-page
+figures (15 samples each, recorded as inconclusive). One A4 startup sample
+was an outlier (5307 ms); the median is unaffected. Tools:
+`$SP/perf/probe_startup.js` (new: launch to renderer and sidebar ready) and
+`$SP/perf/probe_switch.js`.
+
+## 216-A5 Computers, fleet, AnxNet and Agent Control
+
+Started from `81a68cca` (A4) at 2026-11-24T23:20:53-07:00, same campaign
+instruction, solo.
+
+### A5 timing
+
+| Field | Value |
+| --- | --- |
+| Start | 2026-11-24T23:20:53-07:00 (system clock) |
+| Finish | 2026-11-24T23:38:00-07:00 (system clock, before the commit) |
+| Elapsed | 17 min 7 s (styling plus the A5 suite; the A6 to A8 drafts and the A8 Add Storage dialog were written while A4's timing ran) |
+| Commit | `feat(anxhost): Build 216-A5 Computers and Agent Control` (local checkpoint; not pushed) |
+
+### What changed
+
+| Area | Change |
+| --- | --- |
+| Styling | `src/renderer/anxhost/computers.css` (new, 19 rules): summary tiles, computer cards, the computer details panel and its resource cards and core bars, computer chips, the AnxNet panel and Agent Control's section grids, on tokens. Agent Control's forms, notes, summary grids and lists use the shared `pages.css` styles added in A4. Styling only: no JavaScript, IPC, preload, main-process or Agent change. |
+| Test helpers | `scripts/test-helpers/inventory-hooks.js` (new): checks that a wave's inventory hooks are in the running app (`data-*` in the DOM after the pages were visited, `api.*` callable on the bridge), kept apart from behaviour checks; computed hooks, `fn:` dialogs and the `#x` dialog placeholder are left to behaviour checks. `launchRealApp`'s clean-up now retries and warns instead of throwing when Windows briefly locks a temporary folder (it had turned a passing run into an error). |
+| Tests | New `scripts/anxhost-computers-ui-qa.js` (C1–C12, 27 checks, real app) registered as `npm run anxhost-computers:ui-qa` and in the release tier. |
+
+**Not done (owner decision):** removing the Expo "Pair Mobile Device" button
+and its handlers from Agent Control (`LEGACY_RETIREMENT.md`). The button is
+kept and still present (C7).
+
+### Capabilities
+
+All 263 A5 rows are ticked:
+
+- 192 rows were already covered by existing suites and smokes, all of which
+  pass on the A5 code (below).
+- The 71 rows without a test are covered by `anxhost-computers-ui-qa`:
+  - By behaviour: computer cards and Refresh, the details drawer (Refresh,
+    Edit, Remove asks first and cancelling keeps the computer, close), the
+    Add Computer dialog's setup paths and Cancel, Check All updates, Load
+    Network Inventory, every Agent Control section, Agent logs (Refresh,
+    search, severity, Pause, Wrap), Capture Snapshot, Run Health Checks,
+    Copy Summary, Load Provenance Report, Copy Report, New Browser Code
+    (which says why there is no code while this PC's Agent is unreachable,
+    as the harness keeps it), Test Connection.
+  - By presence (C7, C12): the actions that change an Agent or open folders
+    and files (pair, repair, save, reload configuration, reconnect, update
+    all, mobile pairing, complete setup, open logs folder, export bundle),
+    the 13 configuration fields, setup mode and start options, and every
+    other A5 hook (249 present in the running app).
+
+Inventory: 804 of 1,606 rows verified (A1 163, A2 26, A3 222, A4 130, A5 263).
+
+### Validation performed (development PC, 2026-11-24/25)
+
+| Check | Result |
+| --- | --- |
+| `anxhost-computers-ui-qa` (final code) | **PASS 27/27** |
+| `build213-ui-qa` (4), `stabilization-ui-qa`, `infra-inventory-ui-qa` (189 rows), `anxnet-ui-qa` (8), `node-routes-ui-qa` (2), `mobile-ui-qa` (19) | PASS |
+| `sidebar-navigation-groups-ui-qa`, `qa-acceptance` | **Failed first, then PASS after porting**: both still expected Add Server to open a window (A4 fallout this batch found). N7 now checks that every entry, Add Server included, opens in the main window and no window opens; `qa-acceptance` checks Add Server is visible in the main window with one window |
+| Hermetic smokes covering A5 rows (35, from `add-computer-flow-smoke` to `ui-polish-smoke`, including the Agent Control, nodes and permission-matrix smokes) | PASS |
+| `anxhost-design-tokens-smoke`, `anxhost-capability-inventory --check` | PASS |
+| `build215-ui-qa` (18 A5 rows) | Not rerun in A5; its last run (A4) passed every check but the real Agent update (P1, C1), which is still pending a rerun |
+| `node --check`, `git diff --check` | PASS, clean |
+
+### Screenshots
+
+`docs/anxhost/a5-computers/`: Computers and Agent Control at 900x640,
+1280x800 and 1920x1080.
+
+### A5 remaining risks
+
+- Page copy on these pages still says "AnxOS" in places ("without leaving
+  AnxOS", "AnxNet is AnxOS's own private network"). Several sentences name
+  the installed app ("AnxOS Control Center"), which only changes with the
+  216-D installer, so the wording is left for the A10 consistency pass.
+- Actions that change an Agent (pair, repair, save, reload, reconnect,
+  update, mobile pairing, complete setup) and folder/export actions were
+  checked by presence only here; their behaviour is covered by the existing
+  smokes listed above.

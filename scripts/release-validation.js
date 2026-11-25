@@ -199,6 +199,7 @@ const TIERS = {
     ["node", ["scripts/anxhost-home-ui-qa.js"]],
     ["node", ["scripts/anxhost-servers-ui-qa.js"]],
     ["node", ["scripts/anxhost-add-server-ui-qa.js"]],
+    ["node", ["scripts/anxhost-computers-ui-qa.js"]],
     ["node", ["scripts/sidebar-navigation-groups-ui-qa.js"]],
     ["node", ["scripts/agent-game-config-route-smoke.js"]],
     ["node", ["scripts/agent-game-config-compat-smoke.js"]],

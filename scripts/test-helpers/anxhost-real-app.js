@@ -115,11 +115,19 @@ async function launchRealApp({ prefix = "anx-216-a1-", stopAtGate = false, agent
     timings.sidebarInteractiveMs = Date.now() - launchedAt;
   }
 
+  // Temporary folders are removed with retries; on Windows a just-closed
+  // process can hold a file for a moment. A folder that still cannot be
+  // removed is reported, not thrown, so it never hides the suite's result.
   async function close() {
     await app.close().catch(() => {});
     await agent.stop().catch(() => {});
-    qa.cleanup();
-    fs.rmSync(userData, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    for (const [label, remove] of [["config", () => qa.cleanup()], ["profile", () => fs.rmSync(userData, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })]]) {
+      let lastError = null;
+      for (let attempt = 0; attempt < 10; attempt += 1) {
+        try { remove(); lastError = null; break; } catch (error) { lastError = error; await new Promise((resolve) => setTimeout(resolve, 300)); }
+      }
+      if (lastError) console.warn(`WARN could not remove the temporary ${label} folder: ${lastError.code || lastError.message}`);
+    }
   }
 
   return { app, page, agent, rendererErrors, timings, close, setViewport: (w, h) => setViewport(app, page, w, h) };

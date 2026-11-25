@@ -202,22 +202,18 @@ async function main() {
     console.log("PASS N6 the icon rail shows every entry without labels or group headings");
 
     // N7: every entry still navigates.
+    // Build 216-A4: Add Server opens in the main window like every other entry
+    // (it used to open a workspace window); no window may open.
+    const windowsBefore = await ui.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length);
     for (const pageName of expectedAll) {
-      if (pageName === "marketplace") {
-        // Add Server opens in its own workspace window (existing behaviour until A4).
-        const opened = ui.app.waitForEvent("window", { timeout: 15000 });
-        await page.locator(NAV_ITEM(pageName)).click();
-        const workspace = await opened;
-        assert.ok(workspace, "clicking Add Server opens the Marketplace workspace window");
-        await workspace.close().catch(() => {});
-        continue;
-      }
       await page.locator(NAV_ITEM(pageName)).click();
       await page.waitForTimeout(150);
       state = await navState(page);
       assert.strictEqual(state.active, pageName, `clicking ${pageName} opens it (active: ${state.active})`);
     }
-    console.log("PASS N7 every entry navigates to its page (Add Server in its own window)");
+    const windowsAfter = await ui.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length);
+    assert.strictEqual(windowsAfter, windowsBefore, "no sidebar entry opens a window");
+    console.log("PASS N7 every entry navigates to its page in the main window, Add Server included");
 
     assert.deepStrictEqual(ui.rendererErrors, [], "no renderer errors");
     console.log("Sidebar navigation groups UI QA passed (7 checks).");

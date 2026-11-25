@@ -258,7 +258,12 @@ async function main() {
       }
       let visible;
       let pageScreenshot = null;
-      if (page === "marketplace") {
+      // Build 216-A4: Add Server opens in the main window (it was a dedicated
+      // window); the dedicated-window path below stays for older builds.
+      if (page === "marketplace" && await window.locator('[data-page="marketplace"]').isVisible().catch(() => false)) {
+        visible = electronApp.windows().length === 1;
+        pageScreenshot = await shot(page);
+      } else if (page === "marketplace") {
         const marketplaceWindow = await electronApp.waitForEvent("window", { timeout: 5_000 })
           .catch(() => electronApp.windows().find((candidate) => candidate !== window && /Marketplace/i.test(candidate.url())));
         if (marketplaceWindow) {
@@ -276,7 +281,7 @@ async function main() {
           : await window.locator(`[data-page="${page === "public-access" ? "playit" : page}"]`).isVisible().catch(() => false);
         pageScreenshot = await shot(page);
       }
-      record(`navigate-${page}`, page, page === "marketplace" ? "dedicated window becomes visible" : "page becomes visible", String(visible), visible, pageScreenshot);
+      record(`navigate-${page}`, page, page === "marketplace" ? "Add Server becomes visible in the main window, with no extra window" : "page becomes visible", String(visible), visible, pageScreenshot);
       stage(`navigation-${page}-complete`, { visible });
     } else record(`navigate-${page}`, page, "navigation control exists", `control not found; inventory=${JSON.stringify(navInventory.filter((entry) => /public|diagnostic|agent/i.test(`${entry.page} ${entry.testid} ${entry.aria} ${entry.text}`)))}`, false);
   }
