@@ -923,67 +923,6 @@
           </details>
         </section>
 
-        <section class="page" data-page="amp">
-          <header class="page-header">
-            <div>
-              <p class="eyebrow">Controller</p>
-              <h1>AMP</h1>
-              <p class="lede">Local AMP API connection status and safe diagnostics.</p>
-            </div>
-          </header>
-
-          <div class="status-grid status-grid--two">
-            <article class="status-card">
-              <div class="status-card__top">
-                <span class="service-icon">AMP</span>
-                <span class="status-pill status-pill--local">API</span>
-              </div>
-              <h3>Connection</h3>
-              <p data-field="ampConnection">AMP connection is not configured.</p>
-              <dl>
-                <div>
-                  <dt>Status</dt>
-                  <dd data-field="ampStatus">Checking...</dd>
-                </div>
-                <div>
-                  <dt>Instances</dt>
-                  <dd data-field="ampInstances">Checking...</dd>
-                </div>
-                <div>
-                  <dt>Usage</dt>
-                  <dd data-field="ampUsage">Checking...</dd>
-                </div>
-                <div>
-                  <dt>Runtime</dt>
-                  <dd data-field="ampRuntime">Checking...</dd>
-                </div>
-                <div>
-                  <dt>Version</dt>
-                  <dd data-field="ampVersion">Checking...</dd>
-                </div>
-              </dl>
-            </article>
-
-            <article class="status-card">
-              <div class="status-card__top">
-                <span class="service-icon">LAN</span>
-                <span class="status-pill status-pill--external">Local</span>
-              </div>
-              <h3>AMP Panel</h3>
-              <p>Open the local browser panel if you need AMP controls outside AnxOS Control Center.</p>
-              <dl>
-                <div>
-                  <dt>URL</dt>
-                  <dd data-field="ampPanelUrl">Unavailable</dd>
-                </div>
-                <div>
-                  <dt>Action</dt>
-                  <dd><a class="inline-action" data-amp-panel-link>Unavailable</a></dd>
-                </div>
-              </dl>
-            </article>
-          </div>
-        </section>
 
         <section class="page" data-page="playit">
           <header class="page-header">
@@ -1239,153 +1178,6 @@
           </section>
         </section>
 
-        <section class="page" data-page="coolpals">
-          <header class="page-header">
-            <div>
-              <p class="eyebrow">Discord Bot</p>
-              <h1>CoolPals</h1>
-              <p class="lede">Discord bot operations, status, and logs for configured local services.</p>
-            </div>
-          </header>
-
-          <section class="coolpals-shell" aria-label="CoolPals control center">
-            <div class="coolpals-summary-grid">
-              <article class="coolpals-summary-card">
-                <span class="service-icon">BOT</span>
-                <div>
-                  <span>Bot Status</span>
-                  <strong>Disconnected</strong>
-                </div>
-              </article>
-              <article class="coolpals-summary-card">
-                <span class="service-icon">GLD</span>
-                <div>
-                  <span>Guilds</span>
-                  <strong>Unavailable</strong>
-                </div>
-              </article>
-              <article class="coolpals-summary-card">
-                <span class="service-icon">USR</span>
-                <div>
-                  <span>Users</span>
-                  <strong>Unavailable</strong>
-                </div>
-              </article>
-              <article class="coolpals-summary-card">
-                <span class="service-icon">LAT</span>
-                <div>
-                  <span>Latency</span>
-                  <strong>Unavailable</strong>
-                </div>
-              </article>
-            </div>
-
-            <div class="coolpals-controls">
-              <div class="coolpals-actions" aria-label="CoolPals service controls">
-                <button class="inline-action" type="button" data-coolpals-action="start" disabled>Start</button>
-                <button class="inline-action" type="button" data-coolpals-action="stop" disabled>Stop</button>
-                <button class="inline-action" type="button" data-coolpals-action="restart" disabled>Restart</button>
-                <button class="inline-action" type="button" data-coolpals-action="reload" disabled>Reload</button>
-                <button class="inline-action" type="button" data-coolpals-action="sync" disabled>Sync Commands</button>
-                <button class="inline-action" type="button" data-coolpals-action="deploy" disabled>Deploy</button>
-                <button class="inline-action" type="button" data-coolpals-action="logs" disabled>View Logs</button>
-              </div>
-              <label class="coolpals-search">
-                <span>Command Search</span>
-                <input type="search" placeholder="Search slash commands" data-coolpals-search disabled>
-              </label>
-            </div>
-
-            <div class="coolpals-workspace">
-              <section class="coolpals-main-panel">
-                <div class="coolpals-panel-header">
-                  <h3>Guilds</h3>
-                  <span class="status-pill status-pill--planned">Disconnected</span>
-                </div>
-                <div class="coolpals-table-wrap">
-                  <table class="coolpals-table">
-                    <thead>
-                      <tr>
-                        <th scope="col">Name</th>
-                        <th scope="col">Members</th>
-                        <th scope="col">Shards</th>
-                        <th scope="col">Ping</th>
-                        <th scope="col">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody data-coolpals-guilds></tbody>
-                  </table>
-
-                  <div class="coolpals-loading-state" data-coolpals-loading hidden>
-                    <span class="file-loader" aria-hidden="true"></span>
-                    <strong>Loading CoolPals</strong>
-                    <span>Bot service is disconnected.</span>
-                  </div>
-
-                  <div class="coolpals-empty-state" data-coolpals-empty>
-                    <span class="coolpals-icon" aria-hidden="true"></span>
-                    <strong>CoolPals is disconnected</strong>
-                    <span>Connect the bot service to display guilds, commands, and activity.</span>
-                  </div>
-                </div>
-              </section>
-
-              <aside class="coolpals-info-panel" aria-label="Bot information">
-                <div class="coolpals-panel-header">
-                  <h3>Bot Information</h3>
-                  <span class="status-pill status-pill--planned">Offline</span>
-                </div>
-                <dl class="coolpals-info-list">
-                  <div>
-                    <dt>Version</dt>
-                    <dd data-coolpals-info="version">Unavailable</dd>
-                  </div>
-                  <div>
-                    <dt>Commit</dt>
-                    <dd data-coolpals-info="commit">Unavailable</dd>
-                  </div>
-                  <div>
-                    <dt>Node Version</dt>
-                    <dd data-coolpals-info="node">Unavailable</dd>
-                  </div>
-                  <div>
-                    <dt>Python Version</dt>
-                    <dd data-coolpals-info="python">Unavailable</dd>
-                  </div>
-                  <div>
-                    <dt>Discord.py Version</dt>
-                    <dd data-coolpals-info="discordpy">Unavailable</dd>
-                  </div>
-                </dl>
-              </aside>
-
-              <section class="coolpals-activity-panel" aria-label="Recent activity">
-                <div class="coolpals-panel-header">
-                  <h3>Recent Activity</h3>
-                  <span class="status-pill status-pill--planned">No Feed</span>
-                </div>
-                <div class="coolpals-feed-empty">
-                  <strong>No recent activity</strong>
-                  <span>No bot events are available while the service is disconnected.</span>
-                </div>
-              </section>
-
-              <section class="coolpals-log-panel" aria-label="Bot logs">
-                <div class="coolpals-panel-header">
-                  <h3>Log Viewer</h3>
-                  <span data-coolpals-log-count>0 lines</span>
-                </div>
-                <div class="coolpals-log-viewer">
-                  <ol data-coolpals-logs></ol>
-                  <div class="coolpals-log-empty">
-                    <strong>No logs available</strong>
-                    <span>No bot logs are available while the service is disconnected.</span>
-                  </div>
-                </div>
-              </section>
-            </div>
-          </section>
-        </section>
 
         <section class="page" data-page="docker">
           <header class="page-header">
@@ -1662,10 +1454,6 @@
               <p class="lede">Pick a game, give it a name, and AnxHost sets everything up for you.</p>
             </div>
             <div class="marketplace-header-actions">
-              <div class="workspace-navigation" data-workspace-navigation aria-label="Workspace navigation">
-                <button class="inline-action" type="button" data-workspace-nav="back">← Back</button>
-                <button class="inline-action" type="button" data-workspace-nav="dashboard">⌂ Dashboard</button>
-              </div>
               <span class="status-pill status-pill--planned" data-marketplace-health>Initializing</span>
               <button class="inline-action" type="button" data-marketplace-shortcut="downloads">Downloads</button>
               <button class="inline-action" type="button" data-marketplace-shortcut="notifications">Notifications</button>
@@ -2015,46 +1803,6 @@
 
             <section class="docker-table-panel instances-table-panel" data-server-fleet aria-label="Servers on all computers" hidden></section>
 
-            <form class="instance-create-form instance-wizard" data-instance-create-form hidden>
-              <div class="instance-wizard-header">
-                <div>
-                  <strong>Create Instance</strong>
-                  <span>Choose a template, then fill in the fields for that runtime.</span>
-                </div>
-                <span class="status-pill status-pill--planned">Wizard</span>
-              </div>
-              <div class="instance-template-grid" role="radiogroup" aria-label="Server templates">
-                <button class="instance-template-card is-active" type="button" data-instance-template="minecraft-paper" data-instance-preset="minecraft-paper" role="radio" aria-checked="true"><span>MC</span><strong>Paper</strong><small>Fast plugin server</small></button>
-                <button class="instance-template-card" type="button" data-instance-template="java-app" data-instance-preset="minecraft-vanilla" role="radio" aria-checked="false"><span>MC</span><strong>Vanilla</strong><small>Official server</small></button>
-                <button class="instance-template-card" type="button" data-instance-template="java-app" data-instance-preset="minecraft-fabric" role="radio" aria-checked="false"><span>MC</span><strong>Fabric</strong><small>Lightweight mods</small></button>
-                <button class="instance-template-card" type="button" data-instance-template="java-app" data-instance-preset="minecraft-forge" role="radio" aria-checked="false"><span>MC</span><strong>Forge</strong><small>Classic modpacks</small></button>
-                <button class="instance-template-card" type="button" data-instance-template="java-app" data-instance-preset="minecraft-neoforge" role="radio" aria-checked="false"><span>MC</span><strong>NeoForge</strong><small>Modern modpacks</small></button>
-                <button class="instance-template-card" type="button" data-instance-template="java-app" data-instance-preset="minecraft-atm10" role="radio" aria-checked="false"><span>ATM</span><strong>ATM10</strong><small>All the Mods preset</small></button>
-                <button class="instance-template-card" type="button" data-instance-template="custom-command" data-instance-preset="palworld" role="radio" aria-checked="false"><span>PAL</span><strong>Palworld</strong><small>Dedicated server</small></button>
-                <button class="instance-template-card" type="button" data-instance-template="custom-command" data-instance-preset="rust" role="radio" aria-checked="false"><span>RST</span><strong>Rust</strong><small>Dedicated server</small></button>
-                <button class="instance-template-card" type="button" data-instance-template="custom-command" data-instance-preset="cs2" role="radio" aria-checked="false"><span>CS2</span><strong>Counter-Strike 2</strong><small>Competitive server</small></button>
-                <button class="instance-template-card" type="button" data-instance-template="custom-command" data-instance-preset="terraria" role="radio" aria-checked="false"><span>TER</span><strong>Terraria</strong><small>Adventure server</small></button>
-                <button class="instance-template-card" type="button" data-instance-template="custom-command" data-instance-preset="valheim" role="radio" aria-checked="false"><span>VAL</span><strong>Valheim</strong><small>Dedicated world</small></button>
-              </div>
-              <input type="hidden" data-instance-form="type" value="minecraft-paper">
-              <label class="ssh-field"><span>Name</span><input type="text" placeholder="Survival Server" data-instance-form="displayName" autocomplete="off"></label>
-              <label class="ssh-field"><span>ID</span><input type="text" placeholder="survival_server" data-instance-form="id" autocomplete="off"></label>
-              <label class="ssh-field" data-instance-entrypoint-field><span>Entrypoint / Jar</span><input type="text" placeholder="paper.jar" data-instance-form="entrypoint" autocomplete="off"></label>
-              <label class="ssh-field"><span>Memory</span><input type="text" placeholder="4G" data-instance-form="memoryLimit" autocomplete="off"></label>
-              <label class="ssh-field"><span>Port</span><input type="text" placeholder="25565" data-instance-form="ports" autocomplete="off"></label>
-              <label class="ssh-field"><span>Project Folder</span><input type="text" placeholder="data" data-instance-form="workingDirectory" autocomplete="off"></label>
-              <label class="ssh-field" data-instance-custom-field hidden><span>Executable</span><input type="text" placeholder="node, python3, java, or /usr/bin/custom" data-instance-form="executable" autocomplete="off"></label>
-              <label class="ssh-field" data-instance-custom-field hidden><span>Arguments</span><input type="text" placeholder="--port 3000" data-instance-form="args" autocomplete="off"></label>
-              <label class="ssh-field"><span>Environment</span><input type="text" placeholder="NODE_ENV=production,PORT=3000" data-instance-form="environment" autocomplete="off"></label>
-              <label class="ssh-field"><span>Tags</span><input type="text" placeholder="minecraft, production" data-instance-form="tags" autocomplete="off"></label>
-              <label class="console-toggle instance-wizard-option"><input type="checkbox" data-instance-form="acceptEula"><span>Accept Minecraft EULA</span></label>
-              <label class="console-toggle instance-wizard-option"><input type="checkbox" data-instance-form="playitTunnel"><span>Public Access later</span></label>
-              <div class="ssh-connection-actions">
-                <button class="inline-action" type="submit" data-instance-create-submit>Create Instance</button>
-                <button class="inline-action" type="button" data-instance-action="cancel-create">Cancel</button>
-              </div>
-              <p class="ssh-password-note" data-instance-form-message>Only Custom Command exposes raw executable fields. Server downloads are planned; place jars/project files in instance/data for now.</p>
-            </form>
 
             <section class="instances-main-shell" aria-label="Instances workspace">
               <section class="docker-table-panel instances-table-panel" aria-label="Managed instances">
@@ -3324,10 +3072,6 @@
             </div>
 
             <div class="backup-toolbar">
-              <label class="backup-search">
-                <span>Search backups</span>
-                <input type="search" placeholder="Search backup name or source" disabled>
-              </label>
               <div class="backup-actions" aria-label="Backup actions">
                 <button class="inline-action" type="button" data-backup-action="create">Create Backup</button>
                 <button class="inline-action" type="button" data-backup-action="restore" disabled>Restore</button>
@@ -4625,22 +4369,6 @@
               <div class="settings-actions">
                 <button class="primary-button" type="button" data-agent-control-action="startPairingSession">Generate Pairing Code</button>
                 <button class="inline-action" type="button" data-agent-control-action="copyPairingCode" disabled>Copy Pairing Code</button>
-                <button class="inline-action" type="button" data-agent-control-action="pairMobileDevice">Pair Mobile Device</button>
-                <button class="inline-action" type="button" data-agent-control-action="copyMobileClaim" disabled>Copy Mobile Claim</button>
-              </div>
-              <div class="agent-mobile-claim" data-agent-mobile-claim hidden>
-                <img class="agent-mobile-claim__qr" data-agent-mobile-qr alt="Mobile pairing QR code" width="180" height="180" />
-                <div class="agent-mobile-claim__body">
-                  <div><span>Node</span><strong data-agent-mobile-node>Unavailable</strong></div>
-                  <div><span>Agent address</span><strong data-agent-mobile-url>Unavailable</strong></div>
-                  <div><span>Adapter (browser)</span><strong data-agent-mobile-adapter>Unavailable</strong></div>
-                  <div><span>Credential</span><strong data-agent-mobile-fingerprint>Unavailable</strong></div>
-                  <div>
-                    <span>Claim code</span>
-                    <code class="agent-mobile-claim__code" data-agent-mobile-claim-code>Unavailable</code>
-                  </div>
-                  <p class="settings-note">Scan this with the ANXOS mobile app — open <strong>Pair this device</strong> and press <strong>Scan QR Code</strong>. Phone camera apps cannot open <code>anxos://</code> links, so they report the code as unusable. You can also press <strong>Copy Mobile Claim</strong> and paste it into the app's code field. The claim replaces the node's Agent credential with a new one for the phone — this Desktop switches to it automatically, and the claim stays valid until the node is repaired or re-paired.</p>
-                </div>
               </div>
             </section>
             <section class="settings-section settings-section--wide" data-agent-control-section="updates">

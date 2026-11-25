@@ -33,7 +33,6 @@ const { registerAiOperationsIpc } = require("./src/ipc/aiOperationsIpc");
 const { disposeSshIpc, registerSshIpc } = require("./src/ipc/sshIpc");
 const { registerSystemIpc } = require("./src/ipc/systemIpc");
 const { registerTelemetryIpc } = require("./src/ipc/telemetryIpc");
-const { registerStorageWindowIpc } = require("./src/ipc/storageWindowIpc");
 const { registerWorkloadIpc } = require("./src/ipc/workloadIpc");
 const { registerDeveloperUpdatesIpc, registerUpdatesIpc } = require("./src/ipc/updatesIpc");
 const { logStartupStatus: logCurseForgeStartupStatus } = require("./src/services/providers/curseforgeProvider");
@@ -63,7 +62,6 @@ const APP_ICON_PATH = process.platform === "win32"
   ? path.join(__dirname, "assets", "icon.ico")
   : path.join(__dirname, "assets", "icons", "png", "512x512.png");
 const WINDOW_MAXIMIZED_CHANGED_CHANNEL = "window:maximized-changed";
-const ADD_STORAGE_SAVED_CHANNEL = "files:storageConnectionSaved";
 const DEFAULT_WINDOW_BOUNDS = {
   width: 1180,
   height: 820,
@@ -77,10 +75,6 @@ const updateManager = new UpdateManager();
 const developerGitUpdater = new DeveloperGitUpdater({ app, appRoot: __dirname });
 let mainWindow = null;
 let tray = null;
-let addStorageWindow = null;
-let pendingAddStoragePayload = null;
-const workspaceWindows = new Map();
-const pendingWorkspacePayloads = new Map();
 let appShuttingDown = false;
 let appShutdownComplete = false;
 let activeStartupAttemptId = null;
@@ -523,29 +517,6 @@ function registerWindowIpc() {
     return Boolean(getSenderWindow(event)?.isMaximized());
   });
 
-  ipcMain.handle("window:openWorkspace", (_event, payload = {}) => {
-    const context = payload.context || {};
-    if (payload.templateId && !context.template?.id) {
-      context.template = { id: String(payload.templateId) };
-    }
-    return openWorkspaceWindow(payload.surface, context);
-  });
-  ipcMain.handle("window:focusMain", (_event, payload = {}) => {
-    const page = payload.page === "dashboard" ? "dashboard" : "";
-    ensureMainWindowVisible("workspace-navigation", { recreateIfUnusable: true });
-    if (page && mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send("window:navigate", { page });
-    }
-    return { focused: true, page };
-  });
-  ipcMain.handle("window:getWorkspaceContext", (event) => {
-    const senderUrl = new URL(event.sender.getURL());
-    const surface = senderUrl.searchParams.get("surface") || "";
-    return {
-      surface,
-      context: pendingWorkspacePayloads.get(surface) || {},
-    };
-  });
 }
 
 function showMainWindowFromTray(reason = "tray") {
@@ -570,155 +541,6 @@ function createTray() {
   tray.on("click", () => showMainWindowFromTray("tray-click"));
   tray.on("double-click", () => showMainWindowFromTray("tray-double-click"));
   return tray;
-}
-
-function getCenteredChildBounds(parent, width = 520, height = 650) {
-  const parentBounds = parent && !parent.isDestroyed() ? parent.getBounds() : screen.getPrimaryDisplay().workArea;
-  const display = screen.getDisplayMatching(parentBounds);
-  const workArea = display.workArea;
-  const x = Math.round(parentBounds.x + (parentBounds.width - width) / 2);
-  const y = Math.round(parentBounds.y + (parentBounds.height - height) / 2);
-  return {
-    width,
-    height,
-    x: Math.min(Math.max(x, workArea.x), workArea.x + workArea.width - width),
-    y: Math.min(Math.max(y, workArea.y), workArea.y + workArea.height - height),
-  };
-}
-
-function openAddStorageWindow(payload = {}) {
-  if (addStorageWindow && !addStorageWindow.isDestroyed()) {
-    pendingAddStoragePayload = payload;
-    if (addStorageWindow.isMinimized()) {
-      addStorageWindow.restore();
-    }
-    addStorageWindow.focus();
-    addStorageWindow.webContents.send("storageWindow:init", pendingAddStoragePayload);
-    return { opened: true, focused: true };
-  }
-
-  pendingAddStoragePayload = payload;
-  const parent = mainWindow && !mainWindow.isDestroyed() ? mainWindow : BrowserWindow.getFocusedWindow();
-  const bounds = getCenteredChildBounds(parent, 720, 680);
-  addStorageWindow = new BrowserWindow({
-    ...bounds,
-    minWidth: 560,
-    minHeight: 560,
-    title: "Add Storage — AnxOS Control Center",
-    parent: parent || undefined,
-    modal: Boolean(parent),
-    skipTaskbar: true,
-    icon: APP_ICON_PATH,
-    backgroundColor: "#07020f",
-    autoHideMenuBar: true,
-    show: false,
-    webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-    },
-  });
-
-  addStorageWindow.once("ready-to-show", () => {
-    if (!addStorageWindow || addStorageWindow.isDestroyed()) return;
-    addStorageWindow.show();
-    addStorageWindow.webContents.send("storageWindow:init", pendingAddStoragePayload);
-  });
-
-  addStorageWindow.on("closed", () => {
-    addStorageWindow = null;
-    pendingAddStoragePayload = null;
-  });
-
-  const addStoragePage = path.join(__dirname, "windows", "add-storage.html");
-  applyWindowNavigationGuard(addStorageWindow.webContents, {
-    allowedPages: [addStoragePage],
-    openExternalUrl,
-    openSource: "add-storage-window-open",
-    navigationSource: "add-storage-navigation",
-  });
-
-  addStorageWindow.loadFile(addStoragePage);
-  return { opened: true, focused: false };
-}
-
-function closeAddStorageWindow() {
-  if (addStorageWindow && !addStorageWindow.isDestroyed()) {
-    addStorageWindow.close();
-    return { closed: true };
-  }
-  return { closed: false };
-}
-
-function openWorkspaceWindow(surface, context = {}) {
-  const normalizedSurface = String(surface || "").trim().toLowerCase();
-  if (!["marketplace", "create-server"].includes(normalizedSurface)) {
-    throw Object.assign(new Error("Unsupported workspace window."), { code: "WORKSPACE_WINDOW_UNSUPPORTED" });
-  }
-  pendingWorkspacePayloads.set(normalizedSurface, context);
-  const existing = workspaceWindows.get(normalizedSurface);
-  if (existing && !existing.isDestroyed()) {
-    if (existing.isMinimized()) existing.restore();
-    existing.focus();
-    existing.webContents.send("workspaceWindow:init", {
-      surface: normalizedSurface,
-      context,
-    });
-    return { opened: true, focused: true, surface: normalizedSurface };
-  }
-
-  const parent = mainWindow && !mainWindow.isDestroyed() ? mainWindow : BrowserWindow.getFocusedWindow();
-  const bounds = getCenteredChildBounds(parent, normalizedSurface === "marketplace" ? 1180 : 880, 780);
-  const workspaceWindow = new BrowserWindow({
-    ...bounds,
-    minWidth: normalizedSurface === "marketplace" ? 900 : 720,
-    minHeight: 640,
-    title: normalizedSurface === "marketplace"
-      ? "Marketplace — AnxOS Control Center"
-      : "Create Server — AnxOS Control Center",
-    icon: APP_ICON_PATH,
-    backgroundColor: "#07020f",
-    autoHideMenuBar: true,
-    show: false,
-    frame: false,
-    titleBarStyle: "hidden",
-    thickFrame: true,
-    roundedCorners: true,
-    webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-    },
-  });
-  workspaceWindows.set(normalizedSurface, workspaceWindow);
-  workspaceWindow.once("ready-to-show", () => {
-    if (workspaceWindow.isDestroyed()) return;
-    workspaceWindow.show();
-    workspaceWindow.webContents.send("workspaceWindow:init", {
-      surface: normalizedSurface,
-      context: pendingWorkspacePayloads.get(normalizedSurface) || {},
-    });
-  });
-  workspaceWindow.on("closed", () => {
-    workspaceWindows.delete(normalizedSurface);
-    pendingWorkspacePayloads.delete(normalizedSurface);
-  });
-  const workspacePage = path.join(__dirname, "index.html");
-  applyWindowNavigationGuard(workspaceWindow.webContents, {
-    allowedPages: [workspacePage],
-    openExternalUrl,
-    openSource: "workspace-window-open",
-    navigationSource: "workspace-navigation",
-  });
-  workspaceWindow.loadFile(workspacePage, {
-    query: {
-      surface: normalizedSurface,
-      ...(context?.template?.id ? { templateId: String(context.template.id) } : {}),
-    },
-  });
-  return { opened: true, focused: false, surface: normalizedSurface };
 }
 
 function clearMainWindowWatchdogTimers() {
@@ -1035,19 +857,6 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle("app:getRuntimeInfo", () => getRuntimeInfo());
   registerWindowIpc();
-  registerStorageWindowIpc({
-    closeWindow: closeAddStorageWindow,
-    getMainWindow: () => mainWindow,
-    getStorageWindow: () => addStorageWindow,
-    notifySaved: (payload = {}) => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send(ADD_STORAGE_SAVED_CHANNEL, {
-          connectionId: payload.connectionId || payload.id || null,
-        });
-      }
-    },
-    openWindow: openAddStorageWindow,
-  });
   registerUpdatesIpc(updateManager);
   registerDeveloperUpdatesIpc(developerGitUpdater);
   registerActionIpc();

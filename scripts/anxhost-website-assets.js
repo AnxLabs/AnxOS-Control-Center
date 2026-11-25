@@ -14,6 +14,7 @@
 //
 // Usage: node scripts/anxhost-website-assets.js
 
+const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 
@@ -80,7 +81,14 @@ async function main() {
   } finally {
     await browser.close();
   }
-  console.log("Wrote the AnxHost website icons, header mark and social preview.");
+  // Link previews cache by URL, so the pages carry a content hash.
+  const previewHash = crypto.createHash("sha256").update(fs.readFileSync(path.join(ASSETS, "social-preview.png"))).digest("hex").slice(0, 12);
+  for (const page of ["index.html", "release-notes.html"]) {
+    const file = path.join(SITE, page);
+    const source = fs.readFileSync(file, "utf8");
+    fs.writeFileSync(file, source.replace(/assets\/social-preview\.png(?:\?v=[a-f0-9]+)?/g, `assets/social-preview.png?v=${previewHash}`));
+  }
+  console.log(`Wrote the AnxHost website icons, header mark and social preview (v=${previewHash}).`);
 }
 
 main().catch((error) => { console.error(error); process.exit(1); });

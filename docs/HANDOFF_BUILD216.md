@@ -14,7 +14,7 @@ Plan: `PLANS.md` (approved, commit `9aadaead`). Protocol: `AGENTS.md` (ADP).
 | **216-A5 Computers and Agent Control** | **Complete; local checkpoint commit** (not pushed). See "216-A5" below. |
 | **216-A6 Docker, A7 Network, A8 Files and Terminal** | **Complete; one local checkpoint commit** (not pushed). Two Build 215 defects fixed (Add Storage window, Windows Agent folders). See "216-A6, 216-A7, 216-A8" below. |
 | **216-A9 Activity, Security, Settings, Workspace** | **Complete; local checkpoint commit** (not pushed); the accent setting works again on redesigned pages. See "216-A9" below. |
-| **216-A10 Consistency and light theme** | **Complete; local checkpoint commit** (not pushed). Light theme (Dark, Light, System) on tokens only; legacy styles bridged to AnxHost tokens; two controls-cut-off defects and unreadable placeholders fixed; full validation sweep and performance re-check. Legacy deletions wait for named approvals. See "216-A10" below. |
+| **216-A10 Consistency and light theme** | **Complete; local checkpoint commit** (not pushed). Light theme (Dark, Light, System) on tokens only; legacy styles bridged to AnxHost tokens; two controls-cut-off defects and unreadable placeholders fixed; full validation sweep and performance re-check. Legacy retirement done with the owner's approval (2026-11-25; 51 inventory rows retired). See "216-A10" and "Legacy retirement" below. |
 | **216-E Secure Session Persistence** | **Complete; local checkpoint commit** (not pushed). Approved policy implemented: secure storage only, token rotation on every restore, device binding, enforced idle lock (15 min default) and a real manual lock. See "216-E" below. |
 | **216-D Custom Installer** | **Implemented; local checkpoint commit** (not pushed). New art from the brand SVGs, AnxHost names on every page, shortcut and uninstall entry, "AnxHost Helper". Not compiled on this PC (junctioned `node_modules`); Sandbox install, upgrade, repair and uninstall need the signed CI build (216-G). See "216-D" below. |
 | **216-C Phone Access Rebirth** | **Complete; local checkpoint commit** (not pushed). The phone uses the desktop's tokens, follows the phone's light or dark scheme, says AnxHost, uses the Option B icons and the `anxos-shell-v3` cache; a Build 215 pairing still works. See "216-C" below. |
@@ -293,16 +293,17 @@ changes, and deletions still need their own approvals naming the target.
 
 Owner decisions waiting (nothing blocks the next waves):
 
-- Retire the Marketplace and Create Server windows (named targets in the A4
-  section).
-- Remove the Expo "Pair Mobile Device" button and handlers from Agent Control
-  (A5; `LEGACY_RETIREMENT.md`).
 - The Home AMP card (A2): keep, or show only when AMP is configured
   (recommended in `LEGACY_RETIREMENT.md`); unchanged so far.
-- A10 deletions: the AMP and Coolpals pages, the dormant inline Create
-  Instance form, old CSS and the v1.9 selectors; the Add Storage window
-  (`windows/add-storage.*`, `storageWindow:*` IPC); and the Backups page's
-  disabled search box (wire it up or remove it).
+- The v1.9 stylesheet layer and old page-specific CSS (including the
+  retired pages' rules): a separate, measured removal.
+- Removing the Expo pairing backend (`nodes:createMobilePairing`,
+  `mobilePairingService`, the Agent claim page and their smokes), whose UI is
+  gone.
+- Push approval for the signed CI build (216-G) and the domain plan (B3).
+
+Done 2026-11-25 with the owner's approval ("Approve all deletions"): the
+legacy retirement, see "Legacy retirement (A10 deletions)" below.
 
 ## 216-A1 Desktop Shell Rebirth
 
@@ -1547,3 +1548,75 @@ expected visible phrase; no assertion was removed or loosened.
   (and the old `src/assets/anxos-logo.png`) is a deletion and needs approval.
 - The README "current release" line now reads "AnxHost Control Center v2.0
   Build 215" although 215 shipped as AnxOS; it is right from the 216 release.
+
+## Legacy retirement (A10 deletions)
+
+Owner approval, 2026-11-25: "Approve all deletions", in answer to a list
+naming each target. Scope followed `docs/anxhost/LEGACY_RETIREMENT.md`: only
+the UI and the window code went. **Kept on purpose:** the AMP backend (IPC,
+services, Agent route) and the Home AMP card; the Expo pairing IPC,
+`mobilePairingService`, the Agent claim page and their smokes (their removal
+is a later, separately approved step); the `amp`, `coolpals` and `minecraft`
+page-name redirects and default-page values, so saved settings still load;
+page-specific CSS for the retired pages ("old CSS" was not a named target).
+
+### Removed
+
+| Target | What went |
+| --- | --- |
+| AMP page | `index.html` section (61 lines); its page-only field writes in `renderAmpSnapshot`/`refreshAmpDashboard`; the dead `setMinecraftPage*` writers (their fields never existed) and 9 helpers only they used. `updateAmpPanelLink` and its URL gate stay: two security smokes cover them and the function already returns when the link is absent. |
+| Coolpals page | `index.html` section (147 lines, static, all buttons disabled). |
+| Dormant inline Create Instance form | The form (40 lines), its 8 element constants, `INSTANCE_SERVER_PRESETS`, 8 functions (form values, presets, payload, visibility, submit) and 3 parsers left without callers. The shared memory validator keeps its other two fields. |
+| Marketplace and Create Server windows | `main.js`: `openWorkspaceWindow`, the shared child-bounds helper and the `window:openWorkspace`, `window:focusMain`, `window:getWorkspaceContext` handlers; `preload.js`: `openWorkspace`, `focusMain`, `getWorkspaceContext`, `onWorkspaceInit`, `onNavigate`; `app.js`: every `workspaceSurface` branch, the workspace init and navigation code, the hand-off write; `index.html`: the Back/Dashboard buttons; `styles.css`: 24 window-only rules (a parser removed only selectors naming the windows; none were mixed with main-window selectors); `add-server.css`: the rule hiding those buttons. |
+| Add Storage window | `windows/add-storage.{html,js,css}`, `src/ipc/storageWindowIpc.js`, `openAddStorageWindow`/`closeAddStorageWindow` and their registration in `main.js`, `storageWindow` in `preload.js`, the window fallback in `openStorageModal`. |
+| Expo "Pair Mobile Device" UI | Agent Control's Pair Mobile Device and Copy Mobile Claim buttons, the claim/QR panel and every renderer handler, label, confirmation and state for them. |
+| Backups search box | The disabled, unwired search field. |
+| `anxos-logo.png` (two copies) | `src/assets/` and `website/assets/`, unused since 216-B; `generate-linux-icons.js` no longer writes them **or any website asset** (it would have overwritten the 216-B icons and social preview), and `anxhost-website-assets.js` now keeps the social preview's `?v=` hash current. |
+
+### Inventory
+
+51 rows retired, all from the targets above, none elsewhere (old and new
+inventories diffed): listed with their replacements in
+`docs/anxhost/RETIRED_CAPABILITIES.md`. **1,554 of 1,573 verified**; the 19
+left are phone API routes and screens no real-app run calls yet (216-F).
+
+### Tests (retired or ported, each because its subject was removed)
+
+- **Retired:** `scripts/storage-window-ipc-authorization-smoke.js` (and its
+  `package.json` script): it tested only the removed `storageWindow:*` IPC.
+- **Permission matrix:** the `storage-window-*` families and the three
+  workspace channels left `test-helpers/permission-matrix.js`; the matrix
+  fails on rows for unregistered channels, so this was required.
+- **`ipc-boundary-hardening-smoke`:** navigation and window-open guards
+  checked on the windows that remain (main, diagnostic), plus new checks that
+  exactly those two windows exist and the retired page and factories are gone.
+- **`marketplace-smoke`, `ui-polish-smoke`:** Add Storage checks moved to the
+  in-window dialog (same IPC, saved hand-off, body-before-footer layout);
+  workspace-window checks became "stay removed" checks; Create Server layout
+  checks read `add-server.css` (same values). The first-server hand-off checks
+  follow the main-window path; the "AnxHost will check this system…" message
+  they asserted lived only in the window branch, which the main window never
+  ran. Retired with the window: the first-server dialog's stacked header "at
+  dedicated-window widths" and the window's own CSS polish and size.
+- **`instances-node-routing-smoke`:** the inline form was the renderer's only
+  direct `instances.create` call; it now asserts none remains (the
+  context-stamping allowlist entry stays for any future call).
+- **UI suites:** `anxhost-servers-ui-qa` M3 (form gone), `anxhost-computers-ui-qa`
+  C7 (17 kept actions, was 19), `anxhost-tools-ui-qa` T6 (search box gone),
+  `ui-polish-smoke` page list (no `amp`/`coolpals`, plus a stay-removed check).
+
+### Validation performed (development PC, 2026-11-25)
+
+| Check | Result |
+| --- | --- |
+| Every smoke that reads `app.js`, `index.html`, `preload.js`, `main.js`, `styles.css`, the AnxHost styles, the website or the icon generator (231) | **PASS** after porting `build193-productivity`, `hytale-server`, `node-switch` and `onboarding` (each asserted removed code) |
+| `ipc-boundary-hardening`, `permission-matrix`, `marketplace`, `ui-polish`, `instances-node-routing` (ported) | PASS |
+| Real-app suites (16): shell, servers, add-server, computers, tools, home, theme, sidebar navigation, build214, stabilization, phase8, simple screenshots, files layout, qa-acceptance | **PASS** (shell S3/S12 and tools T2 ported; tools T3 failed once and passed on the rerun) |
+| `build215-ui-qa` P1/C1, `acceptance-fixes-ui-qa` A2 | Known: environment cases since Build 215, and A2's timing failure also seen on the A9 tree |
+| `anxhost-capability-inventory --check` (1,573 rows), `release-docs --check`, sitemap regenerated (two pages' preview hash changed) | PASS |
+| `node --check` of every changed JS file, `git diff --check` | PASS |
+
+One run of the shell suite hung because the app's window never appeared
+within 30 s, and the run then stuck in cleanup; it was stopped (its four
+processes ended by PID after checking their command lines). The rerun on
+the same code passed, so this is recorded as a one-off launch hang.

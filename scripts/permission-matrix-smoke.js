@@ -82,7 +82,6 @@ for (const method of ["listProfiles", "saveProfile", "deleteProfile", "assignPro
 const ipcHandlers = new Map();
 const ipcEventListeners = new Set();
 const fakeSender = { send: () => {}, isDestroyed: () => false };
-const fakeStorageWindow = { isDestroyed: () => false, webContents: fakeSender };
 const electronStub = {
   ipcMain: {
     handle: (channel, handler) => ipcHandlers.set(channel, handler),
@@ -203,7 +202,7 @@ Module._load = function patchedLoad(request, parent, isMain) {
 // ---------------------------------------------------------------------------
 const loadedIpcModuleFiles = new Set([
   "diagnosticsIpc.js", "accountAuthIpc.js", "accountIpc.js", "securityIpc.js", "agentControlIpc.js",
-  "dependenciesIpc.js", "storageWindowIpc.js", "updatesIpc.js", "actionIpc.js",
+  "dependenciesIpc.js", "updatesIpc.js", "actionIpc.js",
   "systemIpc.js", "ampIpc.js", "backupsIpc.js", "playitIpc.js",
   "publicAccessIpc.js", "anxnetIpc.js", "dockerIpc.js", "instancesIpc.js", "marketplaceIpc.js",
   "maintenanceIpc.js", "nodesIpc.js", "networkInventoryIpc.js", "infrastructureInventoryIpc.js", "workloadIpc.js", "ownerWorkspaceIpc.js",
@@ -220,13 +219,6 @@ try {
   require("../src/ipc/securityIpc").registerSecurityIpc();
   require("../src/ipc/agentControlIpc").registerAgentControlIpc();
   require("../src/ipc/dependenciesIpc").registerDependenciesIpc();
-  require("../src/ipc/storageWindowIpc").registerStorageWindowIpc({
-    closeWindow: async () => {},
-    getMainWindow: () => fakeStorageWindow,
-    getStorageWindow: () => fakeStorageWindow,
-    notifySaved: () => {},
-    openWindow: async () => {},
-  });
   const updateManagerStub = {
     initialize: () => {},
     getState: () => ({}),
@@ -360,7 +352,7 @@ const UNIVERSAL_PAYLOAD = {
 };
 
 const DESKTOP_PROBES = {
-  "window-management": { channel: "window:getWorkspaceContext", serviceRecorded: false },
+  "window-management": { channel: "window:isMaximized", serviceRecorded: false },
   account: { channel: "account:getStatus" },
   "security-public": { channel: "security:getStatus", serviceRecorded: false },
   "security-session": { channel: "security:updateSessionSettings", payload: { inactiveSessionExpirationMs: 86400000 }, serviceRecorded: false },
@@ -424,8 +416,6 @@ const DESKTOP_PROBES = {
   "updates-read": { channel: "updates:getState", serviceRecorded: false },
   "updates-manage": { channel: "updates:skip", payload: { version: "0.0.0" }, serviceRecorded: false },
   "developer-updates": { channel: "developerUpdates:getState", serviceRecorded: false },
-  "storage-window-open": { channel: "storageWindow:open", serviceRecorded: false },
-  "storage-window-internal": { channel: "storageWindow:close", serviceRecorded: false },
   "workload-transfer": { channel: "workload:transferPreview", payload: { sourceNodeId: "matrix-node-a", targetNodeId: "matrix-node-b", sourceInstanceId: "matrix-instance" } },
   "endpoints-read": { channel: "endpoints:list", payload: {} },
   "endpoints-write": { channel: "endpoints:create", payload: { name: "matrix-endpoint" } },

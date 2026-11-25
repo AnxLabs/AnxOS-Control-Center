@@ -253,7 +253,8 @@ includesAll(appSource, [
 includesAll(appSource, [
   "const requestContext = createNodeActionContext(\"backup-create\");",
   "const requestContext = createNodeActionContext(`docker-${actionName}`);",
-  "const requestContext = createNodeActionContext(\"instance-create\");",
+  // Build 216: the "instance-create" guard went with the retired inline
+  // Create Instance form (owner approval); Add Server creates servers.
   "const requestContext = createNodeActionContext(`instance-${actionName}`);",
   "const requestContext = createNodeActionContext(\"console-command\");",
   "if (!isNodeActionStillCurrent(requestContext)) return;",

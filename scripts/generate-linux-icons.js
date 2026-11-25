@@ -9,10 +9,7 @@ const REFERENCE_PATH = process.argv[2]
   ? path.resolve(process.argv[2])
   : path.join(REPO_ROOT, "assets", "branding", "neon-core-reference.jpg");
 const APP_ICON_DIR = path.join(REPO_ROOT, "assets", "icons", "png");
-const WEBSITE_ASSET_DIR = path.join(REPO_ROOT, "website", "assets");
-const SRC_ASSET_DIR = path.join(REPO_ROOT, "src", "assets");
 const APP_ICON_SIZES = [16, 24, 32, 48, 64, 128, 256, 512, 1024];
-const FAVICON_SIZES = [16, 32, 48, 192, 512];
 
 const APP_CROP = { x: 66, y: 86, size: 638 };
 const CIRCLE_CROP = { x: 747, y: 913, size: 320 };
@@ -176,59 +173,11 @@ function drawRadialGlow(pixels, width, height, centerX, centerY, radius, color, 
   }
 }
 
-function createSocialBackground(width, height) {
-  const pixels = Buffer.alloc(width * height * 4);
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const offset = (y * width + x) * 4;
-      const vignette = Math.hypot((x - width / 2) / width, (y - height / 2) / height);
-      pixels[offset] = clamp(Math.round(3 + (10 * (1 - y / height)) - (vignette * 6)), 0, 255);
-      pixels[offset + 1] = clamp(Math.round(3 + (5 * (1 - y / height)) - (vignette * 4)), 0, 255);
-      pixels[offset + 2] = clamp(Math.round(13 + (20 * (1 - y / height)) - (vignette * 10)), 0, 255);
-      pixels[offset + 3] = 255;
-    }
-  }
-
-  drawRadialGlow(pixels, width, height, 160, 80, 520, [182, 108, 255], 0.32);
-  drawRadialGlow(pixels, width, height, 940, 520, 540, [124, 60, 255], 0.24);
-  drawRadialGlow(pixels, width, height, 415, 250, 250, [165, 80, 255], 0.2);
-
-  drawRoundedRect(
-    pixels,
-    width,
-    height,
-    { x: 64, y: 58, width: 1072, height: 514 },
-    42,
-    [15, 8, 30, 210],
-    [132, 74, 190, 120],
-    2,
-  );
-  drawRoundedRect(
-    pixels,
-    width,
-    height,
-    { x: 88, y: 82, width: 300, height: 466 },
-    34,
-    [8, 5, 18, 130],
-    [182, 108, 255, 90],
-    1,
-  );
-
-  return createPng(width, height, pixels);
-}
-
 function makeAppPng(size) {
   const raw = cropRaw(APP_CROP, size);
   const radius = size * 0.155;
   const feather = Math.max(1, size * 0.006);
   const masked = applyMask(raw, size, (x, y) => alphaForRoundedRect(x, y, size, radius, feather));
-  return createPng(size, size, masked);
-}
-
-function makeCirclePng(size) {
-  const raw = cropRaw(CIRCLE_CROP, size);
-  const feather = Math.max(1, size * 0.008);
-  const masked = applyMask(raw, size, (x, y) => alphaForCircle(x, y, size, feather));
   return createPng(size, size, masked);
 }
 
@@ -257,59 +206,11 @@ function pngToIco(entries) {
   return Buffer.concat([header, ...directories, ...entries.map((entry) => entry.png)]);
 }
 
-function createOpenGraphImage(appIconPath, outputPath) {
-  const backgroundPath = path.join(WEBSITE_ASSET_DIR, ".social-preview-background.png");
-  fs.writeFileSync(backgroundPath, createSocialBackground(1200, 630));
-  runFfmpeg([
-    "-v", "error",
-    "-i", backgroundPath,
-    "-i", appIconPath,
-    "-filter_complex",
-    [
-      "[1:v]scale=228:228:flags=lanczos[logo]",
-      "[0:v][logo]overlay=124:140",
-      "drawtext=text='OFFICIAL DESKTOP APP':font='DejaVu Sans':fontcolor=0xb66cff:fontsize=29:x=430:y=126",
-      "drawtext=text='AnxOS Control Center':font='DejaVu Sans':fontcolor=white:fontsize=58:x=430:y=174",
-      "drawtext=text='Manage game servers, remote nodes, files,':font='DejaVu Sans':fontcolor=0xe7dcf4:fontsize=29:x=430:y=282",
-      "drawtext=text='dependencies, diagnostics, and operations':font='DejaVu Sans':fontcolor=0xe7dcf4:fontsize=29:x=430:y=326",
-      "drawtext=text='from one desktop application.':font='DejaVu Sans':fontcolor=0xe7dcf4:fontsize=29:x=430:y=370",
-      "drawtext=text='anxoscontrolcenter.org':font='DejaVu Sans':fontcolor=0xb9abc8:fontsize=28:x=430:y=484",
-    ].join(","),
-    "-frames:v", "1",
-    "-y",
-    outputPath,
-  ], "Open Graph image");
-  fs.rmSync(backgroundPath, { force: true });
-}
-
-function updateSocialPreviewMetadata(outputPath) {
-  const hash = crypto.createHash("sha256").update(fs.readFileSync(outputPath)).digest("hex").slice(0, 12);
-  const versionedPath = `assets/social-preview.png?v=${hash}`;
-  const files = [
-    path.join(REPO_ROOT, "website", "index.html"),
-    path.join(REPO_ROOT, "website", "release-notes.html"),
-  ];
-  for (const file of files) {
-    const source = fs.readFileSync(file, "utf8");
-    const updated = source.replace(/assets\/social-preview\.png(?:\?v=[a-f0-9]+)?/g, versionedPath);
-    fs.writeFileSync(file, updated);
-  }
-  return versionedPath;
-}
-
-function writeSvgFromPng(pngPath, svgPath) {
-  const data = fs.readFileSync(pngPath).toString("base64");
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="AnxOS"><image width="512" height="512" href="data:image/png;base64,${data}"/></svg>\n`;
-  fs.writeFileSync(svgPath, svg);
-}
-
 if (!fs.existsSync(REFERENCE_PATH)) {
   throw new Error(`Branding reference image not found: ${REFERENCE_PATH}`);
 }
 
 fs.mkdirSync(APP_ICON_DIR, { recursive: true });
-fs.mkdirSync(WEBSITE_ASSET_DIR, { recursive: true });
-fs.mkdirSync(SRC_ASSET_DIR, { recursive: true });
 
 const appPngs = new Map();
 for (const size of APP_ICON_SIZES) {
@@ -321,26 +222,9 @@ for (const size of APP_ICON_SIZES) {
 fs.writeFileSync(path.join(REPO_ROOT, "assets", "icon.ico"), pngToIco(
   [16, 24, 32, 48, 64, 128, 256].map((size) => ({ size, png: appPngs.get(size) })),
 ));
-fs.writeFileSync(path.join(SRC_ASSET_DIR, "anxos-logo.png"), appPngs.get(512));
-fs.writeFileSync(path.join(WEBSITE_ASSET_DIR, "anxos-logo.png"), appPngs.get(512));
-
-const faviconPngs = new Map();
-for (const size of FAVICON_SIZES) {
-  faviconPngs.set(size, makeCirclePng(size));
-}
-
-fs.writeFileSync(path.join(WEBSITE_ASSET_DIR, "favicon-16.png"), faviconPngs.get(16));
-fs.writeFileSync(path.join(WEBSITE_ASSET_DIR, "favicon-32.png"), faviconPngs.get(32));
-fs.writeFileSync(path.join(WEBSITE_ASSET_DIR, "icon-192.png"), faviconPngs.get(192));
-fs.writeFileSync(path.join(WEBSITE_ASSET_DIR, "icon-512.png"), faviconPngs.get(512));
-fs.writeFileSync(path.join(WEBSITE_ASSET_DIR, "apple-touch-icon.png"), appPngs.get(256));
-fs.writeFileSync(path.join(REPO_ROOT, "website", "favicon.ico"), pngToIco(
-  [16, 32, 48].map((size) => ({ size, png: faviconPngs.get(size) })),
-));
-writeSvgFromPng(path.join(WEBSITE_ASSET_DIR, "icon-512.png"), path.join(WEBSITE_ASSET_DIR, "favicon.svg"));
-const socialPreviewPath = path.join(WEBSITE_ASSET_DIR, "social-preview.png");
-createOpenGraphImage(path.join(APP_ICON_DIR, "512x512.png"), socialPreviewPath);
-const socialPreviewMetadataPath = updateSocialPreviewMetadata(socialPreviewPath);
+// Build 216: the website's icons, header mark and social preview come from
+// scripts/anxhost-website-assets.js (AnxHost brand set), and the unused
+// anxos-logo.png files were retired with the owner's approval, so this
+// script no longer writes anything under website/ or src/assets/.
 
 console.log(`Generated Neon Core assets from ${REFERENCE_PATH}`);
-console.log(`Updated social preview metadata to ${socialPreviewMetadataPath}`);

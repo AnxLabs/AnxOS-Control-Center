@@ -173,7 +173,8 @@ try {
     "Copy Technical Details",
     "normalizeFriendlyError",
     "openFirstServerGuide",
-    'openMarketplaceWizard(templateId, { source: "manual" })',
+    // Build 216: the guide hands off to Create Server in the main window.
+    'enterAddServer("create", { template: { id: templateId }, source: "manual" })',
     "first-server-guide-title",
     "first-server-guide-description",
   ].forEach((needle) => assert(app.includes(needle), `Onboarding renderer wiring missing: ${needle}`));

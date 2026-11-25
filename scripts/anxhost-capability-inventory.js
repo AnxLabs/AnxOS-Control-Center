@@ -545,7 +545,7 @@ function buildInventory() {
     if (!htmlAttrRegions.has(attr)) htmlAttrRegions.set(attr, new Set());
     htmlAttrRegions.get(attr).add(row.region);
   }
-  const uiText = [["app.js", read("app.js")], ...fs.readdirSync(path.join(root, "src/renderer")).filter((f) => f.endsWith(".js")).sort().map((f) => [`src/renderer/${f}`, read(`src/renderer/${f}`)]), ["windows/add-storage.js", read("windows/add-storage.js")], ["index.html", read("index.html")]];
+  const uiText = [["app.js", read("app.js")], ...fs.readdirSync(path.join(root, "src/renderer")).filter((f) => f.endsWith(".js")).sort().map((f) => [`src/renderer/${f}`, read(`src/renderer/${f}`)]), ["index.html", read("index.html")]];
   const all = [...htmlRows, ...jsRows(htmlAttrRegions), ...windowRows(), ...ipcRows(uiText), ...phoneRows(), ...templateRows()];
 
   // De-duplicate: one row per (area, kind, hook); hooks without a stable selector stay separate.

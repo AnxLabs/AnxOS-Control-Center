@@ -906,22 +906,6 @@
    "destination": "Shell › Title bar"
   },
   {
-   "id": "CAP-TITLE-IPC-anxwindow-focusmain",
-   "kind": "ipc",
-   "area": "region:titlebar",
-   "hook": "api.anxWindow.focusMain",
-   "wave": "A1",
-   "destination": "Shell › Title bar"
-  },
-  {
-   "id": "CAP-TITLE-IPC-anxwindow-getworkspacecontext",
-   "kind": "ipc",
-   "area": "region:titlebar",
-   "hook": "api.anxWindow.getWorkspaceContext",
-   "wave": "A1",
-   "destination": "Shell › Title bar"
-  },
-  {
    "id": "CAP-TITLE-IPC-anxwindow-ismaximized",
    "kind": "ipc",
    "area": "region:titlebar",
@@ -954,30 +938,6 @@
    "destination": "Shell › Title bar"
   },
   {
-   "id": "CAP-TITLE-IPC-anxwindow-onnavigate",
-   "kind": "ipc",
-   "area": "region:titlebar",
-   "hook": "api.anxWindow.onNavigate",
-   "wave": "A1",
-   "destination": "Shell › Title bar"
-  },
-  {
-   "id": "CAP-TITLE-IPC-anxwindow-onworkspaceinit",
-   "kind": "ipc",
-   "area": "region:titlebar",
-   "hook": "api.anxWindow.onWorkspaceInit",
-   "wave": "A1",
-   "destination": "Shell › Title bar"
-  },
-  {
-   "id": "CAP-TITLE-IPC-anxwindow-openworkspace",
-   "kind": "ipc",
-   "area": "region:titlebar",
-   "hook": "api.anxWindow.openWorkspace",
-   "wave": "A1",
-   "destination": "Shell › Title bar"
-  },
-  {
    "id": "CAP-TITLE-IPC-anxwindow-restore",
    "kind": "ipc",
    "area": "region:titlebar",
@@ -990,22 +950,6 @@
    "kind": "ipc",
    "area": "region:titlebar",
    "hook": "api.window.close",
-   "wave": "A1",
-   "destination": "Shell › Title bar"
-  },
-  {
-   "id": "CAP-TITLE-IPC-window-focusmain",
-   "kind": "ipc",
-   "area": "region:titlebar",
-   "hook": "api.window.focusMain",
-   "wave": "A1",
-   "destination": "Shell › Title bar"
-  },
-  {
-   "id": "CAP-TITLE-IPC-window-getworkspacecontext",
-   "kind": "ipc",
-   "area": "region:titlebar",
-   "hook": "api.window.getWorkspaceContext",
    "wave": "A1",
    "destination": "Shell › Title bar"
   },
@@ -1038,30 +982,6 @@
    "kind": "ipc",
    "area": "region:titlebar",
    "hook": "api.window.onMaximizedChanged",
-   "wave": "A1",
-   "destination": "Shell › Title bar"
-  },
-  {
-   "id": "CAP-TITLE-IPC-window-onnavigate",
-   "kind": "ipc",
-   "area": "region:titlebar",
-   "hook": "api.window.onNavigate",
-   "wave": "A1",
-   "destination": "Shell › Title bar"
-  },
-  {
-   "id": "CAP-TITLE-IPC-window-onworkspaceinit",
-   "kind": "ipc",
-   "area": "region:titlebar",
-   "hook": "api.window.onWorkspaceInit",
-   "wave": "A1",
-   "destination": "Shell › Title bar"
-  },
-  {
-   "id": "CAP-TITLE-IPC-window-openworkspace",
-   "kind": "ipc",
-   "area": "region:titlebar",
-   "hook": "api.window.openWorkspace",
    "wave": "A1",
    "destination": "Shell › Title bar"
   },
@@ -1512,14 +1432,6 @@
    "hook": "data-page=dashboard",
    "wave": "A2",
    "destination": "Home"
-  },
-  {
-   "id": "CAP-SRV-ACT-instance-action-cancel-create",
-   "kind": "action",
-   "area": "page:instances",
-   "hook": "data-instance-action=cancel-create",
-   "wave": "A3",
-   "destination": "My Servers"
   },
   {
    "id": "CAP-SRV-ACT-instance-action-clear-console",
@@ -2010,14 +1922,6 @@
    "destination": "My Servers"
   },
   {
-   "id": "CAP-SRV-CTL-instance-create-submit",
-   "kind": "control",
-   "area": "page:instances",
-   "hook": "data-instance-create-submit",
-   "wave": "A3",
-   "destination": "My Servers"
-  },
-  {
    "id": "CAP-SRV-CTL-instance-network-add",
    "kind": "control",
    "area": "page:instances",
@@ -2062,30 +1966,6 @@
    "kind": "control",
    "area": "page:instances",
    "hook": "data-instance-telemetry-range=7d",
-   "wave": "A3",
-   "destination": "My Servers"
-  },
-  {
-   "id": "CAP-SRV-CTL-instance-template-custom-command",
-   "kind": "control",
-   "area": "page:instances",
-   "hook": "data-instance-template=custom-command",
-   "wave": "A3",
-   "destination": "My Servers"
-  },
-  {
-   "id": "CAP-SRV-CTL-instance-template-java-app",
-   "kind": "control",
-   "area": "page:instances",
-   "hook": "data-instance-template=java-app",
-   "wave": "A3",
-   "destination": "My Servers"
-  },
-  {
-   "id": "CAP-SRV-CTL-instance-template-minecraft-paper",
-   "kind": "control",
-   "area": "page:instances",
-   "hook": "data-instance-template=minecraft-paper",
    "wave": "A3",
    "destination": "My Servers"
   },
@@ -2422,110 +2302,6 @@
    "kind": "input",
    "area": "page:instances",
    "hook": "data-instance-file-editor",
-   "wave": "A3",
-   "destination": "My Servers"
-  },
-  {
-   "id": "CAP-SRV-IN-instance-form-accepteula",
-   "kind": "input",
-   "area": "page:instances",
-   "hook": "data-instance-form=acceptEula",
-   "wave": "A3",
-   "destination": "My Servers"
-  },
-  {
-   "id": "CAP-SRV-IN-instance-form-args",
-   "kind": "input",
-   "area": "page:instances",
-   "hook": "data-instance-form=args",
-   "wave": "A3",
-   "destination": "My Servers"
-  },
-  {
-   "id": "CAP-SRV-IN-instance-form-displayname",
-   "kind": "input",
-   "area": "page:instances",
-   "hook": "data-instance-form=displayName",
-   "wave": "A3",
-   "destination": "My Servers"
-  },
-  {
-   "id": "CAP-SRV-IN-instance-form-entrypoint",
-   "kind": "input",
-   "area": "page:instances",
-   "hook": "data-instance-form=entrypoint",
-   "wave": "A3",
-   "destination": "My Servers"
-  },
-  {
-   "id": "CAP-SRV-IN-instance-form-environment",
-   "kind": "input",
-   "area": "page:instances",
-   "hook": "data-instance-form=environment",
-   "wave": "A3",
-   "destination": "My Servers"
-  },
-  {
-   "id": "CAP-SRV-IN-instance-form-executable",
-   "kind": "input",
-   "area": "page:instances",
-   "hook": "data-instance-form=executable",
-   "wave": "A3",
-   "destination": "My Servers"
-  },
-  {
-   "id": "CAP-SRV-IN-instance-form-id",
-   "kind": "input",
-   "area": "page:instances",
-   "hook": "data-instance-form=id",
-   "wave": "A3",
-   "destination": "My Servers"
-  },
-  {
-   "id": "CAP-SRV-IN-instance-form-memorylimit",
-   "kind": "input",
-   "area": "page:instances",
-   "hook": "data-instance-form=memoryLimit",
-   "wave": "A3",
-   "destination": "My Servers"
-  },
-  {
-   "id": "CAP-SRV-IN-instance-form-playittunnel",
-   "kind": "input",
-   "area": "page:instances",
-   "hook": "data-instance-form=playitTunnel",
-   "wave": "A3",
-   "destination": "My Servers"
-  },
-  {
-   "id": "CAP-SRV-IN-instance-form-ports",
-   "kind": "input",
-   "area": "page:instances",
-   "hook": "data-instance-form=ports",
-   "wave": "A3",
-   "destination": "My Servers"
-  },
-  {
-   "id": "CAP-SRV-IN-instance-form-tags",
-   "kind": "input",
-   "area": "page:instances",
-   "hook": "data-instance-form=tags",
-   "wave": "A3",
-   "destination": "My Servers"
-  },
-  {
-   "id": "CAP-SRV-IN-instance-form-type",
-   "kind": "input",
-   "area": "page:instances",
-   "hook": "data-instance-form=type",
-   "wave": "A3",
-   "destination": "My Servers"
-  },
-  {
-   "id": "CAP-SRV-IN-instance-form-workingdirectory",
-   "kind": "input",
-   "area": "page:instances",
-   "hook": "data-instance-form=workingDirectory",
    "wave": "A3",
    "destination": "My Servers"
   },
@@ -3514,22 +3290,6 @@
    "destination": "Add Server, inside the main window"
   },
   {
-   "id": "CAP-MKT-CTL-workspace-nav-back",
-   "kind": "control",
-   "area": "page:marketplace",
-   "hook": "data-workspace-nav=back",
-   "wave": "A4",
-   "destination": "Add Server, inside the main window"
-  },
-  {
-   "id": "CAP-MKT-CTL-workspace-nav-dashboard",
-   "kind": "control",
-   "area": "page:marketplace",
-   "hook": "data-workspace-nav=dashboard",
-   "wave": "A4",
-   "destination": "Add Server, inside the main window"
-  },
-  {
    "id": "CAP-MKT-DLG-fn-createmarketplaceinstallplandialog",
    "kind": "dialog",
    "area": "page:marketplace",
@@ -4322,14 +4082,6 @@
    "destination": "Add Server, inside the main window"
   },
   {
-   "id": "CAP-WIN-WIN-window-workspace",
-   "kind": "window",
-   "area": "window:workspace",
-   "hook": "window:workspace",
-   "wave": "A4",
-   "destination": "Retire: Add Server moves into the main window"
-  },
-  {
    "id": "CAP-AGENT-ACT-agent-action-pair",
    "kind": "action",
    "area": "page:agent-control",
@@ -4434,14 +4186,6 @@
    "destination": "Computers › Agent Control"
   },
   {
-   "id": "CAP-AGENT-ACT-agent-control-action-copymobileclaim",
-   "kind": "action",
-   "area": "page:agent-control",
-   "hook": "data-agent-control-action=copyMobileClaim",
-   "wave": "A5",
-   "destination": "Computers › Agent Control"
-  },
-  {
    "id": "CAP-AGENT-ACT-agent-control-action-copypairingcode",
    "kind": "action",
    "area": "page:agent-control",
@@ -4542,14 +4286,6 @@
    "kind": "action",
    "area": "page:agent-control",
    "hook": "data-agent-control-action=openLogs",
-   "wave": "A5",
-   "destination": "Computers › Agent Control"
-  },
-  {
-   "id": "CAP-AGENT-ACT-agent-control-action-pairmobiledevice",
-   "kind": "action",
-   "area": "page:agent-control",
-   "hook": "data-agent-control-action=pairMobileDevice",
    "wave": "A5",
    "destination": "Computers › Agent Control"
   },
@@ -8042,14 +7778,6 @@
    "destination": "Backups"
   },
   {
-   "id": "CAP-BACKUP-IN-search-backup-name-or-source",
-   "kind": "input",
-   "area": "page:backups",
-   "hook": null,
-   "wave": "A8",
-   "destination": "Backups"
-  },
-  {
    "id": "CAP-BACKUP-IPC-backups-create",
    "kind": "ipc",
    "area": "page:backups",
@@ -9254,54 +8982,6 @@
    "kind": "input",
    "area": "region:add-storage-modal",
    "hook": "data-add-storage-field=username",
-   "wave": "A8",
-   "destination": "Files › Add Storage inside the main window"
-  },
-  {
-   "id": "CAP-WIN-IPC-storagewindow-close",
-   "kind": "ipc",
-   "area": "window:add-storage",
-   "hook": "api.storageWindow.close",
-   "wave": "A8",
-   "destination": "Files › Add Storage inside the main window"
-  },
-  {
-   "id": "CAP-WIN-IPC-storagewindow-oninit",
-   "kind": "ipc",
-   "area": "window:add-storage",
-   "hook": "api.storageWindow.onInit",
-   "wave": "A8",
-   "destination": "Files › Add Storage inside the main window"
-  },
-  {
-   "id": "CAP-WIN-IPC-storagewindow-onsaved",
-   "kind": "ipc",
-   "area": "window:add-storage",
-   "hook": "api.storageWindow.onSaved",
-   "wave": "A8",
-   "destination": "Files › Add Storage inside the main window"
-  },
-  {
-   "id": "CAP-WIN-IPC-storagewindow-open",
-   "kind": "ipc",
-   "area": "window:add-storage",
-   "hook": "api.storageWindow.open",
-   "wave": "A8",
-   "destination": "Files › Add Storage inside the main window"
-  },
-  {
-   "id": "CAP-WIN-IPC-storagewindow-saved",
-   "kind": "ipc",
-   "area": "window:add-storage",
-   "hook": "api.storageWindow.saved",
-   "wave": "A8",
-   "destination": "Files › Add Storage inside the main window"
-  },
-  {
-   "id": "CAP-WIN-WIN-window-add-storage",
-   "kind": "window",
-   "area": "window:add-storage",
-   "hook": "window:add-storage",
    "wave": "A8",
    "destination": "Files › Add Storage inside the main window"
   },
@@ -12440,94 +12120,6 @@
    "hook": "data-settings-category-target=updates",
    "wave": "A9",
    "destination": "Settings"
-  },
-  {
-   "id": "CAP-AMP-CTL-amp-panel-link",
-   "kind": "control",
-   "area": "page:amp",
-   "hook": "data-amp-panel-link",
-   "wave": "A10",
-   "destination": "Retire after verification (LEGACY_RETIREMENT.md)"
-  },
-  {
-   "id": "CAP-AMP-PAGE-page-amp",
-   "kind": "page",
-   "area": "page:amp",
-   "hook": "data-page=amp",
-   "wave": "A10",
-   "destination": "Retire after verification (LEGACY_RETIREMENT.md)"
-  },
-  {
-   "id": "CAP-COOLPALS-ACT-coolpals-action-deploy",
-   "kind": "action",
-   "area": "page:coolpals",
-   "hook": "data-coolpals-action=deploy",
-   "wave": "A10",
-   "destination": "Retire after verification (LEGACY_RETIREMENT.md)"
-  },
-  {
-   "id": "CAP-COOLPALS-ACT-coolpals-action-logs",
-   "kind": "action",
-   "area": "page:coolpals",
-   "hook": "data-coolpals-action=logs",
-   "wave": "A10",
-   "destination": "Retire after verification (LEGACY_RETIREMENT.md)"
-  },
-  {
-   "id": "CAP-COOLPALS-ACT-coolpals-action-reload",
-   "kind": "action",
-   "area": "page:coolpals",
-   "hook": "data-coolpals-action=reload",
-   "wave": "A10",
-   "destination": "Retire after verification (LEGACY_RETIREMENT.md)"
-  },
-  {
-   "id": "CAP-COOLPALS-ACT-coolpals-action-restart",
-   "kind": "action",
-   "area": "page:coolpals",
-   "hook": "data-coolpals-action=restart",
-   "wave": "A10",
-   "destination": "Retire after verification (LEGACY_RETIREMENT.md)"
-  },
-  {
-   "id": "CAP-COOLPALS-ACT-coolpals-action-start",
-   "kind": "action",
-   "area": "page:coolpals",
-   "hook": "data-coolpals-action=start",
-   "wave": "A10",
-   "destination": "Retire after verification (LEGACY_RETIREMENT.md)"
-  },
-  {
-   "id": "CAP-COOLPALS-ACT-coolpals-action-stop",
-   "kind": "action",
-   "area": "page:coolpals",
-   "hook": "data-coolpals-action=stop",
-   "wave": "A10",
-   "destination": "Retire after verification (LEGACY_RETIREMENT.md)"
-  },
-  {
-   "id": "CAP-COOLPALS-ACT-coolpals-action-sync",
-   "kind": "action",
-   "area": "page:coolpals",
-   "hook": "data-coolpals-action=sync",
-   "wave": "A10",
-   "destination": "Retire after verification (LEGACY_RETIREMENT.md)"
-  },
-  {
-   "id": "CAP-COOLPALS-IN-coolpals-search",
-   "kind": "input",
-   "area": "page:coolpals",
-   "hook": "data-coolpals-search",
-   "wave": "A10",
-   "destination": "Retire after verification (LEGACY_RETIREMENT.md)"
-  },
-  {
-   "id": "CAP-COOLPALS-PAGE-page-coolpals",
-   "kind": "page",
-   "area": "page:coolpals",
-   "hook": "data-page=coolpals",
-   "wave": "A10",
-   "destination": "Retire after verification (LEGACY_RETIREMENT.md)"
   },
   {
    "id": "CAP-PHONEAPI-API-get-backups-nodeid-backupid-download",

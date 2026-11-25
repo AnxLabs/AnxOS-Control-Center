@@ -14,7 +14,7 @@
 //       incomplete SFTP entry, a Local Device entry is saved, appears in the
 //       list, can be edited (Edit Storage), marked default and deleted
 //       (asks first); Cancel and Escape close
-//   T2  the kept Add Storage window still has no working bridge
+//   T2  the retired Add Storage window cannot be opened (no bridge, no window)
 //       (window.desktopApi undefined): the Build 215 defect this wave removes
 //       from the user's path
 //   T3  Files in a temp folder: Go to a path, list, search, New Folder,
@@ -290,10 +290,9 @@ async function run() {
       row?.click();
       await wait(400);
       const search = [...document.querySelectorAll('.page[data-page="backups"] input')].find((input) => /search backup/i.test(input.placeholder || ""));
-      // Build 215's backup search box is disabled and has no handler (a
-      // dormant control); it is checked as present and disabled.
-      const searchDormant = Boolean(search && search.disabled);
-      const searched = searchDormant ? "dormant" : "active";
+      // Build 215's backup search box was disabled and had no handler; it
+      // was removed in Build 216 with the owner's approval.
+      const searched = search ? "present" : "removed";
 
 
       rows()[0]?.click();
@@ -313,7 +312,7 @@ async function run() {
       for (let i = 0; i < 50 && rows().length >= after; i += 1) await wait(200);
       return { dialogText, before, after, searched, preview, restoreAnswer, deleteAnswer, end: rows().length, kept: ["download", "import"].filter((name) => document.querySelector(`[data-backup-action="${name}"]`)).length };
     }, SERVER_ID);
-    check("T6", t6.after > t6.before && t6.searched === "dormant", `Create Backup adds one (${t6.before} → ${t6.after}); the backup search box is present and disabled, as in Build 215 (unwired)`);
+    check("T6", t6.after > t6.before && t6.searched === "removed", `Create Backup adds one (${t6.before} → ${t6.after}); the unwired backup search box is gone (retired in Build 216)`);
     check("T6", t6.preview && t6.restoreAnswer === "cancelled", "Restore shows its preview first; Cancel changes nothing");
     check("T6", t6.deleteAnswer === "answered" && t6.end < t6.after && t6.kept === 2, `Delete asks first and removes it (${t6.after} → ${t6.end}); Verify ran; Download and Import kept`);
 
@@ -394,17 +393,13 @@ async function run() {
     check("T1", t1b.editing.title === "Edit Storage" && t1b.editing.name === "QA Local Folder" && t1b.escaped, `Edit opens "${t1b.editing.title}" with the saved name; Escape closes it`);
     check("T1", t1b.answer === "answered" && t1b.gone, `Delete asks first and removes the entry (${t1b.answer}; badge after Mark Default "${t1b.badge}")`);
 
-    // ------------------------------------------------------------ T2 the kept window's bridge
-    const opened = app.waitForEvent("window", { timeout: 15000 }).catch(() => null);
-    await page.evaluate(() => window.anxos.storageWindow.open({}));
-    const storageWindow = await opened;
-    let bridge = "not opened";
-    if (storageWindow) {
-      await storageWindow.waitForLoadState("domcontentloaded").catch(() => {});
-      bridge = await storageWindow.evaluate(() => `desktopApi=${typeof window.desktopApi}, anxos=${typeof window.anxos}`).catch((error) => error.message);
-      await storageWindow.close().catch(() => {});
-    }
-    check("T2", /desktopApi=undefined/.test(bridge), `the kept Add Storage window has no working bridge (${bridge}), which is why Build 215's window could not save; users now get the in-window dialog`);
+    // ------------------------------------------------------------ T2 the retired window
+    // Build 216 retired the separate Add Storage window and its IPC (owner
+    // approval); Add Storage opens only as the in-window dialog checked in T1.
+    const windowsBefore = app.windows().length;
+    const t2 = await page.evaluate(() => ({ bridge: typeof window.anxos?.storageWindow, opener: typeof window.AnxAddStorageDialog?.open }));
+    await page.waitForTimeout(500);
+    check("T2", t2.bridge === "undefined" && t2.opener === "function" && app.windows().length === windowsBefore, `no storageWindow bridge (${t2.bridge}), Add Storage is the in-window dialog (${t2.opener}), no extra window`);
 
     // ------------------------------------------------------------ T5 server consoles
     await page.evaluate(async (id) => { window.showPage("instances"); selectInstance(id); await window.AnxServerView.open(id, "overview"); }, SERVER_ID);

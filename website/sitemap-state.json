@@ -3,12 +3,12 @@
   "pages": {
     "/": {
       "source": "website/index.html",
-      "sha256": "e9561e8ca663808e0b8c213e5b1f6f2d22c742cad44fb64c5bd827bc3f7db485",
+      "sha256": "0dcfd7eb6e2790442ef7bf8785b1a407316a558cb36421941d3877599b954d6c",
       "lastmod": "2026-11-25"
     },
     "/release-notes": {
       "source": "website/release-notes.html",
-      "sha256": "77fcc2c4970c7a313c97ce6cc32a10eec15f33aa20e60732a356fdda974e33b6",
+      "sha256": "49dac1a94f1cd438b9135b478bfd334366875beba47d02d5a2df67c4f3b3b273",
       "lastmod": "2026-11-25"
     },
     "/download": {

@@ -13,10 +13,18 @@ const app = readSource("app.js");
 const styles = readSource("styles.css");
 const main = readSource("main.js");
 const preload = readSource("preload.js");
-const addStorageHtml = readSource("windows/add-storage.html");
-const addStorageCss = readSource("windows/add-storage.css");
+// Build 216-A4: Create Server's layout in the main window (the retired
+// Create Server window used body.create-server-window rules in styles.css).
+const addServerCss = readSource("src/renderer/anxhost/add-server.css");
+// Build 216: Add Storage is an in-window dialog (the separate window was
+// retired with the owner's approval), so its markup is read from index.html.
+const addStorageStart = index.indexOf("data-add-storage-modal");
+const addStorageHtml = index.slice(addStorageStart, index.indexOf("</section>", addStorageStart));
 
-const expectedPages = ["dashboard", "amp", "playit", "coolpals", "docker", "marketplace", "instances", "ssh", "files", "console", "backups", "operations", "maintenance", "security", "owner-workspace", "agent-control", "nodes", "settings"];
+// Build 216 retired the hidden AMP and Coolpals pages (owner approval); their
+// page names still redirect to Home (getSafePageName).
+assert(!index.includes('data-page="amp"') && !index.includes('data-page="coolpals"'), "The retired AMP and Coolpals pages must stay removed.");
+const expectedPages = ["dashboard", "playit", "docker", "marketplace", "instances", "ssh", "files", "console", "backups", "operations", "maintenance", "security", "owner-workspace", "agent-control", "nodes", "settings"];
 expectedPages.forEach((page) => assert(index.includes(`data-page="${page}"`), `Missing workspace root: ${page}`));
 
 function pageMarkup(page) {
@@ -80,23 +88,21 @@ assert(!/window\.prompt|prompt\(|window\.alert|alert\(|window\.confirm|confirm\(
 assert(preload.includes("settings:getPreferences") && preload.includes("settings:savePreferences") && preload.includes("settings:resetPreferences"), "Preload must expose centralized settings preference IPC.");
 assert(preload.includes("dependencies:plan") && app.includes("typeof api?.dependencies?.plan === \"function\""), "Dependency preparation planning must be exposed before install actions.");
 assert(main.includes("registerSettingsIpc"), "Main process must register settings IPC.");
-assert(main.includes("function openWorkspaceWindow") && main.includes('"marketplace", "create-server"'), "Main process must provide singleton Marketplace and Create Server workspace windows.");
-assert(preload.includes("window:openWorkspace") && preload.includes("workspaceWindow:init"), "Preload must expose narrow workspace-window handoff IPC.");
-assert(preload.includes("window:focusMain") && preload.includes("window:navigate"), "Dedicated workflow navigation must use narrow trusted IPC.");
-assert(main.includes('ipcMain.handle("window:focusMain"'), "Main process must focus and navigate the primary window for workflow exits.");
-assert(index.includes('data-workspace-nav="back"') && index.includes('data-workspace-nav="dashboard"'), "Marketplace and Create Server must expose Back and Dashboard navigation.");
+// Build 216 retired the separate Marketplace and Create Server windows (owner
+// approval): Add Server runs in the main window and nothing may reopen them.
+assert(!main.includes("function openWorkspaceWindow") && !main.includes('ipcMain.handle("window:openWorkspace"') && !main.includes('ipcMain.handle("window:focusMain"'), "The retired workspace windows and their IPC must stay removed.");
+assert(!preload.includes("window:openWorkspace") && !preload.includes("workspaceWindow:init") && !preload.includes("window:navigate"), "Preload must not expose the retired workspace-window IPC.");
+assert(!index.includes("data-workspace-nav"), "The window-only Back and Dashboard buttons are gone.");
 assert(!index.includes("data-marketplace-loading"), "Marketplace must not render a blocking catalog loading screen.");
-assert(app.includes('return !workspaceSurface && readStoredSettings()["startup.enabled"] !== false'), "Dedicated workflows must bypass the application startup splash.");
-assert(app.includes("WORKSPACE_NAVIGATION_STORAGE_KEY") && app.includes('request.page === "dashboard"'), "Dashboard navigation must synchronize across independently loaded workflow windows.");
-assert(styles.includes("body.workspace-window .startup-screen") && styles.includes("display: none !important"), "Workspace-window CSS must prevent startup-splash flashes.");
-assert(app.includes("function openCreateServerWorkspace") && app.includes("applyWorkspaceWindowContext"), "Marketplace selection must hand off to the authoritative Create Server workspace.");
-assert(app.includes("function renderMarketplacePackageDetails") && styles.includes("body.marketplace-window .marketplace-deployment-panel"), "Dedicated Marketplace must show discovery details and hide deployment configuration.");
+assert(app.includes('return readStoredSettings()["startup.enabled"] !== false') && !app.includes("workspaceSurface") && !styles.includes("workspace-window"), "The startup splash follows its setting; no workspace-window branch remains.");
+assert(app.includes("function openCreateServerWorkspace") && app.includes("applyCreateServerContext") && app.includes('enterAddServer(surface === "create-server" ? "create" : "browse", context)'), "Marketplace selection must hand off to Create Server in the main window.");
+assert(app.includes("function renderMarketplacePackageDetails"), "Marketplace must show discovery details.");
 assert(index.includes("data-create-server-step-nav") && index.includes('data-create-server-step-panel="configuration"') && index.includes('data-create-server-step-panel="deployment"'), "Create Server must expose a setup step and a deployment surface.");
 assert(index.includes("data-create-server-advanced") && index.includes("data-marketplace-install-summary") && index.includes("data-create-server-trust"), "Create Server must keep advanced options, the install review and the publisher trust notice on the setup step.");
 assert(app.includes('CREATE_SERVER_PRE_INSTALL_CHECKS = Object.freeze(["summary", "node", "runtime", "configuration"])') && app.includes("if (!validateCreateServerBeforeInstall()) return;"), "Create Server must run every package, node, runtime and configuration check before installing.");
 assert(app.includes("const CREATE_SERVER_STEPS") && app.includes("function validateCreateServerStep") && app.includes("function renderCreateServerWizard"), "Create Server must use one validated universal wizard state machine.");
 assert(app.includes("function normalizeCreateServerDraft") && app.includes("function validateCreateServerDraftSummary"), "Create Server must normalize every entry source before stage validation.");
-assert(app.includes('openMarketplaceWizard(templateId, { source: "manual" })'), "Manual templates must enter the universal Create Server pipeline with an explicit source.");
+assert(app.includes('enterAddServer("create", { template: { id: templateId }, source: "manual" })') && app.includes('openMarketplaceWizard(template.id, { source: context?.source || "" })'), "Manual templates must enter the universal Create Server pipeline with an explicit source.");
 assert(!app.includes('document.querySelector("[data-first-server-modal]")?.remove()'), "Manual template selection must use modal cleanup so the application shell is not left inert.");
 assert(app.includes("const templateButton = event.target.closest(\"[data-first-server-template]\")") && app.includes("closeModal();"), "Manual template selection must close the guide through its lifecycle-safe cleanup path.");
 assert(app.includes('draft.source === "marketplace" && !draft.projectId') && app.includes('draft.source === "manual" && !draft.templateId'), "Create Server validation must keep Marketplace-only identifiers out of manual template requirements.");
@@ -118,8 +124,7 @@ assert(app.includes("MARKETPLACE_VIEW_STATE_KEY") && app.includes("restoreMarket
 assert(app.includes("seenProjects") && app.includes("requestId !== marketplaceProviderRequestId"), "Marketplace search must deduplicate packages and ignore stale provider responses.");
 assert(app.includes("ensureWorkspaceMarketplaceCatalog") && app.includes('instancesCreateToggleButton?.addEventListener("click", () => openCreateServerWorkspace())'), "Create Server must wait for the catalog and remain the single visible instance-creation entry point.");
 assert(app.includes("project.displayName || project.name || project.title"), "Provider-template handoff must preserve the friendly Marketplace title instead of exposing a project ID.");
-assert(styles.includes("body.workspace-window .sidebar") && styles.includes("body.create-server-window .marketplace-browser"), "Dedicated workspace windows must remove unrelated navigation and keep Create Server focused.");
-assert(styles.includes("body.create-server-window .app-modal--first-server") && styles.includes("grid-template-columns: minmax(0, 1fr)"), "Create Server guidance must use a readable stacked header at dedicated-window widths.");
+assert(addServerCss.includes('body[data-add-server-mode="create"] .marketplace-browser') && addServerCss.includes('body[data-add-server-mode="create"] .marketplace-layout {\n  grid-template-columns: minmax(0, 1fr);'), "Create Server must hide the template browser and keep a single focused column.");
 assert(styles.includes(".settings-shell:not(.settings-shell--workspace) > .settings-section--amp"), "Settings integration cards must not create implicit narrow columns inside the single-column workspace.");
 assert(styles.includes(".settings-shell--workspace > .settings-section--minecraft") && styles.includes("grid-column: 1 / -1"), "Settings connection cards must remain full-width at compact desktop sizes.");
 assert(index.includes("nodes-summary-grid") && index.includes('data-node-summary="online"'), "Nodes workspace must expose a compact dashboard summary.");
@@ -197,22 +202,14 @@ assert(main.includes("requestSingleInstanceLock") && main.includes("second-insta
 ].forEach((needle) => assert(main.includes(needle), `Main window launch recovery must include ${needle}.`));
 assert(main.includes("show: false") && main.includes("showMainWindow(\"did-finish-load\")") && main.includes("showMainWindow(\"ready-to-show\")"), "Main window must not depend only on ready-to-show before becoming visible.");
 assert(
-  addStorageHtml.indexOf('class="storage-form-body"') < addStorageHtml.indexOf('class="add-storage-actions"') &&
-    addStorageHtml.includes('data-storage-secret="password"') &&
-    addStorageHtml.includes('data-storage-secret="privateKey"') &&
-    addStorageHtml.includes('class="add-storage-actions__primary"'),
-  "SFTP Add Storage modal must keep form fields in a scrollable body before a separate action footer."
+  addStorageStart > -1 &&
+    addStorageHtml.indexOf('class="app-modal__body storage-form"') > -1 &&
+    addStorageHtml.indexOf('class="app-modal__body storage-form"') < addStorageHtml.indexOf('class="app-modal__actions"') &&
+    addStorageHtml.includes('data-add-storage-secret="password"') &&
+    addStorageHtml.includes('data-add-storage-secret="privateKey"'),
+  "SFTP Add Storage dialog must keep form fields in its body before a separate action footer."
 );
-[
-  ".storage-form-body",
-  "grid-template-rows: minmax(0, 1fr) auto",
-  "overflow: hidden",
-  "scrollbar-gutter: stable",
-  ".add-storage-actions__primary",
-  "justify-content: space-between",
-  "@media (max-width: 620px), (max-height: 620px)",
-].forEach((needle) => assert(addStorageCss.includes(needle), `SFTP Add Storage modal polish CSS is missing: ${needle}`));
-assert(main.includes("getCenteredChildBounds(parent, 720, 680)") && main.includes("minWidth: 560"), "Add Storage child window must use a wider desktop layout for SFTP fields.");
+assert(!main.includes("openAddStorageWindow") && !main.includes("getCenteredChildBounds"), "The retired Add Storage child window must stay removed.");
 assert(index.includes('data-agent-control-action="start"') && index.includes('data-agent-control-action="installService"'), "Agent Control must expose real lifecycle and service actions.");
 assert(app.includes("Backup was already removed. Refreshed backup list."), "Backup UI must recover cleanly from stale already-deleted backup IDs.");
 assert(fs.readFileSync(path.join(root, "src", "services", "agentControlService.js"), "utf8").includes("Run AnxOS Control Center as Administrator"), "Windows Agent service install failures must explain elevation requirements.");
@@ -294,9 +291,9 @@ assert(app.includes("pre = createTextElement(\"pre\", JSON.stringify(event.detai
 assert(app.includes("function isConfiguredStorageRootPath") && app.includes("Configured storage roots cannot be deleted from AnxOS"), "Files UI must prevent configured storage roots from being presented as deletable items.");
 assert(app.includes('/^(?:provider|unknown|n\\/a)$/i.test(text)'), "Marketplace cards must suppress internal provider placeholder versions.");
 assert(
-  styles.includes("body.create-server-window .create-server-wizard-actions {\n  position: static;") &&
-    styles.includes("body.create-server-window .marketplace-wizard {\n  grid-template-rows: auto minmax(180px, 1fr) auto auto;\n  min-height: 0;\n  padding-bottom: 0;"),
-  "Create Server actions must remain in the wizard flow so default-size windows cannot cover configuration controls.",
+  addServerCss.includes('body[data-add-server-mode="create"] .create-server-wizard-actions {\n  position: static;') &&
+    addServerCss.includes('body[data-add-server-mode="create"] .marketplace-wizard {\n  grid-template-rows: auto minmax(180px, 1fr) auto auto;\n  min-height: 0;\n  padding-bottom: 0;'),
+  "Create Server actions must remain in the wizard flow so they cannot cover configuration controls.",
 );
 
 [

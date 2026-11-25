@@ -269,7 +269,10 @@ async function run() {
         // harness keeps unreachable on purpose; then the app must say so.
         const codeReason = toasts.find((message) => /agent|unavailable|code/i.test(message)) || "";
         const kept = ["pair", "repair", "save", "test"].filter((name) => document.querySelector(`[data-agent-action="${name}"]`)).length
-          + ["completeSetup", "copyMobileClaim", "pairMobileDevice", "reconnect", "reloadConfig", "updateAllAgents", "refresh"].filter((name) => document.querySelector(`[data-agent-control-action="${name}"]`)).length
+          // Build 216: the Expo "Pair Mobile Device" and "Copy Mobile Claim"
+          // controls were retired with the owner's approval (Phone Access
+          // replaces them), so 17 actions remain.
+          + ["completeSetup", "reconnect", "reloadConfig", "updateAllAgents", "refresh"].filter((name) => document.querySelector(`[data-agent-control-action="${name}"]`)).length
           + ["dismiss", "refresh", "retry", "update"].filter((name) => document.querySelector(`[data-agent-compatibility-action="${name}"]`)).length
           + ["open-diagnostics", "refresh"].filter((name) => document.querySelector(`[data-agent-developer-action="${name}"]`)).length
           + ["open", "export"].filter((name) => document.querySelector(`[data-diagnostics-action="${name}"]`)).length;
@@ -281,7 +284,7 @@ async function run() {
     });
     check("C7", Object.values(c7.present).every(Boolean) && c7.copied.length >= 1, `Capture Snapshot, Run Health Checks, Copy Summary, Load Provenance and Copy Report run (copied ${c7.copied.join(", ")} characters; ${c7.toasts.join(" | ").slice(0, 200)})`);
     check("C7", c7.code > 0 || Boolean(c7.codeReason), c7.code > 0 ? `New Browser Code fills a one-time code (${c7.code} characters)` : `New Browser Code says why there is no code when this PC's Agent is unreachable ("${c7.codeReason}")`);
-    check("C7", c7.kept === 19, `the ${c7.kept}/19 actions that change an Agent, open folders or export files are kept (not run here)`);
+    check("C7", c7.kept === 17, `the ${c7.kept}/17 actions that change an Agent, open folders or export files are kept (not run here)`);
 
     // ------------------------------------------------------------ C8 Test Connection
     const c8 = await page.evaluate(async () => {

@@ -117,8 +117,10 @@ const IPC_FAMILIES = [
     allow: ["owner-unlocked", "operator-unlocked", "viewer-unlocked", "owner-locked", "guest"],
     channels: [
       "window:minimize", "window:maximize", "window:restore", "window:close",
-      "window:isMaximized", "window:openWorkspace", "window:focusMain",
-      "window:getWorkspaceContext", "app:getRuntimeInfo",
+      // Build 216: window:openWorkspace, window:focusMain and
+      // window:getWorkspaceContext were retired with the Marketplace and
+      // Create Server windows (owner approval).
+      "window:isMaximized", "app:getRuntimeInfo",
     ],
   },
   {
@@ -719,22 +721,8 @@ const IPC_FAMILIES = [
     allow: ["owner-unlocked"],
     channels: ["developerUpdates:getState", "developerUpdates:check", "developerUpdates:update", "developerUpdates:restart", "developerUpdates:openChanges"],
   },
-  {
-    id: "storage-window-open",
-    tier: "settings:write",
-    guard: "permission",
-    allow: ["owner-unlocked"],
-    channels: ["storageWindow:open"],
-  },
-  {
-    id: "storage-window-internal",
-    tier: null,
-    guard: "none",
-    // Verified current model: close/saved only validate the sender window
-    // identity, not the actor role (window-internal channels).
-    allow: ["owner-unlocked", "operator-unlocked", "viewer-unlocked", "owner-locked", "guest"],
-    channels: ["storageWindow:close", "storageWindow:saved"],
-  },
+  // Build 216: the storageWindow:* families were retired with the separate
+  // Add Storage window (owner approval); Add Storage is an in-window dialog.
   {
     // V2-J Wave 1 alerts: read the reconciled active-alert set at the
     // node-read tier (alerts are derived from per-node data the same actors can

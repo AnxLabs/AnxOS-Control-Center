@@ -123,7 +123,7 @@ function loadMainWindowFactories() {
   };
   try {
     const mainPath = path.join(REPO, "main.js");
-    const source = `${fs.readFileSync(mainPath, "utf8")}\n;module.exports.__ipcBoundaryTest = { createWindow, openWorkspaceWindow, openAddStorageWindow, createStartupDiagnosticWindow };\n`;
+    const source = `${fs.readFileSync(mainPath, "utf8")}\n;module.exports.__ipcBoundaryTest = { createWindow, createStartupDiagnosticWindow };\n`;
     const mainModule = new Module(mainPath, module);
     mainModule.filename = mainPath;
     mainModule.paths = Module._nodeModulePaths(REPO);
@@ -152,9 +152,6 @@ async function flushMicrotasks() {
 async function checkNavigationBoundary() {
   const { factories, windows, externalOpens } = loadMainWindowFactories();
   factories.createWindow({ showReason: "ipc-boundary-smoke" });
-  factories.openWorkspaceWindow("marketplace", {});
-  factories.openWorkspaceWindow("create-server", { template: { id: "vanilla" } });
-  factories.openAddStorageWindow({});
   factories.createStartupDiagnosticWindow("diag", "detail", {});
   await flushMicrotasks();
 
@@ -165,13 +162,13 @@ async function checkNavigationBoundary() {
   };
   const mainWindow = windows.find((candidate) => candidate.opts.title === "AnxOS Control Center");
   assert(mainWindow, "main window was not created");
-  const marketplace = byTitle("Marketplace");
-  const createServer = byTitle("Create Server");
-  const addStorage = byTitle("Add Storage");
   const diagnostic = byTitle("diag");
+  // Build 216 retired the Marketplace, Create Server and Add Storage windows
+  // (owner approval): the main window and the diagnostic window remain.
+  assert.strictEqual(windows.length, 2, `only the main and diagnostic windows exist, saw ${windows.map((w) => w.opts.title).join(", ")}`);
 
   const indexUrl = pathToFileURL(path.join(REPO, "index.html")).href;
-  const addStorageUrl = pathToFileURL(path.join(REPO, "windows", "add-storage.html")).href;
+  const retiredAddStorageUrl = pathToFileURL(path.join(REPO, "windows", "add-storage.html")).href;
   const foreign = [
     "file:///C:/Users/x/Downloads/modpack/readme.html",
     "file:///C:/Users/x/Downloads/server.properties",
@@ -190,8 +187,6 @@ async function checkNavigationBoundary() {
   // and folder names on Windows because Chromium may normalise them).
   const ownPages = [
     [mainWindow, indexUrl], [mainWindow, `${indexUrl}?qa-mode=1`], [mainWindow, `${indexUrl}#servers`],
-    [marketplace, `${indexUrl}?surface=marketplace`], [createServer, `${indexUrl}?surface=create-server&templateId=vanilla`],
-    [addStorage, addStorageUrl], [addStorage, `${addStorageUrl}?x=1`],
   ];
   if (process.platform === "win32") ownPages.push([mainWindow, indexUrl.replace(/^file:\/\/\/([A-Za-z])/, (_, drive) => `file:///${drive === drive.toUpperCase() ? drive.toLowerCase() : drive.toUpperCase()}`)]);
   for (const [win, url] of ownPages) {
@@ -199,22 +194,20 @@ async function checkNavigationBoundary() {
     assert(result.allowed, `${win.opts.title} must allow its own page ${url}`);
   }
 
-  for (const win of [mainWindow, marketplace, createServer, addStorage, diagnostic]) {
+  for (const win of [mainWindow, diagnostic]) {
     for (const url of foreign) {
       const result = fireWillNavigate(win, url);
       assert(result.handlers > 0, `${win.opts.title} has no will-navigate guard`);
       assert.strictEqual(result.allowed, false, `${win.opts.title} must refuse navigation to ${JSON.stringify(url)}`);
     }
   }
-  // A workspace window must not load the other window's page, nor the main
-  // window the Add Storage page (each window keeps its own page).
-  assert.strictEqual(fireWillNavigate(mainWindow, addStorageUrl).allowed, false, "main window must not navigate to the Add Storage page");
-  assert.strictEqual(fireWillNavigate(addStorage, indexUrl).allowed, false, "Add Storage must not navigate to index.html");
+  // The retired Add Storage page is not one of the main window's pages.
+  assert.strictEqual(fireWillNavigate(mainWindow, retiredAddStorageUrl).allowed, false, "main window must not navigate to the retired Add Storage page");
 
   // Refused web links still open in the system browser (existing behaviour),
   // never inside the app window.
   externalOpens.length = 0;
-  fireWillNavigate(marketplace, "https://www.curseforge.com/minecraft/modpacks/all-the-mods-9");
+  fireWillNavigate(diagnostic, "https://www.curseforge.com/minecraft/modpacks/all-the-mods-9");
   fireWillNavigate(mainWindow, "https://modrinth.com/");
   await flushMicrotasks();
   assert.deepStrictEqual(externalOpens.map((entry) => entry.url), ["https://www.curseforge.com/minecraft/modpacks/all-the-mods-9", "https://modrinth.com/"]);
@@ -232,9 +225,9 @@ async function checkNavigationBoundary() {
   const guardPath = path.join(REPO, "src", "renderer", "dropNavigationGuard.js");
   assert(fs.existsSync(guardPath), "src/renderer/dropNavigationGuard.js must exist");
   const indexHtml = fs.readFileSync(path.join(REPO, "index.html"), "utf8");
-  const addStorageHtml = fs.readFileSync(path.join(REPO, "windows", "add-storage.html"), "utf8");
   assert(/<script src="src\/renderer\/dropNavigationGuard\.js"><\/script>/.test(indexHtml), "index.html must load the drop guard");
-  assert(/<script src="\.\.\/src\/renderer\/dropNavigationGuard\.js"><\/script>/.test(addStorageHtml), "add-storage.html must load the drop guard");
+  assert(!fs.existsSync(path.join(REPO, "windows", "add-storage.html")), "the retired Add Storage window page is gone");
+  assert(!/function openWorkspaceWindow|function openAddStorageWindow/.test(mainSource), "main.js no longer creates the retired windows");
   const listeners = {};
   const sandbox = {
     document: { addEventListener: (name, handler) => { listeners[name] = handler; } },
@@ -376,10 +369,8 @@ async function checkSshOutputIntegrity() {
 // ---------------------------------------------------------------------------
 async function checkWorkspaceWindowOpen() {
   const { factories, windows, externalOpens } = loadMainWindowFactories();
-  factories.openWorkspaceWindow("create-server", {});
-  factories.openWorkspaceWindow("marketplace", {});
   factories.createWindow({ showReason: "ipc-boundary-smoke" });
-  factories.openAddStorageWindow({});
+  factories.createStartupDiagnosticWindow("diag", "detail", {});
   const projectUrl = "https://www.curseforge.com/minecraft/modpacks/example-pack";
   for (const win of windows) {
     assert.strictEqual(typeof win.webContents.openHandler, "function", `${win.opts.title} has no window-open handler`);
@@ -389,11 +380,6 @@ async function checkWorkspaceWindowOpen() {
     assert.deepStrictEqual(result, { action: "deny" }, `${win.opts.title} must never open an Electron child window`);
     assert.deepStrictEqual(externalOpens.map((entry) => entry.url), [projectUrl], `${win.opts.title} must hand window.open to openExternalUrl`);
   }
-  const createServer = windows.find((win) => String(win.opts.title).startsWith("Create Server"));
-  externalOpens.length = 0;
-  createServer.webContents.openHandler({ url: projectUrl });
-  await flushMicrotasks();
-  assert.strictEqual(externalOpens[0].source, "workspace-window-open");
 
   // "Open Project Details" falls back to a message when the template has no
   // project URL, instead of a silent window.open("").
@@ -415,7 +401,7 @@ async function checkWorkspaceWindowOpen() {
   assert.deepStrictEqual(opened.map((args) => args[0]), [projectUrl, "https://modrinth.com/modpack/x"]);
   assert.strictEqual(toasts.length, 1, "a template without a project page explains it instead of doing nothing");
 
-  pass("3 ipc-boundary-3 workspace windows hand window.open to the system browser");
+  pass("3 ipc-boundary-3 app windows hand window.open to the system browser");
 }
 
 async function main() {

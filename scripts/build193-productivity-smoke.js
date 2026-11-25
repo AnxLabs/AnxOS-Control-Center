@@ -20,16 +20,21 @@ const expectedPresets = [
   "valheim",
 ];
 
+// Build 216 retired the dormant inline Create Instance form and its preset
+// table (owner approval). Every preset's game is created through Add Server
+// instead: a Marketplace template, or for ATM10 the CurseForge modpack search.
+const marketplaceTemplates = JSON.parse(fs.readFileSync(path.join(root, "config", "marketplace-templates.json"), "utf8"));
+const templateIds = new Set((marketplaceTemplates.templates || marketplaceTemplates).map((template) => template.id));
+const presetTemplate = { terraria: "terraria-tshock" };
 for (const preset of expectedPresets) {
-  assert(
-    app.includes(`"${preset}":`) || app.includes(`${preset}:`),
-    `Server preset ${preset} must have reusable defaults.`,
-  );
-  assert(
-    html.includes(`data-instance-preset="${preset}"`),
-    `Server preset ${preset} must be selectable in the creation wizard.`,
-  );
+  if (preset === "minecraft-atm10") {
+    assert(app.includes("curseforge"), "ATM10 must be installable as a CurseForge modpack through Add Server.");
+    continue;
+  }
+  const templateId = presetTemplate[preset] || preset;
+  assert(templateIds.has(templateId), `Server preset ${preset} must be available as the Add Server template ${templateId}.`);
 }
+assert(!html.includes("data-instance-preset="), "The retired inline form's preset buttons must stay removed.");
 
 for (const action of ["refresh", "restart-agent", "start-all", "stop-all"]) {
   assert(

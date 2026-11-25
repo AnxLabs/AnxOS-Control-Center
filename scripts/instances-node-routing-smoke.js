@@ -274,7 +274,10 @@ async function main() {
     assert(preloadSource.includes('sendCommand: (instanceId, command, options = {}) => ipcRenderer.invoke("instances:sendCommand", { ...options, instanceId, command })'), "Console commands must preserve the renderer-captured node context through preload.");
     assert(preloadSource.includes('clearLogs: (instanceId, options = {}) => ipcRenderer.invoke("instances:clearLogs", { instanceId, ...options })'), "Clear-logs must preserve the renderer-captured node context through preload.");
     assert(instancesIpcSource.includes("registerInstanceHandler") && instancesIpcSource.includes("requireNodeContext(payload, channel)"), "Every Instances IPC handler must reject an omitted node context.");
-    assert(appSource.includes("const requestContext = createNodeActionContext(\"instance-create\")"), "Instance create should bind an action context.");
+    // Build 216 retired the dormant inline Create Instance form (owner
+    // approval); it was the renderer's only direct instances.create call.
+    // Servers are created through Add Server, which routes per node itself.
+    assert(!appSource.includes(".api.instances.create("), "No direct renderer instances.create call remains after the inline form's retirement.");
     assert(appSource.includes("const requestContext = createNodeActionContext(`instance-${actionName}`)"), "Instance actions should bind node action context.");
     assert(appSource.includes("if (!isNodeActionStillCurrent(requestContext)) return;"), "Instance actions should guard stale node changes.");
 
@@ -284,7 +287,7 @@ async function main() {
     assert.strictEqual(rendererCallReport.violations.length, 0, `Renderer instances calls must carry a node context on the call itself; missing on: ${rendererCallReport.violations.join(", ")}`);
     assert.strictEqual(rendererCallReport.unverifiable.length, 0, `Renderer instances call scanner could not verify: ${rendererCallReport.unverifiable.join(", ")}`);
     assert(rendererCallReport.checked >= 30, `Renderer instances call scan looks vacuous: only ${rendererCallReport.checked} call sites checked.`);
-    assert.strictEqual(rendererCallReport.allowlisted, 1, `Expected exactly one allowlisted non-literal node-context call site (create), found ${rendererCallReport.allowlisted}.`);
+    assert.strictEqual(rendererCallReport.allowlisted, 0, `Expected no allowlisted non-literal node-context call site now that the inline create form is retired, found ${rendererCallReport.allowlisted}.`);
     const dynamicCallReport = scanRendererDynamicInstanceCalls(appSource);
     assert(dynamicCallReport.checked >= 3, `Expected dynamic instances dispatch sites to scan, found ${dynamicCallReport.checked}.`);
     assert.strictEqual(dynamicCallReport.violations.length, 0, `Dynamic instances dispatch must pass getNodeScopedPayload; missing on: ${dynamicCallReport.violations.join(", ")}`);

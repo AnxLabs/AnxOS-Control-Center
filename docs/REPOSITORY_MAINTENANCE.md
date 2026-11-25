@@ -50,7 +50,7 @@ The tree contains eight sets of exactly matching Git blob contents:
 
 | Matching files | Why they are not deletion-ready |
 | --- | --- |
-| `assets/icons/png/512x512.png`, `src/assets/anxos-logo.png`, `website/assets/anxos-logo.png` | Different application, source and website paths |
+| `assets/icons/png/512x512.png` | Application icon path (the duplicate `anxos-logo.png` copies were retired in Build 216) |
 | `assets/icons/png/256x256.png`, `website/assets/apple-touch-icon.png` | Installer/icon assets versus browser icon paths |
 | `website/account.html`, `website/account/index.html` | May serve different direct URLs / static-host routing |
 | `website/activate.html`, `website/activate/index.html` | Same URL compatibility risk |

@@ -2,11 +2,10 @@
  * (Build 216-A4).
  *
  * Until Build 215 these were two extra windows (surface=marketplace and
- * surface=create-server), laid out by body.marketplace-window and
- * body.create-server-window rules in styles.css. In the main window the same
- * layouts follow body[data-add-server-mode="browse" | "create"], set by
- * enterAddServer() in app.js. The window rules stay for any window an older
- * caller might still open, until their retirement is approved (A10).
+ * surface=create-server). The main window's layouts follow
+ * body[data-add-server-mode="browse" | "create"], set by enterAddServer() in
+ * app.js; the two windows and their rules were retired in Build 216 with the
+ * owner's approval.
  *
  * Same rules as the other AnxHost files: :root[data-shell="ahx"] first,
  * --ahx-* tokens only, no :is() lists.
@@ -69,11 +68,6 @@
 
 :root[data-shell="ahx"] body[data-add-server-mode="create"] .create-server-validation-message {
   max-width: 520px;
-}
-
-/* The window-only Back / Dashboard buttons have no meaning in the main window. */
-:root[data-shell="ahx"] body[data-add-server-mode] .workspace-navigation {
-  display: none;
 }
 
 /* ---------------------------------------------------------------- toolbar and categories */

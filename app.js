@@ -1,22 +1,14 @@
 const launchParameters = new URLSearchParams(window.location.search);
 const qaMode = launchParameters.get("qa-mode") === "1";
-const workspaceSurface = launchParameters.get("surface") || "";
-const workspaceTemplateId = launchParameters.get("templateId") || "";
-const WORKSPACE_NAVIGATION_STORAGE_KEY = "anxos:workspace-navigation.v1";
-let workspaceInitContext = null;
 // Build 216-A4: Add Server runs in the main window. "browse" is what the
 // Marketplace window showed and "create" what the Create Server window
-// showed. A dedicated window (workspaceSurface, opened by an older caller)
-// keeps its own surface.
+// showed; both windows were retired in Build 216 with the owner's approval.
 let addServerMode = "";
 function isCreateServerFlow() {
-  return workspaceSurface === "create-server" || (!workspaceSurface && addServerMode === "create");
+  return addServerMode === "create";
 }
 function isMarketplaceBrowseSurface() {
-  return workspaceSurface === "marketplace" || (!workspaceSurface && addServerMode === "browse");
-}
-if (workspaceSurface) {
-  document.body.classList.add("workspace-window", `${workspaceSurface}-window`);
+  return addServerMode === "browse";
 }
 if (qaMode) {
   const indicator = document.createElement("div");
@@ -158,17 +150,9 @@ const instancesDeleteButtons = document.querySelectorAll('[data-instance-action=
 const instancesForgetButtons = document.querySelectorAll('[data-instance-action="forget"]');
 const instancesForceKillButtons = document.querySelectorAll('[data-instance-action="force-kill"]');
 const instancesDownloadLogButtons = document.querySelectorAll('[data-instance-action="download-logs"]');
-const instanceCreateForm = document.querySelector("[data-instance-create-form]");
-const instanceCreateSubmitButton = document.querySelector("[data-instance-create-submit]");
-const instanceFormInputs = document.querySelectorAll("[data-instance-form]");
-const instanceTypeSelect = document.querySelector('[data-instance-form="type"]');
-const instanceEntrypointField = document.querySelector("[data-instance-entrypoint-field]");
-const instanceFormMessage = document.querySelector("[data-instance-form-message]");
 const instancesLogList = document.querySelector("[data-instances-logs]");
 const instancesLogEmpty = document.querySelector("[data-instances-log-empty]");
 const instancesLogCount = document.querySelector("[data-instances-log-count]");
-const instanceTemplateButtons = document.querySelectorAll("[data-instance-template]");
-const instanceCustomFields = document.querySelectorAll("[data-instance-custom-field]");
 const instanceTabs = document.querySelectorAll("[data-instance-tab]");
 const instanceTabPanels = document.querySelectorAll("[data-instance-panel]");
 const instanceConsoleSearchInput = document.querySelector("[data-instance-console-search]");
@@ -435,10 +419,6 @@ const filesDetailsDivider = filesPage?.querySelector('[data-files-resizer="detai
 const startupScreen = document.querySelector("[data-startup-screen]");
 const startupAudioElement = document.querySelector("[data-startup-audio]");
 const appShell = document.querySelector("[data-app-shell]");
-if (workspaceSurface) {
-  if (startupScreen) startupScreen.hidden = true;
-  if (appShell) appShell.hidden = false;
-}
 const appWorkspace = document.querySelector("[data-app-workspace]");
 const sidebar = document.querySelector("[data-sidebar]");
 const sidebarToggleButton = document.querySelector("[data-sidebar-toggle]");
@@ -619,13 +599,6 @@ const agentPairingTargetName = document.querySelector("[data-agent-pairing-targe
 const agentPairingTargetUrl = document.querySelector("[data-agent-pairing-target-url]");
 const agentGeneratedTokenInput = document.querySelector("[data-agent-generated-token]");
 const agentGeneratedTokenNote = document.querySelector("[data-agent-generated-token-note]");
-const agentMobileClaim = document.querySelector("[data-agent-mobile-claim]");
-const agentMobileQr = document.querySelector("[data-agent-mobile-qr]");
-const agentMobileNode = document.querySelector("[data-agent-mobile-node]");
-const agentMobileFingerprint = document.querySelector("[data-agent-mobile-fingerprint]");
-const agentMobileUrl = document.querySelector("[data-agent-mobile-url]");
-const agentMobileClaimCode = document.querySelector("[data-agent-mobile-claim-code]");
-const agentMobileAdapter = document.querySelector("[data-agent-mobile-adapter]");
 const agentControlSectionButtons = document.querySelectorAll("[data-agent-control-section-target]");
 const agentControlSections = document.querySelectorAll("[data-agent-control-section]");
 let agentControlState = null;
@@ -649,8 +622,6 @@ let activeAgentPairingTarget = null;
 let activeAgentPairingNetworkPersisted = false;
 let activeAgentPairingNetworkUserChoice = null;
 let activeAgentGeneratedToken = "";
-let activeMobilePairingClaim = "";
-let activeMobilePairingClaimNodeId = "";
 const remoteDiagnosticsInFlight = new Set();
 const remoteDiagnosticsLastCapturedAt = new Map();
 let latestDependencyResult = null;
@@ -1128,21 +1099,6 @@ let marketplaceVersionRenderLimit = 80;
 let marketplaceVersionRequestId = 0;
 let selectedInstanceId = null;
 let staleInstanceIdsLoaded = false;
-let instanceCreateFormVisible = false;
-let selectedInstancePresetId = "minecraft-paper";
-const INSTANCE_SERVER_PRESETS = Object.freeze({
-  "minecraft-paper": { type: "minecraft-paper", name: "Paper Server", id: "paper_server", entrypoint: "paper.jar", memory: "4G", port: "25565", folder: "data", tags: "minecraft, paper", game: "Minecraft", software: "Paper", eula: true },
-  "minecraft-vanilla": { type: "java-app", name: "Vanilla Server", id: "vanilla_server", entrypoint: "server.jar", memory: "4G", port: "25565", folder: "data", tags: "minecraft, vanilla", game: "Minecraft", software: "Vanilla", eula: true },
-  "minecraft-fabric": { type: "java-app", name: "Fabric Server", id: "fabric_server", entrypoint: "fabric-server-launch.jar", memory: "4G", port: "25565", folder: "data", tags: "minecraft, fabric", game: "Minecraft", software: "Fabric", eula: true },
-  "minecraft-forge": { type: "java-app", name: "Forge Server", id: "forge_server", entrypoint: "forge-server.jar", memory: "6G", port: "25565", folder: "data", tags: "minecraft, forge", game: "Minecraft", software: "Forge", eula: true },
-  "minecraft-neoforge": { type: "java-app", name: "NeoForge Server", id: "neoforge_server", entrypoint: "neoforge-server.jar", memory: "6G", port: "25565", folder: "data", tags: "minecraft, neoforge", game: "Minecraft", software: "NeoForge", eula: true },
-  "minecraft-atm10": { type: "java-app", name: "ATM10 Server", id: "atm10_server", entrypoint: "startserver.jar", memory: "10G", port: "25565", folder: "data", tags: "minecraft, neoforge, atm10", game: "Minecraft", software: "ATM10", eula: true },
-  palworld: { type: "custom-command", name: "Palworld Server", id: "palworld_server", executable: "bash", args: "start.sh", memory: "8G", port: "8211", folder: "data", tags: "palworld, steamcmd", game: "Palworld", software: "Dedicated Server" },
-  rust: { type: "custom-command", name: "Rust Server", id: "rust_server", executable: "bash", args: "start.sh", memory: "8G", port: "28015", folder: "data", tags: "rust, steamcmd", game: "Rust", software: "Dedicated Server" },
-  cs2: { type: "custom-command", name: "Counter-Strike 2 Server", id: "cs2_server", executable: "bash", args: "start.sh", memory: "6G", port: "27015", folder: "data", tags: "cs2, steamcmd", game: "Counter-Strike 2", software: "Dedicated Server" },
-  terraria: { type: "custom-command", name: "Terraria Server", id: "terraria_server", executable: "bash", args: "start.sh", memory: "2G", port: "7777", folder: "data", tags: "terraria", game: "Terraria", software: "Dedicated Server" },
-  valheim: { type: "custom-command", name: "Valheim Server", id: "valheim_server", executable: "bash", args: "start.sh", memory: "4G", port: "2456", folder: "data", tags: "valheim, steamcmd", game: "Valheim", software: "Dedicated Server" },
-});
 let lastMissingInstanceNoticeAt = 0;
 let lastStaleInstanceRemovedNoticeAt = 0;
 let activeInstanceTab = "overview";
@@ -1891,16 +1847,9 @@ function getDesktopWindowApi() {
 }
 
 function openWorkspaceSurface(surface, context = {}) {
-  // The main window shows Add Server itself (Build 216-A4); only a dedicated
-  // window still asks the main process to switch surfaces.
-  if (!workspaceSurface) return enterAddServer(surface === "create-server" ? "create" : "browse", context);
-  const windowApi = getDesktopWindowApi();
-  if (typeof windowApi?.openWorkspace !== "function") {
-    if (surface === "marketplace") showPage("marketplace");
-    else if (surface === "create-server") openFirstServerGuide();
-    return Promise.resolve({ opened: false, fallback: true });
-  }
-  return windowApi.openWorkspace(surface, context);
+  // The main window shows Add Server itself (Build 216-A4); the separate
+  // Marketplace and Create Server windows were retired in Build 216.
+  return enterAddServer(surface === "create-server" ? "create" : "browse", context);
 }
 
 function openCreateServerWorkspace(template = null) {
@@ -1914,16 +1863,8 @@ function openCreateServerWorkspace(template = null) {
       provider: template?.provider || "static",
     },
   }).catch(() => {});
-  if (template?.id) {
-    localStorage.setItem("anxos:create-server-handoff", JSON.stringify({
-      createdAt: Date.now(),
-      template: {
-        id: template.id,
-      },
-    }));
-  } else {
-    localStorage.removeItem("anxos:create-server-handoff");
-  }
+  // The Create Server window read this hand-off; it was retired in Build 216.
+  localStorage.removeItem("anxos:create-server-handoff");
   return openWorkspaceSurface("create-server", {
     template: template ? { ...template, rawProviderProject: undefined } : null,
   });
@@ -3208,7 +3149,7 @@ function isStartupSoundEnabled() {
 }
 
 function isStartupSplashEnabled() {
-  return !workspaceSurface && readStoredSettings()["startup.enabled"] !== false;
+  return readStoredSettings()["startup.enabled"] !== false;
 }
 
 function normalizeNumber(value, fallback, min, max) {
@@ -3388,10 +3329,6 @@ function markStaleInstanceId(instanceId, error = null) {
 
   notifyStaleInstanceRemoved(error);
   return wasAdded;
-}
-
-function logInstanceCreateFlow(message, details = {}) {
-  console.info("[Instances] Create flow:", message, details);
 }
 
 function logInstanceStaleCleanup(instanceId, reason, details = {}) {
@@ -4347,11 +4284,9 @@ function getTitlebarConnectionState(pageName = getActivePageName()) {
 
 function updateTitlebar(pageName = getActivePageName()) {
   if (titlebarPageTarget) {
-    titlebarPageTarget.textContent = isCreateServerFlow() && (workspaceSurface || pageName === "marketplace")
+    titlebarPageTarget.textContent = isCreateServerFlow() && pageName === "marketplace"
       ? "Create Server"
-      : workspaceSurface === "marketplace"
-        ? "Marketplace"
-        : getPageDisplayName(pageName);
+      : getPageDisplayName(pageName);
   }
 
   const connectionState = getTitlebarConnectionState(pageName);
@@ -4993,7 +4928,7 @@ function showPage(pageName) {
     refreshWebhookAlerts();
   }
 
-  if (!workspaceSurface && safePageName === "marketplace" && !addServerMode) {
+  if (safePageName === "marketplace" && !addServerMode) {
     addServerMode = "browse";
     document.body.dataset.addServerMode = "browse";
   }
@@ -5474,32 +5409,6 @@ function renderAgentGeneratedTokenControls() {
     agentGeneratedTokenNote.textContent = activeAgentGeneratedToken
       ? "This token is not saved automatically. Copy it now and configure the same token on the Agent and Control Center."
       : "Only newly generated tokens are shown here. Existing saved Agent tokens remain protected and masked.";
-  }
-}
-
-// Mobile claim panel: shows the QR + claim metadata for the node the claim was
-// minted for. A claim is explicit (the Desktop minted it for one node), so the
-// panel reflects the last claim and is cleared only when a new one replaces it.
-function renderMobilePairingClaim(result = null) {
-  if (result) {
-    activeMobilePairingClaim = String(result.claimCode || "");
-    activeMobilePairingClaimNodeId = String(result.nodeId || "");
-    if (agentMobileQr && result.qrDataUrl) agentMobileQr.src = result.qrDataUrl;
-    if (agentMobileNode) agentMobileNode.textContent = result.nodeName || "Unavailable";
-    if (agentMobileFingerprint) agentMobileFingerprint.textContent = result.tokenFingerprint || "Unavailable";
-    if (agentMobileUrl) agentMobileUrl.textContent = result.agentUrl || "Unavailable";
-    if (agentMobileAdapter) agentMobileAdapter.textContent = result.adapterUrl || "Not configured";
-    if (agentMobileClaimCode) agentMobileClaimCode.textContent = activeMobilePairingClaim || "Unavailable";
-  }
-  const hasClaim = Boolean(activeMobilePairingClaim);
-  if (agentMobileClaim) agentMobileClaim.hidden = !hasClaim;
-  if (!hasClaim) {
-    if (agentMobileQr) agentMobileQr.removeAttribute("src");
-    if (agentMobileNode) agentMobileNode.textContent = "Unavailable";
-    if (agentMobileFingerprint) agentMobileFingerprint.textContent = "Unavailable";
-    if (agentMobileUrl) agentMobileUrl.textContent = "Unavailable";
-    if (agentMobileAdapter) agentMobileAdapter.textContent = "Unavailable";
-    if (agentMobileClaimCode) agentMobileClaimCode.textContent = "Unavailable";
   }
 }
 
@@ -6078,7 +5987,6 @@ function renderAgentControlState(payload = agentControlState) {
   setAgentLifecycleField("clients", String(local.connectedClients || 0));
   setAgentLifecycleField("deviceId", local.identity?.deviceId || local.agentIdentity?.deviceId || local.deviceId);
   renderAgentCompatibilityCard(local, runtime);
-  renderMobilePairingClaim();
   if (agentLifecycleSubtitle) {
     agentLifecycleSubtitle.textContent = isLocalTarget
       ? "Start, stop, restart, or repair the managed Local Agent process."
@@ -6113,8 +6021,6 @@ function renderAgentControlState(payload = agentControlState) {
       || (action === "updateAgent" && !isLocalTarget && remoteUpdate.supported !== true)
       || (action === "generateToken" && typeof getDesktopApiState().api?.nodes?.generateToken !== "function")
       || (action === "copyToken" && !activeAgentGeneratedToken)
-      || (action === "pairMobileDevice" && isLocalTarget)
-      || (action === "copyMobileClaim" && !activeMobilePairingClaim)
       || (action === "openDataFolder" && !isLocalTarget)
       || (action === "copyUrl" && !local.agentUrl)
       || (action === "copyId" && !local.identity?.deviceId);
@@ -6139,12 +6045,6 @@ function renderAgentControlState(payload = agentControlState) {
       button.setAttribute("aria-description", button.title);
     } else if (!isLocalTarget && action === "forceRestart") {
       button.title = "Force Restart is only available for this PC's Agent. Use Restart for a node.";
-      button.setAttribute("aria-description", button.title);
-    } else if (action === "pairMobileDevice" && isLocalTarget) {
-      button.title = "Pair mobile devices to a node Agent. This is the application host — use Connect this computer to AnxHost instead.";
-      button.setAttribute("aria-description", button.title);
-    } else if (action === "copyMobileClaim" && !activeMobilePairingClaim) {
-      button.title = "Create a mobile claim first.";
       button.setAttribute("aria-description", button.title);
     } else if (["repairAgent", "installService", "uninstallService", "enableAutoStart", "disableAutoStart"].includes(action) && serviceNeedsElevation) {
       button.title = "Run AnxOS Control Center as Administrator, then retry this Agent service action.";
@@ -7563,7 +7463,7 @@ async function runAgentControlAction(action) {
       : "Instances the Agent runs on that node stop while it restarts. Services managed by systemd keep running.",
     confirmLabel: action === "stop" ? "Stop Agent" : "Restart Agent",
   }))) return;
-  const destructive = { stop: ["Stop local Agent?", "Active Agent operations will disconnect."], forceRestart: ["Force restart local Agent?", "The Agent process will be terminated immediately."], repairAgent: ["Repair local Agent?", "Background registration will be reinstalled and the Agent restarted."], stopOldLocalAgentAndRepair: ["Stop Old Local Agent and Repair?", "AnxOS will stop only a verified old AnxOS Local Agent process, recreate local credentials, and repair Windows startup registration."], updateAllAgents: ["Update all Agents?", "AnxOS updates each connected Linux computer's Agent to this Desktop's build over SSH, one at a time. Package installs use the verified release package and roll back if the new Agent doesn't come up. A computer with servers running under its Agent is skipped; Docker containers and separate system services keep running."], updateAgent: remoteUpdateSupport.supported ? ["Update the Agent on this node?", "AnxOS updates the node's Agent to this Desktop's build over SSH: from the verified release package when the Agent is installed as a package, otherwise from the bundled runtime. It backs up, restarts and verifies the Agent, and rolls back if it doesn't come up. Servers running under the Agent stop during the restart; a package install is refused while any run."] : ["Update Local Agent?", "AnxOS will back up Agent configuration, stop the Local Agent, repair the bundled runtime registration, restart it, and verify health."], pairMobileDevice: ["Pair a mobile device to this node?", "The node's Agent credential is replaced with a new one for the phone. This Desktop switches to the new credential automatically; any other device still using the old one loses access until it is re-paired."], uninstallService: ["Uninstall Agent background service?", "Automatic startup will be removed."], resetConfig: ["Reset Agent configuration?", "Current settings will be backed up before defaults are restored."] }[action];
+  const destructive = { stop: ["Stop local Agent?", "Active Agent operations will disconnect."], forceRestart: ["Force restart local Agent?", "The Agent process will be terminated immediately."], repairAgent: ["Repair local Agent?", "Background registration will be reinstalled and the Agent restarted."], stopOldLocalAgentAndRepair: ["Stop Old Local Agent and Repair?", "AnxOS will stop only a verified old AnxOS Local Agent process, recreate local credentials, and repair Windows startup registration."], updateAllAgents: ["Update all Agents?", "AnxOS updates each connected Linux computer's Agent to this Desktop's build over SSH, one at a time. Package installs use the verified release package and roll back if the new Agent doesn't come up. A computer with servers running under its Agent is skipped; Docker containers and separate system services keep running."], updateAgent: remoteUpdateSupport.supported ? ["Update the Agent on this node?", "AnxOS updates the node's Agent to this Desktop's build over SSH: from the verified release package when the Agent is installed as a package, otherwise from the bundled runtime. It backs up, restarts and verifies the Agent, and rolls back if it doesn't come up. Servers running under the Agent stop during the restart; a package install is refused while any run."] : ["Update Local Agent?", "AnxOS will back up Agent configuration, stop the Local Agent, repair the bundled runtime registration, restart it, and verify health."], uninstallService: ["Uninstall Agent background service?", "Automatic startup will be removed."], resetConfig: ["Reset Agent configuration?", "Current settings will be backed up before defaults are restored."] }[action];
   if (action === "updateAgent" && remoteUpdateSupport.supported) {
     if (!(await confirmRemoteAgentUpdate(remoteUpdateSupport, remoteNodeName))) return;
   } else if (destructive && !remoteLifecycleAction && !(await createSecurityConfirmation({ title: destructive[0], message: destructive[1], confirmLabel: "Continue" }))) return;
@@ -7597,8 +7497,6 @@ async function runAgentControlAction(action) {
     copyPairingCode: "Copy Agent pairing code",
     generateToken: "Generate Agent token",
     copyToken: "Copy Agent token",
-    pairMobileDevice: "Pair Mobile Device",
-    copyMobileClaim: "Copy Mobile Claim",
     learnLocalAgent: "Learn about Local Agent",
     useRemoteAgent: "Use Remote Agent",
     rotateToken: "Rotate Agent token",
@@ -7671,24 +7569,6 @@ async function runAgentControlAction(action) {
       if (!activeAgentGeneratedToken) throw new Error("Generate a token before copying.");
       await navigator.clipboard.writeText(activeAgentGeneratedToken);
       showToast("Agent token copied.", "success");
-    }
-    else if (action === "pairMobileDevice") {
-      const target = getAgentControlOverviewTarget();
-      if (isAgentTargetLocal(target)) throw new Error("Pair mobile devices to a node Agent. The application host is connected from Connect this computer to AnxHost.");
-      const targetNodeId = target?.nodeId || getSelectedNodeId();
-      const nodesApi = getDesktopApiState().api?.nodes;
-      if (typeof nodesApi?.createMobilePairing !== "function") throw new Error("Mobile pairing is unavailable in this build.");
-      const result = await nodesApi.createMobilePairing(targetNodeId);
-      renderMobilePairingClaim(result);
-      if (agentControlMessage) {
-        agentControlMessage.textContent = `Mobile claim ready for ${result?.nodeName || "the node"} (credential ${result?.tokenFingerprint || "unknown"}). The claim carries this node's new credential — show it only to your own device.`;
-      }
-      showToast(`Mobile claim ready for ${result?.nodeName || "the node"}. Scan the QR or copy the claim code.`, "success");
-    }
-    else if (action === "copyMobileClaim") {
-      if (!activeMobilePairingClaim) throw new Error("Create a mobile claim before copying.");
-      await navigator.clipboard.writeText(activeMobilePairingClaim);
-      showToast("Mobile claim code copied.", "success");
     }
     else if (action === "useRemoteAgent") {
       showToast("Remote Agent mode stays available. Add or select a remote node from the node picker or Agent Connection settings.", "info");
@@ -17051,10 +16931,6 @@ function updateInstanceActionButtons() {
     instancesCreateToggleButton.disabled = busy || !hasInstancesBridge;
   }
 
-  if (instanceCreateSubmitButton) {
-    instanceCreateSubmitButton.disabled = busy || !hasInstancesBridge;
-  }
-
   if (instancesSearchInput) {
     instancesSearchInput.disabled = !hasInstancesBridge || getInstances().length === 0;
   }
@@ -22021,18 +21897,8 @@ function openFirstServerGuide() {
     const templateButton = event.target.closest("[data-first-server-template]");
     if (templateButton) {
       const templateId = templateButton.dataset.firstServerTemplate;
-      const template = findMarketplaceTemplate(templateId);
       closeModal();
-      if (!workspaceSurface) {
-        enterAddServer("create", { template: { id: templateId }, source: "manual" }).catch(() => {});
-        return;
-      }
-      showPage("marketplace");
-      marketplaceActiveCategory = template?.category || "All";
-      renderMarketplaceCategories();
-      renderMarketplaceTemplates();
-      openMarketplaceWizard(templateId, { source: "manual" });
-      setMarketplaceMessage("AnxHost will check this system and install the server using the selected options.");
+      enterAddServer("create", { template: { id: templateId }, source: "manual" }).catch(() => {});
       return;
     }
     if (event.target.closest('[data-first-server-action="marketplace"]')) {
@@ -25159,13 +25025,6 @@ async function installMarketplaceTemplate(event) {
   }
 }
 
-function parseCsv(value) {
-  return String(value || "")
-    .split(",")
-    .map((part) => part.trim())
-    .filter(Boolean);
-}
-
 function parseArgs(value) {
   const raw = String(value || "").trim();
 
@@ -25198,36 +25057,6 @@ function normalizeMemoryLimit(value) {
   return `${match[1]}${match[2] ? match[2].toUpperCase() : ""}`;
 }
 
-function parseEnvironment(value) {
-  return parseCsv(value).reduce((environment, entry) => {
-    const separatorIndex = entry.indexOf("=");
-    if (separatorIndex <= 0) {
-      return environment;
-    }
-
-    const key = entry.slice(0, separatorIndex).trim();
-    const envValue = entry.slice(separatorIndex + 1).trim();
-    if (key) {
-      environment[key] = envValue;
-    }
-    return environment;
-  }, {});
-}
-
-function getInstanceFormValue(name) {
-  return document.querySelector(`[data-instance-form="${name}"]`)?.value?.trim() || "";
-}
-
-function setInstanceFormMessage(message) {
-  if (!instanceFormMessage) return;
-  // The create-instance form sets the same static hint on every keystroke of
-  // every field. Skip the write when the text is already correct rather than
-  // debouncing it: the hint must appear on the first keystroke, and a single
-  // textContent assignment is all this costs when it does change.
-  if (instanceFormMessage.textContent === message) return;
-  instanceFormMessage.textContent = message;
-}
-
 function getMarketplaceDownloadErrorSummary(download = {}) {
   const message = sanitizeNotificationText(download.error || download.body || "The Marketplace operation could not be completed.", 240);
   return message.replace(/\s*\([^)]*(?:operation|request|node|template)Id=[^)]*\)\s*$/i, "").trim();
@@ -25248,151 +25077,6 @@ function getMarketplaceDownloadRecovery(download = {}) {
   if (code.includes("AGENT") || code === "UNAUTHORIZED") return "Reconnect the selected Agent, then retry.";
   if (code.includes("CDN")) return "Check network access to ForgeCDN, then retry.";
   return download.actionText || "Review Details for diagnostics, correct the issue, then retry.";
-}
-
-function setInstanceFormValue(name, value = "") {
-  const input = document.querySelector(`[data-instance-form="${name}"]`);
-  if (!input) return;
-  if (input.type === "checkbox") input.checked = Boolean(value);
-  else input.value = String(value ?? "");
-}
-
-function applyInstanceServerPreset(presetId, { preserveIdentity = false } = {}) {
-  const preset = INSTANCE_SERVER_PRESETS[presetId];
-  if (!preset) return;
-  selectedInstancePresetId = presetId;
-  setInstanceFormValue("type", preset.type);
-  if (!preserveIdentity) {
-    setInstanceFormValue("displayName", preset.name);
-    setInstanceFormValue("id", preset.id);
-  }
-  setInstanceFormValue("entrypoint", preset.entrypoint || "");
-  setInstanceFormValue("executable", preset.executable || "");
-  setInstanceFormValue("args", preset.args || "");
-  setInstanceFormValue("memoryLimit", preset.memory);
-  setInstanceFormValue("ports", preset.port);
-  setInstanceFormValue("workingDirectory", preset.folder);
-  setInstanceFormValue("environment", "");
-  setInstanceFormValue("tags", preset.tags);
-  setInstanceFormValue("acceptEula", preset.eula === true);
-  syncInstanceCreateTypeFields();
-  setInstanceFormMessage(`${preset.name} defaults loaded. Review every field before creating the instance.`);
-}
-
-function syncInstanceCreateTypeFields() {
-  const type = instanceTypeSelect?.value || "custom-command";
-  const executableInput = document.querySelector('[data-instance-form="executable"]');
-  const entrypointInput = document.querySelector('[data-instance-form="entrypoint"]');
-
-  if (instanceEntrypointField) {
-    instanceEntrypointField.hidden = type === "custom-command";
-  }
-
-  instanceCustomFields.forEach((field) => {
-    field.hidden = type !== "custom-command";
-  });
-
-  instanceTemplateButtons.forEach((button) => {
-    const active = button.dataset.instancePreset === selectedInstancePresetId;
-    button.classList.toggle("is-active", active);
-    button.setAttribute("aria-checked", active ? "true" : "false");
-  });
-
-  if (executableInput && !executableInput.value.trim()) {
-    executableInput.placeholder =
-      type === "custom-command" ? "node" :
-        type === "node-app" ? "node" :
-          type === "python-app" ? "python3" :
-            "java";
-  }
-
-  if (entrypointInput) {
-    entrypointInput.placeholder =
-      type === "node-app" ? "index.js" :
-        type === "python-app" ? "app.py" :
-          type === "java-app" ? "app.jar" :
-            type === "minecraft-paper" ? "paper.jar" :
-              "";
-  }
-}
-
-function buildInstanceCreatePayload() {
-  const id = getInstanceFormValue("id");
-  const displayName = getInstanceFormValue("displayName");
-  const type = getInstanceFormValue("type") || "custom-command";
-  const executable = getInstanceFormValue("executable");
-  const entrypoint = getInstanceFormValue("entrypoint");
-  const workingDirectory = getInstanceFormValue("workingDirectory");
-  const args = parseArgs(getInstanceFormValue("args"));
-  const memoryLimit = normalizeMemoryLimit(getInstanceFormValue("memoryLimit"));
-  const ports = parseCsv(getInstanceFormValue("ports")).map((port) => Number.parseInt(port, 10)).filter(Number.isFinite);
-  const tags = parseCsv(getInstanceFormValue("tags"));
-  const environment = parseEnvironment(getInstanceFormValue("environment"));
-
-  if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{1,63}$/.test(id)) {
-    throw new Error("Use an ID with 2-64 letters, numbers, underscores, or dashes.");
-  }
-
-  const payload = {
-    id,
-    displayName: displayName || id,
-    type,
-    args,
-    ports,
-    tags,
-    environment,
-  };
-  const preset = INSTANCE_SERVER_PRESETS[selectedInstancePresetId];
-  if (preset) {
-    payload.templateId = selectedInstancePresetId;
-    payload.game = preset.game;
-    payload.serverSoftware = preset.software;
-    payload.primaryPort = ports[0] || null;
-  }
-
-  if (memoryLimit) {
-    payload.memoryLimit = memoryLimit;
-  }
-
-  if (preset?.game === "Minecraft" && !payload.tags.includes("minecraft")) {
-    payload.tags.push("minecraft");
-  }
-
-  if (executable) {
-    payload.executable = executable;
-  }
-
-  if (workingDirectory) {
-    payload.workingDirectory = workingDirectory;
-  }
-
-  if (entrypoint && type !== "custom-command") {
-    if (type === "java-app" || type === "minecraft-paper") {
-      payload.jar = entrypoint;
-    } else {
-      payload.entrypoint = entrypoint;
-    }
-  }
-
-  return payload;
-}
-
-function setInstanceCreateFormVisible(visible) {
-  instanceCreateFormVisible = Boolean(visible);
-
-  if (instanceCreateForm) {
-    instanceCreateForm.hidden = !instanceCreateFormVisible;
-  }
-
-  if (instancesDetailsPanel) {
-    instancesDetailsPanel.hidden = instanceCreateFormVisible;
-  }
-
-  if (instancesCreateToggleButton) {
-    instancesCreateToggleButton.textContent = "Create Server";
-  }
-
-  syncInstanceCreateTypeFields();
 }
 
 async function refreshInstances(options = {}) {
@@ -25625,142 +25309,6 @@ function syncInstanceConsolePolling() {
     return;
   }
   stopInstanceConsolePolling();
-}
-
-async function createInstanceFromForm(event) {
-  event?.preventDefault();
-
-  const desktopApiState = getDesktopApiState();
-  const requestContext = createNodeActionContext("instance-create");
-
-  if (!desktopApiState.hasInstances || instanceActionRequestInFlight) {
-    return;
-  }
-
-  let payload;
-
-  try {
-    payload = buildInstanceCreatePayload();
-  } catch (error) {
-    setInstanceFormMessage(error?.message || "Check instance form values.");
-    return;
-  }
-
-  instanceActionRequestInFlight = true;
-  updateInstanceActionButtons();
-  setInstanceFormMessage("Creating instance...");
-  let createdInstanceId = null;
-  let createdInstanceAccepted = false;
-
-  try {
-    logInstanceCreateFlow("submitting create request", {
-      requestedId: payload.id,
-      type: payload.type,
-      memoryLimit: payload.memoryLimit || null,
-    });
-    if (!isNodeActionStillCurrent(requestContext)) return;
-    payload.nodeId = requestContext.nodeId;
-    const response = await desktopApiState.api.instances.create(payload);
-    const instance = normalizeInstanceResponse(response);
-    createdInstanceId = instance?.id || payload.id;
-    selectedInstanceId = createdInstanceId;
-    forgetStaleInstanceId(createdInstanceId);
-    logInstanceCreateFlow("created instance", {
-      createdId: createdInstanceId,
-      responseId: instance?.id || null,
-    });
-
-    const refreshedInstances = await refreshInstances({ refreshMetrics: false });
-    const refreshedInstanceIds = refreshedInstances.map((candidate) => candidate.id);
-    logInstanceCreateFlow("refreshed after create", {
-      createdId: createdInstanceId,
-      refreshedInstanceIds,
-    });
-
-    if (!refreshedInstanceIds.includes(createdInstanceId)) {
-      await handleMissingSelectedInstance(null, createdInstanceId, "create-refresh-missing");
-      setInstanceFormMessage("Created instance was not returned by the agent refresh. Removed stale entry from the list.");
-      return;
-    }
-
-    createdInstanceAccepted = true;
-    selectInstance(createdInstanceId, { refreshMetrics: false });
-
-    if (payload.game === "Minecraft") {
-      const acceptEula = document.querySelector('[data-instance-form="acceptEula"]')?.checked === true;
-      if (acceptEula) {
-        if (!isNodeActionStillCurrent(requestContext)) return;
-        await desktopApiState.api.instances.writeFile(createdInstanceId, "eula.txt", "eula=true\n", getNodeScopedPayload(requestContext));
-      }
-      if (!isNodeActionStillCurrent(requestContext)) return;
-      await desktopApiState.api.instances.saveMinecraftProperties(createdInstanceId, {
-        "server-port": payload.ports?.[0] ? String(payload.ports[0]) : "25565",
-        motd: payload.displayName || payload.id,
-        "max-players": "20",
-        difficulty: "easy",
-        gamemode: "survival",
-        "view-distance": "10",
-        "simulation-distance": "10",
-        "online-mode": "true",
-        "allow-flight": "false",
-        "spawn-protection": "16",
-        pvp: "true",
-        "white-list": "false",
-        "generate-structures": "true",
-        "level-seed": "",
-      }, getNodeScopedPayload(requestContext));
-    }
-
-    setInstanceCreateFormVisible(false);
-    instanceCreateForm?.reset();
-    applyInstanceServerPreset("minecraft-paper");
-    setInstanceFormMessage("Commands run without a shell. Secrets are not accepted in environment variable names.");
-    createNotification({
-      category: "Instances",
-      severity: "success",
-      title: "Server created",
-      message: `${payload.displayName || payload.id} was created from the ${INSTANCE_SERVER_PRESETS[payload.templateId]?.name || "custom"} template.`,
-      dedupKey: `instance-created:${payload.id}`,
-      relatedWorkspace: "instances",
-      actions: ["openInstances"],
-    });
-    showToast("Instance created.", "success");
-    await refreshInstances();
-  } catch (error) {
-    if (isInstanceNotFoundError(error)) {
-      const candidateId = createdInstanceId || selectedInstanceId || payload.id;
-      const refreshedInstances = await refreshInstances({ refreshMetrics: false });
-      const refreshedInstanceIds = refreshedInstances.map((candidate) => candidate.id);
-      logInstanceCreateFlow("not-found during create follow-up", {
-        createdId: candidateId,
-        createdInstanceAccepted,
-        refreshedInstanceIds,
-        errorCode: getAgentErrorCode(error),
-      });
-
-      if (!refreshedInstanceIds.includes(candidateId)) {
-        await handleMissingSelectedInstance(error, candidateId, "create-follow-up-not-found-and-missing-after-refresh");
-        setInstanceFormMessage("Created instance was not available. Removed stale entry from the list.");
-      } else {
-        console.warn("[Instances] Create follow-up request returned not found, but the created instance is present after refresh.", {
-          createdId: candidateId,
-          refreshedInstanceIds,
-          error,
-        });
-        selectedInstanceId = candidateId;
-        selectInstance(candidateId, { refreshMetrics: false });
-        setInstanceCreateFormVisible(false);
-        instanceCreateForm?.reset();
-        setInstanceFormMessage("Instance created. A follow-up configuration step was not available yet; refresh or open Settings to retry.");
-        showToast("Instance created. Some setup could not be applied yet.", "warning");
-      }
-    } else {
-      setInstanceFormMessage(getAgentErrorMessage(error, "Create instance failed."));
-    }
-  } finally {
-    instanceActionRequestInFlight = false;
-    updateInstanceActionButtons();
-  }
 }
 
 function getSteamCmdUpdateErrorMessage(error) {
@@ -31763,20 +31311,13 @@ async function loadStorageConnections() {
 
 function openStorageModal(connection = null) {
   // Build 216-A8: Add Storage opens in the main window. The separate window
-  // (kept until its retirement is approved) could not save: its script used
-  // a bridge name the preload never exposed.
+  // (it could never save: its script used a bridge name the preload never
+  // exposed) was retired in Build 216 with the owner's approval.
   if (window.AnxAddStorageDialog) {
     window.AnxAddStorageDialog.open(connection && connection.id !== "local" ? connection : null);
     return;
   }
-  const desktopApiState = getDesktopApiState();
-  if (desktopApiState.api?.storageWindow?.open) {
-    desktopApiState.api.storageWindow.open(connection && connection.id !== "local" ? { connection } : {}).catch((error) => {
-      showToast(error?.message || "Add Storage window could not be opened.");
-    });
-    return;
-  }
-  showToast("Add Storage window is unavailable.");
+  showToast("Add Storage is unavailable.");
 }
 
 async function deleteSelectedStorageConnection() {
@@ -32392,12 +31933,6 @@ function formatAmpUsage(summary) {
   return `AMP CPU ${cpu} · ${ram}`;
 }
 
-function formatAmpRuntime(summary) {
-  const ports = Array.isArray(summary?.ports) && summary.ports.length > 0 ? summary.ports.join(", ") : "Ports unavailable";
-  const uptime = Number.isFinite(summary?.uptime) ? formatDuration(summary.uptime) : "Uptime unavailable";
-  return `${ports} · ${uptime}`;
-}
-
 function formatMinecraftDashboardRuntime(summary) {
   return Number.isFinite(summary?.uptime) ? formatDuration(summary.uptime) : "Not reported";
 }
@@ -32854,93 +32389,10 @@ function formatPlayerSummary(summary) {
   return `Players: ${players}/${maxPlayers} · TPS: ${tps}`;
 }
 
-function formatMinecraftInstanceName(snapshot) {
-  const selectedInstance = snapshot?.selectedInstance;
-  const selectedName = selectedInstance?.friendlyName || selectedInstance?.name || snapshot?.summary?.selectedInstanceName;
-
-  if (!selectedName) {
-    return "Unavailable";
-  }
-
-  const moduleType = selectedInstance?.moduleType;
-  return moduleType ? `${selectedName} · ${moduleType}` : selectedName;
-}
-
-function formatAmpMinecraftPlayers(summary) {
-  const players = Number.isFinite(summary?.playerCount) ? summary.playerCount : "Unavailable";
-  const maxPlayers = Number.isFinite(summary?.maxPlayers) ? summary.maxPlayers : "Unavailable";
-  return `${players} / ${maxPlayers}`;
-}
-
-function formatAmpMinecraftTps(summary) {
-  return Number.isFinite(summary?.tps) ? summary.tps.toFixed(1) : "Unavailable";
-}
-
-function formatMinecraftRam(summary) {
-  return Number.isFinite(summary?.ramUsage) ? `${summary.ramUsage.toFixed(1)} MB` : "Unavailable";
-}
-
-function formatMinecraftCpu(summary) {
-  return formatPercent(summary?.cpuUsage);
-}
-
-function formatMinecraftState(summary, fallback) {
-  const state = summary?.state;
-
-  if (state === null || state === undefined || state === "") {
-    return fallback;
-  }
-
-  return typeof state === "number" ? `State ${state}` : String(state);
-}
-
-function formatMinecraftPorts(summary) {
-  return Array.isArray(summary?.ports) && summary.ports.length > 0 ? summary.ports.join(", ") : "Unavailable";
-}
-
-function formatMinecraftUptime(summary) {
-  return Number.isFinite(summary?.uptime) ? formatDuration(summary.uptime) : "Unavailable";
-}
-
-function setMinecraftPageFields(fields) {
-  setField("minecraftPageStatus", fields.status);
-  setField("minecraftPageSelectedInstance", fields.selection);
-  setField("minecraftPageInstance", fields.instance);
-  setField("minecraftPagePlayers", fields.players);
-  setField("minecraftPageTps", fields.tps);
-  setField("minecraftPageRam", fields.ram);
-  setField("minecraftPageCpu", fields.cpu);
-  setField("minecraftPageVersion", fields.version);
-  setField("minecraftPagePorts", fields.ports);
-  setField("minecraftPageUptime", fields.uptime);
-}
-
-function setMinecraftPageUnavailable(status, selection) {
-  setMinecraftPageFields({
-    status,
-    selection,
-    instance: "Unavailable",
-    players: "Unavailable",
-    tps: "Unavailable",
-    ram: "Unavailable",
-    cpu: "Unavailable",
-    version: "Unavailable",
-    ports: "Unavailable",
-    uptime: "Unavailable",
-  });
-}
-
 function renderAmpSnapshot(snapshot) {
   updateAmpPanelLink(snapshot);
 
   if (!snapshot?.configured) {
-    setField("ampStatus", "Unconfigured");
-    setField("ampConnection", "AMP is not configured. Set AMP_URL, AMP_USERNAME, and AMP_PASSWORD in .env.");
-    setField("ampInstances", "No AMP data loaded.");
-    setField("ampPlayers", "Player count unavailable.");
-    setField("ampUsage", "AMP usage unavailable.");
-    setField("ampRuntime", "Unavailable");
-    setField("ampVersion", "Unavailable");
     setField("ampDashboardConnection", "AMP is not configured.");
     setField("ampDashboardStatus", "Unconfigured");
     setField("ampDashboardInstances", "Unavailable");
@@ -32949,7 +32401,6 @@ function renderAmpSnapshot(snapshot) {
     setField("minecraftDashboardPlayers", "Unavailable");
     setField("minecraftDashboardRuntime", "Not reported");
     setField("minecraftDashboardVersion", "Unavailable");
-    setMinecraftPageUnavailable("Unconfigured", "AMP is not configured. Set AMP_URL, AMP_USERNAME, and AMP_PASSWORD in .env.");
     updateTitlebar();
     return;
   }
@@ -32958,24 +32409,11 @@ function renderAmpSnapshot(snapshot) {
   const connectionText = formatAmpConnection(snapshot);
   const instancesText = formatAmpInstances(snapshot, selectionText);
   const usageText = formatAmpUsage(snapshot.summary);
-  const runtimeText = formatAmpRuntime(snapshot.summary);
   const minecraftRuntimeText = formatMinecraftDashboardRuntime(snapshot.summary);
   const versionText = formatAmpVersion(snapshot.summary);
   const playersText = formatPlayerSummary(snapshot.summary);
   const statusText = formatAmpStatusLabel(snapshot);
 
-  setField(
-    "ampConnection",
-    connectionText,
-  );
-  setField("ampStatus", statusText);
-  setField(
-    "ampInstances",
-    instancesText,
-  );
-  setField("ampUsage", usageText);
-  setField("ampRuntime", runtimeText);
-  setField("ampVersion", versionText);
   setField("ampDashboardConnection", connectionText);
   setField("ampDashboardStatus", statusText);
   setField("ampDashboardInstances", instancesText);
@@ -32984,20 +32422,7 @@ function renderAmpSnapshot(snapshot) {
   setField("minecraftDashboardPlayers", playersText);
   setField("minecraftDashboardRuntime", minecraftRuntimeText);
   setField("minecraftDashboardVersion", versionText);
-  setMinecraftPageFields({
-    status: formatMinecraftState(snapshot.summary, statusText),
-    selection: selectionText,
-    instance: formatMinecraftInstanceName(snapshot),
-    players: formatAmpMinecraftPlayers(snapshot.summary),
-    tps: formatAmpMinecraftTps(snapshot.summary),
-    ram: formatMinecraftRam(snapshot.summary),
-    cpu: formatMinecraftCpu(snapshot.summary),
-    version: versionText,
-    ports: formatMinecraftPorts(snapshot.summary),
-    uptime: formatMinecraftUptime(snapshot.summary),
-  });
 
-  setField("ampPlayers", `${playersText} · ${versionText} · ${runtimeText}`);
   updateTitlebar();
 }
 
@@ -33012,13 +32437,6 @@ async function refreshAmpDashboard(options = {}) {
     const message = desktopApiState.hasBridge ? "AMP IPC bridge unavailable." : "Desktop preload bridge unavailable.";
     latestAmpSnapshot = null;
     updateAmpPanelLink(null);
-    setField("ampConnection", message);
-    setField("ampStatus", "Unavailable");
-    setField("ampInstances", "Unavailable");
-    setField("ampPlayers", "Unavailable");
-    setField("ampUsage", "Unavailable");
-    setField("ampRuntime", "Unavailable");
-    setField("ampVersion", "Unavailable");
     setField("ampDashboardConnection", message);
     setField("ampDashboardStatus", "Unavailable");
     setField("ampDashboardInstances", "Unavailable");
@@ -33027,7 +32445,6 @@ async function refreshAmpDashboard(options = {}) {
     setField("minecraftDashboardPlayers", "Unavailable");
     setField("minecraftDashboardRuntime", "Not reported");
     setField("minecraftDashboardVersion", "Unavailable");
-    setMinecraftPageUnavailable("Unavailable", message);
     markStartupReady("amp");
     updateTitlebar();
     return;
@@ -33071,13 +32488,6 @@ async function refreshAmpDashboard(options = {}) {
     );
     latestAmpSnapshot = null;
     updateAmpPanelLink(null);
-    setField("ampConnection", message);
-    setField("ampStatus", "Unavailable");
-    setField("ampInstances", "Unavailable");
-    setField("ampPlayers", "Unavailable");
-    setField("ampUsage", "Unavailable");
-    setField("ampRuntime", "Unavailable");
-    setField("ampVersion", "Unavailable");
     setField("ampDashboardConnection", message);
     setField("ampDashboardStatus", "Unavailable");
     setField("ampDashboardInstances", "Unavailable");
@@ -33086,7 +32496,6 @@ async function refreshAmpDashboard(options = {}) {
     setField("minecraftDashboardPlayers", "Unavailable");
     setField("minecraftDashboardRuntime", "Not reported");
     setField("minecraftDashboardVersion", "Unavailable");
-    setMinecraftPageUnavailable("Unavailable", message);
     updateTitlebar();
   } finally {
     if (isNodeRequestCurrent(requestContext)) {
@@ -38527,58 +37936,11 @@ async function bootstrapApplication() {
   setupDeveloperUpdates();
   startStartupFallback();
   refreshDockerStatus();
-  if (workspaceSurface) {
-    const initialWorkspace = await getDesktopWindowApi()?.getWorkspaceContext?.().catch(() => null);
-    const storedHandoff = (() => {
-      try {
-        const value = JSON.parse(localStorage.getItem("anxos:create-server-handoff") || "null");
-        if (value?.template?.id && Date.now() - Number(value.createdAt || 0) < 30000) return value;
-      } catch {}
-      return null;
-    })();
-    const initialContext = initialWorkspace?.context?.template
-      ? initialWorkspace.context
-      : workspaceInitContext?.template
-        ? workspaceInitContext
-        : storedHandoff?.template
-          ? storedHandoff
-        : workspaceTemplateId
-          ? { template: { id: workspaceTemplateId } }
-          : {};
-    getDesktopApi()?.diagnostics?.log?.({
-      severity: "info",
-      source: "renderer",
-      operation: "workspace-window-init",
-      message: "Initialized a dedicated workspace window.",
-      context: {
-        surface: workspaceSurface,
-        queryTemplateId: workspaceTemplateId || null,
-        contextTemplateId: initialContext?.template?.id || null,
-        storedTemplateId: storedHandoff?.template?.id || null,
-      },
-    }).catch(() => {});
-    await applyWorkspaceWindowContext(initialContext);
-  }
-}
-
-async function applyWorkspaceWindowContext(context = {}) {
-  if (!workspaceSurface) return;
-  workspaceInitContext = context || {};
-  showPage("marketplace");
-  if (workspaceSurface === "marketplace") {
-    restoreMarketplaceViewState();
-    renderMarketplaceCategories();
-    renderMarketplaceProviderControls();
-    return;
-  }
-  await applyCreateServerContext(context);
 }
 
 // The Create Server view for a template (or the first-server guide when no
-// template is given): the dedicated window's view, and since Build 216-A4 the
-// main window's create mode.
+// template is given): the main window's create mode (Build 216-A4).
 async function applyCreateServerContext(context = {}) {
-  if (workspaceSurface) document.title = "Create Server — AnxOS Control Center";
   if (titlebarPageTarget) titlebarPageTarget.textContent = "Create Server";
   const marketplaceHeading = document.querySelector('[data-page="marketplace"] .page-header h1');
   const marketplaceLede = document.querySelector('[data-page="marketplace"] .page-header .lede');
@@ -38587,7 +37949,7 @@ async function applyCreateServerContext(context = {}) {
   const hasExplicitTemplateContext = Object.prototype.hasOwnProperty.call(context || {}, "template");
   const requestedTemplateId = hasExplicitTemplateContext
     ? context?.template?.id || ""
-    : workspaceTemplateId;
+    : "";
   const contextTemplate = context?.template || null;
   const providerContextTemplate = contextTemplate?.displayName && isProviderMarketplaceTemplate(contextTemplate)
     ? contextTemplate
@@ -40264,7 +39626,6 @@ function resetNodeScopedRendererState(message = "Loading selected node...") {
 
   clearDashboardMetricsForActiveTarget(DASHBOARD_METRIC_PLACEHOLDERS[0]);
   updateAmpPanelLink(null);
-  setMinecraftPageUnavailable("Loading", message);
   renderPlayitUnavailable(message);
   renderDockerUnavailable(message);
   renderDependencyStatus(null);
@@ -49684,7 +49045,7 @@ navItems.forEach((item) => {
     if (item.hidden || item.getAttribute("aria-disabled") === "true") {
       return;
     }
-    if (item.dataset.pageTarget === "marketplace" && !workspaceSurface) {
+    if (item.dataset.pageTarget === "marketplace") {
       openWorkspaceSurface("marketplace");
       return;
     }
@@ -50094,11 +49455,6 @@ filesList?.closest(".file-table-wrap")?.addEventListener("contextmenu", (event) 
 filesRefreshButton?.addEventListener("click", () => {
   refreshCurrentFilesDirectory();
 });
-getDesktopApiState().api?.storageWindow?.onSaved?.((payload) => {
-  handleStorageConnectionSaved(payload).catch((error) => {
-    showToast(error?.message || "Storage list could not be refreshed.");
-  });
-});
 document.querySelector('[data-file-action="upload"]')?.addEventListener("click", uploadRemoteFile);
 document.querySelector('[data-file-action="download"]')?.addEventListener("click", downloadRemoteFile);
 document.querySelector('[data-file-action="rename"]')?.addEventListener("click", renameRemoteEntry);
@@ -50432,12 +49788,8 @@ document.querySelector("[data-marketplace-choose-application]")?.addEventListene
 });
 
 marketplaceCancelButton?.addEventListener("click", () => {
-  if (workspaceSurface === "create-server" && !marketplaceInstallInFlight) {
-    getDesktopWindowApi()?.close?.();
-    return;
-  }
   closeMarketplaceWizard();
-  if (!workspaceSurface && addServerMode === "create" && !marketplaceInstallInFlight) {
+  if (addServerMode === "create" && !marketplaceInstallInFlight) {
     enterAddServer("browse").catch(() => {});
   }
 });
@@ -50508,7 +49860,6 @@ instancesRefreshButtons.forEach((button) => {
   button.addEventListener("click", refreshInstances);
 });
 instancesCreateToggleButton?.addEventListener("click", () => openCreateServerWorkspace());
-document.querySelector('[data-instance-action="cancel-create"]')?.addEventListener("click", () => setInstanceCreateFormVisible(false));
 instancesStartButtons.forEach((button) => {
   button.addEventListener("click", () => runInstanceAction("start"));
 });
@@ -50610,22 +49961,8 @@ instanceTabs.forEach((button) => {
     setActiveInstanceTab(target);
   });
 });
-instanceTemplateButtons.forEach((button) => {
-  button.addEventListener("click", () => {
-    applyInstanceServerPreset(button.dataset.instancePreset || "minecraft-paper");
-  });
-});
 document.querySelector('[data-marketplace-shortcut="downloads"]')?.addEventListener("click", () => showPage("operations"));
 document.querySelector('[data-marketplace-shortcut="notifications"]')?.addEventListener("click", () => showPage("notifications"));
-instanceCreateForm?.addEventListener("submit", createInstanceFromForm);
-instanceTypeSelect?.addEventListener("change", syncInstanceCreateTypeFields);
-instanceFormInputs.forEach((input) => {
-  input.addEventListener("input", () => {
-    if (instanceFormMessage) {
-      setInstanceFormMessage("Commands run without a shell. Secrets are not accepted in environment variable names.");
-    }
-  });
-});
 instanceConfigForm?.addEventListener("submit", saveInstanceConfiguration);
 instanceConfigCancelButton?.addEventListener("click", discardInstanceSettingsEdits);
 instanceConfigInputs.forEach((input) => {
@@ -50662,7 +49999,7 @@ gameConfigAdvancedInput?.addEventListener("change", () => {
 gameConfigResetCurrentButton?.addEventListener("click", resetGameConfigToCurrent);
 gameConfigResetDefaultButton?.addEventListener("click", resetGameConfigToDefaults);
 gameConfigSaveRestartButton?.addEventListener("click", saveGameConfigAndRestart);
-document.querySelectorAll('[data-instance-form="memoryLimit"], [data-instance-config="memoryLimit"], [data-marketplace-field="memory"]').forEach((input) => {
+document.querySelectorAll('[data-instance-config="memoryLimit"], [data-marketplace-field="memory"]').forEach((input) => {
   input.addEventListener("blur", () => {
     try {
       input.value = normalizeMemoryLimit(input.value);
@@ -50867,7 +50204,6 @@ instanceFileDropzone?.addEventListener("drop", async (event) => {
     instanceFileDropzone.textContent = instanceFileDropzone.dataset.idleLabel || "Drop files here to upload them into this folder.";
   }
 });
-applyInstanceServerPreset("minecraft-paper");
 setActiveInstanceTab(readStoredInstanceTab());
 updateInstanceActionButtons();
 settingsInputs.forEach((input) => {
@@ -51942,47 +51278,7 @@ window.anxos?.security?.onLocked?.(() => {
   setOwnerWorkspaceNavVisible(false);
   refreshSecurityState().catch(() => {});
 });
-getDesktopWindowApi()?.onWorkspaceInit?.((payload = {}) => {
-  if (payload.surface && payload.surface !== workspaceSurface) return;
-  applyWorkspaceWindowContext(payload.context || {}).catch((error) => {
-    setMarketplaceMessage(normalizeIpcErrorMessage(error, "Create Server could not initialize."), "error");
-  });
-});
-getDesktopWindowApi()?.onNavigate?.((payload = {}) => {
-  if (workspaceSurface || payload.page !== "dashboard") return;
-  showPage("dashboard");
-  refreshDashboard().catch(() => {});
-});
-document.querySelectorAll("[data-workspace-nav]").forEach((button) => {
-  button.addEventListener("click", async () => {
-    const action = button.dataset.workspaceNav;
-    if (!workspaceSurface) return;
-    button.disabled = true;
-    try {
-      if (action === "dashboard") {
-        localStorage.setItem(WORKSPACE_NAVIGATION_STORAGE_KEY, JSON.stringify({ page: "dashboard", requestedAt: Date.now() }));
-        await getDesktopWindowApi()?.focusMain?.("dashboard");
-      } else if (workspaceSurface === "create-server") {
-        await openWorkspaceSurface("marketplace");
-      } else {
-        await getDesktopWindowApi()?.focusMain?.();
-      }
-    } finally {
-      button.disabled = false;
-    }
-  });
-});
 window.addEventListener("storage", (event) => {
-  if (event.key === WORKSPACE_NAVIGATION_STORAGE_KEY && !workspaceSurface && event.newValue) {
-    try {
-      const request = JSON.parse(event.newValue);
-      if (request.page === "dashboard") {
-        showPage("dashboard");
-        refreshDashboard().catch(() => {});
-      }
-    } catch {}
-    return;
-  }
   if (event.key === OPERATIONS_STORAGE_KEY) {
     operationsState.loaded = false;
     operationsState.items.clear();

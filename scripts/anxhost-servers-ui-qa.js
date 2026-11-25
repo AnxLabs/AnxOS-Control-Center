@@ -194,41 +194,15 @@ async function run() {
     await page.evaluate(() => document.querySelector('[data-first-server-modal] [data-first-server-action="close"]')?.click());
     await page.waitForTimeout(300);
     await openList(page);
-    const m3 = await page.evaluate(async () => {
-      const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-      setInstanceCreateFormVisible(true);
-      await wait(300);
-      const form = document.querySelector("[data-instance-create-form]");
-      const opened = !form.hidden && form.getClientRects().length > 0;
-      const java = form.querySelector('[data-instance-template="java-app"]');
-      java.click();
-      await wait(150);
-      const type = form.querySelector('[data-instance-form="type"]').value;
-      const javaChecked = java.getAttribute("aria-checked");
-      const custom = form.querySelector('[data-instance-template="custom-command"]');
-      custom.click();
-      await wait(150);
-      const customType = form.querySelector('[data-instance-form="type"]').value;
-      form.querySelector('[data-instance-template="minecraft-paper"]').click();
-      await wait(150);
-      const fields = ["type", "displayName", "id", "entrypoint", "executable", "args", "workingDirectory", "environment", "ports", "memoryLimit", "acceptEula", "playitTunnel", "tags"];
-      const missing = fields.filter((name) => !form.querySelector(`[data-instance-form="${name}"]`));
-      const before = (await window.anxos.instances.list({ nodeId: getSelectedNodeId() }))?.instances?.length ?? null;
-      const id = form.querySelector('[data-instance-form="id"]');
-      id.value = "x";
-      id.dispatchEvent(new Event("input", { bubbles: true }));
-      form.querySelector("[data-instance-create-submit]").click();
-      await wait(800);
-      const message = form.querySelector("[data-instance-form-message]")?.textContent.trim() || form.innerText.match(/Use an ID[^.]*\./)?.[0] || "";
-      const after = (await window.anxos.instances.list({ nodeId: getSelectedNodeId() }))?.instances?.length ?? null;
-      form.querySelector('[data-instance-action="cancel-create"]').click();
-      await wait(300);
-      return { opened, type, javaChecked, customType, missing, message, before, after, closed: form.hidden };
-    });
-    check("M3", m3.opened && m3.closed, `the dormant inline form, shown directly, is visible and Cancel closes it (opened=${m3.opened}, closed=${m3.closed})`);
-    check("M3", m3.javaChecked === "true" && m3.type && m3.customType && m3.type !== m3.customType, `presets set the server type (java-app → ${m3.type}, custom-command → ${m3.customType})`);
-    check("M3", m3.missing.length === 0, m3.missing.length ? `form fields missing: ${m3.missing.join(", ")}` : "all 13 form fields present");
-    check("M3", /ID/.test(m3.message) && m3.before !== null && m3.after === m3.before, `an invalid ID is refused ("${m3.message}") and nothing is created (${m3.before} → ${m3.after})`);
+    // Build 216 retired the dormant inline Create Instance form (owner
+    // approval): it could not be reached since Build 215; servers are
+    // created through Add Server (checked above).
+    const m3 = await page.evaluate(() => ({
+      form: Boolean(document.querySelector("[data-instance-create-form]")),
+      fields: document.querySelectorAll("[data-instance-form]").length,
+      helper: typeof window.setInstanceCreateFormVisible,
+    }));
+    check("M3", !m3.form && m3.fields === 0 && m3.helper === "undefined", `the retired inline Create Instance form is gone (form=${m3.form}, fields=${m3.fields}, helper=${m3.helper})`);
 
     // ------------------------------------------------------------ M4 server page header
     await openServer(page);

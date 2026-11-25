@@ -178,8 +178,9 @@ function launcherScript() {
   // window and in the main window when it started on the Marketplace page.
   const showPageSource = ui.slice(ui.indexOf("function showPage("), ui.indexOf("function showPage(") + 12000);
   assert.match(showPageSource, /safePageName === "marketplace"\) \{[^}]*refreshMarketplace\(\);[^}]*refreshInstances\(\{ background: true, refreshMetrics: false \}\)/, "opening the Marketplace page must load instances");
-  const workspaceContext = ui.slice(ui.indexOf("async function applyWorkspaceWindowContext("), ui.indexOf("document.title = \"Create Server — AnxOS Control Center\";"));
-  assert.ok(workspaceContext.indexOf("showPage(\"marketplace\")") > 0, "the Marketplace window opens through showPage, so it loads instances too");
+  // Build 216 retired the separate Marketplace window (owner approval); Add
+  // Server opens the Marketplace page through showPage, checked above.
+  assert.ok(!ui.includes("async function applyWorkspaceWindowContext("), "the retired Marketplace window's init path must stay removed");
   const snapshotRender = ui.slice(ui.indexOf("function renderInstancesSnapshot("), ui.indexOf("function renderInstancesSnapshot(") + 6000);
   assert.match(snapshotRender, /getActivePageName\(\) === "marketplace"\)\s*\{\s*renderMarketplaceTemplates\(\);/, "a loaded instance list re-renders the Marketplace cards");
   pass("H5c opening the Marketplace (main window or its own window) loads instances so installed templates show as installed");

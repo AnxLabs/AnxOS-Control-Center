@@ -87,23 +87,6 @@ const windowApi = {
   restore: () => ipcRenderer.send("window:restore"),
   close: () => ipcRenderer.send("window:close"),
   isMaximized: () => ipcRenderer.invoke("window:isMaximized"),
-  openWorkspace: (surface, context = {}) => ipcRenderer.invoke("window:openWorkspace", {
-    surface,
-    context,
-    templateId: context?.template?.id || "",
-  }),
-  focusMain: (page = "") => ipcRenderer.invoke("window:focusMain", { page }),
-  getWorkspaceContext: () => ipcRenderer.invoke("window:getWorkspaceContext"),
-  onWorkspaceInit: (callback) => {
-    const handler = (_, payload) => callback(payload || {});
-    ipcRenderer.on("workspaceWindow:init", handler);
-    return () => ipcRenderer.removeListener("workspaceWindow:init", handler);
-  },
-  onNavigate: (callback) => {
-    const handler = (_, payload) => callback(payload || {});
-    ipcRenderer.on("window:navigate", handler);
-    return () => ipcRenderer.removeListener("window:navigate", handler);
-  },
   onMaximizedChanged: (callback) => {
     const handler = (_, isMaximized) => callback(Boolean(isMaximized));
     ipcRenderer.on("window:maximized-changed", handler);
@@ -583,21 +566,6 @@ const desktopApi = {
       const handler = (_, payload) => callback(payload);
       ipcRenderer.on("files:transfer", handler);
       return () => ipcRenderer.removeListener("files:transfer", handler);
-    },
-  },
-  storageWindow: {
-    open: (payload = {}) => ipcRenderer.invoke("storageWindow:open", payload),
-    close: () => ipcRenderer.invoke("storageWindow:close"),
-    saved: (payload = {}) => ipcRenderer.invoke("storageWindow:saved", payload),
-    onInit: (callback) => {
-      const handler = (_, payload) => callback(payload || {});
-      ipcRenderer.on("storageWindow:init", handler);
-      return () => ipcRenderer.removeListener("storageWindow:init", handler);
-    },
-    onSaved: (callback) => {
-      const handler = (_, payload) => callback(payload || {});
-      ipcRenderer.on("files:storageConnectionSaved", handler);
-      return () => ipcRenderer.removeListener("files:storageConnectionSaved", handler);
     },
   },
   ssh: {

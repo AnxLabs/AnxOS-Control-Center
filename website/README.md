@@ -169,7 +169,7 @@ Required files:
 - `site.webmanifest`
 - `_redirects`
 - `favicon.ico`
-- `assets/anxos-logo.png`
+- `assets/anxhost-logo.png`
 - `assets/favicon.svg`
 - `assets/favicon-16.png`
 - `assets/favicon-32.png`

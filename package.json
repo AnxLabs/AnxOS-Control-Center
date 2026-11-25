@@ -351,7 +351,6 @@
     "diagnostics:ipc-error-contract:smoke": "node scripts/diagnostics-ipc-error-contract-smoke.js",
     "updates:ipc-authorization:smoke": "node scripts/updates-ipc-authorization-smoke.js",
     "updates:download-safety:smoke": "node scripts/update-download-safety-smoke.js",
-    "storage-window:ipc-authorization:smoke": "node scripts/storage-window-ipc-authorization-smoke.js",
     "owner:smoke": "node scripts/owner-workspace-smoke.js",
     "owner:ipc-error-contract:smoke": "node scripts/owner-workspace-ipc-error-contract-smoke.js",
     "icons:linux": "node scripts/generate-linux-icons.js",

@@ -8,9 +8,10 @@
 //   S1  title bar: AnxHost CC brand, simplified mark at 20-28 px, window title,
 //       window controls visible and not covered
 //   S2  sidebar information architecture: Run / Infrastructure / Tools / footer
-//   S3  all 20 pages: 17 reachable from the sidebar and destination tabs,
-//       Anx Workspace owner-gated from the footer, legacy amp/coolpals keep
-//       their redirect; every reachable page is also in global search
+//   S3  all 18 pages: 17 reachable from the sidebar and destination tabs,
+//       Anx Workspace owner-gated from the footer; the retired amp/coolpals
+//       pages (Build 216, owner approval) keep their redirect; every
+//       reachable page is also in global search
 //   S4  responsive: expanded at 1280, icon rail at 900x640 with every entry
 //       visible and content above the fold, overlay via Ctrl+B and Esc,
 //       hand-collapse remembered with the existing storage key
@@ -155,9 +156,9 @@ async function run() {
     });
     check("S2", switcher, "computer switcher is visible at the bottom of the sidebar");
 
-    // ------------------------------------------------------------ S3 all 20 pages
+    // ------------------------------------------------------------ S3 all 18 pages
     const allPages = await page.evaluate(() => [...document.querySelectorAll("section.page[data-page]")].map((el) => el.dataset.page));
-    check("S3", allPages.length === 20, `${allPages.length} pages in the DOM`);
+    check("S3", allPages.length === 18 && !allPages.includes("amp") && !allPages.includes("coolpals"), `${allPages.length} pages in the DOM (amp and coolpals retired)`);
     const reached = [];
     for (const { pages } of SIDEBAR) {
       for (const target of pages) {
@@ -558,41 +559,17 @@ async function run() {
     check("S12", maximized.cls && maximized.api === true && !restored.cls && restored.api === false, `maximize/restore round-trips through anxWindow.isMaximized and onMaximizedChanged (max ${JSON.stringify(maximized)}, restored ${JSON.stringify(restored)})`);
     await real.setViewport(1280, 800);
     // Build 216-A4: the sidebar's Add Server stays in the main window (no
-    // window may open); the window bridge it used is kept until its approved
-    // retirement, so it is still checked here by calling it directly.
+    // window may open).
     const windowsBeforeAddServer = await real.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length);
     await page.locator('[data-testid="nav-item"][data-page-target="marketplace"]').click();
     await page.waitForTimeout(800);
     const addServerInPlace = await page.evaluate(() => ({ page: window.getActivePageName?.(), mode: document.body.dataset.addServerMode }));
     const windowsAfterAddServer = await real.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length);
     check("S12", addServerInPlace.page === "marketplace" && addServerInPlace.mode === "browse" && windowsAfterAddServer === windowsBeforeAddServer, `sidebar Add Server opens in the main window (${JSON.stringify(addServerInPlace)}; windows ${windowsBeforeAddServer} → ${windowsAfterAddServer})`);
-    const workspaceOpened = real.app.waitForEvent("window", { timeout: 20000 });
-    await page.evaluate(() => window.anxWindow.openWorkspace("marketplace", {}));
-    const workspace = await workspaceOpened.catch(() => null);
-    let workspaceState = null;
-    if (workspace) {
-      await workspace.waitForFunction(() => typeof window.showPage === "function", null, { timeout: 30000 }).catch(() => {});
-      await workspace.waitForTimeout(1200);
-      workspaceState = await workspace.evaluate(() => ({
-        surface: document.body.classList.contains("marketplace-window"),
-        page: window.getActivePageName?.(),
-        title: document.querySelector("[data-titlebar-page]")?.textContent.trim(),
-        hasContextApi: typeof window.anxWindow?.getWorkspaceContext === "function" && typeof window.anxWindow?.onWorkspaceInit === "function",
-      })).catch((error) => ({ error: error.message }));
-      const homeButton = workspace.locator('[data-workspace-nav="dashboard"]').first();
-      const canGoHome = await homeButton.isVisible().catch(() => false);
-      if (canGoHome) {
-        await homeButton.click();
-        await page.waitForFunction(() => window.getActivePageName?.() === "dashboard", null, { timeout: 8000 }).catch(() => {});
-      } else {
-        await workspace.evaluate(() => window.anxWindow?.focusMain?.("dashboard")).catch(() => {});
-        await page.waitForFunction(() => window.getActivePageName?.() === "dashboard", null, { timeout: 8000 }).catch(() => {});
-      }
-      workspaceState.mainAfterHome = await page.evaluate(() => window.getActivePageName?.());
-      await workspace.close().catch(() => {});
-    }
-    check("S12", Boolean(workspaceState?.surface && workspaceState.page === "marketplace" && workspaceState.hasContextApi), `the kept window bridge still opens a workspace window through window.openWorkspace, initialised by getWorkspaceContext/onWorkspaceInit (${JSON.stringify(workspaceState)})`);
-    check("S12", workspaceState?.mainAfterHome === "dashboard", `the workspace window's Home returns the main window to Home (focusMain, onNavigate): main shows ${workspaceState?.mainAfterHome}`);
+    // Build 216 retired the Marketplace and Create Server windows and their
+    // bridge (owner approval); nothing in the renderer can open one.
+    const retiredBridge = await page.evaluate(() => ["openWorkspace", "focusMain", "getWorkspaceContext", "onWorkspaceInit", "onNavigate"].filter((name) => typeof window.anxWindow?.[name] !== "undefined"));
+    check("S12", retiredBridge.length === 0, `the retired workspace-window bridge is gone (${retiredBridge.length ? retiredBridge.join(", ") : "none exposed"})`);
     const account = await page.evaluate(async () => {
       const api = window.anxos?.account;
       const status = await api?.getStatus?.().then((value) => (value && typeof value === "object" ? "object" : typeof value), (error) => `error ${error?.code || error?.message}`);
