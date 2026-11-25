@@ -514,16 +514,25 @@ async function run() {
     check("S9", assistant.buttonShown && assistantOpen, `with AI help enabled, the title bar Assistant button opens the Assistant panel (button=${assistant.buttonShown}, open=${assistantOpen}, page=${assistant.active}, toggle=${JSON.stringify(assistant.box)} ${assistant.toggleError})`);
     await page.locator("[data-assistant-close]").click().catch(() => {});
 
-    // Theme mechanism (dark only until A10): the Theme setting resolves to <html data-theme>.
-    const themes = await page.evaluate(async () => {
-      const seen = [document.documentElement.dataset.theme];
-      await saveSettingsPatch({ "appearance.theme": "system" });
-      seen.push(document.documentElement.dataset.theme);
-      await saveSettingsPatch({ "appearance.theme": "dark" });
-      seen.push(document.documentElement.dataset.theme);
-      return seen;
-    });
-    check("S9", themes.every((theme) => theme === "dark"), `theme mechanism resolves Dark and System to data-theme="dark" (${themes.join(", ")})`);
+    // Theme mechanism: the Theme setting resolves to <html data-theme>. Ported in
+    // A10, when the approved light theme shipped (A1 required dark only):
+    // Dark and Light are fixed, System follows the operating system, live.
+    const setTheme = (value) => page.evaluate(async (theme) => {
+      await saveSettingsPatch({ "appearance.theme": theme });
+      return document.documentElement.dataset.theme;
+    }, value);
+    const themes = { start: await page.evaluate(() => document.documentElement.dataset.theme) };
+    themes.options = await page.evaluate(() => [...document.querySelectorAll('[data-setting="appearance.theme"] option')].map((option) => option.value).join("/"));
+    themes.light = await setTheme("light");
+    await page.emulateMedia({ colorScheme: "light" });
+    themes.systemLight = await setTheme("system");
+    await page.emulateMedia({ colorScheme: "dark" });
+    await page.waitForTimeout(200);
+    themes.systemDarkLive = await page.evaluate(() => document.documentElement.dataset.theme);
+    themes.dark = await setTheme("dark");
+    await page.emulateMedia({ colorScheme: null });
+    check("S9", themes.start === "dark" && themes.options === "dark/light/system" && themes.light === "light" && themes.systemLight === "light" && themes.systemDarkLive === "dark" && themes.dark === "dark",
+      `Theme setting resolves Dark/Light/System to data-theme, System follows the OS live (${JSON.stringify(themes)})`);
 
     // ------------------------------------------------------------ S11 A1 inventory hooks
     // Every A1 UI row's data-* hook is in the running app (CAPABILITY_INVENTORY.md, wave A1).

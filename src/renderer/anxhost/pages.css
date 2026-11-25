@@ -122,7 +122,10 @@
 /* ---------------------------------------------------------------- form controls */
 :root[data-shell="ahx"] .page input,
 :root[data-shell="ahx"] .page select,
-:root[data-shell="ahx"] .page textarea {
+:root[data-shell="ahx"] .page textarea,
+:root[data-shell="ahx"] .app-modal input,
+:root[data-shell="ahx"] .app-modal select,
+:root[data-shell="ahx"] .app-modal textarea {
   border-color: var(--ahx-border);
   border-radius: var(--ahx-radius-md);
   background: var(--ahx-surface-inset);
@@ -131,26 +134,39 @@
 
 :root[data-shell="ahx"] .page input:hover,
 :root[data-shell="ahx"] .page select:hover,
-:root[data-shell="ahx"] .page textarea:hover {
+:root[data-shell="ahx"] .page textarea:hover,
+:root[data-shell="ahx"] .app-modal input:hover,
+:root[data-shell="ahx"] .app-modal select:hover,
+:root[data-shell="ahx"] .app-modal textarea:hover {
   border-color: var(--ahx-border-strong);
 }
 
 :root[data-shell="ahx"] .page input:focus,
 :root[data-shell="ahx"] .page select:focus,
-:root[data-shell="ahx"] .page textarea:focus {
+:root[data-shell="ahx"] .page textarea:focus,
+:root[data-shell="ahx"] .app-modal input:focus,
+:root[data-shell="ahx"] .app-modal select:focus,
+:root[data-shell="ahx"] .app-modal textarea:focus {
   border-color: var(--ahx-border-accent);
   box-shadow: var(--ahx-focus-ring);
   outline: none;
 }
 
 :root[data-shell="ahx"] .page input::placeholder,
-:root[data-shell="ahx"] .page textarea::placeholder {
+:root[data-shell="ahx"] .page textarea::placeholder,
+:root[data-shell="ahx"] .app-modal input::placeholder,
+:root[data-shell="ahx"] .app-modal textarea::placeholder,
+:root[data-shell="ahx"] .command-palette-input input::placeholder,
+:root[data-shell="ahx"] .owner-search::placeholder {
   color: var(--ahx-text-muted);
 }
 
 :root[data-shell="ahx"] .page input:disabled,
 :root[data-shell="ahx"] .page select:disabled,
-:root[data-shell="ahx"] .page textarea:disabled {
+:root[data-shell="ahx"] .page textarea:disabled,
+:root[data-shell="ahx"] .app-modal input:disabled,
+:root[data-shell="ahx"] .app-modal select:disabled,
+:root[data-shell="ahx"] .app-modal textarea:disabled {
   background: var(--ahx-surface-1);
   color: var(--ahx-text-disabled);
   cursor: not-allowed;

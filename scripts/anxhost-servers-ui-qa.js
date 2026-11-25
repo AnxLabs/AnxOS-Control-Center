@@ -11,8 +11,9 @@
 //       the Agent, state pills with a status shape and sentence case
 //   M2  search and status filter narrow the rows; the computer selector
 //       (data-node-target=instances) lists the computer
-//   M3  "Create Server" opens the Create Server window (until A4 brings it
-//       into the main window). The older inline create form has no caller
+//   M3  "Create Server" opens Add Server in the main window with the
+//       first-server guide and no new window (ported in A10: A4 brought
+//       Create Server into the main window). The older inline create form has no caller
 //       that opens it in Build 215 (dormant, an A10 retirement candidate);
 //       shown directly it still works: presets set the type, every field is
 //       present, an invalid ID is refused and nothing is created, Cancel
@@ -188,7 +189,11 @@ async function run() {
       if (!opened.length) await page.waitForTimeout(150);
     }
     await evaluateMain(real.app, ({ BrowserWindow }, keep) => { BrowserWindow.getAllWindows().filter((win) => !win.isDestroyed() && !keep.includes(win.id)).forEach((win) => win.close()); }, idsBefore);
-    check("M3", opened.length === 1, `"Create Server" opens the Create Server window (${opened.length} new window)`);
+    const inPlace = await page.evaluate(() => ({ page: document.querySelector(".page.is-active")?.dataset.page, guide: Boolean(document.querySelector("[data-first-server-modal]")) }));
+    check("M3", opened.length === 0 && inPlace.page === "marketplace" && inPlace.guide, `"Create Server" opens Add Server in the main window with the first-server guide (${opened.length} new window, page=${inPlace.page}, guide=${inPlace.guide})`);
+    await page.evaluate(() => document.querySelector('[data-first-server-modal] [data-first-server-action="close"]')?.click());
+    await page.waitForTimeout(300);
+    await openList(page);
     const m3 = await page.evaluate(async () => {
       const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       setInstanceCreateFormVisible(true);

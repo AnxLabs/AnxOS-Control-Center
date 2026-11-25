@@ -1,0 +1,328 @@
+/*
+ * AnxHost CC legacy bridge (Build 216-A10).
+ *
+ * Points the variables that the older stylesheet (styles.css and the website
+ * design system it imports) paints with at the AnxHost semantic tokens. Every
+ * legacy rule that reads var(--text), var(--muted), var(--line), the v1.9
+ * canvas and panel colours or the legacy summary-tile colours then follows the
+ * active theme, without a single per-component light rule (PLANS.md: the light
+ * theme uses token values only).
+ *
+ * The first block sets only custom properties. :root[data-shell]
+ * outranks the html[data-ui-generation="v1.9"] blocks that define these
+ * variables, so the load order does not matter. --accent and --accent-soft are
+ * left alone: app.js sets them from the Accent colour setting.
+ */
+
+:root[data-shell="ahx"] {
+  /* Text and lines (styles.css: 182 uses of --text, 292 of --muted, 143 of --line). */
+  --text: var(--ahx-text-primary);
+  --muted: var(--ahx-text-secondary);
+  --line: var(--ahx-border);
+  --border: var(--ahx-border);
+  --panel: var(--ahx-surface-1);
+  --panel-strong: var(--ahx-surface-2);
+  /* Field and canvas background (website design system: --bg). */
+  --bg: var(--ahx-surface-inset);
+
+  /* Status colours (styles.css: 23 uses of --danger, 20 of --success, 11 each
+     of --caution and --neutral). */
+  --success: var(--ahx-success);
+  --danger: var(--ahx-danger);
+  --caution: var(--ahx-warning);
+  --neutral: var(--ahx-text-muted);
+
+  /* v1.9 workspace palette. */
+  --v19-canvas: var(--ahx-bg-content);
+  --v19-sidebar: var(--ahx-bg-sidebar);
+  --v19-panel: var(--ahx-surface-1);
+  --v19-panel-raised: var(--ahx-surface-2);
+  --v19-line: var(--ahx-border);
+  --v19-line-strong: var(--ahx-border-accent);
+  --v19-green: var(--ahx-success);
+  --v19-cyan: var(--ahx-info);
+
+  /* v2 layout pass palette (still read by a few rules). */
+  --v2-canvas: var(--ahx-bg-content);
+  --v2-sidebar: var(--ahx-bg-sidebar);
+  --v2-panel: var(--ahx-surface-1);
+  --v2-line: var(--ahx-border);
+  --v2-line-strong: var(--ahx-border-accent);
+  --v2-text: var(--ahx-text-primary);
+  --v2-muted: var(--ahx-text-secondary);
+
+  /* Legacy summary tiles (Backups, Activity, Network, Sharing and others). */
+  --ui-tile-border: var(--ahx-border);
+  --ui-tile-surface: var(--ahx-surface-1);
+  --ui-label-color: var(--ahx-text-muted);
+
+  /* Website design-system palette imported by styles.css. */
+  --anx-color-metal-white: var(--ahx-text-primary);
+  --anx-color-metal-silver: var(--ahx-text-secondary);
+  --anx-color-metal-muted: var(--ahx-text-secondary);
+  --anx-color-metal-dim: var(--ahx-text-muted);
+  --anx-color-border: var(--ahx-border-strong);
+  --anx-color-border-soft: var(--ahx-border);
+  --anx-color-border-strong: var(--ahx-border-accent);
+  --anx-color-core-purple: var(--ahx-surface-1);
+  --anx-color-core-purple-strong: var(--ahx-surface-2);
+  --anx-surface-glass: var(--ahx-surface-1);
+  --anx-surface-glass-strong: var(--ahx-surface-2);
+  --anx-surface-panel: var(--ahx-surface-1);
+  --anx-surface-panel-subtle: var(--ahx-surface-1);
+  --anx-surface-control: var(--ahx-surface-2);
+  --anx-surface-control-hover: var(--ahx-surface-hover);
+  --anx-surface-control-active: var(--ahx-surface-selected);
+
+  /* Scrollbars. */
+  --scrollbar-track: var(--ahx-bg-content);
+  --scrollbar-thumb: var(--ahx-scrollbar);
+  --scrollbar-thumb-hover: var(--ahx-border-strong);
+}
+
+/*
+ * Legacy component colours that styles.css writes as raw values instead of
+ * variables. Each rule below replaces the colours of one legacy rule with the
+ * matching AnxHost pattern (pages.css panels, buttons and table headers), in
+ * both themes. They load before the page stylesheets, so a page's own AnxHost
+ * rule still wins a tie.
+ */
+
+/* Panels: styles.css "v1.9 panel" gradient list, console and SSH panels. */
+:root[data-shell="ahx"] .docker-table-panel,
+:root[data-shell="ahx"] .docker-details-panel,
+:root[data-shell="ahx"] .ssh-sidebar-panel,
+:root[data-shell="ahx"] .ssh-main-panel,
+:root[data-shell="ahx"] .ssh-terminal-card,
+:root[data-shell="ahx"] .backup-table-panel,
+:root[data-shell="ahx"] .backup-side-panel,
+:root[data-shell="ahx"] .marketplace-browser,
+:root[data-shell="ahx"] .marketplace-side-panel,
+:root[data-shell="ahx"] .instance-workspace-card,
+:root[data-shell="ahx"] .instances-table-panel,
+:root[data-shell="ahx"] .instances-details-panel,
+:root[data-shell="ahx"] .instance-settings-section,
+:root[data-shell="ahx"] .instance-minecraft-card,
+:root[data-shell="ahx"] .console-source-panel,
+:root[data-shell="ahx"] .console-main-panel,
+:root[data-shell="ahx"] .console-status-panel {
+  border-color: var(--ahx-border-subtle);
+  background: var(--ahx-surface-1);
+  box-shadow: var(--ahx-shadow-1);
+}
+
+/* Toolbars and title strips. */
+:root[data-shell="ahx"] .docker-toolbar,
+:root[data-shell="ahx"] .marketplace-toolbar,
+:root[data-shell="ahx"] .instances-controlbar,
+:root[data-shell="ahx"] .ssh-connect-bar,
+:root[data-shell="ahx"] .ssh-profile-form,
+:root[data-shell="ahx"] .ssh-password-prompt,
+:root[data-shell="ahx"] .instance-create-form,
+:root[data-shell="ahx"] .instance-console-toolbar,
+:root[data-shell="ahx"] .instance-files-toolbar,
+:root[data-shell="ahx"] .backup-toolbar,
+:root[data-shell="ahx"] .ssh-terminal-toolbar {
+  border-color: var(--ahx-border-subtle);
+  background: var(--ahx-surface-2);
+}
+
+/* Table headers. */
+:root[data-shell="ahx"] .instances-table th,
+:root[data-shell="ahx"] .file-table th,
+:root[data-shell="ahx"] .backup-table th,
+:root[data-shell="ahx"] .instance-files-table th {
+  border-bottom-color: var(--ahx-border);
+  background: var(--ahx-surface-2);
+  color: var(--ahx-text-muted);
+}
+
+/* Small controls that kept the legacy button gradient. */
+:root[data-shell="ahx"] .icon-action,
+:root[data-shell="ahx"] .console-toggle,
+:root[data-shell="ahx"] .file-mode-button,
+:root[data-shell="ahx"] .instance-copy-button,
+:root[data-shell="ahx"] .ssh-tab {
+  border-color: var(--ahx-border);
+  background: var(--ahx-surface-2);
+  color: var(--ahx-text-primary);
+}
+
+:root[data-shell="ahx"] .icon-action:not(:disabled):hover,
+:root[data-shell="ahx"] .console-toggle:not(:disabled):hover,
+:root[data-shell="ahx"] .instance-copy-button:hover:not(:disabled),
+:root[data-shell="ahx"] .ssh-tab:hover {
+  border-color: var(--ahx-border-strong);
+  background: var(--ahx-surface-hover);
+}
+
+:root[data-shell="ahx"] .file-mode-button.is-active,
+:root[data-shell="ahx"] .ssh-tab.is-active {
+  border-color: var(--ahx-border-accent);
+  background: var(--ahx-accent-soft);
+  color: var(--ahx-accent-text);
+}
+
+/* Text written as raw near-white or translucent lavender. Descendant "span"
+   rules skip status pills, which carry their own tone. */
+:root[data-shell="ahx"] .panel-heading h3,
+:root[data-shell="ahx"] .docker-empty-state strong,
+:root[data-shell="ahx"] .docker-loading-state strong,
+:root[data-shell="ahx"] .file-empty-state strong,
+:root[data-shell="ahx"] .file-loading-state strong,
+:root[data-shell="ahx"] .folder-tree-empty strong,
+:root[data-shell="ahx"] .backup-empty-state strong,
+:root[data-shell="ahx"] .backup-loading-state strong,
+:root[data-shell="ahx"] .marketplace-empty strong,
+:root[data-shell="ahx"] .marketplace-loading strong,
+:root[data-shell="ahx"] .security-empty-state strong,
+:root[data-shell="ahx"] .nodes-empty-state strong,
+:root[data-shell="ahx"] .settings-search-results button:hover,
+:root[data-shell="ahx"] .settings-search-results button:focus-visible,
+:root[data-shell="ahx"] .settings-category-list button:hover,
+:root[data-shell="ahx"] .settings-category-list button:focus-visible,
+:root[data-shell="ahx"] .settings-category-list button.is-active,
+:root[data-shell="ahx"] .security-summary-grid strong,
+:root[data-shell="ahx"] .security-card-row strong,
+:root[data-shell="ahx"] .settings-diagnostics-grid strong,
+:root[data-shell="ahx"] .security-filter-row .inline-action.is-active,
+:root[data-shell="ahx"] .nodes-summary-card strong,
+:root[data-shell="ahx"] .node-health-subsection__header h4,
+:root[data-shell="ahx"] .node-health-card-body > strong {
+  color: var(--ahx-text-primary);
+}
+
+:root[data-shell="ahx"] .settings-section__header p,
+:root[data-shell="ahx"] .node-path-card__body p,
+:root[data-shell="ahx"] .security-card-row p,
+:root[data-shell="ahx"] .notification-item p,
+:root[data-shell="ahx"] .settings-diagnostics-grid,
+:root[data-shell="ahx"] .instance-access-badge--planned {
+  color: var(--ahx-text-secondary);
+}
+
+:root[data-shell="ahx"] .instance-metric-cell.is-muted,
+:root[data-shell="ahx"] .settings-search span,
+:root[data-shell="ahx"] .security-empty-state,
+:root[data-shell="ahx"] .security-summary-grid span:not(.status-pill),
+:root[data-shell="ahx"] .security-card-row span:not(.status-pill),
+:root[data-shell="ahx"] .security-event-meta,
+:root[data-shell="ahx"] .nodes-summary-card span:not(.status-pill),
+:root[data-shell="ahx"] .node-card__meta dt,
+:root[data-shell="ahx"] .node-details-list dt {
+  color: var(--ahx-text-muted);
+}
+
+/* Empty and loading states: the v1.9 rules tint them with a translucent
+   near-black wash and lavender text. (The SSH ones sit inside the terminal
+   window, which stays dark, and keep their styling.) */
+:root[data-shell="ahx"] .docker-loading-state,
+:root[data-shell="ahx"] .file-loading-state,
+:root[data-shell="ahx"] .backup-loading-state,
+:root[data-shell="ahx"] .docker-empty-state,
+:root[data-shell="ahx"] .file-empty-state,
+:root[data-shell="ahx"] .backup-empty-state,
+:root[data-shell="ahx"] .marketplace-empty,
+:root[data-shell="ahx"] .security-empty-state,
+:root[data-shell="ahx"] .nodes-empty-state,
+:root[data-shell="ahx"] .notification-empty {
+  background: var(--ahx-surface-inset);
+}
+
+/*
+ * Terminal and console output windows keep their dark surface in every theme
+ * (styles.css paints them near-black; xterm and the file editor use fixed dark
+ * palettes). Text inside them that reads the legacy variables keeps the dark
+ * theme's values.
+ */
+:root[data-shell="ahx"] .ssh-terminal-window,
+:root[data-shell="ahx"] .console-window,
+:root[data-shell="ahx"] .instance-console-viewer,
+:root[data-shell="ahx"] .instance-file-editor textarea {
+  --text: var(--ahx-terminal-text);
+  --muted: var(--ahx-terminal-muted);
+}
+
+/* The console's title and status strips sit inside its window but are
+   ordinary token surfaces (A8), so their text follows the theme again. */
+:root[data-shell="ahx"] .console-titlebar,
+:root[data-shell="ahx"] .console-status-bar,
+:root[data-shell="ahx"] .file-editor-toolbar {
+  --text: var(--ahx-text-primary);
+  --muted: var(--ahx-text-secondary);
+}
+
+/* Server page: the Console tab's toolbar and command line around the dark log
+   window (styles.css scopes them to the page, hence the longer selectors). */
+:root[data-shell="ahx"] .page[data-page="instances"] [data-instance-panel="console"] .instance-console-toolbar,
+:root[data-shell="ahx"] .page[data-page="instances"] [data-instance-panel="console"] .instance-console-input {
+  border-color: var(--ahx-border-subtle);
+  background: var(--ahx-surface-2);
+}
+
+:root[data-shell="ahx"] .instance-console-toolbar input,
+:root[data-shell="ahx"] .instance-console-toolbar select,
+:root[data-shell="ahx"] .instance-console-input input {
+  border-color: var(--ahx-border);
+  background: var(--ahx-surface-inset);
+  color: var(--ahx-text-primary);
+}
+
+/* Server page: the Files tab's text editor frame (the text area stays dark). */
+:root[data-shell="ahx"] .instance-file-editor {
+  background: var(--ahx-surface-1);
+}
+
+:root[data-shell="ahx"] .instance-file-editor .panel-heading {
+  background: var(--ahx-surface-2);
+}
+
+/* Create Server summary facts and the "setup required" card. */
+:root[data-shell="ahx"] .create-server-fact {
+  background: var(--ahx-surface-2);
+}
+
+:root[data-shell="ahx"] .create-server-fact[data-tone="ready"] strong {
+  color: var(--ahx-success);
+}
+
+:root[data-shell="ahx"] .create-server-fact[data-tone="blocked"] strong {
+  color: var(--ahx-danger);
+}
+
+:root[data-shell="ahx"] .instance-setup-required-card strong {
+  color: var(--ahx-warning);
+}
+
+/* Server page: the service operations badge (raw light blue in styles.css). */
+:root[data-shell="ahx"] .service-ops__badge {
+  background: var(--ahx-info-soft);
+  color: var(--ahx-info);
+}
+
+/* Computer details drawer (Computers > a computer > Details). */
+:root[data-shell="ahx"] .node-details-drawer {
+  background: var(--ahx-surface-1);
+}
+
+:root[data-shell="ahx"] .node-details-summary,
+:root[data-shell="ahx"] .node-health-summary-text,
+:root[data-shell="ahx"] .node-health-details {
+  color: var(--ahx-text-secondary);
+}
+
+:root[data-shell="ahx"] .node-details-heading h2,
+:root[data-shell="ahx"] .node-health-details summary {
+  color: var(--ahx-text-primary);
+}
+
+/* "Owner Only" badge on owner settings. */
+:root[data-shell="ahx"] .owner-only-badge {
+  background: var(--ahx-accent-soft);
+  color: var(--ahx-accent-text);
+}
+
+:root[data-shell="ahx"] .file-loading-state,
+:root[data-shell="ahx"] .backup-loading-state {
+  color: var(--ahx-text-secondary);
+}

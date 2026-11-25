@@ -364,7 +364,7 @@
 :root[data-shell="ahx"] .page[data-page="instances"] [data-instance-panel="console"] .instance-console-viewer {
   border-color: var(--ahx-border-subtle);
   border-radius: var(--ahx-radius-md);
-  background: var(--ahx-surface-inset);
+  background: var(--ahx-terminal-bg);
 }
 
 /* ---------------------------------------------------------------- files */

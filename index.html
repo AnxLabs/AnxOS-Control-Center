@@ -12,6 +12,7 @@
          Loaded after styles.css so the shell layer wins over the v1.9 shell rules
          (removed in wave A10). Page content keeps its own styles until its wave. -->
     <link rel="stylesheet" href="src/renderer/anxhost/tokens.css">
+    <link rel="stylesheet" href="src/renderer/anxhost/legacy-bridge.css">
     <link rel="stylesheet" href="src/renderer/anxhost/patterns.css">
     <link rel="stylesheet" href="src/renderer/anxhost/shell.css">
     <link rel="stylesheet" href="src/renderer/anxhost/pages.css">
@@ -5139,7 +5140,7 @@
               </div>
               <div class="settings-grid">
                 <label class="settings-field settings-field--color"><span>Accent color</span><input type="color" data-setting="appearance.accentColor"></label>
-                <label class="settings-field"><span>Theme</span><select data-setting="appearance.theme"><option value="dark">Dark</option><option value="system">System</option></select></label>
+                <label class="settings-field"><span>Theme</span><select data-setting="appearance.theme"><option value="dark">Dark</option><option value="light">Light</option><option value="system">System</option></select></label>
                 <label class="settings-field"><span>UI density</span><select data-setting="appearance.density"><option value="comfortable">Comfortable</option><option value="compact">Compact</option></select></label>
                 <label class="settings-field"><span>Sidebar density</span><select data-setting="appearance.sidebarDensity"><option value="comfortable">Comfortable</option><option value="compact">Compact</option></select></label>
                 <label class="settings-field"><span>Font scaling</span><input type="number" min="90" max="115" step="1" data-setting="appearance.fontScale"></label>

@@ -1197,6 +1197,28 @@ Use this section to accumulate verified project knowledge over time. Add entries
   "identical on the base build" proves the change did not cause it, not why it
   happens.
 
+### 2026-11-25 — Build 216-A10: controls cut off by their own panel, and a suite nobody reran
+
+- **Problem:** At 1280 px the SSH terminal's Copy, Clear, Fullscreen, command
+  input and Send, and the Console's Copy, were cut off by the panel around
+  them, although every A8 check passed. Separately, `anxhost-servers-ui-qa`
+  had been failing since A4 (its M3 check still expected a separate Create
+  Server window), and nobody noticed until the A10 sweep.
+- **Cause:** The A8 checks asserted that each control existed and was
+  visible, and an element clipped by an `overflow: hidden` ancestor is still
+  "visible" to the DOM. The toolbars never wrapped, so at 1280 px they were
+  wider than their panels. The servers suite was not part of any wave's
+  rerun list after A4 replaced the window with Add Server in place.
+- **Resolution:** Both toolbars wrap. `anxhost-tools-ui-qa` T7 and
+  `anxhost-theme-ui-qa` T6 check every control against the box of its
+  nearest clipping ancestor at three sizes (T7 failed first on the A9
+  stylesheet). M3 was ported to Add Server in place.
+- **Lesson:** "Visible" is not "reachable": test a control against the box
+  of its nearest clipping ancestor, at every supported size. When a wave
+  changes a flow, rerun every suite that drives that flow, not only the
+  wave's own suite; a full real-app sweep before the last wave of a phase
+  catches what the per-wave lists missed.
+
 ## Future Improvements
 
 Keep optional ideas separate from active work. An item in this list is not authorization to implement it.

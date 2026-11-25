@@ -484,9 +484,27 @@ async function run() {
           const clipped = [...pageEl.querySelectorAll(".page-header h1, .page-tabs__tab, .panel-heading h2, .settings-section__header h2")]
             .filter((element) => element.getClientRects().length > 0 && getComputedStyle(element).textOverflow !== "ellipsis" && element.scrollWidth > element.clientWidth + 1 && getComputedStyle(element).overflowX !== "visible")
             .map((element) => element.textContent.trim().slice(0, 24));
-          return { overflow: host.scrollWidth > host.clientWidth + 1 || document.documentElement.scrollWidth > window.innerWidth + 1, clipped };
+          // A10: a control cut off by a panel that hides its overflow (the SSH
+          // toolbar's Copy, Clear and Fullscreen at 1280 px) is unreachable.
+          // Scroll containers are left out: their content can be scrolled to.
+          const cutOff = [...pageEl.querySelectorAll("button, label.console-toggle, input, select")]
+            .filter((element) => element.getClientRects().length > 0 && !element.closest("[hidden]"))
+            .filter((element) => {
+              const box = element.getBoundingClientRect();
+              for (let node = element.parentElement; node && node !== pageEl; node = node.parentElement) {
+                const style = getComputedStyle(node);
+                if (style.overflowX === "auto" || style.overflowX === "scroll") return false;
+                if (style.overflowX === "hidden" || style.overflowX === "clip") {
+                  const frame = node.getBoundingClientRect();
+                  return box.right > frame.right + 1 || box.left < frame.left - 1;
+                }
+              }
+              return false;
+            })
+            .map((element) => (element.textContent || element.getAttribute("aria-label") || element.name || element.tagName).trim().slice(0, 20));
+          return { overflow: host.scrollWidth > host.clientWidth + 1 || document.documentElement.scrollWidth > window.innerWidth + 1, clipped, cutOff };
         }, pageName);
-        check("T7", !layout.overflow && !layout.clipped.length, `${width}x${height} ${pageName}: no horizontal overflow (${layout.overflow}); clipped=[${layout.clipped.join("; ")}]`);
+        check("T7", !layout.overflow && !layout.clipped.length && !layout.cutOff.length, `${width}x${height} ${pageName}: no horizontal overflow (${layout.overflow}); clipped=[${layout.clipped.join("; ")}]; controls cut off by a panel=[${layout.cutOff.join("; ")}]`);
         await shot(page, `a8-${width}x${height}-${pageName}`);
       }
     }

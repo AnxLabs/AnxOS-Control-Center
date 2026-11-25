@@ -12,6 +12,11 @@
 //     .css in src/renderer/anxhost other than tokens.css and patterns.css,
 //     so later waves are covered when they add a file), plus no :is() lists
 //     in selectors (they cost page-switch time in A1).
+//   - Build 216-A10: the light theme uses token values only (PLANS.md): no
+//     stylesheet other than tokens.css has a [data-theme] selector or a
+//     prefers-color-scheme query, so there are 0 per-component light rules;
+//     legacy-bridge.css only sets custom properties at the root, and the
+//     always-dark terminal tokens are not redefined by the light block.
 // Run: node scripts/anxhost-design-tokens-smoke.js
 
 const fs = require("fs");
@@ -98,6 +103,23 @@ for (const required of ["shell.css", "pages.css", "home.css"]) {
   if (!shellFiles.some(([name]) => name === required)) failures.push(`${required} is missing`);
 }
 
+// A10: 0 per-component light overrides.
+const themeBranches = [["styles.css", read("styles.css")], ["patterns.css", patterns], ...shellFiles]
+  .filter(([, text]) => /\[data-theme|prefers-color-scheme/.test(text.replace(/\/\*[\s\S]*?\*\//g, "")))
+  .map(([name]) => name);
+if (themeBranches.length) failures.push(`theme-specific rules outside tokens.css (light must come from token values only): ${themeBranches.join(", ")}`);
+const bridge = shellFiles.find(([name]) => name === "legacy-bridge.css");
+if (!bridge) failures.push("legacy-bridge.css is missing");
+else {
+  const rootBlock = bridge[1].match(/:root\[data-shell="ahx"\] \{([^}]*)\}/);
+  const declarations = rootBlock ? rootBlock[1].replace(/\/\*[\s\S]*?\*\//g, "").split(";").map((d) => d.trim()).filter(Boolean) : [];
+  if (declarations.length < 20 || declarations.some((d) => !/^--[a-z0-9-]+\s*:\s*var\(--ahx-[a-z0-9-]+\)$/.test(d))) failures.push("legacy-bridge.css root block must map legacy variables to --ahx tokens only");
+}
+for (const token of ["--ahx-terminal-bg", "--ahx-terminal-text", "--ahx-terminal-muted"]) {
+  if (!dark.has(token)) failures.push(`dark theme is missing ${token}`);
+  if (light.has(token)) failures.push(`${token} must stay dark in the light theme`);
+}
+
 for (const status of STATUSES) {
   const token = `--ahx-status-${status}`;
   if (!dark.has(token)) failures.push(`dark theme is missing ${token}`);
@@ -109,5 +131,5 @@ if (failures.length) {
   for (const failure of failures) console.error(`FAIL ${failure}`);
   process.exitCode = 1;
 } else {
-  console.log(`PASS design tokens: ${all.size} tokens (${dark.size} themed in dark, ${light.size} overridden in light), ${used(patterns).size} used by patterns, ${STATUSES.length} statuses, no raw colours in patterns; page stylesheets token-only, scoped and free of :is() lists (${ruleCounts.join(", ")})`);
+  console.log(`PASS design tokens: ${all.size} tokens (${dark.size} themed in dark, ${light.size} overridden in light), ${used(patterns).size} used by patterns, ${STATUSES.length} statuses, no raw colours in patterns; page stylesheets token-only, scoped and free of :is() lists; no theme-specific rules outside tokens.css (${ruleCounts.join(", ")})`);
 }

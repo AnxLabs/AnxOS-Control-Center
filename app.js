@@ -1574,12 +1574,26 @@ const LEGACY_DEFAULT_APP_NAMES = new Set(["AnxOS Control Center"]);
 
 // Build 216 theme mechanism: the Theme setting is resolved to <html
 // data-theme> in this one place; components never branch on the theme
-// (src/renderer/anxhost/tokens.css). Dark is the identity; until the light
-// theme ships in wave A10, "System" also resolves to dark.
-// A10 adds "light" and resolves "system" with prefers-color-scheme here.
-function resolveShellTheme() {
+// (src/renderer/anxhost/tokens.css). Dark is the identity and the default;
+// "light" and "system" (the operating system's colour scheme) arrived in A10.
+const SYSTEM_DARK_SCHEME = typeof window.matchMedia === "function" ? window.matchMedia("(prefers-color-scheme: dark)") : null;
+let shellThemeSetting = "dark";
+
+function resolveShellTheme(value) {
+  if (value === "light") return "light";
+  if (value === "system") return SYSTEM_DARK_SCHEME && !SYSTEM_DARK_SCHEME.matches ? "light" : "dark";
   return "dark";
 }
+
+function applyShellTheme(value) {
+  shellThemeSetting = value;
+  document.documentElement.dataset.theme = resolveShellTheme(value);
+}
+
+// "System" follows the operating system while the app is open.
+SYSTEM_DARK_SCHEME?.addEventListener?.("change", () => {
+  if (shellThemeSetting === "system") applyShellTheme("system");
+});
 
 function resolveDisplayAppName(value) {
   const name = String(value || "").trim();
@@ -4004,13 +4018,17 @@ function updateMonacoEditorOptions() {
 function defineAnxosMonacoTheme(monaco) {
   const styles = window.getComputedStyle(document.documentElement);
   const background = styles.getPropertyValue("--bg").trim() || "#07020f";
-  const panel = styles.getPropertyValue("--panel").trim() || "#150a24";
-  const line = styles.getPropertyValue("--line").trim() || "#3a2552";
+  // The editor is a dark surface in every app theme (base vs-dark, fixed
+  // background), so its colours stay on the dark palette instead of reading
+  // --panel/--line/--text/--muted/--success/--danger, which follow the theme
+  // since A10 and are not always hex (hexToMonacoColor needs hex).
+  const panel = "#150a24";
+  const line = "#3a2552";
   const accent = styles.getPropertyValue("--accent").trim() || "#b66cff";
-  const text = styles.getPropertyValue("--text").trim() || "#f8f5ff";
-  const muted = styles.getPropertyValue("--muted").trim() || "#b9abc8";
-  const success = styles.getPropertyValue("--success").trim() || "#45e08f";
-  const danger = styles.getPropertyValue("--danger").trim() || "#ff6b8a";
+  const text = "#f8f5ff";
+  const muted = "#b9abc8";
+  const success = "#45e08f";
+  const danger = "#ff6b8a";
   const transparent = "#00000000";
 
   monaco.editor.defineTheme("anxos-dark", {
@@ -4381,7 +4399,7 @@ function applyShellAccent(accentColor) {
 function applySettings(settings, options = {}) {
   currentSettings = { ...DEFAULT_SETTINGS, ...(settings || {}) };
   const displayName = resolveDisplayAppName(settings["app.displayName"]);
-  document.documentElement.dataset.theme = resolveShellTheme(settings["appearance.theme"]);
+  applyShellTheme(settings["appearance.theme"]);
   const accentColor = /^#[0-9a-f]{6}$/i.test(settings["appearance.accentColor"])
     ? settings["appearance.accentColor"]
     : DEFAULT_ACCENT_COLOR;

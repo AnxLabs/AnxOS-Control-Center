@@ -27,6 +27,35 @@
   background: var(--ahx-surface-2);
 }
 
+/* The SSH and Console toolbars: the status message or search field keeps a
+   usable width and the actions move to a second line when the panel is
+   narrow (at 1280 px Copy, Clear and Fullscreen were cut off by the panel's
+   edge and the log search shrank to a sliver). */
+:root[data-shell="ahx"] .console-toolbar {
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+:root[data-shell="ahx"] .console-toolbar .console-actions {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+:root[data-shell="ahx"] .ssh-terminal-toolbar {
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+:root[data-shell="ahx"] .ssh-terminal-toolbar .ssh-status {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+:root[data-shell="ahx"] .ssh-status span[data-ssh-status="message"] {
+  min-width: 0;
+  text-overflow: ellipsis;
+}
+
 :root[data-shell="ahx"] .console-titlebar,
 :root[data-shell="ahx"] .file-editor-toolbar,
 :root[data-shell="ahx"] .console-status-bar {

@@ -26,7 +26,7 @@ const SETTING_DEFINITIONS = {
   "general.language": { category: "general", type: "enum", default: "en", values: ["en"], disabledReason: "English is the only bundled language." },
 
   "appearance.accentColor": { category: "appearance", type: "color", default: "#b66cff" },
-  "appearance.theme": { category: "appearance", type: "enum", default: "dark", values: ["dark", "system"] },
+  "appearance.theme": { category: "appearance", type: "enum", default: "dark", values: ["dark", "light", "system"] },
   "appearance.density": { category: "appearance", type: "enum", default: "comfortable", values: ["comfortable", "compact"] },
   "appearance.sidebarDensity": { category: "appearance", type: "enum", default: "comfortable", values: ["comfortable", "compact"] },
   "appearance.fontScale": { category: "appearance", type: "number", default: 100, min: 90, max: 115 },

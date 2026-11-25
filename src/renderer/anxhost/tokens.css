@@ -211,6 +211,12 @@
   --ahx-skeleton-base: var(--ahx-ink-850);
   --ahx-skeleton-shine: var(--ahx-ink-800);
   --ahx-scrollbar: rgba(221, 219, 230, 0.16);
+
+  /* Terminal and console output windows stay dark in every theme, so the
+     light block deliberately does not redefine these two. */
+  --ahx-terminal-bg: var(--ahx-ink-1000);
+  --ahx-terminal-text: var(--ahx-ink-50);
+  --ahx-terminal-muted: var(--ahx-ink-300);
 }
 
 /* ---------------------------------------------------------------- light (optional) */

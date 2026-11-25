@@ -14,8 +14,10 @@ Plan: `PLANS.md` (approved, commit `9aadaead`). Protocol: `AGENTS.md` (ADP).
 | **216-A5 Computers and Agent Control** | **Complete; local checkpoint commit** (not pushed). See "216-A5" below. |
 | **216-A6 Docker, A7 Network, A8 Files and Terminal** | **Complete; one local checkpoint commit** (not pushed). Two Build 215 defects fixed (Add Storage window, Windows Agent folders). See "216-A6, 216-A7, 216-A8" below. |
 | **216-A9 Activity, Security, Settings, Workspace** | **Complete; local checkpoint commit** (not pushed); the accent setting works again on redesigned pages. See "216-A9" below. |
-| 216-A10 Consistency and legacy cleanup | In progress (see "Next step") |
-| 216-A4 … 216-G | Not started |
+| **216-A10 Consistency and light theme** | **Complete; local checkpoint commit** (not pushed). Light theme (Dark, Light, System) on tokens only; legacy styles bridged to AnxHost tokens; two controls-cut-off defects and unreadable placeholders fixed; full validation sweep and performance re-check. Legacy deletions wait for named approvals. See "216-A10" below. |
+| 216-E Secure Session Persistence | Security review approved by the owner 2026-11-25 (`docs/anxhost/SECURITY_REVIEW_216E.md`); implementation next |
+| 216-D Custom Installer | Design approved by the owner 2026-11-25 (`docs/anxhost/d-installer/`); implementation next |
+| 216-C, 216-B, 216-F, 216-G | Not started |
 
 ## 216-0 timing
 
@@ -280,9 +282,12 @@ release-candidate approval gate. No push, merge, tag, release or deployment
 without separate approval; deletions, the 216-E security policy, signing/CI,
 domain and production changes need their own approvals.
 
-A1 to A9 are complete and committed locally. **A10 is next**: a full
-validation sweep, the performance re-check, and the decisions below (A10's
-deletions and the light theme need the owner).
+A1 to A10 are complete and committed locally. On 2026-11-25 the owner
+wrote "i approved anything", recorded as approval of the 216-E security
+review (with the recommended answers D1–D6) and of the 216-D installer
+design. **216-E and 216-D are next**, then C, B, F and G. The exact-reply
+gates (`confirmed`, `done`, `🚀 publish`), pushes, signing or CI workflow
+changes, and deletions still need their own approvals naming the target.
 
 Owner decisions waiting (nothing blocks the next waves):
 
@@ -1191,3 +1196,113 @@ rows.
 
 `docs/anxhost/a9-account/`: Notifications, Task details, Maintenance,
 Security, Settings and Anx Workspace at 900x640, 1280x800 and 1920x1080.
+
+## 216-A10 Consistency, light theme and validation sweep
+
+Started from `75cb8cce` (A9) at 2026-11-25T01:11:58-07:00, same campaign
+instruction, solo.
+
+### A10 timing
+
+| Field | Value |
+| --- | --- |
+| Start | 2026-11-25T01:11:58-07:00 (system clock, start of the `rc:validate` sweep) |
+| Finish | 2026-11-25T11:26:44-07:00 (system clock, after the performance runs; the report was written afterwards) |
+| Elapsed | 10 h 14 min 46 s, including about 25 min of `rc:validate`, about 50 min of performance rounds and the real-app suite reruns |
+| Commit | `feat(anxhost): Build 216-A10 light theme and consistency` (local checkpoint; not pushed) |
+
+### What changed
+
+| Area | Change |
+| --- | --- |
+| **Light theme (owner-approved 2026-11-20: "Light theme yes, dark first, tokens only")** | Settings › Appearance › Theme offers Dark, Light and System. `resolveShellTheme` honours the setting; System follows the operating system's colour scheme, also when it changes while the app is open. The settings service accepts `light` (`settingsPreferenceService`, one enum value). Dark stays the default. |
+| Legacy bridge | `src/renderer/anxhost/legacy-bridge.css` (new). Its root block points the variables the older stylesheet paints with (`--text` 182 uses, `--muted` 292, `--line` 143, the v1.9 and v2 palettes, the legacy summary tiles, the website design-system palette, status colours, scrollbars) at the AnxHost semantic tokens. The rest replaces raw colours in specific legacy rules (panels, toolbars, table headers, small controls, empty states, the computer details drawer, the server page's console frame, Create Server facts, owner badges) with the matching AnxHost patterns. No rule anywhere branches on the theme: **0 per-component light overrides**, enforced by the design-token smoke. |
+| Dark by design | Terminal, console and log windows and the code editor stay dark in both themes. New tokens `--ahx-terminal-bg`, `--ahx-terminal-text`, `--ahx-terminal-muted` are defined in the dark block only, so the light block cannot change them. The Monaco editor theme keeps its fixed dark palette instead of reading theme variables (they are no longer always hex). |
+| Form controls in dialogs | The AnxHost input, select and textarea styles now cover `.app-modal` dialogs as well as pages (the Add Storage fields kept the legacy dark field style). |
+| **Fix: unreadable placeholders (Build 215 and A1 to A9)** | Placeholders in Settings fields, dialogs, the command palette and the owner's workspace search used Chromium's default grey (4.28:1 to 4.37:1 on dark, under AA). They use the muted text token. |
+| **Fix: SSH and Console toolbars cut off their own controls at 1280 px (A8)** | The SSH terminal toolbar was 768 px wide inside a 678 px panel that hides overflow, so Copy, Clear, Fullscreen and the command line's input and Send were cut off; Console's actions never shrank, so its log search collapsed to a sliver and Copy was cut off. Both toolbars now wrap. `anxhost-tools-ui-qa` T7 now checks for controls cut off by a panel and failed on the A9 stylesheet (SSH and Console at 1280x800). |
+| Dark changes (measured) | A computed-colour comparison of 14,891 elements in 69 views against A9: text `#f8f5ff` → `#f7f6fa` (not visible); muted text `#b9abc8` → `#c3c0cf`; translucent lavender labels → the muted token; about 40 legacy gradient panels, summary tiles, toolbars, table headers and small controls → the flat AnxHost surfaces the redesigned pages already use. Status pills keep their tone (descendant `span` rules skip `.status-pill`). |
+| **Missed port from A4: `anxhost-servers-ui-qa` M3** | It still expected My Servers' Create Server to open a new window, which A4 replaced with Add Server in the main window, and the first-server guide it now opens covered the rest of the run (TimeoutError). The suite was not rerun after A4, so this went unseen until the A10 sweep. M3 now checks Add Server opens in place with the guide and no new window, closes the guide and goes back to My Servers. |
+| Tests | New `scripts/anxhost-theme-ui-qa.js` (T1–T6): the Theme setting through the real control, saved across a reload; light and dark over 69 views (every page, Home's Customize panel, command palette, Create Server, Add Storage, computer details, four toast tones, every Settings and Security category, every visible server tab), each with 0 text under WCAG AA (form values and placeholders included) and 0 surfaces in the wrong theme; terminals dark in light; no control cut off by a panel on any page at three sizes. Registered in `package.json` and the release tier. `anxhost-design-tokens-smoke` now fails on any `[data-theme]` or `prefers-color-scheme` rule outside `tokens.css`, on a bridge entry that is not a token, and on a light override of the terminal tokens (mutation-tested). `anxhost-shell-ui-qa` S9 ported from "dark only until A10" to Dark/Light/System, System following the OS live (emulated). |
+
+### Not done (owner decisions)
+
+- **Legacy retirement (deletions):** the AMP and Coolpals pages, the dormant
+  inline Create Instance form, the Marketplace and Create Server windows, the
+  Add Storage window and its `storageWindow:*` IPC, the Expo "Pair Mobile
+  Device" UI, and the Backups page's disabled search box (wire it up or
+  remove it). Named targets are in the A4, A5 and A8 sections and
+  `LEGACY_RETIREMENT.md`. Each needs an approval naming it.
+- **The v1.9 stylesheet layer:** `<html data-ui-generation="v1.9">` is still
+  set, so its 395 rules still apply wherever the AnxHost layer does not
+  override them; none of them "matches nothing", so PLANS.md's mechanical
+  removal does not apply yet. Removing the layer changes the screen and is a
+  separate, measured step (the bridge and the theme suite make it testable).
+- **Generic "AnxOS" wording:** 171 renderer strings still say "AnxOS" for the
+  app (for example "Unlock AnxOS to continue.", "AnxOS can manage
+  containers…"), plus messages from main-process services. Most sit next to
+  names that 216-B and 216-D decide (AnxOS Agent, Local Agent, Account,
+  Relay, the installed "AnxOS Control Center"). Recommended: one copy pass
+  once those names are settled, instead of a pass now and another later.
+- **Home AMP card:** unchanged (keep, or show only when AMP is configured).
+
+### Capabilities
+
+No inventory row changed (`anxhost-capability-inventory --check` PASS, 1,621
+rows). **1,552 of 1,621 verified.** The 69 left: A10's 11 legacy rows (AMP
+and Coolpals, retirement needs approval) and 216-C's 58 phone rows.
+
+### Validation performed (development PC, 2026-11-25)
+
+| Check | Result |
+| --- | --- |
+| `npm run rc:validate` (`RC_FAIL_FAST=0`, off-screen harness), 10:50–11:15 | **424/427 PASS**. Failures: `agent:package:smoke` and `local-agent:runtime:smoke` (the 216-0 environment exception, junctioned `node_modules`) and `inventory:agent:smoke` (Agent request timeout under the sweep's load; **PASS** run alone afterwards). |
+| Release checks outside the `:smoke` set | **21/21 PASS**: `node --check` of `app.js`, `main.js`, `preload.js`; `agent-game-config-route`, `agent-game-config-compat`, `dependency-preparation`, `create-server-defaults`, `share-health`, `restore-preview`, `world-import-restore`, `server-failures`, `agent-metrics-sampler`, `home-dashboard-model`, `server-view-model`, `ssh-interactive-session`, `anxnet`, `anxnet-host`, `anxnet-dns`, `service-managed-agent-routing`, `forge-health-reader`; `git diff --check` |
+| `node --check` of every changed script and service | PASS (7 files) |
+| `anxhost-design-tokens-smoke` | PASS (0 theme rules outside `tokens.css`; bridge 27 token-only declarations). Mutation test: a `[data-theme="light"]` rule added to `docker.css` made it fail. |
+| `anxhost-capability-inventory --check` | PASS (1,621 rows, 0 unmapped) |
+| `anxhost-theme-ui-qa` (new) | PASS 3 of 4 runs (69 views, about 5,150 text checks per theme, 0 under AA, 0 surfaces in the wrong theme, 0 cut-off controls). The failing run took 376 s against about 240 s for the others and its log was overwritten by the rerun; recorded as an unexplained intermittent failure (risk below). |
+| Real-app suites (35, one at a time) | PASS except as listed: `anxhost-servers-ui-qa` failed on its stale A4 M3 check (ported, now **46/46**); `anxhost-network-ui-qa` failed N2/N3 in the batch and **passed alone (15/15)**; `server-view-ui-qa` hung at 900 s in the batch and **passed alone**; `infra-inventory-ui-qa` timed out launching in the batch and **passed alone**; `second-machine-acceptance` needs `--out` and **passed with it**; `build215-ui-qa` P1/C1 are the known environment cases from 215. |
+| `acceptance-fixes-ui-qa` | Fails a different timing check on each run (A2; A7; A2+A6) on A10, and **also fails A2 (page.reload timeout) on the unchanged A9 tree**: pre-existing timing flakiness, not caused by A10. |
+| `anxhost-tools-ui-qa` T7 (new cut-off check) | Failed first on the A9 `tools.css` (SSH: Auto-scroll, Copy, Fullscreen, input, Send; Console: Copy), **37/37 PASS** on A10. |
+
+### Performance
+
+Same-day, 5 alternating rounds (Build 215 `13825d70`, A9 `75cb8cce`, A10),
+compared by median; off-screen, isolated profile, real Agent fixture.
+Startup with `probe_startup` (one launch per round); page switching with
+`probe_switch` at 900x640 (each page's synchronous `showPage()` plus the
+style and layout it forces, 5 passes per round).
+
+| Measure | Build 215 | A9 | A10 | A10 vs 215 (budget +10%) | A10 vs A9 |
+| --- | --- | --- | --- | --- | --- |
+| Renderer ready | 2163 ms | 1902 ms | 1960 ms | **−9.4%** | +3.0% |
+| Sidebar ready | 3230 ms | 2744 ms | 3045 ms | **−5.7%** | +11.0% |
+| Page switch, median page | 14.0 ms | 11.5 ms | 12.4 ms | **−11.4%** | +7.8% |
+| Page switch, slowest page (Add Server) | 58.9 ms | 59.8 ms | 64.1 ms | **+8.8%** | +7.2% |
+
+**Budgets met** (every measure within Build 215 +10%). The A10 cost over A9
+is the legacy bridge stylesheet (more rules to match on every page); it is
+recorded, not hidden, and the slowest page is the one to watch if a later
+wave adds CSS.
+
+### Screenshots
+
+`docs/anxhost/a10-theme/`: Home, Backups, Security, SSH and Computers in
+light and dark at 1280x800.
+
+### A10 remaining risks
+
+- `anxhost-theme-ui-qa` failed once in four runs (376 s against about 240 s,
+  log overwritten by the rerun). Not explained; rerun it alone before the
+  release tier if it fails again.
+- `acceptance-fixes-ui-qa` has pre-existing timing flakiness (also on A9).
+
+- The theme suite covers 69 views. Not covered: the Assistant panel (needs AI
+  help configured; its styling is in `shell.css` on tokens), the operation
+  tray (only while an operation runs), dialogs built at run time other than
+  those listed, and Docker container details (needs a container). These all
+  use AnxHost tokens or the bridged variables, but their light rendering was
+  not measured.
+- Before the settings load, the startup screen and the window background are
+  dark, so a Light user sees a dark frame for a moment at launch.
