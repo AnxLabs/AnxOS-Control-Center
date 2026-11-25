@@ -175,7 +175,7 @@ const endCalls = () => calls.filter((call) => call[0] === "schtasks.exe" && call
     assert.strictEqual(status.helperRestore?.needed, true, "another installation's task does not stand in for this one's Helper");
     const repoRoot = path.resolve(__dirname, "..");
     const appSource = fs.readFileSync(path.join(repoRoot, "app.js"), "utf8");
-    assert(/restoreHelper: \{ label: "Restore AnxOS Helper"/.test(appSource), "the notification offers Restore AnxOS Helper");
+    assert(/restoreHelper: \{ label: "Restore AnxHost Helper"/.test(appSource), "the notification offers Restore AnxHost Helper");
     assert(/agentControl:restoreHelper/.test(fs.readFileSync(path.join(repoRoot, "preload.js"), "utf8")), "the renderer can ask for the restore");
     assert(/restoreHelper: \(\) => control\.restoreHelperTask\(\)/.test(fs.readFileSync(path.join(repoRoot, "src", "ipc", "agentControlIpc.js"), "utf8")), "the main process handles the restore as an authorized action");
     console.log("PASS S5 a Helper Setup could not register is restored from the app");

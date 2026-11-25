@@ -730,7 +730,7 @@ function backgroundServiceBelongsToThisInstallation(service = {}) {
 }
 
 // Setup (windows/installer.nsh) leaves this file in the app's resources folder
-// when the AnxOS Helper should exist after an install or update (it was set up
+// when the AnxHost Helper should exist after an install or update (it was set up
 // before, or the user chose it) but Setup could not register its startup task,
 // for example because the administrator prompt was declined. Build 211's
 // uninstaller removes the task on every update, so this is how a Helper lost
@@ -772,7 +772,7 @@ function resolveHelperRestore(service = {}) {
 // Agent is running to repair the task (installService needs one).
 async function restoreHelperTask() {
   if (process.platform !== "win32") {
-    throw Object.assign(new Error("The AnxOS Helper startup task exists only on Windows."), { code: "PLATFORM_UNSUPPORTED" });
+    throw Object.assign(new Error("The AnxHost Helper startup task exists only on Windows."), { code: "PLATFORM_UNSUPPORTED" });
   }
   // The task is machine-wide: only the installed app may register it for
   // itself. A development checkout (node.exe, electron.exe) must never point
@@ -790,12 +790,12 @@ async function restoreHelperTask() {
   const result = await command("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, "-ExecutablePath", executable, "-Mode", "Install", "-UserId", userId], { timeout: 180000 });
   if (!result.ok) {
     if (Number(result.code) === 1223) {
-      throw Object.assign(new Error("Administrator approval was not given, so the AnxOS Helper was not restored."), { code: "HELPER_RESTORE_DECLINED" });
+      throw Object.assign(new Error("Administrator approval was not given, so the AnxHost Helper was not restored."), { code: "HELPER_RESTORE_DECLINED" });
     }
-    throw Object.assign(new Error(`The AnxOS Helper could not be restored (code ${result.code ?? "unknown"}).`), { code: "HELPER_RESTORE_FAILED", details: { exitCode: result.code ?? null } });
+    throw Object.assign(new Error(`The AnxHost Helper could not be restored (code ${result.code ?? "unknown"}).`), { code: "HELPER_RESTORE_FAILED", details: { exitCode: result.code ?? null } });
   }
   clearHelperRestoreMarker();
-  diagnostics.log("info", "service-manager", "helper-restore", "AnxOS Helper startup task restored", { platform: process.platform }, { file: "service-manager" });
+  diagnostics.log("info", "service-manager", "helper-restore", "AnxHost Helper startup task restored", { platform: process.platform }, { file: "service-manager" });
   return getStatus();
 }
 

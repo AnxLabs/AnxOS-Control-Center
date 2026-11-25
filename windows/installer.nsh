@@ -1,13 +1,14 @@
-; AnxOS Control Center installer customisation (Phase 9).
+; AnxHost Control Center installer customisation (Phase 9, redesigned in
+; Build 216-D: docs/anxhost/d-installer/INSTALLER_DESIGN.md).
 ;
 ; Built on electron-builder's assisted NSIS installer: the same engine, signing
 ; and update handoff as before. This file only adds branding, beginner-friendly
-; pages and the AnxOS Helper choice. Every NSIS plugin it uses (nsDialogs,
+; pages and the AnxHost Helper choice. Every NSIS plugin it uses (nsDialogs,
 ; nsExec, System) is part of the toolsets that scripts/sign-nsis-toolsets.js
 ; signs for release builds, so Smart App Control can load them.
 ;
 ; Page flow: Welcome (new install or upgrade/repair) -> install mode ->
-; folder -> "Set up AnxOS" (Helper choice, permissions explained) ->
+; folder -> "Set up AnxHost" (Helper choice, permissions explained) ->
 ; progress -> Finish (open the app). Uninstall: Welcome (what is kept) ->
 ; progress -> Finish.
 
@@ -16,20 +17,23 @@
 !include FileFunc.nsh
 
 ; Dark charcoal header bar and Welcome/Finish pages (artwork in
-; windows/installer-art, wired up in package.json build.nsis).
+; windows/installer-art, rendered from the brand SVGs by
+; scripts/anxhost-installer-mockups.js --write-art, wired up in package.json
+; build.nsis).
 !define MUI_BGCOLOR 181521
 !define MUI_TEXTCOLOR FFFFFF
 
 !ifndef BUILD_UNINSTALLER
-  !define MUI_FINISHPAGE_TITLE "AnxOS Control Center is ready"
-  !define MUI_FINISHPAGE_TEXT "Setup has finished.$\r$\n$\r$\nOpen AnxOS Control Center to create your first server or connect another computer. Everything is a click away; no command line needed."
-  !define MUI_FINISHPAGE_RUN_TEXT "Open AnxOS Control Center now"
+  !define MUI_FINISHPAGE_TITLE "AnxHost Control Center is ready"
+  !define MUI_FINISHPAGE_TEXT "Setup has finished.$\r$\n$\r$\nOpen the app to create your first server or connect another computer. Everything is a click away; no command line needed."
+  !define MUI_FINISHPAGE_RUN_TEXT "Open AnxHost Control Center now"
 
   Var anxSetupHelper
   Var anxHelperWasInstalled
   Var anxHelperCheckbox
   Var anxIsUpgrade
   Var anxWelcomeText
+  Var anxWelcomeTitle
 
 !endif
 
@@ -55,7 +59,7 @@
     ${IfNot} ${Errors}
       StrCpy $anxSetupHelper 0
     ${EndIf}
-    ; An update never removes a Helper that was set up (uninstalling AnxOS, or
+    ; An update never removes a Helper that was set up (uninstalling the app, or
     ; Agent Control, does that).
     ${If} $anxHelperWasInstalled == 1
       StrCpy $anxSetupHelper 1
@@ -69,29 +73,31 @@
   Function anxWelcomePre
     ${If} ${FileExists} "$INSTDIR\${APP_EXECUTABLE_FILENAME}"
       StrCpy $anxIsUpgrade 1
-      StrCpy $anxWelcomeText "AnxOS Control Center is already installed on this PC. Setup will update or repair it in place.$\r$\n$\r$\nYour servers, worlds, settings, backups and paired computers are kept.$\r$\n$\r$\nClick Next to continue."
+      StrCpy $anxWelcomeTitle "Update AnxHost Control Center"
+      StrCpy $anxWelcomeText "AnxHost Control Center is already installed on this PC. Setup updates or repairs it in place.$\r$\n$\r$\nYour servers, worlds, settings, backups and paired computers are kept.$\r$\n$\r$\nClick Next to continue."
     ${Else}
       StrCpy $anxIsUpgrade 0
-      StrCpy $anxWelcomeText "This will install AnxOS Control Center on this PC.$\r$\n$\r$\nCreate game servers, manage the computers that run them and share them with friends, all without the command line.$\r$\n$\r$\nSetup takes about a minute. Click Next to continue."
+      StrCpy $anxWelcomeTitle "Welcome to AnxHost Control Center"
+      StrCpy $anxWelcomeText "This installs AnxHost Control Center on this PC.$\r$\n$\r$\nCreate game servers, manage the computers that run them and share them with friends, without the command line.$\r$\n$\r$\nSetup takes about a minute. Click Next to continue."
     ${EndIf}
   FunctionEnd
 
-  ; "Set up AnxOS": the app is always installed; the Helper is recommended and
+  ; "Set up AnxHost": the app is always installed; the Helper is recommended and
   ; its administrator prompt is explained before it can appear.
   Function anxSetupPage
-    !insertmacro MUI_HEADER_TEXT "Set up AnxOS" "Choose what to set up on this PC."
+    !insertmacro MUI_HEADER_TEXT "Set up AnxHost" "Choose what to set up on this PC."
     nsDialogs::Create 1018
     Pop $0
     ${If} $0 == error
       Abort
     ${EndIf}
     CreateFont $1 "Segoe UI" 9 700
-    ${NSD_CreateLabel} 0 0 100% 11u "AnxOS Control Center"
+    ${NSD_CreateLabel} 0 0 100% 11u "AnxHost Control Center"
     Pop $0
     SendMessage $0 ${WM_SETFONT} $1 1
     ${NSD_CreateLabel} 0 12u 100% 10u "The app you use to create and manage servers. Always installed."
     Pop $0
-    ${NSD_CreateCheckbox} 0 30u 100% 11u "AnxOS Helper (recommended)"
+    ${NSD_CreateCheckbox} 0 30u 100% 11u "AnxHost Helper (recommended)"
     Pop $anxHelperCheckbox
     SendMessage $anxHelperCheckbox ${WM_SETFONT} $1 1
     ${If} $anxSetupHelper != "0"
@@ -100,7 +106,7 @@
     ${If} $anxHelperWasInstalled == 1
       EnableWindow $anxHelperCheckbox 0
     ${EndIf}
-    ${NSD_CreateLabel} 12u 43u -12u 28u "Runs in the background so Control Center can start, stop and watch servers on this PC, even after a restart. It includes AnxNet, the private network for playing with friends, which stays off until you join a network."
+    ${NSD_CreateLabel} 12u 43u -12u 28u "Runs in the background so the app can start, stop and watch servers on this PC, even after a restart. It includes AnxNet, the private network for playing with friends, which stays off until you join one."
     Pop $0
     ${NSD_CreateLabel} 12u 74u -12u 28u "Windows will ask for administrator approval so the Helper can start when you sign in. Setup does not change your security settings, firewall or other apps. You can also set the Helper up later in Agent Control."
     Pop $0
@@ -109,7 +115,7 @@
       Pop $0
     ${EndIf}
     ${If} $anxHelperWasInstalled == 1
-      ${NSD_CreateLabel} 0 122u 100% 10u "The AnxOS Helper is already set up on this PC and is kept."
+      ${NSD_CreateLabel} 0 122u 100% 10u "The AnxHost Helper is already set up on this PC and is kept."
       Pop $0
     ${EndIf}
     nsDialogs::Show
@@ -128,7 +134,7 @@
     ${EndIf}
   FunctionEnd
   !define MUI_PAGE_CUSTOMFUNCTION_PRE anxWelcomePre
-  !define MUI_WELCOMEPAGE_TITLE "Welcome to AnxOS Control Center"
+  !define MUI_WELCOMEPAGE_TITLE "$anxWelcomeTitle"
   !define MUI_WELCOMEPAGE_TEXT "$anxWelcomeText"
   !insertmacro MUI_PAGE_WELCOME
 !macroend
@@ -165,18 +171,18 @@
 !macroend
 
 !macro customHeader
-  BrandingText "AnxOS Control Center by AnxLabs"
+  BrandingText "AnxHost Control Center by AnxLabs"
 !macroend
 
 !macro customInstall
   ${If} $anxSetupHelper == "0"
-    DetailPrint "AnxOS Helper not set up. You can set it up later in Agent Control."
+    DetailPrint "AnxHost Helper not set up. You can set it up later in Agent Control."
   ${Else}
     ReadEnvStr $1 "USERDOMAIN"
     ReadEnvStr $2 "USERNAME"
-    DetailPrint "Setting up the AnxOS Helper. Windows may ask for administrator approval..."
+    DetailPrint "Setting up the AnxHost Helper. Windows may ask for administrator approval..."
     ; Until the Helper is registered, this file tells the app to offer
-    ; "Restore AnxOS Helper" (for example after a declined prompt).
+    ; "Restore AnxHost Helper" (for example after a declined prompt).
     FileOpen $6 "$INSTDIR\resources\helper-restore-needed.json" w
     FileWrite $6 '{"reason":"setup"}'
     FileClose $6
@@ -193,16 +199,16 @@
       ; the stack and lands in $0; never show that as an error code.
       StrLen $5 $0
       ${If} $0 == "1223"
-        StrCpy $4 "Administrator approval was not given, so the AnxOS Helper was not set up."
+        StrCpy $4 "Administrator approval was not given, so the AnxHost Helper was not set up."
       ${ElseIf} $5 > 12
-        StrCpy $4 "The AnxOS Helper could not be set up because its setup step could not run (Windows security may have blocked it)."
+        StrCpy $4 "The AnxHost Helper could not be set up because its setup step could not run (Windows security may have blocked it)."
       ${Else}
-        StrCpy $4 "The AnxOS Helper could not be confirmed started (code $0)."
+        StrCpy $4 "The AnxHost Helper could not be confirmed started (code $0)."
       ${EndIf}
       DetailPrint "$4"
       ; The app itself is installed and works; the Helper can be repaired
       ; from inside it. /SD IDOK: a silent install must not wait for a click.
-      MessageBox MB_ICONEXCLAMATION "AnxOS Control Center is installed. $4$\r$\n$\r$\nTo finish, open AnxOS Control Center and select Restore AnxOS Helper in its notification, or run this installer again." /SD IDOK
+      MessageBox MB_ICONEXCLAMATION "AnxHost Control Center is installed. $4$\r$\n$\r$\nTo finish, open the app and select Restore AnxHost Helper in its notification, or run this installer again." /SD IDOK
       ; Automated installs still see that something needs attention.
       SetErrorLevel 3
     ${EndIf}
@@ -210,8 +216,8 @@
 !macroend
 
 !macro customUnWelcomePage
-  !define MUI_WELCOMEPAGE_TITLE "Uninstall AnxOS Control Center"
-  !define MUI_WELCOMEPAGE_TEXT "This removes the AnxOS Control Center app and the AnxOS Helper from this PC.$\r$\n$\r$\nYour servers, worlds, backups, settings and paired computers are kept, so installing again picks up where you left off. Servers on other computers are not affected.$\r$\n$\r$\nClick Next to continue."
+  !define MUI_WELCOMEPAGE_TITLE "Uninstall AnxHost Control Center"
+  !define MUI_WELCOMEPAGE_TEXT "This removes the app and the AnxHost Helper from this PC.$\r$\n$\r$\nYour servers, worlds, backups, settings and paired computers are kept, so installing again picks up where you left off. Servers on other computers are not affected.$\r$\n$\r$\nClick Next to continue."
   !insertmacro MUI_UNPAGE_WELCOME
 !macroend
 
@@ -224,10 +230,10 @@
     ; its startup task is kept: the new install starts it again, and a
     ; declined prompt, an unticked Helper or /NOHELPER must not remove a
     ; Helper that worked before the update.
-    DetailPrint "Stopping the AnxOS Helper for the update..."
+    DetailPrint "Stopping the AnxHost Helper for the update..."
     nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\resources\install-agent-task.ps1" -ExecutablePath "$INSTDIR\${APP_EXECUTABLE_FILENAME}" -Mode Stop -UserId "$1\$2"'
   ${else}
-    DetailPrint "Removing the AnxOS Helper startup task..."
+    DetailPrint "Removing the AnxHost Helper startup task..."
     nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\resources\install-agent-task.ps1" -ExecutablePath "$INSTDIR\${APP_EXECUTABLE_FILENAME}" -Mode Uninstall -UserId "$1\$2"'
   ${endif}
 !macroend

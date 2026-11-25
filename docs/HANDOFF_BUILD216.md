@@ -16,7 +16,7 @@ Plan: `PLANS.md` (approved, commit `9aadaead`). Protocol: `AGENTS.md` (ADP).
 | **216-A9 Activity, Security, Settings, Workspace** | **Complete; local checkpoint commit** (not pushed); the accent setting works again on redesigned pages. See "216-A9" below. |
 | **216-A10 Consistency and light theme** | **Complete; local checkpoint commit** (not pushed). Light theme (Dark, Light, System) on tokens only; legacy styles bridged to AnxHost tokens; two controls-cut-off defects and unreadable placeholders fixed; full validation sweep and performance re-check. Legacy deletions wait for named approvals. See "216-A10" below. |
 | **216-E Secure Session Persistence** | **Complete; local checkpoint commit** (not pushed). Approved policy implemented: secure storage only, token rotation on every restore, device binding, enforced idle lock (15 min default) and a real manual lock. See "216-E" below. |
-| 216-D Custom Installer | Design approved by the owner 2026-11-25 (`docs/anxhost/d-installer/`); implementation next |
+| **216-D Custom Installer** | **Implemented; local checkpoint commit** (not pushed). New art from the brand SVGs, AnxHost names on every page, shortcut and uninstall entry, "AnxHost Helper". Not compiled on this PC (junctioned `node_modules`); Sandbox install, upgrade, repair and uninstall need the signed CI build (216-G). See "216-D" below. |
 | 216-C, 216-B, 216-F, 216-G | Not started |
 
 ## 216-0 timing
@@ -285,7 +285,7 @@ domain and production changes need their own approvals.
 A1 to A10 are complete and committed locally. On 2026-11-25 the owner
 wrote "i approved anything", recorded as approval of the 216-E security
 review (with the recommended answers D1–D6) and of the 216-D installer
-design. 216-E is done; **216-D is next**, then C, B, F and G. The exact-reply
+design. 216-E and 216-D are done; **216-C is next**, then B, F and G. The exact-reply
 gates (`confirmed`, `done`, `🚀 publish`), pushes, signing or CI workflow
 changes, and deletions still need their own approvals naming the target.
 
@@ -1384,3 +1384,53 @@ Coolpals, retirement needs approval) and 216-C's 58 phone rows.
 - A lock does not survive quitting: after a manual or idle lock, the next
   launch restores the remembered session (approved D4 behaviour).
 - Same-user malware can read DPAPI data (review T7, out of scope).
+
+## 216-D Custom Installer (polished NSIS)
+
+Design: `docs/anxhost/d-installer/INSTALLER_DESIGN.md` and the page mockups,
+approved by the owner on 2026-11-25.
+
+### What changed
+
+| Area | Change |
+| --- | --- |
+| Art | `windows/installer-art/sidebar.bmp` (164x314) and `header.bmp` (150x57), 24-bit, regenerated from the approved brand SVGs (Option A mark and wordmark on the sidebar, the small mark in the header) by `node scripts/anxhost-installer-mockups.js --write-art`. |
+| Pages | Welcome shows "Welcome to AnxHost Control Center" for a new install and "Update AnxHost Control Center" for an update or repair (new `$anxWelcomeTitle`); Set up, Finish and Uninstall use the new names. Same pages, controls and logic as Build 215. |
+| Names | Branding text, shortcut and uninstall display name: "AnxHost Control Center". The background service is shown as "AnxHost Helper" in the installer and the app (Restore notification, toasts, Agent Control errors). On update, electron-builder renames the old shortcuts (its `WinShell` plugin is among the DLLs `sign-nsis-toolsets` signs). |
+| Unchanged (frozen) | `appId`, executable and install folder name, the `AnxOSAgent` task and `install-agent-task.ps1`, `/NOHELPER`, `--updated`, every NSIS plugin used, the publisher pin, Azure Trusted Signing, `artifactName` (still matches the updater's `/setup.*\.exe$/i`). |
+| Left out of the mockup | The "Installed: Build 215 → New: Build 216" chip on the update page: reading the installed build would need new NSIS code against electron-builder's registry layout, for little gain. |
+
+### Tests
+
+- Ported: `agent-control-foreign-task-stop-smoke` S5 follows the
+  "Restore AnxHost Helper" label (the behaviour it checks is unchanged).
+- PASS: `upgrade-migration-hardening`, `agent-control-foreign-task-stop`,
+  `frozen-identifiers`, `anxhost-brand-allowlist`, `windows-elevation-tray`,
+  `local-agent-installer`, `installer-signature`, `build-signing`,
+  `windows-signing-coverage`.
+
+### Not verified (environment and gates)
+
+- **Not compiled on this PC.** `node scripts/run-electron-builder.js --win
+  nsis --x64 --no-increment-build` (in a scratch copy) stops at Agent runtime
+  staging: `js-yaml` resolves outside the repository's `node_modules`, because
+  this worktree's `node_modules` is a junction (the same 216-0 environment
+  limitation as `agent:package:smoke`). The script changes are strings and
+  one new variable (`$anxWelcomeTitle`, declared and used only in the
+  installer build), so a compile failure is unlikely, but the first real
+  compile is the signed CI build.
+- The PLANS.md finish lines that need the signed build (Windows Sandbox with
+  Smart App Control: fresh install, in-place upgrade from Build 215, repair,
+  uninstall; 100% signed binaries and plugins; Helper task kept) belong to
+  216-G and need the push approval for the CI workflow.
+- Real installer screenshots for the owner can only come from that build;
+  the approved design is the mockup set.
+
+### 216-D remaining risks
+
+- A user who pinned the old "AnxOS Control Center" shortcut to the taskbar
+  keeps a pin that still works (it points at the same executable) but shows
+  the old name until re-pinned; the desktop and Start menu shortcuts are
+  renamed by electron-builder on the update.
+- The uninstall entry in Windows Settings changes its display name; its
+  registry key (from `appId`) is unchanged, so the update is still in place.
