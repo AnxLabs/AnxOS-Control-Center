@@ -19,6 +19,9 @@
     <link rel="stylesheet" href="src/renderer/anxhost/servers.css">
     <link rel="stylesheet" href="src/renderer/anxhost/add-server.css">
     <link rel="stylesheet" href="src/renderer/anxhost/computers.css">
+    <link rel="stylesheet" href="src/renderer/anxhost/docker.css">
+    <link rel="stylesheet" href="src/renderer/anxhost/network.css">
+    <link rel="stylesheet" href="src/renderer/anxhost/tools.css">
   </head>
   <body>
     <section class="startup-screen" data-startup-screen data-testid="shell-startup" aria-label="AnxHost Control Center startup">
@@ -2956,7 +2959,7 @@
               <label class="file-location">
                 <span>Path</span>
                 <div class="file-location-row">
-                  <input type="text" placeholder="/home/user or C:SERSYOU" DATA-FILES-PATH DISABLED>
+                  <input type="text" placeholder="/home/user or C:\Users\you" data-files-path disabled>
                   <button class="inline-action" type="button" data-file-action="go" disabled>Go</button>
                   <button class="inline-action" type="button" data-file-action="home" disabled>Home</button>
                 </div>
@@ -5987,6 +5990,41 @@
         </footer>
       </section>
     </div>
+    <!-- Build 216-A8: Add Storage in the main window (it was its own window). -->
+    <div class="app-modal-backdrop" data-add-storage-modal hidden>
+      <section class="app-modal app-modal--add-storage" role="dialog" aria-modal="true" aria-labelledby="add-storage-title" tabindex="-1" data-testid="files-add-storage">
+        <header class="app-modal__header">
+          <div>
+            <p class="app-modal__eyebrow">Storage Manager</p>
+            <h2 id="add-storage-title" data-add-storage-title>Add Storage</h2>
+          </div>
+          <button class="icon-action" type="button" aria-label="Close Add Storage" data-add-storage-action="cancel">&times;</button>
+        </header>
+        <form class="app-modal__body storage-form" data-add-storage-form>
+          <div class="storage-provider-picker" role="tablist" aria-label="Storage provider">
+            <button class="storage-provider-option" type="button" role="tab" data-add-storage-provider="local"><strong>Local Device</strong><span>Browse files on this computer.</span></button>
+            <button class="storage-provider-option is-active" type="button" role="tab" data-add-storage-provider="sftp"><strong>SFTP Server</strong><span>Kinetic, PebbleHost, VPS, Raspberry Pi, dedicated servers.</span></button>
+          </div>
+          <div class="settings-grid">
+            <label class="settings-field"><span>Connection Name</span><input type="text" data-add-storage-field="name" placeholder="Kinetic Survival" autocomplete="off"></label>
+            <label class="settings-field"><span>Host</span><input type="text" data-add-storage-field="host" placeholder="sftp.kinetichosting.net" autocomplete="off"></label>
+            <label class="settings-field"><span>Port</span><input type="number" min="1" max="65535" data-add-storage-field="port" value="22"></label>
+            <label class="settings-field"><span>Username</span><input type="text" data-add-storage-field="username" placeholder="abc123" autocomplete="off"></label>
+            <label class="settings-field"><span>Authentication</span><select data-add-storage-field="authType"><option value="password">Password</option><option value="privateKey">Private Key</option></select></label>
+            <label class="settings-field"><span>Root Directory</span><input type="text" data-add-storage-field="rootDirectory" placeholder="/home/container"></label>
+            <label class="settings-field" data-add-storage-secret="password"><span>Password</span><input type="password" data-add-storage-field="password" autocomplete="new-password" placeholder="Stored securely"></label>
+            <label class="settings-field settings-field--wide" data-add-storage-secret="privateKey" hidden><span>Private Key</span><textarea data-add-storage-field="privateKey" placeholder="Paste private key" spellcheck="false"></textarea></label>
+            <label class="settings-field" data-add-storage-secret="passphrase" hidden><span>Passphrase</span><input type="password" data-add-storage-field="passphrase" autocomplete="new-password" placeholder="Optional"></label>
+          </div>
+          <p class="settings-inline-status" data-add-storage-message role="status" aria-live="polite">Credentials are encrypted before being written to disk.</p>
+          <div class="app-modal__actions">
+            <button class="inline-action" type="button" data-add-storage-action="cancel">Cancel</button>
+            <button class="inline-action" type="button" data-add-storage-action="test">Test Connection</button>
+            <button class="inline-action inline-action--primary" type="submit" data-add-storage-action="save">Save Storage</button>
+          </div>
+        </form>
+      </section>
+    </div>
     <div class="app-modal-backdrop" data-fivem-setup-modal hidden>
       <section class="app-modal app-modal--fivem-setup" role="dialog" aria-modal="true" aria-labelledby="fivem-setup-title" tabindex="-1">
         <header class="app-modal__header">
@@ -6066,5 +6104,6 @@
     <script src="src/renderer/anxnetPanel.js"></script>
     <script src="src/renderer/phoneAccessPanel.js"></script>
     <script src="src/renderer/assistantPanel.js"></script>
+    <script src="src/renderer/addStorageDialog.js"></script>
   </body>
 </html>

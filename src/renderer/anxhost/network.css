@@ -1,0 +1,119 @@
+/* AnxHost CC Networking, Sharing and Public Access (Build 216-A7).
+ *
+ * On top of pages.css. Same rules as the other AnxHost files:
+ * :root[data-shell="ahx"] first, --ahx-* tokens only, no :is() lists.
+ * Layout grids from styles.css are kept; this file sets the AnxHost look.
+ */
+
+/* ---------------------------------------------------------------- summary tiles */
+:root[data-shell="ahx"] .playit-summary-card,
+:root[data-shell="ahx"] .network-summary-card {
+  border-color: var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-lg);
+  background: var(--ahx-surface-1);
+  box-shadow: var(--ahx-shadow-1);
+}
+
+/* ---------------------------------------------------------------- Playit status card (state colours) */
+:root[data-shell="ahx"] .playit-status-card {
+  --tone: var(--ahx-status-offline);
+  border-color: var(--ahx-border-subtle);
+  border-left: 3px solid var(--tone);
+  border-radius: var(--ahx-radius-lg);
+  background: var(--ahx-surface-1);
+}
+
+:root[data-shell="ahx"] .playit-status-card[role="button"]:hover {
+  background: var(--ahx-surface-2);
+}
+
+:root[data-shell="ahx"] .playit-status-card.is-connected,
+:root[data-shell="ahx"] .playit-status-card.is-running {
+  --tone: var(--ahx-status-running);
+}
+
+:root[data-shell="ahx"] .playit-status-card.is-stopped {
+  --tone: var(--ahx-status-stopped);
+}
+
+:root[data-shell="ahx"] .playit-status-card.is-missing {
+  --tone: var(--ahx-status-degraded);
+}
+
+/* ---------------------------------------------------------------- providers, tunnels and steps */
+:root[data-shell="ahx"] .public-access-provider,
+:root[data-shell="ahx"] .playit-tunnel-item,
+:root[data-shell="ahx"] .network-endpoint-card,
+:root[data-shell="ahx"] .network-diagnostics-stage,
+:root[data-shell="ahx"] .endpoint-picker-choice {
+  border-color: var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-lg);
+  background: var(--ahx-surface-2);
+  color: var(--ahx-text-primary);
+}
+
+:root[data-shell="ahx"] .public-access-provider.is-selected,
+:root[data-shell="ahx"] .network-endpoint-card.is-selected,
+:root[data-shell="ahx"] .network-diagnostics-stage.is-selected,
+:root[data-shell="ahx"] .endpoint-picker-choice.is-selected {
+  border-color: var(--ahx-border-accent);
+  background: var(--ahx-surface-selected);
+}
+
+:root[data-shell="ahx"] .network-endpoint-card:focus-within,
+:root[data-shell="ahx"] .endpoint-picker-choice:focus-visible {
+  border-color: var(--ahx-border-accent);
+  outline: none;
+  box-shadow: var(--ahx-focus-ring);
+}
+
+:root[data-shell="ahx"] .network-endpoint-card__meta > div,
+:root[data-shell="ahx"] .network-diagnostics-stage__evidence > div {
+  border-color: var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-md);
+  background: var(--ahx-surface-inset);
+}
+
+:root[data-shell="ahx"] .playit-steps li {
+  border-color: var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-md);
+  background: var(--ahx-surface-2);
+}
+
+:root[data-shell="ahx"] .playit-steps__index {
+  border-color: var(--ahx-border);
+  background: var(--ahx-surface-3);
+  color: var(--ahx-text-secondary);
+}
+
+:root[data-shell="ahx"] .playit-steps li.is-done .playit-steps__index {
+  border-color: transparent;
+  background: var(--ahx-success-soft);
+  color: var(--ahx-success);
+}
+
+:root[data-shell="ahx"] .playit-steps li.is-current {
+  border-color: var(--ahx-border-accent);
+}
+
+:root[data-shell="ahx"] .playit-log-output {
+  border-color: var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-md);
+  background: var(--ahx-surface-inset);
+  color: var(--ahx-text-primary);
+  font-family: var(--ahx-font-mono);
+}
+
+:root[data-shell="ahx"] .public-access-create-form [aria-invalid="true"] {
+  border-color: var(--ahx-danger);
+}
+
+:root[data-shell="ahx"] .network-panel {
+  border-color: var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-lg);
+  background: var(--ahx-surface-1);
+}
+
+:root[data-shell="ahx"] .network-empty {
+  color: var(--ahx-text-secondary);
+}

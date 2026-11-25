@@ -1,0 +1,152 @@
+/* AnxHost CC Docker and Compose (Build 216-A6).
+ *
+ * On top of pages.css. Same rules as the other AnxHost files:
+ * :root[data-shell="ahx"] first, --ahx-* tokens only, no :is() lists.
+ * Layout grids from styles.css are kept; this file sets the AnxHost look,
+ * including the shared data table (docker-table) other pages reuse.
+ */
+
+/* ---------------------------------------------------------------- summary and toolbar */
+:root[data-shell="ahx"] .docker-summary-card {
+  border-color: var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-lg);
+  background: var(--ahx-surface-1);
+  box-shadow: var(--ahx-shadow-1);
+}
+
+:root[data-shell="ahx"] .docker-summary-card span:not(.service-icon) {
+  color: var(--ahx-text-muted);
+}
+
+:root[data-shell="ahx"] .docker-summary-card strong {
+  color: var(--ahx-text-primary);
+  font-family: var(--ahx-font-display);
+  font-weight: var(--ahx-weight-semibold);
+}
+
+:root[data-shell="ahx"] .docker-toolbar,
+:root[data-shell="ahx"] .docker-search,
+:root[data-shell="ahx"] .docker-filter {
+  border-color: var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-lg);
+  background: var(--ahx-surface-1);
+}
+
+/* ---------------------------------------------------------------- data tables (also used by other pages) */
+:root[data-shell="ahx"] .docker-table-wrap {
+  border-color: var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-lg);
+  background: var(--ahx-surface-1);
+  color: var(--ahx-text-secondary);
+}
+
+:root[data-shell="ahx"] .docker-table th {
+  background: var(--ahx-surface-1);
+  color: var(--ahx-text-muted);
+  font-size: var(--ahx-text-2xs);
+  font-weight: var(--ahx-weight-semibold);
+  letter-spacing: var(--ahx-tracking-caps);
+}
+
+:root[data-shell="ahx"] .docker-table th,
+:root[data-shell="ahx"] .docker-table td {
+  border-bottom-color: var(--ahx-border-subtle);
+}
+
+:root[data-shell="ahx"] .docker-table td {
+  color: var(--ahx-text-primary);
+}
+
+:root[data-shell="ahx"] .docker-table tbody tr:hover {
+  background: var(--ahx-surface-hover);
+}
+
+:root[data-shell="ahx"] .docker-table tbody tr.is-selected {
+  background: var(--ahx-surface-selected);
+  box-shadow: inset 3px 0 0 var(--ahx-accent);
+}
+
+/* ---------------------------------------------------------------- panels, resources and output */
+:root[data-shell="ahx"] .docker-resource-panel,
+:root[data-shell="ahx"] .docker-details-panel,
+:root[data-shell="ahx"] .docker-inspector-panel {
+  border-color: var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-lg);
+  background: var(--ahx-surface-1);
+  box-shadow: var(--ahx-shadow-1);
+}
+
+:root[data-shell="ahx"] .docker-resource-item,
+:root[data-shell="ahx"] .docker-check-option,
+:root[data-shell="ahx"] .docker-inline-form {
+  border-color: var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-md);
+  background: var(--ahx-surface-2);
+  color: var(--ahx-text-primary);
+}
+
+:root[data-shell="ahx"] .docker-resource-item small {
+  color: var(--ahx-text-muted);
+}
+
+:root[data-shell="ahx"] .docker-check-option input[type="checkbox"] {
+  accent-color: var(--ahx-accent);
+}
+
+:root[data-shell="ahx"] .docker-warning {
+  border-color: var(--ahx-warning);
+  border-radius: var(--ahx-radius-md);
+  background: var(--ahx-warning-soft);
+  color: var(--ahx-text-primary);
+}
+
+:root[data-shell="ahx"] .docker-output,
+:root[data-shell="ahx"] .docker-inspect-viewer {
+  border-color: var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-md);
+  background: var(--ahx-surface-inset);
+  color: var(--ahx-text-primary);
+  font-family: var(--ahx-font-mono);
+}
+
+:root[data-shell="ahx"] .docker-details-list dt {
+  color: var(--ahx-text-muted);
+}
+
+:root[data-shell="ahx"] .docker-details-list dd {
+  color: var(--ahx-text-primary);
+}
+
+/* ---------------------------------------------------------------- inspector tabs */
+:root[data-shell="ahx"] .docker-inspector-tabs button {
+  border-color: var(--ahx-border);
+  border-radius: var(--ahx-radius-md);
+  background: var(--ahx-surface-2);
+  color: var(--ahx-text-secondary);
+}
+
+:root[data-shell="ahx"] .docker-inspector-tabs button:hover {
+  color: var(--ahx-text-primary);
+}
+
+:root[data-shell="ahx"] .docker-inspector-tabs button.is-active {
+  border-color: var(--ahx-border-accent);
+  background: var(--ahx-surface-selected);
+  color: var(--ahx-text-primary);
+}
+
+:root[data-shell="ahx"] .docker-inspector-tabs button:focus-visible {
+  outline: none;
+  box-shadow: var(--ahx-focus-ring);
+}
+
+/* ---------------------------------------------------------------- empty and loading states */
+:root[data-shell="ahx"] .docker-empty-state,
+:root[data-shell="ahx"] .docker-loading-state {
+  color: var(--ahx-text-secondary);
+}
+
+:root[data-shell="ahx"] .docker-loading-state strong,
+:root[data-shell="ahx"] .docker-empty-state strong {
+  color: var(--ahx-text-primary);
+}

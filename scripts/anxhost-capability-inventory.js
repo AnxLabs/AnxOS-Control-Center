@@ -71,6 +71,8 @@ const DEST = {
   "region:onboarding-wizard": ["ONBOARD", "Onboarding wizard", "Shell › Onboarding", "A1"],
   "region:contextual-help-modal": ["HELP", "Contextual help", "Shell › Contextual help", "A1"],
   "region:fivem-setup-modal": ["SRV", "FiveM setup dialog", "My Servers › FiveM setup", "A3"],
+  // Build 216-A8: Add Storage in the main window (it was its own window).
+  "region:add-storage-modal": ["FILES", "Add Storage dialog", "Files › Add Storage inside the main window", "A8"],
   "region:toast": ["SHELL", "Toasts", "Shell › Toasts", "A1"],
   "region:assistant-panel": ["ASSIST", "Assistant panel", "Shell › Assistant panel", "A1"],
   // Build 216-A1 shell additions.
@@ -141,7 +143,7 @@ const REGION_MARKERS = [
   "startup-screen", "security-gate", "local-setup-gate", "app-shell:shell", "titlebar", "global-search", "command-palette",
   "sidebar", "node-picker", "node-modal", "endpoint-modal", "instance-endpoint-picker", "node-details-modal",
   "update-ready-banner", "update-modal", "dev-update-modal", "onboarding-welcome", "onboarding-wizard",
-  "contextual-help-modal", "fivem-setup-modal", "assistant-panel",
+  "contextual-help-modal", "add-storage-modal", "fivem-setup-modal", "assistant-panel",
   // Build 216-A1: the operation tray and the page host (the <main> that holds every page).
   "operation-tray", "page-host:shell",
 ];

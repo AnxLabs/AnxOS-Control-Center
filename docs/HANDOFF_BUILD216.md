@@ -12,7 +12,8 @@ Plan: `PLANS.md` (approved, commit `9aadaead`). Protocol: `AGENTS.md` (ADP).
 | **216-A3 My Servers and server page** | **Complete; local checkpoint commit** (not pushed). See "216-A3 My Servers and the server page" below. |
 | **216-A4 Add Server** | **Complete; local checkpoint commit** (not pushed). Marketplace and Create Server in the main window; original art for all 50 templates. See "216-A4 Add Server" below. |
 | **216-A5 Computers and Agent Control** | **Complete; local checkpoint commit** (not pushed). See "216-A5" below. |
-| 216-A6 Docker, A7 Network, A8 Files and Terminal | In progress (see "Next step") |
+| **216-A6 Docker, A7 Network, A8 Files and Terminal** | **Complete; one local checkpoint commit** (not pushed). Two Build 215 defects fixed (Add Storage window, Windows Agent folders). See "216-A6, 216-A7, 216-A8" below. |
+| 216-A9 Activity, Security, Settings, Workspace | In progress (see "Next step") |
 | 216-A4 … 216-G | Not started |
 
 ## 216-0 timing
@@ -278,12 +279,12 @@ release-candidate approval gate. No push, merge, tag, release or deployment
 without separate approval; deletions, the 216-E security policy, signing/CI,
 domain and production changes need their own approvals.
 
-A1 to A5 are complete and committed locally. **A6, A7 and A8 are next.** Drafted, not linked or committed: `docker.css` (A6),
-`network.css` (A7), `tools.css` (A8), their suites, and A8's in-window Add
-Storage dialog (`src/renderer/addStorageDialog.js`, markup in `index.html`,
-`openStorageModal` in `app.js`), which also fixes Build 215's Add Storage
-window: its script used `window.desktopApi`, a name the preload never
-exposed, so it could not save, test or cancel (history: since `dbf02c14`).
+A1 to A8 are complete and committed locally. **A9 (Activity, Security,
+Settings, Maintenance, Anx Workspace) is next**: `account.css` and
+`anxhost-account-ui-qa.js` are drafted, and `app.js` has an A9 change in
+progress (the accent setting drives the AnxHost accent tokens; it only set
+the legacy `--accent` before, so it changed almost nothing on redesigned
+pages).
 
 Owner decisions waiting (nothing blocks the next waves):
 
@@ -294,7 +295,9 @@ Owner decisions waiting (nothing blocks the next waves):
 - The Home AMP card (A2): keep, or show only when AMP is configured
   (recommended in `LEGACY_RETIREMENT.md`); unchanged so far.
 - A10 deletions: the AMP and Coolpals pages, the dormant inline Create
-  Instance form, old CSS and the v1.9 selectors.
+  Instance form, old CSS and the v1.9 selectors; the Add Storage window
+  (`windows/add-storage.*`, `storageWindow:*` IPC); and the Backups page's
+  disabled search box (wire it up or remove it).
 
 ## 216-A1 Desktop Shell Rebirth
 
@@ -1047,3 +1050,91 @@ Inventory: 804 of 1,606 rows verified (A1 163, A2 26, A3 222, A4 130, A5 263).
   update, mobile pairing, complete setup) and folder/export actions were
   checked by presence only here; their behaviour is covered by the existing
   smokes listed above.
+
+## 216-A6 Docker, 216-A7 Network and Sharing, 216-A8 Files, Terminal and Backups
+
+Started from `de3e5799` (A5) at 2026-11-24T23:38:56-07:00, same campaign
+instruction, solo. The three waves were validated together and committed as
+one local checkpoint.
+
+### Timing
+
+| Field | Value |
+| --- | --- |
+| Start | 2026-11-24T23:38:56-07:00 (system clock; the drafts were written during A4's and A5's checks) |
+| Finish | 2026-11-25T00:56:29-07:00 (system clock, before the commit) |
+| Elapsed | 1 h 17 min 33 s (most of it in the three suites, the two product defects they found and the Build 215 base comparison of build215-ui-qa) |
+| Commit | `feat(anxhost): Build 216-A6 to A8 Docker, Network, Files and Terminal` (local checkpoint; not pushed) |
+
+### What changed
+
+| Wave | Change |
+| --- | --- |
+| A6 Docker | `src/renderer/anxhost/docker.css` (new, 24 rules): summary tiles, toolbar, the shared data table (`docker-table`, also used by other pages), resource panels and items, output and inspect viewers, inspector tabs, empty and loading states. Styling only. |
+| A7 Network | `src/renderer/anxhost/network.css` (new, 18 rules): Sharing tiles, the Playit status card with status-coloured edge, providers, tunnels, steps, endpoint cards, diagnostics stages and the endpoint picker. Styling only. |
+| A8 Files, Terminal, Backups | `src/renderer/anxhost/tools.css` (new, 26 rules): toolbars and panels, console sources with status dots, filter chips, crash alert, the storage list, the file table, context menu, editor and terminal surfaces. |
+| A8: Add Storage in the main window | New dialog in `index.html` (`data-add-storage-*`, testid `files-add-storage`) and `src/renderer/addStorageDialog.js`; `openStorageModal()` opens it instead of the window. Same IPC (`files.saveConnection`, `files.testConnection`) and the same "saved" handler (`handleStorageConnectionSaved`); errors use the app's own wording; saved secrets are never sent back to the page (blank keeps them). |
+| **Fix: Build 215's Add Storage window never worked** | Its script used `window.desktopApi`, a name the preload has never exposed (it exposes `anx`, `anxos`, `anxhub`, `electronAPI`); so Save, Test Connection, Cancel, Escape and the edit pre-fill did nothing since the window was added (`dbf02c14`). Proven at run time on the kept window (T2: `desktopApi=undefined`). Users now get the working in-window dialog; the window, its IPC (`storageWindow:*`) and `windows/add-storage.*` are kept until their retirement is approved. |
+| **Fix: Files could not open folders on a Windows Agent computer** | On a Windows computer's Agent filesystem, the Files page normalized paths with the POSIX remote rules: `C:\…\folder` has no leading `/`, so it was treated as relative and glued onto the current folder, and the Agent rightly refused the result as outside its root. Opening any subfolder (double-click, Go, Up) failed. Windows absolute paths (`C:\`, `\\server\share`) are now kept native in `normalizeFilesPathValue`, `joinFilesPath`, `getFilesParentPath` and the Up helper; Linux Agents, local files and single-device mode are unchanged, and the Agent's root check is still the boundary. Before the fix the probe saw an empty list and an empty path after opening a folder; after it, the folder's files (A8 T3, T4). |
+| Fix: Files path placeholder | It read "/home/user or C:SERSYOU" (an earlier uppercase replacement mangled `C:\Users\you` and the attributes, Build 215 included, since `d9661c0f`); now "/home/user or C:\Users\you". |
+| Inventory generator | Knows the Add Storage dialog region, so its 15 hooks are A8 rows (A8: 166 rows). |
+| Tests | New `anxhost-docker-ui-qa` (12 checks), `anxhost-network-ui-qa` (15), `anxhost-tools-ui-qa` (37), registered in `package.json` and the release tier. |
+
+**Dormant controls found (kept as found, owner decision for A10):** the
+Backups page's "Search backup name or source" box is `disabled` in the markup
+and has no handler (A8 T6 checks it as present and disabled).
+
+**Safety:** the Docker suite reads the real Docker daemon (the owner's
+containers were listed and left untouched: still up after every run); it
+opens only this suite's test container (`anx215-a`). Every Docker-changing
+control is checked by presence only. Files writes happen only inside a
+temporary folder in the test Agent's own folder.
+
+### Capabilities
+
+All 359 rows of the three waves are ticked (A6 116, A7 77, A8 166, the last
+including the 15 hooks of the new Add Storage dialog):
+
+- Rows already covered by existing suites and smokes: those suites and 48
+  smokes pass on this code (below).
+- Rows without a test are covered by the three new suites: by behaviour
+  where it is safe (Docker reads, refreshes, the cleanup Preview, logs and
+  inspector tabs on the test container; the reverse-proxy form refusing an
+  invalid route; diagnostics stage actions, drawn by the app's own renderer
+  for a stage given a fix because every stage passes against the test Agent;
+  Add Storage save, edit, Escape, Mark Default, delete; Files Go, list,
+  search, New Folder, Rename, Delete, editor Open, Save to disk, Revert,
+  Wrap, Minimap, Fullscreen, Copy Path, height; console sources, filters,
+  Pause, Send, Copy, Clear, source search, navigation; Backups create,
+  restore preview and Cancel, Verify, delete), and by presence for actions
+  that change Docker or open native dialogs (create, pull, prune, Compose
+  up/down, upload, download, import). Each suite also checks every hook of
+  its wave is in the running app (D9, N7, T9).
+
+Inventory: 1,163 of 1,621 rows verified (A1 163, A2 26, A3 222, A4 130,
+A5 263, A6 116, A7 77, A8 166).
+
+### Validation performed (development PC, 2026-11-25)
+
+| Check | Result |
+| --- | --- |
+| `anxhost-docker-ui-qa` | **PASS 12/12** (the owner's containers listed, never opened; the test container opened read-only) |
+| `anxhost-network-ui-qa` | **PASS 15/15** |
+| `anxhost-tools-ui-qa` | **PASS 37/37** (Files writes inside its own temporary folder; real edit saved through the Monaco editor) |
+| `phase8-ui-qa` (9), `files-layout-ui-qa` (1), `playit-account-ui-qa` (5), `acceptance-fixes-ui-qa` (9), `anxhost-shell-ui-qa` (79), `qa-acceptance`, `anxhost-add-server-ui-qa` (38), `server-view-ui-qa` (9), `simple-ui-screenshots-qa` (8) | PASS |
+| `build215-ui-qa` | 8/10: every check passes but the real Agent update (P1, C1). **Environment exception**: Build 215's own code (`anxnet-orbit-relay-f3a366`, its own copy of the suite) fails P1 and C1 identically on the same node the same day; the node gets the SSH sessions and never installs the package (still `2.0-build213`). The cause is not determined; the update path is unchanged in 216. |
+| Hermetic smokes covering A6 to A8 rows (48, including the Docker, network, SSH, files, backups, public-access, storage-window and permission-matrix smokes, `monaco-worker-csp-smoke`, `modal-behavior-smoke`) | PASS |
+| `anxhost-design-tokens-smoke`, `anxhost-testid-convention-smoke`, `frozen-identifiers-smoke`, `anxhost-brand-allowlist-smoke`, `anxhost-capability-inventory --check` | PASS |
+| `node --check`, `git diff --check` | PASS, clean |
+
+### Screenshots
+
+`docs/anxhost/a6-docker/`, `docs/anxhost/a7-network/`, `docs/anxhost/a8-tools/`
+at 900x640, 1280x800 and 1920x1080.
+
+### Remaining risks
+
+- `build215-ui-qa`'s real Agent update (P1, C1) result is in the validation
+  table; the update path is unchanged by these waves.
+- The Add Storage window and its IPC are still present (unused by the app)
+  until the owner approves their retirement.

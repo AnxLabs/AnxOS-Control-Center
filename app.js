@@ -27517,6 +27517,13 @@ function openFilesContextMenu(x, y, entry = getSelectedFileEntry(latestFilesList
 
 function navigateFilesParentDirectory() {
   const current = filesConnectionState.currentPath || filesConnectionState.homePath || "/";
+  if (isWindowsAbsolutePath(current)) {
+    // Up within a Windows path (Build 216-A8); the Agent refuses anything
+    // above its root.
+    const parent = getFilesParentPath(current);
+    if (parent && parent !== current) navigateRemoteDirectory(parent);
+    return;
+  }
   const normalized = normalizeRemotePathValue(current);
   if (normalized === "/") return;
   const parent = normalized.split("/").filter(Boolean).slice(0, -1).join("/");
@@ -31698,6 +31705,13 @@ async function loadStorageConnections() {
 }
 
 function openStorageModal(connection = null) {
+  // Build 216-A8: Add Storage opens in the main window. The separate window
+  // (kept until its retirement is approved) could not save: its script used
+  // a bridge name the preload never exposed.
+  if (window.AnxAddStorageDialog) {
+    window.AnxAddStorageDialog.open(connection && connection.id !== "local" ? connection : null);
+    return;
+  }
   const desktopApiState = getDesktopApiState();
   if (desktopApiState.api?.storageWindow?.open) {
     desktopApiState.api.storageWindow.open(connection && connection.id !== "local" ? { connection } : {}).catch((error) => {
@@ -34178,22 +34192,45 @@ function getSafeFilesConnectionError(error, targetLabel = "filesystem") {
   return `Could not connect to ${targetLabel}: ${raw}`;
 }
 
+// Build 216-A8: a Windows computer's Agent filesystem reports Windows paths
+// (C:\... or \\server\share). The POSIX remote-path rules treated them as
+// relative and glued them onto the current folder, so the Agent refused
+// every subfolder as outside its root. Windows paths are kept native; the
+// Agent still decides what is inside its root.
+const WINDOWS_ABSOLUTE_PATH = /^(?:[A-Za-z]:[\\/]|\\\\)/;
+
+function isWindowsAbsolutePath(value) {
+  return WINDOWS_ABSOLUTE_PATH.test(String(value || "").trim());
+}
+
+function usesNativeFilesPaths(...values) {
+  return Boolean(latestFilesListing?.local || (isSingleDeviceMode() && !filesSelectedProfileId) || values.some(isWindowsAbsolutePath));
+}
+
 function normalizeFilesPathValue(value, fallback = "/") {
-  if (latestFilesListing?.local || (isSingleDeviceMode() && !filesSelectedProfileId)) {
-    return String(value || fallback || "").trim() || fallback;
+  if (usesNativeFilesPaths(value, fallback)) {
+    const raw = String(value || "").trim();
+    // A name typed under a Windows folder is joined to it, not sent alone.
+    if (raw && !isWindowsAbsolutePath(raw) && !raw.startsWith("/") && isWindowsAbsolutePath(fallback)) {
+      return `${String(fallback).trim().replace(/[\\/]+$/, "")}\\${raw}`;
+    }
+    return raw || fallback;
   }
   return normalizeRemotePathValue(value, fallback);
 }
 
 function joinFilesPath(basePath, childName) {
-  if (latestFilesListing?.local || (isSingleDeviceMode() && !filesSelectedProfileId)) {
+  if (isWindowsAbsolutePath(basePath) && !latestFilesListing?.local) {
+    return `${String(basePath || "").replace(/[\\/]+$/, "")}\\${String(childName || "").trim()}`;
+  }
+  if (usesNativeFilesPaths(basePath)) {
     return `${String(basePath || "").replace(/[\\/]+$/, "")}/${String(childName || "").trim()}`;
   }
   return joinRemotePath(basePath, childName);
 }
 
 function getFilesParentPath(filePath) {
-  if (latestFilesListing?.local || (isSingleDeviceMode() && !filesSelectedProfileId)) {
+  if (usesNativeFilesPaths(filePath)) {
     const normalized = String(filePath || "");
     const index = Math.max(normalized.lastIndexOf("/"), normalized.lastIndexOf("\\"));
     return index > 0 ? normalized.slice(0, index) : normalized;

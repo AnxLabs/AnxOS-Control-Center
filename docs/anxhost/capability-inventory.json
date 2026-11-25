@@ -8586,6 +8586,14 @@
    "destination": "Files"
   },
   {
+   "id": "CAP-FILES-IN-files-path",
+   "kind": "input",
+   "area": "page:files",
+   "hook": "data-files-path",
+   "wave": "A8",
+   "destination": "Files"
+  },
+  {
    "id": "CAP-FILES-IN-files-profile",
    "kind": "input",
    "area": "page:files",
@@ -8598,14 +8606,6 @@
    "kind": "input",
    "area": "page:files",
    "hook": "data-files-server",
-   "wave": "A8",
-   "destination": "Files"
-  },
-  {
-   "id": "CAP-FILES-IN-home-user-or-c-sersyou",
-   "kind": "input",
-   "area": "page:files",
-   "hook": null,
    "wave": "A8",
    "destination": "Files"
   },
@@ -9136,6 +9136,126 @@
    "hook": "data-page-tab=ssh",
    "wave": "A8",
    "destination": "Terminal › SSH"
+  },
+  {
+   "id": "CAP-FILES-ACT-add-storage-action-cancel",
+   "kind": "action",
+   "area": "region:add-storage-modal",
+   "hook": "data-add-storage-action=cancel",
+   "wave": "A8",
+   "destination": "Files › Add Storage inside the main window"
+  },
+  {
+   "id": "CAP-FILES-ACT-add-storage-action-save",
+   "kind": "action",
+   "area": "region:add-storage-modal",
+   "hook": "data-add-storage-action=save",
+   "wave": "A8",
+   "destination": "Files › Add Storage inside the main window"
+  },
+  {
+   "id": "CAP-FILES-ACT-add-storage-action-test",
+   "kind": "action",
+   "area": "region:add-storage-modal",
+   "hook": "data-add-storage-action=test",
+   "wave": "A8",
+   "destination": "Files › Add Storage inside the main window"
+  },
+  {
+   "id": "CAP-FILES-CTL-add-storage-provider-local",
+   "kind": "control",
+   "area": "region:add-storage-modal",
+   "hook": "data-add-storage-provider=local",
+   "wave": "A8",
+   "destination": "Files › Add Storage inside the main window"
+  },
+  {
+   "id": "CAP-FILES-CTL-add-storage-provider-sftp",
+   "kind": "control",
+   "area": "region:add-storage-modal",
+   "hook": "data-add-storage-provider=sftp",
+   "wave": "A8",
+   "destination": "Files › Add Storage inside the main window"
+  },
+  {
+   "id": "CAP-FILES-DLG-testid-files-add-storage",
+   "kind": "dialog",
+   "area": "region:add-storage-modal",
+   "hook": "data-testid=files-add-storage",
+   "wave": "A8",
+   "destination": "Files › Add Storage inside the main window"
+  },
+  {
+   "id": "CAP-FILES-IN-add-storage-field-authtype",
+   "kind": "input",
+   "area": "region:add-storage-modal",
+   "hook": "data-add-storage-field=authType",
+   "wave": "A8",
+   "destination": "Files › Add Storage inside the main window"
+  },
+  {
+   "id": "CAP-FILES-IN-add-storage-field-host",
+   "kind": "input",
+   "area": "region:add-storage-modal",
+   "hook": "data-add-storage-field=host",
+   "wave": "A8",
+   "destination": "Files › Add Storage inside the main window"
+  },
+  {
+   "id": "CAP-FILES-IN-add-storage-field-name",
+   "kind": "input",
+   "area": "region:add-storage-modal",
+   "hook": "data-add-storage-field=name",
+   "wave": "A8",
+   "destination": "Files › Add Storage inside the main window"
+  },
+  {
+   "id": "CAP-FILES-IN-add-storage-field-passphrase",
+   "kind": "input",
+   "area": "region:add-storage-modal",
+   "hook": "data-add-storage-field=passphrase",
+   "wave": "A8",
+   "destination": "Files › Add Storage inside the main window"
+  },
+  {
+   "id": "CAP-FILES-IN-add-storage-field-password",
+   "kind": "input",
+   "area": "region:add-storage-modal",
+   "hook": "data-add-storage-field=password",
+   "wave": "A8",
+   "destination": "Files › Add Storage inside the main window"
+  },
+  {
+   "id": "CAP-FILES-IN-add-storage-field-port",
+   "kind": "input",
+   "area": "region:add-storage-modal",
+   "hook": "data-add-storage-field=port",
+   "wave": "A8",
+   "destination": "Files › Add Storage inside the main window"
+  },
+  {
+   "id": "CAP-FILES-IN-add-storage-field-privatekey",
+   "kind": "input",
+   "area": "region:add-storage-modal",
+   "hook": "data-add-storage-field=privateKey",
+   "wave": "A8",
+   "destination": "Files › Add Storage inside the main window"
+  },
+  {
+   "id": "CAP-FILES-IN-add-storage-field-rootdirectory",
+   "kind": "input",
+   "area": "region:add-storage-modal",
+   "hook": "data-add-storage-field=rootDirectory",
+   "wave": "A8",
+   "destination": "Files › Add Storage inside the main window"
+  },
+  {
+   "id": "CAP-FILES-IN-add-storage-field-username",
+   "kind": "input",
+   "area": "region:add-storage-modal",
+   "hook": "data-add-storage-field=username",
+   "wave": "A8",
+   "destination": "Files › Add Storage inside the main window"
   },
   {
    "id": "CAP-WIN-IPC-storagewindow-close",

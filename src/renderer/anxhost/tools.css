@@ -1,0 +1,173 @@
+/* AnxHost CC tools: Files, Terminal (SSH and server consoles) and Backups
+ * (Build 216-A8).
+ *
+ * On top of pages.css. Same rules as the other AnxHost files:
+ * :root[data-shell="ahx"] first, --ahx-* tokens only, no :is() lists.
+ * Layout grids from styles.css are kept; this file sets the AnxHost look.
+ */
+
+/* ---------------------------------------------------------------- toolbars and panels */
+:root[data-shell="ahx"] .console-toolbar,
+:root[data-shell="ahx"] .console-status-panel,
+:root[data-shell="ahx"] .storage-manager-panel,
+:root[data-shell="ahx"] .file-toolbar,
+:root[data-shell="ahx"] .file-details-panel,
+:root[data-shell="ahx"] .file-editor-panel,
+:root[data-shell="ahx"] .files-connect-bar,
+:root[data-shell="ahx"] .ssh-connect-bar {
+  border-color: var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-lg);
+  background: var(--ahx-surface-1);
+}
+
+:root[data-shell="ahx"] .file-password-prompt,
+:root[data-shell="ahx"] .ssh-password-prompt {
+  border-color: var(--ahx-border-accent);
+  border-radius: var(--ahx-radius-lg);
+  background: var(--ahx-surface-2);
+}
+
+:root[data-shell="ahx"] .console-titlebar,
+:root[data-shell="ahx"] .file-editor-toolbar,
+:root[data-shell="ahx"] .console-status-bar {
+  border-color: var(--ahx-border-subtle);
+  background: var(--ahx-surface-2);
+}
+
+/* ---------------------------------------------------------------- console sources, tabs and filters */
+:root[data-shell="ahx"] .console-source-row {
+  border-color: var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-md);
+  background: var(--ahx-surface-2);
+}
+
+:root[data-shell="ahx"] .console-source-row.is-active {
+  border-color: var(--ahx-border-accent);
+  background: var(--ahx-surface-selected);
+}
+
+:root[data-shell="ahx"] .console-source-dot {
+  background: var(--ahx-status-stopped);
+}
+
+:root[data-shell="ahx"] .console-source-dot.is-running {
+  background: var(--ahx-status-running);
+}
+
+:root[data-shell="ahx"] .console-source-dot.is-stopping {
+  background: var(--ahx-status-stopping);
+}
+
+:root[data-shell="ahx"] .console-source-dot.is-failed {
+  background: var(--ahx-status-error);
+}
+
+:root[data-shell="ahx"] .console-tab.is-active,
+:root[data-shell="ahx"] .console-filter-chip.is-active,
+:root[data-shell="ahx"] .file-mode-button.is-active,
+:root[data-shell="ahx"] .storage-provider-option.is-active {
+  border-color: var(--ahx-border-accent);
+  background: var(--ahx-surface-selected);
+  color: var(--ahx-text-primary);
+}
+
+:root[data-shell="ahx"] .console-filter-chip,
+:root[data-shell="ahx"] .file-mode-toggle,
+:root[data-shell="ahx"] .storage-provider-option {
+  border-color: var(--ahx-border);
+  border-radius: var(--ahx-radius-pill);
+  background: var(--ahx-surface-2);
+  color: var(--ahx-text-secondary);
+}
+
+:root[data-shell="ahx"] .console-alert {
+  border-color: var(--ahx-danger);
+  border-radius: var(--ahx-radius-lg);
+  background: var(--ahx-danger-soft);
+  color: var(--ahx-text-primary);
+}
+
+:root[data-shell="ahx"] .console-jump-latest {
+  border-color: var(--ahx-border-accent);
+  border-radius: var(--ahx-radius-pill);
+  background: var(--ahx-surface-2);
+  color: var(--ahx-text-primary);
+}
+
+:root[data-shell="ahx"] .console-metric-grid article {
+  border-color: var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-md);
+  background: var(--ahx-surface-2);
+}
+
+/* ---------------------------------------------------------------- storage list and file table */
+:root[data-shell="ahx"] .storage-connection-item {
+  border-color: var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-md);
+  background: var(--ahx-surface-2);
+}
+
+:root[data-shell="ahx"] .storage-connection-item:hover {
+  border-color: var(--ahx-border-accent);
+  background: var(--ahx-surface-hover);
+}
+
+:root[data-shell="ahx"] .storage-connection-item span {
+  color: var(--ahx-text-muted);
+}
+
+:root[data-shell="ahx"] .file-table th {
+  background: var(--ahx-surface-1);
+  color: var(--ahx-text-muted);
+}
+
+:root[data-shell="ahx"] .file-table tbody tr:hover {
+  background: var(--ahx-surface-hover);
+}
+
+:root[data-shell="ahx"] .file-table tbody tr.is-selected {
+  background: var(--ahx-surface-selected);
+  box-shadow: inset 3px 0 0 var(--ahx-accent);
+}
+
+:root[data-shell="ahx"] .files-context-menu {
+  border-color: var(--ahx-border);
+  border-radius: var(--ahx-radius-lg);
+  background: var(--ahx-surface-2);
+  box-shadow: var(--ahx-shadow-3);
+}
+
+:root[data-shell="ahx"] .files-context-menu__item:focus-visible {
+  outline: none;
+  background: var(--ahx-surface-hover);
+  box-shadow: var(--ahx-focus-ring);
+}
+
+/* ---------------------------------------------------------------- editors and terminals */
+:root[data-shell="ahx"] .file-editor-surface,
+:root[data-shell="ahx"] .file-editor-surface textarea {
+  border-color: var(--ahx-border-subtle);
+  background: var(--ahx-surface-inset);
+  color: var(--ahx-text-primary);
+  font-family: var(--ahx-font-mono);
+}
+
+:root[data-shell="ahx"] .file-editor-lines {
+  border-color: var(--ahx-border-subtle);
+  background: var(--ahx-surface-1);
+  color: var(--ahx-text-muted);
+}
+
+:root[data-shell="ahx"] .file-editor-pathbar code {
+  color: var(--ahx-text-secondary);
+  font-family: var(--ahx-font-mono);
+}
+
+:root[data-shell="ahx"] .console-command-row,
+:root[data-shell="ahx"] .console-command-row input,
+:root[data-shell="ahx"] .console-search input,
+:root[data-shell="ahx"] .file-search input {
+  border-color: var(--ahx-border);
+  background: var(--ahx-surface-inset);
+  color: var(--ahx-text-primary);
+}
