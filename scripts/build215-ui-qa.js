@@ -391,12 +391,11 @@ async function main() {
     await check("D1", "Create Server shows whether the computer fits, outside Advanced options", async () => {
       await page.evaluate(async () => { await selectNode("lab"); window.showPage("marketplace"); });
       await waitFor(page, () => (marketplaceCatalog?.templates?.length || 0) > 0, null, "the catalog", 60000);
-      const next = app.waitForEvent("window", { timeout: 30000 });
+      // Build 216-A4: Create Server opens in the main window (it was its own window).
       await page.evaluate(() => openCreateServerWorkspace(findMarketplaceTemplate("valheim")));
-      const wizard = await next;
-      await wizard.waitForLoadState("domcontentloaded");
+      const wizard = page;
       await waitFor(wizard, () => !document.querySelector("[data-create-server-fit]")?.hidden, null, "the fit check", 60000);
-      // The window asks the computer for its memory and disk once; wait for it.
+      // Create Server asks the computer for its memory and disk once; wait for it.
       await wizard.waitForFunction(() => document.querySelector("[data-create-server-fit]").dataset.verdict !== "unknown", null, { timeout: 20000, polling: 400 }).catch(() => {});
       const first = await wizard.evaluate(() => ({ verdict: document.querySelector("[data-create-server-fit]").dataset.verdict, text: document.querySelector("[data-create-server-fit]").textContent, insideAdvanced: Boolean(document.querySelector("[data-create-server-fit]").closest("details")) }));
       assert.strictEqual(first.insideAdvanced, false, "visible without opening anything");
@@ -406,7 +405,7 @@ async function main() {
       await wizard.locator('[data-marketplace-field="memory"]').dispatchEvent("input");
       await waitFor(wizard, () => document.querySelector("[data-create-server-fit]").dataset.verdict === "no", null, "the fit to follow the memory field", 10000);
       const after = await wizard.evaluate(() => document.querySelector("[data-create-server-fit] li[data-verdict='no']")?.textContent || "");
-      await wizard.close();
+      await page.evaluate(() => { closeMarketplaceWizard(); return enterAddServer("browse"); });
       return `${first.verdict}: ${first.text.replace(/\s+/g, " ").slice(0, 120)} | 4096G -> ${after.slice(0, 80)}`;
     });
 

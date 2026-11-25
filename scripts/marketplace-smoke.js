@@ -3825,7 +3825,8 @@ async function assertProviderInstallSupport() {
       appSource.includes("openFirstServerGuide") &&
       appSource.includes('openMarketplaceWizard(templateId, { source: "manual" })') &&
       appSource.includes("firstServerGuideCleanup?.()") &&
-      appSource.includes("AnxOS will check this system and install the server using the selected options.") &&
+      // Build 216-A4: app-name copy renamed to AnxHost.
+      appSource.includes("AnxHost will check this system and install the server using the selected options.") &&
       fs.readFileSync(path.join(__dirname, "..", "styles.css"), "utf8").includes(".first-server-card"),
     "First-server guided experience must hand off to the existing Marketplace wizard and use real template IDs."
   );

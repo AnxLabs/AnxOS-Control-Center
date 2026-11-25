@@ -4,6 +4,17 @@ const workspaceSurface = launchParameters.get("surface") || "";
 const workspaceTemplateId = launchParameters.get("templateId") || "";
 const WORKSPACE_NAVIGATION_STORAGE_KEY = "anxos:workspace-navigation.v1";
 let workspaceInitContext = null;
+// Build 216-A4: Add Server runs in the main window. "browse" is what the
+// Marketplace window showed and "create" what the Create Server window
+// showed. A dedicated window (workspaceSurface, opened by an older caller)
+// keeps its own surface.
+let addServerMode = "";
+function isCreateServerFlow() {
+  return workspaceSurface === "create-server" || (!workspaceSurface && addServerMode === "create");
+}
+function isMarketplaceBrowseSurface() {
+  return workspaceSurface === "marketplace" || (!workspaceSurface && addServerMode === "browse");
+}
 if (workspaceSurface) {
   document.body.classList.add("workspace-window", `${workspaceSurface}-window`);
 }
@@ -1866,6 +1877,9 @@ function getDesktopWindowApi() {
 }
 
 function openWorkspaceSurface(surface, context = {}) {
+  // The main window shows Add Server itself (Build 216-A4); only a dedicated
+  // window still asks the main process to switch surfaces.
+  if (!workspaceSurface) return enterAddServer(surface === "create-server" ? "create" : "browse", context);
   const windowApi = getDesktopWindowApi();
   if (typeof windowApi?.openWorkspace !== "function") {
     if (surface === "marketplace") showPage("marketplace");
@@ -4315,7 +4329,7 @@ function getTitlebarConnectionState(pageName = getActivePageName()) {
 
 function updateTitlebar(pageName = getActivePageName()) {
   if (titlebarPageTarget) {
-    titlebarPageTarget.textContent = workspaceSurface === "create-server"
+    titlebarPageTarget.textContent = isCreateServerFlow() && (workspaceSurface || pageName === "marketplace")
       ? "Create Server"
       : workspaceSurface === "marketplace"
         ? "Marketplace"
@@ -4922,6 +4936,10 @@ function showPage(pageName) {
     refreshWebhookAlerts();
   }
 
+  if (!workspaceSurface && safePageName === "marketplace" && !addServerMode) {
+    addServerMode = "browse";
+    document.body.dataset.addServerMode = "browse";
+  }
   const pageChanged = activePageName !== safePageName;
   pages.forEach((page) => {
     page.classList.toggle("is-active", page.dataset.page === safePageName);
@@ -18916,8 +18934,39 @@ function persistMarketplaceViewState() {
   } catch {}
 }
 
+// Template art (Build 216-A4). Provider packs keep their own icon; the
+// curated templates use the bundled original art in
+// src/assets/anxhost/marketplace/ (docs/anxhost/MARKETPLACE_ART_SOURCES.md),
+// and fall back to the text monogram if the file cannot load, so a card is
+// never blank offline or with a missing file.
+const MARKETPLACE_ART_ID = /^[a-z0-9-]+$/;
+function createMarketplaceIcon(template = {}) {
+  const icon = document.createElement("span");
+  icon.className = "marketplace-card__icon";
+  const monogram = template.icon || "APP";
+  const source = template.iconUrl
+    || (!isProviderMarketplaceTemplate(template) && MARKETPLACE_ART_ID.test(String(template.id || ""))
+      ? `src/assets/anxhost/marketplace/${template.id}.svg`
+      : "");
+  if (!source) {
+    icon.textContent = monogram;
+    return icon;
+  }
+  const image = document.createElement("img");
+  image.alt = "";
+  image.decoding = "async";
+  image.addEventListener("error", () => {
+    icon.classList.remove("has-art");
+    icon.replaceChildren(document.createTextNode(monogram));
+  }, { once: true });
+  image.src = source;
+  icon.classList.toggle("has-art", !template.iconUrl);
+  icon.append(image);
+  return icon;
+}
+
 function restoreMarketplaceViewState() {
-  if (workspaceSurface !== "marketplace") return;
+  if (!isMarketplaceBrowseSurface()) return;
   try {
     const state = JSON.parse(localStorage.getItem(MARKETPLACE_VIEW_STATE_KEY) || "null");
     if (!state) return;
@@ -18983,16 +19032,7 @@ function renderMarketplacePackageDetails(template = null) {
   marketplaceSelectedTemplateId = template.id;
   const heading = document.createElement("div");
   heading.className = "marketplace-details-heading";
-  const icon = document.createElement("span");
-  icon.className = "marketplace-card__icon";
-  if (template.iconUrl) {
-    const image = document.createElement("img");
-    image.src = template.iconUrl;
-    image.alt = "";
-    icon.append(image);
-  } else {
-    icon.textContent = template.icon || "APP";
-  }
+  const icon = createMarketplaceIcon(template);
   const title = document.createElement("div");
   title.append(
     createTextElement("h3", template.displayName || "Marketplace package"),
@@ -19368,22 +19408,15 @@ function renderMarketplaceTemplates() {
     const primaryAction = getMarketplacePrimaryAction(template, templateState);
     const card = document.createElement("article");
     card.className = "marketplace-card";
+    card.dataset.templateId = template.id || "";
+    card.dataset.testid = "template-card";
     card.classList.toggle("is-selected", template.id === marketplaceSelectedTemplateId);
     card.classList.toggle("is-disabled", Boolean(template.comingSoon || template.disabled));
     card.dataset.marketplaceState = templateState.label.toLowerCase().replace(/[^a-z0-9]+/g, "-");
     card.tabIndex = 0;
     card.setAttribute("aria-label", `${template.displayName || template.id || "Marketplace template"}: ${templateState.label}`);
 
-    const icon = document.createElement("span");
-    icon.className = "marketplace-card__icon";
-    if (template.iconUrl) {
-      const image = document.createElement("img");
-      image.src = template.iconUrl;
-      image.alt = "";
-      icon.append(image);
-    } else {
-      icon.textContent = template.icon || "APP";
-    }
+    const icon = createMarketplaceIcon(template);
 
     const favorite = document.createElement("button");
     favorite.type = "button";
@@ -19449,20 +19482,20 @@ function renderMarketplaceTemplates() {
     install.className = "inline-action";
     install.textContent = template.comingSoon || template.disabled
       ? "Coming soon"
-      : workspaceSurface === "marketplace"
+      : isMarketplaceBrowseSurface()
         ? "View Details"
         : primaryAction.label;
     install.disabled = Boolean(template.comingSoon || template.disabled || primaryAction.disabled);
     install.dataset.marketplaceInstalledAction = primaryAction.id;
     install.addEventListener("click", () => {
-      if (workspaceSurface === "marketplace") renderMarketplacePackageDetails(template);
+      if (isMarketplaceBrowseSurface()) renderMarketplacePackageDetails(template);
       else runMarketplaceInstalledAction(template, primaryAction.id);
     });
 
     card.append(icon, body, install);
     card.addEventListener("click", (event) => {
       if (event.target.closest("button")) return;
-      if (workspaceSurface === "marketplace") renderMarketplacePackageDetails(template);
+      if (isMarketplaceBrowseSurface()) renderMarketplacePackageDetails(template);
     });
     card.addEventListener("keydown", (event) => {
       // Child buttons (favorite star, install action) keep native key
@@ -19471,7 +19504,7 @@ function renderMarketplaceTemplates() {
       if (event.key !== "Enter" && event.key !== " ") return;
       event.preventDefault();
       if (!template.comingSoon && !template.disabled && !primaryAction.disabled) {
-        if (workspaceSurface === "marketplace") renderMarketplacePackageDetails(template);
+        if (isMarketplaceBrowseSurface()) renderMarketplacePackageDetails(template);
         else runMarketplaceInstalledAction(template, primaryAction.id);
       }
     });
@@ -19481,7 +19514,7 @@ function renderMarketplaceTemplates() {
         return;
       }
       if (!primaryAction.disabled) {
-        if (workspaceSurface === "marketplace") renderMarketplacePackageDetails(template);
+        if (isMarketplaceBrowseSurface()) renderMarketplacePackageDetails(template);
         else runMarketplaceInstalledAction(template, primaryAction.id);
       }
     });
@@ -20090,7 +20123,7 @@ async function runMarketplaceInstalledAction(template = {}, actionId = "open-ins
   const state = getMarketplaceStateForTemplate(template);
   const instance = state.instances?.[0] || null;
   if (actionId === "install") {
-    if (workspaceSurface === "create-server") openMarketplaceWizard(template.id);
+    if (isCreateServerFlow()) openMarketplaceWizard(template.id);
     else await openCreateServerWorkspace(template);
     return;
   }
@@ -20099,7 +20132,7 @@ async function runMarketplaceInstalledAction(template = {}, actionId = "open-ins
     return;
   }
   if (!instance?.id) {
-    if (workspaceSurface === "create-server") openMarketplaceWizard(template.id);
+    if (isCreateServerFlow()) openMarketplaceWizard(template.id);
     else await openCreateServerWorkspace(template);
     return;
   }
@@ -21595,7 +21628,7 @@ function renderCreateServerTrustNotice(template) {
 }
 
 function renderCreateServerWizard(template = findMarketplaceTemplate()) {
-  if (!marketplaceWizard || workspaceSurface !== "create-server") return;
+  if (!marketplaceWizard || !isCreateServerFlow()) return;
   const activeIndex = Math.max(0, CREATE_SERVER_STEPS.indexOf(createServerWizardStep));
   createServerStepNav?.replaceChildren(...CREATE_SERVER_STEPS.map((step, index) => {
     const button = document.createElement("button");
@@ -21933,17 +21966,21 @@ function openFirstServerGuide() {
       const templateId = templateButton.dataset.firstServerTemplate;
       const template = findMarketplaceTemplate(templateId);
       closeModal();
+      if (!workspaceSurface) {
+        enterAddServer("create", { template: { id: templateId }, source: "manual" }).catch(() => {});
+        return;
+      }
       showPage("marketplace");
       marketplaceActiveCategory = template?.category || "All";
       renderMarketplaceCategories();
       renderMarketplaceTemplates();
       openMarketplaceWizard(templateId, { source: "manual" });
-      setMarketplaceMessage("AnxOS will check this system and install the server using the selected options.");
+      setMarketplaceMessage("AnxHost will check this system and install the server using the selected options.");
       return;
     }
     if (event.target.closest('[data-first-server-action="marketplace"]')) {
       closeModal();
-      if (workspaceSurface === "create-server") {
+      if (isCreateServerFlow()) {
         openWorkspaceSurface("marketplace");
       } else {
         showPage("marketplace");
@@ -24667,7 +24704,7 @@ async function completeMarketplaceInstallResult(result, template, providerInstal
   });
   showToast(dockerService ? `${template.displayName || "Your service"} is ready.` : "Your server is ready.");
   await showMarketplaceServiceCredentials(template, result?.credentials);
-  if (workspaceSurface === "create-server") {
+  if (isCreateServerFlow()) {
     createServerWizardStep = "deployment";
     if (createServerDeploymentState) {
       createServerDeploymentState.replaceChildren(
@@ -24914,7 +24951,7 @@ async function installMarketplaceTemplate(event) {
     relatedWorkspace: "operations",
     actions: ["openOperations"],
   });
-  if (workspaceSurface === "create-server") {
+  if (isCreateServerFlow()) {
     createServerWizardStep = "deployment";
     if (createServerDeploymentState) {
       createServerDeploymentState.replaceChildren(
@@ -25040,7 +25077,7 @@ async function installMarketplaceTemplate(event) {
     marketplacePendingProgressSteps = null;
     renderMarketplaceDownloads(failureDownloads);
     setMarketplaceMessage(`${normalizedError.body || normalizedError.title || "Marketplace install failed."} See Download Manager for progress details.`, "error");
-    if (workspaceSurface === "create-server" && createServerDeploymentState) {
+    if (isCreateServerFlow() && createServerDeploymentState) {
       createServerDeploymentState.replaceChildren(
         createTextElement("strong", "The server could not be created"),
         createTextElement("span", "Click \"1. Set up\" above to change settings and try again, or use the actions below."),
@@ -38440,7 +38477,14 @@ async function applyWorkspaceWindowContext(context = {}) {
     renderMarketplaceProviderControls();
     return;
   }
-  document.title = "Create Server — AnxOS Control Center";
+  await applyCreateServerContext(context);
+}
+
+// The Create Server view for a template (or the first-server guide when no
+// template is given): the dedicated window's view, and since Build 216-A4 the
+// main window's create mode.
+async function applyCreateServerContext(context = {}) {
+  if (workspaceSurface) document.title = "Create Server — AnxOS Control Center";
   if (titlebarPageTarget) titlebarPageTarget.textContent = "Create Server";
   const marketplaceHeading = document.querySelector('[data-page="marketplace"] .page-header h1');
   const marketplaceLede = document.querySelector('[data-page="marketplace"] .page-header .lede');
@@ -38479,7 +38523,7 @@ async function applyWorkspaceWindowContext(context = {}) {
     marketplaceActiveCategory = template.category || "All";
     renderMarketplaceCategories();
     renderMarketplaceTemplates();
-    openMarketplaceWizard(template.id);
+    openMarketplaceWizard(template.id, { source: context?.source || "" });
     getDesktopApi()?.diagnostics?.log?.({
       severity: "info",
       source: "renderer",
@@ -38507,6 +38551,47 @@ async function applyWorkspaceWindowContext(context = {}) {
   window.setTimeout(() => {
     if (!document.querySelector("[data-first-server-modal]")) openFirstServerGuide();
   }, 0);
+}
+
+// Add Server in the main window (Build 216-A4). "browse" lists templates and
+// package details; "create" is the Create Server flow for one template. With
+// no template, Create Server starts from the first-server guide over the
+// browse view, as the Create Server window did.
+const addServerDefaultCopy = (() => {
+  const page = document.querySelector('[data-page="marketplace"]');
+  return {
+    heading: page?.querySelector(".page-header h1")?.textContent || "",
+    lede: page?.querySelector(".page-header .lede")?.textContent || "",
+  };
+})();
+
+async function enterAddServer(mode, context = {}) {
+  const create = mode === "create";
+  const hasTemplate = Boolean(context?.template?.id);
+  addServerMode = create && hasTemplate ? "create" : "browse";
+  document.body.dataset.addServerMode = addServerMode;
+  showPage("marketplace");
+  if (addServerMode === "create") {
+    await applyCreateServerContext(context);
+    updateTitlebar("marketplace");
+    return { opened: true, inWindow: true };
+  }
+  if (!marketplaceInstallInFlight) closeMarketplaceWizard();
+  const page = document.querySelector('[data-page="marketplace"]');
+  const heading = page?.querySelector(".page-header h1");
+  const lede = page?.querySelector(".page-header .lede");
+  if (heading) heading.textContent = addServerDefaultCopy.heading;
+  if (lede) lede.textContent = addServerDefaultCopy.lede;
+  restoreMarketplaceViewState();
+  renderMarketplaceCategories();
+  renderMarketplaceProviderControls();
+  renderMarketplaceTemplates();
+  updateTitlebar("marketplace");
+  if (create) {
+    await ensureWorkspaceMarketplaceCatalog();
+    if (!document.querySelector("[data-first-server-modal]")) openFirstServerGuide();
+  }
+  return { opened: true, inWindow: true };
 }
 
 async function ensureWorkspaceMarketplaceCatalog() {
@@ -50225,6 +50310,9 @@ marketplaceCancelButton?.addEventListener("click", () => {
     return;
   }
   closeMarketplaceWizard();
+  if (!workspaceSurface && addServerMode === "create" && !marketplaceInstallInFlight) {
+    enterAddServer("browse").catch(() => {});
+  }
 });
 marketplaceVersionToggle?.addEventListener("click", () => {
   const template = findMarketplaceTemplate();
@@ -50788,7 +50876,7 @@ dashboardActionButtons.forEach((button) => {
   });
 });
 document.querySelector('[data-marketplace-action="first-server"]')?.addEventListener("click", () => {
-  if (workspaceSurface === "create-server") openFirstServerGuide();
+  if (isCreateServerFlow()) openFirstServerGuide();
   else openCreateServerWorkspace();
 });
 dashboardNextAction?.addEventListener("click", () => runDashboardFriendlyAction(dashboardNextActionState.page || "dashboard"));

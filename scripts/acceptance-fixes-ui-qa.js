@@ -409,16 +409,14 @@ async function main() {
         ["it-tools", null, null],
       ];
       for (const [templateId, selector, message] of cases) {
-        const next = app.waitForEvent("window", { timeout: 30000 });
+        // Build 216-A4: Create Server opens in the main window (it was its own window).
         await page.evaluate((id) => openCreateServerWorkspace(findMarketplaceTemplate(id)), templateId);
-        const wizard = await next;
-        wizard.on("pageerror", (error) => errors.push(`create-server: ${error.message}`));
-        await wizard.waitForLoadState("domcontentloaded");
+        const wizard = page;
         await waitFor(wizard, (id) => typeof marketplaceSelectedTemplateId !== "undefined" && marketplaceSelectedTemplateId === id && !document.querySelector("[data-marketplace-wizard]")?.hidden, templateId, `the ${templateId} setup`, 60000);
         const openedByApp = await wizard.evaluate(() => document.querySelector("[data-create-server-advanced]").open);
         if (!selector) {
           assert.strictEqual(openedByApp, false, `${templateId} has nothing to enter, so Advanced options stays closed`);
-          await wizard.close().catch(() => {});
+          await page.evaluate(() => { closeMarketplaceWizard(); return enterAddServer("browse"); });
           continue;
         }
         assert.strictEqual(openedByApp, true, `${templateId} opens Advanced options, where its required input is`);
@@ -430,7 +428,7 @@ async function main() {
           return { ok, message: document.querySelector("[data-marketplace-message]")?.textContent || "", visible: Boolean(target?.checkVisibility()), focused: document.activeElement === target };
         }, selector);
         await shot(wizard, `a9-${templateId}-missing-input`);
-        await wizard.close().catch(() => {});
+        await page.evaluate(() => { closeMarketplaceWizard(); return enterAddServer("browse"); });
         assert.strictEqual(state.ok, false, `${templateId} refuses to continue`);
         assert.match(state.message, message, `${templateId} says what is missing`);
         assert.ok(state.visible && state.focused, `${templateId}: the missing input is shown and focused (${JSON.stringify(state)})`);

@@ -151,11 +151,23 @@ async function main() {
       return { error: created?.error || null };
     }, testPassword);
     assert.ok(!setup.error, `QA owner setup failed: ${setup.error}`);
+    // The unlock the way the sign-in screen does it (login, then the
+    // protected-state refresh), as build215-ui-qa does. Since Build 216-A4
+    // Create Server runs in this window, which must not stay "locked" (no
+    // computer health checks while locked, Build 212); the separate Create
+    // Server window used to read the new state when it opened.
     const login = await page.evaluate(async (password) => {
       const security = window.anxhub?.security || window.anx?.security;
-      return security.login({ username: "qa-owner", password }).then(() => null).catch((error) => error?.message || "login failed");
+      try {
+        const result = await security.login({ username: "qa-owner", password });
+        await refreshProtectedStateAfterLocalOwnerAuthentication(result);
+        return null;
+      } catch (error) {
+        return error?.message || "login failed";
+      }
     }, testPassword);
     assert.strictEqual(login, null, `QA owner unlock failed: ${login}`);
+    await waitFor(page, () => typeof isAppLockedForBackgroundWork === "function" && !isAppLockedForBackgroundWork(), null, "the unlocked renderer", 20000);
     await page.evaluate(async () => { await selectNode("lab"); window.showPage("dashboard"); });
 
     await page.evaluate(() => window.showPage("marketplace"));
@@ -166,17 +178,16 @@ async function main() {
     // The way a user reaches a service: its Marketplace card on the main
     // window opens Create Server with that template already chosen.
     const openTemplate = async (templateId) => {
-      if (wizard && !wizard.isClosed()) await wizard.close();
-      const next = app.waitForEvent("window", { timeout: 30000 });
+      // Build 216-A4: Create Server opens in the main window (it was its own
+      // window); leaving it returns Add Server to browsing.
+      if (wizard) await page.evaluate(() => { closeMarketplaceWizard(); return enterAddServer("browse"); });
       await page.evaluate((id) => openCreateServerWorkspace(findMarketplaceTemplate(id)), templateId);
-      wizard = await next;
-      wizard.on("pageerror", (error) => errors.push(`create-server: ${error.message}`));
-      await wizard.waitForLoadState("domcontentloaded");
+      wizard = page;
       await waitFor(wizard, (id) => typeof marketplaceSelectedTemplateId !== "undefined" && marketplaceSelectedTemplateId === id && !document.querySelector("[data-marketplace-wizard]")?.hidden, templateId, `the ${templateId} setup`, 60000);
       const connected = await wizard.waitForFunction(() => validateCreateServerStep("node", { report: false }), null, { timeout: 30000, polling: 500 }).then(() => true).catch(() => false);
       if (!connected) {
         const nodes = await wizard.evaluate(() => ({ selected: getSelectedNodeId(), node: JSON.stringify(getSelectedNode?.() || null).slice(0, 400) }));
-        throw new Error(`the Create Server window never sees the computer as connected: ${JSON.stringify(nodes)}`);
+        throw new Error(`Create Server never sees the computer as connected: ${JSON.stringify(nodes)}`);
       }
       const picker = await wizard.evaluate(() => Boolean(document.querySelector("[data-first-server-modal]")));
       assert.strictEqual(picker, false, `the game picker does not cover the ${templateId} setup`);

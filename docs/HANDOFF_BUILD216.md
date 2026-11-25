@@ -10,7 +10,8 @@ Plan: `PLANS.md` (approved, commit `9aadaead`). Protocol: `AGENTS.md` (ADP).
 | **216-A1 Desktop Shell Rebirth** | **Complete; committed with the owner's approval** as `fc2b47ec` `feat(anxhost): Build 216-A1 desktop shell rebirth` (not pushed). See "216-A1 Desktop Shell Rebirth" below. |
 | **216-A2 Home and Customize Home** | **Complete; local checkpoint commit** under the owner's campaign instruction of 2026-11-24 (not pushed). See "216-A2 Home and Customize Home" below. |
 | **216-A3 My Servers and server page** | **Complete; local checkpoint commit** (not pushed). See "216-A3 My Servers and the server page" below. |
-| 216-A4 Add Server | In progress (see "Next step") |
+| **216-A4 Add Server** | **Complete; local checkpoint commit** (not pushed). Marketplace and Create Server in the main window; original art for all 50 templates. See "216-A4 Add Server" below. |
+| 216-A5 Computers and Agent Control | In progress (see "Next step") |
 | 216-A4 … 216-G | Not started |
 
 ## 216-0 timing
@@ -276,14 +277,23 @@ release-candidate approval gate. No push, merge, tag, release or deployment
 without separate approval; deletions, the 216-E security policy, signing/CI,
 domain and production changes need their own approvals.
 
-A1, A2 and A3 are complete and committed locally. **A4 (Add Server in the
-main window, with bundled art) is next**: the original art set
-(`scripts/anxhost-marketplace-art.js`, 50 SVGs in
-`src/assets/anxhost/marketplace/`, `docs/anxhost/MARKETPLACE_ART_SOURCES.md`),
-`src/renderer/anxhost/add-server.css` and `scripts/anxhost-add-server-ui-qa.js`
-are drafted, not yet linked or committed; the `app.js` change and the three
-suite ports (acceptance-fixes A9, build214, build215 D1: Create Server is no
-longer a window) are prepared as patch scripts in the session scratchpad.
+A1 to A4 are complete and committed locally. **A5 (Computers, fleet, AnxNet,
+Agent Control) is next.** Drafted, not linked or committed:
+`src/renderer/anxhost/computers.css`, `docker.css` (A6), `network.css` (A7),
+`tools.css` (A8), and the suites `anxhost-computers-ui-qa.js`,
+`anxhost-docker-ui-qa.js`, `anxhost-network-ui-qa.js` (each wave links its
+stylesheet, runs its suite, ticks its rows and commits).
+
+Owner decisions waiting (nothing blocks the next waves):
+
+- Retire the Marketplace and Create Server windows (named targets in the A4
+  section).
+- Remove the Expo "Pair Mobile Device" button and handlers from Agent Control
+  (A5; `LEGACY_RETIREMENT.md`).
+- The Home AMP card (A2): keep, or show only when AMP is configured
+  (recommended in `LEGACY_RETIREMENT.md`); unchanged so far.
+- A10 deletions: the AMP and Coolpals pages, the dormant inline Create
+  Instance form, old CSS and the v1.9 selectors.
 
 ## 216-A1 Desktop Shell Rebirth
 
@@ -830,3 +840,110 @@ use many alternating rounds); re-measured for A2 to A4 together after A4.
   them is safe but was left for the A10 consistency pass to keep this wave
   styling-only.
 - `build214-ui-qa` and `service-managed-mutation-check` were not rerun (above).
+
+## 216-A4 Add Server (Marketplace and Create Server in the main window)
+
+Started from `6b2a7a77` (A3) at 2026-11-24T22:41:10-07:00, same campaign
+instruction, solo. (The art set, `add-server.css` and the suite were drafted
+from 22:17 while A3's checks ran.)
+
+### A4 timing
+
+| Field | Value |
+| --- | --- |
+| Start | 2026-11-24T22:41:10-07:00 (system clock; drafting from about 22:17) |
+| Finish | 2026-11-24T23:19:26-07:00 (system clock, before the commit) |
+| Elapsed | 38 min 16 s from the A4 start, plus about 24 min of drafting during A3's checks; most of it test runs (two UI batches including build214 and build215 with real installs and a real Agent update, 26 smokes) |
+| Commit | `feat(anxhost): Build 216-A4 Add Server in the main window` (local checkpoint; not pushed) |
+
+### What changed
+
+| Area | Change |
+| --- | --- |
+| Add Server in the main window | `openWorkspaceSurface()` no longer asks the main process for a window when called from the main window: it calls the new `enterAddServer(mode, context)`. "browse" is what the Marketplace window showed (cards, package details with "Continue to Create Server", favourites, providers, saved view state); "create" is what the Create Server window showed (the two-step setup for one template, deployment progress, recovery). `isCreateServerFlow()` and `isMarketplaceBrowseSurface()` replace the window-only checks, so every flow that used to need the window works in place. With no template, Create Server shows the first-server guide over the browse view, as the window did; Cancel returns to browsing; a game in the guide opens Create Server for it. Every entry point stays in place: sidebar Add Server, Home New Server, My Servers Create Server, "Create Your First Server", package details, the guide, the Assistant. |
+| Window code kept | A dedicated window (`?surface=`) still works for any older caller; the main-process `window:openWorkspace` handler, the preload bridge and the `body.*-window` CSS are untouched. Their deletion is a retirement decision for A10 (approval needed, below). |
+| Shared styles for later waves | `pages.css` gained the form, note, summary-grid, empty-state and list-item styles used by Agent Control, Settings and Security (added while A4's checks ran; covered by the reruns above). |
+| Layout | `src/renderer/anxhost/add-server.css` (new, 37 rules): the two windows' layout rules re-expressed for `body[data-add-server-mode="browse" | "create"]`, plus the AnxHost look for the toolbar, categories, provider tabs, template cards, favourites, details, the Create Server steps and the first-server cards. |
+| Artwork | 50 original SVG tiles in `src/assets/anxhost/marketplace/<template-id>.svg`, generated by `scripts/anxhost-marketplace-art.js` (49 pictograms drawn from simple shapes; the two import templates share a folder pictogram in their runtime's colours). No third-party logo, trademark or downloaded image; source and licence for every file in `docs/anxhost/MARKETPLACE_ART_SOURCES.md` (generated, `--check` fails on drift). The ten Minecraft-family entries each have a distinct pictogram and colour. `createMarketplaceIcon()` shows the bundled tile for curated templates, keeps provider packs' own icons (the CSP `img-src` is unchanged) and falls back to the text monogram if a file cannot load. |
+| Identity | Cards carry `data-template-id` and the `template-card` testid. |
+| Copy | "AnxOS sets everything up for you" and the guide's install message say AnxHost. The catalog's `author: "AnxOS"` fields are catalog data (the catalog export is byte-stable) and are unchanged. |
+| Tests | New `scripts/anxhost-add-server-ui-qa.js` (AS1–AS10, 36 checks, real app) registered as `npm run anxhost-add-server:ui-qa` and in the release tier. Ported (approved requirement: Create Server is no longer a window): `acceptance-fixes-ui-qa` A9, `build214-ui-qa` and `build215-ui-qa` D1 drive Create Server in the main window and leave it with Cancel's path instead of closing a window; `anxhost-home-ui-qa` H7 expects New Server to land on Add Server and checks that no window opens; `marketplace-smoke` checks the renamed install message. |
+
+### Owner decision needed (deletion gate, A10)
+
+To retire the two windows completely, approve deleting, by name:
+
+- `main.js`: the `window:openWorkspace` and `window:getWorkspaceContext`
+  handlers and the workspace-window creation they use;
+- `preload.js`: `openWorkspace`, `getWorkspaceContext`, `onWorkspaceInit`
+  (and `focusMain` if nothing else uses it);
+- `app.js`: the `workspaceSurface` branches (`launchParameters` surface,
+  `applyWorkspaceWindowContext`, the workspace navigation buttons and their
+  storage event);
+- `index.html`: the `data-workspace-navigation` buttons;
+- `styles.css`: the `body.workspace-window`, `body.marketplace-window` and
+  `body.create-server-window` rules.
+
+Until then nothing in the main window opens them (AS1: 0 new windows from
+every entry point).
+
+### Capabilities
+
+All 130 A4 rows are ticked:
+
+- 99 rows were already covered by existing suites and smokes; the UI suites
+  among them were rerun on the A4 code (below), and the four that assumed a
+  Create Server window were ported.
+- The 31 rows without a test are covered by `anxhost-add-server-ui-qa`:
+  - By behaviour: "Create Your First Server", the card button
+    (`data-marketplace-installed-action`, "View Details" while browsing),
+    Cancel, search, provider modes (Featured, Trending, Recently Updated), the
+    provider filters (a changed loader is saved), Refresh, the Downloads and
+    Notifications shortcuts, the Minecraft version "Browse" toggle, the install
+    plan dialog, the Docker service passwords dialog (made-up values), and
+    Catalog Transfer (Export fills the document, Copy, Validate Import,
+    Clear).
+  - By presence: Create Server's Back button (hidden while its two-step flow
+    has no earlier step), the Downloads Refresh, Advanced options, Technical
+    details and Logs, and the version, storage and Playit fields.
+- `CAP-WIN-WIN-window-workspace` (the workspace BrowserWindow) is kept and
+  still verified: `anxhost-shell-ui-qa` S12 now opens it through the kept
+  bridge (`anxWindow.openWorkspace`) and checks that the sidebar no longer
+  does.
+
+Inventory: 541 of 1,606 rows verified (A1 163, A2 26, A3 222, A4 130).
+
+### Validation performed (development PC, 2026-11-24)
+
+| Check | Result |
+| --- | --- |
+| `anxhost-add-server-ui-qa` (final code) | **PASS 38/38** (52 s) |
+| `anxhost-home-ui-qa` (H7 ported: New Server lands on Add Server, no window opens) | PASS 36/36 |
+| `anxhost-shell-ui-qa` (S12 ported: sidebar Add Server stays in place; the kept bridge still opens a window) | PASS 79/79 |
+| `simple-ui-screenshots-qa` (Create Server section ported to the main window) | PASS 8/8 |
+| `steamcmd-cancel-ui-qa` | PASS 2/2 (it **failed on the first A4 build**: browse mode hid the deployment panel with the Downloads list and its Cancel; fixed, and `anxhost-add-server-ui-qa` AS2 now guards it) |
+| `acceptance-fixes-ui-qa` (A9 ported) | PASS 9/9 (A2 and A6 failed in the first batch under load and passed rerun one at a time) |
+| `build214-ui-qa` (Create Server ported; sign-in now uses the sign-in screen's own refresh, as build215 does) | PASS 9, SKIP 1 (A1 needs `BUILD214_QA_JAR`): real installs of Jellyfin, a Node.js project and Unturned through Create Server in the main window; 0 test containers left |
+| `build215-ui-qa` (D1 ported) | 8/10: D1 (Create Server fit check, in the main window) and W1/W2 pass; **P1 and C1 fail**: the real Agent update to the test node `anx215-a` timed out (240 s); the node shows SSH sessions at 23:00 and no package install (still `2.0-build213`). This path (Agent Control, main process, SSH) is unchanged by A4; rerun pending before it is called environmental |
+| Hermetic smokes covering A4 rows (26, including `marketplace-smoke` with the renamed message, `anxhost-marketplace-art --check`, `ipc-boundary-hardening-smoke`, the design, testid, frozen-identifier and brand checks) | PASS |
+| `marketplace-steamcmd-real-install`, `marketplace-docker-real-install` | Not run: they exercise the install backends A4 does not change; `build214-ui-qa` ran real installs through the new UI |
+| `node --check`, `git diff --check` | PASS, clean |
+
+### Screenshots
+
+`docs/anxhost/a4-add-server/`: browse and create at 900x640, 1280x800 and
+1920x1080, plus the art contact sheet (`a4-art-sheet.jpg`).
+
+### Performance
+
+Not measured before this commit: A2 to A4 are timed together on the committed A4 tree (a copy outside the worktree, alternating with Build 215), recorded in the A5 section.
+
+### A4 remaining risks
+
+- Leaving Add Server while a server is being created keeps the install
+  running (progress stays in Downloads and Activity, as when the Create Server
+  window was closed); returning through the sidebar shows the browse view.
+- The window code paths are untested from the main window now that nothing
+  opens them; they are kept only until the A10 deletion decision.
+- The art is original and generic by design; official game artwork would
+  need documented permission (PLANS.md section 5) and owner approval.

@@ -281,12 +281,10 @@ async function main() {
     console.log(`PASS S5 Share dialog explains sharing and runs Test connection (${shareBefore.status}; test: ${testText.slice(0, 80)})`);
 
     // S2: Create Server.
+    // Build 216-A4: Create Server opens in the main window (it was its own window).
     await page.evaluate(() => window.showPage("dashboard"));
-    const opened = app.waitForEvent("window", { timeout: 20000 });
     await page.locator('[data-home-section="servers"] [data-dashboard-action="create-server"]').click();
-    const wizardWindow = await opened;
-    wizardWindow.on("pageerror", (error) => rendererErrors.push(`create-server: ${error.message}`));
-    await wizardWindow.waitForLoadState("domcontentloaded");
+    const wizardWindow = page;
     await waitFor(wizardWindow, () => typeof window.openMarketplaceWizard === "function" && typeof marketplaceCatalog !== "undefined" && (marketplaceCatalog?.templates?.length || 0) > 0, null, "marketplace catalog");
     // Step 1 is the game picker. Pick the first game like a user would; fall
     // back to opening a Minecraft template directly if the picker is absent.
@@ -363,7 +361,7 @@ async function main() {
     assert.ok(occupied.message.includes("Port 25565 is already in use on this computer by java (PID 412)"), occupied.message);
     assert.strictEqual(occupied.advancedOpen, true, "Advanced options opens to the port");
     await shot(wizardWindow, "02d-occupied-port");
-    await wizardWindow.close().catch(() => {});
+    await page.evaluate(() => { closeMarketplaceWizard(); return enterAddServer("browse"); });
     console.log("PASS S2 Create Server: one setup step, Advanced options collapsed and opened on errors");
 
     assert.deepStrictEqual(rendererErrors, [], "no renderer errors");

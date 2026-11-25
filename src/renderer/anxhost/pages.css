@@ -306,3 +306,66 @@
   outline: none;
   box-shadow: var(--ahx-focus-ring);
 }
+
+/* ---------------------------------------------------------------- forms, notes and lists shared by many pages (Build 216-A5) */
+:root[data-shell="ahx"] .settings-field {
+  color: var(--ahx-text-secondary);
+}
+
+:root[data-shell="ahx"] .settings-check {
+  border-color: var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-md);
+  background: var(--ahx-surface-2);
+  color: var(--ahx-text-secondary);
+}
+
+:root[data-shell="ahx"] .settings-check input {
+  accent-color: var(--ahx-accent);
+}
+
+:root[data-shell="ahx"] .settings-field-error {
+  color: var(--ahx-danger);
+}
+
+:root[data-shell="ahx"] .settings-field [aria-invalid="true"] {
+  border-color: var(--ahx-danger);
+}
+
+:root[data-shell="ahx"] .settings-note,
+:root[data-shell="ahx"] .settings-inline-status {
+  color: var(--ahx-text-secondary);
+}
+
+:root[data-shell="ahx"] .settings-note code {
+  color: var(--ahx-text-primary);
+  font-family: var(--ahx-font-mono);
+}
+
+:root[data-shell="ahx"] .security-summary-grid > div {
+  border-color: var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-md);
+  background: var(--ahx-surface-2);
+}
+
+:root[data-shell="ahx"] .security-empty-state {
+  border-color: var(--ahx-border);
+  border-radius: var(--ahx-radius-lg);
+  color: var(--ahx-text-secondary);
+}
+
+:root[data-shell="ahx"] .download-item {
+  border-color: var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-lg);
+  background: var(--ahx-surface-2);
+}
+
+:root[data-shell="ahx"] .download-item__logs {
+  color: var(--ahx-text-secondary);
+}
+
+:root[data-shell="ahx"] .download-item__logs pre {
+  border-color: var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-md);
+  background: var(--ahx-surface-inset);
+  color: var(--ahx-text-secondary);
+}

@@ -548,8 +548,17 @@ async function run() {
     const restored = await page.evaluate(async () => ({ cls: document.body.classList.contains("window-is-maximized"), api: await window.anxWindow?.isMaximized?.() }));
     check("S12", maximized.cls && maximized.api === true && !restored.cls && restored.api === false, `maximize/restore round-trips through anxWindow.isMaximized and onMaximizedChanged (max ${JSON.stringify(maximized)}, restored ${JSON.stringify(restored)})`);
     await real.setViewport(1280, 800);
-    const workspaceOpened = real.app.waitForEvent("window", { timeout: 20000 });
+    // Build 216-A4: the sidebar's Add Server stays in the main window (no
+    // window may open); the window bridge it used is kept until its approved
+    // retirement, so it is still checked here by calling it directly.
+    const windowsBeforeAddServer = await real.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length);
     await page.locator('[data-testid="nav-item"][data-page-target="marketplace"]').click();
+    await page.waitForTimeout(800);
+    const addServerInPlace = await page.evaluate(() => ({ page: window.getActivePageName?.(), mode: document.body.dataset.addServerMode }));
+    const windowsAfterAddServer = await real.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length);
+    check("S12", addServerInPlace.page === "marketplace" && addServerInPlace.mode === "browse" && windowsAfterAddServer === windowsBeforeAddServer, `sidebar Add Server opens in the main window (${JSON.stringify(addServerInPlace)}; windows ${windowsBeforeAddServer} → ${windowsAfterAddServer})`);
+    const workspaceOpened = real.app.waitForEvent("window", { timeout: 20000 });
+    await page.evaluate(() => window.anxWindow.openWorkspace("marketplace", {}));
     const workspace = await workspaceOpened.catch(() => null);
     let workspaceState = null;
     if (workspace) {
@@ -573,7 +582,7 @@ async function run() {
       workspaceState.mainAfterHome = await page.evaluate(() => window.getActivePageName?.());
       await workspace.close().catch(() => {});
     }
-    check("S12", Boolean(workspaceState?.surface && workspaceState.page === "marketplace" && workspaceState.hasContextApi), `Add Server opens its workspace window through window.openWorkspace, initialised by getWorkspaceContext/onWorkspaceInit (${JSON.stringify(workspaceState)})`);
+    check("S12", Boolean(workspaceState?.surface && workspaceState.page === "marketplace" && workspaceState.hasContextApi), `the kept window bridge still opens a workspace window through window.openWorkspace, initialised by getWorkspaceContext/onWorkspaceInit (${JSON.stringify(workspaceState)})`);
     check("S12", workspaceState?.mainAfterHome === "dashboard", `the workspace window's Home returns the main window to Home (focusMain, onNavigate): main shows ${workspaceState?.mainAfterHome}`);
     const account = await page.evaluate(async () => {
       const api = window.anxos?.account;

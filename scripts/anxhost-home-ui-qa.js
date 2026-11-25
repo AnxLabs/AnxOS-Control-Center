@@ -252,12 +252,12 @@ async function run() {
     check("H5", closed.expanded === "false" && closed.hidden, `Customize closes (aria-expanded=${closed.expanded})`);
 
     // ------------------------------------------------------------ H7 actions
-    // Create Server still opens its own window until wave A4 brings it into
-    // the main window; it is checked by the window it opens.
+    // Since A4, Create Server opens Add Server in the main window (no window
+    // may open; the window count is still checked).
     const windowCount = () => evaluateMain(real.app, ({ BrowserWindow }) => BrowserWindow.getAllWindows().filter((win) => !win.isDestroyed()).length);
     const windowsBefore = await windowCount();
     const idsBefore = await evaluateMain(real.app, ({ BrowserWindow }) => BrowserWindow.getAllWindows().map((win) => win.id));
-    const ROUTES = { "create-server": "window", instances: "instances", nodes: "nodes", backups: "backups", "public-access": "playit", docker: "docker", "share-server": null };
+    const ROUTES = { "create-server": "marketplace", instances: "instances", nodes: "nodes", backups: "backups", "public-access": "playit", docker: "docker", "share-server": null };
     const routed = [];
     for (const [action, expected] of Object.entries(ROUTES)) {
       await goHome(page);
@@ -285,6 +285,8 @@ async function run() {
       if (!ok) check("H7", false, `quick action ${action} landed on ${landed}`);
     }
     check("H7", routed.every((entry) => !entry.includes("expected")), `quick actions route: ${routed.join(", ")}`);
+    const windowsAfter = await windowCount();
+    check("H7", windowsAfter === windowsBefore, `no Home action opens a window (${windowsBefore} → ${windowsAfter})`);
     await goHome(page);
     const inventoried = await page.evaluate(() => ["refresh", "start-all", "stop-all", "restart-agent"].map((name) => [name, Boolean(document.querySelector(`[data-testid="home-details"] [data-dashboard-action="${name}"]`))]));
     check("H7", inventoried.every(([, present]) => present) && await page.evaluate(() => Boolean(document.querySelector("[data-dashboard-next-action]")) && Boolean(document.querySelector('[data-setup-health-action="continue"]'))), `the other inventoried Home controls are present: ${inventoried.map(([name, present]) => `${name}=${present}`).join(", ")}, next step, Continue Setup`);
@@ -307,8 +309,9 @@ async function run() {
           details.querySelector(`[data-dashboard-action="${name}"]`).click();
           await new Promise((resolve) => setTimeout(resolve, 200));
         }
-        // Refresh waits for every page's refresh before it confirms.
-        for (let i = 0; i < 150 && !calls.includes("toast:Dashboard refreshed."); i += 1) await new Promise((resolve) => setTimeout(resolve, 100));
+        // Refresh waits for every page's refresh before it confirms (up to 30 s;
+        // the snapshot read alone took 4 to 6 s on the test PC on 2026-11-24).
+        for (let i = 0; i < 300 && !calls.includes("toast:Dashboard refreshed."); i += 1) await new Promise((resolve) => setTimeout(resolve, 100));
         document.querySelector("[data-dashboard-next-action]").click();
         await new Promise((resolve) => setTimeout(resolve, 300));
         window.showPage("dashboard");
