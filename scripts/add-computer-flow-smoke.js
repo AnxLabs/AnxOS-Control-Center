@@ -6,7 +6,7 @@
 // the headless card carries the real .deb install commands, "Pair with Code"
 // comes before the collapsed "Advanced Manual Setup", the primary path
 // contains no raw token/credential field, Agent Control keeps its
-// "Connect this computer to AnxOS" panel and uninstall note, and the strings
+// "Connect this computer to AnxHost" panel and uninstall note, and the strings
 // the two existing UX smokes depend on are still present.
 //
 // Build 205 P1-A/P1-B/P1-C/P2 corrections this smoke now also protects:
@@ -105,7 +105,7 @@ function main() {
 
   // --- Agent Control: Connect this computer + uninstall note ----------------
   const agentControl = region(html, "data-agent-control-section-target", "data-node-modal-title", "Agent Control panel");
-  assertContains(agentControl, "Connect this computer to AnxOS", "Agent Control panel");
+  assertContains(agentControl, "Connect this computer to AnxHost", "Agent Control panel");
   assertContains(agentControl, 'data-agent-control-action="startPairingSession"', "Agent Control panel");
   assertContains(agentControl, 'data-agent-control-action="copyPairingCode"', "Agent Control panel");
   assertContains(agentControl, "Generate Pairing Code", "Agent Control panel");

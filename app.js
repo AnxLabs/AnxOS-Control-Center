@@ -4340,6 +4340,44 @@ function updateTitlebar(pageName = getActivePageName()) {
   setTitlebarConnectionState(connectionState.connected, connectionState.label);
 }
 
+// Build 216-A9: the accent setting (Settings › Appearance) also drives the
+// AnxHost accent tokens, which the redesigned pages use; before, it set only
+// the legacy --accent and so changed almost nothing on them. The default
+// purple keeps the token values. Text on the accent is dark or white by the
+// accent's luminance so buttons stay readable (WCAG AA).
+const SHELL_ACCENT_PROPERTIES = [
+  "--ahx-accent", "--ahx-accent-hover", "--ahx-accent-pressed", "--ahx-accent-soft", "--ahx-accent-text",
+  "--ahx-accent-gradient", "--ahx-border-accent", "--ahx-surface-selected", "--ahx-focus-ring", "--ahx-glow-accent",
+  "--ahx-text-on-accent",
+];
+
+function applyShellAccent(accentColor) {
+  const style = document.documentElement.style;
+  if (String(accentColor).toLowerCase() === DEFAULT_ACCENT_COLOR) {
+    SHELL_ACCENT_PROPERTIES.forEach((name) => style.removeProperty(name));
+    return;
+  }
+  const channel = (value) => {
+    const v = value / 255;
+    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  };
+  const luminance = 0.2126 * channel(parseInt(accentColor.slice(1, 3), 16))
+    + 0.7152 * channel(parseInt(accentColor.slice(3, 5), 16))
+    + 0.0722 * channel(parseInt(accentColor.slice(5, 7), 16));
+  style.setProperty("--ahx-accent", accentColor);
+  style.setProperty("--ahx-accent-hover", `color-mix(in srgb, ${accentColor} 85%, white)`);
+  style.setProperty("--ahx-accent-pressed", `color-mix(in srgb, ${accentColor} 78%, black)`);
+  style.setProperty("--ahx-accent-soft", hexToRgba(accentColor, 0.16));
+  style.setProperty("--ahx-surface-selected", hexToRgba(accentColor, 0.16));
+  style.setProperty("--ahx-border-accent", hexToRgba(accentColor, 0.55));
+  style.setProperty("--ahx-accent-text", `color-mix(in srgb, ${accentColor} 70%, white)`);
+  style.setProperty("--ahx-accent-gradient", `linear-gradient(135deg, color-mix(in srgb, ${accentColor} 85%, white) 0%, ${accentColor} 55%, color-mix(in srgb, ${accentColor} 55%, black) 100%)`);
+  style.setProperty("--ahx-focus-ring", `0 0 0 2px var(--ahx-bg-app), 0 0 0 4px ${accentColor}`);
+  style.setProperty("--ahx-glow-accent", `0 0 0 1px ${hexToRgba(accentColor, 0.35)}, 0 8px 28px ${hexToRgba(accentColor, 0.28)}`);
+  // White text needs luminance under about 0.18 for 4.5:1; otherwise dark.
+  style.setProperty("--ahx-text-on-accent", luminance > 0.18 ? "var(--ahx-ink-1000)" : "var(--ahx-ink-0)");
+}
+
 function applySettings(settings, options = {}) {
   currentSettings = { ...DEFAULT_SETTINGS, ...(settings || {}) };
   const displayName = resolveDisplayAppName(settings["app.displayName"]);
@@ -4351,6 +4389,7 @@ function applySettings(settings, options = {}) {
   document.title = displayName;
   document.documentElement.style.setProperty("--accent", accentColor);
   document.documentElement.style.setProperty("--accent-soft", hexToRgba(accentColor, 0.16));
+  applyShellAccent(accentColor);
   document.documentElement.style.setProperty("--app-font-scale", `${normalizeNumber(settings["appearance.fontScale"], 100, 90, 115)}%`);
   document.documentElement.dataset.uiDensity = settings["appearance.density"] === "compact" ? "compact" : "comfortable";
   document.documentElement.dataset.sidebarDensity = settings["appearance.sidebarDensity"] === "compact" ? "compact" : "comfortable";
@@ -5175,7 +5214,7 @@ function renderLocalAgentInstallerSteps(steps = []) {
   if (!steps.length) {
     const empty = document.createElement("div");
     empty.className = "docker-empty-state";
-    empty.append(createTextElement("strong", "No install has run yet"), createTextElement("span", "AnxOS will prepare the managed runtime, create secure credentials, start the Agent, and reconnect automatically."));
+    empty.append(createTextElement("strong", "No install has run yet"), createTextElement("span", "AnxHost will prepare the managed runtime, create secure credentials, start the Agent, and reconnect automatically."));
     agentLocalInstallerSteps.append(empty);
     return;
   }
@@ -6084,7 +6123,7 @@ function renderAgentControlState(payload = agentControlState) {
       button.title = "Force Restart is only available for this PC's Agent. Use Restart for a node.";
       button.setAttribute("aria-description", button.title);
     } else if (action === "pairMobileDevice" && isLocalTarget) {
-      button.title = "Pair mobile devices to a node Agent. This is the application host — use Connect this computer to AnxOS instead.";
+      button.title = "Pair mobile devices to a node Agent. This is the application host — use Connect this computer to AnxHost instead.";
       button.setAttribute("aria-description", button.title);
     } else if (action === "copyMobileClaim" && !activeMobilePairingClaim) {
       button.title = "Create a mobile claim first.";
@@ -7617,7 +7656,7 @@ async function runAgentControlAction(action) {
     }
     else if (action === "pairMobileDevice") {
       const target = getAgentControlOverviewTarget();
-      if (isAgentTargetLocal(target)) throw new Error("Pair mobile devices to a node Agent. The application host is connected from Connect this computer to AnxOS.");
+      if (isAgentTargetLocal(target)) throw new Error("Pair mobile devices to a node Agent. The application host is connected from Connect this computer to AnxHost.");
       const targetNodeId = target?.nodeId || getSelectedNodeId();
       const nodesApi = getDesktopApiState().api?.nodes;
       if (typeof nodesApi?.createMobilePairing !== "function") throw new Error("Mobile pairing is unavailable in this build.");
@@ -14119,7 +14158,7 @@ function buildServiceManagedMessage(instance) {
   const unit = getServiceManagedUnit(instance);
   const subject = unit ? `${unit} is run by systemd` : "This server runs as a system service";
   const reason = instance?.state === "Unknown" ? describeServiceManagedFailure(instance.failureReason) : "";
-  return `${subject}. AnxOS can start, stop and restart it and show its status and logs; console commands, force-kill, editing, backups and scheduled restarts are not available.${reason ? ` ${reason}` : ""}`;
+  return `${subject}. AnxHost can start, stop and restart it and show its status and logs; console commands, force-kill, editing, backups and scheduled restarts are not available.${reason ? ` ${reason}` : ""}`;
 }
 
 // Undo only what applyServiceManagedRestrictions did, so the panel updaters that

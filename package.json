@@ -81,6 +81,7 @@
     "anxhost-docker:ui-qa": "node scripts/anxhost-docker-ui-qa.js",
     "anxhost-network:ui-qa": "node scripts/anxhost-network-ui-qa.js",
     "anxhost-tools:ui-qa": "node scripts/anxhost-tools-ui-qa.js",
+    "anxhost-account:ui-qa": "node scripts/anxhost-account-ui-qa.js",
     "anxhost-marketplace-art:smoke": "node scripts/anxhost-marketplace-art.js --check",
     "inventory:smoke": "node scripts/infra-inventory-smoke.js",
     "inventory:agent:smoke": "node scripts/infra-inventory-agent-smoke.js",

@@ -22,6 +22,7 @@
     <link rel="stylesheet" href="src/renderer/anxhost/docker.css">
     <link rel="stylesheet" href="src/renderer/anxhost/network.css">
     <link rel="stylesheet" href="src/renderer/anxhost/tools.css">
+    <link rel="stylesheet" href="src/renderer/anxhost/account.css">
   </head>
   <body>
     <section class="startup-screen" data-startup-screen data-testid="shell-startup" aria-label="AnxHost Control Center startup">
@@ -1096,7 +1097,7 @@
                   <span class="status-pill is-connected">Provider</span>
                 </div>
                 <h3>Providers</h3>
-                <p>Choose how AnxOS exposes services. Only Playit.gg is currently supported.</p>
+                <p>Choose how AnxHost exposes services. Only Playit.gg is currently supported.</p>
                 <div class="public-access-provider-list" data-public-access-providers>
                   <article class="public-access-provider is-supported" data-provider-id="playit">
                     <strong>Playit.gg</strong>
@@ -1214,7 +1215,7 @@
                   <span class="status-pill status-pill--planned" data-public-access-reverse-proxy-pill>Not checked</span>
                 </div>
                 <h3>Reverse Proxy &amp; Certificates</h3>
-                <p data-public-access-reverse-proxy-summary>AnxOS records route definitions and reads certificate metadata. This build does not write proxy configuration and does not issue certificates.</p>
+                <p data-public-access-reverse-proxy-summary>AnxHost records route definitions and reads certificate metadata. This build does not write proxy configuration and does not issue certificates.</p>
                 <div class="playit-tunnel-list" data-public-access-reverse-proxy-list></div>
                 <div class="public-access-unsupported" data-public-access-reverse-proxy-notice aria-live="polite"></div>
                 <form class="public-access-reverse-proxy-form" data-public-access-reverse-proxy-form>
@@ -1225,7 +1226,7 @@
                     <label class="settings-field"><span>TLS mode</span><select data-public-access-reverse-proxy-field="tlsMode"><option value="none">None</option><option value="manual">Manual certificate</option><option value="managed">Managed (not issued in this build)</option></select></label>
                     <label class="settings-field"><span>Path prefix</span><input type="text" autocomplete="off" spellcheck="false" value="/" data-public-access-reverse-proxy-field="pathPrefix"></label>
                   </div>
-                  <p class="public-access-reverse-proxy-form-hint">AnxOS validates and stores this route definition only. No proxy configuration is written and no certificate is issued.</p>
+                  <p class="public-access-reverse-proxy-form-hint">AnxHost validates and stores this route definition only. No proxy configuration is written and no certificate is issued.</p>
                   <div class="settings-actions public-access-actions">
                     <button class="inline-action" type="submit" data-public-access-reverse-proxy-apply>Record Route</button>
                   </div>
@@ -2099,7 +2100,7 @@
                     <header class="service-ops__head">
                       <span class="service-ops__badge" data-service-badge>SYSTEMD MANAGED</span>
                       <span class="service-ops__unit" data-service-field="unit"></span>
-                      <span class="service-ops__owner">systemd owns the process; AnxOS only observes and controls it</span>
+                      <span class="service-ops__owner">systemd owns the process; AnxHost only observes and controls it</span>
                       <button class="inline-action" type="button" data-service-refresh>Refresh</button>
                     </header>
                     <div class="service-ops__warning" data-service-build-warning role="alert" hidden></div>
@@ -2444,7 +2445,7 @@
                           </div>
                         </div>
                         <div class="addons-warnings" data-addons-warnings hidden></div>
-                        <div class="docker-empty-state" data-mods-empty><strong>Nothing installed yet</strong><span>Search below and press Install. AnxOS puts the file in the right folder for you.</span></div>
+                        <div class="docker-empty-state" data-mods-empty><strong>Nothing installed yet</strong><span>Search below and press Install. AnxHost puts the file in the right folder for you.</span></div>
                         <ul class="addons-list" data-mods-installed aria-label="Installed add-ons"></ul>
                         <details class="addons-history" data-addons-history hidden>
                           <summary>Change history</summary>
@@ -2713,7 +2714,7 @@
               <section class="instance-setup-required-card" data-service-managed-card role="status" hidden>
                 <div>
                   <strong>Managed by systemd</strong>
-                  <span data-service-managed-message>This server runs as a system service. AnxOS can start, stop and restart it and show its status and logs.</span>
+                  <span data-service-managed-message>This server runs as a system service. AnxHost can start, stop and restart it and show its status and logs.</span>
                 </div>
               </section>
               <div class="instance-tabs" role="tablist" aria-label="Instance workspace tabs">
@@ -3415,7 +3416,7 @@
             <div>
               <p class="eyebrow">Activity</p>
               <h1>Task details</h1>
-              <p class="lede">Step-by-step history and logs for every task AnxOS ran: installs, runtime preparation, file transfers, Agent actions, diagnostics, updates and backups.</p>
+              <p class="lede">Step-by-step history and logs for every task AnxHost ran: installs, runtime preparation, file transfers, Agent actions, diagnostics, updates and backups.</p>
             </div>
           </header>
           <nav class="page-tabs" aria-label="Activity sections">
@@ -3509,7 +3510,7 @@
             <div>
               <p class="eyebrow">Activity</p>
               <h1>Activity</h1>
-              <p class="lede">What AnxOS is working on right now, and everything that happened recently: installs, backups, updates, problems and fixes.</p>
+              <p class="lede">What AnxHost is working on right now, and everything that happened recently: installs, backups, updates, problems and fixes.</p>
             </div>
           </header>
           <nav class="page-tabs" aria-label="Activity sections">
@@ -4387,7 +4388,7 @@
         </section>
 
         <section class="page" data-page="agent-control">
-          <header class="page-header"><div><p class="eyebrow">Infrastructure</p><h1>Agent Control</h1><p class="lede">Manage the local Agent, inspect remote Agents, review sanitized logs, and repair common failures without leaving AnxOS.</p></div><button class="inline-action" type="button" data-agent-control-action="refresh">Refresh</button></header>
+          <header class="page-header"><div><p class="eyebrow">Infrastructure</p><h1>Agent Control</h1><p class="lede">Manage the local Agent, inspect remote Agents, review sanitized logs, and repair common failures without leaving AnxHost.</p></div><button class="inline-action" type="button" data-agent-control-action="refresh">Refresh</button></header>
           <nav class="page-tabs" aria-label="Computers sections">
             <button class="page-tabs__tab" type="button" data-page-tab="nodes">Computers</button>
             <button class="page-tabs__tab" type="button" data-page-tab="agent-control">Agent &amp; connection</button>
@@ -4578,14 +4579,14 @@
                 <button class="inline-action" type="button" data-agent-control-action="useRemoteAgent">Use Remote Agent Instead</button>
               </div>
               <div class="download-list" data-agent-local-installer-steps>
-                <div class="docker-empty-state"><strong>No install has run yet</strong><span>AnxOS will prepare the managed runtime, create secure credentials, start the Agent, and reconnect automatically.</span></div>
+                <div class="docker-empty-state"><strong>No install has run yet</strong><span>AnxHost will prepare the managed runtime, create secure credentials, start the Agent, and reconnect automatically.</span></div>
               </div>
               <p class="settings-note">Uninstalling AnxOS Control Center removes the application only. Servers, settings, and backups are kept.</p>
             </section>
             <section class="settings-section settings-section--wide agent-pairing-setup" data-agent-pairing-setup data-agent-control-section="pairing">
               <div class="settings-section__header">
                 <div>
-                  <h2>Connect this computer to AnxOS</h2>
+                  <h2>Connect this computer to AnxHost</h2>
                   <p>Generate a temporary pairing code, then enter it on the Control Center that will manage this computer. The permanent credential is created automatically during pairing.</p>
                 </div>
                 <span class="status-pill status-pill--planned" data-agent-pairing-status>No code yet</span>
@@ -5132,7 +5133,7 @@
               <div class="settings-section__header">
                 <div>
                   <h3>Appearance</h3>
-                  <p>Tune the AnxOS accent color and compactness without changing the visual identity.</p>
+                  <p>Tune the accent color and compactness without changing the visual identity.</p>
                 </div>
                 <span class="status-pill status-pill--local">UI</span>
               </div>
@@ -5159,7 +5160,7 @@
               <div class="settings-section__header">
                 <div>
                   <h3>Help and Learning</h3>
-                  <p>Short in-app explanations for common AnxOS concepts.</p>
+                  <p>Short in-app explanations for common AnxHost concepts.</p>
                 </div>
                 <span class="status-pill status-pill--local">Guidance</span>
               </div>
@@ -5170,7 +5171,7 @@
                 <button class="inline-action" type="button" data-help-topic="agent">About Agents</button>
                 <button class="inline-action" type="button" data-help-topic="system">About local and remote systems</button>
               </div>
-              <div class="help-topic-grid" aria-label="AnxOS help topics">
+              <div class="help-topic-grid" aria-label="AnxHost help topics">
                 <button type="button" data-help-topic="instance">Instance</button>
                 <button type="button" data-help-topic="docker">Docker</button>
                 <button type="button" data-help-topic="public-access">Public Access</button>

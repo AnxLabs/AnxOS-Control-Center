@@ -13,7 +13,8 @@ Plan: `PLANS.md` (approved, commit `9aadaead`). Protocol: `AGENTS.md` (ADP).
 | **216-A4 Add Server** | **Complete; local checkpoint commit** (not pushed). Marketplace and Create Server in the main window; original art for all 50 templates. See "216-A4 Add Server" below. |
 | **216-A5 Computers and Agent Control** | **Complete; local checkpoint commit** (not pushed). See "216-A5" below. |
 | **216-A6 Docker, A7 Network, A8 Files and Terminal** | **Complete; one local checkpoint commit** (not pushed). Two Build 215 defects fixed (Add Storage window, Windows Agent folders). See "216-A6, 216-A7, 216-A8" below. |
-| 216-A9 Activity, Security, Settings, Workspace | In progress (see "Next step") |
+| **216-A9 Activity, Security, Settings, Workspace** | **Complete; local checkpoint commit** (not pushed); the accent setting works again on redesigned pages. See "216-A9" below. |
+| 216-A10 Consistency and legacy cleanup | In progress (see "Next step") |
 | 216-A4 … 216-G | Not started |
 
 ## 216-0 timing
@@ -279,12 +280,9 @@ release-candidate approval gate. No push, merge, tag, release or deployment
 without separate approval; deletions, the 216-E security policy, signing/CI,
 domain and production changes need their own approvals.
 
-A1 to A8 are complete and committed locally. **A9 (Activity, Security,
-Settings, Maintenance, Anx Workspace) is next**: `account.css` and
-`anxhost-account-ui-qa.js` are drafted, and `app.js` has an A9 change in
-progress (the accent setting drives the AnxHost accent tokens; it only set
-the legacy `--accent` before, so it changed almost nothing on redesigned
-pages).
+A1 to A9 are complete and committed locally. **A10 is next**: a full
+validation sweep, the performance re-check, and the decisions below (A10's
+deletions and the light theme need the owner).
 
 Owner decisions waiting (nothing blocks the next waves):
 
@@ -1138,3 +1136,58 @@ at 900x640, 1280x800 and 1920x1080.
   table; the update path is unchanged by these waves.
 - The Add Storage window and its IPC are still present (unused by the app)
   until the owner approves their retirement.
+
+## 216-A9 Activity, Security, Settings, Maintenance and Anx Workspace
+
+Started from `9420d52a` (A6 to A8) at 2026-11-25T00:56:58-07:00, same
+campaign instruction, solo.
+
+### A9 timing
+
+| Field | Value |
+| --- | --- |
+| Start | 2026-11-25T00:56:58-07:00 (system clock; `account.css` and the suite were drafted during A6 to A8's checks) |
+| Finish | 2026-11-25T01:11:00-07:00 (system clock, before the commit) |
+| Elapsed | 14 min 2 s |
+| Commit | `feat(anxhost): Build 216-A9 Activity, Security, Settings and Workspace` (local checkpoint; not pushed) |
+
+### What changed
+
+| Area | Change |
+| --- | --- |
+| Styling | `src/renderer/anxhost/account.css` (new): section navigation (Settings, Security, Agent Control), Activity task and maintenance items with status-coloured progress, notifications with unread and error edges, security lists and tables, Anx Workspace panels, and the accent swatches (now spanning the row: their names were cut to "Pur…", "Gre…"; W3 checks they fit). |
+| **Fix: the accent setting had stopped working** | Settings › Appearance › Accent set only the legacy `--accent`, which the redesigned pages no longer use, so choosing Green, Cyan or Gold changed almost nothing. `applyShellAccent()` now drives the AnxHost accent tokens too (accent, hover, pressed, soft, selection, border, text, gradient, focus ring, glow) and picks dark or white text on the accent by luminance (Gold: a primary button at 12.4:1). Purple, the default, keeps the token values. |
+| Copy | 14 sentences in which "AnxOS" is the app acting now say AnxHost (Sharing, Network, My Servers, Activity, Agent Control, Computers, Settings, help), with their two `app.js` copies, and `add-computer-flow-smoke` follows the "Connect this computer to AnxHost" panel name. Kept: product and identifier names (AnxOS Relay, AnxOS Account and its sign-in, the phone web app, the `.deb` package names, "AnxOS-managed" firewall rules, "AnxOS-owned" caches, "Install AnxOS there" for the installer a user downloads elsewhere), which follow the installer (216-D) and brand and domain (216-B) decisions. |
+| Tests | New `scripts/anxhost-account-ui-qa.js` (W1–W10, 38 checks) in `package.json` and the release tier. |
+
+### Capabilities
+
+All 389 A9 rows are ticked: the 181 already covered by existing suites and
+smokes (all passing, below) and the 208 without a test through
+`anxhost-account-ui-qa`: by behaviour (Activity tabs, notification and task
+filters, refreshes; every Settings category; a setting saved across a reload
+and reset by its category; the accent swatches; help topics; every Security
+section, alias sections included; audit event filters; Export Window's
+redacted preview; the signed-in owner; Anx Workspace overview, log search and
+level), and by presence for what changes the account, tokens, remote access,
+emergency controls, caches or updates, or opens folders and save dialogs (W9:
+all 378 checkable A9 hooks in the running app).
+
+Inventory: **1,552 of 1,621 rows verified**. The 69 left: A10's 11 legacy
+page rows (AMP and Coolpals; retirement needs approval) and 216-C's 58 phone
+rows.
+
+### Validation performed (development PC, 2026-11-25)
+
+| Check | Result |
+| --- | --- |
+| `anxhost-account-ui-qa` | **PASS 38/38** |
+| `phase9-ui-qa` (5), `phasex-ui-qa` (11), `mobile-ui-qa` (19), `phase8-ui-qa` (9), `playit-account-ui-qa` (5), `stabilization-ui-qa`, `simple-ui-screenshots-qa` (8), `sidebar-navigation-groups-ui-qa` (7), `anxhost-shell-ui-qa` (79) | PASS |
+| Hermetic smokes covering A9 rows (37, from `agent-control-sections-smoke` to `webhook-alerts-smoke`, with the security, settings, owner-workspace, maintenance, diagnostics and permission-matrix smokes), plus `add-computer-flow-smoke` after the rename | PASS |
+| Design tokens, testid convention, frozen identifiers, brand allowlist, inventory `--check` | PASS |
+| `node --check`, `git diff --check` | PASS, clean |
+
+### Screenshots
+
+`docs/anxhost/a9-account/`: Notifications, Task details, Maintenance,
+Security, Settings and Anx Workspace at 900x640, 1280x800 and 1920x1080.

@@ -1,0 +1,188 @@
+/* AnxHost CC Activity, Security, Settings, Maintenance and Anx Workspace
+ * (Build 216-A9).
+ *
+ * On top of pages.css (which already styles these pages' forms, notes,
+ * summary grids and empty states). Same rules as the other AnxHost files:
+ * :root[data-shell="ahx"] first, --ahx-* tokens only, no :is() lists.
+ */
+
+/* ---------------------------------------------------------------- section navigation (Settings, Security, Agent Control) */
+:root[data-shell="ahx"] .settings-nav {
+  border-color: var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-lg);
+  background: var(--ahx-surface-1);
+}
+
+:root[data-shell="ahx"] .settings-category-group__label {
+  color: var(--ahx-text-muted);
+  font-size: var(--ahx-text-2xs);
+  font-weight: var(--ahx-weight-semibold);
+  letter-spacing: var(--ahx-tracking-caps);
+}
+
+:root[data-shell="ahx"] .settings-category-list button {
+  border-color: transparent;
+  border-radius: var(--ahx-radius-md);
+  background: transparent;
+  color: var(--ahx-text-secondary);
+}
+
+:root[data-shell="ahx"] .settings-category-list button:hover {
+  background: var(--ahx-surface-hover);
+  color: var(--ahx-text-primary);
+}
+
+:root[data-shell="ahx"] .settings-category-list button.is-active {
+  border-color: var(--ahx-border-accent);
+  background: var(--ahx-surface-selected);
+  color: var(--ahx-text-primary);
+}
+
+:root[data-shell="ahx"] .settings-category-list button:focus-visible {
+  outline: none;
+  box-shadow: var(--ahx-focus-ring);
+}
+
+/* ---------------------------------------------------------------- Activity: tasks and in-progress */
+:root[data-shell="ahx"] .operations-detail-panel,
+:root[data-shell="ahx"] .maintenance-detail-panel,
+:root[data-shell="ahx"] .activity-in-progress {
+  border-color: var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-lg);
+  background: var(--ahx-surface-1);
+}
+
+:root[data-shell="ahx"] .operation-item,
+:root[data-shell="ahx"] .maintenance-item,
+:root[data-shell="ahx"] .activity-in-progress__item {
+  border-color: var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-md);
+  background: var(--ahx-surface-2);
+}
+
+:root[data-shell="ahx"] .operation-item.is-selected,
+:root[data-shell="ahx"] .maintenance-item.is-selected {
+  border-color: var(--ahx-border-accent);
+  background: var(--ahx-surface-selected);
+}
+
+:root[data-shell="ahx"] .activity-in-progress__item:focus-visible {
+  outline: none;
+  box-shadow: var(--ahx-focus-ring);
+}
+
+:root[data-shell="ahx"] .operation-progress {
+  background: var(--ahx-surface-3);
+}
+
+:root[data-shell="ahx"] .operation-progress span {
+  background: var(--ahx-accent-gradient);
+}
+
+:root[data-shell="ahx"] .operation-item[data-status="completed"] .operation-progress span {
+  background: var(--ahx-success);
+}
+
+:root[data-shell="ahx"] .operation-item[data-status="failed"] .operation-progress span {
+  background: var(--ahx-danger);
+}
+
+:root[data-shell="ahx"] .operation-detail pre,
+:root[data-shell="ahx"] .maintenance-detail pre,
+:root[data-shell="ahx"] .notification-technical pre {
+  border-color: var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-md);
+  background: var(--ahx-surface-inset);
+  color: var(--ahx-text-secondary);
+  font-family: var(--ahx-font-mono);
+}
+
+:root[data-shell="ahx"] .operation-empty-state,
+:root[data-shell="ahx"] .maintenance-empty-state,
+:root[data-shell="ahx"] .notification-empty {
+  border-color: var(--ahx-border);
+  border-radius: var(--ahx-radius-lg);
+  color: var(--ahx-text-secondary);
+}
+
+/* ---------------------------------------------------------------- Activity: notifications */
+:root[data-shell="ahx"] .notification-toolbar {
+  border-color: var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-lg);
+  background: var(--ahx-surface-1);
+}
+
+:root[data-shell="ahx"] .notification-item {
+  border-color: var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-md);
+  background: var(--ahx-surface-2);
+}
+
+:root[data-shell="ahx"] .notification-item[data-read="false"] {
+  border-left: 3px solid var(--ahx-accent);
+}
+
+:root[data-shell="ahx"] .notification-item[data-severity="error"] {
+  border-left: 3px solid var(--ahx-danger);
+}
+
+/* ---------------------------------------------------------------- Security lists and tables */
+:root[data-shell="ahx"] .security-list-item {
+  border-color: var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-md);
+  background: var(--ahx-surface-2);
+}
+
+:root[data-shell="ahx"] .security-table-wrap {
+  border-color: var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-lg);
+  background: var(--ahx-surface-1);
+}
+
+:root[data-shell="ahx"] .security-table th {
+  background: var(--ahx-surface-1);
+  color: var(--ahx-text-muted);
+}
+
+:root[data-shell="ahx"] .security-filter-row .inline-action.is-active {
+  border-color: var(--ahx-border-accent);
+  background: var(--ahx-surface-selected);
+  color: var(--ahx-text-primary);
+}
+
+/* ---------------------------------------------------------------- Anx Workspace */
+:root[data-shell="ahx"] .owner-workspace-panel {
+  border-color: var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-lg);
+  background: var(--ahx-surface-1);
+}
+
+:root[data-shell="ahx"] .workspace-loading-state {
+  color: var(--ahx-text-secondary);
+}
+
+/* ---------------------------------------------------------------- accent swatches */
+/* The four swatches span the settings row so their names are not cut. */
+:root[data-shell="ahx"] .settings-accent-swatches {
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+}
+
+:root[data-shell="ahx"] .settings-accent-swatches button {
+  border-color: var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-md);
+  background: var(--ahx-surface-2);
+  color: var(--ahx-text-primary);
+  font-weight: var(--ahx-weight-medium);
+}
+
+:root[data-shell="ahx"] .settings-accent-swatches button.is-active,
+:root[data-shell="ahx"] .settings-accent-swatches button:hover {
+  border-color: var(--ahx-border-accent);
+  background: var(--ahx-surface-selected);
+}
+
+:root[data-shell="ahx"] .settings-accent-swatches button:focus-visible {
+  outline: none;
+  box-shadow: var(--ahx-focus-ring);
+}
