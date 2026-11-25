@@ -4,8 +4,8 @@
     <meta charset="utf-8">
     <script>document.documentElement.classList.add("js");setTimeout(function(){if(!window.__anxMotionReady){document.documentElement.classList.remove("js")}},5000);</script>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>AnxOS Control Center | Setup Guide</title>
-    <meta name="description" content="Set up AnxOS Control Center on this Windows PC, add another desktop computer, or pair a headless Debian or Ubuntu server with the official Agent package.">
+    <title>AnxHost Control Center | Setup Guide</title>
+    <meta name="description" content="Set up AnxHost Control Center on this Windows PC, add another desktop computer, or pair a headless Debian or Ubuntu server with the official Agent package.">
     <meta name="robots" content="index,follow">
     <meta name="theme-color" content="#07020f">
     <link rel="canonical" href="https://anxoscontrolcenter.org/setup/">
@@ -17,8 +17,8 @@
     <link rel="manifest" href="/site.webmanifest">
     <link rel="stylesheet" href="/styles.css">
     <meta property="og:type" content="website">
-    <meta property="og:site_name" content="AnxOS Control Center">
-    <meta property="og:title" content="AnxOS Control Center | Setup Guide">
+    <meta property="og:site_name" content="AnxHost Control Center">
+    <meta property="og:title" content="AnxHost Control Center | Setup Guide">
     <meta property="og:description" content="Three paths to a managed server: this Windows PC, another desktop computer, or a headless Debian or Ubuntu server with the official Agent package.">
     <meta property="og:url" content="https://anxoscontrolcenter.org/setup/">
     <meta property="og:image" content="https://anxoscontrolcenter.org/assets/social-preview.png?v=04c80a572768">
@@ -26,9 +26,9 @@
     <meta property="og:image:type" content="image/png">
     <meta property="og:image:width" content="1200">
     <meta property="og:image:height" content="630">
-    <meta property="og:image:alt" content="AnxOS Control Center social preview showing the dashboard on a dark purple background.">
+    <meta property="og:image:alt" content="AnxHost Control Center social preview showing the dashboard on a dark purple background.">
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="AnxOS Control Center | Setup Guide">
+    <meta name="twitter:title" content="AnxHost Control Center | Setup Guide">
     <meta name="twitter:description" content="Three paths to a managed server: this Windows PC, another desktop computer, or a headless Debian or Ubuntu server with the official Agent package.">
     <meta name="twitter:image" content="https://anxoscontrolcenter.org/assets/social-preview.png?v=04c80a572768">
     <script src="/config.js" defer></script>
@@ -49,17 +49,17 @@
       <symbol id="icon-github" viewBox="0 0 24 24"><path d="M9 19c-4 1.5-4-2-5-2.5M15 22v-3.5c0-1 .2-1.4-.5-2 2.6-.3 5.5-1.3 5.5-6a4.7 4.7 0 0 0-1.3-3.3c.1-.3.5-1.7-.1-3.2 0 0-1.1-.3-3.5 1.3a12.2 12.2 0 0 0-6.2 0C6.5 3.7 5.4 4 5.4 4c-.6 1.5-.2 2.9-.1 3.2A4.7 4.7 0 0 0 4 10.5c0 4.7 2.9 5.7 5.5 6-.7.6-.7 1.2-.6 2V22"/></symbol>
     </svg>
 
-    <header class="site-header"><div class="site-header__inner"><a class="brand" href="/" aria-label="AnxOS home"><span class="brand-mark"><img data-logo src="/assets/anxos-logo.png" alt=""></span><span class="brand-copy"><strong data-config="brandName">AnxOS</strong><span>Local-first server control</span></span></a><button class="site-menu-button" type="button" data-site-menu-toggle aria-expanded="false" aria-controls="site-nav">Menu</button><nav class="site-nav" id="site-nav" data-site-nav aria-label="Primary"><a href="/features/">Features</a><a href="/getting-started/">Getting Started</a><a href="/setup/">Setup</a><a href="/download">Download</a><a href="/release-notes">Release Notes</a><a href="/signin/" data-auth-nav="signed-out" hidden>Sign In</a><a class="site-nav__cta" href="/signup/" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button></nav></div></header>
+    <header class="site-header"><div class="site-header__inner"><a class="brand" href="/" aria-label="AnxHost home"><span class="brand-mark"><img data-logo src="/assets/anxhost-logo.png" alt=""></span><span class="brand-copy"><strong data-config="brandName">AnxHost</strong><span>Local-first server control</span></span></a><button class="site-menu-button" type="button" data-site-menu-toggle aria-expanded="false" aria-controls="site-nav">Menu</button><nav class="site-nav" id="site-nav" data-site-nav aria-label="Primary"><a href="/features/">Features</a><a href="/getting-started/">Getting Started</a><a href="/setup/">Setup</a><a href="/download">Download</a><a href="/release-notes">Release Notes</a><a href="/signin/" data-auth-nav="signed-out" hidden>Sign In</a><a class="site-nav__cta" href="/signup/" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button></nav></div></header>
 
     <main id="main">
       <section class="section-shell" aria-labelledby="setup-title">
         <div class="section-heading" data-reveal>
           <p class="eyebrow">Setup guide</p>
           <p class="badge badge--alpha">Private Alpha</p>
-          <h1 id="setup-title">Set up AnxOS</h1>
-          <p class="section-copy">Three paths lead to the same place: a computer that Control Center manages. Install AnxOS on this Windows PC, add another desktop computer, or pair a headless Debian or Ubuntu server. Every path ends with a one-time pairing code from <strong>Add Computer</strong>, and no path needs manual tokens or file editing.</p>
+          <h1 id="setup-title">Set up AnxHost</h1>
+          <p class="section-copy">Three paths lead to the same place: a computer that Control Center manages. Install AnxHost on this Windows PC, add another desktop computer, or pair a headless Debian or Ubuntu server. Every path ends with a one-time pairing code from <strong>Add Computer</strong>, and no path needs manual tokens or file editing.</p>
           <div class="hero-actions">
-            <a class="button button-primary" href="/download"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#icon-download"></use></svg><span>Download AnxOS</span></a>
+            <a class="button button-primary" href="/download"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#icon-download"></use></svg><span>Download AnxHost</span></a>
             <a class="button button-secondary" href="/windows-installation/"><span>Windows installation guide</span></a>
           </div>
         </div>
@@ -67,13 +67,13 @@
           <a class="path-card" href="/windows-installation/" data-reveal>
             <span class="path-card__head"><strong>This Windows PC</strong><span class="badge badge--ok">Start here</span></span>
             <span class="path-card__body">
-              <p>Install AnxOS Control Center, complete onboarding, and let the app set up the Local Agent on this computer. The Windows installation guide has the full detail.</p>
+              <p>Install AnxHost Control Center, complete onboarding, and let the app set up the Local Agent on this computer. The Windows installation guide has the full detail.</p>
             </span>
           </a>
           <article class="path-card" data-reveal data-reveal-delay="1">
             <span class="path-card__head"><strong>Another desktop computer</strong><span class="badge badge--info">Desktop</span></span>
             <span class="path-card__body">
-              <p>Install AnxOS on that computer, open <strong>Agent Control → Connect this computer</strong>, turn on <strong>Another computer will connect to this one</strong>, and generate a pairing code. Then paste the full code under <strong>Add Computer</strong> in your main Control Center.</p>
+              <p>Install AnxHost on that computer, open <strong>Agent Control → Connect this computer</strong>, turn on <strong>Another computer will connect to this one</strong>, and generate a pairing code. Then paste the full code under <strong>Add Computer</strong> in your main Control Center.</p>
               <p class="platform-note">The desktop walkthrough below follows this flow step by step.</p>
             </span>
           </article>
@@ -97,7 +97,7 @@
           <article class="step">
             <span class="step__index" aria-hidden="true">1</span>
             <div class="step__body">
-              <h3>Download AnxOS</h3>
+              <h3>Download AnxHost</h3>
               <p>Open the download page and choose the package for this computer: the signed Windows installer, Windows portable, Linux .deb, or Linux AppImage. The download page only lists files from the official GitHub Release.</p>
             </div>
           </article>
@@ -105,14 +105,14 @@
             <span class="step__index" aria-hidden="true">2</span>
             <div class="step__body">
               <h3>Install and launch</h3>
-              <p>Run the installer and follow its screens. On Windows, Approve administrator access if it is requested and launch AnxOS Control Center from the Start menu or desktop shortcut. On Linux, install the .deb with your software installer or mark the AppImage as executable and open it.</p>
+              <p>Run the installer and follow its screens. On Windows, Approve administrator access if it is requested and launch AnxHost Control Center from the Start menu or desktop shortcut. On Linux, install the .deb with your software installer or mark the AppImage as executable and open it.</p>
             </div>
           </article>
           <article class="step">
             <span class="step__index" aria-hidden="true">3</span>
             <div class="step__body">
               <h3>Sign in and create the Local Owner</h3>
-              <p>Sign in with your AnxOS account or create one, then complete the first-run <strong>Local Owner</strong> setup for this installation. Local Owner credentials unlock privileged actions on this node: keep them private and separate from game-server logins.</p>
+              <p>Sign in with your AnxHost account or create one, then complete the first-run <strong>Local Owner</strong> setup for this installation. Local Owner credentials unlock privileged actions on this node: keep them private and separate from game-server logins.</p>
             </div>
           </article>
           <article class="step">
@@ -140,7 +140,7 @@
             <span class="step__index" aria-hidden="true">7</span>
             <div class="step__body">
               <h3>Start and manage the server</h3>
-              <p>Open <strong>Instances</strong>, review the configuration, and start the server. Watch <strong>Logs</strong> and <strong>Console</strong> until it reports ready, and use the AnxOS <strong>Stop</strong> and <strong>Restart</strong> controls so shutdowns stay safe. Files and Backups live on the same pages.</p>
+              <p>Open <strong>Instances</strong>, review the configuration, and start the server. Watch <strong>Logs</strong> and <strong>Console</strong> until it reports ready, and use the AnxHost <strong>Stop</strong> and <strong>Restart</strong> controls so shutdowns stay safe. Files and Backups live on the same pages.</p>
             </div>
           </article>
           <article class="step">
@@ -167,7 +167,7 @@
         </div>
         <aside class="callout callout--ok" data-reveal>
           <strong>You don’t need a terminal</strong>
-          <p>On a desktop, AnxOS installs and updates itself and the Local Agent is set up from inside the app. Only the headless server path below uses terminal commands — and every command has a copy button.</p>
+          <p>On a desktop, AnxHost installs and updates itself and the Local Agent is set up from inside the app. Only the headless server path below uses terminal commands — and every command has a copy button.</p>
         </aside>
         <div class="download-help install-links">
           <a href="/windows-installation/">Windows installation guide</a>
@@ -339,8 +339,8 @@
         <div class="section-heading" data-reveal>
           <p class="eyebrow">Agent TUI · real output</p>
           <p class="section-copy">What a fresh headless install looks like in the terminal:</p>
-          <div class="tui" style="overflow-x:auto" role="img" aria-label="AnxOS Agent TUI from a fresh headless install: service active, pairing not_paired, update current">
-            <div class="tui__title"><span>AnxOS Agent</span></div>
+          <div class="tui" style="overflow-x:auto" role="img" aria-label="AnxHost Agent TUI from a fresh headless install: service active, pairing not_paired, update current">
+            <div class="tui__title"><span>AnxHost Agent</span></div>
             <div class="tui__line"><strong>Agent</strong></div>
             <div class="tui__line">&nbsp;&nbsp;State&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;active, enabled (system unit)</div>
             <div class="tui__line">&nbsp;&nbsp;Version&nbsp;&nbsp;&nbsp;&nbsp;0.1.0 · linux x64</div>
@@ -474,9 +474,9 @@
       <section class="section-shell" data-reveal>
         <div class="cta-band">
           <h2>Ready to set up?</h2>
-          <p>Download AnxOS, or open the Windows installation guide if this PC is your first node.</p>
+          <p>Download AnxHost, or open the Windows installation guide if this PC is your first node.</p>
           <div class="cta-actions">
-            <a class="button button-primary" href="/download"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#icon-download"></use></svg><span>Download AnxOS</span></a>
+            <a class="button button-primary" href="/download"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#icon-download"></use></svg><span>Download AnxHost</span></a>
             <a class="button button-ghost" href="/windows-installation/">Windows installation guide</a>
             <a class="button button-ghost" href="/release-notes">Release Notes</a>
           </div>
@@ -484,7 +484,7 @@
       </section>
     </main>
 
-    <footer class="site-footer"><div class="site-footer__brand"><strong>AnxOS Control Center</strong><span>© 2026 AnxOS Control Center · anxoscontrolcenter.org</span><span class="site-footer__note">Private Alpha · <a href="/security-privacy/">Security &amp; Privacy</a></span></div><nav class="site-footer__nav" aria-label="Footer"><a href="/">Home</a><a href="/features/">Features</a><a href="/getting-started/">Getting Started</a><a href="/setup/">Setup</a><a href="/download">Download</a><a href="/release-notes">Release Notes</a><a href="/security-privacy/">Security</a><a href="/faq/">FAQ</a><a data-config-href="repositoryUrl" href="https://github.com/AnxLabs/AnxOS-Control-Center-Releases">GitHub</a><a href="/signin/" data-auth-nav="signed-out" hidden>Sign In</a><a href="/signup/" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button></nav></footer>
+    <footer class="site-footer"><div class="site-footer__brand"><strong>AnxHost Control Center</strong><span>© 2026 AnxHost Control Center · anxoscontrolcenter.org</span><span class="site-footer__note">Private Alpha · <a href="/security-privacy/">Security &amp; Privacy</a></span></div><nav class="site-footer__nav" aria-label="Footer"><a href="/">Home</a><a href="/features/">Features</a><a href="/getting-started/">Getting Started</a><a href="/setup/">Setup</a><a href="/download">Download</a><a href="/release-notes">Release Notes</a><a href="/security-privacy/">Security</a><a href="/faq/">FAQ</a><a data-config-href="repositoryUrl" href="https://github.com/AnxLabs/AnxOS-Control-Center-Releases">GitHub</a><a href="/signin/" data-auth-nav="signed-out" hidden>Sign In</a><a href="/signup/" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button></nav></footer>
     <div class="toast-region" data-toast-region aria-live="polite" aria-atomic="true"></div>
   </body>
 </html>

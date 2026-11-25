@@ -179,14 +179,14 @@ async function main() {
   const config = readWebsite("config.js");
   const workflow = fs.readFileSync(path.join(root, ".github", "workflows", "windows-release.yml"), "utf8");
   assert(download.includes('data-download-page') && download.includes('data-primary-download'), "/download should render the dynamic download workspace.");
-  assert(download.includes("Download AnxOS for Windows") && download.includes("Windows installer"), "/download should make the Windows installer the primary normal-user path.");
+  assert(download.includes("Download AnxHost for Windows") && download.includes("Windows installer"), "/download should make the Windows installer the primary normal-user path.");
   assert(download.includes("<dt>Version</dt>") && !download.includes("<dt>Stable</dt>") && downloadHtml.includes("<dt>Version</dt>"), "/download release metadata must not call private-alpha builds stable.");
   assert(download.includes("Portable Version") && download.includes("View Release Notes") && download.includes("Installation Help") && download.includes("System Requirements"), "/download should keep secondary download and help options visible.");
   assert(download.includes('href="/windows-installation/"') && downloadHtml.includes('href="/windows-installation/"'), "/download should link installation help to the clean Windows installation route.");
   assert(download.includes('href="/system-requirements/"') && downloadHtml.includes('href="/system-requirements/"'), "/download should link system requirements to the clean dedicated route.");
   assert(download.includes('id="system-requirements"') && download.includes('id="install-help"'), "/download should expose clean anchors for requirements and installation help.");
   assert(download.includes('rel="canonical" href="https://anxoscontrolcenter.org/download"'), "/download should expose canonical metadata.");
-  assert(downloadHtml.includes('data-download-page') && downloadHtml.includes("Download AnxOS for Windows"), "/download.html should serve visible compatibility content, not a blank redirect shell.");
+  assert(downloadHtml.includes('data-download-page') && downloadHtml.includes("Download AnxHost for Windows"), "/download.html should serve visible compatibility content, not a blank redirect shell.");
   assert(!downloadHtml.includes('window.location.replace("/download"'), "/download.html must not redirect to itself through Cloudflare extensionless routing.");
   for (const html of [download, downloadHtml]) {
     assert(html.includes('src="/site.js"') && html.includes('src="/release-download-service.js"') && html.includes('href="/styles.css"'), "Download pages must use root-safe script and stylesheet paths.");
@@ -198,7 +198,7 @@ async function main() {
   assert(!/AnxOS-Control-Center-Setup-1\.7-build142\.exe/.test(`${download}\n${index}\n${releaseNotes}\n${gettingStarted}\n${site}\n${config}`), "Website download logic must not hardcode an obsolete installer filename.");
   assert(!/releases\/download\/v1\.7-build142/.test(`${download}\n${index}\n${releaseNotes}\n${gettingStarted}\n${site}\n${config}`), "Website download logic must not hardcode an obsolete release asset URL.");
   assert(site.includes("textContent = release.releaseBody") && !site.includes("innerHTML = release.releaseBody"), "Release text should be rendered safely.");
-  assert(site.includes('heading.textContent = windowsSetup ? "Windows installer ready"') && site.includes('"Download AnxOS for Windows"'), "Download renderer should prefer the Windows setup asset for the primary CTA.");
+  assert(site.includes('heading.textContent = windowsSetup ? "Windows installer ready"') && site.includes('"Download AnxHost for Windows"'), "Download renderer should prefer the Windows setup asset for the primary CTA.");
   assert(site.includes("windowsPortable") && site.includes("Portable Version") && site.includes("Installation Help") && site.includes("System Requirements"), "Download renderer should expose portable, release notes, help, and requirements actions.");
   assert(site.includes("function showDownloadStartupFallback") && site.includes("function initializeWebsite") && site.includes("try {"), "Website startup should have a top-level download failure boundary.");
   assert(site.includes("Download information could not be loaded right now."), "Release initialization failure should show a visitor-safe error message.");

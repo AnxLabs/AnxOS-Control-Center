@@ -1,6 +1,6 @@
 {
-  "name": "AnxOS Control Center",
-  "short_name": "AnxOS",
+  "name": "AnxHost Control Center",
+  "short_name": "AnxHost",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

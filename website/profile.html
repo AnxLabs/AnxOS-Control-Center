@@ -4,8 +4,8 @@
     <meta charset="utf-8">
     <script>document.documentElement.classList.add("js");setTimeout(function(){if(!window.__anxMotionReady){document.documentElement.classList.remove("js")}},5000);</script>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>AnxOS Control Center | Profile</title>
-    <meta name="description" content="Review your AnxOS profile and account details.">
+    <title>AnxHost Control Center | Profile</title>
+    <meta name="description" content="Review your AnxHost profile and account details.">
     <meta name="robots" content="noindex,nofollow">
     <meta name="theme-color" content="#07020f">
     <link rel="canonical" href="https://anxoscontrolcenter.org/profile">
@@ -26,9 +26,9 @@
     <a class="skip-link" href="#main">Skip to content</a>
     <header class="site-header">
       <div class="site-header__inner">
-        <a class="brand" href="/" aria-label="AnxOS home">
-          <span class="brand-mark"><img data-logo src="/assets/anxos-logo.png" alt=""></span>
-          <span class="brand-copy"><strong data-config="brandName">AnxOS</strong><span>Local-first server control</span></span>
+        <a class="brand" href="/" aria-label="AnxHost home">
+          <span class="brand-mark"><img data-logo src="/assets/anxhost-logo.png" alt=""></span>
+          <span class="brand-copy"><strong data-config="brandName">AnxHost</strong><span>Local-first server control</span></span>
         </a>
         <button class="site-menu-button" type="button" data-site-menu-toggle aria-expanded="false" aria-controls="site-nav">Menu</button>
         <nav class="site-nav" id="site-nav" data-site-nav aria-label="Primary">
@@ -64,7 +64,7 @@
           </div>
           <div data-auth-view="signed-out" hidden>
             <h3>Sign in to view your profile</h3>
-            <p>Profile details are private to your authenticated AnxOS account.</p>
+            <p>Profile details are private to your authenticated AnxHost account.</p>
             <div class="route-actions">
               <a class="button button-primary" href="/signin/?returnTo=/profile">Sign In</a>
             </div>
@@ -74,7 +74,7 @@
               <div class="profile-avatar profile-avatar--large" data-profile-avatar aria-hidden="true">A</div>
               <div>
                 <span class="badge" data-profile-role>Account</span>
-                <h3 data-profile-display-name>AnxOS Account</h3>
+                <h3 data-profile-display-name>AnxHost Account</h3>
                 <p><span data-profile-username>@account</span> · <span data-account-email></span></p>
                 <small data-profile-member-since>Member since unavailable</small>
               </div>
@@ -92,7 +92,7 @@
                 <label>Preferred platform<select name="preferredPlatform"><option value="">No preference</option><option value="windows">Windows</option><option value="linux">Linux</option><option value="macos">macOS</option><option value="server">Server/NAS</option></select></label>
                 <label>Website<input type="url" name="websiteUrl" placeholder="https://example.com"></label>
                 <label>GitHub<input type="url" name="githubUrl" placeholder="https://github.com/username"></label>
-                <label class="profile-form-wide">Short bio<textarea name="bio" maxlength="280" rows="4" placeholder="Briefly describe how you use AnxOS."></textarea></label>
+                <label class="profile-form-wide">Short bio<textarea name="bio" maxlength="280" rows="4" placeholder="Briefly describe how you use AnxHost."></textarea></label>
               </div>
               <div class="profile-avatar-preview">
                 <div class="profile-avatar" data-profile-avatar-preview aria-hidden="true">A</div>
@@ -116,7 +116,7 @@
               </dl>
             </section>
             <section class="account-subpanel" data-reveal data-reveal-delay="2">
-              <div class="account-subpanel__heading"><h4>Connected AnxOS Apps</h4><a class="button button-ghost" href="/account?section=devices">Manage Devices</a></div>
+              <div class="account-subpanel__heading"><h4>Connected AnxHost Apps</h4><a class="button button-ghost" href="/account?section=devices">Manage Devices</a></div>
               <div data-profile-devices class="account-list"></div>
             </section>
           </div>
@@ -126,7 +126,7 @@
 
     </main>
     <footer class="site-footer">
-      <div class="site-footer__brand"><strong>AnxOS Control Center</strong><span>© 2026 AnxOS Control Center · anxoscontrolcenter.org</span><span class="site-footer__note">Private Alpha · <a href="/security-privacy/">Security &amp; Privacy</a></span></div>
+      <div class="site-footer__brand"><strong>AnxHost Control Center</strong><span>© 2026 AnxHost Control Center · anxoscontrolcenter.org</span><span class="site-footer__note">Private Alpha · <a href="/security-privacy/">Security &amp; Privacy</a></span></div>
       <nav class="site-footer__nav" aria-label="Footer">
         <a href="/">Home</a><a href="/features/">Features</a><a href="/getting-started/">Getting Started</a><a href="/setup/">Setup</a><a href="/download">Download</a><a href="/release-notes">Release Notes</a><a href="/security-privacy/">Security</a><a href="/faq/">FAQ</a><a data-config-href="repositoryUrl" href="https://github.com/AnxLabs/AnxOS-Control-Center-Releases">GitHub</a>
         <a href="/signin/" data-auth-nav="signed-out" hidden>Sign In</a><a href="/signup/" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button>

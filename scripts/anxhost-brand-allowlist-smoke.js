@@ -31,8 +31,7 @@ const app = read("app.js");
 
 // "AnxOS" text a shell region may still contain, with the reason.
 const ALLOWLIST = [
-  // The website and the online account keep the AnxOS name until 216-B.
-  { phrase: "AnxOS website", reason: "the sign-in website is renamed in 216-B" },
+  // Empty since 216-B renamed the sign-in website (the last entry).
 ];
 
 const REGIONS = [

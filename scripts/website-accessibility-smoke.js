@@ -38,7 +38,7 @@ for (const file of publicPages) {
   assert(!/\s(?:href|src)=["'][^"']*#[^"']*["']/.test(html.replace(/href="#icon-[^"]+"/g, "").replace(/href="#main"/g, "")), `${file} must not rely on hash-fragment navigation.`);
 }
 
-assert(download.includes("Download AnxOS for Windows"), "Download page must keep the primary Windows CTA visible without JavaScript.");
+assert(download.includes("Download AnxHost for Windows"), "Download page must keep the primary Windows CTA visible without JavaScript.");
 assert(download.includes("Portable Version") && download.includes("View Release Notes") && download.includes("Installation Help") && download.includes("System Requirements"), "Download page must keep secondary options visible without JavaScript.");
 assert(download.includes('role="status"') && download.includes("Checking the latest published release"), "Download page must expose an accessible loading status.");
 assert(download.includes('aria-live="polite"') && download.includes("Loading packages"), "Download page must avoid layout jumps with visible loading placeholders.");

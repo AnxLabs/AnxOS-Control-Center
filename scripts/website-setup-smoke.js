@@ -14,14 +14,14 @@ const site = read("site.js");
 
 assert(setup.includes('data-standalone-route="setup"'), "/setup must serve the setup guide.");
 assert(setup.includes('rel="canonical" href="https://anxoscontrolcenter.org/setup/"'), "/setup must have canonical metadata.");
-assert(setup.includes('href="/download"') && setup.includes("Download AnxOS"), "Setup download CTAs must point to /download.");
+assert(setup.includes('href="/download"') && setup.includes("Download AnxHost"), "Setup download CTAs must point to /download.");
 assert(!/data-download=(?:"|')[^"']+/.test(setup), "Setup CTAs must remain on the existing download route instead of starting a release download.");
 for (const html of [setup, index, download, gettingStarted, read("features/index.html"), read("system-requirements/index.html"), read("windows-installation/index.html"), read("security-privacy/index.html"), read("faq/index.html")]) {
   assert(html.includes('href="/setup/"'), "Primary public pages must include the Setup Guide navigation entry.");
 }
 
 [
-  "Download AnxOS", "Install and launch", "Sign in and create the Local Owner", "Connect the Local Agent",
+  "Download AnxHost", "Install and launch", "Sign in and create the Local Owner", "Connect the Local Agent",
   "Prepare the node", "Create the first server", "Start and manage the server", "Let friends join",
   "Connect to the server", "Troubleshooting",
 ].forEach((heading) => assert(setup.includes(heading), `Setup guide must include heading: ${heading}`));

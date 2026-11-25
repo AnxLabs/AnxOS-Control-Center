@@ -301,7 +301,7 @@ function createDownloadButton(asset, release, primary = false) {
   icon.append(use);
   const text = document.createElement("span");
   if (asset.platform === "windows" && asset.packageType === "setup") {
-    text.textContent = "Download AnxOS for Windows";
+    text.textContent = "Download AnxHost for Windows";
   } else if (asset.platform === "windows" && asset.packageType === "portable") {
     text.textContent = "Portable Version";
   } else {
@@ -459,12 +459,12 @@ function renderDownloadPage(release) {
 function renderDownloadFailure(error) {
   const message = {
     GITHUB_RATE_LIMITED: "Download information is temporarily unavailable. Please try again shortly.",
-    GITHUB_RELEASE_SOURCE_NOT_FOUND: "No published AnxOS release is available yet.",
-    NO_PUBLISHED_RELEASE: "No published AnxOS release is available yet.",
+    GITHUB_RELEASE_SOURCE_NOT_FOUND: "No published AnxHost release is available yet.",
+    NO_PUBLISHED_RELEASE: "No published AnxHost release is available yet.",
     NO_SUPPORTED_INSTALLER: "The latest release does not contain a supported installer.",
     NO_DOWNLOADABLE_RELEASE: "The latest release does not contain a supported installer.",
-    RELEASE_NETWORK_ERROR: "AnxOS could not reach the release service.",
-    RELEASE_API_TIMEOUT: "AnxOS could not reach the release service.",
+    RELEASE_NETWORK_ERROR: "AnxHost could not reach the release service.",
+    RELEASE_API_TIMEOUT: "AnxHost could not reach the release service.",
     INVALID_RELEASE_JSON: "Release metadata is unavailable. Use the GitHub release page or try again later.",
     REPOSITORY_NOT_CONFIGURED: "Release metadata is unavailable. Use the GitHub release page or try again later.",
   }[error?.code] || "Release metadata is unavailable. Use the GitHub release page or try again later.";
@@ -681,7 +681,7 @@ function applyReleaseNotes() {
   const releases = Array.isArray(config.releaseNotes) ? config.releaseNotes : [];
   const latest = releases[0];
   document.querySelectorAll("[data-release-latest-summary]").forEach((node) => {
-    const full = String(latest?.summary || "Latest AnxOS release notes.");
+    const full = String(latest?.summary || "Latest AnxHost release notes.");
     // The release-summary-card paragraph is line-clamped by CSS, so end it at a
     // sentence boundary instead of cutting mid-clause. The full text stays in
     // the newest release note card below.
@@ -850,7 +850,7 @@ function redirectLegacyHashRoutes() {
 }
 
 function getInitials(value) {
-  const text = String(value || "AnxOS Account").trim();
+  const text = String(value || "AnxHost Account").trim();
   const parts = text.split(/\s+/).filter(Boolean);
   return (parts.length > 1 ? `${parts[0][0]}${parts[1][0]}` : text.slice(0, 2)).toUpperCase();
 }
@@ -970,7 +970,7 @@ function setFormDisabled(form, disabled) {
 
 async function apiFetch(path, options = {}) {
   if (!isAccountApiConfigured()) {
-    const error = new Error("AnxOS account API is not configured for this deployment.");
+    const error = new Error("AnxHost account API is not configured for this deployment.");
     error.code = "ACCOUNT_API_NOT_CONFIGURED";
     throw error;
   }
@@ -1106,11 +1106,11 @@ function friendlyAccountDataError(error) {
   if (code === "ACCOUNT_API_KEY_NOT_CONFIGURED") return "Account API public key is missing from this website deployment.";
   if (code === "ACCOUNT_PROVIDER_UNAVAILABLE") return "Account sign-in scripts are unavailable. Check your connection and refresh.";
   if (code === "AUTH_REQUIRED" || code === "ACCOUNT_UNAUTHORIZED") return "Your session expired or is unauthorized. Sign in again.";
-  if (code === "ACCOUNT_ENDPOINT_NOT_FOUND") return "Account endpoint is missing. Deploy the latest AnxOS account Edge Function.";
+  if (code === "ACCOUNT_ENDPOINT_NOT_FOUND") return "Account endpoint is missing. Deploy the latest AnxHost account Edge Function.";
   if (code === "ACCOUNT_SERVICE_NOT_CONFIGURED") return "Account service is not fully configured. Check Supabase function environment variables.";
   if (code === "ACCOUNT_NETWORK_OR_CORS") return `The ${error?.hostLabel || "account API"} rejected or did not answer this website origin. Check CORS/allowed origins and retry.`;
   if (code.includes("LIST_FAILED") || code.includes("CLEAR_FAILED")) return friendlyAuthError(error);
-  if (code === "USER_CODE_REQUIRED") return "Enter the device code shown in AnxOS.";
+  if (code === "USER_CODE_REQUIRED") return "Enter the device code shown in AnxHost.";
   if (code === "DEVICE_LOOKUP_FAILED") return "Could not look up this device code. Try again.";
   if (code === "DEVICE_APPROVAL_FAILED") return "Could not approve this device. Try again.";
   if (code === "DEVICE_DENIAL_FAILED") return "Could not deny this device. Try again.";
@@ -1145,7 +1145,7 @@ async function initializeAccount() {
     applyAuthVisibility("initialize-timeout-fallback");
   }, AUTH_RESTORE_TIMEOUT_MS + 1000);
   if (!isAccountConfigured()) {
-    disableAccountForms("AnxOS account sign-in is not configured for this deployment. Local desktop mode still works without an online account.");
+    disableAccountForms("AnxHost account sign-in is not configured for this deployment. Local desktop mode still works without an online account.");
     return;
   }
   const client = getSupabase();
@@ -1316,7 +1316,7 @@ function getAccountIdentity() {
   const primaryCandidate = displayName || username;
   const primary = primaryCandidate && primaryCandidate.toLowerCase() !== email.toLowerCase()
     ? primaryCandidate
-    : "AnxOS Account";
+    : "AnxHost Account";
   const secondaryParts = [];
   if (username && username !== primary) secondaryParts.push(`@${username}`);
   if (email) secondaryParts.push(email);
@@ -1688,7 +1688,7 @@ function createDeviceListItem(device) {
       const confirmed = await confirmUserAction({
         eyebrow: "Account security",
         title: "Revoke this desktop device?",
-        message: "This device will need to sign in again before it can access your AnxOS account.",
+        message: "This device will need to sign in again before it can access your AnxHost account.",
         confirmLabel: "Revoke Device",
         confirmTone: "danger",
         fallback: "Revoke this desktop device? It will need to sign in again.",
@@ -2033,13 +2033,13 @@ function getSignInUrlForActivation() {
 function setDeviceCode(code) {
   currentDeviceCode = normalizeDeviceCode(code);
   document.querySelectorAll("[data-device-code-input]").forEach((input) => { input.value = currentDeviceCode; });
-  document.querySelectorAll("[data-activation-code]").forEach((node) => { node.textContent = currentDeviceCode || "Enter the code shown in AnxOS"; });
+  document.querySelectorAll("[data-activation-code]").forEach((node) => { node.textContent = currentDeviceCode || "Enter the code shown in AnxHost"; });
 }
 
 async function lookupDevice() {
   setDeviceCode(document.querySelector("[data-device-code-input]")?.value || currentDeviceCode);
   if (!currentDeviceCode) {
-    setDeviceMessage("Enter the device code shown in AnxOS.", "error");
+    setDeviceMessage("Enter the device code shown in AnxHost.", "error");
     return;
   }
   setDeviceMessage("Looking up device...");
@@ -2076,16 +2076,16 @@ async function approveOrDenyDevice(action) {
   const confirmed = await confirmUserAction(action === "approve" ? {
     eyebrow: "Device activation",
     title: "Approve this desktop app?",
-    message: "This allows the requesting AnxOS Control Center desktop app to connect to your account. Approve only devices you recognize.",
+    message: "This allows the requesting AnxHost Control Center desktop app to connect to your account. Approve only devices you recognize.",
     confirmLabel: "Approve Device",
-    fallback: "Approve this AnxOS desktop app for your account?",
+    fallback: "Approve this AnxHost desktop app for your account?",
   } : {
     eyebrow: "Device activation",
     title: "Deny this sign-in request?",
     message: "This denies the current desktop sign-in request. The desktop app will need to start activation again to request a new code.",
     confirmLabel: "Deny Request",
     confirmTone: "danger",
-    fallback: "Deny this AnxOS desktop sign-in request?",
+    fallback: "Deny this AnxHost desktop sign-in request?",
   });
   if (!confirmed) return;
   setDeviceActions(false);
@@ -2107,14 +2107,14 @@ async function approveOrDenyDevice(action) {
 function renderDeviceSummary(device) {
   if (!device) {
     setText("[data-device-name]", "Waiting for code");
-    setText("[data-device-details]", "Enter the code from AnxOS to load the device request.");
+    setText("[data-device-details]", "Enter the code from AnxHost to load the device request.");
     return;
   }
   setText("[data-device-name]", device?.deviceName || "Unknown device");
   setText("[data-device-details]", [
     device?.platform || "desktop",
     device?.arch,
-    device?.appVersion ? `AnxOS ${device.appVersion}` : null,
+    device?.appVersion ? `AnxHost ${device.appVersion}` : null,
     device?.requestedAt ? `requested ${formatDate(device.requestedAt)}` : null,
   ].filter(Boolean).join(" · "));
 }
@@ -2126,9 +2126,9 @@ function setDeviceActions(enabled) {
 }
 
 function getDeviceStateMessage(state) {
-  if (state === "approved") return "This device is now connected. You may return to AnxOS.";
+  if (state === "approved") return "This device is now connected. You may return to AnxHost.";
   if (state === "denied") return "This sign-in request was denied.";
-  if (state === "expired") return "This device code expired. Start sign-in again from AnxOS.";
+  if (state === "expired") return "This device code expired. Start sign-in again from AnxHost.";
   if (state === "consumed") return "This device code was already used.";
   return "Device request is not available.";
 }

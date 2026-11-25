@@ -38230,7 +38230,7 @@ function renderAccountState() {
   } else if (accountState.configured === false) {
     setAccountMessage("Using local device mode. An AnxOS account is optional and only needed for cloud and remote features.");
   } else {
-    setAccountMessage("Sign in on the AnxOS website to connect this device.");
+    setAccountMessage("Sign in on the AnxHost website to connect this device.");
   }
   if (shouldBlockOnboardingForAccount()) {
     onboardingOpenGeneration += 1;

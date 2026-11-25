@@ -18,7 +18,8 @@ Plan: `PLANS.md` (approved, commit `9aadaead`). Protocol: `AGENTS.md` (ADP).
 | **216-E Secure Session Persistence** | **Complete; local checkpoint commit** (not pushed). Approved policy implemented: secure storage only, token rotation on every restore, device binding, enforced idle lock (15 min default) and a real manual lock. See "216-E" below. |
 | **216-D Custom Installer** | **Implemented; local checkpoint commit** (not pushed). New art from the brand SVGs, AnxHost names on every page, shortcut and uninstall entry, "AnxHost Helper". Not compiled on this PC (junctioned `node_modules`); Sandbox install, upgrade, repair and uninstall need the signed CI build (216-G). See "216-D" below. |
 | **216-C Phone Access Rebirth** | **Complete; local checkpoint commit** (not pushed). The phone uses the desktop's tokens, follows the phone's light or dark scheme, says AnxHost, uses the Option B icons and the `anxos-shell-v3` cache; a Build 215 pairing still works. See "216-C" below. |
-| 216-B, 216-F, 216-G | Not started |
+| **216-B Website and Branding** | **Partly complete; local checkpoint commit** (not pushed, not deployed). B2: every page, the READMEs and the release tooling say AnxHost Control Center ("formerly AnxOS Control Center"; release history keeps its names); AnxHost logo, icons and social preview. B3: domain plan written. Not done: new product screenshots and a layout redesign (see "216-B"). |
+| 216-F, 216-G | Not started |
 
 ## 216-0 timing
 
@@ -286,7 +287,7 @@ domain and production changes need their own approvals.
 A1 to A10 are complete and committed locally. On 2026-11-25 the owner
 wrote "i approved anything", recorded as approval of the 216-E security
 review (with the recommended answers D1–D6) and of the 216-D installer
-design. 216-E, 216-D and 216-C are done; **216-B is next**, then F and G. The exact-reply
+design. 216-E, 216-D and 216-C are done and 216-B is partly done (screenshots and layout open); **216-F is next**, then G. The exact-reply
 gates (`confirmed`, `done`, `🚀 publish`), pushes, signing or CI workflow
 changes, and deletions still need their own approvals naming the target.
 
@@ -1499,3 +1500,50 @@ console and Computers, from the final `mobile-ui-qa` run (412 px Pixel).
   Android WebViews without it: tinted pills fall back to no tint) was only
   tested in Edge's phone emulation.
 - 30 inventory rows remain unverified (above).
+
+## 216-B Website and Branding
+
+Nothing was deployed. The website changes reach users only through a
+separately approved Pages deploy.
+
+### What changed
+
+| Part | Change |
+| --- | --- |
+| B2 name | Every visible "AnxOS" on the 32 website pages, `site.js` and the web manifest says AnxHost (429 replacements, standalone word only, so file, repository, asset, cookie and path names are untouched). The release-note cards and release titles keep the name each release was published under. The home page says "AnxHost Control Center (formerly AnxOS Control Center)"; the generated JSON-LD carries `alternateName: "AnxOS Control Center"`. |
+| B2 sources | The names come from their generators, so a release sync keeps them: `release-docs.js` (`PRODUCT_NAME`, its README and JSON-LD templates), `sync-website-release.js` (`brandName`, `logoPath`) and `website/config.js`. `release-docs.js --check` and `release-consistency-check` pass. |
+| B2 brand assets | New `scripts/anxhost-website-assets.js` writes the favicons (SVG, 16, 32, `.ico` with 16/32/48), touch and manifest icons (Option B), a 64 px header mark (small icon) and a 1200x630 social preview (Option A lockup, "formerly AnxOS Control Center"). The header on every page uses `/assets/anxhost-logo.png`. |
+| B4 READMEs | `README.md` and `docs/releases-repository/README.md` say AnxHost with a "Formerly AnxOS Control Center" line and the AnxHost logo; their generated release sections follow the generator. No repository was renamed or moved. |
+| Desktop | The two remaining "AnxOS website" sign-in messages say AnxHost (`app.js`, `accountAuthService.js`); the brand allowlist's last entry was removed, so the shell check is stricter. |
+| B3 | `docs/anxhost/DOMAIN_MIGRATION_PLAN.md`: where the domain is used (verified), selection criteria, six additive steps that keep `anxoscontrolcenter.org` serving sign-in, `config.js` and downloads forever, tests and rollback. **Needs owner approval; every step is a production step.** |
+| Naming decision taken | User-facing component names follow the product: AnxHost Account, AnxHost Agent, AnxHost Local Agent, AnxHost Relay (and the AnxHost Helper from 216-D). Package and file names (`AnxOS-Agent-*.deb`, `AnxOS-Control-Center-*`) are unchanged. The owner can reverse this with one rename pass. |
+
+### Tests ported (requirement changed: the visible name)
+
+`website-accessibility-smoke` (1 phrase), `website-download-smoke` (3),
+`website-setup-smoke` (2), `website-production-smoke` (logo path, manifest
+name and 9 page phrases). Every port only swaps AnxOS for AnxHost in an
+expected visible phrase; no assertion was removed or loosened.
+
+### Validation performed (development PC, 2026-11-25)
+
+| Check | Result |
+| --- | --- |
+| `npm run qa:website` (12 checks: syntax, `release-docs --check`, release consistency check and smoke, production, download, accessibility, setup, download-functions and release-promotion smokes, `git diff --check`) | **PASS** |
+| `website-search-indexing-smoke` after `website-sitemap.js` (pages changed, so their dates moved) | PASS |
+| `verify-website-config-vs-stable`, `anxhost-brand-allowlist`, `frozen-identifiers`, `marketplace`, `account-system`, `account-browser-auth` smokes | PASS |
+
+### Not done (216-B)
+
+- **Product screenshots.** The nine `website/assets/product/*` images (and
+  the README hero) still show the Build 215 interface and the AnxOS name. A
+  capture from the QA harness shows offline computers and a "QA MODE" badge,
+  which is worse than the old images, so they were left. They need a
+  populated, connected install, best from the signed 216 RC.
+- **Layout redesign.** The pages keep their current structure and the
+  existing purple design system; only names, logo and icons changed.
+- `scripts/generate-linux-icons.js` still writes the old
+  `website/assets/anxos-logo.png`, which no page uses now. Removing the file
+  (and the old `src/assets/anxos-logo.png`) is a deletion and needs approval.
+- The README "current release" line now reads "AnxHost Control Center v2.0
+  Build 215" although 215 shipped as AnxOS; it is right from the 216 release.

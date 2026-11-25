@@ -155,11 +155,11 @@ const currentReleaseEntry = releaseNotes.find((entry) => entry.tag === release.t
 const currentReleaseDate = currentReleaseEntry?.date || formatReleaseDate();
 
 const config = `window.ANXOS_DOWNLOAD_CONFIG = {
-  brandName: "AnxOS",
+  brandName: "AnxHost",
   appName: "AnxOS-Control-Center",
   subtitle: "A desktop control center for Minecraft servers, modpacks, remote nodes, and automation.",
   siteUrl: "${OFFICIAL_SITE_ORIGIN}",
-  logoPath: "/assets/anxos-logo.png",
+  logoPath: "/assets/anxhost-logo.png",
   latestVersion: "${release.version}",
   build: "${release.build}",
   buildNumber: "${release.build}",

@@ -773,7 +773,7 @@ async function startDeviceLogin() {
         state: "pending",
         message: pendingDeviceLogin.localOnly
           ? "No web browser could be opened. Configure ANXOS_ACCOUNT_API_URL to enable live website sign-in."
-          : "No web browser could be opened. Open the sign-in link below or copy the device code, then approve sign-in on the AnxOS website.",
+          : "No web browser could be opened. Open the sign-in link below or copy the device code, then approve sign-in on the AnxHost website.",
       };
     }
     audit({

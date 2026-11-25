@@ -4,14 +4,14 @@
     <meta charset="utf-8">
     <script>document.documentElement.classList.add("js");setTimeout(function(){if(!window.__anxMotionReady){document.documentElement.classList.remove("js")}},5000);</script>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>AnxOS Control Center | Security and Privacy</title>
-    <meta name="description" content="How the AnxOS Local Agent runs on your own computer: automatic local pairing, opt-in remote access, sanitized diagnostics, release integrity checks, and the data you keep.">
+    <title>AnxHost Control Center | Security and Privacy</title>
+    <meta name="description" content="How the AnxHost Local Agent runs on your own computer: automatic local pairing, opt-in remote access, sanitized diagnostics, release integrity checks, and the data you keep.">
     <meta name="robots" content="index,follow">
     <meta name="theme-color" content="#07020f">
     <link rel="canonical" href="https://anxoscontrolcenter.org/security-privacy/">
     <meta property="og:type" content="website">
-    <meta property="og:site_name" content="AnxOS Control Center">
-    <meta property="og:title" content="AnxOS Control Center | Security and Privacy">
+    <meta property="og:site_name" content="AnxHost Control Center">
+    <meta property="og:title" content="AnxHost Control Center | Security and Privacy">
     <meta property="og:description" content="The Local Agent runs on your own computer. Local pairing is automatic, remote access is opt-in, and diagnostics are sanitized.">
     <meta property="og:url" content="https://anxoscontrolcenter.org/security-privacy/">
     <meta property="og:image" content="https://anxoscontrolcenter.org/assets/social-preview.png?v=04c80a572768">
@@ -19,9 +19,9 @@
     <meta property="og:image:type" content="image/png">
     <meta property="og:image:width" content="1200">
     <meta property="og:image:height" content="630">
-    <meta property="og:image:alt" content="AnxOS Control Center social preview with the official AnxOS logo.">
+    <meta property="og:image:alt" content="AnxHost Control Center social preview with the official AnxHost logo.">
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="AnxOS Control Center | Security and Privacy">
+    <meta name="twitter:title" content="AnxHost Control Center | Security and Privacy">
     <meta name="twitter:description" content="The Local Agent runs on your own computer. Local pairing is automatic, remote access is opt-in, and diagnostics are sanitized.">
     <meta name="twitter:image" content="https://anxoscontrolcenter.org/assets/social-preview.png?v=04c80a572768">
     <link rel="icon" href="/favicon.ico" sizes="any">
@@ -51,7 +51,7 @@
       <symbol id="icon-node" viewBox="0 0 24 24"><path d="M12 4v6M12 14v6M6 10h12M6 14h12M5 8h2v8H5zM17 8h2v8h-2z"/></symbol>
     </svg>
 
-    <header class="site-header"><div class="site-header__inner"><a class="brand" href="/" aria-label="AnxOS home"><span class="brand-mark"><img data-logo src="/assets/anxos-logo.png" alt=""></span><span class="brand-copy"><strong data-config="brandName">AnxOS</strong><span>Local-first server control</span></span></a><button class="site-menu-button" type="button" data-site-menu-toggle aria-expanded="false" aria-controls="site-nav">Menu</button><nav class="site-nav" id="site-nav" data-site-nav aria-label="Primary"><a href="/features/">Features</a><a href="/getting-started/">Getting Started</a><a href="/setup/">Setup</a><a href="/download">Download</a><a href="/release-notes">Release Notes</a><a href="/signin/" data-auth-nav="signed-out" hidden>Sign In</a><a class="site-nav__cta" href="/signup/" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button></nav></div></header>
+    <header class="site-header"><div class="site-header__inner"><a class="brand" href="/" aria-label="AnxHost home"><span class="brand-mark"><img data-logo src="/assets/anxhost-logo.png" alt=""></span><span class="brand-copy"><strong data-config="brandName">AnxHost</strong><span>Local-first server control</span></span></a><button class="site-menu-button" type="button" data-site-menu-toggle aria-expanded="false" aria-controls="site-nav">Menu</button><nav class="site-nav" id="site-nav" data-site-nav aria-label="Primary"><a href="/features/">Features</a><a href="/getting-started/">Getting Started</a><a href="/setup/">Setup</a><a href="/download">Download</a><a href="/release-notes">Release Notes</a><a href="/signin/" data-auth-nav="signed-out" hidden>Sign In</a><a class="site-nav__cta" href="/signup/" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button></nav></div></header>
 
     <main id="main">
       <section class="section-shell hero">
@@ -64,7 +64,7 @@
             <span class="badge" data-release-managed>Version 2.0 · Build 215</span>
           </div>
           <div class="hero-actions">
-            <a class="button button--primary" href="/download">Download AnxOS</a>
+            <a class="button button--primary" href="/download">Download AnxHost</a>
             <a class="button button--ghost" href="/faq/">Read the FAQ</a>
           </div>
         </div>
@@ -72,7 +72,7 @@
           <div class="card card--panel">
             <p class="eyebrow">At a glance</p>
             <ul class="trust-list">
-              <li class="trust-item"><strong>Local first</strong>The Agent serves AnxOS over loopback on your own computer.</li>
+              <li class="trust-item"><strong>Local first</strong>The Agent serves AnxHost over loopback on your own computer.</li>
               <li class="trust-item"><strong>Opt-in exposure</strong>Remote access and Public Access providers stay off until you enable them.</li>
               <li class="trust-item"><strong>No token copying</strong>Pairing uses automatic setup or a one-time code that expires.</li>
               <li class="trust-item"><strong>Data survives uninstall</strong>Instances, worlds, and backups stay on your disk.</li>
@@ -85,12 +85,12 @@
         <div class="section-head" data-reveal>
           <p class="eyebrow">The Local Agent</p>
           <h2>What the Agent does on your computer</h2>
-          <p class="section-copy">The Agent is the part of AnxOS that touches your machine: processes, files, dependencies, backups, and networking tools. These are the rules it is built around.</p>
+          <p class="section-copy">The Agent is the part of AnxHost that touches your machine: processes, files, dependencies, backups, and networking tools. These are the rules it is built around.</p>
         </div>
         <div class="grid-2">
           <ul class="trust-list" data-reveal>
-            <li class="trust-item"><strong>Runs on your computer</strong>The Local Agent runs on your own computer. It connects AnxOS Control Center to local server processes, files, dependencies, backups, and networking tools that you select.</li>
-            <li class="trust-item"><strong>Requested actions only</strong>The Agent is intended to perform actions requested through AnxOS, such as starting a server, editing an instance file, creating a backup, or installing a selected dependency.</li>
+            <li class="trust-item"><strong>Runs on your computer</strong>The Local Agent runs on your own computer. It connects AnxHost Control Center to local server processes, files, dependencies, backups, and networking tools that you select.</li>
+            <li class="trust-item"><strong>Requested actions only</strong>The Agent is intended to perform actions requested through AnxHost, such as starting a server, editing an instance file, creating a backup, or installing a selected dependency.</li>
             <li class="trust-item"><strong>Automatic local pairing</strong>Local pairing is configured automatically for This PC. Normal setup never asks you to copy Agent tokens or edit configuration files.</li>
           </ul>
           <ul class="trust-list" data-reveal data-reveal-delay="1">
@@ -110,7 +110,7 @@
           <div class="section-head" data-reveal>
             <p class="eyebrow">Releases and integrity</p>
             <h2>Check what you download</h2>
-            <p class="section-copy">AnxOS releases are published on the official release page. Which verification applies depends on the package you install.</p>
+            <p class="section-copy">AnxHost releases are published on the official release page. Which verification applies depends on the package you install.</p>
           </div>
           <div class="platform-grid" data-reveal>
             <article class="platform-card">
@@ -121,12 +121,12 @@
             <article class="platform-card">
               <h3>Linux packages</h3>
               <span class="pill pill--warn">Not code-signed</span>
-              <p>The Linux .deb and .AppImage builds and the AnxOS Agent .deb are not code-signed. Integrity is checked with the SHA-256 checksums published with each release.</p>
+              <p>The Linux .deb and .AppImage builds and the AnxHost Agent .deb are not code-signed. Integrity is checked with the SHA-256 checksums published with each release.</p>
             </article>
             <article class="platform-card">
               <h3>Official release page</h3>
               <span class="pill">Download here only</span>
-              <p>Download from the official release page linked on this website. Builds shared through other sites or file hosts are not covered by the AnxOS release process.</p>
+              <p>Download from the official release page linked on this website. Builds shared through other sites or file hosts are not covered by the AnxHost release process.</p>
             </article>
           </div>
           <div class="route-actions" data-reveal>
@@ -140,7 +140,7 @@
         <div class="section-head" data-reveal>
           <p class="eyebrow">Headless servers</p>
           <h2>Agents on machines without a desktop</h2>
-          <p class="section-copy">The official AnxOS Agent package runs on Debian 11+ and Ubuntu 22.04+ x64. It is built for servers that never open a desktop window, and it follows the same rules as the Windows Agent.</p>
+          <p class="section-copy">The official AnxHost Agent package runs on Debian 11+ and Ubuntu 22.04+ x64. It is built for servers that never open a desktop window, and it follows the same rules as the Windows Agent.</p>
         </div>
         <ul class="trust-list" data-reveal>
           <li class="trust-item"><strong>Loopback by default</strong>The Agent listens on loopback (127.0.0.1) by default, so a fresh install is reachable only from the machine itself.</li>
@@ -155,7 +155,7 @@
         <div class="section-head" data-reveal>
           <p class="eyebrow">Your data</p>
           <h2>Your files stay where you put them</h2>
-          <p class="section-copy">Servers, worlds, logs, and backups live in the storage locations you configure for each node. AnxOS does not move them to a developer-owned machine.</p>
+          <p class="section-copy">Servers, worlds, logs, and backups live in the storage locations you configure for each node. AnxHost does not move them to a developer-owned machine.</p>
         </div>
         <div class="grid-3">
           <article class="card" data-reveal data-reveal-delay="1">
@@ -164,7 +164,7 @@
           </article>
           <article class="card" data-reveal data-reveal-delay="2">
             <h3>Uninstalling keeps your data</h3>
-            <p>Uninstalling AnxOS Control Center or the Agent does not delete your instances, worlds, or backups. They only go away if you delete them or an uninstall option explicitly says so.</p>
+            <p>Uninstalling AnxHost Control Center or the Agent does not delete your instances, worlds, or backups. They only go away if you delete them or an uninstall option explicitly says so.</p>
           </article>
           <article class="card" data-reveal data-reveal-delay="3">
             <h3>Account is optional</h3>
@@ -183,7 +183,7 @@
             <h2>Questions before you install?</h2>
             <p>The FAQ answers hosting, pairing, and SmartScreen questions in plain language, and the download page has the official installer.</p>
             <div class="cta-actions">
-              <a class="button button--primary" href="/download">Download AnxOS</a>
+              <a class="button button--primary" href="/download">Download AnxHost</a>
               <a class="button button--ghost" href="/faq/">Read the FAQ</a>
             </div>
           </div>
@@ -191,6 +191,6 @@
       </section>
     </main>
 
-    <footer class="site-footer"><div class="site-footer__brand"><strong>AnxOS Control Center</strong><span>© 2026 AnxOS Control Center · anxoscontrolcenter.org</span><span class="site-footer__note">Private Alpha · <a href="/security-privacy/">Security &amp; Privacy</a></span></div><nav class="site-footer__nav" aria-label="Footer"><a href="/">Home</a><a href="/features/">Features</a><a href="/getting-started/">Getting Started</a><a href="/setup/">Setup</a><a href="/download">Download</a><a href="/release-notes">Release Notes</a><a href="/security-privacy/">Security</a><a href="/faq/">FAQ</a><a data-config-href="repositoryUrl" href="https://github.com/AnxLabs/AnxOS-Control-Center-Releases">GitHub</a><a href="/signin/" data-auth-nav="signed-out" hidden>Sign In</a><a href="/signup/" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button></nav></footer>
+    <footer class="site-footer"><div class="site-footer__brand"><strong>AnxHost Control Center</strong><span>© 2026 AnxHost Control Center · anxoscontrolcenter.org</span><span class="site-footer__note">Private Alpha · <a href="/security-privacy/">Security &amp; Privacy</a></span></div><nav class="site-footer__nav" aria-label="Footer"><a href="/">Home</a><a href="/features/">Features</a><a href="/getting-started/">Getting Started</a><a href="/setup/">Setup</a><a href="/download">Download</a><a href="/release-notes">Release Notes</a><a href="/security-privacy/">Security</a><a href="/faq/">FAQ</a><a data-config-href="repositoryUrl" href="https://github.com/AnxLabs/AnxOS-Control-Center-Releases">GitHub</a><a href="/signin/" data-auth-nav="signed-out" hidden>Sign In</a><a href="/signup/" data-auth-nav="signed-out" hidden>Sign Up</a><a href="/profile" data-auth-nav="signed-in" hidden>Profile</a><button class="site-nav__button" type="button" data-auth-nav="signed-in" data-auth-action="signout" hidden>Sign Out</button></nav></footer>
   </body>
 </html>

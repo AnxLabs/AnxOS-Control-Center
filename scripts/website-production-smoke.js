@@ -140,7 +140,7 @@ function assertWebsiteBrandingAssetsResolve() {
     });
   });
 
-  assert(config.includes('logoPath: "/assets/anxos-logo.png"'), "Shared website config must inject the canonical root-safe Neon Core logo path.");
+  assert(config.includes('logoPath: "/assets/anxhost-logo.png"'), "Shared website config must inject the canonical root-safe Neon Core logo path.");
   assert(site.includes("function rootSafeAssetPath") && site.includes("rootSafeAssetPath(config.logoPath)"), "Shared website renderer must normalize injected logo paths.");
 }
 
@@ -164,13 +164,13 @@ assert(fs.existsSync(path.join(websiteRoot, "favicon.ico")), "Website must inclu
 ["favicon.svg", "favicon-16.png", "favicon-32.png", "apple-touch-icon.png", "icon-192.png", "icon-512.png", "social-preview.png"].forEach((file) => {
   assert(fs.existsSync(path.join(websiteRoot, "assets", file)), `Website asset ${file} must exist.`);
 });
-assert(manifest.includes("AnxOS Control Center") && manifest.includes("/assets/icon-192.png"), "Web manifest must include app icon metadata.");
+assert(manifest.includes("AnxHost Control Center") && manifest.includes("/assets/icon-192.png"), "Web manifest must include app icon metadata.");
 assertWebsiteBrandingAssetsResolve();
 assert(robots.includes(`Sitemap: ${officialOrigin}/sitemap.xml`) && robots.includes("Disallow: /activate") && robots.includes("Disallow: /signin") && robots.includes("Disallow: /reset-password"), "Robots rules must expose sitemap and exclude account routes.");
 assert(sitemap.includes(`<loc>${officialOrigin}/</loc>`) && sitemap.includes(`<loc>${officialOrigin}/release-notes</loc>`) && sitemap.includes(`<loc>${officialOrigin}/download</loc>`) && sitemap.includes(`<loc>${officialOrigin}/features/</loc>`) && sitemap.includes(`<loc>${officialOrigin}/getting-started/</loc>`) && sitemap.includes(`<loc>${officialOrigin}/system-requirements/</loc>`) && sitemap.includes(`<loc>${officialOrigin}/windows-installation/</loc>`) && sitemap.includes(`<loc>${officialOrigin}/security-privacy/</loc>`) && sitemap.includes(`<loc>${officialOrigin}/faq/</loc>`) && !sitemap.includes("activate"), "Sitemap must include only public canonical pages.");
 assert(redirects.includes("/sign-in /signin/ 301") && redirects.includes("/changelog /release-notes 301") && redirects.includes("/device-login /activate 301") && !redirects.includes("/* /index.html"), "Cloudflare redirects must cover clean aliases without a broad SPA fallback.");
 assert(downloadsRoute.includes('window.location.replace("/download" + window.location.search)') && installRoute.includes('window.location.replace("/getting-started/" + window.location.search)'), "Static alias routes must preserve query strings while redirecting to canonical routes.");
-assert(downloadHtmlRoute.includes("Download AnxOS for Windows") && downloadHtmlRoute.includes('data-download-page') && !downloadHtmlRoute.includes('window.location.replace("/download"'), "Download HTML compatibility route must render visible content instead of self-redirecting.");
+assert(downloadHtmlRoute.includes("Download AnxHost for Windows") && downloadHtmlRoute.includes('data-download-page') && !downloadHtmlRoute.includes('window.location.replace("/download"'), "Download HTML compatibility route must render visible content instead of self-redirecting.");
 assert(releaseRoute.includes('window.location.replace("/release-notes" + window.location.search)') && changelogRoute.includes('window.location.replace("/release-notes" + window.location.search)'), "Release alias routes must preserve query strings while redirecting to release notes.");
 assert([signin, signup, account, profile, activateRoute, forgotRoute, resetRoute, activate, forgot, reset].every((html) => html.includes('name="robots" content="noindex,nofollow"')), "Account and activation pages must be excluded from indexing.");
 assert(signin.includes('data-auth-view="loading"') && signup.includes('data-auth-view="loading"') && signup.includes('data-auth-view="signed-in"'), "Auth sign-in and sign-up pages must avoid loading-state flicker and handle existing sessions.");
@@ -179,7 +179,7 @@ assert(site.includes("function applyAccountNavigationState") && site.includes("a
 assert(accountHtml.includes('name="robots" content="noindex,nofollow"') && profileHtml.includes('name="robots" content="noindex,nofollow"'), "Account clean URL HTML files must be excluded from indexing.");
 assert(accountHtml.includes('data-account-route="account"') && profileHtml.includes('data-account-route="profile"'), "Cloudflare clean URL HTML files must serve the real account/profile pages.");
 assert(!accountHtml.includes('window.location.replace("/account"') && !profileHtml.includes('window.location.replace("/profile"'), "Cloudflare clean URL HTML files must not self-redirect.");
-assert(index.includes("© 2026 AnxOS Control Center") && index.includes("anxoscontrolcenter.org") && index.includes("/getting-started"), "Homepage footer must include copyright, official domain, and Getting Started links.");
+assert(index.includes("© 2026 AnxHost Control Center") && index.includes("anxoscontrolcenter.org") && index.includes("/getting-started"), "Homepage footer must include copyright, official domain, and Getting Started links.");
 assert(!index.includes('href="/release-notes">Release</a>') && !index.includes('href="/getting-started/">Install</a>'), "Homepage navigation must not include duplicate release or install aliases.");
 assert(site.includes("function applyActiveNavigation") && styles.includes('.site-nav a[aria-current="page"]'), "Website shell must apply visible active navigation state.");
 assert(index.includes("First server workflow") && index.includes("Prepare Node") && index.includes("Node Health"), "Homepage must include honest Getting Started workflow copy.");
@@ -191,17 +191,17 @@ assert(downloadRoute.includes('src="/site.js"') && downloadRoute.includes('src="
 assert(featuresRoute.includes(`<link rel="canonical" href="${officialOrigin}/features/">`) && featuresRoute.includes("Built for server work"), "Features must be a clean direct route.");
 assert(index.includes("Run Everything on Your Own PC") && featuresRoute.includes("Run Everything on Your Own PC"), "Website must explain the Local Agent on the homepage and features route.");
 // Public copy clarified: the Local Agent explanation names the platform, not an unexplained person's server.
-assert(index.includes("The AnxOS Local Agent securely connects the desktop app to services running on your computer.") && featuresRoute.includes("Normal Windows users do not need a separate Debian or Ubuntu server."), "Local Agent copy must be beginner-friendly and make local ownership clear.");
+assert(index.includes("The AnxHost Local Agent securely connects the desktop app to services running on your computer.") && featuresRoute.includes("Normal Windows users do not need a separate Debian or Ubuntu server."), "Local Agent copy must be beginner-friendly and make local ownership clear.");
 ["Runs Locally", "Automatic Setup", "Starts with Windows", "No Token Copying", "Remote Servers Optional", "Easy Repair and Updates"].forEach((label) => {
   assert(index.includes(label) && featuresRoute.includes(label), `Local Agent feature card ${label} must appear on public website pages.`);
 });
 assert(gettingStartedRoute.includes(`<link rel="canonical" href="${officialOrigin}/getting-started/">`) && gettingStartedRoute.includes("First server workflow"), "Getting Started must be a clean direct route.");
 assert(systemRequirementsRoute.includes(`<link rel="canonical" href="${officialOrigin}/system-requirements/">`) && systemRequirementsRoute.includes("System Requirements"), "System Requirements must be a clean direct route.");
-["Windows 11, 64-bit", "64-bit Intel or AMD processor", "4 GB RAM", "2 GB free storage", "Administrator access", "8 GB RAM or more", "SSD storage", "Hardware virtualization", "AnxOS itself does not provide game-server hosting capacity", "computer must remain powered on", "Playit, Tailscale, Cloudflare Tunnel, or router port forwarding"].forEach((copy) => {
+["Windows 11, 64-bit", "64-bit Intel or AMD processor", "4 GB RAM", "2 GB free storage", "Administrator access", "8 GB RAM or more", "SSD storage", "Hardware virtualization", "AnxHost itself does not provide game-server hosting capacity", "computer must remain powered on", "Playit, Tailscale, Cloudflare Tunnel, or router port forwarding"].forEach((copy) => {
   assert(systemRequirementsRoute.includes(copy), `System Requirements page must include: ${copy}`);
 });
-assert(windowsInstallationRoute.includes(`<link rel="canonical" href="${officialOrigin}/windows-installation/">`) && windowsInstallationRoute.includes("Install AnxOS and Prepare This PC"), "Windows Installation must be a clean direct route.");
-["Download the Windows installer", "Open the installer", "SmartScreen warning", "Launch AnxOS Control Center", "Complete onboarding", "Install the Local Agent", "Allow administrator permission", "scan dependencies", "Install required dependencies", "Open Marketplace", "Create your first server"].forEach((copy) => {
+assert(windowsInstallationRoute.includes(`<link rel="canonical" href="${officialOrigin}/windows-installation/">`) && windowsInstallationRoute.includes("Install AnxHost and Prepare This PC"), "Windows Installation must be a clean direct route.");
+["Download the Windows installer", "Open the installer", "SmartScreen warning", "Launch AnxHost Control Center", "Complete onboarding", "Install the Local Agent", "Allow administrator permission", "scan dependencies", "Install required dependencies", "Open Marketplace", "Create your first server"].forEach((copy) => {
   assert(windowsInstallationRoute.includes(copy), `Windows installation guide must include step: ${copy}`);
 });
 ["Local Agent installation failure", "Administrator permission denied", "Agent offline", "Port already in use", "Antivirus quarantine", "Docker restart required", "Windows restart required"].forEach((copy) => {
@@ -209,7 +209,7 @@ assert(windowsInstallationRoute.includes(`<link rel="canonical" href="${official
 });
 assert(!windowsInstallationRoute.includes("edit internal JSON") && !windowsInstallationRoute.includes("copy an Agent token"), "Windows installation guide must avoid internal JSON and token-copying instructions.");
 assert(securityPrivacyRoute.includes(`<link rel="canonical" href="${officialOrigin}/security-privacy/">`) && securityPrivacyRoute.includes("Security and Privacy"), "Security and Privacy must be a clean direct route.");
-["The Local Agent runs on your own computer", "intended to perform actions requested through AnxOS", "Local pairing is configured automatically", "Remote access is not enabled by default", "Logs and diagnostics are designed to sanitize secrets", "You can stop the Local Agent service or uninstall the Agent", "Installing server software can open local services, expose ports, create firewall prompts, or download third-party software"].forEach((copy) => {
+["The Local Agent runs on your own computer", "intended to perform actions requested through AnxHost", "Local pairing is configured automatically", "Remote access is not enabled by default", "Logs and diagnostics are designed to sanitize secrets", "You can stop the Local Agent service or uninstall the Agent", "Installing server software can open local services, expose ports, create firewall prompts, or download third-party software"].forEach((copy) => {
   assert(securityPrivacyRoute.includes(copy), `Security and Privacy page must include: ${copy}`);
 });
 assert(!/guarantee|guaranteed|military-grade|zero[- ]knowledge/i.test(securityPrivacyRoute), "Security and Privacy page must not make unsupported security or legal guarantees.");
@@ -217,7 +217,7 @@ assert(faqRoute.includes(`<link rel="canonical" href="${officialOrigin}/faq/">`)
 [
   // Public copy clarified: "Anx's Debian server" read as an unexplained person's name, so the question names the platform instead.
   "Do I need a separate Debian or Ubuntu server?",
-  "Does AnxOS host the server for me?",
+  "Does AnxHost host the server for me?",
   "Does my PC need to stay on?",
   "Can I use a remote server instead?",
   "Can I manage both my PC and a remote server?",
@@ -229,7 +229,7 @@ assert(faqRoute.includes(`<link rel="canonical" href="${officialOrigin}/faq/">`)
   "Why does Windows show a blue SmartScreen warning?",
   "Is macOS supported?",
   "Which Linux distributions are supported?",
-  "Can AnxOS install Java, SteamCMD, and other dependencies?",
+  "Can AnxHost install Java, SteamCMD, and other dependencies?",
   "How do I let friends join my server?",
 ].forEach((question) => {
   assert(faqRoute.includes(question), `FAQ must include question: ${question}`);
