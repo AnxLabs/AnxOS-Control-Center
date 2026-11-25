@@ -279,7 +279,7 @@
           id: `computer-offline:${computer.id}`,
           severity: "critical",
           title: `${computer.name} is not connected`,
-          detail: computer.connectionDetail || "AnxOS cannot reach the AnxOS Agent on this computer. Servers on it cannot be managed until it reconnects.",
+          detail: computer.connectionDetail || "AnxHost cannot reach the AnxOS Agent on this computer. Servers on it cannot be managed until it reconnects.",
           action: { label: "Open computer", kind: "computer", target: computer.id },
         });
         return;

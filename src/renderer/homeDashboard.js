@@ -344,6 +344,7 @@
     ].forEach(([key, label]) => {
       const tile = el("article", `home-tile home-tile--${key}`);
       tile.dataset.homeTile = key;
+      tile.dataset.testid = "home-tile";
       if (key === "attention") tile.dataset.state = overview.attention.value === "0" ? "ok" : "alert";
       tile.append(el("span", "home-tile__label", label), el("strong", "home-tile__value", overview[key].value), el("small", "home-tile__detail", overview[key].detail));
       draft.append(tile);
@@ -354,13 +355,15 @@
   function renderAttention(container, items) {
     const draft = el("div");
     if (!items.length) {
-      const ok = el("div", "home-attention__ok", "Everything looks good. AnxOS will tell you here if a computer disconnects, a server crashes, or memory or disk run low.");
+      const ok = el("div", "home-attention__ok", "Everything looks good. AnxHost will tell you here if a computer disconnects, a server crashes, or memory or disk run low.");
       ok.setAttribute("role", "listitem");
+      ok.dataset.testid = "home-attention-ok";
       draft.append(ok);
     }
     items.forEach((item) => {
       const row = el("article", `home-attention__item home-attention__item--${item.severity}`);
       row.dataset.attentionId = item.id;
+      row.dataset.testid = "home-attention-item";
       row.setAttribute("role", "listitem");
       const text = el("div", "home-attention__text");
       text.append(el("strong", "", item.title), el("span", "", item.detail));
@@ -379,6 +382,7 @@
   function computerCardElement(card) {
     const article = el("article", `home-computer${card.selected ? " is-selected" : ""}`);
     article.dataset.computerId = card.id;
+    article.dataset.testid = "home-computer";
     article.dataset.connection = card.connection;
     article.dataset.freshness = card.freshness;
     article.tabIndex = 0;
@@ -468,6 +472,7 @@
     prefs.order.forEach((id, index) => {
       const row = el("li", "home-customize__row");
       row.dataset.sectionId = id;
+      row.dataset.testid = "home-customize-row";
       const required = Model.REQUIRED_SECTIONS.includes(id);
       const show = el("label", "home-customize__show");
       const box = el("input");
@@ -481,15 +486,22 @@
         applySectionPreferences();
         renderCustomize();
       });
-      show.append(box, el("span", "", `${SECTION_LABELS[id] || id}${required ? " (always shown)" : ""}`));
+      const sectionLabel = SECTION_LABELS[id] || id;
+      show.append(box, el("span", "", `${sectionLabel}${required ? " (always shown)" : ""}`));
+      // Each button names its section, and keyboard focus follows the moved
+      // section, because the list is rebuilt after every move.
       const up = el("button", "inline-action", "Move up");
       up.type = "button";
+      up.dataset.homeCustomizeMove = "up";
+      up.setAttribute("aria-label", `Move ${sectionLabel} up`);
       up.disabled = index === 0;
-      up.addEventListener("click", () => { writePreferences(Model.moveSection(readPreferences(), id, -1)); applySectionPreferences(); renderCustomize(); });
+      up.addEventListener("click", () => { writePreferences(Model.moveSection(readPreferences(), id, -1)); applySectionPreferences(); renderCustomize(); focusCustomizeMove(id, "up"); });
       const down = el("button", "inline-action", "Move down");
       down.type = "button";
+      down.dataset.homeCustomizeMove = "down";
+      down.setAttribute("aria-label", `Move ${sectionLabel} down`);
       down.disabled = index === prefs.order.length - 1;
-      down.addEventListener("click", () => { writePreferences(Model.moveSection(readPreferences(), id, 1)); applySectionPreferences(); renderCustomize(); });
+      down.addEventListener("click", () => { writePreferences(Model.moveSection(readPreferences(), id, 1)); applySectionPreferences(); renderCustomize(); focusCustomizeMove(id, "down"); });
       row.append(show, up, down);
       list.append(row);
     });
@@ -510,6 +522,15 @@
     reset.type = "button";
     reset.addEventListener("click", () => { writePreferences(Model.DEFAULT_PREFERENCES); applySectionPreferences(); renderCustomize(); });
     panel.replaceChildren(el("h2", "", "Customize Home"), el("p", "", "Choose which sections to show and their order. Your choices are kept on this computer."), list, density, reset);
+  }
+
+  function focusCustomizeMove(sectionId, direction) {
+    const row = document.querySelector(`[data-home-customize] [data-section-id="${sectionId}"]`);
+    if (!row) return;
+    const same = row.querySelector(`[data-home-customize-move="${direction}"]`);
+    const other = row.querySelector(`[data-home-customize-move="${direction === "up" ? "down" : "up"}"]`);
+    const target = same && !same.disabled ? same : other;
+    if (target && !target.disabled) target.focus();
   }
 
   function bindCustomizeToggle() {
@@ -814,7 +835,7 @@
       const hasHistory = Boolean(vitalsEntry && vitalsEntry.history && vitalsEntry.history.length >= 2);
     graph.append(legend, historyGraph(vitalsEntry && vitalsEntry.history));
     if (!hasHistory) graph.append(el("p", "home-empty", card.connection === "online" || card.connection === "warning" ? "Collecting readings…" : "No readings: this computer is not connected."));
-    graph.append(el("small", "", "Recent readings are kept in memory while AnxOS is open. Longer history is kept by Telemetry in Settings."));
+    graph.append(el("small", "", "Recent readings are kept in memory while AnxHost is open. Longer history is kept by Telemetry in Settings."));
 
       const info = el("section", "computer-details__info");
       const node = computer.node || {};

@@ -1,0 +1,308 @@
+/* AnxHost CC page foundation (Build 216-A2).
+ *
+ * The building blocks every page shares: page header, buttons, form
+ * controls, panels, status pills, empty states and disclosures. Page waves
+ * (A2 to A9) add page files on top of this one.
+ *
+ * Rules for this file (checked by scripts/anxhost-design-tokens-smoke.js):
+ * - every selector starts with :root[data-shell="ahx"], which outranks the
+ *   v1.9 layer in styles.css;
+ * - colours come from --ahx-* tokens only;
+ * - no :is() lists: a selector list in ancestor position skips the
+ *   browser's ancestor filter and made page switches measurably slower in
+ *   A1 (see docs/HANDOFF_BUILD216.md, "Performance").
+ */
+
+/* ---------------------------------------------------------------- page header */
+:root[data-shell="ahx"] .page-header {
+  margin-bottom: var(--ahx-space-5);
+  gap: var(--ahx-space-4);
+}
+
+:root[data-shell="ahx"] .page-header h1 {
+  margin: var(--ahx-space-1) 0 var(--ahx-space-1);
+  color: var(--ahx-text-primary);
+  font-family: var(--ahx-font-display);
+  font-size: var(--ahx-text-3xl);
+  font-weight: var(--ahx-weight-semibold);
+  line-height: var(--ahx-leading-tight);
+  letter-spacing: -0.02em;
+}
+
+:root[data-shell="ahx"] .page-header .eyebrow,
+:root[data-shell="ahx"] .eyebrow {
+  color: var(--ahx-accent-text);
+  font-size: var(--ahx-text-2xs);
+  font-weight: var(--ahx-weight-semibold);
+  letter-spacing: var(--ahx-tracking-caps);
+  text-transform: uppercase;
+}
+
+:root[data-shell="ahx"] .page-header .lede,
+:root[data-shell="ahx"] .lede {
+  max-width: 70ch;
+  color: var(--ahx-text-secondary);
+  font-size: var(--ahx-text-md);
+  line-height: var(--ahx-leading-normal);
+}
+
+/* ---------------------------------------------------------------- buttons */
+:root[data-shell="ahx"] .inline-action,
+:root[data-shell="ahx"] .primary-button {
+  min-height: var(--ahx-control-height-md);
+  padding: 0 var(--ahx-space-4);
+  border: var(--ahx-border-width) solid var(--ahx-border);
+  border-radius: var(--ahx-radius-md);
+  background: var(--ahx-surface-2);
+  box-shadow: none;
+  color: var(--ahx-text-primary);
+  font-size: var(--ahx-text-sm);
+  font-weight: var(--ahx-weight-medium);
+  letter-spacing: normal;
+  text-transform: none;
+  transition: background var(--ahx-duration-fast) var(--ahx-ease-standard), border-color var(--ahx-duration-fast) var(--ahx-ease-standard);
+}
+
+:root[data-shell="ahx"] .inline-action:not(:disabled):hover,
+:root[data-shell="ahx"] .primary-button:not(:disabled):hover {
+  border-color: var(--ahx-border-strong);
+  background: var(--ahx-surface-3);
+  box-shadow: none;
+  color: var(--ahx-text-primary);
+}
+
+:root[data-shell="ahx"] .inline-action--primary,
+:root[data-shell="ahx"] .primary-button {
+  border-color: transparent;
+  background: var(--ahx-accent);
+  color: var(--ahx-text-on-accent);
+}
+
+:root[data-shell="ahx"] .inline-action--primary:not(:disabled):hover,
+:root[data-shell="ahx"] .primary-button:not(:disabled):hover {
+  border-color: transparent;
+  background: var(--ahx-accent-hover);
+  color: var(--ahx-text-on-accent);
+}
+
+:root[data-shell="ahx"] .inline-action--primary:not(:disabled):active,
+:root[data-shell="ahx"] .primary-button:not(:disabled):active {
+  background: var(--ahx-accent-pressed);
+}
+
+:root[data-shell="ahx"] .inline-action--danger {
+  border-color: var(--ahx-danger-soft);
+  background: var(--ahx-danger-soft);
+  color: var(--ahx-danger);
+}
+
+:root[data-shell="ahx"] .inline-action--danger:not(:disabled):hover {
+  border-color: transparent;
+  background: var(--ahx-danger-solid);
+  color: var(--ahx-text-on-accent);
+}
+
+/* Disabled controls stay readable; the reason is in their title. */
+:root[data-shell="ahx"] .inline-action:disabled,
+:root[data-shell="ahx"] .primary-button:disabled {
+  border-color: var(--ahx-border-subtle);
+  background: var(--ahx-surface-1);
+  box-shadow: none;
+  color: var(--ahx-text-disabled);
+  opacity: 1;
+  cursor: not-allowed;
+}
+
+:root[data-shell="ahx"] .inline-action:focus-visible,
+:root[data-shell="ahx"] .primary-button:focus-visible {
+  outline: none;
+  box-shadow: var(--ahx-focus-ring);
+}
+
+/* ---------------------------------------------------------------- form controls */
+:root[data-shell="ahx"] .page input,
+:root[data-shell="ahx"] .page select,
+:root[data-shell="ahx"] .page textarea {
+  border-color: var(--ahx-border);
+  border-radius: var(--ahx-radius-md);
+  background: var(--ahx-surface-inset);
+  color: var(--ahx-text-primary);
+}
+
+:root[data-shell="ahx"] .page input:hover,
+:root[data-shell="ahx"] .page select:hover,
+:root[data-shell="ahx"] .page textarea:hover {
+  border-color: var(--ahx-border-strong);
+}
+
+:root[data-shell="ahx"] .page input:focus,
+:root[data-shell="ahx"] .page select:focus,
+:root[data-shell="ahx"] .page textarea:focus {
+  border-color: var(--ahx-border-accent);
+  box-shadow: var(--ahx-focus-ring);
+  outline: none;
+}
+
+:root[data-shell="ahx"] .page input::placeholder,
+:root[data-shell="ahx"] .page textarea::placeholder {
+  color: var(--ahx-text-muted);
+}
+
+:root[data-shell="ahx"] .page input:disabled,
+:root[data-shell="ahx"] .page select:disabled,
+:root[data-shell="ahx"] .page textarea:disabled {
+  background: var(--ahx-surface-1);
+  color: var(--ahx-text-disabled);
+  cursor: not-allowed;
+}
+
+/* Checkboxes and radios keep their native control, tinted with the accent. */
+:root[data-shell="ahx"] .page input[type="checkbox"],
+:root[data-shell="ahx"] .page input[type="radio"] {
+  accent-color: var(--ahx-accent);
+  background: transparent;
+  box-shadow: none;
+}
+
+/* ---------------------------------------------------------------- panels */
+:root[data-shell="ahx"] .panel,
+:root[data-shell="ahx"] .status-card,
+:root[data-shell="ahx"] .settings-section {
+  border-color: var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-lg);
+  background: var(--ahx-surface-1);
+  box-shadow: var(--ahx-shadow-1);
+}
+
+:root[data-shell="ahx"] .panel-heading h2,
+:root[data-shell="ahx"] .settings-section__header h2,
+:root[data-shell="ahx"] .settings-section__header h3 {
+  color: var(--ahx-text-primary);
+  font-family: var(--ahx-font-display);
+  font-weight: var(--ahx-weight-semibold);
+}
+
+/* ---------------------------------------------------------------- status pills */
+/* Tones map onto the eight status colours; the label is always visible. */
+:root[data-shell="ahx"] .status-pill {
+  --tone: var(--ahx-status-stopped);
+  border: var(--ahx-border-width) solid transparent;
+  border-radius: var(--ahx-radius-pill);
+  background: color-mix(in srgb, var(--tone) calc(var(--ahx-status-tint) * 100%), transparent);
+  color: var(--tone);
+  font-size: var(--ahx-text-xs);
+  font-weight: var(--ahx-weight-semibold);
+}
+
+:root[data-shell="ahx"] .status-pill--ok,
+:root[data-shell="ahx"] .status-pill.is-connected {
+  --tone: var(--ahx-status-running);
+}
+
+:root[data-shell="ahx"] .status-pill--warning {
+  --tone: var(--ahx-status-degraded);
+}
+
+:root[data-shell="ahx"] .status-pill--critical {
+  --tone: var(--ahx-status-error);
+}
+
+:root[data-shell="ahx"] .status-pill--local,
+:root[data-shell="ahx"] .status-pill--external,
+:root[data-shell="ahx"] .status-pill--manual {
+  --tone: var(--ahx-status-updating);
+}
+
+:root[data-shell="ahx"] .status-pill--muted {
+  --tone: var(--ahx-status-offline);
+}
+
+/* Server state pills (Home server cards, My Servers). */
+:root[data-shell="ahx"] .instance-state {
+  --tone: var(--ahx-status-stopped);
+  border-color: transparent;
+  border-radius: var(--ahx-radius-pill);
+  background: color-mix(in srgb, var(--tone) calc(var(--ahx-status-tint) * 100%), transparent);
+  color: var(--tone);
+  font-size: var(--ahx-text-xs);
+  font-weight: var(--ahx-weight-semibold);
+  gap: var(--ahx-space-1-5);
+  text-transform: none;
+}
+
+/* The status shape; a stale ("Last known") pill keeps its two-line layout
+   without one. */
+:root[data-shell="ahx"] .instance-state:not(.is-stale)::before {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--tone);
+  content: "";
+}
+
+:root[data-shell="ahx"] .instance-state.is-starting::before,
+:root[data-shell="ahx"] .instance-state.is-restarting::before,
+:root[data-shell="ahx"] .instance-state.is-setup-required::before {
+  border: 2px solid var(--tone);
+  background: transparent;
+}
+
+:root[data-shell="ahx"] .instance-state.is-stopped::before,
+:root[data-shell="ahx"] .instance-state.is-failed::before,
+:root[data-shell="ahx"] .instance-state.is-crashed::before,
+:root[data-shell="ahx"] .instance-state.is-error::before {
+  border-radius: 2px;
+}
+
+:root[data-shell="ahx"] .instance-state.is-running,
+:root[data-shell="ahx"] .instance-state.is-ready {
+  --tone: var(--ahx-status-running);
+}
+
+:root[data-shell="ahx"] .instance-state.is-starting,
+:root[data-shell="ahx"] .instance-state.is-restarting,
+:root[data-shell="ahx"] .instance-state.is-setup-required {
+  --tone: var(--ahx-status-starting);
+}
+
+:root[data-shell="ahx"] .instance-state.is-stopping {
+  --tone: var(--ahx-status-stopping);
+}
+
+:root[data-shell="ahx"] .instance-state.is-reloading,
+:root[data-shell="ahx"] .instance-state.is-updating,
+:root[data-shell="ahx"] .instance-state.is-installing {
+  --tone: var(--ahx-status-updating);
+}
+
+:root[data-shell="ahx"] .instance-state.is-degraded {
+  --tone: var(--ahx-status-degraded);
+}
+
+:root[data-shell="ahx"] .instance-state.is-failed,
+:root[data-shell="ahx"] .instance-state.is-crashed,
+:root[data-shell="ahx"] .instance-state.is-error {
+  --tone: var(--ahx-status-error);
+}
+
+:root[data-shell="ahx"] .instance-state.is-stale {
+  --tone: var(--ahx-status-offline);
+}
+
+/* ---------------------------------------------------------------- disclosures */
+:root[data-shell="ahx"] .page details > summary {
+  color: var(--ahx-text-secondary);
+  font-weight: var(--ahx-weight-medium);
+  cursor: pointer;
+}
+
+:root[data-shell="ahx"] .page details > summary:hover {
+  color: var(--ahx-text-primary);
+}
+
+:root[data-shell="ahx"] .page details > summary:focus-visible {
+  border-radius: var(--ahx-radius-sm);
+  outline: none;
+  box-shadow: var(--ahx-focus-ring);
+}

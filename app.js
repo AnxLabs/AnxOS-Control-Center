@@ -699,6 +699,11 @@ function activateModal(overlay, { initialFocus = null, focusOptions = null } = {
   requestAnimationFrame(() => {
     const target = initialFocus?.() || initialFocus || getModalFocusables(overlay)[0] || overlay.querySelector('[role="dialog"]');
     target?.focus?.(focusOptions || undefined);
+    // A disabled or hidden target does not take focus; keep keyboard users
+    // inside the dialog anyway (Build 216-A2: the first-server guide).
+    if (!overlay.contains(document.activeElement)) {
+      (getModalFocusables(overlay)[0] || overlay.querySelector('[role="dialog"]'))?.focus?.(focusOptions || undefined);
+    }
   });
   return () => {
     if (overlay.dataset.modalActive !== "true") return;
@@ -2257,7 +2262,7 @@ function getFriendlyDashboardState() {
   const computer = activeTarget.targetType === "application-host" && (hasSystemSnapshot || runtimeInfoState)
     ? {
       status: "Ready",
-      detail: `${runtimeInfoState?.hostname || latestSystemSnapshot?.host?.hostname || "This computer"} is available to AnxOS.`,
+      detail: `${runtimeInfoState?.hostname || latestSystemSnapshot?.host?.hostname || "This computer"} is available to AnxHost.`,
     }
     : activeTarget.targetType !== "application-host"
       ? {
@@ -2414,7 +2419,7 @@ function getSetupHealthState() {
   const core = [
     {
       title: "App installed",
-      detail: runtimeInfoState?.appVersion ? `AnxOS ${runtimeInfoState.appVersion} is running.` : "The desktop app is running.",
+      detail: runtimeInfoState?.appVersion ? `AnxHost ${runtimeInfoState.appVersion} is running.` : "The desktop app is running.",
       complete: true,
       ...getSetupHealthStatus(true),
     },
@@ -2573,6 +2578,7 @@ function createDashboardAppCard(instance) {
   // The id is in the markup so reconcileChildren never keeps a card whose
   // click handler targets a different instance.
   card.dataset.instanceId = instance?.id || "";
+  card.dataset.testid = "home-server-card";
   card.tabIndex = 0;
   card.setAttribute("role", "button");
   const name = instance?.displayName || instance?.id || "Unnamed service";
@@ -21879,7 +21885,7 @@ function openFirstServerGuide() {
   header.className = "app-modal__header";
   const title = createTextElement("h2", "Create Your First Server");
   title.id = "first-server-guide-title";
-  const description = createTextElement("p", "Pick a game. AnxOS downloads and sets up everything for you; you can name it and change details on the next screen.");
+  const description = createTextElement("p", "Pick a game. AnxHost downloads and sets up everything for you; you can name it and change details on the next screen.");
   description.id = "first-server-guide-description";
   header.append(
     createTextElement("p", "Guided setup", "eyebrow"),
@@ -21890,7 +21896,7 @@ function openFirstServerGuide() {
   body.className = "first-server-body";
   body.append(
     createFirstServerSection("Minecraft", "Not sure which one? Pick Paper. It works for most people.", FIRST_SERVER_OPTIONS.minecraft),
-    createFirstServerSection("Other games", "Servers for other games AnxOS can set up for you.", FIRST_SERVER_OPTIONS.game),
+    createFirstServerSection("Other games", "Servers for other games AnxHost can set up for you.", FIRST_SERVER_OPTIONS.game),
   );
   const actions = document.createElement("div");
   actions.className = "settings-actions";
@@ -21946,7 +21952,10 @@ function openFirstServerGuide() {
   });
   document.addEventListener("keydown", onKeyDown);
   document.body.append(overlay);
-  deactivateModal = activateModal(overlay, { initialFocus: () => overlay.querySelector("[data-first-server-template]") || marketplace });
+  // The game cards stay disabled until the Marketplace templates have loaded,
+  // and focus() on a disabled button does nothing, so start on the first
+  // enabled card or on "Browse all games".
+  deactivateModal = activateModal(overlay, { initialFocus: () => overlay.querySelector("[data-first-server-template]:not(:disabled)") || marketplace });
   firstServerGuideCleanup = closeModal;
 }
 

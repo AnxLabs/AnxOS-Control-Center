@@ -8,6 +8,10 @@
 //   - every status in the status system has a token in both themes and a pattern rule;
 //   - Build 216-A1: the desktop shell (shell.css) uses defined tokens only, has
 //     no raw colour literals, and scopes every rule under :root[data-shell="ahx"].
+//   - Build 216-A2: the same rules for every AnxHost page stylesheet (every
+//     .css in src/renderer/anxhost other than tokens.css and patterns.css,
+//     so later waves are covered when they add a file), plus no :is() lists
+//     in selectors (they cost page-switch time in A1).
 // Run: node scripts/anxhost-design-tokens-smoke.js
 
 const fs = require("fs");
@@ -19,6 +23,11 @@ const tokens = read("src/renderer/anxhost/tokens.css");
 const patterns = read("src/renderer/anxhost/patterns.css");
 const gallery = read("docs/anxhost/gallery/ui-patterns.html");
 const shell = read("src/renderer/anxhost/shell.css");
+const anxhostDir = path.join(root, "src/renderer/anxhost");
+const shellFiles = fs.readdirSync(anxhostDir)
+  .filter((name) => name.endsWith(".css") && name !== "tokens.css" && name !== "patterns.css")
+  .sort()
+  .map((name) => [name, read(`src/renderer/anxhost/${name}`)]);
 const STATUSES = ["running", "starting", "stopping", "updating", "degraded", "error", "offline", "stopped"];
 
 function block(selectorStart) {
@@ -42,14 +51,14 @@ const light = declared(block("[data-theme=\"light\"]"));
 if (!dark.size) failures.push("dark theme block not found");
 if (!light.size) failures.push("light theme block not found");
 
-for (const [name, text] of [["patterns.css", patterns], ["ui-patterns.html", gallery], ["tokens.css", tokens], ["shell.css", shell]]) {
+for (const [name, text] of [["patterns.css", patterns], ["ui-patterns.html", gallery], ["tokens.css", tokens], ...shellFiles]) {
   const missing = [...used(text)].filter((token) => !all.has(token));
   if (missing.length) failures.push(`${name} uses undefined token(s): ${missing.join(", ")}`);
 }
 const lightOnly = [...light].filter((token) => !dark.has(token));
 if (lightOnly.length) failures.push(`light theme defines tokens the dark theme does not: ${lightOnly.join(", ")}`);
 
-for (const [name, text] of [["patterns.css", patterns], ["shell.css", shell]]) {
+for (const [name, text] of [["patterns.css", patterns], ...shellFiles]) {
   const rawColours = text.split("\n").map((line, i) => [i + 1, line]).filter(([, line]) => /#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(/.test(line));
   if (rawColours.length) failures.push(`${name} has raw colour literals on line(s) ${rawColours.map(([n]) => n).join(", ")}`);
 }
@@ -69,14 +78,25 @@ function splitSelectorList(list) {
   parts.push(current);
   return parts;
 }
-const shellRules = shell.replace(/\/\*[\s\S]*?\*\//g, "").match(/[^{}]+(?=\{)/g) || [];
-const unscoped = shellRules
+const selectorsOf = (text) => (text.replace(/\/\*[\s\S]*?\*\//g, "").match(/[^{}]+(?=\{)/g) || [])
   .map((selectorText) => selectorText.trim())
-  .filter((selectorText) => selectorText && !selectorText.startsWith("@"))
-  .flatMap((selectorText) => splitSelectorList(selectorText).map((part) => part.trim()))
-  .filter((part) => part && !part.startsWith(':root[data-shell="ahx"]'));
-if (unscoped.length) failures.push(`shell.css has selectors outside :root[data-shell="ahx"]: ${unscoped.slice(0, 5).join(" | ")}`);
+  .filter((selectorText) => selectorText && !selectorText.startsWith("@"));
+const ruleCounts = [];
+for (const [name, text] of shellFiles) {
+  const rules = selectorsOf(text);
+  ruleCounts.push(`${name} ${rules.length}`);
+  const parts = rules.flatMap((selectorText) => splitSelectorList(selectorText).map((part) => part.trim())).filter(Boolean);
+  const unscoped = parts.filter((part) => !part.startsWith(':root[data-shell="ahx"]'));
+  if (unscoped.length) failures.push(`${name} has selectors outside :root[data-shell="ahx"]: ${unscoped.slice(0, 5).join(" | ")}`);
+  const isLists = parts.filter((part) => part.includes(":is("));
+  if (isLists.length) failures.push(`${name} uses :is() selector lists: ${isLists.slice(0, 3).join(" | ")}`);
+  if (rules.length < 10) failures.push(`${name} looks empty (${rules.length} rules)`);
+}
+const shellRules = selectorsOf(shell);
 if (shellRules.length < 50) failures.push(`shell.css looks empty (${shellRules.length} rules)`);
+for (const required of ["shell.css", "pages.css", "home.css"]) {
+  if (!shellFiles.some(([name]) => name === required)) failures.push(`${required} is missing`);
+}
 
 for (const status of STATUSES) {
   const token = `--ahx-status-${status}`;
@@ -89,5 +109,5 @@ if (failures.length) {
   for (const failure of failures) console.error(`FAIL ${failure}`);
   process.exitCode = 1;
 } else {
-  console.log(`PASS design tokens: ${all.size} tokens (${dark.size} themed in dark, ${light.size} overridden in light), ${used(patterns).size} used by patterns, ${STATUSES.length} statuses, no raw colours in patterns; shell.css token-only and scoped (${shellRules.length} rules)`);
+  console.log(`PASS design tokens: ${all.size} tokens (${dark.size} themed in dark, ${light.size} overridden in light), ${used(patterns).size} used by patterns, ${STATUSES.length} statuses, no raw colours in patterns; page stylesheets token-only, scoped and free of :is() lists (${ruleCounts.join(", ")})`);
 }

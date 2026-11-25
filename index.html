@@ -14,6 +14,8 @@
     <link rel="stylesheet" href="src/renderer/anxhost/tokens.css">
     <link rel="stylesheet" href="src/renderer/anxhost/patterns.css">
     <link rel="stylesheet" href="src/renderer/anxhost/shell.css">
+    <link rel="stylesheet" href="src/renderer/anxhost/pages.css">
+    <link rel="stylesheet" href="src/renderer/anxhost/home.css">
   </head>
   <body>
     <section class="startup-screen" data-startup-screen data-testid="shell-startup" aria-label="AnxHost Control Center startup">
@@ -541,32 +543,32 @@
         </div>
 
         <main class="main-content" data-page-host data-testid="shell-page-host">
-        <section class="page is-active" data-page="dashboard">
+        <section class="page is-active" data-page="dashboard" data-testid="home-page">
           <header class="page-header">
             <div>
-              <p class="eyebrow">AnxOS</p>
+              <p class="eyebrow">Overview</p>
               <h1>Home</h1>
               <p class="lede">Your servers and computers at a glance.</p>
             </div>
-            <button class="inline-action" type="button" data-home-customize-toggle aria-expanded="false" aria-controls="home-customize">Customize</button>
+            <button class="inline-action" type="button" data-home-customize-toggle data-testid="home-customize-toggle" aria-expanded="false" aria-controls="home-customize">Customize</button>
           </header>
 
-          <section class="home-customize" id="home-customize" data-home-customize hidden aria-label="Customize Home"></section>
-          <section class="home-overview" data-home-overview aria-label="Overview"></section>
+          <section class="home-customize" id="home-customize" data-home-customize data-testid="home-customize" hidden aria-label="Customize Home"></section>
+          <section class="home-overview" data-home-overview data-testid="home-overview" aria-label="Overview"></section>
           <div class="home-sections" data-home-sections>
-            <section class="home-section" data-home-section="attention" aria-labelledby="home-attention-title">
+            <section class="home-section" data-home-section="attention" data-testid="home-section-attention" aria-labelledby="home-attention-title">
               <header class="home-section__header"><h2 id="home-attention-title">Needs attention</h2></header>
               <div class="home-attention" data-home-attention role="list" aria-live="polite"></div>
             </section>
-            <section class="home-section" data-home-section="servers" aria-labelledby="home-servers-title">
+            <section class="home-section" data-home-section="servers" data-testid="home-section-servers" aria-labelledby="home-servers-title">
               <header class="home-section__header"><h2 id="home-servers-title">My Servers</h2><button class="inline-action inline-action--primary" type="button" data-dashboard-action="create-server">New Server</button></header>
               <div data-home-servers-slot></div>
             </section>
-            <section class="home-section" data-home-section="computers" aria-labelledby="home-computers-title">
+            <section class="home-section" data-home-section="computers" data-testid="home-section-computers" aria-labelledby="home-computers-title">
               <header class="home-section__header"><h2 id="home-computers-title">Computers</h2><button class="inline-action" type="button" data-dashboard-action="nodes">Add Computer</button></header>
               <div class="home-computers" data-home-computers></div>
             </section>
-            <section class="dashboard-setup-health home-section" data-home-section="setup" data-setup-health-center aria-labelledby="setup-health-title">
+            <section class="dashboard-setup-health home-section" data-home-section="setup" data-testid="home-section-setup" data-setup-health-center aria-labelledby="setup-health-title">
               <div class="dashboard-setup-health__header">
                 <div>
                   <p class="eyebrow">Setup Health</p>
@@ -586,7 +588,7 @@
           </div>
 
 
-          <details class="dashboard-details" data-dashboard-details>
+          <details class="dashboard-details" data-dashboard-details data-testid="home-details">
             <summary><strong>More actions and computer details</strong><small>Start or stop everything, CPU, memory, disk and network.</small></summary>
             <section class="dashboard-welcome" aria-labelledby="dashboard-overview-title">
               <div class="dashboard-welcome__header">
@@ -621,7 +623,7 @@
                 <div>
                   <span>Recommended Next Step</span>
                   <strong data-dashboard-friendly="nextStepTitle">Checking current state</strong>
-                  <p data-dashboard-friendly="nextStepDetail">AnxOS is checking what is ready.</p>
+                  <p data-dashboard-friendly="nextStepDetail">AnxHost is checking what is ready.</p>
                 </div>
                 <button class="primary-button" type="button" data-dashboard-next-action>Open Dashboard</button>
               </div>

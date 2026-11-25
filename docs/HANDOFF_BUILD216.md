@@ -8,7 +8,9 @@ Plan: `PLANS.md` (approved, commit `9aadaead`). Protocol: `AGENTS.md` (ADP).
 | --- | --- |
 | **216-0 Foundation and capability inventory** | **Complete and approved by the owner (2026-11-20)**: logo (split strategy), navigation and UI foundation approved; committed on `claude/anxhost-build-216` with owner approval as `docs(anxhost): Build 216-0 foundation, inventory and proposals` (hash in the owner report; not pushed). |
 | **216-A1 Desktop Shell Rebirth** | **Complete; committed with the owner's approval** as `fc2b47ec` `feat(anxhost): Build 216-A1 desktop shell rebirth` (not pushed). See "216-A1 Desktop Shell Rebirth" below. |
-| 216-A2 … 216-G | Not started |
+| **216-A2 Home and Customize Home** | **Complete; local checkpoint commit** under the owner's campaign instruction of 2026-11-24 (not pushed). See "216-A2 Home and Customize Home" below. |
+| 216-A3 My Servers and server page | In progress (see "Next step") |
+| 216-A4 … 216-G | Not started |
 
 ## 216-0 timing
 
@@ -267,9 +269,15 @@ results above still apply to the application code.
 
 ## Next step
 
-216-A1 is complete and committed (`fc2b47ec`, owner-approved after review).
-Pushing it needs separate approval; no merge, tag or deployment. Wave A2
-(Home) starts only with its own `/goal`.
+Campaign instruction (owner, 2026-11-24): continue A2 to A10, then E, D, C,
+B, F, G where authorized, solo, with local checkpoint commits; stop at the
+release-candidate approval gate. No push, merge, tag, release or deployment
+without separate approval; deletions, the 216-E security policy, signing/CI,
+domain and production changes need their own approvals.
+
+A1 and A2 are complete and committed locally. **A3 (My Servers and the
+server page) is next**: `src/renderer/anxhost/servers.css` and
+`scripts/anxhost-servers-ui-qa.js` are drafted and not yet linked or run.
 
 ## 216-A1 Desktop Shell Rebirth
 
@@ -599,3 +607,112 @@ place.
 - The 216-0 environment limitation remains: `agent:package:smoke` and
   `local-agent:runtime:smoke` fail with this worktree's junctioned
   `node_modules` (pass with a real copy).
+
+## 216-A2 Home and Customize Home
+
+Started from `claude/anxhost-build-216` at `1ffcd2fd`, clean, under the
+owner's campaign instruction of 2026-11-24 ("continue the AnxHost CC Build 216
+campaign, no /goal": waves A2 to A10, then E, D, C, B, F, G where authorized;
+local checkpoint commits allowed; no push, merge, tag, release or deployment).
+Worked solo, one writer, no workflows or subagents.
+
+### A2 timing
+
+| Field | Value |
+| --- | --- |
+| Start | 2026-11-24T21:18:18-07:00 (system clock) |
+| Finish | 2026-11-24T22:09:20-07:00 (system clock, before the commit) |
+| Elapsed | 51 min 2 s (about 25 min of it test runs: the Home suite, the regression batch, the acceptance-fixes A/B and the timing A/B) |
+| Commit | see `git log` (`feat(anxhost): Build 216-A2 Home and Customize Home`) (local checkpoint under the campaign instruction; not pushed) |
+
+### What changed
+
+| Area | Change |
+| --- | --- |
+| Shared page layer | `src/renderer/anxhost/pages.css` (new, 41 rules): page header (eyebrow, title, lede), buttons (`inline-action`, `primary-button`, primary, danger, disabled, focus), form controls inside pages, panels (`panel`, `status-card`, `settings-section`), status pills mapped onto the eight status colours, server state pills (`instance-state`) with the status shapes and sentence case, disclosures. Every later page wave builds on it. |
+| Home | `src/renderer/anxhost/home.css` (new, 81 rules): overview tiles, Needs attention, server cards, computer cards with the status shapes (dot online, diamond needs attention, ring offline or connecting, square not connected), meters, Customize Home, setup checklist, "More actions and computer details". Layout grids from Build 215 kept. |
+| Markup and copy | Home eyebrow "AnxOS" → "Overview"; app-name "AnxOS" → "AnxHost" in Home text (all-clear line, computer details note, unreachable-Agent detail, next step, "is available to", "is running", first-server guide). "AnxOS Agent" and the AnxOS distro label are frozen and kept. Testids: `home-page`, `home-overview`, `home-tile`, `home-section-<id>`, `home-attention-item`, `home-attention-ok`, `home-computer`, `home-server-card`, `home-customize`, `home-customize-toggle`, `home-customize-row`, `home-details`. |
+| Customize Home (accessibility) | Move up / Move down buttons now name their section ("Move Setup checklist up"), and keyboard focus follows the moved section; before, the list was rebuilt and focus fell to the page. |
+| Bug fix: dialogs with a disabled first target | The first-server guide put initial focus on the first game card, which is disabled until the Marketplace templates load, so focus stayed on the page behind the dialog. It now starts on the first enabled card or "Browse all games". The shared `activateModal` also falls back to the dialog's first enabled control whenever its chosen target cannot take focus, so every dialog is covered. |
+| Token smoke | `anxhost-design-tokens-smoke` now checks every AnxHost page stylesheet in `src/renderer/anxhost/` (not only `shell.css`): defined tokens only, no raw colours, every selector under `:root[data-shell="ahx"]`, and no `:is()` selector lists (the A1 page-switch cost). A deliberately bad file was rejected on all five rules. |
+| Tests | New `scripts/anxhost-home-ui-qa.js` (H1–H11, 35 checks, real app, signed-in disposable owner) registered as `npm run anxhost-home:ui-qa` and in the release tier. |
+
+No backend, IPC, preload, main-process or Agent change.
+
+### Capabilities
+
+All 26 A2 inventory rows are ticked after being checked working in the real
+app (`anxhost-home-ui-qa`): the 11 `data-dashboard-action` buttons (routing
+checked for 7; Start All, Stop All and Restart Agent checked at the action they
+call, recorded rather than run, so the fixture Agent and its servers were not
+restarted; Refresh checked by its confirmation), the attention action, the
+first-server guide's close and "Browse all games", Continue Setup, the next
+step, Customize, the details disclosure, the page, and the six IPC rows
+(`system.getSnapshot`, `system.networkCheck` through the computer details'
+internet check, `telemetry.getSummary/getSeries/export/clear`,
+`amp.getSnapshot`) called as the signed-in owner. Inventory: 189 of 1,606 rows
+verified (A1 163 + A2 26); `anxhost-capability-inventory:smoke` passes.
+
+### Finish lines (PLANS.md, per wave)
+
+| Finish line | Result |
+| --- | --- |
+| 100% of the wave's inventory rows checked | 26/26 |
+| Tests ported | No existing test needed a change: the Home-touching suites pass unchanged (below) |
+| Screenshots at 900x640, 1280x800, 1920x1080, no clipping | `docs/anxhost/a2-home/` (3 sizes plus Customize); H8 measures no horizontal overflow and no clipped Home text at all three sizes |
+| Contrast | H9: 71 Home text elements at 4.5:1 or better; status shapes at 3:1 or better |
+| Timing within Build 215 +10% | Met for page switching: same-day, 3 alternating rounds at 900x640 measured directly (255 switches per build): Build 215 median 12.0 ms, A2 11.2 ms (-6.7%); total 4208 vs 4009 ms (-4.7%); Home alone 13.1 vs 13.7 ms (+4.6%). Startup was not re-measured for A2 alone (two small stylesheets); it is measured with A3 |
+| `node --check`, `git diff --check` | Clean |
+
+### Validation performed (development PC, 2026-11-24)
+
+| Check | Result |
+| --- | --- |
+| `node --check` on `app.js`, `homeDashboard.js`, `homeDashboardModel.js`, the new suite and the token smoke | PASS |
+| `git diff --check` | Clean |
+| `anxhost-design-tokens-smoke` (now all page stylesheets), `anxhost-testid-convention-smoke`, `frozen-identifiers-smoke` (75), `anxhost-brand-allowlist-smoke`, `anxhost-capability-inventory --check`, `home-dashboard-model-smoke`, `v19-ui-refresh-smoke`, `build193-productivity-smoke`, `ui-polish-smoke`, `onboarding-smoke`, `dashboard-metrics-presentation-smoke` | PASS |
+| `anxhost-home-ui-qa` (final code) | **PASS 35/35** (60 s). Earlier runs failed first on the first-server dialog focus (the bug above), which is the failing-first evidence for that fix |
+| `anxhost-shell-ui-qa` | PASS 78/78 |
+| `phase8-ui-qa`, `simple-ui-screenshots-qa`, `sidebar-navigation-groups-ui-qa`, `stabilization-ui-qa` | PASS |
+| `acceptance-fixes-ui-qa` | 8/9; **A2 "the dashboard polls again after the unlock" fails on the base too** (environment exception, below) |
+
+**Environment exception: acceptance-fixes A2.** The check needs 2 dashboard
+snapshot reads within 7 s of an unlock. Same-day, one at a time: the committed
+A1 code passed once with exactly 2, then failed with 0 and 1 in two
+alternating A2-only runs, and the A2 code failed with 1 and 1. The IPC log
+shows why: each `system:getSnapshot` took 4 to 6 s on this PC during these
+runs (started at about 1 s, completed at 5 to 7 s), so at most one fits in the
+window; the 2 s poll skips while a read is in flight. Not caused by A2 and not
+weakened; rerun it on a quiet machine before the release tier.
+
+### Performance
+
+Same-day A/B with Build 215 (`anxnet-orbit-relay-f3a366` at `13825d70`), 900x640,
+3 alternating rounds, each page's `showPage()` plus the style and layout it
+triggers (`$SP/perf/probe_switch.js`, no frame waits):
+
+| Measure | Build 215 | A2 | Difference |
+| --- | --- | --- | --- |
+| Median per switch | 12.0 ms | 11.2 ms | -6.7% |
+| Sum over all switches | 4208 ms | 4009 ms | -4.7% |
+| Home | 13.1 ms | 13.7 ms | +4.6% |
+
+Both builds were about 50% slower than on 2026-11-20 (Build 215 then: 7.9 ms
+median), so only same-day comparisons mean anything; the same slowness shows
+in the 4 to 6 s snapshot reads above.
+
+### Screenshots
+
+`docs/anxhost/a2-home/`: Home at 900x640, 1280x800 and 1920x1080, and Customize
+Home at 1280x800 (from `anxhost-home-ui-qa --shots`).
+
+### A2 remaining risks
+
+- `pages.css` restyles shared controls on every page (buttons, inputs, panels,
+  pills). The shell suite (78/78) and the Home-adjacent suites pass, and every
+  later wave re-checks its own pages; pages not yet redesigned can still show
+  Build 215 layouts inside the new controls until their wave.
+- acceptance-fixes A2 depends on how fast `system:getSnapshot` answers on the
+  test PC (environment exception above).
+- The Create Server dialog's own copy ("AnxOS will check this system ...") is
+  renamed with Add Server in A4.

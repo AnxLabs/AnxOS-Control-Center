@@ -1,0 +1,489 @@
+/* AnxHost CC Home (Build 216-A2).
+ *
+ * Home and Customize Home on top of pages.css. Same rules as the other
+ * AnxHost files: :root[data-shell="ahx"] first, --ahx-* tokens only, no
+ * :is() lists. Layout grids from styles.css are kept where they already
+ * work; this file sets the AnxHost look and the status shapes.
+ */
+
+/* ---------------------------------------------------------------- overview tiles */
+:root[data-shell="ahx"] .home-overview {
+  gap: var(--ahx-space-3);
+  margin-bottom: var(--ahx-space-5);
+}
+
+:root[data-shell="ahx"] .home-tile {
+  gap: var(--ahx-space-1);
+  padding: var(--ahx-space-4);
+  border: var(--ahx-border-width) solid var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-lg);
+  background: var(--ahx-surface-1);
+  box-shadow: var(--ahx-shadow-1);
+}
+
+:root[data-shell="ahx"] .home-tile__label {
+  color: var(--ahx-text-muted);
+  font-size: var(--ahx-text-xs);
+  font-weight: var(--ahx-weight-medium);
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+:root[data-shell="ahx"] .home-tile__value {
+  color: var(--ahx-text-primary);
+  font-family: var(--ahx-font-display);
+  font-size: var(--ahx-text-2xl);
+  font-weight: var(--ahx-weight-semibold);
+  line-height: var(--ahx-leading-tight);
+}
+
+:root[data-shell="ahx"] .home-tile__detail {
+  color: var(--ahx-text-secondary);
+  font-size: var(--ahx-text-xs);
+}
+
+:root[data-shell="ahx"] .home-tile--attention[data-state="ok"] .home-tile__value {
+  color: var(--ahx-success);
+}
+
+:root[data-shell="ahx"] .home-tile--attention[data-state="alert"] .home-tile__value {
+  color: var(--ahx-warning);
+}
+
+/* ---------------------------------------------------------------- sections */
+:root[data-shell="ahx"] .home-sections {
+  gap: var(--ahx-space-6);
+}
+
+:root[data-shell="ahx"] .home-section {
+  gap: var(--ahx-space-3);
+}
+
+:root[data-shell="ahx"] .home-section__header h2 {
+  color: var(--ahx-text-primary);
+  font-family: var(--ahx-font-display);
+  font-size: var(--ahx-text-lg);
+  font-weight: var(--ahx-weight-semibold);
+}
+
+:root[data-shell="ahx"] .home-empty {
+  color: var(--ahx-text-muted);
+}
+
+/* ---------------------------------------------------------------- needs attention */
+:root[data-shell="ahx"] .home-attention__ok {
+  padding: var(--ahx-space-3) var(--ahx-space-4);
+  border: var(--ahx-border-width) solid var(--ahx-success-soft);
+  border-radius: var(--ahx-radius-lg);
+  background: var(--ahx-success-soft);
+  color: var(--ahx-text-primary);
+}
+
+:root[data-shell="ahx"] .home-attention__item {
+  padding: var(--ahx-space-3) var(--ahx-space-4);
+  border: var(--ahx-border-width) solid var(--ahx-border-subtle);
+  border-left: 3px solid var(--ahx-info);
+  border-radius: var(--ahx-radius-lg);
+  background: var(--ahx-surface-1);
+}
+
+:root[data-shell="ahx"] .home-attention__item--critical {
+  border-left-color: var(--ahx-danger);
+}
+
+:root[data-shell="ahx"] .home-attention__item--warning {
+  border-left-color: var(--ahx-warning);
+}
+
+:root[data-shell="ahx"] .home-attention__text strong {
+  color: var(--ahx-text-primary);
+  font-weight: var(--ahx-weight-semibold);
+}
+
+:root[data-shell="ahx"] .home-attention__text span {
+  color: var(--ahx-text-secondary);
+  font-size: var(--ahx-text-sm);
+}
+
+/* ---------------------------------------------------------------- servers */
+:root[data-shell="ahx"] .dashboard-app-grid-section {
+  margin-bottom: 0;
+}
+
+:root[data-shell="ahx"] .dashboard-app-grid {
+  gap: var(--ahx-space-3);
+}
+
+:root[data-shell="ahx"] .dashboard-app-card {
+  gap: var(--ahx-space-2);
+  padding: var(--ahx-space-4);
+  border: var(--ahx-border-width) solid var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-lg);
+  background: var(--ahx-surface-1);
+  box-shadow: var(--ahx-shadow-1);
+  transition: border-color var(--ahx-duration-fast) var(--ahx-ease-standard), background var(--ahx-duration-fast) var(--ahx-ease-standard);
+}
+
+:root[data-shell="ahx"] .dashboard-app-card:hover {
+  border-color: var(--ahx-border-accent);
+  background: var(--ahx-surface-2);
+  box-shadow: var(--ahx-shadow-1);
+  transform: none;
+}
+
+:root[data-shell="ahx"] .dashboard-app-card:focus-visible {
+  border-color: var(--ahx-border-accent);
+  box-shadow: var(--ahx-focus-ring);
+  transform: none;
+}
+
+:root[data-shell="ahx"] .dashboard-app-card strong {
+  color: var(--ahx-text-primary);
+  font-size: var(--ahx-text-md);
+  font-weight: var(--ahx-weight-semibold);
+}
+
+:root[data-shell="ahx"] .dashboard-app-card__meta,
+:root[data-shell="ahx"] .dashboard-app-card__players {
+  color: var(--ahx-text-muted);
+  font-size: var(--ahx-text-xs);
+}
+
+:root[data-shell="ahx"] .dashboard-app-card .inline-action {
+  min-height: var(--ahx-control-height-sm);
+  padding: 0 var(--ahx-space-3);
+}
+
+:root[data-shell="ahx"] .dashboard-app-grid-note {
+  padding: var(--ahx-space-4);
+  border: var(--ahx-border-width) dashed var(--ahx-border);
+  border-radius: var(--ahx-radius-lg);
+  background: transparent;
+  color: var(--ahx-text-secondary);
+}
+
+/* ---------------------------------------------------------------- computers */
+:root[data-shell="ahx"] .home-computers {
+  gap: var(--ahx-space-3);
+}
+
+:root[data-shell="ahx"] .home-computer {
+  gap: var(--ahx-space-3);
+  padding: var(--ahx-space-4);
+  border: var(--ahx-border-width) solid var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-lg);
+  background: var(--ahx-surface-1);
+  box-shadow: var(--ahx-shadow-1);
+  transition: border-color var(--ahx-duration-fast) var(--ahx-ease-standard), background var(--ahx-duration-fast) var(--ahx-ease-standard);
+}
+
+:root[data-shell="ahx"] .home-computer:hover {
+  border-color: var(--ahx-border-accent);
+  background: var(--ahx-surface-2);
+}
+
+:root[data-shell="ahx"] .home-computer:focus-visible {
+  border-color: var(--ahx-border-accent);
+  box-shadow: var(--ahx-focus-ring);
+}
+
+:root[data-shell="ahx"] .home-computer.is-selected {
+  border-color: var(--ahx-border-accent);
+}
+
+:root[data-shell="ahx"] .home-computer__title strong {
+  color: var(--ahx-text-primary);
+  font-weight: var(--ahx-weight-semibold);
+}
+
+:root[data-shell="ahx"] .home-computer__title span,
+:root[data-shell="ahx"] .home-computer__foot {
+  color: var(--ahx-text-muted);
+  font-size: var(--ahx-text-xs);
+}
+
+/* Connection status uses the eight-state status shapes: a filled dot
+   (online), a diamond (needs attention), a ring (offline or connecting) and
+   a square (not connected). The label stays visible. */
+:root[data-shell="ahx"] .home-status {
+  --tone: var(--ahx-status-offline);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ahx-space-1-5);
+  height: 22px;
+  padding: 0 var(--ahx-space-2) 0 var(--ahx-space-1-5);
+  border-radius: var(--ahx-radius-pill);
+  background: color-mix(in srgb, var(--tone) calc(var(--ahx-status-tint) * 100%), transparent);
+  color: var(--tone);
+  font-size: var(--ahx-text-xs);
+  font-weight: var(--ahx-weight-semibold);
+  white-space: nowrap;
+}
+
+:root[data-shell="ahx"] .home-status::before {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--tone);
+  content: "";
+}
+
+:root[data-shell="ahx"] .home-status--online {
+  --tone: var(--ahx-status-running);
+}
+
+:root[data-shell="ahx"] .home-status--warning {
+  --tone: var(--ahx-status-degraded);
+}
+
+:root[data-shell="ahx"] .home-status--warning::before {
+  width: 7px;
+  height: 7px;
+  border-radius: 1px;
+  transform: rotate(45deg);
+}
+
+:root[data-shell="ahx"] .home-status--installing {
+  --tone: var(--ahx-status-starting);
+}
+
+:root[data-shell="ahx"] .home-status--installing::before {
+  border: 2px solid var(--tone);
+  background: transparent;
+}
+
+:root[data-shell="ahx"] .home-status--offline {
+  --tone: var(--ahx-status-offline);
+}
+
+:root[data-shell="ahx"] .home-status--offline::before {
+  border: 2px solid var(--tone);
+  background: transparent;
+}
+
+:root[data-shell="ahx"] .home-status--error {
+  --tone: var(--ahx-status-error);
+}
+
+:root[data-shell="ahx"] .home-status--error::before {
+  border-radius: 2px;
+}
+
+:root[data-shell="ahx"] .home-freshness--fresh {
+  color: var(--ahx-success);
+}
+
+:root[data-shell="ahx"] .home-freshness--stale {
+  color: var(--ahx-warning);
+}
+
+:root[data-shell="ahx"] .home-meter__label {
+  color: var(--ahx-text-muted);
+  font-size: var(--ahx-text-xs);
+  font-weight: var(--ahx-weight-medium);
+}
+
+:root[data-shell="ahx"] .home-meter__value {
+  color: var(--ahx-text-primary);
+  font-size: var(--ahx-text-sm);
+}
+
+:root[data-shell="ahx"] .home-meter__bar {
+  background: var(--ahx-surface-3);
+}
+
+:root[data-shell="ahx"] .home-meter__bar span {
+  background: var(--ahx-accent-gradient);
+}
+
+:root[data-shell="ahx"] .home-meter[data-level="medium"] .home-meter__bar span {
+  background: var(--ahx-warning);
+}
+
+:root[data-shell="ahx"] .home-meter[data-level="high"] .home-meter__bar span {
+  background: var(--ahx-danger);
+}
+
+:root[data-shell="ahx"] .home-meter__detail {
+  color: var(--ahx-text-muted);
+  font-size: var(--ahx-text-xs);
+}
+
+/* ---------------------------------------------------------------- customize Home */
+:root[data-shell="ahx"] .home-customize {
+  gap: var(--ahx-space-3);
+  margin-bottom: var(--ahx-space-5);
+  padding: var(--ahx-space-4);
+  border: var(--ahx-border-width) solid var(--ahx-border-accent);
+  border-radius: var(--ahx-radius-lg);
+  background: var(--ahx-surface-1);
+  box-shadow: var(--ahx-shadow-2);
+}
+
+:root[data-shell="ahx"] .home-customize h2 {
+  color: var(--ahx-text-primary);
+  font-family: var(--ahx-font-display);
+  font-size: var(--ahx-text-lg);
+  font-weight: var(--ahx-weight-semibold);
+}
+
+:root[data-shell="ahx"] .home-customize p {
+  color: var(--ahx-text-secondary);
+  font-size: var(--ahx-text-sm);
+}
+
+:root[data-shell="ahx"] .home-customize__list {
+  gap: var(--ahx-space-1);
+}
+
+:root[data-shell="ahx"] .home-customize__row {
+  gap: var(--ahx-space-2);
+  padding: var(--ahx-space-2) var(--ahx-space-3);
+  border: var(--ahx-border-width) solid var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-md);
+  background: var(--ahx-surface-2);
+}
+
+:root[data-shell="ahx"] .home-customize__row .inline-action {
+  min-height: var(--ahx-control-height-sm);
+  padding: 0 var(--ahx-space-3);
+}
+
+:root[data-shell="ahx"] .home-customize__show {
+  color: var(--ahx-text-primary);
+  font-weight: var(--ahx-weight-medium);
+}
+
+:root[data-shell="ahx"] .home-customize__density {
+  color: var(--ahx-text-secondary);
+  font-size: var(--ahx-text-sm);
+}
+
+:root[data-shell="ahx"] .home-customize__density select {
+  min-height: var(--ahx-control-height-sm);
+  padding: 0 var(--ahx-space-2);
+  font-size: var(--ahx-text-sm);
+}
+
+/* ---------------------------------------------------------------- setup checklist */
+:root[data-shell="ahx"] .dashboard-setup-health {
+  padding: var(--ahx-space-4);
+  border: var(--ahx-border-width) solid var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-lg);
+  background: var(--ahx-surface-1);
+  box-shadow: var(--ahx-shadow-1);
+}
+
+:root[data-shell="ahx"] .dashboard-setup-health__header h2 {
+  color: var(--ahx-text-primary);
+  font-family: var(--ahx-font-display);
+  font-size: var(--ahx-text-lg);
+  font-weight: var(--ahx-weight-semibold);
+}
+
+:root[data-shell="ahx"] .dashboard-setup-health__header p {
+  color: var(--ahx-text-secondary);
+  font-size: var(--ahx-text-sm);
+}
+
+:root[data-shell="ahx"] .dashboard-setup-progress > div,
+:root[data-shell="ahx"] .setup-health-group {
+  border: var(--ahx-border-width) solid var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-md);
+  background: var(--ahx-surface-2);
+}
+
+:root[data-shell="ahx"] .dashboard-setup-progress span {
+  color: var(--ahx-text-muted);
+  font-size: var(--ahx-text-2xs);
+  font-weight: var(--ahx-weight-semibold);
+  letter-spacing: var(--ahx-tracking-caps);
+}
+
+:root[data-shell="ahx"] .setup-health-item {
+  border: var(--ahx-border-width) solid var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-md);
+  background: var(--ahx-surface-inset);
+}
+
+:root[data-shell="ahx"] .setup-health-group > p,
+:root[data-shell="ahx"] .setup-health-item p {
+  color: var(--ahx-text-secondary);
+}
+
+/* ---------------------------------------------------------------- more actions and details */
+:root[data-shell="ahx"] .dashboard-details {
+  margin-top: var(--ahx-space-6);
+  border: var(--ahx-border-width) solid var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-lg);
+  background: var(--ahx-surface-1);
+}
+
+:root[data-shell="ahx"] .dashboard-details > summary {
+  padding: var(--ahx-space-3) var(--ahx-space-4);
+  border-radius: var(--ahx-radius-lg);
+  color: var(--ahx-text-primary);
+}
+
+:root[data-shell="ahx"] .dashboard-details > summary small {
+  color: var(--ahx-text-muted);
+}
+
+:root[data-shell="ahx"] .dashboard-details[open] > summary {
+  border-bottom: var(--ahx-border-width) solid var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-lg) var(--ahx-radius-lg) 0 0;
+}
+
+:root[data-shell="ahx"] .dashboard-welcome {
+  border-color: var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-lg);
+  background: var(--ahx-surface-2);
+  box-shadow: none;
+}
+
+:root[data-shell="ahx"] .dashboard-friendly-card,
+:root[data-shell="ahx"] .dashboard-context-strip > div,
+:root[data-shell="ahx"] .dashboard-ops-grid article {
+  border-color: var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-md);
+  background: var(--ahx-surface-inset);
+}
+
+:root[data-shell="ahx"] .dashboard-next-step {
+  border-color: var(--ahx-border-accent);
+  border-radius: var(--ahx-radius-md);
+  background: var(--ahx-accent-soft);
+}
+
+:root[data-shell="ahx"] .dashboard-launcher {
+  border-color: var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-md);
+  background: var(--ahx-surface-2);
+  color: var(--ahx-text-primary);
+}
+
+:root[data-shell="ahx"] .dashboard-launcher:not(:disabled):hover {
+  border-color: var(--ahx-border-accent);
+  background: var(--ahx-surface-3);
+  color: var(--ahx-text-primary);
+  transform: none;
+}
+
+:root[data-shell="ahx"] .dashboard-launcher--primary {
+  border-color: var(--ahx-border-accent);
+  background: var(--ahx-accent-soft);
+}
+
+:root[data-shell="ahx"] .dashboard-launcher span {
+  color: var(--ahx-text-muted);
+  font-size: var(--ahx-text-2xs);
+  font-weight: var(--ahx-weight-semibold);
+  letter-spacing: var(--ahx-tracking-caps);
+}
+
+:root[data-shell="ahx"] .dashboard-launcher strong {
+  color: var(--ahx-text-primary);
+  font-size: var(--ahx-text-sm);
+  font-weight: var(--ahx-weight-semibold);
+}
