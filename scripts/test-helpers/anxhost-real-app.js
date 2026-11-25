@@ -85,9 +85,11 @@ async function setViewport(app, page, width, height) {
   return page.evaluate(() => `${window.innerWidth}x${window.innerHeight}`);
 }
 
-// Options: { prefix, stopAtGate } — stopAtGate leaves the local setup gate open.
-async function launchRealApp({ prefix = "anx-216-a1-", stopAtGate = false } = {}) {
-  const agent = await startServiceManagedAgent({ initial: "running" });
+// Options: { prefix, stopAtGate, agentOptions } — stopAtGate leaves the local
+// setup gate open; agentOptions go to startServiceManagedAgent (for example
+// extraInstanceConfigs with a disposable stand-in server).
+async function launchRealApp({ prefix = "anx-216-a1-", stopAtGate = false, agentOptions = {} } = {}) {
+  const agent = await startServiceManagedAgent({ initial: "running", ...agentOptions });
   const qa = createIsolatedQaEnv(`${prefix}config-`);
   const write = (name, value) => fs.writeFileSync(path.join(qa.configDir, name), `${JSON.stringify(value, null, 2)}\n`);
   write("agent.json", { backendMode: "agent", agentUrl: "http://127.0.0.1:9", agentToken: "legacy-token-must-not-be-used" });

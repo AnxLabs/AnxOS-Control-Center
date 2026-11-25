@@ -9,7 +9,8 @@ Plan: `PLANS.md` (approved, commit `9aadaead`). Protocol: `AGENTS.md` (ADP).
 | **216-0 Foundation and capability inventory** | **Complete and approved by the owner (2026-11-20)**: logo (split strategy), navigation and UI foundation approved; committed on `claude/anxhost-build-216` with owner approval as `docs(anxhost): Build 216-0 foundation, inventory and proposals` (hash in the owner report; not pushed). |
 | **216-A1 Desktop Shell Rebirth** | **Complete; committed with the owner's approval** as `fc2b47ec` `feat(anxhost): Build 216-A1 desktop shell rebirth` (not pushed). See "216-A1 Desktop Shell Rebirth" below. |
 | **216-A2 Home and Customize Home** | **Complete; local checkpoint commit** under the owner's campaign instruction of 2026-11-24 (not pushed). See "216-A2 Home and Customize Home" below. |
-| 216-A3 My Servers and server page | In progress (see "Next step") |
+| **216-A3 My Servers and server page** | **Complete; local checkpoint commit** (not pushed). See "216-A3 My Servers and the server page" below. |
+| 216-A4 Add Server | In progress (see "Next step") |
 | 216-A4 … 216-G | Not started |
 
 ## 216-0 timing
@@ -275,9 +276,14 @@ release-candidate approval gate. No push, merge, tag, release or deployment
 without separate approval; deletions, the 216-E security policy, signing/CI,
 domain and production changes need their own approvals.
 
-A1 and A2 are complete and committed locally. **A3 (My Servers and the
-server page) is next**: `src/renderer/anxhost/servers.css` and
-`scripts/anxhost-servers-ui-qa.js` are drafted and not yet linked or run.
+A1, A2 and A3 are complete and committed locally. **A4 (Add Server in the
+main window, with bundled art) is next**: the original art set
+(`scripts/anxhost-marketplace-art.js`, 50 SVGs in
+`src/assets/anxhost/marketplace/`, `docs/anxhost/MARKETPLACE_ART_SOURCES.md`),
+`src/renderer/anxhost/add-server.css` and `scripts/anxhost-add-server-ui-qa.js`
+are drafted, not yet linked or committed; the `app.js` change and the three
+suite ports (acceptance-fixes A9, build214, build215 D1: Create Server is no
+longer a window) are prepared as patch scripts in the session scratchpad.
 
 ## 216-A1 Desktop Shell Rebirth
 
@@ -716,3 +722,111 @@ Home at 1280x800 (from `anxhost-home-ui-qa --shots`).
   test PC (environment exception above).
 - The Create Server dialog's own copy ("AnxOS will check this system ...") is
   renamed with Add Server in A4.
+
+## 216-A3 My Servers and the server page
+
+Started from `2684898e` (A2) at 2026-11-24T22:10:10-07:00, same campaign
+instruction, solo.
+
+### A3 timing
+
+| Field | Value |
+| --- | --- |
+| Start | 2026-11-24T22:10:10-07:00 (system clock) |
+| Finish | 2026-11-24T22:40:14-07:00 (system clock, before the commit) |
+| Elapsed | 30 min 4 s (most of it test runs: the A3 suite, 9 real-app suites, 26 smokes and the timing A/B; the A4 artwork generator was written during the runs) |
+| Commit | `feat(anxhost): Build 216-A3 My Servers and server page` (local checkpoint; not pushed) |
+
+### What changed
+
+| Area | Change |
+| --- | --- |
+| Styling | `src/renderer/anxhost/servers.css` (new, 82 rules): list panels and summary tiles on tokens (status-coloured icons), the server list as a table above 1320 px and as cards at 1320 px and below (the card carries the colour, its cells stay transparent), the server page header (game icon, meta chips, address chip and Copy), quick actions and the More menu, underline tabs like the shell's page tabs, Overview cards with status-toned labels, console on an inset surface, file table hover/selection/folder icons, settings bar and groups, service (systemd) panel tones. Several Build 215 server-page rules are page-scoped (`.page[data-page="instances"][data-server-view="open"] …`), so the AnxHost rules here are scoped to the page as well to outrank them. The page header stays unboxed. |
+| Markup | Only the stylesheet link. No JavaScript, IPC, preload, main-process or Agent change. |
+| Test harness | `launchRealApp` takes `agentOptions` (passed to the service-managed Agent fixture), so a suite can add a disposable stand-in server. |
+| Tests | New `scripts/anxhost-servers-ui-qa.js` (M1–M15, 46 checks, real app, signed-in owner, stand-in Paper server) registered as `npm run anxhost-servers:ui-qa` and in the release tier. It covers the 70 A3 inventory rows no other suite exercised. |
+
+**Finding (no change made): the inline "Create Instance" form is dormant.**
+My Servers' "Create Server" button opens the Create Server window
+(`openCreateServerWorkspace`), and no code path calls
+`setInstanceCreateFormVisible(true)`, so the older inline form
+(`data-instance-create-form`, 13 `data-instance-form` fields, the template
+cards, Create Instance and Cancel) cannot be reached in Build 215 or now.
+Shown directly it still works (M3: presets set the type, an invalid ID is
+refused with "Use an ID with 2-64 letters…", nothing is created, Cancel
+closes it). Its rows are kept and ticked as "preserved, dormant"; retiring the
+form is an A10 candidate that needs the owner's approval naming it.
+
+### Capabilities
+
+All 222 A3 rows are ticked:
+
+- 152 rows were already covered by existing suites, all of which pass on the
+  A3 code (below).
+- The 70 rows without a test are covered by `anxhost-servers-ui-qa`:
+  - By behaviour: search and status filter, the computer selector, Create
+    Server, the dormant form's presets, fields, validation and Cancel, both
+    Copy address buttons, "All servers", all nine tabs, the console (lines,
+    search, status filter, Wrap, Pause/Auto-scroll, Copy, Download, Jump to
+    latest, Send), Files' Up, "All backups", Advanced, Raw configuration, the
+    Network link, Add-ons' provider choice, Import and Check for updates, the
+    More menu, and the FiveM dialog (show/hide key, empty key refused,
+    Cancel).
+  - By presence and state, where running them would change the fixture
+    without a meaningful assertion: Reset Runtime (enabled for a stopped
+    server), Adopt service, Open service, Restart now, Add port, Update all,
+    Reset Defaults, Change history, Technical details, "Why are some actions
+    unavailable?" and Open server.cfg.
+
+Inventory: 411 of 1,606 rows verified (A1 163, A2 26, A3 222).
+
+### Validation performed (development PC, 2026-11-24)
+
+| Check | Result |
+| --- | --- |
+| `anxhost-servers-ui-qa` (final code) | **PASS 46/46** (53 s) |
+| `anxhost-design-tokens-smoke` | PASS (servers.css 82 rules, scoped, token-only, no `:is()`) |
+| Real-app suites covering A3 rows, one at a time: `service-managed-ui-qa`, `instances-layout-ui-qa` (4), `server-view-ui-qa` (9), `phasex-ui-qa` (11), `instances-refresh-preservation-ui-qa` (4), `steamcmd-cancel-ui-qa` (2), `anxnet-ui-qa` (8), `build213-ui-qa` (4), `stabilization-ui-qa` | PASS |
+| `anxhost-shell-ui-qa`, `anxhost-home-ui-qa` on the A3 code | PASS 78/78 and 35/35 |
+| Hermetic smokes covering A3 rows (26): `instance-network-performance-ui-smoke`, `instances-ipc-authorization-smoke`, `permission-matrix-smoke`, `public-access-smoke`, `steamcmd-update-polish-smoke`, `minecraft-players-smoke`, `server-sign-in-smoke`, `preload-exposure-contract-smoke`, `workload-transfer-smoke`, `local-agent-discovery-scope-smoke`, `instances-node-routing-smoke`, `workload-transfer-gate-behavior-smoke`, `ui-polish-smoke`, `steamcmd-instance-update-smoke`, `steamcmd-auto-update-smoke`, `server-version-checks-smoke`, `server-page-fixes-smoke`, `scheduled-update-progress-smoke`, `restore-preview-smoke`, `restart-schedule-editor-smoke`, `player-monitor-smoke`, `mod-manager-smoke`, `marketplace-smoke`, `instances-ipc-error-contract-smoke`, `instance-snapshot-wiring-smoke`, `onboarding-smoke` | PASS |
+| `service-managed-mutation-check` | **Not run to completion**: it reruns `service-managed-ui-qa` once per mutant and exceeded the 300 s cap used here; A3 changed no guarded code (styling only), and `service-managed-ui-qa` itself passes |
+| `build214-ui-qa` (3 A3 rows; real Docker installs, about 8 min) | Not rerun for a styling-only wave; its A3 rows are also covered by the suites above |
+| `node --check` (changed JS), `git diff --check` | PASS, clean |
+
+### Screenshots
+
+`docs/anxhost/a3-servers/`: the server list and the server page at 900x640,
+1280x800 and 1920x1080 (from `anxhost-servers-ui-qa --shots`). M13 measures no
+horizontal page overflow and no clipped header, tile, tab or action text at
+all three sizes; M14 measures 4.5:1 text and 3:1 status shapes on both views.
+
+### Performance
+
+Same day as A2, alternating with Build 215 (`anxnet-orbit-relay-f3a366` at `13825d70`).
+
+Page switching at 900x640, 3 rounds, measured directly (255 switches per build):
+
+| Measure | Build 215 | A3 | Difference |
+| --- | --- | --- | --- |
+| Median per switch | 9.3 ms | 9.8 ms | +5.4% |
+| Sum over all switches | 3196 ms | 3405 ms | +6.5% |
+| My Servers | 13.7 ms | 15.8 ms | +15.3% |
+| Home | 9.4 ms | 10.8 ms | +14.9% |
+
+Overall switching is within +10%. The single-page medians rest on 15
+samples each and swing more between runs than this difference (in the A2 run
+an hour earlier Build 215's My Servers was 16.9 ms and A2's 16.0 ms), so they
+are recorded, not concluded; they are re-measured with more rounds after A4.
+
+Startup at 1280x800, 3 rounds: renderer ready 2381 → 2168 ms (-8.9%),
+sidebar ready 3049 → 3362 ms (+10.3%), with Build 215 itself ranging from
+1605 to 3894 ms between launches. **Inconclusive** at 3 rounds (the A1 lesson:
+use many alternating rounds); re-measured for A2 to A4 together after A4.
+
+### A3 remaining risks
+
+- Labels still say "instances" in a few places ("Search instances", "Total
+  Instances"); tests and the inventory key off hooks, not labels, so renaming
+  them is safe but was left for the A10 consistency pass to keep this wave
+  styling-only.
+- `build214-ui-qa` and `service-managed-mutation-check` were not rerun (above).

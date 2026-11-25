@@ -1,0 +1,493 @@
+/* AnxHost CC My Servers and the server page (Build 216-A3).
+ *
+ * On top of pages.css. Same rules as the other AnxHost files:
+ * :root[data-shell="ahx"] first, --ahx-* tokens only, no :is() lists.
+ * Layout grids from styles.css are kept; this file sets the AnxHost look.
+ */
+
+/* ---------------------------------------------------------------- page header and panels */
+:root[data-shell="ahx"] .instances-toolbar__title h1 {
+  color: var(--ahx-text-primary);
+  font-family: var(--ahx-font-display);
+  font-size: var(--ahx-text-3xl);
+  font-weight: var(--ahx-weight-semibold);
+  letter-spacing: -0.02em;
+}
+
+/* The page header (instances-toolbar) stays unboxed, as in Build 215. */
+:root[data-shell="ahx"] .instances-controlbar,
+:root[data-shell="ahx"] .instances-table-panel,
+:root[data-shell="ahx"] .instance-workspace-card,
+:root[data-shell="ahx"] .page[data-page="instances"] .instances-details-panel {
+  border-color: var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-lg);
+  background: var(--ahx-surface-1);
+  box-shadow: var(--ahx-shadow-1);
+}
+
+/* ---------------------------------------------------------------- summary tiles */
+:root[data-shell="ahx"] .instances-summary-card {
+  border: var(--ahx-border-width) solid var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-lg);
+  background: var(--ahx-surface-1);
+  box-shadow: var(--ahx-shadow-1);
+}
+
+:root[data-shell="ahx"] .instances-summary-card::after {
+  display: none;
+}
+
+:root[data-shell="ahx"] .instances-summary-card:hover {
+  border-color: var(--ahx-border-strong);
+  transform: none;
+}
+
+:root[data-shell="ahx"] .instances-summary-card__icon {
+  --tone: var(--ahx-status-stopped);
+  border-color: transparent;
+  background: color-mix(in srgb, var(--tone) calc(var(--ahx-status-tint) * 100%), transparent);
+  color: var(--tone);
+  box-shadow: none;
+}
+
+:root[data-shell="ahx"] .instances-summary-card--running .instances-summary-card__icon {
+  --tone: var(--ahx-status-running);
+}
+
+:root[data-shell="ahx"] .instances-summary-card--starting .instances-summary-card__icon {
+  --tone: var(--ahx-status-starting);
+}
+
+:root[data-shell="ahx"] .instances-summary-card--attention .instances-summary-card__icon {
+  --tone: var(--ahx-status-degraded);
+}
+
+:root[data-shell="ahx"] .instances-summary-card > div > span {
+  color: var(--ahx-text-muted);
+  font-size: var(--ahx-text-xs);
+  font-weight: var(--ahx-weight-medium);
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+:root[data-shell="ahx"] .instances-summary-card strong {
+  color: var(--ahx-text-primary);
+  font-family: var(--ahx-font-display);
+  font-weight: var(--ahx-weight-semibold);
+}
+
+/* ---------------------------------------------------------------- server list */
+:root[data-shell="ahx"] .instances-table-panel .docker-table-wrap {
+  border-color: var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-lg);
+  background: var(--ahx-surface-1);
+  box-shadow: none;
+}
+
+:root[data-shell="ahx"] .instances-table th {
+  background: var(--ahx-surface-1);
+  color: var(--ahx-text-muted);
+  font-size: var(--ahx-text-2xs);
+  font-weight: var(--ahx-weight-semibold);
+  letter-spacing: var(--ahx-tracking-caps);
+}
+
+:root[data-shell="ahx"] .instances-table td {
+  border-color: var(--ahx-border-subtle);
+  background: var(--ahx-surface-2);
+  color: var(--ahx-text-primary);
+}
+
+:root[data-shell="ahx"] .instances-table td:first-child {
+  border-left-color: var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-md) 0 0 var(--ahx-radius-md);
+}
+
+:root[data-shell="ahx"] .instances-table td:last-child {
+  border-right-color: var(--ahx-border-subtle);
+  border-radius: 0 var(--ahx-radius-md) var(--ahx-radius-md) 0;
+}
+
+:root[data-shell="ahx"] .instances-table tbody tr:hover td {
+  background: var(--ahx-surface-hover);
+}
+
+:root[data-shell="ahx"] .instances-table tbody tr.is-selected td {
+  border-color: var(--ahx-border-accent);
+  background: var(--ahx-surface-selected);
+}
+
+:root[data-shell="ahx"] .instances-table tbody tr.is-selected td:first-child {
+  box-shadow: inset 3px 0 0 var(--ahx-accent);
+}
+
+/* At 1320 px and below each server is a card (a grid row): the card carries
+   the colour and its cells stay transparent. */
+@media (max-width: 1320px) {
+  :root[data-shell="ahx"] .page[data-page="instances"] .instances-table tbody tr {
+    border-color: var(--ahx-border-subtle);
+    border-radius: var(--ahx-radius-lg);
+    background: var(--ahx-surface-2);
+  }
+
+  :root[data-shell="ahx"] .page[data-page="instances"] .instances-table tbody tr:hover {
+    background: var(--ahx-surface-hover);
+  }
+
+  :root[data-shell="ahx"] .page[data-page="instances"] .instances-table tbody tr.is-selected {
+    border-color: var(--ahx-border-accent);
+    background: var(--ahx-surface-selected);
+    box-shadow: inset 3px 0 0 var(--ahx-accent);
+  }
+
+  :root[data-shell="ahx"] .page[data-page="instances"] .instances-table td,
+  :root[data-shell="ahx"] .page[data-page="instances"] .instances-table tbody tr:hover td,
+  :root[data-shell="ahx"] .page[data-page="instances"] .instances-table tbody tr.is-selected td {
+    border-color: var(--ahx-border-subtle);
+    background: transparent;
+    box-shadow: none;
+  }
+
+  :root[data-shell="ahx"] .page[data-page="instances"] .instances-table td::before {
+    color: var(--ahx-text-muted);
+    letter-spacing: var(--ahx-tracking-caps);
+  }
+}
+
+/* ---------------------------------------------------------------- server page header */
+:root[data-shell="ahx"] .server-view-back {
+  border-radius: var(--ahx-radius-md);
+  color: var(--ahx-text-secondary);
+  font-weight: var(--ahx-weight-medium);
+}
+
+:root[data-shell="ahx"] .server-view-back:hover {
+  background: var(--ahx-surface-hover);
+  color: var(--ahx-text-primary);
+}
+
+:root[data-shell="ahx"] .server-view-back:focus-visible {
+  outline: none;
+  box-shadow: var(--ahx-focus-ring);
+}
+
+:root[data-shell="ahx"] .page[data-page="instances"] .instance-detail-icon {
+  border-color: var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-md);
+  background: var(--ahx-art-bg);
+  color: var(--ahx-text-secondary);
+}
+
+:root[data-shell="ahx"] .page[data-page="instances"] .instance-detail-icon[data-game-kind="minecraft"] {
+  background: var(--ahx-success-soft);
+  color: var(--ahx-success);
+}
+
+:root[data-shell="ahx"] .instance-workspace-header .instance-header-meta span {
+  border: var(--ahx-border-width) solid var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-pill);
+  background: var(--ahx-surface-2);
+  color: var(--ahx-text-secondary);
+}
+
+:root[data-shell="ahx"] .server-header-main h3 {
+  color: var(--ahx-text-primary);
+  font-family: var(--ahx-font-display);
+  font-weight: var(--ahx-weight-semibold);
+}
+
+:root[data-shell="ahx"] .server-header-main > span,
+:root[data-shell="ahx"] .instance-header-meta span {
+  color: var(--ahx-text-muted);
+}
+
+:root[data-shell="ahx"] .server-header-address,
+:root[data-shell="ahx"] .server-header-live {
+  border-color: var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-pill);
+  background: var(--ahx-surface-2);
+  color: var(--ahx-text-secondary);
+}
+
+:root[data-shell="ahx"] .server-header-copy,
+:root[data-shell="ahx"] .server-card__link {
+  border-color: var(--ahx-border-accent);
+  border-radius: var(--ahx-radius-md);
+  background: var(--ahx-accent-soft);
+  color: var(--ahx-text-primary);
+}
+
+:root[data-shell="ahx"] .server-header-copy:not(:disabled):hover,
+:root[data-shell="ahx"] .server-card__link:hover {
+  background: var(--ahx-surface-selected);
+}
+
+:root[data-shell="ahx"] .server-header-copy:focus-visible,
+:root[data-shell="ahx"] .server-card__link:focus-visible {
+  outline: none;
+  box-shadow: var(--ahx-focus-ring);
+}
+
+/* ---------------------------------------------------------------- overview cards */
+:root[data-shell="ahx"] .server-card {
+  border-color: var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-lg);
+  background: var(--ahx-surface-2);
+}
+
+:root[data-shell="ahx"] .server-card__title {
+  color: var(--ahx-text-muted);
+  font-size: var(--ahx-text-2xs);
+  font-weight: var(--ahx-weight-semibold);
+  letter-spacing: var(--ahx-tracking-caps);
+}
+
+:root[data-shell="ahx"] .server-card__big,
+:root[data-shell="ahx"] .server-status__label {
+  color: var(--ahx-text-primary);
+  font-family: var(--ahx-font-display);
+  font-weight: var(--ahx-weight-semibold);
+}
+
+:root[data-shell="ahx"] .server-card--status.is-ok .server-status__label {
+  color: var(--ahx-success);
+}
+
+:root[data-shell="ahx"] .server-card--status.is-busy .server-status__label {
+  color: var(--ahx-accent-text);
+}
+
+:root[data-shell="ahx"] .server-card--status.is-critical .server-status__label {
+  color: var(--ahx-danger);
+}
+
+:root[data-shell="ahx"] .server-card--status.is-critical {
+  border-color: var(--ahx-danger);
+}
+
+:root[data-shell="ahx"] .server-status__detail,
+:root[data-shell="ahx"] .server-card__muted {
+  color: var(--ahx-text-secondary);
+}
+
+:root[data-shell="ahx"] .server-restart-banner {
+  border-color: var(--ahx-warning-soft);
+  border-radius: var(--ahx-radius-lg);
+  background: var(--ahx-warning-soft);
+  color: var(--ahx-text-primary);
+}
+
+:root[data-shell="ahx"] .instance-setup-required-card {
+  border-color: var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-lg);
+  background: var(--ahx-surface-2);
+}
+
+/* ---------------------------------------------------------------- actions and More menu */
+:root[data-shell="ahx"] .instance-action--primary {
+  border-color: transparent;
+  background: var(--ahx-accent);
+  color: var(--ahx-text-on-accent);
+}
+
+:root[data-shell="ahx"] .instance-action--primary:not(:disabled):hover {
+  border-color: transparent;
+  background: var(--ahx-accent-hover);
+  color: var(--ahx-text-on-accent);
+}
+
+:root[data-shell="ahx"] .instance-action--primary:disabled {
+  border-color: var(--ahx-border-subtle);
+  background: var(--ahx-surface-1);
+  color: var(--ahx-text-disabled);
+}
+
+:root[data-shell="ahx"] .server-more-menu__list {
+  border: var(--ahx-border-width) solid var(--ahx-border);
+  border-radius: var(--ahx-radius-lg);
+  background: var(--ahx-surface-2);
+  box-shadow: var(--ahx-shadow-3);
+}
+
+:root[data-shell="ahx"] .instance-action-group__label {
+  color: var(--ahx-text-muted);
+  font-size: var(--ahx-text-2xs);
+  font-weight: var(--ahx-weight-semibold);
+  letter-spacing: var(--ahx-tracking-caps);
+}
+
+:root[data-shell="ahx"] .instance-danger-action {
+  color: var(--ahx-danger);
+}
+
+:root[data-shell="ahx"] .instance-danger-action:not(:disabled):hover {
+  border-color: transparent;
+  background: var(--ahx-danger-solid);
+  color: var(--ahx-text-on-accent);
+}
+
+/* ---------------------------------------------------------------- server tabs */
+/* Underline tabs, like the shell's page tabs. */
+:root[data-shell="ahx"] .page[data-page="instances"] .instance-tabs {
+  border-top-color: var(--ahx-border-subtle);
+  background: none;
+}
+
+:root[data-shell="ahx"] .page[data-page="instances"] .instance-tab {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  color: var(--ahx-text-secondary);
+  font-size: var(--ahx-text-sm);
+  font-weight: var(--ahx-weight-medium);
+}
+
+:root[data-shell="ahx"] .page[data-page="instances"] .instance-tab:hover {
+  color: var(--ahx-text-primary);
+}
+
+:root[data-shell="ahx"] .page[data-page="instances"] .instance-tab.is-active {
+  border-bottom-color: var(--ahx-accent);
+  color: var(--ahx-text-primary);
+  font-weight: var(--ahx-weight-semibold);
+}
+
+:root[data-shell="ahx"] .page[data-page="instances"] .instance-tab:focus-visible {
+  border-radius: var(--ahx-radius-sm);
+  outline: none;
+  box-shadow: var(--ahx-focus-ring);
+}
+
+/* ---------------------------------------------------------------- console */
+:root[data-shell="ahx"] .page[data-page="instances"] [data-instance-panel="console"] .instance-console-viewer {
+  border-color: var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-md);
+  background: var(--ahx-surface-inset);
+}
+
+/* ---------------------------------------------------------------- files */
+:root[data-shell="ahx"] .instance-files-table th {
+  background: var(--ahx-surface-1);
+  color: var(--ahx-text-muted);
+}
+
+:root[data-shell="ahx"] .instance-files-table tbody tr:hover {
+  background: var(--ahx-surface-hover);
+}
+
+:root[data-shell="ahx"] .instance-files-table tbody tr.is-selected {
+  background: var(--ahx-surface-selected);
+  box-shadow: inset 3px 0 0 var(--ahx-accent);
+}
+
+:root[data-shell="ahx"] .instance-files-table tbody tr.is-directory .file-entry-icon {
+  border-color: var(--ahx-info-soft);
+  background: var(--ahx-info-soft);
+  color: var(--ahx-info);
+}
+
+/* ---------------------------------------------------------------- settings */
+:root[data-shell="ahx"] .server-settings-bar {
+  border-color: var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-lg);
+  background: var(--ahx-surface-2);
+}
+
+:root[data-shell="ahx"] .server-settings-bar__note {
+  color: var(--ahx-text-secondary);
+}
+
+:root[data-shell="ahx"] .server-settings .instance-game-config {
+  border-color: var(--ahx-border-subtle);
+  background: var(--ahx-surface-2);
+}
+
+/* ---------------------------------------------------------------- tab content */
+:root[data-shell="ahx"] .instance-overview-section h4,
+:root[data-shell="ahx"] .server-settings-group h4,
+:root[data-shell="ahx"] .addons-section__head h4 {
+  color: var(--ahx-text-secondary);
+  font-size: var(--ahx-text-xs);
+  font-weight: var(--ahx-weight-semibold);
+  letter-spacing: var(--ahx-tracking-caps);
+  text-transform: uppercase;
+}
+
+:root[data-shell="ahx"] .instance-overview-list dt {
+  color: var(--ahx-text-muted);
+}
+
+:root[data-shell="ahx"] .instance-overview-list dd {
+  color: var(--ahx-text-primary);
+}
+
+:root[data-shell="ahx"] .server-settings-group,
+:root[data-shell="ahx"] .addons-section,
+:root[data-shell="ahx"] .instance-minecraft-card,
+:root[data-shell="ahx"] .instance-minecraft-players-card {
+  border-color: var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-lg);
+  background: var(--ahx-surface-2);
+}
+
+:root[data-shell="ahx"] .server-field-hint {
+  color: var(--ahx-text-muted);
+}
+
+:root[data-shell="ahx"] .server-field-error {
+  color: var(--ahx-danger);
+}
+
+:root[data-shell="ahx"] .server-restart-tag {
+  border-radius: var(--ahx-radius-pill);
+  background: var(--ahx-warning-soft);
+  color: var(--ahx-warning);
+}
+
+/* Service-managed (systemd) panel tones. */
+:root[data-shell="ahx"] .service-ops {
+  border-color: var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-lg);
+  background: var(--ahx-surface-2);
+}
+
+:root[data-shell="ahx"] .service-ops [data-tone="ok"] {
+  color: var(--ahx-success);
+}
+
+:root[data-shell="ahx"] .service-ops [data-tone="warn"] {
+  color: var(--ahx-warning);
+}
+
+:root[data-shell="ahx"] .service-ops__check--pass,
+:root[data-shell="ahx"] .service-ops__step--pass {
+  color: var(--ahx-success);
+}
+
+:root[data-shell="ahx"] .service-ops__check--fail,
+:root[data-shell="ahx"] .service-ops__step--fail {
+  color: var(--ahx-danger);
+}
+
+:root[data-shell="ahx"] .service-ops__step--running {
+  color: var(--ahx-info);
+}
+
+:root[data-shell="ahx"] .service-ops__error {
+  border-color: var(--ahx-danger);
+  background: var(--ahx-danger-soft);
+  color: var(--ahx-text-primary);
+}
+
+:root[data-shell="ahx"] .service-ops__result {
+  border-color: var(--ahx-border-subtle);
+  border-radius: var(--ahx-radius-md);
+}
+
+:root[data-shell="ahx"] .service-ops__facts dt,
+:root[data-shell="ahx"] .service-ops__hint,
+:root[data-shell="ahx"] .service-ops__reason {
+  color: var(--ahx-text-muted);
+}
