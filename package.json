@@ -540,6 +540,7 @@
       "release-build.json",
       "styles.css",
       "windows/**/*",
+      "!windows/setup/**/*",
       "assets/**/*",
       {
         "from": "config",

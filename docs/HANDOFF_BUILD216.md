@@ -1913,6 +1913,12 @@ the gate** (ports helper). `qa:website` 12/12. Tree clean afterwards.
   AGENTS.md lesson of 2026-11-26). Fixed in the next commit with
   `files-pipeline-smoke`, the same defect, and an rc-validate guard change.
 
+- Run 45899562299 (`40ece16c`) was green and its artifacts passed every
+  signature, hash, `latest.yml`, blockmap and asset check, but the Windows
+  packages were about 97 MB larger than Build 215's: `windows/setup/target`
+  was packed into the app (AGENTS.md lesson). Not used for acceptance; fixed
+  in the next commit and rebuilt.
+
 ### 216-G remaining risks
 
 - The real-app UI suites are still sensitive to a busy machine (as recorded

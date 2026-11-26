@@ -168,6 +168,22 @@ check("S8 the uninstall copy goes into the app's resources only when built", () 
   }
 });
 
+check("S9 the Rust sources and build output never go into the app", () => {
+  // RC1's first build packed windows/setup/target (about 97 MB) into the app
+  // through "windows/**/*". The last matching pattern decides, as in
+  // electron-builder.
+  const { minimatch } = require("minimatch");
+  const patterns = pkg.build.files.filter((entry) => typeof entry === "string");
+  const packed = (file) => patterns.reduce((included, pattern) => {
+    const negated = pattern.startsWith("!");
+    return minimatch(file, negated ? pattern.slice(1) : pattern, { dot: true }) ? !negated : included;
+  }, false);
+  for (const file of ["windows/setup/target/release/anxhost-setup.exe", "windows/setup/target/release/deps/wry.rlib", "windows/setup/src/main.rs", "windows/setup/Cargo.toml"]) {
+    assert(!packed(file), `${file} must not be packed into the app`);
+  }
+  assert(packed("windows/installer.nsh") && packed("windows/install-agent-task.ps1"), "the other windows/ files are still packed");
+});
+
 for (const line of results) console.log(line);
 const failed = results.filter((line) => line.startsWith("FAIL")).length;
 if (failed) {

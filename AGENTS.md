@@ -1364,6 +1364,23 @@ Use this section to accumulate verified project knowledge over time. Add entries
   platform CI uses. Never wait on a child's `exit` event without checking
   whether it has already exited.
 
+### 2026-11-26 — Build 216 RC1: the installer's Rust build went into the app
+
+- **Problem:** The first green RC1 build (run 45899562299) produced a Windows
+  installer and portable app about 97 MB larger than Build 215's, while the
+  Linux packages were the same size.
+- **Cause:** The app's electron-builder `files` list includes
+  `"windows/**/*"`. On Windows CI, AnxHost Setup is compiled (Cargo) before
+  electron-builder packs the app, so `windows/setup/target` existed and was
+  packed into every Windows package. Linux builds do not run Cargo.
+- **Resolution:** `"!windows/setup/**/*"` follows `"windows/**/*"`.
+  `anxhost-setup-contract-smoke` S9 evaluates the `files` patterns in order
+  and fails on the old list.
+- **Lesson:** When a build step writes into the source tree, check every glob
+  that packs that tree. Compare each artifact's size with the previous release,
+  per platform, before accepting an RC: a one-platform jump is a packaging
+  bug until proven otherwise.
+
 ## Future Improvements
 
 Keep optional ideas separate from active work. An item in this list is not authorization to implement it.
