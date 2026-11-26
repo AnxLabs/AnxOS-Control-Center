@@ -29,7 +29,6 @@
 | Diagnostics IPC error contract | `npm run diagnostics:ipc-error-contract:smoke` |
 | Update IPC authorization/error contract | `npm run updates:ipc-authorization:smoke` |
 | Agent Control authorization/error contract | `npm run agent-control:ipc-authorization:smoke`, `npm run agent-control:ipc-error-contract:smoke` |
-| Storage child-window authorization | `npm run storage-window:ipc-authorization:smoke` |
 | Maintenance IPC contract | `npm run maintenance:ipc-contract:smoke` |
 | Settings IPC error contract | `npm run settings:ipc-error-contract:smoke` |
 | Settings IPC authorization | `npm run settings:ipc-authorization:smoke` |
