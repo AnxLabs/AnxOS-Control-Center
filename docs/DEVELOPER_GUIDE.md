@@ -161,6 +161,21 @@ npm run rc:validate   # runs every registered *:smoke suite as subprocesses
 npm run qa:dirty-check  # verifies the working tree is clean
 ```
 
+Before a release candidate, run `rc:validate` and then `qa:release` on the
+same clean commit, letting `qa:release` skip the smokes `rc:validate`
+already passed there (about 112 checks, 7 minutes):
+
+```bash
+RC_RESULTS_PATH="$TMPDIR/rc-results.json" npm run rc:validate
+npm run qa:release -- --reuse-rc="$TMPDIR/rc-results.json"
+```
+
+Reuse is refused, and every check runs, unless the file is for the current
+commit and platform and the tree was clean during both runs. CI runs
+`rc:validate` on Linux, so it never replaces a local Windows run. Keep the
+results file outside the checkout: an untracked file there makes the tree
+dirty, and reuse is then refused.
+
 The infrastructure control plane smokes run individually:
 
 ```bash

@@ -119,8 +119,35 @@ function runSuite(command, timeoutMs = Number(process.env.RC_SUITE_TIMEOUT_MS ||
   });
 }
 
+function gitText(gitArgs) {
+  const result = spawnSync("git", gitArgs, { cwd: process.cwd(), encoding: "utf8", windowsHide: true });
+  return result.status === 0 ? String(result.stdout || "").trim() : null;
+}
+
+// RC_RESULTS_PATH: where to write which suites passed on which commit, so a
+// later qa:release on the same commit and platform can skip them
+// (`--reuse-rc=<file>`, scripts/rc-reuse.js).
+function writeResultsFile(results, startStatus) {
+  const target = process.env.RC_RESULTS_PATH;
+  if (!target) return;
+  const endStatus = gitText(["status", "--porcelain"]);
+  const { RC_RESULTS_SCHEMA } = require("./rc-reuse");
+  fs.writeFileSync(target, `${JSON.stringify({
+    schema: RC_RESULTS_SCHEMA,
+    commit: gitText(["rev-parse", "HEAD"]),
+    treeCleanAtStart: startStatus === "",
+    treeCleanAtEnd: endStatus === "",
+    platform: process.platform,
+    node: process.version,
+    finishedAt: new Date().toISOString(),
+    passed: results.filter((result) => result.status === "PASS").map((result) => result.command),
+    failed: results.filter((result) => result.status !== "PASS").map((result) => result.command),
+  }, null, 2)}\n`);
+}
+
 async function runValidation() {
 const results = [];
+const startStatus = gitText(["status", "--porcelain"]);
 if (residue.length > 0) {
   const message = `Repo-root instance-root residue detected (${residue.join(", ")}). A smoke minted jobs/instances outside its temp tree; fix the smoke's AGENT_INSTANCE_ROOT pinning before running the gate.`;
   console.error(`[RC] FAIL ${message}`);
@@ -171,6 +198,7 @@ console.log(JSON.stringify({
   failedCount: results.filter((result) => result.status === "FAIL").length + (trailingFailure ? 1 : 0),
   residue: trailingFailure?.residue || undefined,
 }, null, 2));
+writeResultsFile(results, trailingFailure ? null : startStatus);
 process.exitCode = overallFailure ? 1 : 0;
 return { results, failed: overallFailure };
 }

@@ -476,6 +476,7 @@
     "diagnostics:smoke": "node scripts/diagnostics-smoke.js",
     "diagnostics:disk-stats:smoke": "node scripts/diagnostic-disk-stats-classification-smoke.js",
     "versioning:smoke": "node scripts/versioning-smoke.js",
+    "rc-reuse:smoke": "node scripts/rc-reuse-smoke.js",
     "notifications:smoke": "node scripts/notification-center-smoke.js",
     "developer-source-update:smoke": "node scripts/developer-source-update-smoke.js",
     "agent-control:smoke": "node scripts/agent-control-smoke.js",

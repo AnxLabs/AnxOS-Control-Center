@@ -475,9 +475,36 @@ if (!Object.prototype.hasOwnProperty.call(TIERS, tier)) {
   process.exit(1);
 }
 
-const checks = TIERS[tier];
+let checks = TIERS[tier];
 createIsolatedEnv();
 const initialStatus = gitStatusShort();
+
+// --reuse-rc=<file>: skip the checks an rc:validate run (RC_RESULTS_PATH)
+// already passed on this commit and platform; see scripts/rc-reuse.js.
+const reuseArg = process.argv.find((arg) => arg.startsWith("--reuse-rc="));
+if (reuseArg) {
+  const { loadReusableRcResults, partitionChecks } = require("./rc-reuse");
+  let results = null;
+  try {
+    results = JSON.parse(fs.readFileSync(path.resolve(reuseArg.slice("--reuse-rc=".length)), "utf8"));
+  } catch (error) {
+    console.warn(`[qa] reuse: cannot read the rc:validate results (${error.code || error.message}); running every check.`);
+  }
+  const head = spawnSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" });
+  const reusable = results && loadReusableRcResults(results, {
+    head: head.status === 0 ? head.stdout.trim() : null,
+    treeClean: initialStatus === "",
+    platform: process.platform,
+    packageScripts: require(path.join(root, "package.json")).scripts,
+  });
+  if (reusable && !reusable.ok) console.warn(`[qa] reuse refused: ${reusable.reason}; running every check.`);
+  if (reusable?.ok) {
+    const { run: toRun, reused } = partitionChecks(checks, reusable.files);
+    console.log(`[qa] reuse: ${reused.length} check(s) already passed in rc:validate at ${reusable.commit.slice(0, 8)} on ${process.platform}; running ${toRun.length}.`);
+    for (const [command, commandArgs] of reused) console.log(`[qa] reused ${formatCommand(command, commandArgs)}`);
+    checks = toRun;
+  }
+}
 const started = Date.now();
 const timings = [];
 
