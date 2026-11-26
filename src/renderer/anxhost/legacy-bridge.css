@@ -126,9 +126,9 @@
   background: var(--ahx-surface-2);
 }
 
-/* Add Server's inset boxes: styles.css paints them a fixed dark tint
-   (rgba(10, 3, 20, …)), so in the light theme they were dark boxes whose muted
-   text read 1.72:1 (found by anxhost-theme-ui-qa T2). */
+/* Add Server's inset boxes: styles.css paints them a fixed dark purple tint,
+   so in the light theme they were dark boxes whose muted text read 1.72:1
+   (found by anxhost-theme-ui-qa T2). */
 :root[data-shell="ahx"] .marketplace-summary-section,
 :root[data-shell="ahx"] .marketplace-recovery-actions,
 :root[data-shell="ahx"] .marketplace-progress-empty,

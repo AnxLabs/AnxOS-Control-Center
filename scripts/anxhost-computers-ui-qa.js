@@ -262,12 +262,18 @@ async function run() {
           copySummary: await run('[data-diagnostics-action="copy"]', 600),
           loadProvenance: await run('[data-provenance-action="load"]', 2000),
           copyProvenance: await run('[data-provenance-action="copy"]', 600),
-          browserCode: await run('[data-agent-control-action="mintUiBootstrapCode"]', 2000),
         };
-        const code = document.querySelector("[data-agent-ui-bootstrap-code]")?.value || "";
+        const toastsBeforeCode = toasts.length;
+        present.browserCode = await run('[data-agent-control-action="mintUiBootstrapCode"]', 0);
         // The browser code is minted by this PC's Local Agent, which this
         // harness keeps unreachable on purpose; then the app must say so.
-        const codeReason = toasts.find((message) => /agent|unavailable|code/i.test(message)) || "";
+        // Wait for the code or the reason (a fixed 2 s missed a slow refusal
+        // on a busy machine, 2026-11-26).
+        const readCode = () => document.querySelector("[data-agent-ui-bootstrap-code]")?.value || "";
+        const readReason = () => toasts.slice(toastsBeforeCode).find((message) => /agent|unavailable|code/i.test(message)) || "";
+        for (let waited = 0; waited < 15000 && !readCode() && !readReason(); waited += 100) await wait(100);
+        const code = readCode();
+        const codeReason = readReason();
         const kept = ["pair", "repair", "save", "test"].filter((name) => document.querySelector(`[data-agent-action="${name}"]`)).length
           // Build 216: the Expo "Pair Mobile Device" and "Copy Mobile Claim"
           // controls were retired with the owner's approval (Phone Access

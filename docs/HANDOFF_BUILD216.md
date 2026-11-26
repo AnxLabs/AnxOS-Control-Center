@@ -1782,6 +1782,27 @@ during a real Start that repairs its JAR command: the old code undid it.
 | `anxhost-network-ui-qa` N2 failed under load | It read a notice already on screen before the click, after a fixed 1.5 s, so it proved no refusal; port 70000 never left the form (browser `max`) and the upstream host was empty. The refusal toast was also generic. | N2 checks the form refuses port 70000, and that an invalid hostname in an otherwise valid route reaches the Agent and comes back with its own reason (waited for, not slept). The toast shows `REVERSE_PROXY_*` policy messages. Fails on the old `app.js`. |
 | `process-supervision-hardening` 3a failed under load | Instrumented under load: the PowerShell identity lookup was killed at its 8 s limit; the result (null) was cached 15 s and read as "unavailable", so a recycled PID was trusted. **Safety defect:** Stop and Force Kill then terminated that PID on Windows even though the service never spawned it. | A timed-out lookup is `lookup-failed`, not cached; reconcile reports the record as read and flags it in memory; Stop and Force Kill refuse an untracked PID whose check failed (`INSTANCE_PID_UNVERIFIED`). 3a polls until the check decides (60 s). New 3c fakes the timeout: Stop and Force Kill refuse, the unrelated process survives, the next answer corrects the record. 3c fails on the committed core with only the test hook added (Stop did not refuse). |
 
+### Faster tests (owner: "lets clean the tests up", 2026-11-26)
+
+| Change | Effect |
+| --- | --- |
+| `rc:validate` starts plain `node scripts/x.js` suites directly (`directInvocation`; `RC_VIA_NPM=1` restores npm) | npm cost 0.75–0.85 s per suite here (measured 6 times). Gate suite time 1,183 s at `e0f1b16a`, 1,022 s at `94a64f18` |
+| `qa:release --reuse-rc` (`28d5a18d`) | 111–112 of 153 checks reused from the same commit's `rc:validate` |
+| `anxhost-theme-ui-qa` waits for finite animations instead of 900 ms per view | 230 s to 127–153 s, same 69 views per theme and the same text and surface counts within run noise. It found four Add Server boxes painted a fixed dark tint in the light theme (fixed in the legacy bridge) |
+| Fixed sleeps that failed under load became waits for the outcome: N2 (refusal), Computers C7 (browser-code reason, only messages after the click), `service-managed-ui-qa` Safe Restart confirm (`noWaitAfter`; the next line waits for the restart) | Each passes alone (3/3, 2/2, 3/3 plus 1) |
+
+Left as they are on purpose: observation windows that prove something does not
+happen (no authorization errors while locked for 12 s, a notice not raised again
+for 10 s). Shortening them would weaken the checks.
+
+**Gate at `94a64f18`** (gate worktree, off-screen, direct start and reuse):
+`rc:validate` 429/430: `anxhost-design-tokens` failed on a colour literal in a
+new legacy-bridge comment (reworded, passes). `qa:release`: 112 reused, 5 passed,
+`service-managed-ui-qa` failed in Playwright's post-click wait under load (passes
+3/3 alone, click changed); the 35 after it with reuse: 34 passed, Computers C7
+failed on its fixed 2 s wait (changed, 2/2 alone). **The AnxNet smokes passed in
+the gate** (ports helper). `qa:website` 12/12. Tree clean afterwards.
+
 ### Validation performed (development PC, 2026-11-25/26)
 
 | Check (commit) | Result |

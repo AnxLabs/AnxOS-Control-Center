@@ -531,7 +531,9 @@ async function scenarioOperations(report) {
     await page.locator("[data-service-safe-restart]").click();
     await waitFor(page, "preflight passes and Confirm is offered", () => page.evaluate(() => { const b = document.querySelector("[data-service-safe-confirm]"); return b && !b.hidden && !b.disabled; }));
     await page.locator("[data-service-ops]").screenshot({ path: path.join(artifactDir, "ops-preflight-ok.png") });
-    await page.locator("[data-service-safe-confirm]").click();
+    // The next line waits for the restart itself; Playwright's own wait for
+    // "scheduled navigations" after the click timed out at 10 s under load.
+    await page.locator("[data-service-safe-confirm]").click({ noWaitAfter: true });
     await waitFor(page, "Safe Restart is running", () => page.evaluate(() => window.eval("serviceOps.running === true")));
     const lockedWhileRunning = await controls(page, '[data-instance-action="restart"], [data-instance-action="stop"], [data-instance-action="start"]');
     assert.ok(lockedWhileRunning.every((control) => control.disabled), "lifecycle buttons are locked during Safe Restart");
