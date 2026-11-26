@@ -1306,7 +1306,9 @@ Use this section to accumulate verified project knowledge over time. Add entries
   Event waits use 60 s. Renames back off within a 3 s budget. The NeoForge
   sync re-derives its fields from a fresh read under the state lock.
   IE11, the new retry tests and a hang mutation for IE8 each fail on the old
-  code.
+  code. An audit of every `saveInstanceConfig` call then found the same race
+  in three status-poll corrections, Start's launch repairs, the settings save
+  and SteamCMD writes (IE12, IE13).
 - **Lesson:** Before raising a test's timeout, instrument the code under
   test while the failure reproduces under load. "Slow" and "lost" look the
   same from a wait. Judge a hang by lack of progress, not by total time. When
