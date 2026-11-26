@@ -1337,6 +1337,33 @@ Use this section to accumulate verified project knowledge over time. Add entries
   cached as an answer. A UI check must prove its effect happened after the
   action, not find something that was already on screen.
 
+### 2026-11-26 — Build 216 RC1: two Linux smokes had never run
+
+- **Problem:** The first RC1 CI run failed at `node:agent-pairing:smoke`: exit
+  0, no output, after 12 s. Build 215's CI had passed it with the same 12 s.
+- **Cause:**
+  - On Linux both `agent-pairing-workflow-smoke` and `files-pipeline-smoke`
+    started an Agent without `AGENT_INSTANCE_ROOT`. Its fallback
+    `/srv/anxos` cannot be created by a normal user, so startup recovery
+    exited before it listened.
+  - The smokes' cleanup then waited for an `exit` event that had already
+    fired, with only an unref'd timer, so Node drained and exited 0 before
+    the error was printed.
+  - rc-validate's hollow-green guard (under 8 characters of output) passed
+    them, because npm's `> node scripts/x.js` banner counted as output.
+    Starting suites directly (`94a64f18`) removed the banner and exposed it.
+- **Resolution:** Both smokes pin the instance and backup roots to their temp
+  folder and never wait for an exit that already happened. The guard ignores
+  npm banner lines (`rc-validate-subprocess-smoke`). In WSL with the Linux
+  Node runtime, the old smokes exit 0 silently after 12 s and 31 s, as in CI,
+  and the fixed ones pass. A scan of Build 215's CI log found no other suite
+  whose only output was the banner.
+- **Lesson:** A test harness's own output (npm banners, wrappers) is not the
+  test's output. A success check must look for the test's own marker. Every
+  test that starts an Agent must pin every root it can write to, on every
+  platform CI uses. Never wait on a child's `exit` event without checking
+  whether it has already exited.
+
 ## Future Improvements
 
 Keep optional ideas separate from active work. An item in this list is not authorization to implement it.

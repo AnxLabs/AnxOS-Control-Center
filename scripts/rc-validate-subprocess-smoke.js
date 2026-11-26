@@ -35,6 +35,13 @@ for (const name of ["chain:smoke", "env:smoke", "quoted:smoke", "missing:smoke"]
 }
 assert.strictEqual(directInvocation("plain:smoke", { RC_VIA_NPM: "1" }, scripts), null, "RC_VIA_NPM=1 sends every suite through npm.");
 
+// npm prints "> pkg@ver script" and "> node scripts/x.js" before every suite;
+// that banner alone must not count as a success marker (it hid two hollow
+// Linux suites in Build 215).
+const { suiteOutput } = require("./rc-validate");
+assert.strictEqual(suiteOutput("\n> anxos-control-center@2.0.0 node:agent-pairing:smoke\n> node scripts/agent-pairing-workflow-smoke.js\n\n"), "", "npm banner lines are not suite output.");
+assert.strictEqual(suiteOutput("> banner\r\nAgent pairing workflow smoke checks passed.\r\n"), "Agent pairing workflow smoke checks passed.", "real output is kept.");
+
 const failureResult = classifySubprocessResult({ status: 1, stderr: "real failure\n" });
 assert.strictEqual(failureResult.status, "FAIL", "Non-zero exit codes must fail validation.");
 assert.strictEqual(failureResult.exitCode, 1);

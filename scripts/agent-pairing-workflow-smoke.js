@@ -39,6 +39,10 @@ function spawnAgentProcess(root, agentConfig, port, temp) {
       AGENT_PORT: String(port),
       AGENT_IDENTITY_PATH: path.join(agentConfig, "identity.json"),
       ANXOS_LOG_DIR: path.join(temp, "logs"),
+      // Without these the Agent uses /srv/anxos on Linux, which a CI user
+      // cannot create, and startup recovery exits before it listens.
+      AGENT_INSTANCE_ROOT: path.join(temp, "instances"),
+      AGENT_BACKUP_ROOT: path.join(temp, "backups"),
     },
     stdio: "ignore",
   });
@@ -46,7 +50,9 @@ function spawnAgentProcess(root, agentConfig, port, temp) {
 
 function stopAgentProcess(child) {
   return new Promise((resolve) => {
-    if (!child || child.killed) return resolve();
+    // An Agent that already exited never emits "exit" again; waiting on it
+    // with only an unref'd timer let Node drain and exit 0 with no output.
+    if (!child || child.killed || child.exitCode !== null || child.signalCode !== null) return resolve();
     child.once("exit", resolve);
     child.kill("SIGTERM");
     setTimeout(resolve, 1500).unref?.();

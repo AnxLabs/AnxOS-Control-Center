@@ -1904,6 +1904,15 @@ the gate** (ports helper). `qa:website` 12/12. Tree clean afterwards.
 | Faster gate (`28d5a18d`) | `qa:release --reuse-rc=<file>` skips the smokes an `rc:validate` run on the same commit, platform and clean tree passed (`RC_RESULTS_PATH`); otherwise it runs everything and says why. `rc-reuse:smoke` R1–R4 PASS; fast tier with a matching file reused `versioning-smoke`, with another commit's file refused; `rc-validate-subprocess-smoke`, `docs:architecture:smoke`, website tier PASS. Exercised end to end by the final gate at `e0f1b16a` |
 | `node --check` of changed JS, `git diff --check` | PASS |
 
+### RC1 CI (2026-11-26)
+
+- Pushed `81ec7487` to `dev` and `claude/anxhost-build-216` (fast-forward
+  from `13825d70`) with the owner's approval and dispatched
+  `windows-release.yml` on `dev` (run 45897169386). It failed in
+  rc-validation at `node:agent-pairing:smoke` (hollow green on Linux; see the
+  AGENTS.md lesson of 2026-11-26). Fixed in the next commit with
+  `files-pipeline-smoke`, the same defect, and an rc-validate guard change.
+
 ### 216-G remaining risks
 
 - The real-app UI suites are still sensitive to a busy machine (as recorded

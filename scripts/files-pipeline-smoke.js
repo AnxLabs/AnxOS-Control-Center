@@ -44,6 +44,10 @@ async function main() {
       AGENT_FILE_ROOTS: tempRoot,
       AGENT_IDENTITY_PATH: path.join(tempRoot, "device-identity.json"),
       AGENT_ACTION_PERMISSIONS: "files:write",
+      // Without these the Agent uses /srv/anxos on Linux, which a CI user
+      // cannot create, and startup recovery exits before it listens.
+      AGENT_INSTANCE_ROOT: path.join(tempRoot, "instances"),
+      AGENT_BACKUP_ROOT: path.join(tempRoot, "backups"),
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -193,8 +197,12 @@ async function main() {
 
     console.log("Files pipeline smoke checks passed.");
   } finally {
-    agent.kill("SIGTERM");
-    await new Promise((resolve) => agent.once("exit", resolve));
+    // An Agent that already exited never emits "exit" again; waiting for it
+    // drained the event loop and exited 0 with no output (hollow green).
+    if (agent.exitCode === null && agent.signalCode === null) {
+      agent.kill("SIGTERM");
+      await new Promise((resolve) => agent.once("exit", resolve));
+    }
     await fs.rm(tempRoot, { recursive: true, force: true });
   }
 }

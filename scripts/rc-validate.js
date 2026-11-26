@@ -130,13 +130,19 @@ function runSuite(command, timeoutMs = Number(process.env.RC_SUITE_TIMEOUT_MS ||
       // async harness drains the event loop and exits 0 silently). Every
       // registered smoke prints a success or diagnostic marker on success,
       // so near-empty stdout on a zero exit is always a hollow run.
-      if (result.status === "PASS" && stdout.trim().length < 8) {
+      // npm's "> script" banner is not the suite's output: it hid two hollow
+      // Linux suites in Build 215 (agent-pairing, files), so it never counts.
+      if (result.status === "PASS" && suiteOutput(stdout).length < 8) {
         result.status = "FAIL";
         result.failureReason = "exit 0 without a success marker (hollow green)";
       }
       resolve(result);
     });
   });
+}
+
+function suiteOutput(stdout) {
+  return String(stdout || "").split(/\r?\n/).filter((line) => !/^> /.test(line.trim())).join("\n").trim();
 }
 
 function gitText(gitArgs) {
@@ -224,4 +230,4 @@ return { results, failed: overallFailure };
 }
 
 if (require.main === module) runValidation().catch((error) => { console.error(error); process.exitCode = 1; });
-module.exports = { classifySubprocessResult, directInvocation, npmCommand, npmInvocation, runValidation, runSuite, terminateProcessTree };
+module.exports = { classifySubprocessResult, directInvocation, npmCommand, npmInvocation, runValidation, runSuite, suiteOutput, terminateProcessTree };
