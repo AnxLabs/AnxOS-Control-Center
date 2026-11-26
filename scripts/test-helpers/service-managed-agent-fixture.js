@@ -169,12 +169,15 @@ async function startServiceManagedAgent(options = {}) {
   const agentJson = path.join(configDir, "agent.json");
   fs.writeFileSync(agentJson, `${JSON.stringify({ backendMode: "agent", agentUrl: `http://127.0.0.1:${port}`, agentToken: token }, null, 2)}\n`, { mode: 0o600 });
   // options.extraPreload: a second --require for test seams inside this Agent.
-  const child = spawn(process.execPath, ["--require", path.join(__dirname, "fake-systemd-preload.js"), ...(options.extraPreload ? ["--require", options.extraPreload] : []), path.join(root, "agent", "src", "server.js")], {
-    cwd: path.join(root, "agent"),
+  // options.agentRoot: another checkout whose Agent runs instead (216-F runs
+  // the published Build 215 Agent under a Build 216 desktop).
+  const agentRoot = options.agentRoot || root;
+  const child = spawn(process.execPath, ["--require", path.join(__dirname, "fake-systemd-preload.js"), ...(options.extraPreload ? ["--require", options.extraPreload] : []), path.join(agentRoot, "agent", "src", "server.js")], {
+    cwd: path.join(agentRoot, "agent"),
     env: {
       ...process.env,
       FAKE_SYSTEMD_FILE: stateFile,
-      AGENT_REPO_ROOT: root,
+      AGENT_REPO_ROOT: agentRoot,
       ANXHUB_CONFIG_DIR: configDir,
       ANXHUB_AGENT_CONFIG_PATH: agentJson,
       AGENT_ENROLLMENT_PATH: path.join(configDir, "enrollment.json"),

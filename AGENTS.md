@@ -1239,6 +1239,29 @@ Use this section to accumulate verified project knowledge over time. Add entries
   is not automatically right for every surface: a font stack tuned for
   Windows desktops does not belong on phones.
 
+### 2026-11-25 — Build 216-F: two phone features that had never worked
+
+- **Problem:** On the phone, the Add-ons tab always said "No plugins
+  installed", and every backup check said "Check finished: done." whatever
+  the result. Both shipped in Build 215 and were found only when 216-F drove
+  every phone route in the real app (`mobile-ui-qa` M21).
+- **Cause:**
+  - The server loader fetched add-ons for tab `"addons"`, but the tab is
+    `"mods"` in the shared `ServerView.MAIN_TABS` (since Phase 7).
+  - The gateway read the check's outcome from the top level of the Agent's
+    reply; the Agent returns it on `record.verification`. The gateway smoke's
+    fake returned the shape the gateway expected, and nothing asserted the
+    projected state.
+- **Resolution:** The loader checks `"mods"`, and `mobile-tab-loader-smoke`
+  checks every tab name it tests against the shared list. The gateway reads
+  `record.verification`; the smoke's fake returns the Agent's real shape and
+  G27 asserts a verified and a failed result. M21 requires "verified". Both
+  checks fail on the old code.
+- **Lesson:** A capability is verified only when a real-app run calls it and
+  asserts its result. "Route exists and returns 200" and "a toast appeared"
+  passed for years here. Copy fakes from the producer's real reply, and when
+  two places name the same thing (a tab id), make one read the other's list.
+
 ## Future Improvements
 
 Keep optional ideas separate from active work. An item in this list is not authorization to implement it.

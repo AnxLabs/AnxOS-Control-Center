@@ -19,7 +19,8 @@ Plan: `PLANS.md` (approved, commit `9aadaead`). Protocol: `AGENTS.md` (ADP).
 | **216-D Custom Installer** | **Implemented; local checkpoint commit** (not pushed). New art from the brand SVGs, AnxHost names on every page, shortcut and uninstall entry, "AnxHost Helper". Not compiled on this PC (junctioned `node_modules`); Sandbox install, upgrade, repair and uninstall need the signed CI build (216-G). See "216-D" below. |
 | **216-C Phone Access Rebirth** | **Complete; local checkpoint commit** (not pushed). The phone uses the desktop's tokens, follows the phone's light or dark scheme, says AnxHost, uses the Option B icons and the `anxos-shell-v3` cache; a Build 215 pairing still works. See "216-C" below. |
 | **216-B Website and Branding** | **Partly complete; local checkpoint commit** (not pushed, not deployed). B2: every page, the READMEs and the release tooling say AnxHost Control Center ("formerly AnxOS Control Center"; release history keeps its names); AnxHost logo, icons and social preview. B3: domain plan written. Not done: new product screenshots and a layout redesign (see "216-B"). |
-| 216-F, 216-G | Not started |
+| **216-F Integration and Migration** | **Complete; local checkpoint commit** (not pushed). Real Build 215 to 216 upgrade 8/8, 216 desktop with a Build 215 Agent 5/5, all 1,573 capabilities verified, `qa:feature` 147/147; two phone defects shipped in Build 215 fixed (add-ons list, backup check result). See "216-F Integration and Migration" below. |
+| 216-G | Not started: needs the version bump (commit and push approval) and the signed RC workflow dispatch |
 
 ## 216-0 timing
 
@@ -1577,8 +1578,8 @@ page-specific CSS for the retired pages ("old CSS" was not a named target).
 
 51 rows retired, all from the targets above, none elsewhere (old and new
 inventories diffed): listed with their replacements in
-`docs/anxhost/RETIRED_CAPABILITIES.md`. **1,554 of 1,573 verified**; the 19
-left are phone API routes and screens no real-app run calls yet (216-F).
+`docs/anxhost/RETIRED_CAPABILITIES.md`. **1,554 of 1,573 verified** at that point; the 19
+left were phone API routes and screens, verified in 216-F.
 
 ### Tests (retired or ported, each because its subject was removed)
 
@@ -1620,3 +1621,80 @@ One run of the shell suite hung because the app's window never appeared
 within 30 s, and the run then stuck in cleanup; it was stopped (its four
 processes ended by PID after checking their command lines). The rerun on
 the same code passed, so this is recorded as a one-off launch hang.
+
+## 216-F Integration and Migration
+
+Owner instruction, 2026-11-25: "Finish 216-F first" (before any version bump
+or release candidate). Nothing in this phase changes a backend, IPC, Agent,
+Docker or AnxNet behaviour except the two phone defects below, which were
+found by the new end-to-end checks and shipped in Build 215.
+
+### Finish-line evidence
+
+| Requirement | Evidence | Result |
+| --- | --- | --- |
+| Build 215 profile upgrades with nothing lost | `scripts/upgrade-from-215-ui-qa.js --base=<Build 215 checkout>`: the real Build 215 app writes an owner with "Stay signed in", a preference, an Agent computer (token in the credential store), an SSH profile, a backup, a Marketplace favorite and a phone paired over HTTPS; Build 216 then opens the same profile | **8/8 PASS**: session restored without a password (216-E), preference unchanged, computer listed and its stored token authenticates, SSH profile, the 215 backup, favorite, the paired phone listed and its cookie still works, 0 renderer errors |
+| Mixed fleet: 216 desktop, 215 Agent | `scripts/mixed-version-215-agent-ui-qa.js --base=<Build 215 checkout>`: the published Build 215 Agent source runs under the service-managed fixture (new `agentRoot` option) | **5/5 PASS**: online and reports build 215; start, console command (echoed) and stop; file write, list, read back; backup create, list and check (`verification.state` "verified"); 0 renderer errors |
+| Every mapped capability verified | `anxhost-capability-inventory --check` | **1,573 of 1,573 ticked**: the last 19 rows (16 phone API routes, the Computer, message and skeleton screens) are covered by `mobile-ui-qa` M21, whose run recorded 40 phone API routes |
+| Backups and restore, AnxNet and sharing, Docker update with rollback, Phone Access end to end | Feature tier: `restore-drill`, `backup-verification`, `backup-file-fixes`, `backup-before-update`; `anxnet-*` (6), `sharing-fixes`, `share-health`, `playit-*` (3); `docker-service-update` (image rollback step), `agent-docker-actions`; `mobile-gateway` (27). Real app: `mobile-ui-qa` (25), and the A6–A8 suites already run on this tree | See "Validation performed" |
+
+The Build 215 checkout used was the `anxnet-orbit-relay-f3a366` worktree
+(`release.json` build 215); both tests refuse any other build and only read
+it (`git status` clean afterwards).
+
+### Defects found and fixed (both shipped in Build 215)
+
+1. **The phone never listed installed add-ons** (since Phase 7, `6dec0139`).
+   The server page's loader fetched the installed list when the tab was
+   `"addons"`, but the Add-ons tab is `"mods"` in `ServerView.MAIN_TABS`, so
+   the tab always said "No plugins installed". Fixed in
+   `src/mobile/web/app.js`; `scripts/mobile-tab-loader-smoke.js` checks every
+   tab name the loader tests against the shared tab list (fails on the old
+   code: "not tabs: addons").
+2. **Every phone backup check said "Check finished: done."** The gateway read
+   the outcome from the top level of the Agent's reply, but the Agent returns
+   it on `record.verification` (`persistVerificationOutcome`), so a failed or
+   corrupt backup was never reported as such on the phone. Fixed in
+   `src/mobile/api.js`. The gateway smoke's fake returned the shape the code
+   expected; it now returns the Agent's real shape, and G27 checks a verified
+   and a failed result with its detail (fails on the old code: state "").
+   M21 now requires "Check finished: verified".
+
+### Tests added
+
+- `scripts/upgrade-from-215-ui-qa.js` (U1–U8), `scripts/mixed-version-215-agent-ui-qa.js` (K1–K5): need a Build 215 checkout with its `node_modules`; not in a tier because of that dependency (`npm run upgrade-from-215:ui-qa -- --base=…`).
+- `mobile-ui-qa` M21: add-ons (publish an update, Check for updates, Update all, Roll back, Update, turn a dependency off and on, import, Remove), files (New folder, Rename, Delete, edit), backups (Check, download as gzip, restore with RESTORE), Restart, the Computer screen, an error message and the loading skeleton.
+- `scripts/mobile-tab-loader-smoke.js`; `mobile-gateway-smoke` G27.
+
+### Phone suite reliability
+
+11 runs of `mobile-ui-qa` during 216-F: 4 failed on defect 1 (no "Homes"
+row), 1 on defect 2's toast, 3 on early timeouts (two at launch, one Agent
+start request timed out), 3 passed; the last two (after both fixes) passed.
+The early timeouts match the 216-C finding (2/7 passing) and are not
+explained; the Agent fixture alone answers in 50–180 ms.
+
+### Validation performed (development PC, 2026-11-25)
+
+| Check | Result |
+| --- | --- |
+| `upgrade-from-215-ui-qa` (real Build 215 app, then 216) | **PASS 8/8** |
+| `mixed-version-215-agent-ui-qa` (216 desktop, Build 215 Agent) | **PASS 5/5** (K4 tightened to the exact `verification.state`; rerun passed) |
+| `mobile-ui-qa` (off-screen harness), with M21 and the verified-result assertion | **PASS, 25 checks** in 346 s; 40 phone API routes called |
+| `mobile-gateway-smoke` | **PASS, 27 checks** (G27 failed first on the old `api.js`) |
+| `mobile-tab-loader-smoke` (added to the feature and release tiers) | PASS (failed first on the old loader) |
+| `mobile-upgrade-from-215-smoke` | PASS 4/4 |
+| `npm run qa:feature` (off-screen harness), full tier | **PASS, 147 checks** in 741 s (run before the tab-loader smoke was added) |
+| `release-validation --tier=fast` | PASS, 5 checks |
+| `anxhost-capability-inventory --check` | PASS, 1,573 rows, all ticked |
+| `node --check` of every changed JS file (9), `git diff --check` | PASS |
+
+### 216-F remaining risks
+
+- The upgrade test covers the data the 215 app writes through its own
+  bridge on a temporary profile, not an installed 215 upgraded by the 216
+  installer; that is the Phase 4–6 RC upgrade.
+- The add-on import was driven through the phone API, not a file picker
+  (the phone has no import button; the row says so).
+- Phone suite early timeouts remain unexplained (see above).
+- Not done: 216-G (version bump, signed RC) waits for approval.

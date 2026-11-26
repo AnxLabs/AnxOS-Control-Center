@@ -32,6 +32,12 @@
 //   M15 Closing the phone's browser doesn't touch the running server.
 //   M16 PWA: manifest, service worker registered, installability errors.
 //   M17 No page errors or CSP violations in the phone app; none on desktop.
+//   M21 216-F: every phone route and screen no other step reaches, through
+//       the phone UI and checked on disk or on the Agent: add-on update,
+//       update all, roll back, turn off/on, import (API, no phone control) and
+//       remove; file save, new folder, rename, delete; backup check, download
+//       and restore; restart; the Computer screen; the error message; the
+//       loading skeleton.
 //   M20 216-C: light and dark (phone colour scheme) at 360/390/430 px and
 //       landscape: no overflow, no cut-off controls, text >= 4.5:1, console
 //       dark in light.
@@ -109,6 +115,8 @@ function installFakeModrinth({ app }) {
       "/v2/project/homes/version": [version("homes", "homes-v21", "2.1", "homes-2.1.jar", [{ project_id: "corelib", dependency_type: "required" }])],
       "/v2/project/corelib/version": [version("corelib", "corelib-v14", "1.4", "corelib-1.4.jar")],
     };
+    // M21 publishes a newer Homes through this state.
+    globalThis.__anxFakeModrinth = { routes, files, version, jar };
     const realFetch = globalThis.__anxRealFetch || globalThis.fetch;
     globalThis.__anxRealFetch = realFetch;
     globalThis.fetch = async (input, init) => {
@@ -399,6 +407,153 @@ async function main() {
     await phone.waitForTimeout(1500);
     assert.strictEqual(fs.readFileSync(marker, "utf8"), "after backup", "cancel changes nothing");
     pass("M9", "Back up now added a backup; Restore showed the preview (safety copy), needs RESTORE typed, Cancel changed nothing");
+
+    // M21 (216-F)
+    const plugins = path.join(serverData, "plugins");
+    const sheetButton = (name) => phone.locator(".sheet").getByRole("button", { name, exact: true });
+    const rowActions = async (text) => {
+      await waitFor(phone, (label) => [...document.querySelectorAll(".view .row")].some((row) => row.textContent.includes(label)), text, `row ${text}`, 20000).catch(async (error) => {
+        const seen = await phone.evaluate(() => ({ hash: location.hash, rows: [...document.querySelectorAll(".view .row")].map((row) => row.textContent.trim().slice(0, 60)), view: document.querySelector("[data-view]")?.textContent.trim().slice(0, 300) }));
+        throw new Error(`${error.message}; the view showed ${JSON.stringify(seen)}`);
+      });
+      await phone.locator(".view .row", { hasText: text }).first().locator('button[title], button:has-text("⋯")').last().click();
+    };
+    const reopen = async (tab) => {
+      await phone.evaluate(({ id, name }) => { location.hash = `#/server/ovh/${id}/${name}`; window.dispatchEvent(new HashChangeEvent("hashchange")); }, { id: SERVER_ID, name: tab });
+      await phone.waitForTimeout(1200);
+    };
+    await phone.evaluate(() => {
+      window.__qaSkeletons = 0;
+      new MutationObserver((records) => { for (const record of records) for (const node of record.addedNodes) if (node.nodeType === 1 && (node.matches(".skeleton") || node.querySelector(".skeleton"))) window.__qaSkeletons += 1; })
+        .observe(document.querySelector("[data-view]"), { childList: true, subtree: true });
+    });
+
+    // Add-ons: a newer Homes appears; Check for updates, Update all, Roll back, Update.
+    await app.evaluate(() => {
+      const state = globalThis.__anxFakeModrinth;
+      state.files["homes-2.2.jar"] = state.jar("homes-2.2.jar");
+      const crypto = process.mainModule.require("crypto");
+      const v22 = state.version("homes", "homes-v22", "2.2", "homes-2.2.jar", [{ project_id: "corelib", dependency_type: "required" }]);
+      v22.files[0].hashes = { sha512: crypto.createHash("sha512").update(state.files["homes-2.2.jar"]).digest("hex"), sha1: crypto.createHash("sha1").update(state.files["homes-2.2.jar"]).digest("hex") };
+      v22.date_published = "2026-11-20T00:00:00Z";
+      state.routes["/v2/project/homes/version"] = [v22, ...state.routes["/v2/project/homes/version"]];
+    });
+    await reopen("mods");
+    await phone.getByRole("button", { name: "Check for updates" }).click();
+    await waitFor(phone, () => /Homes: 2\.1 → 2\.2/.test(document.querySelector(".sheet")?.textContent || ""), null, "update offer", 20000);
+    await sheetButton("Update").click().catch(async () => phone.locator(".sheet .button.is-primary").last().click());
+    await until(() => fs.existsSync(path.join(plugins, "homes-2.2.jar")) && !fs.existsSync(path.join(plugins, "homes-2.1.jar")), "update all wrote Homes 2.2", 30000);
+    await reopen("mods");
+    await rowActions("Homes");
+    await sheetButton("Roll back").click();
+    await until(() => fs.existsSync(path.join(plugins, "homes-2.1.jar")) && !fs.existsSync(path.join(plugins, "homes-2.2.jar")), "roll back restored Homes 2.1", 30000);
+    await reopen("mods");
+    await rowActions("Homes");
+    await sheetButton("Update").click();
+    await until(() => fs.existsSync(path.join(plugins, "homes-2.2.jar")) && !fs.existsSync(path.join(plugins, "homes-2.1.jar")), "Update wrote Homes 2.2 again", 30000);
+    // Turn off and on again.
+    await reopen("mods");
+    await rowActions("CoreLib");
+    await sheetButton("Turn off").click();
+    await until(() => fs.existsSync(path.join(plugins, "corelib-1.4.jar.disabled")), "CoreLib turned off on disk", 20000);
+    await reopen("mods");
+    await rowActions("CoreLib");
+    await sheetButton("Turn on").click();
+    await until(() => fs.existsSync(path.join(plugins, "corelib-1.4.jar")), "CoreLib turned on again", 20000);
+    // Import has no phone control: the phone's own session calls the route.
+    const imported = await phone.evaluate(async (id) => {
+      const session = await fetch("/api/session").then((response) => response.json());
+      const bytes = btoa("PK\u0003\u0004 qa import");
+      const response = await fetch(`/api/servers/ovh/${id}/addons/import`, { method: "POST", headers: { "Content-Type": "application/json", "X-AnxOS-CSRF": session.csrf }, body: JSON.stringify({ fileName: "qa-import.jar", contentBase64: bytes }) });
+      return { status: response.status, body: await response.text() };
+    }, SERVER_ID);
+    assert.strictEqual(imported.status, 200, `import answered ${imported.status}: ${imported.body.slice(0, 200)}`);
+    await until(() => fs.existsSync(path.join(plugins, "qa-import.jar")), "imported jar on disk", 20000);
+    await reopen("mods");
+    await rowActions("qa-import");
+    await sheetButton("Remove").click();
+    await sheetButton("Remove").click();
+    await until(() => !fs.existsSync(path.join(plugins, "qa-import.jar")), "removed add-on is gone from plugins", 20000);
+    pass("M21", "add-ons: Check for updates offered Homes 2.1 → 2.2 and Update all wrote it; Roll back and Update swapped the files; Turn off/on renamed CoreLib; an imported jar was removed");
+
+    // Files: New folder, Rename, Delete, and editing a text file.
+    fs.writeFileSync(path.join(serverData, "qa-note.txt"), "hello");
+    await reopen("files");
+    await phone.getByRole("button", { name: "New folder" }).click();
+    await phone.locator(".sheet input").fill("qa-m21");
+    await sheetButton("Save").click();
+    await until(() => fs.existsSync(path.join(serverData, "qa-m21")), "new folder on disk", 20000);
+    await reopen("files");
+    await rowActions("qa-m21");
+    await sheetButton("Rename").click();
+    await phone.locator(".sheet input").fill("qa-m21b");
+    await sheetButton("Save").click();
+    await until(() => fs.existsSync(path.join(serverData, "qa-m21b")) && !fs.existsSync(path.join(serverData, "qa-m21")), "renamed folder on disk", 20000);
+    await reopen("files");
+    await rowActions("qa-m21b");
+    await sheetButton("Delete").click();
+    await phone.locator(".sheet .button.is-danger, .sheet .button.is-primary").last().click();
+    await until(() => !fs.existsSync(path.join(serverData, "qa-m21b")), "deleted folder gone", 20000);
+    await reopen("files");
+    await phone.locator(".row__main", { hasText: "qa-note.txt" }).click();
+    await waitFor(phone, () => Boolean(document.querySelector(".sheet textarea")), null, "text editor", 20000);
+    await phone.locator(".sheet textarea").fill("hello from the phone");
+    await sheetButton("Save").click();
+    await until(() => fs.readFileSync(path.join(serverData, "qa-note.txt"), "utf8") === "hello from the phone", "saved text on disk", 20000);
+    pass("M21", "files: New folder, Rename and Delete (asked first) acted on disk; a text file edited on the phone was saved");
+
+    // Backups: Check this backup, Download, then Restore (the marker written after the backup goes away).
+    await reopen("backups");
+    await phone.locator(".view .list .row").first().getByRole("button", { name: "Backup actions" }).click();
+    await sheetButton("Check this backup").click();
+    // The Agent's result, not a blank "done" (fixed in Build 216-F).
+    await waitFor(phone, () => /Check finished: verified/i.test(document.querySelector("[data-toast]")?.textContent || ""), null, "backup check result (verified)", 60000);
+    const checkToast = await phone.evaluate(() => document.querySelector("[data-toast]")?.textContent.trim() || "");
+    await reopen("backups");
+    await phone.locator(".view .list .row").first().getByRole("button", { name: "Backup actions" }).click();
+    const backupHref = await phone.locator(".sheet a.button", { hasText: "Download" }).getAttribute("href");
+    const downloaded = await phone.evaluate(async (href) => {
+      const response = await fetch(href);
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      return { status: response.status, type: response.headers.get("content-type"), gzip: bytes[0] === 0x1f && bytes[1] === 0x8b, size: bytes.length };
+    }, backupHref);
+    assert.ok(downloaded.status === 200 && downloaded.gzip && downloaded.size > 20, `backup download ${JSON.stringify(downloaded)}`);
+    await sheetButton("Restore…").click();
+    await waitFor(phone, () => document.querySelector(".sheet")?.textContent.includes("Type RESTORE"), null, "restore preview", 20000);
+    await phone.locator(".sheet input").fill("RESTORE");
+    await sheetButton("Restore").click();
+    await until(() => !fs.existsSync(marker), "restore brought back the backed-up files (marker gone)", 90000);
+    pass("M21", `backups: Check this backup ("${checkToast.slice(0, 60)}"); Download is a ${downloaded.size}-byte gzip; Restore with RESTORE typed put the backup back`);
+
+    // Restart (start it first if the restore stopped it).
+    await until(async () => {
+      const state = String((await agentInstance(agent, SERVER_ID)).state).toLowerCase();
+      if (state === "stopped") await agent.api("POST", `/api/v1/instances/${SERVER_ID}/start`, {}).catch(() => {});
+      return state === "running";
+    }, "server running before restart", 60000);
+    const startedBefore = (await agentInstance(agent, SERVER_ID)).startedAt || (await agentInstance(agent, SERVER_ID)).pid;
+    await reopen("overview");
+    await waitFor(phone, () => [...document.querySelectorAll(".button")].some((button) => button.textContent === "Restart"), null, "Restart button", 30000);
+    await phone.getByRole("button", { name: "Restart", exact: true }).click();
+    await sheetButton("Restart").click();
+    await until(async () => {
+      const instance = await agentInstance(agent, SERVER_ID);
+      return String(instance.state).toLowerCase() === "running" && (instance.startedAt || instance.pid) !== startedBefore;
+    }, "the Agent restarted the server", 60000);
+    pass("M21", "Restart asked first and the Agent restarted the server");
+
+    // The Computer screen, the error message and the loading skeleton.
+    await phone.evaluate(() => { location.hash = "#/computers"; });
+    await waitFor(phone, () => Boolean(document.querySelector('a[href^="#/computer/"]')), null, "computer link", 20000);
+    await phone.locator('a[href^="#/computer/"]').first().click();
+    await waitFor(phone, () => location.hash.startsWith("#/computer/") && document.querySelectorAll(".view .card").length > 0 && !document.querySelector(".view .skeleton"), null, "computer screen", 20000);
+    const computerTitle = await phone.evaluate(() => document.querySelector("[data-title]")?.textContent.trim());
+    await phone.evaluate(() => { location.hash = "#/server/ovh/qa-no-such-server/overview"; });
+    await waitFor(phone, () => Boolean(document.querySelector(".view .empty, .view .notice")), null, "error message", 20000);
+    const message = await phone.evaluate(() => document.querySelector(".view .empty, .view .notice")?.textContent.trim() || "");
+    const skeletons = await phone.evaluate(() => window.__qaSkeletons);
+    assert.ok(computerTitle && message && skeletons > 0, `computer "${computerTitle}", message "${message}", skeletons ${skeletons}`);
+    pass("M21", `the Computer screen opened ("${computerTitle}"); an unknown server shows "${message.slice(0, 60)}"; the loading skeleton appeared ${skeletons} times`);
 
     // M11 (Viewer) while the server runs
     const viewerLink = (await desk.evaluate(() => getDesktopApiState().api.mobile.createPairing("Viewer"))).links[0];
