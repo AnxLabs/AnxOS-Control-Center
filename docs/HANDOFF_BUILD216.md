@@ -1756,6 +1756,24 @@ handler instrumented (a temporary copy, removed afterwards).
 | IE9 "crash 2 is restarted" | No restart was refused or lost (the timer fired at most 145 ms late); `startInstance`'s pre-spawn work under load put the spawn 6 s after the crash, and past 15 s once. | Event waits in IE3, IE4 and IE9 use one 60 s limit (`EVENT_WAIT_MS`; they return as soon as the event happens), and IE3's long-run check also accepts the restart itself, since its 1 s timer can expire between two polls. |
 | **Product: config saves failed on a busy Windows PC** (found by the instrumented runs) | One IE9 pass failed with `EPERM` renaming `config.json`: the atomic write's retry window was 5 × 25 ms (125 ms), and a file held open longer (a poll's read, the other process, antivirus) made `updateRuntimeState` throw. That path records crashes and starts servers. Present since the retry was added (`2a239c87`). | Retries back off from 25 ms to 500 ms within a 3 s budget (Windows only, transient codes only, as before). `instance-runtime-smoke` now rides out 600 ms of contention and gives up on a permanent lock within the budget; it fails on the old code. |
 
+### Pre-RC fixes: every stale whole-record save (owner: "fix them first and improve anything", 2026-11-26)
+
+An audit of every `saveInstanceConfig` call in the instance core found the
+same race in more places: a record read before awaits, then saved whole.
+
+| Where | Before | Now |
+| --- | --- | --- |
+| `reconcileConfigState` (every status poll): recycled PID (`PID_IDENTITY_MISMATCH`), Failed record still naming a PID, legacy `Unknown`/`STALE_PID` migration | Saved the poll's copy with no lock or re-check; a Start made meanwhile was replaced with Stopped or Failed | `patchIfStillApplies`: a fresh read under the state lock, written only while it still shows what the poll judged, and only the corrected fields |
+| `reconcileConfigState`, dead PID on an active record (already locked) | An unreadable or deleted record fell back to the poll's copy and was saved, recreating a deleted server | An unreadable or deleted record is never rewritten |
+| Start: Java runtime choice, server JAR repair, startup script repair | Saved the whole record read at the start of Start; a settings save made during the Start was undone | `saveStartRepair`: only the repaired fields, under the lock, onto a fresh read; Start continues with its own record plus the repair |
+| Settings save (`updateInstance`) | Read, then write, with a yield inside the write; a crash result landing there was replaced | The whole read-modify-write runs under the state lock (no caller holds it, so no nesting) |
+| SteamCMD: update result, branch setting, legacy metadata migration | Reload-then-save without the lock, or the whole record after awaits | Under the lock; branch and migration write only their fields |
+
+IE12 checks each status-poll branch separately (with a control showing each
+correction still applies when nothing changed) and reports every branch that
+fails: on the old code all four fail (A, B, C, D). IE13 lands a settings save
+during a real Start that repairs its JAR command: the old code undid it.
+
 ### Validation performed (development PC, 2026-11-25/26)
 
 | Check (commit) | Result |

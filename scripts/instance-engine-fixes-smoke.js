@@ -34,6 +34,12 @@
 //       poll and list) re-derives its fields from the record on disk under
 //       the state lock. It used to save the whole snapshot it was given, the
 //       same way the version backfill did.
+//   IE12 The status poll's other corrections (a recycled PID, a Failed record
+//       still naming a PID, a legacy STALE_PID record) are applied onto a
+//       fresh read under the lock and only while it still shows what the
+//       poll judged; a deleted server is never recreated.
+//   IE13 Start's launch-command repair writes only its fields, so settings
+//       saved during the Start are kept.
 // Hermetic: temporary roots, a fake child_process.spawn (nothing is launched),
 // a fake systemd, a local fake Palworld REST server on an ephemeral loopback
 // port, and injected clocks. No real Agent, service or scheduled task.
@@ -414,6 +420,135 @@ async function checkNeoForgeSyncKeepsNewerState() {
     assert.ok(!fs.existsSync(path.join(instanceRoot, gone, "config.json")), "a deleted server is not recreated by the sync");
   } finally {
     Object.defineProperty(process, "platform", realPlatform);
+  }
+}
+
+// The smoke's default liveness rule (set at the top), restored after IE12.
+const defaultAlive = (pid) => children.some((child) => child.pid === pid && child.exitCode === null);
+
+async function checkReconcileKeepsNewerRecord() {
+  const S = core.INSTANCE_STATES;
+  const make = async (id) => {
+    await core.createInstance({ id, displayName: id, type: "custom-command", workingDirectory: "data", executable: process.execPath, args: ["-e", "0"], restartPolicy: "never" });
+    return readRecord(id);
+  };
+  const write = (id, record) => fs.writeFileSync(path.join(instanceRoot, id, "config.json"), JSON.stringify(record, null, 2));
+  const failures = [];
+  const branch = async (name, run) => {
+    try {
+      await run();
+    } catch (error) {
+      failures.push(`${name}: ${error.message}`);
+    } finally {
+      core._test.setProcessInspectionProvider(null);
+      core._test.setProcessAliveProvider(defaultAlive);
+    }
+  };
+  {
+    // A: a remembered PID that now belongs to another program. The identity
+    // check awaits the process table; a Start lands during that await.
+    await branch("A", async () => {
+      const id = "reconcile-pid-mismatch";
+      const base = await make(id);
+      const stale = { ...base, state: S.RUNNING, pid: 990001, processIdentity: null, runtimeProcess: null };
+      write(id, stale);
+      let raced = false;
+      core._test.setProcessAliveProvider((pid) => pid === 990001 || defaultAlive(pid));
+      core._test.setProcessInspectionProvider(async () => {
+        if (!raced) {
+          raced = true;
+          write(id, { ...readRecord(id), state: S.STARTING, pid: 990002 });
+        }
+        return { processes: [{ pid: 4242, name: "other" }], ports: [], complete: true };
+      });
+      await core._test.reconcileConfigState(stale);
+      const saved = readRecord(id);
+      assert.ok(raced, "A: the Start landed during the identity check");
+      assert.strictEqual(saved.state, S.STARTING, "A: the newer Start is kept");
+      assert.strictEqual(saved.pid, 990002, "A: the newer PID is kept");
+      // Control: with nothing changed meanwhile the correction still applies.
+      raced = true;
+      write(id, stale);
+      await core._test.reconcileConfigState(stale);
+      assert.strictEqual(readRecord(id).failureReason, "PID_IDENTITY_MISMATCH", "A: an unchanged record is still corrected");
+      core._test.setProcessInspectionProvider(null);
+      core._test.setProcessAliveProvider(defaultAlive);
+    });
+    // B: a Failed record that still names a PID; a Start was saved after the
+    // poll read it.
+    await branch("B", async () => {
+      const id = "reconcile-failed-pid";
+      const base = await make(id);
+      const stale = { ...base, state: S.FAILED, pid: 990011, failureReason: "PROCESS_EXITED" };
+      write(id, { ...base, state: S.STARTING, pid: 990012, failureReason: null });
+      await core._test.reconcileConfigState(stale);
+      assert.strictEqual(readRecord(id).state, S.STARTING, "B: the newer Start is kept");
+      assert.strictEqual(readRecord(id).pid, 990012, "B: the newer PID is kept");
+      write(id, stale);
+      await core._test.reconcileConfigState(stale);
+      assert.strictEqual(readRecord(id).pid ?? null, null, "B: an unchanged Failed record still drops its PID");
+      assert.strictEqual(readRecord(id).failureReason, "PROCESS_EXITED", "B: the failure reason stays");
+    });
+    // C: a legacy Unknown/STALE_PID record; the server was started meanwhile.
+    await branch("C", async () => {
+      const id = "reconcile-legacy-stale";
+      const base = await make(id);
+      const stale = { ...base, state: S.UNKNOWN, pid: null, failureReason: "STALE_PID" };
+      write(id, { ...base, state: S.RUNNING, pid: 990021, failureReason: null });
+      await core._test.reconcileConfigState(stale);
+      assert.strictEqual(readRecord(id).state, S.RUNNING, "C: the newer Running record is kept");
+      write(id, stale);
+      await core._test.reconcileConfigState(stale);
+      assert.strictEqual(readRecord(id).state, S.STOPPED, "C: an unchanged legacy record is still migrated");
+    });
+    // D: a dead PID on a server deleted while the poll ran.
+    await branch("D", async () => {
+      const id = "reconcile-deleted";
+      const base = await make(id);
+      const stale = { ...base, state: S.RUNNING, pid: 990031 };
+      fs.rmSync(path.join(instanceRoot, id, "config.json"), { force: true });
+      await core._test.reconcileConfigState(stale);
+      assert.ok(!fs.existsSync(path.join(instanceRoot, id, "config.json")), "D: a deleted server is not recreated");
+    });
+  }
+  assert.deepStrictEqual(failures, [], "every status-poll branch keeps the newer record");
+}
+
+async function checkStartRepairKeepsSettingsSave() {
+  const id = "start-repair-settings";
+  await core.createInstance({ id, displayName: "Before", type: "custom-command", workingDirectory: "data", executable: "java", args: ["-jar", "missing.jar", "nogui"], restartPolicy: "never", primaryPort: 25991 });
+  fs.mkdirSync(path.join(instanceRoot, id, "data"), { recursive: true });
+  fs.writeFileSync(path.join(instanceRoot, id, "data", "server.jar"), "jar");
+  // Version detection opens jars with unzip; answer as a machine without it.
+  const blockedExecFile = childProcess.execFile;
+  childProcess.execFile = (file, args, options, callback) => {
+    const done = typeof options === "function" ? options : callback;
+    const error = Object.assign(new Error(`${file} is not available in this test`), { code: "ENOENT" });
+    process.nextTick(() => done?.(error, "", ""));
+    return { kill() {} };
+  };
+  let raced = false;
+  // The port-ownership check runs just before Start repairs the JAR command;
+  // a settings save lands while it waits for the process table.
+  core._test.setProcessInspectionProvider(async () => {
+    if (!raced) {
+      raced = true;
+      const file = path.join(instanceRoot, id, "config.json");
+      fs.writeFileSync(file, JSON.stringify({ ...readRecord(id), displayName: "Renamed meanwhile" }, null, 2));
+    }
+    return { processes: [], ports: [], complete: true };
+  });
+  try {
+    await core.startInstance(id);
+    const saved = readRecord(id);
+    assert.ok(raced, "the settings save landed during Start");
+    assert.strictEqual(saved.displayName, "Renamed meanwhile", "the settings saved during Start are kept");
+    assert.strictEqual(saved.serverJar, "server.jar", "Start still saved its JAR repair");
+  } finally {
+    childProcess.execFile = blockedExecFile;
+    core._test.setProcessInspectionProvider(null);
+    const child = children[children.length - 1];
+    if (child && child.exitCode === null) child.emit("exit", 0, null);
   }
 }
 
@@ -829,6 +964,8 @@ const checks = [
   ["IE9 status polls during a crash's exit handling keep CRASH_LOOP", checkPollsDuringExitKeepCrashLoop],
   ["IE10 version backfill writes only its own fields onto the newer record", checkVersionBackfillKeepsNewerState],
   ["IE11 NeoForge launcher sync writes only its own fields onto the newer record", checkNeoForgeSyncKeepsNewerState],
+  ["IE12 status-poll corrections keep a newer record and never recreate a deleted one", checkReconcileKeepsNewerRecord],
+  ["IE13 a Start's launch repair keeps settings saved during the Start", checkStartRepairKeepsSettingsSave],
 ];
 
 (async () => {

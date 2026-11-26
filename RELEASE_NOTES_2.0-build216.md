@@ -25,6 +25,7 @@ AnxOS Control Center is now **AnxHost Control Center**. Build 216 is a new look 
 - **Phone: Check this backup** always said "done"; it now shows the real result (verified or failed, with the reason).
 - **Set up key sign-in failed about once in 200 tries.** The SSH library sometimes made a key that nothing could read; such a key is now replaced before it is used.
 - **A crash-looping server could lose its "crash loop" status.** A status refresh at the wrong moment could put an older state back (for every server, and again for NeoForge servers); it now updates only the details it owns.
+- **A server could show the wrong state, or lose a settings change, when two things happened at once.** A status refresh could put "Stopped" or "Failed" back over a Start you had just made, and a Start or a settings save could undo the other's change. Each now updates only what it changed, and a status refresh no longer recreates a server you had just deleted.
 - **On a busy Windows computer, saving a server's state could fail**, including recording a crash or starting the server, when another program had the file open for more than a moment. Saves now keep retrying for up to 3 seconds.
 - **Add Storage did nothing.** Save, Test Connection and Cancel in Build 215's Add Storage window had no effect; the new dialog works.
 - **Files could not open folders on a Windows Agent computer.** Opening a subfolder on a Windows computer's Agent was refused; it works now.

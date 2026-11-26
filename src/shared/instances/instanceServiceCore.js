@@ -794,8 +794,8 @@ async function repairLegacySteamCmdMetadata(instanceId) {
     if (await pathExists(path.resolve(root, "data", relative))) found.push(relative);
   }
   if (!found.length) throw createInstanceError("STEAMCMD_UPDATE_ARTIFACTS_MISSING", 422, { templateId: config.templateId, expected: verifyFiles });
-  const next = { ...config, installerType: "steamcmd-native", steamAppId: template.appId, steamInstallDir: template.installDir, steamVerifyFiles: found, updatedAt: nowIso() };
-  await saveInstanceConfig(next);
+  // Only the migrated fields, onto a fresh read: the checks above awaited.
+  const next = await updateRuntimeState(config.id, { installerType: "steamcmd-native", steamAppId: template.appId, steamInstallDir: template.installDir, steamVerifyFiles: found });
   return publicConfig(next);
 }
 
@@ -1138,18 +1138,21 @@ async function executeSteamCmdUpdateUnobserved(instanceId, request = {}) {
   // The server is stopped (checked above), so refreshing its Steam client copy is safe.
   const steamClientSync = await syncSteamClientRuntimeCopies({ appId: config.steamAppId, installDirectory });
   // The backup and download can take minutes, and settings saved meanwhile
-  // must survive: reload the config and set only the update's own fields.
-  const latest = await loadInstanceConfig(config.id);
-  await saveInstanceConfig({
-    ...latest,
-    steamBuildId: buildIdAfter,
-    steamUpdatedAt: nowIso(),
-    // The rollback point for this update; an update without a backup keeps
-    // the previous one only if the build did not change.
-    steamPreUpdateBackup: preUpdateBackup
-      ? { ...preUpdateBackup, buildIdAfter }
-      : buildIdAfter === buildIdBefore ? latest.steamPreUpdateBackup || null : null,
-    updatedAt: nowIso(),
+  // must survive: reload the config and set only the update's own fields,
+  // under the state lock so no other writer lands between the read and write.
+  await withInstanceStateLock(config.id, async () => {
+    const latest = await loadInstanceConfig(config.id);
+    await saveInstanceConfig({
+      ...latest,
+      steamBuildId: buildIdAfter,
+      steamUpdatedAt: nowIso(),
+      // The rollback point for this update; an update without a backup keeps
+      // the previous one only if the build did not change.
+      steamPreUpdateBackup: preUpdateBackup
+        ? { ...preUpdateBackup, buildIdAfter }
+        : buildIdAfter === buildIdBefore ? latest.steamPreUpdateBackup || null : null,
+      updatedAt: nowIso(),
+    });
   });
   return { ok: true, ...details, verified: verifyFiles, steamClientSync, preUpdateBackup, buildChanged: Boolean(buildIdBefore && buildIdAfter !== buildIdBefore) };
 }
@@ -1343,8 +1346,7 @@ async function setSteamCmdBranch(instanceId, request = {}) {
   if (!STEAM_BRANCH_PATTERN.test(branch)) throw createInstanceError("STEAMCMD_BRANCH_INVALID", 400);
   // Only the setting changes here; files move to the branch on the next
   // update, which still requires the server to be stopped.
-  const next = { ...config, steamBranch: branch === "public" ? null : branch, updatedAt: nowIso() };
-  await saveInstanceConfig(next);
+  const next = await updateRuntimeState(config.id, { steamBranch: branch === "public" ? null : branch });
   return publicConfig(next);
 }
 
@@ -3768,15 +3770,13 @@ async function repairConfiguredServerJar(config) {
     return config;
   }
 
-  const repaired = {
-    ...config,
+  const patch = {
     args: repairedArgs,
     serverJar: relativeJar,
     serverJarPath: relativeJar,
     startJar: relativeJar,
-    updatedAt: nowIso(),
   };
-  await saveInstanceConfig(repaired);
+  const repaired = await saveStartRepair(config, patch);
   await appendLog(config.id, "stdout", `Repaired server JAR command: ${formatCommandForLog(repaired)}`).catch(() => {});
   return repaired;
 }
@@ -3819,8 +3819,7 @@ async function repairScriptLauncherCommand(config) {
   }
   const scriptIndex = configuredScript?.index ?? -1;
   const extraArgs = scriptIndex >= 0 && !javaTryingToRunInstallerJar ? args.slice(scriptIndex + 1) : [];
-  const repaired = {
-    ...config,
+  const patch = {
     type: config.type === "java-app" && javaTryingToRunMissingJarWithScript ? "custom-command" : config.type,
     executable: launcher.executable,
     args: [...launcher.args, ...extraArgs],
@@ -3830,11 +3829,19 @@ async function repairScriptLauncherCommand(config) {
     serverJar: javaTryingToRunInstallerJar || javaTryingToRunMissingJarWithScript ? null : config.serverJar,
     serverJarPath: javaTryingToRunInstallerJar || javaTryingToRunMissingJarWithScript ? null : config.serverJarPath,
     startJar: javaTryingToRunInstallerJar || javaTryingToRunMissingJarWithScript ? null : config.startJar,
-    updatedAt: nowIso(),
   };
-  await saveInstanceConfig(repaired);
+  const repaired = await saveStartRepair(config, patch);
   await appendLog(config.id, "stdout", `Repaired startup script command: ${formatCommandForLog(repaired)}`).catch(() => {});
   return repaired;
+}
+
+// Start repairs the launch command from a record it read several awaits
+// earlier. Only the repaired fields are written, onto a fresh read under the
+// state lock, so a settings save made meanwhile is kept; Start goes on with
+// its own record plus the repair.
+async function saveStartRepair(config, patch) {
+  await updateRuntimeState(config.id, patch);
+  return { ...config, ...patch, updatedAt: nowIso() };
 }
 
 function isNeoForgeInstance(config = {}) {
@@ -5566,6 +5573,26 @@ function isCurrentRunningProcess(instanceId, child) {
   return Boolean(entry && entry.child === child);
 }
 
+// A status poll's correction to a record it read before awaiting (process
+// discovery, an identity check). It is applied under the state lock, onto a
+// fresh read, and only while that read still shows what the poll judged
+// (`stillApplies`); otherwise the newer record (a Start, a crash result) wins.
+// A record deleted or unreadable meanwhile is never rewritten.
+async function patchIfStillApplies(config, stillApplies, makePatch) {
+  return withInstanceStateLock(config.id, async () => {
+    let latest;
+    try {
+      latest = await loadInstanceConfig(config.id);
+    } catch {
+      return config;
+    }
+    if (!stillApplies(latest)) return latest;
+    const updated = { ...latest, ...makePatch(latest) };
+    await saveInstanceConfig(updated);
+    return updated;
+  });
+}
+
 async function reconcileConfigState(config) {
   // Service-managed: state comes from the service manager only. This must stay
   // ahead of detached-runtime discovery so the Agent can never "adopt" the
@@ -5607,18 +5634,19 @@ async function reconcileConfigState(config) {
     if (!processEntry) {
       const identity = await verifyPersistedRuntimeIdentity(config, pid).catch(() => "unavailable");
       if (identity === "mismatch") {
-        const updated = {
-          ...config,
-          state: INSTANCE_STATES.STOPPED,
-          pid: null,
-          runtimeProcess: null,
-          lastStoppedAt: config.lastStoppedAt || nowIso(),
-          failureReason: "PID_IDENTITY_MISMATCH",
-          readinessState: "stopped",
-          healthState: "unknown",
-        };
-        await saveInstanceConfig(updated);
-        return updated;
+        return patchIfStillApplies(
+          config,
+          (latest) => latest.state === config.state && normalizePid(latest.pid) === normalizePid(pid) && !runningProcesses.has(config.id),
+          (latest) => ({
+            state: INSTANCE_STATES.STOPPED,
+            pid: null,
+            runtimeProcess: null,
+            lastStoppedAt: latest.lastStoppedAt || nowIso(),
+            failureReason: "PID_IDENTITY_MISMATCH",
+            readinessState: "stopped",
+            healthState: "unknown",
+          }),
+        );
       }
     }
     const readinessDetected = processEntry?.readinessState === "ready";
@@ -5649,13 +5677,11 @@ async function reconcileConfigState(config) {
   // and service restarts.
   if (config.state === INSTANCE_STATES.FAILED) {
     if (config.pid || config.runtimeProcess) {
-      const updated = {
-        ...config,
-        pid: null,
-        runtimeProcess: null,
-      };
-      await saveInstanceConfig(updated);
-      return updated;
+      return patchIfStillApplies(
+        config,
+        (latest) => latest.state === INSTANCE_STATES.FAILED && normalizePid(latest.pid) === normalizePid(config.pid) && !runningProcesses.has(config.id),
+        () => ({ pid: null, runtimeProcess: null }),
+      );
     }
     return config;
   }
@@ -5670,17 +5696,18 @@ async function reconcileConfigState(config) {
     !normalizePid(config.pid) &&
     config.failureReason === "STALE_PID"
   ) {
-    const updated = {
-      ...config,
-      state: INSTANCE_STATES.STOPPED,
-      pid: null,
-      runtimeProcess: null,
-      lastStoppedAt: config.lastStoppedAt || nowIso(),
-      readinessState: "stopped",
-      healthState: "unknown",
-    };
-    await saveInstanceConfig(updated);
-    return updated;
+    return patchIfStillApplies(
+      config,
+      (latest) => latest.state === INSTANCE_STATES.UNKNOWN && !normalizePid(latest.pid) && latest.failureReason === "STALE_PID" && !runningProcesses.has(config.id),
+      (latest) => ({
+        state: INSTANCE_STATES.STOPPED,
+        pid: null,
+        runtimeProcess: null,
+        lastStoppedAt: latest.lastStoppedAt || nowIso(),
+        readinessState: "stopped",
+        healthState: "unknown",
+      }),
+    );
   }
 
   if (config.state === INSTANCE_STATES.RUNNING || config.state === INSTANCE_STATES.STARTING || config.state === INSTANCE_STATES.STOPPING || config.state === INSTANCE_STATES.RESTARTING) {
@@ -5691,7 +5718,14 @@ async function reconcileConfigState(config) {
     // write happens only if the record still shows the same active run: an
     // exit result, a stop or a new start written meanwhile is kept.
     return withInstanceStateLock(config.id, async () => {
-    const latest = await loadInstanceConfig(config.id).catch(() => config);
+    // A record deleted or unreadable meanwhile is reported as read, never
+    // rewritten from this poll's copy (that recreated deleted servers).
+    let latest;
+    try {
+      latest = await loadInstanceConfig(config.id);
+    } catch {
+      return config;
+    }
     const activeStates = [INSTANCE_STATES.RUNNING, INSTANCE_STATES.STARTING, INSTANCE_STATES.STOPPING, INSTANCE_STATES.RESTARTING];
     if (
       !activeStates.includes(latest.state)
@@ -5857,7 +5891,14 @@ function conflictComparable(field, value) {
   return String(value ?? "").trim();
 }
 
-async function updateInstance(instanceId, payload = {}) {
+// A settings save reads the record and writes it whole. It runs under the
+// instance's state lock so a crash result or Start written by another writer
+// cannot land between the read and the write and be replaced.
+function updateInstance(instanceId, payload = {}) {
+  return withInstanceStateLock(instanceId, () => updateInstanceLocked(instanceId, payload));
+}
+
+async function updateInstanceLocked(instanceId, payload = {}) {
   const current = await loadInstanceConfig(instanceId);
   if (isServiceManaged(current)) {
     // Operator-authored on disk; not editable through the Agent API.
@@ -6604,8 +6645,7 @@ async function startInstanceImpl(instanceId, options = {}) {
   config = await repairScriptLauncherCommand(config);
   const runtimeResolvedConfig = resolveInstanceJavaRuntime(config);
   if (runtimeResolvedConfig.executable !== config.executable || JSON.stringify(runtimeResolvedConfig.javaRuntime) !== JSON.stringify(config.javaRuntime)) {
-    config = { ...runtimeResolvedConfig, updatedAt: nowIso() };
-    await saveInstanceConfig(config);
+    config = await saveStartRepair(config, { executable: runtimeResolvedConfig.executable, javaRuntime: runtimeResolvedConfig.javaRuntime });
     await appendLog(config.id, "stdout", `Selected Java ${config.javaRuntime.major} runtime: ${config.executable}`).catch(() => {});
   }
   const repairedArgs = normalizeShellWrapperArgs(config.executable, config.args);
@@ -8814,6 +8854,7 @@ module.exports = {
   _test: {
     backfillInstanceVersion,
     syncNeoForgeScriptRuntimeConfig,
+    reconcileConfigState,
     checkUdpPortHeld,
     resolveSpawnExecutable,
     jobLifecycle,
