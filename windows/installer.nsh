@@ -94,8 +94,12 @@
     ${If} $anxHelperWasInstalled == 1
       StrCpy $anxSetupHelper 1
     ${EndIf}
-    ; $PLUGINSDIR exists once a plugin has run (nsExec above). The app is
-    ; extracted into its 7z-out folder first, which Setup measures.
+    ; electron-builder runs customInit before its own InitPluginsDir, and on a
+    ; fresh install no plugin has run yet, so $PLUGINSDIR is still empty here
+    ; (RC1 Sandbox: Setup then never measured the copy). InitPluginsDir only
+    ; creates the folder once; the app is extracted into its 7z-out folder,
+    ; which Setup measures.
+    InitPluginsDir
     !insertmacro anxStatus "start"
     !insertmacro anxStatus "plugins $PLUGINSDIR"
   !endif

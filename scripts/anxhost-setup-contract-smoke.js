@@ -71,6 +71,12 @@ check("S3 status lines written and parsed", () => {
   for (const word of written) assert(new RegExp(`"${word}"(\\s+if [^=]*)?\\s*=>`).test(engineRs), `engine.rs parses "${word}"`);
   assert(/customFiles_x64[\s\S]{0,80}anxStatus "extracted"/.test(nsh), "extracted is reported after the files are in place");
   assert(/\$\{GetOptions\} \$R0 "\/ANXSTATUS=" \$R1/.test(nsh), "the status file comes from /ANXSTATUS=");
+  // electron-builder calls customInit before InitPluginsDir: without its own
+  // InitPluginsDir the "plugins" line is empty on a fresh install and the
+  // copy is never measured (RC1 Sandbox).
+  const init = /!macro customInit([\s\S]*?)!macroend/.exec(nsh)?.[1] || "";
+  assert(/InitPluginsDir[\s\S]*anxStatus "plugins \$PLUGINSDIR"/.test(init), "customInit initialises $PLUGINSDIR before reporting it");
+  assert(/"plugins" if !rest\.is_empty\(\)/.test(engineRs), "an empty plugins line is not taken as a folder");
 });
 
 check("S4 uninstall handoff is interactive-only; the uninstall entry is untouched", () => {

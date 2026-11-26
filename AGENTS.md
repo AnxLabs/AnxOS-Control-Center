@@ -1398,6 +1398,27 @@ Use this section to accumulate verified project knowledge over time. Add entries
   developer PC hides missing runtimes. Check a native program's imports, not
   only that it starts here.
 
+### 2026-11-26 — Build 216 RC1: Setup's progress bar never measured anything
+
+- **Problem:** In a clean Sandbox, a real install sat on "Preparing" with a
+  moving bar for its whole 47 s and jumped to Done. The measured copy step
+  never appeared, although `cargo test` drove a stand-in engine through it.
+  On a fresh install the list also said "Stopped the Helper" when there was
+  none.
+- **Cause:** electron-builder runs `customInit` before its own
+  `InitPluginsDir`. On a fresh install no plugin has run yet, so the
+  `plugins $PLUGINSDIR` status line was empty and Setup never learned which
+  folder to measure. The stand-in engine wrote a real folder, so the test
+  could not see it.
+- **Resolution:** `customInit` calls `InitPluginsDir` first
+  (`anxhost-setup-contract-smoke` S3 fails without it). The Helper step says
+  "Checked for a running Helper" when none was set up, and the bar publishes
+  `aria-valuenow`.
+- **Lesson:** A stand-in must reproduce the real producer's state at the
+  moment it reports, not the state the consumer hopes for. Check progress
+  reporting against the real installer on a clean machine, and look at what
+  the screen showed over time, not only that it finished.
+
 ## Future Improvements
 
 Keep optional ideas separate from active work. An item in this list is not authorization to implement it.
