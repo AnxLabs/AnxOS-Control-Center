@@ -20,6 +20,10 @@
 //       newline, and remove exactly the one line
 //   K9  key files are protected: a failed Windows ACL deletes the key; on
 //       Windows the real ACL grants only the current account
+//   K10 Build 216-G: ssh2 drops a leading zero byte from about 1 ed25519
+//       public key in 256, making a key nothing can parse; such a key is
+//       never used (a new one is generated), and a generator that keeps
+//       producing them is refused
 // Run: node scripts/ssh-key-setup-smoke.js
 
 const assert = require("assert");
@@ -130,7 +134,8 @@ const authorizedLines = (home) => {
     console.log("SKIP ssh-key-setup smoke: bash is required to run the generated scripts.");
     return;
   }
-  const hostKey = generateKeyPairSync("ed25519").private;
+  // A malformed host key (see K10) would fail this smoke about 1 run in 222.
+  const hostKey = sshTest.generateUsableEd25519KeyPair().private;
   const fingerprint = hostKeyFingerprint(hostKey);
 
   // K1, K2
@@ -291,6 +296,27 @@ const authorizedLines = (home) => {
   }
 
   fs.rmSync(root, { recursive: true, force: true });
+  // K10
+  {
+    let malformed = null;
+    for (let i = 0; i < 20000 && !malformed; i += 1) {
+      const candidate = generateKeyPairSync("ed25519");
+      if (parseKey(candidate.private) instanceof Error) malformed = candidate;
+    }
+    assert(malformed, "ssh2 produced a malformed ed25519 key within 20,000 tries (about 1 in 222 expected)");
+    let calls = 0;
+    const once = (type, options) => { calls += 1; return calls === 1 ? malformed : generateKeyPairSync(type, options); };
+    const usable = sshTest.generateUsableEd25519KeyPair({ comment: "k10" }, once);
+    assert.strictEqual(calls, 2, "the malformed key was skipped and a new one generated");
+    assert.notStrictEqual(usable.private, malformed.private);
+    const parsed = parseKey(usable.private);
+    assert(!(parsed instanceof Error) && parsed.getPublicSSH().length === 51, "the key used parses with a full 32-byte public key");
+    assert.throws(() => sshTest.generateUsableEd25519KeyPair({}, () => malformed), (error) => error.code === "SSH_KEY_GENERATION_FAILED", "a generator that only produces malformed keys is refused");
+    const protectedKey = sshTest.generateUsableEd25519KeyPair({ comment: "k10", passphrase: "k10 passphrase", cipher: "aes256-ctr", rounds: 4 });
+    assert(!(parseKey(protectedKey.private, "k10 passphrase") instanceof Error), "a passphrase key is checked with its passphrase");
+    pass("K10 a malformed generated key is never used");
+  }
+
   console.log(`SSH key setup smoke passed (${passed} cases).`);
 })().catch((error) => {
   console.error(error);

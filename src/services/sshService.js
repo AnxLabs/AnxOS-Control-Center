@@ -576,6 +576,26 @@ function publicKeyFingerprint(publicKeyLine) {
   return `SHA256:${createHash("sha256").update(Buffer.from(blob, "base64")).digest("base64").replace(/=+$/, "")}`;
 }
 
+// ssh2's generateKeyPairSync drops a leading zero byte from an ed25519 public
+// key (about 1 key in 256), and the result is refused by ssh2's own parser and
+// by OpenSSH ("Malformed OpenSSH private key"). Each key is parsed back, with
+// its passphrase, and must carry a full 32-byte public key (a 51-byte wire
+// blob) matching its .pub line; otherwise a new key is generated.
+const ED25519_PUBLIC_BLOB_BYTES = 51;
+function generateUsableEd25519KeyPair(options = {}, generate = generateKeyPairSync, maxAttempts = 8) {
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const generated = generate("ed25519", options);
+    const parsed = parseKey(generated?.private, options.passphrase);
+    const publicParsed = parseKey(String(generated?.public || "").trim());
+    if (parsed instanceof Error || publicParsed instanceof Error || !parsed || !publicParsed) continue;
+    if (parsed.type !== "ssh-ed25519") continue;
+    const blob = parsed.getPublicSSH();
+    if (blob.length !== ED25519_PUBLIC_BLOB_BYTES || !blob.equals(publicParsed.getPublicSSH())) continue;
+    return generated;
+  }
+  throw new SshServiceError("The new key could not be generated.", { code: "SSH_KEY_GENERATION_FAILED" });
+}
+
 // Appends one public key to the signed-in user's authorized_keys (never
 // another file), creating it with OpenSSH's required permissions. A key that
 // is already there is not added twice.
@@ -1649,7 +1669,7 @@ class SshService extends EventEmitter {
 
     const keyDirectory = options.keyDirectory || path.join(os.homedir(), ".ssh");
     const comment = `anxos-${slugify(profile.username, "user")}@${slugify(profile.host, "host")}`;
-    const generated = generateKeyPairSync("ed25519", passphrase ? { comment, passphrase, cipher: "aes256-ctr", rounds: 16 } : { comment });
+    const generated = generateUsableEd25519KeyPair(passphrase ? { comment, passphrase, cipher: "aes256-ctr", rounds: 16 } : { comment });
     const publicKeyLine = String(generated.public || "").trim();
     if (!/^ssh-ed25519 [A-Za-z0-9+/]+={0,2} [A-Za-z0-9@._-]+$/.test(publicKeyLine)) {
       throw new SshServiceError("The new key could not be generated.", { code: "SSH_KEY_GENERATION_FAILED" });
@@ -1748,6 +1768,7 @@ module.exports = {
     buildAuthorizeKeyScript,
     buildRemoveKeyScript,
     publicKeyFingerprint,
+    generateUsableEd25519KeyPair,
     writePrivateKeyFile,
     buildProfileNodeMismatchDetails,
     sshAgentPathExists,
