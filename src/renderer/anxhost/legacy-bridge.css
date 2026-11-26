@@ -126,6 +126,24 @@
   background: var(--ahx-surface-2);
 }
 
+/* Add Server's inset boxes: styles.css paints them a fixed dark tint
+   (rgba(10, 3, 20, …)), so in the light theme they were dark boxes whose muted
+   text read 1.72:1 (found by anxhost-theme-ui-qa T2). */
+:root[data-shell="ahx"] .marketplace-summary-section,
+:root[data-shell="ahx"] .marketplace-recovery-actions,
+:root[data-shell="ahx"] .marketplace-progress-empty,
+:root[data-shell="ahx"] .marketplace-progress-step,
+:root[data-shell="ahx"] .download-list .docker-empty-state {
+  border-color: var(--ahx-border-subtle);
+  background: var(--ahx-surface-2);
+}
+
+:root[data-shell="ahx"] .marketplace-version-panel {
+  border-color: var(--ahx-border);
+  background: var(--ahx-surface-2);
+  box-shadow: var(--ahx-shadow-2);
+}
+
 /* Table headers. */
 :root[data-shell="ahx"] .instances-table th,
 :root[data-shell="ahx"] .file-table th,

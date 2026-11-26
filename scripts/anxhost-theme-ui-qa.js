@@ -142,9 +142,21 @@ function measureView({ theme, darkByDesign }) {
   return { texts, surfaces, excluded, lowText, wrongSurfaces };
 }
 
-async function settle(page) {
-  // Surfaces animate colour changes; measure once transitions are over.
-  await page.waitForTimeout(900);
+// Surfaces animate colour changes; measure once transitions are over. This
+// used to sleep 900 ms per view (about 70 views per theme); it now waits for
+// the finite animations and transitions themselves (spinners run forever and
+// are ignored), after a short floor so data a view asks for can arrive.
+async function settle(page, floorMs = 300) {
+  await page.waitForTimeout(floorMs);
+  await page.evaluate(async () => {
+    const frame = () => new Promise((resolve) => requestAnimationFrame(() => resolve()));
+    const deadline = Date.now() + 3000;
+    await frame();
+    while (Date.now() < deadline && document.getAnimations().some((animation) => animation.playState === "running" && Number.isFinite(animation.effect?.getComputedTiming?.().endTime))) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    await frame();
+  });
 }
 
 async function measureAll(page, theme) {
@@ -164,7 +176,7 @@ async function measureAll(page, theme) {
       views[label] = { error: String(error.message || error).slice(0, 200) };
     }
     if (closeKey) await page.keyboard.press(closeKey).catch(() => {});
-    await page.waitForTimeout(250);
+    await settle(page, 50);
   };
   const pages = await page.evaluate(() => [...document.querySelectorAll("section.page[data-page]")].map((section) => section.dataset.page).filter((pageName) => !["amp", "coolpals"].includes(pageName)));
   for (const pageName of pages) await step(`page:${pageName}`, (n) => { window.showPage(n); return true; }, pageName);
@@ -305,7 +317,7 @@ async function run() {
       const pageNames = await page.evaluate(() => [...document.querySelectorAll("section.page[data-page]")].map((section) => section.dataset.page).filter((name) => !["amp", "coolpals"].includes(name)));
       for (const pageName of pageNames) {
         await page.evaluate((name) => window.showPage(name), pageName);
-        await page.waitForTimeout(450);
+        await settle(page, 150);
         const cut = await page.evaluate((name) => {
           const pageEl = document.querySelector(`.page[data-page="${name}"]`);
           return [...pageEl.querySelectorAll("button, label.console-toggle, input, select, a[href]")]

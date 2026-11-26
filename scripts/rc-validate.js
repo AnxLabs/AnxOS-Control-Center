@@ -77,13 +77,33 @@ function terminateProcessTree(child) {
   }
 }
 
+// Most suites are a plain `node scripts/x.js [args]`. Starting npm for each one
+// cost about 0.8 s on Windows (430 suites: about 6 minutes a run), so those
+// run directly, with what npm adds that a script could rely on: the package's
+// node_modules/.bin first on PATH and npm_lifecycle_event. A script with shell
+// syntax (&&, quotes, variables) still goes through npm, and RC_VIA_NPM=1 sends
+// every suite through npm as before.
+function directInvocation(scriptName, env = process.env, scripts = packageJson.scripts) {
+  if (env.RC_VIA_NPM === "1") return null;
+  const match = /^node (scripts\/[A-Za-z0-9._/-]+\.js)((?: [A-Za-z0-9._=/:-]+)*)$/.exec(String(scripts?.[scriptName] || "").trim());
+  if (!match) return null;
+  const pathKey = Object.keys(env).find((key) => key.toUpperCase() === "PATH") || "PATH";
+  const binDir = path.join(process.cwd(), "node_modules", ".bin");
+  return {
+    command: process.execPath,
+    args: [match[1], ...match[2].split(" ").filter(Boolean)],
+    shell: false,
+    env: { ...env, [pathKey]: `${binDir}${path.delimiter}${env[pathKey] || ""}`, npm_lifecycle_event: scriptName },
+  };
+}
+
 function runSuite(command, timeoutMs = Number(process.env.RC_SUITE_TIMEOUT_MS || 120000)) {
-  const invocation = npmInvocation(command);
+  const invocation = directInvocation(command) || npmInvocation(command);
   const startedAt = Date.now();
   return new Promise((resolve) => {
     const child = spawn(invocation.command, invocation.args, {
       cwd: process.cwd(),
-      env: process.env,
+      env: invocation.env || process.env,
       detached: process.platform !== "win32",
       shell: invocation.shell,
       stdio: ["ignore", "pipe", "pipe"],
@@ -204,4 +224,4 @@ return { results, failed: overallFailure };
 }
 
 if (require.main === module) runValidation().catch((error) => { console.error(error); process.exitCode = 1; });
-module.exports = { classifySubprocessResult, npmCommand, npmInvocation, runValidation, runSuite, terminateProcessTree };
+module.exports = { classifySubprocessResult, directInvocation, npmCommand, npmInvocation, runValidation, runSuite, terminateProcessTree };
