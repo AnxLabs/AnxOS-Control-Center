@@ -7,7 +7,7 @@ These limitations are acceptable for Private Alpha if they are clearly communica
 - AnxOS Control Center is Private Alpha.
 - Do not present it as public beta, stable, or v1.0-ready.
 - No version bump, tag, or GitHub Release should be created for readiness-only documentation changes.
-- Current source identity is Version 2.0 Build 215, Private Alpha, per
+- Current source identity is Version 2.0 Build 216, Private Alpha, per
   `release.json`. Historical build-numbered reports are evidence for their named
   artifacts only; see `DOCUMENTATION_INDEX.md`. Availability of matching
   candidate artifacts must be proven separately and is not inferred from source
@@ -27,6 +27,31 @@ These limitations are acceptable for Private Alpha if they are clearly communica
 - Linux package availability depends on distribution repositories and host permissions.
 - Do not run the Agent as root just to bypass file, Docker, or provider permissions.
 - Local Agent automatic pairing is separate from remote Agent token workflows. Do not ask normal users to copy Local Agent tokens.
+
+## Build 216
+
+- **The product is named AnxHost Control Center, but identifiers keep AnxOS**
+  so updates stay in place: the app ID, executable and install folder, the
+  `AnxHub` data folder, the `AnxOSAgent` task, the `anxos-agent` package and
+  `AnxOS-Agent-*.deb` / `AnxOS-Control-Center-*` file names, Docker
+  `anxos.*` labels, the phone's cookie and certificate names, and the
+  `anxoscontrolcenter.org` domain. Some frozen labels (for example the AnxOS
+  Linux distribution name) still read AnxOS.
+- **The website rename is not deployed** and no domain was moved
+  (`docs/anxhost/DOMAIN_MIGRATION_PLAN.md` needs separate approval).
+- **The installer was not compiled on the development PC**; the signed release
+  candidate is its first build.
+- **Remembered sign-in needs Windows secure storage.** Where `safeStorage` is
+  unavailable, "Trust this device" is off and the owner signs in at every
+  start. Remembered sessions written by older builds with the fallback key are
+  refused once.
+- **The phone keeps the system font** instead of the desktop's font stack (the
+  stack made the phone suite time out; the cause is not proven).
+- **The phone UI suite sometimes times out early** (about 3 runs in 11 during
+  216-F, before any check fails); the cause is not explained.
+- **Kept for a later, separately approved step:** the AMP backend and Home AMP
+  card, the Expo pairing backend (its buttons are gone), and page CSS for the
+  retired pages.
 
 ## Build 215
 
