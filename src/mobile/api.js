@@ -604,7 +604,11 @@ function createMobileApi({ services, security, now = () => Date.now() } = {}) {
   route("POST", "/backups/:nodeId/:backupId/verify", "backups:verify", async (ctx) => {
     security.audit({ action: "backup.verify", target: `${ctx.params.nodeId}:${ctx.params.backupId}`, reason: `mobile:${ctx.device.id}` });
     const result = await services.verifyBackup(ctx.params.nodeId, ctx.params.backupId);
-    return { ok: true, state: text(result?.state || result?.verification?.state || result?.status || "", 40), detail: redactString(text(result?.message || result?.verification?.message || "", 300)) };
+    // The Agent returns the outcome on record.verification (backupService
+    // persistVerificationOutcome); reading only the top level showed every
+    // check as a blank "done" until Build 216-F.
+    const verification = result?.record?.verification || result?.verification || {};
+    return { ok: true, state: text(verification.state || result?.state || result?.status || "", 40), detail: redactString(text(verification.detail || verification.message || result?.message || "", 300)) };
   });
   route("POST", "/backups/:nodeId/:backupId/restore-preview", "backups:restore", async (ctx) => {
     const preview = await services.serviceRouter().restoreBackup({ nodeId: ctx.params.nodeId, backupId: ctx.params.backupId, preview: true });

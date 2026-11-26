@@ -400,7 +400,9 @@
         if (tab === "console") extra.logs = await api(`${base}/logs?limit=300`);
         if (tab === "settings") extra.settings = state.data?.settings && state.data.server?.server.id === b ? state.data.settings : await api(`${base}/settings`);
         if (tab === "backups") extra.backups = await api(`${base}/backups`);
-        if (tab === "addons" && detail.addons?.supported) extra.addons = await api(`${base}/addons`);
+        // The Add-ons tab is "mods" in ServerView.MAIN_TABS; checking "addons"
+        // here never loaded the installed list (fixed in Build 216-F).
+        if (tab === "mods" && detail.addons?.supported) extra.addons = await api(`${base}/addons`);
         if (tab === "files") extra.files = await api(`${base}/files?path=${enc(route.params[3] || ".")}`);
         return { server: detail, ...extra };
       }
