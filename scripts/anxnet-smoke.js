@@ -42,6 +42,9 @@ const path = require("path");
 const tls = require("tls");
 
 const { AnxNetNode, fileStore } = require("../src/anxnet/node");
+const { servicePorts } = require("./test-helpers/anxnet-ports");
+// The port each test service is shared on; set at the start of main().
+let svcPort = (port) => port;
 const { AnxNetEdge } = require("../src/anxnet/edge");
 const names = require("../src/anxnet/names");
 const roster = require("../src/anxnet/roster");
@@ -180,6 +183,9 @@ function unitChecks() {
 }
 
 async function main() {
+  // Windows can reserve the usual block after a restart; use one that opens.
+  svcPort = await servicePorts(25599, 40);
+  if (svcPort.base !== 25599) console.log(`service ports moved to ${svcPort.base}+ (the usual block is reserved on this computer)`);
   unitChecks();
 
   // X2
@@ -194,7 +200,7 @@ async function main() {
 
   // X3
   const echoPort = await tcpEchoServer("echo:");
-  const service = await owner.shareService({ name: "Minecraft", port: 25599, protocol: "tcp", targetHost: "127.0.0.1", targetPort: echoPort });
+  const service = await owner.shareService({ name: "Minecraft", port: svcPort(25599), protocol: "tcp", targetHost: "127.0.0.1", targetPort: echoPort });
   assert.strictEqual(service.hostname, "minecraft.desktop.anx-smoke42.internal");
   await waitFor(() => member.status().forwards.some((forward) => forward.serviceId === service.serviceId), "member forward");
   const [ownerAddress] = await resolveWith(member, "desktop.anx-smoke42.internal");
@@ -202,10 +208,10 @@ async function main() {
   assert.strictEqual(ownerAddress, "127.77.0.2");
   assert.strictEqual(serviceAddress, ownerAddress, "service names point at their host");
   await assert.rejects(resolveWith(member, "nope.anx-smoke42.internal"), (error) => error.code === "ENOTFOUND");
-  assert.strictEqual(await tcpRoundTrip(25599, serviceAddress, "hello"), "echo:hello");
+  assert.strictEqual(await tcpRoundTrip(svcPort(25599), serviceAddress, "hello"), "echo:hello");
   const big = crypto.randomBytes(300 * 1024).toString("hex");
   const bigReply = await new Promise((resolve, reject) => {
-    const socket = net.connect(25599, serviceAddress);
+    const socket = net.connect(svcPort(25599), serviceAddress);
     let received = "";
     socket.on("data", (data) => { received += data; const body = received.replace(/echo:/g, ""); if (body.length >= big.length) { socket.end(); resolve(body); } });
     socket.on("error", reject);
@@ -217,9 +223,9 @@ async function main() {
 
   // X4
   const udpPort = await udpEchoServer("udp:");
-  const udpService = await owner.shareService({ name: "Voice", port: 25600, protocol: "udp", targetHost: "127.0.0.1", targetPort: udpPort });
+  const udpService = await owner.shareService({ name: "Voice", port: svcPort(25600), protocol: "udp", targetHost: "127.0.0.1", targetPort: udpPort });
   await waitFor(() => member.status().forwards.some((forward) => forward.serviceId === udpService.serviceId), "member udp forward");
-  assert.strictEqual(await udpRoundTrip(25600, "127.77.0.2", "ping"), "udp:ping");
+  assert.strictEqual(await udpRoundTrip(svcPort(25600), "127.77.0.2", "ping"), "udp:ping");
   pass("X4 UDP service through the encrypted multiplexer");
 
   // X5
@@ -229,7 +235,7 @@ async function main() {
   strangerSocket.write(`${JSON.stringify({ t: "peer", networkId: owner.doc.networkId })}\n`);
   const strangerReply = JSON.parse(String(await new Promise((resolve) => strangerSocket.once("data", resolve))).split("\n")[0]);
   assert.deepStrictEqual([strangerReply.ok, strangerReply.error.code], [false, "ANXNET_NOT_MEMBER"], "a stranger's key is refused");
-  const privateService = await owner.shareService({ name: "Private", port: 25601, protocol: "tcp", targetHost: "127.0.0.1", targetPort: echoPort, allow: [] });
+  const privateService = await owner.shareService({ name: "Private", port: svcPort(25601), protocol: "tcp", targetHost: "127.0.0.1", targetPort: echoPort, allow: [] });
   await delay(300);
   assert.ok(!member.status().forwards.some((forward) => forward.serviceId === privateService.serviceId), "no forward for a service this device may not use");
   await assert.rejects(resolveWith(member, privateService.hostname), (error) => error.code === "ENOTFOUND", "names of disallowed services don't resolve");
@@ -246,7 +252,7 @@ async function main() {
   pass("X5 strangers refused at the handshake; disallowed services get no forward, no name and no stream");
 
   // X6
-  const live = net.connect(25599, "127.77.0.2");
+  const live = net.connect(svcPort(25599), "127.77.0.2");
   await new Promise((resolve) => live.once("connect", resolve));
   const liveClosed = new Promise((resolve) => live.once("close", resolve));
   live.on("error", () => {});
@@ -269,7 +275,7 @@ async function main() {
   await restarted.start();
   await waitFor(() => member2.status().network.coordinator.state === "connected", "member reconnects", 70000);
   assert.strictEqual(restarted.status().network.name, "anx-smoke42", "the owner's network survives a restart");
-  assert.strictEqual(await tcpRoundTrip(25599, "127.77.0.2", "again"), "echo:again", "traffic flows again after recovery");
+  assert.strictEqual(await tcpRoundTrip(svcPort(25599), "127.77.0.2", "again"), "echo:again", "traffic flows again after recovery");
   pass("X7 the member reconnects with backoff after the owner's node restarts; state persisted");
   const ownerNode = restarted;
 
@@ -283,11 +289,11 @@ async function main() {
   assert.ok(udpPeer.session, "a UDP secure session exists");
   await waitFor(() => coneB.udpSessions.has(coneA.identity.deviceId), "both sides have the UDP session");
   const udpOnB = await udpEchoServer("punched:");
-  const punchedService = await coneB.shareService({ name: "Game UDP", port: 25602, protocol: "udp", targetHost: "127.0.0.1", targetPort: udpOnB, allow: [coneA.identity.deviceId] });
+  const punchedService = await coneB.shareService({ name: "Game UDP", port: svcPort(25602), protocol: "udp", targetHost: "127.0.0.1", targetPort: udpOnB, allow: [coneA.identity.deviceId] });
   coneA.options.enableForwards = true;
   await waitFor(async () => { await coneA.applyRoster(); return coneA.status().forwards.some((forward) => forward.serviceId === punchedService.serviceId); }, "cone-a forward");
   const coneBAddress = coneB.status().devices.find((device) => device.self).address;
-  assert.strictEqual(await udpRoundTrip(25602, coneBAddress, "hi"), "punched:hi");
+  assert.strictEqual(await udpRoundTrip(svcPort(25602), coneBAddress, "hi"), "punched:hi");
   assert.ok((coneB.udpSessions.get(coneA.identity.deviceId).received || 0) > 0, "the datagram travelled over the punched UDP channel");
   const symA = await join(ownerNode, "sym-a", { preApproved: true, nodeOptions: { createUdpSocket: createNatSocketFactory("symmetric"), enableForwards: false } });
   const symB = await join(ownerNode, "sym-b", { preApproved: true, nodeOptions: { createUdpSocket: createNatSocketFactory("symmetric"), enableForwards: false } });
@@ -308,12 +314,12 @@ async function main() {
   const farD = await join(ownerNode, "far-d", { preApproved: true, nodeOptions: { directInbound: false } });
   await waitFor(() => farD.status().relayLinks.some((link) => link.state === "connected") && farC.status().relayLinks.some((link) => link.state === "connected"), "relay registrations", 15000);
   const secretPort = await tcpEchoServer("relayed:");
-  const relayedService = await farD.shareService({ name: "Far game", port: 25603, protocol: "tcp", targetHost: "127.0.0.1", targetPort: secretPort, allow: [farC.identity.deviceId] });
+  const relayedService = await farD.shareService({ name: "Far game", port: svcPort(25603), protocol: "tcp", targetHost: "127.0.0.1", targetPort: secretPort, allow: [farC.identity.deviceId] });
   farC.options.enableForwards = true;
   await waitFor(async () => { await farC.applyRoster(); return farC.status().forwards.some((forward) => forward.serviceId === relayedService.serviceId); }, "far-c forward");
   const farDAddress = farD.status().devices.find((device) => device.self).address;
   const marker = "PLAINTEXT-MARKER-7f3a";
-  const relayedReply = await tcpRoundTrip(25603, farDAddress, marker, 15000).catch((cause) => `FAILED ${cause.message} | ${JSON.stringify(farC.status().devices.find((device) => device.deviceId === farD.identity.deviceId))} | edge ${JSON.stringify(edge.status())}`);
+  const relayedReply = await tcpRoundTrip(svcPort(25603), farDAddress, marker, 15000).catch((cause) => `FAILED ${cause.message} | ${JSON.stringify(farC.status().devices.find((device) => device.deviceId === farD.identity.deviceId))} | edge ${JSON.stringify(edge.status())}`);
   assert.strictEqual(relayedReply, `relayed:${marker}`);
   assert.strictEqual(farC.status().devices.find((device) => device.deviceId === farD.identity.deviceId).connection, "relay", "the path is reported as relayed");
   assert.ok(relaySeen.length > 0 && !Buffer.concat(relaySeen).includes(Buffer.from(marker)), "the relay carried only ciphertext");
@@ -326,8 +332,8 @@ async function main() {
   // X10 public gateway
   const gameTcp = await tcpEchoServer("mc:");
   const gameUdp = await udpEchoServer("bedrock:");
-  const tcpGame = await ownerNode.shareService({ name: "Minecraft Java", port: 25610, protocol: "tcp", targetHost: "127.0.0.1", targetPort: gameTcp });
-  const udpGame = await ownerNode.shareService({ name: "Minecraft Bedrock", port: 25611, protocol: "udp", targetHost: "127.0.0.1", targetPort: gameUdp });
+  const tcpGame = await ownerNode.shareService({ name: "Minecraft Java", port: svcPort(25610), protocol: "tcp", targetHost: "127.0.0.1", targetPort: gameTcp });
+  const udpGame = await ownerNode.shareService({ name: "Minecraft Bedrock", port: svcPort(25611), protocol: "udp", targetHost: "127.0.0.1", targetPort: gameUdp });
   const gateway = ownerNode.doc.gateways[0];
   const forgedGrant = { grant: { ...ownerNode.signGatewayGrant({ serviceId: tcpGame.serviceId, protocol: "tcp", gatewayFingerprint: edgeInfo.fingerprint }).grant }, signature: farD.identity.sign("x") };
   await assert.rejects(ownerNode.publish({ gateway, ...forgedGrant }), (error) => error.code === "ANXNET_GATEWAY_GRANT", "a grant not signed by the owner is refused");
@@ -351,8 +357,8 @@ async function main() {
   // X12
   const serverA = await tcpEchoServer("srvA:");
   const serverB = await tcpEchoServer("srvB:");
-  const shareA = await ownerNode.shareService({ name: "Server A", port: 25630, protocol: "tcp", targetHost: "127.0.0.1", targetPort: serverA, allow: [] });
-  const shareB = await ownerNode.shareService({ name: "Server B", port: 25631, protocol: "tcp", targetHost: "127.0.0.1", targetPort: serverB, allow: [] });
+  const shareA = await ownerNode.shareService({ name: "Server A", port: svcPort(25630), protocol: "tcp", targetHost: "127.0.0.1", targetPort: serverA, allow: [] });
+  const shareB = await ownerNode.shareService({ name: "Server B", port: svcPort(25631), protocol: "tcp", targetHost: "127.0.0.1", targetPort: serverB, allow: [] });
   const routeA = await ownerNode.publish({ gateway, ...ownerNode.signGatewayGrant({ serviceId: shareA.serviceId, protocol: "tcp", gatewayFingerprint: edgeInfo.fingerprint }) });
   const routeB = await ownerNode.publish({ gateway, ...ownerNode.signGatewayGrant({ serviceId: shareB.serviceId, protocol: "tcp", gatewayFingerprint: edgeInfo.fingerprint }) });
   assert.notStrictEqual(routeA.publicPort, routeB.publicPort, "each server gets its own public port");
@@ -390,7 +396,7 @@ async function main() {
   const memberX = await join(ownerNode, "x11-member", { preApproved: true });
   // Only this member may use it, so no other test device in this process
   // binds the same address and port first.
-  const svcX = await ownerNode.shareService({ name: "X11", port: 25620, protocol: "tcp", targetHost: "127.0.0.1", targetPort: gameTcp, allow: [memberX.identity.deviceId] });
+  const svcX = await ownerNode.shareService({ name: "X11", port: svcPort(25620), protocol: "tcp", targetHost: "127.0.0.1", targetPort: gameTcp, allow: [memberX.identity.deviceId] });
   await waitFor(() => memberX.status().forwards.some((forward) => forward.serviceId === svcX.serviceId), "x11 forward");
   const peerX = await memberX.ensurePeer(ownerNode.identity.deviceId);
   const hostSide = ownerNode.peers.get(memberX.identity.deviceId);
@@ -401,8 +407,8 @@ async function main() {
   await delay(300);
   assert.strictEqual(hostSide.streams.get(4001), firstTarget, "a reused stream id doesn't replace or leak the open stream");
   // Services can't point at internet hosts.
-  await assert.rejects(ownerNode.shareService({ name: "Proxy", port: 25621, protocol: "tcp", targetHost: "8.8.8.8", targetPort: 53 }), (error) => error.code === "ANXNET_SERVICE_TARGET");
-  await assert.rejects(ownerNode.shareService({ name: "Proxy", port: 25621, protocol: "tcp", targetHost: "example.com", targetPort: 80 }), (error) => error.code === "ANXNET_SERVICE_TARGET");
+  await assert.rejects(ownerNode.shareService({ name: "Proxy", port: svcPort(25621), protocol: "tcp", targetHost: "8.8.8.8", targetPort: 53 }), (error) => error.code === "ANXNET_SERVICE_TARGET");
+  await assert.rejects(ownerNode.shareService({ name: "Proxy", port: svcPort(25621), protocol: "tcp", targetHost: "example.com", targetPort: 80 }), (error) => error.code === "ANXNET_SERVICE_TARGET");
   // Coordinator rate limit.
   const flood = await Promise.all(Array.from({ length: 80 }, () => memberX.coordinatorRequest({ t: "lookup", deviceId: ownerNode.identity.deviceId })));
   assert.ok(flood.some((reply) => reply.error?.code === "ANXNET_RATE_LIMITED"), "a flood of control requests is rate limited");
@@ -429,14 +435,14 @@ async function main() {
   // forwarded to, including the Agent's default port and computer-specific
   // ports, and a hosting node re-checks on every connection.
   for (const attempt of [
-    { name: "Sneaky", port: 25622, targetPort: 22 },
+    { name: "Sneaky", port: svcPort(25622), targetPort: 22 },
     { name: "Agent", port: 47131 },
-    { name: "AgentFwd", port: 25623, targetPort: 47131 },
-    { name: "Phone", port: 25624, targetPort: 47800 },
+    { name: "AgentFwd", port: svcPort(25623), targetPort: 47131 },
+    { name: "Phone", port: svcPort(25624), targetPort: 47800 },
   ]) {
     await assert.rejects(ownerNode.shareService({ protocol: "tcp", targetHost: "127.0.0.1", ...attempt }), (error) => error.code === "ANXNET_SERVICE_SENSITIVE_PORT", `${attempt.name} refused`);
   }
-  assert.throws(() => roster.addService(ownerNode.state.roster, ownerNode.identity, { deviceId: ownerNode.identity.deviceId, port: 25625, targetPort: 3389 }), (error) => error.code === "ANXNET_SERVICE_SENSITIVE_PORT", "the roster itself refuses a management target port");
+  assert.throws(() => roster.addService(ownerNode.state.roster, ownerNode.identity, { deviceId: ownerNode.identity.deviceId, port: svcPort(25625), targetPort: 3389 }), (error) => error.code === "ANXNET_SERVICE_SENSITIVE_PORT", "the roster itself refuses a management target port");
   const forwardX = memberX.status().forwards.find((forward) => forward.serviceId === svcX.serviceId);
   assert.strictEqual(await tcpRoundTrip(svcX.port, forwardX.address, "before"), "mc:before", "the shared game works");
   // This computer now says that port belongs to a management service (as if
@@ -452,7 +458,7 @@ async function main() {
     setTimeout(() => { socket.destroy(); resolve(data); }, 3000);
   });
   assert.strictEqual(blockedReply, "", "no bytes reach a blocked port");
-  await assert.rejects(ownerNode.shareService({ name: "Again", port: 25626, protocol: "tcp", targetHost: "127.0.0.1", targetPort: gameTcp }), (error) => error.code === "ANXNET_SERVICE_SENSITIVE_PORT");
+  await assert.rejects(ownerNode.shareService({ name: "Again", port: svcPort(25626), protocol: "tcp", targetHost: "127.0.0.1", targetPort: gameTcp }), (error) => error.code === "ANXNET_SERVICE_SENSITIVE_PORT");
   ownerNode.blockedPorts.delete(gameTcp);
   pass("X13 management ports refused as advertised or forwarded ports (SSH, RDP, Agent 47131, Phone Access 47800, computer-specific); blocked at connect time too");
 

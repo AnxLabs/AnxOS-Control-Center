@@ -218,6 +218,7 @@ const startingInstances = new Set();
 // process record, clear each other's metadata, or leave an orphaned child.
 const stoppingInstances = new Map();
 let processInspectionProvider = null;
+let liveIdentityReader = null;
 let processAliveProvider = null;
 // Windows reads of a live process's name/start time (PowerShell) are cached
 // briefly: reconciliation runs on every status poll.
@@ -5357,7 +5358,9 @@ function readWindowsProcessIdentity(pid) {
         { windowsHide: true, timeout: 8000, maxBuffer: 64 * 1024 },
         (error, stdout) => {
           if (error) {
-            resolve(null);
+            // Killed for its time limit: nothing is known about the process.
+            // Any other failure means Get-Process found no such process.
+            resolve(error.killed || error.signal ? { lookupFailed: true } : null);
             return;
           }
           const line = String(stdout || "").trim().split(/\r?\n/).pop() || "";
@@ -5399,8 +5402,9 @@ async function readLiveProcessIdentity(pid) {
     if (cached && Date.now() - cached.at < LIVE_IDENTITY_CACHE_TTL_MS) {
       return cached.value;
     }
-    const value = await readWindowsProcessIdentity(pid);
-    liveProcessIdentityCache.set(pid, { at: Date.now(), value });
+    const value = liveIdentityReader ? await liveIdentityReader(pid) : await readWindowsProcessIdentity(pid);
+    // A failed lookup is not cached, so the next status refresh asks again.
+    if (!value?.lookupFailed) liveProcessIdentityCache.set(pid, { at: Date.now(), value });
     return value;
   }
   return null;
@@ -5452,6 +5456,7 @@ function compareSpawnIdentity(identity, live) {
 async function verifyByExecutableImage(config, pid) {
   const expected = normalizeImageName(config.executable);
   const live = await readLiveProcessIdentity(pid).catch(() => null);
+  if (live?.lookupFailed) return "lookup-failed";
   if (expected && live?.imageName && !imageNamesMatch(expected, live.imageName)) {
     return "mismatch";
   }
@@ -5467,7 +5472,9 @@ async function verifyPersistedRuntimeIdentity(config = {}, pid = null) {
     ? config.processIdentity
     : null;
   if (spawnIdentity && !config.runtimeProcess) {
-    const verdict = compareSpawnIdentity(spawnIdentity, await readLiveProcessIdentity(normalizedPid).catch(() => null));
+    const live = await readLiveProcessIdentity(normalizedPid).catch(() => null);
+    if (live?.lookupFailed) return "lookup-failed";
+    const verdict = compareSpawnIdentity(spawnIdentity, live);
     if (verdict !== "unavailable") {
       return verdict;
     }
@@ -5633,6 +5640,11 @@ async function reconcileConfigState(config) {
     // recycled by an unrelated process after an agent restart.
     if (!processEntry) {
       const identity = await verifyPersistedRuntimeIdentity(config, pid).catch(() => "unavailable");
+      if (identity === "lookup-failed") {
+        // The check timed out (a busy computer). Nothing is saved; the next
+        // refresh checks again (failed lookups are not cached).
+        return { ...config, runtimeIdentityUnverified: true };
+      }
       if (identity === "mismatch") {
         return patchIfStillApplies(
           config,
@@ -7244,6 +7256,7 @@ async function forceKillInstance(instanceId) {
   }
   const config = await reconcileConfigState(stored);
   const entry = runningProcesses.get(config.id);
+  assertPersistedPidProven(config, entry);
   const pid = entry?.child?.pid || config.pid;
 
   if (!pid || !isProcessAlive(pid)) {
@@ -7329,6 +7342,17 @@ function isProcessGroupAlive(groupId) {
 // Group signals and taskkill /T act outside process.kill, so they are used
 // only for a real child process this service spawned, never for a PID it
 // merely tracks or a stand-in object.
+// A PID remembered from an earlier run is signalled only once it has been
+// matched to this server's process. When that check timed out, the PID may
+// belong to another program by now (PIDs are reused), so nothing is signalled
+// and the operator is told to try again.
+function assertPersistedPidProven(config, entry) {
+  if (!config?.runtimeIdentityUnverified || entry?.child?.pid) return;
+  const error = createInstanceError("INSTANCE_PID_UNVERIFIED", 409, { instanceId: config.id, pid: normalizePid(config.pid) });
+  error.message = `AnxOS couldn't confirm that process ${normalizePid(config.pid) || "?"} is still this server (the check timed out, the computer may be busy). Nothing was stopped. Try again in a moment.`;
+  throw error;
+}
+
 function buildStopTarget(entry, pid) {
   const rootPid = normalizePid(entry?.child?.pid);
   const spawnedChild = Boolean(rootPid && entry.child instanceof childProcess.ChildProcess);
@@ -7445,6 +7469,7 @@ async function stopInstanceImpl(instanceId, options = {}) {
   }
   let config = await reconcileConfigState(storedConfig);
   const entry = runningProcesses.get(config.id);
+  assertPersistedPidProven(config, entry);
   const trackedRuntimePid = normalizePid(config.runtimeProcess?.pid);
   const entryPid = normalizePid(entry?.child?.pid);
   const configPid = normalizePid(config.pid);
@@ -8901,6 +8926,12 @@ module.exports = {
     },
     setProcessAliveProvider(provider) {
       processAliveProvider = typeof provider === "function" ? provider : null;
+    },
+    // Replaces the Windows identity lookup (PowerShell Get-Process); it may
+    // return { lookupFailed: true } to stand for a timed-out lookup.
+    setLiveIdentityReader(reader) {
+      liveIdentityReader = typeof reader === "function" ? reader : null;
+      liveProcessIdentityCache.clear();
     },
     reconcileInterruptedInstanceJob,
     parseSteamKeyValues,

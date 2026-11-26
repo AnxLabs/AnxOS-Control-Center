@@ -27,6 +27,9 @@ const path = require("path");
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "anxnet-edge-deploy-"));
 const { AnxNetNode } = require("../src/anxnet/node");
+const { servicePorts } = require("./test-helpers/anxnet-ports");
+// The port each test service is shared on; set at the start of main().
+let svcPort = (port) => port;
 const { validateEdgeConfig } = require("../src/anxnet/edgeConfig");
 const identityLib = require("../src/anxnet/identity");
 
@@ -136,6 +139,9 @@ function panelTemplate(network) {
 }
 
 async function main() {
+  // Windows can reserve the usual block after a restart; use one that opens.
+  svcPort = await servicePorts(25620, 3);
+  if (svcPort.base !== 25620) console.log(`service ports moved to ${svcPort.base}+ (the usual block is reserved on this computer)`);
   console.log("AnxNet edge deployment smoke (isolated, loopback)");
   const ownerKey = identityLib.createIdentity().publicKeyBase64;
   const networkId = `net-${"a".repeat(26)}`;
@@ -199,8 +205,8 @@ async function main() {
   await owner.setEdges({ relays: [entry], gateways: [entry] });
   const gameTcp = await tcpEchoServer("mc:");
   const gameUdp = await udpEchoServer("bedrock:");
-  const tcpGame = await owner.shareService({ name: "Minecraft Java", port: 25620, protocol: "tcp", targetHost: "127.0.0.1", targetPort: gameTcp });
-  const udpGame = await owner.shareService({ name: "Minecraft Bedrock", port: 25621, protocol: "udp", targetHost: "127.0.0.1", targetPort: gameUdp });
+  const tcpGame = await owner.shareService({ name: "Minecraft Java", port: svcPort(25620), protocol: "tcp", targetHost: "127.0.0.1", targetPort: gameTcp });
+  const udpGame = await owner.shareService({ name: "Minecraft Bedrock", port: svcPort(25621), protocol: "udp", targetHost: "127.0.0.1", targetPort: gameUdp });
   const gateway = owner.doc.gateways[0];
   const tcpRoute = await owner.publish({ gateway, ...owner.signGatewayGrant({ serviceId: tcpGame.serviceId, protocol: "tcp", gatewayFingerprint: fingerprint }) });
   const udpRoute = await owner.publish({ gateway, ...owner.signGatewayGrant({ serviceId: udpGame.serviceId, protocol: "udp", gatewayFingerprint: fingerprint }) });
@@ -218,11 +224,11 @@ async function main() {
   const farD = await join(owner, "far-d", { directInbound: false });
   await waitFor(() => farD.status().relayLinks.some((link) => link.state === "connected") && farC.status().relayLinks.some((link) => link.state === "connected"), "relay registrations", 15000);
   const secretPort = await tcpEchoServer("relayed:");
-  const relayed = await farD.shareService({ name: "Far game", port: 25622, protocol: "tcp", targetHost: "127.0.0.1", targetPort: secretPort, allow: [farC.identity.deviceId] });
+  const relayed = await farD.shareService({ name: "Far game", port: svcPort(25622), protocol: "tcp", targetHost: "127.0.0.1", targetPort: secretPort, allow: [farC.identity.deviceId] });
   farC.options.enableForwards = true;
   await waitFor(async () => { await farC.applyRoster(); return farC.status().forwards.some((forward) => forward.serviceId === relayed.serviceId); }, "far-c forward");
   const farDAddress = farD.status().devices.find((device) => device.self).address;
-  assert.strictEqual(await tcpRoundTrip(25622, farDAddress, "hello", 15000), "relayed:hello");
+  assert.strictEqual(await tcpRoundTrip(svcPort(25622), farDAddress, "hello", 15000), "relayed:hello");
   assert.strictEqual(farC.status().devices.find((device) => device.deviceId === farD.identity.deviceId).connection, "relay");
   pass("E4 two members that refuse direct connections reached each other through the edge process's relay");
 

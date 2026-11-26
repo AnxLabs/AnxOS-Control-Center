@@ -1774,6 +1774,14 @@ correction still applies when nothing changed) and reports every branch that
 fails: on the old code all four fail (A, B, C, D). IE13 lands a settings save
 during a real Start that repairs its JAR command: the old code undid it.
 
+### Remaining risks worked through (owner: "keep going on the remaining risks before building rc", 2026-11-26)
+
+| Risk | What was found | Fix |
+| --- | --- | --- |
+| AnxNet checks could not run on this PC | The smokes share test services on fixed ports 25599+ (the port a member connects to on the virtual address), inside the range Windows reserved after the restart. **Product side:** when a member's local listener can't open (port in use, or reserved by Windows), the failure reached only a log; `status()` still said `reachableHere: true` and it was never retried until the roster changed. | `test-helpers/anxnet-ports.js` picks a block that really opens (the usual numbers when free; 25699+ here) for `anxnet-smoke`, `anxnet-edge-deploy-smoke` and `anxnet-ui-qa`. The node records failed listeners (`forwardErrors`, `forwardError` on the service, plain-language reason, Windows reservation named), no longer marks them reachable, and retries every 30 s; the panel shows the reason. `anxnet-fixes-smoke` F15 (fails on the old code). |
+| `anxhost-network-ui-qa` N2 failed under load | It read a notice already on screen before the click, after a fixed 1.5 s, so it proved no refusal; port 70000 never left the form (browser `max`) and the upstream host was empty. The refusal toast was also generic. | N2 checks the form refuses port 70000, and that an invalid hostname in an otherwise valid route reaches the Agent and comes back with its own reason (waited for, not slept). The toast shows `REVERSE_PROXY_*` policy messages. Fails on the old `app.js`. |
+| `process-supervision-hardening` 3a failed under load | Instrumented under load: the PowerShell identity lookup was killed at its 8 s limit; the result (null) was cached 15 s and read as "unavailable", so a recycled PID was trusted. **Safety defect:** Stop and Force Kill then terminated that PID on Windows even though the service never spawned it. | A timed-out lookup is `lookup-failed`, not cached; reconcile reports the record as read and flags it in memory; Stop and Force Kill refuse an untracked PID whose check failed (`INSTANCE_PID_UNVERIFIED`). 3a polls until the check decides (60 s). New 3c fakes the timeout: Stop and Force Kill refuse, the unrelated process survives, the next answer corrects the record. 3c fails on the committed core with only the test hook added (Stop did not refuse). |
+
 ### Validation performed (development PC, 2026-11-25/26)
 
 | Check (commit) | Result |

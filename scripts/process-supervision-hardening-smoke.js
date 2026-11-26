@@ -307,7 +307,14 @@ async function checkRecycledPid(core, root) {
   const victimA = spawnVictim();
   await waitFor(() => alive(victimA.pid), 3000, "victim A");
   patchConfig(root, "recycled-legacy", { state: "Running", pid: victimA.pid, runtimeProcess: null });
-  const legacyStatus = await core.getStatus("recycled-legacy");
+  // The identity check runs PowerShell, which can take longer than its time
+  // limit on a busy computer; a timed-out check is not cached, so a later
+  // refresh decides. Poll instead of trusting the first read.
+  let legacyStatus = null;
+  await waitFor(async () => {
+    legacyStatus = await core.getStatus("recycled-legacy");
+    return legacyStatus.processState !== "Running";
+  }, 60000, "3a: the recycled PID to be recognised").catch(() => {});
   assert.notStrictEqual(legacyStatus.processState, "Running", "3a: a recycled PID must not be reported as the running server");
   await core.stopInstance("recycled-legacy").catch(() => {});
   await core.forceKillInstance("recycled-legacy").catch(() => {});
@@ -451,6 +458,46 @@ async function checkAutoStart(core, root) {
   assert(/startAutoStartInstances\(/.test(fs.readFileSync(path.join(repo, "main.js"), "utf8")), "5: the desktop local host must run the autoStart pass at launch");
 }
 
+// 3c (Windows): the identity check of a remembered PID timed out (PowerShell
+// on a busy computer). The PID may belong to another program by now, so Stop
+// and Force Kill must not signal it; they used to terminate it. The failed
+// check is not cached: once a lookup answers, the record is corrected.
+async function checkTimedOutIdentityNeverSignals(core, root) {
+  if (process.platform !== "win32") {
+    console.log("skip 3c: the Windows identity lookup only runs on Windows");
+    return;
+  }
+  await core.createInstance({
+    id: "recycled-timeout",
+    displayName: "Recycled Timeout",
+    type: "custom-command",
+    executable: "anxos-no-such-server",
+    args: ["--nogui"],
+  });
+  const victim = spawnVictim();
+  await waitFor(() => alive(victim.pid), 3000, "victim C");
+  patchConfig(root, "recycled-timeout", { state: "Running", pid: victim.pid, runtimeProcess: null });
+  let lookups = 0;
+  core._test.setLiveIdentityReader(async () => { lookups += 1; return { lookupFailed: true }; });
+  try {
+    const status = await core.getStatus("recycled-timeout");
+    assert.strictEqual(status.processState, "Running", "3c: with no answer, the record is reported as it was read");
+    const stopError = await core.stopInstance("recycled-timeout").then(() => null, (error) => error);
+    assert.strictEqual(stopError?.code, "INSTANCE_PID_UNVERIFIED", `3c: Stop refuses an unproven PID (${stopError?.code || "no error"})`);
+    const killError = await core.forceKillInstance("recycled-timeout").then(() => null, (error) => error);
+    assert.strictEqual(killError?.code, "INSTANCE_PID_UNVERIFIED", `3c: Force Kill refuses an unproven PID (${killError?.code || "no error"})`);
+    assert.strictEqual(alive(victim.pid), true, "3c: the unrelated process survives Stop and Force Kill");
+    assert.ok(lookups >= 3, `3c: every request asked again (${lookups} lookups); a failed lookup is not cached`);
+    assert.strictEqual(readConfig(root, "recycled-timeout").pid, victim.pid, "3c: nothing was saved from a failed check");
+  } finally {
+    core._test.setLiveIdentityReader(null);
+  }
+  // The lookup answers again (the real one): the PID is recognised as another
+  // program's and the record is corrected, without a 15 s cache in the way.
+  await waitFor(async () => (await core.getStatus("recycled-timeout")).processState !== "Running", 60000, "3c: the record to be corrected once the lookup answers");
+  assert.strictEqual(alive(victim.pid), true, "3c: the unrelated process is still alive at the end");
+}
+
 async function main() {
   const failures = [];
   const root = fs.mkdtempSync(path.join(scratch, "real-"));
@@ -471,6 +518,7 @@ async function main() {
       await checkTreeStop(realCore());
     }],
     ["3 process-supervision-3 recycled PID is never trusted or signalled", () => checkRecycledPid(realCore(), root)],
+    ["3c process-supervision-3c a timed-out identity check never lets Stop or Force Kill signal the PID", () => checkTimedOutIdentityNeverSignals(realCore(), root)],
     ["4 process-supervision-4 shutdown honours per-server timeout", () => checkShutdownTimeout(realCore(), root)],
     ["5 process-supervision-5 autoStart acted on at boot", () => checkAutoStart(realCore(), root)],
   ];

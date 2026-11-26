@@ -358,6 +358,8 @@
       text.append(el("strong", "", service.name), el("span", "anxnet-host", `${service.hostname}:${service.port} (${service.protocol.toUpperCase()})`));
       const route = (status.publicRoutes || []).find((entry) => entry.serviceId === service.serviceId);
       if (route) text.append(el("span", "anxnet-conn is-direct", `Public: ${route.publicHost}:${route.publicPort} (${route.protocol.toUpperCase()})`));
+      // This computer couldn't open its local listener for the server.
+      if (service.forwardError) text.append(el("span", "anxnet-error", service.forwardError));
       const actions = el("div", "anxnet-actions");
       if (service.local || status.network.role === "owner") actions.append(button("Stop sharing", () => run("Stop sharing", () => api().unshareService(service.serviceId), `${service.name} is no longer shared.`)));
       item.append(text, actions);

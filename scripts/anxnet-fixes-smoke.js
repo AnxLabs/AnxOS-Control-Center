@@ -37,6 +37,9 @@
 //                 owner's notice instead of a peer dial retried for ever
 //   F14 R4-review the same on an older build (no re-register): the owner stops
 //                 after a bounded number of dials while the link stays open
+//   F15 216-G     a member's local listener that can't open (port in use or
+//                 reserved by Windows) is shown on the server with its reason,
+//                 not listed as reachable, and retried until the port is free
 // Run: node scripts/anxnet-fixes-smoke.js
 
 const assert = require("assert");
@@ -785,6 +788,60 @@ async function checkLineReaderDecodesBytes() {
   assert(limited.destroyed && limited.cause?.code === "ANXNET_CONTROL_TOO_LARGE", "a line over the byte limit is refused");
 }
 
+// ---- F15 ---------------------------------------------------------------------------------
+
+// A member's local listener for a shared server can't open while another
+// program holds the port (or Windows reserves it). The failure used to reach
+// only a log: the server looked usable here and the listener was never tried
+// again until the roster changed.
+async function checkBlockedForwardIsShownAndRetried() {
+  const owner = await makeNode("f15-owner", { listenHost: "127.0.0.1" });
+  await owner.createNetwork({ deviceName: "Desktop" });
+  const member = await makeNode("f15-member", { enableForwards: true, forwardRetryMs: 200 });
+  await member.joinNetwork(owner.createInvite({ preApproved: true }).code);
+  assert(await waitFor(() => member.status().network.coordinator.state === "connected"), "the member connects");
+  const ownerAddress = owner.status().devices.find((device) => device.self).address;
+  const port = await freePort();
+  // Another program on the member's computer holds the address and port the
+  // member's listener needs.
+  const blocker = net.createServer();
+  await new Promise((resolve) => blocker.listen(port, ownerAddress, resolve));
+  const echo = await echoServer();
+  const shared = await owner.shareService({ name: "Game", port, protocol: "tcp", targetHost: "127.0.0.1", targetPort: echo.address().port });
+  const serviceId = shared.serviceId || shared.service?.serviceId;
+  const blocked = await waitFor(() => member.status().services.find((service) => service.serviceId === serviceId && service.forwardError));
+  assert(blocked, "the member reports the listener that couldn't open");
+  assert.match(blocked.forwardError, new RegExp(`Another program on this computer is using TCP port ${port}`), "the reason is in plain words");
+  assert.strictEqual(blocked.reachableHere, false, "a server whose listener couldn't open is not shown as reachable here");
+  assert(member.status().forwardErrors.some((entry) => entry.serviceId === serviceId && entry.code === "EADDRINUSE"), "status lists the failed listener");
+
+  // The panel shows the reason on the server's row (the real status shape).
+  const view = loadPanel({ ...member.status(), settings: {}, mode: "in-app" });
+  await delay(20);
+  const shown = view.panel.all((node) => node.className === "anxnet-error").map((node) => node.textContent);
+  assert(shown.some((text) => text.includes(`TCP port ${port}`)), `the panel shows the reason (${JSON.stringify(shown)})`);
+
+  // Once the other program lets go, the listener opens without any roster change.
+  await new Promise((resolve) => blocker.close(resolve));
+  const open = await waitFor(() => {
+    const status = member.status();
+    const service = status.services.find((entry) => entry.serviceId === serviceId);
+    return service && !service.forwardError && service.reachableHere && status.forwards.some((entry) => entry.serviceId === serviceId);
+  }, 8000);
+  assert(open, "the listener is retried and opens once the port is free");
+  const reply = await new Promise((resolve) => {
+    const socket = net.connect(port, ownerAddress);
+    let data = "";
+    const done = (value) => { clearTimeout(timer); socket.destroy(); resolve(value); };
+    const timer = setTimeout(() => done(`timeout (${data})`), 5000);
+    socket.on("connect", () => socket.write("hi"));
+    socket.on("data", (chunk) => { data += chunk; if (data.includes("echo:hi")) done("ok"); });
+    socket.on("error", (error) => done(error.code));
+  });
+  assert.strictEqual(reply, "ok", "traffic flows through the retried listener");
+  assert.strictEqual(member.status().forwardErrors.length, 0, "the error is cleared");
+}
+
 (async () => {
   await check("F1 anxnet-1 gateway link: start() then publish() connects once, no re-register loop, route reachable", checkGatewayLinkOneConnect);
   await check("F2 anxnet-2 dropped gateway routes are reopened (edge restart, grant expiry) and grants renew", checkDroppedRoutesReopen);
@@ -800,6 +857,7 @@ async function checkLineReaderDecodesBytes() {
   await check("F12 Q4 an owner that moves while running still tells a member whose old link is half-open", checkOwnerTellsHalfOpenMemberAfterMove);
   await check("F13 R3-review a member the owner cannot dial, on a working link, clears the move notice by re-registering", checkHealthyUndialableMemberClearsNotice);
   await check("F14 R4-review an older-build member on a working link is dialed a bounded number of times; a gone one is still retried", checkOldBuildMemberNoticeIsBounded);
+  await check("F15 a member's listener that can't open is shown on the server and retried until the port is free", checkBlockedForwardIsShownAndRetried);
   if (failures.length) {
     console.error(`AnxNet fixes smoke FAILED: ${failures.length} of ${failures.length + checks} checks (${failures.join("; ")}).`);
     process.exitCode = 1;

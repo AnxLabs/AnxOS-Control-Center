@@ -49,6 +49,20 @@ const COORDINATOR_NOTIFY_MAX_MS = 15 * 60 * 1000;
 const COORDINATOR_NOTIFY_LIVE_LINK_ATTEMPTS = 6;
 const COORDINATOR_PROBE_MS = 5000;
 
+// Why a local listener for a shared service couldn't open, in plain words.
+// On Windows, EACCES on a free port means the port sits in a range Windows
+// reserved for itself (Hyper-V, WSL, Docker), which can change after a restart.
+function forwardBindMessage(cause, port, protocol = "tcp") {
+  const label = `${String(protocol).toUpperCase()} port ${port}`;
+  if (cause?.code === "EADDRINUSE") return `Another program on this computer is using ${label}, so this server can't be reached from here until it stops.`;
+  if (cause?.code === "EACCES") {
+    return process.platform === "win32"
+      ? `Windows has reserved ${label} on this computer (see "netsh interface ipv4 show excludedportrange protocol=${protocol}"), so this server can't be reached from here. AnxNet keeps trying.`
+      : `This computer doesn't allow AnxNet to use ${label}, so this server can't be reached from here.`;
+  }
+  return `${label} couldn't be opened on this computer (${cause?.code || cause?.message || "unknown error"}).`;
+}
+
 function error(code, message, statusCode = 400) {
   return roster.error(code, message, statusCode);
 }
@@ -144,6 +158,9 @@ class AnxNetNode extends EventEmitter {
       dnsPort: 5353,
       enableDns: true,
       enableForwards: true,
+      // A local listener for another device's service that couldn't open
+      // (port in use, or reserved by Windows) is tried again this often.
+      forwardRetryMs: 30000,
       directInbound: true,
       deviceName: os.hostname(),
       advertiseHosts: null,
@@ -158,6 +175,8 @@ class AnxNetNode extends EventEmitter {
     this.coordClients = new Map(); // coordinator: deviceId -> control socket
     this.coordLinkSeq = 0; // coordinator: numbers control sockets in the order they opened
     this.forwards = new Map(); // key -> listener
+    this.forwardErrors = new Map(); // key -> { serviceId, protocol, address, port, code, message, at }
+    this.forwardRetryTimer = null;
     this.hostFlows = new Map(); // `${peer}:${flow}` -> udp socket to target
     this.udpSessions = new Map(); // deviceId -> { session, address }
     this.pendingPunch = new Map();
@@ -635,17 +654,39 @@ class AnxNetNode extends EventEmitter {
       if (!wanted.has(key)) { await forward.close(); this.forwards.delete(key); }
       else forward.service = wanted.get(key).service;
     }
+    for (const key of this.forwardErrors.keys()) if (!wanted.has(key)) this.forwardErrors.delete(key);
     for (const [key, spec] of wanted) {
       if (this.forwards.has(key)) continue;
       try {
         this.forwards.set(key, spec.protocol === "tcp" ? await this.openTcpForward(spec) : await this.openUdpForward(spec));
+        this.forwardErrors.delete(key);
       } catch (cause) {
-        this.emit("warning", { code: "ANXNET_FORWARD_UNAVAILABLE", message: `${spec.service.hostname}:${spec.service.port} couldn't listen locally (${cause.code || cause.message}).` });
+        const message = forwardBindMessage(cause, spec.service.port, spec.protocol);
+        // Shown on the service in status(); it used to reach only a log, so
+        // the service looked usable while nothing listened for it.
+        this.forwardErrors.set(key, { serviceId: spec.service.serviceId, protocol: spec.protocol, address: spec.address, port: spec.service.port, code: cause.code || "ANXNET_FORWARD_UNAVAILABLE", message, at: new Date().toISOString() });
+        this.emit("warning", { code: "ANXNET_FORWARD_UNAVAILABLE", message: `${spec.service.hostname}:${spec.service.port}: ${message}` });
       }
     }
+    this.scheduleForwardRetry();
+  }
+
+  // Failed listeners are retried until they open or the service goes away;
+  // before, one failure lasted until the roster next changed.
+  scheduleForwardRetry() {
+    if (this.forwardRetryTimer || !this.forwardErrors.size) return;
+    this.forwardRetryTimer = setTimeout(() => {
+      this.forwardRetryTimer = null;
+      if (!this.doc || !this.options.enableForwards || !this.forwardErrors.size) return;
+      this.syncForwards().catch((cause) => this.emit("warning", { code: cause.code || "ANXNET_FORWARD_UNAVAILABLE", message: cause.message }));
+    }, this.options.forwardRetryMs);
+    this.forwardRetryTimer.unref?.();
   }
 
   async closeForwards() {
+    clearTimeout(this.forwardRetryTimer);
+    this.forwardRetryTimer = null;
+    this.forwardErrors.clear();
     for (const forward of this.forwards.values()) await forward.close().catch(() => {});
     this.forwards.clear();
   }
@@ -1844,6 +1885,11 @@ class AnxNetNode extends EventEmitter {
 
   // ---- status ---------------------------------------------------------------------------------
 
+  forwardErrorFor(serviceId) {
+    for (const entry of this.forwardErrors.values()) if (entry.serviceId === serviceId) return entry.message;
+    return null;
+  }
+
   status() {
     const doc = this.doc;
     const me = this.identity?.deviceId || null;
@@ -1891,12 +1937,14 @@ class AnxNetNode extends EventEmitter {
       invites: this.isOwner() ? this.state.invites.filter((invite) => roster.isInviteUsable(invite)).map(({ hash: _hash, ...invite }) => invite) : [],
       services: (doc?.services || []).map((service) => ({
         ...service,
-        reachableHere: service.deviceId !== me && roster.serviceAllows(doc, service, me),
+        reachableHere: service.deviceId !== me && roster.serviceAllows(doc, service, me) && !this.forwardErrorFor(service.serviceId),
+        forwardError: this.forwardErrorFor(service.serviceId),
         local: service.deviceId === me,
         address: `${doc.devices.find((entry) => entry.deviceId === service.deviceId)?.address}:${service.port}`,
       })),
       dns: this.dns ? { host: this.dns.host, port: this.dns.port, domain: doc?.domain } : null,
       forwards: [...this.forwards.values()].map((forward) => ({ protocol: forward.protocol, address: forward.address, port: forward.service.port, serviceId: forward.service.serviceId })),
+      forwardErrors: [...this.forwardErrors.values()],
       relayLinks: [...(this.edgeLinks?.values() || [])].filter((link) => link.kind === "relay-register").map((link) => ({ host: link.edge.host, port: link.edge.port, state: link.state })),
       // Relay and gateway connections as they really are right now.
       edgeLinks: [...(this.edgeLinks?.values() || [])].map((link) => ({ role: link.kind === "relay-register" ? "relay" : "gateway", host: link.edge.host, port: link.edge.port, state: link.state, message: link.state === "connected" ? "" : link.message || "" })),

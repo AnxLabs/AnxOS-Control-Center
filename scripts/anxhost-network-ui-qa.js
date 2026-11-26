@@ -97,20 +97,30 @@ async function run() {
       const form = document.querySelector("[data-public-access-reverse-proxy-form]");
       const fields = ["hostname", "upstreamHost", "upstreamPort", "tlsMode", "pathPrefix"].filter((name) => form.querySelector(`[data-public-access-reverse-proxy-field="${name}"]`));
       const listBefore = document.querySelector("[data-public-access-reverse-proxy-list]")?.children.length || 0;
-      form.querySelector('[data-public-access-reverse-proxy-field="hostname"]').value = "not a hostname!";
-      form.querySelector('[data-public-access-reverse-proxy-field="upstreamPort"]').value = "70000";
+      const set = (name, value) => { form.querySelector(`[data-public-access-reverse-proxy-field="${name}"]`).value = value; };
       const toasts = [];
       const toast = showToast;
-      window.showToast = (message, tone) => { toasts.push(String(message)); return toast(message, tone); };
+      window.showToast = (message, tone) => { toasts.push({ message: String(message), tone }); return toast(message, tone); };
+      // 1. A port out of range never leaves the form (the browser's own check).
+      set("hostname", "app.example.com"); set("upstreamHost", "127.0.0.1"); set("upstreamPort", "70000"); set("tlsMode", "none");
+      const portBlocked = form.checkValidity() === false;
       form.querySelector("[data-public-access-reverse-proxy-apply]").click();
-      await wait(1500);
+      await wait(300);
+      const sentWithBadPort = toasts.length;
+      // 2. A hostname the Agent refuses, in an otherwise valid route, reaches
+      // the app and comes back as an error. This used to read a notice already
+      // on screen before the click, so it proved no refusal, and it failed
+      // when that notice had not loaded yet on a busy machine.
+      set("hostname", "not a hostname!"); set("upstreamPort", "8080");
+      form.querySelector("[data-public-access-reverse-proxy-apply]").click();
+      for (let waited = 0; waited < 15000 && !toasts.some((entry) => entry.tone === "error"); waited += 100) await wait(100);
       window.showToast = toast;
-      const notice = document.querySelector("[data-public-access-reverse-proxy-notice]")?.textContent.trim() || "";
-      const invalid = [...form.querySelectorAll("[aria-invalid='true']")].length;
-      return { fields, refused: notice || toasts.join(" | ") || (invalid ? `${invalid} field(s) marked invalid` : ""), listBefore, listAfter: document.querySelector("[data-public-access-reverse-proxy-list]")?.children.length || 0 };
+      const refusal = toasts.find((entry) => entry.tone === "error");
+      return { fields, portBlocked, sentWithBadPort, refused: refusal?.message || "", other: toasts.filter((entry) => entry !== refusal).map((entry) => entry.message), listBefore, listAfter: document.querySelector("[data-public-access-reverse-proxy-list]")?.children.length || 0 };
     });
     check("N2", n2.fields.length === 5, `the reverse proxy form keeps its five fields (${n2.fields.join(", ")})`);
-    check("N2", Boolean(n2.refused) && n2.listAfter === n2.listBefore, `an invalid route is refused ("${String(n2.refused).slice(0, 120)}") and nothing is recorded (${n2.listBefore} → ${n2.listAfter})`);
+    check("N2", n2.portBlocked && n2.sentWithBadPort === 0, `upstream port 70000 is refused by the form before anything is sent (${n2.sentWithBadPort} message(s))`);
+    check("N2", /hostname/i.test(n2.refused) && !/Check the hostname, upstream host and port/.test(n2.refused) && n2.listAfter === n2.listBefore, `an invalid hostname is refused by the app with the Agent's reason ("${String(n2.refused).slice(0, 120)}") and nothing is recorded (${n2.listBefore} → ${n2.listAfter})${n2.other.length ? `; other messages: ${n2.other.join(" | ")}` : ""}`);
 
     // ------------------------------------------------------------ N3 diagnostics stages
     await page.evaluate(() => window.showPage("network"));

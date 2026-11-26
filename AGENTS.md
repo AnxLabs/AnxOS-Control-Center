@@ -1315,6 +1315,28 @@ Use this section to accumulate verified project knowledge over time. Add entries
   one writer is found saving a stale snapshot, search for every other caller
   of the same save in the same code path.
 
+### 2026-11-26 — Build 216-G: "environmental" failures that were product bugs
+
+- **Problem:** Three failures had been written off as environment: the
+  AnxNet smokes (Windows reserved ports after a restart), Network page N2
+  and process supervision 3a (both only under load).
+- **Cause:**
+  - AnxNet: besides the tests' fixed ports, a member whose local listener
+    could not open got no visible error and no retry.
+  - N2 passed by reading a notice that was on screen before the click.
+  - 3a: a timed-out PowerShell identity lookup was cached and read as
+    "can't tell, trust the PID", and Stop and Force Kill then terminated
+    that PID on Windows although the service never spawned it.
+- **Resolution:** The tests pick ports that open and wait for events. A
+  failed listener is shown and retried (F15). N2 asserts the Agent's
+  refusal. A failed lookup is `lookup-failed`, uncached, and Stop and Force
+  Kill refuse an unproven PID (3c).
+- **Lesson:** "Fails only on this machine" or "only under load" is a lead,
+  not a verdict: instrument it and follow it to the product. A check that
+  can't answer must fail closed for anything destructive, and must never be
+  cached as an answer. A UI check must prove its effect happened after the
+  action, not find something that was already on screen.
+
 ## Future Improvements
 
 Keep optional ideas separate from active work. An item in this list is not authorization to implement it.

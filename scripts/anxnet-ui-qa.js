@@ -44,7 +44,9 @@ const { AnxNetHostClient } = require("../src/anxnet/hostClient");
 
 const root = path.resolve(__dirname, "..");
 const SERVER_ID = "survival-test";
-const GAME_PORT = 25599;
+const { servicePorts } = require("./test-helpers/anxnet-ports");
+// The fake game's port; moved off 25599 when Windows reserves it (set in main()).
+let GAME_PORT = 25599;
 
 async function waitFor(page, predicate, arg, label, timeoutMs = 20000) {
   const deadline = Date.now() + timeoutMs;
@@ -76,6 +78,8 @@ function greeting(port, host, timeoutMs = 8000) {
 }
 
 async function main() {
+  GAME_PORT = (await servicePorts(25599, 1))(25599);
+  if (GAME_PORT !== 25599) console.log(`game port moved to ${GAME_PORT} (25599 is reserved on this computer)`);
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "anxnet-ui-qa-"));
   const agentAnxnetPort = await new Promise((resolve) => { const probe = net.createServer(); probe.listen(0, "127.0.0.1", () => { const { port } = probe.address(); probe.close(() => resolve(port)); }); });
   // The Agent's AnxNet listens on loopback only in this test.

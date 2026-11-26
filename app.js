@@ -10343,7 +10343,12 @@ async function applyPublicAccessReverseProxyRoute(event) {
       result?.applied === true ? "success" : "warning",
     );
   } catch (error) {
-    showToast(getFriendlyStatusFailureMessage(error, "Reverse-proxy route could not be recorded.", "Check the hostname, upstream host and port, then try again."), "error");
+    // The route policy's messages name the field and the rule ("The hostname
+    // may not contain whitespace…"); show them instead of a generic line.
+    const policyMessage = /^REVERSE_PROXY_[A-Z_]+$/.test(String(error?.code || "")) && typeof error?.message === "string" && error.message.trim()
+      ? `Route not recorded: ${error.message.trim().slice(0, 240)}`
+      : "";
+    showToast(policyMessage || getFriendlyStatusFailureMessage(error, "Reverse-proxy route could not be recorded.", "Check the hostname, upstream host and port, then try again."), "error");
   }
 }
 
