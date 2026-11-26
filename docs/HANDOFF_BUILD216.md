@@ -20,7 +20,7 @@ Plan: `PLANS.md` (approved, commit `9aadaead`). Protocol: `AGENTS.md` (ADP).
 | **216-C Phone Access Rebirth** | **Complete; local checkpoint commit** (not pushed). The phone uses the desktop's tokens, follows the phone's light or dark scheme, says AnxHost, uses the Option B icons and the `anxos-shell-v3` cache; a Build 215 pairing still works. See "216-C" below. |
 | **216-B Website and Branding** | **Partly complete; local checkpoint commit** (not pushed, not deployed). B2: every page, the READMEs and the release tooling say AnxHost Control Center ("formerly AnxOS Control Center"; release history keeps its names); AnxHost logo, icons and social preview. B3: domain plan written. Not done: new product screenshots and a layout redesign (see "216-B"). |
 | **216-F Integration and Migration** | **Complete; local checkpoint commit** (not pushed). Real Build 215 to 216 upgrade 8/8, 216 desktop with a Build 215 Agent 5/5, all 1,573 capabilities verified, `qa:feature` 147/147; two phone defects shipped in Build 215 fixed (add-ons list, backup check result). See "216-F Integration and Migration" below. |
-| 216-G | Not started: needs the version bump (commit and push approval) and the signed RC workflow dispatch |
+| **216-G Stabilization and Release Candidates** | **In progress.** Version bump and release notes committed locally (`ce8d72bc`); the release gate found three defects, all fixed with failing-first checks (`43f533d6` SSH key generation, `bfb2fd7f` stale doc row, `08fbc0f5` stale status-poll writes). Not pushed; no RC built. See "216-G" below. |
 
 ## 216-0 timing
 
@@ -1697,4 +1697,67 @@ explained; the Agent fixture alone answers in 50–180 ms.
 - The add-on import was driven through the phone API, not a file picker
   (the phone has no import button; the row says so).
 - Phone suite early timeouts remain unexplained (see above).
-- Not done: 216-G (version bump, signed RC) waits for approval.
+- 216-G: see below.
+
+## 216-G Stabilization and Release Candidates
+
+Owner instruction, 2026-11-25: "Start 216-G". Local commits only; the push
+to `dev` and the signed RC workflow need the owner's approval.
+
+### Version and notes (`ce8d72bc`)
+
+- `release.json`: Build 216 (version 2.0, Private Alpha).
+- `RELEASE_NOTES_2.0-build216.md` (Added, Fixed, Removed, Known
+  limitations, QA); Build 215's notes moved to `docs/releases/`.
+- `docs/KNOWN_LIMITATIONS.md`: source identity Build 216 and a Build 216
+  section (frozen identifiers, website not deployed, installer first built by
+  CI, secure-storage requirement, phone font and suite timeouts, items kept
+  for later approval).
+- Installer and update file names are unchanged (`productName` is frozen), so
+  `windows-release.yml` and `validate-release-artifacts.js` need no change.
+
+### Release gate and what it found
+
+The gate runs in a temporary worktree at a short path
+(`.claude/worktrees/g216-gate`, detached, with a copied `node_modules`):
+this checkout's `node_modules` is a junction, which `agent:package:smoke`
+refuses (the 216-0 environment exception). A first temporary worktree under
+the scratchpad was too deep: npm's nested `PATH` reached about 3,950
+characters, and `marketplace-smoke` copies `PATH` into a test server's
+environment, which the Agent caps at 4,096 per value. Both are environment,
+not product; `qa:website` (12) passed in this checkout.
+
+| Found by | Defect | Fix |
+| --- | --- | --- |
+| `qa:release`: `ssh-key-setup-smoke` (`parseKey(...).getPublicSSH is not a function`) | **Shipped in Build 215.** ssh2 1.17.0's `generateKeyPairSync("ed25519")` drops a leading zero byte from the public key: 90 of 20,000 keys (about 1 in 222) have a 31-byte key that neither ssh2 nor OpenSSH can load. Set up key sign-in failed at its proof connection about once in 222 setups (it cleaned up; a retry worked), and the smoke failed when its random host key was one. | `43f533d6`: each generated key is parsed back (with its passphrase) and must carry a 51-byte public blob matching its `.pub` line; otherwise a new key is generated (up to 8). K10 feeds a real malformed ssh2 key to the guard; the smoke's host key uses it too. |
+| `rc:validate`: `docs:architecture:smoke` | `docs/TEST_MATRIX.md` still listed `storage-window:ipc-authorization:smoke`, retired with the Add Storage window (`f8d9dfc2`). | `bfb2fd7f`: row removed. |
+| `rc:validate`: `instance-engine-fixes-smoke` IE9 (saved record `null`, then `PROCESS_EXITED`, instead of `CRASH_LOOP`) | **Present since Build 215** (the instance engine is unchanged in 216): IE9 failed 2 of 10 quiet runs. Every status poll and list runs `backfillInstanceVersion`, which saved the whole record it was given whenever a version field changed; that record was loaded or reconstructed before awaits, so a poll could write an older state over a newer one (an exit handler's `CRASH_LOOP`). | `08fbc0f5`: the backfill patches only the version fields (plus build date and detection time) onto a fresh read under the instance's state lock, and never recreates a deleted server. IE10 fails on the old code. A diagnostic harness then ran IE9 48 times (12 under six busy CPU processes) with no failure. |
+
+`fleet:aggregation:smoke` failed once (a fixture Agent did not start within
+its wait) and passed 2/2 alone and in the next gate. A 20-run loop of
+`instance-engine-fixes` taken during the first minutes after a PC restart
+had IE8 time-limit failures (30 s worker limits) and three IE9 failures
+while the machine was busy; the instrumented 48-run harness afterwards did
+not reproduce any.
+
+### Validation performed (development PC, 2026-11-25/26)
+
+| Check (commit) | Result |
+| --- | --- |
+| `qa:website` (`ce8d72bc`, this checkout) | **PASS, 12 checks** |
+| `rc:validate`, `RC_FAIL_FAST=0` (`08fbc0f5`, gate worktree, off-screen) | **428/429**. The one failure, `anxnet-edge-deploy:smoke` ("timed out: far-c forward"), is environmental: after the PC restart Windows reserved TCP 25598–25697 (`netsh interface ipv4 show excludedportrange protocol=tcp`), binding 127.77.0.2:25599 returns EACCES, and the AnxNet smokes use fixed ports 25599–25631. It fails identically on `bfb2fd7f`, where it passed before the restart; AnxNet code is unchanged. Freeing the range needs `net stop winnat` (admin; disrupts Docker and WSL), not done. |
+| `qa:release` (`08fbc0f5`) | **152/153**: the 33 checks before `anxnet-smoke` passed in the tier run; `anxnet-smoke` failed for the same reserved-port reason; the 119 after it passed when run with the tier's own isolated environment and list (scratch runner, continue-on-failure), tree clean afterwards |
+| Earlier full runs (`bfb2fd7f`, before the restart) | `rc:validate` 428/429 (IE9, fixed in `08fbc0f5`), `qa:release` **153/153** |
+| `instance-engine-fixes` IE9 (fix) | Before: 2 of 10 quiet runs failed. After: diagnostic harness 48/48 (12 under load) |
+| `ssh-key-setup-smoke` (fix) | 10/10 three runs in a row; the four other SSH smokes pass |
+| `node --check` of changed JS, `git diff --check` | PASS |
+
+### 216-G remaining risks
+
+- The NeoForge runtime sync in a status poll still saves the record it
+  loaded (only for NeoForge servers with a script launcher); not changed, to
+  keep the fix focused.
+- IE8's worker time limits and the real-app suites are sensitive to a busy
+  machine (as recorded at A1 and A10).
+- Not done: push to `dev`, the signed RC (`windows-release.yml`), its
+  verification, the `confirmed` install and Computer Use acceptance.

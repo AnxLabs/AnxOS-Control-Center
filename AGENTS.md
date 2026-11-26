@@ -1262,6 +1262,32 @@ Use this section to accumulate verified project knowledge over time. Add entries
   passed for years here. Copy fakes from the producer's real reply, and when
   two places name the same thing (a tab id), make one read the other's list.
 
+### 2026-11-26 — Build 216-G: a library's 1-in-222 key, and a poll that saved its old snapshot
+
+- **Problem:** The release gate failed twice in code that had not changed
+  since Build 215. `ssh-key-setup-smoke` failed with
+  `parseKey(...).getPublicSSH is not a function`. `instance-engine-fixes`
+  IE9 found the saved record `null` or `PROCESS_EXITED` instead of
+  `CRASH_LOOP`.
+- **Cause:**
+  - ssh2 1.17.0's `generateKeyPairSync("ed25519")` drops a leading zero byte
+    from the public key (90 of 20,000 keys). Neither ssh2 nor OpenSSH can
+    load such a key, so Set up key sign-in failed about once in 222.
+  - Every status poll ran `backfillInstanceVersion`, which saved the whole
+    record it was given whenever a version field changed. A poll's record
+    was read before awaits, so it could put an older state back.
+- **Resolution:** Generated keys are parsed back and replaced when malformed
+  (`43f533d6`, K10). The backfill patches only its own fields onto a fresh
+  read under the state lock (`08fbc0f5`, IE10). Both checks fail on the old
+  code.
+- **Lesson:** Validate what a library generates before you use it, the same
+  way you validate input: a round trip through the consumer's parser is
+  cheap. A helper that "only adds a field" must patch that field, never save
+  the whole record it was handed. Count failures over many runs before and
+  after a race fix, and instrument the check to show which path produced a
+  bad value; "the wait timed out" and "a writer replaced it" look the same
+  in an unasserted wait.
+
 ## Future Improvements
 
 Keep optional ideas separate from active work. An item in this list is not authorization to implement it.
