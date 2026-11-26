@@ -1919,6 +1919,12 @@ the gate** (ports helper). `qa:website` 12/12. Tree clean afterwards.
   was packed into the app (AGENTS.md lesson). Not used for acceptance; fixed
   in the next commit and rebuilt.
 
+- Run 45903642755 (`d6c71053`): sizes back to Build 215's (Setup 441.3 MB,
+  portable 439.7 MB) and every artifact check passed, but a Sandbox dry run
+  found that Setup imported the Visual C++ runtime and could not start on a
+  clean PC (AGENTS.md lesson). Not used for acceptance; fixed in the next
+  commit and rebuilt.
+
 ### 216-G remaining risks
 
 - The real-app UI suites are still sensitive to a busy machine (as recorded

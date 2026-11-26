@@ -1381,6 +1381,23 @@ Use this section to accumulate verified project knowledge over time. Add entries
   per platform, before accepting an RC: a one-platform jump is a packaging
   bug until proven otherwise.
 
+### 2026-11-26 — Build 216 RC1: AnxHost Setup could not start on a clean PC
+
+- **Problem:** In a clean Windows Sandbox, the signed Setup showed a Windows
+  "System Error" dialog and never opened its window. On the development PC it
+  had always started.
+- **Cause:** The Rust MSVC build linked the C runtime dynamically, so Setup
+  imported `vcruntime140.dll` and `vcruntime140_1.dll`. The development PC
+  has the Visual C++ runtime; a clean Windows does not.
+- **Resolution:** `windows/setup/.cargo/config.toml` and the packaging build
+  link the C runtime statically (`+crt-static`), and the build refuses a Setup
+  that imports the VC runtime (`anxhost-setup-contract-smoke` S10). The fixed
+  Setup opened in a clean Sandbox.
+- **Lesson:** A program that must run before anything else is installed has to
+  be tested on a clean machine before its first release candidate. A
+  developer PC hides missing runtimes. Check a native program's imports, not
+  only that it starts here.
+
 ## Future Improvements
 
 Keep optional ideas separate from active work. An item in this list is not authorization to implement it.

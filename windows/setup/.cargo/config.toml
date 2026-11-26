@@ -1,0 +1,6 @@
+# AnxHost Setup must start on a clean Windows install, which has no Visual C++
+# runtime (vcruntime140.dll). Link the C runtime statically. The packaging
+# script (scripts/build-anxhost-setup.js) also passes this flag and refuses a
+# Setup that imports the VC runtime.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

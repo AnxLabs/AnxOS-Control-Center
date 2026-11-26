@@ -39,16 +39,29 @@ const TRUSTED_PUBLISHER_CN = "Anjo ROSIMO";
 const setupName = (artifactVersion) => `AnxOS-Control-Center-Setup-${artifactVersion}.exe`;
 const engineName = (artifactVersion) => `AnxOS-Control-Center-Engine-${artifactVersion}.exe`;
 
+// A clean Windows install has no Visual C++ runtime: Setup links the C runtime
+// statically. RUSTFLAGS in the environment would replace .cargo/config.toml,
+// so the flag is added here too.
+const STATIC_CRT_FLAG = "-C target-feature=+crt-static";
+
+function assertNoVcRuntimeImport(exe) {
+  const imported = fs.readFileSync(exe).toString("latin1").match(/(vcruntime|msvcp)1\d\d(_\d)?\.dll/gi);
+  if (imported) throw new Error(`AnxHost Setup imports ${[...new Set(imported.map((n) => n.toLowerCase()))].join(", ")}, which a clean Windows install does not have. It must link the C runtime statically (+crt-static).`);
+}
+
 function cargoBuild(env) {
   const targetDir = path.join(CRATE, "target");
+  const rustflags = [process.env.RUSTFLAGS, STATIC_CRT_FLAG].filter(Boolean).join(" ");
   const result = spawnSync("cargo", ["build", "--release", "--locked", "--manifest-path", path.join(CRATE, "Cargo.toml")], {
     cwd: CRATE,
     stdio: "inherit",
-    env: { ...process.env, CARGO_TARGET_DIR: targetDir, ...env },
+    env: { ...process.env, CARGO_TARGET_DIR: targetDir, RUSTFLAGS: rustflags, ...env },
   });
   if (result.error) throw new Error(`cargo could not be started (${result.error.message}). Install the Rust toolchain (rustup) to build AnxHost Setup.`);
   if (result.status !== 0) throw new Error(`Building AnxHost Setup failed (cargo exit ${result.status}).`);
-  return path.join(targetDir, "release", "anxhost-setup.exe");
+  const exe = path.join(targetDir, "release", "anxhost-setup.exe");
+  assertNoVcRuntimeImport(exe);
+  return exe;
 }
 
 function folderBytes(dir) {
@@ -231,7 +244,7 @@ async function packageSetup() {
   return { installer, engine, info };
 }
 
-module.exports = { MAINTENANCE_EXE, PAYLOAD_MAGIC, TRUSTED_PUBLISHER_CN, appendPayload, buildMaintenance, engineName, packageSetup, payloadRange, rewriteLatestYml, setupName };
+module.exports = { MAINTENANCE_EXE, PAYLOAD_MAGIC, TRUSTED_PUBLISHER_CN, appendPayload, assertNoVcRuntimeImport, buildMaintenance, engineName, packageSetup, payloadRange, rewriteLatestYml, setupName };
 
 if (require.main === module) {
   const step = process.argv[2];

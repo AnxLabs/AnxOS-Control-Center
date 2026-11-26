@@ -184,6 +184,25 @@ check("S9 the Rust sources and build output never go into the app", () => {
   assert(packed("windows/installer.nsh") && packed("windows/install-agent-task.ps1"), "the other windows/ files are still packed");
 });
 
+check("S10 Setup starts on a clean Windows (no Visual C++ runtime needed)", () => {
+  // RC1's Setup imported vcruntime140.dll and could not start in a clean
+  // Windows Sandbox ("System Error" before any window).
+  const config = read("windows", "setup", ".cargo", "config.toml");
+  assert(/\[target\.x86_64-pc-windows-msvc\][\s\S]*target-feature=\+crt-static/.test(config), ".cargo/config.toml links the C runtime statically");
+  assert(/STATIC_CRT_FLAG = "-C target-feature=\+crt-static"/.test(read("scripts", "build-anxhost-setup.js")), "the packaging build passes the flag even when RUSTFLAGS is set");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "anxhost-setup-crt-"));
+  try {
+    const dynamic = path.join(dir, "dynamic.exe");
+    fs.writeFileSync(dynamic, Buffer.concat([Buffer.from("MZ"), Buffer.alloc(64), Buffer.from("VCRUNTIME140.dll\0KERNEL32.dll\0")]));
+    assert.throws(() => setup.assertNoVcRuntimeImport(dynamic), /vcruntime140\.dll/, "a Setup importing the VC runtime is refused");
+    const staticExe = path.join(dir, "static.exe");
+    fs.writeFileSync(staticExe, Buffer.concat([Buffer.from("MZ"), Buffer.alloc(64), Buffer.from("KERNEL32.dll\0USER32.dll\0")]));
+    setup.assertNoVcRuntimeImport(staticExe);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 for (const line of results) console.log(line);
 const failed = results.filter((line) => line.startsWith("FAIL")).length;
 if (failed) {
