@@ -4625,28 +4625,33 @@ async function detectInstanceVersion(config, options = {}) {
   };
 }
 
+// The fields version detection owns. A status poll or list passes a record it
+// loaded (or reconstructed) before awaits that can take a while; saving that
+// whole record replaced newer runtime state written meanwhile, for example an
+// exit handler's CRASH_LOOP with PROCESS_EXITED (instance-engine-fixes IE9,
+// Build 216-G). Only these fields are written, onto a fresh read under the
+// instance's state lock.
+const VERSION_FIELDS = [
+  "version", "serverVersion", "serverSoftware", "minecraftVersion", "game", "gameVersion",
+  "softwareVersion", "displayVersion", "displayVersionDetail", "versionInfo", "buildNumber",
+  "paperBuild", "versionName", "versionCacheVersion",
+];
+// Also written by detection; saved with a change, but never a reason to save.
+const VERSION_DETAIL_FIELDS = ["buildDate", "detectedVersionAt"];
+
 async function backfillInstanceVersion(config, options = {}) {
   const next = await detectInstanceVersion(config, options);
-  if (
-    next.version !== config.version ||
-    next.serverVersion !== config.serverVersion ||
-    next.serverSoftware !== config.serverSoftware ||
-    next.minecraftVersion !== config.minecraftVersion ||
-    next.game !== config.game ||
-    next.gameVersion !== config.gameVersion ||
-    next.softwareVersion !== config.softwareVersion ||
-    next.displayVersion !== config.displayVersion ||
-    next.displayVersionDetail !== config.displayVersionDetail ||
-    JSON.stringify(next.versionInfo || null) !== JSON.stringify(config.versionInfo || null) ||
-    next.buildNumber !== config.buildNumber ||
-    next.paperBuild !== config.paperBuild ||
-    next.versionName !== config.versionName ||
-    next.versionCacheVersion !== config.versionCacheVersion
-  ) {
+  const changed = VERSION_FIELDS.filter((field) => field === "versionInfo"
+    ? JSON.stringify(next.versionInfo || null) !== JSON.stringify(config.versionInfo || null)
+    : next[field] !== config[field]);
+  if (changed.length) {
+    const written = [...changed, ...VERSION_DETAIL_FIELDS.filter((field) => field in next)];
+    const patch = Object.fromEntries(written.map((field) => [field, next[field]]));
     try {
-      await saveInstanceConfig(next);
+      await updateRuntimeState(config.id, patch);
     } catch (error) {
-      if (error?.code !== "EROFS" && error?.code !== "EACCES" && error?.code !== "EPERM") {
+      // Read-only storage, or the server was deleted while it was being read.
+      if (error?.code !== "EROFS" && error?.code !== "EACCES" && error?.code !== "EPERM" && error?.code !== "INSTANCE_NOT_FOUND") {
         throw error;
       }
     }
@@ -8781,6 +8786,7 @@ async function startAutoStartInstances(options = {}) {
 module.exports = {
   noteCommonServerFailure,
   _test: {
+    backfillInstanceVersion,
     checkUdpPortHeld,
     resolveSpawnExecutable,
     jobLifecycle,

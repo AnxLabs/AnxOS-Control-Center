@@ -23,6 +23,11 @@
 //   IE9 A status poll during a crash's exit handling never replaces the
 //       handler's CRASH_LOOP with PROCESS_EXITED (polls run every few ms
 //       while the server crash-loops, so they overlap the handler's writes).
+//   IE10 Build 216-G: version backfill (run by every status poll and list)
+//       writes only its version fields onto the record on disk. It used to
+//       save the whole record it was given, so a poll holding a snapshot from
+//       before an exit handler's CRASH_LOOP put PROCESS_EXITED or null back
+//       (IE9 failed 2 of 10 quiet runs this way).
 // Hermetic: temporary roots, a fake child_process.spawn (nothing is launched),
 // a fake systemd, a local fake Palworld REST server on an ephemeral loopback
 // port, and injected clocks. No real Agent, service or scheduled task.
@@ -324,6 +329,31 @@ async function checkPollsDuringExitKeepCrashLoop() {
       core._test.resetRestartBackoff(id);
     }
   }
+}
+
+async function checkVersionBackfillKeepsNewerState() {
+  const id = "backfill-stale-snapshot";
+  await core.createInstance({ id, displayName: id, type: "custom-command", workingDirectory: "data", executable: process.execPath, args: ["-e", "0"], restartPolicy: "on-failure" });
+  // The poll's snapshot, taken before the exit handler's writes, with a stale
+  // version cache so the backfill has something to save.
+  const stale = { ...readRecord(id), state: "stopped", failureReason: null, versionCacheVersion: -1 };
+  // The exit handler's newer result, already on disk.
+  const file = path.join(instanceRoot, id, "config.json");
+  fs.writeFileSync(file, JSON.stringify({ ...readRecord(id), state: "failed", failureReason: "CRASH_LOOP", restartFailures: 4 }, null, 2));
+  const returned = await core._test.backfillInstanceVersion(stale);
+  const saved = readRecord(id);
+  assert.strictEqual(saved.failureReason, "CRASH_LOOP", "the backfill kept the newer CRASH_LOOP on disk");
+  assert.strictEqual(saved.state, "failed", "the backfill kept the newer state on disk");
+  assert.strictEqual(saved.restartFailures, 4, "fields the backfill does not own are untouched");
+  assert.notStrictEqual(saved.versionCacheVersion, -1, "the version fields were still saved");
+  assert.strictEqual(saved.versionCacheVersion, returned.versionCacheVersion, "the saved version fields are the detected ones");
+  // A server deleted while it was being read is not recreated.
+  const gone = "backfill-deleted";
+  await core.createInstance({ id: gone, displayName: gone, type: "custom-command", workingDirectory: "data", executable: process.execPath, args: ["-e", "0"] });
+  const goneSnapshot = { ...readRecord(gone), versionCacheVersion: -1 };
+  fs.rmSync(path.join(instanceRoot, gone), { recursive: true, force: true });
+  await core._test.backfillInstanceVersion(goneSnapshot);
+  assert.ok(!fs.existsSync(path.join(instanceRoot, gone, "config.json")), "a deleted server is not recreated by a poll");
 }
 
 async function checkReadyLineCancelsStartupTimer() {
@@ -696,6 +726,7 @@ const checks = [
   ["IE7 a daily schedule drifted by an older build is re-anchored to its local time", checkDriftedDailyScheduleReanchored],
   ["IE8 daily schedules near midnight never hang the Agent on a DST day", checkDailyMidnightSchedulesTerminate],
   ["IE9 status polls during a crash's exit handling keep CRASH_LOOP", checkPollsDuringExitKeepCrashLoop],
+  ["IE10 version backfill writes only its own fields onto the newer record", checkVersionBackfillKeepsNewerState],
 ];
 
 (async () => {
