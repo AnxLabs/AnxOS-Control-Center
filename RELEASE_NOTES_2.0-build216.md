@@ -23,6 +23,8 @@ AnxOS Control Center is now **AnxHost Control Center**. Build 216 is a new look 
 
 - **Phone: installed add-ons were never listed** on the Add-ons tab (since Build 211). They are now.
 - **Phone: Check this backup** always said "done"; it now shows the real result (verified or failed, with the reason).
+- **Set up key sign-in failed about once in 200 tries.** The SSH library sometimes made a key that nothing could read; such a key is now replaced before it is used.
+- **A crash-looping server could lose its "crash loop" status.** A status refresh at the wrong moment could put an older state back; it now updates only the version details it owns.
 - **Add Storage did nothing.** Save, Test Connection and Cancel in Build 215's Add Storage window had no effect; the new dialog works.
 - **Files could not open folders on a Windows Agent computer.** Opening a subfolder on a Windows computer's Agent was refused; it works now.
 - **The accent colour** (Settings › Appearance) had stopped changing most of the app; it applies everywhere again.
