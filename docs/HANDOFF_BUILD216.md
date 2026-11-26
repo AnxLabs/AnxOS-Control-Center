@@ -16,7 +16,7 @@ Plan: `PLANS.md` (approved, commit `9aadaead`). Protocol: `AGENTS.md` (ADP).
 | **216-A9 Activity, Security, Settings, Workspace** | **Complete; local checkpoint commit** (not pushed); the accent setting works again on redesigned pages. See "216-A9" below. |
 | **216-A10 Consistency and light theme** | **Complete; local checkpoint commit** (not pushed). Light theme (Dark, Light, System) on tokens only; legacy styles bridged to AnxHost tokens; two controls-cut-off defects and unreadable placeholders fixed; full validation sweep and performance re-check. Legacy retirement done with the owner's approval (2026-11-25; 51 inventory rows retired). See "216-A10" and "Legacy retirement" below. |
 | **216-E Secure Session Persistence** | **Complete; local checkpoint commit** (not pushed). Approved policy implemented: secure storage only, token rotation on every restore, device binding, enforced idle lock (15 min default) and a real manual lock. See "216-E" below. |
-| **216-D Custom Installer** | **Implemented; local checkpoint commit** (not pushed). New art from the brand SVGs, AnxHost names on every page, shortcut and uninstall entry, "AnxHost Helper". Not compiled on this PC (junctioned `node_modules`); Sandbox install, upgrade, repair and uninstall need the signed CI build (216-G). See "216-D" below. |
+| **216-D Custom Installer** | **Reopened and implemented (2026-11-26); local checkpoint commit** (not pushed). The owner approved a standalone Rust **AnxHost Setup** (`windows/setup`, tao + wry on WebView2) with the 10-screen design, running the signed NSIS installer silently as a verified engine. Built and tested locally (unsigned): `cargo test` 11/11, contract smoke 8/8, real windows captured, packaging verified end to end with a real signed engine. Signed build, Sandbox install, upgrade, update, repair, uninstall, silent and WebView2 fallback need the signed CI build (216-G). See "216-D" below. |
 | **216-C Phone Access Rebirth** | **Complete; local checkpoint commit** (not pushed). The phone uses the desktop's tokens, follows the phone's light or dark scheme, says AnxHost, uses the Option B icons and the `anxos-shell-v3` cache; a Build 215 pairing still works. See "216-C" below. |
 | **216-B Website and Branding** | **Partly complete; local checkpoint commit** (not pushed, not deployed). B2: every page, the READMEs and the release tooling say AnxHost Control Center ("formerly AnxOS Control Center"; release history keeps its names); AnxHost logo, icons and social preview. B3: domain plan written. Not done: new product screenshots and a layout redesign (see "216-B"). |
 | **216-F Integration and Migration** | **Complete; local checkpoint commit** (not pushed). Real Build 215 to 216 upgrade 8/8, 216 desktop with a Build 215 Agent 5/5, all 1,573 capabilities verified, `qa:feature` 147/147; two phone defects shipped in Build 215 fixed (add-ons list, backup check result). See "216-F Integration and Migration" below. |
@@ -1389,7 +1389,11 @@ Coolpals, retirement needs approval) and 216-C's 58 phone rows.
   launch restores the remembered session (approved D4 behaviour).
 - Same-user malware can read DPAPI data (review T7, out of scope).
 
-## 216-D Custom Installer (polished NSIS)
+## 216-D Custom Installer
+
+The polished NSIS wizard below (2026-11-25) is now the **fallback** shown only
+when WebView2 is unavailable. The installer users see is AnxHost Setup; see
+"216-D reopened" below.
 
 Design: `docs/anxhost/d-installer/INSTALLER_DESIGN.md` and the page mockups,
 approved by the owner on 2026-11-25.
@@ -1430,7 +1434,85 @@ approved by the owner on 2026-11-25.
 - Real installer screenshots for the owner can only come from that build;
   the approved design is the mockup set.
 
+### 216-D reopened (2026-11-26): standalone AnxHost Setup
+
+The owner asked for a fully custom installer (no NSIS wizard, like AnxBrowse)
+before RC1, then approved on 2026-11-26: the 10-screen design, the standalone
+Rust + tao + wry architecture, the signed NSIS engine running silently
+underneath, the Rust dependencies and CI changes, Azure Trusted Signing for
+Setup under the existing publisher, and the updated release checks. Proposal:
+`docs/anxhost/d-installer/CUSTOM_INSTALLER_PROPOSAL.md`. Mockups:
+`docs/anxhost/d-installer/custom/01-10` (`scripts/anxhost-setup-mockups.js`).
+Architecture summary: PLANS.md 216-D.
+
+#### How it works
+
+| Part | What it does |
+| --- | --- |
+| `windows/setup` (Rust) | `main.rs` routes: no arguments, the Setup window; `/S`, silent engine run with the same switches and exit code; `--uninstall`, the uninstall window (`--uninstall /S` silent). `detect.rs` reads electron-builder's registry layout (GUID = UUID v5 of the frozen `appId`) and picks the mode: fresh, AnxOS upgrade, update, repair or newer. `engine.rs` finds the engine after the program (footer `ANXHOST-ENGINE-1`, before any certificate table), copies it to `%TEMP%\AnxHostSetup-<pid>`, holds it open against writes, checks the compiled-in SHA-256 and, on signed builds, Authenticode and the publisher pin (`trust.rs`), then runs it and reads its status file. `apps.rs` finds running copies and stops the Helper through `install-agent-task.ps1 -Mode Stop` before files are replaced. `ui.rs` + `ui.html` are the window (one WebView2 page; work runs on a thread; no timers). `uninstall.rs` runs the NSIS uninstaller silently from a temporary copy of Setup. |
+| `windows/installer.nsh` (engine) | Writes status lines to `/ANXSTATUS=<file>`: `start`, `plugins`, `extracted` (in `customFiles_x64`, after the files are in place), `registered`, `helper-begin`, `helper <code>`, `helper-skipped`, `done`. Records `AnxHostBuild` beside `InstallLocation`. `customUnInit` hands an interactive uninstall to `resources\AnxHost Setup.exe --uninstall` (never for `/S`, `--updated` or `/ANXNOHANDOFF`). `UninstallString` is never rewritten. |
+| Progress | Real bytes: files unpacked into `$PLUGINSDIR\7z-out` (80%) and copied into the install folder (20%) against the packaged app size; steps without a measurable size show the step name and an indeterminate bar. Nothing is simulated or delayed. |
+| `scripts/build-anxhost-setup.js` | `maintenance`: builds the engine-less copy that goes into the app's resources (uninstall window). `package`: after electron-builder, moves the NSIS installer to `dist/engine/AnxOS-Control-Center-Engine-<v>.exe` (never published; checks its signature when Azure is configured), builds Setup with the engine's SHA-256, size and the app size compiled in, appends the engine, signs and re-verifies Setup, then rebuilds the blockmap and `latest.yml` for Setup. |
+| Wiring | `run-electron-builder.js` builds the maintenance copy before electron-builder and packages Setup after it, for Windows NSIS builds (`ANXHOST_SETUP_SKIP=1` opts out). `electron-builder-config.js` adds the copy to `win.extraResources` when built. `verify-windows-signatures` covers `AnxHost Setup.exe`. `validate-release-artifacts` requires one setup asset with the AnxHost Setup marker and an engine, and no published engine. CI: Rust toolchain, Cargo cache keyed on `windows/setup/Cargo.lock`, Windows job timeout 60 min. |
+
+#### Validation (development PC, 2026-11-26)
+
+- PASS `cargo test --release --locked` in `windows/setup`: 11/11 (modes and
+  folder rule, options round trip, status lines, measured progress, engine
+  found behind padding and a certificate table, held engine cannot change and
+  still runs, a stand-in engine driven end to end, an unsigned file refused,
+  the installed app's real signature names "Anjo ROSIMO").
+- PASS `anxhost-setup-contract-smoke` 8/8 (GUID and frozen names, publisher
+  pin, every status line written and parsed, interactive-only uninstall
+  handoff, engine format JS = Rust, `latest.yml` rewrite, Build 215 updater
+  picks Setup and never the engine, resources copy only when built).
+- PASS `validate-release-artifacts --fixture`, and 15 related smokes:
+  `build-signing`, `frozen-identifiers`, `release-promotion`,
+  `upgrade-migration-hardening`, `versioning`, `windows-cpu-temperature`,
+  `windows-elevation-tray`, `windows-signing-coverage`, `installer-signature`,
+  `local-agent-installer`, `agent-control-foreign-task-stop`,
+  `anxhost-brand-allowlist`, `release-consistency`, `architecture-docs`,
+  `rc-validate-subprocess`.
+- PASS packaging end to end (scratch harness, unsigned): `packageSetup()`
+  with the real signed Build 210 NSIS installer (418 MB) standing in for the
+  engine. 10/10: engine moved out of `dist` and unchanged, carried by Setup
+  at the recorded offset with a matching SHA-256, PE with the marker, 8-byte
+  footer, `latest.yml` digest (twice) and size are Setup's own, blockmap
+  rebuilt, engine SHA-256 compiled in, engine signature still Valid. The
+  result was never run.
+- PASS the rewritten `installer.nsh` compiles with electron-builder's macros
+  and `-WX` (prepackaged stand-in app in the gate worktree, output in
+  scratch, never run; the gate worktree's file was restored).
+- Real windows captured (engine-less copy, nothing clicked):
+  `docs/anxhost/d-installer/custom/real-upgrade-welcome.png` (detected this
+  PC's Build 215 install as "AnxOS Control Center is now AnxHost") and
+  `real-uninstall.png`.
+- `node --check` on every changed script; `git diff --check` clean.
+
+#### Not verified (needs the signed CI build, then the owner's `confirmed`)
+
+- A full `npm run dist:win` on this PC: the worktree's `node_modules` is a
+  link to another worktree, which Agent runtime staging refuses (same
+  limitation as 216-0). The first full build is the signed CI build.
+- Signed Setup: Authenticode Valid on Setup, the uninstall copy and the
+  engine; `REQUIRE_SIGNATURE=1` path verified with the real certificate.
+- Windows Sandbox with Smart App Control: fresh install, upgrade from a real
+  Build 215 install, update, repair, uninstall (window and handoff), silent
+  `/S` install and upgrade, WebView2-missing fallback, interrupted install.
+- Real UAC prompts during an all-users install and the Helper step.
+
 ### 216-D remaining risks
+
+- AnxHost Setup is new code on the install path. Its engine, rollback and
+  registry layout are electron-builder's, but the window, the handoffs and
+  the status protocol have only run against stand-ins on this PC; the
+  Sandbox matrix above is required before RC1 acceptance.
+- Build 215's in-app updater opens the downloaded file with `shell.openPath`,
+  so a Build 215 to 216 update shows the Setup window (interactive), as
+  Build 215's own updates showed the NSIS wizard.
+- The published Setup is about 1 MB larger than the NSIS installer, and the
+  engine is unpacked to `%TEMP%` once (about 420 MB) before it runs; Setup
+  checks free space for the install folder, not for `%TEMP%`.
 
 - A user who pinned the old "AnxOS Control Center" shortcut to the taskbar
   keeps a pin that still works (it points at the same executable) but shows

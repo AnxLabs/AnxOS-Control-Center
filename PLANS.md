@@ -49,8 +49,8 @@ Give AnxOS Control Center a completely new look and experience as
 - Buying a domain, changing DNS, Supabase or production infrastructure, and
   renaming or moving GitHub repositories. Domain migration is a separately
   approved production step.
-- A Tauri or Rust installer wrapper (only reconsidered if polished NSIS cannot
-  reach the approved design).
+- An Electron or other web-runtime installer. (A standalone Rust installer
+  was approved on 2026-11-26; see 216-D.)
 
 ## 2. Development sequence
 
@@ -61,7 +61,7 @@ phase (or each 216-A wave) is started by its own focused `/goal`.
 216-0 Foundation and capability inventory
   -> 216-A Desktop UI Rebirth (waves A1 ... A10)
   -> 216-E Secure Session Persistence
-  -> 216-D Custom Installer (polished NSIS)
+  -> 216-D Custom Installer (AnxHost Setup, reopened 2026-11-26)
   -> 216-C Phone Access Rebirth
   -> 216-B Website and Branding
   -> 216-F Integration and Preservation
@@ -210,31 +210,76 @@ security review, approved by the owner **before implementation**.
   `auth-recovery`, `bootstrap-auth-order`, `auth-ipc-startup`, permission
   matrix).
 
-### 216-D — Custom Installer (polished NSIS)
+### 216-D — Custom Installer (AnxHost Setup)
 
-Make the existing signed electron-builder NSIS installer look and feel like a
-proper AnxHost CC installer: new artwork, redesigned welcome, upgrade,
-Helper, progress and finish pages, and modern copy. Inspired by the AnxBrowse
-and Sona installers. No Tauri or Rust. A separate wrapper is only considered
-later, with owner approval, if NSIS cannot reach the approved design.
+**Approved architecture (2026-11-26, supersedes "polished NSIS").** The
+published `AnxOS-Control-Center-Setup-<version>.exe` is **AnxHost Setup**, a
+standalone Rust program (`windows/setup`: tao + wry on Microsoft Edge
+WebView2, no Electron) with the approved 10-screen design
+(`docs/anxhost/d-installer/custom/`, proposal in
+`docs/anxhost/d-installer/CUSTOM_INSTALLER_PROPOSAL.md`). It carries the
+signed electron-builder NSIS installer as its **install engine**, appended
+after the program and run silently underneath. No NSIS page is shown during a
+normal installation.
 
-**Must be preserved**: `appId`, upgrade detection, the Helper scheduled task
-flow and its Smart App Control and UAC handling, the `/NOHELPER` and
-`--updated` switches, Azure Trusted Signing, signing of every NSIS plugin,
-the publisher pin, and the in-app updater's choice of installer.
+- **Engine integrity**: before it runs, the engine is copied to a temporary
+  folder, held open against writes, and must match the SHA-256 compiled into
+  Setup at build time. On signed builds it must also carry a valid Authenticode
+  signature from the pinned publisher ("Anjo ROSIMO", issuer
+  "Microsoft ID Verified CS…"), the same pin the in-app updater uses.
+- **Honest progress**: installer.nsh writes status lines
+  (`/ANXSTATUS=<file>`): start, files extracted, registered, Helper begin and
+  result, done. The bar measures real bytes extracted and copied against the
+  app's packaged size. Phases without a measurable size show their step and an
+  indeterminate bar. Nothing is simulated or delayed.
+- **UAC**: Setup runs as the invoking user; the engine and the Helper keep
+  their own legitimate elevation prompts. Nothing is bypassed.
+- **Silent and updates**: `Setup /S` passes `/S`, `/D=`, `/NOHELPER`,
+  `/allusers`, `/currentuser`, `--updated` and `--force-run` to the engine and
+  returns its exit code. The in-app updater still picks the only
+  `/setup.*\.exe$/i` asset (now Setup) and checks its SHA-256 and publisher.
+  The engine is written to `dist/engine/` as
+  `AnxOS-Control-Center-Engine-<version>.exe` and is never published; its name
+  matches none of the updater's installer rules.
+  `latest.yml` and the blockmap are rebuilt for Setup.
+- **Uninstall**: the uninstall entry still points at the NSIS uninstaller. An
+  interactive uninstall hands off to the copy of Setup in
+  `resources\AnxHost Setup.exe --uninstall`, which runs the uninstaller
+  silently from a temporary copy. Silent and `--updated` uninstalls never hand
+  off. Data in `%APPDATA%\AnxHub` is kept.
+- **WebView2 unavailable**: a Windows message explains the fallback, then the
+  standard NSIS wizard runs (installer or uninstaller with `/ANXNOHANDOFF`).
+- **Recovery**: a failed or interrupted install leaves the previous build in
+  place (the engine's own rollback), shows the error with Try again and Copy
+  details, and never reports success without the engine's `done` line and exit
+  code 0.
+- **Signing and CI**: the Windows job installs a Rust toolchain (Cargo cache
+  on `windows/setup/Cargo.lock`). Setup and its uninstall copy are signed
+  with Azure Trusted Signing under the existing publisher identity, and
+  `verify-windows-signatures` covers `AnxHost Setup.exe`.
+  `validate-release-artifacts` requires exactly one setup asset carrying the
+  AnxHost Setup marker and an engine, and no published engine.
+
+**Must be preserved**: `appId` and the registry GUID derived from it, the
+install folder and executable names, upgrade detection, `%APPDATA%\AnxHub`,
+the Helper scheduled task flow and its Smart App Control and UAC handling, the
+`/NOHELPER` and `--updated` switches, Azure Trusted Signing, signing of every
+NSIS plugin, the publisher pin, and Build 215's updater choosing the 216 Setup.
 
 **Finish lines**
 
-- Owner approval of the installer design (screenshots of every page).
-- In Windows Sandbox with Smart App Control on: fresh install, in-place
-  upgrade from a real Build 215 install, repair, and uninstall all pass.
-- **100%** of installed binaries and NSIS plugins validly signed; **0** Code
-  Integrity blocks (from the signed CI build in 216-G).
-- The Build 215 updater logic selects the 216 NSIS installer (smoke against
-  the 216 asset list).
+- Owner approval of the installer design (approved 2026-11-26: 10 screens).
+- `cargo test` in `windows/setup`, `anxhost-setup-contract`,
+  `local-agent-installer`, `installer-signature`, `build-signing`,
+  `windows-signing-coverage` and `validate-release-artifacts --fixture` pass.
+- From the signed CI build, in Windows Sandbox with Smart App Control on:
+  fresh install, in-place upgrade from a real Build 215 install, update,
+  repair, uninstall, silent install and the WebView2 fallback all pass.
+- **100%** of installed binaries, Setup and NSIS plugins validly signed; **0**
+  Code Integrity blocks.
+- The Build 215 updater logic selects the 216 Setup (smoke against the 216
+  asset list).
 - The Helper task survives the upgrade; existing data is kept.
-- `local-agent-installer`, `installer-signature`, `build-signing` and
-  `windows-signing-coverage` smokes pass.
 
 ### 216-C — Phone Access Rebirth
 
@@ -420,7 +465,7 @@ variants made during planning).
 - Host lists only grow: a new domain is added beside the old one; nothing is
   removed in 216.
 - Release assets: exactly one asset matches `/setup.*\.exe$/i`, and it is the
-  signed NSIS installer. `update-manifest.json` stays at its Build 215 URL.
+  signed AnxHost Setup carrying the signed NSIS engine. `update-manifest.json` stays at its Build 215 URL.
 - Release history, old downloads and GitHub history stay available.
 - Version stays `2.0`; tag `v2.0-build216`; channel unchanged unless the owner
   decides otherwise.
@@ -500,8 +545,6 @@ Every `/goal` records:
 
 - Manual Docker image rollback after a successful update (the previous image
   ID is already recorded as the `anxos.previous-image` label).
-- A branded installer wrapper around NSIS, only if polished NSIS cannot reach
-  the approved design.
 - Carrying out the new domain migration (after the B3 plan is approved).
 - Further UI polish and performance (Build 217).
 
@@ -523,3 +566,4 @@ Every `/goal` records:
 | 2026-11-20 | Logo SVGs drafted in 216-0 and approved before any asset replacement. |
 | 2026-11-20 | 216-0 owner approvals: navigation (Run / Infrastructure / Tools, footer, icon rail below 1100 px; every existing capability must stay reachable); UI foundation (dark-first violet and charcoal, optional light theme, **eight** status states adding Error and Stopped, WCAG AA contrast and keyboard navigation); **system fonts by default**, superseding "fonts bundled under an open licence" in section 5. |
 | 2026-11-20 | Logo: split strategy approved. Option A for large branding (splash, About, website hero, installer welcome), Option B for the title bar, icons from 48 px, phone icons and social previews, the simplified mark (hexagon and rack) for taskbar, tray and favicon at 16-32 px. Icon-size marks carry a contrast rim. See `docs/anxhost/brand/LOGO_STANDARD.md`. |
+| 2026-11-26 | Installer reopened and approved: standalone Rust AnxHost Setup (tao + wry, WebView2) with the 10-screen design, the signed NSIS installer as a verified silent engine, Azure Trusted Signing for Setup, CI Rust toolchain, and updated release asset checks. Supersedes the 2026-11-20 "no Tauri or Rust" decision. |

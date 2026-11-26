@@ -57,11 +57,41 @@ function sha256(filePath) {
   return digest.digest("hex");
 }
 
+// Build 216-D: the published Setup is AnxHost Setup (windows/setup), with the
+// NSIS install engine appended, and it is the only installer an installed
+// build's updater can pick (/setup.*\.exe$/i is its first rule; the engine
+// itself is never published).
+const { PAYLOAD_MAGIC, payloadRange } = require("./build-anxhost-setup");
+const ANXHOST_SETUP_MARKER = Buffer.from("AnxHost Setup", "utf16le");
+
+function assertAnxHostSetup(directory, artifacts) {
+  const setupName = `AnxOS-Control-Center-Setup-${release.artifactVersion}.exe`;
+  const published = artifacts.filter((name) => name.toLowerCase().endsWith(".exe"));
+  assert(!published.some((name) => /engine/i.test(name)), "The NSIS install engine must never be published as a release asset.");
+  const setupMatches = published.filter((name) => /setup.*\.exe$/i.test(name) || /installer.*\.exe$/i.test(name));
+  assert.deepStrictEqual(setupMatches, [setupName], `Exactly one published installer may match the updater's rules, and it must be ${setupName} (found ${setupMatches.join(", ") || "none"}).`);
+  const setupPath = path.join(directory, setupName);
+  const head = Buffer.alloc(Math.min(fs.statSync(setupPath).size, 16 * 1024 * 1024));
+  const fd = fs.openSync(setupPath, "r");
+  try { fs.readSync(fd, head, 0, head.length, 0); } finally { fs.closeSync(fd); }
+  assert(head.includes(ANXHOST_SETUP_MARKER), `${setupName} must be AnxHost Setup (its version resource names "AnxHost Setup"), not the bare NSIS installer.`);
+  const range = payloadRange(setupPath);
+  assert(range && range.size > 0, `${setupName} must carry its install engine.`);
+}
+
 function writeFixture(directory) {
   fs.mkdirSync(directory, { recursive: true });
   for (const name of expectedArtifacts().filter((asset) => asset !== "update-manifest.json" && asset !== "SHA256SUMS")) {
     fs.writeFileSync(path.join(directory, name), `fixture ${name}\n`);
   }
+  // A stand-in Setup with the same markers as the real one.
+  const engine = Buffer.from("MZ fixture engine");
+  const body = Buffer.concat([Buffer.from("fixture "), ANXHOST_SETUP_MARKER]);
+  const footer = 8 + PAYLOAD_MAGIC.length;
+  const pad = Buffer.alloc((8 - ((body.length + engine.length + footer) % 8)) % 8);
+  const length = Buffer.alloc(8);
+  length.writeBigUInt64LE(BigInt(engine.length));
+  fs.writeFileSync(path.join(directory, `AnxOS-Control-Center-Setup-${release.artifactVersion}.exe`), Buffer.concat([body, pad, engine, length, PAYLOAD_MAGIC]));
   const manifest = {
     version: release.version,
     build: release.build,
@@ -130,6 +160,7 @@ function validate(directory) {
     assert(fs.statSync(artifactPath).size > 0, `Release artifact is empty: ${artifact}`);
     assertSafeTextArtifact(artifactPath);
   }
+  assertAnxHostSetup(directory, fs.readdirSync(directory));
 
   const manifest = JSON.parse(fs.readFileSync(path.join(directory, "update-manifest.json"), "utf8"));
   assert.strictEqual(manifest.version, release.version, "Update manifest version must match release.json.");

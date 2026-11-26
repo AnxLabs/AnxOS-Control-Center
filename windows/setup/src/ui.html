@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>AnxHost Control Center Setup</title>
+<style>
+:root {
+  --ink-1000:#08060d; --ink-950:#0e0c14; --ink-900:#15131d; --ink-850:#1d1b28; --ink-800:#272535; --ink-700:#3a374c;
+  --ink-500:#767289; --ink-400:#9c98ab; --ink-300:#c3c0cf; --ink-100:#eeedf3;
+  --v-900:#300058; --v-700:#6010a0; --v-600:#7818c0; --v-500:#8c3ee6; --v-400:#a46af5; --v-300:#bf96ff; --v-200:#d8c0ff;
+  --ok:#3ccf91; --warn:#f2b84b; --err:#ff6b81;
+  --ease: cubic-bezier(.22,1,.36,1);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin:0; height:100%; overflow:hidden; background:var(--ink-950); color:var(--ink-100); cursor:default; user-select:none;
+  font:13px/1.5 "Segoe UI Variable Text","Segoe UI",system-ui,sans-serif; }
+.win { height:100%; display:flex; flex-direction:column; border:1px solid rgb(255 255 255 / .07); }
+.title { height:40px; flex:none; display:flex; align-items:center; gap:10px; padding:0 4px 0 14px; background:rgb(8 6 13 / .55); border-bottom:1px solid rgb(255 255 255 / .05); }
+.title img { width:18px; height:18px; }
+.title b { font-weight:600; font-size:12.5px; letter-spacing:.2px; }
+.title .sep { color:var(--ink-500); font-size:12px; }
+.title .grow { flex:1; align-self:stretch; }
+.wb { width:42px; height:32px; border:0; border-radius:7px; background:transparent; color:var(--ink-400); font-size:13px; display:grid; place-items:center; }
+.wb:hover { background:rgb(255 255 255 / .07); color:var(--ink-100); }
+.wb.x:hover { background:#c42b45; color:#fff; }
+.wb:disabled { opacity:.35; pointer-events:none; }
+.body { flex:1; display:flex; min-height:0; }
+.hero { width:280px; flex:none; position:relative; overflow:hidden; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:24px;
+  background: radial-gradient(260px 220px at 50% 38%, rgb(140 62 230 / .34), transparent 72%), linear-gradient(170deg, #2a1450 0%, var(--ink-900) 58%, var(--ink-1000) 100%); border-right:1px solid rgb(255 255 255 / .05); }
+.hero::before { content:""; position:absolute; inset:0; background-image: radial-gradient(rgb(255 255 255 / .07) 1px, transparent 1.3px); background-size:14px 14px;
+  -webkit-mask-image: radial-gradient(200px 260px at 50% 40%, #000, transparent 80%); }
+.hero .mark { width:132px; height:132px; filter: drop-shadow(0 10px 28px rgb(140 62 230 / .45)); position:relative; }
+.hero .word { width:190px; margin-top:14px; position:relative; }
+.hero .foot { position:absolute; bottom:18px; left:0; right:0; text-align:center; font-size:11px; color:var(--ink-400); }
+.chip-formerly { margin-top:16px; position:relative; font-size:11.5px; padding:5px 11px; border-radius:999px; color:var(--v-200); background:rgb(120 24 192 / .22); border:1px solid rgb(191 150 255 / .25); }
+.main { flex:1; min-width:0; display:flex; flex-direction:column; padding:28px 34px 22px; }
+.steps { display:flex; gap:6px; align-items:center; margin-bottom:16px; font-size:11.5px; color:var(--ink-500); }
+.steps span { display:flex; align-items:center; gap:6px; }
+.steps i { width:7px; height:7px; border-radius:50%; background:var(--ink-700); display:inline-block; }
+.steps .on { color:var(--v-200); } .steps .on i { background:var(--v-400); box-shadow:0 0 0 3px rgb(164 106 245 / .2); }
+.steps .done { color:var(--ink-300); } .steps .done i { background:var(--v-600); }
+.steps .ln { width:18px; height:1px; background:var(--ink-700); }
+h1 { font:600 23px/1.25 "Segoe UI Variable Display","Segoe UI",system-ui; margin:0 0 10px; letter-spacing:-.2px; }
+h1 .accent { background:linear-gradient(90deg, var(--v-300), var(--v-500)); -webkit-background-clip:text; color:transparent; }
+p.lead { color:var(--ink-300); margin:0 0 14px; font-size:13.5px; }
+p.small { color:var(--ink-400); font-size:12.5px; margin:0 0 12px; }
+.ver { align-self:flex-start; display:inline-flex; align-items:center; gap:8px; font-size:12px; padding:6px 10px; border-radius:8px; background:rgb(255 255 255 / .04); border:1px solid rgb(255 255 255 / .07); color:var(--ink-300); margin-bottom:14px; }
+.ver b { color:var(--ink-100); font-weight:600; } .ver .arr { color:var(--v-400); }
+.kept { padding:12px 14px; border-radius:10px; background:linear-gradient(180deg, rgb(120 24 192 / .10), rgb(120 24 192 / .04)); border:1px solid rgb(191 150 255 / .14); }
+.kept h3 { margin:0 0 7px; font-size:12px; font-weight:600; color:var(--v-200); letter-spacing:.3px; text-transform:uppercase; }
+.kept ul { margin:0; padding:0; list-style:none; display:grid; grid-template-columns:1fr 1fr; gap:4px 16px; font-size:12.5px; color:var(--ink-300); }
+.kept li::before { content:"✓"; color:var(--ok); margin-right:7px; font-weight:700; }
+.spacer { flex:1; min-height:8px; }
+.actions { display:flex; align-items:center; gap:10px; }
+.actions .grow { flex:1; }
+button { font:inherit; }
+.link { border:0; background:transparent; color:var(--v-300); font-size:12.5px; padding:4px 2px; border-radius:5px; }
+.link:hover { text-decoration:underline; }
+.btn { font:600 13px "Segoe UI"; padding:9px 18px; border-radius:9px; border:1px solid rgb(255 255 255 / .10); background:var(--ink-850); color:var(--ink-100); transition:background .15s, transform .1s; }
+.btn:hover { background:var(--ink-800); }
+.btn:active { transform:scale(.98); }
+.btn.ghost { background:transparent; }
+.btn.ghost:hover { background:rgb(255 255 255 / .05); }
+.btn.primary { border:0; color:#fff; background:linear-gradient(180deg, var(--v-500), var(--v-600)); box-shadow:0 6px 18px rgb(120 24 192 / .45), inset 0 1px 0 rgb(255 255 255 / .18); padding:9px 22px; }
+.btn.primary:hover { background:linear-gradient(180deg, #9a52ee, #8420cc); }
+.btn.danger { border:0; color:#fff; background:linear-gradient(180deg, #e0485f, #b8293f); }
+.btn:disabled { opacity:.45; pointer-events:none; }
+:focus-visible { outline:2px solid var(--v-300); outline-offset:2px; }
+.field { margin-bottom:14px; }
+.field .lbl { display:block; font-size:12px; color:var(--ink-400); margin-bottom:6px; font-weight:600; letter-spacing:.2px; }
+.path { display:flex; gap:8px; }
+.path .in { flex:1; padding:9px 12px; border-radius:9px; background:var(--ink-1000); border:1px solid rgb(255 255 255 / .09); color:var(--ink-100); font-size:12.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; user-select:text; }
+.hint { font-size:12px; color:var(--ink-500); margin-top:6px; }
+.card { width:100%; text-align:left; display:flex; gap:12px; padding:13px 14px; border-radius:11px; background:var(--ink-900); border:1px solid rgb(255 255 255 / .07); margin-bottom:10px; color:inherit; }
+.card.sel { border-color:rgb(164 106 245 / .55); background:linear-gradient(180deg, rgb(120 24 192 / .14), rgb(120 24 192 / .05)); }
+.card:disabled { opacity:.75; }
+.card .tg { width:36px; height:20px; border-radius:999px; flex:none; margin-top:2px; position:relative; background:var(--ink-700); transition:background .15s; }
+.card .tg::after { content:""; position:absolute; top:3px; left:3px; width:14px; height:14px; border-radius:50%; background:#fff; transition:left .15s var(--ease); }
+.card.sel .tg { background:linear-gradient(90deg, var(--v-600), var(--v-500)); } .card.sel .tg::after { left:19px; }
+.card .rd { width:16px; height:16px; border-radius:50%; flex:none; margin-top:2px; border:2px solid var(--ink-500); }
+.card.sel .rd { border-color:var(--v-400); background:radial-gradient(circle, var(--v-400) 40%, transparent 46%); }
+.card b { display:block; font-size:13px; margin-bottom:2px; }
+.card span.t { font-size:12px; color:var(--ink-400); display:block; }
+.tag { display:inline-block; font-size:10px; font-weight:700; letter-spacing:.5px; padding:2px 7px; border-radius:5px; margin-left:6px; color:#fff; background:var(--v-600); vertical-align:1px; }
+.note { display:flex; gap:10px; align-items:flex-start; font-size:12px; color:var(--ink-300); padding:9px 12px; border-radius:9px; margin-bottom:10px; }
+.note.uac { background:rgb(242 184 75 / .07); border:1px solid rgb(242 184 75 / .20); } .note.uac .ic { color:var(--warn); }
+.note.warn { background:rgb(242 184 75 / .07); border:1px solid rgb(242 184 75 / .28); }
+.prog .meta { display:flex; justify-content:space-between; font-size:12px; color:var(--ink-400); margin-bottom:8px; min-height:18px; }
+.prog .meta b { color:var(--ink-100); font-weight:600; }
+.bar { height:8px; border-radius:999px; background:rgb(255 255 255 / .06); overflow:hidden; position:relative; }
+.bar .fill { height:100%; width:0; border-radius:999px; background:linear-gradient(90deg, var(--v-600), var(--v-400)); box-shadow:0 0 14px rgb(164 106 245 / .55); transition:width .3s var(--ease); }
+/* Indeterminate: a step whose size cannot be measured shows motion, never a number. */
+.bar.busy .fill { width:30% !important; position:absolute; animation:slide 1.3s ease-in-out infinite; }
+@keyframes slide { from { left:-30%; } to { left:100%; } }
+.list { margin:14px 0 0; padding:0; list-style:none; display:flex; flex-direction:column; gap:7px; font-size:12.5px; }
+.list li { display:flex; gap:10px; align-items:center; color:var(--ink-500); }
+.list li .ic { width:18px; height:18px; border-radius:50%; display:grid; place-items:center; font-size:11px; flex:none; border:1.5px solid var(--ink-700); }
+.list li.done { color:var(--ink-300); } .list li.done .ic { border:0; background:rgb(60 207 145 / .16); color:var(--ok); }
+.list li.done .ic::before { content:"✓"; }
+.list li.run { color:var(--ink-100); } .list li.run .ic { border-color:var(--v-400); border-right-color:transparent; animation:spin .9s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+.toggle { margin-top:10px; align-self:flex-start; }
+.log { margin-top:8px; border-radius:10px; background:var(--ink-1000); border:1px solid rgb(255 255 255 / .07); font:11px/1.55 "Cascadia Mono",Consolas,monospace; color:var(--ink-400); padding:8px 12px; height:112px; overflow:auto; white-space:pre; user-select:text; }
+.center { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:20px 56px; position:relative; }
+.center .mark { width:96px; height:96px; filter: drop-shadow(0 10px 26px rgb(140 62 230 / .5)); }
+.center h1 { margin-top:16px; }
+.center .ver { align-self:center; }
+.glow { position:absolute; inset:0; background: radial-gradient(420px 260px at 50% 10%, rgb(140 62 230 / .28), transparent 70%); pointer-events:none; }
+.ring { width:64px; height:64px; border-radius:50%; display:grid; place-items:center; font-size:30px; font-weight:700; }
+.ring.err { background:rgb(255 107 129 / .10); border:1.5px solid rgb(255 107 129 / .45); color:var(--err); }
+.chk { display:flex; gap:8px; align-items:center; font-size:12.5px; color:var(--ink-300); margin:4px 0 0; border:0; background:transparent; padding:4px 6px; border-radius:6px; }
+.chk i { width:16px; height:16px; border-radius:5px; border:1.5px solid var(--ink-500); color:#fff; display:grid; place-items:center; font-size:10px; font-style:normal; }
+.chk[aria-checked="true"] i { background:linear-gradient(180deg, var(--v-500), var(--v-600)); border:0; }
+.chk[aria-checked="true"] i::before { content:"✓"; }
+.errbox { text-align:left; margin-top:12px; width:100%; max-width:560px; border-radius:10px; padding:11px 13px; background:rgb(255 107 129 / .06); border:1px solid rgb(255 107 129 / .22); font-size:12.5px; color:var(--ink-300); }
+.errbox b { color:var(--ink-100); }
+.center .log { width:100%; max-width:560px; text-align:left; }
+.screen { display:none; flex:1; min-height:0; }
+.screen.show { display:flex; animation:rise .22s var(--ease) both; }
+@keyframes rise { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:none; } }
+.hidden { display:none !important; }
+@media (prefers-reduced-motion: reduce) { * { animation:none !important; transition:none !important; } .bar.busy .fill { left:35%; } }
+</style>
+</head>
+<body>
+<div class="win">
+  <div class="title" id="titlebar">
+    <img alt="" src="data:image/svg+xml;base64,{{ICON}}" />
+    <b>AnxHost Control Center</b><span class="sep">·</span><span class="sep" id="phase">Setup</span>
+    <span class="grow"></span>
+    <button class="wb" id="min" aria-label="Minimize" title="Minimize">—</button>
+    <button class="wb x" id="close" aria-label="Close" title="Close">✕</button>
+  </div>
+  <div class="body" id="body"></div>
+</div>
+<script>
+"use strict";
+const STATE = {{STATE}};
+const MARK = "data:image/svg+xml;base64,{{MARK}}";
+const WORD = "data:image/svg+xml;base64,{{WORD}}";
+const send = (cmd, extra = {}) => window.ipc.postMessage(JSON.stringify({ cmd, ...extra }));
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+const mode = STATE.modeInfo.mode;
+const B = STATE.build;
+const installed = STATE.installed;
+const formerly = mode === "anxos";
+const MB = (n) => `${Math.max(1, Math.round(n / 1048576))} MB`;
+const GB = (n) => n >= 1073741824 ? `${Math.round(n / 1073741824)} GB` : MB(n);
+const RELEASE_URL = `https://github.com/AnxLabs/AnxOS-Control-Center-Releases/releases/tag/v${STATE.artifactVersion}`;
+const ui = { busy: false, screen: "", helper: STATE.helperState ? true : !STATE.noHelper, allUsers: !!installed?.allUsers, target: STATE.target, freeBytes: STATE.freeBytes, open: true, log: [], logOpen: false, reached: "" };
+const VERB = { fresh: "Install", anxos: "Upgrade", update: "Update", repair: "Repair", newer: "Install" }[mode];
+
+const KEPT = `<div class="kept"><h3>Kept on this PC</h3><ul>
+  <li>Servers and worlds</li><li>Saved sign-ins and credentials</li><li>Settings and backups</li><li>Paired computers and phones</li><li>Agent identities</li><li>AnxNet networks</li></ul></div>`;
+const hero = () => `<div class="hero"><img class="mark" alt="" src="${MARK}"><img class="word" alt="AnxHost Control Center" src="${WORD}">${formerly ? '<span class="chip-formerly">Formerly AnxOS Control Center</span>' : ""}<span class="foot">${formerly ? "Same app · new name · everything kept" : "by AnxLabs"}</span></div>`;
+const steps = (n) => `<div class="steps" aria-hidden="true">${["Welcome", "Options", STATE.kind === "uninstall" ? "Remove" : VERB, "Done"].map((s, i) => `<span class="${i < n ? "done" : i === n ? "on" : ""}"><i></i>${s}</span>${i < 3 ? '<span class="ln"></span>' : ""}`).join("")}</div>`;
+
+function show(name, html, { phase, closable = true } = {}) {
+  ui.screen = name;
+  $("body").innerHTML = `<div class="screen show" id="s-${name}">${html}</div>`;
+  $("phase").textContent = phase || { fresh: "Setup", anxos: "Upgrade", update: "Update", repair: "Maintenance", newer: "Setup" }[mode];
+  $("close").disabled = !closable;
+  const first = $("body").querySelector("[data-primary]") || $("body").querySelector("button");
+  if (first) setTimeout(() => first.focus(), 30);
+  $("body").querySelectorAll("[data-cmd]").forEach((b) => (b.onclick = () => actions[b.dataset.cmd]?.(b)));
+}
+
+function welcome() {
+  const size = STATE.appBytes ? ` · ${MB(STATE.appBytes)}` : "";
+  const releaseLink = `<button class="link" data-cmd="notes">What's new in Build ${esc(B)}</button>`;
+  if (mode === "anxos") {
+    return show("welcome", `${hero()}<div class="main">${steps(0)}
+      <h1>AnxOS Control Center is now <span class="accent">AnxHost</span></h1>
+      <p class="lead">Same app, new name and a brand new look. Setup upgrades the copy on this PC in place.</p>
+      <div class="ver">Installed <b>AnxOS Control Center</b> <span class="arr">→</span> New <b>AnxHost · Build ${esc(B)}</b></div>
+      ${KEPT}<div class="spacer"></div>
+      <div class="actions">${releaseLink}<span class="grow"></span><button class="btn ghost" data-cmd="close">Not now</button><button class="btn" data-cmd="options">Options</button><button class="btn primary" data-primary data-cmd="go">Upgrade</button></div></div>`);
+  }
+  if (mode === "update") {
+    const from = STATE.modeInfo.from;
+    return show("welcome", `${hero()}<div class="main">${steps(0)}
+      <h1>Update <span class="accent">AnxHost</span> Control Center</h1>
+      <p class="lead">A newer build is ready. Setup updates the installed app in place; it closes for a moment while its files are replaced.</p>
+      <div class="ver">${from ? `Installed <b>Build ${esc(from)}</b> <span class="arr">→</span> ` : ""}New <b>Build ${esc(B)}</b></div>
+      ${KEPT}<div class="spacer"></div>
+      <div class="actions">${releaseLink}<span class="grow"></span><button class="btn ghost" data-cmd="close">Not now</button><button class="btn primary" data-primary data-cmd="go">Update</button></div></div>`);
+  }
+  if (mode === "repair") {
+    return show("welcome", `${hero()}<div class="main">${steps(0)}
+      <h1>AnxHost Control Center is installed</h1>
+      <p class="lead">Build ${esc(B)} is already on this PC. Choose what you want to do.</p>
+      <button class="card sel" data-cmd="pick" data-pick="repair" role="radio" aria-checked="true"><span class="rd"></span><span><b>Repair</b><span class="t">Reinstall the program files and set the Helper up again. Fixes missing or damaged files. Nothing you have changes.</span></span></button>
+      <button class="card" data-cmd="pick" data-pick="uninstall" role="radio" aria-checked="false"><span class="rd"></span><span><b>Uninstall</b><span class="t">Remove the app, its shortcuts and the Helper. Your servers and data stay in your user profile.</span></span></button>
+      <div class="spacer"></div>
+      <div class="actions"><span class="grow"></span><button class="btn ghost" data-cmd="close">Close</button><button class="btn primary" data-primary data-cmd="maintain" id="maintain">Repair</button></div></div>`);
+  }
+  if (mode === "newer") {
+    return show("welcome", `${hero()}<div class="main">${steps(0)}
+      <h1>A newer build is installed</h1>
+      <p class="lead">Build ${esc(STATE.modeInfo.from)} is on this PC. This Setup has Build ${esc(B)}, which is older. Installing it would go back to the older build.</p>
+      ${KEPT}<div class="spacer"></div>
+      <div class="actions"><span class="grow"></span><button class="btn ghost" data-cmd="go">Install Build ${esc(B)} anyway</button><button class="btn primary" data-primary data-cmd="close">Close</button></div></div>`);
+  }
+  show("welcome", `${hero()}<div class="main">${steps(0)}
+    <h1>Welcome to <span class="accent">AnxHost</span> Control Center</h1>
+    <p class="lead">Create game servers, manage the computers that run them and share them with friends, without the command line.</p>
+    <div class="ver">New <b>Build ${esc(B)}</b>${esc(size)}</div>
+    <p class="small">Installs for your Windows account in about a minute. The app itself needs no administrator approval.</p>
+    <div class="spacer"></div>
+    <div class="actions"><button class="link" data-cmd="options">Options: folder and Helper</button><span class="grow"></span><button class="btn ghost" data-cmd="close">Cancel</button><button class="btn primary" data-primary data-cmd="go">Install</button></div></div>`);
+}
+
+function options() {
+  const existing = !!installed?.location;
+  const helperKept = !!STATE.helperState;
+  const free = ui.freeBytes ? ` · ${GB(ui.freeBytes)} free` : "";
+  show("options", `${hero()}<div class="main">${steps(1)}
+    <h1>Options</h1>
+    <div class="field"><span class="lbl" id="lbl-folder">INSTALL FOLDER</span>
+      <div class="path"><span class="in" aria-labelledby="lbl-folder" title="${esc(ui.target)}">${esc(ui.target)}</span>${existing ? "" : '<button class="btn" data-cmd="browse">Browse…</button>'}</div>
+      <div class="hint">${existing ? "Updates stay in the installed folder, so nothing has to move." : "The app only. Your servers and data live in your user profile."}${STATE.appBytes ? ` ${MB(STATE.appBytes)} needed` : ""}${free}.</div></div>
+    <button class="card ${ui.helper ? "sel" : ""}" data-cmd="helper" role="switch" aria-checked="${ui.helper}" ${helperKept ? "disabled" : ""}><span class="tg"></span><span><b>AnxHost Helper <span class="tag">RECOMMENDED</span></b><span class="t">${helperKept ? "Already set up on this PC and kept. " : ""}Runs in the background so the app can start, stop and watch servers on this PC, even after a restart. Includes AnxNet, which stays off until you join a network.</span></span></button>
+    ${ui.helper && !helperKept ? '<div class="note uac"><span class="ic">⛨</span><span>Windows will ask for administrator approval to set up the Helper. Setup never changes your security settings, firewall or other apps.</span></div>' : ""}
+    ${!existing ? `<button class="card ${ui.allUsers ? "sel" : ""}" data-cmd="allusers" role="switch" aria-checked="${ui.allUsers}"><span class="tg"></span><span><b>Install for everyone on this PC</b><span class="t">Windows asks for administrator approval. Leave this off to install only for you.</span></span></button>` : ""}
+    <div class="spacer"></div>
+    <div class="actions"><span class="grow"></span><button class="btn ghost" data-cmd="back">Back</button><button class="btn primary" data-primary data-cmd="go">${VERB}</button></div></div>`);
+}
+
+const STEPS = [
+  ["verify", "Checked the installer's signature"],
+  ["stop-helper", "Stopped the Helper (servers saved and stopped)"],
+  ["close", installed ? "Closed the app and removed the old program files" : "Prepared the install"],
+  ["copy", "Copying program files"],
+  ["register", "Registered the app and its shortcuts"],
+  ["helper", "Setting up the AnxHost Helper"],
+];
+function progress() {
+  const title = { fresh: "Installing <span class=\"accent\">AnxHost</span>", anxos: "Upgrading to <span class=\"accent\">AnxHost</span>", update: "Updating AnxHost", repair: "Repairing AnxHost", newer: "Installing AnxHost" }[mode];
+  show("progress", `${hero()}<div class="main">${steps(2)}
+    <h1>${title}</h1>
+    <div class="prog" aria-live="polite"><div class="meta"><span id="pmeta">Starting…</span><b id="ppct"></b></div><div class="bar busy" id="pbar" role="progressbar" aria-label="Progress"><div class="fill" id="pfill"></div></div></div>
+    <ul class="list" id="plist">${STEPS.map(([id, label]) => `<li id="st-${id}"><span class="ic"></span>${label}</li>`).join("")}</ul>
+    <button class="link toggle" data-cmd="log">${ui.logOpen ? "▾ Hide technical details" : "▸ Show technical details"}</button>
+    <div class="log ${ui.logOpen ? "" : "hidden"}" id="log" tabindex="0" aria-label="Technical details">${esc(ui.log.join("\n"))}</div></div>`, { closable: false });
+}
+
+function setStep(id) {
+  ui.reached = id;
+  let passed = true;
+  STEPS.forEach(([sid, label]) => {
+    const li = $(`st-${sid}`);
+    if (!li) return;
+    if (sid === id) { li.className = "run"; passed = false; }
+    else li.className = passed ? "done" : "";
+  });
+  const labels = { verify: "Checking the installer", "stop-helper": "Stopping the Helper", close: installed ? "Closing the app and removing the old program files" : "Preparing", copy: "Copying program files", register: "Registering the app and its shortcuts", helper: "Setting up the AnxHost Helper. Windows may ask for approval." };
+  $("pmeta").textContent = labels[id] || "";
+  $("ppct").textContent = "";
+  const bar = $("pbar");
+  bar.classList.toggle("busy", id !== "copy");
+  if (id === "register" || id === "helper") { bar.classList.remove("busy"); $("pfill").style.width = "100%"; }
+}
+
+const actions = {
+  close: () => send("close"),
+  options,
+  back: welcome,
+  notes: () => send("link", { url: RELEASE_URL }),
+  browse: () => send("browse"),
+  helper: () => { ui.helper = !ui.helper; options(); },
+  allusers: () => { ui.allUsers = !ui.allUsers; options(); },
+  go: () => { ui.busy = true; send("install", { options: { helper: ui.helper, allUsers: ui.allUsers } }); progress(); setStep("verify"); },
+  proceed: () => { ui.busy = true; send("continue", { options: { helper: ui.helper, allUsers: ui.allUsers } }); progress(); setStep("verify"); },
+  pick: (b) => { document.querySelectorAll("[data-pick]").forEach((c) => { const on = c === b; c.classList.toggle("sel", on); c.setAttribute("aria-checked", on); }); $("maintain").textContent = b.dataset.pick === "uninstall" ? "Uninstall" : "Repair"; $("maintain").className = b.dataset.pick === "uninstall" ? "btn danger" : "btn primary"; },
+  maintain: () => ($("maintain").textContent === "Uninstall" ? uninstallConfirm() : actions.go()),
+  log: () => { ui.logOpen = !ui.logOpen; const l = $("log"); if (l) { l.classList.toggle("hidden", !ui.logOpen); l.scrollTop = l.scrollHeight; } document.querySelectorAll("[data-cmd=log]").forEach((b) => (b.textContent = ui.logOpen ? "▾ Hide technical details" : "▸ Show technical details")); },
+  copy: () => navigator.clipboard?.writeText(ui.log.join("\n")),
+  open: (b) => { ui.open = !ui.open; b.setAttribute("aria-checked", ui.open); },
+  finish: () => { if (ui.open) send("open-app"); send("close"); },
+  retry: () => actions.proceed(),
+  uninstall: () => { ui.busy = true; send("uninstall"); uninstalling(); },
+};
+
+function uninstallConfirm() {
+  show("uninstall", `${hero()}<div class="main">
+    <h1>Uninstall AnxHost Control Center</h1>
+    <p class="lead">This removes the app, its shortcuts and the AnxHost Helper. Servers on other computers are not affected.</p>
+    ${KEPT}
+    <p class="hint">Kept in ${esc(STATE.dataFolder)}, so installing again picks up where you left off.</p>
+    <div class="spacer"></div>
+    <div class="actions"><span class="grow"></span><button class="btn ghost" data-primary data-cmd="close">Cancel</button><button class="btn danger" data-cmd="uninstall">Uninstall</button></div></div>`, { phase: "Uninstall" });
+}
+function uninstalling() {
+  show("removing", `${hero()}<div class="main"><h1>Removing AnxHost Control Center</h1>
+    <div class="prog" aria-live="polite"><div class="meta"><span>Removing program files</span><b id="ppct"></b></div><div class="bar" id="pbar" role="progressbar" aria-label="Progress"><div class="fill" id="pfill"></div></div></div>
+    <p class="small" style="margin-top:12px">Windows may ask for approval to remove the Helper's startup task.</p>
+    <button class="link toggle" data-cmd="log">▸ Show technical details</button><div class="log hidden" id="log" tabindex="0">${esc(ui.log.join("\n"))}</div></div>`, { phase: "Uninstall", closable: false });
+}
+
+window.setup = {
+  step: (id) => setStep(id),
+  copy: ({ fraction, bytes }) => {
+    const bar = $("pbar");
+    if (!bar) return;
+    if (fraction == null) { bar.classList.add("busy"); $("pmeta").textContent = `Copying program files · ${MB(bytes || 0)} written`; return; }
+    bar.classList.remove("busy");
+    $("pfill").style.width = `${Math.round(fraction * 100)}%`;
+    $("ppct").textContent = `${Math.round(fraction * 100)}%`;
+    $("pmeta").innerHTML = `Copying program files · <b>${MB(Math.min(bytes, STATE.appBytes))} of ${MB(STATE.appBytes)}</b>`;
+  },
+  log: (line) => {
+    const t = new Date().toTimeString().slice(0, 8);
+    ui.log.push(`${t} ${line}`);
+    const l = $("log");
+    if (l) { l.textContent = ui.log.join("\n"); l.scrollTop = l.scrollHeight; }
+  },
+  target: ({ target, freeBytes }) => { ui.target = target; ui.freeBytes = freeBytes; options(); },
+  closeApps: ({ processes, helperState }) => {
+    ui.busy = false;
+    show("close", `${hero()}<div class="main">${steps(2)}
+      <h1>Close the app to continue</h1>
+      <p class="lead">${processes} program${processes === 1 ? " is" : "s are"} running from the install folder. Setup closes them safely: ${helperState === "Running" ? "the Helper is stopped first, so running servers save and stop. Servers set to start automatically start again afterwards." : "nothing is closed until you select Close and continue."}</p>
+      <div class="spacer"></div>
+      <div class="actions"><span class="grow"></span><button class="btn ghost" data-cmd="close">Cancel</button><button class="btn primary" data-primary data-cmd="proceed">Close and continue</button></div></div>`);
+  },
+  done: ({ helper, exitCode, helperState }) => {
+    ui.busy = false;
+    const helperOk = helper === "0" || (helper == null && exitCode === 0 && helperState);
+    const helperLine = helper === "skipped" || (helper == null && !helperState) ? "Helper not set up (you can set it up later in Agent Control)" : helperOk ? "Helper running" : "";
+    const title = { fresh: "AnxHost Control Center is ready", anxos: "Welcome to <span class=\"accent\">AnxHost</span>", update: "AnxHost Control Center is up to date", repair: "AnxHost Control Center is repaired", newer: "AnxHost Control Center is installed" }[mode];
+    const lead = { fresh: "Open the app to create your first server or connect another computer.", anxos: "AnxOS Control Center is now AnxHost Control Center. Your servers, computers and settings are all still there.", update: `Updated to Build ${esc(B)}. Your servers, settings and computers are as you left them.`, repair: "Its program files were reinstalled. Your servers, settings and computers were not changed.", newer: `Build ${esc(B)} is installed.` }[mode];
+    const attention = exitCode === 3 || (helper && helper !== "0" && helper !== "skipped")
+      ? `<div class="note warn" style="text-align:left;max-width:540px"><span>⚠</span><span>${helper === "1223" ? "Administrator approval was not given, so the AnxHost Helper was not set up." : "The AnxHost Helper could not be confirmed started."} The app works; to finish, open it and select <b>Restore AnxHost Helper</b> in its notification, or run Setup again.</span></div>` : "";
+    show("done", `<div class="center"><div class="glow"></div><img class="mark" alt="" src="${MARK}">
+      <h1>${title}</h1><p class="lead">${lead}</p>
+      <div class="ver">Build ${esc(B)}${helperLine ? ` · ${helperLine}` : ""}</div>${attention}
+      <button class="chk" data-cmd="open" role="checkbox" aria-checked="${ui.open}"><i></i>Open AnxHost Control Center now</button>
+      <div style="height:16px"></div>
+      <div class="actions">${mode === "anxos" || mode === "update" ? '<button class="link" data-cmd="notes">Show what changed</button><span style="width:20px"></span>' : ""}<button class="btn primary" data-primary data-cmd="finish">Finish</button></div></div>`, { phase: "Done" });
+  },
+  failed: ({ reached, code, what, nothingChanged }) => {
+    ui.busy = false;
+    const explain = what || ({
+      verify: "The installer inside Setup could not be verified.",
+      close: "The app or one of its parts could not be closed, or Windows did not allow the old files to be replaced.",
+      copy: `Copying the program files stopped (code ${code}). This is usually a file kept open by another program, or a full drive.`,
+      register: `Setup stopped after copying the program files (code ${code}).`,
+      helper: `Setup stopped while setting up the Helper (code ${code}).`,
+      uninstall: `The uninstaller stopped (code ${code}).`,
+    }[reached] || `Setup stopped (code ${code}).`);
+    const safe = nothingChanged ? "Nothing on this PC was changed." : reached === "uninstall" ? "Your servers and data are untouched." : "Your servers and data are untouched. The program files may be incomplete until Setup finishes, so select Try again.";
+    show("error", `<div class="center"><div class="ring err">!</div>
+      <h1>${reached === "uninstall" ? "Uninstall couldn't finish" : "Setup couldn't finish"}</h1>
+      <p class="lead">${safe}</p>
+      <div class="errbox"><b>What happened:</b> ${esc(explain)}<br><b>Try this:</b> close any AnxHost or AnxOS windows and select Try again. If it stops again, restart the PC and run Setup once more.</div>
+      <div class="log hidden" id="log" tabindex="0">${esc(ui.log.join("\n"))}</div>
+      <div style="height:14px"></div>
+      <div class="actions"><button class="link" data-cmd="log">▸ Show technical details</button><span style="width:16px"></span><button class="btn ghost" data-cmd="copy">Copy details</button><button class="btn" data-cmd="close">Close</button>${reached === "uninstall" ? "" : '<button class="btn primary" data-primary data-cmd="retry">Try again</button>'}</div></div>`, { phase: "Setup" });
+  },
+  uninstallProgress: ({ fraction }) => {
+    if (!$("pfill")) return;
+    $("pfill").style.width = `${Math.round(fraction * 100)}%`;
+    $("ppct").textContent = `${Math.round(fraction * 100)}%`;
+  },
+  removed: () => {
+    ui.busy = false;
+    show("removed", `<div class="center"><div class="glow"></div><img class="mark" alt="" src="${MARK}">
+      <h1>AnxHost Control Center was removed</h1>
+      <p class="lead">Your servers, worlds, settings and backups are still in ${esc(STATE.dataFolder)}, so installing again picks up where you left off.</p>
+      <div style="height:10px"></div><div class="actions"><button class="btn primary" data-primary data-cmd="close">Close</button></div></div>`, { phase: "Uninstall" });
+  },
+};
+
+// Window chrome and keyboard.
+$("titlebar").addEventListener("mousedown", (e) => { if (e.button === 0 && !e.target.closest("button")) send("drag"); });
+$("min").onclick = () => send("minimize");
+$("close").onclick = () => { if (!ui.busy) send("close"); };
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !ui.busy && ["welcome", "options", "close", "uninstall"].includes(ui.screen)) { e.preventDefault(); ui.screen === "options" ? welcome() : send("close"); }
+  if (e.key === "Enter" && document.activeElement === document.body) { const p = document.querySelector("[data-primary]"); if (p) { e.preventDefault(); p.click(); } }
+});
+document.addEventListener("contextmenu", (e) => { if (!e.target.closest(".log, .path .in")) e.preventDefault(); });
+
+if (STATE.kind === "uninstall") {
+  if (installed) uninstallConfirm();
+  else show("error", `<div class="center"><h1>AnxHost Control Center is not installed</h1><p class="lead">There is nothing to remove on this PC.</p><div class="actions"><button class="btn primary" data-primary data-cmd="close">Close</button></div></div>`);
+} else {
+  welcome();
+}
+</script>
+</body>
+</html>

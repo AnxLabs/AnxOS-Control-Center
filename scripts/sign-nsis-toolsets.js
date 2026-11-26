@@ -156,4 +156,4 @@ async function prepareSignedNsisToolsets(options) {
   };
 }
 
-module.exports = { TRUSTED_SIGNING_SETUP_COMMANDS, listPluginDlls, locateNsisToolsets, prepareSignedNsisToolsets, prepareTrustedSigning, readAuthenticode, resolvePowerShell, trustedSigningCommand };
+module.exports = { TRUSTED_SIGNING_SETUP_COMMANDS, listPluginDlls, locateNsisToolsets, prepareSignedNsisToolsets, prepareTrustedSigning, readAuthenticode, resolvePowerShell, signWithTrustedSigning, trustedSigningCommand };

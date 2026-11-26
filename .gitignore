@@ -76,3 +76,6 @@ supabase/.temp/
 *.spc
 certs/
 signing/
+
+# AnxHost Setup (Rust) build output
+windows/setup/target/

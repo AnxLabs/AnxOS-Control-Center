@@ -39,8 +39,10 @@ These limitations are acceptable for Private Alpha if they are clearly communica
   Linux distribution name) still read AnxOS.
 - **The website rename is not deployed** and no domain was moved
   (`docs/anxhost/DOMAIN_MIGRATION_PLAN.md` needs separate approval).
-- **The installer was not compiled on the development PC**; the signed release
-  candidate is its first build.
+- **AnxHost Setup was tested unsigned on the development PC** (its window,
+  packaging with a real signed engine, and the NSIS engine compile). Installing,
+  upgrading and uninstalling with it are first tested from the signed release
+  candidate in Windows Sandbox.
 - **Remembered sign-in needs Windows secure storage.** Where `safeStorage` is
   unavailable, "Trust this device" is off and the owner signs in at every
   start. Remembered sessions written by older builds with the fallback key are

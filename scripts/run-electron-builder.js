@@ -154,7 +154,31 @@ async function prepareWindowsInstallerToolsets() {
   return prepared.env;
 }
 
-prepareWindowsInstallerToolsets().then((toolsetEnv) => {
+// Build 216-D: AnxHost Setup (windows/setup) wraps the NSIS installer. Built
+// for Windows builds that include the NSIS target; ANXHOST_SETUP_SKIP=1 leaves
+// it out on a development PC without Rust (release validation then refuses
+// the result, because the published Setup must be AnxHost Setup).
+const OTHER_TARGETS = ["portable", "dir", "zip", "7z", "msi", "appx", "squirrel"];
+const setupWanted = process.platform === "win32"
+  && process.env.ANXOS_WINDOWS_BUILD_REQUESTED === "1"
+  && process.env.ANXHOST_SETUP_SKIP !== "1"
+  && !builderArgs.includes("--prepackaged")
+  && (builderArgs.includes("nsis") || !builderArgs.some((arg) => OTHER_TARGETS.includes(arg)));
+
+function buildSetupMaintenanceCopy() {
+  if (!setupWanted) return;
+  const { buildMaintenance } = require("./build-anxhost-setup");
+  process.env.ANXHOST_SETUP_MAINTENANCE_EXE = buildMaintenance();
+}
+
+try {
+  buildSetupMaintenanceCopy();
+} catch (error) {
+  console.error(`Building AnxHost Setup failed: ${error.message}`);
+  process.exit(1);
+}
+
+prepareWindowsInstallerToolsets().then(async (toolsetEnv) => {
   const result = spawnSync(
     process.platform === "win32" ? "electron-builder.cmd" : "electron-builder",
     builderArgs,
@@ -187,7 +211,17 @@ prepareWindowsInstallerToolsets().then((toolsetEnv) => {
 
   // result.status is 0 on success. A non-zero exit code must propagate as a
   // failure; it must never be silently coerced into a success exit code.
-  process.exit(typeof result.status === "number" ? result.status : 1);
+  if (result.status !== 0) process.exit(typeof result.status === "number" ? result.status : 1);
+  if (setupWanted) {
+    try {
+      process.env.ANXOS_RELEASE_ARTIFACT_VERSION = info.artifactVersion;
+      await require("./build-anxhost-setup").packageSetup();
+    } catch (error) {
+      console.error(`Packaging AnxHost Setup failed: ${error.message}`);
+      process.exit(1);
+    }
+  }
+  process.exit(0);
 }, (error) => {
   console.error(`Preparing signed NSIS toolsets failed: ${error.message}`);
   process.exit(1);

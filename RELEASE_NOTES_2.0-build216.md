@@ -12,7 +12,8 @@ AnxOS Control Center is now **AnxHost Control Center**. Build 216 is a new look 
 - **Add Server in the main window.** Marketplace and Create Server no longer open separate windows. All 50 templates have new original artwork.
 - **Add Storage in the main window**, as a dialog.
 - **Phone Access** uses the same design, follows your phone's light or dark setting, and has the new AnxHost icon. Phones paired with Build 215 stay paired.
-- **New installer art and names.** The installer, shortcut and uninstall entry say AnxHost Control Center; the background service is shown as "AnxHost Helper". The install folder, data folder and background task keep their names, so updates are in place.
+- **A new installer, AnxHost Setup.** Its own window shows what it will do (new install, upgrade from AnxOS Control Center, update or repair), what is kept on this PC, and real progress, with no standard installer pages. It checks the install engine it carries (checksum and AnxLabs signature) before running it, and keeps the normal Windows permission prompts. Uninstall has its own window too. Silent installs (`/S`) and in-app updates work as before. On a PC without Microsoft Edge WebView2, Setup says so and continues with the standard installer.
+- **New names.** The shortcut and uninstall entry say AnxHost Control Center; the background service is shown as "AnxHost Helper". The install folder, data folder and background task keep their names, so updates are in place.
 
 ### Sign-in
 
@@ -46,7 +47,7 @@ AnxOS Control Center is now **AnxHost Control Center**. Build 216 is a new look 
 ## Known limitations
 
 - Package, file and folder names keep "AnxOS" (`AnxOS-Agent-*.deb`, the `AnxHub` data folder, the `AnxOSAgent` task) so updates stay in place. The website domain is unchanged.
-- The installer was not compiled or run before this build's signed release candidate.
+- AnxHost Setup was built and tested on the development PC unsigned; installing, upgrading and uninstalling with it are first tested from this build's signed release candidate.
 - See `docs/KNOWN_LIMITATIONS.md` for the full list.
 
 ## QA

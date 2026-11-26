@@ -1,32 +1,39 @@
-; AnxHost Control Center installer customisation (Phase 9, redesigned in
-; Build 216-D: docs/anxhost/d-installer/INSTALLER_DESIGN.md).
+; AnxHost Control Center install engine (electron-builder's assisted NSIS
+; installer), customised for Build 216.
 ;
-; Built on electron-builder's assisted NSIS installer: the same engine, signing
-; and update handoff as before. This file only adds branding, beginner-friendly
-; pages and the AnxHost Helper choice. Every NSIS plugin it uses (nsDialogs,
-; nsExec, System) is part of the toolsets that scripts/sign-nsis-toolsets.js
-; signs for release builds, so Smart App Control can load them.
+; Users normally never see this installer's pages. AnxHost Setup (Rust,
+; windows/setup, docs/anxhost/d-installer/CUSTOM_INSTALLER_PROPOSAL.md) embeds
+; this signed installer and runs it silently (/S) with the user's choices and
+; /ANXSTATUS=<file>, where this script reports its phases so Setup can show
+; real progress. The pages below appear only when Setup cannot show its own
+; window (Microsoft Edge WebView2 missing), after Setup has explained that.
 ;
-; Page flow: Welcome (new install or upgrade/repair) -> install mode ->
-; folder -> "Set up AnxHost" (Helper choice, permissions explained) ->
-; progress -> Finish (open the app). Uninstall: Welcome (what is kept) ->
-; progress -> Finish.
+; Same engine, signing and update handoff as before: every NSIS plugin used
+; here (nsDialogs, nsExec, System) is part of the toolsets that
+; scripts/sign-nsis-toolsets.js signs for release builds, so Smart App Control
+; can load them.
 
 !include nsDialogs.nsh
 !include LogicLib.nsh
 !include FileFunc.nsh
 
-; Dark charcoal header bar and Welcome/Finish pages (artwork in
-; windows/installer-art, rendered from the brand SVGs by
-; scripts/anxhost-installer-mockups.js --write-art, wired up in package.json
-; build.nsis).
+; The build being installed, from the release version the packaging script
+; passes to electron-builder (ANXOS_RELEASE_ARTIFACT_VERSION, "2.0-build216").
+; Recorded so a later Setup can tell an update from a repair. Empty when the
+; variable is not set (a manual makensis run).
+!searchparse /noerrors "$%ANXOS_RELEASE_ARTIFACT_VERSION%" "-build" ANX_BUILD
+!ifndef ANX_BUILD
+  !define ANX_BUILD ""
+!endif
+
+; Dark charcoal header bar and Welcome/Finish pages (fallback wizard only).
 !define MUI_BGCOLOR 181521
 !define MUI_TEXTCOLOR FFFFFF
 
 !ifndef BUILD_UNINSTALLER
   !define MUI_FINISHPAGE_TITLE "AnxHost Control Center is ready"
   !define MUI_FINISHPAGE_TEXT "Setup has finished.$\r$\n$\r$\nOpen the app to create your first server or connect another computer. Everything is a click away; no command line needed."
-  !define MUI_FINISHPAGE_RUN_TEXT "Open AnxHost Control Center now"
+  !define MUI_FINISHPAGE_RUN_TEXT "&Open AnxHost Control Center now"
 
   Var anxSetupHelper
   Var anxHelperWasInstalled
@@ -34,16 +41,33 @@
   Var anxIsUpgrade
   Var anxWelcomeText
   Var anxWelcomeTitle
-
+  ; The status file AnxHost Setup reads (empty when run on its own).
+  Var anxStatusFile
+  Var anxStatusHandle
 !endif
+
+; One line for AnxHost Setup: "start", "plugins <dir>", "extracted",
+; "registered", "helper-begin", "helper <exit code>", "helper-skipped", "done".
+!macro anxStatus TEXT
+  ${If} $anxStatusFile != ""
+    FileOpen $anxStatusHandle "$anxStatusFile" a
+    ${IfNot} ${Errors}
+      FileSeek $anxStatusHandle 0 END
+      FileWrite $anxStatusHandle "${TEXT}$\r$\n"
+      FileClose $anxStatusHandle
+    ${EndIf}
+    ClearErrors
+  ${EndIf}
+!macroend
 
 !macro customInit
   !ifndef BUILD_UNINSTALLER
     ; Silent installs and updates set the Helper up as before; /NOHELPER
-    ; skips it (the same choice as unticking it on the Set up page).
+    ; skips it (the same choice as turning it off in Setup's options).
     StrCpy $anxSetupHelper 1
     StrCpy $anxIsUpgrade 0
     StrCpy $anxHelperWasInstalled 0
+    StrCpy $anxStatusFile ""
     ; Build 211 and earlier uninstall the Helper's startup task when an update
     ; runs them, and that happens before customInstall. Ask now whether the
     ; task exists, so an update sets a Helper that was set up again.
@@ -59,22 +83,49 @@
     ${IfNot} ${Errors}
       StrCpy $anxSetupHelper 0
     ${EndIf}
+    ClearErrors
+    ${GetOptions} $R0 "/ANXSTATUS=" $R1
+    ${IfNot} ${Errors}
+      StrCpy $anxStatusFile $R1
+    ${EndIf}
+    ClearErrors
     ; An update never removes a Helper that was set up (uninstalling the app, or
     ; Agent Control, does that).
     ${If} $anxHelperWasInstalled == 1
       StrCpy $anxSetupHelper 1
     ${EndIf}
+    ; $PLUGINSDIR exists once a plugin has run (nsExec above). The app is
+    ; extracted into its 7z-out folder first, which Setup measures.
+    !insertmacro anxStatus "start"
+    !insertmacro anxStatus "plugins $PLUGINSDIR"
   !endif
 !macroend
+
+!ifndef BUILD_UNINSTALLER
+  ; Runs right after the app's files are extracted and copied into place.
+  !macro customFiles_x64
+    !insertmacro anxStatus "extracted"
+  !macroend
+!endif
 
 !macro customWelcomePage
   ; The page functions live here, not at the top of this file, because this
   ; macro is inserted after electron-builder defines APP_EXECUTABLE_FILENAME.
   Function anxWelcomePre
+    ReadRegStr $R0 HKCU "${UNINSTALL_REGISTRY_KEY}" DisplayName
+    ${If} $R0 == ""
+      ReadRegStr $R0 HKLM "${UNINSTALL_REGISTRY_KEY}" DisplayName
+    ${EndIf}
+    StrCpy $R1 $R0 5
     ${If} ${FileExists} "$INSTDIR\${APP_EXECUTABLE_FILENAME}"
       StrCpy $anxIsUpgrade 1
-      StrCpy $anxWelcomeTitle "Update AnxHost Control Center"
-      StrCpy $anxWelcomeText "AnxHost Control Center is already installed on this PC. Setup updates or repairs it in place.$\r$\n$\r$\nYour servers, worlds, settings, backups and paired computers are kept.$\r$\n$\r$\nClick Next to continue."
+      ${If} $R1 == "AnxOS"
+        StrCpy $anxWelcomeTitle "AnxOS Control Center is now AnxHost Control Center"
+        StrCpy $anxWelcomeText "AnxHost Control Center is the new name and look of AnxOS Control Center. Setup upgrades the copy on this PC in place.$\r$\n$\r$\nKept: your servers and worlds, saved sign-ins, settings, backups, paired computers, Agent identities and AnxNet networks.$\r$\n$\r$\nClick Next to continue."
+      ${Else}
+        StrCpy $anxWelcomeTitle "Update AnxHost Control Center"
+        StrCpy $anxWelcomeText "AnxHost Control Center is already installed on this PC. Setup updates or repairs it in place.$\r$\n$\r$\nKept: your servers and worlds, saved sign-ins, settings, backups, paired computers, Agent identities and AnxNet networks.$\r$\n$\r$\nClick Next to continue."
+      ${EndIf}
     ${Else}
       StrCpy $anxIsUpgrade 0
       StrCpy $anxWelcomeTitle "Welcome to AnxHost Control Center"
@@ -97,7 +148,7 @@
     SendMessage $0 ${WM_SETFONT} $1 1
     ${NSD_CreateLabel} 0 12u 100% 10u "The app you use to create and manage servers. Always installed."
     Pop $0
-    ${NSD_CreateCheckbox} 0 30u 100% 11u "AnxHost Helper (recommended)"
+    ${NSD_CreateCheckbox} 0 30u 100% 11u "AnxHost &Helper (recommended)"
     Pop $anxHelperCheckbox
     SendMessage $anxHelperCheckbox ${WM_SETFONT} $1 1
     ${If} $anxSetupHelper != "0"
@@ -135,6 +186,7 @@
   FunctionEnd
   !define MUI_PAGE_CUSTOMFUNCTION_PRE anxWelcomePre
   !define MUI_WELCOMEPAGE_TITLE "$anxWelcomeTitle"
+  !define MUI_WELCOMEPAGE_TITLE_3LINES
   !define MUI_WELCOMEPAGE_TEXT "$anxWelcomeText"
   !insertmacro MUI_PAGE_WELCOME
 !macroend
@@ -175,12 +227,20 @@
 !macroend
 
 !macro customInstall
+  !insertmacro anxStatus "registered"
+  ; Recorded for the next Setup, which uses it to tell an update from a repair
+  ; (electron-builder removes this key on uninstall).
+  ${If} "${ANX_BUILD}" != ""
+    WriteRegStr SHELL_CONTEXT "${INSTALL_REGISTRY_KEY}" AnxHostBuild "${ANX_BUILD}"
+  ${EndIf}
   ${If} $anxSetupHelper == "0"
     DetailPrint "AnxHost Helper not set up. You can set it up later in Agent Control."
+    !insertmacro anxStatus "helper-skipped"
   ${Else}
     ReadEnvStr $1 "USERDOMAIN"
     ReadEnvStr $2 "USERNAME"
     DetailPrint "Setting up the AnxHost Helper. Windows may ask for administrator approval..."
+    !insertmacro anxStatus "helper-begin"
     ; Until the Helper is registered, this file tells the app to offer
     ; "Restore AnxHost Helper" (for example after a declined prompt).
     FileOpen $6 "$INSTDIR\resources\helper-restore-needed.json" w
@@ -189,6 +249,7 @@
     nsExec::ExecToStack 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\resources\install-agent-task.ps1" -ExecutablePath "$INSTDIR\${APP_EXECUTABLE_FILENAME}" -Mode Install -UserId "$1\$2"'
     Pop $0
     Pop $3
+    !insertmacro anxStatus "helper $0"
     ${If} $0 == 0
       Delete "$INSTDIR\resources\helper-restore-needed.json"
     ${EndIf}
@@ -207,11 +268,37 @@
       ${EndIf}
       DetailPrint "$4"
       ; The app itself is installed and works; the Helper can be repaired
-      ; from inside it. /SD IDOK: a silent install must not wait for a click.
-      MessageBox MB_ICONEXCLAMATION "AnxHost Control Center is installed. $4$\r$\n$\r$\nTo finish, open the app and select Restore AnxHost Helper in its notification, or run this installer again." /SD IDOK
+      ; from inside it. /SD IDOK: a silent install (AnxHost Setup) must not
+      ; wait for a click; Setup shows its own message for exit code 3.
+      MessageBox MB_ICONEXCLAMATION "AnxHost Control Center is installed. $4$\r$\n$\r$\nTo finish, open the app and select Restore AnxHost Helper in its notification, or run Setup again." /SD IDOK
       ; Automated installs still see that something needs attention.
       SetErrorLevel 3
     ${EndIf}
+  ${EndIf}
+  !insertmacro anxStatus "done"
+!macroend
+
+; An interactive uninstall (Settings > Apps) shows AnxHost Setup's uninstall
+; window instead of these pages: the installed copy of Setup is started and
+; this uninstaller ends. Setup then runs this uninstaller silently (/S), so the
+; handoff never repeats. Silent uninstalls and the --updated uninstall an
+; upgrade runs are never handed off, and /ANXNOHANDOFF (Setup's own fallback
+; when WebView2 is missing) keeps these pages.
+!macro customUnInit
+  ${IfNot} ${Silent}
+  ${AndIfNot} ${isUpdated}
+    ${GetParameters} $R0
+    ClearErrors
+    ${GetOptions} $R0 "/ANXNOHANDOFF" $R1
+    ${If} ${Errors}
+    ${AndIf} ${FileExists} "$INSTDIR\resources\AnxHost Setup.exe"
+      ClearErrors
+      Exec '"$INSTDIR\resources\AnxHost Setup.exe" --uninstall'
+      ${IfNot} ${Errors}
+        Quit
+      ${EndIf}
+    ${EndIf}
+    ClearErrors
   ${EndIf}
 !macroend
 

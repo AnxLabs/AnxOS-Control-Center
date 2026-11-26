@@ -110,7 +110,8 @@ const coverageRoots = [path.join(dist, "win-unpacked"), ...files.filter((filePat
 const covered = listCoveredFiles(coverageRoots);
 const coverageFailures = classifySignatures(readSignatures(covered), {
   signExts: buildConfig.win?.signExts || [],
-  ourExecutables: [`${buildConfig.productName || "AnxOS Control Center"}.exe`, "elevate.exe"],
+  // AnxHost Setup (216-D): the uninstall copy inside the app is ours too.
+  ourExecutables: [`${buildConfig.productName || "AnxOS Control Center"}.exe`, "elevate.exe", "AnxHost Setup.exe"],
   nsisStageRoot,
 });
 if (coverageFailures.length > 0) {

@@ -1,0 +1,55 @@
+[package]
+name = "anxhost-setup"
+version = "2.0.0"
+description = "AnxHost Control Center Setup: the custom install, upgrade, repair and uninstall window"
+authors = ["AnxLabs"]
+edition = "2021"
+rust-version = "1.85"
+publish = false
+
+# Built by scripts/build-anxhost-setup.js, twice per release:
+#  - "maintenance" (no engine inside): copied into the app as
+#    resources\AnxHost Setup.exe for the uninstall window;
+#  - "release": the signed NSIS installer embedded as its engine, published as
+#    AnxOS-Control-Center-Setup-<version>.exe.
+# See docs/anxhost/d-installer/CUSTOM_INSTALLER_PROPOSAL.md.
+
+[[bin]]
+name = "anxhost-setup"
+path = "src/main.rs"
+
+[dependencies]
+tao = { version = "0.37", default-features = false, features = ["rwh_06"] }
+wry = { version = "0.57", default-features = false }
+serde_json = "1"
+sha2 = "0.10"
+windows = { version = "0.62", features = [
+  "Win32_Foundation",
+  "Win32_Graphics_Dwm",
+  "Win32_Security",
+  "Win32_Security_Cryptography",
+  "Win32_Security_Cryptography_Catalog",
+  "Win32_Security_Cryptography_Sip",
+  "Win32_Security_WinTrust",
+  "Win32_Storage_FileSystem",
+  "Win32_System_Com",
+  "Win32_System_Diagnostics_ToolHelp",
+  "Win32_System_Registry",
+  "Win32_System_Threading",
+  "Win32_UI_Shell",
+  "Win32_UI_Shell_Common",
+  "Win32_UI_WindowsAndMessaging",
+] }
+windows-core = "0.62"
+
+[build-dependencies]
+tauri-winres = "0.3"
+sha2 = "0.10"
+serde_json = "1"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

@@ -101,7 +101,7 @@ jobs:
       - static-validation
       - rc-validation
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -140,6 +140,26 @@ jobs:
 
       - name: Prepare verified bundled runtimes
         run: npm run runtimes:prepare:win
+
+      # Build 216-D: AnxHost Setup (windows/setup, Rust) wraps the signed NSIS
+      # installer; scripts/build-anxhost-setup.js builds it during dist:win.
+      - name: Rust toolchain for AnxHost Setup
+        shell: pwsh
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+          cargo --version
+
+      - name: Restore Cargo cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~\.cargo\registry
+            ~\.cargo\git
+            windows\setup\target
+          key: ${{ runner.os }}-anxhost-setup-v1-${{ hashFiles('windows/setup/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-anxhost-setup-v1-
 
       # Signing is optional for local builds but CI rejects partial Azure configuration.
       - name: Report Windows signing mode
